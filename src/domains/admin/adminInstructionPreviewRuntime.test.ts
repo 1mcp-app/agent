@@ -1,12 +1,132 @@
+import {
+  createMockOutboundConnection,
+  createMockOutboundConnections,
+  createMockTransport,
+} from '@test/unit-utils/MockFactories.js';
+
 import { ConfigManager } from '@src/config/configManager.js';
+import {
+  authorizeTemplateContext,
+  createTemplateContextProof,
+  type TemplateContextCapability,
+} from '@src/core/context/templateContextTrust.js';
+import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
+import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus } from '@src/core/types/client.js';
+import type { ContextData } from '@src/types/context.js';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createAdminInstructionPreviewRuntime } from './adminInstructionPreviewRuntime.js';
 
 describe('createAdminInstructionPreviewRuntime', () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(async () => {
+    await ServerManager.resetInstance();
+    vi.restoreAllMocks();
+  });
+
+  it('renders a trusted contextual template instance and leaves it unresolved without context', async () => {
+    const clients = createMockOutboundConnections();
+    const transports = {};
+    const serverManager = ServerManager.getOrCreateInstance(
+      { name: 'preview-test', version: '1.0.0' },
+      { capabilities: {} },
+      clients,
+      transports,
+    );
+    const aggregator = new InstructionAggregator();
+    serverManager.setInstructionAggregator(aggregator);
+
+    const contextualConfig = { type: 'stdio' as const, command: 'node', args: ['contextual-server.js'] };
+    const configManager = ConfigManager.getInstance();
+    vi.spyOn(configManager, 'loadDeclaredServerConfigs').mockReturnValue({
+      staticServers: {},
+      templateServers: { contextual: { type: 'stdio', command: '{{project.name}}' } },
+      errors: [],
+    });
+    vi.spyOn(configManager, 'loadConfigWithTemplates').mockResolvedValue({
+      staticServers: {},
+      templateServers: { contextual: contextualConfig },
+      errors: [],
+    });
+
+    const templateServerManager = serverManager.getTemplateServerManager();
+    vi.spyOn(templateServerManager, 'getRenderedHashForSession').mockReturnValue(undefined);
+    vi.spyOn(templateServerManager, 'createTemplateBasedServers').mockImplementation(async () => {
+      const outboundKey = 'contextual:preview-hash';
+      clients.set(
+        outboundKey,
+        createMockOutboundConnection({
+          name: 'contextual',
+          transport: { ...createMockTransport(), tags: ['docs'] },
+        }),
+      );
+      aggregator.setInstructions(
+        { source: 'mcpTemplates', name: 'contextual' },
+        'Contextual upstream instructions',
+        outboundKey,
+      );
+    });
+    const cleanupTemplateServers = vi
+      .spyOn(templateServerManager, 'cleanupTemplateServers')
+      .mockImplementation(async () => {
+        clients.delete('contextual:preview-hash');
+      });
+    vi.spyOn(serverManager.getServerRegistry(), 'has').mockReturnValue(false);
+    vi.spyOn(serverManager.getServerRegistry(), 'registerTemplate').mockImplementation(() => undefined);
+
+    const capability: TemplateContextCapability = {
+      version: 1,
+      runtimeScopeId: 'admin-preview-test',
+      secret: Buffer.alloc(32, 7).toString('base64url'),
+    };
+    const authorizeContext = (context: ContextData) => {
+      const authorization = authorizeTemplateContext({
+        mode: 'verified',
+        context,
+        proof: createTemplateContextProof(context, capability),
+        capability,
+        transportSessionId: context.sessionId,
+      });
+      return authorization.status === 'trusted' ? authorization.context : undefined;
+    };
+    const preview = createAdminInstructionPreviewRuntime(serverManager, undefined, authorizeContext);
+
+    const withoutContext = await preview({
+      identity: 'draft',
+      surface: 'cli',
+      template: '{{instructions}}',
+      selection: { mode: 'all' },
+    });
+
+    expect(withoutContext.rendered).not.toContain('Contextual upstream instructions');
+    expect(withoutContext.unresolvedTemplates).toEqual(['contextual']);
+    expect(templateServerManager.createTemplateBasedServers).not.toHaveBeenCalled();
+    expect(clients.has('contextual:preview-hash')).toBe(false);
+
+    const withContext = await preview({
+      identity: 'draft',
+      surface: 'cli',
+      template: '{{instructions}}',
+      selection: { mode: 'all' },
+      requestContext: {
+        version: '1.0.0',
+        project: { name: 'preview-project' },
+        user: {},
+        environment: {},
+      },
+    });
+
+    expect(withContext.rendered).toContain('Contextual upstream instructions');
+    expect(withContext.effectiveServers).toContainEqual({
+      target: { source: 'mcpTemplates', name: 'contextual' },
+      hasInstructions: true,
+    });
+    expect(withContext.unresolvedTemplates).toEqual([]);
+    expect(templateServerManager.createTemplateBasedServers).toHaveBeenCalledOnce();
+    expect(cleanupTemplateServers).toHaveBeenCalledOnce();
+    expect(clients.has('contextual:preview-hash')).toBe(false);
+  });
 
   it('leaves contextual templates unresolved without explicit context and creates no preview instance', async () => {
     const runtime = fixture();
