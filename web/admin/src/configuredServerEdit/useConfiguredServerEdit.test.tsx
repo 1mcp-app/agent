@@ -212,6 +212,48 @@ describe('useConfiguredServerEdit', () => {
     expect(result.current.state).toMatchObject({ status: 'loaded', serverId: 'slack' });
   });
 
+  it('ignores stale token-model recalculations that resolve out of order', async () => {
+    const slower = deferred<ConfiguredServerDetailResponse>();
+    const newer = deferred<ConfiguredServerDetailResponse>();
+    const initial = detail();
+    initial.toolInventory = {
+      targetName: 'github',
+      source: 'mcpServers',
+      targetEnabled: true,
+      freshness: 'live',
+      model: 'gpt-4o',
+      generation: 'generation-1',
+      activeInstanceCount: 1,
+      rows: [],
+      counts: { observed: 0, enabled: 0, disabled: 0, unresolved: 0 },
+      approximateTokens: { enabled: 0, allObserved: 0, savings: 0 },
+    };
+    const withModel = (model: string): ConfiguredServerDetailResponse => ({
+      ...initial,
+      toolInventory: { ...initial.toolInventory!, model },
+    });
+    const adminApi = api({
+      getConfiguredServerDetail: vi.fn((_serverId: string, model?: string) => {
+        if (!model) return Promise.resolve(initial);
+        return model === 'gpt-4o-mini' ? slower.promise : newer.promise;
+      }),
+    });
+    const browserAdapter = browser('/admin/servers/github');
+    const { result } = renderHook(() =>
+      useConfiguredServerEdit({ api: adminApi, session, browser: browserAdapter.adapter, onUnauthenticated: vi.fn() }),
+    );
+    await waitFor(() => expect(result.current.state.status).toBe('loaded'));
+
+    act(() => void result.current.changeToolModel('gpt-4o-mini'));
+    act(() => void result.current.changeToolModel('gpt-3.5-turbo'));
+    newer.resolve(withModel('gpt-3.5-turbo'));
+    await waitFor(() => expect(result.current.state).toMatchObject({ status: 'loaded', toolModel: 'gpt-3.5-turbo' }));
+    slower.resolve(withModel('gpt-4o-mini'));
+    await act(async () => undefined);
+
+    expect(result.current.state).toMatchObject({ status: 'loaded', toolModel: 'gpt-3.5-turbo' });
+  });
+
   it('restores the current edit URL without adding history when dirty navigation is canceled', async () => {
     const browserAdapter = browser('/admin/servers/github');
     browserAdapter.adapter.confirm = vi.fn(async () => false);
@@ -445,6 +487,71 @@ describe('useConfiguredServerEdit', () => {
           connectionCriticalConfirmed: true,
           connectivityFailureOverrideConfirmed: true,
         }),
+      }),
+    );
+  });
+
+  it('requires a danger confirmation and sends the zero-tool confirmation fact', async () => {
+    const browserAdapter = browser('/admin/servers/github');
+    const loadedDetail = detail();
+    loadedDetail.editContract.capabilities.apply.supported = true;
+    loadedDetail.toolInventory = {
+      targetName: 'github',
+      source: 'mcpServers',
+      targetEnabled: true,
+      freshness: 'live',
+      model: 'gpt-4o',
+      generation: 'generation-1',
+      activeInstanceCount: 1,
+      rows: [
+        {
+          name: 'search',
+          effectiveDescription: 'Search',
+          descriptionOverridden: false,
+          enabled: true,
+          observed: true,
+          unresolved: false,
+          observedInstanceCount: 1,
+          activeInstanceCount: 1,
+          observedInSomeInstances: false,
+          approximateTokens: 25,
+        },
+      ],
+      counts: { observed: 1, enabled: 1, disabled: 0, unresolved: 0 },
+      approximateTokens: { enabled: 25, allObserved: 25, savings: 0 },
+    };
+    const zeroPreview = applyPreview();
+    zeroPreview.preview.toolSelection = {
+      capabilityGeneration: 'generation-1',
+      model: 'gpt-4o',
+      targetEnabled: true,
+      changedTools: ['search'],
+      counts: { observed: 1, enabled: 0, disabled: 1, unresolved: 0 },
+      approximateTokens: { before: 25, after: 0, savings: 25 },
+      effect: 'immediate',
+      requiresZeroEnabledConfirmation: true,
+    };
+    const adminApi = api({
+      getConfiguredServerDetail: vi.fn(async () => loadedDetail),
+      previewConfiguredServerEdit: vi.fn(async () => zeroPreview),
+      applyConfiguredServerEdit: vi.fn(async () => applyResponse()),
+    });
+    const { result } = renderHook(() =>
+      useConfiguredServerEdit({ api: adminApi, session, browser: browserAdapter.adapter, onUnauthenticated: vi.fn() }),
+    );
+
+    await waitFor(() => expect(result.current.state.status).toBe('loaded'));
+    act(() => result.current.changeTool('search', { enabled: false }));
+    await act(() => result.current.preview());
+    await act(() => result.current.apply());
+
+    expect(browserAdapter.adapter.confirm).toHaveBeenCalledWith(
+      expect.objectContaining({ tone: 'danger', confirmLabel: 'Disable all tools' }),
+    );
+    expect(adminApi.applyConfiguredServerEdit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'gpt-4o',
+        confirmationFacts: expect.objectContaining({ zeroEnabledToolsConfirmed: true }),
       }),
     );
   });

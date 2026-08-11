@@ -1,6 +1,7 @@
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import { registerCapabilityPaginationNotifications } from '@src/core/capabilities/capabilityPagination.js';
+import { clearLastConfiguredToolSnapshot } from '@src/core/capabilities/configuredToolSnapshot.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
 import { ClientTemplateTracker, TemplateFilteringService, TemplateIndex } from '@src/core/filtering/index.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
@@ -12,6 +13,7 @@ import {
   resolveTemplateIdentityMode,
   serializeTemplateIdentity,
   templateRenderedHash,
+  templateRuntimeHash,
 } from '@src/core/server/templateIdentity.js';
 import {
   cleanupExpiredEphemeralClients,
@@ -32,6 +34,10 @@ export interface TemplateRebuildOptions {
   mcpTemplates?: Record<string, MCPServerParams>;
 }
 
+export interface TemplateRebuildResult {
+  toolMetadataChanged: boolean;
+}
+
 export type TemplateClientLifecycle = 'persistent' | 'ephemeral';
 
 /**
@@ -47,6 +53,7 @@ export class TemplateServerManager {
   private outboundConns?: OutboundConnections;
   private transports?: Record<string, Transport>;
   private templateConfigHashes = new Map<string, string>();
+  private templateToolMetadataHashes = new Map<string, string>();
   private templateRetirements = new Map<string, Promise<void>>();
 
   // Maps sessionId -> (templateName -> renderedHash) for routing shareable servers
@@ -484,25 +491,40 @@ export class TemplateServerManager {
   /**
    * Rebuild the template index
    */
-  public rebuildTemplateIndex(serverConfigData?: TemplateRebuildOptions): void {
+  public rebuildTemplateIndex(serverConfigData?: TemplateRebuildOptions): TemplateRebuildResult {
     const templates = serverConfigData?.mcpTemplates ?? {};
     const currentNames = new Set(Object.keys(templates));
+    let toolMetadataChanged = false;
     for (const existingName of this.templateConfigHashes.keys()) {
       if (!currentNames.has(existingName)) {
         void this.scheduleTemplateRetirement(existingName);
         this.templateConfigHashes.delete(existingName);
+        this.templateToolMetadataHashes.delete(existingName);
+        clearLastConfiguredToolSnapshot(existingName);
+        toolMetadataChanged = true;
       }
     }
     for (const [templateName, config] of Object.entries(templates)) {
-      const nextHash = templateRenderedHash(config);
+      const nextHash = templateRuntimeHash(config);
       const previousHash = this.templateConfigHashes.get(templateName);
       if (previousHash && previousHash !== nextHash) {
         void this.scheduleTemplateRetirement(templateName);
       }
       this.templateConfigHashes.set(templateName, nextHash);
+      const nextToolMetadataHash = templateRenderedHash({
+        disabledTools: [...(config.disabledTools ?? [])].sort(),
+        toolDescriptionOverrides: Object.fromEntries(
+          Object.entries(config.toolDescriptionOverrides ?? {}).sort(([left], [right]) => left.localeCompare(right)),
+        ),
+      });
+      if (this.templateToolMetadataHashes.get(templateName) !== nextToolMetadataHash) {
+        toolMetadataChanged = true;
+      }
+      this.templateToolMetadataHashes.set(templateName, nextToolMetadataHash);
     }
     this.templateIndex.buildIndex(templates);
     logger.info('Template index rebuilt');
+    return { toolMetadataChanged };
   }
 
   private scheduleTemplateRetirement(templateName: string): Promise<void> {

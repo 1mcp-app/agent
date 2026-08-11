@@ -1,6 +1,6 @@
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 
-import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { OutboundConnections } from '@src/core/types/index.js';
 import logger, { errorIf } from '@src/logger/logger.js';
@@ -111,7 +111,7 @@ export class MetaToolProvider {
       loadSchema,
       defaultVisibility,
       templateHashProvider,
-      getServerConfigs: () => McpConfigManager.getInstance().getTransportConfig(),
+      getServerConfigs: getConfiguredServerTargets,
     });
   }
 
@@ -127,7 +127,7 @@ export class MetaToolProvider {
       loadSchema: this.loadSchema,
       defaultVisibility: visibility,
       templateHashProvider: this.templateHashProvider,
-      getServerConfigs: () => McpConfigManager.getInstance().getTransportConfig(),
+      getServerConfigs: getConfiguredServerTargets,
     });
   }
 

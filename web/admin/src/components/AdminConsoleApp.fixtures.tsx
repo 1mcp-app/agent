@@ -69,6 +69,9 @@ function FixtureAdminConsoleApp({ state, overrides }: { state: AdminConsoleState
       editDispatch({ type: 'instructionOverrideChanged', mode, value });
       configuredServers?.changeInstructionOverride?.(mode, value);
     },
+    changeTool: (name, change) => editDispatch({ type: 'toolChanged', name, ...change }),
+    changeVisibleTools: (names, enabled) => editDispatch({ type: 'toolsBulkChanged', names, enabled }),
+    changeToolModel: () => undefined,
     preview: configuredServers?.preview ?? (() => undefined),
     apply: configuredServers?.apply ?? (() => undefined),
   };
@@ -189,6 +192,9 @@ function staticConfiguredServerEditModel(overrides?: ConfiguredServerOverrides):
     changeSecret: () => undefined,
     changeTransportOverride: () => undefined,
     changeInstructionOverride: overrides?.changeInstructionOverride ?? (() => undefined),
+    changeTool: () => undefined,
+    changeVisibleTools: () => undefined,
+    changeToolModel: () => undefined,
     preview: () => undefined,
     apply: overrides?.apply ?? (() => undefined),
   };

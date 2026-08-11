@@ -12,6 +12,7 @@ import {
   type ConfiguredServerConnectivityChecker,
 } from './adminConfiguredServerService.js';
 import { type AdminOperationContext, AdminOperationService } from './adminOperationService.js';
+import type { ConfiguredToolInventory } from './configuredToolInventory.js';
 
 const mockAgentConfig = {
   get: vi.fn().mockImplementation((key: string) => {
@@ -401,6 +402,390 @@ describe('AdminConfiguredServerService', () => {
     });
     expect(JSON.stringify(result)).not.toMatch(/raw-url-token|raw-header-token|raw-client-secret/);
     expect(JSON.stringify(result)).not.toMatch(/zod|rawSchema|storageShape/i);
+  });
+
+  it('loads a Template Server with one shared configured-tool inventory and no raw disabled-tools field', async () => {
+    const toolInventory: ConfiguredToolInventory = {
+      targetName: 'project',
+      source: 'mcpTemplates',
+      targetEnabled: true,
+      freshness: 'live',
+      model: 'gpt-4o',
+      generation: 'generation-1',
+      activeInstanceCount: 2,
+      rows: [
+        {
+          name: 'search',
+          upstreamDescription: 'Search upstream',
+          effectiveDescription: 'Search the project',
+          descriptionOverride: 'Search the project',
+          descriptionOverridden: true,
+          enabled: false,
+          observed: true,
+          unresolved: false,
+          observedInstanceCount: 2,
+          activeInstanceCount: 2,
+          observedInSomeInstances: false,
+          approximateTokens: 42,
+        },
+      ],
+      counts: { observed: 1, enabled: 0, disabled: 1, unresolved: 0 },
+      approximateTokens: { enabled: 0, allObserved: 42, savings: 42 },
+    };
+    const readToolInventory = vi.fn(async () => toolInventory);
+    const service = createService({
+      readConfigDocument: () => ({
+        mcpTemplates: {
+          project: {
+            type: 'stdio',
+            command: 'node',
+            disabledTools: ['search'],
+            toolDescriptionOverrides: { search: 'Search the project' },
+          },
+        },
+      }),
+      readToolInventory,
+    });
+
+    const result = await service.getConfiguredServerDetail({
+      context: context(),
+      targetName: 'project',
+      model: 'gpt-4o',
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        server: { id: 'project', source: 'mcpTemplates' },
+        editContract: { target: { id: 'project', source: 'mcpTemplates' } },
+        toolInventory,
+      },
+    });
+    if (!result.ok) return;
+    expect(
+      result.result.editContract.fieldGroups
+        .flatMap((group) => group.fields)
+        .some((field) => field.fieldPath.includes('disabledTools')),
+    ).toBe(false);
+    expect(readToolInventory).toHaveBeenCalledWith({
+      targetName: 'project',
+      source: 'mcpTemplates',
+      config: expect.objectContaining({ command: 'node' }),
+      model: 'gpt-4o',
+    });
+  });
+
+  it('previews and applies selection and description edits against one capability generation', async () => {
+    writeConfig({
+      mcpServers: {
+        filesystem: {
+          type: 'stdio',
+          command: 'node',
+          disabledTools: ['search'],
+        },
+      },
+    });
+    const readToolInventory = vi.fn(async ({ config }: { config: Record<string, any> }) => {
+      const enabled = !(config.disabledTools ?? []).includes('search');
+      const description = config.toolDescriptionOverrides?.search ?? 'Search upstream';
+      return {
+        targetName: 'filesystem',
+        source: 'mcpServers' as const,
+        targetEnabled: true,
+        freshness: 'live' as const,
+        model: 'gpt-4o',
+        generation: 'generation-1',
+        activeInstanceCount: 1,
+        rows: [
+          {
+            name: 'search',
+            upstreamDescription: 'Search upstream',
+            effectiveDescription: description,
+            ...(config.toolDescriptionOverrides?.search
+              ? { descriptionOverride: config.toolDescriptionOverrides.search }
+              : {}),
+            descriptionOverridden: Boolean(config.toolDescriptionOverrides?.search),
+            enabled,
+            observed: true,
+            unresolved: false,
+            observedInstanceCount: 1,
+            activeInstanceCount: 1,
+            observedInSomeInstances: false,
+            approximateTokens: enabled ? 25 : 25,
+          },
+        ],
+        counts: { observed: 1, enabled: enabled ? 1 : 0, disabled: enabled ? 0 : 1, unresolved: 0 },
+        approximateTokens: { enabled: enabled ? 25 : 0, allObserved: 25, savings: enabled ? 0 : 25 },
+      } satisfies ConfiguredToolInventory;
+    });
+    const service = createService({ readToolInventory });
+    const edit = {
+      disabledTools: [],
+      toolDescriptionOverrides: { search: 'Search the workspace' },
+    };
+
+    const preview = await service.previewConfiguredServerEdit({
+      context: context(),
+      targetName: 'filesystem',
+      edit,
+      model: 'gpt-4o',
+    });
+
+    expect(preview).toMatchObject({
+      ok: true,
+      result: {
+        diff: expect.arrayContaining([
+          expect.objectContaining({ fieldPath: ['disabledTools'] }),
+          expect.objectContaining({ fieldPath: ['toolDescriptionOverrides'] }),
+        ]),
+        toolSelection: {
+          capabilityGeneration: 'generation-1',
+          model: 'gpt-4o',
+          counts: { observed: 1, enabled: 1, disabled: 0, unresolved: 0 },
+          approximateTokens: { before: 0, after: 25, savings: -25 },
+        },
+      },
+    });
+    if (!preview.ok) return;
+
+    const applied = await service.applyConfiguredServerEdit({
+      context: context({
+        idempotencyKey: 'apply-tools',
+        requestFingerprint: 'apply-tools:fingerprint',
+        confirmationFacts: { previewConfirmed: preview.result.previewFingerprint },
+      }),
+      targetName: 'filesystem',
+      edit,
+      model: 'gpt-4o',
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+
+    expect(applied.ok).toBe(true);
+    expect(readConfig().mcpServers.filesystem).toMatchObject({
+      toolDescriptionOverrides: { search: 'Search the workspace' },
+    });
+    expect(readConfig().mcpServers.filesystem.disabledTools).toBeUndefined();
+  });
+
+  it('rejects apply when the observed capability generation changes after preview', async () => {
+    writeConfig({
+      mcpServers: { filesystem: { type: 'stdio', command: 'node' } },
+    });
+    let inventoryReadCount = 0;
+    const readToolInventory = vi.fn(
+      async ({ config }: { config: Record<string, any> }): Promise<ConfiguredToolInventory> => {
+        inventoryReadCount += 1;
+        const enabled = !(config.disabledTools ?? []).includes('search');
+        return {
+          targetName: 'filesystem',
+          source: 'mcpServers',
+          targetEnabled: true,
+          freshness: 'live',
+          model: 'gpt-4o',
+          generation: inventoryReadCount <= 2 ? 'generation-1' : 'generation-2',
+          activeInstanceCount: 1,
+          rows: [
+            {
+              name: 'search',
+              upstreamDescription: 'Search upstream',
+              effectiveDescription: 'Search upstream',
+              descriptionOverridden: false,
+              enabled,
+              observed: true,
+              unresolved: false,
+              observedInstanceCount: 1,
+              activeInstanceCount: 1,
+              observedInSomeInstances: false,
+              approximateTokens: 25,
+            },
+          ],
+          counts: { observed: 1, enabled: enabled ? 1 : 0, disabled: enabled ? 0 : 1, unresolved: 0 },
+          approximateTokens: { enabled: enabled ? 25 : 0, allObserved: 25, savings: enabled ? 0 : 25 },
+        };
+      },
+    );
+    const service = createService({ readToolInventory });
+    const edit = { toolDescriptionOverrides: { search: 'Search the workspace' } };
+    const preview = await service.previewConfiguredServerEdit({
+      context: context(),
+      targetName: 'filesystem',
+      edit,
+    });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+
+    await expect(
+      service.applyConfiguredServerEdit({
+        context: context({ confirmationFacts: { previewConfirmed: preview.result.previewFingerprint } }),
+        targetName: 'filesystem',
+        edit,
+        previewFingerprint: preview.result.previewFingerprint,
+      }),
+    ).rejects.toMatchObject({ code: 'configured_server_stale_preview' });
+    expect(readConfig().mcpServers.filesystem.toolDescriptionOverrides).toBeUndefined();
+  });
+
+  it('requires explicit confirmation before disabling the final enabled tool', async () => {
+    writeConfig({
+      mcpServers: { filesystem: { type: 'stdio', command: 'node' } },
+    });
+    const readToolInventory = vi.fn(
+      async ({ config }: { config: Record<string, any> }): Promise<ConfiguredToolInventory> => {
+        const enabled = !(config.disabledTools ?? []).includes('search');
+        return {
+          targetName: 'filesystem',
+          source: 'mcpServers',
+          targetEnabled: true,
+          freshness: 'live',
+          model: 'gpt-4o',
+          generation: 'generation-1',
+          activeInstanceCount: 1,
+          rows: [
+            {
+              name: 'search',
+              effectiveDescription: 'Search upstream',
+              descriptionOverridden: false,
+              enabled,
+              observed: true,
+              unresolved: false,
+              observedInstanceCount: 1,
+              activeInstanceCount: 1,
+              observedInSomeInstances: false,
+              approximateTokens: 25,
+            },
+            {
+              name: 'retained_override',
+              effectiveDescription: 'Retained configuration',
+              descriptionOverridden: true,
+              descriptionOverride: 'Retained configuration',
+              enabled: true,
+              observed: false,
+              unresolved: true,
+              observedInstanceCount: 0,
+              activeInstanceCount: 1,
+              observedInSomeInstances: false,
+              approximateTokens: 0,
+            },
+          ],
+          counts: { observed: 1, enabled: enabled ? 2 : 1, disabled: enabled ? 0 : 1, unresolved: 1 },
+          approximateTokens: { enabled: enabled ? 25 : 0, allObserved: 25, savings: enabled ? 0 : 25 },
+        };
+      },
+    );
+    const service = createService({ readToolInventory });
+    const edit = { disabledTools: ['search'] };
+    const preview = await service.previewConfiguredServerEdit({
+      context: context(),
+      targetName: 'filesystem',
+      edit,
+    });
+    expect(preview).toMatchObject({
+      ok: true,
+      result: { toolSelection: { counts: { enabled: 1 }, requiresZeroEnabledConfirmation: true } },
+    });
+    if (!preview.ok) return;
+
+    const result = await service.applyConfiguredServerEdit({
+      context: context({ confirmationFacts: { previewConfirmed: preview.result.previewFingerprint } }),
+      targetName: 'filesystem',
+      edit,
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 'mutation_confirmation_required',
+      confirmationRequirements: expect.arrayContaining([{ code: 'zeroEnabledToolsConfirmed', expected: true }]),
+    });
+    expect(readConfig().mcpServers.filesystem.disabledTools).toBeUndefined();
+  });
+
+  it('rejects tool edits for names outside the observed or retained inventory', async () => {
+    writeConfig({
+      mcpServers: { filesystem: { type: 'stdio', command: 'node' } },
+    });
+    const readToolInventory = vi.fn(async (): Promise<ConfiguredToolInventory> => ({
+      targetName: 'filesystem',
+      source: 'mcpServers',
+      targetEnabled: true,
+      freshness: 'live',
+      model: 'gpt-4o',
+      generation: 'generation-1',
+      activeInstanceCount: 1,
+      rows: [],
+      counts: { observed: 0, enabled: 0, disabled: 0, unresolved: 0 },
+      approximateTokens: { enabled: 0, allObserved: 0, savings: 0 },
+    }));
+    const service = createService({ readToolInventory });
+
+    const preview = await service.previewConfiguredServerEdit({
+      context: context(),
+      targetName: 'filesystem',
+      edit: { disabledTools: ['invented'] },
+    });
+
+    expect(preview).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: [expect.objectContaining({ fieldPath: ['tools', 'invented'], code: 'unknown_configured_tool' })],
+        },
+      },
+    });
+  });
+
+  it('applies configured-tool edits to a Template Server definition', async () => {
+    writeConfig({
+      mcpTemplates: { project: { type: 'stdio', command: 'node' } },
+    });
+    const readToolInventory = vi.fn(
+      async ({ config }: { config: Record<string, any> }): Promise<ConfiguredToolInventory> => ({
+        targetName: 'project',
+        source: 'mcpTemplates',
+        targetEnabled: true,
+        freshness: 'live',
+        model: 'gpt-4o',
+        generation: 'generation-1',
+        activeInstanceCount: 1,
+        rows: [
+          {
+            name: 'search',
+            effectiveDescription: config.toolDescriptionOverrides?.search ?? 'Search upstream',
+            descriptionOverridden: Boolean(config.toolDescriptionOverrides?.search),
+            enabled: !(config.disabledTools ?? []).includes('search'),
+            observed: true,
+            unresolved: false,
+            observedInstanceCount: 1,
+            activeInstanceCount: 1,
+            observedInSomeInstances: false,
+            approximateTokens: 25,
+          },
+        ],
+        counts: { observed: 1, enabled: 1, disabled: 0, unresolved: 0 },
+        approximateTokens: { enabled: 25, allObserved: 25, savings: 0 },
+      }),
+    );
+    const service = createService({ readToolInventory });
+    const edit = { toolDescriptionOverrides: { search: 'Search this project' } };
+    const preview = await service.previewConfiguredServerEdit({
+      context: context(),
+      targetName: 'project',
+      edit,
+    });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+
+    const result = await service.applyConfiguredServerEdit({
+      context: context({ confirmationFacts: { previewConfirmed: preview.result.previewFingerprint } }),
+      targetName: 'project',
+      edit,
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(readConfig().mcpTemplates.project.toolDescriptionOverrides).toEqual({ search: 'Search this project' });
+    expect(readConfig().mcpServers).toEqual({});
   });
 
   it('keeps nested secret record values out of editable transport record fields', async () => {
@@ -4572,6 +4957,12 @@ describe('AdminConfiguredServerService', () => {
         mcpServers?: Record<string, any>;
         mcpTemplates?: Record<string, any>;
       } | null;
+      readToolInventory?: (input: {
+        targetName: string;
+        source: 'mcpServers' | 'mcpTemplates';
+        config: Record<string, any>;
+        model?: string;
+      }) => Promise<ConfiguredToolInventory>;
       checkConnectivity?: ConfiguredServerConnectivityChecker;
       mutationAvailability?: { available: boolean; reason?: 'writer_lock_unavailable' };
     } = {},

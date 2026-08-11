@@ -72,6 +72,15 @@ describe('CapabilityCatalog', () => {
           type: 'stdio',
           command: 'node',
           disabledTools: ['write_file'],
+          toolDescriptionOverrides: {
+            read_file: 'Read a workspace file safely',
+            write_file: 'Hidden override',
+          },
+        } as any,
+        'template-server': {
+          type: 'stdio',
+          command: 'node',
+          toolDescriptionOverrides: { template_tool: 'Describe a rendered project' },
         } as any,
       }),
       templateHashProvider,
@@ -95,6 +104,29 @@ describe('CapabilityCatalog', () => {
       'template-server:rendered123',
     ]);
     expect(result.servers).toEqual(['filesystem', 'template-server']);
+  });
+
+  it('uses effective descriptions consistently for listing and full-schema inspection', async () => {
+    const upstreamSchema: Tool = {
+      name: 'read_file',
+      description: 'Upstream description',
+      inputSchema: { type: 'object', properties: { path: { type: 'string' } } },
+      outputSchema: { type: 'object', properties: { content: { type: 'string' } } },
+      annotations: { readOnlyHint: true },
+    };
+    const catalog = createCatalog(undefined, {
+      loadSchema: vi.fn(async () => upstreamSchema),
+    });
+
+    const listed = await catalog.listVisibleTools({});
+    const described = await catalog.describeVisibleTool({ server: 'filesystem', toolName: 'read_file' });
+
+    expect(listed.tools.find((tool) => tool.name === 'read_file')?.description).toBe('Read a workspace file safely');
+    expect(listed.tools.find((tool) => tool.name === 'template_tool')?.description).toBe('Describe a rendered project');
+    expect(described.schema).toEqual({
+      ...upstreamSchema,
+      description: 'Read a workspace file safely',
+    });
   });
 
   it('maps external capability items for non-tool kinds', async () => {

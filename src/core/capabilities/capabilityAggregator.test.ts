@@ -8,6 +8,7 @@ import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CapabilityAggregator } from './capabilityAggregator.js';
+import { readLastConfiguredToolSnapshot } from './configuredToolSnapshot.js';
 
 // Mock InternalCapabilitiesProvider
 vi.mock('@src/core/capabilities/internalCapabilitiesProvider.js', () => ({
@@ -110,7 +111,8 @@ describe('CapabilityAggregator', () => {
       const slowListTools = vi
         .fn()
         .mockRejectedValueOnce(new Error('Request timed out'))
-        .mockResolvedValueOnce({ tools: [recoveredTool] });
+        .mockResolvedValueOnce({ tools: [recoveredTool] })
+        .mockRejectedValueOnce(new Error('Request timed out again'));
 
       const createConnection = (name: string, listTools: Client['listTools']) => {
         const client = createMockClient({
@@ -141,7 +143,10 @@ describe('CapabilityAggregator', () => {
 
       const recovered = await aggregator.refreshCapabilities();
       expect(recovered.tools.map((tool) => tool.name).sort()).toEqual(['healthy-tool', 'recovered-tool']);
-      expect(slowListTools).toHaveBeenCalledTimes(2);
+
+      await aggregator.refreshCapabilities();
+      expect(readLastConfiguredToolSnapshot('slow-server').map((tool) => tool.name)).toEqual(['recovered-tool']);
+      expect(slowListTools).toHaveBeenCalledTimes(3);
     });
 
     it('should return no changes when no servers are connected', async () => {
@@ -191,6 +196,36 @@ describe('CapabilityAggregator', () => {
       expect(changes.current.resources).toHaveLength(1);
       expect(changes.current.prompts).toHaveLength(1);
       expect(changes.current.readyServers).toContain('test-server');
+    });
+
+    it('should detect effective tool description changes', async () => {
+      const mockClient = {
+        listTools: vi.fn().mockResolvedValue({ tools: [mockTool] }),
+        listResources: vi.fn().mockResolvedValue({ resources: [] }),
+        listPrompts: vi.fn().mockResolvedValue({ prompts: [] }),
+        getServerCapabilities: vi.fn().mockReturnValue({ tools: true }),
+        transport: { start: vi.fn(), send: vi.fn(), close: vi.fn() },
+      } as any;
+      mockConnections.set('test-server', {
+        name: 'test-server',
+        client: mockClient,
+        status: ClientStatus.Connected,
+        transport: { start: vi.fn(), send: vi.fn(), close: vi.fn() },
+      } as any);
+
+      await aggregator.updateCapabilities();
+      mockGetTransportConfig.mockReturnValue({
+        'test-server': {
+          type: 'stdio',
+          command: 'node',
+          toolDescriptionOverrides: { 'test-tool': 'Operator description' },
+        },
+      });
+
+      const changes = await aggregator.updateCapabilities();
+
+      expect(changes.toolsChanged).toBe(true);
+      expect(changes.current.tools).toMatchObject([{ name: 'test-tool', description: 'Operator description' }]);
     });
 
     it('should handle client method failures gracefully', async () => {

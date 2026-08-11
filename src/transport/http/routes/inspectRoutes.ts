@@ -14,6 +14,7 @@ import {
   getDisabledToolsForServer,
 } from '@src/core/server/disabledTools.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
+import { applyEffectiveToolDescription } from '@src/core/server/toolDescriptionOverrides.js';
 import logger from '@src/logger/logger.js';
 
 import { Request, RequestHandler, Response } from 'express';
@@ -103,11 +104,15 @@ function hasDisabledTools(serverConfigs: ServerConfigMap, serverName: string): b
   return getDisabledToolsForServer(serverConfigs, serverName).length > 0;
 }
 
-function summarizeRegistryTools(tools: ReturnType<ToolRegistry['listTools']>['tools']): ToolSummary[] {
+function summarizeRegistryTools(
+  tools: ReturnType<ToolRegistry['listTools']>['tools'],
+  serverName: string,
+  serverConfigs: ServerConfigMap,
+): ToolSummary[] {
   return tools.map((tool) => ({
     tool: getToolName(tool.name),
     qualifiedName: tool.name,
-    description: tool.description,
+    description: applyEffectiveToolDescription(tool, serverConfigs[serverName], serverName).description,
     requiredArgs: 0,
     optionalArgs: 0,
   }));
@@ -122,7 +127,7 @@ function buildRegistryToolsResult(
   const disabledToolsConfigured = hasDisabledTools(serverConfigs, serverName);
 
   return {
-    tools: summarizeRegistryTools(filteredTools),
+    tools: summarizeRegistryTools(filteredTools, serverName, serverConfigs),
     totalTools: disabledToolsConfigured ? filteredTools.length : result.totalCount,
     hasMore: disabledToolsConfigured ? false : result.hasMore,
     nextCursor: disabledToolsConfigured ? undefined : result.nextCursor,
@@ -139,7 +144,9 @@ function buildDirectToolsResult(
   const disabledToolsConfigured = hasDisabledTools(serverConfigs, serverName);
 
   return {
-    tools: directTools.map((tool) => summarizeDirectServerTool(serverName, tool)),
+    tools: directTools.map((tool) =>
+      summarizeDirectServerTool(serverName, applyEffectiveToolDescription(tool, serverConfigs[serverName], serverName)),
+    ),
     totalTools: disabledToolsConfigured ? directTools.length : (directResult.totalCount ?? directTools.length),
     hasMore: disabledToolsConfigured ? false : (directResult.hasMore ?? Boolean(directResult.nextCursor)),
     nextCursor: disabledToolsConfigured ? undefined : directResult.nextCursor,
@@ -392,14 +399,15 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
           return;
         }
 
+        const effectiveTool = applyEffectiveToolDescription(found, serverConfigs[serverName], serverName);
         const payload: InspectToolPayload = {
           kind: 'tool',
           server: serverName,
           tool: toolName,
           qualifiedName: found.name === qualifiedName ? qualifiedName : qualifyToolName(serverName, found.name),
-          description: found.description,
-          inputSchema: (found.inputSchema as Record<string, unknown>) ?? {},
-          outputSchema: found.outputSchema as Record<string, unknown> | undefined,
+          description: effectiveTool.description,
+          inputSchema: (effectiveTool.inputSchema as Record<string, unknown>) ?? {},
+          outputSchema: effectiveTool.outputSchema as Record<string, unknown> | undefined,
         };
         res.json(payload);
         return;

@@ -2,6 +2,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { ConnectionResolver, type TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { getDisabledToolError, isToolDisabled } from '@src/core/server/disabledTools.js';
+import { applyEffectiveToolDescription } from '@src/core/server/toolDescriptionOverrides.js';
 import {
   ClientStatus,
   type MCPServerParams,
@@ -218,7 +219,12 @@ export class CapabilityCatalog {
     const { route } = access;
     const cached = this.deps.schemaCache.getIfCached(route.connectionKey, route.toolName);
     if (cached) {
-      return { schema: cached, fromCache: true, route, refresh };
+      return {
+        schema: applyEffectiveToolDescription(cached, this.deps.getServerConfigs()[route.server], route.server),
+        fromCache: true,
+        route,
+        refresh,
+      };
     }
 
     if (!this.deps.loadSchema) {
@@ -235,7 +241,12 @@ export class CapabilityCatalog {
 
     try {
       const tool = await this.deps.schemaCache.getOrLoad(route.connectionKey, route.toolName, this.deps.loadSchema);
-      return { schema: tool, fromCache: false, route, refresh };
+      return {
+        schema: applyEffectiveToolDescription(tool, this.deps.getServerConfigs()[route.server], route.server),
+        fromCache: false,
+        route,
+        refresh,
+      };
     } catch (error) {
       logger.error(`Failed to load tool schema from upstream server: ${route.server}:${route.toolName}`, { error });
       return {
@@ -366,11 +377,15 @@ export class CapabilityCatalog {
         .getAllTools()
         .filter((tool) => !isToolDisabled(serverConfigs, tool.server, tool.name))
         .map((tool) => ({
-          tool: {
-            name: tool.name,
-            description: tool.description,
-            inputSchema: tool.inputSchema ?? { type: 'object' },
-          },
+          tool: applyEffectiveToolDescription(
+            {
+              name: tool.name,
+              description: tool.description,
+              inputSchema: tool.inputSchema ?? { type: 'object' },
+            },
+            serverConfigs[tool.server],
+            tool.server,
+          ),
           server: tool.server,
           connectionKey: tool.connectionKey,
           tags: tool.tags,

@@ -3,7 +3,7 @@ import {
   createTemplateInstanceId,
   resolveTemplateInstanceId,
   serializePoolIdentity,
-  templateRenderedHash,
+  templateRuntimeHash,
 } from '@src/core/server/templateIdentity.js';
 import type { AuthProviderTransport } from '@src/core/types/client.js';
 import type { MCPServerParams } from '@src/core/types/transport.js';
@@ -71,7 +71,7 @@ export class ClientInstancePool {
     // Render template with context data
     const renderer = new HandlebarsTemplateRenderer();
     const renderedConfig = renderer.renderTemplate(templateConfig, context);
-    const renderedHash = templateRenderedHash(renderedConfig);
+    const renderedHash = templateRuntimeHash(renderedConfig);
 
     // Debug logging to verify template rendering
     debugIf(() => ({

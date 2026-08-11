@@ -206,6 +206,38 @@ describe('apiRoutes inspect', () => {
     inspectHandler = createInspectHandler(serverManager as never);
   });
 
+  it('uses the configured effective description in server and tool payloads', async () => {
+    mockedGetTransportConfig.mockReturnValue({
+      context7: {
+        type: 'stdio',
+        command: 'node',
+        toolDescriptionOverrides: { 'context7_1mcp_query-docs': 'Search the current documentation' },
+      },
+    });
+
+    const serverRequest = { query: { target: 'context7' } };
+    const serverResponse = createMockResponse();
+    await invokeInspectRoute(scopeAuthMiddleware, serverRequest, serverResponse);
+    await invokeInspectRoute(inspectHandler, serverRequest, serverResponse);
+
+    expect(serverResponse.statusCode, JSON.stringify(serverResponse.body)).toBe(200);
+    expect(serverResponse.body).toMatchObject({
+      kind: 'server',
+      tools: [{ tool: 'query-docs', description: 'Search the current documentation' }],
+    });
+
+    const toolRequest = { query: { target: 'context7/query-docs' } };
+    const toolResponse = createMockResponse();
+    await invokeInspectRoute(scopeAuthMiddleware, toolRequest, toolResponse);
+    await invokeInspectRoute(inspectHandler, toolRequest, toolResponse);
+
+    expect(toolResponse.statusCode, JSON.stringify(toolResponse.body)).toBe(200);
+    expect(toolResponse.body).toMatchObject({
+      kind: 'tool',
+      description: 'Search the current documentation',
+    });
+  });
+
   it('does not initialize template servers for bare inspect listings even when request context is present', async () => {
     mockedLoadDeclaredServerConfigs.mockReturnValue({
       staticServers: {},

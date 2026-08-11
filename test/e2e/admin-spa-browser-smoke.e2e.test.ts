@@ -201,6 +201,11 @@ describe('admin SPA browser smoke', () => {
       await page.getByRole('button', { name: 'Edit static github server' }).click();
       await page.waitForURL(`${baseUrl}/admin/servers/github`);
       await expectVisible(page.getByRole('heading', { name: 'github', exact: true }));
+      await expectText(page, 'Configured Tool Selection');
+
+      const searchTool = page.locator('.configured-tool-row', { hasText: 'search' });
+      await searchTool.getByRole('switch', { name: 'Enable search' }).click();
+      await searchTool.getByRole('textbox', { name: 'Description override' }).fill('Search approved repositories');
 
       const tags = page.getByRole('textbox', { name: 'Tags' });
       await tags.fill('verified');
@@ -245,6 +250,10 @@ describe('admin SPA browser smoke', () => {
       await expectText(page, 'No changes yet');
       await expectVisible(page.getByRole('textbox', { name: 'Tags' }));
       await expectVisible(page.locator('.edit-section').getByText('verified', { exact: true }));
+      expect(await searchTool.getByRole('switch', { name: 'Enable search' }).isChecked()).toBe(false);
+      expect(await searchTool.getByRole('textbox', { name: 'Description override' }).inputValue()).toBe(
+        'Search approved repositories',
+      );
       expect(await page.getByRole('button', { name: 'Preview change' }).isDisabled()).toBe(true);
       expect(await page.getByRole('button', { name: 'Apply changes' }).count()).toBe(0);
     } finally {
@@ -950,12 +959,16 @@ async function adminApi(
 function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
   let servers = createConfiguredServerReadModels();
   let templateServer = createTemplateConfiguredServerReadModel();
+  let disabledTools: string[] = [];
+  let toolDescriptionOverrides: Record<string, string> = {};
 
   const fixture: ResettableConfiguredServerFixture = {
     reset() {
       servers = createConfiguredServerReadModels();
       templateServer = createTemplateConfiguredServerReadModel();
       fixture.lastEdit = undefined;
+      disabledTools = [];
+      toolDescriptionOverrides = {};
     },
     clear() {
       servers = [];
@@ -1125,6 +1138,9 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
             },
           ],
         },
+        ...(server.id === 'github'
+          ? { toolInventory: configuredToolInventory(disabledTools, toolDescriptionOverrides, input.model) }
+          : {}),
       });
     },
     async previewConfiguredServerEdit(input) {
@@ -1145,6 +1161,18 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
       const proposedTags = Array.isArray((edit as { tags?: unknown }).tags)
         ? (edit as { tags: unknown[] }).tags.filter((tag): tag is string => typeof tag === 'string')
         : (server?.tags ?? []);
+      const proposedDisabledTools = Array.isArray((edit as { disabledTools?: unknown }).disabledTools)
+        ? (edit as { disabledTools: unknown[] }).disabledTools.filter(
+            (name): name is string => typeof name === 'string',
+          )
+        : disabledTools;
+      const proposedOverrides =
+        (edit as { toolDescriptionOverrides?: unknown }).toolDescriptionOverrides &&
+        typeof (edit as { toolDescriptionOverrides?: unknown }).toolDescriptionOverrides === 'object'
+          ? ((edit as { toolDescriptionOverrides: Record<string, string> }).toolDescriptionOverrides ?? {})
+          : toolDescriptionOverrides;
+      const currentInventory = configuredToolInventory(disabledTools, toolDescriptionOverrides, input.model);
+      const proposedInventory = configuredToolInventory(proposedDisabledTools, proposedOverrides, input.model);
       return operationSuccess('previewConfiguredServerEdit', 'op_preview', {
         targetName: input.targetName,
         proposedTargetName,
@@ -1179,6 +1207,20 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
           warnings: [],
         },
         connectivityCheck: { status: 'skipped', reason: 'connection_critical_fields_unchanged' },
+        toolSelection: {
+          capabilityGeneration: currentInventory.generation,
+          model: proposedInventory.model,
+          targetEnabled: true,
+          changedTools: ['search'],
+          counts: proposedInventory.counts,
+          approximateTokens: {
+            before: currentInventory.approximateTokens.enabled,
+            after: proposedInventory.approximateTokens.enabled,
+            savings: currentInventory.approximateTokens.enabled - proposedInventory.approximateTokens.enabled,
+          },
+          effect: 'immediate' as const,
+          requiresZeroEnabledConfirmation: proposedInventory.counts.enabled === 0,
+        },
       });
     },
     async applyConfiguredServerEdit(input) {
@@ -1203,6 +1245,19 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
           : { state: 'suppress', value: '' };
       } else if (server && instructionOverride?.action === 'remove') {
         server.instructionOverride = { state: 'upstream' };
+      }
+      if (Array.isArray((edit as { disabledTools?: unknown }).disabledTools)) {
+        disabledTools = (edit as { disabledTools: unknown[] }).disabledTools.filter(
+          (name): name is string => typeof name === 'string',
+        );
+      }
+      if (
+        (edit as { toolDescriptionOverrides?: unknown }).toolDescriptionOverrides &&
+        typeof (edit as { toolDescriptionOverrides?: unknown }).toolDescriptionOverrides === 'object'
+      ) {
+        toolDescriptionOverrides = {
+          ...(edit as { toolDescriptionOverrides: Record<string, string> }).toolDescriptionOverrides,
+        };
       }
       return operationSuccess('applyConfiguredServerEdit', 'op_apply', {
         originalTargetName: input.targetName,
@@ -1452,6 +1507,49 @@ function defaultInstructionVariants(): { initialization: string; cli: string } {
 
 function cloneInstructionState(state: InstructionTemplateAdminState): InstructionTemplateAdminState {
   return structuredClone(state);
+}
+
+function configuredToolInventory(
+  disabledTools: string[],
+  toolDescriptionOverrides: Record<string, string>,
+  model = 'gpt-4o',
+) {
+  const definitions = [
+    { name: 'search', description: 'Search repositories', approximateTokens: 24 },
+    { name: 'issues', description: 'List repository issues', approximateTokens: 20 },
+  ];
+  const rows = definitions.map((tool) => ({
+    name: tool.name,
+    upstreamDescription: tool.description,
+    effectiveDescription: toolDescriptionOverrides[tool.name] ?? tool.description,
+    ...(toolDescriptionOverrides[tool.name] ? { descriptionOverride: toolDescriptionOverrides[tool.name] } : {}),
+    descriptionOverridden: Boolean(toolDescriptionOverrides[tool.name]),
+    enabled: !disabledTools.includes(tool.name),
+    observed: true,
+    unresolved: false,
+    observedInstanceCount: 1,
+    activeInstanceCount: 1,
+    observedInSomeInstances: false,
+    approximateTokens: tool.approximateTokens,
+  }));
+  const enabledTokens = rows.reduce((total, row) => total + (row.enabled ? row.approximateTokens : 0), 0);
+  return {
+    targetName: 'github',
+    source: 'mcpServers' as const,
+    targetEnabled: true,
+    freshness: 'live' as const,
+    model,
+    generation: 'generation-smoke',
+    activeInstanceCount: 1,
+    rows,
+    counts: {
+      observed: rows.length,
+      enabled: rows.filter((row) => row.enabled).length,
+      disabled: rows.filter((row) => !row.enabled).length,
+      unresolved: 0,
+    },
+    approximateTokens: { enabled: enabledTokens, allObserved: 44, savings: 44 - enabledTokens },
+  };
 }
 
 function createFieldGroups() {

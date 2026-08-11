@@ -1252,6 +1252,7 @@ async function handleConfiguredServerDetail(
       }),
       targetName,
       ...(targetSource ? { targetSource } : {}),
+      ...(typeof req.query.model === 'string' ? { model: req.query.model } : {}),
     });
     if (!result.ok) {
       sendAdminOperationResult(res, result);
@@ -1263,6 +1264,7 @@ async function handleConfiguredServerDetail(
       operationId: result.operationId,
       server: result.result.server,
       editContract: result.result.editContract,
+      ...(result.result.toolInventory ? { toolInventory: result.result.toolInventory } : {}),
     });
   } catch (error) {
     if (error instanceof AdminConfiguredServerNotFoundError) {
@@ -1400,6 +1402,7 @@ async function handleConfiguredServerPreview(
       ...(targetSource ? { targetSource } : {}),
       edit: edit === undefined ? {} : edit,
       connectivityCheck: getBodyString(req.body, 'connectivityCheck') === 'manual' ? 'manual' : 'auto',
+      ...(getBodyString(req.body, 'model') ? { model: getBodyString(req.body, 'model') } : {}),
     });
     if (!result.ok) {
       sendAdminOperationResult(res, result);
@@ -1459,6 +1462,7 @@ async function handleConfiguredServerApply(
       ...(targetSource ? { targetSource } : {}),
       edit: getBodyValue(req.body, 'edit') ?? {},
       previewFingerprint: getBodyString(req.body, 'previewFingerprint'),
+      ...(getBodyString(req.body, 'model') ? { model: getBodyString(req.body, 'model') } : {}),
     });
     if (!result.ok && result.status === 'mutation_failed' && isConfiguredServerApplyErrorCode(result.error)) {
       sendConfiguredServerApplyError(res, result.error);

@@ -1,4 +1,4 @@
-import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { CapabilityCatalog } from '@src/core/capabilities/capabilityCatalog.js';
 import { type CapabilityVisibility, createCapabilityVisibility } from '@src/core/capabilities/capabilityVisibility.js';
 import { SchemaCache } from '@src/core/capabilities/schemaCache.js';
@@ -18,7 +18,7 @@ export function getRequestSession(inboundConn: InboundConnection): string | unde
 
 export async function createCapabilityCatalogFromConnections(
   connections: OutboundConnections,
-  getServerConfigs: () => Record<string, MCPServerParams> = () => McpConfigManager.getInstance().getTransportConfig(),
+  getServerConfigs: () => Record<string, MCPServerParams> = getConfiguredServerTargets,
 ): Promise<CapabilityCatalog> {
   const toolsByServer = new Map<string, Awaited<ReturnType<OutboundConnection['client']['listTools']>>['tools']>();
   const tagsByServer = new Map<string, string[]>();
@@ -58,7 +58,7 @@ export async function createCapabilityCatalogFromConnections(
 /** Create the runtime Capability Catalog used by protocol capability walks. */
 export function createProtocolCapabilityCatalog(
   connections: OutboundConnections,
-  getServerConfigs: () => Record<string, MCPServerParams> = () => McpConfigManager.getInstance().getTransportConfig(),
+  getServerConfigs: () => Record<string, MCPServerParams> = getConfiguredServerTargets,
 ): CapabilityCatalog {
   return new CapabilityCatalog({
     getToolRegistry: ToolRegistry.empty,

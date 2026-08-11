@@ -213,6 +213,35 @@ describe('capability pagination protocol handlers', () => {
     expect(alphaList).toHaveBeenNthCalledWith(2, { cursor: 'alpha-next' }, expect.anything());
   });
 
+  it('rejects a tool cursor after a configured description override changes', async () => {
+    const listTools = vi
+      .fn()
+      .mockResolvedValueOnce({
+        tools: [{ name: 'search', description: 'Search upstream', inputSchema: { type: 'object' } }],
+        nextCursor: 'alpha-next',
+      })
+      .mockResolvedValueOnce({ tools: [] });
+    const connections = new Map([['alpha', connection('alpha', { listTools })]]) as OutboundConnections;
+    registerToolHandlers(connections, {
+      enablePagination: true,
+      status: ServerStatus.Connected,
+      server: { setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)) },
+    } as never);
+    const handler = handlers.get(ListToolsRequestSchema);
+    if (!handler) throw new Error('tools/list handler was not registered');
+    const first = (await handler({ params: {} })) as { nextCursor?: string };
+
+    mockGetTransportConfig.mockReturnValue({
+      alpha: { type: 'stdio', command: 'node', toolDescriptionOverrides: { search: 'Search safely' } },
+    });
+
+    await expect(handler({ params: { cursor: first.nextCursor } })).rejects.toMatchObject({
+      code: ErrorCode.InvalidParams,
+      data: { reason: 'stale_generation' },
+    });
+    expect(listTools).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['malformed text', 'not-a-cursor!'],
     ['legacy cursor', Buffer.from('alpha:upstream-cursor').toString('base64')],

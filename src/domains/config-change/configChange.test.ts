@@ -101,6 +101,44 @@ describe('Config Change', () => {
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
+  it('edits a Template Server definition without creating per-instance state', async () => {
+    const original = { type: 'stdio' as const, command: 'node', disabledTools: ['write_file'] };
+    await writeConfig({
+      mcpTemplates: { project: original },
+      mcpServers: { unrelated: { type: 'stdio', command: 'bun' } },
+    });
+    const service = createConfigChangeService({ reloadConfig: reload });
+
+    const result = await service.editConfiguredServerTarget({
+      sourceName: 'project',
+      targetName: 'project',
+      serverConfig: {
+        ...original,
+        disabledTools: ['write_file', 'delete_file'],
+        toolDescriptionOverrides: { read_file: 'Read safely' },
+      },
+      expectedSourceFingerprint: fingerprintConfiguredServerTarget(original),
+    });
+
+    expect(result).toMatchObject({
+      status: 'changed',
+      operation: 'edit',
+      target: { name: 'project', source: 'mcpTemplates' },
+      backup: { created: true },
+      reload: { status: 'observed' },
+    });
+    expect(await readConfig()).toEqual({
+      mcpTemplates: {
+        project: {
+          ...original,
+          disabledTools: ['write_file', 'delete_file'],
+          toolDescriptionOverrides: { read_file: 'Read safely' },
+        },
+      },
+      mcpServers: { unrelated: { type: 'stdio', command: 'bun' } },
+    });
+  });
+
   it('rejects stale edit preconditions without backup, write, or reload', async () => {
     const original = { type: 'stdio' as const, command: 'node' };
     await writeConfig({ mcpServers: { alpha: original } });

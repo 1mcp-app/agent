@@ -28,6 +28,9 @@ export interface ConfiguredServerEditModel {
   changeSecret(fieldPath: string[], value: SecretDraftState[string]): void;
   changeTransportOverride(key: string, clear: boolean): void;
   changeInstructionOverride(mode: 'upstream' | 'replace' | 'suppress', value?: string): void;
+  changeTool(name: string, change: { enabled?: boolean; descriptionOverride?: string }): void;
+  changeVisibleTools(names: string[], enabled: boolean): void;
+  changeToolModel(model: string): void | Promise<void>;
   preview(connectivityCheck?: 'auto' | 'manual'): void | Promise<void>;
   apply(): void | Promise<void>;
 }
@@ -52,6 +55,7 @@ export function useConfiguredServerEdit({
   const sessionRef = useRef(session);
   const apiRef = useRef(api);
   const onUnauthenticatedRef = useRef(onUnauthenticated);
+  const toolModelRequestRef = useRef(0);
   stateRef.current = state;
   sessionRef.current = session;
   apiRef.current = api;
@@ -168,6 +172,49 @@ export function useConfiguredServerEdit({
     [invalidatePreview],
   );
 
+  const changeTool = useCallback(
+    (name: string, change: { enabled?: boolean; descriptionOverride?: string }) => {
+      invalidatePreview();
+      dispatch({ type: 'toolChanged', name, ...change });
+    },
+    [invalidatePreview],
+  );
+
+  const changeVisibleTools = useCallback(
+    (names: string[], enabled: boolean) => {
+      invalidatePreview();
+      dispatch({ type: 'toolsBulkChanged', names, enabled });
+    },
+    [invalidatePreview],
+  );
+
+  const changeToolModel = useCallback(
+    async (model: string) => {
+      const current = stateRef.current;
+      if (current.status !== 'loaded' || current.applyBusy || model === current.toolModel) return;
+      const requestId = toolModelRequestRef.current + 1;
+      toolModelRequestRef.current = requestId;
+      invalidatePreview();
+      try {
+        const detail = await apiRef.current.getConfiguredServerDetail(current.serverId, model);
+        if (
+          requestId !== toolModelRequestRef.current ||
+          stateRef.current.status !== 'loaded' ||
+          stateRef.current.serverId !== current.serverId
+        ) {
+          return;
+        }
+        if (detail.toolInventory) dispatch({ type: 'toolInventoryRecalculated', inventory: detail.toolInventory });
+      } catch (error) {
+        if (requestId !== toolModelRequestRef.current) return;
+        if (!handleUnauthenticated(error)) {
+          dispatch({ type: 'previewFailed', message: `Token estimate failed: ${failureMessage(error)}` });
+        }
+      }
+    },
+    [handleUnauthenticated, invalidatePreview],
+  );
+
   const preview = useCallback(
     async (connectivityCheck: 'auto' | 'manual' = 'auto') => {
       const activeSession = sessionRef.current;
@@ -183,6 +230,7 @@ export function useConfiguredServerEdit({
           target: configuredServerTarget(current),
           csrfToken: sessionKey,
           connectivityCheck,
+          ...(current.detail.toolInventory ? { model: current.toolModel } : {}),
           edit: configuredServerEditDraft(current),
         });
         if (requestId !== previewRequestRef.current || sessionRef.current?.csrfToken !== sessionKey) return;
@@ -214,15 +262,24 @@ export function useConfiguredServerEdit({
       const previewResult = current.preview;
       const riskFlags = Array.from(new Set(previewResult.diff.flatMap((entry) => entry.riskFlags)));
       const overridingConnectivityFailure = previewResult.connectivityCheck.status === 'failed';
+      const disablingAllTools = previewResult.toolSelection?.requiresZeroEnabledConfirmation === true;
       const confirmed = await browser.confirm({
-        title: overridingConnectivityFailure
-          ? `Apply despite failed connectivity to ${previewResult.proposedTargetName}?`
-          : `Apply changes to ${previewResult.proposedTargetName}?`,
-        message: overridingConnectivityFailure
-          ? 'The bounded connectivity check failed. Applying may make this configured server unavailable.'
-          : 'This writes the validated configuration and reloads the Runtime Scope.',
-        confirmLabel: overridingConnectivityFailure ? 'Apply despite failure' : 'Apply changes',
-        tone: overridingConnectivityFailure ? 'danger' : undefined,
+        title: disablingAllTools
+          ? `Disable all observed tools for ${previewResult.proposedTargetName}?`
+          : overridingConnectivityFailure
+            ? `Apply despite failed connectivity to ${previewResult.proposedTargetName}?`
+            : `Apply changes to ${previewResult.proposedTargetName}?`,
+        message: disablingAllTools
+          ? 'No currently observed tools will remain enabled. Newly discovered tools will still be enabled by default.'
+          : overridingConnectivityFailure
+            ? 'The bounded connectivity check failed. Applying may make this configured server unavailable.'
+            : 'This writes the validated configuration and reloads the Runtime Scope.',
+        confirmLabel: disablingAllTools
+          ? 'Disable all tools'
+          : overridingConnectivityFailure
+            ? 'Apply despite failure'
+            : 'Apply changes',
+        tone: disablingAllTools || overridingConnectivityFailure ? 'danger' : undefined,
         details: [
           { label: 'Current target', value: previewResult.targetName },
           { label: 'Final target', value: previewResult.proposedTargetName },
@@ -255,6 +312,7 @@ export function useConfiguredServerEdit({
           idempotencyKey: attempt.idempotencyKey,
           edit: configuredServerEditDraft(current),
           previewFingerprint: previewResult.previewFingerprint,
+          ...(current.detail.toolInventory ? { model: current.toolModel } : {}),
           confirmationFacts: {
             previewConfirmed: previewResult.previewFingerprint,
             ...(previewResult.proposedTargetName !== previewResult.targetName
@@ -263,6 +321,9 @@ export function useConfiguredServerEdit({
             ...(riskFlags.includes('connection_critical') ? { connectionCriticalConfirmed: true } : {}),
             ...(riskFlags.includes('secret') ? { secretChangeConfirmed: true } : {}),
             ...(overridingConnectivityFailure ? { connectivityFailureOverrideConfirmed: true } : {}),
+            ...(previewResult.toolSelection?.requiresZeroEnabledConfirmation
+              ? { zeroEnabledToolsConfirmed: true }
+              : {}),
           },
         });
       } catch (error) {
@@ -351,6 +412,9 @@ export function useConfiguredServerEdit({
     changeSecret,
     changeTransportOverride,
     changeInstructionOverride,
+    changeTool,
+    changeVisibleTools,
+    changeToolModel,
     preview,
     apply,
   };

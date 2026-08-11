@@ -13,6 +13,7 @@ import type { ConfiguredServerEditModel } from '../../configuredServerEdit/useCo
 import { configuredServerApplyEligibility } from '../../configuredServerEdit/useConfiguredServerEdit';
 import { EmptyState, Panel } from '../AdminConsoleShared';
 import { transportSummaryLabel } from '../adminConsoleUtils';
+import { ConfiguredToolTable } from './ConfiguredToolTable';
 import { ConfiguredServerFieldDraft, editGroupHelp, SecretFieldDraft } from './EditControls';
 import { PreviewResult } from './PreviewResult';
 
@@ -227,6 +228,18 @@ export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditM
             </Stack>
           </Paper>
         ))}
+        {state.detail.toolInventory ? (
+          <Paper className="edit-section" withBorder>
+            <ConfiguredToolTable
+              inventory={state.detail.toolInventory}
+              draft={state.toolDraft}
+              disabled={state.applyBusy}
+              onToolChange={model.changeTool}
+              onBulkChange={model.changeVisibleTools}
+              onModelChange={model.changeToolModel}
+            />
+          </Paper>
+        ) : null}
         {advancedFields.length > 0 ? (
           <details ref={advancedSettingsRef} className="advanced-settings">
             <summary>Advanced settings</summary>

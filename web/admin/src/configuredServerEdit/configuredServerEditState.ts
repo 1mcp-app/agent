@@ -23,6 +23,9 @@ interface LoadedConfiguredServerEditState {
   clearedTransportOverrides: string[];
   instructionOverride: { mode: 'upstream' | 'replace' | 'suppress'; value: string };
   initialInstructionOverride: { mode: 'upstream' | 'replace' | 'suppress'; value: string };
+  toolDraft: Record<string, { enabled: boolean; descriptionOverride: string }>;
+  initialToolDraft: Record<string, { enabled: boolean; descriptionOverride: string }>;
+  toolModel: string;
   dirty: boolean;
   preview?: ConfiguredServerPreviewResponse['preview'];
   previewBusy: boolean;
@@ -52,6 +55,9 @@ export type ConfiguredServerEditAction =
   | { type: 'secretChanged'; fieldPath: string[]; value: SecretDraftState[string] }
   | { type: 'transportOverrideChanged'; key: string; clear: boolean }
   | { type: 'instructionOverrideChanged'; mode: 'upstream' | 'replace' | 'suppress'; value?: string }
+  | { type: 'toolChanged'; name: string; enabled?: boolean; descriptionOverride?: string }
+  | { type: 'toolsBulkChanged'; names: string[]; enabled: boolean }
+  | { type: 'toolInventoryRecalculated'; inventory: NonNullable<ConfiguredServerDetailResponse['toolInventory']> }
   | { type: 'previewStarted' }
   | { type: 'previewSucceeded'; preview: ConfiguredServerPreviewResponse['preview'] }
   | { type: 'previewFailed'; message: string }
@@ -88,6 +94,19 @@ export function configuredServerEditDraft(state: ConfiguredServerEditState): Con
       current.mode === 'upstream'
         ? { action: 'remove' }
         : { action: 'set', value: current.mode === 'suppress' ? '' : current.value };
+  }
+
+  if (JSON.stringify(state.toolDraft) !== JSON.stringify(state.initialToolDraft)) {
+    edit.disabledTools = Object.entries(state.toolDraft)
+      .filter(([, draft]) => !draft.enabled)
+      .map(([name]) => name)
+      .sort((left, right) => left.localeCompare(right));
+    edit.toolDescriptionOverrides = Object.fromEntries(
+      Object.entries(state.toolDraft)
+        .map(([name, draft]) => [name, draft.descriptionOverride.trim()] as const)
+        .filter(([, description]) => description.length > 0)
+        .sort(([left], [right]) => left.localeCompare(right)),
+    );
   }
   return edit;
 }
@@ -144,6 +163,60 @@ export function reduceConfiguredServerEditState(
               : state.instructionOverride.value,
         },
       });
+    case 'toolChanged': {
+      if (state.status !== 'loaded' || state.applyBusy) return state;
+      const current = state.toolDraft[action.name];
+      if (!current) return state;
+      return withDraftChange(state, {
+        toolDraft: {
+          ...state.toolDraft,
+          [action.name]: {
+            enabled: action.enabled ?? current.enabled,
+            descriptionOverride: action.descriptionOverride ?? current.descriptionOverride,
+          },
+        },
+      });
+    }
+    case 'toolsBulkChanged':
+      if (state.status !== 'loaded' || state.applyBusy) return state;
+      return withDraftChange(state, {
+        toolDraft: Object.fromEntries(
+          Object.entries(state.toolDraft).map(([name, draft]) => [
+            name,
+            action.names.includes(name) ? { ...draft, enabled: action.enabled } : draft,
+          ]),
+        ),
+      });
+    case 'toolInventoryRecalculated': {
+      if (state.status !== 'loaded' || state.applyBusy) return state;
+      const toolDraft = Object.fromEntries(
+        action.inventory.rows.map((row) => [
+          row.name,
+          state.toolDraft[row.name] ?? {
+            enabled: row.enabled,
+            descriptionOverride: row.descriptionOverride ?? '',
+          },
+        ]),
+      );
+      const initialToolDraft = Object.fromEntries(
+        action.inventory.rows.map((row) => [
+          row.name,
+          state.initialToolDraft[row.name] ?? {
+            enabled: row.enabled,
+            descriptionOverride: row.descriptionOverride ?? '',
+          },
+        ]),
+      );
+      return withDraftChange(
+        {
+          ...state,
+          detail: { ...state.detail, toolInventory: action.inventory },
+          toolModel: action.inventory.model,
+          initialToolDraft,
+        },
+        { toolDraft },
+      );
+    }
     case 'previewStarted':
       if (state.status !== 'loaded') return state;
       return { ...state, previewBusy: true, previewError: undefined };
@@ -210,6 +283,12 @@ function loadedState(serverId: string, detail: ConfiguredServerDetailResponse): 
       }
     }
   }
+  const toolDraft = Object.fromEntries(
+    (detail.toolInventory?.rows ?? []).map((row) => [
+      row.name,
+      { enabled: row.enabled, descriptionOverride: row.descriptionOverride ?? '' },
+    ]),
+  );
   return {
     status: 'loaded',
     serverId,
@@ -220,6 +299,9 @@ function loadedState(serverId: string, detail: ConfiguredServerDetailResponse): 
     clearedTransportOverrides: [],
     instructionOverride: instructionOverrideDraft(detail.server.instructionOverride),
     initialInstructionOverride: instructionOverrideDraft(detail.server.instructionOverride),
+    toolDraft,
+    initialToolDraft: toolDraft,
+    toolModel: detail.toolInventory?.model ?? 'gpt-4o',
     dirty: false,
     previewBusy: false,
     applyBusy: false,
@@ -231,7 +313,11 @@ function withDraftChange(
   change: Partial<
     Pick<
       LoadedConfiguredServerEditState,
-      'fieldDraft' | 'secretDraft' | 'clearedTransportOverrides' | 'instructionOverride'
+      | 'fieldDraft'
+      | 'secretDraft'
+      | 'clearedTransportOverrides'
+      | 'instructionOverride'
+      | 'toolDraft'
     >
   >,
 ): LoadedConfiguredServerEditState {

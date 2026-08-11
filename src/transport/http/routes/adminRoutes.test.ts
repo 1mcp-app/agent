@@ -1987,6 +1987,18 @@ describe('admin routes', () => {
             },
           ],
         },
+        toolInventory: {
+          targetName: 'github/api server',
+          source: 'mcpServers',
+          targetEnabled: true,
+          freshness: 'live',
+          model: 'gpt-4o-mini',
+          generation: 'generation-1',
+          activeInstanceCount: 1,
+          rows: [],
+          counts: { observed: 0, enabled: 0, disabled: 0, unresolved: 0 },
+          approximateTokens: { enabled: 0, allObserved: 0, savings: 0 },
+        },
       },
     });
     const app = mountAdminRoutes();
@@ -1997,6 +2009,7 @@ describe('admin routes', () => {
 
     const response = await request(app)
       .get('/admin/api/configured-servers/github%2Fapi%20server')
+      .query({ model: 'gpt-4o-mini' })
       .set('Cookie', cookie);
 
     expect(response.status).toBe(200);
@@ -2015,6 +2028,7 @@ describe('admin routes', () => {
         schemaVersion: 3,
         target: { type: 'configured_server', id: 'github/api server', source: 'mcpServers' },
       },
+      toolInventory: { model: 'gpt-4o-mini', generation: 'generation-1' },
     });
     expect(response.body.server.id).toBe('github/api server');
     expect(response.body.editContract.capabilities).toMatchObject({
@@ -2033,6 +2047,7 @@ describe('admin routes', () => {
         target: { type: 'configured_server', id: 'mcpServers:github/api server' },
       }),
       targetName: 'github/api server',
+      model: 'gpt-4o-mini',
     });
     expect(JSON.stringify(response.body)).not.toMatch(/raw-token|raw-secret|Bearer raw/i);
   });
@@ -2185,7 +2200,7 @@ describe('admin routes', () => {
       .post('/admin/api/configured-servers/github%2Fapi/preview')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', loginResponse.body.csrfToken)
-      .send({ edit, connectivityCheck: 'manual' });
+      .send({ edit, connectivityCheck: 'manual', model: 'gpt-4o-mini' });
 
     expect(rejected.status).toBe(403);
     expect(response.status).toBe(200);
@@ -2238,6 +2253,7 @@ describe('admin routes', () => {
       targetName: 'github/api',
       edit,
       connectivityCheck: 'manual',
+      model: 'gpt-4o-mini',
     });
     expect(response.text).not.toMatch(/raw-secret|raw-token|Bearer raw/i);
   });

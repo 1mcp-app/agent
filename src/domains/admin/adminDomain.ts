@@ -26,6 +26,7 @@ import {
 import { type AdminOAuthOperations, AdminOAuthService } from './adminOAuthService.js';
 import { AdminOperationService } from './adminOperationService.js';
 import { type AdminPresetOperations, AdminPresetService } from './adminPresetService.js';
+import type { ConfiguredToolInventory, ConfiguredToolTargetSource } from './configuredToolInventory.js';
 import type { AdminMutationAvailability } from './runtimeScopeAdminLock.js';
 
 export interface AdminDomainOptions {
@@ -36,6 +37,12 @@ export interface AdminDomainOptions {
   getConfigPath?: () => string;
   readConfigDocument: () => ConfiguredServerConfigDocument | null;
   checkConnectivity?: ConfiguredServerConnectivityChecker;
+  readToolInventory?: (input: {
+    targetName: string;
+    source: ConfiguredToolTargetSource;
+    config: MCPServerParams;
+    model?: string;
+  }) => Promise<ConfiguredToolInventory>;
   mutationAvailability?: AdminMutationAvailability;
   now?: () => Date;
   createOperationId?: () => string;
@@ -77,6 +84,7 @@ export function createAdminDomain(options: AdminDomainOptions): AdminDomain {
     configChangeService: options.configChangeService,
     readConfigDocument: options.readConfigDocument,
     ...(options.checkConnectivity ? { checkConnectivity: options.checkConnectivity } : {}),
+    ...(options.readToolInventory ? { readToolInventory: options.readToolInventory } : {}),
   });
   const instructionTemplateService =
     options.getConfigPath && options.previewInstructions

@@ -153,6 +153,18 @@
             "description": "Literal replacement for upstream server instructions; an empty string intentionally suppresses them",
             "type": "string"
           },
+          "toolDescriptionOverrides": {
+            "description": "Override upstream tool descriptions by logical tool name; blank descriptions are not supported",
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "minLength": 1
+            },
+            "additionalProperties": {
+              "type": "string",
+              "minLength": 1
+          }
+          },
           "timeout": {
             "description": "Deprecated: Use connectionTimeout and requestTimeout instead. Fallback timeout in milliseconds",
             "type": "number"
@@ -369,6 +381,18 @@
           "instructionOverride": {
             "description": "Literal replacement for upstream server instructions inherited by rendered instances; an empty string intentionally suppresses them",
             "type": "string"
+          },
+          "toolDescriptionOverrides": {
+            "description": "Override upstream tool descriptions by logical tool name; blank descriptions are not supported",
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "minLength": 1
+            },
+            "additionalProperties": {
+              "type": "string",
+              "minLength": 1
+          }
           },
           "timeout": {
             "description": "Deprecated: Use connectionTimeout and requestTimeout instead. Fallback timeout in milliseconds",
