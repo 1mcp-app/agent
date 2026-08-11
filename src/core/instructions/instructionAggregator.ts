@@ -28,6 +28,7 @@ export type InstructionSurface = 'initialization' | 'cli';
 
 export interface RuntimeInstructionConfiguration {
   instructionTemplates?: Record<string, InstructionTemplateConfig>;
+  publishedInstructionTemplates?: Record<string, InstructionTemplateConfig>;
   activeInstructionTemplate?: string;
   configuredTargets: ConfiguredServerInstructionTargets;
 }
@@ -256,7 +257,8 @@ export class InstructionAggregator extends EventEmitter {
       const managedTemplate =
         activeIdentity === 'default'
           ? builtInTemplate
-          : this.runtimeConfiguration.instructionTemplates?.[activeIdentity]?.[surface];
+          : (this.runtimeConfiguration.publishedInstructionTemplates?.[activeIdentity] ??
+            this.runtimeConfiguration.instructionTemplates?.[activeIdentity])?.[surface];
       if (managedTemplate === undefined) {
         return this.renderManagedFallback(
           surface,

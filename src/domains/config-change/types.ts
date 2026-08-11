@@ -96,6 +96,7 @@ export interface SetInstructionTemplateConfigurationInput {
   operation: InstructionTemplateConfigChangeOperation;
   identity: string;
   instructionTemplates?: Record<string, InstructionTemplateConfig>;
+  publishedInstructionTemplates?: Record<string, InstructionTemplateConfig>;
   activeInstructionTemplate?: string;
   expectedConfigFingerprint: string;
 }
@@ -136,5 +137,6 @@ export interface MutableConfigDocument extends Record<string, unknown> {
   mcpServers?: Record<string, MCPServerParams>;
   mcpTemplates?: Record<string, MCPServerParams>;
   instructionTemplates?: Record<string, InstructionTemplateConfig>;
+  publishedInstructionTemplates?: Record<string, InstructionTemplateConfig>;
   activeInstructionTemplate?: string;
 }

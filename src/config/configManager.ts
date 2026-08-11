@@ -355,6 +355,7 @@ export class ConfigManager extends EventEmitter {
   /** Return the unrendered instruction configuration used by both runtime surfaces. */
   public getRuntimeInstructionConfiguration(): {
     instructionTemplates?: MCPServerConfiguration['instructionTemplates'];
+    publishedInstructionTemplates?: MCPServerConfiguration['publishedInstructionTemplates'];
     activeInstructionTemplate?: string;
     configuredTargets: {
       mcpServers: MCPServerConfiguration['mcpServers'];
@@ -364,6 +365,7 @@ export class ConfigManager extends EventEmitter {
     const config = mcpServerConfigSchema.parse(this.loadRawConfig());
     return {
       instructionTemplates: config.instructionTemplates,
+      publishedInstructionTemplates: config.publishedInstructionTemplates,
       activeInstructionTemplate: config.activeInstructionTemplate,
       configuredTargets: {
         mcpServers: config.mcpServers,

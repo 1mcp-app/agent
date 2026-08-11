@@ -54,6 +54,7 @@ interface InstructionTemplateManagerPorts {
 
 interface ConfigDocument extends Record<string, unknown> {
   instructionTemplates?: Record<string, InstructionTemplateConfig>;
+  publishedInstructionTemplates?: Record<string, InstructionTemplateConfig>;
   activeInstructionTemplate?: string;
 }
 
@@ -102,6 +103,7 @@ export function createInstructionTemplateManager(ports: InstructionTemplateManag
     operation: Parameters<ConfigChangeService['setInstructionTemplateConfiguration']>[0]['operation'],
     identity: string,
     instructionTemplates: Record<string, InstructionTemplateConfig> | undefined,
+    publishedInstructionTemplates: Record<string, InstructionTemplateConfig> | undefined,
     activeInstructionTemplate: string | undefined,
     expectedConfigFingerprint: string,
   ): Promise<InstructionTemplateMutationResult> {
@@ -110,6 +112,10 @@ export function createInstructionTemplateManager(ports: InstructionTemplateManag
       identity,
       instructionTemplates:
         instructionTemplates && Object.keys(instructionTemplates).length > 0 ? instructionTemplates : undefined,
+      publishedInstructionTemplates:
+        publishedInstructionTemplates && Object.keys(publishedInstructionTemplates).length > 0
+          ? publishedInstructionTemplates
+          : undefined,
       activeInstructionTemplate,
       expectedConfigFingerprint,
     });
@@ -132,7 +138,7 @@ export function createInstructionTemplateManager(ports: InstructionTemplateManag
           variants,
           protected: false,
           active: identity === activeIdentity,
-          draft: identity !== activeIdentity,
+          draft: isDirtyDraft(config, identity, variants, activeIdentity),
           validation: validateVariants(variants),
         }));
 
@@ -164,6 +170,7 @@ export function createInstructionTemplateManager(ports: InstructionTemplateManag
         'template_create',
         input.identity,
         { ...config.instructionTemplates, [input.identity]: input.template },
+        config.publishedInstructionTemplates,
         config.activeInstructionTemplate,
         input.expectedConfigFingerprint,
       );
@@ -174,10 +181,18 @@ export function createInstructionTemplateManager(ports: InstructionTemplateManag
       if (hasStaleFingerprint(config, input.expectedConfigFingerprint)) return { status: 'conflict' };
       if (input.identity === DEFAULT_IDENTITY) return { status: 'protected' };
       if (!config.instructionTemplates?.[input.identity]) return { status: 'not_found' };
+      const publishedInstructionTemplates = { ...config.publishedInstructionTemplates };
+      if (
+        config.activeInstructionTemplate === input.identity &&
+        !Object.hasOwn(publishedInstructionTemplates, input.identity)
+      ) {
+        publishedInstructionTemplates[input.identity] = config.instructionTemplates[input.identity];
+      }
       return writeCollection(
         'template_update',
         input.identity,
         { ...config.instructionTemplates, [input.identity]: input.template },
+        publishedInstructionTemplates,
         config.activeInstructionTemplate,
         input.expectedConfigFingerprint,
       );
@@ -195,6 +210,7 @@ export function createInstructionTemplateManager(ports: InstructionTemplateManag
         'template_clone',
         input.identity,
         { ...config.instructionTemplates, [input.identity]: { ...source } },
+        config.publishedInstructionTemplates,
         config.activeInstructionTemplate,
         input.expectedConfigFingerprint,
       );
@@ -208,10 +224,13 @@ export function createInstructionTemplateManager(ports: InstructionTemplateManag
       if (config.activeInstructionTemplate === input.identity) return { status: 'active_conflict' };
       const instructionTemplates = { ...config.instructionTemplates };
       delete instructionTemplates[input.identity];
+      const publishedInstructionTemplates = { ...config.publishedInstructionTemplates };
+      delete publishedInstructionTemplates[input.identity];
       return writeCollection(
         'template_delete',
         input.identity,
         instructionTemplates,
+        publishedInstructionTemplates,
         config.activeInstructionTemplate,
         input.expectedConfigFingerprint,
       );
@@ -228,6 +247,9 @@ export function createInstructionTemplateManager(ports: InstructionTemplateManag
         'template_activate',
         input.identity,
         config.instructionTemplates,
+        input.identity === DEFAULT_IDENTITY
+          ? config.publishedInstructionTemplates
+          : { ...config.publishedInstructionTemplates, [input.identity]: variants },
         input.identity,
         input.expectedConfigFingerprint,
       );
@@ -246,6 +268,7 @@ export function createInstructionTemplateManager(ports: InstructionTemplateManag
           ...config.instructionTemplates,
           [input.identity]: { initialization: input.initialization, cli: DEFAULT_CLI_INSTRUCTION_TEMPLATE },
         },
+        config.publishedInstructionTemplates,
         config.activeInstructionTemplate,
         input.expectedConfigFingerprint,
       );
@@ -257,6 +280,17 @@ export function createInstructionTemplateManager(ports: InstructionTemplateManag
       return variants ? validateVariants(variants) : undefined;
     },
   };
+}
+
+function isDirtyDraft(
+  config: ConfigDocument,
+  identity: string,
+  variants: InstructionTemplateConfig,
+  activeIdentity: string,
+): boolean {
+  const published = config.publishedInstructionTemplates?.[identity];
+  if (!published) return identity !== activeIdentity;
+  return published.initialization !== variants.initialization || published.cli !== variants.cli;
 }
 
 function validateVariants(variants: InstructionTemplateConfig): InstructionTemplateValidation {

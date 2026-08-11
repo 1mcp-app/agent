@@ -44,11 +44,30 @@ describe('instruction management configuration', () => {
     expect(config.activeInstructionTemplate).toBe('draft');
   });
 
+  it('preserves an optional published snapshot independently from its draft', () => {
+    const config = mcpServerConfigSchema.parse({
+      mcpServers: {},
+      instructionTemplates: { team: { initialization: 'draft init', cli: 'draft cli' } },
+      publishedInstructionTemplates: { team: { initialization: 'published init', cli: 'published cli' } },
+      activeInstructionTemplate: 'team',
+    });
+
+    expect(config.publishedInstructionTemplates).toEqual({
+      team: { initialization: 'published init', cli: 'published cli' },
+    });
+  });
+
   it('rejects redefining the protected default or selecting a missing managed template', () => {
     expect(() =>
       mcpServerConfigSchema.parse({
         mcpServers: {},
         instructionTemplates: { default: { initialization: 'custom', cli: 'custom' } },
+      }),
+    ).toThrow(/protected default/);
+    expect(() =>
+      mcpServerConfigSchema.parse({
+        mcpServers: {},
+        publishedInstructionTemplates: { default: { initialization: 'custom', cli: 'custom' } },
       }),
     ).toThrow(/protected default/);
     expect(() => mcpServerConfigSchema.parse({ mcpServers: {}, activeInstructionTemplate: 'missing' })).toThrow(

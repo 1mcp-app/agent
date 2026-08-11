@@ -708,10 +708,12 @@ class DefaultConfigChangeService implements ConfigChangeService {
 
       const currentState = {
         instructionTemplates: config.instructionTemplates,
+        publishedInstructionTemplates: config.publishedInstructionTemplates,
         activeInstructionTemplate: config.activeInstructionTemplate,
       };
       const requestedState = {
         instructionTemplates: input.instructionTemplates,
+        publishedInstructionTemplates: input.publishedInstructionTemplates,
         activeInstructionTemplate: input.activeInstructionTemplate,
       };
       if (stableStringify(currentState) === stableStringify(requestedState)) {
@@ -721,6 +723,8 @@ class DefaultConfigChangeService implements ConfigChangeService {
       const nextConfig = cloneConfig(config);
       if (input.instructionTemplates === undefined) delete nextConfig.instructionTemplates;
       else nextConfig.instructionTemplates = input.instructionTemplates;
+      if (input.publishedInstructionTemplates === undefined) delete nextConfig.publishedInstructionTemplates;
+      else nextConfig.publishedInstructionTemplates = input.publishedInstructionTemplates;
       if (input.activeInstructionTemplate === undefined) delete nextConfig.activeInstructionTemplate;
       else nextConfig.activeInstructionTemplate = input.activeInstructionTemplate;
 

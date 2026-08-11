@@ -481,6 +481,8 @@ export interface MCPServerConfiguration {
   templateSettings?: TemplateSettings;
   /** Managed, surface-specific instruction template drafts keyed by stable identity. */
   instructionTemplates?: Record<string, InstructionTemplateConfig>;
+  /** Last explicitly activated variants, kept separate from editable drafts. */
+  publishedInstructionTemplates?: Record<string, InstructionTemplateConfig>;
   /** Explicitly selected managed instruction template identity, including the protected `default`. */
   activeInstructionTemplate?: string;
 }
@@ -528,6 +530,10 @@ export const mcpServerConfigSchema = z
       .record(z.string().min(1), instructionTemplateConfigSchema)
       .optional()
       .describe('Managed instruction template drafts keyed by stable identity'),
+    publishedInstructionTemplates: z
+      .record(z.string().min(1), instructionTemplateConfigSchema)
+      .optional()
+      .describe('Last activated instruction template variants keyed by stable identity'),
     activeInstructionTemplate: z
       .string()
       .min(1)
@@ -540,6 +546,14 @@ export const mcpServerConfigSchema = z
         code: 'custom',
         path: ['instructionTemplates', 'default'],
         message: 'The protected default instruction template cannot be redefined',
+      });
+    }
+
+    if (config.publishedInstructionTemplates && Object.hasOwn(config.publishedInstructionTemplates, 'default')) {
+      context.addIssue({
+        code: 'custom',
+        path: ['publishedInstructionTemplates', 'default'],
+        message: 'The protected default instruction template cannot be published',
       });
     }
 

@@ -111,6 +111,25 @@ describe('InstructionAggregator', () => {
       );
     });
 
+    it('renders the published snapshot while the active managed draft changes', () => {
+      aggregator.setRuntimeInstructionConfiguration({
+        activeInstructionTemplate: 'team',
+        instructionTemplates: {
+          team: { initialization: '{{#if invalid}}', cli: 'edited cli' },
+        },
+        publishedInstructionTemplates: {
+          team: { initialization: 'published init', cli: 'published cli' },
+        },
+        configuredTargets: { mcpServers: {}, mcpTemplates: {} },
+      });
+
+      expect(aggregator.renderInstructions('initialization', { tagFilterMode: 'none' }, new Map())).toBe(
+        'published init',
+      );
+      expect(aggregator.renderInstructions('cli', { tagFilterMode: 'none' }, new Map())).toBe('published cli');
+      expect(aggregator.getRenderFailures()).toEqual({});
+    });
+
     it.each([
       ['non-empty replacement', 'template replacement', 'template replacement'],
       ['empty suppression', '', ''],

@@ -85,6 +85,120 @@ describe('InstructionTemplateManager', () => {
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps an active legacy draft isolated from valid and invalid saves until activation publishes it', async () => {
+    await writeConfig({
+      mcpServers: {},
+      instructionTemplates: { team: { initialization: 'published init', cli: 'published cli' } },
+      activeInstructionTemplate: 'team',
+    });
+    const service = manager();
+
+    let state = await service.list();
+    expect(state.templates.find((template) => template.identity === 'team')).toMatchObject({
+      active: true,
+      draft: false,
+    });
+    expect(
+      (
+        await service.update({
+          identity: 'team',
+          template: { initialization: 'next init', cli: 'next cli' },
+          expectedConfigFingerprint: state.configFingerprint,
+        })
+      ).status,
+    ).toBe('changed');
+    expect(await readConfig()).toMatchObject({
+      instructionTemplates: { team: { initialization: 'next init', cli: 'next cli' } },
+      publishedInstructionTemplates: { team: { initialization: 'published init', cli: 'published cli' } },
+      activeInstructionTemplate: 'team',
+    });
+
+    state = await service.list();
+    expect(state.templates.find((template) => template.identity === 'team')).toMatchObject({
+      active: true,
+      draft: true,
+    });
+    await service.update({
+      identity: 'team',
+      template: { initialization: '{{#if invalid}}', cli: 'invalid draft' },
+      expectedConfigFingerprint: state.configFingerprint,
+    });
+    expect((await readConfig()).publishedInstructionTemplates.team).toEqual({
+      initialization: 'published init',
+      cli: 'published cli',
+    });
+
+    state = await service.list();
+    expect(
+      (
+        await service.activate({ identity: 'team', expectedConfigFingerprint: state.configFingerprint })
+      ).status,
+    ).toBe('invalid');
+    expect((await readConfig()).publishedInstructionTemplates.team.initialization).toBe('published init');
+
+    state = await service.list();
+    await service.update({
+      identity: 'team',
+      template: { initialization: 'activated init', cli: 'activated cli' },
+      expectedConfigFingerprint: state.configFingerprint,
+    });
+    state = await service.list();
+    expect(
+      (
+        await service.activate({ identity: 'team', expectedConfigFingerprint: state.configFingerprint })
+      ).status,
+    ).toBe('changed');
+    expect((await readConfig()).publishedInstructionTemplates.team).toEqual({
+      initialization: 'activated init',
+      cli: 'activated cli',
+    });
+    expect((await service.list()).templates.find((template) => template.identity === 'team')?.draft).toBe(false);
+  });
+
+  it('removes an inactive publication with its draft and keeps the built-in default clean', async () => {
+    await writeConfig({
+      mcpServers: {},
+      instructionTemplates: { team: { initialization: 'draft', cli: 'draft' } },
+      publishedInstructionTemplates: { team: { initialization: 'published', cli: 'published' } },
+      activeInstructionTemplate: 'default',
+    });
+    const service = manager();
+    let state = await service.list();
+    expect(state.templates[0]).toMatchObject({ identity: 'default', active: true, draft: false });
+    expect(state.templates.find((template) => template.identity === 'team')?.draft).toBe(true);
+
+    expect(
+      (
+        await service.delete({ identity: 'team', expectedConfigFingerprint: state.configFingerprint })
+      ).status,
+    ).toBe('changed');
+    const config = await readConfig();
+    expect(config.instructionTemplates).toBeUndefined();
+    expect(config.publishedInstructionTemplates).toBeUndefined();
+  });
+
+  it('returns an applied mutation with the reload failure unchanged', async () => {
+    await writeConfig({ mcpServers: {} });
+    const service = createInstructionTemplateManager({
+      getConfigPath: () => configPath,
+      configChangeService: createConfigChangeService({
+        getConfigPath: () => configPath,
+        reloadConfig: () => {
+          throw new Error('reload unavailable');
+        },
+      }),
+    });
+    const state = await service.list();
+
+    const result = await service.create({
+      identity: 'team',
+      template: { initialization: 'init', cli: 'cli' },
+      expectedConfigFingerprint: state.configFingerprint,
+    });
+
+    expect(result).toMatchObject({ status: 'changed', changed: true, reload: { status: 'failed' } });
+  });
+
   it('clones default, protects active templates, and atomically changes the one active identity', async () => {
     await writeConfig({ mcpServers: {} });
     const service = manager();

@@ -9,6 +9,7 @@ import type {
   InstructionTemplateManager,
   InstructionTemplateMutationResult,
 } from '../instruction-template/instructionTemplateManager.js';
+import type { ConfigChangeResult } from '../config-change/configChange.js';
 import {
   type AdminInstructionPreviewInput,
   type AdminInstructionPreviewResult,
@@ -162,6 +163,27 @@ describe('AdminInstructionTemplateService', () => {
     });
   });
 
+  it('completes a persisted mutation while preserving reload failure details', async () => {
+    vi.mocked(manager.update).mockResolvedValue({
+      ...changed('template_update', 'default'),
+      reload: { status: 'failed', error: 'reload watcher unavailable' },
+    });
+    const service = createService();
+
+    const result = await service.updateTemplate({
+      context: context('reload-failed'),
+      identity: 'default',
+      variants: { initialization: 'init', cli: 'cli' },
+      expectedConfigFingerprint: 'config-1',
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      status: 'completed',
+      result: { status: 'changed', changed: true, reload: { status: 'failed', error: 'reload watcher unavailable' } },
+    });
+  });
+
   function createService(
     overrides: {
       legacyInitialization?: () => string | undefined;
@@ -213,7 +235,7 @@ function validation(valid: boolean) {
   return { valid, initialization: result, cli: result };
 }
 
-function changed(operation: string, identity: string): InstructionTemplateMutationResult {
+function changed(operation: string, identity: string): ConfigChangeResult {
   return {
     status: 'changed',
     operation: operation as never,

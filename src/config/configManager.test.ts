@@ -159,6 +159,31 @@ describe('ConfigManager (Integration)', () => {
   });
 
   describe('initialization', () => {
+    it('preserves published instruction variants across reload and restart', async () => {
+      const updatedConfig = {
+        mcpServers: {},
+        instructionTemplates: { team: { initialization: 'edited init', cli: 'edited cli' } },
+        publishedInstructionTemplates: { team: { initialization: 'published init', cli: 'published cli' } },
+        activeInstructionTemplate: 'team',
+      };
+      await fsPromises.writeFile(configFilePath, JSON.stringify(updatedConfig, null, 2));
+      await configManager.reloadConfig();
+
+      expect(configManager.getRuntimeInstructionConfiguration()).toMatchObject({
+        instructionTemplates: updatedConfig.instructionTemplates,
+        publishedInstructionTemplates: updatedConfig.publishedInstructionTemplates,
+        activeInstructionTemplate: 'team',
+      });
+
+      await configManager.stop();
+      (ConfigManager as any).instance = null;
+      configManager = ConfigManager.getInstance(configFilePath);
+      await configManager.initialize();
+      expect(configManager.getRuntimeInstructionConfiguration().publishedInstructionTemplates).toEqual(
+        updatedConfig.publishedInstructionTemplates,
+      );
+    });
+
     it('should load initial configuration correctly', () => {
       const config = configManager.getTransportConfig();
 
