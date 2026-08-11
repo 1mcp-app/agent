@@ -23,6 +23,7 @@ import {
   type ReleaseConfigLock,
 } from './configLock.js';
 import type {
+  ChangeConfiguredServerInstructionOverrideInput,
   ConfigBackupPolicy,
   ConfigBackupResult,
   ConfigChangePorts,
@@ -37,6 +38,7 @@ import type {
   MutableConfigDocument,
   RemoveConfiguredServerTargetInput,
   SetConfiguredServerTargetEnabledStateInput,
+  SetInstructionTemplateConfigurationInput,
   SetStaticConfiguredServerTargetInput,
 } from './types.js';
 
@@ -54,10 +56,12 @@ export type {
   ConfigRetentionCleanupResult,
   ConfiguredServerTargetRef,
   ConfiguredServerTargetSource,
+  ChangeConfiguredServerInstructionOverrideInput,
   CreateStaticConfiguredServerTargetInput,
   EditConfiguredServerTargetInput,
   RemoveConfiguredServerTargetInput,
   SetConfiguredServerTargetEnabledStateInput,
+  SetInstructionTemplateConfigurationInput,
   SetStaticConfiguredServerTargetInput,
 } from './types.js';
 
@@ -679,6 +683,145 @@ class DefaultConfigChangeService implements ConfigChangeService {
     };
   }
 
+  async setInstructionTemplateConfiguration(
+    input: SetInstructionTemplateConfigurationInput,
+  ): Promise<ConfigChangeResult> {
+    const configPath = this.resolveConfigPath();
+    let releaseLock: ReleaseConfigLock;
+    try {
+      releaseLock = await acquireConfigLock(configPath, this.ports.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS);
+    } catch (error) {
+      if (error instanceof ConfigLockTimeoutError) {
+        return instructionChangeResult('failed', input.operation, configPath, { name: input.identity }, error.message);
+      }
+      throw error;
+    }
+
+    let resultWithoutReload: ConfigChangeResult;
+    try {
+      const config = this.loadConfig(configPath);
+      if (fingerprintConfiguredServerConfigDocument(config) !== input.expectedConfigFingerprint) {
+        return instructionChangeResult(
+          'source_conflict',
+          input.operation,
+          configPath,
+          { name: input.identity },
+          'Instruction template configuration changed after it was read',
+        );
+      }
+
+      const currentState = {
+        instructionTemplates: config.instructionTemplates,
+        activeInstructionTemplate: config.activeInstructionTemplate,
+      };
+      const requestedState = {
+        instructionTemplates: input.instructionTemplates,
+        activeInstructionTemplate: input.activeInstructionTemplate,
+      };
+      if (stableStringify(currentState) === stableStringify(requestedState)) {
+        return instructionChangeResult('unchanged', input.operation, configPath, { name: input.identity });
+      }
+
+      const nextConfig = cloneConfig(config);
+      if (input.instructionTemplates === undefined) delete nextConfig.instructionTemplates;
+      else nextConfig.instructionTemplates = input.instructionTemplates;
+      if (input.activeInstructionTemplate === undefined) delete nextConfig.activeInstructionTemplate;
+      else nextConfig.activeInstructionTemplate = input.activeInstructionTemplate;
+
+      this.validateConfig(configPath, nextConfig);
+      const backup = this.createBackupIfNeeded(configPath, 'required');
+      this.writeConfig(configPath, nextConfig);
+      const retentionCleanup = this.cleanupBackups(configPath, backup);
+      resultWithoutReload = {
+        ...instructionChangeResult('changed', input.operation, configPath, { name: input.identity }),
+        changed: true,
+        backup,
+        retentionCleanup,
+        warnings: retentionCleanup.warnings,
+      };
+    } finally {
+      releaseLock();
+    }
+
+    return { ...resultWithoutReload, reload: this.reloadConfig(configPath) };
+  }
+
+  async changeConfiguredServerInstructionOverride(
+    input: ChangeConfiguredServerInstructionOverrideInput,
+  ): Promise<ConfigChangeResult> {
+    const configPath = this.resolveConfigPath();
+    const operation = input.mutation.action === 'set' ? 'instruction_override_set' : 'instruction_override_remove';
+    let releaseLock: ReleaseConfigLock;
+    try {
+      releaseLock = await acquireConfigLock(configPath, this.ports.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS);
+    } catch (error) {
+      if (error instanceof ConfigLockTimeoutError) {
+        return instructionChangeResult('failed', operation, configPath, input.target, error.message);
+      }
+      throw error;
+    }
+
+    let resultWithoutReload: ConfigChangeResult;
+    try {
+      const config = this.loadConfig(configPath);
+      if (
+        input.expectedConfigFingerprint !== undefined &&
+        fingerprintConfiguredServerConfigDocument(config) !== input.expectedConfigFingerprint
+      ) {
+        return instructionChangeResult(
+          'source_conflict',
+          operation,
+          configPath,
+          input.target,
+          'Configured server state changed after it was read',
+        );
+      }
+      const section = input.target.source === 'mcpServers' ? config.mcpServers : config.mcpTemplates;
+      const existing = section?.[input.target.name];
+      if (!existing) return instructionChangeResult('not_found', operation, configPath, input.target);
+      if (fingerprintConfiguredServerTarget(existing) !== input.expectedSourceFingerprint) {
+        return instructionChangeResult(
+          'source_conflict',
+          operation,
+          configPath,
+          input.target,
+          `Configured server target '${input.target.name}' changed after it was read`,
+        );
+      }
+
+      const hasOverride = Object.hasOwn(existing, 'instructionOverride');
+      if (
+        (input.mutation.action === 'set' && hasOverride && existing.instructionOverride === input.mutation.value) ||
+        (input.mutation.action === 'remove' && !hasOverride)
+      ) {
+        return instructionChangeResult('unchanged', operation, configPath, input.target);
+      }
+
+      const nextConfig = cloneConfig(config);
+      const nextSection = input.target.source === 'mcpServers' ? nextConfig.mcpServers : nextConfig.mcpTemplates;
+      const nextTarget = nextSection?.[input.target.name];
+      if (!nextTarget) return instructionChangeResult('not_found', operation, configPath, input.target);
+      if (input.mutation.action === 'set') nextTarget.instructionOverride = input.mutation.value;
+      else delete nextTarget.instructionOverride;
+
+      this.validateConfig(configPath, nextConfig);
+      const backup = this.createBackupIfNeeded(configPath, 'required');
+      this.writeConfig(configPath, nextConfig);
+      const retentionCleanup = this.cleanupBackups(configPath, backup);
+      resultWithoutReload = {
+        ...instructionChangeResult('changed', operation, configPath, input.target),
+        changed: true,
+        backup,
+        retentionCleanup,
+        warnings: retentionCleanup.warnings,
+      };
+    } finally {
+      releaseLock();
+    }
+
+    return { ...resultWithoutReload, reload: this.reloadConfig(configPath) };
+  }
+
   async acquireConfigLockForTest(configPath: string): Promise<() => void> {
     return acquireConfigLock(configPath, DEFAULT_LOCK_TIMEOUT_MS);
   }
@@ -907,6 +1050,27 @@ function editConflictResult(
   return {
     status,
     operation: 'edit',
+    configPath,
+    target,
+    changed: false,
+    backup: { created: false },
+    retentionCleanup: retentionSkipped(),
+    reload: { status: 'skipped' },
+    warnings: [],
+    ...(error ? { error } : {}),
+  };
+}
+
+function instructionChangeResult(
+  status: ConfigChangeResult['status'],
+  operation: ConfigChangeResult['operation'],
+  configPath: string,
+  target: ConfiguredServerTargetRef,
+  error?: string,
+): ConfigChangeResult {
+  return {
+    status,
+    operation,
     configPath,
     target,
     changed: false,

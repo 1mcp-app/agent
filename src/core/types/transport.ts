@@ -82,6 +82,8 @@ export interface BaseTransportConfig {
   readonly disabled?: boolean | string;
   /** Hide specific tools from this server without disabling the entire server */
   readonly disabledTools?: string[];
+  /** Literal replacement for upstream server instructions. Empty intentionally suppresses them. */
+  readonly instructionOverride?: string;
   readonly tags?: string[];
   readonly oauth?: OAuthConfig;
 }
@@ -236,6 +238,10 @@ export const transportConfigSchema = z.object({
     .array(z.string().min(1))
     .optional()
     .describe('Hide specific tools from this server without disabling the entire server'),
+  instructionOverride: z
+    .string()
+    .optional()
+    .describe('Literal replacement for upstream instructions; an empty string intentionally suppresses them'),
   timeout: z
     .number()
     .optional()
@@ -473,6 +479,15 @@ export interface MCPServerConfiguration {
   mcpTemplates?: Record<string, MCPServerParams>;
   /** Template processing settings */
   templateSettings?: TemplateSettings;
+  /** Managed, surface-specific instruction template drafts keyed by stable identity. */
+  instructionTemplates?: Record<string, InstructionTemplateConfig>;
+  /** Explicitly selected managed instruction template identity, including the protected `default`. */
+  activeInstructionTemplate?: string;
+}
+
+export interface InstructionTemplateConfig {
+  initialization: string;
+  cli: string;
 }
 
 /**
@@ -487,23 +502,59 @@ export const templateSettingsSchema = z.object({
   cacheContext: z.boolean().optional().describe('Whether to cache processed templates based on context hash'),
 });
 
+export const instructionTemplateConfigSchema = z.object({
+  initialization: z.string().describe('Complete Handlebars template for MCP initialization instructions'),
+  cli: z.string().describe('Complete Handlebars template for direct CLI instructions'),
+});
+
 /**
  * Extended Zod schema for MCP server configuration with template support
  */
-export const mcpServerConfigSchema = z.object({
-  version: z.string().optional().describe('Version of the configuration format for migration purposes'),
-  serverDefaults: globalTransportConfigSchema
-    .optional()
-    .describe('Shareable defaults inherited by all MCP servers (transport settings only)'),
-  mcpServers: z
-    .record(z.string(), transportConfigSchema)
-    .describe('Static server configurations (no template processing)'),
-  mcpTemplates: z
-    .record(z.string(), transportConfigSchema)
-    .optional()
-    .describe('Template-based server configurations (processed with context data)'),
-  templateSettings: templateSettingsSchema.optional().describe('Template processing settings'),
-});
+export const mcpServerConfigSchema = z
+  .object({
+    version: z.string().optional().describe('Version of the configuration format for migration purposes'),
+    serverDefaults: globalTransportConfigSchema
+      .optional()
+      .describe('Shareable defaults inherited by all MCP servers (transport settings only)'),
+    mcpServers: z
+      .record(z.string(), transportConfigSchema)
+      .describe('Static server configurations (no template processing)'),
+    mcpTemplates: z
+      .record(z.string(), transportConfigSchema)
+      .optional()
+      .describe('Template-based server configurations (processed with context data)'),
+    templateSettings: templateSettingsSchema.optional().describe('Template processing settings'),
+    instructionTemplates: z
+      .record(z.string().min(1), instructionTemplateConfigSchema)
+      .optional()
+      .describe('Managed instruction template drafts keyed by stable identity'),
+    activeInstructionTemplate: z
+      .string()
+      .min(1)
+      .optional()
+      .describe('Explicitly selected managed instruction template identity'),
+  })
+  .superRefine((config, context) => {
+    if (config.instructionTemplates && Object.hasOwn(config.instructionTemplates, 'default')) {
+      context.addIssue({
+        code: 'custom',
+        path: ['instructionTemplates', 'default'],
+        message: 'The protected default instruction template cannot be redefined',
+      });
+    }
+
+    if (
+      config.activeInstructionTemplate !== undefined &&
+      config.activeInstructionTemplate !== 'default' &&
+      !Object.hasOwn(config.instructionTemplates ?? {}, config.activeInstructionTemplate)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['activeInstructionTemplate'],
+        message: 'Active instruction template must reference a managed template or the protected default',
+      });
+    }
+  });
 
 /**
  * Type for MCP server configuration derived from the extended schema
