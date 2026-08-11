@@ -3,6 +3,7 @@ import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { validateTemplateContent } from '@src/core/instructions/templateValidator.js';
 import {
   AdminConfiguredServerApplyError,
   type AdminConfiguredServerOperations,
@@ -619,16 +620,14 @@ describe('admin SPA browser smoke', () => {
       await page.getByRole('button', { name: 'Clone template' }).click();
       await page.getByRole('button', { name: /operator/ }).click();
 
-      await page
-        .getByLabel('Initialization template')
-        .fill('Initialize {{server_instructions}} for {{request_context}}');
+      await page.getByLabel('Initialization template').fill('Initialize {{instructions}} for this request');
       await page.getByRole('tab', { name: 'CLI' }).click();
-      await page.getByLabel('CLI template').fill('invalid draft');
+      await page.getByLabel('CLI template').fill('{{#if instructions}}Unclosed block');
       await page.getByRole('button', { name: 'Save draft' }).click();
       await expectText(page, 'Draft validation');
-      await expectText(page, 'CLI: Template must include {{server_instructions}}');
+      await expectText(page, 'CLI: Template syntax error');
 
-      await page.getByLabel('CLI template').fill('CLI {{server_instructions}}');
+      await page.getByLabel('CLI template').fill('CLI {{instructions}}');
       await page.getByRole('button', { name: 'Save draft' }).click();
       await page.getByRole('tab', { name: 'Initialization' }).click();
       await page.locator('[aria-label="Preview target selection"]').getByText('Tags', { exact: true }).click();
@@ -1354,7 +1353,7 @@ function createInstructionTemplateFixture(): ResettableInstructionTemplateFixtur
       state.templates.push(
         instructionTemplate(
           input.identity,
-          { initialization: 'Legacy {{server_instructions}}', cli: 'CLI {{server_instructions}}' },
+          { initialization: 'Legacy static initialization guidance', cli: 'Legacy static CLI guidance' },
           false,
           false,
         ),
@@ -1422,15 +1421,13 @@ function instructionTemplate(
 }
 
 function instructionVariantValidation(value: string): { valid: boolean; error?: string } {
-  return value.includes('{{server_instructions}}')
-    ? { valid: true }
-    : { valid: false, error: 'Template must include {{server_instructions}}' };
+  return validateTemplateContent(value, 'fixture', { allowUnsafeContent: true });
 }
 
 function defaultInstructionVariants(): { initialization: string; cli: string } {
   return {
-    initialization: 'Initialize {{server_instructions}}',
-    cli: 'CLI {{server_instructions}}',
+    initialization: 'Initialize {{instructions}}',
+    cli: 'CLI {{instructions}}',
   };
 }
 
