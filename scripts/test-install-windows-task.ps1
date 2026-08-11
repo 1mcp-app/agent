@@ -66,7 +66,7 @@ Assert-Pass '4. -BinaryPath nonexistent: exits non-zero and prints correct error
         -ArgumentList @(
             '-NoProfile', '-NonInteractive',
             '-ExecutionPolicy', 'Bypass',
-            '-File', $ScriptPath,
+            '-File', ('"{0}"' -f $ScriptPath),
             '-BinaryPath', $fakePath
         ) `
         -RedirectStandardError $tempErr -RedirectStandardOutput $tempOut `
@@ -90,7 +90,7 @@ Assert-Pass '5. -Uninstall nonexistent task: clean exit (code 0)' {
         -ArgumentList @(
             '-NoProfile', '-NonInteractive',
             '-ExecutionPolicy', 'Bypass',
-            '-File', $ScriptPath,
+            '-File', ('"{0}"' -f $ScriptPath),
             '-Uninstall',
             '-TaskName', $fakeName
         ) `
@@ -114,8 +114,8 @@ Assert-Pass '6. -WhatIf: no task is registered and no credentials prompt' {
         -ArgumentList @(
             '-NoProfile', '-NonInteractive',
             '-ExecutionPolicy', 'Bypass',
-            '-File', $ScriptPath,
-            '-BinaryPath', $ps,
+            '-File', ('"{0}"' -f $ScriptPath),
+            '-BinaryPath', ('"{0}"' -f $ps),
             '-TaskName', $fakeName,
             '-WhatIf'
         ) `
