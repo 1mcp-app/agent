@@ -69,7 +69,7 @@ param(
     [Parameter(ParameterSetName = 'Npm', Mandatory = $true)]
     [switch]$UseNpm,
 
-    [string]$ConfigDir   = 'C:\ProgramData\1mcp',
+    [string]$ConfigDir   = "$env:APPDATA\1mcp",
     [ValidateRange(1, 65535)]
     [int]$Port           = 3050,
     [string]$HostAddress = '127.0.0.1',
@@ -106,7 +106,11 @@ if ($PSCmdlet.ParameterSetName -eq 'Npm') {
     }
 }
 
-# ── 2. Uninstall path ─────────────────────────────────────────────────────────
+# ── 2. Path resolution ────────────────────────────────────────────────────────
+$resolvedConfigDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ConfigDir)
+$vbsPath = Join-Path $resolvedConfigDir '1mcp-start.vbs'
+
+# ── 3. Uninstall path ─────────────────────────────────────────────────────────
 if ($Uninstall) {
     $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     if (-not $existing) {
@@ -123,31 +127,25 @@ if ($Uninstall) {
         Stop-ScheduledTask  -TaskName $TaskName -ErrorAction SilentlyContinue
         Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
         Write-Host "Removed scheduled task '$TaskName'."
+
+        # Clean up launcher script if present
+        if (Test-Path $vbsPath -PathType Leaf) {
+            Remove-Item $vbsPath -Force
+        }
     }
     exit 0
 }
 
-# ── 3. Path resolution ────────────────────────────────────────────────────────
-New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
-$resolvedConfigDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ConfigDir)
-
 # ── 4. Build task action ──────────────────────────────────────────────────────
 $argStr = "serve --transport http --host $HostAddress --port $Port --config-dir `"$resolvedConfigDir`""
 
-$action = if ($PSCmdlet.ParameterSetName -eq 'Binary') {
-    New-ScheduledTaskAction `
-        -Execute          $resolvedBinary `
-        -Argument         $argStr `
-        -WorkingDirectory $resolvedConfigDir
-} else {
-    New-ScheduledTaskAction `
-        -Execute          'cmd.exe' `
-        -Argument         "/s /c `"`"$cmdWrapper`" $argStr`"" `
-        -WorkingDirectory $resolvedConfigDir
-}
+$action = New-ScheduledTaskAction `
+    -Execute          'wscript.exe' `
+    -Argument         "//B `"$vbsPath`"" `
+    -WorkingDirectory $resolvedConfigDir
 
 # ── 5. Trigger / settings ────────────────────────────────────────────────────
-$trigger  = New-ScheduledTaskTrigger -AtStartup
+$trigger  = New-ScheduledTaskTrigger -AtLogon
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries `
@@ -157,16 +155,14 @@ $settings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `
     -MultipleInstances IgnoreNew
 
-# ── 6. Credential prompt + registration ──────────────────────────────────────
+# ── 6. Task registration ──────────────────────────────────────────────────────
 if ($PSCmdlet.ShouldProcess($TaskName, 'Register-ScheduledTask')) {
     $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     if (-not $isAdmin) {
         Write-Error 'This script must run from an elevated (Administrator) PowerShell session.'
     }
 
-    Write-Host "Enter the Windows account credentials for task '$TaskName'."
-    Write-Host "(The account must have the 'Log on as a service' or 'Log on as a batch job' right.)"
-    $cred = Get-Credential -Message "Account for scheduled task '$TaskName'"
+    $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 
     $existingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     if ($existingTask) {
@@ -180,25 +176,78 @@ if ($PSCmdlet.ShouldProcess($TaskName, 'Register-ScheduledTask')) {
         }
     }
 
+    # Ensure config directory exists
+    New-Item -ItemType Directory -Force -Path $resolvedConfigDir | Out-Null
+
+    # Write VBS launcher
+    $cmdToRun = if ($PSCmdlet.ParameterSetName -eq 'Binary') {
+        "`"$resolvedBinary`" $argStr"
+    } else {
+        "`"$cmdWrapper`" $argStr"
+    }
+    $escapedCmd = $cmdToRun.Replace('"', '""')
+    
+    $vbsContent = @"
+Set fso = CreateObject("Scripting.FileSystemObject")
+configDir = "$resolvedConfigDir"
+pidFile = configDir & "\server.pid"
+ownerDir = configDir & "\runtime.owner"
+
+If fso.FileExists(pidFile) Then
+    On Error Resume Next
+    Set f = fso.OpenTextFile(pidFile, 1)
+    content = f.ReadAll
+    f.Close
+    
+    Set regEx = New RegExp
+    regEx.Pattern = """pid""\s*:\s*(\d+)"
+    Set matches = regEx.Execute(content)
+    If matches.Count > 0 Then
+        pid = matches(0).SubMatches(0)
+        Set wmi = GetObject("winmgmts:\\.\root\cimv2")
+        Set procs = wmi.ExecQuery("Select * from Win32_Process Where ProcessId = " & pid)
+        isDead = True
+        If procs.Count > 0 Then
+            For Each proc In procs
+                cmdLine = LCase(proc.CommandLine)
+                exePath = LCase(proc.ExecutablePath)
+                If InStr(cmdLine, "1mcp") > 0 Or InStr(exePath, "node") > 0 Then
+                    isDead = False
+                End If
+            Next
+        End If
+        If isDead Then
+            fso.DeleteFile pidFile, True
+            If fso.FolderExists(ownerDir) Then
+                fso.DeleteFolder ownerDir, True
+            End If
+        End If
+    End If
+    On Error GoTo 0
+End If
+
+CreateObject("Wscript.Shell").Run "cmd.exe /c $escapedCmd", 0, False
+"@
+
+    [System.IO.File]::WriteAllText($vbsPath, $vbsContent, [System.Text.Encoding]::UTF8)
+
+    $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel Limited
     Register-ScheduledTask `
         -TaskName    $TaskName `
         -Action      $action `
         -Trigger     $trigger `
         -Settings    $settings `
-        -User        $cred.UserName `
-        -Password    $cred.GetNetworkCredential().Password `
+        -Principal   $principal `
         -Description '1MCP aggregated MCP runtime (managed by install-windows-task.ps1)' `
         -Force:$Force | Out-Null
 
     # ── 7. Grant Modify access on config directory ────────────────────────────
-    # The task account needs Modify (not just Write) so it can create subdirs,
-    # rename temp PID files atomically, and write log files.
-    $icaclsArgs = @($resolvedConfigDir, '/grant', "$($cred.UserName):(OI)(CI)M")
+    $icaclsArgs = @($resolvedConfigDir, '/grant', "$($currentUser):(OI)(CI)M")
     & icacls $icaclsArgs | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Write-Error "icacls failed with exit code $LASTEXITCODE. Could not grant permissions on '$resolvedConfigDir'."
     }
-    Write-Host "Granted Modify access on '$resolvedConfigDir' to '$($cred.UserName)'."
+    Write-Host "Granted Modify access on '$resolvedConfigDir' to '$currentUser'."
 
     # ── 8. Initial start + health check ──────────────────────────────────────
     Write-Host "Starting '$TaskName' for initial verification..."
