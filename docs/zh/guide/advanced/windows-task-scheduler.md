@@ -49,13 +49,15 @@ $configDir = "$env:APPDATA\1mcp"
 
 New-Item -ItemType Directory -Force -Path $configDir | Out-Null
 
-# 如果还没有配置文件，创建一个最小配置
-@'
+# 如果还没有配置文件，创建一个最小配置（防止覆盖已有配置）
+if (-not (Test-Path "$configDir\mcp.json")) {
+    @'
 {
   "$schema": "https://docs.1mcp.app/schemas/v1.0.0/mcp-config.json",
   "mcpServers": {}
 }
 '@ | Set-Content -Path "$configDir\mcp.json" -Encoding UTF8
+}
 ```
 
 ## 第二步：注册计划任务
@@ -70,13 +72,14 @@ New-Item -ItemType Directory -Force -Path $configDir | Out-Null
 $binaryPath = 'C:\Program Files\1mcp\1mcp.exe'   # 调整为你的实际安装路径
 $configDir  = "$env:APPDATA\1mcp"
 $taskName   = '1mcp-daemon'
+$currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 
 $action = New-ScheduledTaskAction `
     -Execute $binaryPath `
     -Argument "serve --transport http --host 127.0.0.1 --port 3050 --config-dir `"$configDir`"" `
     -WorkingDirectory $configDir
 
-$trigger = New-ScheduledTaskTrigger -AtLogon
+$trigger = New-ScheduledTaskTrigger -AtLogon -User $currentUser
 
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
@@ -87,7 +90,6 @@ $settings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `
     -MultipleInstances IgnoreNew
 
-$currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $principal = New-ScheduledTaskPrincipal `
     -UserId $currentUser `
     -LogonType Interactive `
@@ -208,13 +210,13 @@ Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:3050/health/mcp' | Select-O
 
 ## 故障排查
 
-| 现象                           | 可能原因                                 | 解决方法                                                                                                                             |
-| ------------------------------ | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| 任务显示**就绪**但从未启动     | 开机触发时系统尚未就绪                   | 手动启动一次确认功能正常；若守护进程常出现开机延迟，在 `New-ScheduledTaskTrigger -AtLogon` 中添加 `-Delay (New-TimeSpan -Minutes 1)` |
-| 任务启动后立即退出             | 二进制路径错误或缺少 `--config-dir`      | 检查任务操作路径，确认 `$configDir` 目录存在                                                                                         |
-| 启动后 `server.pid` 文件不存在 | 守护进程启动崩溃                         | 检查 `$configDir\logs\server.log` 中的日志                                                                                           |
-| 出现两个守护进程               | `MultipleInstances` 未设置为 `IgnoreNew` | 按第二步重新注册任务                                                                                                                 |
-| `1mcp proxy` 无法发现守护进程  | 任务与客户端的 `--config-dir` 不一致     | 确保两者使用相同的绝对路径                                                                                                           |
+| 现象                           | 可能原因                                 | 解决方法                                                                                                                                   |
+| ------------------------------ | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| 任务显示**就绪**但从未启动     | 开机触发时系统尚未就绪                   | 手动启动一次确认功能正常；若守护进程常出现开机延迟，在 `New-ScheduledTaskTrigger -AtLogon` 中添加 `-RandomDelay (New-TimeSpan -Minutes 1)` |
+| 任务启动后立即退出             | 二进制路径错误或缺少 `--config-dir`      | 检查任务操作路径，确认 `$configDir` 目录存在                                                                                               |
+| 启动后 `server.pid` 文件不存在 | 守护进程启动崩溃                         | 检查 `$configDir\logs\server.log` 中的日志                                                                                                 |
+| 出现两个守护进程               | `MultipleInstances` 未设置为 `IgnoreNew` | 按第二步重新注册任务                                                                                                                       |
+| `1mcp proxy` 无法发现守护进程  | 任务与客户端的 `--config-dir` 不一致     | 确保两者使用相同的绝对路径                                                                                                                 |
 
 ## 交互式登录与 S4U 登录对比
 

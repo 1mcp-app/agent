@@ -55,13 +55,15 @@ $configDir = "$env:APPDATA\1mcp"
 
 New-Item -ItemType Directory -Force -Path $configDir | Out-Null
 
-# Create a minimal config if you do not have one yet
-@'
+# Create a minimal config if you do not have one yet (prevent overwriting existing config)
+if (-not (Test-Path "$configDir\mcp.json")) {
+    @'
 {
   "$schema": "https://docs.1mcp.app/schemas/v1.0.0/mcp-config.json",
   "mcpServers": {}
 }
 '@ | Set-Content -Path "$configDir\mcp.json" -Encoding UTF8
+}
 ```
 
 ## Step 2: Register the Scheduled Task
@@ -76,13 +78,14 @@ Run the following from an **elevated PowerShell session**. This script does not 
 $binaryPath = 'C:\Program Files\1mcp\1mcp.exe'   # adjust to your installation path
 $configDir  = "$env:APPDATA\1mcp"
 $taskName   = '1mcp-daemon'
+$currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 
 $action = New-ScheduledTaskAction `
     -Execute $binaryPath `
     -Argument "serve --transport http --host 127.0.0.1 --port 3050 --config-dir `"$configDir`"" `
     -WorkingDirectory $configDir
 
-$trigger = New-ScheduledTaskTrigger -AtLogon
+$trigger = New-ScheduledTaskTrigger -AtLogon -User $currentUser
 
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
@@ -93,7 +96,6 @@ $settings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `
     -MultipleInstances IgnoreNew
 
-$currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $principal = New-ScheduledTaskPrincipal `
     -UserId $currentUser `
     -LogonType Interactive `
@@ -214,13 +216,13 @@ Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:3050/health/mcp' | Select-O
 
 ## Troubleshooting
 
-| Symptom                               | Likely cause                                    | Fix                                                                                                                                                                               |
-| ------------------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Task shows **Ready** but never starts | System not fully ready when the trigger fired   | Start the task manually once to confirm it works, then add `-Delay (New-TimeSpan -Minutes 1)` to `New-ScheduledTaskTrigger -AtLogon` if the daemon consistently needs extra delay |
-| Task starts but exits immediately     | Wrong binary path or missing `--config-dir`     | Check the task action path and that `$configDir` exists                                                                                                                           |
-| `server.pid` missing after start      | Daemon crashed on startup                       | Check the log file in `$configDir\logs\server.log`                                                                                                                                |
-| Two daemon processes running          | `MultipleInstances` not set to `IgnoreNew`      | Re-register with the settings from Step 2                                                                                                                                         |
-| `1mcp proxy` cannot find the daemon   | `--config-dir` mismatch between task and client | Ensure both use the same absolute path                                                                                                                                            |
+| Symptom                               | Likely cause                                    | Fix                                                                                                                                                                                     |
+| ------------------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Task shows **Ready** but never starts | System not fully ready when the trigger fired   | Start the task manually once to confirm it works, then add `-RandomDelay (New-TimeSpan -Minutes 1)` to `New-ScheduledTaskTrigger -AtLogon` if the daemon consistently needs extra delay |
+| Task starts but exits immediately     | Wrong binary path or missing `--config-dir`     | Check the task action path and that `$configDir` exists                                                                                                                                 |
+| `server.pid` missing after start      | Daemon crashed on startup                       | Check the log file in `$configDir\logs\server.log`                                                                                                                                      |
+| Two daemon processes running          | `MultipleInstances` not set to `IgnoreNew`      | Re-register with the settings from Step 2                                                                                                                                               |
+| `1mcp proxy` cannot find the daemon   | `--config-dir` mismatch between task and client | Ensure both use the same absolute path                                                                                                                                                  |
 
 ## Interactive Logon vs S4U Logon
 
