@@ -43,19 +43,15 @@ Use this page when you want `1mcp serve` to start automatically on Windows boot 
 Task Scheduler is the supervisor. `1mcp serve` runs in the foreground inside that task.
 
 - **Do not** pass `--background` or `--restart`. Those flags attach an extra supervisor; Task Scheduler would then monitor the short-lived launcher instead of the real daemon.
-- **Do not** run the task as SYSTEM or with elevated privileges. Use a dedicated least-privilege Windows account with password logon.
-- **Always** pass an explicit `--config-dir` with an absolute path so the daemon, the `1mcp serve --status` check, and any `1mcp proxy` client all share the same Runtime Scope.
+- **Do not** run the task as SYSTEM or with elevated privileges. Use interactive logon to run as the current non-privileged user.
+- **Recommend** using the user-scoped configuration path so the daemon, the `1mcp serve --status` check, and any `1mcp proxy` client all share the same Runtime Scope.
 
 ## Step 1: Prepare the Configuration Directory
 
-Choose a stable absolute path for the config directory. A system-wide path works well for multi-user machines; a user path works for single-user setups.
+Choose a user-scoped absolute path for the config directory to match the default environment of the logged-in user.
 
 ```powershell
-# System-wide (recommended)
-$configDir = 'C:\ProgramData\1mcp'
-
-# Or user-scoped
-# $configDir = "$env:LOCALAPPDATA\1mcp"
+$configDir = "$env:APPDATA\1mcp"
 
 New-Item -ItemType Directory -Force -Path $configDir | Out-Null
 
@@ -66,11 +62,6 @@ New-Item -ItemType Directory -Force -Path $configDir | Out-Null
   "mcpServers": {}
 }
 '@ | Set-Content -Path "$configDir\mcp.json" -Encoding UTF8
-
-# Grant the task account Modify access so it can write server.pid, state files, and logs.
-# Replace '.\1mcp-svc' with the actual account that will run the task.
-$taskAccount = Read-Host 'Task account that will run 1mcp (DOMAIN\user or .\user)'
-icacls $configDir /grant "${taskAccount}:(OI)(CI)M" | Out-Null
 ```
 
 ## Step 2: Register the Scheduled Task
@@ -79,11 +70,11 @@ icacls $configDir /grant "${taskAccount}:(OI)(CI)M" | Out-Null
 
 Download the standalone binary from the [releases page](https://github.com/1mcp-app/agent/releases) and save it to a stable absolute path, for example `C:\Program Files\1mcp\1mcp.exe`.
 
-Run the following from an **elevated PowerShell session**. The script prompts for credentials at registration time and never embeds a password.
+Run the following from an **elevated PowerShell session**. This script does not require or store your account password.
 
 ```powershell
 $binaryPath = 'C:\Program Files\1mcp\1mcp.exe'   # adjust to your installation path
-$configDir  = 'C:\ProgramData\1mcp'               # must match Step 1
+$configDir  = "$env:APPDATA\1mcp"
 $taskName   = '1mcp-daemon'
 
 $action = New-ScheduledTaskAction `
@@ -91,7 +82,7 @@ $action = New-ScheduledTaskAction `
     -Argument "serve --transport http --host 127.0.0.1 --port 3050 --config-dir `"$configDir`"" `
     -WorkingDirectory $configDir
 
-$trigger = New-ScheduledTaskTrigger -AtStartup
+$trigger = New-ScheduledTaskTrigger -AtLogon
 
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
@@ -102,12 +93,11 @@ $settings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `
     -MultipleInstances IgnoreNew
 
+$currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $principal = New-ScheduledTaskPrincipal `
-    -LogonType Password `
+    -UserId $currentUser `
+    -LogonType Interactive `
     -RunLevel Limited
-
-# Prompts for account and password interactively — credentials are never embedded in scripts
-$cred = Get-Credential -Message 'Enter the Windows account that will run 1mcp'
 
 Register-ScheduledTask `
     -TaskName $taskName `
@@ -115,20 +105,16 @@ Register-ScheduledTask `
     -Trigger $trigger `
     -Settings $settings `
     -Principal $principal `
-    -User $cred.UserName `
-    -Password $cred.GetNetworkCredential().Password `
     -Description '1MCP aggregated MCP runtime' `
     -Force
 ```
 
-> **Credential handling:** `Get-Credential` shows a secure dialog; the password is passed directly to `Register-ScheduledTask` and stored by the Task Scheduler service in its encrypted credential store. Never put passwords in scripts or environment variables.
-
 ### Secondary path: npm installation
 
-If you installed 1MCP via npm (`npm install -g @1mcp/agent`), use the generated `1mcp.cmd` wrapper through `cmd.exe`. Do not hard-code the path to `node.exe` or the internal `build/index.js`.
+If you installed 1MCP via npm (`npm install -g @1mcp/agent`), use the generated `1mcp.cmd` wrapper. Do not hard-code the path to `node.exe` or the internal `build/index.js`.
 
 ```powershell
-$configDir = 'C:\ProgramData\1mcp'
+$configDir = "$env:APPDATA\1mcp"
 $taskName  = '1mcp-daemon'
 
 # Locate the generated cmd wrapper
@@ -144,27 +130,26 @@ $action = New-ScheduledTaskAction `
 
 ## Key Settings Explained
 
-| Setting                            | Value                     | Why                                                                                                                                                                                                                     |
-| ---------------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MultipleInstances`                | `IgnoreNew`               | Prevents a second daemon from starting if the first has not exited yet after a fast reboot                                                                                                                              |
-| `ExecutionTimeLimit`               | `PT0S` (zero = unlimited) | A running daemon must not be killed by a default 72-hour execution cap                                                                                                                                                  |
-| `RestartCount` / `RestartInterval` | 5 × 2 min                 | Gives time for transient failures to recover without spinning immediately                                                                                                                                               |
-| `StartWhenAvailable`               | `true`                    | If the task is eligible to run but conditions temporarily prevent it (e.g. another instance is still stopping), start it as soon as conditions allow. Does **not** recover a missed boot — `AtStartup` fires every boot |
-| `RunLevel`                         | `Limited`                 | Runs without elevated privileges; use the minimum permissions needed                                                                                                                                                    |
-| `LogonType`                        | `Password`                | Non-interactive logon with supplied credentials; the task runs whether or not the user is logged on                                                                                                                     |
-| No boot delay                      | —                         | Add a fixed delay only if your environment requires a VPN or domain authentication to be established before 1MCP can reach upstream servers                                                                             |
+| Setting                            | Value                     | Why                                                                                                                                                   |
+| ---------------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MultipleInstances`                | `IgnoreNew`               | Prevents a second daemon from starting if the first has not exited yet after a fast reboot                                                            |
+| `ExecutionTimeLimit`               | `PT0S` (zero = unlimited) | A running daemon must not be killed by a default 72-hour execution cap                                                                                |
+| `RestartCount` / `RestartInterval` | 5 × 2 min                 | Gives time for transient failures to recover without spinning immediately                                                                             |
+| `StartWhenAvailable`               | `true`                    | If the task is eligible to run but conditions temporarily prevent it (e.g. another instance is still stopping), start it as soon as conditions allow. |
+| `RunLevel`                         | `Limited`                 | Runs without elevated privileges; use the minimum permissions needed                                                                                  |
+| `LogonType`                        | `Interactive`             | Runs when the configured user logs in, without needing to enter or store a password in the task scheduler.                                            |
+| No boot delay                      | —                         | Add a fixed delay only if your environment requires a VPN or domain authentication to be established before 1MCP can reach upstream servers           |
 
 ## Runtime Scope and `--config-dir`
 
 1MCP writes a `server.pid` file into the `--config-dir` directory at startup. Clients such as `1mcp proxy` read that file to discover the running daemon.
 
-Because Task Scheduler launches the process in a non-interactive session, always pass an explicit absolute `--config-dir`. If the config dir defaults to a user-relative path (e.g. `%APPDATA%\1mcp`) and the task user differs from the interactive user, discovery will fail.
+Because the scheduled task runs in your interactive session under `LogonType Interactive`, the daemon naturally resolves to the current user's `%APPDATA%\1mcp` folder. Both the background daemon and any foreground commands (like `1mcp proxy`) automatically share the same Runtime Scope.
 
 ```powershell
-# Correct: absolute path, same on daemon and client
-1mcp serve  --config-dir 'C:\ProgramData\1mcp' ...
-1mcp proxy  --config-dir 'C:\ProgramData\1mcp' ...
-1mcp serve --status --config-dir 'C:\ProgramData\1mcp'
+# Both commands share the user configuration scope by default
+1mcp serve  # Run in background or foreground
+1mcp proxy  # Automatically discovers and connects to the running daemon
 ```
 
 ## Lifecycle Management
@@ -195,7 +180,7 @@ Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
 Work through this checklist after registering the task and starting it for the first time.
 
 ```powershell
-$configDir = 'C:\ProgramData\1mcp'
+$configDir = "$env:APPDATA\1mcp"
 $taskName  = '1mcp-daemon'
 
 # 1. Start the task manually for the first test
@@ -229,28 +214,20 @@ Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:3050/health/mcp' | Select-O
 
 ## Troubleshooting
 
-| Symptom                               | Likely cause                                       | Fix                                                                                                                                                                                     |
-| ------------------------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Task shows **Ready** but never starts | System not fully ready when the boot trigger fired | Start the task manually once to confirm it works, then add `-Delay (New-TimeSpan -Minutes 1)` to `New-ScheduledTaskTrigger -AtStartup` if the daemon consistently needs extra boot time |
-| Task starts but exits immediately     | Wrong binary path or missing `--config-dir`        | Check the task action path and that `$configDir` exists                                                                                                                                 |
-| `server.pid` missing after start      | Daemon crashed on startup                          | Check the log file in `$configDir\logs\server.log`                                                                                                                                      |
-| Two daemon processes running          | `MultipleInstances` not set to `IgnoreNew`         | Re-register with the settings from Step 2                                                                                                                                               |
-| `1mcp proxy` cannot find the daemon   | `--config-dir` mismatch between task and client    | Ensure both use the same absolute path                                                                                                                                                  |
-| Credentials rejected at registration  | Wrong user format                                  | Use `DOMAIN\user` for domain accounts or `.\user` for local accounts                                                                                                                    |
+| Symptom                               | Likely cause                                    | Fix                                                                                                                                                                               |
+| ------------------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Task shows **Ready** but never starts | System not fully ready when the trigger fired   | Start the task manually once to confirm it works, then add `-Delay (New-TimeSpan -Minutes 1)` to `New-ScheduledTaskTrigger -AtLogon` if the daemon consistently needs extra delay |
+| Task starts but exits immediately     | Wrong binary path or missing `--config-dir`     | Check the task action path and that `$configDir` exists                                                                                                                           |
+| `server.pid` missing after start      | Daemon crashed on startup                       | Check the log file in `$configDir\logs\server.log`                                                                                                                                |
+| Two daemon processes running          | `MultipleInstances` not set to `IgnoreNew`      | Re-register with the settings from Step 2                                                                                                                                         |
+| `1mcp proxy` cannot find the daemon   | `--config-dir` mismatch between task and client | Ensure both use the same absolute path                                                                                                                                            |
 
-## Advanced: S4U Logon (Local-Only)
+## Interactive Logon vs S4U Logon
 
-S4U logon (`LogonType S4U` with no password) avoids storing credentials but has significant restrictions on Windows: it has **no access to network resources or encrypted files**. Use S4U only on machines where the config directory is on a local unencrypted drive and no upstream MCP servers require network authentication.
+This guide recommends interactive user logon (`LogonType Interactive`) for daemon registration. It offers several benefits:
 
-```powershell
-# S4U principal — local only, no network access
-$principal = New-ScheduledTaskPrincipal `
-    -UserId '.\1mcp-svc' `
-    -LogonType S4U `
-    -RunLevel Limited
-```
-
-For most deployments, password logon (the default in Step 2) is the correct choice.
+- **No password storage:** Unlike standard user tasks, interactive tasks do not require or store your Windows password.
+- **No network or file restrictions:** Unlike S4U logon, interactive logon provides full access to network resources and encrypted user files, which is necessary for resolving and running upstream MCP servers.
 
 ---
 
