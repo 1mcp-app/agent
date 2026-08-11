@@ -1,10 +1,12 @@
 import type { AdminPresetDraft, AdminPresetListItem, AdminPresetPreview, AdminPresetTarget } from '../api/adminApi';
 import type { ConfiguredServerCreateModel } from '../configuredServerCreate/useConfiguredServerCreate';
 import type { ConfiguredServerEditModel } from '../configuredServerEdit/useConfiguredServerEdit';
+import type { InstructionTemplatesModel } from '../instructionTemplates/useInstructionTemplates';
 import type { AdminConsoleState } from '../state/adminConsoleState';
 import type { BackendLogsModel } from './useBackendLogs';
 
-export type AdminConsoleRoute = 'dashboard' | 'servers' | 'oauth' | 'audit' | 'presets' | 'logs' | 'about';
+export type AdminConsoleRoute =
+  'dashboard' | 'servers' | 'oauth' | 'audit' | 'presets' | 'instructions' | 'logs' | 'about';
 export type OAuthAdminAction = 'authorize' | 'restart';
 export interface OAuthFeedback {
   kind: 'success' | 'error';
@@ -48,6 +50,7 @@ export interface AdminConsoleSessionModel {
     }): boolean | Promise<boolean>;
     delete(name: string): void | Promise<void>;
   };
+  instructions: InstructionTemplatesModel;
 }
 
 export type OperatorWorkspaceModel = Pick<AdminConsoleSessionModel, 'state' | 'logout' | 'refresh'> & {

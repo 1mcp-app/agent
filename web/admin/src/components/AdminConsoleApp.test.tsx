@@ -174,6 +174,10 @@ describe('AdminConsoleApp', () => {
     expect(within(navigation).getByRole('link', { name: 'OAuth services' })).toHaveAttribute('href', '/admin/oauth');
     expect(within(navigation).getByRole('link', { name: 'Audit trail' })).toHaveAttribute('href', '/admin/audit');
     expect(within(navigation).getByRole('link', { name: 'Presets' })).toHaveAttribute('href', '/admin/presets');
+    expect(within(navigation).getByRole('link', { name: 'Instructions' })).toHaveAttribute(
+      'href',
+      '/admin/instructions',
+    );
     expect(within(navigation).getByRole('link', { name: 'About' })).toHaveAttribute('href', '/admin/about');
 
     await user.click(screen.getByRole('button', { name: /copy runtime scope/i }));
@@ -264,7 +268,7 @@ describe('AdminConsoleApp', () => {
     expect(onServerAction).toHaveBeenCalledWith('github', 'enable');
   });
 
-  it('navigates with real links and keeps Presets and About as final top-level items', async () => {
+  it('navigates with real links and keeps About as the final top-level item', async () => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();
     renderApp(consoleState(), { navigation: { navigate: onNavigate } });
@@ -273,9 +277,11 @@ describe('AdminConsoleApp', () => {
     const links = within(navigation).getAllByRole('link');
     expect(links.at(-1)).toHaveTextContent('About');
     await user.click(screen.getByRole('link', { name: 'Presets' }));
+    await user.click(screen.getByRole('link', { name: 'Instructions' }));
     await user.click(screen.getByRole('link', { name: 'About' }));
     expect(onNavigate).toHaveBeenNthCalledWith(1, 'presets');
-    expect(onNavigate).toHaveBeenNthCalledWith(2, 'about');
+    expect(onNavigate).toHaveBeenNthCalledWith(2, 'instructions');
+    expect(onNavigate).toHaveBeenNthCalledWith(3, 'about');
   });
 
   it('exposes the current direct workspace and navigates without hash sections', async () => {
@@ -656,7 +662,38 @@ describe('AdminConsoleApp', () => {
 
     await user.click(screen.getByRole('button', { name: /edit github server/i }));
 
-    expect(onOpenServerDetail).toHaveBeenCalledWith('github');
+    expect(onOpenServerDetail).toHaveBeenCalledWith({ source: 'mcpServers', id: 'github' });
+  });
+
+  it('authors explicit upstream, replacement, and suppression instruction outcomes', async () => {
+    const user = userEvent.setup();
+    const changeInstructionOverride = vi.fn();
+    const saveInstructionOverride = vi.fn();
+
+    renderApp(consoleState(), {
+      navigation: { route: 'servers' },
+      configuredServers: {
+        editor: configuredServerDetailState(),
+        instructionOverride: {
+          mode: 'suppress',
+          value: '',
+          dirty: true,
+          busy: false,
+          available: true,
+          error: null,
+          success: null,
+        },
+        changeInstructionOverride,
+        saveInstructionOverride,
+      },
+    });
+
+    expect(screen.getByText('Effective: suppress')).toBeInTheDocument();
+    expect(screen.getByText('Effective instructions are an intentional empty value.')).toBeInTheDocument();
+    await user.click(screen.getByRole('radio', { name: 'Replace' }));
+    expect(changeInstructionOverride).toHaveBeenCalledWith('replace');
+    await user.click(screen.getByRole('button', { name: 'Save instruction outcome' }));
+    expect(saveInstructionOverride).toHaveBeenCalledOnce();
   });
 
   it('renders configured-server detail controls from the normalized contract without raw JSON or apply controls', async () => {

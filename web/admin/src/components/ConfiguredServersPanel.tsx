@@ -17,7 +17,7 @@ import { useMediaQuery } from '@mantine/hooks';
 import { Pencil, Plus, Search, ServerCog } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
-import type { ConfiguredServerReadModel } from '../api/adminApi';
+import type { ConfiguredServerReadModel, ConfiguredServerTargetIdentity } from '../api/adminApi';
 import type { AdminConsoleState, ServerMutation } from '../state/adminConsoleState';
 import { EmptyState, Panel } from './AdminConsoleShared';
 import {
@@ -39,7 +39,7 @@ export function ConfiguredServersPanel({
 }: {
   state: AdminConsoleState;
   onServerAction?: (serverId: string, action: 'enable' | 'disable') => void | Promise<void>;
-  onOpenServerDetail?: (serverId: string) => void | Promise<void>;
+  onOpenServerDetail?: (server: ConfiguredServerTargetIdentity) => void | Promise<void>;
   onConfigureCustomServer?: () => void | Promise<void>;
 }) {
   const [query, setQuery] = useState('');
@@ -111,7 +111,7 @@ export function ConfiguredServersPanel({
         <div className="server-mobile-list">
           {servers.map((server) => (
             <ServerCard
-              key={server.id}
+              key={`${server.source}:${server.id}`}
               server={server}
               mutation={state.serverMutations[server.id]}
               onServerAction={onServerAction}
@@ -135,7 +135,7 @@ export function ConfiguredServersPanel({
               <Table.Tbody>
                 {servers.map((server) => (
                   <ServerRow
-                    key={server.id}
+                    key={`${server.source}:${server.id}`}
                     server={server}
                     mutation={state.serverMutations[server.id]}
                     onServerAction={onServerAction}
@@ -160,7 +160,7 @@ function ServerCard({
   server: ConfiguredServerReadModel;
   mutation?: ServerMutation;
   onServerAction?: (serverId: string, action: 'enable' | 'disable') => void | Promise<void>;
-  onOpenServerDetail?: (serverId: string) => void | Promise<void>;
+  onOpenServerDetail?: (server: ConfiguredServerTargetIdentity) => void | Promise<void>;
 }) {
   const action = server.enabled ? 'disable' : 'enable';
   const busy = mutation?.state === 'busy';
@@ -172,7 +172,12 @@ function ServerCard({
     <article className={`server-mobile-card${mutation ? ` server-action-${mutation.state}` : ''}`}>
       <Group justify="space-between" align="flex-start" wrap="nowrap">
         <div className="server-mobile-identity">
-          <Text fw={700}>{server.id}</Text>
+          <Group gap="xs">
+            <Text fw={700}>{server.id}</Text>
+            <Badge size="xs" variant="outline">
+              {server.source === 'mcpTemplates' ? 'Template' : 'Static'}
+            </Badge>
+          </Group>
           {tags.length > 0 ? (
             <Text size="xs" c="dimmed">
               {tags.join(' / ')}
@@ -204,7 +209,7 @@ function ServerCard({
             aria-label={`Edit ${server.id} server`}
             size="lg"
             variant="default"
-            onClick={() => void onOpenServerDetail?.(server.id)}
+            onClick={() => void onOpenServerDetail?.({ source: server.source, id: server.id })}
           >
             <Pencil size={16} />
           </ActionIcon>
@@ -231,7 +236,7 @@ function ServerRow({
   server: ConfiguredServerReadModel;
   mutation?: ServerMutation;
   onServerAction?: (serverId: string, action: 'enable' | 'disable') => void | Promise<void>;
-  onOpenServerDetail?: (serverId: string) => void | Promise<void>;
+  onOpenServerDetail?: (server: ConfiguredServerTargetIdentity) => void | Promise<void>;
 }) {
   const action = server.enabled ? 'disable' : 'enable';
   const busy = mutation?.state === 'busy';
@@ -242,7 +247,12 @@ function ServerRow({
   return (
     <Table.Tr className={mutation ? `server-action-${mutation.state}` : undefined}>
       <Table.Td>
-        <Text fw={700}>{server.id}</Text>
+        <Group gap="xs">
+          <Text fw={700}>{server.id}</Text>
+          <Badge size="xs" variant="outline">
+            {server.source === 'mcpTemplates' ? 'Template' : 'Static'}
+          </Badge>
+        </Group>
         {tags.length > 0 ? (
           <Text size="xs" c="dimmed">
             {tags.join(' / ')}
@@ -268,7 +278,7 @@ function ServerRow({
               aria-label={`Edit ${server.id} server`}
               size="lg"
               variant="default"
-              onClick={() => void onOpenServerDetail?.(server.id)}
+              onClick={() => void onOpenServerDetail?.({ source: server.source, id: server.id })}
             >
               <Pencil size={16} />
             </ActionIcon>

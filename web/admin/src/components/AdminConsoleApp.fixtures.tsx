@@ -12,6 +12,7 @@ import {
   reduceConfiguredServerEditState,
 } from '../configuredServerEdit/configuredServerEditState';
 import type { ConfiguredServerEditModel } from '../configuredServerEdit/useConfiguredServerEdit';
+import type { InstructionTemplatesModel } from '../instructionTemplates/useInstructionTemplates';
 import type { AdminConsoleSessionModel } from '../session/AdminConsoleSessionModel';
 import type { AdminConsoleState } from '../state/adminConsoleState';
 import { createInitialState } from '../state/adminConsoleState';
@@ -26,6 +27,9 @@ interface ConfiguredServerOverrides {
   preview?: ConfiguredServerEditModel['preview'];
   apply?: ConfiguredServerEditModel['apply'];
   copy?: AdminConsoleSessionModel['configuredServers']['copy'];
+  instructionOverride?: NonNullable<ConfiguredServerEditModel['instructionOverride']>;
+  changeInstructionOverride?: NonNullable<ConfiguredServerEditModel['changeInstructionOverride']>;
+  saveInstructionOverride?: NonNullable<ConfiguredServerEditModel['saveInstructionOverride']>;
 }
 
 interface SessionOverrides {
@@ -38,6 +42,7 @@ interface SessionOverrides {
   oauth?: Partial<AdminConsoleSessionModel['oauth']>;
   logs?: Partial<AdminConsoleSessionModel['logs']>;
   presets?: Partial<AdminConsoleSessionModel['presets']>;
+  instructions?: Partial<InstructionTemplatesModel>;
 }
 
 export function renderApp(state: AdminConsoleState, overrides: SessionOverrides = {}) {
@@ -57,11 +62,14 @@ function FixtureAdminConsoleApp({ state, overrides }: { state: AdminConsoleState
   );
   const edit: ConfiguredServerEditModel = {
     state: editState,
+    instructionOverride: configuredServers?.instructionOverride ?? staticInstructionOverride(),
     open: configuredServers?.open ?? (() => undefined),
     close: configuredServers?.close ?? (async () => true),
     changeField: (fieldPath, value) => editDispatch({ type: 'fieldChanged', fieldPath, value }),
     changeSecret: (fieldPath, value) => editDispatch({ type: 'secretChanged', fieldPath, value }),
     changeTransportOverride: (key, clear) => editDispatch({ type: 'transportOverrideChanged', key, clear }),
+    changeInstructionOverride: configuredServers?.changeInstructionOverride ?? (() => undefined),
+    saveInstructionOverride: configuredServers?.saveInstructionOverride ?? (() => undefined),
     preview: configuredServers?.preview ?? (() => undefined),
     apply: configuredServers?.apply ?? (() => undefined),
   };
@@ -120,6 +128,40 @@ export function fixtureSession(
       save: overrides.presets?.save ?? (() => true),
       delete: overrides.presets?.delete ?? (() => undefined),
     },
+    instructions: {
+      items: overrides.instructions?.items ?? [],
+      activeIdentity: overrides.instructions?.activeIdentity,
+      selectionExplicit: overrides.instructions?.selectionExplicit ?? false,
+      configFingerprint: overrides.instructions?.configFingerprint ?? '',
+      legacyAvailable: overrides.instructions?.legacyAvailable ?? false,
+      renderFailures: overrides.instructions?.renderFailures ?? {},
+      selectedIdentity: overrides.instructions?.selectedIdentity,
+      draft: overrides.instructions?.draft ?? { identity: '', variants: { initialization: '', cli: '' } },
+      surface: overrides.instructions?.surface ?? 'initialize',
+      selection: overrides.instructions?.selection ?? { mode: 'all' },
+      requestContext: overrides.instructions?.requestContext ?? '',
+      preview: overrides.instructions?.preview ?? null,
+      activationValidation: overrides.instructions?.activationValidation ?? null,
+      previewStale: overrides.instructions?.previewStale ?? false,
+      dirty: overrides.instructions?.dirty ?? false,
+      busy: overrides.instructions?.busy ?? false,
+      error: overrides.instructions?.error ?? null,
+      select: overrides.instructions?.select ?? (() => undefined),
+      newDraft: overrides.instructions?.newDraft ?? (() => undefined),
+      changeIdentity: overrides.instructions?.changeIdentity ?? (() => undefined),
+      changeVariant: overrides.instructions?.changeVariant ?? (() => undefined),
+      changeSurface: overrides.instructions?.changeSurface ?? (() => undefined),
+      changeSelection: overrides.instructions?.changeSelection ?? (() => undefined),
+      changeRequestContext: overrides.instructions?.changeRequestContext ?? (() => undefined),
+      load: overrides.instructions?.load ?? (async () => undefined),
+      saveDraft: overrides.instructions?.saveDraft ?? (async () => false),
+      previewDraft: overrides.instructions?.previewDraft ?? (async () => undefined),
+      validateDraft: overrides.instructions?.validateDraft ?? (async () => undefined),
+      activate: overrides.instructions?.activate ?? (async () => undefined),
+      clone: overrides.instructions?.clone ?? (async () => undefined),
+      importLegacy: overrides.instructions?.importLegacy ?? (async () => undefined),
+      deleteSelected: overrides.instructions?.deleteSelected ?? (async () => undefined),
+    },
   };
 }
 
@@ -141,13 +183,28 @@ function staticConfiguredServerCreateModel(): ConfiguredServerCreateModel {
 function staticConfiguredServerEditModel(overrides?: ConfiguredServerOverrides): ConfiguredServerEditModel {
   return {
     state: configuredServerEditStateFromFixture(overrides?.editor),
+    instructionOverride: overrides?.instructionOverride ?? staticInstructionOverride(),
     open: overrides?.open ?? (() => undefined),
     close: overrides?.close ?? (async () => true),
     changeField: () => undefined,
     changeSecret: () => undefined,
     changeTransportOverride: () => undefined,
+    changeInstructionOverride: overrides?.changeInstructionOverride ?? (() => undefined),
+    saveInstructionOverride: overrides?.saveInstructionOverride ?? (() => undefined),
     preview: () => undefined,
     apply: overrides?.apply ?? (() => undefined),
+  };
+}
+
+function staticInstructionOverride(): NonNullable<ConfiguredServerEditModel['instructionOverride']> {
+  return {
+    mode: 'upstream',
+    value: '',
+    dirty: false,
+    busy: false,
+    available: true,
+    error: null,
+    success: null,
   };
 }
 

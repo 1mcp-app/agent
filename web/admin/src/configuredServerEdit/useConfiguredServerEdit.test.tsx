@@ -13,6 +13,7 @@ import { createConfiguredServerEditState, reduceConfiguredServerEditState } from
 import type { ConfiguredServerEditBrowser } from './useConfiguredServerEdit';
 import { useConfiguredServerEdit } from './useConfiguredServerEdit';
 import { configuredServerApplyEligibility } from './useConfiguredServerEdit';
+import { configuredServerInstructionOverrideMutation } from './useConfiguredServerEdit';
 
 const session: AdminSession = {
   authenticated: true,
@@ -58,6 +59,8 @@ function browser(initialPathname: string) {
 function api(overrides: Partial<AdminApiClient> = {}): AdminApiClient {
   return {
     getConfiguredServerDetail: vi.fn(async () => detail()),
+    getConfiguredServerCatalog: vi.fn(async () => ({ servers: [detail().server], configFingerprint: 'config-1' })),
+    setConfiguredServerInstructionOverride: vi.fn(async () => ({ ok: true })),
     previewConfiguredServerEdit: vi.fn(async () => {
       throw new Error('not implemented');
     }),
@@ -69,6 +72,54 @@ function api(overrides: Partial<AdminApiClient> = {}): AdminApiClient {
 }
 
 describe('useConfiguredServerEdit', () => {
+  it.each([
+    ['upstream', 'ignored', { action: 'remove' }],
+    ['replace', 'operator guidance', { action: 'set', value: 'operator guidance' }],
+    ['suppress', 'ignored', { action: 'set', value: '' }],
+  ] as const)('maps the %s outcome to an explicit override mutation', (mode, value, expected) => {
+    expect(configuredServerInstructionOverrideMutation(mode, value)).toEqual(expected);
+  });
+
+  it('loads a source-qualified template and persists explicit suppress and upstream outcomes', async () => {
+    const templateDetail = {
+      ...detail(),
+      server: {
+        ...detail().server,
+        id: 'shared',
+        source: 'mcpTemplates' as const,
+        target: { type: 'configured_server' as const, source: 'mcpTemplates' as const, id: 'shared' },
+        revision: 'configured_server_1',
+        instructionOverride: { state: 'upstream' as const },
+      },
+    };
+    const adminApi = api({
+      getConfiguredServerDetail: vi.fn(async () => templateDetail),
+      getConfiguredServerCatalog: vi.fn(async () => ({
+        servers: [templateDetail.server],
+        configFingerprint: 'config_1',
+      })),
+      setConfiguredServerInstructionOverride: vi.fn(async () => ({ ok: true })),
+    });
+    const browserAdapter = browser('/admin');
+    const { result } = renderHook(() =>
+      useConfiguredServerEdit({ api: adminApi, session, browser: browserAdapter.adapter, onUnauthenticated: vi.fn() }),
+    );
+
+    await act(() => result.current.open({ source: 'mcpTemplates', id: 'shared' }));
+    expect(adminApi.getConfiguredServerDetail).toHaveBeenCalledWith({ source: 'mcpTemplates', id: 'shared' });
+    expect(browserAdapter.adapter.push).toHaveBeenCalledWith('/admin/servers/mcpTemplates/shared');
+
+    act(() => result.current.changeInstructionOverride?.('suppress'));
+    await act(() => result.current.saveInstructionOverride?.());
+    expect(adminApi.setConfiguredServerInstructionOverride).toHaveBeenCalledWith({
+      target: { source: 'mcpTemplates', id: 'shared' },
+      mutation: { action: 'set', value: '' },
+      expectedSourceFingerprint: 'configured_server_1',
+      expectedConfigFingerprint: 'config_1',
+      csrfToken: 'csrf-token',
+    });
+  });
+
   it('does not load the reserved create route after decoding its path segment', async () => {
     const adminApi = api();
     const browserAdapter = browser('/admin/servers/%6E%65%77');

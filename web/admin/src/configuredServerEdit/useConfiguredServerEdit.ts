@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 
 import { AdminApiError, createConfiguredServerApplyIdempotencyKey } from '../api/adminApi';
-import type { AdminApiClient, AdminSession } from '../api/adminApi';
+import type { AdminApiClient, AdminSession, ConfiguredServerTargetIdentity } from '../api/adminApi';
 import type { ConfirmationRequest } from '../components/ConfirmationDialogProvider';
 import { useConfiguredServerMutationLifecycle } from '../configuredServerMutation/useConfiguredServerMutationLifecycle';
 import { type SecretDraftState, selectedTransportType } from './configuredServerEditDraft';
@@ -22,13 +22,35 @@ export interface ConfiguredServerEditBrowser {
 
 export interface ConfiguredServerEditModel {
   state: ConfiguredServerEditState;
-  open(serverId: string): void | Promise<void>;
+  instructionOverride?: {
+    mode: 'upstream' | 'replace' | 'suppress';
+    value: string;
+    dirty: boolean;
+    busy: boolean;
+    available: boolean;
+    error: string | null;
+    success: string | null;
+  };
+  open(server: string | ConfiguredServerTargetIdentity): void | Promise<void>;
   close(pathname?: string): Promise<boolean>;
   changeField(fieldPath: string[], value: unknown): void;
   changeSecret(fieldPath: string[], value: SecretDraftState[string]): void;
   changeTransportOverride(key: string, clear: boolean): void;
+  changeInstructionOverride?(mode: 'upstream' | 'replace' | 'suppress', value?: string): void;
+  saveInstructionOverride?(): void | Promise<void>;
   preview(connectivityCheck?: 'auto' | 'manual'): void | Promise<void>;
   apply(): void | Promise<void>;
+}
+
+interface InstructionOverrideDraftState {
+  mode: 'upstream' | 'replace' | 'suppress';
+  value: string;
+  initialMode: 'upstream' | 'replace' | 'suppress';
+  initialValue: string;
+  busy: boolean;
+  available: boolean;
+  error: string | null;
+  success: string | null;
 }
 
 export function useConfiguredServerEdit({
@@ -39,7 +61,14 @@ export function useConfiguredServerEdit({
   onApplied,
   onPathCommitted,
 }: {
-  api: Pick<AdminApiClient, 'getConfiguredServerDetail' | 'previewConfiguredServerEdit' | 'applyConfiguredServerEdit'>;
+  api: Pick<
+    AdminApiClient,
+    | 'getConfiguredServerDetail'
+    | 'previewConfiguredServerEdit'
+    | 'applyConfiguredServerEdit'
+    | 'setConfiguredServerInstructionOverride'
+    | 'getConfiguredServerCatalog'
+  >;
   session: AdminSession | null;
   browser: ConfiguredServerEditBrowser;
   onUnauthenticated(adminStatus: 'setupRequired' | 'loginRequired'): void;
@@ -47,10 +76,21 @@ export function useConfiguredServerEdit({
   onPathCommitted?(path: string): void;
 }): ConfiguredServerEditModel {
   const [state, dispatch] = useReducer(reduceConfiguredServerEditState, undefined, createConfiguredServerEditState);
+  const [instructionOverride, setInstructionOverride] = useState<InstructionOverrideDraftState>({
+    mode: 'upstream',
+    value: '',
+    initialMode: 'upstream',
+    initialValue: '',
+    busy: false,
+    available: false,
+    error: null as string | null,
+    success: null as string | null,
+  });
   const stateRef = useRef(state);
   const sessionRef = useRef(session);
   const apiRef = useRef(api);
   const onUnauthenticatedRef = useRef(onUnauthenticated);
+  const configFingerprintRef = useRef('');
   stateRef.current = state;
   sessionRef.current = session;
   apiRef.current = api;
@@ -78,7 +118,8 @@ export function useConfiguredServerEdit({
   );
 
   const load = useCallback(
-    async (serverId: string) => {
+    async (server: string | ConfiguredServerTargetIdentity) => {
+      const serverId = typeof server === 'string' ? server : server.id;
       const activeSession = sessionRef.current;
       if (!activeSession) return;
       invalidateApply();
@@ -88,8 +129,28 @@ export function useConfiguredServerEdit({
       invalidatePreview();
       dispatch({ type: 'detailLoadStarted', serverId });
       try {
-        const detail = await apiRef.current.getConfiguredServerDetail(serverId);
+        const detailTarget = typeof server !== 'string' && server.source === 'mcpServers' ? server.id : server;
+        const [detail, catalog] = await Promise.all([
+          apiRef.current.getConfiguredServerDetail(detailTarget),
+          apiRef.current.getConfiguredServerCatalog
+            ? apiRef.current.getConfiguredServerCatalog()
+            : Promise.resolve({ servers: [], configFingerprint: '' }),
+        ]);
         if (requestId !== detailRequestRef.current || sessionRef.current?.csrfToken !== sessionKey) return;
+        configFingerprintRef.current = catalog.configFingerprint;
+        const currentOverride = detail.server.instructionOverride ?? { state: 'upstream' as const };
+        const mode = currentOverride.state;
+        const value = currentOverride.state === 'replace' ? currentOverride.value : '';
+        setInstructionOverride({
+          mode,
+          value,
+          initialMode: mode,
+          initialValue: value,
+          busy: false,
+          available: Boolean(detail.server.revision && catalog.configFingerprint),
+          error: null,
+          success: null,
+        });
         dispatch({ type: 'detailLoaded', serverId, detail });
       } catch (error) {
         if (requestId !== detailRequestRef.current || sessionRef.current?.csrfToken !== sessionKey) return;
@@ -105,7 +166,8 @@ export function useConfiguredServerEdit({
   );
 
   const open = useCallback(
-    async (serverId: string) => {
+    async (server: string | ConfiguredServerTargetIdentity) => {
+      const serverId = typeof server === 'string' ? server : server.id;
       const current = stateRef.current;
       if (
         current.status === 'loaded' &&
@@ -115,8 +177,8 @@ export function useConfiguredServerEdit({
       ) {
         return;
       }
-      browser.push(serverPath(serverId));
-      await load(serverId);
+      browser.push(serverPath(server));
+      await load(server);
     },
     [browser, load],
   );
@@ -157,6 +219,58 @@ export function useConfiguredServerEdit({
     },
     [invalidatePreview],
   );
+
+  const changeInstructionOverride = useCallback((mode: 'upstream' | 'replace' | 'suppress', value = '') => {
+    setInstructionOverride((current) => ({ ...current, mode, value, error: null, success: null }));
+  }, []);
+
+  const saveInstructionOverride = useCallback(async () => {
+    const activeSession = sessionRef.current;
+    const current = stateRef.current;
+    if (!activeSession || current.status !== 'loaded' || instructionOverride.busy) return;
+    const revision = current.detail.server.revision;
+    const expectedConfigFingerprint = configFingerprintRef.current;
+    if (!revision || !expectedConfigFingerprint) return;
+    const target = current.detail.server.target;
+    const outcomeMode = instructionOverride.mode;
+    setInstructionOverride((value) => ({ ...value, busy: true, error: null, success: null }));
+    try {
+      await apiRef.current.setConfiguredServerInstructionOverride({
+        target: { source: target.source, id: target.id },
+        mutation: configuredServerInstructionOverrideMutation(instructionOverride.mode, instructionOverride.value),
+        expectedSourceFingerprint: revision,
+        expectedConfigFingerprint,
+        csrfToken: activeSession.csrfToken,
+      });
+      await onApplied?.();
+      await load({ source: target.source, id: target.id });
+      setInstructionOverride((value) => ({
+        ...value,
+        busy: false,
+        success:
+          outcomeMode === 'upstream'
+            ? 'Upstream instructions restored.'
+            : outcomeMode === 'suppress'
+              ? 'Instructions suppressed.'
+              : 'Instruction replacement saved.',
+      }));
+    } catch (error) {
+      if (!handleUnauthenticated(error)) {
+        setInstructionOverride((value) => ({
+          ...value,
+          busy: false,
+          error: `Instruction override failed: ${failureMessage(error)}`,
+        }));
+      }
+    }
+  }, [
+    handleUnauthenticated,
+    instructionOverride.busy,
+    instructionOverride.mode,
+    instructionOverride.value,
+    load,
+    onApplied,
+  ]);
 
   const preview = useCallback(
     async (connectivityCheck: 'auto' | 'manual' = 'auto') => {
@@ -303,8 +417,8 @@ export function useConfiguredServerEdit({
       reset();
       return;
     }
-    const serverId = serverIdFromPath(browser.pathname());
-    if (serverId) void load(serverId);
+    const server = serverTargetFromPath(browser.pathname());
+    if (server) void load(server);
     else reset();
   }, [browser, load, reset, session?.csrfToken]);
 
@@ -314,14 +428,15 @@ export function useConfiguredServerEdit({
         void (async () => {
           const current = stateRef.current;
           const requestedPath = browser.pathname();
-          const nextServerId = serverIdFromPath(requestedPath);
+          const nextServer = serverTargetFromPath(requestedPath);
+          const nextServerId = typeof nextServer === 'string' ? nextServer : nextServer?.id;
           const changingTarget = current.status === 'loaded' && nextServerId !== current.serverId;
           if (changingTarget && current.dirty) {
-            browser.replace(serverPath(current.serverId));
+            browser.replace(serverPath(current.detail.server.target));
             if (!(await confirmDiscard(browser))) return;
             browser.replace(requestedPath);
           }
-          if (nextServerId) void load(nextServerId);
+          if (nextServer) void load(nextServer);
           else reset();
           onPathCommitted?.(requestedPath);
         })();
@@ -329,7 +444,37 @@ export function useConfiguredServerEdit({
     [browser, load, onPathCommitted, reset],
   );
 
-  return { state, open, close, changeField, changeSecret, changeTransportOverride, preview, apply };
+  return {
+    state,
+    instructionOverride: {
+      mode: instructionOverride.mode,
+      value: instructionOverride.value,
+      dirty:
+        instructionOverride.mode !== instructionOverride.initialMode ||
+        instructionOverride.value !== instructionOverride.initialValue,
+      busy: instructionOverride.busy,
+      available: instructionOverride.available,
+      error: instructionOverride.error,
+      success: instructionOverride.success,
+    },
+    open,
+    close,
+    changeField,
+    changeSecret,
+    changeTransportOverride,
+    changeInstructionOverride,
+    saveInstructionOverride,
+    preview,
+    apply,
+  };
+}
+
+export function configuredServerInstructionOverrideMutation(
+  mode: 'upstream' | 'replace' | 'suppress',
+  value: string,
+): { action: 'set'; value: string } | { action: 'remove' } {
+  if (mode === 'upstream') return { action: 'remove' };
+  return { action: 'set', value: mode === 'suppress' ? '' : value };
 }
 
 export function configuredServerApplyEligibility(state: ConfiguredServerEditState): {
@@ -381,11 +526,13 @@ function failureMessage(error: unknown): string {
   throw error;
 }
 
-function serverPath(serverId: string): string {
-  return `/admin/servers/${encodeURIComponent(serverId)}`;
+function serverPath(server: string | ConfiguredServerTargetIdentity): string {
+  if (typeof server === 'string') return `/admin/servers/${encodeURIComponent(server)}`;
+  if (server.source === 'mcpServers') return `/admin/servers/${encodeURIComponent(server.id)}`;
+  return `/admin/servers/${server.source}/${encodeURIComponent(server.id)}`;
 }
 
-function serverIdFromPath(pathname: string): string | null {
+function serverTargetFromPath(pathname: string): string | ConfiguredServerTargetIdentity | null {
   const prefix = '/admin/servers/';
   if (!pathname.startsWith(prefix)) return null;
   const encoded = pathname.slice(prefix.length).split('#', 1)[0];
@@ -396,5 +543,10 @@ function serverIdFromPath(pathname: string): string | null {
   } catch {
     decoded = encoded;
   }
-  return decoded === 'new' ? null : decoded;
+  if (decoded === 'new') return null;
+  const [source, ...nameParts] = decoded.split('/');
+  if ((source === 'mcpServers' || source === 'mcpTemplates') && nameParts.length > 0) {
+    return { source, id: nameParts.join('/') };
+  }
+  return decoded;
 }

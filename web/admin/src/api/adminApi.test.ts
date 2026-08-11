@@ -10,6 +10,107 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe('admin API client', () => {
+  it('manages instruction-template drafts through explicit lifecycle routes', async () => {
+    const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+    const api = createAdminApi({
+      fetch: async (input, init) => {
+        calls.push({ input, init });
+        return jsonResponse({ result: { templates: [], previewFingerprint: 'preview_1' } });
+      },
+    });
+    const draft = {
+      identity: 'focused',
+      variants: { initialization: 'Initialize {{server_instructions}}', cli: 'CLI {{server_instructions}}' },
+    };
+
+    await api.listInstructionTemplates();
+    await api.saveInstructionTemplate({
+      action: 'create',
+      draft,
+      expectedConfigFingerprint: 'config_1',
+      csrfToken: 'csrf_123',
+    });
+    await api.previewInstructionTemplate({
+      identity: 'focused',
+      surface: 'cli',
+      selection: { mode: 'tags', tags: ['filesystem'] },
+      requestContext: { project: { name: 'docs' } },
+      csrfToken: 'csrf_123',
+    });
+    await api.activateInstructionTemplate({
+      identity: 'focused',
+      expectedConfigFingerprint: 'config_1',
+      previewFingerprint: 'preview_1',
+      csrfToken: 'csrf_123',
+    });
+
+    expect(calls).toMatchObject([
+      { input: '/admin/api/instruction-templates' },
+      {
+        input: '/admin/api/instruction-templates',
+        init: {
+          method: 'POST',
+          headers: expect.objectContaining({ 'X-CSRF-Token': 'csrf_123' }),
+          body: JSON.stringify({
+            identity: 'focused',
+            variants: draft.variants,
+            expectedConfigFingerprint: 'config_1',
+          }),
+        },
+      },
+      {
+        input: '/admin/api/instruction-templates/focused/preview',
+        init: {
+          method: 'POST',
+          body: JSON.stringify({
+            surface: 'cli',
+            selection: { mode: 'tags', tags: ['filesystem'] },
+            requestContext: { project: { name: 'docs' } },
+          }),
+        },
+      },
+      {
+        input: '/admin/api/instruction-templates/focused/activate',
+        init: {
+          method: 'POST',
+          body: JSON.stringify({ expectedConfigFingerprint: 'config_1', previewFingerprint: 'preview_1' }),
+        },
+      },
+    ]);
+  });
+
+  it('addresses configured targets by source and sends explicit instruction override mutations', async () => {
+    const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+    const api = createAdminApi({
+      fetch: async (input, init) => {
+        calls.push({ input, init });
+        return jsonResponse({ ok: true, operationId: 'op_1', result: {} });
+      },
+    });
+
+    await api.getConfiguredServerDetail({ source: 'mcpTemplates', id: 'github/api' });
+    await api.setConfiguredServerInstructionOverride({
+      target: { source: 'mcpTemplates', id: 'github/api' },
+      mutation: { action: 'set', value: '' },
+      expectedSourceFingerprint: 'source_1',
+      expectedConfigFingerprint: 'config_1',
+      csrfToken: 'csrf_123',
+    });
+
+    expect(calls[0].input).toBe('/admin/api/configured-servers/mcpTemplates/github%2Fapi');
+    expect(calls[1]).toMatchObject({
+      input: '/admin/api/configured-servers/mcpTemplates/github%2Fapi/instruction-override',
+      init: {
+        method: 'POST',
+        headers: expect.objectContaining({ 'X-CSRF-Token': 'csrf_123' }),
+        body: JSON.stringify({
+          mutation: { action: 'set', value: '' },
+          expectedSourceFingerprint: 'source_1',
+          expectedConfigFingerprint: 'config_1',
+        }),
+      },
+    });
+  });
   it('opens one same-origin backend log stream and decodes multiplexed events', () => {
     const listeners = new Map<string, (event: MessageEvent<string>) => void>();
     const close = vi.fn();

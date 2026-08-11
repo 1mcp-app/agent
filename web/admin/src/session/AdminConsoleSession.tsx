@@ -13,6 +13,7 @@ import { AdminConsoleApp } from '../components/AdminConsoleApp';
 import { ConfirmationDialogProvider, useConfirmationDialog } from '../components/ConfirmationDialogProvider';
 import { useConfiguredServerCreate } from '../configuredServerCreate/useConfiguredServerCreate';
 import { useConfiguredServerEdit } from '../configuredServerEdit/useConfiguredServerEdit';
+import { useInstructionTemplates } from '../instructionTemplates/useInstructionTemplates';
 import { type AdminConsoleAction, createInitialState, reduceAdminConsoleState } from '../state/adminConsoleState';
 import { pollingDelayForVisibility, shouldPollConsole } from '../state/polling';
 import type {
@@ -194,6 +195,12 @@ export function useAdminConsoleSession({
     active: route === 'logs',
     authenticated: Boolean(state.session),
     onUnauthenticated: () => invalidateAdminSession('loginRequired'),
+  });
+  const instructionTemplates = useInstructionTemplates({
+    api,
+    active: route === 'instructions',
+    csrfToken: state.session?.csrfToken,
+    onUnauthenticated: invalidateAdminSession,
   });
 
   const isCurrentSession = useCallback((sessionKey: string) => stateRef.current.session?.csrfToken === sessionKey, []);
@@ -541,6 +548,7 @@ export function useAdminConsoleSession({
       save: savePreset,
       delete: deletePreset,
     },
+    instructions: instructionTemplates,
   };
 }
 
@@ -555,6 +563,7 @@ function adminRoute(pathname: string): AdminConsoleRoute {
   if (pathname === '/admin/oauth' || pathname.startsWith('/admin/oauth/')) return 'oauth';
   if (pathname === '/admin/audit' || pathname.startsWith('/admin/audit/')) return 'audit';
   if (pathname.startsWith('/admin/presets')) return 'presets';
+  if (pathname.startsWith('/admin/instructions')) return 'instructions';
   if (pathname.startsWith('/admin/logs')) return 'logs';
   if (pathname.startsWith('/admin/about')) return 'about';
   return 'dashboard';
