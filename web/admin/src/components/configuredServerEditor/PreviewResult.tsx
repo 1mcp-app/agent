@@ -53,8 +53,8 @@ export function PreviewResult({
           {'expectedReload' in preview ? (
             <DetailRow
               label="Expected reload"
-              value={preview.expectedReload.policy.replaceAll('_', ' ')}
-              meta={preview.expectedReload.possibleStatuses.join(', ')}
+              value="Checked after creation"
+              meta="The runtime reports the reload outcome after configuration is written."
             />
           ) : (
             <DetailRow

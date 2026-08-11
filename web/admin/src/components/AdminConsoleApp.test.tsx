@@ -70,6 +70,25 @@ describe('AdminConsoleApp', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Failed to load retained backend logs');
     expect(screen.queryByText('No captured stderr in retained runtime history.')).not.toBeInTheDocument();
   });
+
+  it('guides operators from empty logs without claiming a live stream', async () => {
+    const open = vi.fn();
+    renderApp(consoleState(), {
+      navigation: { route: 'logs' },
+      configuredServers: { create: idleCreateModel(open) },
+      logs: { connection: 'active', sources: [] },
+    });
+
+    expect(await screen.findByText('Waiting for sources')).toBeInTheDocument();
+    expect(screen.queryByText('Live stream')).not.toBeInTheDocument();
+    expect(screen.getByText(/Configure a stdio server/i)).toBeInTheDocument();
+    const configureLink = screen.getByRole('link', { name: /configure stdio server/i });
+    expect(configureLink).toHaveAttribute('href', '/admin/servers/new');
+    fireEvent.click(configureLink, { metaKey: true });
+    expect(open).not.toHaveBeenCalled();
+    await userEvent.click(configureLink);
+    expect(open).toHaveBeenCalledOnce();
+  });
   it('renders setup-required guidance without authenticated console chrome', () => {
     render(
       <MantineProvider>
@@ -86,14 +105,23 @@ describe('AdminConsoleApp', () => {
     expect(screen.queryByText('1mcp admin bootstrap')).not.toBeInTheDocument();
   });
 
-  it('renders login and loading states without account-management controls', () => {
+  it('renders login and loading states without account-management controls', async () => {
+    const user = userEvent.setup();
     const { rerender } = renderApp({ ...createInitialState(), view: 'login' });
 
     expect(screen.getByRole('heading', { name: /operator login/i })).toBeInTheDocument();
     expect(screen.queryByRole('banner', { name: /admin console/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: /runtime identity/i })).not.toBeInTheDocument();
     expect(screen.getByLabelText(/username/i)).toHaveAttribute('autocomplete', 'username');
-    expect(screen.getByLabelText(/password/i)).toHaveAttribute('autocomplete', 'current-password');
+    const passwordInput = screen.getByLabelText(/^Password/, { selector: 'input' });
+    expect(passwordInput).toHaveAttribute('autocomplete', 'current-password');
+    const visibilityToggle = screen.getByRole('button', { name: 'Show password' });
+    expect(visibilityToggle).toHaveAttribute('aria-pressed', 'false');
+    visibilityToggle.focus();
+    await user.keyboard('{Enter}');
+    expect(screen.getByRole('button', { name: 'Hide password' })).toHaveAttribute('aria-pressed', 'true');
+    expect(passwordInput).toHaveAttribute('type', 'text');
+    expect(screen.getByRole('button', { name: 'Hide password' })).toHaveFocus();
     expect(screen.queryByText(/create account|disable account|delete account|password reset/i)).not.toBeInTheDocument();
 
     rerender(
@@ -145,6 +173,8 @@ describe('AdminConsoleApp', () => {
 
     await user.click(screen.getByRole('button', { name: /copy runtime scope/i }));
     expect(onCopyText).toHaveBeenCalledWith('runtimeScopeId', 'scope_123');
+    await user.click(screen.getByRole('button', { name: /copy external url/i }));
+    expect(onCopyText).toHaveBeenCalledWith('externalUrl', 'https://runtime.example.com');
   });
 
   it('keeps custom server creation available when the inventory is empty', async () => {
@@ -163,8 +193,42 @@ describe('AdminConsoleApp', () => {
     };
     renderApp(state, { navigation: { route: 'servers' }, configuredServers: { create } });
 
-    await userEvent.click(screen.getByRole('button', { name: 'Configure Custom Server' }));
+    expect(screen.getByText('No servers configured')).toBeInTheDocument();
+    expect(screen.queryByRole('searchbox', { name: /search servers/i })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Configure server' }));
     expect(open).toHaveBeenCalledOnce();
+  });
+
+  it('clears a filtered empty server inventory without changing true-empty guidance', async () => {
+    const user = userEvent.setup();
+    renderApp(consoleState(), { navigation: { route: 'servers' } });
+
+    await user.type(screen.getByRole('searchbox', { name: /search servers/i }), 'missing');
+    expect(screen.getByText(/No servers match the current search/i)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Clear filters' }));
+
+    expect(screen.getByRole('searchbox', { name: /search servers/i })).toHaveValue('');
+    expect(screen.getByText('filesystem')).toBeInTheDocument();
+  });
+
+  it('uses the full workspace for an active server task and hides the browse inventory', () => {
+    const create = {
+      state: { status: 'loading' as const },
+      open: vi.fn(),
+      close: vi.fn(async () => true),
+      editExisting: vi.fn(),
+      changeField: vi.fn(),
+      addSecret: vi.fn(),
+      changeSecret: vi.fn(),
+      removeSecret: vi.fn(),
+      preview: vi.fn(),
+      apply: vi.fn(),
+    };
+    renderApp(consoleState(), { navigation: { route: 'servers' }, configuredServers: { create } });
+
+    expect(screen.getByRole('heading', { name: /configure custom server/i })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /server inventory/i })).not.toBeInTheDocument();
+    expect(document.querySelector('.server-task-workspace')).toBeInTheDocument();
   });
 
   it('renders the full inventory and editor only in the servers workspace', async () => {
@@ -258,6 +322,25 @@ describe('AdminConsoleApp', () => {
     await user.click(screen.getByRole('button', { name: /restart github/i }));
     expect(onOperate).toHaveBeenNthCalledWith(1, 'context7:0123456789abcdef', 'authorize');
     expect(onOperate).toHaveBeenNthCalledWith(2, 'github', 'restart');
+  });
+
+  it('links an empty OAuth workspace to server configuration', async () => {
+    const state = consoleState();
+    state.status!.oauth.services = [];
+    const open = vi.fn();
+    renderApp(state, {
+      navigation: { route: 'oauth' },
+      configuredServers: { create: idleCreateModel(open) },
+    });
+
+    expect(await screen.findByText('No OAuth services reported')).toBeInTheDocument();
+    expect(screen.getByText(/appear when a configured server requires/i)).toBeInTheDocument();
+    const configureLink = screen.getByRole('link', { name: /configure server/i });
+    expect(configureLink).toHaveAttribute('href', '/admin/servers/new');
+    fireEvent.click(configureLink, { ctrlKey: true });
+    expect(open).not.toHaveBeenCalled();
+    await userEvent.click(configureLink);
+    expect(open).toHaveBeenCalledOnce();
   });
 
   it('shows OAuth callback, busy, and operation feedback in the OAuth workspace', () => {
@@ -365,6 +448,35 @@ describe('AdminConsoleApp', () => {
         preview: expect.objectContaining({ previewFingerprint: 'preview' }),
       }),
     );
+  });
+
+  it('uses a single first-preset workspace and validates preview inputs locally', async () => {
+    const user = userEvent.setup();
+    const preview = vi.fn();
+    renderApp(consoleState(), {
+      navigation: { route: 'presets' },
+      presets: { items: [], preview },
+    });
+
+    expect(await screen.findByRole('heading', { name: 'Create preset' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'New preset' })).not.toBeInTheDocument();
+    expect(document.querySelector('.preset-workspace-grid-empty')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /preview matches/i })).toBeDisabled();
+    expect(screen.getByText(/Enter a preset name before previewing/i)).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Preset name'), 'invalid name');
+    expect(screen.getByText(/Use only letters, numbers/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /preview matches/i })).toBeDisabled();
+    await user.clear(screen.getByLabelText('Preset name'));
+    await user.type(screen.getByLabelText('Preset name'), 'first-preset');
+    expect(screen.getByRole('button', { name: /preview matches/i })).toBeEnabled();
+    expect(screen.getByText(/empty tag query is allowed/i)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Advanced JSON' }));
+    await user.clear(screen.getByLabelText('Advanced JSON'));
+    fireEvent.change(screen.getByLabelText('Advanced JSON'), { target: { value: '{' } });
+    expect(screen.getByRole('button', { name: /preview matches/i })).toBeDisabled();
+    expect(screen.getByText(/valid object before previewing/i)).toBeInTheDocument();
+    expect(preview).not.toHaveBeenCalled();
   });
 
   it('builds presets from discovered tags with include, exclude, and live server impact', async () => {
@@ -573,8 +685,8 @@ describe('AdminConsoleApp', () => {
   it('explains how to start editing when no configured server is selected', () => {
     renderApp(consoleState(), { navigation: { route: 'servers' } });
 
-    expect(screen.getByText(/Select Edit server to change target settings/i)).toBeInTheDocument();
-    expect(screen.getByText(/Edit fields -> Preview change -> Review result/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Select Edit server to change target settings/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Edit fields -> Preview change -> Review result/i)).not.toBeInTheDocument();
   });
 
   it('normalizes configured-server structured edit controls without raw JSON', async () => {
@@ -796,7 +908,7 @@ describe('AdminConsoleApp', () => {
     await user.type(screen.getByLabelText('URL'), 'https://example.com/v2/mcp');
     await user.click(screen.getByRole('button', { name: /^back$/i }));
 
-    expect(onCloseServerDetail).toHaveBeenCalledWith();
+    expect(onCloseServerDetail).toHaveBeenCalledWith('/admin/servers');
   });
 
   it('reruns preview connectivity on demand after a preview exists', async () => {
@@ -958,7 +1070,7 @@ describe('AdminConsoleApp', () => {
     );
 
     await user.type(screen.getByLabelText(/username/i), 'operator');
-    await user.type(screen.getByLabelText(/password/i), 'correct horse battery staple');
+    await user.type(screen.getByLabelText(/^Password/, { selector: 'input' }), 'correct horse battery staple');
     await user.click(screen.getByRole('button', { name: /log in/i }));
     expect(onLogin).toHaveBeenCalledWith({ username: 'operator', password: 'correct horse battery staple' });
 
@@ -988,4 +1100,19 @@ describe('AdminConsoleApp', () => {
 
 function getTagStateRadio(tag: string, state: 'Neutral' | 'Include' | 'Exclude') {
   return within(screen.getByRole('group', { name: `${tag} tag state` })).getByRole('radio', { name: state });
+}
+
+function idleCreateModel(open = vi.fn()) {
+  return {
+    state: { status: 'idle' as const },
+    open,
+    close: async () => true,
+    editExisting: vi.fn(),
+    changeField: vi.fn(),
+    addSecret: vi.fn(),
+    changeSecret: vi.fn(),
+    removeSecret: vi.fn(),
+    preview: vi.fn(),
+    apply: vi.fn(),
+  };
 }

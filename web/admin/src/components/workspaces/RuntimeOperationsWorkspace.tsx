@@ -159,14 +159,21 @@ export function DashboardWorkspace({
         </section>
         <Panel title="Runtime identity" utility="current target" icon={<span className="runtime-live-dot" />}>
           {runtime ? (
-            <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="sm">
+            <SimpleGrid cols={1} spacing="sm" className="runtime-identity-grid">
               <DetailRow label="Version" value={runtime.runtimeVersion} />
-              <DetailRow label="External URL" value={runtime.externalUrl ?? '-'} />
+              <DetailRow
+                label="External URL"
+                value={runtime.externalUrl ?? '-'}
+                copyLabel="externalUrl"
+                onCopyText={copyText}
+                wrapValue
+              />
               <DetailRow
                 label="Runtime scope"
                 value={runtime.runtimeScopeId}
                 copyLabel="runtimeScopeId"
                 onCopyText={copyText}
+                wrapValue
               />
             </SimpleGrid>
           ) : (
@@ -181,6 +188,8 @@ export function DashboardWorkspace({
 
 export function ServersWorkspace({ model }: { model: OperatorWorkspaceModel }) {
   const { state, configuredServers } = model;
+  const creating = configuredServers.create.state.status !== 'idle';
+  const editing = configuredServers.edit.state.status !== 'list';
 
   return (
     <section aria-labelledby="servers-workspace-title" className="operations-workspace">
@@ -189,23 +198,23 @@ export function ServersWorkspace({ model }: { model: OperatorWorkspaceModel }) {
         titleId="servers-workspace-title"
         description={`${state.configuredServers.length} configured targets · updated ${state.lastUpdatedAt ?? 'never'}`}
       />
-      <div className="workspace-grid">
-        <div className="inventory-column">
-          <ConfiguredServersPanel
-            state={state}
-            onServerAction={configuredServers.mutate}
-            onOpenServerDetail={configuredServers.edit.open}
-            onConfigureCustomServer={configuredServers.create.open}
-          />
-        </div>
-        <div className="inspector-column">
-          {configuredServers.create.state.status === 'idle' ? (
-            <ConfiguredServerEditor model={configuredServers.edit} />
-          ) : (
+      <div className="inventory-column server-browse-workspace" hidden={creating || editing}>
+        <ConfiguredServersPanel
+          state={state}
+          onServerAction={configuredServers.mutate}
+          onOpenServerDetail={configuredServers.edit.open}
+          onConfigureCustomServer={configuredServers.create.open}
+        />
+      </div>
+      {creating || editing ? (
+        <div className="server-task-workspace">
+          {creating ? (
             <ConfiguredServerCreator model={configuredServers.create} />
+          ) : (
+            <ConfiguredServerEditor model={configuredServers.edit} />
           )}
         </div>
-      </div>
+      ) : null}
     </section>
   );
 }

@@ -266,6 +266,7 @@ describe('admin SPA browser smoke', () => {
 
       await page.getByLabel('Server Name').fill('custom server');
       await page.getByLabel('Command').fill('node');
+      await page.locator('summary').filter({ hasText: 'Advanced settings' }).click();
       await page.getByRole('button', { name: 'Add secret' }).click();
       await page.getByLabel('Environment variable').fill('API_TOKEN');
       await page.getByLabel('Environment reference for API_TOKEN').fill('CUSTOM_SERVER_TOKEN');
@@ -412,12 +413,12 @@ describe('admin SPA browser smoke', () => {
   });
 
   it.each([
-    { width: 390, height: 844, compactInventory: true },
+    { width: 375, height: 812, compactInventory: true },
     { width: 800, height: 900, compactInventory: false },
   ])(
     'keeps the built console usable at $width px without page-level horizontal overflow',
     async ({ width, height, compactInventory }) => {
-      const page = await newPage({ width, height, isMobile: width === 390 });
+      const page = await newPage({ width, height, isMobile: width === 375 });
 
       try {
         await expectCenteredLoginGate(page);
@@ -457,27 +458,81 @@ describe('admin SPA browser smoke', () => {
     },
   );
 
-  it('keeps the inventory and inspector side by side at 1440 px', async () => {
-    const page = await newPage({ width: 1440, height: 1100 });
+  it('creates and reopens the first stdio server from a zero-server runtime at 375x812', async () => {
+    configuredServerFixture.clear();
+    const page = await newPage({ width: 375, height: 812, isMobile: true });
+
+    try {
+      await expectCenteredLoginGate(page);
+      const visibilityToggle = page.getByRole('button', { name: 'Show password' });
+      const toggleSize = await visibilityToggle.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+      });
+      expect(toggleSize.width).toBeGreaterThanOrEqual(44);
+      expect(toggleSize.height).toBeGreaterThanOrEqual(44);
+      await visibilityToggle.focus();
+      await page.keyboard.press('Enter');
+      await expectVisible(page.getByRole('button', { name: 'Hide password' }));
+      await login(page, { skipNavigation: true });
+
+      await page.getByRole('button', { name: 'Open operations navigation' }).click();
+      await page.getByRole('link', { name: 'Server inventory' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers`);
+      await expectText(page, 'No servers configured');
+      await page.getByRole('button', { name: 'Configure server' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers/new`);
+      expect(await page.getByRole('heading', { name: 'Server inventory' }).count()).toBe(0);
+      await page.getByLabel('Server Name').fill('first-stdio');
+      await page.getByLabel('Command').fill('node');
+      await page.getByRole('button', { name: 'Preview server' }).click();
+      await page.getByRole('button', { name: 'Create server' }).click();
+      await page.getByRole('dialog').getByRole('button', { name: 'Create server' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers/first-stdio`);
+      await expectVisible(page.getByRole('heading', { name: 'first-stdio', exact: true }));
+      await expectNoPageOverflow(page);
+
+      await page.getByRole('button', { name: 'Back' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers`);
+      await expectText(page, '1 configured target');
+      await page.getByRole('button', { name: 'Edit first-stdio server' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers/first-stdio`);
+      await expectVisible(page.getByRole('heading', { name: 'first-stdio', exact: true }));
+      await expectNoPageOverflow(page);
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  it('uses mutually exclusive browse and task workspaces at 1440 px and restores filters on Back', async () => {
+    const page = await newPage({ width: 1440, height: 900 });
 
     try {
       await expectCenteredLoginGate(page);
       await login(page, { skipNavigation: true });
       await page.getByRole('link', { name: 'Server inventory' }).click();
       await page.waitForURL(`${baseUrl}/admin/servers`);
+      await page.getByLabel('Search servers').fill('github');
+      await waitForRowCount(page, 1);
       await expectNoPageOverflow(page);
 
-      const layout = await page.locator('.workspace-grid').evaluate((element) => {
-        const inventory = element.querySelector('.inventory-column')?.getBoundingClientRect();
-        const inspector = element.querySelector('.inspector-column')?.getBoundingClientRect();
-        return {
-          columns: globalThis.getComputedStyle(element).gridTemplateColumns.split(' ').length,
-          inventoryTop: inventory?.top ?? 0,
-          inspectorTop: inspector?.top ?? 0,
-        };
+      await page.getByRole('button', { name: 'Edit github server' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers/github`);
+      expect(await page.locator('.server-table-view').isVisible()).toBe(false);
+      expect(await page.getByRole('heading', { name: 'Server inventory' }).count()).toBe(0);
+      const widthRatio = await page.locator('.server-task-workspace').evaluate((element) => {
+        const taskWidth = element.getBoundingClientRect().width;
+        const workspaceWidth = element.closest('.operations-workspace')?.getBoundingClientRect().width ?? taskWidth;
+        return taskWidth / workspaceWidth;
       });
-      expect(layout.columns).toBe(2);
-      expect(Math.abs(layout.inspectorTop - layout.inventoryTop)).toBeLessThanOrEqual(1);
+      expect(widthRatio).toBeGreaterThan(0.95);
+      await expectNoPageOverflow(page);
+
+      await page.getByRole('button', { name: 'Back' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers`);
+      await expectVisible(page.getByRole('heading', { name: 'Server inventory' }));
+      expect(await page.getByLabel('Search servers').inputValue()).toBe('github');
+      await waitForRowCount(page, 1);
     } finally {
       await page.context().close();
     }
@@ -627,7 +682,7 @@ describe('admin SPA browser smoke', () => {
       await page.goto(`${baseUrl}/admin`);
     }
     await page.getByLabel('Username').fill('operator');
-    await page.getByLabel('Password').fill(PASSWORD);
+    await page.locator('input[autocomplete="current-password"]').fill(PASSWORD);
     const loginResponsePromise = page.waitForResponse((response) =>
       response.url().endsWith('/admin/api/session/login'),
     );
@@ -648,7 +703,7 @@ describe('admin SPA browser smoke', () => {
   }
 });
 
-type ResettableConfiguredServerFixture = AdminConfiguredServerOperations & { reset: () => void };
+type ResettableConfiguredServerFixture = AdminConfiguredServerOperations & { reset: () => void; clear: () => void };
 
 async function expectText(page: Page, text: string): Promise<void> {
   try {
@@ -686,6 +741,9 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
   return {
     reset() {
       servers = createConfiguredServerReadModels();
+    },
+    clear() {
+      servers = [];
     },
     async getConfiguredServerCreateContract() {
       return operationSuccess('getConfiguredServerCreateContract', 'op_create_contract', {

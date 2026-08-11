@@ -35,7 +35,7 @@ import {
   SunMoon,
   UserRound,
 } from 'lucide-react';
-import { lazy, type MouseEvent, type ReactNode, Suspense, useState } from 'react';
+import { type KeyboardEvent, lazy, type MouseEvent, type ReactNode, Suspense, useState } from 'react';
 
 import type { AdminConsoleRoute, AdminConsoleSessionModel } from '../session/AdminConsoleSessionModel';
 import type { AdminConsoleState } from '../state/adminConsoleState';
@@ -258,7 +258,13 @@ function ConsoleWorkspace({ session }: { session: AdminConsoleSessionModel }) {
     case 'servers':
       return <ServersWorkspace model={operatorModel} />;
     case 'oauth':
-      return <OAuthServicesWorkspace model={operatorModel} oauth={session.oauth} />;
+      return (
+        <OAuthServicesWorkspace
+          model={operatorModel}
+          oauth={session.oauth}
+          configureServer={operatorModel.configuredServers.create.open}
+        />
+      );
     case 'audit':
       return <AuditTrailWorkspace model={operatorModel} />;
     case 'presets':
@@ -279,7 +285,7 @@ function ConsoleWorkspace({ session }: { session: AdminConsoleSessionModel }) {
         />
       );
     case 'logs':
-      return <BackendLogsWorkspace logs={session.logs} />;
+      return <BackendLogsWorkspace logs={session.logs} configureServer={operatorModel.configuredServers.create.open} />;
     case 'about':
       return <AboutRuntimeWorkspace state={state} />;
     case 'dashboard':
@@ -405,6 +411,7 @@ function LoginView({
 }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [passwordVisible, setPasswordVisible] = useState(false);
 
   return (
     <Paper component="section" className="login-panel" aria-labelledby="login-title" withBorder>
@@ -442,6 +449,19 @@ function LoginView({
             disabled={loading}
             value={password}
             onChange={(event) => setPassword(event.currentTarget.value)}
+            visible={passwordVisible}
+            onVisibilityChange={() => setPasswordVisible((visible) => !visible)}
+            visibilityToggleButtonProps={{
+              'aria-label': passwordVisible ? 'Hide password' : 'Show password',
+              'aria-pressed': passwordVisible,
+              tabIndex: 0,
+              onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  setPasswordVisible((visible) => !visible);
+                }
+              },
+            }}
             required
           />
           <Button type="submit" loading={loading} disabled={loading}>

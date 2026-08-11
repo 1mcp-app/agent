@@ -76,15 +76,12 @@ describe('admin API client', () => {
             expiresAt: '2026-07-07T01:00:00.000Z',
           });
         }
-        return jsonResponse({ authenticated: false, adminStatus: 'setupRequired' }, 401);
+        return jsonResponse({ authenticated: false, adminStatus: 'setupRequired' });
       },
     });
 
     const login = await api.login({ username: 'operator', password: 'correct horse battery staple' });
-    await expect(api.getSession()).rejects.toMatchObject({
-      status: 401,
-      body: { authenticated: false, adminStatus: 'setupRequired' },
-    });
+    await expect(api.getSession()).resolves.toEqual({ authenticated: false, adminStatus: 'setupRequired' });
 
     expect(login.account.username).toBe('operator');
     expect(calls[0]).toMatchObject({

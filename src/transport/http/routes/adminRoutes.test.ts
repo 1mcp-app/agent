@@ -611,7 +611,7 @@ describe('admin routes', () => {
     const sessionResponse = await request(app).get('/admin/api/session');
     const capabilitiesResponse = await request(app).get('/admin/cli/v1/capabilities');
 
-    expect(sessionResponse.status).toBe(401);
+    expect(sessionResponse.status).toBe(200);
     expect(sessionResponse.body).toEqual({ authenticated: false });
     expect(sessionResponse.headers['content-type']).toContain('application/json');
     expect(capabilitiesResponse.status).toBe(200);
@@ -650,7 +650,7 @@ describe('admin routes', () => {
 
     const response = await request(app).get('/admin/api/session');
 
-    expect(response.status).toBe(401);
+    expect(response.status).toBe(200);
     expect(response.body).toEqual({ authenticated: false, adminStatus: 'setupRequired' });
     expect(JSON.stringify(response.body)).not.toMatch(/account|create|reset|password/i);
   });
@@ -728,11 +728,11 @@ describe('admin routes', () => {
     expect(limitedResponse.body).toEqual({ error: 'admin_login_rate_limited' });
   });
 
-  it('requires an admin session for safe admin API reads', async () => {
+  it('requires an admin session for protected safe admin API reads', async () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes();
 
-    const response = await request(app).get('/admin/api/session');
+    const response = await request(app).get('/admin/api/status');
 
     expect(response.status).toBe(401);
     expect(response.body).toEqual({ authenticated: false });

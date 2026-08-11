@@ -302,6 +302,21 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     }
   });
 
+  router.get('/api/session', (req, res) => {
+    const session = options.adminService.validateSession(getAdminSessionCookie(req));
+    if (!session) {
+      res.status(200).json(unauthenticatedAdminApiResponse(options));
+      return;
+    }
+
+    res.status(200).json({
+      authenticated: true,
+      account: session.account,
+      csrfToken: session.csrfToken,
+      expiresAt: session.expiresAt,
+    });
+  });
+
   router.use('/api', (req, res, next) => {
     const sessionToken = getAdminSessionCookie(req);
     const session = options.adminService.validateSession(sessionToken);
@@ -316,21 +331,6 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     }
 
     next();
-  });
-
-  router.get('/api/session', (req, res) => {
-    const session = options.adminService.validateSession(getAdminSessionCookie(req));
-    if (!session) {
-      res.status(401).json({ authenticated: false });
-      return;
-    }
-
-    res.status(200).json({
-      authenticated: true,
-      account: session.account,
-      csrfToken: session.csrfToken,
-      expiresAt: session.expiresAt,
-    });
   });
 
   router.post('/api/session/logout', (req, res) => {

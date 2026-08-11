@@ -361,6 +361,10 @@ export function useAdminConsoleSession({
   const loadSession = useCallback(async () => {
     try {
       const session = await api.getSession();
+      if (!session.authenticated) {
+        invalidateAdminSession(session.adminStatus ?? 'loginRequired');
+        return;
+      }
       dispatch({ type: 'sessionLoaded', session });
       await refreshConsole('Session loaded, but refresh failed: ', session);
     } catch (error) {
@@ -370,7 +374,7 @@ export function useAdminConsoleSession({
     } finally {
       schedulePoll();
     }
-  }, [api, dispatch, handleUnauthenticated, refreshConsole, schedulePoll]);
+  }, [api, dispatch, handleUnauthenticated, invalidateAdminSession, refreshConsole, schedulePoll]);
 
   const login = useCallback(
     async (input: { username: string; password: string }) => {

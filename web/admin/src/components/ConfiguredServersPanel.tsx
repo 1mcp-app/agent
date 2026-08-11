@@ -5,6 +5,7 @@ import {
   Group,
   Loader,
   SegmentedControl,
+  Stack,
   Switch,
   Table,
   Text,
@@ -48,6 +49,7 @@ export function ConfiguredServersPanel({
     () => filterServers(state.configuredServers, query, filter),
     [filter, query, state.configuredServers],
   );
+  const inventoryEmpty = state.configuredServers.length === 0;
 
   return (
     <Panel
@@ -55,31 +57,56 @@ export function ConfiguredServersPanel({
       utility={`${servers.length} of ${state.configuredServers.length} targets`}
       icon={<ServerCog size={17} />}
     >
-      <Group align="flex-end" gap="sm" className="server-filter-row">
-        <TextInput
-          className="server-search"
-          leftSection={<Search size={16} />}
-          label="Search servers"
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.currentTarget.value)}
-        />
-        <SegmentedControl
-          aria-label="Server status filter"
-          value={filter}
-          onChange={(value) => setFilter(value as ServerFilter)}
-          data={[
-            { label: 'All', value: 'all' },
-            { label: 'Enabled', value: 'enabled' },
-            { label: 'Disabled', value: 'disabled' },
-          ]}
-        />
-        <Button leftSection={<Plus size={16} />} onClick={() => void onConfigureCustomServer?.()}>
-          Configure Custom Server
-        </Button>
-      </Group>
-      {servers.length === 0 ? (
-        <EmptyState message="No servers match the current filter." />
+      {!inventoryEmpty ? (
+        <Group align="flex-end" gap="sm" className="server-filter-row">
+          <TextInput
+            className="server-search"
+            leftSection={<Search size={16} />}
+            label="Search servers"
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.currentTarget.value)}
+          />
+          <SegmentedControl
+            aria-label="Server status filter"
+            value={filter}
+            onChange={(value) => setFilter(value as ServerFilter)}
+            data={[
+              { label: 'All', value: 'all' },
+              { label: 'Enabled', value: 'enabled' },
+              { label: 'Disabled', value: 'disabled' },
+            ]}
+          />
+          <Button leftSection={<Plus size={16} />} onClick={() => void onConfigureCustomServer?.()}>
+            Configure Custom Server
+          </Button>
+        </Group>
+      ) : null}
+      {inventoryEmpty ? (
+        <Stack gap="sm" className="actionable-empty-state">
+          <div>
+            <Text fw={800}>No servers configured</Text>
+            <Text c="dimmed" size="sm">
+              Configure a target to start routing MCP capabilities and observing runtime activity.
+            </Text>
+          </div>
+          <Button leftSection={<Plus size={16} />} onClick={() => void onConfigureCustomServer?.()}>
+            Configure server
+          </Button>
+        </Stack>
+      ) : servers.length === 0 ? (
+        <Stack gap="sm" className="actionable-empty-state">
+          <EmptyState message="No servers match the current search and status filter." />
+          <Button
+            variant="default"
+            onClick={() => {
+              setQuery('');
+              setFilter('all');
+            }}
+          >
+            Clear filters
+          </Button>
+        </Stack>
       ) : compactLayout ? (
         <div className="server-mobile-list">
           {servers.map((server) => (

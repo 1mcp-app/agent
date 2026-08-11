@@ -311,6 +311,15 @@ input {
   min-width: 0;
 }
 
+.server-browse-workspace,
+.server-task-workspace {
+  margin-top: 16px;
+}
+
+.server-browse-workspace[hidden] {
+  display: none;
+}
+
 .inspector-column {
   position: sticky;
   top: 84px;
@@ -603,10 +612,53 @@ input {
 
 .detail-row-main {
   min-width: 0;
+  flex: 1;
+}
+
+.detail-row-value-wrap {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .detail-row > .mantine-Button-root {
   flex-shrink: 0;
+}
+
+.runtime-identity-grid .detail-row {
+  align-items: flex-start;
+}
+
+.runtime-identity-grid .detail-row > .mantine-Button-root {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.actionable-empty-state {
+  align-items: flex-start;
+  padding: 12px 0 4px;
+}
+
+.actionable-empty-state .mantine-Button-root {
+  min-height: 44px;
+}
+
+.advanced-settings {
+  border: 1px solid var(--admin-line);
+  border-radius: 6px;
+  background: var(--admin-panel-subtle);
+  padding: 12px;
+}
+
+.advanced-settings > summary {
+  min-height: 44px;
+  cursor: pointer;
+  font-weight: 800;
+  line-height: 44px;
+}
+
+.advanced-settings > summary:focus-visible {
+  outline: 2px solid var(--admin-teal);
+  outline-offset: 2px;
 }
 
 .secret-editor,
@@ -819,6 +871,20 @@ input {
   background: var(--admin-panel);
   color: var(--admin-muted);
   text-align: center;
+}
+
+.preset-workspace-grid-empty {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.login-panel .mantine-PasswordInput-visibilityToggle {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.login-panel .mantine-PasswordInput-visibilityToggle:focus-visible {
+  outline: 2px solid var(--admin-teal);
+  outline-offset: 2px;
 }
 
 @media (max-width: 1399px) {

@@ -1,6 +1,7 @@
 import { Alert, Badge, Button, Code, Group, Paper, Stack, Text } from '@mantine/core';
 
-import { Clipboard, KeyRound, RotateCcw } from 'lucide-react';
+import { Clipboard, KeyRound, Plus, RotateCcw } from 'lucide-react';
+import type { MouseEvent } from 'react';
 import { useState } from 'react';
 
 import type { OAuthServiceStatus } from '../../api/adminApi';
@@ -14,9 +15,11 @@ import { WorkspaceHeading } from './RuntimeOperationsWorkspace';
 export function OAuthServicesWorkspace({
   model,
   oauth,
+  configureServer,
 }: {
   model: OperatorWorkspaceModel;
   oauth: AdminConsoleSessionModel['oauth'];
+  configureServer(): void | Promise<void>;
 }) {
   const { state, configuredServers } = model;
   const services = state.status?.oauth.services ?? [];
@@ -41,7 +44,26 @@ export function OAuthServicesWorkspace({
       {oauth.operationFeedback ? <FeedbackAlert feedback={oauth.operationFeedback} /> : null}
       {services.length === 0 ? (
         <Paper className="operations-panel" withBorder>
-          <Text c="dimmed">No OAuth services reported.</Text>
+          <Stack gap="sm" className="actionable-empty-state">
+            <div>
+              <Text fw={800}>No OAuth services reported</Text>
+              <Text c="dimmed" size="sm">
+                OAuth services appear when a configured server requires provider authorization.
+              </Text>
+            </div>
+            <Button
+              component="a"
+              href="/admin/servers/new"
+              leftSection={<Plus size={16} />}
+              onClick={(event: MouseEvent<HTMLAnchorElement>) => {
+                if (!isSamePageNavigation(event)) return;
+                event.preventDefault();
+                void configureServer();
+              }}
+            >
+              Configure server
+            </Button>
+          </Stack>
         </Paper>
       ) : (
         <Stack gap="sm">
@@ -64,6 +86,10 @@ export function OAuthServicesWorkspace({
       ) : null}
     </section>
   );
+}
+
+function isSamePageNavigation(event: MouseEvent<HTMLAnchorElement>): boolean {
+  return event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
 }
 
 function OAuthServiceRow({

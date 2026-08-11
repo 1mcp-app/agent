@@ -51,6 +51,9 @@ export function PresetAuthoringWorkspace({
   const [structuredConversion, setStructuredConversion] = useState<AdminPresetPreview['structuredConversion']>({
     lossless: true,
   });
+  const nameError = presetNameError(name);
+  const advancedJsonValid = strategy !== 'advanced' || isObjectJson(advanced);
+  const previewDisabled = Boolean(nameError) || !advancedJsonValid || busy;
 
   function editPreset(preset: AdminPresetListItem, duplicate = false) {
     setSourceName(duplicate ? preset.name : preset.name);
@@ -131,60 +134,65 @@ export function PresetAuthoringWorkspace({
           <Button variant="default" onClick={() => void load()} loading={busy}>
             Refresh
           </Button>
-          <Button
-            onClick={() => {
-              setSourceName(undefined);
-              setName('');
-              setDescription('');
-              setStrategy('or');
-              setTagStates({});
-              setAdvanced('{}');
-              setPreview(null);
-            }}
-          >
-            New preset
-          </Button>
+          {presets.length > 0 ? (
+            <Button
+              onClick={() => {
+                setSourceName(undefined);
+                setName('');
+                setDescription('');
+                setStrategy('or');
+                setTagStates({});
+                setAdvanced('{}');
+                setPreview(null);
+              }}
+            >
+              New preset
+            </Button>
+          ) : null}
         </Group>
       </Group>
-      <div className="workspace-grid">
-        <Paper withBorder p="md">
-          <Stack gap="sm">
-            {presets.map((preset) => (
-              <Paper key={preset.name} withBorder p="sm">
-                <Group justify="space-between" align="flex-start">
-                  <div>
-                    <Text fw={800}>{preset.name}</Text>
-                    <Text size="sm" c="dimmed">
-                      {preset.description || 'No description'}
-                    </Text>
-                    <Text size="xs">
-                      {preset.strategy.toUpperCase()} · {preset.querySummary || 'empty query'} · {preset.matchCount}{' '}
-                      matches
-                    </Text>
-                  </div>
-                  <Group gap="xs">
-                    <Button size="xs" variant="default" onClick={() => editPreset(preset)}>
-                      Edit
-                    </Button>
-                    <Button size="xs" variant="default" onClick={() => editPreset(preset, true)}>
-                      Duplicate
-                    </Button>
-                    <Button
-                      size="xs"
-                      color="red"
-                      variant="light"
-                      leftSection={<Trash2 size={14} />}
-                      onClick={() => void deletePreset(preset.name)}
-                    >
-                      Delete
-                    </Button>
+      <div
+        className={`workspace-grid preset-workspace-grid${presets.length === 0 ? ' preset-workspace-grid-empty' : ''}`}
+      >
+        {presets.length > 0 ? (
+          <Paper withBorder p="md">
+            <Stack gap="sm">
+              {presets.map((preset) => (
+                <Paper key={preset.name} withBorder p="sm">
+                  <Group justify="space-between" align="flex-start">
+                    <div>
+                      <Text fw={800}>{preset.name}</Text>
+                      <Text size="sm" c="dimmed">
+                        {preset.description || 'No description'}
+                      </Text>
+                      <Text size="xs">
+                        {preset.strategy.toUpperCase()} · {preset.querySummary || 'empty query'} · {preset.matchCount}{' '}
+                        matches
+                      </Text>
+                    </div>
+                    <Group gap="xs">
+                      <Button size="xs" variant="default" onClick={() => editPreset(preset)}>
+                        Edit
+                      </Button>
+                      <Button size="xs" variant="default" onClick={() => editPreset(preset, true)}>
+                        Duplicate
+                      </Button>
+                      <Button
+                        size="xs"
+                        color="red"
+                        variant="light"
+                        leftSection={<Trash2 size={14} />}
+                        onClick={() => void deletePreset(preset.name)}
+                      >
+                        Delete
+                      </Button>
+                    </Group>
                   </Group>
-                </Group>
-              </Paper>
-            ))}
-            {!busy && presets.length === 0 ? <Text c="dimmed">No presets in this Runtime Scope.</Text> : null}
-          </Stack>
-        </Paper>
+                </Paper>
+              ))}
+            </Stack>
+          </Paper>
+        ) : null}
         <Paper withBorder p="md">
           <Stack gap="sm">
             <Title order={3}>{sourceName ? `Edit ${sourceName}` : 'Create preset'}</Title>
@@ -196,6 +204,8 @@ export function PresetAuthoringWorkspace({
                 setName(event.currentTarget.value);
                 setPreview(null);
               }}
+              error={nameError ?? undefined}
+              description="Use letters, numbers, hyphens, or underscores; maximum 50 characters."
             />
             <TextInput
               label="Description"
@@ -256,6 +266,9 @@ export function PresetAuthoringWorkspace({
               <Textarea
                 label="Advanced JSON"
                 minRows={8}
+                error={
+                  !advancedJsonValid ? 'Advanced JSON must be a valid object before previewing matches.' : undefined
+                }
                 value={advanced}
                 onChange={(event) => {
                   const value = event.currentTarget.value;
@@ -297,7 +310,17 @@ export function PresetAuthoringWorkspace({
                 }}
               />
             )}
-            <Button leftSection={<SlidersHorizontal size={16} />} onClick={() => void createPreview()}>
+            {presets.length === 0 ? (
+              <Alert color="blue" variant="light">
+                Create the first preset for this Runtime Scope. An empty tag query is allowed and will be shown as a
+                warning.
+              </Alert>
+            ) : null}
+            <Button
+              leftSection={<SlidersHorizontal size={16} />}
+              disabled={previewDisabled}
+              onClick={() => void createPreview()}
+            >
               Preview matches
             </Button>
             {preview ? (
@@ -315,7 +338,7 @@ export function PresetAuthoringWorkspace({
                 ))}
                 {preview.validation.warnings.map((warning) => (
                   <Text key={warning} c="yellow">
-                    {warning}
+                    {operatorPresetMessage(warning)}
                   </Text>
                 ))}
                 {preview.matches.map((match) => (
@@ -333,12 +356,36 @@ export function PresetAuthoringWorkspace({
                 </Button>
               </Paper>
             ) : null}
-            {message ? <Alert>{message}</Alert> : null}
+            {message ? <Alert>{operatorPresetMessage(message)}</Alert> : null}
           </Stack>
         </Paper>
       </div>
     </section>
   );
+}
+
+function presetNameError(name: string): string | null {
+  if (!name.trim()) return 'Enter a preset name before previewing matches.';
+  if (name.length > 50) return 'Preset name must be 50 characters or less.';
+  if (!/^[a-zA-Z0-9_-]+$/.test(name)) return 'Use only letters, numbers, hyphens, and underscores.';
+  return null;
+}
+
+function isObjectJson(value: string): boolean {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Boolean(parsed && typeof parsed === 'object' && !Array.isArray(parsed));
+  } catch {
+    return false;
+  }
+}
+
+function operatorPresetMessage(message: string): string {
+  if (/name: Preset name is required/i.test(message)) return 'Enter a preset name before previewing matches.';
+  if (/Tag query produces no meaningful filter/i.test(message)) {
+    return 'No tag criteria selected; this preset will not filter servers.';
+  }
+  return message;
 }
 
 function TagMatrix({
