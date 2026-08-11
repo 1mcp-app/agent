@@ -632,17 +632,29 @@ describe('admin SPA browser smoke', () => {
       await page.getByRole('tab', { name: 'Initialization' }).click();
       await page.locator('[aria-label="Preview target selection"]').getByText('Tags', { exact: true }).click();
       await page.getByRole('textbox', { name: 'Tags' }).fill('docs, search');
-      await page
-        .getByLabel('Request context (JSON, optional)')
-        .fill('{"project":{"name":"docs"},"user":{},"environment":{}}');
+      await page.getByRole('checkbox', { name: 'Use explicit request context' }).check();
+      await page.getByLabel('Project name').fill('docs');
+      await page.getByLabel('User name').fill('operator');
+      await page.getByLabel('Environment prefixes').fill('ONE_MCP_, CI');
       await page.getByRole('button', { name: 'Preview initialize' }).click();
       await expectText(page, 'Rendered');
       await expectText(page, 'docs,search');
+      await expectText(page, 'Unresolved Template Servers: github-context');
+      const effectiveServers = page.getByLabel('Effective servers');
+      await expectVisible(effectiveServers);
+      await expectVisible(effectiveServers.getByText(/mcpServers \/\s*github/));
+      await expectVisible(effectiveServers.getByText(/mcpTemplates \/\s*github/));
+      await expectVisible(effectiveServers.getByText('Instructions', { exact: true }));
+      await expectVisible(effectiveServers.getByText('No instructions', { exact: true }));
       expect(instructionTemplateFixture.lastPreview).toMatchObject({
         identity: 'operator',
         surface: 'initialize',
         selection: { mode: 'tags', tags: ['docs', 'search'] },
-        requestContext: { project: { name: 'docs' }, user: {}, environment: {} },
+        requestContext: {
+          project: { name: 'docs' },
+          user: { name: 'operator' },
+          environment: { prefixes: ['ONE_MCP_', 'CI'] },
+        },
       });
 
       await page.getByRole('button', { name: 'Validate both surfaces' }).click();
@@ -656,6 +668,9 @@ describe('admin SPA browser smoke', () => {
       await page.getByRole('button', { name: 'Activate template' }).click();
       await page.getByRole('button', { name: /operator/ }).click();
       await page.getByRole('button', { name: 'Delete template' }).click();
+      const deleteDialog = page.getByRole('dialog');
+      await expectVisible(deleteDialog.getByText('Delete operator?'));
+      await deleteDialog.getByRole('button', { name: 'Delete template' }).click();
       await page.waitForFunction(() => globalThis.document.querySelectorAll('.instruction-template-row').length === 1);
       expect(await page.locator('.instruction-template-row').count()).toBe(1);
 
@@ -1310,7 +1325,11 @@ function createInstructionTemplateFixture(): ResettableInstructionTemplateFixtur
         ...(input.requestContext ? { requestContext: input.requestContext } : {}),
       };
       const unresolvedTemplates =
-        input.selection.mode === 'preset' && input.selection.preset === 'missing-preset' ? ['missing-preset'] : [];
+        input.selection.mode === 'preset' && input.selection.preset === 'missing-preset'
+          ? ['missing-preset']
+          : input.selection.mode === 'tags'
+            ? ['github-context']
+            : [];
       const selectionLabel = input.selection.mode === 'tags' ? input.selection.tags.join(',') : input.selection.mode;
       const result: AdminInstructionPreviewResult = {
         surface: input.surface,
