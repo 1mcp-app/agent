@@ -191,6 +191,32 @@ describe('useInstructionTemplates', () => {
     expect(save.mock.calls[2][0].idempotencyKey).not.toBe(save.mock.calls[1][0].idempotencyKey);
   });
 
+  it('rotates a failed mutation key after refresh changes the config fingerprint', async () => {
+    const save = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('stale request'))
+      .mockResolvedValue({ ok: true, operationId: 'op_2', result: {} });
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce(store)
+      .mockResolvedValueOnce({ ...store, configFingerprint: 'config_2' });
+    const adminApi = api({ listInstructionTemplates: list, saveInstructionTemplate: save });
+    const { result } = renderHook(() =>
+      useInstructionTemplates({ api: adminApi, active: true, csrfToken: 'csrf_1', confirm }),
+    );
+    await waitFor(() => expect(result.current.configFingerprint).toBe('config_1'));
+    act(() => result.current.select('focused'));
+
+    await act(async () => result.current.saveDraft());
+    await act(async () => result.current.load());
+    expect(result.current.configFingerprint).toBe('config_2');
+    await act(async () => result.current.saveDraft());
+
+    expect(save.mock.calls[0][0]).toMatchObject({ expectedConfigFingerprint: 'config_1' });
+    expect(save.mock.calls[1][0]).toMatchObject({ expectedConfigFingerprint: 'config_2' });
+    expect(save.mock.calls[1][0].idempotencyKey).not.toBe(save.mock.calls[0][0].idempotencyKey);
+  });
+
   it('retains activation validation and its idempotency key for a failed retry', async () => {
     const activate = vi
       .fn()

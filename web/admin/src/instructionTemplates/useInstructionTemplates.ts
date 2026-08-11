@@ -255,7 +255,7 @@ export function useInstructionTemplates({
     async saveDraft() {
       if (!csrfToken || !draft.identity.trim()) return false;
       const saved = await runMutation(
-        `save:${selectedIdentity ? 'update' : 'create'}:${JSON.stringify(draft)}`,
+        `save:${selectedIdentity ? 'update' : 'create'}:${configFingerprint}:${JSON.stringify(draft)}`,
         (idempotencyKey) =>
           api.saveInstructionTemplate({
             action: selectedIdentity ? 'update' : 'create',
@@ -313,7 +313,7 @@ export function useInstructionTemplates({
     async activate() {
       if (!csrfToken || !activationValidation || activationValidation.identity !== draft.identity) return;
       const activated = await runMutation(
-        `activate:${draft.identity}:${activationValidation.previewFingerprint}`,
+        `activate:${draft.identity}:${activationValidation.expectedConfigFingerprint}:${activationValidation.previewFingerprint}`,
         (idempotencyKey) =>
           api.activateInstructionTemplate({
             identity: draft.identity,
@@ -330,7 +330,7 @@ export function useInstructionTemplates({
     },
     async clone(identity) {
       if (!csrfToken || !selectedIdentity) return;
-      await runMutation(`clone:${selectedIdentity}:${identity}`, (idempotencyKey) =>
+      await runMutation(`clone:${selectedIdentity}:${identity}:${configFingerprint}`, (idempotencyKey) =>
         api.cloneInstructionTemplate({
           sourceIdentity: selectedIdentity,
           identity,
@@ -342,7 +342,7 @@ export function useInstructionTemplates({
     },
     async importLegacy(identity) {
       if (!csrfToken) return;
-      await runMutation(`import:${identity}`, (idempotencyKey) =>
+      await runMutation(`import:${identity}:${configFingerprint}`, (idempotencyKey) =>
         api.importLegacyInstructionTemplate({
           identity,
           expectedConfigFingerprint: configFingerprint,
@@ -378,7 +378,7 @@ export function useInstructionTemplates({
       });
       if (!confirmed) return;
       const deleted = await runMutation(
-        `delete:${selectedIdentity}:${deletePreview.previewFingerprint}`,
+        `delete:${selectedIdentity}:${deletePreview.expectedConfigFingerprint}:${deletePreview.previewFingerprint}`,
         (idempotencyKey) =>
           api.deleteInstructionTemplate({
             identity: selectedIdentity,
