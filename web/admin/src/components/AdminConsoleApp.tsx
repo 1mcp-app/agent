@@ -1,4 +1,5 @@
 import {
+  ActionIcon,
   Alert,
   AppShell,
   Badge,
@@ -6,15 +7,34 @@ import {
   Button,
   Code,
   Group,
+  Menu,
   Paper,
   PasswordInput,
   Stack,
   Text,
   TextInput,
   Title,
+  Tooltip,
+  useMantineColorScheme,
 } from '@mantine/core';
 
-import { Boxes, FileClock, Gauge, Info, ShieldCheck, SlidersHorizontal, SquareTerminal } from 'lucide-react';
+import {
+  Boxes,
+  Check,
+  FileClock,
+  Gauge,
+  Info,
+  LogOut,
+  Monitor,
+  Moon,
+  RefreshCw,
+  ShieldCheck,
+  SlidersHorizontal,
+  SquareTerminal,
+  Sun,
+  SunMoon,
+  UserRound,
+} from 'lucide-react';
 import { type MouseEvent, type ReactNode, useState } from 'react';
 
 import type { AdminConsoleRoute, AdminConsoleSessionModel } from '../session/AdminConsoleSessionModel';
@@ -46,121 +66,163 @@ export function AdminConsoleApp({ session }: AdminConsoleAppProps) {
   }
 
   return (
-    <AppShell
-      className="admin-app-shell"
-      header={{ height: 66 }}
-      navbar={{ width: 224, breakpoint: 'md', collapsed: { mobile: !mobileNavigationOpened } }}
-      padding={0}
-    >
-      <AppShell.Header aria-label="Admin Console" className="admin-app-header">
-        <Group h="100%" px="lg" justify="space-between" wrap="nowrap" className="command-bar">
-          <Group gap="sm" wrap="nowrap">
-            <Burger
-              aria-label={mobileNavigationOpened ? 'Close operations navigation' : 'Open operations navigation'}
-              className="mobile-navigation-toggle"
-              color="var(--admin-ink)"
-              opened={mobileNavigationOpened}
-              size="sm"
-              onClick={() => setMobileNavigationOpened((opened) => !opened)}
-            />
-            <div className="brand-mark" aria-hidden="true">
-              1
-            </div>
-            <div>
-              <Text className="eyebrow command-eyebrow" size="xs">
-                1MCP control plane
-              </Text>
-              <Title order={1} size="h4">
-                Admin Console
-              </Title>
-            </div>
+    <>
+      <a className="skip-link" href="#admin-main">
+        Skip to main content
+      </a>
+      <AppShell
+        className="admin-app-shell"
+        header={{ height: 66 }}
+        navbar={{ width: 232, breakpoint: 'md', collapsed: { mobile: !mobileNavigationOpened } }}
+        padding={0}
+      >
+        <AppShell.Header aria-label="Admin Console" className="admin-app-header">
+          <Group h="100%" px="lg" justify="space-between" wrap="nowrap" className="command-bar">
+            <Group gap="sm" wrap="nowrap">
+              <Burger
+                aria-label={mobileNavigationOpened ? 'Close operations navigation' : 'Open operations navigation'}
+                className="mobile-navigation-toggle"
+                color="var(--admin-ink)"
+                opened={mobileNavigationOpened}
+                size="sm"
+                onClick={() => setMobileNavigationOpened((opened) => !opened)}
+              />
+              <div className="brand-mark" aria-hidden="true">
+                1
+              </div>
+              <div className="command-brand-copy">
+                <Text className="eyebrow command-eyebrow" size="xs">
+                  1MCP control plane
+                </Text>
+                <Title order={1} size="h4">
+                  Admin Console
+                </Title>
+              </div>
+            </Group>
+            <Group gap="xs" wrap="nowrap" className="global-actions">
+              <div className="runtime-live" aria-label="Runtime online">
+                <span className="runtime-live-dot" />
+                <Text size="xs" fw={800}>
+                  Runtime online
+                </Text>
+              </div>
+              <Badge className="global-view-badge" variant="light" color={viewBadgeColor(state)}>
+                {viewLabel(state)}
+              </Badge>
+              <Tooltip label="Refresh runtime data">
+                <ActionIcon
+                  aria-label="Refresh runtime data"
+                  color="gray"
+                  size="lg"
+                  variant="subtle"
+                  onClick={() => void session.refresh()}
+                >
+                  <RefreshCw size={17} />
+                </ActionIcon>
+              </Tooltip>
+              <ThemeMenu />
+              <div className="operator-identity" title={state.session?.account.role ?? 'Admin session'}>
+                <UserRound size={16} />
+                <Text className="operator-name" fw={700} size="sm">
+                  {state.session?.account.username ?? 'Operator'}
+                </Text>
+              </div>
+              <Tooltip label="Log out">
+                <ActionIcon
+                  aria-label="Log out"
+                  color="red"
+                  size="lg"
+                  variant="subtle"
+                  onClick={() => void session.logout()}
+                >
+                  <LogOut size={17} />
+                </ActionIcon>
+              </Tooltip>
+            </Group>
           </Group>
-          <Group gap="sm" wrap="nowrap">
-            <div className="runtime-live" aria-label="Runtime online">
-              <span className="runtime-live-dot" />
-              <Text size="xs" fw={800}>
-                Runtime online
-              </Text>
-            </div>
-            <Badge variant="light" color={viewBadgeColor(state)}>
-              {viewLabel(state)}
-            </Badge>
-          </Group>
-        </Group>
-      </AppShell.Header>
-      <AppShell.Navbar className="admin-app-navbar" aria-label="Operations navigation">
-        <Stack gap="xs" className="nav-stack">
-          <Text className="nav-section-label">Workspace</Text>
-          <NavItem
-            icon={<Gauge size={17} />}
-            label="Dashboard"
-            href="/admin"
-            active={route === 'dashboard'}
-            onNavigate={() => navigate('dashboard')}
-          />
-          <NavItem
-            icon={<Boxes size={17} />}
-            label="Server inventory"
-            href="/admin/servers"
-            active={route === 'servers'}
-            onNavigate={() => navigate('servers')}
-          />
-          <NavItem
-            icon={<ShieldCheck size={17} />}
-            label="OAuth services"
-            href="/admin/oauth"
-            active={route === 'oauth'}
-            onNavigate={() => navigate('oauth')}
-          />
-          <NavItem
-            icon={<FileClock size={17} />}
-            label="Audit trail"
-            href="/admin/audit"
-            active={route === 'audit'}
-            onNavigate={() => navigate('audit')}
-          />
-          <NavItem
-            icon={<SlidersHorizontal size={17} />}
-            label="Presets"
-            href="/admin/presets"
-            active={route === 'presets'}
-            onNavigate={() => navigate('presets')}
-          />
-          <NavItem
-            icon={<SquareTerminal size={17} />}
-            label="Backend logs"
-            href="/admin/logs"
-            active={route === 'logs'}
-            onNavigate={() => navigate('logs')}
-          />
-          <NavItem
-            icon={<Info size={17} />}
-            label="About"
-            href="/admin/about"
-            active={route === 'about'}
-            onNavigate={() => navigate('about')}
-          />
-        </Stack>
-        <Stack gap="xs" className="nav-runtime-card">
-          <Text className="nav-section-label">Runtime target</Text>
-          <Text fw={800} className="truncate">
-            {runtimeSummary(state.status?.runtime)}
-          </Text>
-          <Text size="xs" c="dimmed" className="truncate">
-            {runtimeEndpointSummary(state.status?.runtime)}
-          </Text>
-          <Text size="xs" className="nav-scope truncate">
-            {state.status?.runtime.runtimeScopeId ?? 'scope unavailable'}
-          </Text>
-        </Stack>
-      </AppShell.Navbar>
-      <AppShell.Main className="admin-shell-main">
-        <Stack gap="md" className="admin-console">
-          <Banner state={state} />
-          <ConsoleWorkspace session={session} />
-        </Stack>
-      </AppShell.Main>
-    </AppShell>
+        </AppShell.Header>
+        <AppShell.Navbar className="admin-app-navbar" aria-label="Operations navigation">
+          <Stack gap="lg" className="nav-stack">
+            <Stack gap={4}>
+              <Text className="nav-section-label">Manage</Text>
+              <NavItem
+                icon={<Gauge size={17} />}
+                label="Overview"
+                href="/admin"
+                active={route === 'dashboard'}
+                onNavigate={() => navigate('dashboard')}
+              />
+              <NavItem
+                icon={<Boxes size={17} />}
+                label="Server inventory"
+                href="/admin/servers"
+                active={route === 'servers'}
+                onNavigate={() => navigate('servers')}
+              />
+              <NavItem
+                icon={<SlidersHorizontal size={17} />}
+                label="Presets"
+                href="/admin/presets"
+                active={route === 'presets'}
+                onNavigate={() => navigate('presets')}
+              />
+            </Stack>
+            <Stack gap={4}>
+              <Text className="nav-section-label">Observe</Text>
+              <NavItem
+                icon={<ShieldCheck size={17} />}
+                label="OAuth services"
+                href="/admin/oauth"
+                active={route === 'oauth'}
+                onNavigate={() => navigate('oauth')}
+              />
+              <NavItem
+                icon={<FileClock size={17} />}
+                label="Audit trail"
+                href="/admin/audit"
+                active={route === 'audit'}
+                onNavigate={() => navigate('audit')}
+              />
+              <NavItem
+                icon={<SquareTerminal size={17} />}
+                label="Backend logs"
+                href="/admin/logs"
+                active={route === 'logs'}
+                onNavigate={() => navigate('logs')}
+              />
+            </Stack>
+            <Stack gap={4}>
+              <Text className="nav-section-label">System</Text>
+              <NavItem
+                icon={<Info size={17} />}
+                label="About"
+                href="/admin/about"
+                active={route === 'about'}
+                onNavigate={() => navigate('about')}
+              />
+            </Stack>
+          </Stack>
+          <Stack gap="xs" className="nav-runtime-card">
+            <Text className="nav-section-label">Runtime target</Text>
+            <Text fw={800} className="truncate">
+              {runtimeSummary(state.status?.runtime)}
+            </Text>
+            <Text size="xs" c="dimmed" className="truncate">
+              {runtimeEndpointSummary(state.status?.runtime)}
+            </Text>
+            <Text size="xs" className="nav-scope truncate">
+              {state.status?.runtime.runtimeScopeId ?? 'scope unavailable'}
+            </Text>
+          </Stack>
+        </AppShell.Navbar>
+        <AppShell.Main id="admin-main" className="admin-shell-main">
+          <Stack gap="md" className="admin-console">
+            <Banner state={state} />
+            <ConsoleWorkspace session={session} />
+          </Stack>
+        </AppShell.Main>
+      </AppShell>
+    </>
   );
 
   function navigate(route: AdminConsoleRoute) {
@@ -245,11 +307,46 @@ function isSamePageNavigation(event: MouseEvent<HTMLAnchorElement>): boolean {
 function AuthShell({ state, children }: { state: AdminConsoleState; children: ReactNode }) {
   return (
     <main className="admin-auth-shell" aria-label="Admin authentication">
+      <div className="auth-theme-control">
+        <ThemeMenu />
+      </div>
       <Stack gap="md" className="admin-auth-card">
         <Banner state={state} />
         {children}
       </Stack>
     </main>
+  );
+}
+
+function ThemeMenu() {
+  const { colorScheme, setColorScheme } = useMantineColorScheme();
+  const options = [
+    { value: 'auto' as const, label: 'System', icon: <Monitor size={16} /> },
+    { value: 'light' as const, label: 'Light', icon: <Sun size={16} /> },
+    { value: 'dark' as const, label: 'Dark', icon: <Moon size={16} /> },
+  ];
+
+  return (
+    <Menu position="bottom-end" shadow="md" width={170}>
+      <Menu.Target>
+        <ActionIcon aria-label="Choose color theme" color="gray" size="lg" title="Color theme" variant="subtle">
+          <SunMoon size={17} />
+        </ActionIcon>
+      </Menu.Target>
+      <Menu.Dropdown>
+        <Menu.Label>Color theme</Menu.Label>
+        {options.map((option) => (
+          <Menu.Item
+            key={option.value}
+            leftSection={option.icon}
+            rightSection={colorScheme === option.value ? <Check size={14} /> : null}
+            onClick={() => setColorScheme(option.value)}
+          >
+            {option.label}
+          </Menu.Item>
+        ))}
+      </Menu.Dropdown>
+    </Menu>
   );
 }
 

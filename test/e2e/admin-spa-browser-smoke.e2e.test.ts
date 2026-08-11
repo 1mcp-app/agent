@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -22,6 +22,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 const ADMIN_BUILD_DIR = path.join(process.cwd(), 'build', 'admin');
 const ADMIN_BUILD_INDEX = path.join(ADMIN_BUILD_DIR, 'index.html');
 const PASSWORD = 'correct horse battery staple';
+const SCREENSHOT_DIR = process.env.ADMIN_UI_SCREENSHOT_DIR;
 
 describe('admin SPA browser smoke', () => {
   let browser: Browser | null = null;
@@ -129,7 +130,7 @@ describe('admin SPA browser smoke', () => {
 
       await expectText(page, 'Runtime operations');
       await expectVisible(page.getByRole('navigation', { name: 'Operations navigation' }));
-      await expectText(page, 'Operations dashboard');
+      await expectText(page, 'Overview');
       await expectText(page, 'Runtime online');
       await expectText(page, 'Enabled servers');
       await expectText(page, 'Disabled servers');
@@ -166,7 +167,7 @@ describe('admin SPA browser smoke', () => {
       await waitForRowCount(page, 1);
       await expectText(page, 'https://mcp.example/github');
 
-      await page.getByRole('button', { name: 'Enable github' }).click();
+      await page.getByRole('switch', { name: 'Enable github' }).click();
       await expectText(page, 'Server enable completed.');
       await expectVisible(page.locator('tbody tr', { hasText: 'github' }).getByText('enabled', { exact: true }));
 
@@ -423,8 +424,8 @@ describe('admin SPA browser smoke', () => {
         await login(page, { skipNavigation: true });
 
         await expectText(page, 'Runtime operations');
-        await expectText(page, 'Operations dashboard');
-        await expectVisible(page.getByRole('button', { name: 'Refresh' }));
+        await expectText(page, 'Overview');
+        await expectVisible(page.getByRole('button', { name: 'Refresh runtime data' }));
         await expectVisible(page.getByRole('button', { name: 'Log out' }));
         await expectNoPageOverflow(page);
 
@@ -456,7 +457,7 @@ describe('admin SPA browser smoke', () => {
     },
   );
 
-  it('stacks the inspector below inventory at 1440 px', async () => {
+  it('keeps the inventory and inspector side by side at 1440 px', async () => {
     const page = await newPage({ width: 1440, height: 1100 });
 
     try {
@@ -471,16 +472,113 @@ describe('admin SPA browser smoke', () => {
         const inspector = element.querySelector('.inspector-column')?.getBoundingClientRect();
         return {
           columns: globalThis.getComputedStyle(element).gridTemplateColumns.split(' ').length,
-          inventoryBottom: inventory?.bottom ?? 0,
+          inventoryTop: inventory?.top ?? 0,
           inspectorTop: inspector?.top ?? 0,
         };
       });
-      expect(layout.columns).toBe(1);
-      expect(layout.inspectorTop).toBeGreaterThanOrEqual(layout.inventoryBottom);
+      expect(layout.columns).toBe(2);
+      expect(Math.abs(layout.inspectorTop - layout.inventoryTop)).toBeLessThanOrEqual(1);
     } finally {
       await page.context().close();
     }
   });
+
+  it('keeps the 26-tag matrix controls separated and removes nested vertical scrolling', async () => {
+    const page = await newPage({ width: 1440, height: 1100 });
+
+    try {
+      await expectCenteredLoginGate(page);
+      await login(page, { skipNavigation: true });
+      await page.getByRole('link', { name: 'Presets' }).click();
+      await page.waitForURL(`${baseUrl}/admin/presets`);
+      await expectVisible(page.getByRole('heading', { name: 'Tag matrix' }));
+      expect(await page.locator('.preset-tag-row').count()).toBeGreaterThanOrEqual(26);
+
+      for (const matrixWidth of [350, 520, 800]) {
+        await page.locator('.workspace-grid').evaluate((element) => {
+          (element as HTMLElement).style.display = 'block';
+        });
+        await page.locator('.preset-tag-builder').evaluate((element, width) => {
+          const builder = element as HTMLElement;
+          builder.style.width = `${width}px`;
+          builder.style.maxWidth = 'none';
+        }, matrixWidth);
+
+        const result = await page.locator('.preset-tag-builder').evaluate((builder) => {
+          const list = builder.querySelector('.preset-tag-list') as HTMLElement | null;
+          const rows = Array.from(builder.querySelectorAll('.preset-tag-row')) as HTMLElement[];
+          const overlap = rows.some((row) => {
+            const identity = row.querySelector('.preset-tag-identity')?.getBoundingClientRect();
+            const state = row.querySelector('.preset-tag-state')?.getBoundingClientRect();
+            const servers = row.querySelector('.preset-tag-servers')?.getBoundingClientRect();
+            if (!identity || !state || !servers) return true;
+            const intersects = (left: DOMRect, right: DOMRect) =>
+              left.left < right.right && left.right > right.left && left.top < right.bottom && left.bottom > right.top;
+            return intersects(identity, state) || intersects(servers, state);
+          });
+          const controlHeights = rows.map(
+            (row) => row.querySelector('.mantine-SegmentedControl-root')?.getBoundingClientRect().height ?? 0,
+          );
+          return {
+            overlap,
+            nestedScroll: list ? list.scrollHeight > list.clientHeight + 1 : true,
+            minControlHeight: Math.min(...controlHeights),
+          };
+        });
+
+        expect(result.overlap, `tag content overlaps at ${matrixWidth}px`).toBe(false);
+        expect(result.nestedScroll, `tag list scrolls internally at ${matrixWidth}px`).toBe(false);
+        expect(result.minControlHeight, `tag state control is too short at ${matrixWidth}px`).toBeGreaterThanOrEqual(
+          44,
+        );
+      }
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  it('persists light and dark themes across the supported screenshot viewports', async () => {
+    const viewports = [
+      { width: 1440, height: 900 },
+      { width: 1024, height: 768 },
+      { width: 768, height: 1024 },
+      { width: 375, height: 812 },
+    ];
+
+    if (SCREENSHOT_DIR) mkdirSync(SCREENSHOT_DIR, { recursive: true });
+
+    for (const theme of ['light', 'dark'] as const) {
+      for (const viewport of viewports) {
+        const page = await newPage({ ...viewport, isMobile: viewport.width === 375 });
+
+        try {
+          await expectCenteredLoginGate(page);
+          await login(page, { skipNavigation: true });
+          await page.getByRole('button', { name: 'Choose color theme' }).click();
+          await page.getByRole('menuitem', { name: theme === 'light' ? 'Light' : 'Dark', exact: true }).click();
+          await page.reload();
+          await page.waitForFunction(
+            (expectedTheme) => globalThis.document.documentElement.dataset.mantineColorScheme === expectedTheme,
+            theme,
+          );
+
+          await page.goto(`${baseUrl}/admin/presets`);
+          await page.waitForURL(`${baseUrl}/admin/presets`);
+          await expectVisible(page.getByRole('heading', { name: 'Tag matrix' }));
+          await expectNoPageOverflow(page);
+
+          if (SCREENSHOT_DIR) {
+            await page.locator('.preset-tag-row').first().scrollIntoViewIfNeeded();
+            await page.screenshot({
+              path: path.join(SCREENSHOT_DIR, `preset-matrix-${theme}-${viewport.width}x${viewport.height}.png`),
+            });
+          }
+        } finally {
+          await page.context().close();
+        }
+      }
+    }
+  }, 60000);
 
   async function newPage(viewport: { width: number; height: number; isMobile?: boolean }): Promise<Page> {
     if (!browser) {
@@ -893,13 +991,19 @@ function createFieldGroups() {
 }
 
 function createConfiguredServerReadModels(): ConfiguredServerReadModel[] {
+  const filesystemTags = Array.from({ length: 13 }, (_, index) =>
+    index === 0 ? 'local-filesystem-and-document-storage' : `filesystem-tag-${String(index + 1).padStart(2, '0')}`,
+  );
+  const githubTags = Array.from({ length: 13 }, (_, index) =>
+    index === 0 ? 'remote-source-code-and-collaboration' : `github-tag-${String(index + 1).padStart(2, '0')}`,
+  );
   return [
     {
       id: 'filesystem',
       source: 'mcpServers',
       target: { type: 'configured_server', id: 'filesystem', source: 'mcpServers' },
       enabled: true,
-      tags: [],
+      tags: filesystemTags,
       transportSummary: { kind: 'stdio', label: 'node ./servers/filesystem.js' },
       mutationAvailability: { available: true, operations: ['enable', 'disable'] },
       actionState: actionState('filesystem', true),
@@ -911,7 +1015,7 @@ function createConfiguredServerReadModels(): ConfiguredServerReadModel[] {
       source: 'mcpServers',
       target: { type: 'configured_server', id: 'github', source: 'mcpServers' },
       enabled: false,
-      tags: [],
+      tags: githubTags,
       transportSummary: { kind: 'http', label: 'https://mcp.example/github' },
       mutationAvailability: { available: true, operations: ['enable', 'disable'] },
       actionState: actionState('github', false),

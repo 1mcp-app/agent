@@ -59,7 +59,7 @@ describe('AdminConsoleRoot', () => {
     await waitFor(() => expect(api.listConfiguredServers).toHaveBeenCalledTimes(1));
     expect(await screen.findByText('filesystem')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /disable filesystem/i }));
+    await user.click(screen.getByRole('switch', { name: /disable filesystem/i }));
     expect(api.setConfiguredServerEnabled).toHaveBeenCalledWith({
       name: 'filesystem',
       enabled: false,
@@ -730,7 +730,7 @@ describe('AdminConsoleRoot', () => {
     renderRoot(api, { windowRef: createRouteWindow('/admin/servers') });
 
     expect(await screen.findByRole('heading', { name: /server inventory/i })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /disable filesystem/i }));
+    await user.click(screen.getByRole('switch', { name: /disable filesystem/i }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Server disable failed: The runtime could not confirm the operation result. Refresh the console and inspect the current state before retrying. Request ID: req_mutation',

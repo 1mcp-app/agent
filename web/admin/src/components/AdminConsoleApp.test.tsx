@@ -116,7 +116,8 @@ describe('AdminConsoleApp', () => {
 
     const navigation = screen.getByRole('navigation', { name: /operations navigation/i });
     expect(screen.getByRole('banner', { name: /admin console/i })).toHaveTextContent(/runtime online/i);
-    expect(screen.getByRole('heading', { name: /operations dashboard/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /^overview$/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /needs attention/i })).toBeInTheDocument();
     expect(screen.getByText('Enabled servers')).toBeInTheDocument();
     expect(screen.getAllByText('1').length).toBeGreaterThanOrEqual(4);
     expect(screen.getByText('Disabled servers')).toBeInTheDocument();
@@ -132,7 +133,7 @@ describe('AdminConsoleApp', () => {
     expect(screen.queryByText('awaiting_oauth')).not.toBeInTheDocument();
     expect(screen.queryByText('enableConfiguredServer')).not.toBeInTheDocument();
 
-    expect(within(navigation).getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/admin');
+    expect(within(navigation).getByRole('link', { name: 'Overview' })).toHaveAttribute('href', '/admin');
     expect(within(navigation).getByRole('link', { name: 'Server inventory' })).toHaveAttribute(
       'href',
       '/admin/servers',
@@ -187,7 +188,7 @@ describe('AdminConsoleApp', () => {
     expect(screen.getByText(/No servers match/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole('radio', { name: /disabled/i }));
-    await user.click(screen.getByRole('button', { name: /enable github/i }));
+    await user.click(screen.getByRole('switch', { name: /enable github/i }));
     expect(onServerAction).toHaveBeenCalledWith('github', 'enable');
   });
 
@@ -354,7 +355,7 @@ describe('AdminConsoleApp', () => {
     });
 
     await user.type(screen.getByLabelText('Preset name'), 'web');
-    await user.click(screen.getByRole('button', { name: /Include local/i }));
+    await user.click(getTagStateRadio('local', 'Include'));
     await user.click(screen.getByRole('button', { name: /Preview matches/i }));
     expect(await screen.findByText(/disabled-web · disabled/i)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /Confirm and save/i }));
@@ -384,18 +385,18 @@ describe('AdminConsoleApp', () => {
     renderApp(consoleState(), { navigation: { route: 'presets' }, presets: { preview: onPreviewPreset } });
 
     expect(screen.getByRole('heading', { name: /Tag matrix/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Include local, 1 server/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Exclude storage, 1 server/i })).toBeInTheDocument();
+    expect(getTagStateRadio('local', 'Include')).toBeInTheDocument();
+    expect(getTagStateRadio('storage', 'Exclude')).toBeInTheDocument();
     expect(screen.getByText(/filesystem · enabled/i)).toBeInTheDocument();
 
     await user.type(screen.getByLabelText('Preset name'), 'local-only');
     await user.click(screen.getByRole('button', { name: /Match all included tags/i }));
-    await user.click(screen.getByRole('button', { name: /Include local/i }));
-    await user.click(screen.getByRole('button', { name: /Exclude storage/i }));
+    await user.click(getTagStateRadio('local', 'Include'));
+    await user.click(getTagStateRadio('storage', 'Exclude'));
 
     expect(screen.getByText(/INCLUDE local/i)).toBeInTheDocument();
     expect(screen.getByText(/EXCLUDE storage/i)).toBeInTheDocument();
-    expect(screen.getByText(/0 of 2 configured targets match this draft/i)).toBeInTheDocument();
+    expect(document.querySelector('.preset-query-strip')).toHaveTextContent(/0 of 2 targets match/i);
 
     await user.click(screen.getByRole('button', { name: /Preview matches/i }));
     expect(onPreviewPreset).toHaveBeenCalledWith(
@@ -428,8 +429,8 @@ describe('AdminConsoleApp', () => {
 
     await user.click(screen.getByRole('button', { name: 'Edit' }));
 
-    expect(screen.getByRole('button', { name: /Include local/i })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: /Exclude storage/i })).toHaveAttribute('aria-pressed', 'true');
+    expect(getTagStateRadio('local', 'Include')).toBeChecked();
+    expect(getTagStateRadio('storage', 'Exclude')).toBeChecked();
     expect(screen.getByText(/INCLUDE local/i)).toBeInTheDocument();
     expect(screen.getByText(/EXCLUDE storage/i)).toBeInTheDocument();
   });
@@ -446,9 +447,11 @@ describe('AdminConsoleApp', () => {
       },
     });
 
-    expect(screen.getByRole('button', { name: /Include template, 1 server/i })).toBeInTheDocument();
-    expect(screen.getAllByText(/0 enabled · 1 disabled · template-search/i)).toHaveLength(2);
-    await user.click(screen.getByRole('button', { name: /Include template/i }));
+    expect(getTagStateRadio('template', 'Include')).toBeInTheDocument();
+    expect(screen.getAllByText(/0 enabled/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/1 disabled/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('template-search').length).toBeGreaterThanOrEqual(1);
+    await user.click(getTagStateRadio('template', 'Include'));
     await user.click(screen.getByRole('button', { name: /Advanced JSON/i }));
     expect(screen.getByLabelText('Advanced JSON')).toHaveValue(JSON.stringify({ tag: 'template' }, null, 2));
   });
@@ -466,9 +469,43 @@ describe('AdminConsoleApp', () => {
     });
     await user.click(screen.getByRole('button', { name: 'Edit' }));
     const retiredGroup = screen.getByRole('group', { name: /retired tag state/i }).parentElement;
-    expect(retiredGroup).toHaveTextContent(/retired.*no longer discovered/i);
-    await user.click(screen.getByRole('button', { name: /Include retired/i }));
+    expect(retiredGroup).toHaveTextContent(/retired.*Retired/i);
+    await user.click(getTagStateRadio('retired', 'Neutral'));
     expect(screen.queryByText(/INCLUDE retired/i)).not.toBeInTheDocument();
+  });
+
+  it('searches and filters tag states while expanding long server coverage', async () => {
+    const user = userEvent.setup();
+    renderApp(consoleState(), {
+      navigation: { route: 'presets' },
+      presets: {
+        targets: [
+          { name: 'alpha-documentation-server', tags: ['shared', 'docs'], enabled: true },
+          { name: 'beta-documentation-server', tags: ['shared'], enabled: true },
+          { name: 'gamma-documentation-server', tags: ['shared'], enabled: false },
+          { name: 'delta-documentation-server', tags: ['shared'], enabled: true },
+        ],
+      },
+    });
+
+    await user.type(screen.getByRole('searchbox', { name: /search tags and servers/i }), 'docs');
+    expect(screen.getByRole('group', { name: 'docs tag state' })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'shared tag state' })).not.toBeInTheDocument();
+
+    await user.clear(screen.getByRole('searchbox', { name: /search tags and servers/i }));
+    await user.click(getTagStateRadio('shared', 'Include'));
+    await user.click(screen.getByRole('radio', { name: 'Included' }));
+    expect(screen.getByRole('group', { name: 'shared tag state' })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'docs tag state' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /show all servers tagged shared/i }));
+    const sharedRow = screen.getByRole('group', { name: 'shared tag state' }).closest('article');
+    expect(sharedRow).not.toBeNull();
+    expect(within(sharedRow!).getByText(/gamma-documentation-server/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /collapse servers tagged shared/i })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
   });
 
   it('shows visible copy feedback when clipboard writing fails', async () => {
@@ -869,7 +906,7 @@ describe('AdminConsoleApp', () => {
     );
 
     expect(screen.getByText('node')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /enable legacy/i }));
+    await user.click(screen.getByRole('switch', { name: /enable legacy/i }));
     expect(onServerAction).toHaveBeenCalledWith('legacy', 'enable');
   });
 
@@ -901,9 +938,9 @@ describe('AdminConsoleApp', () => {
       { navigation: { route: 'servers' }, configuredServers: { mutate: onServerAction } },
     );
 
-    const button = screen.getByRole('button', { name: /enable locked/i });
-    expect(button).toBeDisabled();
-    await user.click(button);
+    const control = screen.getByRole('switch', { name: /enable locked/i });
+    expect(control).toBeDisabled();
+    await user.click(control);
     expect(onServerAction).not.toHaveBeenCalled();
   });
 
@@ -938,8 +975,8 @@ describe('AdminConsoleApp', () => {
       </MantineProvider>,
     );
 
-    await user.click(screen.getByRole('button', { name: /refresh/i }));
-    await user.click(screen.getByRole('button', { name: /disable filesystem/i }));
+    await user.click(screen.getByRole('button', { name: /refresh runtime data/i }));
+    await user.click(screen.getByRole('switch', { name: /disable filesystem/i }));
     await user.click(screen.getByRole('button', { name: /log out/i }));
 
     expect(onRefresh).toHaveBeenCalled();
@@ -947,3 +984,7 @@ describe('AdminConsoleApp', () => {
     expect(onLogout).toHaveBeenCalled();
   });
 });
+
+function getTagStateRadio(tag: string, state: 'Neutral' | 'Include' | 'Exclude') {
+  return within(screen.getByRole('group', { name: `${tag} tag state` })).getByRole('radio', { name: state });
+}

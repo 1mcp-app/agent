@@ -1,4 +1,16 @@
-import { Badge, Button, Group, SegmentedControl, Table, Text, TextInput } from '@mantine/core';
+import {
+  ActionIcon,
+  Badge,
+  Button,
+  Group,
+  Loader,
+  SegmentedControl,
+  Switch,
+  Table,
+  Text,
+  TextInput,
+  Tooltip,
+} from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 
 import { Pencil, Plus, Search, ServerCog } from 'lucide-react';
@@ -159,27 +171,25 @@ function ServerCard({
           {mutation.message}
         </Text>
       ) : null}
-      <Group gap="xs" grow>
-        <Button
-          aria-label={`Edit ${server.id} server`}
-          leftSection={<Pencil size={14} />}
-          size="xs"
-          variant="default"
-          onClick={() => void onOpenServerDetail?.(server.id)}
-        >
-          Edit server
-        </Button>
-        <Button
-          aria-label={actionState.label}
-          size="xs"
-          color={action === 'disable' ? 'red' : 'teal'}
-          variant={action === 'disable' ? 'light' : 'filled'}
-          loading={busy}
+      <Group gap="sm" justify="space-between" wrap="nowrap" className="server-mobile-actions">
+        <Tooltip label={`Edit ${server.id}`}>
+          <ActionIcon
+            aria-label={`Edit ${server.id} server`}
+            size="lg"
+            variant="default"
+            onClick={() => void onOpenServerDetail?.(server.id)}
+          >
+            <Pencil size={16} />
+          </ActionIcon>
+        </Tooltip>
+        <ServerStateControl
+          server={server}
+          busy={busy}
+          action={action}
+          actionLabel={actionState.label}
           disabled={busy || actionUnavailable}
-          onClick={() => void onServerAction?.(server.id, action)}
-        >
-          {action === 'enable' ? 'Enable' : 'Disable'}
-        </Button>
+          onChange={() => void onServerAction?.(server.id, action)}
+        />
       </Group>
     </article>
   );
@@ -225,28 +235,60 @@ function ServerRow({
       <Table.Td>{transportSummaryLabel(server)}</Table.Td>
       <Table.Td>{secretSummary(server)}</Table.Td>
       <Table.Td>
-        <Group gap="xs" wrap="wrap">
-          <Button
-            aria-label={`Edit ${server.id} server`}
-            leftSection={<Pencil size={14} />}
-            size="xs"
-            variant="default"
-            onClick={() => void onOpenServerDetail?.(server.id)}
-          >
-            Edit server
-          </Button>
-          <Button
-            size="xs"
-            color={action === 'disable' ? 'red' : 'teal'}
-            variant={action === 'disable' ? 'light' : 'filled'}
-            loading={busy}
+        <Group gap="sm" wrap="nowrap" justify="flex-end">
+          <Tooltip label={`Edit ${server.id}`}>
+            <ActionIcon
+              aria-label={`Edit ${server.id} server`}
+              size="lg"
+              variant="default"
+              onClick={() => void onOpenServerDetail?.(server.id)}
+            >
+              <Pencil size={16} />
+            </ActionIcon>
+          </Tooltip>
+          <ServerStateControl
+            server={server}
+            busy={busy}
+            action={action}
+            actionLabel={actionState.label}
             disabled={busy || actionUnavailable}
-            onClick={() => void onServerAction?.(server.id, action)}
-          >
-            {actionState.label}
-          </Button>
+            onChange={() => void onServerAction?.(server.id, action)}
+          />
         </Group>
       </Table.Td>
     </Table.Tr>
+  );
+}
+
+function ServerStateControl({
+  server,
+  busy,
+  action,
+  actionLabel,
+  disabled,
+  onChange,
+}: {
+  server: ConfiguredServerReadModel;
+  busy: boolean;
+  action: 'enable' | 'disable';
+  actionLabel: string;
+  disabled: boolean;
+  onChange(): void;
+}) {
+  return (
+    <Group gap={7} wrap="nowrap" className="server-state-control">
+      {busy ? <Loader aria-label={`Updating ${server.id}`} size={14} /> : null}
+      <Switch
+        aria-label={actionLabel}
+        checked={server.enabled}
+        color="teal"
+        disabled={disabled}
+        onChange={onChange}
+        styles={{ input: { cursor: 'pointer', zIndex: 1 } }}
+      />
+      <Text className="server-state-label" size="xs" fw={700}>
+        {action === 'disable' ? 'Enabled' : 'Disabled'}
+      </Text>
+    </Group>
   );
 }

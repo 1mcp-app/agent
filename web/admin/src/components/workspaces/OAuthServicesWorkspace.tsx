@@ -36,7 +36,6 @@ export function OAuthServicesWorkspace({
       <WorkspaceHeading
         title="OAuth services"
         description={`${services.length} reported services · runtime status ${state.status?.oauth.status ?? 'unavailable'}`}
-        model={model}
       />
       {oauth.callbackFeedback ? <FeedbackAlert feedback={oauth.callbackFeedback} /> : null}
       {oauth.operationFeedback ? <FeedbackAlert feedback={oauth.operationFeedback} /> : null}
