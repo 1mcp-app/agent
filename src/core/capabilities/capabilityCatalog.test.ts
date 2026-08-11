@@ -117,9 +117,9 @@ describe('CapabilityCatalog', () => {
 
   it('accepts a cursor when visibility candidates are rebuilt in a different insertion order', async () => {
     const catalog = createCatalog();
-    const list = vi.fn(async (_connection: unknown, cursor?: string) => ({
-      items: [{ name: cursor ? 'second' : 'first' }],
-      nextCursor: cursor ? undefined : 'provider-next',
+    const list = vi.fn(async (_connection: unknown, cursor: string | undefined, serverName: string) => ({
+      items: [{ name: `${serverName}:${cursor ? 'second' : 'first'}` }],
+      nextCursor: cursor ? undefined : `${serverName}-next`,
     }));
     const firstVisibility = createCapabilityVisibility([
       ['filesystem', 'filesystem'],
@@ -144,7 +144,11 @@ describe('CapabilityCatalog', () => {
       list,
     });
 
-    expect(second.items).toEqual([{ name: 'second' }]);
+    expect(second.items).toEqual([{ name: 'filesystem:second' }]);
+    expect(list.mock.calls.map(([, cursor, serverName]) => [serverName, cursor])).toEqual([
+      ['filesystem', undefined],
+      ['filesystem', 'filesystem-next'],
+    ]);
   });
 
   it('rejects schema access to a disabled tool through visibility', async () => {
