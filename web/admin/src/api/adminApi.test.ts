@@ -29,6 +29,7 @@ describe('admin API client', () => {
       draft,
       expectedConfigFingerprint: 'config_1',
       csrfToken: 'csrf_123',
+      idempotencyKey: 'save-focused-1',
     });
     await api.previewInstructionTemplate({
       identity: 'focused',
@@ -42,6 +43,7 @@ describe('admin API client', () => {
       expectedConfigFingerprint: 'config_1',
       previewFingerprint: 'preview_1',
       csrfToken: 'csrf_123',
+      idempotencyKey: 'activate-focused-1',
     });
 
     expect(calls).toMatchObject([
@@ -50,7 +52,10 @@ describe('admin API client', () => {
         input: '/admin/api/instruction-templates',
         init: {
           method: 'POST',
-          headers: expect.objectContaining({ 'X-CSRF-Token': 'csrf_123' }),
+          headers: expect.objectContaining({
+            'X-CSRF-Token': 'csrf_123',
+            'Idempotency-Key': 'save-focused-1',
+          }),
           body: JSON.stringify({
             identity: 'focused',
             variants: draft.variants,
@@ -73,9 +78,41 @@ describe('admin API client', () => {
         input: '/admin/api/instruction-templates/focused/activate',
         init: {
           method: 'POST',
+          headers: expect.objectContaining({ 'Idempotency-Key': 'activate-focused-1' }),
           body: JSON.stringify({ expectedConfigFingerprint: 'config_1', previewFingerprint: 'preview_1' }),
         },
       },
+    ]);
+  });
+
+  it('sends idempotency keys on every instruction-template mutation route', async () => {
+    const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+    const api = createAdminApi({
+      fetch: async (input, init) => {
+        calls.push({ input, init });
+        return jsonResponse({ ok: true, operationId: 'op_1', result: {} });
+      },
+    });
+    const common = { expectedConfigFingerprint: 'config_1', csrfToken: 'csrf_1' };
+
+    await api.cloneInstructionTemplate({
+      ...common,
+      sourceIdentity: 'focused',
+      identity: 'focused-copy',
+      idempotencyKey: 'clone-1',
+    });
+    await api.importLegacyInstructionTemplate({ ...common, identity: 'legacy', idempotencyKey: 'import-1' });
+    await api.deleteInstructionTemplate({
+      ...common,
+      identity: 'focused',
+      previewFingerprint: 'delete_1',
+      idempotencyKey: 'delete-1',
+    });
+
+    expect(calls.map((call) => (call.init?.headers as Record<string, string>)['Idempotency-Key'])).toEqual([
+      'clone-1',
+      'import-1',
+      'delete-1',
     ]);
   });
 

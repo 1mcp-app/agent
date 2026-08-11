@@ -200,6 +200,7 @@ export function useAdminConsoleSession({
     api,
     active: route === 'instructions',
     csrfToken: state.session?.csrfToken,
+    confirm,
     onUnauthenticated: invalidateAdminSession,
   });
 

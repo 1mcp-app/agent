@@ -47,6 +47,7 @@ function model(overrides: Partial<InstructionTemplatesModel> = {}): InstructionT
     dirty: true,
     busy: false,
     error: null,
+    reloadWarning: null,
     select: vi.fn(),
     newDraft: vi.fn(),
     changeIdentity: vi.fn(),
@@ -97,5 +98,51 @@ describe('InstructionTemplatesWorkspace', () => {
 
     expect(screen.getByRole('button', { name: 'Delete template' })).toBeDisabled();
     expect(screen.getByText('Protected built-in')).toBeInTheDocument();
+  });
+
+  it('shows unresolved contextual servers and effective instruction facts', () => {
+    render(
+      <MantineProvider>
+        <InstructionTemplatesWorkspace
+          model={model({
+            dirty: false,
+            previewStale: false,
+            preview: {
+              surface: 'cli',
+              rendered: 'rendered output',
+              unresolvedTemplates: ['github-context', 'linear-context'],
+              effectiveServers: [
+                { target: { source: 'mcpServers', name: 'filesystem' }, hasInstructions: true },
+                { target: { source: 'mcpTemplates', name: 'github-context' }, hasInstructions: false },
+              ],
+            },
+          })}
+        />
+      </MantineProvider>,
+    );
+
+    expect(screen.getByText('Unresolved Template Servers: github-context, linear-context')).toBeInTheDocument();
+    expect(screen.getByText('filesystem')).toBeInTheDocument();
+    expect(screen.getByLabelText('Effective servers')).toHaveTextContent('github-context');
+    expect(screen.getByText('Instructions')).toBeInTheDocument();
+    expect(screen.getByText('No instructions')).toBeInTheDocument();
+  });
+
+  it('builds a complete explicit request context and surfaces reload warnings', async () => {
+    const instructions = model({
+      dirty: false,
+      reloadWarning: 'Configuration was written, but runtime reload failed: reload timed out',
+    });
+    render(
+      <MantineProvider>
+        <InstructionTemplatesWorkspace model={instructions} />
+      </MantineProvider>,
+    );
+
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Use explicit request context' }));
+    expect(instructions.changeRequestContext).toHaveBeenLastCalledWith(
+      JSON.stringify({ project: {}, user: {}, environment: {} }),
+    );
+    expect(screen.getByText(/runtime reload failed: reload timed out/i)).toBeInTheDocument();
   });
 });

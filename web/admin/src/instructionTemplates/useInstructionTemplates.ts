@@ -11,6 +11,8 @@ import type {
   InstructionTemplateSelection,
   InstructionTemplateSurface,
 } from '../api/adminApi';
+import { createInstructionTemplateIdempotencyKey } from '../api/adminApi';
+import type { ConfirmationRequest } from '../components/ConfirmationDialogProvider';
 
 const EMPTY_DRAFT: AdminInstructionTemplateDraft = {
   identity: '',
@@ -35,6 +37,7 @@ export interface InstructionTemplatesModel {
   dirty: boolean;
   busy: boolean;
   error: string | null;
+  reloadWarning: string | null;
   select(identity?: string): void;
   newDraft(): void;
   changeIdentity(identity: string): void;
@@ -56,6 +59,7 @@ export function useInstructionTemplates({
   api,
   active,
   csrfToken,
+  confirm,
   onUnauthenticated,
 }: {
   api: Pick<
@@ -72,6 +76,7 @@ export function useInstructionTemplates({
   >;
   active: boolean;
   csrfToken?: string;
+  confirm(request: ConfirmationRequest): Promise<boolean>;
   onUnauthenticated?(adminStatus: 'setupRequired' | 'loginRequired'): void;
 }): InstructionTemplatesModel {
   const [items, setItems] = useState<AdminInstructionTemplateListItem[]>([]);
@@ -92,7 +97,9 @@ export function useInstructionTemplates({
   const [previewStale, setPreviewStale] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reloadWarning, setReloadWarning] = useState<string | null>(null);
   const loadedRef = useRef(false);
+  const mutationAttemptRef = useRef<{ signature: string; idempotencyKey: string }>();
   const reportError = useCallback(
     (operationError: unknown, fallback: string) => {
       if (operationError instanceof AdminApiError && operationError.failure.kind === 'unauthenticated') {
@@ -111,6 +118,7 @@ export function useInstructionTemplates({
     : Boolean(draft.identity || draft.variants.initialization || draft.variants.cli);
 
   const invalidatePreview = useCallback(() => {
+    mutationAttemptRef.current = undefined;
     setPreview((current) => {
       if (current) setPreviewStale(true);
       return null;
@@ -166,12 +174,28 @@ export function useInstructionTemplates({
   );
 
   const runMutation = useCallback(
-    async (operation: () => Promise<unknown>) => {
+    async (
+      signature: string,
+      operation: (idempotencyKey: string) => Promise<{ result: { reload?: { status: string; error?: string } } }>,
+    ) => {
       if (!csrfToken) return false;
+      const attempt =
+        mutationAttemptRef.current?.signature === signature
+          ? mutationAttemptRef.current
+          : { signature, idempotencyKey: createInstructionTemplateIdempotencyKey(signature, draft.identity) };
+      mutationAttemptRef.current = attempt;
       setBusy(true);
       setError(null);
       try {
-        await operation();
+        const response = await operation(attempt.idempotencyKey);
+        setReloadWarning(
+          response.result.reload?.status === 'failed'
+            ? response.result.reload.error
+              ? `Configuration was written, but runtime reload failed: ${response.result.reload.error}`
+              : 'Configuration was written, but runtime reload failed. Inspect runtime health before continuing.'
+            : null,
+        );
+        mutationAttemptRef.current = undefined;
         loadedRef.current = false;
         await load();
         return true;
@@ -182,7 +206,7 @@ export function useInstructionTemplates({
         setBusy(false);
       }
     },
-    [csrfToken, load, reportError],
+    [csrfToken, draft.identity, load, reportError],
   );
 
   return {
@@ -203,6 +227,7 @@ export function useInstructionTemplates({
     dirty,
     busy,
     error,
+    reloadWarning,
     select,
     newDraft: () => select(undefined),
     changeIdentity: (identity) => {
@@ -229,13 +254,16 @@ export function useInstructionTemplates({
     load,
     async saveDraft() {
       if (!csrfToken || !draft.identity.trim()) return false;
-      const saved = await runMutation(() =>
-        api.saveInstructionTemplate({
-          action: selectedIdentity ? 'update' : 'create',
-          draft,
-          expectedConfigFingerprint: configFingerprint,
-          csrfToken,
-        }),
+      const saved = await runMutation(
+        `save:${selectedIdentity ? 'update' : 'create'}:${JSON.stringify(draft)}`,
+        (idempotencyKey) =>
+          api.saveInstructionTemplate({
+            action: selectedIdentity ? 'update' : 'create',
+            draft,
+            expectedConfigFingerprint: configFingerprint,
+            csrfToken,
+            idempotencyKey,
+          }),
       );
       if (saved) setSelectedIdentity(draft.identity);
       return saved;
@@ -248,10 +276,7 @@ export function useInstructionTemplates({
         let parsedContext: Record<string, unknown> | undefined;
         if (requestContext.trim()) {
           const parsed: unknown = JSON.parse(requestContext);
-          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-            throw new Error('Request context must be a JSON object.');
-          }
-          parsedContext = parsed as Record<string, unknown>;
+          parsedContext = explicitRequestContext(parsed);
         }
         const result = await api.previewInstructionTemplate({
           identity: draft.identity,
@@ -287,32 +312,43 @@ export function useInstructionTemplates({
     },
     async activate() {
       if (!csrfToken || !activationValidation || activationValidation.identity !== draft.identity) return;
-      await runMutation(() =>
-        api.activateInstructionTemplate({
-          identity: draft.identity,
-          expectedConfigFingerprint: activationValidation.expectedConfigFingerprint,
-          previewFingerprint: activationValidation.previewFingerprint,
-          csrfToken,
-        }),
+      const activated = await runMutation(
+        `activate:${draft.identity}:${activationValidation.previewFingerprint}`,
+        (idempotencyKey) =>
+          api.activateInstructionTemplate({
+            identity: draft.identity,
+            expectedConfigFingerprint: activationValidation.expectedConfigFingerprint,
+            previewFingerprint: activationValidation.previewFingerprint,
+            csrfToken,
+            idempotencyKey,
+          }),
       );
-      setPreview(null);
-      setActivationValidation(null);
+      if (activated) {
+        setPreview(null);
+        setActivationValidation(null);
+      }
     },
     async clone(identity) {
       if (!csrfToken || !selectedIdentity) return;
-      await runMutation(() =>
+      await runMutation(`clone:${selectedIdentity}:${identity}`, (idempotencyKey) =>
         api.cloneInstructionTemplate({
           sourceIdentity: selectedIdentity,
           identity,
           expectedConfigFingerprint: configFingerprint,
           csrfToken,
+          idempotencyKey,
         }),
       );
     },
     async importLegacy(identity) {
       if (!csrfToken) return;
-      await runMutation(() =>
-        api.importLegacyInstructionTemplate({ identity, expectedConfigFingerprint: configFingerprint, csrfToken }),
+      await runMutation(`import:${identity}`, (idempotencyKey) =>
+        api.importLegacyInstructionTemplate({
+          identity,
+          expectedConfigFingerprint: configFingerprint,
+          csrfToken,
+          idempotencyKey,
+        }),
       );
     },
     async deleteSelected() {
@@ -330,17 +366,45 @@ export function useInstructionTemplates({
         );
         return;
       }
-      const deleted = await runMutation(() =>
-        api.deleteInstructionTemplate({
-          identity: selectedIdentity,
-          expectedConfigFingerprint: deletePreview.expectedConfigFingerprint,
-          previewFingerprint: deletePreview.previewFingerprint,
-          csrfToken,
-        }),
+      const confirmed = await confirm({
+        title: `Delete ${deletePreview.identity}?`,
+        message: 'This permanently removes the managed template from the current Runtime Scope.',
+        confirmLabel: 'Delete template',
+        tone: 'danger',
+        details: [
+          { label: 'Template', value: deletePreview.identity },
+          { label: 'Reason', value: deletePreview.reason ?? 'Template is inactive and not protected' },
+        ],
+      });
+      if (!confirmed) return;
+      const deleted = await runMutation(
+        `delete:${selectedIdentity}:${deletePreview.previewFingerprint}`,
+        (idempotencyKey) =>
+          api.deleteInstructionTemplate({
+            identity: selectedIdentity,
+            expectedConfigFingerprint: deletePreview.expectedConfigFingerprint,
+            previewFingerprint: deletePreview.previewFingerprint,
+            csrfToken,
+            idempotencyKey,
+          }),
       );
       if (deleted) select(undefined);
     },
   };
+}
+
+function explicitRequestContext(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Request context must include project, user, and environment objects.');
+  }
+  const context = value as Record<string, unknown>;
+  for (const field of ['project', 'user', 'environment']) {
+    const entry = context[field];
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new Error('Request context must include project, user, and environment objects.');
+    }
+  }
+  return context;
 }
 
 function instructionTemplateError(error: unknown, fallback: string): string {

@@ -222,6 +222,15 @@ export interface AdminInstructionTemplateValidationPreview {
   previewFingerprint: string;
 }
 
+export interface AdminInstructionTemplateMutationResponse {
+  ok: true;
+  operationId: string;
+  result: {
+    reload?: { status: string; error?: string };
+    [key: string]: unknown;
+  };
+}
+
 export interface ConfiguredServerTargetIdentity {
   source: 'mcpServers' | 'mcpTemplates';
   id: string;
@@ -868,14 +877,15 @@ export function createAdminApi(options: AdminApiOptions = {}) {
       draft: AdminInstructionTemplateDraft;
       expectedConfigFingerprint?: string;
       csrfToken: string;
-    }): Promise<unknown> {
+      idempotencyKey: string;
+    }): Promise<AdminInstructionTemplateMutationResponse> {
       const path =
         input.action === 'create'
           ? '/admin/api/instruction-templates'
           : `${instructionTemplatePath(input.draft.identity)}/update`;
       return request(path, {
         method: 'POST',
-        headers: { 'X-CSRF-Token': input.csrfToken },
+        headers: { 'X-CSRF-Token': input.csrfToken, 'Idempotency-Key': input.idempotencyKey },
         body: JSON.stringify({
           ...(input.action === 'create' ? { identity: input.draft.identity } : {}),
           variants: input.draft.variants,
@@ -889,10 +899,11 @@ export function createAdminApi(options: AdminApiOptions = {}) {
       identity: string;
       expectedConfigFingerprint: string;
       csrfToken: string;
-    }): Promise<unknown> {
+      idempotencyKey: string;
+    }): Promise<AdminInstructionTemplateMutationResponse> {
       return request(`${instructionTemplatePath(input.sourceIdentity)}/clone`, {
         method: 'POST',
-        headers: { 'X-CSRF-Token': input.csrfToken },
+        headers: { 'X-CSRF-Token': input.csrfToken, 'Idempotency-Key': input.idempotencyKey },
         body: JSON.stringify({ identity: input.identity, expectedConfigFingerprint: input.expectedConfigFingerprint }),
       });
     },
@@ -940,10 +951,11 @@ export function createAdminApi(options: AdminApiOptions = {}) {
       expectedConfigFingerprint: string;
       previewFingerprint: string;
       csrfToken: string;
-    }): Promise<unknown> {
+      idempotencyKey: string;
+    }): Promise<AdminInstructionTemplateMutationResponse> {
       return request(`${instructionTemplatePath(input.identity)}/activate`, {
         method: 'POST',
-        headers: { 'X-CSRF-Token': input.csrfToken },
+        headers: { 'X-CSRF-Token': input.csrfToken, 'Idempotency-Key': input.idempotencyKey },
         body: JSON.stringify({
           expectedConfigFingerprint: input.expectedConfigFingerprint,
           previewFingerprint: input.previewFingerprint,
@@ -955,10 +967,11 @@ export function createAdminApi(options: AdminApiOptions = {}) {
       identity: string;
       expectedConfigFingerprint: string;
       csrfToken: string;
-    }): Promise<unknown> {
+      idempotencyKey: string;
+    }): Promise<AdminInstructionTemplateMutationResponse> {
       return request('/admin/api/instruction-templates/import-legacy', {
         method: 'POST',
-        headers: { 'X-CSRF-Token': input.csrfToken },
+        headers: { 'X-CSRF-Token': input.csrfToken, 'Idempotency-Key': input.idempotencyKey },
         body: JSON.stringify({ identity: input.identity, expectedConfigFingerprint: input.expectedConfigFingerprint }),
       });
     },
@@ -995,10 +1008,11 @@ export function createAdminApi(options: AdminApiOptions = {}) {
       expectedConfigFingerprint: string;
       previewFingerprint: string;
       csrfToken: string;
-    }): Promise<unknown> {
+      idempotencyKey: string;
+    }): Promise<AdminInstructionTemplateMutationResponse> {
       return request(instructionTemplatePath(input.identity), {
         method: 'DELETE',
-        headers: { 'X-CSRF-Token': input.csrfToken },
+        headers: { 'X-CSRF-Token': input.csrfToken, 'Idempotency-Key': input.idempotencyKey },
         body: JSON.stringify({
           expectedConfigFingerprint: input.expectedConfigFingerprint,
           previewFingerprint: input.previewFingerprint,
@@ -1075,6 +1089,10 @@ export function createConfiguredServerApplyIdempotencyKey(name: string): string 
 
 export function createConfiguredServerCreateIdempotencyKey(name: string): string {
   return `admin-console-server-create-${encodeIdempotencyKeyPart(name)}-${Date.now()}-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`;
+}
+
+export function createInstructionTemplateIdempotencyKey(action: string, identity: string): string {
+  return `admin-console-instruction-template-${encodeIdempotencyKeyPart(action)}-${encodeIdempotencyKeyPart(identity)}-${Date.now()}-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`;
 }
 
 function defaultPresetIdempotencyKey(action: string, name: string): string {

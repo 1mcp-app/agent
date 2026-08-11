@@ -2,6 +2,7 @@ import {
   Alert,
   Badge,
   Button,
+  Checkbox,
   Code,
   Group,
   SegmentedControl,
@@ -68,6 +69,11 @@ export function InstructionTemplatesWorkspace({
       {model.error ? (
         <Alert color="red" role="alert" mb="md">
           {model.error}
+        </Alert>
+      ) : null}
+      {model.reloadWarning ? (
+        <Alert color="yellow" role="status" mb="md" title="Runtime reload needs attention">
+          {model.reloadWarning}
         </Alert>
       ) : null}
       {Object.values(model.renderFailures).map((failure) => (
@@ -257,13 +263,7 @@ export function InstructionTemplatesWorkspace({
             ]}
           />
           <SelectionInput selection={model.selection} onChange={model.changeSelection} />
-          <Textarea
-            label="Request context (JSON, optional)"
-            minRows={4}
-            placeholder={'{"project":{"name":"docs"}}'}
-            value={model.requestContext}
-            onChange={(event) => model.changeRequestContext(event.currentTarget.value)}
-          />
+          <RequestContextForm value={model.requestContext} onChange={model.changeRequestContext} />
           <Button
             leftSection={<Play size={15} />}
             disabled={!model.selectedIdentity || model.dirty || model.busy}
@@ -285,6 +285,37 @@ export function InstructionTemplatesWorkspace({
                   </Text>
                 </Group>
                 <Code block>{model.preview.rendered ?? model.preview.validation?.message ?? '(suppressed)'}</Code>
+                {model.preview.unresolvedTemplates.length > 0 ? (
+                  <Alert color="yellow" title="Context required" role="status">
+                    Unresolved Template Servers: {model.preview.unresolvedTemplates.join(', ')}
+                  </Alert>
+                ) : null}
+                <Stack gap={4} aria-label="Effective servers">
+                  <Group justify="space-between">
+                    <Text size="xs" fw={800}>
+                      Effective servers
+                    </Text>
+                    <Badge variant="outline">{model.preview.effectiveServers.length}</Badge>
+                  </Group>
+                  {model.preview.effectiveServers.map((server) => (
+                    <Group key={`${server.target.source}:${server.target.name}`} justify="space-between" wrap="nowrap">
+                      <Text size="xs">
+                        <Text component="span" c="dimmed" inherit>
+                          {server.target.source} /
+                        </Text>{' '}
+                        {server.target.name}
+                      </Text>
+                      <Badge color={server.hasInstructions ? 'teal' : 'gray'} variant="light">
+                        {server.hasInstructions ? 'Instructions' : 'No instructions'}
+                      </Badge>
+                    </Group>
+                  ))}
+                  {model.preview.effectiveServers.length === 0 ? (
+                    <Text size="xs" c="dimmed">
+                      No effective servers matched this selection.
+                    </Text>
+                  ) : null}
+                </Stack>
               </>
             ) : (
               <Stack align="center" gap={4} className="instruction-preview-empty">
@@ -316,6 +347,75 @@ export function InstructionTemplatesWorkspace({
       </div>
     </section>
   );
+}
+
+function RequestContextForm({ value, onChange }: { value: string; onChange(value: string): void }) {
+  const context = parseContextFormValue(value);
+  const enabled = value.trim().length > 0;
+  const update = (next: Partial<typeof context>) => onChange(JSON.stringify({ ...context, ...next }));
+
+  return (
+    <Stack gap="xs">
+      <Checkbox
+        label="Use explicit request context"
+        checked={enabled}
+        onChange={(event) =>
+          onChange(event.currentTarget.checked ? JSON.stringify({ project: {}, user: {}, environment: {} }) : '')
+        }
+      />
+      {enabled ? (
+        <>
+          <TextInput
+            label="Project name"
+            value={context.project.name ?? ''}
+            onChange={(event) => update({ project: { name: event.currentTarget.value } })}
+          />
+          <TextInput
+            label="User name"
+            value={context.user.name ?? ''}
+            onChange={(event) => update({ user: { name: event.currentTarget.value } })}
+          />
+          <TextInput
+            label="Environment prefixes"
+            description="Comma-separated"
+            value={(context.environment.prefixes ?? []).join(', ')}
+            onChange={(event) =>
+              update({
+                environment: {
+                  prefixes: event.currentTarget.value
+                    .split(',')
+                    .map((prefix) => prefix.trim())
+                    .filter(Boolean),
+                },
+              })
+            }
+          />
+        </>
+      ) : null}
+    </Stack>
+  );
+}
+
+function parseContextFormValue(value: string): {
+  project: { name?: string };
+  user: { name?: string };
+  environment: { prefixes?: string[] };
+} {
+  if (!value.trim()) return { project: {}, user: {}, environment: {} };
+  try {
+    const parsed = JSON.parse(value) as {
+      project?: { name?: string };
+      user?: { name?: string };
+      environment?: { prefixes?: string[] };
+    };
+    return {
+      project: parsed.project ?? {},
+      user: parsed.user ?? {},
+      environment: parsed.environment ?? {},
+    };
+  } catch {
+    return { project: {}, user: {}, environment: {} };
+  }
 }
 
 function SelectionInput({

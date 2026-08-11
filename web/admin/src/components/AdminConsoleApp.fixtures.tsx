@@ -145,6 +145,7 @@ export function fixtureSession(
       dirty: overrides.instructions?.dirty ?? false,
       busy: overrides.instructions?.busy ?? false,
       error: overrides.instructions?.error ?? null,
+      reloadWarning: overrides.instructions?.reloadWarning ?? null,
       select: overrides.instructions?.select ?? (() => undefined),
       newDraft: overrides.instructions?.newDraft ?? (() => undefined),
       changeIdentity: overrides.instructions?.changeIdentity ?? (() => undefined),
