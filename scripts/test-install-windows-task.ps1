@@ -129,8 +129,8 @@ Assert-Pass '6. -WhatIf: no task is registered and no credentials prompt' {
     if ($proc.ExitCode -ne 0) {
         throw "Script exited with code $($proc.ExitCode). Error output: $errOutput"
     }
-    if (-not ($outOutput -match "What if:")) {
-        throw "Expected output to contain 'What if:', but got: $outOutput"
+    if (-not ($outOutput -match 'What ?[iI]f:')) {
+        throw "Expected output to contain 'What if:' (or localized equivalent), but got: $outOutput"
     }
     
     $stillAbsent = -not (Get-ScheduledTask -TaskName $fakeName -ErrorAction SilentlyContinue)
