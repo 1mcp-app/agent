@@ -128,6 +128,39 @@ describe('createAdminDomain', () => {
     });
   });
 
+  it('wires runtime-backed instruction template operations from explicit runtime facts', async () => {
+    const configPath = path.join(tempDir, 'mcp.json');
+    fs.writeFileSync(configPath, JSON.stringify({ mcpServers: {} }));
+    const previewInstructions = vi.fn(async () => ({
+      surface: 'cli' as const,
+      rendered: 'preview',
+      effectiveServers: [],
+      unresolvedTemplates: [],
+    }));
+    const domain = createAdminDomain({
+      runtimeScopeId: 'scope_123',
+      storageDir,
+      sessionTtlMs: 60_000,
+      configChangeService: fakeConfigChangeService(),
+      getConfigPath: () => configPath,
+      readConfigDocument: () => ({ mcpServers: {} }),
+      previewInstructions,
+      getLegacyInitialization: () => 'legacy initialization',
+      getInstructionRenderFailures: () => ({}),
+      now: () => currentTime,
+    });
+
+    const result = await domain.instructionTemplateService?.listTemplates({
+      context: context({ target: { type: 'instruction_template_collection' } }),
+    });
+
+    expect(domain.instructionTemplateService).toBeDefined();
+    expect(result).toMatchObject({
+      ok: true,
+      result: { activeIdentity: 'default', legacyImportAvailable: true, renderFailures: {} },
+    });
+  });
+
   it('wires backend OAuth Admin Operations from the runtime authorization flow', async () => {
     const oauthFlow = createOAuthFlow();
     vi.mocked(oauthFlow.startBackendOAuth).mockResolvedValue({

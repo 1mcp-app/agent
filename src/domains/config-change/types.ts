@@ -78,12 +78,14 @@ export interface CreateStaticConfiguredServerTargetInput extends SetStaticConfig
 
 export interface SetConfiguredServerTargetEnabledStateInput {
   targetName: string;
+  targetSource?: ConfiguredServerTargetSource;
   enabled: boolean;
   backup?: ConfigBackupPolicy;
 }
 
 export interface EditConfiguredServerTargetInput {
   sourceName: string;
+  targetSource?: ConfiguredServerTargetSource;
   targetName: string;
   serverConfig: MCPServerParams;
   expectedSourceFingerprint: string;

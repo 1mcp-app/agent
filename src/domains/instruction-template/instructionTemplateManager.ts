@@ -57,31 +57,31 @@ interface ConfigDocument extends Record<string, unknown> {
   activeInstructionTemplate?: string;
 }
 
-interface IdentityMutationInput {
+export interface InstructionTemplateIdentityMutationInput {
   identity: string;
   expectedConfigFingerprint: string;
 }
 
-interface SaveTemplateInput extends IdentityMutationInput {
+export interface SaveInstructionTemplateInput extends InstructionTemplateIdentityMutationInput {
   template: InstructionTemplateConfig;
 }
 
-interface CloneTemplateInput extends IdentityMutationInput {
+export interface CloneInstructionTemplateInput extends InstructionTemplateIdentityMutationInput {
   sourceIdentity: string;
 }
 
-interface ImportLegacyInput extends IdentityMutationInput {
+export interface ImportLegacyInstructionTemplateInput extends InstructionTemplateIdentityMutationInput {
   initialization: string;
 }
 
 export interface InstructionTemplateManager {
   list(): Promise<InstructionTemplateCollectionReadModel>;
-  create(input: SaveTemplateInput): Promise<InstructionTemplateMutationResult>;
-  update(input: SaveTemplateInput): Promise<InstructionTemplateMutationResult>;
-  clone(input: CloneTemplateInput): Promise<InstructionTemplateMutationResult>;
-  delete(input: IdentityMutationInput): Promise<InstructionTemplateMutationResult>;
-  activate(input: IdentityMutationInput): Promise<InstructionTemplateMutationResult>;
-  importLegacy(input: ImportLegacyInput): Promise<InstructionTemplateMutationResult>;
+  create(input: SaveInstructionTemplateInput): Promise<InstructionTemplateMutationResult>;
+  update(input: SaveInstructionTemplateInput): Promise<InstructionTemplateMutationResult>;
+  clone(input: CloneInstructionTemplateInput): Promise<InstructionTemplateMutationResult>;
+  delete(input: InstructionTemplateIdentityMutationInput): Promise<InstructionTemplateMutationResult>;
+  activate(input: InstructionTemplateIdentityMutationInput): Promise<InstructionTemplateMutationResult>;
+  importLegacy(input: ImportLegacyInstructionTemplateInput): Promise<InstructionTemplateMutationResult>;
   validate(identity: string): Promise<InstructionTemplateValidation | undefined>;
 }
 

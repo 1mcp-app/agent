@@ -317,6 +317,21 @@ export class InstructionAggregator extends EventEmitter {
     }
   }
 
+  /** Render an operator-supplied variant without changing active runtime state or failure history. */
+  public previewInstructions(
+    template: string,
+    config: InboundConnectionConfig,
+    connections: OutboundConnections,
+    metadata: Record<string, InstructionRenderMetadata> = {},
+  ): string {
+    return this.renderTemplate(
+      template,
+      FilteringService.getFilteredConnections(connections, config),
+      config,
+      metadata,
+    );
+  }
+
   private renderManagedFallback(
     surface: InstructionSurface,
     templateIdentity: string,
@@ -367,6 +382,19 @@ export class InstructionAggregator extends EventEmitter {
    */
   public getServerInstructions(serverName: string): string | undefined {
     return this.serverInstructions.get(serverName);
+  }
+
+  /** Resolve the source-qualified effective instructions for one outbound connection. */
+  public getEffectiveServerInstructions(outboundKey: string, serverName: string): string | undefined {
+    const target = this.instructionTargets.get(outboundKey) ?? {
+      source: outboundKey === serverName ? ('mcpServers' as const) : ('mcpTemplates' as const),
+      name: serverName,
+    };
+    return resolveEffectiveServerInstructions({
+      target,
+      upstreamInstructions: this.rawInstructions.get(outboundKey) ?? this.serverInstructions.get(serverName),
+      configuredTargets: this.runtimeConfiguration.configuredTargets,
+    });
   }
 
   /**

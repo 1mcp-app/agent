@@ -33,6 +33,7 @@ import type {
   ConfigReloadResult,
   ConfigRetentionCleanupResult,
   ConfiguredServerTargetRef,
+  ConfiguredServerTargetSource,
   CreateStaticConfiguredServerTargetInput,
   EditConfiguredServerTargetInput,
   MutableConfigDocument,
@@ -56,6 +57,7 @@ export type {
   ConfigRetentionCleanupResult,
   ConfiguredServerTargetRef,
   ConfiguredServerTargetSource,
+  InstructionOverrideMutation,
   ChangeConfiguredServerInstructionOverrideInput,
   CreateStaticConfiguredServerTargetInput,
   EditConfiguredServerTargetInput,
@@ -375,7 +377,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
 
     try {
       const config = this.loadConfig(configPath);
-      const target = resolveConfiguredServerTarget(config, input.targetName);
+      const target = resolveConfiguredServerTargetForSource(config, input.targetName, input.targetSource);
 
       if (!target.source) {
         resultWithoutReload = {
@@ -490,20 +492,12 @@ class DefaultConfigChangeService implements ConfigChangeService {
     let resultWithoutReload: ConfigChangeResult;
     try {
       const config = this.loadConfig(configPath);
-      const source = resolveConfiguredServerTarget(config, input.sourceName);
+      const source = resolveConfiguredServerTargetForSource(config, input.sourceName, input.targetSource);
       if (!source.source) {
         return editConflictResult('not_found', configPath, source);
       }
-      if (source.source === 'mcpTemplates') {
-        return editConflictResult(
-          'template_conflict',
-          configPath,
-          source,
-          `Configured server target '${input.sourceName}' exists in mcpTemplates and cannot be edited`,
-        );
-      }
-
-      const existingConfig = config.mcpServers?.[input.sourceName];
+      const sourceSection = source.source === 'mcpTemplates' ? config.mcpTemplates : config.mcpServers;
+      const existingConfig = sourceSection?.[input.sourceName];
       if (!existingConfig) {
         return editConflictResult('not_found', configPath, source);
       }
@@ -528,8 +522,9 @@ class DefaultConfigChangeService implements ConfigChangeService {
       }
 
       if (input.targetName !== input.sourceName) {
-        const destination = resolveConfiguredServerTarget(config, input.targetName);
-        if (destination.source) {
+        const destinationSection = source.source === 'mcpTemplates' ? config.mcpTemplates : config.mcpServers;
+        if (destinationSection?.[input.targetName]) {
+          const destination = { name: input.targetName, source: source.source };
           return editConflictResult(
             'destination_conflict',
             configPath,
@@ -547,9 +542,10 @@ class DefaultConfigChangeService implements ConfigChangeService {
       }
 
       const nextConfig = cloneConfig(config);
-      nextConfig.mcpServers = normalizeServerRecord(nextConfig.mcpServers);
-      delete nextConfig.mcpServers[input.sourceName];
-      nextConfig.mcpServers[input.targetName] = input.serverConfig;
+      const nextSection = normalizeServerRecord(nextConfig[source.source]);
+      nextConfig[source.source] = nextSection;
+      delete nextSection[input.sourceName];
+      nextSection[input.targetName] = input.serverConfig;
       this.validateConfig(configPath, nextConfig);
       const backup = this.createBackupIfNeeded(configPath, 'required');
       this.writeConfig(configPath, nextConfig);
@@ -558,7 +554,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
         status: 'changed',
         operation: 'edit',
         configPath,
-        target: { name: input.targetName, source: 'mcpServers' },
+        target: { name: input.targetName, source: source.source },
         changed: true,
         backup,
         retentionCleanup,
@@ -578,7 +574,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
     const configPath = this.resolveConfigPath();
     const operation = input.enabled ? 'enable' : 'disable';
     const config = this.loadConfig(configPath);
-    const target = resolveConfiguredServerTarget(config, input.targetName);
+    const target = resolveConfiguredServerTargetForSource(config, input.targetName, input.targetSource);
 
     if (!target.source) {
       return {
@@ -1019,6 +1015,15 @@ function resolveConfiguredServerTarget(config: MutableConfigDocument, targetName
   }
 
   return { name: targetName };
+}
+
+function resolveConfiguredServerTargetForSource(
+  config: MutableConfigDocument,
+  targetName: string,
+  targetSource?: ConfiguredServerTargetSource,
+): ConfiguredServerTargetRef {
+  if (!targetSource) return resolveConfiguredServerTarget(config, targetName);
+  return config[targetSource]?.[targetName] ? { name: targetName, source: targetSource } : { name: targetName };
 }
 
 function removeTarget(config: MutableConfigDocument, target: Required<ConfiguredServerTargetRef>): void {

@@ -67,7 +67,7 @@ describe('AdminConfiguredServerService', () => {
 
     const result = await service.enableConfiguredServer({
       context: context({
-        target: { type: 'configured_server', id: 'filesystem' },
+        target: { type: 'configured_server', id: 'mcpServers:filesystem' },
         idempotencyKey: 'enable-filesystem',
         requestFingerprint: 'enable:fingerprint',
       }),
@@ -100,7 +100,7 @@ describe('AdminConfiguredServerService', () => {
       expect.objectContaining({
         operationName: 'enableConfiguredServer',
         result: 'completed',
-        target: { type: 'configured_server', id: 'filesystem' },
+        target: { type: 'configured_server', id: 'mcpServers:filesystem' },
       }),
     ]);
   });
@@ -4430,9 +4430,142 @@ describe('AdminConfiguredServerService', () => {
     expect(readConfig().mcpServers).toEqual({});
   });
 
+  it('lists same-name static and template definitions with independent instruction override states', async () => {
+    writeConfig({
+      mcpServers: {
+        shared: { type: 'stdio', command: 'node' },
+      },
+      mcpTemplates: {
+        shared: { type: 'stdio', command: '{{project.cwd}}/server', instructionOverride: '' },
+        replaced: { type: 'http', url: 'https://example.com', instructionOverride: 'operator guidance' },
+      },
+    });
+
+    const result = await createService().listConfiguredServers({ context: context() });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.result.servers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'shared',
+          source: 'mcpServers',
+          target: expect.objectContaining({ source: 'mcpServers', id: 'shared' }),
+          instructionOverride: { state: 'upstream' },
+        }),
+        expect.objectContaining({
+          id: 'shared',
+          source: 'mcpTemplates',
+          target: expect.objectContaining({ source: 'mcpTemplates', id: 'shared' }),
+          instructionOverride: { state: 'suppress', value: '' },
+        }),
+        expect.objectContaining({
+          id: 'replaced',
+          source: 'mcpTemplates',
+          instructionOverride: { state: 'replace', value: 'operator guidance' },
+        }),
+      ]),
+    );
+  });
+
+  it('reads a template definition by source when a static definition has the same name', async () => {
+    writeConfig({
+      mcpServers: { shared: { type: 'stdio', command: 'static' } },
+      mcpTemplates: { shared: { type: 'stdio', command: '{{project.cwd}}/template', instructionOverride: '' } },
+    });
+
+    const result = await createService().getConfiguredServerDetail({
+      context: context(),
+      targetName: 'shared',
+      targetSource: 'mcpTemplates',
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        server: {
+          source: 'mcpTemplates',
+          target: expect.objectContaining({ source: 'mcpTemplates', id: 'shared' }),
+          transport: { command: '{{project.cwd}}/template' },
+          instructionOverride: { state: 'suppress', value: '' },
+        },
+      },
+    });
+  });
+
+  it('previews and applies a template edit without changing the same-name static definition', async () => {
+    writeConfig({
+      mcpServers: { shared: { type: 'stdio', command: 'static', tags: ['static'] } },
+      mcpTemplates: { shared: { type: 'stdio', command: '{{project.cwd}}/template', tags: ['template'] } },
+    });
+    const service = createService();
+    const edit = { instructionOverride: { action: 'set' as const, value: '' } };
+    const preview = await service.previewConfiguredServerEdit({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'shared',
+      targetSource: 'mcpTemplates',
+      edit,
+    });
+    expect(preview).toMatchObject({
+      ok: true,
+      result: {
+        configChange: { target: { source: 'mcpTemplates' } },
+        diff: expect.arrayContaining([expect.objectContaining({ fieldPath: ['instructionOverride'] })]),
+      },
+    });
+    if (!preview.ok) return;
+
+    const applied = await service.applyConfiguredServerEdit({
+      context: context({ confirmationFacts: { previewConfirmed: preview.result.previewFingerprint } }),
+      targetName: 'shared',
+      targetSource: 'mcpTemplates',
+      edit,
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+
+    expect(applied).toMatchObject({ ok: true, result: { configChange: { target: { source: 'mcpTemplates' } } } });
+    expect(readConfig().mcpTemplates.shared).toMatchObject({ tags: ['template'], instructionOverride: '' });
+    expect(readConfig().mcpServers.shared).toMatchObject({ command: 'static', tags: ['static'] });
+  });
+
+  it('rejects non-override edits and lifecycle actions for Template Server definitions', async () => {
+    writeConfig({
+      mcpServers: {},
+      mcpTemplates: { shared: { type: 'stdio', command: '{{project.cwd}}/template', tags: ['template'] } },
+    });
+    const service = createService();
+
+    const detail = await service.getConfiguredServerDetail({
+      context: context(),
+      targetName: 'shared',
+      targetSource: 'mcpTemplates',
+    });
+    const preview = await service.previewConfiguredServerEdit({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'shared',
+      targetSource: 'mcpTemplates',
+      edit: { tags: ['changed'] },
+    });
+
+    expect(detail).toMatchObject({ ok: true, result: { server: { mutationAvailability: { available: false } } } });
+    expect(preview).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: [expect.objectContaining({ code: 'template_edit_field_unsupported', fieldPath: ['tags'] })],
+        },
+      },
+    });
+  });
+
   function createService(
     options: {
-      readConfigDocument?: () => { serverDefaults?: Record<string, any>; mcpServers?: Record<string, any> } | null;
+      readConfigDocument?: () => {
+        serverDefaults?: Record<string, any>;
+        mcpServers?: Record<string, any>;
+        mcpTemplates?: Record<string, any>;
+      } | null;
       checkConnectivity?: ConfiguredServerConnectivityChecker;
       mutationAvailability?: { available: boolean; reason?: 'writer_lock_unavailable' };
     } = {},
@@ -4457,7 +4590,10 @@ describe('AdminConfiguredServerService', () => {
           if (!fs.existsSync(configPath)) {
             return null;
           }
-          return JSON.parse(fs.readFileSync(configPath, 'utf8')) as { mcpServers?: Record<string, any> };
+          return JSON.parse(fs.readFileSync(configPath, 'utf8')) as {
+            mcpServers?: Record<string, any>;
+            mcpTemplates?: Record<string, any>;
+          };
         }),
       ...serviceOptions,
     });
