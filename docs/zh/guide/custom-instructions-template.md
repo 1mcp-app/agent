@@ -57,6 +57,10 @@ Admin Console 将托管模板存储在 `mcp.json` 中：
 }
 ```
 
+::: warning 由 Admin 管理的发布状态
+`publishedInstructionTemplates` 是 Admin 工作流维护的可选内部快照。当活动模板被保存为无效草稿时，它会保留上次激活的输出，并在重启后继续生效。请勿手动编辑该字段；应编辑 `instructionTemplates` 草稿，并使用 **Activate** 发布通过校验的变体。
+:::
+
 不要在 `instructionTemplates` 中添加 `default` 条目；该标识保留给内置模板。`activeInstructionTemplate` 必须是 `default`，或某个已配置托管模板的标识。
 
 当 `activeInstructionTemplate` 存在时，托管选择对两个输出面都具有更高优先级。当该字段不存在时，Initialization 保留下面介绍的旧版文件或 `--instructions-template` 行为，而 CLI 输出使用内置 CLI 模板。

@@ -72,6 +72,10 @@ The Admin Console stores managed templates in `mcp.json`:
 }
 ```
 
+::: warning Admin-managed publication state
+`publishedInstructionTemplates` is an optional internal snapshot maintained by the Admin workflow. It preserves the last activated output when an active template is saved as an invalid draft and across restarts. Do not edit this field by hand; edit `instructionTemplates` drafts and use **Activate** to publish validated variants.
+:::
+
 Do not add a `default` entry to `instructionTemplates`; that identity is reserved for the built-in template. `activeInstructionTemplate` must be `default` or the identity of a configured managed template.
 
 When `activeInstructionTemplate` is present, the managed selection takes precedence for both surfaces. When it is absent, initialization keeps the legacy file or `--instructions-template` behavior described below, while CLI output uses the built-in CLI template.
