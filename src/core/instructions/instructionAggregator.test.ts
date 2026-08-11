@@ -111,6 +111,31 @@ describe('InstructionAggregator', () => {
       );
     });
 
+    it.each([
+      ['non-empty replacement', 'template replacement', 'template replacement'],
+      ['empty suppression', '', ''],
+    ])('keeps template provenance with blank upstream for %s', (_case, instructionOverride, expected) => {
+      aggregator.setRuntimeInstructionConfiguration({
+        activeInstructionTemplate: 'team',
+        instructionTemplates: {
+          team: {
+            initialization: '{{#each servers}}[{{source}}:{{name}}={{instructions}}]{{/each}}',
+            cli: 'unused',
+          },
+        },
+        configuredTargets: {
+          mcpServers: { shared: { instructionOverride: 'static replacement' } },
+          mcpTemplates: { shared: { instructionOverride } },
+        },
+      });
+      aggregator.setInstructions({ source: 'mcpServers', name: 'shared' }, 'static upstream', 'shared');
+      aggregator.setInstructions({ source: 'mcpTemplates', name: 'shared' }, undefined, 'shared:instance');
+
+      expect(aggregator.renderInstructions('initialization', { tagFilterMode: 'none' }, connections)).toBe(
+        `[mcpServers:shared=static replacement][mcpTemplates:shared=${expected}]`,
+      );
+    });
+
     it('keeps legacy custom templates initialization-only when managed selection is absent', () => {
       aggregator.setInstructions('shared', 'upstream');
       const config = { tagFilterMode: 'none' as const, customTemplate: 'LEGACY {{instructions}}' };

@@ -100,7 +100,11 @@ export function resolveTemplateInstanceId(prefix: string, instanceIds: Iterable<
 }
 
 export function templateRenderedHash(renderedConfig: unknown): string {
-  return createHash(stableStringify(renderedConfig));
+  const runtimeConfig =
+    renderedConfig && typeof renderedConfig === 'object' && !Array.isArray(renderedConfig)
+      ? Object.fromEntries(Object.entries(renderedConfig).filter(([key]) => key !== 'instructionOverride'))
+      : renderedConfig;
+  return createHash(stableStringify(runtimeConfig));
 }
 
 export function resolveTemplateIdentityMode(options?: {

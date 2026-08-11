@@ -121,7 +121,8 @@ export class InstructionAggregator extends EventEmitter {
     instructions: string | undefined,
     outboundKey?: string,
   ): void {
-    const target = typeof server === 'string' ? { source: 'mcpServers' as const, name: server } : server;
+    const isLegacyTarget = typeof server === 'string';
+    const target = isLegacyTarget ? { source: 'mcpServers' as const, name: server } : server;
     const cacheKey = outboundKey ?? target.name;
     const previousRawInstructions = this.rawInstructions.get(cacheKey);
     const previousTarget = this.instructionTargets.get(cacheKey);
@@ -131,7 +132,11 @@ export class InstructionAggregator extends EventEmitter {
 
     if (instructions === undefined) {
       this.rawInstructions.delete(cacheKey);
-      this.instructionTargets.delete(cacheKey);
+      if (isLegacyTarget) {
+        this.instructionTargets.delete(cacheKey);
+      } else {
+        this.instructionTargets.set(cacheKey, target);
+      }
     } else {
       this.rawInstructions.set(cacheKey, instructions);
       this.instructionTargets.set(cacheKey, target);

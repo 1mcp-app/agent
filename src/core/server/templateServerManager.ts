@@ -176,13 +176,12 @@ export class TemplateServerManager {
         if (this.instructionAggregator) {
           try {
             const instructions = instance.client.getInstructions();
+            this.instructionAggregator.setInstructions(
+              { source: 'mcpTemplates', name: templateName },
+              instructions,
+              outboundKey,
+            );
             if (instructions?.trim()) {
-              // Use clean template name (not the hash-suffixed outboundKey)
-              this.instructionAggregator.setInstructions(
-                { source: 'mcpTemplates', name: templateName },
-                instructions,
-                outboundKey,
-              );
               debugIf(() => ({
                 message: `Cached instructions for template server: ${templateName}`,
                 meta: { templateName, instructionLength: instructions.length },
