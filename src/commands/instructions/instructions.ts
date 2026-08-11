@@ -47,8 +47,11 @@ export async function instructionsCommand(options: InstructionsCommandOptions): 
   }
 
   if (attachment.value.kind === 'rendered') {
-    if (attachment.value.response.rendered.length > 0) {
-      process.stdout.write(`${attachment.value.response.rendered}\n`);
+    const output = attachment.value.response.formatting
+      ? formatInstructionsOutput(attachment.value.response.formatting)
+      : attachment.value.response.rendered;
+    if (output.length > 0) {
+      process.stdout.write(`${output}\n`);
     }
     return;
   }

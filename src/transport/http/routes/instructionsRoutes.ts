@@ -59,14 +59,22 @@ export function createInstructionsHandler(serverManager: ServerManager): Request
           inferTarget(summary.server, outboundKey, declaredServers),
           activeAggregator.getServerInstructions(summary.server),
           runtimeConfiguration,
+          false,
         );
       }
 
       for (const summary of summaries) {
         if (representedServers.has(summary.server)) continue;
-        const target = inferTarget(summary.server, summary.server, declaredServers);
-        const upstreamInstructions = activeAggregator.getServerInstructions(summary.server);
-        metadata[summary.server] = createRenderMetadata(summary, target, upstreamInstructions, runtimeConfiguration);
+        const target = inferTarget(summary.server, summary.server, declaredServers, summary.type === 'template');
+        const upstreamInstructions =
+          target.source === 'mcpTemplates' ? undefined : activeAggregator.getServerInstructions(summary.server);
+        metadata[summary.server] = createRenderMetadata(
+          summary,
+          target,
+          upstreamInstructions,
+          runtimeConfiguration,
+          true,
+        );
 
         const declaredConfig =
           target.source === 'mcpTemplates'
@@ -77,11 +85,16 @@ export function createInstructionsHandler(serverManager: ServerManager): Request
 
       const rendered = activeAggregator.renderInstructions('cli', filterConfig, connections, metadata);
       const failure = activeAggregator.getRenderFailures().cli;
+      const templateIdentity = activeAggregator.getActiveInstructionTemplate() ?? 'default';
       const response = instructionsRenderResponseSchema.parse({
         rendered,
-        templateIdentity: activeAggregator.getActiveInstructionTemplate() ?? 'default',
+        templateIdentity,
         fallback: Boolean(failure),
-        fallbackReason: failure?.error,
+        fallbackReason: failure ? 'managed_template_render_failed' : undefined,
+        formatting:
+          templateIdentity === 'default' || failure
+            ? createFormattingPayload(summaries, declaredServers, activeAggregator, runtimeConfiguration)
+            : undefined,
       });
       res.json(response);
     } catch (error) {
@@ -104,11 +117,16 @@ function inferTarget(
   serverName: string,
   outboundKey: string,
   declaredServers: ReturnType<ConfigManager['loadDeclaredServerConfigs']>,
+  preferDeclaredTemplate = false,
 ): ConfiguredServerInstructionTarget {
   const isTemplateInstance = outboundKey !== serverName && outboundKey.startsWith(`${serverName}:`);
+  const hasStaticTarget = Object.hasOwn(declaredServers.staticServers, serverName);
   return {
     source:
-      isTemplateInstance || Object.hasOwn(declaredServers.templateServers, serverName) ? 'mcpTemplates' : 'mcpServers',
+      isTemplateInstance ||
+      (Object.hasOwn(declaredServers.templateServers, serverName) && (preferDeclaredTemplate || !hasStaticTarget))
+        ? 'mcpTemplates'
+        : 'mcpServers',
     name: serverName,
   };
 }
@@ -118,16 +136,37 @@ function createRenderMetadata(
   target: ConfiguredServerInstructionTarget,
   upstreamInstructions: string | undefined,
   runtimeConfiguration: ReturnType<ConfigManager['getRuntimeInstructionConfiguration']>,
+  includeUpstreamInstructions: boolean,
 ): InstructionRenderMetadata {
-  const effectiveInstructions = resolveEffectiveServerInstructions({
+  const presentation = resolveInstructionPresentation(summary, target, upstreamInstructions, runtimeConfiguration);
+
+  return {
+    type: summary.type,
+    status: summary.status,
+    available: summary.available,
+    loadTracked: summary.loadTracked,
+    toolCount: summary.toolCount,
+    hasInstructions: presentation.hasInstructions,
+    note: presentation.note,
+    summary: { ...summary, hasInstructions: presentation.hasInstructions },
+    target,
+    ...(includeUpstreamInstructions ? { upstreamInstructions } : {}),
+  };
+}
+
+function resolveInstructionPresentation(
+  summary: Awaited<ReturnType<typeof buildServerSummaries>>[number],
+  target: ConfiguredServerInstructionTarget,
+  upstreamInstructions: string | undefined,
+  runtimeConfiguration: ReturnType<ConfigManager['getRuntimeInstructionConfiguration']>,
+): { instructions: string | undefined; hasInstructions: boolean; note?: string } {
+  const instructions = resolveEffectiveServerInstructions({
     target,
     upstreamInstructions,
     configuredTargets: runtimeConfiguration.configuredTargets,
   });
   const hasOverride = hasConfiguredInstructionOverride(target, runtimeConfiguration.configuredTargets);
-  const hasInstructions = hasOverride
-    ? (effectiveInstructions?.length ?? 0) > 0
-    : Boolean(effectiveInstructions?.trim());
+  const hasInstructions = hasOverride ? (instructions?.length ?? 0) > 0 : Boolean(instructions?.trim());
   const note = hasInstructions
     ? undefined
     : summary.type === 'template' && !summary.available
@@ -136,14 +175,37 @@ function createRenderMetadata(
         ? '(unavailable: server is not currently connected)'
         : '(none provided)';
 
+  return { instructions, hasInstructions, note };
+}
+
+function createFormattingPayload(
+  summaries: Awaited<ReturnType<typeof buildServerSummaries>>,
+  declaredServers: ReturnType<ConfigManager['loadDeclaredServerConfigs']>,
+  activeAggregator: NonNullable<ReturnType<ServerManager['getInstructionAggregator']>>,
+  runtimeConfiguration: ReturnType<ConfigManager['getRuntimeInstructionConfiguration']>,
+) {
+  const entries = summaries.map((summary) => {
+    const target = inferTarget(summary.server, summary.server, declaredServers, summary.type === 'template');
+    const upstreamInstructions =
+      target.source === 'mcpTemplates' && !summary.available
+        ? undefined
+        : activeAggregator.getServerInstructions(summary.server);
+    return {
+      summary,
+      presentation: resolveInstructionPresentation(summary, target, upstreamInstructions, runtimeConfiguration),
+    };
+  });
+
   return {
-    type: summary.type,
-    status: summary.status,
-    available: summary.available,
-    loadTracked: summary.loadTracked,
-    toolCount: summary.toolCount,
-    hasInstructions,
-    note,
-    summary: { ...summary, hasInstructions },
+    servers: entries.map(({ summary, presentation }) => ({
+      ...summary,
+      hasInstructions: presentation.hasInstructions,
+    })),
+    details: entries.map(({ summary, presentation }) => ({
+      ...summary,
+      hasInstructions: presentation.hasInstructions,
+      instructions: presentation.hasInstructions ? presentation.instructions : undefined,
+      note: presentation.note,
+    })),
   };
 }

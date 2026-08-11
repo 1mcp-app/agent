@@ -183,6 +183,32 @@ describe('InstructionAggregator', () => {
 
       expect(normalizeWhitespace(rendered)).toBe(normalizeWhitespace(established));
     });
+
+    it('uses synthetic target provenance without exposing internal render inputs to templates', () => {
+      aggregator.setRuntimeInstructionConfiguration({
+        activeInstructionTemplate: 'team',
+        instructionTemplates: {
+          team: {
+            initialization: 'init',
+            cli: '{{servers.[0].source}}|{{servers.[0].instructions}}|{{servers.[0].target.source}}|{{servers.[0].upstreamInstructions}}',
+          },
+        },
+        configuredTargets: {
+          mcpServers: { shared: { instructionOverride: 'wrong static override' } },
+          mcpTemplates: { shared: { instructionOverride: 'template override' } },
+        },
+      });
+      const connections = new Map([['shared', { name: 'shared', status: 'connected' } as any]]);
+
+      const rendered = aggregator.renderInstructions('cli', { tagFilterMode: 'none' }, connections, {
+        shared: {
+          target: { source: 'mcpTemplates', name: 'shared' },
+          upstreamInstructions: undefined,
+        },
+      });
+
+      expect(rendered).toBe('mcpTemplates|template override||');
+    });
   });
 
   describe('removeServer', () => {

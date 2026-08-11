@@ -149,15 +149,23 @@ describe('apiRoutes /api/instructions', () => {
         ],
       }),
     );
+    expect(response.body.formatting).toEqual({
+      servers,
+      details: [
+        { ...servers[0], instructions: 'Alpha instructions' },
+        { ...servers[1], note: '(unavailable: server is not currently connected)' },
+        { ...servers[2], note: '(unavailable: template server could not be initialized with the current context)' },
+      ],
+    });
   });
 
-  it('reports managed-template fallback facts without exposing configuration', async () => {
+  it('reports sanitized managed-template fallback facts without exposing template source', async () => {
     const aggregator = new InstructionAggregator();
     mockedBuildServerSummaries.mockResolvedValue([]);
     mockedLoadDeclaredServerConfigs.mockReturnValue({ staticServers: {}, templateServers: {} });
     const runtimeConfiguration = {
       activeInstructionTemplate: 'broken',
-      instructionTemplates: { broken: { initialization: 'init', cli: '{{#if' } },
+      instructionTemplates: { broken: { initialization: 'init', cli: '{{#if SECRET_MARKER_DO_NOT_EXPOSE' } },
       configuredTargets: { mcpServers: {}, mcpTemplates: {} },
     };
     aggregator.setRuntimeInstructionConfiguration(runtimeConfiguration);
@@ -170,9 +178,11 @@ describe('apiRoutes /api/instructions', () => {
     expect(response.body).toMatchObject({
       templateIdentity: 'broken',
       fallback: true,
-      fallbackReason: expect.any(String),
+      fallbackReason: 'managed_template_render_failed',
       rendered: expect.stringContaining('1MCP CLI Instructions'),
+      formatting: { servers: [], details: [] },
     });
+    expect(JSON.stringify(response.body)).not.toContain('SECRET_MARKER_DO_NOT_EXPOSE');
     expect(response.body).not.toHaveProperty('instructionTemplates');
     expect(response.body).not.toHaveProperty('configuredTargets');
   });
@@ -222,6 +232,55 @@ describe('apiRoutes /api/instructions', () => {
     expect(response.status).toBe(200);
     expect(response.body.rendered).toBe('mcpServers=static override;mcpTemplates=template override;');
   });
+
+  it.each([
+    ['template override', 'mcpTemplates|template override|true'],
+    ['', 'mcpTemplates||false'],
+  ])(
+    'uses unresolved template provenance for a %s instruction override when a static target has the same name',
+    async (instructionOverride, expected) => {
+      const aggregator = new InstructionAggregator();
+      const runtimeConfiguration = {
+        activeInstructionTemplate: 'team',
+        instructionTemplates: {
+          team: {
+            initialization: 'init',
+            cli: '{{servers.[0].source}}|{{servers.[0].instructions}}|{{servers.[0].hasInstructions}}',
+          },
+        },
+        configuredTargets: {
+          mcpServers: { shared: { instructionOverride: 'wrong static override' } },
+          mcpTemplates: { shared: { instructionOverride } },
+        },
+      };
+      aggregator.setRuntimeInstructionConfiguration(runtimeConfiguration);
+      mockedGetRuntimeInstructionConfiguration.mockReturnValue(runtimeConfiguration);
+      mockedBuildServerSummaries.mockResolvedValue([
+        {
+          server: 'shared',
+          type: 'template',
+          status: 'unknown',
+          available: false,
+          loadTracked: false,
+          toolCount: 0,
+          hasInstructions: false,
+        },
+      ]);
+      mockedLoadDeclaredServerConfigs.mockReturnValue({
+        staticServers: { shared: {} },
+        templateServers: { shared: {} },
+      });
+      const app = express().use(
+        '/api/v1',
+        createApiRoutes(makeServerManager(aggregator, new Map()) as never, scopeAuthMiddleware),
+      );
+
+      const response = await request(app).get('/api/v1/instructions');
+
+      expect(response.status).toBe(200);
+      expect(response.body.rendered).toBe(expected);
+    },
+  );
 });
 
 function makeServerManager(

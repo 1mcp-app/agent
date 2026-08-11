@@ -32,7 +32,7 @@ export interface RuntimeInstructionConfiguration {
   configuredTargets: ConfiguredServerInstructionTargets;
 }
 
-export interface InstructionRenderMetadata {
+interface InstructionRenderPresentationMetadata {
   type?: string;
   status?: string;
   available?: boolean;
@@ -40,7 +40,14 @@ export interface InstructionRenderMetadata {
   toolCount?: number;
   note?: string;
   hasInstructions?: boolean;
-  summary?: Omit<InstructionRenderMetadata, 'summary'> & { hasInstructions?: boolean };
+  summary?: InstructionRenderPresentationMetadata & { hasInstructions?: boolean };
+}
+
+export interface InstructionRenderMetadata extends InstructionRenderPresentationMetadata {
+  /** Internal configured-target provenance for render-only synthetic connections. */
+  target?: ConfiguredServerInstructionTarget;
+  /** Internal upstream value; presence distinguishes an explicit absent value from cache lookup. */
+  upstreamInstructions?: string;
 }
 
 export interface InstructionRenderFailure {
@@ -502,11 +509,20 @@ export class InstructionAggregator extends EventEmitter {
       // Template servers use hash-based keys (e.g., "serena:6fa053f1...") but we want
       // to display the clean name (e.g., "serena") in instructions
       const serverName = connection.name;
-      const target = this.instructionTargets.get(outboundKey) ?? {
-        source: 'mcpServers' as const,
-        name: serverName,
-      };
-      const upstreamInstructions = this.rawInstructions.get(outboundKey) ?? this.serverInstructions.get(serverName);
+      const renderMetadata = metadata[outboundKey] ?? metadata[serverName] ?? {};
+      const {
+        target: renderTarget,
+        upstreamInstructions: renderUpstreamInstructions,
+        ...serverMetadata
+      } = renderMetadata;
+      const target = renderTarget ??
+        this.instructionTargets.get(outboundKey) ?? {
+          source: 'mcpServers' as const,
+          name: serverName,
+        };
+      const upstreamInstructions = Object.hasOwn(renderMetadata, 'upstreamInstructions')
+        ? renderUpstreamInstructions
+        : (this.rawInstructions.get(outboundKey) ?? this.serverInstructions.get(serverName));
       const effectiveInstructions = resolveEffectiveServerInstructions({
         target,
         upstreamInstructions,
@@ -514,7 +530,6 @@ export class InstructionAggregator extends EventEmitter {
       });
       const isOverridden = hasConfiguredInstructionOverride(target, this.runtimeConfiguration.configuredTargets);
       const instructions = isOverridden ? (effectiveInstructions ?? '') : (effectiveInstructions?.trim() ?? '');
-      const serverMetadata = metadata[outboundKey] ?? metadata[serverName] ?? {};
       const summaryMetadata = serverMetadata.summary ?? serverMetadata;
       if (instructions.length > 0) {
         // Wrap instructions in XML-like tags
