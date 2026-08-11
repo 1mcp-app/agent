@@ -78,27 +78,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# ── 1. Elevation check ────────────────────────────────────────────────────────
-$currentPrincipal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
-$isAdmin = $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $isAdmin) {
-    Write-Error 'This script must run from an elevated (Administrator) PowerShell session.'
-}
-
-# ── 2. Uninstall path ─────────────────────────────────────────────────────────
-if ($Uninstall) {
-    $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-    if (-not $existing) {
-        Write-Host "Task '$TaskName' not found — nothing to remove."
-        exit 0
-    }
-    Stop-ScheduledTask  -TaskName $TaskName -ErrorAction SilentlyContinue
-    Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
-    Write-Host "Removed scheduled task '$TaskName'."
-    exit 0
-}
-
-# ── 3. Parameter validation ───────────────────────────────────────────────────
+# ── 1. Parameter validation ───────────────────────────────────────────────────
 if ($PSCmdlet.ParameterSetName -eq 'Binary') {
     if (-not (Test-Path $BinaryPath -PathType Leaf)) {
         Write-Error "Binary not found: $BinaryPath"
@@ -110,8 +90,30 @@ if ($PSCmdlet.ParameterSetName -eq 'Npm') {
     $cmdWrapper = (Get-Command '1mcp.cmd' -ErrorAction Stop).Source
 }
 
+# ── 2. Uninstall path ─────────────────────────────────────────────────────────
+if ($Uninstall) {
+    $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    if (-not $existing) {
+        Write-Host "Task '$TaskName' not found — nothing to remove."
+        exit 0
+    }
+    
+    $isAdmin = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent().IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $isAdmin -and -not $WhatIfPreference) {
+        Write-Error 'This script must run from an elevated (Administrator) PowerShell session.'
+    }
+
+    if ($PSCmdlet.ShouldProcess($TaskName, 'Unregister-ScheduledTask')) {
+        Stop-ScheduledTask  -TaskName $TaskName -ErrorAction SilentlyContinue
+        Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+        Write-Host "Removed scheduled task '$TaskName'."
+    }
+    exit 0
+}
+
+# ── 3. Path resolution ────────────────────────────────────────────────────────
 New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
-$resolvedConfigDir = (Resolve-Path $ConfigDir).Path
+$resolvedConfigDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ConfigDir)
 
 # ── 4. Build task action ──────────────────────────────────────────────────────
 $argStr = "serve --transport http --host $HostAddress --port $Port --config-dir `"$resolvedConfigDir`""
@@ -124,11 +126,11 @@ $action = if ($PSCmdlet.ParameterSetName -eq 'Binary') {
 } else {
     New-ScheduledTaskAction `
         -Execute          'cmd.exe' `
-        -Argument         "/c `"$cmdWrapper`" $argStr" `
+        -Argument         "/s /c `"`"$cmdWrapper`" $argStr`"" `
         -WorkingDirectory $resolvedConfigDir
 }
 
-# ── 5. Trigger / settings / principal ────────────────────────────────────────
+# ── 5. Trigger / settings ────────────────────────────────────────────────────
 $trigger  = New-ScheduledTaskTrigger -AtStartup
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
@@ -138,20 +140,23 @@ $settings = New-ScheduledTaskSettingsSet `
     -RestartInterval (New-TimeSpan -Minutes 2) `
     -StartWhenAvailable `
     -MultipleInstances IgnoreNew
-$principal = New-ScheduledTaskPrincipal -LogonType Password -RunLevel Limited
 
 # ── 6. Credential prompt + registration ──────────────────────────────────────
-Write-Host "Enter the Windows account credentials for task '$TaskName'."
-Write-Host "(The account must have the 'Log on as a service' or 'Log on as a batch job' right.)"
-$cred = Get-Credential -Message "Account for scheduled task '$TaskName'"
-
 if ($PSCmdlet.ShouldProcess($TaskName, 'Register-ScheduledTask')) {
+    $isAdmin = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent().IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $isAdmin) {
+        Write-Error 'This script must run from an elevated (Administrator) PowerShell session.'
+    }
+
+    Write-Host "Enter the Windows account credentials for task '$TaskName'."
+    Write-Host "(The account must have the 'Log on as a service' or 'Log on as a batch job' right.)"
+    $cred = Get-Credential -Message "Account for scheduled task '$TaskName'"
+
     Register-ScheduledTask `
         -TaskName    $TaskName `
         -Action      $action `
         -Trigger     $trigger `
         -Settings    $settings `
-        -Principal   $principal `
         -User        $cred.UserName `
         -Password    $cred.GetNetworkCredential().Password `
         -Description '1MCP aggregated MCP runtime (managed by install-windows-task.ps1)' `
@@ -160,24 +165,39 @@ if ($PSCmdlet.ShouldProcess($TaskName, 'Register-ScheduledTask')) {
     # ── 7. Grant Modify access on config directory ────────────────────────────
     # The task account needs Modify (not just Write) so it can create subdirs,
     # rename temp PID files atomically, and write log files.
-    icacls $resolvedConfigDir /grant "$($cred.UserName):(OI)(CI)M" | Out-Null
+    $icaclsArgs = @($resolvedConfigDir, '/grant', "$($cred.UserName):(OI)(CI)M")
+    & icacls $icaclsArgs | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "icacls failed with exit code $LASTEXITCODE. Could not grant permissions on '$resolvedConfigDir'."
+    }
     Write-Host "Granted Modify access on '$resolvedConfigDir' to '$($cred.UserName)'."
 
     # ── 8. Initial start + health check ──────────────────────────────────────
     Write-Host "Starting '$TaskName' for initial verification..."
     Start-ScheduledTask -TaskName $TaskName
-    Start-Sleep -Seconds 5
 
     $state = (Get-ScheduledTask -TaskName $TaskName).State
     Write-Host "Task state: $state"
 
-    try {
-        $resp = Invoke-WebRequest `
-            -UseBasicParsing "http://${HostAddress}:${Port}/health/ready" `
-            -TimeoutSec 10
-        Write-Host "Health check: HTTP $($resp.StatusCode)"
-    } catch {
-        Write-Warning "Health endpoint did not respond within 10 s (daemon may still be starting)."
+    $probeHost = if ($HostAddress -in @('0.0.0.0', '::', '*')) { '127.0.0.1' } else { $HostAddress }
+    $healthUrl = "http://${probeHost}:${Port}/health/ready"
+    $healthy = $false
+
+    for ($attempt = 0; $attempt -lt 30; $attempt++) {
+        try {
+            $resp = Invoke-WebRequest -UseBasicParsing -Uri $healthUrl -TimeoutSec 2 -ErrorAction Stop
+            if ($resp.StatusCode -eq 200) {
+                Write-Host "Health check: HTTP $($resp.StatusCode)"
+                $healthy = $true
+                break
+            }
+        } catch {
+            Start-Sleep -Seconds 1
+        }
+    }
+
+    if (-not $healthy) {
+        Write-Warning "Health endpoint did not respond within 30 s (daemon may still be starting)."
         Write-Warning "Verify: 1mcp serve --status --config-dir `"$resolvedConfigDir`""
     }
 

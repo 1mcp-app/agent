@@ -28,18 +28,6 @@ function Assert-Pass {
     }
 }
 
-function Assert-Fail {
-    param([string]$Label, [scriptblock]$Test)
-    try {
-        & $Test
-        Write-Host "FAIL: $Label — expected an error but none was thrown"
-        $script:failures++
-    } catch {
-        $firstLine = $_.Exception.Message.Split([char]10)[0]
-        Write-Host "PASS: $Label (threw as expected: $firstLine)"
-    }
-}
-
 Write-Host "Testing $ScriptPath"
 Write-Host ("─" * 60)
 
@@ -70,7 +58,7 @@ Assert-Pass '3. Get-Help: synopsis present' {
 
 # ── Test 4: -BinaryPath that does not exist triggers Write-Error ──────────────
 # Spawn a child process so Write-Error / exit propagate cleanly.
-Assert-Pass '4. -BinaryPath nonexistent: exits non-zero' {
+Assert-Pass '4. -BinaryPath nonexistent: exits non-zero and prints correct error' {
     $fakePath = 'C:\nonexistent-path\1mcp.exe'
     $proc = Start-Process powershell.exe `
         -ArgumentList @(
@@ -79,9 +67,17 @@ Assert-Pass '4. -BinaryPath nonexistent: exits non-zero' {
             '-File', $ScriptPath,
             '-BinaryPath', $fakePath
         ) `
+        -RedirectStandardError "test-err.log" -RedirectStandardOutput "test-out.log" `
         -PassThru -Wait -NoNewWindow
+
+    $errOutput = Get-Content "test-err.log" -ErrorAction SilentlyContinue | Out-String
+    Remove-Item "test-err.log", "test-out.log" -ErrorAction SilentlyContinue
+
     if ($proc.ExitCode -eq 0) {
         throw "Expected non-zero exit code for missing binary, got 0"
+    }
+    if (-not ($errOutput -match "Binary not found")) {
+        throw "Expected 'Binary not found' in output, but got: $errOutput"
     }
 }
 
@@ -105,17 +101,34 @@ Assert-Pass '5. -Uninstall nonexistent task: clean exit (code 0)' {
 # ── Test 6: -WhatIf leaves no task registered ─────────────────────────────────
 # With -WhatIf, ShouldProcess returns false so Register-ScheduledTask is skipped.
 # We use an existing binary (powershell.exe) so param validation passes.
-Assert-Pass '6. -WhatIf: no task is registered' {
+Assert-Pass '6. -WhatIf: no task is registered and no credentials prompt' {
     $fakeName = "1mcp-whatif-$([System.Guid]::NewGuid().ToString('N').Substring(0, 8))"
     $ps = (Get-Command powershell.exe).Source
-    try {
-        # -WhatIf short-circuits ShouldProcess; Get-Credential may still be reached
-        # in a non-interactive session and throw — that is acceptable for this test.
-        & $ScriptPath -BinaryPath $ps -TaskName $fakeName -WhatIf `
-            -ErrorAction SilentlyContinue 2>$null
-    } catch {
-        # Credential prompt in non-interactive session — ignore
+    
+    # We run in a child process to capture output and verify WhatIf message
+    $proc = Start-Process powershell.exe `
+        -ArgumentList @(
+            '-NoProfile', '-NonInteractive',
+            '-ExecutionPolicy', 'Bypass',
+            '-File', $ScriptPath,
+            '-BinaryPath', $ps,
+            '-TaskName', $fakeName,
+            '-WhatIf'
+        ) `
+        -RedirectStandardOutput "test-out.log" -RedirectStandardError "test-err.log" `
+        -PassThru -Wait -NoNewWindow
+    
+    $outOutput = Get-Content "test-out.log" -ErrorAction SilentlyContinue | Out-String
+    $errOutput = Get-Content "test-err.log" -ErrorAction SilentlyContinue | Out-String
+    Remove-Item "test-err.log", "test-out.log" -ErrorAction SilentlyContinue
+
+    if ($proc.ExitCode -ne 0) {
+        throw "Script exited with code $($proc.ExitCode). Error output: $errOutput"
     }
+    if (-not ($outOutput -match "What if:")) {
+        throw "Expected output to contain 'What if:', but got: $outOutput"
+    }
+    
     $stillAbsent = -not (Get-ScheduledTask -TaskName $fakeName -ErrorAction SilentlyContinue)
     if (-not $stillAbsent) {
         Unregister-ScheduledTask -TaskName $fakeName -Confirm:$false -ErrorAction SilentlyContinue
