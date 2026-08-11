@@ -60,6 +60,8 @@ Assert-Pass '3. Get-Help: synopsis present' {
 # Spawn a child process so Write-Error / exit propagate cleanly.
 Assert-Pass '4. -BinaryPath nonexistent: exits non-zero and prints correct error' {
     $fakePath = 'C:\nonexistent-path\1mcp.exe'
+    $tempErr = [System.IO.Path]::GetTempFileName()
+    $tempOut = [System.IO.Path]::GetTempFileName()
     $proc = Start-Process powershell.exe `
         -ArgumentList @(
             '-NoProfile', '-NonInteractive',
@@ -67,11 +69,11 @@ Assert-Pass '4. -BinaryPath nonexistent: exits non-zero and prints correct error
             '-File', $ScriptPath,
             '-BinaryPath', $fakePath
         ) `
-        -RedirectStandardError "test-err.log" -RedirectStandardOutput "test-out.log" `
+        -RedirectStandardError $tempErr -RedirectStandardOutput $tempOut `
         -PassThru -Wait -NoNewWindow
 
-    $errOutput = Get-Content "test-err.log" -ErrorAction SilentlyContinue | Out-String
-    Remove-Item "test-err.log", "test-out.log" -ErrorAction SilentlyContinue
+    $errOutput = Get-Content $tempErr -ErrorAction SilentlyContinue | Out-String
+    Remove-Item $tempErr, $tempOut -ErrorAction SilentlyContinue
 
     if ($proc.ExitCode -eq 0) {
         throw "Expected non-zero exit code for missing binary, got 0"
@@ -105,6 +107,8 @@ Assert-Pass '6. -WhatIf: no task is registered and no credentials prompt' {
     $fakeName = "1mcp-whatif-$([System.Guid]::NewGuid().ToString('N').Substring(0, 8))"
     $ps = (Get-Command powershell.exe).Source
     
+    $tempErr = [System.IO.Path]::GetTempFileName()
+    $tempOut = [System.IO.Path]::GetTempFileName()
     # We run in a child process to capture output and verify WhatIf message
     $proc = Start-Process powershell.exe `
         -ArgumentList @(
@@ -115,12 +119,12 @@ Assert-Pass '6. -WhatIf: no task is registered and no credentials prompt' {
             '-TaskName', $fakeName,
             '-WhatIf'
         ) `
-        -RedirectStandardOutput "test-out.log" -RedirectStandardError "test-err.log" `
+        -RedirectStandardOutput $tempOut -RedirectStandardError $tempErr `
         -PassThru -Wait -NoNewWindow
     
-    $outOutput = Get-Content "test-out.log" -ErrorAction SilentlyContinue | Out-String
-    $errOutput = Get-Content "test-err.log" -ErrorAction SilentlyContinue | Out-String
-    Remove-Item "test-err.log", "test-out.log" -ErrorAction SilentlyContinue
+    $outOutput = Get-Content $tempOut -ErrorAction SilentlyContinue | Out-String
+    $errOutput = Get-Content $tempErr -ErrorAction SilentlyContinue | Out-String
+    Remove-Item $tempErr, $tempOut -ErrorAction SilentlyContinue
 
     if ($proc.ExitCode -ne 0) {
         throw "Script exited with code $($proc.ExitCode). Error output: $errOutput"

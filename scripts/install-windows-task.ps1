@@ -4,7 +4,6 @@
   Register or remove 1mcp serve as a Windows Task Scheduler daemon.
 
 .DESCRIPTION
-  Idempotent: re-running the script re-registers the task with -Force.
   Requires an elevated (Administrator) PowerShell session.
 
   The task runs as a specific Windows user account (LogonType Password).
@@ -38,6 +37,9 @@
 .PARAMETER Uninstall
   Stop and remove the task instead of registering it.
 
+.PARAMETER Force
+  Overwrite an existing task with the same name if it already exists.
+
 .EXAMPLE
   # Standalone binary
   .\scripts\install-windows-task.ps1 -BinaryPath 'C:\Program Files\1mcp\1mcp.exe'
@@ -68,12 +70,15 @@ param(
     [switch]$UseNpm,
 
     [string]$ConfigDir   = 'C:\ProgramData\1mcp',
+    [ValidateRange(1, 65535)]
     [int]$Port           = 3050,
     [string]$HostAddress = '127.0.0.1',
     [string]$TaskName    = '1mcp-daemon',
 
     [Parameter(ParameterSetName = 'Uninstall', Mandatory = $true)]
-    [switch]$Uninstall
+    [switch]$Uninstall,
+
+    [switch]$Force
 )
 
 $ErrorActionPreference = 'Stop'
@@ -87,7 +92,11 @@ if ($PSCmdlet.ParameterSetName -eq 'Binary') {
 }
 
 if ($PSCmdlet.ParameterSetName -eq 'Npm') {
-    $cmdWrapper = (Get-Command '1mcp.cmd' -ErrorAction Stop).Source
+    try {
+        $cmdWrapper = (Get-Command '1mcp.cmd' -ErrorAction Stop).Source
+    } catch [System.Management.Automation.CommandNotFoundException] {
+        Write-Error "1mcp.cmd not found in PATH. Ensure the package is installed globally (e.g., 'npm install -g @1mcp/agent') or use -BinaryPath instead."
+    }
 }
 
 # ── 2. Uninstall path ─────────────────────────────────────────────────────────
@@ -152,6 +161,18 @@ if ($PSCmdlet.ShouldProcess($TaskName, 'Register-ScheduledTask')) {
     Write-Host "(The account must have the 'Log on as a service' or 'Log on as a batch job' right.)"
     $cred = Get-Credential -Message "Account for scheduled task '$TaskName'"
 
+    $existingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    if ($existingTask) {
+        if (-not $Force) {
+            Write-Error "Task '$TaskName' already exists. Use -Force to overwrite."
+        }
+        Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+        # Wait for the task to fully stop to release any locks
+        while ((Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue).State -eq 'Running') {
+            Start-Sleep -Seconds 1
+        }
+    }
+
     Register-ScheduledTask `
         -TaskName    $TaskName `
         -Action      $action `
@@ -160,7 +181,7 @@ if ($PSCmdlet.ShouldProcess($TaskName, 'Register-ScheduledTask')) {
         -User        $cred.UserName `
         -Password    $cred.GetNetworkCredential().Password `
         -Description '1MCP aggregated MCP runtime (managed by install-windows-task.ps1)' `
-        -Force | Out-Null
+        -Force:$Force | Out-Null
 
     # ── 7. Grant Modify access on config directory ────────────────────────────
     # The task account needs Modify (not just Write) so it can create subdirs,
@@ -180,6 +201,7 @@ if ($PSCmdlet.ShouldProcess($TaskName, 'Register-ScheduledTask')) {
     Write-Host "Task state: $state"
 
     $probeHost = if ($HostAddress -in @('0.0.0.0', '::', '*')) { '127.0.0.1' } else { $HostAddress }
+    if ($probeHost -match ':') { $probeHost = "[$probeHost]" }
     $healthUrl = "http://${probeHost}:${Port}/health/ready"
     $healthy = $false
 
