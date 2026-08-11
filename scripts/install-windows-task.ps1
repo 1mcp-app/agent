@@ -114,7 +114,7 @@ if ($Uninstall) {
         exit 0
     }
     
-    $isAdmin = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent().IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     if (-not $isAdmin -and -not $WhatIfPreference) {
         Write-Error 'This script must run from an elevated (Administrator) PowerShell session.'
     }
@@ -159,7 +159,7 @@ $settings = New-ScheduledTaskSettingsSet `
 
 # ── 6. Credential prompt + registration ──────────────────────────────────────
 if ($PSCmdlet.ShouldProcess($TaskName, 'Register-ScheduledTask')) {
-    $isAdmin = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent().IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     if (-not $isAdmin) {
         Write-Error 'This script must run from an elevated (Administrator) PowerShell session.'
     }
