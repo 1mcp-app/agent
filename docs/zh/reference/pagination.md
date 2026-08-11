@@ -62,7 +62,7 @@ pnpm inspector
 
 1MCP 返回不透明且带版本的游标。游标绑定能力类型、当前运行时世代、有效过滤条件、提供方位置和提供方的不透明游标。客户端必须原样返回该值，不应解码或自行构造游标。
 
-提供方按确定性的名称顺序遍历。每个聚合页最多包含一个提供方页，1MCP 自身的能力也位于同一序列中。
+提供方按确定性的名称顺序遍历，名称相同时以提供方 ID 作为次级排序键。每个聚合页最多包含一个提供方页，1MCP 自身的能力也位于同一序列中。
 
 ### 分页流程
 
@@ -80,15 +80,19 @@ sequenceDiagram
 
     Client->>1MCP: resources/list（带游标）
     Note over 1MCP: 校验不透明游标和运行时世代
-    1MCP->>Server1: 获取下一页（游标：abc123）
+    1MCP->>Server1: 获取下一页（游标：[不透明提供方游标-1]）
     Server1-->>1MCP: 资源（无更多页）
-    1MCP->>Server2: 获取第一页
-    Server2-->>1MCP: 资源 + nextCursor
-    1MCP-->>Client: 结果 + 新编码游标
+    1MCP-->>Client: 结果 + 新的不透明游标
 
     Client->>1MCP: resources/list（带游标）
     Note over 1MCP: 校验不透明游标和运行时世代
-    1MCP->>Server2: 获取下一页（游标：def456）
+    1MCP->>Server2: 获取第一页
+    Server2-->>1MCP: 资源 + nextCursor
+    1MCP-->>Client: 结果 + 新的不透明游标
+
+    Client->>1MCP: resources/list（带游标）
+    Note over 1MCP: 校验不透明游标和运行时世代
+    1MCP->>Server2: 获取下一页（游标：[不透明提供方游标-2]）
     Server2-->>1MCP: 资源（无更多页）
     1MCP-->>Client: 最终结果（无 nextCursor）
 ```

@@ -74,7 +74,7 @@ pnpm inspector
 
 1MCP returns an opaque, versioned cursor. It binds the walk to the capability kind, current runtime generation, active filters, provider position, and the provider's opaque cursor. Clients must return the value unchanged and must not decode or construct cursors.
 
-Providers are visited in deterministic name order. Each aggregate page contains at most one provider page, and 1MCP's own capabilities participate in the same sequence.
+Providers are visited in deterministic name order, with provider ID used as the tie-breaker. Each aggregate page contains at most one provider page, and 1MCP's own capabilities participate in the same sequence.
 
 ### Pagination Flow
 
@@ -92,15 +92,19 @@ sequenceDiagram
 
     Client->>1MCP: resources/list (with cursor)
     Note over 1MCP: Validate opaque cursor and generation
-    1MCP->>Server1: Fetch next page (cursor: abc123)
+    1MCP->>Server1: Fetch next page (cursor: [opaque-provider-cursor-1])
     Server1-->>1MCP: Resources (no more pages)
-    1MCP->>Server2: Fetch first page
-    Server2-->>1MCP: Resources + nextCursor
-    1MCP-->>Client: Results + new encoded cursor
+    1MCP-->>Client: Results + new opaque cursor
 
     Client->>1MCP: resources/list (with cursor)
     Note over 1MCP: Validate opaque cursor and generation
-    1MCP->>Server2: Fetch next page (cursor: def456)
+    1MCP->>Server2: Fetch first page
+    Server2-->>1MCP: Resources + nextCursor
+    1MCP-->>Client: Results + new opaque cursor
+
+    Client->>1MCP: resources/list (with cursor)
+    Note over 1MCP: Validate opaque cursor and generation
+    1MCP->>Server2: Fetch next page (cursor: [opaque-provider-cursor-2])
     Server2-->>1MCP: Resources (no more pages)
     1MCP-->>Client: Final results (no nextCursor)
 ```

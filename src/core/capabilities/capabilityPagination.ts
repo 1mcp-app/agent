@@ -58,6 +58,7 @@ interface CapabilityNotificationState {
 const runtimeStates = new WeakMap<OutboundConnections, RuntimePaginationState>();
 const notificationStates = new WeakMap<object, CapabilityNotificationState>();
 const clientIds = new WeakMap<object, number>();
+const MAX_DISABLED_PAGINATION_PAGES = 1000;
 let nextClientId = 1;
 
 function getClientId(client: object): number {
@@ -315,10 +316,20 @@ export async function walkCapabilityPages<T>(options: {
     for (const [position, provider] of providers.entries()) {
       let cursor: string | undefined;
       try {
+        let pages = 0;
+        const seenCursors = new Set<string>();
         do {
           const page = await provider.list(cursor);
           items.push(...page.items);
           cursor = page.nextCursor;
+          pages += 1;
+          if (
+            cursor !== undefined &&
+            (seenCursors.has(cursor) || pages >= MAX_DISABLED_PAGINATION_PAGES)
+          ) {
+            throw new Error('Upstream pagination did not terminate');
+          }
+          if (cursor !== undefined) seenCursors.add(cursor);
         } while (cursor);
       } catch {
         if (!failures.includes(position)) failures.push(position);

@@ -136,7 +136,11 @@ export class CapabilityCatalog {
                 name: serverName,
                 list: async (cursor?: string) => {
                   const page = await options.list(connection, cursor, serverName);
-                  if (options.kind !== 'tools') return page;
+                  const mapPage = (items: T[]): CapabilityPage<T> => ({
+                    ...page,
+                    items: options.mapItem ? items.map((item) => options.mapItem!(item, serverName)) : items,
+                  });
+                  if (options.kind !== 'tools') return mapPage(page.items);
                   const serverConfigs = options.serverConfigs ?? this.deps.getServerConfigs();
                   const visibleItems = page.items.filter((item) => {
                     const name =
@@ -145,10 +149,7 @@ export class CapabilityCatalog {
                         : undefined;
                     return name === undefined || !isToolDisabled(serverConfigs, serverName, name);
                   });
-                  return {
-                    ...page,
-                    items: options.mapItem ? visibleItems.map((item) => options.mapItem!(item, serverName)) : visibleItems,
-                  };
+                  return mapPage(visibleItems);
                 },
               },
             ];
@@ -167,7 +168,10 @@ export class CapabilityCatalog {
       filterSelection: {
         visibility: {
           sessionId: options.visibility.sessionId,
-          serverCandidates: Array.from(options.visibility.serverCandidates.entries()),
+          serverCandidates: Array.from(options.visibility.serverCandidates.entries()).sort(([left], [right]) => {
+            if (left === right) return 0;
+            return left < right ? -1 : 1;
+          }),
           filterSelection: options.visibility.filterSelection,
         },
         selection: options.filterSelection,

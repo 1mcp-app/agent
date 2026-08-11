@@ -1,3 +1,6 @@
+import { createMockClient, createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
+import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import {
   ErrorCode,
   ListPromptsRequestSchema,
@@ -58,14 +61,15 @@ describe('capability pagination protocol handlers', () => {
     mockGetTransportConfig.mockReturnValue({});
   });
 
-  function connection(name: string, client: Record<string, unknown>): OutboundConnection {
-    return {
+  function connection(name: string, client: Partial<Client>): OutboundConnection {
+    const outbound = createMockOutboundConnection({
       name,
       status: ClientStatus.Connected,
       capabilities: { resources: {}, prompts: {}, tools: {} },
-      client: { ...client, transport: {} },
-      transport: { timeout: 5000 },
-    } as unknown as OutboundConnection;
+      client: createMockClient(client) as Client,
+    });
+    outbound.transport.timeout = 5000;
+    return outbound;
   }
 
   function registerResources(connections: OutboundConnections) {
@@ -349,6 +353,68 @@ describe('capability pagination protocol handlers', () => {
     expect(JSON.stringify(result._meta)).not.toContain('private failure detail');
   });
 
+  it('stops pagination-disabled draining when an upstream cursor repeats', async () => {
+    const listResources = vi.fn().mockResolvedValue({
+      resources: [{ uri: 'alpha-resource', name: 'alpha-resource' }],
+      nextCursor: 'repeated-cursor',
+    });
+    const connections = new Map([['alpha', connection('alpha', { listResources })]]) as OutboundConnections;
+    registerResourceHandlers(connections, {
+      enablePagination: false,
+      status: ServerStatus.Connected,
+      server: { setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)) },
+    } as never);
+    const handler = handlers.get(ListResourcesRequestSchema);
+    if (!handler) throw new Error('resources/list handler was not registered');
+
+    const result = (await handler({ params: {} })) as {
+      resources: Array<{ name: string }>;
+      _meta?: Record<string, unknown>;
+    };
+
+    expect(result.resources).toHaveLength(2);
+    expect(listResources).toHaveBeenCalledTimes(2);
+    expect(result._meta).toMatchObject({
+      'app.1mcp/capability-pagination': {
+        partial: true,
+        failures: [{ provider: 'alpha', code: 'upstream_list_failed' }],
+      },
+    });
+  });
+
+  it('caps pagination-disabled draining for unique upstream cursors', async () => {
+    let page = 0;
+    const listResources = vi.fn().mockImplementation(async () => {
+      page += 1;
+      return {
+        resources: [{ uri: `alpha-${page}`, name: `alpha-${page}` }],
+        nextCursor: `cursor-${page}`,
+      };
+    });
+    const connections = new Map([['alpha', connection('alpha', { listResources })]]) as OutboundConnections;
+    registerResourceHandlers(connections, {
+      enablePagination: false,
+      status: ServerStatus.Connected,
+      server: { setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)) },
+    } as never);
+    const handler = handlers.get(ListResourcesRequestSchema);
+    if (!handler) throw new Error('resources/list handler was not registered');
+
+    const result = (await handler({ params: {} })) as {
+      resources: Array<{ name: string }>;
+      _meta?: Record<string, unknown>;
+    };
+
+    expect(result.resources).toHaveLength(1000);
+    expect(listResources).toHaveBeenCalledTimes(1000);
+    expect(result._meta).toMatchObject({
+      'app.1mcp/capability-pagination': {
+        partial: true,
+        failures: [{ provider: 'alpha', code: 'upstream_list_failed' }],
+      },
+    });
+  });
+
   it('invalidates a resource walk when an upstream list-changed notification arrives', async () => {
     const notificationHandlers = new Map<unknown, (notification: unknown) => Promise<unknown>>();
     const listResources = vi.fn().mockResolvedValue({
@@ -373,6 +439,7 @@ describe('capability pagination protocol handlers', () => {
     registerResourceHandlers(connections, inbound);
     registerCapabilityPaginationNotifications(connections, outbound);
     setupClientToServerNotifications(connections, inbound);
+    // Re-registering replaces the SDK handlers while preserving the shared inbound forwarder.
     registerCapabilityPaginationNotifications(connections, outbound);
     const listHandler = handlers.get(ListResourcesRequestSchema);
     const notificationHandler = notificationHandlers.get(ResourceListChangedNotificationSchema);

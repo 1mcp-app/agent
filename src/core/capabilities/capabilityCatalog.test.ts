@@ -97,6 +97,56 @@ describe('CapabilityCatalog', () => {
     expect(result.servers).toEqual(['filesystem', 'template-server']);
   });
 
+  it('maps external capability items for non-tool kinds', async () => {
+    const mapItem = vi.fn((item: { name: string }, serverName: string) => ({
+      ...item,
+      name: `${serverName}:${item.name}`,
+    }));
+
+    const result = await createCatalog().listVisibleCapabilityPages({
+      kind: 'resources',
+      visibility: createCapabilityVisibility([['filesystem', 'filesystem']]),
+      enablePagination: true,
+      list: async () => ({ items: [{ name: 'readme' }] }),
+      mapItem,
+    });
+
+    expect(result.items).toEqual([{ name: 'filesystem:readme' }]);
+    expect(mapItem).toHaveBeenCalledWith({ name: 'readme' }, 'filesystem');
+  });
+
+  it('accepts a cursor when visibility candidates are rebuilt in a different insertion order', async () => {
+    const catalog = createCatalog();
+    const list = vi.fn(async (_connection: unknown, cursor?: string) => ({
+      items: [{ name: cursor ? 'second' : 'first' }],
+      nextCursor: cursor ? undefined : 'provider-next',
+    }));
+    const firstVisibility = createCapabilityVisibility([
+      ['filesystem', 'filesystem'],
+      ['template-server:rendered123', 'template-server'],
+    ]);
+    const rebuiltVisibility = createCapabilityVisibility([
+      ['template-server:rendered123', 'template-server'],
+      ['filesystem', 'filesystem'],
+    ]);
+    const first = await catalog.listVisibleCapabilityPages({
+      kind: 'resources',
+      visibility: firstVisibility,
+      enablePagination: true,
+      list,
+    });
+
+    const second = await catalog.listVisibleCapabilityPages({
+      kind: 'resources',
+      visibility: rebuiltVisibility,
+      cursor: first.nextCursor,
+      enablePagination: true,
+      list,
+    });
+
+    expect(second.items).toEqual([{ name: 'second' }]);
+  });
+
   it('rejects schema access to a disabled tool through visibility', async () => {
     const result = await createCatalog().describeVisibleTool({ server: 'filesystem', toolName: 'write_file' });
 
