@@ -1,0 +1,246 @@
+import { formatInstructionsOutput } from '@src/commands/instructions/instructionsUtils.js';
+import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
+import { ClientStatus } from '@src/core/types/index.js';
+
+import express, { type RequestHandler } from 'express';
+import request from 'supertest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { createApiRoutes } from './apiRoutes.js';
+
+const mockedBuildServerSummaries = vi.hoisted(() => vi.fn());
+const mockedLoadDeclaredServerConfigs = vi.hoisted(() => vi.fn());
+const mockedGetRuntimeInstructionConfiguration = vi.hoisted(() => vi.fn());
+
+vi.mock('@src/config/configManager.js', () => ({
+  ConfigManager: {
+    getInstance: vi.fn(() => ({
+      loadDeclaredServerConfigs: mockedLoadDeclaredServerConfigs,
+      getRuntimeInstructionConfiguration: mockedGetRuntimeInstructionConfiguration,
+    })),
+  },
+}));
+
+vi.mock('./inspectRoutes.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./inspectRoutes.js')>();
+  return { ...original, buildServerSummaries: mockedBuildServerSummaries };
+});
+
+vi.mock('./inspectRequestContext.js', () => ({
+  ensureRequestContextInitialized: vi.fn(() => Promise.resolve('request-session')),
+}));
+
+describe('apiRoutes /api/instructions', () => {
+  const scopeAuthMiddleware: RequestHandler = (_req, res, next) => {
+    res.locals.validatedTags = res.locals.tags ?? [];
+    next();
+  };
+
+  beforeEach(() => {
+    mockedBuildServerSummaries.mockReset();
+    mockedLoadDeclaredServerConfigs.mockReset();
+    mockedGetRuntimeInstructionConfiguration.mockReset();
+  });
+
+  it('renders the active CLI variant with effective overrides and the selected filters', async () => {
+    const aggregator = new InstructionAggregator();
+    aggregator.setInstructions({ source: 'mcpServers', name: 'alpha' }, 'upstream alpha');
+    mockedBuildServerSummaries.mockResolvedValue([
+      {
+        server: 'alpha',
+        type: 'external',
+        status: 'connected',
+        available: true,
+        loadTracked: true,
+        toolCount: 2,
+        hasInstructions: true,
+      },
+    ]);
+    mockedLoadDeclaredServerConfigs.mockReturnValue({
+      staticServers: { alpha: { tags: ['coding'] } },
+      templateServers: {},
+    });
+    const runtimeConfiguration = {
+      activeInstructionTemplate: 'team',
+      instructionTemplates: { team: { initialization: 'init', cli: '{{servers.[0].instructions}}' } },
+      configuredTargets: {
+        mcpServers: { alpha: { tags: ['coding'], instructionOverride: 'operator alpha' } },
+        mcpTemplates: {},
+      },
+    };
+    aggregator.setRuntimeInstructionConfiguration(runtimeConfiguration);
+    mockedGetRuntimeInstructionConfiguration.mockReturnValue(runtimeConfiguration);
+    const serverManager = makeServerManager(aggregator);
+    const app = express().use('/api/v1', createApiRoutes(serverManager as never, scopeAuthMiddleware));
+
+    const response = await request(app).get('/api/v1/instructions?tags=coding');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      rendered: 'operator alpha',
+      templateIdentity: 'team',
+      fallback: false,
+    });
+    expect(mockedBuildServerSummaries).toHaveBeenCalledWith(
+      expect.any(Map),
+      undefined,
+      undefined,
+      expect.anything(),
+      aggregator,
+      expect.anything(),
+      expect.objectContaining({ tagFilterMode: 'simple-or', tags: ['coding'] }),
+      { includeTemplateInstances: false },
+    );
+    expect(Object.keys(response.body).sort()).toEqual(['fallback', 'rendered', 'templateIdentity']);
+  });
+
+  it('preserves the built-in CLI formatter layout for connected, disconnected, and template servers', async () => {
+    const aggregator = new InstructionAggregator();
+    aggregator.setInstructions({ source: 'mcpServers', name: 'alpha' }, 'Alpha instructions');
+    const servers = [
+      {
+        server: 'alpha',
+        type: 'external',
+        status: 'connected',
+        available: true,
+        loadTracked: true,
+        toolCount: 2,
+        hasInstructions: true,
+      },
+      {
+        server: 'beta',
+        type: 'external',
+        status: 'disconnected',
+        available: false,
+        loadTracked: true,
+        toolCount: 0,
+        hasInstructions: false,
+      },
+      {
+        server: 'gamma',
+        type: 'template',
+        status: 'unknown',
+        available: false,
+        loadTracked: false,
+        toolCount: 0,
+        hasInstructions: false,
+      },
+    ];
+    mockedBuildServerSummaries.mockResolvedValue(servers);
+    mockedLoadDeclaredServerConfigs.mockReturnValue({
+      staticServers: { alpha: {}, beta: {} },
+      templateServers: { gamma: {} },
+    });
+    mockedGetRuntimeInstructionConfiguration.mockReturnValue({
+      configuredTargets: { mcpServers: { alpha: {}, beta: {} }, mcpTemplates: { gamma: {} } },
+    });
+    const app = express().use('/api/v1', createApiRoutes(makeServerManager(aggregator) as never, scopeAuthMiddleware));
+
+    const response = await request(app).get('/api/v1/instructions');
+
+    expect(response.status).toBe(200);
+    expect(response.body.rendered).toBe(
+      formatInstructionsOutput({
+        servers,
+        details: [
+          { ...servers[0], instructions: 'Alpha instructions' },
+          { ...servers[1], note: '(unavailable: server is not currently connected)' },
+          { ...servers[2], note: '(unavailable: template server could not be initialized with the current context)' },
+        ],
+      }),
+    );
+  });
+
+  it('reports managed-template fallback facts without exposing configuration', async () => {
+    const aggregator = new InstructionAggregator();
+    mockedBuildServerSummaries.mockResolvedValue([]);
+    mockedLoadDeclaredServerConfigs.mockReturnValue({ staticServers: {}, templateServers: {} });
+    const runtimeConfiguration = {
+      activeInstructionTemplate: 'broken',
+      instructionTemplates: { broken: { initialization: 'init', cli: '{{#if' } },
+      configuredTargets: { mcpServers: {}, mcpTemplates: {} },
+    };
+    aggregator.setRuntimeInstructionConfiguration(runtimeConfiguration);
+    mockedGetRuntimeInstructionConfiguration.mockReturnValue(runtimeConfiguration);
+    const app = express().use('/api/v1', createApiRoutes(makeServerManager(aggregator) as never, scopeAuthMiddleware));
+
+    const response = await request(app).get('/api/v1/instructions');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      templateIdentity: 'broken',
+      fallback: true,
+      fallbackReason: expect.any(String),
+      rendered: expect.stringContaining('1MCP CLI Instructions'),
+    });
+    expect(response.body).not.toHaveProperty('instructionTemplates');
+    expect(response.body).not.toHaveProperty('configuredTargets');
+  });
+
+  it('preserves source-qualified effective instructions for same-name static and template connections', async () => {
+    const aggregator = new InstructionAggregator();
+    aggregator.setInstructions({ source: 'mcpServers', name: 'shared' }, 'static upstream', 'shared');
+    aggregator.setInstructions({ source: 'mcpTemplates', name: 'shared' }, 'template upstream', 'shared:instance');
+    const runtimeConfiguration = {
+      activeInstructionTemplate: 'team',
+      instructionTemplates: {
+        team: { initialization: 'init', cli: '{{#each servers}}{{source}}={{instructions}};{{/each}}' },
+      },
+      configuredTargets: {
+        mcpServers: { shared: { instructionOverride: 'static override' } },
+        mcpTemplates: { shared: { instructionOverride: 'template override' } },
+      },
+    };
+    aggregator.setRuntimeInstructionConfiguration(runtimeConfiguration);
+    mockedGetRuntimeInstructionConfiguration.mockReturnValue(runtimeConfiguration);
+    mockedBuildServerSummaries.mockResolvedValue([
+      {
+        server: 'shared',
+        type: 'template',
+        status: 'connected',
+        available: true,
+        loadTracked: false,
+        toolCount: 2,
+        hasInstructions: true,
+      },
+    ]);
+    mockedLoadDeclaredServerConfigs.mockReturnValue({
+      staticServers: { shared: {} },
+      templateServers: { shared: {} },
+    });
+    const clients = new Map([
+      ['shared', makeConnection('shared')],
+      ['shared:instance', makeConnection('shared')],
+    ]);
+    const app = express().use(
+      '/api/v1',
+      createApiRoutes(makeServerManager(aggregator, clients) as never, scopeAuthMiddleware),
+    );
+
+    const response = await request(app).get('/api/v1/instructions');
+
+    expect(response.status).toBe(200);
+    expect(response.body.rendered).toBe('mcpServers=static override;mcpTemplates=template override;');
+  });
+});
+
+function makeServerManager(
+  aggregator: InstructionAggregator,
+  clients = new Map([['alpha', makeConnection('alpha', ['coding'])]]),
+) {
+  return {
+    getInstructionAggregator: vi.fn(() => aggregator),
+    getClients: vi.fn(() => clients),
+    getLazyLoadingOrchestrator: vi.fn(() => undefined),
+    getServerRegistry: vi.fn(() => ({})),
+  };
+}
+
+function makeConnection(name: string, tags: string[] = []) {
+  return {
+    name,
+    status: ClientStatus.Connected,
+    transport: { tags },
+    client: {},
+  };
+}

@@ -355,6 +355,7 @@ No MCP servers are currently connected. 1MCP is ready to connect to servers and 
 export const DEFAULT_CLI_INSTRUCTION_TEMPLATE = `1MCP CLI Instructions
 
 === PLAYBOOK ===
+
 1. Start here before selecting tools.
 2. Review the available servers below and choose the server that matches the task.
 3. Run \`1mcp inspect <server>\` to list that server's tools.
@@ -366,6 +367,7 @@ export const DEFAULT_CLI_INSTRUCTION_TEMPLATE = `1MCP CLI Instructions
 
 === SERVER SUMMARY ===
 {{#each servers}}
+
 <server_summary name="{{name}}">
 	server: {{name}}
 {{#if summary.type}}	type: {{summary.type}}
@@ -376,8 +378,10 @@ export const DEFAULT_CLI_INSTRUCTION_TEMPLATE = `1MCP CLI Instructions
 	instructions: {{#if summary.hasInstructions}}yes{{else}}no{{/if}}
 </server_summary>
 {{/each}}
+
 === SERVER DETAILS ===
 {{#each servers}}
+
 <server_detail name="{{name}}">
 	server: {{name}}
 {{#if type}}	type: {{type}}
@@ -390,5 +394,5 @@ export const DEFAULT_CLI_INSTRUCTION_TEMPLATE = `1MCP CLI Instructions
 {{instructions}}
 	</server_instructions>
 {{else}}	<note>{{#if note}}{{note}}{{else}}(none provided){{/if}}</note>
-{{/if}}</server_detail>
-{{/each}}`;
+{{/if}}</server_detail>{{#unless @last}}
+{{/unless}}{{/each~}}`;

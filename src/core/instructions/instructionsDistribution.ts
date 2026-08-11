@@ -1,5 +1,16 @@
 import path from 'node:path';
 
+import { z } from 'zod';
+
+export const instructionsRenderResponseSchema = z.object({
+  rendered: z.string(),
+  templateIdentity: z.string().min(1),
+  fallback: z.boolean(),
+  fallbackReason: z.string().min(1).optional(),
+});
+
+export type InstructionsRenderResponse = z.infer<typeof instructionsRenderResponseSchema>;
+
 export interface InstructionServerSummary {
   server: string;
   type?: string;
