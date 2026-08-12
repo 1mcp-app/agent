@@ -126,7 +126,7 @@ $cmdWrapper = (Get-Command 1mcp.cmd -ErrorAction Stop).Source
 
 $action = New-ScheduledTaskAction `
     -Execute 'cmd.exe' `
-    -Argument "/c `"$cmdWrapper`" serve --transport http --host 127.0.0.1 --port 3050 --config-dir `"$configDir`"" `
+    -Argument "/s /c `"`"$cmdWrapper`" serve --transport http --host 127.0.0.1 --port 3050 --config-dir `"$configDir`"`"" `
     -WorkingDirectory $configDir
 
 # $trigger、$settings、$principal —— 与独立二进制路径相同
