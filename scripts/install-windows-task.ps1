@@ -1,5 +1,4 @@
-#Requires -Version 5.1
-<#
+﻿<#
 .SYNOPSIS
   Register or remove 1mcp serve as a Windows Task Scheduler daemon.
 
@@ -25,7 +24,7 @@
   Absolute path to the 1mcp configuration directory.
   The task account is granted Modify access on this directory so it can
   write server.pid and log files.
-  Default: C:\ProgramData\1mcp
+  Default: $env:APPDATA\1mcp
 
 .PARAMETER Port
   Port for 1mcp to listen on. Default: 3050.
@@ -63,6 +62,7 @@
   # Remove the task
   .\scripts\install-windows-task.ps1 -Uninstall
 #>
+#Requires -Version 5.1
 [CmdletBinding(SupportsShouldProcess, DefaultParameterSetName = 'Binary')]
 param(
     [Parameter(ParameterSetName = 'Binary', Mandatory = $true)]
@@ -90,7 +90,7 @@ if ($PSCmdlet.ParameterSetName -eq 'Binary') {
     if (-not (Test-Path $BinaryPath -PathType Leaf)) {
         Write-Error "Binary not found: $BinaryPath"
     }
-    $resolvedBinary = (Resolve-Path $BinaryPath).Path
+    if ($WhatIfPreference) { $resolvedBinary = $BinaryPath } else { $resolvedBinary = (Resolve-Path $BinaryPath).Path }
 }
 
 if ($PSCmdlet.ParameterSetName -eq 'Npm') {
@@ -132,6 +132,11 @@ if ($Uninstall) {
 }
 
 # ── 4. Build task action ──────────────────────────────────────────────────────
+# Reject shell metacharacters in HostAddress to prevent cmd.exe injection in npm mode.
+if ($HostAddress -match '[&<>|@^(){};"`]') {
+    Write-Error "HostAddress contains forbidden characters: '$HostAddress'. Only IPv4/IPv6 addresses and hostnames are allowed."
+}
+
 $argStr = "serve --transport http --host $HostAddress --port $Port --config-dir `"$resolvedConfigDir`""
 
 # ponytail: AtStartup + Password = Session 0, no console window visible — no VBS launcher needed.
@@ -141,7 +146,7 @@ $action = if ($PSCmdlet.ParameterSetName -eq 'Binary') {
         -Argument         $argStr `
         -WorkingDirectory $resolvedConfigDir
 } else {
-    $cmdArg = "/c `"$cmdWrapper`" $argStr"
+    $cmdArg = '/s /c ""{0}" {1}"' -f $cmdWrapper, $argStr
     New-ScheduledTaskAction `
         -Execute          'cmd.exe' `
         -Argument         $cmdArg `
@@ -172,12 +177,15 @@ if ($PSCmdlet.ShouldProcess($TaskName, 'Register-ScheduledTask')) {
             Write-Error "Task '$TaskName' already exists. Use -Force to overwrite."
         }
         Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-        while ((Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue).State -eq 'Running') {
+        $stopDeadline = (Get-Date).AddSeconds(30)
+        while ((Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue).State -eq 'Running' -and (Get-Date) -lt $stopDeadline) {
             Start-Sleep -Seconds 1
+        }
+        if ((Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue).State -eq 'Running') {
+            Write-Error "Task '$TaskName' did not stop within 30 s. Cannot replace a running task."
         }
     }
 
-    New-Item -ItemType Directory -Force -Path $resolvedConfigDir | Out-Null
 
     # Prompt for credentials — Get-Credential emits a Windows dialog.
     # Password is passed to Register-ScheduledTask which stores it in
@@ -187,6 +195,17 @@ if ($PSCmdlet.ShouldProcess($TaskName, 'Register-ScheduledTask')) {
         Write-Error 'Credential prompt cancelled. Cannot register task without credentials.'
     }
     $plainPassword = $cred.GetNetworkCredential().Password
+
+    New-Item -ItemType Directory -Force -Path $resolvedConfigDir | Out-Null
+
+    # Grant Modify access on config directory BEFORE registering the task
+    # so the task account can immediately write server.pid and logs.
+    $icaclsArgs = @($resolvedConfigDir, '/grant', "$($currentUser):(OI)(CI)M")
+    & icacls $icaclsArgs | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "icacls failed with exit code $LASTEXITCODE. Could not grant permissions on '$resolvedConfigDir'."
+    }
+    Write-Host "Granted Modify access on '$resolvedConfigDir' to '$currentUser'."
 
     # ponytail: -User + -Password implicitly sets LogonType=Password and RunLevel=Limited.
     Register-ScheduledTask `
@@ -199,13 +218,6 @@ if ($PSCmdlet.ShouldProcess($TaskName, 'Register-ScheduledTask')) {
         -Description '1MCP aggregated MCP runtime (managed by install-windows-task.ps1)' `
         -Force:$Force | Out-Null
 
-    # ── 7. Grant Modify access on config directory ────────────────────────────
-    $icaclsArgs = @($resolvedConfigDir, '/grant', "$($currentUser):(OI)(CI)M")
-    & icacls $icaclsArgs | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "icacls failed with exit code $LASTEXITCODE. Could not grant permissions on '$resolvedConfigDir'."
-    }
-    Write-Host "Granted Modify access on '$resolvedConfigDir' to '$currentUser'."
 
     # ── 8. Initial start + health check ──────────────────────────────────────
     Write-Host "Starting '$TaskName' for initial verification..."
@@ -219,7 +231,8 @@ if ($PSCmdlet.ShouldProcess($TaskName, 'Register-ScheduledTask')) {
     $healthUrl = "http://${probeHost}:${Port}/health/ready"
     $healthy = $false
 
-    for ($attempt = 0; $attempt -lt 30; $attempt++) {
+    $healthDeadline = (Get-Date).AddSeconds(30)
+    while ((Get-Date) -lt $healthDeadline) {
         try {
             $resp = Invoke-WebRequest -UseBasicParsing -Uri $healthUrl -TimeoutSec 2 -ErrorAction Stop
             if ($resp.StatusCode -eq 200) {

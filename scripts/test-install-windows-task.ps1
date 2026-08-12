@@ -1,4 +1,4 @@
-# Test suite for install-windows-task.ps1
+﻿# Test suite for install-windows-task.ps1
 # Usage: .\scripts\test-install-windows-task.ps1 [[-ScriptPath] <path>]
 #
 # Does NOT require Administrator privileges.
@@ -51,8 +51,8 @@ Assert-Pass '2. Syntax: 0 parse errors' {
 # ── Test 3: Get-Help returns a non-empty synopsis ─────────────────────────────
 Assert-Pass '3. Get-Help: synopsis present' {
     $help = Get-Help $ScriptPath -ErrorAction Stop
-    if (-not $help.Synopsis -or $help.Synopsis.Trim() -eq '') {
-        throw 'Synopsis is empty'
+    if (-not $help.Synopsis -or $help.Synopsis.Trim() -ne 'Register or remove 1mcp serve as a Windows Task Scheduler daemon.') {
+        throw "Synopsis mismatch: expected 'Register or remove 1mcp serve as a Windows Task Scheduler daemon.', got: '$($help.Synopsis)'"
     }
 }
 
@@ -125,11 +125,19 @@ Assert-Pass '6. -WhatIf: no task registered, mentions Password logon, no cred pr
     if ($proc.ExitCode -ne 0) {
         throw "Script exited with code $($proc.ExitCode). Error output: $errOutput"
     }
-    if (-not ($outOutput -match 'What ?[iI]f:')) {
+    if (-not ($outOutput -match 'Register-ScheduledTask')) {
         throw "Expected output to contain 'What if:' (or localized equivalent), but got: $outOutput"
     }
 
-    $stillAbsent = -not (Get-ScheduledTask -TaskName $fakeName -ErrorAction SilentlyContinue)
+    $taskLookup = $null
+    try {
+        $taskLookup = Get-ScheduledTask -TaskName $fakeName -ErrorAction Stop
+    } catch {
+        if ($_.FullyQualifiedErrorId -notmatch 'CmdletizationQuery_NotFound_TaskName') {
+            throw "Unexpected error checking task '$fakeName': $_"
+        }
+    }
+    $stillAbsent = -not $taskLookup
     if (-not $stillAbsent) {
         Unregister-ScheduledTask -TaskName $fakeName -Confirm:$false -ErrorAction SilentlyContinue
         throw "Task '$fakeName' was registered despite -WhatIf"
