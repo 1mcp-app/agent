@@ -57,7 +57,6 @@ Assert-Pass '3. Get-Help: synopsis present' {
 }
 
 # ── Test 4: -BinaryPath that does not exist triggers Write-Error ──────────────
-# Spawn a child process so Write-Error / exit propagate cleanly.
 Assert-Pass '4. -BinaryPath nonexistent: exits non-zero and prints correct error' {
     $fakePath = 'C:\nonexistent-path\1mcp.exe'
     $tempErr = [System.IO.Path]::GetTempFileName()
@@ -100,16 +99,13 @@ Assert-Pass '5. -Uninstall nonexistent task: clean exit (code 0)' {
     }
 }
 
-# ── Test 6: -WhatIf leaves no task registered ─────────────────────────────────
-# With -WhatIf, ShouldProcess returns false so Register-ScheduledTask is skipped.
-# We use an existing binary (powershell.exe) so param validation passes.
-Assert-Pass '6. -WhatIf: no task is registered and no credentials prompt' {
+# ── Test 6: -WhatIf leaves no task and mentions LogonType Password ────────────
+Assert-Pass '6. -WhatIf: no task registered, mentions Password logon, no cred prompt' {
     $fakeName = "1mcp-whatif-$([System.Guid]::NewGuid().ToString('N').Substring(0, 8))"
     $ps = (Get-Command powershell.exe).Source
-    
+
     $tempErr = [System.IO.Path]::GetTempFileName()
     $tempOut = [System.IO.Path]::GetTempFileName()
-    # We run in a child process to capture output and verify WhatIf message
     $proc = Start-Process powershell.exe `
         -ArgumentList @(
             '-NoProfile', '-NonInteractive',
@@ -121,7 +117,7 @@ Assert-Pass '6. -WhatIf: no task is registered and no credentials prompt' {
         ) `
         -RedirectStandardOutput $tempOut -RedirectStandardError $tempErr `
         -PassThru -Wait -NoNewWindow
-    
+
     $outOutput = Get-Content $tempOut -ErrorAction SilentlyContinue | Out-String
     $errOutput = Get-Content $tempErr -ErrorAction SilentlyContinue | Out-String
     Remove-Item $tempErr, $tempOut -ErrorAction SilentlyContinue
@@ -132,7 +128,7 @@ Assert-Pass '6. -WhatIf: no task is registered and no credentials prompt' {
     if (-not ($outOutput -match 'What ?[iI]f:')) {
         throw "Expected output to contain 'What if:' (or localized equivalent), but got: $outOutput"
     }
-    
+
     $stillAbsent = -not (Get-ScheduledTask -TaskName $fakeName -ErrorAction SilentlyContinue)
     if (-not $stillAbsent) {
         Unregister-ScheduledTask -TaskName $fakeName -Confirm:$false -ErrorAction SilentlyContinue

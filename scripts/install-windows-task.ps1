@@ -6,9 +6,11 @@
 .DESCRIPTION
   Requires an elevated (Administrator) PowerShell session.
 
-  The task runs as a specific Windows user account (LogonType Password).
-  Credentials are prompted interactively via Get-Credential — no passwords
-  are embedded in the script or the task definition.
+  The task runs as a specific Windows user account (LogonType Password)
+  and uses an AtStartup trigger so the daemon starts at boot in Session 0
+  (no desktop window). Credentials are prompted interactively via
+  Get-Credential at registration time - no passwords are embedded in the
+  script or stored anywhere besides the Windows Credential Manager.
 
 .PARAMETER BinaryPath
   Absolute path to the 1mcp standalone binary (.exe).
@@ -95,10 +97,8 @@ if ($PSCmdlet.ParameterSetName -eq 'Npm') {
     try {
         $cmdWrapper = (Get-Command '1mcp.cmd' -ErrorAction Stop).Source
     } catch [System.Management.Automation.CommandNotFoundException] {
-        # Fallback: Check npm global prefix if not in PATH
         $npmPrefix = ''
         try { $npmPrefix = npm prefix -g 2>$null } catch {}
-        
         $cmdWrapper = if ($npmPrefix) { Join-Path $npmPrefix '1mcp.cmd' } else { '' }
         if (-not $cmdWrapper -or -not (Test-Path $cmdWrapper -PathType Leaf)) {
             Write-Error "1mcp.cmd not found in PATH or npm global prefix. Ensure the package is installed globally (e.g., 'npm install -g @1mcp/agent') or use -BinaryPath instead."
@@ -106,9 +106,8 @@ if ($PSCmdlet.ParameterSetName -eq 'Npm') {
     }
 }
 
-# ── 2. Path resolution ────────────────────────────────────────────────────────
+# ── 2. Path resolution / current user ────────────────────────────────────────
 $resolvedConfigDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ConfigDir)
-$vbsPath = Join-Path $resolvedConfigDir '1mcp-start.vbs'
 $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 
 # ── 3. Uninstall path ─────────────────────────────────────────────────────────
@@ -118,21 +117,16 @@ if ($Uninstall) {
         Write-Host "Task '$TaskName' not found — nothing to remove."
         exit 0
     }
-    
+
     $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     if (-not $isAdmin -and -not $WhatIfPreference) {
         Write-Error 'This script must run from an elevated (Administrator) PowerShell session.'
     }
 
     if ($PSCmdlet.ShouldProcess($TaskName, 'Unregister-ScheduledTask')) {
-        Stop-ScheduledTask  -TaskName $TaskName -ErrorAction SilentlyContinue
+        Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
         Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
         Write-Host "Removed scheduled task '$TaskName'."
-
-        # Clean up launcher script if present
-        if (Test-Path $vbsPath -PathType Leaf) {
-            Remove-Item $vbsPath -Force
-        }
     }
     exit 0
 }
@@ -140,13 +134,22 @@ if ($Uninstall) {
 # ── 4. Build task action ──────────────────────────────────────────────────────
 $argStr = "serve --transport http --host $HostAddress --port $Port --config-dir `"$resolvedConfigDir`""
 
-$action = New-ScheduledTaskAction `
-    -Execute          'wscript.exe' `
-    -Argument         "//B `"$vbsPath`"" `
-    -WorkingDirectory $resolvedConfigDir
+# ponytail: AtStartup + Password = Session 0, no console window visible — no VBS launcher needed.
+$action = if ($PSCmdlet.ParameterSetName -eq 'Binary') {
+    New-ScheduledTaskAction `
+        -Execute          $resolvedBinary `
+        -Argument         $argStr `
+        -WorkingDirectory $resolvedConfigDir
+} else {
+    $cmdArg = "/c `"$cmdWrapper`" $argStr"
+    New-ScheduledTaskAction `
+        -Execute          'cmd.exe' `
+        -Argument         $cmdArg `
+        -WorkingDirectory $resolvedConfigDir
+}
 
 # ── 5. Trigger / settings ────────────────────────────────────────────────────
-$trigger  = New-ScheduledTaskTrigger -AtLogon -User $currentUser
+$trigger  = New-ScheduledTaskTrigger -AtStartup
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries `
@@ -169,74 +172,31 @@ if ($PSCmdlet.ShouldProcess($TaskName, 'Register-ScheduledTask')) {
             Write-Error "Task '$TaskName' already exists. Use -Force to overwrite."
         }
         Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-        # Wait for the task to fully stop to release any locks
         while ((Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue).State -eq 'Running') {
             Start-Sleep -Seconds 1
         }
     }
 
-    # Ensure config directory exists
     New-Item -ItemType Directory -Force -Path $resolvedConfigDir | Out-Null
 
-    # Write VBS launcher
-    $cmdToRun = if ($PSCmdlet.ParameterSetName -eq 'Binary') {
-        "`"$resolvedBinary`" $argStr"
-    } else {
-        "`"$cmdWrapper`" $argStr"
+    # Prompt for credentials — Get-Credential emits a Windows dialog.
+    # Password is passed to Register-ScheduledTask which stores it in
+    # Windows Credential Manager (DPAPI encrypted). We do NOT store it.
+    $cred = Get-Credential -UserName $currentUser -Message "Enter your Windows password for the 1mcp daemon task. The password will be stored securely by Task Scheduler."
+    if (-not $cred) {
+        Write-Error 'Credential prompt cancelled. Cannot register task without credentials.'
     }
-    $escapedCmd = $cmdToRun.Replace('"', '""')
-    
-    $vbsContent = @"
-Set fso = CreateObject("Scripting.FileSystemObject")
-configDir = "$resolvedConfigDir"
-pidFile = configDir & "\server.pid"
-ownerDir = configDir & "\runtime.owner"
+    $plainPassword = $cred.GetNetworkCredential().Password
 
-If fso.FileExists(pidFile) Then
-    On Error Resume Next
-    Set f = fso.OpenTextFile(pidFile, 1)
-    content = f.ReadAll
-    f.Close
-    
-    Set regEx = New RegExp
-    regEx.Pattern = """pid""\s*:\s*(\d+)"
-    Set matches = regEx.Execute(content)
-    If matches.Count > 0 Then
-        pid = matches(0).SubMatches(0)
-        Set wmi = GetObject("winmgmts:\\.\root\cimv2")
-        Set procs = wmi.ExecQuery("Select * from Win32_Process Where ProcessId = " & pid)
-        isDead = True
-        If procs.Count > 0 Then
-            For Each proc In procs
-                cmdLine = LCase(proc.CommandLine)
-                exePath = LCase(proc.ExecutablePath)
-                If InStr(cmdLine, "1mcp") > 0 Or InStr(exePath, "node") > 0 Then
-                    isDead = False
-                End If
-            Next
-        End If
-        If isDead Then
-            fso.DeleteFile pidFile, True
-            If fso.FolderExists(ownerDir) Then
-                fso.DeleteFolder ownerDir, True
-            End If
-        End If
-    End If
-    On Error GoTo 0
-End If
-
-CreateObject("Wscript.Shell").Run "cmd.exe /c $escapedCmd", 0, False
-"@
-
-    [System.IO.File]::WriteAllText($vbsPath, $vbsContent, [System.Text.Encoding]::UTF8)
-
-    $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel Limited
+    $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Password -RunLevel Limited
     Register-ScheduledTask `
         -TaskName    $TaskName `
         -Action      $action `
         -Trigger     $trigger `
         -Settings    $settings `
         -Principal   $principal `
+        -User        $currentUser `
+        -Password    $plainPassword `
         -Description '1MCP aggregated MCP runtime (managed by install-windows-task.ps1)' `
         -Force:$Force | Out-Null
 
@@ -283,4 +243,8 @@ CreateObject("Wscript.Shell").Run "cmd.exe /c $escapedCmd", 0, False
     Write-Host "  State  : $state"
     Write-Host "  Status : 1mcp serve --status --config-dir `"$resolvedConfigDir`""
     Write-Host "  Remove : .\scripts\install-windows-task.ps1 -Uninstall [-TaskName '$TaskName']"
+    Write-Host "  Note   : If you change your Windows password, re-run this script to update the stored task credentials."
 }
+
+# ponytail: removed ~60 lines of VBS launcher (Session 0 has no visible window).
+# ponytail: switched InteractiveToken -> Password (InteractiveToken cannot work with AtStartup).
