@@ -188,13 +188,12 @@ if ($PSCmdlet.ShouldProcess($TaskName, 'Register-ScheduledTask')) {
     }
     $plainPassword = $cred.GetNetworkCredential().Password
 
-    $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Password -RunLevel Limited
+    # ponytail: -User + -Password implicitly sets LogonType=Password and RunLevel=Limited.
     Register-ScheduledTask `
         -TaskName    $TaskName `
         -Action      $action `
         -Trigger     $trigger `
         -Settings    $settings `
-        -Principal   $principal `
         -User        $currentUser `
         -Password    $plainPassword `
         -Description '1MCP aggregated MCP runtime (managed by install-windows-task.ps1)' `
