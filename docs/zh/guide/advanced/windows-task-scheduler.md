@@ -37,7 +37,7 @@ head:
 任务计划程序是监管者，`1mcp serve` 在该任务内以前台进程方式运行。
 
 - **不要**传递 `--background` 或 `--restart` 参数。这些参数会附加额外的监管进程；任务计划程序监控的将是短暂的启动器，而非真正的守护进程。
-- **不要**以 SYSTEM 账户或提升权限运行任务。使用交互式登录，以当前非特权用户运行。
+- **不要**以 SYSTEM 账户或提升权限运行任务。使用密码支持的非交互式登录（`LogonType Password`），以当前非特权用户运行。
 - **推荐**使用用户级配置路径，确保守护进程、`1mcp serve --status` 命令以及所有 `1mcp proxy` 客户端共享同一个运行时范围。
 
 ## 第一步：准备配置目录
@@ -66,7 +66,7 @@ if (-not (Test-Path "$configDir\mcp.json")) {
 
 从 [releases 页面](https://github.com/1mcp-app/agent/releases)下载独立二进制文件，保存到稳定的绝对路径，例如 `C:\Program Files\1mcp\1mcp.exe`。
 
-在**管理员权限的 PowerShell 会话**中运行以下脚本。脚本无需输入或存储您的账户密码。
+在**管理员权限的 PowerShell 会话**中运行以下脚本。脚本通过 `Get-Credential` 在注册时提示输入您的 Windows 密码。密码由任务计划程序安全存储在 Windows 凭据管理器（DPAPI 加密）中——不会嵌入脚本或记录到日志中。
 
 ```powershell
 $binaryPath = 'C:\Program Files\1mcp\1mcp.exe'   # 调整为你的实际安装路径
@@ -79,7 +79,7 @@ $action = New-ScheduledTaskAction `
     -Argument "serve --transport http --host 127.0.0.1 --port 3050 --config-dir `"$configDir`"" `
     -WorkingDirectory $configDir
 
-$trigger = New-ScheduledTaskTrigger -AtLogon -User $currentUser
+$trigger = New-ScheduledTaskTrigger -AtStartup
 
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
@@ -92,8 +92,14 @@ $settings = New-ScheduledTaskSettingsSet `
 
 $principal = New-ScheduledTaskPrincipal `
     -UserId $currentUser `
-    -LogonType Interactive `
+    -LogonType Password `
     -RunLevel Limited
+
+$cred = Get-Credential -UserName $currentUser -Message "Enter your Windows password for the 1mcp daemon task."
+if (-not $cred) {
+    Write-Error 'Credential prompt cancelled. Cannot register task without credentials.'
+}
+$plainPassword = $cred.GetNetworkCredential().Password
 
 Register-ScheduledTask `
     -TaskName $taskName `
@@ -102,6 +108,8 @@ Register-ScheduledTask `
     -Settings $settings `
     -Principal $principal `
     -Description '1MCP 聚合 MCP 运行时' `
+    -User $currentUser `
+    -Password $plainPassword `
     -Force
 ```
 
@@ -126,21 +134,21 @@ $action = New-ScheduledTaskAction `
 
 ## 关键参数说明
 
-| 参数                               | 值                  | 原因                                                                                          |
-| ---------------------------------- | ------------------- | --------------------------------------------------------------------------------------------- |
-| `MultipleInstances`                | `IgnoreNew`         | 快速重启后若上一个实例尚未退出，阻止第二个守护进程启动                                        |
-| `ExecutionTimeLimit`               | `PT0S`（零=无限制） | 防止默认 72 小时执行上限将运行中的守护进程强制终止                                            |
-| `RestartCount` / `RestartInterval` | 5 次 × 2 分钟       | 给瞬时故障留出恢复时间，避免立即循环重启                                                      |
-| `StartWhenAvailable`               | `true`              | 若任务符合运行条件但暂时无法启动（如上一实例仍在停止），则尽快启动。                          |
-| `RunLevel`                         | `Limited`           | 以非提升权限运行，使用所需的最小权限                                                          |
-| `LogonType`                        | `Interactive`       | 使用交互式登录；任务在配置的用户登录时运行，无需在计划任务中存储或提示输入 Windows 账户密码。 |
-| 无固定启动延迟                     | —                   | 仅当环境需要 VPN 或域认证先于 1MCP 建立时，才考虑添加固定延迟                                 |
+| 参数                               | 值                  | 原因                                                                                                             |
+| ---------------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `MultipleInstances`                | `IgnoreNew`         | 快速重启后若上一个实例尚未退出，阻止第二个守护进程启动                                                           |
+| `ExecutionTimeLimit`               | `PT0S`（零=无限制） | 防止默认 72 小时执行上限将运行中的守护进程强制终止                                                               |
+| `RestartCount` / `RestartInterval` | 5 次 × 2 分钟       | 给瞬时故障留出恢复时间，避免立即循环重启                                                                         |
+| `StartWhenAvailable`               | `true`              | 若任务符合运行条件但暂时无法启动（如上一实例仍在停止），则尽快启动。                                             |
+| `RunLevel`                         | `Limited`           | 以非提升权限运行，使用所需的最小权限                                                                             |
+| `LogonType`                        | `Password`          | 通过 Session 0 在开机时运行（无桌面窗口）。密码通过 `Get-Credential` 提示输入，加密存储在 Windows 凭据管理器中。 |
+| 无固定启动延迟                     | —                   | 仅当环境需要 VPN 或域认证先于 1MCP 建立时，才考虑添加固定延迟                                                    |
 
 ## 运行时范围与 `--config-dir`
 
 1MCP 在启动时会将 `server.pid` 文件写入 `--config-dir` 目录。`1mcp proxy` 等客户端通过读取该文件来发现正在运行的守护进程。
 
-由于计划任务采用 `LogonType Interactive` 在交互式会话中以您的身份运行，守护进程天然能够读取到当前用户的 `%APPDATA%\1mcp` 目录。这确保了后台守护进程与所有前台命令（如 `1mcp proxy`）默认共享完全一致的运行时范围（Runtime Scope）。
+由于计划任务采用 `LogonType Password` 在 Session 0 中运行，守护进程使用注册时指定的 `--config-dir` 路径来解析其运行时范围。后台守护进程与所有前台命令（如 `1mcp proxy`）只要使用相同的 `--config-dir`，即可共享完全一致的运行时范围（Runtime Scope）。
 
 ```powershell
 # 此时两者均默认使用相同的用户目录，服务自动发现能够完美工作
@@ -210,20 +218,23 @@ Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:3050/health/mcp' | Select-O
 
 ## 故障排查
 
-| 现象                           | 可能原因                                 | 解决方法                                                                                                                                   |
-| ------------------------------ | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| 任务显示**就绪**但从未启动     | 开机触发时系统尚未就绪                   | 手动启动一次确认功能正常；若守护进程常出现开机延迟，在 `New-ScheduledTaskTrigger -AtLogon` 中添加 `-RandomDelay (New-TimeSpan -Minutes 1)` |
-| 任务启动后立即退出             | 二进制路径错误或缺少 `--config-dir`      | 检查任务操作路径，确认 `$configDir` 目录存在                                                                                               |
-| 启动后 `server.pid` 文件不存在 | 守护进程启动崩溃                         | 检查 `$configDir\logs\server.log` 中的日志                                                                                                 |
-| 出现两个守护进程               | `MultipleInstances` 未设置为 `IgnoreNew` | 按第二步重新注册任务                                                                                                                       |
-| `1mcp proxy` 无法发现守护进程  | 任务与客户端的 `--config-dir` 不一致     | 确保两者使用相同的绝对路径                                                                                                                 |
+| 现象                           | 可能原因                                 | 解决方法                                                                                                                                     |
+| ------------------------------ | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| 任务显示**就绪**但从未启动     | 开机触发时系统尚未就绪                   | 手动启动一次确认功能正常；若守护进程常出现开机延迟，在 `New-ScheduledTaskTrigger -AtStartup` 中添加 `-RandomDelay (New-TimeSpan -Minutes 1)` |
+| 任务启动后立即退出             | 二进制路径错误或缺少 `--config-dir`      | 检查任务操作路径，确认 `$configDir` 目录存在                                                                                                 |
+| 启动后 `server.pid` 文件不存在 | 守护进程启动崩溃                         | 检查 `$configDir\logs\server.log` 中的日志                                                                                                   |
+| 出现两个守护进程               | `MultipleInstances` 未设置为 `IgnoreNew` | 按第二步重新注册任务                                                                                                                         |
+| `1mcp proxy` 无法发现守护进程  | 任务与客户端的 `--config-dir` 不一致     | 确保两者使用相同的绝对路径                                                                                                                   |
 
-## 交互式登录与 S4U 登录对比
+## Password 登录与 S4U 登录对比
 
-本指南默认推荐使用交互式登录（`LogonType Interactive`），它具有以下优势：
+本指南默认使用密码支持的非交互式登录（`LogonType Password`）进行守护进程注册，它具有以下优势：
 
-- **免密码存储**：与 S4U 一样，不需要在计划任务中存储或输入您的 Windows 账户密码。
-- **无网络与文件访问限制**：不像 S4U 那样有无法访问网络资源或加密文件的严格限制，任务能正常加载任何需要联网认证的上游 MCP 服务。
+- **开机即启动且无窗口**：结合 `AtStartup` 触发器，任务在 Session 0 中运行——无桌面窗口可见，无需用户交互登录。
+- **保留网络访问**：与 S4U 登录不同，Password 登录提供完整的网络资源和加密用户文件访问能力，这对于解析和运行上游 MCP 服务是必要的。
+- **密码安全存储**：密码通过 `Get-Credential` 提示输入，存储在 Windows 凭据管理器（DPAPI 加密）中，不会嵌入脚本或记录到日志中。
+
+> **注意**：如果您更改了 Windows 密码，需要重新运行注册脚本以更新存储的任务凭据。S4U 登录避免了此问题，但牺牲了网络访问能力，因此不适合作为默认选项。
 
 ---
 
