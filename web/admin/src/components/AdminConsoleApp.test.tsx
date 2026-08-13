@@ -326,7 +326,7 @@ describe('AdminConsoleApp', () => {
       oauth: { operate: onOperate },
     });
 
-    expect(screen.getByRole('heading', { name: /^oauth services$/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /^oauth services$/i })).toBeInTheDocument();
     expect(screen.getByText('context7:0123456789ab')).toBeInTheDocument();
     expect(screen.getByText('context7:0123456789abcdef')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /copy full service id for context7:0123456789ab/i }));
