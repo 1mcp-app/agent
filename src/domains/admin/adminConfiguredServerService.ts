@@ -1660,11 +1660,13 @@ function normalizeEditDraft(value: unknown): {
       record.toolDescriptionOverrides &&
       typeof record.toolDescriptionOverrides === 'object' &&
       !Array.isArray(record.toolDescriptionOverrides) &&
-      Object.values(record.toolDescriptionOverrides).every((description) => typeof description === 'string')
+      Object.entries(record.toolDescriptionOverrides).every(
+        ([name, description]) => name.length > 0 && name === name.trim() && typeof description === 'string',
+      )
     ) {
       edit.toolDescriptionOverrides = Object.fromEntries(
         Object.entries(record.toolDescriptionOverrides as Record<string, string>)
-          .map(([name, description]) => [name.trim(), description.trim()] as const)
+          .map(([name, description]) => [name, description.trim()] as const)
           .filter(([name, description]) => name.length > 0 && description.length > 0)
           .sort(([left], [right]) => left.localeCompare(right)),
       );

@@ -2157,6 +2157,36 @@ describe('AdminConfiguredServerService', () => {
     });
   });
 
+  it('rejects whitespace-variant tool override keys without normalizing collisions', async () => {
+    writeConfig({
+      mcpServers: {
+        github: { type: 'http', url: 'https://api.example.com/mcp' },
+      },
+    });
+    const service = createService();
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({ target: { type: 'configured_server', id: 'github' } }),
+      targetName: 'github',
+      edit: { toolDescriptionOverrides: { ' search ': 'first', search: 'second' } },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            expect.objectContaining({
+              fieldPath: ['toolDescriptionOverrides'],
+              code: 'invalid_tool_description_overrides',
+            }),
+          ]),
+        },
+      },
+    });
+  });
+
   it('rejects raw values submitted as environment-reference secret replacements without echoing them', async () => {
     writeConfig({
       mcpServers: {
