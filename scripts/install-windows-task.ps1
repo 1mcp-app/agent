@@ -228,20 +228,31 @@ if ($PSCmdlet.ShouldProcess($TaskName, 'Register-ScheduledTask')) {
 
     $probeHost = if ($HostAddress -in @('0.0.0.0', '::', '*')) { '127.0.0.1' } else { $HostAddress }
     if ($probeHost -match ':') { $probeHost = "[$probeHost]" }
-    $healthUrl = "http://${probeHost}:${Port}/health/ready"
+    $readyUrl = "http://${probeHost}:${Port}/health/ready"
+    $mcpUrl   = "http://${probeHost}:${Port}/health/mcp"
     $healthy = $false
 
     $healthDeadline = (Get-Date).AddSeconds(30)
     while ((Get-Date) -lt $healthDeadline) {
         try {
-            $resp = Invoke-WebRequest -UseBasicParsing -Uri $healthUrl -TimeoutSec 2 -ErrorAction Stop
+            $resp = Invoke-WebRequest -UseBasicParsing -Uri $readyUrl -TimeoutSec 2 -ErrorAction Stop
             if ($resp.StatusCode -eq 200) {
-                Write-Host "Health check: HTTP $($resp.StatusCode)"
+                Write-Host "Health /ready: HTTP $($resp.StatusCode)"
                 $healthy = $true
                 break
             }
         } catch {
             Start-Sleep -Seconds 1
+        }
+    }
+
+    # Also verify /health/mcp (MCP gateway readiness) per author contract
+    if ($healthy) {
+        try {
+            $mcpResp = Invoke-WebRequest -UseBasicParsing -Uri $mcpUrl -TimeoutSec 5 -ErrorAction Stop
+            Write-Host "Health /mcp:   HTTP $($mcpResp.StatusCode)"
+        } catch {
+            Write-Warning "/health/mcp not yet responding (MCP servers may still be starting)."
         }
     }
 
