@@ -1,7 +1,7 @@
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
-import { ClientManager } from '@src/core/client/clientManager.js';
 import { registerCapabilityPaginationNotifications } from '@src/core/capabilities/capabilityPagination.js';
+import { ClientManager } from '@src/core/client/clientManager.js';
 import { ClientTemplateTracker, TemplateFilteringService, TemplateIndex } from '@src/core/filtering/index.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import type { BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
@@ -159,12 +159,14 @@ export class TemplateServerManager {
         );
         instance.outboundKeys.add(outboundKey);
 
+        const instructions = instance.client.getInstructions();
         outboundConns.set(outboundKey, {
           name: templateName, // Keep clean name for tool namespacing (serena_1mcp_*)
           transport: instance.transport as AuthProviderTransport,
           client: instance.client,
           status: ClientStatus.Connected, // Template servers should be connected
           capabilities: undefined, // Will be populated by setupCapabilities
+          instructions,
         });
         registerCapabilityPaginationNotifications(outboundConns, outboundConns.get(outboundKey)!);
         if (instance.supervision) {
@@ -175,7 +177,6 @@ export class TemplateServerManager {
         // This ensures instructions are available on first connection
         if (this.instructionAggregator) {
           try {
-            const instructions = instance.client.getInstructions();
             this.instructionAggregator.setInstructions(
               { source: 'mcpTemplates', name: templateName },
               instructions,

@@ -50,6 +50,7 @@ export function createInstructionsHandler(serverManager: ServerManager): Request
 
       const connections: OutboundConnections = new Map();
       const metadata: Record<string, InstructionRenderMetadata> = {};
+      const presentations = new Map<string, ReturnType<typeof resolveInstructionPresentation>>();
       const representedServers = new Set<string>();
       const summariesByName = new Map(summaries.map((summary) => [summary.server, summary]));
 
@@ -58,9 +59,19 @@ export function createInstructionsHandler(serverManager: ServerManager): Request
         if (!summary) continue;
         representedServers.add(summary.server);
         connections.set(outboundKey, connection);
+        const target = inferTarget(summary.server, outboundKey, declaredServers);
+        presentations.set(
+          `${target.source}:${target.name}`,
+          resolveInstructionPresentation(
+            summary,
+            target,
+            activeAggregator.getEffectiveServerInstructions(outboundKey, summary.server),
+            runtimeConfiguration,
+          ),
+        );
         metadata[outboundKey] = createRenderMetadata(
           summary,
-          inferTarget(summary.server, outboundKey, declaredServers),
+          target,
           activeAggregator.getServerInstructions(summary.server),
           runtimeConfiguration,
           false,
@@ -97,7 +108,7 @@ export function createInstructionsHandler(serverManager: ServerManager): Request
         fallbackReason: failure ? 'managed_template_render_failed' : undefined,
         formatting:
           templateIdentity === 'default' || failure
-            ? createFormattingPayload(summaries, declaredServers, activeAggregator, runtimeConfiguration)
+            ? createFormattingPayload(summaries, declaredServers, presentations, activeAggregator, runtimeConfiguration)
             : undefined,
       });
       res.json(response);
@@ -185,16 +196,23 @@ function resolveInstructionPresentation(
 function createFormattingPayload(
   summaries: Awaited<ReturnType<typeof buildServerSummaries>>,
   declaredServers: ReturnType<ConfigManager['loadDeclaredServerConfigs']>,
+  presentations: ReadonlyMap<string, ReturnType<typeof resolveInstructionPresentation>>,
   activeAggregator: NonNullable<ReturnType<ServerManager['getInstructionAggregator']>>,
   runtimeConfiguration: ReturnType<ConfigManager['getRuntimeInstructionConfiguration']>,
 ) {
   const entries = summaries.map((summary) => {
     const target = inferTarget(summary.server, summary.server, declaredServers, summary.type === 'template');
-    const upstreamInstructions =
-      target.source === 'mcpTemplates' ? undefined : activeAggregator.getServerInstructions(summary.server);
+    const presentation =
+      presentations.get(`${target.source}:${target.name}`) ??
+      resolveInstructionPresentation(
+        summary,
+        target,
+        activeAggregator.getServerInstructions(summary.server),
+        runtimeConfiguration,
+      );
     return {
       summary,
-      presentation: resolveInstructionPresentation(summary, target, upstreamInstructions, runtimeConfiguration),
+      presentation,
     };
   });
 

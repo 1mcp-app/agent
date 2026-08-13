@@ -304,10 +304,8 @@ describe('apiRoutes /api/instructions', () => {
         hasInstructions: true,
       })),
     );
-    mockedLoadDeclaredServerConfigs.mockReturnValue({ staticServers: {}, templateServers: {} });
+    mockedLoadDeclaredServerConfigs.mockReturnValue({ staticServers: {}, templateServers: { contextual: {} } });
     const runtimeConfiguration = {
-      activeInstructionTemplate: 'team',
-      instructionTemplates: { team: { initialization: 'init', cli: '{{instructions}}' } },
       configuredTargets: { mcpServers: {}, mcpTemplates: {} },
     };
     aggregator.setRuntimeInstructionConfiguration(runtimeConfiguration);
@@ -326,6 +324,9 @@ describe('apiRoutes /api/instructions', () => {
     expect(response.status).toBe(200);
     expect(response.body.rendered).toContain('own');
     expect(response.body.rendered).not.toContain('other');
+    expect(response.body.formatting.details).toEqual([
+      expect.objectContaining({ server: 'contextual', instructions: 'own', hasInstructions: true }),
+    ]);
   });
 
   it('does not inherit contextual template connections when no request context exists', async () => {
