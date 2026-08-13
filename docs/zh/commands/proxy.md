@@ -98,6 +98,23 @@
 1mcp proxy --filter "web AND api"
 ```
 
+### Windows MCP 客户端配置
+
+部分受影响的 Windows MCP 客户端在启动 npm 的 `1mcp.cmd` shim 时，可能无法可靠地传递参数。对于这些客户端，请直接使用打包的 Windows 可执行文件。按照 [Windows 二进制安装说明](/zh/guide/installation) 操作后，将 `command` 设置为解压后的可执行文件绝对路径：
+
+```json
+{
+  "mcpServers": {
+    "1mcp": {
+      "command": "C:\\Tools\\1mcp\\1mcp-win32-x64.exe",
+      "args": ["proxy"]
+    }
+  }
+}
+```
+
+请将示例路径替换为可执行文件的实际位置。此配置会直接调用 `proxy`，不依赖客户端启动 npm 的 `.cmd` shim。如有需要，可在 `args` 数组的 `"proxy"` 后添加 `"--preset", "development"` 或 `"--url", "http://127.0.0.1:3050/mcp"` 等选项。
+
 ### 对 agent，应优先使用 CLI 模式而不是 `proxy`
 
 如果客户端本身是 agent 会话，更推荐：

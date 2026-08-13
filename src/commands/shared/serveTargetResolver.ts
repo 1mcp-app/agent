@@ -173,10 +173,10 @@ export async function resolveServeTarget<TOptions extends ResolvableServeTargetO
   }
 
   const localDiscovery = await discoverServerWithPidFile(mergedOptions['config-dir'], mergedOptions.url);
-  const { url: discoveredUrl, pid: serverPid, source } = localDiscovery;
-  const validation = await validateServer1mcpUrl(discoveredUrl);
+  const { url: discoveredUrl, pid: serverPid, source, validated } = localDiscovery;
+  const validation = validated ? undefined : await validateServer1mcpUrl(discoveredUrl);
 
-  if (!validation.valid) {
+  if (validation && !validation.valid) {
     const isEphemeral = Boolean(mergedOptions.url);
     throw new RuntimeProbeError(toRuntimeProbeFailure(validation, discoveredUrl), {
       targetKind: isEphemeral ? 'ephemeral' : 'local',

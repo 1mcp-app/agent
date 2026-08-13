@@ -113,6 +113,23 @@ Priority order is:
 1mcp proxy --filter "web AND api"
 ```
 
+### Windows MCP client configuration
+
+Affected Windows MCP clients may not reliably pass arguments when they launch npm's `1mcp.cmd` shim. For those clients, use the packaged Windows executable directly. After following the [Windows binary installation instructions](/guide/installation), set `command` to the absolute path where you extracted the executable:
+
+```json
+{
+  "mcpServers": {
+    "1mcp": {
+      "command": "C:\\Tools\\1mcp\\1mcp-win32-x64.exe",
+      "args": ["proxy"]
+    }
+  }
+}
+```
+
+Replace the example path with the executable's actual location. This invokes `proxy` directly without relying on a client to launch the npm `.cmd` shim. Add options such as `"--preset", "development"` or `"--url", "http://127.0.0.1:3050/mcp"` after `"proxy"` in the `args` array when needed.
+
 ### Prefer CLI mode instead of `proxy`
 
 If the client is an agent session, prefer:

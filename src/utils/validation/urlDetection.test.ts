@@ -134,6 +134,89 @@ describe('validateServer1mcpUrl', () => {
     expect(mockedFetchRuntimeTargetUrl).toHaveBeenCalledTimes(1);
   });
 
+  it('validates localhost through the healthy loopback family without waiting for the unavailable family', async () => {
+    let losingProbeAborted = false;
+    mockedFetchRuntimeTargetUrl.mockImplementation(async (url: string, init) => {
+      if (url.includes('[::1]')) {
+        return await new Promise<never>((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () => {
+            losingProbeAborted = true;
+            reject(init.signal?.reason);
+          });
+        });
+      }
+      if (url.includes('127.0.0.1')) {
+        await Promise.resolve();
+        return response({
+          status: 200,
+          body: {
+            identityProtocolVersion: '1',
+            runtimeScopeId: 'ae625936-93ea-4d98-a2d7-c7967c5c19ca',
+            externalUrl: 'http://127.0.0.1:3050',
+            runtimeVersion: '0.35.0-beta.3',
+          },
+        });
+      }
+      throw new Error(`Unexpected probe URL: ${url}`);
+    });
+
+    await expect(validateServer1mcpUrl('http://localhost:3050/mcp')).resolves.toEqual({ valid: true });
+
+    expect(mockedFetchRuntimeTargetUrl).toHaveBeenCalledWith(
+      'http://[::1]:3050/.well-known/1mcp/runtime-identity',
+      expect.anything(),
+    );
+    expect(mockedFetchRuntimeTargetUrl).toHaveBeenCalledWith(
+      'http://127.0.0.1:3050/.well-known/1mcp/runtime-identity',
+      expect.anything(),
+    );
+    expect(losingProbeAborted).toBe(true);
+    expect(mockedFetchRuntimeTargetUrl).not.toHaveBeenCalledWith('http://[::1]:3050/oauth/', expect.anything());
+  });
+
+  it('keeps localhost failures structured when both loopback families refuse the probe', async () => {
+    mockedFetchRuntimeTargetUrl.mockImplementation(async (url: string) => {
+      const cause = Object.assign(new Error(`connect ECONNREFUSED ${url}`), { code: 'ECONNREFUSED' });
+      throw Object.assign(new TypeError('fetch failed'), { cause });
+    });
+
+    await expect(validateServer1mcpUrl('http://localhost:3050/mcp')).resolves.toMatchObject({
+      valid: false,
+      failure: {
+        failureKind: 'connection_refused',
+        endpoint: '/.well-known/1mcp/runtime-identity',
+        reason: 'Connection refused (ECONNREFUSED)',
+        retryable: true,
+      },
+    });
+    expect(mockedFetchRuntimeTargetUrl).toHaveBeenCalledTimes(2);
+  });
+
+  it('prefers an actionable HTTP rejection when loopback families fail differently', async () => {
+    mockedFetchRuntimeTargetUrl.mockImplementation(async (url: string) => {
+      if (url.includes('127.0.0.1')) {
+        const cause = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:3050'), { code: 'ECONNREFUSED' });
+        throw Object.assign(new TypeError('fetch failed'), { cause });
+      }
+      return response({
+        status: 429,
+        retryAfter: '60',
+        body: { error: 'Too many requests, please try again later.' },
+      });
+    });
+
+    await expect(validateServer1mcpUrl('http://localhost:3050/mcp')).resolves.toMatchObject({
+      valid: false,
+      error: 'HTTP 429: Too many requests, please try again later.',
+      failure: {
+        failureKind: 'http_rejection',
+        endpoint: '/.well-known/1mcp/runtime-identity',
+        httpStatus: 429,
+        retryAfterSeconds: 60,
+      },
+    });
+  });
+
   it('reports a live PID probe rejection instead of scanning another port', async () => {
     mockedDiscoverScopedRuntime.mockImplementation(async (_configDir, probe) => {
       const info = {
@@ -169,6 +252,40 @@ describe('validateServer1mcpUrl', () => {
     });
     expect(portScanFetch).not.toHaveBeenCalled();
   });
+
+  it('returns the exact PID-file URL as already validated', async () => {
+    mockedDiscoverScopedRuntime.mockImplementation(async (_configDir, probe) => {
+      const info = {
+        pid: 4242,
+        url: 'http://[::1]:3050/mcp',
+        port: 3050,
+        host: '::1',
+        transport: 'http',
+        startedAt: '2026-08-03T00:00:00.000Z',
+        configDir: '/tmp/runtime-scope',
+      };
+      return { status: (await probe(info)) ? 'running' : 'unreachable', info };
+    });
+    mockedFetchRuntimeTargetUrl.mockResolvedValueOnce(
+      response({
+        status: 200,
+        body: {
+          identityProtocolVersion: '1',
+          runtimeScopeId: 'ae625936-93ea-4d98-a2d7-c7967c5c19ca',
+          externalUrl: 'http://[::1]:3050',
+          runtimeVersion: '0.35.0-beta.3',
+        },
+      }),
+    );
+
+    await expect(discoverServerWithPidFile('/tmp/runtime-scope')).resolves.toEqual({
+      url: 'http://[::1]:3050/mcp',
+      source: 'pidfile',
+      pid: 4242,
+      validated: true,
+    });
+    expect(mockedFetchRuntimeTargetUrl).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('detectRunningServerUrl', () => {
@@ -181,13 +298,43 @@ describe('detectRunningServerUrl', () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(new Response('{}', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(detectRunningServerUrl()).resolves.toBe('http://localhost:3050/mcp');
+    await expect(detectRunningServerUrl()).resolves.toBe('http://127.0.0.1:3050/mcp');
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://localhost:3050/.well-known/1mcp/runtime-identity',
+      'http://127.0.0.1:3050/.well-known/1mcp/runtime-identity',
       expect.objectContaining({ redirect: 'manual' }),
     );
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://[::1]:3050/.well-known/1mcp/runtime-identity',
+      expect.objectContaining({ redirect: 'manual' }),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('detects the healthy loopback family without waiting for the unavailable family', async () => {
+    let losingProbeAborted = false;
+    const fetchMock = vi.fn().mockImplementation(async (url: string, init: RequestInit) => {
+      if (url.includes('[::1]')) {
+        return await new Promise<never>((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () => {
+            losingProbeAborted = true;
+            reject(init.signal?.reason);
+          });
+        });
+      }
+      if (url === 'http://127.0.0.1:3050/.well-known/1mcp/runtime-identity') {
+        await Promise.resolve();
+        return new Response('{}', { status: 200 });
+      }
+      throw new Error(`Unexpected probe URL: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(detectRunningServerUrl()).resolves.toBe('http://127.0.0.1:3050/mcp');
+
+    expect(fetchMock).toHaveBeenCalledWith('http://[::1]:3050/.well-known/1mcp/runtime-identity', expect.anything());
+    expect(losingProbeAborted).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalledWith('http://[::1]:3050/oauth/', expect.anything());
   });
 });
 

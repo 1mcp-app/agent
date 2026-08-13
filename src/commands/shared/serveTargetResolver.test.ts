@@ -112,6 +112,7 @@ describe('resolveServeTarget', () => {
       url: 'http://127.0.0.1:3050/mcp',
       pid: 4242,
       source: 'pidfile',
+      validated: true,
     });
     mockedValidateServer1mcpUrl.mockResolvedValue({ valid: true });
   });
@@ -138,7 +139,8 @@ describe('resolveServeTarget', () => {
     });
 
     expect(mockedDiscoverServerWithPidFile).toHaveBeenCalledWith('.tmp-test', undefined);
-    expect(mockedValidateServer1mcpUrl).toHaveBeenCalledWith('http://127.0.0.1:3050/mcp');
+    expect(mockedValidateServer1mcpUrl).not.toHaveBeenCalled();
+    expect(result.discoveredUrl).toBe('http://127.0.0.1:3050/mcp');
     expect(result.serverUrl.toString()).toBe('http://127.0.0.1:3050/mcp?filter=tooling');
     expect(result.cwd).toBe('/tmp/project/packages/api');
     expect(result.projectRoot).toBe('/tmp/project');
@@ -151,6 +153,11 @@ describe('resolveServeTarget', () => {
   });
 
   it('throws when validation fails', async () => {
+    mockedDiscoverServerWithPidFile.mockResolvedValueOnce({
+      url: 'http://localhost:3050/mcp',
+      source: 'portscan',
+      validated: false,
+    });
     mockedValidateServer1mcpUrl.mockResolvedValue({
       valid: false,
       error: 'Cannot connect',
@@ -160,6 +167,32 @@ describe('resolveServeTarget', () => {
       code: 'runtime_probe_failed',
       details: expect.objectContaining({ reason: 'Cannot connect' }),
     });
+  });
+
+  it('validates an explicit URL exactly once after discovery', async () => {
+    mockedDiscoverServerWithPidFile.mockResolvedValueOnce({
+      url: 'https://prod.example.com/mcp',
+      source: 'user',
+      validated: false,
+    });
+
+    await resolveServeTarget({ url: 'https://prod.example.com' });
+
+    expect(mockedValidateServer1mcpUrl).toHaveBeenCalledTimes(1);
+    expect(mockedValidateServer1mcpUrl).toHaveBeenCalledWith('https://prod.example.com/mcp');
+  });
+
+  it('validates a port-scan target exactly once after discovery', async () => {
+    mockedDiscoverServerWithPidFile.mockResolvedValueOnce({
+      url: 'http://127.0.0.1:3051/mcp',
+      source: 'portscan',
+      validated: false,
+    });
+
+    await resolveServeTarget({});
+
+    expect(mockedValidateServer1mcpUrl).toHaveBeenCalledTimes(1);
+    expect(mockedValidateServer1mcpUrl).toHaveBeenCalledWith('http://127.0.0.1:3051/mcp');
   });
 
   it('rejects mutually exclusive explicit url and context selectors', async () => {
@@ -173,6 +206,7 @@ describe('resolveServeTarget', () => {
     mockedDiscoverServerWithPidFile.mockResolvedValueOnce({
       url: 'https://prod.example.com/mcp',
       source: 'user',
+      validated: false,
     });
 
     const result = await resolveServeTarget({ url: 'https://prod.example.com', 'config-dir': '/tmp/local-scope' });
