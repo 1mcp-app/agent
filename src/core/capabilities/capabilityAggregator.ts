@@ -10,9 +10,16 @@ import {
   Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 
-import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
+import {
+  clearConfiguredToolSnapshot,
+  collectConfiguredToolPages,
+  publishCompleteConfiguredToolTargetSnapshots,
+  publishConfiguredToolSnapshot,
+} from '@src/core/capabilities/configuredToolSnapshot.js';
 import { InternalCapabilitiesProvider } from '@src/core/capabilities/internalCapabilitiesProvider.js';
 import { filterDisabledTools } from '@src/core/server/disabledTools.js';
+import { applyEffectiveToolDescription } from '@src/core/server/toolDescriptionOverrides.js';
 import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
 import type { EnhancedTransport } from '@src/core/types/transport.js';
 import logger, { debugIf } from '@src/logger/logger.js';
@@ -144,7 +151,7 @@ export class CapabilityAggregator extends EventEmitter {
     const allTools: Tool[] = [];
     const allResources: Resource[] = [];
     const allPrompts: Prompt[] = [];
-    const serverConfigs = McpConfigManager.getInstance().getTransportConfig();
+    const serverConfigs = getConfiguredServerTargets();
 
     // Add 1mcp tools first
     try {
@@ -194,9 +201,16 @@ export class CapabilityAggregator extends EventEmitter {
         if (results[0]?.status === 'fulfilled') {
           const toolsResult = results[0].value as ListToolsResult;
           if (toolsResult.tools) {
+            publishConfiguredToolSnapshot(connection, toolsResult.tools, toolsResult.nextCursor === undefined);
             const logicalServerName = connection.name || serverName;
-            allTools.push(...filterDisabledTools(toolsResult.tools, serverConfigs, logicalServerName));
+            allTools.push(
+              ...filterDisabledTools(toolsResult.tools, serverConfigs, logicalServerName).map((tool) =>
+                applyEffectiveToolDescription(tool, serverConfigs[logicalServerName], logicalServerName),
+              ),
+            );
           }
+        } else {
+          clearConfiguredToolSnapshot(connection);
         }
 
         // Process resources (second if available)
@@ -229,6 +243,8 @@ export class CapabilityAggregator extends EventEmitter {
       }
     }
 
+    publishCompleteConfiguredToolTargetSnapshots(this.outboundConns);
+
     return {
       tools: this.deduplicateTools(allTools),
       resources: this.deduplicateResources(allResources),
@@ -247,10 +263,12 @@ export class CapabilityAggregator extends EventEmitter {
     transport: EnhancedTransport,
   ): Promise<ListToolsResult> {
     try {
-      return await client.listTools(undefined, { timeout: getRequestTimeout(transport) });
+      return await collectConfiguredToolPages((cursor) =>
+        client.listTools(cursor === undefined ? undefined : { cursor }, { timeout: getRequestTimeout(transport) }),
+      );
     } catch (error) {
       logger.warn(`Failed to list tools from ${serverName}`, { error: String(error) });
-      return { tools: [] };
+      throw error;
     }
   }
 
@@ -291,8 +309,8 @@ export class CapabilityAggregator extends EventEmitter {
    */
   private detectChanges(previous: AggregatedCapabilities, current: AggregatedCapabilities): CapabilityChanges {
     const toolsChanged = !this.arraysEqual(
-      previous.tools.map((t) => t.name).sort(),
-      current.tools.map((t) => t.name).sort(),
+      previous.tools.map((tool) => `${tool.name}\0${tool.description ?? ''}`).sort(),
+      current.tools.map((tool) => `${tool.name}\0${tool.description ?? ''}`).sort(),
     );
 
     const resourcesChanged = !this.arraysEqual(

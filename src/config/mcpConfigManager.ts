@@ -4,8 +4,14 @@ import path from 'path';
 
 import ConfigContext from '@src/config/configContext.js';
 import { ConfigLoader } from '@src/config/configLoader.js';
+import { mergeGlobalAndServerConfig } from '@src/config/mcpConfigMerge.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
-import { ApplicationConfig, GlobalTransportConfig, MCPServerParams } from '@src/core/types/index.js';
+import {
+  ApplicationConfig,
+  GlobalTransportConfig,
+  mcpServerConfigSchema,
+  MCPServerParams,
+} from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
 /**
@@ -22,6 +28,7 @@ export class McpConfigManager extends EventEmitter {
   private static instance: McpConfigManager;
   private configWatcher: fs.FSWatcher | null = null;
   private transportConfig: Record<string, MCPServerParams> = {};
+  private templateConfig: Record<string, MCPServerParams> = {};
   private globalConfig: GlobalTransportConfig = {};
   private appConfig: ApplicationConfig = {};
   private configFilePath: string;
@@ -80,6 +87,15 @@ export class McpConfigManager extends EventEmitter {
       this.globalConfig = loadedConfig.globalConfig;
       this.appConfig = loadedConfig.appConfig;
       this.transportConfig = loadedConfig.validatedServers;
+      const declaredConfig = mcpServerConfigSchema.safeParse(loadedConfig.processedConfig);
+      this.templateConfig = declaredConfig.success
+        ? Object.fromEntries(
+            Object.entries(declaredConfig.data.mcpTemplates ?? {}).map(([name, config]) => [
+              name,
+              mergeGlobalAndServerConfig(this.globalConfig, config),
+            ]),
+          )
+        : {};
       const substitutionStatus = features.envSubstitution ? 'with' : 'without';
       logger.info(`Configuration loaded successfully ${substitutionStatus} environment variable substitution`);
       return true;
@@ -88,6 +104,7 @@ export class McpConfigManager extends EventEmitter {
       this.globalConfig = {};
       this.appConfig = {};
       this.transportConfig = {};
+      this.templateConfig = {};
       return false;
     }
   }
@@ -246,6 +263,11 @@ export class McpConfigManager extends EventEmitter {
    */
   public getTransportConfig(): Record<string, MCPServerParams> {
     return { ...this.transportConfig };
+  }
+
+  /** Static and declared template targets, with templates authoritative on name conflicts. */
+  public getConfiguredServerTargets(): Record<string, MCPServerParams> {
+    return { ...this.transportConfig, ...this.templateConfig };
   }
 
   /**

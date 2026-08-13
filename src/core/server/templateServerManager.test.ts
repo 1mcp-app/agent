@@ -411,6 +411,38 @@ describe('TemplateServerManager', () => {
       );
     });
 
+    it('keeps active instances when only configured-tool metadata changes', async () => {
+      const manager = templateServerManager as any;
+      manager.clientInstancePool.getTemplateInstances.mockReturnValue([
+        {
+          id: 'instance-id',
+          instanceKey: 'test-template:rendered',
+          templateName: 'test-template',
+          client: {},
+          clientIds: new Set(['client-a']),
+        },
+      ]);
+
+      templateServerManager.rebuildTemplateIndex({
+        mcpTemplates: { 'test-template': { command: 'node', args: ['server.js'], template: {} } },
+      });
+      const result = templateServerManager.rebuildTemplateIndex({
+        mcpTemplates: {
+          'test-template': {
+            command: 'node',
+            args: ['server.js'],
+            template: {},
+            disabledTools: ['write'],
+            toolDescriptionOverrides: { read: 'Read safely' },
+          },
+        },
+      });
+
+      expect(result.toolMetadataChanged).toBe(true);
+      await Promise.resolve();
+      expect(manager.clientInstancePool.removeInstance).not.toHaveBeenCalled();
+    });
+
     it('queues another retirement pass when configuration changes again during retirement', async () => {
       const manager = templateServerManager as any;
       let finishFirstRetirement!: () => void;

@@ -2,7 +2,7 @@ import { EventEmitter } from 'events';
 
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 
-import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ConnectionResolver, TemplateHashProvider } from '@src/core/server/connectionResolver.js';
@@ -15,6 +15,12 @@ import { AsyncLoadingOrchestrator } from './asyncLoadingOrchestrator.js';
 import { AsyncLoadingOrchestratorEvent } from './asyncLoadingOrchestratorEvent.js';
 import { AggregatedCapabilities, CapabilityAggregator } from './capabilityAggregator.js';
 import { type CapabilityVisibility, getCapabilityVisibleServerNames } from './capabilityVisibility.js';
+import {
+  clearConfiguredToolSnapshot,
+  collectConfiguredToolPages,
+  publishCompleteConfiguredToolTargetSnapshots,
+  publishConfiguredToolSnapshot,
+} from './configuredToolSnapshot.js';
 import { MetaToolProvider } from './metaToolProvider.js';
 import { SchemaCache, SchemaCacheConfig } from './schemaCache.js';
 import { ToolRegistry } from './toolRegistry.js';
@@ -163,7 +169,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
     // Build tools map for registry by fetching tools directly from each connection
     const registryTools: Array<{ tool: Tool; server: string; connectionKey: string; tags: string[] }> = [];
     const failedServers: Array<{ server: string; error: string }> = [];
-    const serverConfigs = McpConfigManager.getInstance().getTransportConfig();
+    const serverConfigs = getConfiguredServerTargets();
 
     for (const [serverName, connection] of this.outboundConnections.entries()) {
       if (!connection.client || connection.status !== ClientStatus.Connected) {
@@ -172,9 +178,12 @@ export class LazyLoadingOrchestrator extends EventEmitter {
 
       try {
         // Get tools directly from this server's client
-        const toolsResult = await connection.client.listTools(undefined, {
-          timeout: getRequestTimeout(connection.transport),
-        });
+        const toolsResult = await collectConfiguredToolPages((cursor) =>
+          connection.client.listTools(cursor === undefined ? undefined : { cursor }, {
+            timeout: getRequestTimeout(connection.transport),
+          }),
+        );
+        publishConfiguredToolSnapshot(connection, toolsResult.tools ?? []);
         const effectiveServerName = connection.name || serverName;
         const serverTools = filterDisabledTools(toolsResult.tools || [], serverConfigs, effectiveServerName);
 
@@ -194,6 +203,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
           );
         }
       } catch (error) {
+        clearConfiguredToolSnapshot(connection);
         const errorMessage = error instanceof Error ? error.message : String(error);
         errorIf(() => ({
           message: 'Failed to list tools from server during registry build',
@@ -202,6 +212,8 @@ export class LazyLoadingOrchestrator extends EventEmitter {
         failedServers.push({ server: serverName, error: errorMessage });
       }
     }
+
+    publishCompleteConfiguredToolTargetSnapshots(this.outboundConnections);
 
     // Warn if significant failures
     if (failedServers.length > 0) {

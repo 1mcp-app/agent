@@ -98,3 +98,13 @@ describe('instruction management configuration', () => {
     },
   );
 });
+
+describe('transportConfigSchema tool description overrides', () => {
+  it('rejects logical tool names with surrounding whitespace', () => {
+    expect(() =>
+      transportConfigSchema.parse({
+        toolDescriptionOverrides: { ' search ': 'first', search: 'second' },
+      }),
+    ).toThrow();
+  });
+});

@@ -85,6 +85,7 @@ const adminOAuthServiceParamsSchema = z.object({
 const backendLogSnapshotQuerySchema = z.object({
   sourceId: z.string().trim().min(1).max(256).optional(),
 });
+const configuredServerModelSchema = z.string().trim().min(1).max(64);
 const cliConfiguredServerMutationBodySchema = z.object({
   targetName: z.string().trim().min(1).max(256),
   dryRun: z.boolean().optional(),
@@ -1245,6 +1246,7 @@ async function handleConfiguredServerDetail(
 
   const targetName = req.params.name;
   try {
+    const model = configuredServerModelSchema.safeParse(req.query.model);
     const result = await options.configuredServerService.getConfiguredServerDetail({
       context: buildAdminOperationContext(req, options, {
         type: 'configured_server',
@@ -1252,6 +1254,7 @@ async function handleConfiguredServerDetail(
       }),
       targetName,
       ...(targetSource ? { targetSource } : {}),
+      ...(model.success ? { model: model.data } : {}),
     });
     if (!result.ok) {
       sendAdminOperationResult(res, result);
@@ -1263,6 +1266,7 @@ async function handleConfiguredServerDetail(
       operationId: result.operationId,
       server: result.result.server,
       editContract: result.result.editContract,
+      ...(result.result.toolInventory ? { toolInventory: result.result.toolInventory } : {}),
     });
   } catch (error) {
     if (error instanceof AdminConfiguredServerNotFoundError) {
@@ -1391,6 +1395,7 @@ async function handleConfiguredServerPreview(
   const targetName = req.params.name;
   const edit = getBodyValue(req.body, 'edit');
   try {
+    const model = configuredServerModelSchema.safeParse(getBodyString(req.body, 'model'));
     const result = await options.configuredServerService.previewConfiguredServerEdit({
       context: buildAdminOperationContext(req, options, {
         type: 'configured_server',
@@ -1400,6 +1405,7 @@ async function handleConfiguredServerPreview(
       ...(targetSource ? { targetSource } : {}),
       edit: edit === undefined ? {} : edit,
       connectivityCheck: getBodyString(req.body, 'connectivityCheck') === 'manual' ? 'manual' : 'auto',
+      ...(model.success ? { model: model.data } : {}),
     });
     if (!result.ok) {
       sendAdminOperationResult(res, result);
@@ -1450,6 +1456,7 @@ async function handleConfiguredServerApply(
 
   const targetName = req.params.name;
   try {
+    const model = configuredServerModelSchema.safeParse(getBodyString(req.body, 'model'));
     const result = await options.configuredServerService.applyConfiguredServerEdit({
       context: buildAdminOperationContext(req, options, {
         type: 'configured_server',
@@ -1459,6 +1466,7 @@ async function handleConfiguredServerApply(
       ...(targetSource ? { targetSource } : {}),
       edit: getBodyValue(req.body, 'edit') ?? {},
       previewFingerprint: getBodyString(req.body, 'previewFingerprint'),
+      ...(model.success ? { model: model.data } : {}),
     });
     if (!result.ok && result.status === 'mutation_failed' && isConfiguredServerApplyErrorCode(result.error)) {
       sendConfiguredServerApplyError(res, result.error);

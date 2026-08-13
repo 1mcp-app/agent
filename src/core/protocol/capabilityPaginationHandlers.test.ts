@@ -10,19 +10,19 @@ import {
   ResourceListChangedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 
-import type { OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
-import { ClientStatus, ServerStatus } from '@src/core/types/index.js';
 import {
   registerCapabilityPaginationNotifications,
   unregisterCapabilityPaginationForwarder,
 } from '@src/core/capabilities/capabilityPagination.js';
+import type { OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
+import { ClientStatus, ServerStatus } from '@src/core/types/index.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { registerResourceHandlers } from './resourceRequestHandlers.js';
-import { registerPromptHandlers } from './promptRequestHandlers.js';
-import { registerToolHandlers } from './toolRequestHandlers.js';
 import { setupClientToServerNotifications } from './notificationHandlers.js';
+import { registerPromptHandlers } from './promptRequestHandlers.js';
+import { registerResourceHandlers } from './resourceRequestHandlers.js';
+import { registerToolHandlers } from './toolRequestHandlers.js';
 
 const mockGetTransportConfig = vi.fn(() => ({}));
 const mockGetAvailableTools = vi.fn(() => [
@@ -171,7 +171,10 @@ describe('capability pagination protocol handlers', () => {
   it('walks upstream tool pages and includes internal tools exactly once', async () => {
     const alphaList = vi
       .fn()
-      .mockResolvedValueOnce({ tools: [{ name: 'alpha-1', inputSchema: { type: 'object' } }], nextCursor: 'alpha-next' })
+      .mockResolvedValueOnce({
+        tools: [{ name: 'alpha-1', inputSchema: { type: 'object' } }],
+        nextCursor: 'alpha-next',
+      })
       .mockResolvedValueOnce({ tools: [{ name: 'alpha-2', inputSchema: { type: 'object' } }] });
     const zetaList = vi.fn().mockResolvedValue({
       tools: [{ name: 'zeta-1', inputSchema: { type: 'object' } }],
@@ -180,16 +183,13 @@ describe('capability pagination protocol handlers', () => {
       ['zeta-key', connection('zeta', { listTools: zetaList })],
       ['alpha-key', connection('alpha', { listTools: alphaList })],
     ]);
-    registerToolHandlers(
-      connections,
-      {
-        enablePagination: true,
-        status: ServerStatus.Connected,
-        server: {
-          setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)),
-        },
-      } as never,
-    );
+    registerToolHandlers(connections, {
+      enablePagination: true,
+      status: ServerStatus.Connected,
+      server: {
+        setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)),
+      },
+    } as never);
     const handler = handlers.get(ListToolsRequestSchema);
     if (!handler) throw new Error('tools/list handler was not registered');
 
@@ -213,6 +213,36 @@ describe('capability pagination protocol handlers', () => {
     expect(alphaList).toHaveBeenNthCalledWith(2, { cursor: 'alpha-next' }, expect.anything());
   });
 
+  it('rejects a tool cursor after a configured description override changes', async () => {
+    const listTools = vi
+      .fn()
+      .mockResolvedValueOnce({
+        tools: [{ name: 'search', description: 'Search upstream', inputSchema: { type: 'object' } }],
+        nextCursor: 'alpha-next',
+      })
+      .mockResolvedValueOnce({ tools: [] });
+    const connections = new Map([['alpha', connection('alpha', { listTools })]]) as OutboundConnections;
+    registerToolHandlers(connections, {
+      enablePagination: true,
+      status: ServerStatus.Connected,
+      server: { setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)) },
+    } as never);
+    const handler = handlers.get(ListToolsRequestSchema);
+    if (!handler) throw new Error('tools/list handler was not registered');
+    const first = (await handler({ params: {} })) as { nextCursor?: string };
+    listTools.mockClear();
+
+    mockGetTransportConfig.mockReturnValue({
+      alpha: { type: 'stdio', command: 'node', toolDescriptionOverrides: { search: 'Search safely' } },
+    });
+
+    await expect(handler({ params: { cursor: first.nextCursor } })).rejects.toMatchObject({
+      code: ErrorCode.InvalidParams,
+      data: { reason: 'stale_generation' },
+    });
+    expect(listTools).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['malformed text', 'not-a-cursor!'],
     ['legacy cursor', Buffer.from('alpha:upstream-cursor').toString('base64')],
@@ -231,9 +261,7 @@ describe('capability pagination protocol handlers', () => {
   it('rejects a cursor used for a different capability kind', async () => {
     const listTools = vi.fn().mockResolvedValue({ tools: [{ name: 'alpha-tool', inputSchema: { type: 'object' } }] });
     const listResources = vi.fn().mockResolvedValue({ resources: [{ uri: 'alpha-resource', name: 'alpha-resource' }] });
-    const connections = new Map([
-      ['alpha', connection('alpha', { listTools, listResources })],
-    ]) as OutboundConnections;
+    const connections = new Map([['alpha', connection('alpha', { listTools, listResources })]]) as OutboundConnections;
 
     registerToolHandlers(connections, {
       enablePagination: true,
@@ -484,11 +512,7 @@ describe('capability pagination protocol handlers', () => {
 
     const result = (await handler({ params: {} })) as { tools: Array<{ name: string }>; nextCursor?: string };
 
-    expect(result.tools.map((tool) => tool.name)).toEqual([
-      '1mcp_1mcp_runtime_status',
-      'tool_list',
-      'tool_schema',
-    ]);
+    expect(result.tools.map((tool) => tool.name)).toEqual(['1mcp_1mcp_runtime_status', 'tool_list', 'tool_schema']);
     expect(result.nextCursor).toBeUndefined();
     await expect(handler({ params: { cursor: 'legacy!' } })).rejects.toMatchObject({
       code: ErrorCode.InvalidParams,

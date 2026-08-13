@@ -119,6 +119,40 @@ describe('ConfigChangeHandler', () => {
       expect(ServerManager.current.loadMcpServer).not.toHaveBeenCalled();
     });
 
+    it.each(['disabledTools', 'toolDescriptionOverrides'])(
+      'should not restart for %s metadata changes',
+      async (field) => {
+        const notify = vi
+          .spyOn(configChangeHandler as any, 'sendListChangedNotifications')
+          .mockResolvedValue(undefined);
+        const changes = [
+          {
+            serverName: 'test-server',
+            type: ConfigChangeType.MODIFIED,
+            fieldsChanged: [field],
+          },
+        ];
+        mockConfigManager.getTransportConfig = vi.fn(() => ({
+          'test-server': {
+            command: 'node',
+            args: ['server.js'],
+            [field]: field === 'disabledTools' ? ['write_file'] : { read_file: 'Read safely' },
+          },
+        }));
+
+        const changeHandler = (mockConfigManager.on as any).mock.calls[0][1];
+        await changeHandler(changes);
+
+        const { ServerManager } = await import('@src/core/server/serverManager.js');
+        expect(ServerManager.current.loadMcpServer).not.toHaveBeenCalled();
+        expect(ServerManager.current.restartServer).not.toHaveBeenCalled();
+        expect(ServerManager.current.stopServer).not.toHaveBeenCalled();
+        expect(ServerManager.current.startServer).not.toHaveBeenCalled();
+        expect(ServerManager.current.updateServerMetadata).toHaveBeenCalled();
+        expect(notify).toHaveBeenCalledOnce();
+      },
+    );
+
     it('should return true for mixed field changes (including tags)', async () => {
       const changes = [
         {

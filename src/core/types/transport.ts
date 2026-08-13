@@ -84,6 +84,8 @@ export interface BaseTransportConfig {
   readonly disabledTools?: string[];
   /** Literal replacement for upstream server instructions. Empty intentionally suppresses them. */
   readonly instructionOverride?: string;
+  /** Replace upstream tool descriptions by logical tool name */
+  readonly toolDescriptionOverrides?: Record<string, string>;
   readonly tags?: string[];
   readonly oauth?: OAuthConfig;
 }
@@ -242,6 +244,16 @@ export const transportConfigSchema = z.object({
     .string()
     .optional()
     .describe('Literal replacement for upstream instructions; an empty string intentionally suppresses them'),
+  toolDescriptionOverrides: z
+    .record(
+      z
+        .string()
+        .min(1)
+        .refine((name) => name === name.trim()),
+      z.string().regex(/\S/u).trim().min(1),
+    )
+    .optional()
+    .describe('Override upstream tool descriptions by logical tool name; blank descriptions are not supported'),
   timeout: z
     .number()
     .optional()

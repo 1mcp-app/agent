@@ -1320,6 +1320,41 @@ input {
   font-weight: 700;
 }
 
+.configured-tool-table {
+  container-type: inline-size;
+}
+
+.configured-tool-rows {
+  border-top: 1px solid var(--admin-line);
+}
+
+.configured-tool-row {
+  min-width: 0;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--admin-line);
+}
+
+.configured-tool-identity,
+.configured-tool-description-input {
+  min-width: 0;
+  flex: 1;
+}
+
+.configured-tool-identity .mantine-Text-root {
+  overflow-wrap: anywhere;
+}
+
+@container (max-width: 620px) {
+  .configured-tool-table > .mantine-Group-root {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .configured-tool-table .mantine-SegmentedControl-root {
+    width: 100%;
+  }
+}
+
 @container (max-width: 520px) {
   .preset-tag-header,
   .preset-impact-header {

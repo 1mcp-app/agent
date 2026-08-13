@@ -135,6 +135,31 @@ describe('requestHandlers disabled tools enforcement', () => {
     expect(result.tools.map((tool: { name: string }) => tool.name)).toEqual(['filesystem/read_file']);
   });
 
+  it('uses effective descriptions in non-lazy listTools responses', async () => {
+    mockGetTransportConfig.mockReturnValue({
+      filesystem: {
+        type: 'stdio',
+        command: 'node',
+        toolDescriptionOverrides: {
+          read_file: 'Read a workspace file safely',
+        },
+      },
+    });
+
+    registerRequestHandlers(outboundConnections, {
+      server: mockServer,
+      enablePagination: true,
+    } as any);
+
+    const handler = getRegisteredHandler(ListToolsRequestSchema);
+    const result = await handler({ params: {} });
+
+    expect(result.tools.find((tool: { name: string }) => tool.name === 'filesystem/read_file')).toMatchObject({
+      description: 'Read a workspace file safely',
+      inputSchema: { type: 'object' },
+    });
+  });
+
   it('re-reads disabled tools config for listTools after config reload', async () => {
     mockGetTransportConfig.mockReturnValueOnce({
       filesystem: {

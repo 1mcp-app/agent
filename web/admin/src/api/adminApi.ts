@@ -376,6 +376,36 @@ export interface ConfiguredServerDetailResponse {
   operationId: string;
   server: ConfiguredServerReadModel;
   editContract: ConfiguredServerEditContract;
+  toolInventory?: ConfiguredToolInventory;
+}
+
+export interface ConfiguredToolInventoryRow {
+  name: string;
+  upstreamDescription?: string;
+  effectiveDescription?: string;
+  descriptionOverride?: string;
+  descriptionOverridden: boolean;
+  enabled: boolean;
+  observed: boolean;
+  stale?: boolean;
+  unresolved: boolean;
+  observedInstanceCount: number;
+  activeInstanceCount: number;
+  observedInSomeInstances: boolean;
+  approximateTokens: number;
+}
+
+export interface ConfiguredToolInventory {
+  targetName: string;
+  source: 'mcpServers' | 'mcpTemplates';
+  targetEnabled: boolean;
+  freshness: 'live' | 'unavailable';
+  model: string;
+  generation: string;
+  activeInstanceCount: number;
+  rows: ConfiguredToolInventoryRow[];
+  counts: { observed: number; enabled: number; disabled: number; unresolved: number };
+  approximateTokens: { enabled: number; allObserved: number; savings: number };
 }
 
 export interface ConfiguredServerSecretReplacement {
@@ -397,9 +427,12 @@ export interface ConfiguredServerEditDraft {
   secrets?: ConfiguredServerSecretEditDraft[];
   clearTransportOverrides?: string[];
   instructionOverride?: { action: 'set'; value: string } | { action: 'remove' };
+  disabledTools?: string[];
+  toolDescriptionOverrides?: Record<string, string>;
 }
 
-export type ConfiguredServerPreviewRiskFlag = 'rename' | 'connection_critical' | 'secret' | 'template_risk';
+export type ConfiguredServerPreviewRiskFlag =
+  'rename' | 'connection_critical' | 'secret' | 'template_risk' | 'tool_visibility' | 'tool_metadata';
 
 export type ConfiguredServerConnectivityCheck =
   | {
@@ -471,6 +504,16 @@ export interface ConfiguredServerPreviewResponse {
     }>;
     configChange: ConfiguredServerPreviewConfigChange;
     connectivityCheck: ConfiguredServerConnectivityCheck;
+    toolSelection?: {
+      capabilityGeneration: string;
+      model: string;
+      changedTools: string[];
+      counts: ConfiguredToolInventory['counts'];
+      approximateTokens: { before: number; after: number; savings: number };
+      targetEnabled: boolean;
+      effect: 'immediate' | 'deferred_until_target_enabled';
+      requiresZeroEnabledConfirmation: boolean;
+    };
   };
 }
 
@@ -858,8 +901,10 @@ export function createAdminApi(options: AdminApiOptions = {}) {
 
     getConfiguredServerDetail(
       target: string | ConfiguredServerTargetIdentity,
+      model?: string,
     ): Promise<ConfiguredServerDetailResponse> {
-      return request(configuredServerPath(target));
+      const query = model ? `?model=${encodeURIComponent(model)}` : '';
+      return request(`${configuredServerPath(target)}${query}`);
     },
 
     async listInstructionTemplates(): Promise<AdminInstructionTemplateStore> {
@@ -1025,6 +1070,7 @@ export function createAdminApi(options: AdminApiOptions = {}) {
       csrfToken: string;
       edit: ConfiguredServerEditDraft;
       connectivityCheck?: 'auto' | 'manual';
+      model?: string;
     }): Promise<ConfiguredServerPreviewResponse> {
       return request(`${configuredServerPath(input.target)}/preview`, {
         method: 'POST',
@@ -1034,6 +1080,7 @@ export function createAdminApi(options: AdminApiOptions = {}) {
         body: JSON.stringify({
           edit: input.edit,
           ...(input.connectivityCheck ? { connectivityCheck: input.connectivityCheck } : {}),
+          ...(input.model ? { model: input.model } : {}),
         }),
       });
     },
@@ -1045,6 +1092,7 @@ export function createAdminApi(options: AdminApiOptions = {}) {
       edit: ConfiguredServerEditDraft;
       previewFingerprint: string;
       confirmationFacts: Record<string, unknown>;
+      model?: string;
     }): Promise<ConfiguredServerApplyResponse> {
       return request(`${configuredServerPath(input.target)}/apply`, {
         method: 'POST',
@@ -1056,6 +1104,7 @@ export function createAdminApi(options: AdminApiOptions = {}) {
           edit: input.edit,
           previewFingerprint: input.previewFingerprint,
           confirmationFacts: input.confirmationFacts,
+          ...(input.model ? { model: input.model } : {}),
         }),
       });
     },

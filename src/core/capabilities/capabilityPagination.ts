@@ -10,6 +10,8 @@ import {
 import type { OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import { MCPError } from '@src/utils/core/errorTypes.js';
 
+import { clearConfiguredToolSnapshot } from './configuredToolSnapshot.js';
+
 /** MCP result metadata key used to describe a partial aggregate walk. */
 export const CAPABILITY_PAGINATION_META_KEY = 'app.1mcp/capability-pagination';
 
@@ -118,6 +120,7 @@ export function registerCapabilityPaginationNotifications(
     await Promise.all(Array.from(state!.forwarders.values(), (handler) => handler(notification)));
   };
   setNotificationHandler(ToolListChangedNotificationSchema, async (notification) => {
+    clearConfiguredToolSnapshot(connection);
     for (const registeredConnections of state!.connections) {
       advanceCapabilityPaginationGeneration(registeredConnections, 'tools');
     }

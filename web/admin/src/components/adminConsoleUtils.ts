@@ -120,6 +120,10 @@ export function riskFlagColor(flag: string): string {
       return 'grape';
     case 'template_risk':
       return 'orange';
+    case 'tool_visibility':
+      return 'yellow';
+    case 'tool_metadata':
+      return 'blue';
     default:
       return 'gray';
   }
@@ -135,6 +139,10 @@ export function riskFlagLabel(flag: string): string {
       return 'secret';
     case 'template_risk':
       return 'template risk';
+    case 'tool_visibility':
+      return 'tool visibility';
+    case 'tool_metadata':
+      return 'tool metadata';
     default:
       return flag;
   }

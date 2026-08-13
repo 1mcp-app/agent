@@ -15,6 +15,7 @@ import {
   serializePoolIdentity,
   serializeTemplateIdentity,
   templateRenderedHash,
+  templateRuntimeHash,
 } from './templateIdentity.js';
 
 const FIRST_INSTANCE_ID = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
@@ -77,6 +78,18 @@ describe('templateIdentity', () => {
     const second = templateRenderedHash({ command: 'node', args: ['server.js'], instructionOverride: 'second' });
 
     expect(first).toBe(second);
+  });
+
+  it('keeps configured-tool metadata out of runtime instance identity', () => {
+    const base = { command: 'node', args: ['server.js'] };
+    expect(
+      templateRuntimeHash({
+        ...base,
+        disabledTools: ['write'],
+        toolDescriptionOverrides: { read: 'Read safely' },
+      }),
+    ).toBe(templateRuntimeHash(base));
+    expect(templateRenderedHash({ ...base, disabledTools: ['write'] })).not.toBe(templateRenderedHash(base));
   });
 
   it('creates lookup candidates in session, rendered, static order', () => {
