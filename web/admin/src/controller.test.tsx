@@ -614,7 +614,10 @@ describe('AdminConsoleRoot', () => {
     await user.clear(screen.getByLabelText('URL'));
     await user.type(screen.getByLabelText('URL'), 'https://api.example.com/v2/mcp');
 
-    await user.click(screen.getByRole('button', { name: /edit static filesystem server/i }));
+    routeWindow.location.pathname = '/admin/servers/filesystem';
+    await act(async () => {
+      routeWindow.emitPopState();
+    });
 
     expect(await screen.findByRole('dialog', { name: /discard unsaved changes/i })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /^cancel$/i }));
@@ -694,7 +697,10 @@ describe('AdminConsoleRoot', () => {
     const previewButton = screen.getByRole('button', { name: /preview change/i });
     fireEvent.click(previewButton);
     expect(api.previewConfiguredServerEdit).toHaveBeenCalledTimes(1);
-    await user.click(screen.getByRole('button', { name: /edit static filesystem server/i }));
+    routeWindow.location.pathname = '/admin/servers/filesystem';
+    await act(async () => {
+      routeWindow.emitPopState();
+    });
     await user.click(await screen.findByRole('button', { name: /discard changes/i }));
     expect(await screen.findByRole('heading', { name: /^filesystem$/i })).toBeInTheDocument();
 

@@ -686,7 +686,7 @@ describe('AdminConsoleApp', () => {
     expect(screen.getByRole('button', { name: 'Edit static github server' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Edit template github server' }));
     expect(onOpenServerDetail).toHaveBeenCalledWith({ source: 'mcpTemplates', id: 'github' });
-    expect(screen.getAllByRole('button', { name: 'Enable github' })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: /^(enable|disable) github$/i })).not.toBeInTheDocument();
   });
 
   it('routes instruction outcomes through the shared dirty preview lifecycle', async () => {
