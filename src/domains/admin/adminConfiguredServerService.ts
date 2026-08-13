@@ -10,10 +10,12 @@ import {
 import {
   type ConfigChangeResult,
   type ConfigChangeService,
+  type ConfiguredServerTargetSource,
   fingerprintConfiguredServerConfigDocument,
   fingerprintConfiguredServerDefaults,
   fingerprintConfiguredServerSecretValue,
   fingerprintConfiguredServerTarget,
+  type InstructionOverrideMutation,
   isConfiguredServerTargetDisabled,
 } from '@src/domains/config-change/configChange.js';
 import {
@@ -481,6 +483,7 @@ function assertSuccessfulConfiguredServerCreate(configChange: ConfigChangeResult
 interface ConfiguredServerMutationInput {
   context: AdminOperationContext;
   targetName: string;
+  targetSource?: ConfiguredServerTargetSource;
   dryRun?: boolean;
   confirmationRequirements?: AdminConfirmationRequirement[];
 }
@@ -488,11 +491,13 @@ interface ConfiguredServerMutationInput {
 interface ConfiguredServerDetailInput {
   context: AdminOperationContext;
   targetName: string;
+  targetSource?: ConfiguredServerTargetSource;
 }
 
 interface ConfiguredServerPreviewInput {
   context: AdminOperationContext;
   targetName: string;
+  targetSource?: ConfiguredServerTargetSource;
   edit: unknown;
   connectivityCheck?: 'auto' | 'manual';
 }
@@ -500,6 +505,7 @@ interface ConfiguredServerPreviewInput {
 interface ConfiguredServerApplyInput {
   context: AdminOperationContext;
   targetName: string;
+  targetSource?: ConfiguredServerTargetSource;
   edit: unknown;
   previewFingerprint: string;
 }
@@ -538,6 +544,7 @@ export interface ConfiguredServerEditDraft {
   transport?: Record<string, unknown>;
   secrets?: ConfiguredServerSecretEditDraft[];
   clearTransportOverrides?: string[];
+  instructionOverride?: InstructionOverrideMutation;
 }
 
 export interface ConfiguredServerSecretInput {
@@ -556,8 +563,11 @@ export interface RedactedConfiguredServerValue {
 export interface ConfiguredServerTargetIdentity {
   type: 'configured_server';
   id: string;
-  source: 'mcpServers';
+  source: ConfiguredServerTargetSource;
 }
+
+export type ConfiguredServerInstructionOverrideReadState =
+  { state: 'upstream' } | { state: 'replace'; value: string } | { state: 'suppress'; value: '' };
 
 export interface ConfiguredServerTransportSummary {
   kind: string;
@@ -582,8 +592,9 @@ export interface ConfiguredServerActionState {
 
 export interface ConfiguredServerReadModel {
   id: string;
-  source: 'mcpServers';
+  source: ConfiguredServerTargetSource;
   target: ConfiguredServerTargetIdentity;
+  revision?: string;
   enabled: boolean;
   tags: string[];
   transportSummary: ConfiguredServerTransportSummary;
@@ -591,6 +602,7 @@ export interface ConfiguredServerReadModel {
   actionState: ConfiguredServerActionState;
   transport: Record<string, unknown>;
   secretInputs: ConfiguredServerSecretInput[];
+  instructionOverride?: ConfiguredServerInstructionOverrideReadState;
 }
 
 export interface ConfiguredServerMutationResult {
@@ -798,7 +810,7 @@ export interface AdminConfiguredServerOperations {
   ): Promise<AdminOperationResult<ConfiguredServerCreateApplyResult>>;
   listConfiguredServers(input: {
     context: AdminOperationContext;
-  }): Promise<AdminOperationResult<{ servers: ConfiguredServerReadModel[] }>>;
+  }): Promise<AdminOperationResult<{ servers: ConfiguredServerReadModel[]; configFingerprint?: string }>>;
   getConfiguredServerDetail(
     input: ConfiguredServerDetailInput,
   ): Promise<AdminOperationResult<ConfiguredServerDetailResult>>;
@@ -931,29 +943,34 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
 
   async listConfiguredServers(input: {
     context: AdminOperationContext;
-  }): Promise<AdminOperationResult<{ servers: ConfiguredServerReadModel[] }>> {
+  }): Promise<AdminOperationResult<{ servers: ConfiguredServerReadModel[]; configFingerprint?: string }>> {
     return this.options.operationService.executeReadOnly({
       context: input.context,
       operationName: 'listConfiguredServers',
-      run: async () => ({ servers: this.readConfiguredServers() }),
+      run: async () => this.readConfiguredServers(),
     });
   }
 
   async getConfiguredServerDetail(
     input: ConfiguredServerDetailInput,
   ): Promise<AdminOperationResult<ConfiguredServerDetailResult>> {
+    const source = input.targetSource ?? 'mcpServers';
     const context = {
       ...input.context,
-      target: { type: 'configured_server', id: input.targetName },
+      target: { type: 'configured_server', id: `${source}:${input.targetName}` },
     };
     return this.options.operationService.executeReadOnly({
       context,
       operationName: 'getConfiguredServerDetail',
       run: async () => {
-        const { currentConfig, serverDefaults } = this.readConfiguredServerState(input.targetName);
+        const { currentConfig, serverDefaults } = this.readConfiguredServerState(input.targetName, source);
         const server = createConfiguredServerReadModel(
           input.targetName,
           mergeGlobalAndServerConfig(serverDefaults, currentConfig),
+          source,
+          fingerprintConfiguredServerTarget(currentConfig),
+          Object.hasOwn(currentConfig, 'instructionOverride') ? currentConfig.instructionOverride : undefined,
+          Object.hasOwn(currentConfig, 'instructionOverride'),
         );
         return {
           server,
@@ -966,11 +983,12 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
   async previewConfiguredServerEdit(
     input: ConfiguredServerPreviewInput,
   ): Promise<AdminOperationResult<ConfiguredServerPreviewResult>> {
+    const source = input.targetSource ?? 'mcpServers';
     const context = {
       ...input.context,
-      target: { type: 'configured_server', id: input.targetName },
+      target: { type: 'configured_server', id: `${source}:${input.targetName}` },
     };
-    const { currentConfig, serverDefaults } = this.readConfiguredServerState(input.targetName);
+    const { currentConfig, serverDefaults } = this.readConfiguredServerState(input.targetName, source);
     return this.options.operationService.executeDryRun({
       context,
       operationName: 'previewConfiguredServerEdit',
@@ -981,9 +999,10 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
   async applyConfiguredServerEdit(
     input: ConfiguredServerApplyInput,
   ): Promise<AdminOperationResult<ConfiguredServerApplyResult>> {
+    const source = input.targetSource ?? 'mcpServers';
     const context = {
       ...input.context,
-      target: { type: 'configured_server', id: input.targetName },
+      target: { type: 'configured_server', id: `${source}:${input.targetName}` },
       confirmationFacts: sanitizeApplyConfirmationFacts(input.context.confirmationFacts),
     };
 
@@ -991,7 +1010,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
       context,
       operationName: 'applyConfiguredServerEdit',
       prepare: async () => {
-        const { currentConfig, serverDefaults } = this.readConfiguredServerState(input.targetName);
+        const { currentConfig, serverDefaults } = this.readConfiguredServerState(input.targetName, source);
         const preview = await this.previewConfiguredServerEditResult(
           { ...input, connectivityCheck: 'auto' },
           currentConfig,
@@ -1002,12 +1021,14 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
         const currentReadModel = createConfiguredServerReadModel(
           input.targetName,
           mergeGlobalAndServerConfig(serverDefaults, currentConfig),
+          source,
         );
         const applicableEdit = filterApplicableSecretEdits(normalizedEdit.edit, currentReadModel.secretInputs);
         const proposedConfig = applyEditDraft(currentConfig, applicableEdit, serverDefaults);
         const proposedReadModel = createConfiguredServerReadModel(
           preview.proposedTargetName,
           mergeGlobalAndServerConfig(serverDefaults, proposedConfig),
+          source,
         );
         const connectionCritical = preview.diff.some((entry) => entry.riskFlags.includes('connection_critical'));
         const secretChange = preview.diff.some((entry) => entry.riskFlags.includes('secret'));
@@ -1049,6 +1070,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
           run: async () => {
             const configChange = await this.options.configChangeService.editConfiguredServerTarget({
               sourceName: input.targetName,
+              targetSource: source,
               targetName: preview.proposedTargetName,
               serverConfig: proposedConfig,
               expectedSourceFingerprint: fingerprintConfiguredServerTarget(currentConfig),
@@ -1088,9 +1110,10 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
     enabled: boolean,
   ): Promise<AdminOperationResult<ConfiguredServerMutationResult>> {
     const operationName = enabled ? 'enableConfiguredServer' : 'disableConfiguredServer';
+    const source = input.targetSource ?? 'mcpServers';
     const context = {
       ...input.context,
-      target: { type: 'configured_server', id: input.targetName },
+      target: { type: 'configured_server', id: `${source}:${input.targetName}` },
     };
 
     if (input.dryRun) {
@@ -1098,8 +1121,12 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
         context,
         operationName,
         run: async () => {
+          if (source !== 'mcpServers') {
+            throw new Error('Template Server definitions do not support enable or disable operations');
+          }
           const configChange = await this.options.configChangeService.previewConfiguredServerTargetEnabledState({
             targetName: input.targetName,
+            targetSource: source,
             enabled,
             backup: 'skip',
           });
@@ -1120,8 +1147,12 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
       operationName,
       confirmationRequirements: input.confirmationRequirements,
       run: async () => {
+        if (source !== 'mcpServers') {
+          throw new Error('Template Server definitions do not support enable or disable operations');
+        }
         const configChange = await this.options.configChangeService.setConfiguredServerTargetEnabledState({
           targetName: input.targetName,
+          targetSource: source,
           enabled,
           backup: 'required',
         });
@@ -1136,23 +1167,38 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
     });
   }
 
-  private readConfiguredServers(): ConfiguredServerReadModel[] {
+  private readConfiguredServers(): { servers: ConfiguredServerReadModel[]; configFingerprint: string } {
     const parsed = this.options.readConfigDocument();
     if (!parsed) {
-      return [];
+      return { servers: [], configFingerprint: fingerprintConfiguredServerConfigDocument({}) };
     }
 
-    return Object.entries(parsed.mcpServers ?? {}).map(([name, serverConfig]) =>
-      createConfiguredServerReadModel(name, mergeGlobalAndServerConfig(parsed.serverDefaults, serverConfig)),
-    );
+    return {
+      configFingerprint: fingerprintConfiguredServerConfigDocument(parsed),
+      servers: (['mcpServers', 'mcpTemplates'] as const).flatMap((source) =>
+        Object.entries(parsed[source] ?? {}).map(([name, serverConfig]) =>
+          createConfiguredServerReadModel(
+            name,
+            mergeGlobalAndServerConfig(parsed.serverDefaults, serverConfig),
+            source,
+            fingerprintConfiguredServerTarget(serverConfig),
+            Object.hasOwn(serverConfig, 'instructionOverride') ? serverConfig.instructionOverride : undefined,
+            Object.hasOwn(serverConfig, 'instructionOverride'),
+          ),
+        ),
+      ),
+    };
   }
 
-  private readConfiguredServerState(targetName: string): {
+  private readConfiguredServerState(
+    targetName: string,
+    targetSource: ConfiguredServerTargetSource = 'mcpServers',
+  ): {
     currentConfig: MCPServerParams;
     serverDefaults: GlobalTransportConfig | undefined;
   } {
     const parsed = this.options.readConfigDocument();
-    const currentConfig = parsed?.mcpServers?.[targetName];
+    const currentConfig = parsed?.[targetSource]?.[targetName];
     if (!currentConfig) {
       throw new AdminConfiguredServerNotFoundError(targetName);
     }
@@ -1175,9 +1221,11 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
     requireCriticalConnectivity = false,
   ): Promise<ConfiguredServerPreviewResult> {
     const normalizedEdit = normalizeEditDraft(input.edit);
+    const sourceValidation = validateEditForSource(input.targetSource ?? 'mcpServers', normalizedEdit.edit);
     const currentReadModel = createConfiguredServerReadModel(
       input.targetName,
       mergeGlobalAndServerConfig(serverDefaults, currentConfig),
+      input.targetSource ?? 'mcpServers',
     );
     const secretValidation = validateSecretEditCapabilities(normalizedEdit.edit, currentReadModel.secretInputs);
     const transportApplicabilityValidation = validateTransportFieldApplicability(currentConfig, normalizedEdit.edit);
@@ -1188,6 +1236,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
     const proposedReadModel = createConfiguredServerReadModel(
       proposedTargetName,
       mergeGlobalAndServerConfig(serverDefaults, proposedConfig),
+      input.targetSource ?? 'mcpServers',
     );
     const proposedTransportType = configuredTransportType(proposedConfig);
     const serverValidation = validatePreviewServerConfig(proposedConfig);
@@ -1196,7 +1245,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
         mergeValidation(mergeValidation(normalizedEdit.validation, secretValidation), transportApplicabilityValidation),
         overrideValidation,
       ),
-      serverValidation,
+      mergeValidation(serverValidation, sourceValidation),
     );
     const diff = createPreviewDiff(currentReadModel, proposedReadModel, applicableEdit);
     appendClearedOverrideDiff(diff, currentReadModel, proposedReadModel, applicableEdit);
@@ -1215,6 +1264,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
       proposedTargetName,
       previewFingerprint: previewFingerprint({
         targetName: input.targetName,
+        targetSource: input.targetSource ?? 'mcpServers',
         sourceFingerprint: fingerprintConfiguredServerTarget(currentConfig),
         globalConfigFingerprint: fingerprintConfiguredServerDefaults(serverDefaults),
         edit: normalizedEdit.edit,
@@ -1225,7 +1275,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
       }),
       validation,
       diff,
-      configChange: previewConfigChange(input.targetName, changed),
+      configChange: previewConfigChange(input.targetName, changed, input.targetSource ?? 'mcpServers'),
       connectivityCheck: await this.previewConnectivityCheck({
         targetName: proposedTargetName,
         serverConfig: proposedConfig,
@@ -1357,6 +1407,22 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
   }
 }
 
+function validateEditForSource(
+  source: ConfiguredServerTargetSource,
+  edit: ConfiguredServerEditDraft,
+): ConfiguredServerPreviewValidation {
+  if (source !== 'mcpTemplates') return { status: 'valid', errors: [] };
+  const unsupported = Object.keys(edit).filter((key) => key !== 'instructionOverride');
+  return {
+    status: unsupported.length === 0 ? 'valid' : 'invalid',
+    errors: unsupported.map((key) => ({
+      fieldPath: [key],
+      code: 'template_edit_field_unsupported',
+      message: 'Template Server edits may only change the instruction override.',
+    })),
+  };
+}
+
 function assertSuccessfulConfigChange(configChange: ConfigChangeResult): void {
   if (configChange.reload.status === 'failed') {
     throw new Error(`Config reload observation failed: ${configChange.reload.error ?? 'unknown reload failure'}`);
@@ -1423,7 +1489,15 @@ function normalizeEditDraft(value: unknown): {
 } {
   const errors: ConfiguredServerPreviewValidationError[] = [];
   const edit: ConfiguredServerEditDraft = {};
-  const supportedKeys = new Set(['id', 'enabled', 'tags', 'transport', 'secrets', 'clearTransportOverrides']);
+  const supportedKeys = new Set([
+    'id',
+    'enabled',
+    'tags',
+    'transport',
+    'secrets',
+    'clearTransportOverrides',
+    'instructionOverride',
+  ]);
 
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {
@@ -1524,6 +1598,23 @@ function normalizeEditDraft(value: unknown): {
         fieldPath: ['clearTransportOverrides'],
         code: 'invalid_transport_override_clear',
         message: 'Transport overrides must be a list of supported global transport field names.',
+      });
+    }
+  }
+
+  if (record.instructionOverride !== undefined) {
+    const parsed = z
+      .discriminatedUnion('action', [
+        z.object({ action: z.literal('set'), value: z.string() }).strict(),
+        z.object({ action: z.literal('remove') }).strict(),
+      ])
+      .safeParse(record.instructionOverride);
+    if (parsed.success) edit.instructionOverride = parsed.data;
+    else {
+      errors.push({
+        fieldPath: ['instructionOverride'],
+        code: 'invalid_instruction_override',
+        message: 'Instruction override must set a string value or remove the configured override.',
       });
     }
   }
@@ -1964,6 +2055,12 @@ function applyEditDraft(
 
   if (Array.isArray(edit.tags)) {
     nextConfig.tags = edit.tags.filter((tag): tag is string => typeof tag === 'string');
+  }
+
+  if (edit.instructionOverride?.action === 'set') {
+    nextConfig.instructionOverride = edit.instructionOverride.value;
+  } else if (edit.instructionOverride?.action === 'remove') {
+    delete nextConfig.instructionOverride;
   }
 
   if (edit.transport && typeof edit.transport === 'object') {
@@ -2423,12 +2520,16 @@ function isValidUrlOrEnvReference(value: string): boolean {
   }
 }
 
-function previewConfigChange(targetName: string, changed: boolean): ConfigChangeResult {
+function previewConfigChange(
+  targetName: string,
+  changed: boolean,
+  source: ConfiguredServerTargetSource = 'mcpServers',
+): ConfigChangeResult {
   return {
     status: changed ? 'changed' : 'unchanged',
     operation: 'set_static' as ConfigChangeResult['operation'],
     configPath: '[redacted]',
-    target: { name: targetName, source: 'mcpServers' },
+    target: { name: targetName, source },
     changed,
     backup: { created: false },
     retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
@@ -2439,6 +2540,7 @@ function previewConfigChange(targetName: string, changed: boolean): ConfigChange
 
 function previewFingerprint(input: {
   targetName: string;
+  targetSource: ConfiguredServerTargetSource;
   sourceFingerprint: string;
   globalConfigFingerprint: string;
   edit: ConfiguredServerEditDraft;
@@ -2452,6 +2554,7 @@ function previewFingerprint(input: {
       stableStringify({
         schemaVersion: 2,
         targetName: input.targetName,
+        targetSource: input.targetSource,
         sourceFingerprint: input.sourceFingerprint,
         globalConfigFingerprint: input.globalConfigFingerprint,
         edit: redactEditDraftForFingerprint(input.edit),
@@ -2501,6 +2604,9 @@ function createPreviewDiff(
   pushDiff(diff, ['id'], current.id, proposed.id, proposed.id === current.id ? [] : ['rename']);
   pushDiff(diff, ['enabled'], current.enabled, proposed.enabled, ['connection_critical']);
   pushDiff(diff, ['tags'], current.tags, proposed.tags, []);
+  if (edit.instructionOverride) {
+    pushDiff(diff, ['instructionOverride'], current.instructionOverride, proposed.instructionOverride, []);
+  }
 
   const secretEditedTopLevelKeys = new Set((edit.secrets ?? []).map((secret) => secret.fieldPath[0]));
   const transportEditedKeys = new Set(Object.keys(edit.transport ?? {}));
@@ -2670,12 +2776,19 @@ function stableStringify(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function createConfiguredServerReadModel(name: string, serverConfig: MCPServerParams): ConfiguredServerReadModel {
+function createConfiguredServerReadModel(
+  name: string,
+  serverConfig: MCPServerParams,
+  source: ConfiguredServerTargetSource = 'mcpServers',
+  revision: string = fingerprintConfiguredServerTarget(serverConfig),
+  instructionOverride: string | undefined = serverConfig.instructionOverride,
+  hasInstructionOverride: boolean = Object.hasOwn(serverConfig, 'instructionOverride'),
+): ConfiguredServerReadModel {
   const secretInputs: ConfiguredServerSecretInput[] = [];
   const transport: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(serverConfig)) {
-    if (key === 'disabled' || key === 'tags') {
+    if (key === 'disabled' || key === 'tags' || key === 'instructionOverride') {
       continue;
     }
 
@@ -2711,22 +2824,34 @@ function createConfiguredServerReadModel(name: string, serverConfig: MCPServerPa
 
   return {
     id: name,
-    source: 'mcpServers',
+    source,
     target: {
       type: 'configured_server',
       id: name,
-      source: 'mcpServers',
+      source,
     },
+    revision,
     enabled,
     tags: normalizeTags(serverConfig.tags),
     transportSummary: createTransportSummary(serverConfig, transport),
     mutationAvailability: {
-      available: true,
-      operations: ['enable', 'disable'],
+      available: source === 'mcpServers',
+      operations: source === 'mcpServers' ? ['enable', 'disable'] : [],
     },
-    actionState: createActionState(name, enabled),
+    actionState:
+      source === 'mcpServers'
+        ? createActionState(name, enabled)
+        : {
+            enable: { available: false, label: `Enable ${name}`, disabledReason: 'already_enabled' },
+            disable: { available: false, label: `Disable ${name}`, disabledReason: 'already_disabled' },
+          },
     transport,
     secretInputs,
+    instructionOverride: !hasInstructionOverride
+      ? { state: 'upstream' }
+      : instructionOverride === ''
+        ? { state: 'suppress', value: '' }
+        : { state: 'replace', value: instructionOverride! },
   };
 }
 

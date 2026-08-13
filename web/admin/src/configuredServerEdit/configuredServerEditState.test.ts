@@ -222,6 +222,61 @@ describe('configured server edit state', () => {
     expect(state).toMatchObject({ dirty: false });
   });
 
+  it('owns instruction outcomes in the dirty preview state machine', () => {
+    let state = reduceConfiguredServerEditState(createConfiguredServerEditState(), {
+      type: 'detailLoaded',
+      serverId: 'github',
+      detail: detail(),
+    });
+    state = reduceConfiguredServerEditState(state, {
+      type: 'instructionOverrideChanged',
+      mode: 'replace',
+      value: 'Operator guidance',
+    });
+    expect(configuredServerEditDraft(state)).toEqual({
+      instructionOverride: { action: 'set', value: 'Operator guidance' },
+    });
+    expect(state).toMatchObject({ status: 'loaded', dirty: true });
+
+    state = reduceConfiguredServerEditState(state, { type: 'instructionOverrideChanged', mode: 'suppress' });
+    expect(configuredServerEditDraft(state)).toEqual({ instructionOverride: { action: 'set', value: '' } });
+
+    state = reduceConfiguredServerEditState(state, { type: 'instructionOverrideChanged', mode: 'replace' });
+    expect(configuredServerEditDraft(state)).toEqual({
+      instructionOverride: { action: 'set', value: 'Operator guidance' },
+    });
+
+    state = reduceConfiguredServerEditState(state, { type: 'instructionOverrideChanged', mode: 'upstream' });
+    expect(configuredServerEditDraft(state)).toEqual({});
+    expect(state).toMatchObject({ status: 'loaded', dirty: false });
+  });
+
+  it('rejects non-override draft changes for template-backed targets', () => {
+    const templateDetail = detail();
+    templateDetail.server.source = 'mcpTemplates';
+    templateDetail.server.target.source = 'mcpTemplates';
+    templateDetail.editContract.target.source = 'mcpTemplates';
+    let state = reduceConfiguredServerEditState(createConfiguredServerEditState(), {
+      type: 'detailLoaded',
+      serverId: 'github',
+      detail: templateDetail,
+    });
+
+    state = reduceConfiguredServerEditState(state, {
+      type: 'fieldChanged',
+      fieldPath: ['transport', 'url'],
+      value: 'https://unsupported.example/mcp',
+    });
+    state = reduceConfiguredServerEditState(state, {
+      type: 'transportOverrideChanged',
+      key: 'requestTimeout',
+      clear: true,
+    });
+
+    expect(configuredServerEditDraft(state)).toEqual({});
+    expect(state).toMatchObject({ status: 'loaded', dirty: false });
+  });
+
   it('invalidates stale previews and keeps committed writes non-retryable when detail refresh fails', () => {
     const applyDetail = detail();
     applyDetail.editContract.capabilities.apply.supported = true;

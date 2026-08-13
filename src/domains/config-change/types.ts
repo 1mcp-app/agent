@@ -1,7 +1,23 @@
-import type { MCPServerParams } from '@src/core/types/index.js';
+import type { InstructionTemplateConfig, MCPServerParams } from '@src/core/types/transport.js';
 
 export type ConfiguredServerTargetSource = 'mcpServers' | 'mcpTemplates';
-export type ConfigChangeOperation = 'remove' | 'set_static' | 'create_static' | 'edit' | 'enable' | 'disable';
+export type InstructionTemplateConfigChangeOperation =
+  | 'template_create'
+  | 'template_clone'
+  | 'template_update'
+  | 'template_delete'
+  | 'template_import'
+  | 'template_activate';
+export type ConfigChangeOperation =
+  | 'remove'
+  | 'set_static'
+  | 'create_static'
+  | 'edit'
+  | 'enable'
+  | 'disable'
+  | InstructionTemplateConfigChangeOperation
+  | 'instruction_override_set'
+  | 'instruction_override_remove';
 export type ConfigChangeReason = 'install' | 'uninstall' | 'remove' | 'config_change' | 'enable' | 'disable';
 export type ConfigChangeStatus =
   'changed' | 'unchanged' | 'not_found' | 'template_conflict' | 'source_conflict' | 'destination_conflict' | 'failed';
@@ -62,16 +78,36 @@ export interface CreateStaticConfiguredServerTargetInput extends SetStaticConfig
 
 export interface SetConfiguredServerTargetEnabledStateInput {
   targetName: string;
+  targetSource?: ConfiguredServerTargetSource;
   enabled: boolean;
   backup?: ConfigBackupPolicy;
 }
 
 export interface EditConfiguredServerTargetInput {
   sourceName: string;
+  targetSource?: ConfiguredServerTargetSource;
   targetName: string;
   serverConfig: MCPServerParams;
   expectedSourceFingerprint: string;
   expectedGlobalConfigFingerprint?: string;
+}
+
+export interface SetInstructionTemplateConfigurationInput {
+  operation: InstructionTemplateConfigChangeOperation;
+  identity: string;
+  instructionTemplates?: Record<string, InstructionTemplateConfig>;
+  publishedInstructionTemplates?: Record<string, InstructionTemplateConfig>;
+  activeInstructionTemplate?: string;
+  expectedConfigFingerprint: string;
+}
+
+export type InstructionOverrideMutation = { action: 'set'; value: string } | { action: 'remove' };
+
+export interface ChangeConfiguredServerInstructionOverrideInput {
+  target: Required<ConfiguredServerTargetRef>;
+  mutation: InstructionOverrideMutation;
+  expectedSourceFingerprint: string;
+  expectedConfigFingerprint?: string;
 }
 
 export interface ConfigChangePorts {
@@ -90,10 +126,17 @@ export interface ConfigChangeService {
   ): Promise<ConfigChangeResult>;
   setConfiguredServerTargetEnabledState(input: SetConfiguredServerTargetEnabledStateInput): Promise<ConfigChangeResult>;
   editConfiguredServerTarget(input: EditConfiguredServerTargetInput): Promise<ConfigChangeResult>;
+  setInstructionTemplateConfiguration(input: SetInstructionTemplateConfigurationInput): Promise<ConfigChangeResult>;
+  changeConfiguredServerInstructionOverride(
+    input: ChangeConfiguredServerInstructionOverrideInput,
+  ): Promise<ConfigChangeResult>;
   acquireConfigLockForTest(configPath: string): Promise<() => void>;
 }
 
 export interface MutableConfigDocument extends Record<string, unknown> {
   mcpServers?: Record<string, MCPServerParams>;
   mcpTemplates?: Record<string, MCPServerParams>;
+  instructionTemplates?: Record<string, InstructionTemplateConfig>;
+  publishedInstructionTemplates?: Record<string, InstructionTemplateConfig>;
+  activeInstructionTemplate?: string;
 }

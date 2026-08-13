@@ -149,6 +149,10 @@
               "minLength": 1
             }
           },
+          "instructionOverride": {
+            "description": "Literal replacement for upstream server instructions; an empty string intentionally suppresses them",
+            "type": "string"
+          },
           "timeout": {
             "description": "Deprecated: Use connectionTimeout and requestTimeout instead. Fallback timeout in milliseconds",
             "type": "number"
@@ -362,6 +366,10 @@
               "minLength": 1
             }
           },
+          "instructionOverride": {
+            "description": "Literal replacement for upstream server instructions inherited by rendered instances; an empty string intentionally suppresses them",
+            "type": "string"
+          },
           "timeout": {
             "description": "Deprecated: Use connectionTimeout and requestTimeout instead. Fallback timeout in milliseconds",
             "type": "number"
@@ -559,6 +567,63 @@
           "type": "boolean"
         }
       }
+    },
+    "instructionTemplates": {
+      "description": "Managed instruction template drafts keyed by stable identity",
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "not": {
+          "const": "default"
+        }
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "initialization": {
+            "description": "Complete Handlebars template for MCP initialization instructions",
+            "type": "string"
+          },
+          "cli": {
+            "description": "Complete Handlebars template for direct CLI instructions",
+            "type": "string"
+          }
+        },
+        "required": ["initialization", "cli"],
+        "additionalProperties": false
+      }
+    },
+    "publishedInstructionTemplates": {
+      "description": "Last activated instruction template variants keyed by stable identity",
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "not": {
+          "const": "default"
+        }
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "initialization": {
+            "description": "Complete Handlebars template for MCP initialization instructions",
+            "type": "string"
+          },
+          "cli": {
+            "description": "Complete Handlebars template for direct CLI instructions",
+            "type": "string"
+          }
+        },
+        "required": ["initialization", "cli"],
+        "additionalProperties": false
+      }
+    },
+    "activeInstructionTemplate": {
+      "description": "Explicitly selected managed instruction template identity, including the protected default",
+      "type": "string",
+      "minLength": 1
     }
   },
   "required": ["mcpServers"]

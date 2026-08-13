@@ -22,6 +22,7 @@ import {
   Boxes,
   Check,
   FileClock,
+  FileText,
   Gauge,
   Info,
   LogOut,
@@ -47,6 +48,11 @@ const AboutRuntimeWorkspace = lazy(() =>
 );
 const BackendLogsWorkspace = lazy(() =>
   import('./workspaces/BackendLogsWorkspace').then((module) => ({ default: module.BackendLogsWorkspace })),
+);
+const InstructionTemplatesWorkspace = lazy(() =>
+  import('./workspaces/InstructionTemplatesWorkspace').then((module) => ({
+    default: module.InstructionTemplatesWorkspace,
+  })),
 );
 const OAuthServicesWorkspace = lazy(() =>
   import('./workspaces/OAuthServicesWorkspace').then((module) => ({ default: module.OAuthServicesWorkspace })),
@@ -175,6 +181,13 @@ export function AdminConsoleApp({ session }: AdminConsoleAppProps) {
                 active={route === 'presets'}
                 onNavigate={() => navigate('presets')}
               />
+              <NavItem
+                icon={<FileText size={17} />}
+                label="Instructions"
+                href="/admin/instructions"
+                active={route === 'instructions'}
+                onNavigate={() => navigate('instructions')}
+              />
             </Stack>
             <Stack gap={4}>
               <Text className="nav-section-label">Observe</Text>
@@ -281,6 +294,13 @@ function ConsoleWorkspace({ session }: { session: AdminConsoleSessionModel }) {
                     enabled: server.enabled,
                   })),
           }}
+          runtimeScopeId={state.status?.runtime.runtimeScopeId}
+        />
+      );
+    case 'instructions':
+      return (
+        <InstructionTemplatesWorkspace
+          model={session.instructions}
           runtimeScopeId={state.status?.runtime.runtimeScopeId}
         />
       );

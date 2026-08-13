@@ -146,7 +146,7 @@ function buildDirectToolsResult(
   };
 }
 
-async function buildServerSummaries(
+export async function buildServerSummaries(
   filteredConnections: FilteredConnections,
   toolRegistry: ToolRegistry | undefined,
   capabilityAggregator: CapabilityAggregator | undefined,

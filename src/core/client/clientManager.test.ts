@@ -711,6 +711,28 @@ describe('ClientManager (Integration)', () => {
     it('should handle removal of non-existent client gracefully', async () => {
       await expect(clientManager.removeClient('non-existent')).resolves.not.toThrow();
     });
+
+    it('removes template instructions with the connection name and outbound key', async () => {
+      const outboundKey = 'template:rendered-hash';
+      const transport = {
+        name: 'template-transport',
+        start: vi.fn(),
+        send: vi.fn(),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as Transport;
+      clientManager.getClients().set(outboundKey, {
+        name: 'template',
+        client: mockClient,
+        transport,
+        status: ClientStatus.Connected,
+      } as never);
+      const aggregator = { setInstructions: vi.fn(), removeServer: vi.fn() };
+      clientManager.setInstructionAggregator(aggregator as never);
+
+      await clientManager.removeClient(outboundKey);
+
+      expect(aggregator.removeServer).toHaveBeenCalledWith({ source: 'mcpServers', name: 'template' }, outboundKey);
+    });
   });
 
   describe('instruction aggregation integration', () => {
@@ -741,7 +763,11 @@ describe('ClientManager (Integration)', () => {
       await clientManager.createClients(mockTransports as Record<string, AuthProviderTransport>);
       await vi.runAllTimersAsync();
 
-      expect(mockAggregator.setInstructions).toHaveBeenCalledWith('test-client', 'test instructions');
+      expect(mockAggregator.setInstructions).toHaveBeenCalledWith(
+        { source: 'mcpServers', name: 'test-client' },
+        'test instructions',
+        'test-client',
+      );
     });
   });
 

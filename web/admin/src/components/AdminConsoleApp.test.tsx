@@ -174,6 +174,10 @@ describe('AdminConsoleApp', () => {
     expect(within(navigation).getByRole('link', { name: 'OAuth services' })).toHaveAttribute('href', '/admin/oauth');
     expect(within(navigation).getByRole('link', { name: 'Audit trail' })).toHaveAttribute('href', '/admin/audit');
     expect(within(navigation).getByRole('link', { name: 'Presets' })).toHaveAttribute('href', '/admin/presets');
+    expect(within(navigation).getByRole('link', { name: 'Instructions' })).toHaveAttribute(
+      'href',
+      '/admin/instructions',
+    );
     expect(within(navigation).getByRole('link', { name: 'About' })).toHaveAttribute('href', '/admin/about');
 
     await user.click(screen.getByRole('button', { name: /copy runtime scope/i }));
@@ -264,7 +268,7 @@ describe('AdminConsoleApp', () => {
     expect(onServerAction).toHaveBeenCalledWith('github', 'enable');
   });
 
-  it('navigates with real links and keeps Presets and About as final top-level items', async () => {
+  it('navigates with real links and keeps About as the final top-level item', async () => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();
     renderApp(consoleState(), { navigation: { navigate: onNavigate } });
@@ -273,9 +277,11 @@ describe('AdminConsoleApp', () => {
     const links = within(navigation).getAllByRole('link');
     expect(links.at(-1)).toHaveTextContent('About');
     await user.click(screen.getByRole('link', { name: 'Presets' }));
+    await user.click(screen.getByRole('link', { name: 'Instructions' }));
     await user.click(screen.getByRole('link', { name: 'About' }));
     expect(onNavigate).toHaveBeenNthCalledWith(1, 'presets');
-    expect(onNavigate).toHaveBeenNthCalledWith(2, 'about');
+    expect(onNavigate).toHaveBeenNthCalledWith(2, 'instructions');
+    expect(onNavigate).toHaveBeenNthCalledWith(3, 'about');
   });
 
   it('exposes the current direct workspace and navigates without hash sections', async () => {
@@ -320,7 +326,7 @@ describe('AdminConsoleApp', () => {
       oauth: { operate: onOperate },
     });
 
-    expect(screen.getByRole('heading', { name: /^oauth services$/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /^oauth services$/i })).toBeInTheDocument();
     expect(screen.getByText('context7:0123456789ab')).toBeInTheDocument();
     expect(screen.getByText('context7:0123456789abcdef')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /copy full service id for context7:0123456789ab/i }));
@@ -654,9 +660,53 @@ describe('AdminConsoleApp', () => {
       configuredServers: { open: onOpenServerDetail },
     });
 
-    await user.click(screen.getByRole('button', { name: /edit github server/i }));
+    await user.click(screen.getByRole('button', { name: /edit static github server/i }));
 
-    expect(onOpenServerDetail).toHaveBeenCalledWith('github');
+    expect(onOpenServerDetail).toHaveBeenCalledWith({ source: 'mcpServers', id: 'github' });
+  });
+
+  it('keeps same-name static and template targets distinct and template lifecycle read-only', async () => {
+    const user = userEvent.setup();
+    const onOpenServerDetail = vi.fn();
+    const state = consoleState();
+    const staticGithub = state.configuredServers.find((server) => server.id === 'github');
+    if (!staticGithub) throw new Error('Expected github fixture');
+    state.configuredServers.push({
+      ...staticGithub,
+      source: 'mcpTemplates',
+      target: { ...staticGithub.target, source: 'mcpTemplates' },
+      mutationAvailability: { available: false, operations: [] },
+    });
+
+    renderApp(state, {
+      navigation: { route: 'servers' },
+      configuredServers: { open: onOpenServerDetail },
+    });
+
+    expect(screen.getByRole('button', { name: 'Edit static github server' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Edit template github server' }));
+    expect(onOpenServerDetail).toHaveBeenCalledWith({ source: 'mcpTemplates', id: 'github' });
+    expect(screen.queryByRole('button', { name: /^(enable|disable) github$/i })).not.toBeInTheDocument();
+  });
+
+  it('routes instruction outcomes through the shared dirty preview lifecycle', async () => {
+    const user = userEvent.setup();
+    const changeInstructionOverride = vi.fn();
+
+    renderApp(consoleState(), {
+      navigation: { route: 'servers' },
+      configuredServers: {
+        editor: configuredServerDetailState(),
+        changeInstructionOverride,
+      },
+    });
+
+    expect(screen.getByText('Effective: upstream')).toBeInTheDocument();
+    await user.click(screen.getByRole('radio', { name: 'Replace' }));
+    expect(changeInstructionOverride).toHaveBeenCalledWith('replace', undefined);
+    expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Preview change' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Save instruction outcome' })).not.toBeInTheDocument();
   });
 
   it('renders configured-server detail controls from the normalized contract without raw JSON or apply controls', async () => {

@@ -3,6 +3,7 @@ import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { validateTemplateContent } from '@src/core/instructions/templateValidator.js';
 import {
   AdminConfiguredServerApplyError,
   type AdminConfiguredServerOperations,
@@ -10,6 +11,11 @@ import {
   type ConfiguredServerReadModel,
 } from '@src/domains/admin/adminConfiguredServerService.js';
 import { AdminIdentityService } from '@src/domains/admin/adminIdentityService.js';
+import type {
+  AdminInstructionPreviewResult,
+  AdminInstructionTemplateOperations,
+  InstructionTemplateAdminState,
+} from '@src/domains/admin/adminInstructionTemplateService.js';
 import type { AdminOperationResult } from '@src/domains/admin/adminOperationService.js';
 import { BackendLogBroker } from '@src/domains/backend-logs/backendLogBroker.js';
 import type { ConfigChangeResult } from '@src/domains/config-change/configChange.js';
@@ -27,6 +33,7 @@ const SCREENSHOT_DIR = process.env.ADMIN_UI_SCREENSHOT_DIR;
 describe('admin SPA browser smoke', () => {
   let browser: Browser | null = null;
   let configuredServerFixture: ResettableConfiguredServerFixture;
+  let instructionTemplateFixture: ResettableInstructionTemplateFixture;
   let server: Server | null = null;
   let baseUrl: string;
   let storageDir: string | null = null;
@@ -48,6 +55,7 @@ describe('admin SPA browser smoke', () => {
     const app = express();
     app.use(express.json());
     configuredServerFixture = createConfiguredServerFixture();
+    instructionTemplateFixture = createInstructionTemplateFixture();
     const backendLogBroker = new BackendLogBroker({
       now: () => new Date('2030-01-01T00:00:00.000Z'),
     });
@@ -64,6 +72,7 @@ describe('admin SPA browser smoke', () => {
       adminEnabled: true,
       adminService,
       configuredServerService: configuredServerFixture,
+      instructionTemplateService: instructionTemplateFixture,
       getRuntimeIdentity: () => ({
         identityProtocolVersion: '1',
         runtimeScopeId: 'scope_smoke',
@@ -105,6 +114,7 @@ describe('admin SPA browser smoke', () => {
 
   beforeEach(() => {
     configuredServerFixture.reset();
+    instructionTemplateFixture.reset();
   });
 
   afterAll(async () => {
@@ -171,7 +181,7 @@ describe('admin SPA browser smoke', () => {
       await expectText(page, 'Server enable completed.');
       await expectVisible(page.locator('tbody tr', { hasText: 'github' }).getByText('enabled', { exact: true }));
 
-      await page.getByRole('button', { name: 'Edit github server' }).click();
+      await page.getByRole('button', { name: 'Edit static github server' }).click();
       await expectVisible(page.getByRole('heading', { name: 'github', exact: true }));
       await expectText(page, 'Edit server');
     } finally {
@@ -188,7 +198,7 @@ describe('admin SPA browser smoke', () => {
       await page.getByRole('link', { name: 'Server inventory' }).click();
       await page.waitForURL(`${baseUrl}/admin/servers`);
 
-      await page.getByRole('button', { name: 'Edit github server' }).click();
+      await page.getByRole('button', { name: 'Edit static github server' }).click();
       await page.waitForURL(`${baseUrl}/admin/servers/github`);
       await expectVisible(page.getByRole('heading', { name: 'github', exact: true }));
 
@@ -223,7 +233,7 @@ describe('admin SPA browser smoke', () => {
       expect(await page.getByText('Changes applied to github.').count()).toBe(0);
 
       const applyResponsePromise = page.waitForResponse((response) =>
-        response.url().endsWith('/admin/api/configured-servers/github/apply'),
+        response.url().endsWith('/admin/api/configured-servers/mcpServers/github/apply'),
       );
       await applyButton.click();
       await expectVisible(dialog);
@@ -495,7 +505,7 @@ describe('admin SPA browser smoke', () => {
       await page.getByRole('button', { name: 'Back' }).click();
       await page.waitForURL(`${baseUrl}/admin/servers`);
       await expectText(page, '1 configured target');
-      await page.getByRole('button', { name: 'Edit first-stdio server' }).click();
+      await page.getByRole('button', { name: 'Edit static first-stdio server' }).click();
       await page.waitForURL(`${baseUrl}/admin/servers/first-stdio`);
       await expectVisible(page.getByRole('heading', { name: 'first-stdio', exact: true }));
       await expectNoPageOverflow(page);
@@ -516,7 +526,7 @@ describe('admin SPA browser smoke', () => {
       await waitForRowCount(page, 1);
       await expectNoPageOverflow(page);
 
-      await page.getByRole('button', { name: 'Edit github server' }).click();
+      await page.getByRole('button', { name: 'Edit static github server' }).click();
       await page.waitForURL(`${baseUrl}/admin/servers/github`);
       expect(await page.locator('.server-table-view').isVisible()).toBe(false);
       expect(await page.getByRole('heading', { name: 'Server inventory' }).count()).toBe(0);
@@ -592,6 +602,87 @@ describe('admin SPA browser smoke', () => {
     }
   });
 
+  it('manages instruction drafts, previews, activation, legacy import, and deletion in the packaged console', async () => {
+    const page = await newPage({ width: 1440, height: 1000 });
+
+    try {
+      await expectCenteredLoginGate(page);
+      await login(page, { skipNavigation: true });
+      await page.getByRole('link', { name: 'Instructions' }).click();
+      await page.waitForURL(`${baseUrl}/admin/instructions`);
+
+      await expectVisible(page.getByRole('heading', { name: 'Instruction templates' }));
+      await expectText(page, 'CLI rendering fell back to the built-in template for operator');
+      await page.getByRole('button', { name: /default/ }).click();
+      expect(await page.getByRole('button', { name: 'Delete template' }).isDisabled()).toBe(true);
+
+      await page.getByLabel('Clone as').fill('operator');
+      await page.getByRole('button', { name: 'Clone template' }).click();
+      await page.getByRole('button', { name: /operator/ }).click();
+
+      await page.getByLabel('Initialization template').fill('Initialize {{instructions}} for this request');
+      await page.getByRole('tab', { name: 'CLI' }).click();
+      await page.getByLabel('CLI template').fill('{{#if instructions}}Unclosed block');
+      await page.getByRole('button', { name: 'Save draft' }).click();
+      await expectText(page, 'Draft validation');
+      await expectText(page, 'CLI: Template syntax error');
+
+      await page.getByLabel('CLI template').fill('CLI {{instructions}}');
+      await page.getByRole('button', { name: 'Save draft' }).click();
+      await page.getByRole('tab', { name: 'Initialization' }).click();
+      await page.locator('[aria-label="Preview target selection"]').getByText('Tags', { exact: true }).click();
+      await page.getByRole('textbox', { name: 'Tags' }).fill('docs, search');
+      await page.getByRole('checkbox', { name: 'Use explicit request context' }).check();
+      await page.getByLabel('Project name').fill('docs');
+      await page.getByLabel('User name').fill('operator');
+      await page.getByLabel('Environment prefixes').fill('ONE_MCP_, CI');
+      await page.getByRole('button', { name: 'Preview initialize' }).click();
+      await expectText(page, 'Rendered');
+      await expectText(page, 'docs,search');
+      await expectText(page, 'Unresolved Template Servers: github-context');
+      const effectiveServers = page.getByLabel('Effective servers');
+      await expectVisible(effectiveServers);
+      await expectVisible(effectiveServers.getByText(/mcpServers \/\s*github/));
+      await expectVisible(effectiveServers.getByText(/mcpTemplates \/\s*github/));
+      await expectVisible(effectiveServers.getByText('Instructions', { exact: true }));
+      await expectVisible(effectiveServers.getByText('No instructions', { exact: true }));
+      expect(instructionTemplateFixture.lastPreview).toMatchObject({
+        identity: 'operator',
+        surface: 'initialize',
+        selection: { mode: 'tags', tags: ['docs', 'search'] },
+        requestContext: {
+          project: { name: 'docs' },
+          user: { name: 'operator' },
+          environment: { prefixes: ['ONE_MCP_', 'CI'] },
+        },
+      });
+
+      await page.getByRole('button', { name: 'Validate both surfaces' }).click();
+      await page.getByRole('button', { name: 'Activate template' }).click();
+      await expectText(page, 'Active: operator');
+      await page.getByRole('button', { name: 'Delete template' }).click();
+      await expectText(page, 'Activate another template before deleting this one.');
+
+      await page.getByRole('button', { name: /default/ }).click();
+      await page.getByRole('button', { name: 'Validate both surfaces' }).click();
+      await page.getByRole('button', { name: 'Activate template' }).click();
+      await page.getByRole('button', { name: /operator/ }).click();
+      await page.getByRole('button', { name: 'Delete template' }).click();
+      const deleteDialog = page.getByRole('dialog');
+      await expectVisible(deleteDialog.getByText('Delete operator?'));
+      await deleteDialog.getByRole('button', { name: 'Delete template' }).click();
+      await page.waitForFunction(() => globalThis.document.querySelectorAll('.instruction-template-row').length === 1);
+      expect(await page.locator('.instruction-template-row').count()).toBe(1);
+
+      await page.getByLabel('Import legacy as').fill('legacy-copy');
+      await page.getByRole('button', { name: 'Import legacy template' }).click();
+      await expectText(page, 'legacy-copy');
+      await expectNoPageOverflow(page);
+    } finally {
+      await page.context().close();
+    }
+  });
+
   it('persists light and dark themes across the supported screenshot viewports', async () => {
     const viewports = [
       { width: 1440, height: 900 },
@@ -634,6 +725,89 @@ describe('admin SPA browser smoke', () => {
       }
     }
   }, 60000);
+
+  it('keeps source-qualified same-name overrides independent and forwards only explicit preview context', async () => {
+    const page = await newPage({ width: 1280, height: 900 });
+
+    try {
+      await expectCenteredLoginGate(page);
+      await login(page, { skipNavigation: true });
+
+      const staticDetail = await adminApi(page, 'GET', '/admin/api/configured-servers/mcpServers/github');
+      const templateDetail = await adminApi(page, 'GET', '/admin/api/configured-servers/mcpTemplates/github');
+      expect(staticDetail.status).toBe(200);
+      expect(templateDetail.status).toBe(200);
+      expect(staticDetail.body.server.target.source).toBe('mcpServers');
+      expect(templateDetail.body.server.target.source).toBe('mcpTemplates');
+
+      const replacePreview = await adminApi(page, 'POST', '/admin/api/configured-servers/mcpTemplates/github/preview', {
+        edit: { instructionOverride: { action: 'set', value: 'Template replacement' } },
+      });
+      expect(replacePreview.status).toBe(200);
+      expect(configuredServerFixture.lastEdit).toMatchObject({
+        targetSource: 'mcpTemplates',
+        targetName: 'github',
+        edit: { instructionOverride: { action: 'set', value: 'Template replacement' } },
+      });
+      const replaceApply = await adminApi(page, 'POST', '/admin/api/configured-servers/mcpTemplates/github/apply', {
+        edit: { instructionOverride: { action: 'set', value: 'Template replacement' } },
+        previewFingerprint: 'preview_fixture',
+      });
+      expect(replaceApply.status).toBe(200);
+      expect(
+        (await adminApi(page, 'GET', '/admin/api/configured-servers/mcpTemplates/github')).body.server
+          .instructionOverride,
+      ).toEqual({ state: 'replace', value: 'Template replacement' });
+
+      const suppressApply = await adminApi(page, 'POST', '/admin/api/configured-servers/mcpTemplates/github/apply', {
+        edit: { instructionOverride: { action: 'set', value: '' } },
+        previewFingerprint: 'preview_fixture',
+      });
+      expect(suppressApply.status).toBe(200);
+      expect(
+        (await adminApi(page, 'GET', '/admin/api/configured-servers/mcpTemplates/github')).body.server
+          .instructionOverride,
+      ).toEqual({ state: 'suppress', value: '' });
+      const removeApply = await adminApi(page, 'POST', '/admin/api/configured-servers/mcpTemplates/github/apply', {
+        edit: { instructionOverride: { action: 'remove' } },
+        previewFingerprint: 'preview_fixture',
+      });
+      expect(removeApply.status).toBe(200);
+      expect(
+        (await adminApi(page, 'GET', '/admin/api/configured-servers/mcpTemplates/github')).body.server
+          .instructionOverride,
+      ).toEqual({ state: 'upstream' });
+      expect(
+        (await adminApi(page, 'GET', '/admin/api/configured-servers/mcpServers/github')).body.server
+          .instructionOverride,
+      ).toEqual({ state: 'upstream' });
+
+      const preview = await adminApi(page, 'POST', '/admin/api/instruction-templates/default/preview', {
+        surface: 'initialize',
+        selection: { mode: 'preset', preset: 'missing-preset' },
+        requestContext: {
+          project: { custom: { requestId: 'explicit-only' } },
+          user: {},
+          environment: {},
+        },
+      });
+      expect(preview.status).toBe(200);
+      expect(preview.body.result.unresolvedTemplates).toEqual(['missing-preset']);
+      expect(instructionTemplateFixture.lastPreview?.requestContext).toEqual({
+        project: { custom: { requestId: 'explicit-only' } },
+        user: {},
+        environment: {},
+      });
+      const contextFreePreview = await adminApi(page, 'POST', '/admin/api/instruction-templates/default/preview', {
+        surface: 'cli',
+        selection: { mode: 'all' },
+      });
+      expect(contextFreePreview.status).toBe(200);
+      expect(instructionTemplateFixture.lastPreview).not.toHaveProperty('requestContext');
+    } finally {
+      await page.context().close();
+    }
+  });
 
   async function newPage(viewport: { width: number; height: number; isMobile?: boolean }): Promise<Page> {
     if (!browser) {
@@ -703,7 +877,15 @@ describe('admin SPA browser smoke', () => {
   }
 });
 
-type ResettableConfiguredServerFixture = AdminConfiguredServerOperations & { reset: () => void; clear: () => void };
+type ResettableConfiguredServerFixture = AdminConfiguredServerOperations & {
+  reset(): void;
+  clear(): void;
+  lastEdit?: Record<string, unknown>;
+};
+type ResettableInstructionTemplateFixture = AdminInstructionTemplateOperations & {
+  reset(): void;
+  lastPreview?: Record<string, unknown>;
+};
 
 async function expectText(page: Page, text: string): Promise<void> {
   try {
@@ -735,12 +917,45 @@ async function waitForRowCount(page: Page, expectedCount: number): Promise<void>
   expect(await page.locator('tbody tr').count()).toBe(expectedCount);
 }
 
+async function adminApi(
+  page: Page,
+  method: 'GET' | 'POST',
+  pathName: string,
+  body?: Record<string, unknown>,
+): Promise<{
+  status: number;
+  body: {
+    server: ConfiguredServerReadModel;
+    result: AdminInstructionPreviewResult;
+  };
+}> {
+  return page.evaluate(
+    async ({ method: requestMethod, pathName: requestPath, body: requestBody }) => {
+      const session = (await fetch('/admin/api/session').then((response) => response.json())) as { csrfToken: string };
+      const response = await fetch(requestPath, {
+        method: requestMethod,
+        headers: {
+          ...(requestMethod === 'POST'
+            ? { 'Content-Type': 'application/json', 'X-CSRF-Token': session.csrfToken }
+            : {}),
+        },
+        ...(requestBody ? { body: JSON.stringify(requestBody) } : {}),
+      });
+      return { status: response.status, body: await response.json() };
+    },
+    { method, pathName, body },
+  );
+}
+
 function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
   let servers = createConfiguredServerReadModels();
+  let templateServer = createTemplateConfiguredServerReadModel();
 
-  return {
+  const fixture: ResettableConfiguredServerFixture = {
     reset() {
       servers = createConfiguredServerReadModels();
+      templateServer = createTemplateConfiguredServerReadModel();
+      fixture.lastEdit = undefined;
     },
     clear() {
       servers = [];
@@ -870,7 +1085,12 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
       return operationSuccess('listConfiguredServers', 'op_list', { servers });
     },
     async getConfiguredServerDetail(input) {
-      const server = servers.find((candidate) => candidate.id === input.targetName);
+      const server =
+        input.targetSource === 'mcpTemplates'
+          ? templateServer.id === input.targetName
+            ? templateServer
+            : undefined
+          : servers.find((candidate) => candidate.id === input.targetName);
       if (!server) {
         throw new Error('Configured server target was not found');
       }
@@ -908,10 +1128,20 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
       });
     },
     async previewConfiguredServerEdit(input) {
+      fixture.lastEdit = {
+        targetName: input.targetName,
+        ...(input.targetSource ? { targetSource: input.targetSource } : {}),
+        edit: input.edit,
+      };
       const edit = input.edit && typeof input.edit === 'object' && !Array.isArray(input.edit) ? input.edit : {};
       const proposedTargetName =
         typeof (edit as { id?: unknown }).id === 'string' ? (edit as { id: string }).id : input.targetName;
-      const server = servers.find((candidate) => candidate.id === input.targetName);
+      const server =
+        input.targetSource === 'mcpTemplates'
+          ? templateServer.id === input.targetName
+            ? templateServer
+            : undefined
+          : servers.find((candidate) => candidate.id === input.targetName);
       const proposedTags = Array.isArray((edit as { tags?: unknown }).tags)
         ? (edit as { tags: unknown[] }).tags.filter((tag): tag is string => typeof tag === 'string')
         : (server?.tags ?? []);
@@ -920,14 +1150,23 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
         proposedTargetName,
         previewFingerprint: 'preview_fixture',
         validation: { status: 'valid', errors: [] },
-        diff: [
-          {
-            fieldPath: ['tags'],
-            oldValue: server?.tags ?? [],
-            newValue: proposedTags,
-            riskFlags: [],
-          },
-        ],
+        diff: Object.hasOwn(edit, 'instructionOverride')
+          ? [
+              {
+                fieldPath: ['instructionOverride'],
+                oldValue: server?.instructionOverride ?? { state: 'upstream' },
+                newValue: (edit as { instructionOverride?: unknown }).instructionOverride,
+                riskFlags: ['template_risk' as const],
+              },
+            ]
+          : [
+              {
+                fieldPath: ['tags'],
+                oldValue: server?.tags ?? [],
+                newValue: proposedTags,
+                riskFlags: [],
+              },
+            ],
         configChange: {
           status: 'changed',
           operation: 'set_static',
@@ -944,9 +1183,26 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
     },
     async applyConfiguredServerEdit(input) {
       const edit = input.edit && typeof input.edit === 'object' && !Array.isArray(input.edit) ? input.edit : {};
-      const server = servers.find((candidate) => candidate.id === input.targetName);
+      const server =
+        input.targetSource === 'mcpTemplates'
+          ? templateServer.id === input.targetName
+            ? templateServer
+            : undefined
+          : servers.find((candidate) => candidate.id === input.targetName);
       if (server && Array.isArray((edit as { tags?: unknown }).tags)) {
         server.tags = (edit as { tags: unknown[] }).tags.filter((tag): tag is string => typeof tag === 'string');
+      }
+      const instructionOverride = (
+        edit as {
+          instructionOverride?: { action: 'set'; value: string } | { action: 'remove' };
+        }
+      ).instructionOverride;
+      if (server && instructionOverride?.action === 'set') {
+        server.instructionOverride = instructionOverride.value
+          ? { state: 'replace', value: instructionOverride.value }
+          : { state: 'suppress', value: '' };
+      } else if (server && instructionOverride?.action === 'remove') {
+        server.instructionOverride = { state: 'upstream' };
       }
       return operationSuccess('applyConfiguredServerEdit', 'op_apply', {
         originalTargetName: input.targetName,
@@ -978,6 +1234,224 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
       ];
     },
   };
+  return fixture;
+}
+
+function createInstructionTemplateFixture(): ResettableInstructionTemplateFixture {
+  let state: InstructionTemplateAdminState;
+  let fingerprintSequence = 0;
+  const fixture: ResettableInstructionTemplateFixture = {
+    reset() {
+      fingerprintSequence = 1;
+      fixture.lastPreview = undefined;
+      state = {
+        templates: [instructionTemplate('default', defaultInstructionVariants(), true, true)],
+        activeIdentity: 'default',
+        selectionExplicit: false,
+        configFingerprint: 'fixture-1',
+        legacyImportAvailable: true,
+        renderFailures: {
+          cli: {
+            code: 'managed_template_render_failed',
+            surface: 'cli',
+            templateIdentity: 'operator',
+            occurredAt: '2030-01-01T00:00:00.000Z',
+          },
+        },
+      };
+    },
+    async listTemplates() {
+      return operationSuccess('listInstructionTemplates', 'op_instruction_list', cloneInstructionState(state));
+    },
+    async getTemplate(input) {
+      const template = state.templates.find((candidate) => candidate.identity === input.identity);
+      if (!template) throw new Error('Instruction template was not found');
+      return operationSuccess('getInstructionTemplate', 'op_instruction_detail', {
+        template: structuredClone(template),
+        configFingerprint: state.configFingerprint,
+        renderFailures: state.renderFailures,
+      });
+    },
+    async createTemplate(input) {
+      state.templates.push(instructionTemplate(input.identity, input.variants, false, false));
+      advanceInstructionFingerprint();
+      return operationSuccess(
+        'createInstructionTemplate',
+        'op_instruction_create',
+        configChangeResult(input.identity, true),
+      );
+    },
+    async updateTemplate(input) {
+      const index = state.templates.findIndex((candidate) => candidate.identity === input.identity);
+      state.templates[index] = instructionTemplate(
+        input.identity,
+        input.variants,
+        false,
+        state.activeIdentity === input.identity,
+      );
+      advanceInstructionFingerprint();
+      return operationSuccess(
+        'updateInstructionTemplate',
+        'op_instruction_update',
+        configChangeResult(input.identity, true),
+      );
+    },
+    async cloneTemplate(input) {
+      const source = state.templates.find((candidate) => candidate.identity === input.sourceIdentity);
+      if (!source)
+        return operationSuccess('cloneInstructionTemplate', 'op_instruction_clone', { status: 'not_found' as const });
+      state.templates.push(instructionTemplate(input.identity, source.variants, false, false));
+      advanceInstructionFingerprint();
+      return operationSuccess(
+        'cloneInstructionTemplate',
+        'op_instruction_clone',
+        configChangeResult(input.identity, true),
+      );
+    },
+    async validateTemplate(input) {
+      const template = state.templates.find((candidate) => candidate.identity === input.identity);
+      return operationSuccess('validateInstructionTemplate', 'op_instruction_validate', {
+        identity: input.identity,
+        validation: template?.validation,
+        expectedConfigFingerprint: state.configFingerprint,
+        previewFingerprint: `activate-${input.identity}-${state.configFingerprint}`,
+      });
+    },
+    async previewTemplate(input) {
+      fixture.lastPreview = {
+        identity: input.identity,
+        surface: input.surface,
+        selection: input.selection,
+        ...(input.requestContext ? { requestContext: input.requestContext } : {}),
+      };
+      const unresolvedTemplates =
+        input.selection.mode === 'preset' && input.selection.preset === 'missing-preset'
+          ? ['missing-preset']
+          : input.selection.mode === 'tags'
+            ? ['github-context']
+            : [];
+      const selectionLabel = input.selection.mode === 'tags' ? input.selection.tags.join(',') : input.selection.mode;
+      const result: AdminInstructionPreviewResult = {
+        surface: input.surface,
+        rendered: `Rendered ${input.identity} for ${selectionLabel}`,
+        effectiveServers: [
+          { target: { source: 'mcpServers', name: 'github' }, hasInstructions: true },
+          { target: { source: 'mcpTemplates', name: 'github' }, hasInstructions: false },
+        ],
+        unresolvedTemplates,
+      };
+      return operationSuccess('previewInstructionTemplate', 'op_instruction_preview', result);
+    },
+    async activateTemplate(input) {
+      const template = state.templates.find((candidate) => candidate.identity === input.identity);
+      if (!template)
+        return operationSuccess('activateInstructionTemplate', 'op_instruction_activate', {
+          status: 'not_found' as const,
+        });
+      if (!template.validation.valid) {
+        return operationSuccess('activateInstructionTemplate', 'op_instruction_activate', {
+          status: 'invalid' as const,
+          validation: template.validation,
+        });
+      }
+      state.activeIdentity = input.identity;
+      state.selectionExplicit = true;
+      state.templates = state.templates.map((candidate) => ({
+        ...candidate,
+        active: candidate.identity === input.identity,
+        draft: candidate.identity !== input.identity && !candidate.protected,
+      }));
+      advanceInstructionFingerprint();
+      return operationSuccess(
+        'activateInstructionTemplate',
+        'op_instruction_activate',
+        configChangeResult(input.identity, true),
+      );
+    },
+    async importLegacyTemplate(input) {
+      state.templates.push(
+        instructionTemplate(
+          input.identity,
+          { initialization: 'Legacy static initialization guidance', cli: 'Legacy static CLI guidance' },
+          false,
+          false,
+        ),
+      );
+      advanceInstructionFingerprint();
+      return operationSuccess(
+        'importLegacyInstructionTemplate',
+        'op_instruction_import',
+        configChangeResult(input.identity, true),
+      );
+    },
+    async previewDeleteTemplate(input) {
+      const template = state.templates.find((candidate) => candidate.identity === input.identity);
+      const allowed = Boolean(template && !template.protected && !template.active);
+      return operationSuccess('previewDeleteInstructionTemplate', 'op_instruction_delete_preview', {
+        identity: input.identity,
+        allowed,
+        reason: !template
+          ? ('not_found' as const)
+          : template.protected
+            ? ('protected' as const)
+            : template.active
+              ? ('active_conflict' as const)
+              : undefined,
+        expectedConfigFingerprint: state.configFingerprint,
+        previewFingerprint: `delete-${input.identity}-${state.configFingerprint}`,
+      });
+    },
+    async deleteTemplate(input) {
+      state.templates = state.templates.filter((candidate) => candidate.identity !== input.identity);
+      advanceInstructionFingerprint();
+      return operationSuccess(
+        'deleteInstructionTemplate',
+        'op_instruction_delete',
+        configChangeResult(input.identity, true),
+      );
+    },
+  };
+
+  function advanceInstructionFingerprint(): void {
+    fingerprintSequence += 1;
+    state.configFingerprint = `fixture-${fingerprintSequence}`;
+  }
+
+  fixture.reset();
+  return fixture;
+}
+
+function instructionTemplate(
+  identity: string,
+  variants: { initialization: string; cli: string },
+  protectedTemplate: boolean,
+  active: boolean,
+): InstructionTemplateAdminState['templates'][number] {
+  const initialization = instructionVariantValidation(variants.initialization);
+  const cli = instructionVariantValidation(variants.cli);
+  return {
+    identity,
+    variants: { ...variants },
+    protected: protectedTemplate,
+    active,
+    draft: !active && !protectedTemplate,
+    validation: { valid: initialization.valid && cli.valid, initialization, cli },
+  };
+}
+
+function instructionVariantValidation(value: string): { valid: boolean; error?: string } {
+  return validateTemplateContent(value, 'fixture', { allowUnsafeContent: true });
+}
+
+function defaultInstructionVariants(): { initialization: string; cli: string } {
+  return {
+    initialization: 'Initialize {{instructions}}',
+    cli: 'CLI {{instructions}}',
+  };
+}
+
+function cloneInstructionState(state: InstructionTemplateAdminState): InstructionTemplateAdminState {
+  return structuredClone(state);
 }
 
 function createFieldGroups() {
@@ -1063,6 +1537,7 @@ function createConfiguredServerReadModels(): ConfiguredServerReadModel[] {
       enabled: true,
       tags: filesystemTags,
       transportSummary: { kind: 'stdio', label: 'node ./servers/filesystem.js' },
+      instructionOverride: { state: 'upstream' },
       mutationAvailability: { available: true, operations: ['enable', 'disable'] },
       actionState: actionState('filesystem', true),
       transport: { command: 'node ./servers/filesystem.js' },
@@ -1075,6 +1550,7 @@ function createConfiguredServerReadModels(): ConfiguredServerReadModel[] {
       enabled: false,
       tags: githubTags,
       transportSummary: { kind: 'http', label: 'https://mcp.example/github' },
+      instructionOverride: { state: 'upstream' },
       mutationAvailability: { available: true, operations: ['enable', 'disable'] },
       actionState: actionState('github', false),
       transport: { url: 'https://mcp.example/github' },
@@ -1088,6 +1564,25 @@ function createConfiguredServerReadModels(): ConfiguredServerReadModel[] {
       ],
     },
   ];
+}
+
+function createTemplateConfiguredServerReadModel(): ConfiguredServerReadModel {
+  return {
+    id: 'github',
+    source: 'mcpTemplates',
+    target: { type: 'configured_server', id: 'github', source: 'mcpTemplates' },
+    enabled: true,
+    tags: ['template'],
+    transportSummary: { kind: 'template', label: 'github template' },
+    mutationAvailability: { available: false, operations: [] },
+    actionState: {
+      enable: { available: false, label: 'Enable github', disabledReason: 'already_enabled' },
+      disable: { available: false, label: 'Disable github' },
+    },
+    transport: { type: 'template' },
+    secretInputs: [],
+    instructionOverride: { state: 'upstream' },
+  };
 }
 
 function operationSuccess<T>(operationName: string, operationId: string, result: T): AdminOperationResult<T> {

@@ -20,7 +20,9 @@ function getHeaderSessionId(req: Request): string | undefined {
   return Array.isArray(headerSessionId) ? headerSessionId[0] : headerSessionId;
 }
 
-function createPreparationDependencies(serverManager: ServerManager): RequestContextPreparationDependencies {
+export function createRequestContextPreparationDependencies(
+  serverManager: ServerManager,
+): RequestContextPreparationDependencies {
   return {
     deriveSessionId: deriveContextSessionId,
     async loadRenderedTemplates(context) {
@@ -88,7 +90,7 @@ export async function ensureRequestContextInitialized(
     : undefined;
   const context = authorization?.status === 'trusted' ? authorization.context : undefined;
   const result = await prepareRequestContext({
-    deps: createPreparationDependencies(serverManager),
+    deps: createRequestContextPreparationDependencies(serverManager),
     context,
     transportSessionId,
     filterConfig,

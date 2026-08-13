@@ -72,6 +72,13 @@ describe('templateIdentity', () => {
     expect(first).toBe(second);
   });
 
+  it('excludes instruction overrides from template runtime identity', () => {
+    const first = templateRenderedHash({ command: 'node', args: ['server.js'], instructionOverride: 'first' });
+    const second = templateRenderedHash({ command: 'node', args: ['server.js'], instructionOverride: 'second' });
+
+    expect(first).toBe(second);
+  });
+
   it('creates lookup candidates in session, rendered, static order', () => {
     const candidates = createTemplateLookupCandidates({
       templateName: 'contextual',

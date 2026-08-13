@@ -303,6 +303,144 @@ input {
   margin-top: 16px;
 }
 
+.instruction-workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(210px, 0.55fr) minmax(420px, 1.15fr) minmax(300px, 0.8fr);
+  min-height: 640px;
+  overflow: hidden;
+  border: 1px solid var(--admin-line);
+  border-radius: 8px;
+  background: var(--admin-panel);
+}
+
+.instruction-template-list,
+.instruction-editor-pane,
+.instruction-preview-pane {
+  min-width: 0;
+  padding: 16px;
+}
+
+.instruction-template-list,
+.instruction-editor-pane {
+  border-right: 1px solid var(--admin-line);
+}
+
+.instruction-template-list {
+  display: flex;
+  flex-direction: column;
+  padding-inline: 0;
+}
+
+.instruction-template-list > * {
+  margin-inline: 14px;
+}
+
+.instruction-template-scroll {
+  max-height: 330px;
+  overflow-y: auto;
+  margin: 10px 0 0;
+  padding: 0 8px 10px;
+  border-bottom: 1px solid var(--admin-line);
+}
+
+.instruction-template-row {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  min-height: 58px;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--admin-ink);
+  cursor: pointer;
+  text-align: left;
+}
+
+.instruction-template-row:hover {
+  background: var(--admin-hover);
+}
+
+.instruction-template-row:focus-visible {
+  outline: 2px solid var(--admin-teal);
+  outline-offset: 1px;
+}
+
+.instruction-template-row-active {
+  border-color: #acd2c3;
+  background: var(--admin-teal-soft);
+}
+
+.instruction-template-identity {
+  overflow: hidden;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.instruction-template-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.instruction-template-badges .mantine-Badge-root {
+  height: 18px;
+  padding-inline: 6px;
+  font-size: 9px;
+}
+
+.instruction-library-actions {
+  padding-top: 14px;
+}
+
+.instruction-editor-pane,
+.instruction-preview-pane {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.instruction-pane-heading {
+  min-height: 42px;
+}
+
+.instruction-template-editor textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  line-height: 1.55;
+}
+
+.instruction-editor-actions {
+  padding-top: 12px;
+  border-top: 1px solid var(--admin-line);
+}
+
+.instruction-preview-pane {
+  background: var(--admin-panel-subtle);
+}
+
+.instruction-preview-output {
+  min-height: 230px;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid var(--admin-line);
+  border-left: 3px solid var(--admin-teal);
+  border-radius: 6px;
+  background: var(--admin-panel);
+}
+
+.instruction-preview-output .mantine-Code-root {
+  margin-top: 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.instruction-preview-empty {
+  min-height: 200px;
+  justify-content: center;
+  color: var(--admin-muted);
+}
+
 .inventory-column,
 .inspector-column {
   display: grid;
@@ -899,6 +1037,19 @@ input {
   .dashboard-grid {
     grid-template-columns: 1fr;
   }
+
+  .instruction-workspace-grid {
+    grid-template-columns: minmax(0, 0.55fr) minmax(0, 1.15fr);
+  }
+
+  .instruction-editor-pane {
+    border-right: 0;
+  }
+
+  .instruction-preview-pane {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--admin-line);
+  }
 }
 
 @media (max-width: 991px) {
@@ -987,6 +1138,25 @@ input {
   .operations-panel {
     min-width: 0;
     padding: 13px;
+  }
+
+  .instruction-workspace-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .instruction-template-list,
+  .instruction-editor-pane {
+    border-right: 0;
+    border-bottom: 1px solid var(--admin-line);
+  }
+
+  .instruction-preview-pane {
+    grid-column: auto;
+    border-top: 0;
+  }
+
+  .instruction-template-scroll {
+    max-height: 240px;
   }
 
   .backend-log-layout {

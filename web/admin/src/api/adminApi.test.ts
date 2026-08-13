@@ -10,6 +10,138 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe('admin API client', () => {
+  it('manages instruction-template drafts through explicit lifecycle routes', async () => {
+    const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+    const api = createAdminApi({
+      fetch: async (input, init) => {
+        calls.push({ input, init });
+        return jsonResponse({ result: { templates: [], previewFingerprint: 'preview_1' } });
+      },
+    });
+    const draft = {
+      identity: 'focused',
+      variants: { initialization: 'Initialize {{server_instructions}}', cli: 'CLI {{server_instructions}}' },
+    };
+
+    await api.listInstructionTemplates();
+    await api.saveInstructionTemplate({
+      action: 'create',
+      draft,
+      expectedConfigFingerprint: 'config_1',
+      csrfToken: 'csrf_123',
+      idempotencyKey: 'save-focused-1',
+    });
+    await api.previewInstructionTemplate({
+      identity: 'focused',
+      surface: 'cli',
+      selection: { mode: 'tags', tags: ['filesystem'] },
+      requestContext: { project: { name: 'docs' } },
+      csrfToken: 'csrf_123',
+    });
+    await api.activateInstructionTemplate({
+      identity: 'focused',
+      expectedConfigFingerprint: 'config_1',
+      previewFingerprint: 'preview_1',
+      csrfToken: 'csrf_123',
+      idempotencyKey: 'activate-focused-1',
+    });
+
+    expect(calls).toMatchObject([
+      { input: '/admin/api/instruction-templates' },
+      {
+        input: '/admin/api/instruction-templates',
+        init: {
+          method: 'POST',
+          headers: expect.objectContaining({
+            'X-CSRF-Token': 'csrf_123',
+            'Idempotency-Key': 'save-focused-1',
+          }),
+          body: JSON.stringify({
+            identity: 'focused',
+            variants: draft.variants,
+            expectedConfigFingerprint: 'config_1',
+          }),
+        },
+      },
+      {
+        input: '/admin/api/instruction-templates/focused/preview',
+        init: {
+          method: 'POST',
+          body: JSON.stringify({
+            surface: 'cli',
+            selection: { mode: 'tags', tags: ['filesystem'] },
+            requestContext: { project: { name: 'docs' } },
+          }),
+        },
+      },
+      {
+        input: '/admin/api/instruction-templates/focused/activate',
+        init: {
+          method: 'POST',
+          headers: expect.objectContaining({ 'Idempotency-Key': 'activate-focused-1' }),
+          body: JSON.stringify({ expectedConfigFingerprint: 'config_1', previewFingerprint: 'preview_1' }),
+        },
+      },
+    ]);
+  });
+
+  it('sends idempotency keys on every instruction-template mutation route', async () => {
+    const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+    const api = createAdminApi({
+      fetch: async (input, init) => {
+        calls.push({ input, init });
+        return jsonResponse({ ok: true, operationId: 'op_1', result: {} });
+      },
+    });
+    const common = { expectedConfigFingerprint: 'config_1', csrfToken: 'csrf_1' };
+
+    await api.cloneInstructionTemplate({
+      ...common,
+      sourceIdentity: 'focused',
+      identity: 'focused-copy',
+      idempotencyKey: 'clone-1',
+    });
+    await api.importLegacyInstructionTemplate({ ...common, identity: 'legacy', idempotencyKey: 'import-1' });
+    await api.deleteInstructionTemplate({
+      ...common,
+      identity: 'focused',
+      previewFingerprint: 'delete_1',
+      idempotencyKey: 'delete-1',
+    });
+
+    expect(calls.map((call) => (call.init?.headers as Record<string, string>)['Idempotency-Key'])).toEqual([
+      'clone-1',
+      'import-1',
+      'delete-1',
+    ]);
+  });
+
+  it('previews instruction overrides through the source-qualified configured editor', async () => {
+    const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+    const api = createAdminApi({
+      fetch: async (input, init) => {
+        calls.push({ input, init });
+        return jsonResponse({ ok: true, operationId: 'op_1', result: {} });
+      },
+    });
+
+    await api.getConfiguredServerDetail({ source: 'mcpTemplates', id: 'github/api' });
+    await api.previewConfiguredServerEdit({
+      target: { source: 'mcpTemplates', id: 'github/api' },
+      edit: { instructionOverride: { action: 'set', value: '' } },
+      csrfToken: 'csrf_123',
+    });
+
+    expect(calls[0].input).toBe('/admin/api/configured-servers/mcpTemplates/github%2Fapi');
+    expect(calls[1]).toMatchObject({
+      input: '/admin/api/configured-servers/mcpTemplates/github%2Fapi/preview',
+      init: {
+        method: 'POST',
+        headers: expect.objectContaining({ 'X-CSRF-Token': 'csrf_123' }),
+        body: JSON.stringify({ edit: { instructionOverride: { action: 'set', value: '' } } }),
+      },
+    });
+  });
   it('opens one same-origin backend log stream and decodes multiplexed events', () => {
     const listeners = new Map<string, (event: MessageEvent<string>) => void>();
     const close = vi.fn();
@@ -330,7 +462,7 @@ describe('admin API client', () => {
     });
 
     const response = await api.previewConfiguredServerEdit({
-      name: 'github/api server',
+      target: 'github/api server',
       csrfToken: 'csrf_123',
       idempotencyKey: 'apply-attempt-123',
       connectivityCheck: 'manual',
@@ -391,7 +523,7 @@ describe('admin API client', () => {
     });
 
     await api.applyConfiguredServerEdit({
-      name: 'github/api server',
+      target: 'github/api server',
       csrfToken: 'csrf_123',
       idempotencyKey: 'apply-attempt-123',
       edit: { id: 'github-renamed' },
@@ -431,7 +563,7 @@ describe('admin API client', () => {
 
     await expect(
       api.applyConfiguredServerEdit({
-        name: 'github',
+        target: 'github',
         csrfToken: 'csrf',
         idempotencyKey: 'apply-1',
         edit: { enabled: true },

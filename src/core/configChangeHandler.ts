@@ -24,6 +24,14 @@ export class ConfigChangeHandler {
   /**
    * Get the ServerManager instance lazily
    */
+  private tryGetServerManager(): ServerManager | undefined {
+    try {
+      return ServerManager.current;
+    } catch {
+      return undefined;
+    }
+  }
+
   private getServerManager(): ServerManager {
     return ServerManager.current;
   }
@@ -55,6 +63,7 @@ export class ConfigChangeHandler {
    */
   private async handleConfigChanges(changes: ConfigChange[]): Promise<void> {
     this.reconcileDeclaredTemplates();
+    this.refreshRuntimeInstructionConfiguration();
     if (changes.length === 0) {
       return;
     }
@@ -79,9 +88,15 @@ export class ConfigChangeHandler {
     await this.notifyClientsIfNeeded(appliedChanges, newConfig);
   }
 
+  private refreshRuntimeInstructionConfiguration(): void {
+    if (typeof this.configManager.getRuntimeInstructionConfiguration !== 'function') return;
+    const aggregator = this.tryGetServerManager()?.getInstructionAggregator();
+    aggregator?.setRuntimeInstructionConfiguration(this.configManager.getRuntimeInstructionConfiguration());
+  }
+
   private reconcileDeclaredTemplates(): void {
     if (typeof this.configManager.loadDeclaredServerConfigs !== 'function') return;
-    const serverManager = this.getServerManager();
+    const serverManager = this.tryGetServerManager();
     if (typeof serverManager?.getTemplateServerManager !== 'function') return;
 
     const { templateServers, errors } = this.configManager.loadDeclaredServerConfigs();
@@ -215,9 +230,9 @@ export class ConfigChangeHandler {
       return true; // Conservative approach - restart if we don't know what changed
     }
 
-    // Only restart if non-tag fields changed
-    const nonTagFields = fieldsChanged.filter((field) => field !== 'tags');
-    return nonTagFields.length > 0;
+    // Tags and instruction overrides are runtime metadata and do not change the backend process.
+    const backendFields = fieldsChanged.filter((field) => field !== 'tags' && field !== 'instructionOverride');
+    return backendFields.length > 0;
   }
 
   /**

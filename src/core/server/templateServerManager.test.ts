@@ -381,6 +381,36 @@ describe('TemplateServerManager', () => {
       );
     });
 
+    it('keeps live instances for override-only refreshes but retires them for functional changes', async () => {
+      const manager = templateServerManager as any;
+      const instance = {
+        id: 'instance-id',
+        instanceKey: 'test-template:rendered',
+        templateName: 'test-template',
+        client: {},
+        clientIds: new Set(['client-a']),
+      };
+      manager.clientInstancePool.getTemplateInstances.mockReturnValue([instance]);
+
+      templateServerManager.rebuildTemplateIndex({
+        mcpTemplates: { 'test-template': { command: 'node', args: ['server.js'], instructionOverride: 'first' } },
+      });
+      templateServerManager.rebuildTemplateIndex({
+        mcpTemplates: { 'test-template': { command: 'node', args: ['server.js'], instructionOverride: 'second' } },
+      });
+      await Promise.resolve();
+
+      expect(manager.clientInstancePool.removeInstance).not.toHaveBeenCalled();
+      expect(manager.clientTemplateTracker.removeClientFromInstance).not.toHaveBeenCalled();
+
+      templateServerManager.rebuildTemplateIndex({
+        mcpTemplates: { 'test-template': { command: 'node', args: ['replacement.js'], instructionOverride: 'second' } },
+      });
+      await vi.waitFor(() =>
+        expect(manager.clientInstancePool.removeInstance).toHaveBeenCalledWith('test-template:rendered'),
+      );
+    });
+
     it('queues another retirement pass when configuration changes again during retirement', async () => {
       const manager = templateServerManager as any;
       let finishFirstRetirement!: () => void;
@@ -620,13 +650,41 @@ describe('TemplateServerManager', () => {
       const manager = templateServerManager as any;
       const publisher = manager.clientInstancePool.setSupervisionPublisher.mock.calls[0][0];
       publisher(first, snapshot('restarting', null));
-      expect(aggregator.setInstructions).toHaveBeenLastCalledWith('test-template', 'instructions-b');
+      expect(aggregator.setInstructions).toHaveBeenLastCalledWith(
+        { source: 'mcpTemplates', name: 'test-template' },
+        'instructions-b',
+        'test-template:client-b',
+      );
 
       publisher(second, snapshot('crash-loop', null));
-      expect(aggregator.setInstructions).toHaveBeenLastCalledWith('test-template', undefined);
+      expect(aggregator.setInstructions).toHaveBeenLastCalledWith(
+        { source: 'mcpTemplates', name: 'test-template' },
+        undefined,
+        'test-template:client-b',
+      );
 
       publisher(first, snapshot('connected', 201));
-      expect(aggregator.setInstructions).toHaveBeenLastCalledWith('test-template', 'instructions-a');
+      expect(aggregator.setInstructions).toHaveBeenCalledWith(
+        { source: 'mcpTemplates', name: 'test-template' },
+        'instructions-a',
+        'test-template:client-a',
+      );
+    });
+
+    it('registers template provenance even when upstream instructions are blank', async () => {
+      const instance = createInstance('client-a', '', 101);
+      (instance as any).supervision = undefined;
+      const outboundConns = new Map<string, any>();
+      const aggregator = { setInstructions: vi.fn(), removeServer: vi.fn() };
+      templateServerManager.setInstructionAggregator(aggregator as any);
+
+      await registerInstance(instance, outboundConns);
+
+      expect(aggregator.setInstructions).toHaveBeenCalledWith(
+        { source: 'mcpTemplates', name: 'test-template' },
+        '',
+        'test-template:client-a',
+      );
     });
   });
 
