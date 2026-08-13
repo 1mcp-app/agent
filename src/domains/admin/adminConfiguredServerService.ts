@@ -980,7 +980,8 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
   async getConfiguredServerDetail(
     input: ConfiguredServerDetailInput,
   ): Promise<AdminOperationResult<ConfiguredServerDetailResult>> {
-    const source = input.targetSource ?? 'mcpServers';
+    const configuredState = this.readConfiguredServerState(input.targetName, input.targetSource);
+    const source = configuredState.source;
     const context = {
       ...input.context,
       target: { type: 'configured_server', id: `${source}:${input.targetName}` },
@@ -989,7 +990,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
       context,
       operationName: 'getConfiguredServerDetail',
       run: async () => {
-        const { currentConfig, serverDefaults } = this.readConfiguredServerState(input.targetName, source);
+        const { currentConfig, serverDefaults } = configuredState;
         const server = createConfiguredServerReadModel(
           input.targetName,
           mergeGlobalAndServerConfig(serverDefaults, currentConfig),
@@ -1019,12 +1020,13 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
   async previewConfiguredServerEdit(
     input: ConfiguredServerPreviewInput,
   ): Promise<AdminOperationResult<ConfiguredServerPreviewResult>> {
-    const source = input.targetSource ?? 'mcpServers';
+    const configuredState = this.readConfiguredServerState(input.targetName, input.targetSource);
+    const source = configuredState.source;
     const context = {
       ...input.context,
       target: { type: 'configured_server', id: `${source}:${input.targetName}` },
     };
-    const { currentConfig, serverDefaults } = this.readConfiguredServerState(input.targetName, source);
+    const { currentConfig, serverDefaults } = configuredState;
     return this.options.operationService.executeDryRun({
       context,
       operationName: 'previewConfiguredServerEdit',
@@ -1035,7 +1037,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
   async applyConfiguredServerEdit(
     input: ConfiguredServerApplyInput,
   ): Promise<AdminOperationResult<ConfiguredServerApplyResult>> {
-    const source = input.targetSource ?? 'mcpServers';
+    const source = this.resolveConfiguredServerSource(input.targetName, input.targetSource);
     const context = {
       ...input.context,
       target: { type: 'configured_server', id: `${source}:${input.targetName}` },
@@ -1232,18 +1234,28 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
 
   private readConfiguredServerState(
     targetName: string,
-    targetSource: ConfiguredServerTargetSource = 'mcpServers',
+    targetSource?: ConfiguredServerTargetSource,
   ): {
     currentConfig: MCPServerParams;
     serverDefaults: GlobalTransportConfig | undefined;
     source: ConfiguredToolTargetSource;
   } {
     const parsed = this.options.readConfigDocument();
-    const currentConfig = parsed?.[targetSource]?.[targetName];
+    const source = this.resolveConfiguredServerSource(targetName, targetSource, parsed);
+    const currentConfig = parsed?.[source]?.[targetName];
     if (!currentConfig) {
       throw new AdminConfiguredServerNotFoundError(targetName);
     }
-    return { currentConfig, serverDefaults: parsed?.serverDefaults, source: targetSource };
+    return { currentConfig, serverDefaults: parsed?.serverDefaults, source };
+  }
+
+  private resolveConfiguredServerSource(
+    targetName: string,
+    targetSource?: ConfiguredServerTargetSource,
+    document: ConfiguredServerConfigDocument | null = this.options.readConfigDocument(),
+  ): ConfiguredServerTargetSource {
+    if (targetSource) return targetSource;
+    return document?.mcpTemplates?.[targetName] ? 'mcpTemplates' : 'mcpServers';
   }
 
   private readConfiguredServerConfig(targetName: string): MCPServerParams {
@@ -1263,11 +1275,11 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
     source: ConfiguredToolTargetSource = 'mcpServers',
   ): Promise<ConfiguredServerPreviewResult> {
     const normalizedEdit = normalizeEditDraft(input.edit);
-    const sourceValidation = validateEditForSource(input.targetSource ?? 'mcpServers', normalizedEdit.edit);
+    const sourceValidation = validateEditForSource(source, normalizedEdit.edit);
     const currentReadModel = createConfiguredServerReadModel(
       input.targetName,
       mergeGlobalAndServerConfig(serverDefaults, currentConfig),
-      input.targetSource ?? 'mcpServers',
+      source,
     );
     const secretValidation = validateSecretEditCapabilities(normalizedEdit.edit, currentReadModel.secretInputs);
     const transportApplicabilityValidation = validateTransportFieldApplicability(currentConfig, normalizedEdit.edit);
@@ -1278,7 +1290,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
     const proposedReadModel = createConfiguredServerReadModel(
       proposedTargetName,
       mergeGlobalAndServerConfig(serverDefaults, proposedConfig),
-      input.targetSource ?? 'mcpServers',
+      source,
     );
     const proposedTransportType = configuredTransportType(proposedConfig);
     const serverValidation = validatePreviewServerConfig(proposedConfig);
@@ -1338,7 +1350,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
       proposedTargetName,
       previewFingerprint: previewFingerprint({
         targetName: input.targetName,
-        targetSource: input.targetSource ?? 'mcpServers',
+        targetSource: source,
         sourceFingerprint: fingerprintConfiguredServerTarget(currentConfig),
         globalConfigFingerprint: fingerprintConfiguredServerDefaults(serverDefaults),
         edit: normalizedEdit.edit,
@@ -1350,7 +1362,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
       }),
       validation,
       diff,
-      configChange: previewConfigChange(input.targetName, changed, input.targetSource ?? 'mcpServers'),
+      configChange: previewConfigChange(input.targetName, changed, source),
       connectivityCheck: await this.previewConnectivityCheck({
         targetName: proposedTargetName,
         serverConfig: proposedConfig,
@@ -1488,13 +1500,14 @@ function validateEditForSource(
   edit: ConfiguredServerEditDraft,
 ): ConfiguredServerPreviewValidation {
   if (source !== 'mcpTemplates') return { status: 'valid', errors: [] };
-  const unsupported = Object.keys(edit).filter((key) => key !== 'instructionOverride');
+  const supportedTemplateMetadata = new Set(['instructionOverride', 'disabledTools', 'toolDescriptionOverrides']);
+  const unsupported = Object.keys(edit).filter((key) => !supportedTemplateMetadata.has(key));
   return {
     status: unsupported.length === 0 ? 'valid' : 'invalid',
     errors: unsupported.map((key) => ({
       fieldPath: [key],
       code: 'template_edit_field_unsupported',
-      message: 'Template Server edits may only change the instruction override.',
+      message: 'Template Server edits may only change instruction and tool metadata.',
     })),
   };
 }
