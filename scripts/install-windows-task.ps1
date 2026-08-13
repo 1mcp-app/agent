@@ -137,7 +137,12 @@ if ($HostAddress -match '[&<>|@^(){};"`]') {
     Write-Error "HostAddress contains forbidden characters: '$HostAddress'. Only IPv4/IPv6 addresses and hostnames are allowed."
 }
 
-$argStr = "serve --transport http --host $HostAddress --port $Port --config-dir `"$resolvedConfigDir`""
+# Ensure logs directory exists for --log-file in Session 0
+$logDir  = Join-Path $resolvedConfigDir 'logs'
+New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+$logFile = Join-Path $logDir 'server.log'
+
+$argStr = "serve --transport http --host $HostAddress --port $Port --config-dir `"$resolvedConfigDir`" --log-file `"$logFile`""
 
 # ponytail: AtStartup + Password = Session 0, no console window visible — no VBS launcher needed.
 $action = if ($PSCmdlet.ParameterSetName -eq 'Binary') {
