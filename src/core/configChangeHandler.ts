@@ -142,9 +142,12 @@ export class ConfigChangeHandler {
       }
 
       case ConfigChangeType.REMOVED:
-        await this.handleServerRemoved(change.serverName);
-        clearLastConfiguredToolSnapshot(change.serverName);
-        return true;
+        try {
+          await this.handleServerRemoved(change.serverName);
+          return true;
+        } finally {
+          clearLastConfiguredToolSnapshot(change.serverName);
+        }
 
       case ConfigChangeType.MODIFIED: {
         const config = newConfig[change.serverName];

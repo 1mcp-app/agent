@@ -192,6 +192,9 @@ export function useConfiguredServerEdit({
     async (model: string) => {
       const current = stateRef.current;
       if (current.status !== 'loaded' || current.applyBusy || model === current.toolModel) return;
+      const activeSession = sessionRef.current;
+      if (!activeSession) return;
+      const sessionKey = activeSession.csrfToken;
       const requestId = toolModelRequestRef.current + 1;
       toolModelRequestRef.current = requestId;
       invalidatePreview();
@@ -199,6 +202,7 @@ export function useConfiguredServerEdit({
         const detail = await apiRef.current.getConfiguredServerDetail(current.serverId, model);
         if (
           requestId !== toolModelRequestRef.current ||
+          sessionRef.current?.csrfToken !== sessionKey ||
           stateRef.current.status !== 'loaded' ||
           stateRef.current.serverId !== current.serverId
         ) {
@@ -206,7 +210,7 @@ export function useConfiguredServerEdit({
         }
         if (detail.toolInventory) dispatch({ type: 'toolInventoryRecalculated', inventory: detail.toolInventory });
       } catch (error) {
-        if (requestId !== toolModelRequestRef.current) return;
+        if (requestId !== toolModelRequestRef.current || sessionRef.current?.csrfToken !== sessionKey) return;
         if (!handleUnauthenticated(error)) {
           dispatch({ type: 'previewFailed', message: `Token estimate failed: ${failureMessage(error)}` });
         }

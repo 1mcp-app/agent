@@ -44,6 +44,16 @@ describe('configured tool snapshots', () => {
     expect(readConfiguredToolSnapshot(outbound)?.map((tool) => tool.name)).toEqual(['first', 'second']);
   });
 
+  it('rejects a cyclic protocol page sequence without retaining partial state', () => {
+    const outbound = connection('cyclic-target');
+
+    publishConfiguredToolPage(outbound, [{ name: 'first', inputSchema: { type: 'object' } }], undefined, 'page-2');
+    publishConfiguredToolPage(outbound, [{ name: 'second', inputSchema: { type: 'object' } }], 'page-2', 'page-2');
+    publishConfiguredToolPage(outbound, [{ name: 'third', inputSchema: { type: 'object' } }], 'page-2', undefined);
+
+    expect(readConfiguredToolSnapshot(outbound)).toBeUndefined();
+  });
+
   it('collects every upstream page for runtime discovery', async () => {
     const listPage = vi.fn(async (cursor: string | undefined) =>
       cursor === undefined

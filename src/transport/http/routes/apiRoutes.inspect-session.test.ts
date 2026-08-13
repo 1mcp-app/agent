@@ -10,6 +10,7 @@ const mockedLoadDeclaredServerConfigs = vi.hoisted(() => vi.fn());
 const mockedLoadConfigWithTemplates = vi.hoisted(() => vi.fn());
 const mockedExtractRequestContext = vi.hoisted(() => vi.fn());
 const mockedGetTransportConfig = vi.hoisted(() => vi.fn());
+const mockedGetConfiguredServerTargets = vi.hoisted(() => vi.fn());
 
 vi.mock('@src/config/configManager.js', () => ({
   ConfigManager: {
@@ -24,6 +25,7 @@ vi.mock('@src/config/mcpConfigManager.js', () => ({
   McpConfigManager: {
     getInstance: vi.fn(() => ({
       getTransportConfig: mockedGetTransportConfig,
+      getConfiguredServerTargets: mockedGetConfiguredServerTargets,
     })),
   },
 }));
@@ -122,6 +124,8 @@ describe('apiRoutes inspect', () => {
     });
     mockedGetTransportConfig.mockReset();
     mockedGetTransportConfig.mockReturnValue({});
+    mockedGetConfiguredServerTargets.mockReset();
+    mockedGetConfiguredServerTargets.mockImplementation(() => mockedGetTransportConfig());
     mockedLoadConfigWithTemplates.mockResolvedValue({
       staticServers: {},
       templateServers: {},

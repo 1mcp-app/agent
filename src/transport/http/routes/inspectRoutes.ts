@@ -58,7 +58,9 @@ interface DirectListToolsResult {
 
 type DeclaredServers = ReturnType<ConfigManager['loadDeclaredServerConfigs']>;
 type ServerConfigMap =
-  ReturnType<typeof McpConfigManager.getInstance> extends { getTransportConfig(): infer TResult } ? TResult : never;
+  ReturnType<typeof McpConfigManager.getInstance> extends { getConfiguredServerTargets(): infer TResult }
+    ? TResult
+    : never;
 
 async function listDirectServerTools(
   connection: NonNullable<FilteredConnections extends Map<unknown, infer TValue> ? TValue : never>,
@@ -75,7 +77,10 @@ async function listDirectServerTools(
 }
 
 function getServerConfigs() {
-  return McpConfigManager.getInstance().getTransportConfig();
+  const manager = McpConfigManager.getInstance();
+  return typeof manager.getConfiguredServerTargets === 'function'
+    ? manager.getConfiguredServerTargets()
+    : manager.getTransportConfig();
 }
 
 function getServerTargetConfigs(declaredServers: DeclaredServers): ServerConfigMap {
@@ -499,7 +504,9 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
           serverName,
         );
         toolsResult = {
-          tools: capTools.map(summarizeToolSchema),
+          tools: capTools.map((tool) =>
+            summarizeToolSchema(applyEffectiveToolDescription(tool, serverConfigs[serverName], serverName)),
+          ),
           totalTools: capTools.length,
           hasMore: false,
         };

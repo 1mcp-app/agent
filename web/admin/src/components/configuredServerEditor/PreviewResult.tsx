@@ -109,7 +109,9 @@ export function PreviewResult({
               />
             </SimpleGrid>
             {preview.toolSelection.requiresZeroEnabledConfirmation ? (
-              <Alert color="red">Applying this preview disables every currently observed tool.</Alert>
+              <Alert color="red" role="alert">
+                Applying this preview disables every currently observed tool.
+              </Alert>
             ) : null}
           </Stack>
         ) : null}

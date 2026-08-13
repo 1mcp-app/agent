@@ -16,6 +16,7 @@ import { AsyncLoadingOrchestratorEvent } from './asyncLoadingOrchestratorEvent.j
 import { AggregatedCapabilities, CapabilityAggregator } from './capabilityAggregator.js';
 import { type CapabilityVisibility, getCapabilityVisibleServerNames } from './capabilityVisibility.js';
 import {
+  clearConfiguredToolSnapshot,
   collectConfiguredToolPages,
   publishCompleteConfiguredToolTargetSnapshots,
   publishConfiguredToolSnapshot,
@@ -202,6 +203,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
           );
         }
       } catch (error) {
+        clearConfiguredToolSnapshot(connection);
         const errorMessage = error instanceof Error ? error.message : String(error);
         errorIf(() => ({
           message: 'Failed to list tools from server during registry build',

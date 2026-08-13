@@ -7,7 +7,7 @@ function normalizeToolName(toolName: string): string {
   return toolName.trim();
 }
 
-function getRawToolName(logicalServerName: string, toolName: string): string {
+export function getLogicalToolName(logicalServerName: string, toolName: string): string {
   const normalizedToolName = normalizeToolName(toolName);
   const qualifiedPrefix = `${logicalServerName}${MCP_URI_SEPARATOR}`;
 
@@ -25,7 +25,7 @@ function getComparableToolNames(logicalServerName: string, toolName: string): st
   }
 
   const names = new Set<string>([normalizedToolName]);
-  const rawToolName = getRawToolName(logicalServerName, normalizedToolName);
+  const rawToolName = getLogicalToolName(logicalServerName, normalizedToolName);
   if (rawToolName) {
     names.add(rawToolName);
     names.add(`${logicalServerName}${MCP_URI_SEPARATOR}${rawToolName}`);
@@ -35,7 +35,7 @@ function getComparableToolNames(logicalServerName: string, toolName: string): st
 }
 
 export function getDisabledToolMessage(logicalServerName: string, toolName: string): string {
-  const displayToolName = getRawToolName(logicalServerName, toolName);
+  const displayToolName = getLogicalToolName(logicalServerName, toolName);
   return `Tool is disabled: ${logicalServerName}:${displayToolName}. Use '1mcp mcp tools enable ${logicalServerName} ${displayToolName}' to re-enable it.`;
 }
 
@@ -58,6 +58,12 @@ export function getDisabledTools(serverConfig?: Pick<MCPServerParams, 'disabledT
   }
 
   return disabledTools;
+}
+
+export function normalizeDisabledToolsForServer(logicalServerName: string, toolNames: readonly string[]): string[] {
+  return Array.from(
+    new Set(toolNames.map((toolName) => getLogicalToolName(logicalServerName, toolName)).filter(Boolean)),
+  ).sort((left, right) => left.localeCompare(right));
 }
 
 export function getDisabledToolsForServer(
@@ -125,7 +131,9 @@ export function withToolDisabledState(
   );
 
   if (disabled && normalizedToolName) {
-    disabledTools.add(logicalServerName ? getRawToolName(logicalServerName, normalizedToolName) : normalizedToolName);
+    disabledTools.add(
+      logicalServerName ? getLogicalToolName(logicalServerName, normalizedToolName) : normalizedToolName,
+    );
   }
 
   const nextDisabledTools = Array.from(disabledTools).sort((left, right) => left.localeCompare(right));

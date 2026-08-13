@@ -1,4 +1,8 @@
 import { ConfigChangeType, ConfigManager } from '@src/config/configManager.js';
+import {
+  publishLastConfiguredToolSnapshot,
+  readLastConfiguredToolSnapshot,
+} from '@src/core/capabilities/configuredToolSnapshot.js';
 import { ConfigChangeHandler } from '@src/core/configChangeHandler.js';
 import logger from '@src/logger/logger.js';
 
@@ -181,6 +185,19 @@ describe('ConfigChangeHandler', () => {
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
       expect(ServerManager.current.unloadMcpServer).toHaveBeenCalledWith('removed-server');
+    });
+
+    it('clears the retained tool snapshot when unloading a removed server fails', async () => {
+      publishLastConfiguredToolSnapshot('removed-server', [{ name: 'stale', inputSchema: { type: 'object' } }]);
+      const { ServerManager } = await import('@src/core/server/serverManager.js');
+      (ServerManager.current.unloadMcpServer as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new Error('Unload failed'),
+      );
+      const changeHandler = (mockConfigManager.on as any).mock.calls[0][1];
+
+      await changeHandler([{ serverName: 'removed-server', type: ConfigChangeType.REMOVED }]);
+
+      expect(readLastConfiguredToolSnapshot('removed-server')).toEqual([]);
     });
   });
 

@@ -24,6 +24,7 @@ import { createAdminRoutes } from '@src/transport/http/routes/adminRoutes.js';
 import express from 'express';
 import { type Browser, chromium, type Locator, type Page } from 'playwright';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
 
 const ADMIN_BUILD_DIR = path.join(process.cwd(), 'build', 'admin');
 const ADMIN_BUILD_INDEX = path.join(ADMIN_BUILD_DIR, 'index.html');
@@ -204,7 +205,7 @@ describe('admin SPA browser smoke', () => {
       await expectText(page, 'Configured Tool Selection');
 
       const searchTool = page.locator('.configured-tool-row', { hasText: 'search' });
-      await searchTool.getByRole('switch', { name: 'Enable search' }).click();
+      await searchTool.getByRole('switch', { name: 'Enable search' }).locator('..').click();
       await searchTool.getByRole('textbox', { name: 'Description override' }).fill('Search approved repositories');
 
       const tags = page.getByRole('textbox', { name: 'Tags' });
@@ -1150,6 +1151,13 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
         edit: input.edit,
       };
       const edit = input.edit && typeof input.edit === 'object' && !Array.isArray(input.edit) ? input.edit : {};
+      const toolEdit = z
+        .object({
+          disabledTools: z.array(z.string()).optional(),
+          toolDescriptionOverrides: z.record(z.string(), z.string()).optional(),
+        })
+        .passthrough()
+        .parse(edit);
       const proposedTargetName =
         typeof (edit as { id?: unknown }).id === 'string' ? (edit as { id: string }).id : input.targetName;
       const server =
@@ -1161,16 +1169,8 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
       const proposedTags = Array.isArray((edit as { tags?: unknown }).tags)
         ? (edit as { tags: unknown[] }).tags.filter((tag): tag is string => typeof tag === 'string')
         : (server?.tags ?? []);
-      const proposedDisabledTools = Array.isArray((edit as { disabledTools?: unknown }).disabledTools)
-        ? (edit as { disabledTools: unknown[] }).disabledTools.filter(
-            (name): name is string => typeof name === 'string',
-          )
-        : disabledTools;
-      const proposedOverrides =
-        (edit as { toolDescriptionOverrides?: unknown }).toolDescriptionOverrides &&
-        typeof (edit as { toolDescriptionOverrides?: unknown }).toolDescriptionOverrides === 'object'
-          ? ((edit as { toolDescriptionOverrides: Record<string, string> }).toolDescriptionOverrides ?? {})
-          : toolDescriptionOverrides;
+      const proposedDisabledTools = toolEdit.disabledTools ? toolEdit.disabledTools : disabledTools;
+      const proposedOverrides = toolEdit.toolDescriptionOverrides ?? toolDescriptionOverrides;
       const currentInventory = configuredToolInventory(disabledTools, toolDescriptionOverrides, input.model);
       const proposedInventory = configuredToolInventory(proposedDisabledTools, proposedOverrides, input.model);
       return operationSuccess('previewConfiguredServerEdit', 'op_preview', {
@@ -1225,6 +1225,13 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
     },
     async applyConfiguredServerEdit(input) {
       const edit = input.edit && typeof input.edit === 'object' && !Array.isArray(input.edit) ? input.edit : {};
+      const toolEdit = z
+        .object({
+          disabledTools: z.array(z.string()).optional(),
+          toolDescriptionOverrides: z.record(z.string(), z.string()).optional(),
+        })
+        .passthrough()
+        .parse(edit);
       const server =
         input.targetSource === 'mcpTemplates'
           ? templateServer.id === input.targetName
@@ -1246,19 +1253,8 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
       } else if (server && instructionOverride?.action === 'remove') {
         server.instructionOverride = { state: 'upstream' };
       }
-      if (Array.isArray((edit as { disabledTools?: unknown }).disabledTools)) {
-        disabledTools = (edit as { disabledTools: unknown[] }).disabledTools.filter(
-          (name): name is string => typeof name === 'string',
-        );
-      }
-      if (
-        (edit as { toolDescriptionOverrides?: unknown }).toolDescriptionOverrides &&
-        typeof (edit as { toolDescriptionOverrides?: unknown }).toolDescriptionOverrides === 'object'
-      ) {
-        toolDescriptionOverrides = {
-          ...(edit as { toolDescriptionOverrides: Record<string, string> }).toolDescriptionOverrides,
-        };
-      }
+      if (toolEdit.disabledTools) disabledTools = toolEdit.disabledTools;
+      if (toolEdit.toolDescriptionOverrides) toolDescriptionOverrides = { ...toolEdit.toolDescriptionOverrides };
       return operationSuccess('applyConfiguredServerEdit', 'op_apply', {
         originalTargetName: input.targetName,
         targetName: input.targetName,

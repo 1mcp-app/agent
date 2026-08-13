@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import { mergeGlobalAndServerConfig } from '@src/config/mcpConfigMerge.js';
+import { normalizeDisabledToolsForServer } from '@src/core/server/disabledTools.js';
 import {
   GLOBAL_TRANSPORT_CONFIG_KEYS,
   type GlobalTransportConfig,
@@ -1060,7 +1061,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
           source,
         );
         const applicableEdit = filterApplicableSecretEdits(normalizedEdit.edit, currentReadModel.secretInputs);
-        const proposedConfig = applyEditDraft(currentConfig, applicableEdit, serverDefaults);
+        const proposedConfig = applyEditDraft(currentConfig, applicableEdit, serverDefaults, input.targetName);
         const proposedReadModel = createConfiguredServerReadModel(
           preview.proposedTargetName,
           mergeGlobalAndServerConfig(serverDefaults, proposedConfig),
@@ -1273,7 +1274,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
     const overrideValidation = validateTransportOverrideClears(currentConfig, normalizedEdit.edit);
     const applicableEdit = filterApplicableSecretEdits(normalizedEdit.edit, currentReadModel.secretInputs);
     const proposedTargetName = applicableEdit.id?.trim() || input.targetName;
-    const proposedConfig = applyEditDraft(currentConfig, applicableEdit, serverDefaults);
+    const proposedConfig = applyEditDraft(currentConfig, applicableEdit, serverDefaults, input.targetName);
     const proposedReadModel = createConfiguredServerReadModel(
       proposedTargetName,
       mergeGlobalAndServerConfig(serverDefaults, proposedConfig),
@@ -2169,6 +2170,7 @@ function applyEditDraft(
   currentConfig: MCPServerParams,
   edit: ConfiguredServerEditDraft,
   serverDefaults?: GlobalTransportConfig,
+  logicalServerName?: string,
 ): MCPServerParams {
   const nextConfig = cloneServerConfig(currentConfig);
 
@@ -2195,8 +2197,11 @@ function applyEditDraft(
   }
 
   if (Array.isArray(edit.disabledTools)) {
-    if (edit.disabledTools.length === 0) delete nextConfig.disabledTools;
-    else nextConfig.disabledTools = [...edit.disabledTools];
+    const disabledTools = logicalServerName
+      ? normalizeDisabledToolsForServer(logicalServerName, edit.disabledTools)
+      : edit.disabledTools;
+    if (disabledTools.length === 0) delete nextConfig.disabledTools;
+    else nextConfig.disabledTools = disabledTools;
   }
 
   if (edit.toolDescriptionOverrides) {
@@ -2741,7 +2746,9 @@ function createConfiguredToolSelectionPreview(
     targetEnabled: proposed.targetEnabled,
     effect: proposed.targetEnabled ? 'immediate' : 'deferred_until_target_enabled',
     requiresZeroEnabledConfirmation:
-      proposed.rows.length > 0 && proposed.rows.every((row) => !row.observed || !row.enabled),
+      changedTools.length > 0 &&
+      current.rows.some((row) => row.observed && row.enabled) &&
+      !proposed.rows.some((row) => row.observed && row.enabled),
   };
 }
 

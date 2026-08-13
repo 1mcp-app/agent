@@ -55,6 +55,20 @@ export function ConfiguredToolTable({
     });
   }, [draft, filter, inventory.rows, query]);
   const visibleNames = visibleRows.map((row) => row.name);
+  const modelOptions = useMemo(
+    () => Array.from(new Set(['gpt-4o', 'gpt-4o-mini', 'gpt-3.5-turbo', inventory.model].filter(Boolean))),
+    [inventory.model],
+  );
+  const draftSummary = useMemo(() => {
+    let disabledCount = 0;
+    let enabledTokens = 0;
+    for (const row of inventory.rows) {
+      const enabled = draft[row.name]?.enabled ?? row.enabled;
+      if (enabled) enabledTokens += row.approximateTokens;
+      else disabledCount += 1;
+    }
+    return { disabled: disabledCount, enabledTokens };
+  }, [draft, inventory.rows]);
 
   return (
     <Stack className="configured-tool-table" gap="sm">
@@ -62,7 +76,7 @@ export function ConfiguredToolTable({
         <div>
           <Text fw={800}>Configured Tool Selection</Text>
           <Text c="dimmed" size="xs">
-            {inventory.counts.observed} observed, {inventory.counts.disabled} disabled, {inventory.counts.unresolved}{' '}
+            {inventory.counts.observed} observed, {draftSummary.disabled} disabled, {inventory.counts.unresolved}{' '}
             unresolved
           </Text>
           {inventory.freshness === 'unavailable' ? (
@@ -75,7 +89,7 @@ export function ConfiguredToolTable({
           label="Estimate model"
           aria-label="Token estimate model"
           value={inventory.model}
-          data={['gpt-4o', 'gpt-4o-mini', 'gpt-3.5-turbo']}
+          data={modelOptions}
           allowDeselect={false}
           disabled={disabled}
           onChange={(value) => {
@@ -104,7 +118,7 @@ export function ConfiguredToolTable({
       </Group>
       <Group justify="space-between">
         <Text c="dimmed" size="xs">
-          {visibleRows.length} visible tools, approximately {inventory.approximateTokens.enabled} enabled tokens
+          {visibleRows.length} visible tools, approximately {draftSummary.enabledTokens} enabled tokens
         </Text>
         <Group gap="xs">
           <Button

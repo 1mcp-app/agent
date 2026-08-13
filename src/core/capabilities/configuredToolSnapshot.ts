@@ -3,7 +3,10 @@ import type { ListToolsResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 import { ClientStatus, type OutboundConnection, type OutboundConnections } from '@src/core/types/index.js';
 
 const snapshots = new WeakMap<OutboundConnection, Tool[]>();
-const pendingPages = new WeakMap<OutboundConnection, { nextCursor: string; tools: Tool[] }>();
+const pendingPages = new WeakMap<
+  OutboundConnection,
+  { nextCursor: string; tools: Tool[]; seenCursors: Set<string>; pageCount: number }
+>();
 const lastCompleteTargetSnapshots = new Map<string, Tool[]>();
 const MAX_TOOL_PAGES = 1_000;
 
@@ -27,8 +30,14 @@ export function publishConfiguredToolPage(
   nextCursor: string | undefined,
 ): void {
   const previous = cursor === undefined ? undefined : pendingPages.get(connection);
-  if (cursor !== undefined && previous?.nextCursor !== cursor) {
+  if (
+    cursor !== undefined &&
+    (previous?.nextCursor !== cursor ||
+      previous.seenCursors.has(nextCursor ?? '') ||
+      previous.pageCount >= MAX_TOOL_PAGES)
+  ) {
     pendingPages.delete(connection);
+    snapshots.delete(connection);
     return;
   }
 
@@ -37,7 +46,12 @@ export function publishConfiguredToolPage(
     pendingPages.delete(connection);
     publishConfiguredToolSnapshot(connection, accumulated);
   } else {
-    pendingPages.set(connection, { nextCursor, tools: accumulated });
+    pendingPages.set(connection, {
+      nextCursor,
+      tools: accumulated,
+      seenCursors: new Set([...(previous?.seenCursors ?? []), nextCursor]),
+      pageCount: (previous?.pageCount ?? 0) + 1,
+    });
     snapshots.delete(connection);
   }
 }

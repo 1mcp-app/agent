@@ -511,7 +511,7 @@ describe('AdminConfiguredServerService', () => {
             observedInstanceCount: 1,
             activeInstanceCount: 1,
             observedInSomeInstances: false,
-            approximateTokens: enabled ? 25 : 25,
+            approximateTokens: 25,
           },
         ],
         counts: { observed: 1, enabled: enabled ? 1 : 0, disabled: enabled ? 0 : 1, unresolved: 0 },
@@ -567,14 +567,69 @@ describe('AdminConfiguredServerService', () => {
     expect(readConfig().mcpServers.filesystem.disabledTools).toBeUndefined();
   });
 
+  it('removes a qualified denylist alias when applying the logical enabled selection', async () => {
+    writeConfig({
+      mcpServers: {
+        filesystem: {
+          type: 'stdio',
+          command: 'node',
+          disabledTools: ['filesystem_1mcp_write_file'],
+        },
+      },
+    });
+    const readToolInventory = vi.fn(async ({ config }: { config: Record<string, any> }) => {
+      const enabled = !config.disabledTools?.some(
+        (name: string) => name === 'write_file' || name === 'filesystem_1mcp_write_file',
+      );
+      return {
+        targetName: 'filesystem',
+        source: 'mcpServers' as const,
+        targetEnabled: true,
+        freshness: 'live' as const,
+        model: 'gpt-4o',
+        generation: 'qualified-generation',
+        activeInstanceCount: 1,
+        rows: [
+          {
+            name: 'write_file',
+            enabled,
+            observed: true,
+            unresolved: false,
+            descriptionOverridden: false,
+            observedInstanceCount: 1,
+            activeInstanceCount: 1,
+            observedInSomeInstances: false,
+            approximateTokens: 20,
+          },
+        ],
+        counts: { observed: 1, enabled: enabled ? 1 : 0, disabled: enabled ? 0 : 1, unresolved: 0 },
+        approximateTokens: { enabled: enabled ? 20 : 0, allObserved: 20, savings: enabled ? 0 : 20 },
+      } satisfies ConfiguredToolInventory;
+    });
+    const service = createService({ readToolInventory });
+    const edit = { disabledTools: [] };
+    const preview = await service.previewConfiguredServerEdit({ context: context(), targetName: 'filesystem', edit });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+
+    const applied = await service.applyConfiguredServerEdit({
+      context: context({ confirmationFacts: { previewConfirmed: preview.result.previewFingerprint } }),
+      targetName: 'filesystem',
+      edit,
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+
+    expect(applied.ok).toBe(true);
+    expect(readConfig().mcpServers.filesystem.disabledTools).toBeUndefined();
+  });
+
   it('rejects apply when the observed capability generation changes after preview', async () => {
     writeConfig({
       mcpServers: { filesystem: { type: 'stdio', command: 'node' } },
     });
-    let inventoryReadCount = 0;
+    let generation = 'generation-1';
     const readToolInventory = vi.fn(
       async ({ config }: { config: Record<string, any> }): Promise<ConfiguredToolInventory> => {
-        inventoryReadCount += 1;
         const enabled = !(config.disabledTools ?? []).includes('search');
         return {
           targetName: 'filesystem',
@@ -582,7 +637,7 @@ describe('AdminConfiguredServerService', () => {
           targetEnabled: true,
           freshness: 'live',
           model: 'gpt-4o',
-          generation: inventoryReadCount <= 2 ? 'generation-1' : 'generation-2',
+          generation,
           activeInstanceCount: 1,
           rows: [
             {
@@ -613,6 +668,7 @@ describe('AdminConfiguredServerService', () => {
     });
     expect(preview.ok).toBe(true);
     if (!preview.ok) return;
+    generation = 'generation-2';
 
     await expect(
       service.applyConfiguredServerEdit({

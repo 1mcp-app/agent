@@ -8,7 +8,7 @@ import {
   readConfiguredToolSnapshot,
   readLastConfiguredToolSnapshot,
 } from '@src/core/capabilities/configuredToolSnapshot.js';
-import { getDisabledTools, isToolDisabled } from '@src/core/server/disabledTools.js';
+import { getDisabledTools, getLogicalToolName, isToolDisabled } from '@src/core/server/disabledTools.js';
 import {
   applyEffectiveToolDescription,
   getToolDescriptionOverrides,
@@ -86,7 +86,10 @@ export async function createConfiguredToolInventory(input: {
   }
 
   const overrides = getToolDescriptionOverrides(input.config);
-  const configuredNames = new Set([...getDisabledTools(input.config), ...Object.keys(overrides)]);
+  const configuredNames = new Set([
+    ...getDisabledTools(input.config).map((name) => getLogicalToolName(input.targetName, name)),
+    ...Object.keys(overrides).map((name) => getLogicalToolName(input.targetName, name)),
+  ]);
   const allNames = new Set([...toolsByName.keys(), ...configuredNames]);
   const tokenEstimator = new TokenEstimationService(model);
   const serverConfigs = { [input.targetName]: input.config };
@@ -105,16 +108,17 @@ export async function createConfiguredToolInventory(input: {
               ?.tokens ?? 0)
           : 0;
         const observedInstanceCount = observed?.instances.size ?? 0;
+        const descriptionOverride = overrides[name];
         return {
           name,
           ...(observed?.tool.description !== undefined ? { upstreamDescription: observed.tool.description } : {}),
           ...(effectiveTool?.description !== undefined
             ? { effectiveDescription: effectiveTool.description }
-            : overrides[name]
-              ? { effectiveDescription: overrides[name] }
+            : descriptionOverride !== undefined
+              ? { effectiveDescription: descriptionOverride }
               : {}),
-          ...(overrides[name] ? { descriptionOverride: overrides[name] } : {}),
-          descriptionOverridden: overrides[name] !== undefined,
+          ...(descriptionOverride !== undefined ? { descriptionOverride } : {}),
+          descriptionOverridden: descriptionOverride !== undefined,
           enabled: !isToolDisabled(serverConfigs, input.targetName, name),
           observed: observed?.live ?? false,
           stale: observed !== undefined && !observed.live,

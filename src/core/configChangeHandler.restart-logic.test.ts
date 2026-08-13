@@ -145,6 +145,9 @@ describe('ConfigChangeHandler', () => {
 
         const { ServerManager } = await import('@src/core/server/serverManager.js');
         expect(ServerManager.current.loadMcpServer).not.toHaveBeenCalled();
+        expect(ServerManager.current.restartServer).not.toHaveBeenCalled();
+        expect(ServerManager.current.stopServer).not.toHaveBeenCalled();
+        expect(ServerManager.current.startServer).not.toHaveBeenCalled();
         expect(ServerManager.current.updateServerMetadata).toHaveBeenCalled();
         expect(notify).toHaveBeenCalledOnce();
       },

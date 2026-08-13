@@ -245,7 +245,7 @@ export const transportConfigSchema = z.object({
     .optional()
     .describe('Literal replacement for upstream instructions; an empty string intentionally suppresses them'),
   toolDescriptionOverrides: z
-    .record(z.string().trim().min(1), z.string().trim().min(1))
+    .record(z.string().regex(/\S/u).trim().min(1), z.string().regex(/\S/u).trim().min(1))
     .optional()
     .describe('Override upstream tool descriptions by logical tool name; blank descriptions are not supported'),
   timeout: z

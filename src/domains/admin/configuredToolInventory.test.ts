@@ -96,6 +96,28 @@ describe('Configured Tool Inventory', () => {
     expect(disabledInventory.counts.observed).toBe(0);
   });
 
+  it('coalesces qualified disabled names into their observed logical row', async () => {
+    const connections: OutboundConnections = new Map([
+      [
+        'filesystem',
+        connection('filesystem', [{ name: 'write_file', description: 'Write', inputSchema: { type: 'object' } }]),
+      ],
+    ]);
+
+    const inventory = await createConfiguredToolInventory({
+      targetName: 'filesystem',
+      source: 'mcpServers',
+      config: {
+        type: 'stdio',
+        command: 'node',
+        disabledTools: ['filesystem_1mcp_write_file'],
+      },
+      connections,
+    });
+
+    expect(inventory.rows).toMatchObject([{ name: 'write_file', enabled: false, observed: true, unresolved: false }]);
+  });
+
   it('unions Template Server tools and reports partial occurrence', async () => {
     const connections: OutboundConnections = new Map([
       [
@@ -138,12 +160,12 @@ describe('Configured Tool Inventory', () => {
   });
 
   it('changes generation for schema changes and snapshot availability', async () => {
-    const outbound = connection('filesystem', [
+    const outbound = connection('generation-target', [
       { name: 'read', description: 'Read', inputSchema: { type: 'object', properties: { path: { type: 'string' } } } },
     ]);
-    const connections: OutboundConnections = new Map([['filesystem', outbound]]);
+    const connections: OutboundConnections = new Map([['generation-target', outbound]]);
     const first = await createConfiguredToolInventory({
-      targetName: 'filesystem',
+      targetName: 'generation-target',
       source: 'mcpServers',
       config: { type: 'stdio', command: 'node' },
       connections,
@@ -152,14 +174,14 @@ describe('Configured Tool Inventory', () => {
       { name: 'read', description: 'Read', inputSchema: { type: 'object', properties: { path: { type: 'number' } } } },
     ]);
     const schemaChanged = await createConfiguredToolInventory({
-      targetName: 'filesystem',
+      targetName: 'generation-target',
       source: 'mcpServers',
       config: { type: 'stdio', command: 'node' },
       connections,
     });
-    connections.set('second', connection('filesystem', []));
+    connections.set('second', connection('generation-target', []));
     const availabilityChanged = await createConfiguredToolInventory({
-      targetName: 'filesystem',
+      targetName: 'generation-target',
       source: 'mcpServers',
       config: { type: 'stdio', command: 'node' },
       connections,

@@ -103,4 +103,25 @@ describe('ConfiguredToolTable', () => {
     await user.click(screen.getByRole('option', { name: 'gpt-4o-mini', hidden: true }));
     expect(onModelChange).toHaveBeenCalledWith('gpt-4o-mini');
   });
+
+  it('summarizes the current draft selection', () => {
+    render(
+      <MantineProvider>
+        <ConfiguredToolTable
+          inventory={inventory}
+          draft={{
+            common: { enabled: false, descriptionOverride: '' },
+            missing: { enabled: true, descriptionOverride: 'Retained override' },
+          }}
+          disabled={false}
+          onToolChange={vi.fn()}
+          onBulkChange={vi.fn()}
+          onModelChange={vi.fn()}
+        />
+      </MantineProvider>,
+    );
+
+    expect(screen.getByText(/1 observed, 1 disabled, 1 unresolved/)).toBeInTheDocument();
+    expect(screen.getByText(/approximately 0 enabled tokens/)).toBeInTheDocument();
+  });
 });
