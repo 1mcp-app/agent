@@ -505,7 +505,7 @@ describe('admin SPA browser smoke', () => {
       await page.getByRole('button', { name: 'Back' }).click();
       await page.waitForURL(`${baseUrl}/admin/servers`);
       await expectText(page, '1 configured target');
-      await page.getByRole('button', { name: 'Edit first-stdio server' }).click();
+      await page.getByRole('button', { name: 'Edit static first-stdio server' }).click();
       await page.waitForURL(`${baseUrl}/admin/servers/first-stdio`);
       await expectVisible(page.getByRole('heading', { name: 'first-stdio', exact: true }));
       await expectNoPageOverflow(page);
@@ -526,7 +526,7 @@ describe('admin SPA browser smoke', () => {
       await waitForRowCount(page, 1);
       await expectNoPageOverflow(page);
 
-      await page.getByRole('button', { name: 'Edit github server' }).click();
+      await page.getByRole('button', { name: 'Edit static github server' }).click();
       await page.waitForURL(`${baseUrl}/admin/servers/github`);
       expect(await page.locator('.server-table-view').isVisible()).toBe(false);
       expect(await page.getByRole('heading', { name: 'Server inventory' }).count()).toBe(0);
