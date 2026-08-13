@@ -42,7 +42,7 @@ The editor supports this workflow:
 3. Validate both variants and preview them against an explicit server context.
 4. Activate the template. Activation succeeds only when both variants are valid.
 
-Only one template is active at a time. An active template cannot be deleted; activate another template first. The Admin Console also shows a delete preview before it applies a deletion.
+Exactly one template is active per Runtime Scope. Presets, tags, and clients do not select the active template. An active template cannot be deleted; activate another template first. The Admin Console also shows a delete preview before it applies a deletion.
 
 ### Preview Context and Filters
 

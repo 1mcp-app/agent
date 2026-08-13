@@ -281,6 +281,8 @@ export function useInstructionTemplates({
     },
     async previewDraft() {
       if (!csrfToken || !draft.identity) return;
+      const generation = sessionGenerationRef.current;
+      const token = csrfToken;
       setBusy(true);
       setError(null);
       try {
@@ -296,16 +298,20 @@ export function useInstructionTemplates({
           ...(parsedContext ? { requestContext: parsedContext } : {}),
           csrfToken,
         });
+        if (generation !== sessionGenerationRef.current || token !== csrfToken) return;
         setPreview(result);
         setPreviewStale(false);
       } catch (previewError) {
+        if (generation !== sessionGenerationRef.current || token !== csrfToken) return;
         reportError(previewError, 'Instruction template preview failed.');
       } finally {
-        setBusy(false);
+        if (generation === sessionGenerationRef.current && token === csrfToken) setBusy(false);
       }
     },
     async validateDraft() {
       if (!csrfToken || !selectedIdentity || dirty) return;
+      const generation = sessionGenerationRef.current;
+      const token = csrfToken;
       setBusy(true);
       setError(null);
       try {
@@ -314,11 +320,13 @@ export function useInstructionTemplates({
           expectedConfigFingerprint: configFingerprint,
           csrfToken,
         });
+        if (generation !== sessionGenerationRef.current || token !== csrfToken) return;
         setActivationValidation(result);
       } catch (validationError) {
+        if (generation !== sessionGenerationRef.current || token !== csrfToken) return;
         reportError(validationError, 'Instruction template validation failed.');
       } finally {
-        setBusy(false);
+        if (generation === sessionGenerationRef.current && token === csrfToken) setBusy(false);
       }
     },
     async activate() {

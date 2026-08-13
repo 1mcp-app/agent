@@ -104,6 +104,32 @@ describe('useInstructionTemplates', () => {
     expect(result.current.activeIdentity).toBe('focused');
   });
 
+  it('discards pending preview and validation responses after logout', async () => {
+    let resolvePreview!: (value: Awaited<ReturnType<AdminApiClient['previewInstructionTemplate']>>) => void;
+    let resolveValidation!: (value: Awaited<ReturnType<AdminApiClient['validateInstructionTemplate']>>) => void;
+    const adminApi = api({
+      previewInstructionTemplate: vi.fn(() => new Promise((resolve) => (resolvePreview = resolve))),
+      validateInstructionTemplate: vi.fn(() => new Promise((resolve) => (resolveValidation = resolve))),
+    });
+    const { result, rerender } = renderHook(
+      ({ csrfToken }) => useInstructionTemplates({ api: adminApi, active: true, csrfToken, confirm }),
+      { initialProps: { csrfToken: 'csrf_1' as string | undefined } },
+    );
+    await waitFor(() => expect(result.current.items).toHaveLength(2));
+    act(() => result.current.select('default'));
+    const preview = result.current.previewDraft();
+    const validation = result.current.validateDraft();
+    rerender({ csrfToken: undefined });
+    await act(async () => {
+      resolvePreview({ surface: 'cli', rendered: 'stale', effectiveServers: [], unresolvedTemplates: [] });
+      resolveValidation({ identity: 'default', expectedConfigFingerprint: 'config_1', previewFingerprint: 'stale' });
+      await Promise.all([preview, validation]);
+    });
+    expect(result.current.preview).toBeNull();
+    expect(result.current.activationValidation).toBeNull();
+    expect(result.current.busy).toBe(false);
+  });
+
   it('loads only when the instructions workspace becomes active', async () => {
     const adminApi = api();
     const { rerender } = renderHook(
@@ -240,7 +266,7 @@ describe('useInstructionTemplates', () => {
     const list = vi
       .fn()
       .mockResolvedValueOnce(store)
-      .mockResolvedValueOnce({ ...store, configFingerprint: 'config_2' });
+      .mockResolvedValue({ ...store, configFingerprint: 'config_2' });
     const adminApi = api({ listInstructionTemplates: list, saveInstructionTemplate: save });
     const { result } = renderHook(() =>
       useInstructionTemplates({ api: adminApi, active: true, csrfToken: 'csrf_1', confirm }),
@@ -256,6 +282,7 @@ describe('useInstructionTemplates', () => {
     expect(save.mock.calls[0][0]).toMatchObject({ expectedConfigFingerprint: 'config_1' });
     expect(save.mock.calls[1][0]).toMatchObject({ expectedConfigFingerprint: 'config_2' });
     expect(save.mock.calls[1][0].idempotencyKey).not.toBe(save.mock.calls[0][0].idempotencyKey);
+    expect(result.current.error).toBeNull();
   });
 
   it('retains activation validation and its idempotency key for a failed retry', async () => {
