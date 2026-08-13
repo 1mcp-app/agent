@@ -76,7 +76,7 @@ $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 
 $action = New-ScheduledTaskAction `
     -Execute $binaryPath `
-    -Argument "serve --transport http --host 127.0.0.1 --port 3050 --config-dir `"$configDir`"" `
+    -Argument "serve --transport http --host 127.0.0.1 --port 3050 --config-dir `"$configDir`" --log-file `"$configDir\logs\server.log`"" `
     -WorkingDirectory $configDir
 
 $trigger = New-ScheduledTaskTrigger -AtStartup
@@ -90,23 +90,25 @@ $settings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `
     -MultipleInstances IgnoreNew
 
-$principal = New-ScheduledTaskPrincipal `
-    -UserId $currentUser `
-    -LogonType Password `
-    -RunLevel Limited
-
 $cred = Get-Credential -UserName $currentUser -Message "Enter your Windows password for the 1mcp daemon task."
 if (-not $cred) {
-    Write-Error 'Credential prompt cancelled. Cannot register task without credentials.'
+    throw 'Credential prompt cancelled. Cannot register task without credentials.'
 }
 $plainPassword = $cred.GetNetworkCredential().Password
 
+# \u786e\u4fdd\u65e5\u5fd7\u76ee\u5f55\u5b58\u5728\uff08Session 0 \u65e0\u63a7\u5236\u53f0\uff1b--log-file \u662f\u53ef\u89c1\u7684\u5fc5\u8981\u6761\u4ef6\uff09
+New-Item -ItemType Directory -Force -Path "$configDir\logs" | Out-Null
+
+# \u6388\u4e88\u4efb\u52a1\u8d26\u6237\u4fee\u6539\u6743\u9650\uff0c\u4ee5\u4fbf\u5199\u5165 server.pid \u548c\u65e5\u5fd7
+icacls $configDir /grant "${currentUser}:(OI)(CI)M" | Out-Null
+
+# -User + -Password \u96\u5\u90\u90\u8d\u41\u7\u24\u8a\u7\u0\u9\u0\u88\u5\u8 LogonType=Password \u548c RunLevel=Limited
+# \u4e0d\u8981\u6dfb\u52a0 -Principal \u2014\u2014\u5b83\u5c5e\u4e8e\u4e0d\u540c\u7684\u53c2\u6570\u96c6\uff0c\u4f1a\u89e6\u53d1 AmbiguousParameterSet \u9519\u8bef
 Register-ScheduledTask `
     -TaskName $taskName `
     -Action $action `
     -Trigger $trigger `
     -Settings $settings `
-    -Principal $principal `
     -Description '1MCP 聚合 MCP 运行时' `
     -User $currentUser `
     -Password $plainPassword `
@@ -126,10 +128,10 @@ $cmdWrapper = (Get-Command 1mcp.cmd -ErrorAction Stop).Source
 
 $action = New-ScheduledTaskAction `
     -Execute 'cmd.exe' `
-    -Argument "/s /c `"`"$cmdWrapper`" serve --transport http --host 127.0.0.1 --port 3050 --config-dir `"$configDir`"`"" `
+    -Argument "/s /c `"`"$cmdWrapper`" serve --transport http --host 127.0.0.1 --port 3050 --config-dir `"$configDir`" --log-file `"$configDir\logs\server.log`"`"" `
     -WorkingDirectory $configDir
 
-# $trigger、$settings、$principal —— 与独立二进制路径相同
+# $trigger、$settings、$cred、Register-ScheduledTask —— 与独立二进制路径相同
 ```
 
 ## 关键参数说明

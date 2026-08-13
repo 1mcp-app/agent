@@ -425,34 +425,14 @@ sudo systemctl status 1mcp
 On Windows, Task Scheduler is the correct supervisor for a persistent `1mcp serve` daemon. It provides boot-triggered startup, restart-on-failure, and non-interactive logon — the equivalent of a systemd service on Linux.
 
 ```powershell
-# Run from an elevated PowerShell session (admin required for task registration only)
-$binaryPath = 'C:\Program Files\1mcp\1mcp.exe'  # standalone binary — adjust to your path
-$configDir  = 'C:\ProgramData\1mcp'              # absolute config dir shared with all 1mcp commands
-
-$action   = New-ScheduledTaskAction -Execute $binaryPath `
-              -Argument "serve --transport http --host 127.0.0.1 --port 3050 --config-dir `"$configDir`"" `
-              -WorkingDirectory $configDir
-$trigger  = New-ScheduledTaskTrigger -AtStartup
-$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-              -ExecutionTimeLimit (New-TimeSpan -Seconds 0) `
-              -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 2) `
-              -StartWhenAvailable -MultipleInstances IgnoreNew
-$principal = New-ScheduledTaskPrincipal `
-              -UserId (Read-Host 'Windows account (DOMAIN\user or .\user)') `
-              -LogonType Password -RunLevel Limited
-
-Register-ScheduledTask -TaskName '1mcp-daemon' `
-  -Action $action -Trigger $trigger -Settings $settings -Principal $principal `
-  -Description '1MCP aggregated MCP runtime' -Force
-
-# Start immediately without waiting for reboot
-Start-ScheduledTask -TaskName '1mcp-daemon'
+# Quick start — uses the helper script from the Windows guide
+.\scripts\install-windows-task.ps1 -BinaryPath 'C:\Program Files\1mcp\1mcp.exe'
 ```
 
 Quick verification after registration:
 
 ```powershell
-1mcp serve --status --config-dir 'C:\ProgramData\1mcp'         # running (ready)
+1mcp serve --status --config-dir "$env:APPDATA\1mcp"   # running (ready)
 Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:3050/health/ready' | Select-Object StatusCode  # 200
 ```
 

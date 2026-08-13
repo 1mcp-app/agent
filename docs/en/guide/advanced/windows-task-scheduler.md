@@ -82,7 +82,7 @@ $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 
 $action = New-ScheduledTaskAction `
     -Execute $binaryPath `
-    -Argument "serve --transport http --host 127.0.0.1 --port 3050 --config-dir `"$configDir`"" `
+    -Argument "serve --transport http --host 127.0.0.1 --port 3050 --config-dir `"$configDir`" --log-file `"$configDir\logs\server.log`"" `
     -WorkingDirectory $configDir
 
 $trigger = New-ScheduledTaskTrigger -AtStartup
@@ -96,23 +96,26 @@ $settings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `
     -MultipleInstances IgnoreNew
 
-$principal = New-ScheduledTaskPrincipal `
-    -UserId $currentUser `
-    -LogonType Password `
-    -RunLevel Limited
-
 $cred = Get-Credential -UserName $currentUser -Message "Enter your Windows password for the 1mcp daemon task."
 if (-not $cred) {
-    Write-Error 'Credential prompt cancelled. Cannot register task without credentials.'
+    throw 'Credential prompt cancelled. Cannot register task without credentials.'
 }
 $plainPassword = $cred.GetNetworkCredential().Password
 
+# Ensure log directory exists (Session 0 has no console; --log-file is required for visibility)
+New-Item -ItemType Directory -Force -Path "$configDir\logs" | Out-Null
+
+# Grant the task account Modify access so it can write server.pid and logs
+icacls $configDir /grant "${currentUser}:(OI)(CI)M" | Out-Null
+
+# -User + -Password implicitly sets LogonType=Password and RunLevel=Limited.
+# Do NOT add -Principal — it belongs to a different parameter set and causes
+# an AmbiguousParameterSet error.
 Register-ScheduledTask `
     -TaskName $taskName `
     -Action $action `
     -Trigger $trigger `
     -Settings $settings `
-    -Principal $principal `
     -Description '1MCP aggregated MCP runtime' `
     -User $currentUser `
     -Password $plainPassword `
@@ -132,10 +135,10 @@ $cmdWrapper = (Get-Command 1mcp.cmd -ErrorAction Stop).Source
 
 $action = New-ScheduledTaskAction `
     -Execute 'cmd.exe' `
-    -Argument "/s /c `"`"$cmdWrapper`" serve --transport http --host 127.0.0.1 --port 3050 --config-dir `"$configDir`"`"" `
+    -Argument "/s /c `"`"$cmdWrapper`" serve --transport http --host 127.0.0.1 --port 3050 --config-dir `"$configDir`" --log-file `"$configDir\logs\server.log`"`"" `
     -WorkingDirectory $configDir
 
-# $trigger, $settings, $principal — same as the standalone binary path above
+# $trigger, $settings, $cred, Register-ScheduledTask — same as the standalone binary path above
 ```
 
 ## Key Settings Explained

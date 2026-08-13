@@ -402,37 +402,17 @@ sudo systemctl status 1mcp
 
 ### **Windows：任务计划程序**（仅 Windows）
 
-在 Windows 上，任务计划程序是持久化 `1mcp serve` 守护进程的正确监管方式。它提供开机触发启动、崩溃后重启以及非交互式登录——等价于 Linux 上的 systemd 服务。
+在 Windows 上，任务计划程序是持久 `1mcp serve` 守护进程的正确监管者。它提供开机触发启动、崩溃重启和非交互式登录——等价于 Linux 上的 systemd 服务。
 
 ```powershell
-# 在管理员权限的 PowerShell 会话中运行（仅注册任务时需要管理员权限）
-$binaryPath = 'C:\Program Files\1mcp\1mcp.exe'  # 独立二进制路径，按实际调整
-$configDir  = 'C:\ProgramData\1mcp'              # 与所有 1mcp 命令共享的绝对配置目录
-
-$action   = New-ScheduledTaskAction -Execute $binaryPath `
-              -Argument "serve --transport http --host 127.0.0.1 --port 3050 --config-dir `"$configDir`"" `
-              -WorkingDirectory $configDir
-$trigger  = New-ScheduledTaskTrigger -AtStartup
-$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-              -ExecutionTimeLimit (New-TimeSpan -Seconds 0) `
-              -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 2) `
-              -StartWhenAvailable -MultipleInstances IgnoreNew
-$principal = New-ScheduledTaskPrincipal `
-              -UserId (Read-Host '运行 1mcp 的 Windows 账户（格式：DOMAIN\user 或 .\user）') `
-              -LogonType Password -RunLevel Limited
-
-Register-ScheduledTask -TaskName '1mcp-daemon' `
-  -Action $action -Trigger $trigger -Settings $settings -Principal $principal `
-  -Description '1MCP 聚合 MCP 运行时' -Force
-
-# 无需等待重启，立即启动
-Start-ScheduledTask -TaskName '1mcp-daemon'
+# 快速开始——使用 Windows 指南中的辅助脚本
+.\scripts\install-windows-task.ps1 -BinaryPath 'C:\Program Files\1mcp\1mcp.exe'
 ```
 
 注册后快速验证：
 
 ```powershell
-1mcp serve --status --config-dir 'C:\ProgramData\1mcp'         # running (ready)
+1mcp serve --status --config-dir "$env:APPDATA\1mcp"   # running (ready)
 Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:3050/health/ready' | Select-Object StatusCode  # 200
 ```
 
