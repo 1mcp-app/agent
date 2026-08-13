@@ -6,6 +6,7 @@ import ConfigContext from '@src/config/configContext.js';
 import { ConfigLoader } from '@src/config/configLoader.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import type { MCPServerParams } from '@src/core/types/index.js';
+import { mcpServerConfigSchema } from '@src/core/types/transport.js';
 import logger from '@src/logger/logger.js';
 
 import { parse as parseToml } from 'smol-toml';
@@ -952,6 +953,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
 
   private validateConfig(configPath: string, config: MutableConfigDocument): void {
     const loader = new ConfigLoader(configPath, { ensureConfigExists: false });
+    mcpServerConfigSchema.parse(config);
 
     for (const [serverName, serverConfig] of Object.entries(config.mcpServers ?? {})) {
       loader.validateServerConfig(serverName, serverConfig);

@@ -7,6 +7,7 @@ import {
 } from '@src/core/instructions/effectiveServerInstructions.js';
 import type { InstructionRenderMetadata } from '@src/core/instructions/instructionAggregator.js';
 import { instructionsRenderResponseSchema } from '@src/core/instructions/instructionsDistribution.js';
+import { createConnectionResolver } from '@src/core/server/connectionResolver.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, type OutboundConnection, type OutboundConnections } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
@@ -27,11 +28,15 @@ export function createInstructionsHandler(serverManager: ServerManager): Request
       }
 
       const filterConfig = buildFilterConfig(res);
-      await ensureRequestContextInitialized(serverManager, req, res, filterConfig);
+      const sessionId = await ensureRequestContextInitialized(serverManager, req, res, filterConfig);
 
       const configManager = ConfigManager.getInstance();
       const declaredServers = configManager.loadDeclaredServerConfigs();
-      const filteredConnections = FilteringService.getFilteredConnections(serverManager.getClients(), filterConfig);
+      const sessionConnections = createConnectionResolver(
+        serverManager.getClients(),
+        serverManager.getTemplateServerManager(),
+      ).filterForSession(sessionId);
+      const filteredConnections = FilteringService.getFilteredConnections(sessionConnections, filterConfig);
       const summaries = await buildServerSummaries(
         filteredConnections,
         serverManager.getLazyLoadingOrchestrator()?.getToolRegistry(),
@@ -186,9 +191,7 @@ function createFormattingPayload(
   const entries = summaries.map((summary) => {
     const target = inferTarget(summary.server, summary.server, declaredServers, summary.type === 'template');
     const upstreamInstructions =
-      target.source === 'mcpTemplates' && !summary.available
-        ? undefined
-        : activeAggregator.getServerInstructions(summary.server);
+      target.source === 'mcpTemplates' ? undefined : activeAggregator.getServerInstructions(summary.server);
     return {
       summary,
       presentation: resolveInstructionPresentation(summary, target, upstreamInstructions, runtimeConfiguration),

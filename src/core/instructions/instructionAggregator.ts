@@ -134,9 +134,7 @@ export class InstructionAggregator extends EventEmitter {
     const cacheKey = outboundKey ?? target.name;
     const previousRawInstructions = this.rawInstructions.get(cacheKey);
     const previousTarget = this.instructionTargets.get(cacheKey);
-    const normalizedInstructions = instructions?.trim();
     const previousInstructions = this.serverInstructions.get(target.name);
-    const hasChanges = previousInstructions !== normalizedInstructions;
 
     if (instructions === undefined) {
       this.rawInstructions.delete(cacheKey);
@@ -150,8 +148,9 @@ export class InstructionAggregator extends EventEmitter {
       this.instructionTargets.set(cacheKey, target);
     }
 
+    const normalizedInstructions = this.rebuildServerInstructions(target.name);
+    const hasChanges = previousInstructions !== normalizedInstructions;
     if (normalizedInstructions) {
-      this.serverInstructions.set(target.name, normalizedInstructions);
       debugIf(() => ({
         message: `Updated instructions for server: ${target.name}`,
         meta: { serverName: target.name },
@@ -187,15 +186,27 @@ export class InstructionAggregator extends EventEmitter {
   public removeServer(server: string | ConfiguredServerInstructionTarget, outboundKey?: string): void {
     const target = typeof server === 'string' ? { source: 'mcpServers' as const, name: server } : server;
     const cacheKey = outboundKey ?? target.name;
-    const hadInstructions = this.rawInstructions.has(cacheKey) || this.serverInstructions.has(target.name);
-    this.serverInstructions.delete(target.name);
+    const previousInstructions = this.serverInstructions.get(target.name);
     this.rawInstructions.delete(cacheKey);
     this.instructionTargets.delete(cacheKey);
+    const instructions = this.rebuildServerInstructions(target.name);
 
-    if (hadInstructions) {
+    if (previousInstructions !== instructions) {
       logger.info(`Removed server instructions: ${target.name}. Remaining servers: ${this.serverInstructions.size}`);
       this.emit('instructions-changed');
     }
+  }
+
+  private rebuildServerInstructions(serverName: string): string | undefined {
+    let instructions: string | undefined;
+    for (const [cacheKey, rawInstructions] of this.rawInstructions) {
+      if (this.instructionTargets.get(cacheKey)?.name !== serverName) continue;
+      const normalized = rawInstructions.trim();
+      if (normalized) instructions = normalized;
+    }
+    if (instructions) this.serverInstructions.set(serverName, instructions);
+    else this.serverInstructions.delete(serverName);
+    return instructions;
   }
 
   /**
@@ -258,7 +269,7 @@ export class InstructionAggregator extends EventEmitter {
         activeIdentity === 'default'
           ? builtInTemplate
           : (this.runtimeConfiguration.publishedInstructionTemplates?.[activeIdentity] ??
-            this.runtimeConfiguration.instructionTemplates?.[activeIdentity])?.[surface];
+              this.runtimeConfiguration.instructionTemplates?.[activeIdentity])?.[surface];
       if (managedTemplate === undefined) {
         return this.renderManagedFallback(
           surface,
@@ -573,10 +584,10 @@ export class InstructionAggregator extends EventEmitter {
         servers.push({
           name: serverName,
           instructions: instructions,
-          hasInstructions: true,
           description: description,
           source: target.source,
           ...serverMetadata,
+          hasInstructions: true,
           toolCount: serverMetadata.toolCount ?? 0,
           availableKnown: serverMetadata.available !== undefined,
           loadTrackedKnown: serverMetadata.loadTracked !== undefined,
@@ -592,9 +603,9 @@ export class InstructionAggregator extends EventEmitter {
         servers.push({
           name: serverName,
           instructions: '',
-          hasInstructions: false,
           source: target.source,
           ...serverMetadata,
+          hasInstructions: false,
           toolCount: serverMetadata.toolCount ?? 0,
           availableKnown: serverMetadata.available !== undefined,
           loadTrackedKnown: serverMetadata.loadTracked !== undefined,

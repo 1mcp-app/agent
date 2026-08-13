@@ -36,6 +36,15 @@ describe('createAdminInstructionPreviewRuntime', () => {
     );
     const aggregator = new InstructionAggregator();
     serverManager.setInstructionAggregator(aggregator);
+    clients.set(
+      'contextual:other-session',
+      createMockOutboundConnection({ name: 'contextual', transport: { ...createMockTransport(), tags: ['docs'] } }),
+    );
+    aggregator.setInstructions(
+      { source: 'mcpTemplates', name: 'contextual' },
+      'Other session instructions',
+      'contextual:other-session',
+    );
 
     const contextualConfig = { type: 'stdio' as const, command: 'node', args: ['contextual-server.js'] };
     const configManager = ConfigManager.getInstance();
@@ -52,8 +61,8 @@ describe('createAdminInstructionPreviewRuntime', () => {
 
     const templateServerManager = serverManager.getTemplateServerManager();
     vi.spyOn(templateServerManager, 'getRenderedHashForSession').mockReturnValue(undefined);
-    vi.spyOn(templateServerManager, 'createTemplateBasedServers').mockImplementation(async () => {
-      const outboundKey = 'contextual:preview-hash';
+    vi.spyOn(templateServerManager, 'createTemplateBasedServers').mockImplementation(async (sessionId) => {
+      const outboundKey = `contextual:${sessionId}`;
       clients.set(
         outboundKey,
         createMockOutboundConnection({
@@ -69,8 +78,10 @@ describe('createAdminInstructionPreviewRuntime', () => {
     });
     const cleanupTemplateServers = vi
       .spyOn(templateServerManager, 'cleanupTemplateServers')
-      .mockImplementation(async () => {
-        clients.delete('contextual:preview-hash');
+      .mockImplementation(async (sessionId) => {
+        for (const key of clients.keys()) {
+          if (key === `contextual:${sessionId}`) clients.delete(key);
+        }
       });
     vi.spyOn(serverManager.getServerRegistry(), 'has').mockReturnValue(false);
     vi.spyOn(serverManager.getServerRegistry(), 'registerTemplate').mockImplementation(() => undefined);
@@ -100,9 +111,10 @@ describe('createAdminInstructionPreviewRuntime', () => {
     });
 
     expect(withoutContext.rendered).not.toContain('Contextual upstream instructions');
+    expect(withoutContext.rendered).not.toContain('Other session instructions');
     expect(withoutContext.unresolvedTemplates).toEqual(['contextual']);
     expect(templateServerManager.createTemplateBasedServers).not.toHaveBeenCalled();
-    expect(clients.has('contextual:preview-hash')).toBe(false);
+    expect(clients.has('contextual:other-session')).toBe(true);
 
     const withContext = await preview({
       identity: 'draft',
@@ -117,15 +129,19 @@ describe('createAdminInstructionPreviewRuntime', () => {
       },
     });
 
-    expect(withContext.rendered).toContain('Contextual upstream instructions');
     expect(withContext.effectiveServers).toContainEqual({
       target: { source: 'mcpTemplates', name: 'contextual' },
       hasInstructions: true,
     });
+    expect(withContext.rendered).toContain('Contextual upstream instructions');
+    expect(withContext.rendered).not.toContain('Other session instructions');
     expect(withContext.unresolvedTemplates).toEqual([]);
     expect(templateServerManager.createTemplateBasedServers).toHaveBeenCalledOnce();
     expect(cleanupTemplateServers).toHaveBeenCalledOnce();
-    expect(clients.has('contextual:preview-hash')).toBe(false);
+    expect(clients.has('contextual:other-session')).toBe(true);
+    expect(Array.from(clients.keys()).filter((key) => key.startsWith('contextual:'))).toEqual([
+      'contextual:other-session',
+    ]);
   });
 
   it('leaves contextual templates unresolved without explicit context and creates no preview instance', async () => {
@@ -146,6 +162,36 @@ describe('createAdminInstructionPreviewRuntime', () => {
     expect(runtime.loadConfigWithTemplates).not.toHaveBeenCalled();
     expect(runtime.createTemplateBasedServers).not.toHaveBeenCalled();
     expect(runtime.cleanupTemplateServers).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['Operator guidance', true],
+    ['', false],
+  ])('includes a disconnected static target with a %s override', async (instructionOverride, hasInstructions) => {
+    const runtime = fixture();
+    runtime.clients.clear();
+    const aggregator = runtime.aggregator;
+    aggregator.previewInstructions.mockImplementation((_template, _filter, connections) =>
+      Array.from((connections ?? new Map()).keys()).join(','),
+    );
+    aggregator.getEffectiveServerInstructions.mockReturnValue(instructionOverride);
+
+    const result = await createAdminInstructionPreviewRuntime(runtime.serverManager as never)({
+      identity: 'draft',
+      surface: 'cli',
+      template: '{{instructions}}',
+      selection: { mode: 'all' },
+    });
+
+    expect(aggregator.previewInstructions).toHaveBeenCalledWith(
+      '{{instructions}}',
+      expect.anything(),
+      expect.objectContaining(new Map([['alpha', expect.anything()]])),
+    );
+    expect(result.effectiveServers).toContainEqual({
+      target: { source: 'mcpServers', name: 'alpha' },
+      hasInstructions,
+    });
   });
 
   it('prepares and always cleans an explicit admin preview context', async () => {
@@ -297,16 +343,20 @@ function fixture() {
   const createTemplateBasedServers = vi.fn(async () => undefined);
   const cleanupTemplateServers = vi.fn(async () => undefined);
   const refreshCapabilities = vi.fn(async () => undefined);
+  const aggregator = {
+    previewInstructions: vi.fn(
+      (_template?: string, _filter?: unknown, _connections?: Map<string, unknown>) => 'rendered',
+    ),
+    getServerInstructions: vi.fn(() => 'upstream'),
+    getEffectiveServerInstructions: vi.fn(() => 'upstream'),
+  };
   const serverManager = {
-    getInstructionAggregator: () => ({
-      previewInstructions: vi.fn(() => 'rendered'),
-      getServerInstructions: vi.fn(() => 'upstream'),
-      getEffectiveServerInstructions: vi.fn(() => 'upstream'),
-    }),
+    getInstructionAggregator: () => aggregator,
     getClients: () => clients,
     getClientTransports: () => transports,
     getTemplateServerManager: () => ({
       getRenderedHashForSession: vi.fn(() => undefined),
+      getAllRenderedHashesForSession: vi.fn(() => undefined),
       touchEphemeralClient: vi.fn(),
       createTemplateBasedServers,
       cleanupTemplateServers,
@@ -322,5 +372,6 @@ function fixture() {
     createTemplateBasedServers,
     cleanupTemplateServers,
     refreshCapabilities,
+    aggregator,
   };
 }

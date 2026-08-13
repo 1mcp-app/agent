@@ -99,6 +99,8 @@ export function useInstructionTemplates({
   const [error, setError] = useState<string | null>(null);
   const [reloadWarning, setReloadWarning] = useState<string | null>(null);
   const loadedRef = useRef(false);
+  const sessionGenerationRef = useRef(0);
+  const sessionTokenRef = useRef(csrfToken);
   const mutationAttemptRef = useRef<{ signature: string; idempotencyKey: string }>();
   const reportError = useCallback(
     (operationError: unknown, fallback: string) => {
@@ -128,10 +130,13 @@ export function useInstructionTemplates({
 
   const load = useCallback(async () => {
     if (!csrfToken) return;
+    const generation = sessionGenerationRef.current;
+    const token = csrfToken;
     setBusy(true);
     setError(null);
     try {
       const next = await api.listInstructionTemplates();
+      if (generation !== sessionGenerationRef.current || token !== csrfToken) return;
       setItems(next.templates);
       setActiveIdentity(next.activeIdentity);
       setSelectionExplicit(next.selectionExplicit);
@@ -140,25 +145,31 @@ export function useInstructionTemplates({
       setRenderFailures(next.renderFailures);
       loadedRef.current = true;
     } catch (loadError) {
+      if (generation !== sessionGenerationRef.current || token !== csrfToken) return;
       reportError(loadError, 'Instruction templates could not be loaded.');
     } finally {
-      setBusy(false);
+      if (generation === sessionGenerationRef.current && token === csrfToken) setBusy(false);
     }
   }, [api, csrfToken, reportError]);
 
   useEffect(() => {
-    if (active && csrfToken && !loadedRef.current) void load();
-  }, [active, csrfToken, load]);
-
-  useEffect(() => {
+    if (sessionTokenRef.current !== csrfToken) {
+      sessionTokenRef.current = csrfToken;
+      sessionGenerationRef.current += 1;
+      loadedRef.current = false;
+    }
     if (csrfToken) return;
-    loadedRef.current = false;
     setItems([]);
     setSelectedIdentity(undefined);
     setDraft(EMPTY_DRAFT);
     setPreview(null);
     setActivationValidation(null);
+    setBusy(false);
   }, [csrfToken]);
+
+  useEffect(() => {
+    if (active && csrfToken && !loadedRef.current) void load();
+  }, [active, csrfToken, load]);
 
   const select = useCallback(
     (identity?: string) => {
@@ -353,42 +364,46 @@ export function useInstructionTemplates({
     },
     async deleteSelected() {
       if (!csrfToken || !selectedIdentity || selected?.protected) return;
-      const deletePreview = await api.previewInstructionTemplateDelete({
-        identity: selectedIdentity,
-        expectedConfigFingerprint: configFingerprint,
-        csrfToken,
-      });
-      if (!deletePreview.allowed) {
-        setError(
-          deletePreview.reason === 'active_conflict'
-            ? 'Activate another template before deleting this one.'
-            : 'This template cannot be deleted.',
+      try {
+        const deletePreview = await api.previewInstructionTemplateDelete({
+          identity: selectedIdentity,
+          expectedConfigFingerprint: configFingerprint,
+          csrfToken,
+        });
+        if (!deletePreview.allowed) {
+          setError(
+            deletePreview.reason === 'active_conflict'
+              ? 'Activate another template before deleting this one.'
+              : 'This template cannot be deleted.',
+          );
+          return;
+        }
+        const confirmed = await confirm({
+          title: `Delete ${deletePreview.identity}?`,
+          message: 'This permanently removes the managed template from the current Runtime Scope.',
+          confirmLabel: 'Delete template',
+          tone: 'danger',
+          details: [
+            { label: 'Template', value: deletePreview.identity },
+            { label: 'Reason', value: deletePreview.reason ?? 'Template is inactive and not protected' },
+          ],
+        });
+        if (!confirmed) return;
+        const deleted = await runMutation(
+          `delete:${selectedIdentity}:${deletePreview.expectedConfigFingerprint}:${deletePreview.previewFingerprint}`,
+          (idempotencyKey) =>
+            api.deleteInstructionTemplate({
+              identity: selectedIdentity,
+              expectedConfigFingerprint: deletePreview.expectedConfigFingerprint,
+              previewFingerprint: deletePreview.previewFingerprint,
+              csrfToken,
+              idempotencyKey,
+            }),
         );
-        return;
+        if (deleted) select(undefined);
+      } catch (deleteError) {
+        reportError(deleteError, 'Instruction template deletion could not be prepared.');
       }
-      const confirmed = await confirm({
-        title: `Delete ${deletePreview.identity}?`,
-        message: 'This permanently removes the managed template from the current Runtime Scope.',
-        confirmLabel: 'Delete template',
-        tone: 'danger',
-        details: [
-          { label: 'Template', value: deletePreview.identity },
-          { label: 'Reason', value: deletePreview.reason ?? 'Template is inactive and not protected' },
-        ],
-      });
-      if (!confirmed) return;
-      const deleted = await runMutation(
-        `delete:${selectedIdentity}:${deletePreview.expectedConfigFingerprint}:${deletePreview.previewFingerprint}`,
-        (idempotencyKey) =>
-          api.deleteInstructionTemplate({
-            identity: selectedIdentity,
-            expectedConfigFingerprint: deletePreview.expectedConfigFingerprint,
-            previewFingerprint: deletePreview.previewFingerprint,
-            csrfToken,
-            idempotencyKey,
-          }),
-      );
-      if (deleted) select(undefined);
     },
   };
 }

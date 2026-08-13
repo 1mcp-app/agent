@@ -3,8 +3,10 @@ import { randomUUID } from 'node:crypto';
 import { ConfigManager } from '@src/config/configManager.js';
 import type { TrustedTemplateContext } from '@src/core/context/templateContextTrust.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
+import { createConnectionResolver } from '@src/core/server/connectionResolver.js';
 import { prepareRequestContext } from '@src/core/server/requestContextPreparation.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
+import { ClientStatus, type OutboundConnection, type OutboundConnections } from '@src/core/types/index.js';
 import type { InboundConnectionConfig } from '@src/core/types/server.js';
 import type { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import { TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
@@ -35,13 +37,13 @@ export function createAdminInstructionPreviewRuntime(
       };
     }
 
-    const filterConfig = toFilterConfig(input, presetManager);
-    if (!filterConfig) {
-      return invalidPreview(input, 'preset_not_found', 'The selected preset does not exist');
-    }
-    const declared = ConfigManager.getInstance().loadDeclaredServerConfigs();
     let preparedSessionId: string | undefined;
     try {
+      const filterConfig = toFilterConfig(input, presetManager);
+      if (!filterConfig) {
+        return invalidPreview(input, 'preset_not_found', 'The selected preset does not exist');
+      }
+      const declared = ConfigManager.getInstance().loadDeclaredServerConfigs();
       if (input.requestContext) {
         const rawContext = {
           ...input.requestContext,
@@ -59,17 +61,26 @@ export function createAdminInstructionPreviewRuntime(
         });
       }
 
-      const filtered = FilteringService.getFilteredConnections(serverManager.getClients(), filterConfig);
+      const sessionConnections = createConnectionResolver(
+        serverManager.getClients(),
+        serverManager.getTemplateServerManager(),
+      ).filterForSession(preparedSessionId);
+      const filtered = FilteringService.getFilteredConnections(sessionConnections, filterConfig);
       const representedTemplateNames = new Set(
         Array.from(filtered.entries())
           .filter(([key, connection]) => key !== connection.name || key.startsWith(`${connection.name}:`))
           .map(([, connection]) => connection.name),
       );
       try {
+        const previewConnections: OutboundConnections = new Map(filtered);
+        for (const [name, config] of Object.entries(declared.staticServers)) {
+          if (previewConnections.has(name) || !matchesFilter(config.tags, filterConfig)) continue;
+          previewConnections.set(name, asRenderableConnection(name, config.tags));
+        }
         return {
           surface: input.surface === 'initialization' ? 'initialize' : 'cli',
-          rendered: aggregator.previewInstructions(input.template, filterConfig, serverManager.getClients()),
-          effectiveServers: Array.from(filtered.entries()).map(([key, connection]) => ({
+          rendered: aggregator.previewInstructions(input.template, filterConfig, previewConnections),
+          effectiveServers: Array.from(previewConnections.entries()).map(([key, connection]) => ({
             target: {
               source: key !== connection.name && key.startsWith(`${connection.name}:`) ? 'mcpTemplates' : 'mcpServers',
               name: connection.name,
@@ -108,6 +119,15 @@ export function createAdminInstructionPreviewRuntime(
       }
     }
   };
+}
+
+function asRenderableConnection(name: string, tags: string[] | undefined): OutboundConnection {
+  return {
+    name,
+    status: ClientStatus.Disconnected,
+    transport: { tags: tags ?? [] },
+    client: {},
+  } as OutboundConnection;
 }
 
 function matchesFilter(tags: string[] | undefined, filterConfig: InboundConnectionConfig): boolean {

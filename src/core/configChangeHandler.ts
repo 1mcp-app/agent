@@ -24,6 +24,14 @@ export class ConfigChangeHandler {
   /**
    * Get the ServerManager instance lazily
    */
+  private tryGetServerManager(): ServerManager | undefined {
+    try {
+      return ServerManager.current;
+    } catch {
+      return undefined;
+    }
+  }
+
   private getServerManager(): ServerManager {
     return ServerManager.current;
   }
@@ -82,13 +90,13 @@ export class ConfigChangeHandler {
 
   private refreshRuntimeInstructionConfiguration(): void {
     if (typeof this.configManager.getRuntimeInstructionConfiguration !== 'function') return;
-    const aggregator = this.getServerManager().getInstructionAggregator();
+    const aggregator = this.tryGetServerManager()?.getInstructionAggregator();
     aggregator?.setRuntimeInstructionConfiguration(this.configManager.getRuntimeInstructionConfiguration());
   }
 
   private reconcileDeclaredTemplates(): void {
     if (typeof this.configManager.loadDeclaredServerConfigs !== 'function') return;
-    const serverManager = this.getServerManager();
+    const serverManager = this.tryGetServerManager();
     if (typeof serverManager?.getTemplateServerManager !== 'function') return;
 
     const { templateServers, errors } = this.configManager.loadDeclaredServerConfigs();

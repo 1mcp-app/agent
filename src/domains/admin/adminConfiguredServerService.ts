@@ -1121,6 +1121,9 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
         context,
         operationName,
         run: async () => {
+          if (source !== 'mcpServers') {
+            throw new Error('Template Server definitions do not support enable or disable operations');
+          }
           const configChange = await this.options.configChangeService.previewConfiguredServerTargetEnabledState({
             targetName: input.targetName,
             targetSource: source,
@@ -1144,6 +1147,9 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
       operationName,
       confirmationRequirements: input.confirmationRequirements,
       run: async () => {
+        if (source !== 'mcpServers') {
+          throw new Error('Template Server definitions do not support enable or disable operations');
+        }
         const configChange = await this.options.configChangeService.setConfiguredServerTargetEnabledState({
           targetName: input.targetName,
           targetSource: source,

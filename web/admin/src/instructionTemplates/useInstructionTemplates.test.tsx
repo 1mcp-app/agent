@@ -63,6 +63,47 @@ function api(overrides: Partial<AdminApiClient> = {}): AdminApiClient {
 const confirm = vi.fn(async () => true);
 
 describe('useInstructionTemplates', () => {
+  it('discards a pending template load after logout', async () => {
+    let resolveLoad!: (value: AdminInstructionTemplateStore) => void;
+    const pendingLoad = new Promise<AdminInstructionTemplateStore>((resolve) => {
+      resolveLoad = resolve;
+    });
+    const adminApi = api({ listInstructionTemplates: vi.fn(() => pendingLoad) });
+    const { result, rerender } = renderHook(
+      ({ csrfToken }) => useInstructionTemplates({ api: adminApi, active: true, csrfToken, confirm }),
+      { initialProps: { csrfToken: 'csrf_1' as string | undefined } },
+    );
+    await waitFor(() => expect(adminApi.listInstructionTemplates).toHaveBeenCalledOnce());
+
+    rerender({ csrfToken: undefined });
+    await act(async () => resolveLoad(store));
+
+    expect(result.current.items).toEqual([]);
+    expect(result.current.activeIdentity).toBeUndefined();
+    expect(result.current.busy).toBe(false);
+  });
+
+  it('discards an old-session load and refreshes after token replacement', async () => {
+    let resolveOldLoad!: (value: AdminInstructionTemplateStore) => void;
+    const oldLoad = new Promise<AdminInstructionTemplateStore>((resolve) => {
+      resolveOldLoad = resolve;
+    });
+    const replacementStore = { ...store, activeIdentity: 'focused' };
+    const listInstructionTemplates = vi.fn().mockReturnValueOnce(oldLoad).mockResolvedValueOnce(replacementStore);
+    const adminApi = api({ listInstructionTemplates });
+    const { result, rerender } = renderHook(
+      ({ csrfToken }) => useInstructionTemplates({ api: adminApi, active: true, csrfToken, confirm }),
+      { initialProps: { csrfToken: 'csrf_old' } },
+    );
+    await waitFor(() => expect(listInstructionTemplates).toHaveBeenCalledOnce());
+
+    rerender({ csrfToken: 'csrf_new' });
+    await waitFor(() => expect(listInstructionTemplates).toHaveBeenCalledTimes(2));
+    await act(async () => resolveOldLoad(store));
+
+    expect(result.current.activeIdentity).toBe('focused');
+  });
+
   it('loads only when the instructions workspace becomes active', async () => {
     const adminApi = api();
     const { rerender } = renderHook(
@@ -300,5 +341,22 @@ describe('useInstructionTemplates', () => {
     await act(async () => result.current.deleteSelected());
 
     expect(deleteTemplate).not.toHaveBeenCalled();
+  });
+
+  it('reports a failed delete preview through the hook error path', async () => {
+    const adminApi = api({
+      previewInstructionTemplateDelete: vi.fn(async () => {
+        throw new TypeError('network unavailable');
+      }),
+    });
+    const { result } = renderHook(() =>
+      useInstructionTemplates({ api: adminApi, active: true, csrfToken: 'csrf_1', confirm }),
+    );
+    await waitFor(() => expect(result.current.items).toHaveLength(2));
+    act(() => result.current.select('focused'));
+
+    await act(async () => result.current.deleteSelected());
+
+    expect(result.current.error).toBe('network unavailable');
   });
 });

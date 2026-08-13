@@ -171,7 +171,7 @@ You can also specify a custom path using the CLI option.
 
 ### Move to Managed Configuration
 
-For a supported configuration workflow, import the legacy file into a managed template as described above. To replace or suppress instructions from one configured server, use a [server instruction override](./server-instructions-overrides.md) instead of adding per-client template settings.
+For a supported configuration workflow, import the legacy file into a managed template as described above. To replace or suppress instructions from one configured server, use a [server instruction override](/guide/server-instructions-overrides) instead of adding per-client template settings.
 
 ## Template Syntax
 

@@ -2660,6 +2660,12 @@ describe('AdminConfiguredServerService', () => {
         ]),
       },
     });
+    await expect(
+      service.enableConfiguredServer({ context: context(), targetName: 'shared', targetSource: 'mcpTemplates' }),
+    ).resolves.toMatchObject({ ok: false, code: 'mutation_failed' });
+    await expect(
+      service.disableConfiguredServer({ context: context(), targetName: 'shared', targetSource: 'mcpTemplates' }),
+    ).resolves.toMatchObject({ ok: false, code: 'mutation_failed' });
   });
 
   it('marks template secret changes with rendered-template risk', async () => {

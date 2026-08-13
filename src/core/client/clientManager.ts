@@ -628,7 +628,7 @@ export class ClientManager extends EventEmitter {
 
       this.outboundConns.delete(name);
       delete this.transports[name];
-      this.instructionAggregator?.removeServer({ source: 'mcpServers', name }, name);
+      this.instructionAggregator?.removeServer({ source: 'mcpServers', name: clientInfo.name || name }, name);
 
       logger.info(`Client ${name} removed successfully`);
     } catch (error) {

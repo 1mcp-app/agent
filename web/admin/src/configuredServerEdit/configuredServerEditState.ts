@@ -138,7 +138,10 @@ export function reduceConfiguredServerEditState(
       return withDraftChange(state, {
         instructionOverride: {
           mode: action.mode,
-          value: action.mode === 'replace' ? (action.value ?? state.instructionOverride.value) : '',
+          value:
+            action.mode === 'replace'
+              ? (action.value ?? state.instructionOverride.value)
+              : state.instructionOverride.value,
         },
       });
     case 'previewStarted':

@@ -11,6 +11,9 @@ import { createApiRoutes } from './apiRoutes.js';
 const mockedBuildServerSummaries = vi.hoisted(() => vi.fn());
 const mockedLoadDeclaredServerConfigs = vi.hoisted(() => vi.fn());
 const mockedGetRuntimeInstructionConfiguration = vi.hoisted(() => vi.fn());
+const mockedEnsureRequestContextInitialized = vi.hoisted(() =>
+  vi.fn(() => Promise.resolve<string | undefined>('request-session')),
+);
 
 vi.mock('@src/config/configManager.js', () => ({
   ConfigManager: {
@@ -27,7 +30,7 @@ vi.mock('./inspectRoutes.js', async (importOriginal) => {
 });
 
 vi.mock('./inspectRequestContext.js', () => ({
-  ensureRequestContextInitialized: vi.fn(() => Promise.resolve('request-session')),
+  ensureRequestContextInitialized: mockedEnsureRequestContextInitialized,
 }));
 
 describe('apiRoutes /api/instructions', () => {
@@ -40,6 +43,8 @@ describe('apiRoutes /api/instructions', () => {
     mockedBuildServerSummaries.mockReset();
     mockedLoadDeclaredServerConfigs.mockReset();
     mockedGetRuntimeInstructionConfiguration.mockReset();
+    mockedEnsureRequestContextInitialized.mockReset();
+    mockedEnsureRequestContextInitialized.mockResolvedValue('request-session');
   });
 
   it('renders the active CLI variant with effective overrides and the selected filters', async () => {
@@ -223,7 +228,10 @@ describe('apiRoutes /api/instructions', () => {
     ]);
     const app = express().use(
       '/api/v1',
-      createApiRoutes(makeServerManager(aggregator, clients) as never, scopeAuthMiddleware),
+      createApiRoutes(
+        makeServerManager(aggregator, clients, new Map([['shared', 'instance']])) as never,
+        scopeAuthMiddleware,
+      ),
     );
 
     const response = await request(app).get('/api/v1/instructions');
@@ -280,17 +288,86 @@ describe('apiRoutes /api/instructions', () => {
       expect(response.body.rendered).toBe(expected);
     },
   );
+
+  it('includes only contextual template connections belonging to the request session', async () => {
+    const aggregator = new InstructionAggregator();
+    aggregator.setInstructions({ source: 'mcpTemplates', name: 'contextual' }, 'own', 'contextual:request-session');
+    aggregator.setInstructions({ source: 'mcpTemplates', name: 'contextual' }, 'other', 'contextual:other-session');
+    mockedBuildServerSummaries.mockImplementation(async (connections: Map<string, { name: string }>) =>
+      Array.from(connections.values()).map((connection) => ({
+        server: connection.name,
+        type: 'template',
+        status: 'connected',
+        available: true,
+        loadTracked: false,
+        toolCount: 0,
+        hasInstructions: true,
+      })),
+    );
+    mockedLoadDeclaredServerConfigs.mockReturnValue({ staticServers: {}, templateServers: {} });
+    const runtimeConfiguration = {
+      activeInstructionTemplate: 'team',
+      instructionTemplates: { team: { initialization: 'init', cli: '{{instructions}}' } },
+      configuredTargets: { mcpServers: {}, mcpTemplates: {} },
+    };
+    aggregator.setRuntimeInstructionConfiguration(runtimeConfiguration);
+    mockedGetRuntimeInstructionConfiguration.mockReturnValue(runtimeConfiguration);
+    const clients = new Map([
+      ['contextual:request-session', makeConnection('contextual')],
+      ['contextual:other-session', makeConnection('contextual')],
+    ]);
+    const app = express().use(
+      '/api/v1',
+      createApiRoutes(makeServerManager(aggregator, clients) as never, scopeAuthMiddleware),
+    );
+
+    const response = await request(app).get('/api/v1/instructions');
+
+    expect(response.status).toBe(200);
+    expect(response.body.rendered).toContain('own');
+    expect(response.body.rendered).not.toContain('other');
+  });
+
+  it('does not inherit contextual template connections when no request context exists', async () => {
+    mockedEnsureRequestContextInitialized.mockResolvedValue(undefined);
+    const aggregator = new InstructionAggregator();
+    aggregator.setInstructions({ source: 'mcpTemplates', name: 'contextual' }, 'private', 'contextual:other-session');
+    mockedBuildServerSummaries.mockResolvedValue([]);
+    mockedLoadDeclaredServerConfigs.mockReturnValue({ staticServers: {}, templateServers: {} });
+    const runtimeConfiguration = {
+      activeInstructionTemplate: 'team',
+      instructionTemplates: { team: { initialization: 'init', cli: '{{instructions}}' } },
+      configuredTargets: { mcpServers: {}, mcpTemplates: {} },
+    };
+    aggregator.setRuntimeInstructionConfiguration(runtimeConfiguration);
+    mockedGetRuntimeInstructionConfiguration.mockReturnValue(runtimeConfiguration);
+    const clients = new Map([['contextual:other-session', makeConnection('contextual')]]);
+    const app = express().use(
+      '/api/v1',
+      createApiRoutes(makeServerManager(aggregator, clients) as never, scopeAuthMiddleware),
+    );
+
+    const response = await request(app).get('/api/v1/instructions');
+
+    expect(response.status).toBe(200);
+    expect(response.body.rendered).not.toContain('private');
+  });
 });
 
 function makeServerManager(
   aggregator: InstructionAggregator,
   clients = new Map([['alpha', makeConnection('alpha', ['coding'])]]),
+  renderedHashes?: Map<string, string>,
 ) {
   return {
     getInstructionAggregator: vi.fn(() => aggregator),
     getClients: vi.fn(() => clients),
     getLazyLoadingOrchestrator: vi.fn(() => undefined),
     getServerRegistry: vi.fn(() => ({})),
+    getTemplateServerManager: vi.fn(() => ({
+      getAllRenderedHashesForSession: vi.fn(() => renderedHashes),
+      getRenderedHashForSession: vi.fn((_sessionId: string, name: string) => renderedHashes?.get(name)),
+    })),
   };
 }
 

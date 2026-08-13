@@ -241,6 +241,11 @@ describe('configured server edit state', () => {
     state = reduceConfiguredServerEditState(state, { type: 'instructionOverrideChanged', mode: 'suppress' });
     expect(configuredServerEditDraft(state)).toEqual({ instructionOverride: { action: 'set', value: '' } });
 
+    state = reduceConfiguredServerEditState(state, { type: 'instructionOverrideChanged', mode: 'replace' });
+    expect(configuredServerEditDraft(state)).toEqual({
+      instructionOverride: { action: 'set', value: 'Operator guidance' },
+    });
+
     state = reduceConfiguredServerEditState(state, { type: 'instructionOverrideChanged', mode: 'upstream' });
     expect(configuredServerEditDraft(state)).toEqual({});
     expect(state).toMatchObject({ status: 'loaded', dirty: false });

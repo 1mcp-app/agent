@@ -10,11 +10,7 @@ import ConfigContext from '@src/config/configContext.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { getGlobalConfigDir, MCP_SERVER_VERSION, RATE_LIMIT_CONFIG, STORAGE_SUBDIRS } from '@src/constants.js';
 import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
-import {
-  authorizeTemplateContext,
-  createTemplateContextProof,
-  TemplateContextCapabilityStore,
-} from '@src/core/context/templateContextTrust.js';
+import type { TrustedTemplateContext } from '@src/core/context/templateContextTrust.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
@@ -430,20 +426,8 @@ export class ExpressServer {
         (context) => {
           const trustMode = this.configManager.get('templateContext')?.trust ?? 'verified';
           if (trustMode === 'disabled') return undefined;
-          const capability = new TemplateContextCapabilityStore({
-            storageDir: adminStorageDir,
-            runtimeScopeId: runtimeIdentity.runtimeScopeId,
-          }).getOrCreate();
-          const proof = createTemplateContextProof(context, capability);
-          const authorization = authorizeTemplateContext({
-            mode: trustMode,
-            context,
-            proof,
-            capability,
-            transportSessionId: context.sessionId,
-            maxAgeMs: this.configManager.get('auth').sessionTtlMinutes * 60 * 1000,
-          });
-          return authorization.status === 'trusted' ? authorization.context : undefined;
+          // Authenticated Admin Console operators are authoritative for preview-only context.
+          return context as TrustedTemplateContext;
         },
       ),
       getLegacyInitialization: () => this.customTemplate,

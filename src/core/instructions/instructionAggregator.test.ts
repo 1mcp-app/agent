@@ -231,6 +231,15 @@ describe('InstructionAggregator', () => {
   });
 
   describe('removeServer', () => {
+    it('preserves name-level instructions while another same-name instance remains', () => {
+      aggregator.setInstructions({ source: 'mcpTemplates', name: 'shared' }, 'First instance', 'shared:first');
+      aggregator.setInstructions({ source: 'mcpTemplates', name: 'shared' }, 'Second instance', 'shared:second');
+
+      aggregator.removeServer({ source: 'mcpTemplates', name: 'shared' }, 'shared:second');
+
+      expect(aggregator.getServerInstructions('shared')).toBe('First instance');
+    });
+
     it('should remove server and emit event if server had instructions', () => {
       const mockListener = vi.fn();
 

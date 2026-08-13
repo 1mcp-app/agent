@@ -875,6 +875,25 @@ describe('Config Change', () => {
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
+  it('rejects an invalid active instruction template before backup or write', async () => {
+    const original = { mcpServers: {} };
+    await writeConfig(original);
+    const service = createConfigChangeService({ reloadConfig: reload, now: () => 1234 });
+
+    await expect(
+      service.setInstructionTemplateConfiguration({
+        operation: 'template_activate',
+        identity: 'missing',
+        activeInstructionTemplate: 'missing',
+        expectedConfigFingerprint: fingerprintConfiguredServerConfigDocument(original),
+      }),
+    ).rejects.toThrow();
+
+    expect(await readConfig()).toEqual(original);
+    await expect(fs.access(`${configPath}.backup.1234`)).rejects.toThrow();
+    expect(reload).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['mcpServers', 'static'],
     ['mcpTemplates', 'template'],
