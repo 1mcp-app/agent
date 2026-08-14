@@ -404,19 +404,7 @@ sudo systemctl status 1mcp
 
 在 Windows 上，任务计划程序是持久 `1mcp serve` 守护进程的正确监管者。它提供开机触发启动、崩溃重启和非交互式登录——等价于 Linux 上的 systemd 服务。
 
-```powershell
-# 快速开始——使用 Windows 指南中的辅助脚本
-.\scripts\install-windows-task.ps1 -BinaryPath 'C:\Program Files\1mcp\1mcp.exe'
-```
-
-注册后快速验证：
-
-```powershell
-1mcp serve --status --config-dir "$env:APPDATA\1mcp"   # running (ready)
-Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:3050/health/ready' | Select-Object StatusCode  # 200
-```
-
-→ npm 路径、凭据处理、生命周期命令和故障排查的完整指南：**[Windows：任务计划程序](/zh/guide/advanced/windows-task-scheduler)**
+→ 独立二进制和 npm 路径、凭据处理、生命周期命令和故障排查的完整指南：**[Windows：任务计划程序](/zh/guide/advanced/windows-task-scheduler)**
 
 ### **步骤 3：基本监控** (5 分钟)
 

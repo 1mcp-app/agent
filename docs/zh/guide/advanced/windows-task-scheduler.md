@@ -56,7 +56,7 @@ if (-not (Test-Path "$configDir\mcp.json")) {
   "$schema": "https://docs.1mcp.app/schemas/v1.0.0/mcp-config.json",
   "mcpServers": {}
 }
-'@ | Set-Content -Path "$configDir\mcp.json" -Encoding UTF8
+'@ | ForEach-Object { [System.IO.File]::WriteAllText("$configDir\mcp.json", $_, (New-Object System.Text.UTF8Encoding($false))) }
 }
 ```
 
@@ -70,9 +70,9 @@ if (-not (Test-Path "$configDir\mcp.json")) {
 
 ```powershell
 $binaryPath = 'C:\Program Files\1mcp\1mcp.exe'   # 调整为你的实际安装路径
-$configDir  = "$env:APPDATA\1mcp"
+$configDir  = "$env:APPDATA\1mcp"                 # 使用绝对路径，不要用提升后管理员的配置目录
 $taskName   = '1mcp-daemon'
-$currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+$taskAccount = 'DOMAIN\user'                       # 运行守护进程的最小权限账户
 
 $action = New-ScheduledTaskAction `
     -Execute $binaryPath `
@@ -90,27 +90,27 @@ $settings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `
     -MultipleInstances IgnoreNew
 
-$cred = Get-Credential -UserName $currentUser -Message "Enter your Windows password for the 1mcp daemon task."
+$cred = Get-Credential -UserName $taskAccount -Message "输入 $taskAccount 的密码——该账户将运行 1mcp 守护任务。"
 if (-not $cred) {
     throw 'Credential prompt cancelled. Cannot register task without credentials.'
 }
 $plainPassword = $cred.GetNetworkCredential().Password
 
-# \u786e\u4fdd\u65e5\u5fd7\u76ee\u5f55\u5b58\u5728\uff08Session 0 \u65e0\u63a7\u5236\u53f0\uff1b--log-file \u662f\u53ef\u89c1\u7684\u5fc5\u8981\u6761\u4ef6\uff09
+# 确保日志目录存在（Session 0 无控制台；--log-file 是可见的必要条件）
 New-Item -ItemType Directory -Force -Path "$configDir\logs" | Out-Null
 
-# \u6388\u4e88\u4efb\u52a1\u8d26\u6237\u4fee\u6539\u6743\u9650\uff0c\u4ee5\u4fbf\u5199\u5165 server.pid \u548c\u65e5\u5fd7
-icacls $configDir /grant "${currentUser}:(OI)(CI)M" | Out-Null
+# 授予任务账户修改权限，以便写入 server.pid 和日志
+icacls $configDir /grant "${taskAccount}:(OI)(CI)M" | Out-Null
 
-# -User + -Password \u96\u5\u90\u90\u8d\u41\u7\u24\u8a\u7\u0\u9\u0\u88\u5\u8 LogonType=Password \u548c RunLevel=Limited
-# \u4e0d\u8981\u6dfb\u52a0 -Principal \u2014\u2014\u5b83\u5c5e\u4e8e\u4e0d\u540c\u7684\u53c2\u6570\u96c6\uff0c\u4f1a\u89e6\u53d1 AmbiguousParameterSet \u9519\u8bef
+# -User + -Password 隐式设置 LogonType=Password 和 RunLevel=Limited
+# 不要添加 -Principal——它属于不同的参数集，会触发 AmbiguousParameterSet 错误
 Register-ScheduledTask `
     -TaskName $taskName `
     -Action $action `
     -Trigger $trigger `
     -Settings $settings `
     -Description '1MCP 聚合 MCP 运行时' `
-    -User $currentUser `
+    -User $taskAccount `
     -Password $plainPassword `
     -Force
 ```
@@ -141,7 +141,7 @@ $action = New-ScheduledTaskAction `
 | `MultipleInstances`                | `IgnoreNew`         | 快速重启后若上一个实例尚未退出，阻止第二个守护进程启动                                                           |
 | `ExecutionTimeLimit`               | `PT0S`（零=无限制） | 防止默认 72 小时执行上限将运行中的守护进程强制终止                                                               |
 | `RestartCount` / `RestartInterval` | 5 次 × 2 分钟       | 给瞬时故障留出恢复时间，避免立即循环重启                                                                         |
-| `StartWhenAvailable`               | `true`              | 若任务符合运行条件但暂时无法启动（如上一实例仍在停止），则尽快启动。                                             |
+| `StartWhenAvailable`               | `true`              | 仅为错过的基于时间的计划启动保留。**不**适用于 `AtStartup` 启动恢复（该触发器每次开机都会触发）。                |
 | `RunLevel`                         | `Limited`           | 以非提升权限运行，使用所需的最小权限                                                                             |
 | `LogonType`                        | `Password`          | 通过 Session 0 在开机时运行（无桌面窗口）。密码通过 `Get-Credential` 提示输入，加密存储在 Windows 凭据管理器中。 |
 | 无固定启动延迟                     | —                   | 仅当环境需要 VPN 或域认证先于 1MCP 建立时，才考虑添加固定延迟                                                    |
@@ -154,7 +154,7 @@ $action = New-ScheduledTaskAction `
 
 ```powershell
 # 此时两者均默认使用相同的用户目录，服务自动发现能够完美工作
-1mcp serve  # 后台或前台运行
+1mcp serve  # 前台运行：任务计划程序监管该进程
 1mcp proxy  # 自动读取当前用户的 %APPDATA%\1mcp\server.pid 并成功连接
 ```
 

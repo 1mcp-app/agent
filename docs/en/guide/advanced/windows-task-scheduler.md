@@ -62,7 +62,7 @@ if (-not (Test-Path "$configDir\mcp.json")) {
   "$schema": "https://docs.1mcp.app/schemas/v1.0.0/mcp-config.json",
   "mcpServers": {}
 }
-'@ | Set-Content -Path "$configDir\mcp.json" -Encoding UTF8
+'@ | ForEach-Object { [System.IO.File]::WriteAllText("$configDir\mcp.json", $_, (New-Object System.Text.UTF8Encoding($false))) }
 }
 ```
 
@@ -76,9 +76,9 @@ Run the following from an **elevated PowerShell session**. The script prompts fo
 
 ```powershell
 $binaryPath = 'C:\Program Files\1mcp\1mcp.exe'   # adjust to your installation path
-$configDir  = "$env:APPDATA\1mcp"
+$configDir  = "$env:APPDATA\1mcp"                 # use an absolute path, NOT the elevated admin's profile
 $taskName   = '1mcp-daemon'
-$currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+$taskAccount = 'DOMAIN\user'                       # the least-privileged account that will run the daemon
 
 $action = New-ScheduledTaskAction `
     -Execute $binaryPath `
@@ -96,7 +96,7 @@ $settings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `
     -MultipleInstances IgnoreNew
 
-$cred = Get-Credential -UserName $currentUser -Message "Enter your Windows password for the 1mcp daemon task."
+$cred = Get-Credential -UserName $taskAccount -Message "Enter the password for $taskAccount — this account will run the 1mcp daemon task."
 if (-not $cred) {
     throw 'Credential prompt cancelled. Cannot register task without credentials.'
 }
@@ -106,7 +106,7 @@ $plainPassword = $cred.GetNetworkCredential().Password
 New-Item -ItemType Directory -Force -Path "$configDir\logs" | Out-Null
 
 # Grant the task account Modify access so it can write server.pid and logs
-icacls $configDir /grant "${currentUser}:(OI)(CI)M" | Out-Null
+icacls $configDir /grant "${taskAccount}:(OI)(CI)M" | Out-Null
 
 # -User + -Password implicitly sets LogonType=Password and RunLevel=Limited.
 # Do NOT add -Principal — it belongs to a different parameter set and causes
@@ -117,7 +117,7 @@ Register-ScheduledTask `
     -Trigger $trigger `
     -Settings $settings `
     -Description '1MCP aggregated MCP runtime' `
-    -User $currentUser `
+    -User $taskAccount `
     -Password $plainPassword `
     -Force
 ```
@@ -143,15 +143,15 @@ $action = New-ScheduledTaskAction `
 
 ## Key Settings Explained
 
-| Setting                            | Value                     | Why                                                                                                                                                   |
-| ---------------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MultipleInstances`                | `IgnoreNew`               | Prevents a second daemon from starting if the first has not exited yet after a fast reboot                                                            |
-| `ExecutionTimeLimit`               | `PT0S` (zero = unlimited) | A running daemon must not be killed by a default 72-hour execution cap                                                                                |
-| `RestartCount` / `RestartInterval` | 5 × 2 min                 | Gives time for transient failures to recover without spinning immediately                                                                             |
-| `StartWhenAvailable`               | `true`                    | If the task is eligible to run but conditions temporarily prevent it (e.g. another instance is still stopping), start it as soon as conditions allow. |
-| `RunLevel`                         | `Limited`                 | Runs without elevated privileges; use the minimum permissions needed                                                                                  |
-| `LogonType`                        | `Password`                | Runs at boot via Session 0 (no desktop window). Password prompted via `Get-Credential`, stored encrypted in Windows Credential Manager.               |
-| No boot delay                      | —                         | Add a fixed delay only if your environment requires a VPN or domain authentication to be established before 1MCP can reach upstream servers           |
+| Setting                            | Value                     | Why                                                                                                                                         |
+| ---------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MultipleInstances`                | `IgnoreNew`               | Prevents a second daemon from starting if the first has not exited yet after a fast reboot                                                  |
+| `ExecutionTimeLimit`               | `PT0S` (zero = unlimited) | A running daemon must not be killed by a default 72-hour execution cap                                                                      |
+| `RestartCount` / `RestartInterval` | 5 × 2 min                 | Gives time for transient failures to recover without spinning immediately                                                                   |
+| `StartWhenAvailable`               | `true`                    | Retained for missed time-based launches. Does **not** recover an `AtStartup` launch (the trigger fires every boot regardless).              |
+| `RunLevel`                         | `Limited`                 | Runs without elevated privileges; use the minimum permissions needed                                                                        |
+| `LogonType`                        | `Password`                | Runs at boot via Session 0 (no desktop window). Password prompted via `Get-Credential`, stored encrypted in Windows Credential Manager.     |
+| No boot delay                      | —                         | Add a fixed delay only if your environment requires a VPN or domain authentication to be established before 1MCP can reach upstream servers |
 
 ## Runtime Scope and `--config-dir`
 
@@ -161,7 +161,7 @@ Because the scheduled task runs in Session 0 under `LogonType Password`, the dae
 
 ```powershell
 # Both commands share the user configuration scope by default
-1mcp serve  # Run in background or foreground
+1mcp serve  # Foreground: Task Scheduler supervises the process
 1mcp proxy  # Automatically discovers and connects to the running daemon
 ```
 

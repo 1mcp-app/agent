@@ -424,19 +424,7 @@ sudo systemctl status 1mcp
 
 On Windows, Task Scheduler is the correct supervisor for a persistent `1mcp serve` daemon. It provides boot-triggered startup, restart-on-failure, and non-interactive logon — the equivalent of a systemd service on Linux.
 
-```powershell
-# Quick start — uses the helper script from the Windows guide
-.\scripts\install-windows-task.ps1 -BinaryPath 'C:\Program Files\1mcp\1mcp.exe'
-```
-
-Quick verification after registration:
-
-```powershell
-1mcp serve --status --config-dir "$env:APPDATA\1mcp"   # running (ready)
-Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:3050/health/ready' | Select-Object StatusCode  # 200
-```
-
-→ Full guide with npm path, credential handling, lifecycle commands, and troubleshooting: **[Windows: Task Scheduler](/guide/advanced/windows-task-scheduler)**
+→ Full guide with standalone binary and npm paths, credential handling, lifecycle commands, and troubleshooting: **[Windows: Task Scheduler](/guide/advanced/windows-task-scheduler)**
 
 ### **Step 3: Basic Monitoring** (5 minutes)
 
