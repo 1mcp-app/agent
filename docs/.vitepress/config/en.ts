@@ -120,6 +120,7 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: 'Fast Startup', link: '/guide/advanced/fast-startup' },
           { text: 'Reverse Proxy', link: '/guide/advanced/reverse-proxy' },
           { text: 'Cloud Deployment', link: '/guide/advanced/cloud-deployment' },
+          { text: 'Windows: Task Scheduler', link: '/guide/advanced/windows-task-scheduler' },
           { text: 'Backend Logs', link: '/guide/advanced/backend-logs' },
           { text: 'Server Filtering', link: '/guide/advanced/server-filtering' },
         ],

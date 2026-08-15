@@ -350,7 +350,8 @@ For a public cloud runtime with Admin Console access and local CLI targets, use 
 
 ### **What You'll Achieve**
 
-- ✅ Systemd service for automatic startup
+- ✅ Systemd service for automatic startup (Linux/macOS)
+- ✅ Windows Task Scheduler service for automatic startup (Windows)
 - ✅ Basic security configuration
 - ✅ Log management and rotation
 - ✅ Configuration backup
@@ -419,6 +420,12 @@ sudo systemctl start 1mcp
 sudo systemctl status 1mcp
 ```
 
+### **Windows: Task Scheduler** (Windows only)
+
+On Windows, Task Scheduler is the correct supervisor for a persistent `1mcp serve` daemon. It provides boot-triggered startup, restart-on-failure, and non-interactive logon — the equivalent of a systemd service on Linux.
+
+→ Full guide with standalone binary and npm paths, credential handling, lifecycle commands, and troubleshooting: **[Windows: Task Scheduler](/guide/advanced/windows-task-scheduler)**
+
 ### **Step 3: Basic Monitoring** (5 minutes)
 
 ```bash
@@ -482,7 +489,7 @@ chmod +x ~/1mcp-backup.sh
 
 **🎉 Success Indicators**:
 
-- [ ] 1MCP running as systemd service
+- [ ] 1MCP running as systemd service (Linux/macOS) or Windows Task Scheduler task (Windows)
 - [ ] Service starts automatically on boot
 - [ ] Health check script working
 - [ ] Configuration backed up
