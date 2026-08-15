@@ -10,6 +10,7 @@ import ConfigContext from '@src/config/configContext.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { getGlobalConfigDir, MCP_SERVER_VERSION, RATE_LIMIT_CONFIG, STORAGE_SUBDIRS } from '@src/constants.js';
 import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
+import type { TrustedTemplateContext } from '@src/core/context/templateContextTrust.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
@@ -17,6 +18,8 @@ import { ServerManager } from '@src/core/server/serverManager.js';
 import type { ConfiguredServerConfigDocument } from '@src/domains/admin/adminConfiguredServerService.js';
 import { createAdminConnectivityChecker } from '@src/domains/admin/adminConnectivityChecker.js';
 import { createAdminDomain } from '@src/domains/admin/adminDomain.js';
+import { createAdminInstructionPreviewRuntime } from '@src/domains/admin/adminInstructionPreviewRuntime.js';
+import { createConfiguredToolInventory } from '@src/domains/admin/configuredToolInventory.js';
 import {
   type AdminMutationAvailability,
   type RuntimeScopeAdminLockHandle,
@@ -414,9 +417,27 @@ export class ExpressServer {
       sessionTtlMs: this.configManager.get('auth').sessionTtlMinutes * 60 * 1000,
       mutationAvailability: adminMutationAvailability,
       configChangeService: createConfigChangeService({ getConfigPath }),
+      getConfigPath,
       readConfigDocument: () => readConfiguredServerConfigDocument(getConfigPath),
+      readToolInventory: (input) =>
+        createConfiguredToolInventory({
+          ...input,
+          connections: this.serverManager.getClients(),
+        }),
       checkConnectivity: createAdminConnectivityChecker(),
       presetManager: PresetManager.getInstance(path.dirname(adminConfigPath)),
+      previewInstructions: createAdminInstructionPreviewRuntime(
+        this.serverManager,
+        PresetManager.getInstance(path.dirname(adminConfigPath)),
+        (context) => {
+          const trustMode = this.configManager.get('templateContext')?.trust ?? 'verified';
+          if (trustMode === 'disabled') return undefined;
+          // Authenticated Admin Console operators are authoritative for preview-only context.
+          return context as TrustedTemplateContext;
+        },
+      ),
+      getLegacyInitialization: () => this.customTemplate,
+      getInstructionRenderFailures: () => this.serverManager.getInstructionAggregator()?.getRenderFailures() ?? {},
       readServerTargets: getAllServerTargets,
       runtimeBackendRestartService: new RuntimeServerManagerBackendRestartService({
         serverManager: this.serverManager,
@@ -428,6 +449,7 @@ export class ExpressServer {
       adminEnabled,
       adminService: adminDomain.adminService,
       configuredServerService: adminDomain.configuredServerService,
+      instructionTemplateService: adminDomain.instructionTemplateService,
       presetService: adminDomain.presetService,
       backendRestartService: adminDomain.backendRestartService,
       oauthService: adminDomain.oauthService,

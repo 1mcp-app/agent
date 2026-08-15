@@ -58,7 +58,7 @@ export async function writeSchemaFile(schema: Record<string, unknown>, outputPat
     await mkdir(dirname(outputPath), { recursive: true });
 
     // Write schema with proper formatting
-    await writeFile(outputPath, JSON.stringify(schema, null, 2), 'utf-8');
+    await writeFile(outputPath, `${JSON.stringify(schema, null, 2)}\n`, 'utf-8');
   } catch (error) {
     const message = `Failed to write schema file to '${outputPath}': ${error instanceof Error ? error.message : String(error)}`;
     process.stderr.write(`[schema-gen] ${message}\n`);

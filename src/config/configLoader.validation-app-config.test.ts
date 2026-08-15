@@ -175,6 +175,28 @@ describe('ConfigLoader', () => {
 
       expect(result.disabledTools).toEqual(['write_file', 'delete_file']);
     });
+
+    it('should validate non-empty tool description overrides', () => {
+      const result = loader.validateServerConfig('described-server', {
+        command: 'echo',
+        toolDescriptionOverrides: {
+          read_file: 'Read a file from the workspace',
+        },
+      });
+
+      expect(result.toolDescriptionOverrides).toEqual({
+        read_file: 'Read a file from the workspace',
+      });
+    });
+
+    it('should reject whitespace-only tool description overrides', () => {
+      expect(() =>
+        loader.validateServerConfig('described-server', {
+          command: 'echo',
+          toolDescriptionOverrides: { read_file: '   ' },
+        }),
+      ).toThrow(/Invalid configuration for server 'described-server'/);
+    });
   });
 
   describe('getTransportConfig', () => {

@@ -16,6 +16,69 @@ description: 为 1MCP 生成的 agent 指令配置和维护自定义 Handlebars 
 - 使用实时服务器数据进行变量替换
 - 基于连接服务器的条件内容
 
+## 在 Admin Console 中管理模板
+
+打开 **Admin Console > Instructions**，无需直接编辑配置文件即可管理具名指令模板。每个模板包含两个相互独立的变体：
+
+- **Initialization**：在新的 MCP 客户端初始化时返回。
+- **CLI**：由 `1mcp instructions` 及其对应的 HTTP 端点渲染。
+
+内置的 `default` 模板始终提供这两个变体。它受系统保护，不能编辑或删除，但可以克隆为新的托管模板。
+
+编辑器支持以下工作流：
+
+1. 创建或克隆模板，并编辑任一变体。
+2. 保存草稿。即使某个变体包含无效的 Handlebars，草稿也可以保存，未完成的内容不会丢失。
+3. 校验两个变体，并使用显式的服务器上下文进行预览。
+4. 激活模板。只有两个变体都通过校验时才能激活。
+
+同一时间只能有一个活动模板。活动模板不能删除；请先激活另一个模板。Admin Console 在真正删除前还会显示删除预览。
+
+### 预览上下文与过滤
+
+预览使用显式、临时的上下文。请选择目标客户端会使用的服务器，以及相同的 preset、tags 或高级 tag filter。预览会先应用过滤，再构建 <span v-pre>`{{servers}}`</span>、<span v-pre>`{{serverNames}}`</span> 和 <span v-pre>`{{filterContext}}`</span> 等变量。预览不会创建持久客户端会话，也不会更改活动模板。
+
+当改动涉及共享变量时，请同时预览两个变体。Initialization 和 CLI 变体可以基于同一组过滤后的服务器数据有意生成不同结构。
+
+### 运行时行为与回退
+
+激活模板会更新后续渲染所用的配置。已经完成初始化的 MCP 会话继续保留其已收到的指令；新的 MCP 连接和之后执行的 `1mcp instructions` 会使用当前活动模板。
+
+如果活动变体在渲染时失败，1MCP 会针对该输出面使用内置变体，并在 Admin 中记录结构化错误。活动选择会保留，便于运维人员检查和修复。`cli` 变体失败不会替换有效的 `initialization` 变体，反之亦然。
+
+## 托管配置
+
+Admin Console 将托管模板存储在 `mcp.json` 中：
+
+```json
+{
+  "instructionTemplates": {
+    "team": {
+      "initialization": "# {{title}}\n\n{{instructions}}",
+      "cli": "先执行 `1mcp inspect <server>`，再执行 `1mcp run`。\n\n{{instructions}}"
+    }
+  },
+  "activeInstructionTemplate": "team"
+}
+```
+
+::: warning 由 Admin 管理的发布状态
+`publishedInstructionTemplates` 是 Admin 工作流维护的可选内部快照。当活动模板被保存为无效草稿时，它会保留上次激活的输出，并在重启后继续生效。请勿手动编辑该字段；应编辑 `instructionTemplates` 草稿，并使用 **Activate** 发布通过校验的变体。
+:::
+
+不要在 `instructionTemplates` 中添加 `default` 条目；该标识保留给内置模板。`activeInstructionTemplate` 必须是 `default`，或某个已配置托管模板的标识。
+
+当 `activeInstructionTemplate` 存在时，托管选择对两个输出面都具有更高优先级。当该字段不存在时，Initialization 保留下面介绍的旧版文件或 `--instructions-template` 行为，而 CLI 输出使用内置 CLI 模板。
+
+## 迁移旧版模板
+
+在 Admin Console 中使用 **Import legacy template**，将当前配置的旧版 Initialization 模板复制到一个具名草稿中。导入不会覆盖旧版文件，也不会激活该草稿。新模板会获得：
+
+- 旧版内容作为 `initialization` 变体；
+- 内置内容作为 `cli` 变体。
+
+请检查并校验两个变体，使用预期的过滤上下文进行预览，然后激活托管模板。托管选择激活后，其优先级高于旧版 Initialization 模板。建议先保留旧版文件，验证新连接和 CLI 输出后，再按需移除旧的 serve 选项或文件。
+
 ## 模板变量
 
 您的自定义模板可以访问以下变量：
@@ -96,9 +159,9 @@ description: 为 1MCP 生成的 agent 指令配置和维护自定义 Handlebars 
 
 您也可以使用 CLI 选项指定自定义路径。
 
-### 配置覆盖
+### 迁移到托管配置
 
-您还可以通过扩展配置系统在每个客户端的 MCP 服务器配置中包含模板选项来覆盖模板设置。
+如需使用受支持的配置工作流，请按照上面的说明将旧版文件导入托管模板。若要替换或抑制某个已配置服务器的指令，请使用[服务器指令覆盖](/zh/guide/server-instructions-overrides)，而不是添加每客户端模板设置。
 
 ## 模板语法
 

@@ -1,10 +1,20 @@
-import { Badge, Group, Text, Title, UnstyledButton } from '@mantine/core';
+import { Badge, Button, Group, Stack, Text, Title, UnstyledButton } from '@mantine/core';
+
+import { Plus } from 'lucide-react';
+import type { MouseEvent } from 'react';
 
 import type { BackendLogEntry, BackendLogSource } from '../../api/adminApi';
 import type { BackendLogsModel } from '../../session/useBackendLogs';
 
-export function BackendLogsWorkspace({ logs }: { logs: BackendLogsModel }) {
+export function BackendLogsWorkspace({
+  logs,
+  configureServer,
+}: {
+  logs: BackendLogsModel;
+  configureServer(): void | Promise<void>;
+}) {
   const selected = logs.sources.find((source) => source.id === logs.selectedSourceId) ?? null;
+  const hasSources = logs.sources.length > 0;
   return (
     <section aria-label="Backend logs" className="operations-workspace backend-logs-workspace">
       <header className="workspace-heading backend-logs-heading">
@@ -16,15 +26,36 @@ export function BackendLogsWorkspace({ logs }: { logs: BackendLogsModel }) {
             <Title order={2}>Backend logs</Title>
           </div>
           <Badge color={connectionColor(logs.connection)} variant="light">
-            {connectionLabel(logs.connection)}
+            {connectionLabel(logs.connection, hasSources)}
           </Badge>
         </Group>
       </header>
       {logs.sources.length === 0 ? (
         <div className="backend-log-empty" role="status">
-          {logs.connection === 'loading'
-            ? 'Loading backend log sources...'
-            : 'No stdio backend log sources are available.'}
+          {logs.connection === 'loading' ? (
+            'Loading backend log sources...'
+          ) : (
+            <Stack gap="sm" align="center" className="actionable-empty-state">
+              <div>
+                <Text fw={800}>No backend log sources</Text>
+                <Text c="dimmed" size="sm">
+                  Configure a stdio server to capture and inspect managed stderr here.
+                </Text>
+              </div>
+              <Button
+                component="a"
+                href="/admin/servers/new"
+                leftSection={<Plus size={16} />}
+                onClick={(event: MouseEvent<HTMLAnchorElement>) => {
+                  if (!isSamePageNavigation(event)) return;
+                  event.preventDefault();
+                  void configureServer();
+                }}
+              >
+                Configure stdio server
+              </Button>
+            </Stack>
+          )}
         </div>
       ) : (
         <div className="backend-log-layout">
@@ -46,6 +77,10 @@ export function BackendLogsWorkspace({ logs }: { logs: BackendLogsModel }) {
       )}
     </section>
   );
+}
+
+function isSamePageNavigation(event: MouseEvent<HTMLAnchorElement>): boolean {
+  return event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
 }
 
 function SourceButton({
@@ -149,9 +184,9 @@ function formatTime(timestamp: string): string {
   return Number.isNaN(date.valueOf()) ? timestamp : date.toLocaleTimeString([], { hour12: false });
 }
 
-function connectionLabel(connection: BackendLogsModel['connection']): string {
+function connectionLabel(connection: BackendLogsModel['connection'], hasSources: boolean): string {
   if (connection === 'reconnecting') return 'Reconnecting';
-  if (connection === 'active') return 'Live stream';
+  if (connection === 'active') return hasSources ? 'Live stream' : 'Waiting for sources';
   if (connection === 'loading') return 'Connecting';
   return 'Inactive';
 }

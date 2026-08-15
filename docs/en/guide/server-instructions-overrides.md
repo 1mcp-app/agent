@@ -1,6 +1,6 @@
 ---
 title: Server Instructions Overrides - Customize LLM Instructions
-description: Learn how to override, filter, and customize server instructions in 1MCP using Handlebars logic. Control how instructions are presented to LLMs.
+description: Replace or suppress upstream server instructions with literal configured overrides, then customize their presentation with instruction templates.
 head:
   - ['meta', { name: 'keywords', content: 'server instructions override,Handlebars,LLM instructions,customization' }]
   - ['meta', { property: 'og:title', content: '1MCP Server Instructions Overrides Guide' }]
@@ -8,14 +8,78 @@ head:
       'meta',
       {
         property: 'og:description',
-        content: 'Override and customize server instructions in 1MCP using Handlebars logic.',
+        content: 'Replace or suppress upstream server instructions in 1MCP with literal configured overrides.',
       },
     ]
 ---
 
 # Server Instruction Overrides
 
-One of the most powerful features of custom templates is the ability to override, filter, or customize server instructions using Handlebars logic. This gives you complete control over how server instructions are presented to the LLM.
+Server instruction overrides let an operator replace or suppress the upstream instructions for one configured server without adding server-specific conditions to every instruction template.
+
+## Configure an Override
+
+Open the configured server in the Admin Console and choose one of three states:
+
+| State        | Stored value                              | Effective instructions                                       |
+| ------------ | ----------------------------------------- | ------------------------------------------------------------ |
+| **Upstream** | `instructionOverride` is absent           | Use the instructions returned by the MCP server              |
+| **Replace**  | A non-empty `instructionOverride`         | Use the configured text instead of the upstream instructions |
+| **Suppress** | `instructionOverride` is the empty string | Publish no instructions for this server                      |
+
+Removing an override deletes the field and restores upstream behavior. An empty value is therefore intentional suppression, not the same operation as removing the field. Whitespace is also treated as a literal replacement.
+
+Override content is literal text. 1MCP does not render Handlebars expressions inside `instructionOverride`; for example, `{{title}}` remains exactly `{{title}}` in the effective server instructions.
+
+### Static and Template Server Definitions
+
+Overrides belong to the configured definition, identified by both its source and name:
+
+- `mcpServers/<name>` identifies a static server definition.
+- `mcpTemplates/<name>` identifies a template server definition.
+
+This source-qualified identity matters when a static server and a template definition share the same name. Editing one does not change the other. An override on an `mcpTemplates` definition is inherited by servers created from that definition and remains literal text; it is not expanded with the template server's arguments.
+
+The equivalent `mcp.json` configuration is:
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"],
+      "instructionOverride": "Use this server only for files under /workspace."
+    },
+    "noisy-server": {
+      "command": "noisy-server",
+      "instructionOverride": ""
+    }
+  },
+  "mcpTemplates": {
+    "tenant-api": {
+      "command": "tenant-api",
+      "args": ["--tenant", "{{project.name}}"],
+      "instructionOverride": "Follow the configured tenant policy."
+    }
+  }
+}
+```
+
+## Precedence and Runtime Updates
+
+For each configured server, 1MCP first resolves its effective server instructions:
+
+1. If `instructionOverride` is present, use its value, including an empty string.
+2. Otherwise, use the upstream instructions returned by the server.
+3. Apply the client or preview filter, then expose the effective values to the active instruction template.
+
+This resolution happens before either the `initialization` or `cli` template is rendered. As a result, both surfaces see the same replacement or suppression, while retaining their own output structure.
+
+Changing an override updates subsequent instruction renders without restarting the backend server. Existing initialized MCP sessions are unchanged because their initialization response has already been delivered. New connections, Admin previews, and subsequent `1mcp instructions` calls use the updated value.
+
+## Template-Level Customization
+
+The patterns below remain useful when you need presentation logic that spans several servers, such as grouping, ordering, or adding conditional wrapper text. They operate on the already resolved effective instructions. For a direct replacement or suppression of one configured server, prefer `instructionOverride` so the behavior is shared by both template variants.
 
 ## Basic Server Instruction Override Patterns
 

@@ -298,6 +298,36 @@ describe('McpConfigManager', () => {
       );
     });
 
+    it('exposes template-first configured targets with inherited defaults', () => {
+      (fs.readFileSync as unknown as MockInstance).mockReturnValueOnce(
+        JSON.stringify({
+          serverDefaults: { requestTimeout: 9000 },
+          mcpServers: { shared: { type: 'stdio', command: 'static' } },
+          mcpTemplates: {
+            shared: {
+              type: 'stdio',
+              command: 'template',
+              disabledTools: ['write'],
+              toolDescriptionOverrides: { read: 'Read safely' },
+            },
+          },
+        }),
+      );
+
+      const instance = McpConfigManager.getInstance(testConfigPath);
+
+      expect(instance.getTransportConfig()).toEqual({});
+      expect(instance.getConfiguredServerTargets()).toEqual({
+        shared: {
+          type: 'stdio',
+          command: 'template',
+          requestTimeout: 9000,
+          disabledTools: ['write'],
+          toolDescriptionOverrides: { read: 'Read safely' },
+        },
+      });
+    });
+
     it('should not emit a transport config change when reload fails to parse', () => {
       (fs.existsSync as unknown as MockInstance).mockImplementation((p: string) => {
         if (String(p).endsWith('config.toml')) return false;

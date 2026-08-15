@@ -1,10 +1,43 @@
 import path from 'node:path';
 
+import { z } from 'zod';
+
+const instructionServerSummarySchema = z.object({
+  server: z.string(),
+  type: z.string().optional(),
+  status: z.string().optional(),
+  available: z.boolean().optional(),
+  loadTracked: z.boolean().optional(),
+  toolCount: z.number().int().nonnegative(),
+  hasInstructions: z.boolean(),
+});
+
+const instructionServerDetailSchema = instructionServerSummarySchema.extend({
+  instructions: z.string().nullable().optional(),
+  note: z.string().optional(),
+});
+
+export const instructionsFormattingPayloadSchema = z.object({
+  servers: z.array(instructionServerSummarySchema),
+  details: z.array(instructionServerDetailSchema),
+});
+
+export const instructionsRenderResponseSchema = z.object({
+  rendered: z.string(),
+  templateIdentity: z.string().min(1),
+  fallback: z.boolean(),
+  fallbackReason: z.literal('managed_template_render_failed').optional(),
+  formatting: instructionsFormattingPayloadSchema.optional(),
+});
+
+export type InstructionsRenderResponse = z.infer<typeof instructionsRenderResponseSchema>;
+
 export interface InstructionServerSummary {
   server: string;
   type?: string;
   status?: string;
   available?: boolean;
+  loadTracked?: boolean;
   toolCount: number;
   hasInstructions: boolean;
 }

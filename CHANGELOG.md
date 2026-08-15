@@ -5,9 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.35.0-beta.3] - 2026-08-05
+## [0.35.0-beta.4] - 2026-08-12
 
 ### 🚀 Features
+- Refine console workflows and bundle loading by @xizhibei in [#456](https://github.com/1mcp-app/agent/pull/456)
+- Authorize template context per runtime scope by @xizhibei in [#439](https://github.com/1mcp-app/agent/pull/439)
+- Add custom configured server creation by @xizhibei in [#440](https://github.com/1mcp-app/agent/pull/440)
 - Add per-server backend logs by @xizhibei in [#423](https://github.com/1mcp-app/agent/pull/423)
 - Add async server wait workflow by @xizhibei in [#410](https://github.com/1mcp-app/agent/pull/410)
 - Add rotating refresh tokens by @xizhibei in [#408](https://github.com/1mcp-app/agent/pull/408)
@@ -19,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Ship Admin Console operations cockpit by @xizhibei in [#375](https://github.com/1mcp-app/agent/pull/375)
 
 ### 🐛 Bug Fixes
+- Handle EPERM error on Windows in isOwnershipExistsError by @RCrushMe in [#446](https://github.com/1mcp-app/agent/pull/446)
+- Stabilize aggregate capability pagination by @xizhibei in [#448](https://github.com/1mcp-app/agent/pull/448)
 - Use basic parsing in Windows smoke test by @xizhibei in [#441](https://github.com/1mcp-app/agent/pull/441)
 - Write Windows smoke configs without BOM by @xizhibei in [#438](https://github.com/1mcp-app/agent/pull/438)
 - Reconnect backends automatically after they lose their session by @Quentin-M in [#414](https://github.com/1mcp-app/agent/pull/414)
@@ -45,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add .agents/skills to .gitignore by @xizhibei
 
 ## New Contributors
+* @RCrushMe made their first contribution in [#446](https://github.com/1mcp-app/agent/pull/446)
 * @Quentin-M made their first contribution in [#414](https://github.com/1mcp-app/agent/pull/414)
 * @Congee-wine made their first contribution in [#416](https://github.com/1mcp-app/agent/pull/416)
 * @adity982 made their first contribution in [#398](https://github.com/1mcp-app/agent/pull/398)
@@ -1089,7 +1095,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * @xizhibei made their first contribution in [#1](https://github.com/1mcp-app/agent/pull/1)
 * @dependabot[bot] made their first contribution
 
-[0.35.0-beta.3]: https://github.com/1mcp-app/agent/compare/v0.34.4..v0.35.0-beta.3
+[0.35.0-beta.4]: https://github.com/1mcp-app/agent/compare/v0.34.4..v0.35.0-beta.4
 [0.34.4]: https://github.com/1mcp-app/agent/compare/v0.34.3..v0.34.4
 [0.34.3]: https://github.com/1mcp-app/agent/compare/v0.34.2..v0.34.3
 [0.34.2]: https://github.com/1mcp-app/agent/compare/v0.34.1..v0.34.2

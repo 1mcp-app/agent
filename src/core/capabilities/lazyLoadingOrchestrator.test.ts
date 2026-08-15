@@ -8,6 +8,7 @@ import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { capabilityVisibilityFromServerNames } from './capabilityVisibility.js';
+import { readConfiguredToolSnapshot, readLastConfiguredToolSnapshot } from './configuredToolSnapshot.js';
 import { LazyLoadingOrchestrator } from './lazyLoadingOrchestrator.js';
 
 describe('LazyLoadingOrchestrator', () => {
@@ -216,6 +217,22 @@ describe('LazyLoadingOrchestrator', () => {
       await orchestrator.refreshCapabilities();
       expect(orchestrator.getToolRegistry().size()).toBe(2);
       expect(slowListTools).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps the last complete target snapshot but clears a failed connection snapshot', async () => {
+      mockOutboundConnections.delete('database');
+      const connection = mockOutboundConnections.get('filesystem')!;
+      orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
+
+      await orchestrator.initialize();
+      expect(readConfiguredToolSnapshot(connection)?.map((tool) => tool.name)).toContain('read_file');
+      expect(readLastConfiguredToolSnapshot('filesystem').map((tool) => tool.name)).toContain('read_file');
+
+      mockClient.listTools.mockRejectedValueOnce(new Error('discovery failed'));
+      await orchestrator.refreshCapabilities();
+
+      expect(readConfiguredToolSnapshot(connection)).toBeUndefined();
+      expect(readLastConfiguredToolSnapshot('filesystem').map((tool) => tool.name)).toContain('read_file');
     });
 
     it('should initialize successfully in metatool mode', async () => {

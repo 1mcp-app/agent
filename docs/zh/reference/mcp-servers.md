@@ -140,6 +140,7 @@ npx -y @1mcp/agent --config-dir ./project-config
 - `timeout` (数字, 可选): **已弃用** 的回退超时时间（毫秒）。当未设置特定超时时使用。新配置应使用 `connectionTimeout` 和 `requestTimeout`。
 - `disabled`（布尔值或模板字符串，可选）：设为 `true` 可阻止服务器启动；省略或设为 `false` 表示启用服务器。
 - `disabledTools` (字符串数组, 可选): 隐藏此服务器中的指定工具，而不禁用整个服务器。
+- `toolDescriptionOverrides` (对象, 可选): 按服务器本地逻辑工具名替换上游工具描述。
 
 **HTTP 传输属性：**
 
@@ -234,7 +235,7 @@ npx -y @1mcp/agent --config-dir ./project-config
 }
 ```
 
-### 禁用单个工具
+### 配置单个工具
 
 当服务器应保持启用，但其中某些工具需要隐藏时，使用 `disabledTools`：
 
@@ -244,13 +245,18 @@ npx -y @1mcp/agent --config-dir ./project-config
     "filesystem": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
-      "disabledTools": ["write_file"]
+      "disabledTools": ["write_file"],
+      "toolDescriptionOverrides": {
+        "read_file": "从已批准的工作区根目录读取文件"
+      }
     }
   }
 }
 ```
 
 禁用工具只按服务器生效，不是全局设置。请使用逻辑上的服务器本地名称，例如 `write_file`；运行时过滤也能识别 `filesystem_1mcp_write_file` 这样的限定名称，但逻辑名称更容易维护。
+
+`toolDescriptionOverrides` 会更新完整 `tools/list`、懒加载工具发现与 Schema 查看、REST 能力视图以及 Admin 中展示的描述。它不会修改上游服务器，也不会改变工具输入 Schema、annotations 或执行路由。删除对应键，或在 Admin 中使用 **重置**，即可重新继承上游描述。空工具名和空白描述会被拒绝。
 
 可以使用 [`mcp tools`](/zh/commands/mcp/tools) 管理此字段：
 
@@ -262,7 +268,11 @@ npx -y @1mcp/agent mcp tools list filesystem --disabled
 
 `mcp tools` 的 list、enable 和 disable 子命令会更新 `mcp.json`。正在运行的 `1mcp serve` 实例会通过配置热重载观察到变化。
 
-如果同名服务器同时存在于 `mcpTemplates` 和 `mcpServers` 中，模板条目是权威配置。工具启用/禁用命令会更新 `mcpTemplates.<name>.disabledTools`，并保留任何旧的 `mcpServers.<name>.disabledTools` 值不变。
+Admin 使用相同的 `disabledTools` 和 `toolDescriptionOverrides` 字段。编辑器会展示观测到的上游工具清单、有效描述、逐工具 token 估算、搜索/筛选以及仅作用于可见行的批量操作。工具从上游消失后，配置中保留的条目仍会以“未解析”状态显示，便于修复或删除。预览会显示启用/禁用数量和近似 token 变化；若结果为零个启用工具，应用前必须显式确认。这些元数据变更会通知已连接客户端，无需重启出站服务器。
+
+对于 Template Server，Admin 展示所有活跃实例观测到的工具并集，并标记只在部分实例中出现的工具。选择和描述规则存储在模板定义上，未来实例会继承这些规则；因此 `disabledTools` 是拒绝列表，新出现且未被明确禁用的工具默认保持启用。
+
+如果同名服务器同时存在于 `mcpTemplates` 和 `mcpServers` 中，模板条目是权威配置。工具启用/禁用命令会更新 `mcpTemplates.<name>.disabledTools`，并保留任何旧的 `mcpServers.<name>.disabledTools` 值不变。直接编辑配置与 Admin 可以互操作，因为两者持久化的是相同字段。
 
 ---
 

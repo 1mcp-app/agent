@@ -59,9 +59,9 @@ function runExpectFailure(command: string, args: string[]): string {
   }
 }
 
-function findBuiltAsset(extension: string): string {
+function findBuiltEntryAsset(extension: string): string {
   const assetsDir = path.join(ADMIN_BUILD_DIR, 'assets');
-  return readdirSync(assetsDir).find((name) => name.endsWith(extension)) ?? '';
+  return readdirSync(assetsDir).find((name) => name.startsWith('admin-console-') && name.endsWith(extension)) ?? '';
 }
 
 function getFreePort(): Promise<number> {
@@ -134,11 +134,12 @@ describe('admin SPA package build', () => {
     expect(existsSync(LEGACY_ADMIN_CONSOLE_HTML_BUILD)).toBe(false);
 
     const indexHtml = readFileSync(indexPath, 'utf8');
-    const jsAsset = findBuiltAsset('.js');
-    const cssAsset = findBuiltAsset('.css');
+    const jsAsset = findBuiltEntryAsset('.js');
+    const cssAsset = findBuiltEntryAsset('.css');
 
     expect(jsAsset).toMatch(/^admin-console-[A-Za-z0-9_-]+\.js$/);
     expect(cssAsset).toMatch(/^admin-console-[A-Za-z0-9_-]+\.css$/);
+    expect(existsSync(path.join(ADMIN_BUILD_DIR, 'favicon.svg'))).toBe(true);
     expect(indexHtml).toContain(`/admin/assets/${jsAsset}`);
     expect(indexHtml).toContain(`/admin/assets/${cssAsset}`);
     expect(indexHtml).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/i);
@@ -155,6 +156,7 @@ describe('admin SPA package build', () => {
     expect(tarballListing).toContain('package/build/admin/index.html');
     expect(tarballListing).toContain(`package/build/admin/assets/${jsAsset}`);
     expect(tarballListing).toContain(`package/build/admin/assets/${cssAsset}`);
+    expect(tarballListing).toContain('package/build/admin/favicon.svg');
     expect(tarballListing).not.toContain('package/build/.tmp/');
     expect(tarballListing).not.toContain('package/build/transport/http/routes/adminConsoleHtml.js');
   }, 120000);
@@ -189,12 +191,13 @@ describe('admin SPA package build', () => {
       await waitForServer(`${baseUrl}/health/ready`, () => output);
 
       const adminHtml = await (await fetch(`${baseUrl}/admin`)).text();
-      const jsAsset = findBuiltAsset('.js');
-      const cssAsset = findBuiltAsset('.css');
+      const jsAsset = findBuiltEntryAsset('.js');
+      const cssAsset = findBuiltEntryAsset('.css');
       expect(adminHtml).toContain(`/admin/assets/${jsAsset}`);
       expect(adminHtml).toContain(`/admin/assets/${cssAsset}`);
       expect((await fetch(`${baseUrl}/admin/assets/${jsAsset}`)).status).toBe(200);
       expect((await fetch(`${baseUrl}/admin/assets/${cssAsset}`)).status).toBe(200);
+      expect((await fetch(`${baseUrl}/admin/favicon.svg`)).status).toBe(200);
     } finally {
       await stopProcess(runtime);
       rmSync(rootDir, { recursive: true, force: true });

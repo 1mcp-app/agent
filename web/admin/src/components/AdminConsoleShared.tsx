@@ -13,6 +13,7 @@ export function DetailRow({
   copyLabel,
   copyValue,
   onCopyText,
+  wrapValue = false,
 }: {
   label: string;
   value: string;
@@ -21,6 +22,7 @@ export function DetailRow({
   copyLabel?: string;
   copyValue?: string;
   onCopyText?: (label: string, value: string) => Promise<void>;
+  wrapValue?: boolean;
 }) {
   const valueToCopy = copyValue ?? value;
 
@@ -28,7 +30,7 @@ export function DetailRow({
     <Group className="detail-row" justify="space-between" wrap="nowrap">
       <div className="detail-row-main">
         <Text fw={700}>{label}</Text>
-        <Text className="truncate" size="sm">
+        <Text className={wrapValue ? 'detail-row-value-wrap' : 'truncate'} size="sm">
           {value}
         </Text>
         {meta ? (

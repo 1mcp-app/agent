@@ -20,6 +20,7 @@ head:
 - **最大兼容性**：为需要项目上下文的 stdio 客户端使用 [Proxy 命令](/zh/commands/proxy)。
 - **受保护的运行时**：通过[身份验证](/zh/guide/advanced/authentication)配置 OAuth 2.1 和作用域。
 - **共享或公网部署**：阅读 [使用 Caddy 的云部署](/zh/guide/advanced/cloud-deployment)。
+- **Windows 持久部署**：使用 [Windows 任务计划程序](/zh/guide/advanced/windows-task-scheduler)实现开机启动、失败重启和非交互式监管。
 
 ## 先决条件
 
@@ -108,9 +109,11 @@ npm install -g @1mcp/agent
 
 要部署共享或公网运行时，请继续阅读[使用 Caddy 的云部署](/zh/guide/advanced/cloud-deployment)。其中覆盖了生产部署所需的公网 HTTPS 地址、代理信任、Admin Console 和本地 CLI target 设置。
 
+在 Windows 上，请使用 [Windows 任务计划程序](/zh/guide/advanced/windows-task-scheduler)监管前台运行的 `1mcp serve` 进程，使其能够跨重启持续运行。该指南涵盖独立二进制和 npm 路径、凭据处理、生命周期命令与故障排查。
+
 ## 首次运行检查清单
 
 - 通过所选安装方式，`1mcp --version` 可以成功执行
 - `1mcp serve` 保持运行
 - `1mcp inspect <server>` 能报告已配置的上游 server
-- 下一篇指南与所选路径匹配：CLI 模式、配置、身份验证、代理或部署
+- 下一篇指南与所选路径匹配：CLI 模式、配置、身份验证、代理、云部署或 Windows 任务计划程序

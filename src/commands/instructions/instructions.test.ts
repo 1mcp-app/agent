@@ -1,18 +1,41 @@
+import chalk from 'chalk';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { instructionsCommand } from './instructions.js';
+import { formatInstructionsOutput } from './instructionsUtils.js';
 
 const mockedGetInspectResult = vi.hoisted(() => vi.fn());
 const mockedStdoutWrite = vi.hoisted(() => vi.fn());
+const mockedAttachReusableClientSurface = vi.hoisted(() => vi.fn());
+const mockedApiGet = vi.hoisted(() => vi.fn());
 
 vi.mock('@src/commands/inspect/inspect.js', () => ({
   getInspectResult: mockedGetInspectResult,
 }));
 
+vi.mock('@src/commands/shared/clientSurfaceAttachment.js', () => ({
+  attachReusableClientSurface: mockedAttachReusableClientSurface,
+  formatClientSurfaceAuthRequiredMessage: vi.fn(() => 'Authentication required'),
+}));
+
+vi.mock('@src/commands/shared/apiClient.js', () => ({
+  ApiClient: vi.fn(function () {
+    return { get: mockedApiGet };
+  }),
+}));
+
 describe('instructions command', () => {
+  const originalColorLevel = chalk.level;
   beforeEach(() => {
     mockedGetInspectResult.mockReset();
     mockedStdoutWrite.mockReset();
+    mockedAttachReusableClientSurface.mockReset();
+    mockedApiGet.mockReset();
+    mockedAttachReusableClientSurface.mockResolvedValue({
+      status: 'success',
+      protocol: 'mcp',
+      value: { kind: 'legacy_runtime' },
+    });
 
     vi.stubGlobal('process', {
       ...process,
@@ -23,8 +46,108 @@ describe('instructions command', () => {
     });
   });
 
+  it('writes the exact runtime-rendered CLI instructions without inspecting servers', async () => {
+    const rendered = 'managed cli instructions\nwith exact spacing';
+    mockedApiGet.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      data: { rendered, templateIdentity: 'team', fallback: false },
+    });
+    useAttachmentCallbacks();
+
+    await instructionsCommand({ context: 'prod', preset: 'coding' } as never);
+
+    expect(mockedStdoutWrite).toHaveBeenCalledWith(`${rendered}\n`);
+    expect(mockedGetInspectResult).not.toHaveBeenCalled();
+    expect(mockedApiGet).toHaveBeenCalledWith('/api/v1/instructions', { preset: 'coding' });
+    expect(mockedAttachReusableClientSurface).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clientSurface: 'instructions',
+        version: 'instructions',
+        alwaysTryRest: true,
+        options: expect.objectContaining({ context: 'prod', preset: 'coding' }),
+      }),
+    );
+  });
+
+  it('falls back to the inspect formatter only when the runtime lacks the operation', async () => {
+    mockedApiGet.mockResolvedValueOnce({ ok: false, status: 404, error: 'HTTP 404' });
+    useAttachmentCallbacks();
+    mockedGetInspectResult.mockResolvedValueOnce({ kind: 'servers', servers: [] });
+
+    await instructionsCommand({ context: 'old-runtime' } as never);
+
+    expect(mockedGetInspectResult).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [{ ok: false, status: 0, error: 'connection refused' }, 'connection refused'],
+    [{ ok: false, status: 500, error: 'runtime failure' }, 'runtime failure'],
+    [{ ok: false, status: 401, error: 'unauthorized' }, 'Authentication required'],
+  ])('propagates runtime attachment errors instead of using compatibility fallback', async (apiResponse, message) => {
+    mockedApiGet.mockResolvedValueOnce(apiResponse);
+    useAttachmentCallbacks();
+
+    await expect(instructionsCommand({ context: 'prod' } as never)).rejects.toThrow(message);
+    expect(mockedGetInspectResult).not.toHaveBeenCalled();
+  });
+
   afterEach(() => {
+    chalk.level = originalColorLevel;
     vi.unstubAllGlobals();
+  });
+
+  it.each([
+    [0, false],
+    [1, true],
+  ] as const)('formats built-in runtime output locally at Chalk level %i', async (colorLevel, hasAnsi) => {
+    const formatting = {
+      servers: [
+        {
+          server: 'alpha',
+          type: 'external',
+          status: 'connected',
+          available: true,
+          loadTracked: true,
+          toolCount: 1,
+          hasInstructions: true,
+        },
+      ],
+      details: [
+        {
+          server: 'alpha',
+          type: 'external',
+          status: 'connected',
+          available: true,
+          loadTracked: true,
+          toolCount: 1,
+          hasInstructions: true,
+          instructions: 'Alpha instructions',
+        },
+      ],
+    };
+    mockedApiGet.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      data: {
+        rendered: 'server-side plain output',
+        templateIdentity: 'default',
+        fallback: false,
+        formatting,
+      },
+    });
+    useAttachmentCallbacks();
+    chalk.level = colorLevel;
+
+    await instructionsCommand({ context: 'prod' } as never);
+
+    const expected = `${formatInstructionsOutput(formatting)}\n`;
+    expect(mockedStdoutWrite).toHaveBeenCalledWith(expected);
+    expect(expected.includes('\u001B[')).toBe(hasAnsi);
+    if (hasAnsi) {
+      expect(expected).toContain('\u001B[1m\u001B[36m1MCP CLI Instructions\u001B[39m\u001B[22m');
+      expect(expected).toContain('status: \u001B[32mconnected\u001B[39m');
+    }
   });
 
   it('renders the layered CLI playbook and tagged server instructions', async () => {
@@ -191,3 +314,31 @@ describe('instructions command', () => {
     );
   });
 });
+
+function useAttachmentCallbacks(): void {
+  mockedAttachReusableClientSurface.mockImplementationOnce(async (input) => {
+    const context = {
+      options: input.options,
+      baseUrl: 'https://runtime.example',
+      serverUrl: new URL('https://runtime.example/mcp'),
+      sessionId: 'session-id',
+      requestSessionId: 'session-id',
+      context: { sessionId: 'session-id' },
+      contextHash: 'context-hash',
+      contextProof: undefined,
+      bearerToken: 'token',
+      target: { runtimeTargetContext: { name: 'prod', kind: 'remote' } },
+      cachePath: '/tmp/cache',
+      cachedSession: null,
+    };
+    const restResult = await input.rest(context);
+    if (restResult.status === 'success') {
+      return { status: 'success', protocol: 'rest', value: restResult.value };
+    }
+    if (restResult.status === 'fallback') {
+      const mcpResult = await input.mcp(context);
+      return { status: 'success', protocol: 'mcp', value: mcpResult.value };
+    }
+    return { status: restResult.status, message: restResult.message };
+  });
+}

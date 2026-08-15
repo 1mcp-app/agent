@@ -2,13 +2,11 @@ import {
   CancelledNotificationSchema,
   LoggingMessageNotificationSchema,
   ProgressNotificationSchema,
-  PromptListChangedNotificationSchema,
-  ResourceListChangedNotificationSchema,
   ResourceUpdatedNotificationSchema,
   RootsListChangedNotificationSchema,
-  ToolListChangedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 
+import { registerCapabilityPaginationNotifications } from '@src/core/capabilities/capabilityPagination.js';
 import { ClientStatus, InboundConnection, OutboundConnections, ServerStatus } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
@@ -27,12 +25,39 @@ export function setupClientToServerNotifications(
     ProgressNotificationSchema,
     LoggingMessageNotificationSchema,
     ResourceUpdatedNotificationSchema,
-    ResourceListChangedNotificationSchema,
-    ToolListChangedNotificationSchema,
-    PromptListChangedNotificationSchema,
   ];
 
   for (const [name, outboundConn] of outboundConns.entries()) {
+    registerCapabilityPaginationNotifications(
+      outboundConns,
+      outboundConn,
+      inboundConn,
+      withErrorHandling(async (notification) => {
+        logger.info(`Received notification in client: ${name} ${JSON.stringify(notification)}`);
+
+        if (inboundConn.status !== ServerStatus.Connected || !inboundConn.server.transport) {
+          logger.warn(`Server transport not connected. Dropping notification from ${name}`);
+          return;
+        }
+
+        try {
+          await inboundConn.server.notification({
+            method: notification.method,
+            params: {
+              ...notification.params,
+              server: name,
+            },
+          });
+        } catch (error) {
+          if (error instanceof Error && error.message.includes('Not connected')) {
+            logger.warn(`Server transport not connected. Dropping notification from ${name}`);
+          } else {
+            logger.error(`Failed to send notification from ${name}: ${error}`);
+          }
+        }
+      }, `Error handling client notification from ${name}`),
+    );
+
     clientNotificationSchemas.forEach((schema) => {
       outboundConn.client.setNotificationHandler(
         schema,

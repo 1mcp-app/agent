@@ -5,15 +5,18 @@
 export interface CapabilityVisibility {
   readonly sessionId?: string;
   readonly serverCandidates: ReadonlyMap<string, string>;
+  readonly filterSelection?: Readonly<Record<string, unknown>>;
 }
 
 export function createCapabilityVisibility(
   serverCandidates: Iterable<readonly [string, string]>,
   sessionId?: string,
+  filterSelection?: Readonly<Record<string, unknown>>,
 ): CapabilityVisibility {
   return {
     sessionId,
     serverCandidates: new Map(serverCandidates),
+    filterSelection,
   };
 }
 

@@ -3,15 +3,19 @@ import {
   CallToolResultSchema,
   ListToolsRequest,
   ListToolsRequestSchema,
+  type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 
-import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
+import {
+  publishCompleteConfiguredToolTargetSnapshots,
+  publishConfiguredToolPage,
+} from '@src/core/capabilities/configuredToolSnapshot.js';
 import { InternalCapabilitiesProvider } from '@src/core/capabilities/internalCapabilitiesProvider.js';
 import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
-import { byCapabilities } from '@src/core/filtering/clientFiltering.js';
-import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { getDisabledToolError } from '@src/core/server/disabledTools.js';
+import { applyEffectiveToolDescription } from '@src/core/server/toolDescriptionOverrides.js';
 import { InboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import type { MCPServerParams } from '@src/core/types/transport.js';
 import logger, { infoIf } from '@src/logger/logger.js';
@@ -20,9 +24,9 @@ import { buildUri, parseUri } from '@src/utils/core/parsing.js';
 import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
 
 import {
-  createCapabilityCatalogFromConnections,
-  filterConnectionsForSession,
+  createProtocolCapabilityCatalog,
   getRequestSession,
+  resolveCapabilityVisibility,
   resolveLazyCapabilityVisibility,
   resolveOutboundConnection,
 } from './requestHandlerUtils.js';
@@ -34,7 +38,8 @@ export function registerToolHandlers(
 ): void {
   const sessionId = getRequestSession(inboundConn);
   const lazyLoadingEnabled = lazyLoadingOrchestrator?.isEnabled();
-  const getServerConfigs = (): Record<string, MCPServerParams> => McpConfigManager.getInstance().getTransportConfig();
+  const getServerConfigs = (): Record<string, MCPServerParams> => getConfiguredServerTargets();
+  const catalog = createProtocolCapabilityCatalog(outboundConns, getServerConfigs);
 
   inboundConn.server.setRequestHandler(
     ListToolsRequestSchema,
@@ -65,41 +70,83 @@ export function registerToolHandlers(
 
         const lazyToolNames = ['tool_list', 'tool_schema', 'tool_invoke'];
         const nonLazyTools = internalTools.filter((tool) => !lazyToolNames.includes(tool.name));
+        const paginationFacts = createToolPaginationFacts(internalTools, getServerConfigs());
         const internalToolsWithPrefix = nonLazyTools.map((tool) => ({
           ...tool,
           name: buildUri('1mcp', tool.name, MCP_URI_SEPARATOR),
         }));
 
+        const tools = [...capabilities.tools, ...internalToolsWithPrefix].sort((left, right) =>
+          left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
+        );
+        const result = await catalog.listVisibleCapabilityPages<Tool>({
+          kind: 'tools',
+          visibility,
+          cursor: request.params?.cursor,
+          list: async () => ({ items: [] }),
+          internalPages: [{ id: '\0app.1mcp/lazy-tools', name: '1mcp', items: tools }],
+          includeExternal: false,
+          filterSelection: { lazy: true, ...paginationFacts },
+          generationSignature: paginationFacts,
+          enablePagination: inboundConn.enablePagination ?? false,
+        });
+
         return {
-          tools: [...capabilities.tools, ...internalToolsWithPrefix],
+          tools: result.items,
+          nextCursor: result.nextCursor,
+          _meta: result._meta,
         };
       }
 
-      const sessionFilteredConns = filterConnectionsForSession(outboundConns, sessionId);
-      const capabilityFilteredClients = byCapabilities({ tools: {} })(sessionFilteredConns);
-      const filteredClients = FilteringService.getFilteredConnections(capabilityFilteredClients, inboundConn);
-
-      const catalog = await createCapabilityCatalogFromConnections(filteredClients, getServerConfigs);
-      const result = await catalog.listVisibleTools(request.params || {});
-
+      const visibility = resolveCapabilityVisibility(outboundConns, inboundConn, sessionId, 'tools');
       const internalProvider = InternalCapabilitiesProvider.getInstance();
       await internalProvider.initialize();
       const internalTools = internalProvider.getAvailableTools();
-
-      const internalToolsWithPrefix = internalTools.map((tool) => ({
-        ...tool,
-        name: buildUri('1mcp', tool.name, MCP_URI_SEPARATOR),
-      }));
-
-      const externalTools = result.tools.map((tool) => ({
-        ...tool,
-        name: buildUri(tool.server, tool.name, MCP_URI_SEPARATOR),
-        inputSchema: tool.inputSchema ?? { type: 'object' },
-      }));
+      const serverConfigs = getServerConfigs();
+      const paginationFacts = createToolPaginationFacts(internalTools, serverConfigs);
+      const result = await catalog.listVisibleCapabilityPages<Tool>({
+        kind: 'tools',
+        visibility,
+        cursor: request.params?.cursor,
+        list: async (outboundConn, cursor) => {
+          const upstream = await outboundConn.client.listTools(
+            { cursor },
+            { timeout: getRequestTimeout(outboundConn.transport) },
+          );
+          publishConfiguredToolPage(outboundConn, upstream.tools ?? [], cursor, upstream.nextCursor);
+          if (upstream.nextCursor === undefined) {
+            publishCompleteConfiguredToolTargetSnapshots(outboundConns);
+          }
+          return {
+            items: upstream.tools ?? [],
+            nextCursor: upstream.nextCursor,
+          };
+        },
+        mapItem: (tool, serverName) => ({
+          ...applyEffectiveToolDescription(tool, serverConfigs[serverName], serverName),
+          name: buildUri(serverName, tool.name, MCP_URI_SEPARATOR),
+          inputSchema: tool.inputSchema ?? { type: 'object' },
+        }),
+        internalPages: [
+          {
+            id: '\0app.1mcp/internal-tools',
+            name: '1mcp',
+            items: internalTools.map((tool) => ({
+              ...tool,
+              name: buildUri('1mcp', tool.name, MCP_URI_SEPARATOR),
+            })),
+          },
+        ],
+        filterSelection: paginationFacts,
+        generationSignature: paginationFacts,
+        serverConfigs,
+        enablePagination: inboundConn.enablePagination ?? false,
+      });
 
       return {
-        tools: [...externalTools, ...internalToolsWithPrefix],
+        tools: result.items,
         nextCursor: result.nextCursor,
+        _meta: result._meta,
       };
     }, 'Error listing tools'),
   );
@@ -165,6 +212,34 @@ export function registerToolHandlers(
       });
     }, 'Error calling tool'),
   );
+}
+
+function createToolPaginationFacts(
+  internalTools: Tool[],
+  serverConfigs: Record<string, MCPServerParams>,
+): {
+  disabledTools: Record<string, string[]>;
+  toolDescriptionOverrides: Record<string, Record<string, string>>;
+  internalTools: string[];
+} {
+  return {
+    disabledTools: Object.fromEntries(
+      Object.entries(serverConfigs)
+        .filter(([, config]) => config.disabledTools?.length)
+        .map(([name, config]) => [name, [...(config.disabledTools ?? [])].sort()]),
+    ),
+    toolDescriptionOverrides: Object.fromEntries(
+      Object.entries(serverConfigs)
+        .filter(([, config]) => Object.keys(config.toolDescriptionOverrides ?? {}).length > 0)
+        .map(([name, config]) => [
+          name,
+          Object.fromEntries(
+            Object.entries(config.toolDescriptionOverrides ?? {}).sort(([left], [right]) => left.localeCompare(right)),
+          ),
+        ]),
+    ),
+    internalTools: internalTools.map((tool) => tool.name).sort(),
+  };
 }
 
 function structuredToolResult(result: unknown) {

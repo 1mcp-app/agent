@@ -10,6 +10,7 @@ export const HOST = '127.0.0.1';
 export const API_VERSION = 'v1';
 export const API_BASE_PATH = `/api/${API_VERSION}`;
 export const API_INSPECT_ENDPOINT = `${API_BASE_PATH}/inspect`;
+export const API_INSTRUCTIONS_ENDPOINT = `${API_BASE_PATH}/instructions`;
 export const API_SERVERS_ENDPOINT = `${API_BASE_PATH}/servers`;
 export const API_TOOLS_ENDPOINT = `${API_BASE_PATH}/tools`;
 export const API_TOOL_INVOCATIONS_ENDPOINT = `${API_BASE_PATH}/tool-invocations`;

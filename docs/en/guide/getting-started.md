@@ -26,6 +26,7 @@ If you want the shortest agent-focused path, start with [Quick Start](/guide/qui
 - **Maximum compatibility**: the [Proxy command](/commands/proxy) for stdio clients that need project context.
 - **Protected runtime**: [Authentication](/guide/advanced/authentication) for OAuth 2.1 and scope configuration.
 - **Shared or public deployment**: [Cloud Deployment with Caddy](/guide/advanced/cloud-deployment).
+- **Persistent Windows deployment**: [Windows Task Scheduler](/guide/advanced/windows-task-scheduler) for boot startup, restart-on-failure, and non-interactive supervision.
 
 ## Prerequisites
 
@@ -114,9 +115,11 @@ Follow the [Authentication guide](/guide/advanced/authentication) for enabling t
 
 For a shared or public runtime, move to [Cloud Deployment with Caddy](/guide/advanced/cloud-deployment). It covers the public HTTPS origin, proxy trust, Admin Console, and local CLI target setup that a production deployment requires.
 
+On Windows, use [Windows Task Scheduler](/guide/advanced/windows-task-scheduler) to supervise a foreground `1mcp serve` process across reboots. The guide covers standalone binary and npm paths, credential handling, lifecycle commands, and troubleshooting.
+
 ## First-Run Checklist
 
 - `1mcp --version` succeeds using the selected installation method
 - `1mcp serve` stays running
 - `1mcp inspect <server>` reports the configured upstream server
-- Your next guide matches the path you selected: CLI mode, configuration, authentication, proxy, or deployment
+- Your next guide matches the path you selected: CLI mode, configuration, authentication, proxy, cloud deployment, or Windows Task Scheduler

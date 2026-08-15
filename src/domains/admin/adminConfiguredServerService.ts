@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import { mergeGlobalAndServerConfig } from '@src/config/mcpConfigMerge.js';
+import { normalizeDisabledToolsForServer } from '@src/core/server/disabledTools.js';
 import {
   GLOBAL_TRANSPORT_CONFIG_KEYS,
   type GlobalTransportConfig,
@@ -10,10 +11,12 @@ import {
 import {
   type ConfigChangeResult,
   type ConfigChangeService,
+  type ConfiguredServerTargetSource,
   fingerprintConfiguredServerConfigDocument,
   fingerprintConfiguredServerDefaults,
   fingerprintConfiguredServerSecretValue,
   fingerprintConfiguredServerTarget,
+  type InstructionOverrideMutation,
   isConfiguredServerTargetDisabled,
 } from '@src/domains/config-change/configChange.js';
 import {
@@ -31,6 +34,7 @@ import type {
   AdminOperationResult,
   AdminOperationService,
 } from './adminOperationService.js';
+import type { ConfiguredToolInventory, ConfiguredToolTargetSource } from './configuredToolInventory.js';
 
 type ConfiguredServerSecretAction = 'preserve' | 'replace' | 'clear';
 type ConfiguredServerSecretReplacementKind = 'environmentReference' | 'inlineSecret';
@@ -49,6 +53,12 @@ interface AdminConfiguredServerServiceOptions {
   configChangeService: ConfigChangeService;
   readConfigDocument: () => ConfiguredServerConfigDocument | null;
   checkConnectivity?: ConfiguredServerConnectivityChecker;
+  readToolInventory?: (input: {
+    targetName: string;
+    source: ConfiguredToolTargetSource;
+    config: MCPServerParams;
+    model?: string;
+  }) => Promise<ConfiguredToolInventory>;
 }
 
 interface PreparedConfiguredServerCreate {
@@ -481,6 +491,7 @@ function assertSuccessfulConfiguredServerCreate(configChange: ConfigChangeResult
 interface ConfiguredServerMutationInput {
   context: AdminOperationContext;
   targetName: string;
+  targetSource?: ConfiguredServerTargetSource;
   dryRun?: boolean;
   confirmationRequirements?: AdminConfirmationRequirement[];
 }
@@ -488,20 +499,26 @@ interface ConfiguredServerMutationInput {
 interface ConfiguredServerDetailInput {
   context: AdminOperationContext;
   targetName: string;
+  targetSource?: ConfiguredServerTargetSource;
+  model?: string;
 }
 
 interface ConfiguredServerPreviewInput {
   context: AdminOperationContext;
   targetName: string;
+  targetSource?: ConfiguredServerTargetSource;
   edit: unknown;
   connectivityCheck?: 'auto' | 'manual';
+  model?: string;
 }
 
 interface ConfiguredServerApplyInput {
   context: AdminOperationContext;
   targetName: string;
+  targetSource?: ConfiguredServerTargetSource;
   edit: unknown;
   previewFingerprint: string;
+  model?: string;
 }
 
 interface ConfiguredServerCreateContractInput {
@@ -538,6 +555,9 @@ export interface ConfiguredServerEditDraft {
   transport?: Record<string, unknown>;
   secrets?: ConfiguredServerSecretEditDraft[];
   clearTransportOverrides?: string[];
+  instructionOverride?: InstructionOverrideMutation;
+  disabledTools?: string[];
+  toolDescriptionOverrides?: Record<string, string>;
 }
 
 export interface ConfiguredServerSecretInput {
@@ -556,8 +576,11 @@ export interface RedactedConfiguredServerValue {
 export interface ConfiguredServerTargetIdentity {
   type: 'configured_server';
   id: string;
-  source: 'mcpServers';
+  source: ConfiguredServerTargetSource;
 }
+
+export type ConfiguredServerInstructionOverrideReadState =
+  { state: 'upstream' } | { state: 'replace'; value: string } | { state: 'suppress'; value: '' };
 
 export interface ConfiguredServerTransportSummary {
   kind: string;
@@ -582,8 +605,9 @@ export interface ConfiguredServerActionState {
 
 export interface ConfiguredServerReadModel {
   id: string;
-  source: 'mcpServers';
+  source: ConfiguredServerTargetSource;
   target: ConfiguredServerTargetIdentity;
+  revision?: string;
   enabled: boolean;
   tags: string[];
   transportSummary: ConfiguredServerTransportSummary;
@@ -591,6 +615,7 @@ export interface ConfiguredServerReadModel {
   actionState: ConfiguredServerActionState;
   transport: Record<string, unknown>;
   secretInputs: ConfiguredServerSecretInput[];
+  instructionOverride?: ConfiguredServerInstructionOverrideReadState;
 }
 
 export interface ConfiguredServerMutationResult {
@@ -606,7 +631,7 @@ export interface ConfiguredServerPreviewDiffEntry {
   oldValue: unknown;
   newValue: unknown;
   secretAction?: ConfiguredServerSecretAction;
-  riskFlags: Array<'rename' | 'connection_critical' | 'secret' | 'template_risk'>;
+  riskFlags: Array<'rename' | 'connection_critical' | 'secret' | 'template_risk' | 'tool_visibility' | 'tool_metadata'>;
 }
 
 export interface ConfiguredServerPreviewValidationError {
@@ -661,6 +686,18 @@ export interface ConfiguredServerPreviewResult {
   diff: ConfiguredServerPreviewDiffEntry[];
   configChange: ConfigChangeResult;
   connectivityCheck: ConfiguredServerConnectivityCheckResult;
+  toolSelection?: ConfiguredToolSelectionPreview;
+}
+
+export interface ConfiguredToolSelectionPreview {
+  capabilityGeneration: string;
+  model: string;
+  changedTools: string[];
+  counts: ConfiguredToolInventory['counts'];
+  approximateTokens: { before: number; after: number; savings: number };
+  targetEnabled: boolean;
+  effect: 'immediate' | 'deferred_until_target_enabled';
+  requiresZeroEnabledConfirmation: boolean;
 }
 
 export interface ConfiguredServerApplyResult {
@@ -778,6 +815,7 @@ export interface ConfiguredServerEditContract {
 export interface ConfiguredServerDetailResult {
   server: ConfiguredServerReadModel;
   editContract: ConfiguredServerEditContract;
+  toolInventory?: ConfiguredToolInventory;
 }
 
 export interface ConfiguredServerConfigDocument {
@@ -798,7 +836,7 @@ export interface AdminConfiguredServerOperations {
   ): Promise<AdminOperationResult<ConfiguredServerCreateApplyResult>>;
   listConfiguredServers(input: {
     context: AdminOperationContext;
-  }): Promise<AdminOperationResult<{ servers: ConfiguredServerReadModel[] }>>;
+  }): Promise<AdminOperationResult<{ servers: ConfiguredServerReadModel[]; configFingerprint?: string }>>;
   getConfiguredServerDetail(
     input: ConfiguredServerDetailInput,
   ): Promise<AdminOperationResult<ConfiguredServerDetailResult>>;
@@ -931,33 +969,49 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
 
   async listConfiguredServers(input: {
     context: AdminOperationContext;
-  }): Promise<AdminOperationResult<{ servers: ConfiguredServerReadModel[] }>> {
+  }): Promise<AdminOperationResult<{ servers: ConfiguredServerReadModel[]; configFingerprint?: string }>> {
     return this.options.operationService.executeReadOnly({
       context: input.context,
       operationName: 'listConfiguredServers',
-      run: async () => ({ servers: this.readConfiguredServers() }),
+      run: async () => this.readConfiguredServers(),
     });
   }
 
   async getConfiguredServerDetail(
     input: ConfiguredServerDetailInput,
   ): Promise<AdminOperationResult<ConfiguredServerDetailResult>> {
+    const configuredState = this.readConfiguredServerState(input.targetName, input.targetSource);
+    const source = configuredState.source;
     const context = {
       ...input.context,
-      target: { type: 'configured_server', id: input.targetName },
+      target: { type: 'configured_server', id: `${source}:${input.targetName}` },
     };
     return this.options.operationService.executeReadOnly({
       context,
       operationName: 'getConfiguredServerDetail',
       run: async () => {
-        const { currentConfig, serverDefaults } = this.readConfiguredServerState(input.targetName);
+        const { currentConfig, serverDefaults } = configuredState;
         const server = createConfiguredServerReadModel(
           input.targetName,
           mergeGlobalAndServerConfig(serverDefaults, currentConfig),
+          source,
+          fingerprintConfiguredServerTarget(currentConfig),
+          Object.hasOwn(currentConfig, 'instructionOverride') ? currentConfig.instructionOverride : undefined,
+          Object.hasOwn(currentConfig, 'instructionOverride'),
         );
         return {
           server,
           editContract: createConfiguredServerEditContract(server, currentConfig, serverDefaults),
+          ...(this.options.readToolInventory
+            ? {
+                toolInventory: await this.options.readToolInventory({
+                  targetName: input.targetName,
+                  source,
+                  config: currentConfig,
+                  ...(input.model ? { model: input.model } : {}),
+                }),
+              }
+            : {}),
         };
       },
     });
@@ -966,24 +1020,27 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
   async previewConfiguredServerEdit(
     input: ConfiguredServerPreviewInput,
   ): Promise<AdminOperationResult<ConfiguredServerPreviewResult>> {
+    const configuredState = this.readConfiguredServerState(input.targetName, input.targetSource);
+    const source = configuredState.source;
     const context = {
       ...input.context,
-      target: { type: 'configured_server', id: input.targetName },
+      target: { type: 'configured_server', id: `${source}:${input.targetName}` },
     };
-    const { currentConfig, serverDefaults } = this.readConfiguredServerState(input.targetName);
+    const { currentConfig, serverDefaults } = configuredState;
     return this.options.operationService.executeDryRun({
       context,
       operationName: 'previewConfiguredServerEdit',
-      run: async () => this.previewConfiguredServerEditResult(input, currentConfig, serverDefaults),
+      run: async () => this.previewConfiguredServerEditResult(input, currentConfig, serverDefaults, false, source),
     });
   }
 
   async applyConfiguredServerEdit(
     input: ConfiguredServerApplyInput,
   ): Promise<AdminOperationResult<ConfiguredServerApplyResult>> {
+    const source = this.resolveConfiguredServerSource(input.targetName, input.targetSource);
     const context = {
       ...input.context,
-      target: { type: 'configured_server', id: input.targetName },
+      target: { type: 'configured_server', id: `${source}:${input.targetName}` },
       confirmationFacts: sanitizeApplyConfirmationFacts(input.context.confirmationFacts),
     };
 
@@ -991,23 +1048,26 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
       context,
       operationName: 'applyConfiguredServerEdit',
       prepare: async () => {
-        const { currentConfig, serverDefaults } = this.readConfiguredServerState(input.targetName);
+        const { currentConfig, serverDefaults } = this.readConfiguredServerState(input.targetName, source);
         const preview = await this.previewConfiguredServerEditResult(
           { ...input, connectivityCheck: 'auto' },
           currentConfig,
           serverDefaults,
           true,
+          source,
         );
         const normalizedEdit = normalizeEditDraft(input.edit);
         const currentReadModel = createConfiguredServerReadModel(
           input.targetName,
           mergeGlobalAndServerConfig(serverDefaults, currentConfig),
+          source,
         );
         const applicableEdit = filterApplicableSecretEdits(normalizedEdit.edit, currentReadModel.secretInputs);
-        const proposedConfig = applyEditDraft(currentConfig, applicableEdit, serverDefaults);
+        const proposedConfig = applyEditDraft(currentConfig, applicableEdit, serverDefaults, input.targetName);
         const proposedReadModel = createConfiguredServerReadModel(
           preview.proposedTargetName,
           mergeGlobalAndServerConfig(serverDefaults, proposedConfig),
+          source,
         );
         const connectionCritical = preview.diff.some((entry) => entry.riskFlags.includes('connection_critical'));
         const secretChange = preview.diff.some((entry) => entry.riskFlags.includes('secret'));
@@ -1042,6 +1102,9 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
               : []),
             ...(secretChange ? [{ code: 'secretChangeConfirmed', expected: true }] : []),
             ...(connectionCritical ? [{ code: 'connectionCriticalConfirmed', expected: true }] : []),
+            ...(preview.toolSelection?.requiresZeroEnabledConfirmation
+              ? [{ code: 'zeroEnabledToolsConfirmed', expected: true }]
+              : []),
             ...(preview.connectivityCheck.status === 'failed'
               ? [{ code: 'connectivityFailureOverrideConfirmed', expected: true }]
               : []),
@@ -1049,6 +1112,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
           run: async () => {
             const configChange = await this.options.configChangeService.editConfiguredServerTarget({
               sourceName: input.targetName,
+              targetSource: source,
               targetName: preview.proposedTargetName,
               serverConfig: proposedConfig,
               expectedSourceFingerprint: fingerprintConfiguredServerTarget(currentConfig),
@@ -1088,9 +1152,10 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
     enabled: boolean,
   ): Promise<AdminOperationResult<ConfiguredServerMutationResult>> {
     const operationName = enabled ? 'enableConfiguredServer' : 'disableConfiguredServer';
+    const source = input.targetSource ?? 'mcpServers';
     const context = {
       ...input.context,
-      target: { type: 'configured_server', id: input.targetName },
+      target: { type: 'configured_server', id: `${source}:${input.targetName}` },
     };
 
     if (input.dryRun) {
@@ -1098,8 +1163,12 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
         context,
         operationName,
         run: async () => {
+          if (source !== 'mcpServers') {
+            throw new Error('Template Server definitions do not support enable or disable operations');
+          }
           const configChange = await this.options.configChangeService.previewConfiguredServerTargetEnabledState({
             targetName: input.targetName,
+            targetSource: source,
             enabled,
             backup: 'skip',
           });
@@ -1120,8 +1189,12 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
       operationName,
       confirmationRequirements: input.confirmationRequirements,
       run: async () => {
+        if (source !== 'mcpServers') {
+          throw new Error('Template Server definitions do not support enable or disable operations');
+        }
         const configChange = await this.options.configChangeService.setConfiguredServerTargetEnabledState({
           targetName: input.targetName,
+          targetSource: source,
           enabled,
           backup: 'required',
         });
@@ -1136,32 +1209,58 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
     });
   }
 
-  private readConfiguredServers(): ConfiguredServerReadModel[] {
+  private readConfiguredServers(): { servers: ConfiguredServerReadModel[]; configFingerprint: string } {
     const parsed = this.options.readConfigDocument();
     if (!parsed) {
-      return [];
+      return { servers: [], configFingerprint: fingerprintConfiguredServerConfigDocument({}) };
     }
 
-    return Object.entries(parsed.mcpServers ?? {}).map(([name, serverConfig]) =>
-      createConfiguredServerReadModel(name, mergeGlobalAndServerConfig(parsed.serverDefaults, serverConfig)),
-    );
+    return {
+      configFingerprint: fingerprintConfiguredServerConfigDocument(parsed),
+      servers: (['mcpServers', 'mcpTemplates'] as const).flatMap((source) =>
+        Object.entries(parsed[source] ?? {}).map(([name, serverConfig]) =>
+          createConfiguredServerReadModel(
+            name,
+            mergeGlobalAndServerConfig(parsed.serverDefaults, serverConfig),
+            source,
+            fingerprintConfiguredServerTarget(serverConfig),
+            Object.hasOwn(serverConfig, 'instructionOverride') ? serverConfig.instructionOverride : undefined,
+            Object.hasOwn(serverConfig, 'instructionOverride'),
+          ),
+        ),
+      ),
+    };
   }
 
-  private readConfiguredServerState(targetName: string): {
+  private readConfiguredServerState(
+    targetName: string,
+    targetSource?: ConfiguredServerTargetSource,
+  ): {
     currentConfig: MCPServerParams;
     serverDefaults: GlobalTransportConfig | undefined;
+    source: ConfiguredToolTargetSource;
   } {
     const parsed = this.options.readConfigDocument();
-    const currentConfig = parsed?.mcpServers?.[targetName];
+    const source = this.resolveConfiguredServerSource(targetName, targetSource, parsed);
+    const currentConfig = parsed?.[source]?.[targetName];
     if (!currentConfig) {
       throw new AdminConfiguredServerNotFoundError(targetName);
     }
-    return { currentConfig, serverDefaults: parsed?.serverDefaults };
+    return { currentConfig, serverDefaults: parsed?.serverDefaults, source };
+  }
+
+  private resolveConfiguredServerSource(
+    targetName: string,
+    targetSource?: ConfiguredServerTargetSource,
+    document: ConfiguredServerConfigDocument | null = this.options.readConfigDocument(),
+  ): ConfiguredServerTargetSource {
+    if (targetSource) return targetSource;
+    return document?.mcpTemplates?.[targetName] ? 'mcpTemplates' : 'mcpServers';
   }
 
   private readConfiguredServerConfig(targetName: string): MCPServerParams {
     const parsed = this.options.readConfigDocument();
-    const currentConfig = parsed?.mcpServers?.[targetName];
+    const currentConfig = parsed?.mcpTemplates?.[targetName] ?? parsed?.mcpServers?.[targetName];
     if (!currentConfig) {
       throw new AdminConfiguredServerNotFoundError(targetName);
     }
@@ -1173,32 +1272,55 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
     currentConfig: MCPServerParams,
     serverDefaults: GlobalTransportConfig | undefined,
     requireCriticalConnectivity = false,
+    source: ConfiguredToolTargetSource = 'mcpServers',
   ): Promise<ConfiguredServerPreviewResult> {
     const normalizedEdit = normalizeEditDraft(input.edit);
+    const sourceValidation = validateEditForSource(source, normalizedEdit.edit);
     const currentReadModel = createConfiguredServerReadModel(
       input.targetName,
       mergeGlobalAndServerConfig(serverDefaults, currentConfig),
+      source,
     );
     const secretValidation = validateSecretEditCapabilities(normalizedEdit.edit, currentReadModel.secretInputs);
     const transportApplicabilityValidation = validateTransportFieldApplicability(currentConfig, normalizedEdit.edit);
     const overrideValidation = validateTransportOverrideClears(currentConfig, normalizedEdit.edit);
     const applicableEdit = filterApplicableSecretEdits(normalizedEdit.edit, currentReadModel.secretInputs);
     const proposedTargetName = applicableEdit.id?.trim() || input.targetName;
-    const proposedConfig = applyEditDraft(currentConfig, applicableEdit, serverDefaults);
+    const proposedConfig = applyEditDraft(currentConfig, applicableEdit, serverDefaults, input.targetName);
     const proposedReadModel = createConfiguredServerReadModel(
       proposedTargetName,
       mergeGlobalAndServerConfig(serverDefaults, proposedConfig),
+      source,
     );
     const proposedTransportType = configuredTransportType(proposedConfig);
     const serverValidation = validatePreviewServerConfig(proposedConfig);
+    const currentToolInventory = this.options.readToolInventory
+      ? await this.options.readToolInventory({
+          targetName: input.targetName,
+          source,
+          config: currentConfig,
+          ...(input.model ? { model: input.model } : {}),
+        })
+      : undefined;
+    const toolEditValidation = validateConfiguredToolEdit(applicableEdit, currentToolInventory);
     const validation = mergeValidation(
       mergeValidation(
         mergeValidation(mergeValidation(normalizedEdit.validation, secretValidation), transportApplicabilityValidation),
         overrideValidation,
       ),
-      serverValidation,
+      mergeValidation(mergeValidation(serverValidation, sourceValidation), toolEditValidation),
     );
     const diff = createPreviewDiff(currentReadModel, proposedReadModel, applicableEdit);
+    pushDiff(diff, ['disabledTools'], currentConfig.disabledTools ?? [], proposedConfig.disabledTools ?? [], [
+      'tool_visibility',
+    ]);
+    pushDiff(
+      diff,
+      ['toolDescriptionOverrides'],
+      currentConfig.toolDescriptionOverrides ?? {},
+      proposedConfig.toolDescriptionOverrides ?? {},
+      ['tool_metadata'],
+    );
     appendClearedOverrideDiff(diff, currentReadModel, proposedReadModel, applicableEdit);
     const changed = validation.status === 'valid' && diff.length > 0;
     const endpointChangedWithPreservedSecrets =
@@ -1210,11 +1332,25 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
         applicableEdit,
       );
 
+    const proposedToolInventory = this.options.readToolInventory
+      ? await this.options.readToolInventory({
+          targetName: proposedTargetName,
+          source,
+          config: proposedConfig,
+          ...(input.model ? { model: input.model } : {}),
+        })
+      : undefined;
+    const toolSelection =
+      currentToolInventory && proposedToolInventory
+        ? createConfiguredToolSelectionPreview(currentToolInventory, proposedToolInventory)
+        : undefined;
+
     return {
       targetName: input.targetName,
       proposedTargetName,
       previewFingerprint: previewFingerprint({
         targetName: input.targetName,
+        targetSource: source,
         sourceFingerprint: fingerprintConfiguredServerTarget(currentConfig),
         globalConfigFingerprint: fingerprintConfiguredServerDefaults(serverDefaults),
         edit: normalizedEdit.edit,
@@ -1222,10 +1358,11 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
         proposed: proposedReadModel,
         diff,
         validation,
+        toolSelection,
       }),
       validation,
       diff,
-      configChange: previewConfigChange(input.targetName, changed),
+      configChange: previewConfigChange(input.targetName, changed, source),
       connectivityCheck: await this.previewConnectivityCheck({
         targetName: proposedTargetName,
         serverConfig: proposedConfig,
@@ -1237,6 +1374,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
           (requireCriticalConnectivity && diff.some((entry) => entry.riskFlags.includes('connection_critical'))),
         endpointChangedWithPreservedSecrets,
       }),
+      ...(toolSelection ? { toolSelection } : {}),
     };
   }
 
@@ -1357,6 +1495,23 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
   }
 }
 
+function validateEditForSource(
+  source: ConfiguredServerTargetSource,
+  edit: ConfiguredServerEditDraft,
+): ConfiguredServerPreviewValidation {
+  if (source !== 'mcpTemplates') return { status: 'valid', errors: [] };
+  const supportedTemplateMetadata = new Set(['instructionOverride', 'disabledTools', 'toolDescriptionOverrides']);
+  const unsupported = Object.keys(edit).filter((key) => !supportedTemplateMetadata.has(key));
+  return {
+    status: unsupported.length === 0 ? 'valid' : 'invalid',
+    errors: unsupported.map((key) => ({
+      fieldPath: [key],
+      code: 'template_edit_field_unsupported',
+      message: 'Template Server edits may only change instruction and tool metadata.',
+    })),
+  };
+}
+
 function assertSuccessfulConfigChange(configChange: ConfigChangeResult): void {
   if (configChange.reload.status === 'failed') {
     throw new Error(`Config reload observation failed: ${configChange.reload.error ?? 'unknown reload failure'}`);
@@ -1406,6 +1561,7 @@ function sanitizeApplyConfirmationFacts(
   if (!facts) return undefined;
   const allowed = ['previewConfirmed', 'targetNameConfirmed', 'secretChangeConfirmed', 'connectionCriticalConfirmed'];
   allowed.push('connectivityFailureOverrideConfirmed');
+  allowed.push('zeroEnabledToolsConfirmed');
   const sanitized = Object.fromEntries(allowed.filter((key) => key in facts).map((key) => [key, facts[key]]));
   return Object.keys(sanitized).length > 0 ? sanitized : undefined;
 }
@@ -1423,7 +1579,17 @@ function normalizeEditDraft(value: unknown): {
 } {
   const errors: ConfiguredServerPreviewValidationError[] = [];
   const edit: ConfiguredServerEditDraft = {};
-  const supportedKeys = new Set(['id', 'enabled', 'tags', 'transport', 'secrets', 'clearTransportOverrides']);
+  const supportedKeys = new Set([
+    'id',
+    'enabled',
+    'tags',
+    'transport',
+    'secrets',
+    'clearTransportOverrides',
+    'instructionOverride',
+    'disabledTools',
+    'toolDescriptionOverrides',
+  ]);
 
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {
@@ -1488,6 +1654,44 @@ function normalizeEditDraft(value: unknown): {
     }
   }
 
+  if (record.disabledTools !== undefined) {
+    if (Array.isArray(record.disabledTools) && record.disabledTools.every((name) => typeof name === 'string')) {
+      edit.disabledTools = Array.from(
+        new Set(record.disabledTools.map((name) => name.trim()).filter((name) => name.length > 0)),
+      ).sort((left, right) => left.localeCompare(right));
+    } else {
+      errors.push({
+        fieldPath: ['disabledTools'],
+        code: 'invalid_disabled_tools',
+        message: 'Disabled tools must be a list of logical tool names.',
+      });
+    }
+  }
+
+  if (record.toolDescriptionOverrides !== undefined) {
+    if (
+      record.toolDescriptionOverrides &&
+      typeof record.toolDescriptionOverrides === 'object' &&
+      !Array.isArray(record.toolDescriptionOverrides) &&
+      Object.entries(record.toolDescriptionOverrides).every(
+        ([name, description]) => name.length > 0 && name === name.trim() && typeof description === 'string',
+      )
+    ) {
+      edit.toolDescriptionOverrides = Object.fromEntries(
+        Object.entries(record.toolDescriptionOverrides as Record<string, string>)
+          .map(([name, description]) => [name, description.trim()] as const)
+          .filter(([name, description]) => name.length > 0 && description.length > 0)
+          .sort(([left], [right]) => left.localeCompare(right)),
+      );
+    } else {
+      errors.push({
+        fieldPath: ['toolDescriptionOverrides'],
+        code: 'invalid_tool_description_overrides',
+        message: 'Tool description overrides must map logical tool names to descriptions.',
+      });
+    }
+  }
+
   if (record.transport !== undefined) {
     if (record.transport && typeof record.transport === 'object' && !Array.isArray(record.transport)) {
       edit.transport = normalizeTransportEditDraft(record.transport as Record<string, unknown>, errors);
@@ -1528,6 +1732,23 @@ function normalizeEditDraft(value: unknown): {
     }
   }
 
+  if (record.instructionOverride !== undefined) {
+    const parsed = z
+      .discriminatedUnion('action', [
+        z.object({ action: z.literal('set'), value: z.string() }).strict(),
+        z.object({ action: z.literal('remove') }).strict(),
+      ])
+      .safeParse(record.instructionOverride);
+    if (parsed.success) edit.instructionOverride = parsed.data;
+    else {
+      errors.push({
+        fieldPath: ['instructionOverride'],
+        code: 'invalid_instruction_override',
+        message: 'Instruction override must set a string value or remove the configured override.',
+      });
+    }
+  }
+
   return {
     edit,
     validation: { status: errors.length === 0 ? 'valid' : 'invalid', errors },
@@ -1563,6 +1784,23 @@ function normalizeTransportEditDraft(
   }
 
   return transport;
+}
+
+function validateConfiguredToolEdit(
+  edit: ConfiguredServerEditDraft,
+  inventory: ConfiguredToolInventory | undefined,
+): ConfiguredServerPreviewValidation {
+  if (!inventory) return { status: 'valid', errors: [] };
+  const allowedNames = new Set(inventory.rows.map((row) => row.name));
+  const requestedNames = new Set([...(edit.disabledTools ?? []), ...Object.keys(edit.toolDescriptionOverrides ?? {})]);
+  const errors = Array.from(requestedNames)
+    .filter((name) => !allowedNames.has(name))
+    .map((name) => ({
+      fieldPath: ['tools', name],
+      code: 'unknown_configured_tool',
+      message: 'Tool changes must refer to an observed tool or a retained unresolved entry.',
+    }));
+  return { status: errors.length === 0 ? 'valid' : 'invalid', errors };
 }
 
 function isSecretCapableRawTransportEdit(key: string, value: unknown): boolean {
@@ -1947,6 +2185,7 @@ function applyEditDraft(
   currentConfig: MCPServerParams,
   edit: ConfiguredServerEditDraft,
   serverDefaults?: GlobalTransportConfig,
+  logicalServerName?: string,
 ): MCPServerParams {
   const nextConfig = cloneServerConfig(currentConfig);
 
@@ -1964,6 +2203,25 @@ function applyEditDraft(
 
   if (Array.isArray(edit.tags)) {
     nextConfig.tags = edit.tags.filter((tag): tag is string => typeof tag === 'string');
+  }
+
+  if (edit.instructionOverride?.action === 'set') {
+    nextConfig.instructionOverride = edit.instructionOverride.value;
+  } else if (edit.instructionOverride?.action === 'remove') {
+    delete nextConfig.instructionOverride;
+  }
+
+  if (Array.isArray(edit.disabledTools)) {
+    const disabledTools = logicalServerName
+      ? normalizeDisabledToolsForServer(logicalServerName, edit.disabledTools)
+      : edit.disabledTools;
+    if (disabledTools.length === 0) delete nextConfig.disabledTools;
+    else nextConfig.disabledTools = disabledTools;
+  }
+
+  if (edit.toolDescriptionOverrides) {
+    if (Object.keys(edit.toolDescriptionOverrides).length === 0) delete nextConfig.toolDescriptionOverrides;
+    else nextConfig.toolDescriptionOverrides = { ...edit.toolDescriptionOverrides };
   }
 
   if (edit.transport && typeof edit.transport === 'object') {
@@ -2423,12 +2681,16 @@ function isValidUrlOrEnvReference(value: string): boolean {
   }
 }
 
-function previewConfigChange(targetName: string, changed: boolean): ConfigChangeResult {
+function previewConfigChange(
+  targetName: string,
+  changed: boolean,
+  source: ConfiguredServerTargetSource = 'mcpServers',
+): ConfigChangeResult {
   return {
     status: changed ? 'changed' : 'unchanged',
     operation: 'set_static' as ConfigChangeResult['operation'],
     configPath: '[redacted]',
-    target: { name: targetName, source: 'mcpServers' },
+    target: { name: targetName, source },
     changed,
     backup: { created: false },
     retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
@@ -2439,6 +2701,7 @@ function previewConfigChange(targetName: string, changed: boolean): ConfigChange
 
 function previewFingerprint(input: {
   targetName: string;
+  targetSource: ConfiguredServerTargetSource;
   sourceFingerprint: string;
   globalConfigFingerprint: string;
   edit: ConfiguredServerEditDraft;
@@ -2446,12 +2709,14 @@ function previewFingerprint(input: {
   proposed: ConfiguredServerReadModel;
   diff: ConfiguredServerPreviewDiffEntry[];
   validation: ConfiguredServerPreviewValidation;
+  toolSelection?: ConfiguredToolSelectionPreview;
 }): string {
   return `preview_${createHash('sha256')
     .update(
       stableStringify({
         schemaVersion: 2,
         targetName: input.targetName,
+        targetSource: input.targetSource,
         sourceFingerprint: input.sourceFingerprint,
         globalConfigFingerprint: input.globalConfigFingerprint,
         edit: redactEditDraftForFingerprint(input.edit),
@@ -2459,9 +2724,47 @@ function previewFingerprint(input: {
         proposed: input.proposed,
         diff: input.diff,
         validation: input.validation,
+        toolSelection: input.toolSelection,
       }),
     )
     .digest('hex')}`;
+}
+
+function createConfiguredToolSelectionPreview(
+  current: ConfiguredToolInventory,
+  proposed: ConfiguredToolInventory,
+): ConfiguredToolSelectionPreview {
+  const currentRows = new Map(current.rows.map((row) => [row.name, row]));
+  const proposedRows = new Map(proposed.rows.map((row) => [row.name, row]));
+  const changedTools = Array.from(new Set([...currentRows.keys(), ...proposedRows.keys()]))
+    .filter((name) => {
+      const before = currentRows.get(name);
+      const after = proposedRows.get(name);
+      return (
+        before?.enabled !== after?.enabled ||
+        before?.descriptionOverride !== after?.descriptionOverride ||
+        before?.effectiveDescription !== after?.effectiveDescription
+      );
+    })
+    .sort((left, right) => left.localeCompare(right));
+
+  return {
+    capabilityGeneration: current.generation,
+    model: proposed.model,
+    changedTools,
+    counts: proposed.counts,
+    approximateTokens: {
+      before: current.approximateTokens.enabled,
+      after: proposed.approximateTokens.enabled,
+      savings: current.approximateTokens.enabled - proposed.approximateTokens.enabled,
+    },
+    targetEnabled: proposed.targetEnabled,
+    effect: proposed.targetEnabled ? 'immediate' : 'deferred_until_target_enabled',
+    requiresZeroEnabledConfirmation:
+      changedTools.length > 0 &&
+      current.rows.some((row) => row.observed && row.enabled) &&
+      !proposed.rows.some((row) => row.observed && row.enabled),
+  };
 }
 
 function redactEditDraftForFingerprint(edit: ConfiguredServerEditDraft): ConfiguredServerEditDraft {
@@ -2501,6 +2804,9 @@ function createPreviewDiff(
   pushDiff(diff, ['id'], current.id, proposed.id, proposed.id === current.id ? [] : ['rename']);
   pushDiff(diff, ['enabled'], current.enabled, proposed.enabled, ['connection_critical']);
   pushDiff(diff, ['tags'], current.tags, proposed.tags, []);
+  if (edit.instructionOverride) {
+    pushDiff(diff, ['instructionOverride'], current.instructionOverride, proposed.instructionOverride, []);
+  }
 
   const secretEditedTopLevelKeys = new Set((edit.secrets ?? []).map((secret) => secret.fieldPath[0]));
   const transportEditedKeys = new Set(Object.keys(edit.transport ?? {}));
@@ -2670,12 +2976,25 @@ function stableStringify(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function createConfiguredServerReadModel(name: string, serverConfig: MCPServerParams): ConfiguredServerReadModel {
+function createConfiguredServerReadModel(
+  name: string,
+  serverConfig: MCPServerParams,
+  source: ConfiguredServerTargetSource = 'mcpServers',
+  revision: string = fingerprintConfiguredServerTarget(serverConfig),
+  instructionOverride: string | undefined = serverConfig.instructionOverride,
+  hasInstructionOverride: boolean = Object.hasOwn(serverConfig, 'instructionOverride'),
+): ConfiguredServerReadModel {
   const secretInputs: ConfiguredServerSecretInput[] = [];
   const transport: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(serverConfig)) {
-    if (key === 'disabled' || key === 'tags') {
+    if (
+      key === 'disabled' ||
+      key === 'tags' ||
+      key === 'instructionOverride' ||
+      key === 'disabledTools' ||
+      key === 'toolDescriptionOverrides'
+    ) {
       continue;
     }
 
@@ -2711,22 +3030,34 @@ function createConfiguredServerReadModel(name: string, serverConfig: MCPServerPa
 
   return {
     id: name,
-    source: 'mcpServers',
+    source,
     target: {
       type: 'configured_server',
       id: name,
-      source: 'mcpServers',
+      source,
     },
+    revision,
     enabled,
     tags: normalizeTags(serverConfig.tags),
     transportSummary: createTransportSummary(serverConfig, transport),
     mutationAvailability: {
-      available: true,
-      operations: ['enable', 'disable'],
+      available: source === 'mcpServers',
+      operations: source === 'mcpServers' ? ['enable', 'disable'] : [],
     },
-    actionState: createActionState(name, enabled),
+    actionState:
+      source === 'mcpServers'
+        ? createActionState(name, enabled)
+        : {
+            enable: { available: false, label: `Enable ${name}`, disabledReason: 'already_enabled' },
+            disable: { available: false, label: `Disable ${name}`, disabledReason: 'already_disabled' },
+          },
     transport,
     secretInputs,
+    instructionOverride: !hasInstructionOverride
+      ? { state: 'upstream' }
+      : instructionOverride === ''
+        ? { state: 'suppress', value: '' }
+        : { state: 'replace', value: instructionOverride! },
   };
 }
 
@@ -2752,7 +3083,6 @@ const TRANSPORT_FIELD_DEFINITIONS: TransportFieldDefinition[] = [
   { key: 'timeout', label: 'Deprecated Timeout', control: 'number' },
   { key: 'connectionTimeout', label: 'Connection Timeout', control: 'number' },
   { key: 'requestTimeout', label: 'Request Timeout', control: 'number' },
-  { key: 'disabledTools', label: 'Disabled Tools', control: 'string-list', defaultValue: [] },
   { key: 'template', label: 'Template', control: 'record', defaultValue: {} },
   {
     key: 'url',

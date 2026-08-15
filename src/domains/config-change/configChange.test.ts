@@ -101,6 +101,44 @@ describe('Config Change', () => {
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
+  it('edits a Template Server definition without creating per-instance state', async () => {
+    const original = { type: 'stdio' as const, command: 'node', disabledTools: ['write_file'] };
+    await writeConfig({
+      mcpTemplates: { project: original },
+      mcpServers: { unrelated: { type: 'stdio', command: 'bun' } },
+    });
+    const service = createConfigChangeService({ reloadConfig: reload });
+
+    const result = await service.editConfiguredServerTarget({
+      sourceName: 'project',
+      targetName: 'project',
+      serverConfig: {
+        ...original,
+        disabledTools: ['write_file', 'delete_file'],
+        toolDescriptionOverrides: { read_file: 'Read safely' },
+      },
+      expectedSourceFingerprint: fingerprintConfiguredServerTarget(original),
+    });
+
+    expect(result).toMatchObject({
+      status: 'changed',
+      operation: 'edit',
+      target: { name: 'project', source: 'mcpTemplates' },
+      backup: { created: true },
+      reload: { status: 'observed' },
+    });
+    expect(await readConfig()).toEqual({
+      mcpTemplates: {
+        project: {
+          ...original,
+          disabledTools: ['write_file', 'delete_file'],
+          toolDescriptionOverrides: { read_file: 'Read safely' },
+        },
+      },
+      mcpServers: { unrelated: { type: 'stdio', command: 'bun' } },
+    });
+  });
+
   it('rejects stale edit preconditions without backup, write, or reload', async () => {
     const original = { type: 'stdio' as const, command: 'node' };
     await writeConfig({ mcpServers: { alpha: original } });
@@ -837,6 +875,104 @@ describe('Config Change', () => {
     } finally {
       release();
     }
+  });
+
+  it('persists instruction template configuration with a backup and rejects stale revisions', async () => {
+    const original = { mcpServers: {}, unrelated: { preserved: true } };
+    await writeConfig(original);
+    const service = createConfigChangeService({ reloadConfig: reload, now: () => 1234 });
+    const expectedConfigFingerprint = fingerprintConfiguredServerConfigDocument(original);
+
+    const changed = await service.setInstructionTemplateConfiguration({
+      operation: 'template_create',
+      identity: 'team',
+      instructionTemplates: { team: { initialization: '{{#if invalid}}', cli: '{{instructions}}' } },
+      expectedConfigFingerprint,
+    });
+
+    expect(changed).toMatchObject({
+      status: 'changed',
+      operation: 'template_create',
+      target: { name: 'team' },
+      backup: { created: true, path: `${configPath}.backup.1234` },
+      reload: { status: 'observed' },
+    });
+    expect(await readConfig()).toEqual({
+      ...original,
+      instructionTemplates: { team: { initialization: '{{#if invalid}}', cli: '{{instructions}}' } },
+    });
+
+    const stale = await service.setInstructionTemplateConfiguration({
+      operation: 'template_activate',
+      identity: 'team',
+      instructionTemplates: { team: { initialization: 'changed', cli: 'changed' } },
+      activeInstructionTemplate: 'team',
+      expectedConfigFingerprint,
+    });
+    expect(stale).toMatchObject({ status: 'source_conflict', changed: false, backup: { created: false } });
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an invalid active instruction template before backup or write', async () => {
+    const original = { mcpServers: {} };
+    await writeConfig(original);
+    const service = createConfigChangeService({ reloadConfig: reload, now: () => 1234 });
+
+    await expect(
+      service.setInstructionTemplateConfiguration({
+        operation: 'template_activate',
+        identity: 'missing',
+        activeInstructionTemplate: 'missing',
+        expectedConfigFingerprint: fingerprintConfiguredServerConfigDocument(original),
+      }),
+    ).rejects.toThrow();
+
+    expect(await readConfig()).toEqual(original);
+    await expect(fs.access(`${configPath}.backup.1234`)).rejects.toThrow();
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['mcpServers', 'static'],
+    ['mcpTemplates', 'template'],
+  ] as const)('sets, suppresses, and removes a source-qualified override in %s', async (source, name) => {
+    const target = { type: 'stdio' as const, command: 'node' };
+    await writeConfig({ mcpServers: {}, [source]: { [name]: target } });
+    const service = createConfigChangeService({ reloadConfig: reload });
+
+    const set = await service.changeConfiguredServerInstructionOverride({
+      target: { source, name },
+      mutation: { action: 'set', value: '' },
+      expectedSourceFingerprint: fingerprintConfiguredServerTarget(target),
+    });
+    expect(set).toMatchObject({ status: 'changed', operation: 'instruction_override_set' });
+    expect((await readConfig())[source][name].instructionOverride).toBe('');
+
+    const suppressed = (await readConfig())[source][name];
+    const remove = await service.changeConfiguredServerInstructionOverride({
+      target: { source, name },
+      mutation: { action: 'remove' },
+      expectedSourceFingerprint: fingerprintConfiguredServerTarget(suppressed),
+    });
+    expect(remove).toMatchObject({ status: 'changed', operation: 'instruction_override_remove' });
+    expect(Object.hasOwn((await readConfig())[source][name], 'instructionOverride')).toBe(false);
+  });
+
+  it('does not fall back to a same-named target in the other source for override changes', async () => {
+    const target = { type: 'stdio' as const, command: 'node' };
+    await writeConfig({ mcpServers: { duplicate: target }, mcpTemplates: { duplicate: target } });
+    const service = createConfigChangeService({ reloadConfig: reload });
+
+    const result = await service.changeConfiguredServerInstructionOverride({
+      target: { source: 'mcpServers', name: 'duplicate' },
+      mutation: { action: 'set', value: 'static only' },
+      expectedSourceFingerprint: fingerprintConfiguredServerTarget(target),
+    });
+
+    expect(result.target).toEqual({ source: 'mcpServers', name: 'duplicate' });
+    const saved = await readConfig();
+    expect(saved.mcpServers.duplicate.instructionOverride).toBe('static only');
+    expect(saved.mcpTemplates.duplicate.instructionOverride).toBeUndefined();
   });
 
   async function writeConfig(config: Record<string, unknown>): Promise<void> {

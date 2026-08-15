@@ -24,6 +24,10 @@ import {
   AdminIdentityError,
   AdminIdentityService,
 } from '@src/domains/admin/adminIdentityService.js';
+import {
+  AdminInstructionTemplateNotFoundError,
+  type AdminInstructionTemplateOperations,
+} from '@src/domains/admin/adminInstructionTemplateService.js';
 import type { AdminOAuthOperations } from '@src/domains/admin/adminOAuthService.js';
 import type {
   AdminConfirmationRequirement,
@@ -44,6 +48,7 @@ import type {
   BackendLogSource,
   BackendLogSourceUpdate,
 } from '@src/domains/backend-logs/backendLogTypes.js';
+import type { InstructionTemplateMutationResult } from '@src/domains/instruction-template/instructionTemplateManager.js';
 import { sensitiveOperationLimiter } from '@src/transport/http/middlewares/securityMiddleware.js';
 import { sanitizeErrorMessage } from '@src/utils/validation/sanitization.js';
 
@@ -80,6 +85,7 @@ const adminOAuthServiceParamsSchema = z.object({
 const backendLogSnapshotQuerySchema = z.object({
   sourceId: z.string().trim().min(1).max(256).optional(),
 });
+const configuredServerModelSchema = z.string().trim().min(1).max(64);
 const cliConfiguredServerMutationBodySchema = z.object({
   targetName: z.string().trim().min(1).max(256),
   dryRun: z.boolean().optional(),
@@ -93,6 +99,67 @@ const cliBackendRestartBodySchema = z
   .refine((value) => !(value.instance !== undefined && value.allInstances === true), {
     message: 'instance and allInstances are mutually exclusive',
   });
+const instructionTemplateIdentitySchema = z.string().trim().min(1).max(128);
+const instructionTemplateVariantsSchema = z.object({ initialization: z.string(), cli: z.string() }).strict();
+const instructionPreviewSelectionSchema = z.discriminatedUnion('mode', [
+  z.object({ mode: z.literal('all') }).strict(),
+  z.object({ mode: z.literal('preset'), preset: z.string().trim().min(1).max(128) }).strict(),
+  z.object({ mode: z.literal('tags'), tags: z.array(z.string().trim().min(1).max(128)).max(256) }).strict(),
+  z.object({ mode: z.literal('tag-filter'), expression: z.string().trim().min(1).max(4096) }).strict(),
+]);
+const requestContextSchema = z
+  .object({
+    project: z
+      .object({
+        path: z.string().optional(),
+        cwd: z.string().optional(),
+        name: z.string().optional(),
+        environment: z.string().optional(),
+        custom: z.record(z.string(), z.unknown()).optional(),
+        git: z
+          .object({
+            branch: z.string().optional(),
+            commit: z.string().optional(),
+            repository: z.string().optional(),
+            isRepo: z.boolean().optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict(),
+    user: z
+      .object({
+        name: z.string().optional(),
+        email: z.string().optional(),
+        home: z.string().optional(),
+        username: z.string().optional(),
+        uid: z.string().optional(),
+        gid: z.string().optional(),
+        shell: z.string().optional(),
+      })
+      .strict(),
+    environment: z
+      .object({
+        variables: z.record(z.string(), z.string()).optional(),
+        prefixes: z.array(z.string()).optional(),
+      })
+      .strict(),
+    timestamp: z.string().optional(),
+    sessionId: z.string().optional(),
+    version: z.string().optional(),
+    transport: z
+      .object({
+        type: z.string(),
+        url: z.string().optional(),
+        connectionId: z.string().optional(),
+        connectionTimestamp: z.string().optional(),
+        client: z.object({ name: z.string(), version: z.string(), title: z.string().optional() }).strict().optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+const configuredServerSourceSchema = z.enum(['mcpServers', 'mcpTemplates']);
 type AdminOperationFailure = Extract<AdminOperationResult, { ok: false }>;
 interface CliAdminEnvelope {
   ok: boolean;
@@ -106,6 +173,7 @@ interface AdminRoutesOptions {
   adminEnabled: boolean;
   adminService: AdminIdentityService;
   configuredServerService?: AdminConfiguredServerOperations;
+  instructionTemplateService?: AdminInstructionTemplateOperations;
   backendRestartService?: AdminBackendRestartOperations;
   presetService?: AdminPresetOperations;
   oauthService?: AdminOAuthOperations;
@@ -302,6 +370,21 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     }
   });
 
+  router.get('/api/session', (req, res) => {
+    const session = options.adminService.validateSession(getAdminSessionCookie(req));
+    if (!session) {
+      res.status(200).json(unauthenticatedAdminApiResponse(options));
+      return;
+    }
+
+    res.status(200).json({
+      authenticated: true,
+      account: session.account,
+      csrfToken: session.csrfToken,
+      expiresAt: session.expiresAt,
+    });
+  });
+
   router.use('/api', (req, res, next) => {
     const sessionToken = getAdminSessionCookie(req);
     const session = options.adminService.validateSession(sessionToken);
@@ -316,21 +399,6 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     }
 
     next();
-  });
-
-  router.get('/api/session', (req, res) => {
-    const session = options.adminService.validateSession(getAdminSessionCookie(req));
-    if (!session) {
-      res.status(401).json({ authenticated: false });
-      return;
-    }
-
-    res.status(200).json({
-      authenticated: true,
-      account: session.account,
-      csrfToken: session.csrfToken,
-      expiresAt: session.expiresAt,
-    });
   });
 
   router.post('/api/session/logout', (req, res) => {
@@ -522,7 +590,50 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
       ok: true,
       operationId: result.operationId,
       servers: result.result.servers,
+      configFingerprint: result.result.configFingerprint,
     });
+  });
+
+  router.get('/api/instruction-templates', async (req, res) => {
+    const service = options.instructionTemplateService;
+    if (!service) return void res.status(404).json({ error: 'admin_instruction_templates_unavailable' });
+    sendAdminOperationResult(
+      res,
+      await service.listTemplates({
+        context: buildAdminOperationContext(req, options, { type: 'instruction_template_collection' }),
+      }),
+    );
+  });
+
+  router.get('/api/instruction-templates/:identity', async (req, res) => {
+    await handleInstructionTemplateRequest(req, res, options, 'get');
+  });
+  router.post('/api/instruction-templates', async (req, res) => {
+    await handleInstructionTemplateRequest(req, res, options, 'create');
+  });
+  router.post('/api/instruction-templates/import-legacy', async (req, res) => {
+    await handleInstructionTemplateRequest(req, res, options, 'import');
+  });
+  router.post('/api/instruction-templates/:identity/clone', async (req, res) => {
+    await handleInstructionTemplateRequest(req, res, options, 'clone');
+  });
+  router.post('/api/instruction-templates/:identity/update', async (req, res) => {
+    await handleInstructionTemplateRequest(req, res, options, 'update');
+  });
+  router.post('/api/instruction-templates/:identity/validate', async (req, res) => {
+    await handleInstructionTemplateRequest(req, res, options, 'validate');
+  });
+  router.post('/api/instruction-templates/:identity/preview', async (req, res) => {
+    await handleInstructionTemplateRequest(req, res, options, 'preview');
+  });
+  router.post('/api/instruction-templates/:identity/activate', async (req, res) => {
+    await handleInstructionTemplateRequest(req, res, options, 'activate');
+  });
+  router.post('/api/instruction-templates/:identity/delete-preview', async (req, res) => {
+    await handleInstructionTemplateRequest(req, res, options, 'delete-preview');
+  });
+  router.delete('/api/instruction-templates/:identity', async (req, res) => {
+    await handleInstructionTemplateRequest(req, res, options, 'delete');
   });
 
   router.get('/api/configured-servers/create-contract', async (req, res) => {
@@ -537,8 +648,34 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     await handleConfiguredServerCreateApply(req, res, options);
   });
 
+  router.get('/api/configured-servers/:source/:name', async (req, res) => {
+    const source = configuredServerSourceSchema.safeParse(req.params.source);
+    if (!source.success) return void res.status(400).json({ error: 'configured_server_source_invalid' });
+    await handleConfiguredServerDetail(req, res, options, source.data);
+  });
+
   router.get('/api/configured-servers/:name', async (req, res) => {
     await handleConfiguredServerDetail(req, res, options);
+  });
+
+  router.post('/api/configured-servers/:source/:name/preview', async (req, res) => {
+    const source = configuredServerSourceSchema.safeParse(req.params.source);
+    if (!source.success) return void res.status(400).json({ error: 'configured_server_source_invalid' });
+    await handleConfiguredServerPreview(req, res, options, source.data);
+  });
+
+  router.post('/api/configured-servers/:source/:name/apply', async (req, res) => {
+    const source = configuredServerSourceSchema.safeParse(req.params.source);
+    if (!source.success) return void res.status(400).json({ error: 'configured_server_source_invalid' });
+    await handleConfiguredServerApply(req, res, options, source.data);
+  });
+
+  router.post('/api/configured-servers/mcpServers/:name/enable', async (req, res) => {
+    await handleConfiguredServerMutation(req, res, options, 'enableConfiguredServer', 'mcpServers');
+  });
+
+  router.post('/api/configured-servers/mcpServers/:name/disable', async (req, res) => {
+    await handleConfiguredServerMutation(req, res, options, 'disableConfiguredServer', 'mcpServers');
   });
 
   router.post('/api/configured-servers/:name/preview', async (req, res) => {
@@ -597,6 +734,145 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
   });
 
   return router;
+}
+
+type InstructionTemplateRouteAction =
+  'get' | 'create' | 'clone' | 'update' | 'validate' | 'preview' | 'activate' | 'import' | 'delete-preview' | 'delete';
+
+async function handleInstructionTemplateRequest(
+  req: Request,
+  res: Response,
+  options: AdminRoutesOptions,
+  action: InstructionTemplateRouteAction,
+): Promise<void> {
+  const service = options.instructionTemplateService;
+  if (!service) return void res.status(404).json({ error: 'admin_instruction_templates_unavailable' });
+  const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+  const identityValue = action === 'create' || action === 'import' ? body.identity : req.params.identity;
+  const identity = instructionTemplateIdentitySchema.safeParse(identityValue);
+  if (!identity.success) return void res.status(400).json({ error: 'instruction_template_identity_invalid' });
+  const context = buildAdminOperationContext(req, options, { type: 'instruction_template', id: identity.data });
+  const expectedConfigFingerprint =
+    typeof body.expectedConfigFingerprint === 'string' ? body.expectedConfigFingerprint : '';
+
+  try {
+    switch (action) {
+      case 'get':
+        return sendAdminOperationResult(res, await service.getTemplate({ context, identity: identity.data }));
+      case 'create':
+      case 'update': {
+        const variants = instructionTemplateVariantsSchema.safeParse(body.variants);
+        if (!variants.success || !expectedConfigFingerprint) {
+          return void res.status(400).json({ error: 'instruction_template_request_invalid' });
+        }
+        return sendInstructionTemplateResult(
+          res,
+          await (action === 'create' ? service.createTemplate : service.updateTemplate).call(service, {
+            context,
+            identity: identity.data,
+            variants: variants.data,
+            expectedConfigFingerprint,
+          }),
+        );
+      }
+      case 'clone': {
+        const destination = instructionTemplateIdentitySchema.safeParse(body.identity);
+        if (!destination.success || !expectedConfigFingerprint) {
+          return void res.status(400).json({ error: 'instruction_template_request_invalid' });
+        }
+        return sendInstructionTemplateResult(
+          res,
+          await service.cloneTemplate({
+            context,
+            sourceIdentity: identity.data,
+            identity: destination.data,
+            expectedConfigFingerprint,
+          }),
+        );
+      }
+      case 'validate':
+        return sendAdminOperationResult(
+          res,
+          await service.validateTemplate({ context, identity: identity.data, expectedConfigFingerprint }),
+        );
+      case 'preview': {
+        const preview = z
+          .object({
+            surface: z.enum(['initialize', 'cli']),
+            selection: instructionPreviewSelectionSchema,
+            requestContext: requestContextSchema.optional(),
+          })
+          .strict()
+          .safeParse(body);
+        if (!preview.success) return void res.status(400).json({ error: 'instruction_template_preview_invalid' });
+        return sendAdminOperationResult(
+          res,
+          await service.previewTemplate({ context, identity: identity.data, ...preview.data }),
+        );
+      }
+      case 'activate':
+      case 'delete': {
+        const previewFingerprint = typeof body.previewFingerprint === 'string' ? body.previewFingerprint : '';
+        if (!expectedConfigFingerprint || !previewFingerprint) {
+          return void res.status(400).json({ error: 'instruction_template_request_invalid' });
+        }
+        return sendInstructionTemplateResult(
+          res,
+          await (action === 'activate' ? service.activateTemplate : service.deleteTemplate).call(service, {
+            context,
+            identity: identity.data,
+            expectedConfigFingerprint,
+            previewFingerprint,
+          }),
+        );
+      }
+      case 'import':
+        if (!expectedConfigFingerprint) {
+          return void res.status(400).json({ error: 'instruction_template_request_invalid' });
+        }
+        return sendInstructionTemplateResult(
+          res,
+          await service.importLegacyTemplate({ context, identity: identity.data, expectedConfigFingerprint }),
+        );
+      case 'delete-preview':
+        return sendAdminOperationResult(
+          res,
+          await service.previewDeleteTemplate({ context, identity: identity.data, expectedConfigFingerprint }),
+        );
+    }
+  } catch (error) {
+    if (error instanceof AdminInstructionTemplateNotFoundError) {
+      res.status(404).json({ error: error.code });
+      return;
+    }
+    throw error;
+  }
+}
+
+function sendInstructionTemplateResult(
+  res: Response,
+  result: AdminOperationResult<InstructionTemplateMutationResult | { status: 'legacy_unavailable' }>,
+): void {
+  if (!result.ok) return sendAdminOperationResult(res, result);
+  const status = result.result?.status;
+  if (status === 'not_found') return void res.status(404).json({ ok: false, error: 'instruction_template_not_found' });
+  if (status === 'invalid') {
+    return void res
+      .status(422)
+      .json({ ok: false, error: 'instruction_template_invalid', validation: result.result.validation });
+  }
+  if (status === 'legacy_unavailable') {
+    return void res.status(409).json({ ok: false, error: 'legacy_instruction_template_unavailable' });
+  }
+  if (
+    status === 'conflict' ||
+    status === 'identity_conflict' ||
+    status === 'protected' ||
+    status === 'active_conflict'
+  ) {
+    return void res.status(409).json({ ok: false, error: `instruction_template_${status}` });
+  }
+  sendAdminOperationResult(res, result);
 }
 
 function streamBackendLogs(
@@ -957,7 +1233,12 @@ function backendRestartFailure(outcome: Exclude<BackendRestartOutcome, 'restarte
   }
 }
 
-async function handleConfiguredServerDetail(req: Request, res: Response, options: AdminRoutesOptions): Promise<void> {
+async function handleConfiguredServerDetail(
+  req: Request,
+  res: Response,
+  options: AdminRoutesOptions,
+  targetSource?: 'mcpServers' | 'mcpTemplates',
+): Promise<void> {
   if (!options.configuredServerService) {
     res.status(404).json({ error: 'admin_configured_servers_unavailable' });
     return;
@@ -965,9 +1246,15 @@ async function handleConfiguredServerDetail(req: Request, res: Response, options
 
   const targetName = req.params.name;
   try {
+    const model = configuredServerModelSchema.safeParse(req.query.model);
     const result = await options.configuredServerService.getConfiguredServerDetail({
-      context: buildAdminOperationContext(req, options, { type: 'configured_server', id: targetName }),
+      context: buildAdminOperationContext(req, options, {
+        type: 'configured_server',
+        id: `${targetSource ?? 'mcpServers'}:${targetName}`,
+      }),
       targetName,
+      ...(targetSource ? { targetSource } : {}),
+      ...(model.success ? { model: model.data } : {}),
     });
     if (!result.ok) {
       sendAdminOperationResult(res, result);
@@ -979,6 +1266,7 @@ async function handleConfiguredServerDetail(req: Request, res: Response, options
       operationId: result.operationId,
       server: result.result.server,
       editContract: result.result.editContract,
+      ...(result.result.toolInventory ? { toolInventory: result.result.toolInventory } : {}),
     });
   } catch (error) {
     if (error instanceof AdminConfiguredServerNotFoundError) {
@@ -1093,7 +1381,12 @@ function configuredServerCreateDraftName(draft: unknown): string {
   return typeof name === 'string' ? name : '';
 }
 
-async function handleConfiguredServerPreview(req: Request, res: Response, options: AdminRoutesOptions): Promise<void> {
+async function handleConfiguredServerPreview(
+  req: Request,
+  res: Response,
+  options: AdminRoutesOptions,
+  targetSource?: 'mcpServers' | 'mcpTemplates',
+): Promise<void> {
   if (!options.configuredServerService) {
     res.status(404).json({ error: 'admin_configured_servers_unavailable' });
     return;
@@ -1102,11 +1395,17 @@ async function handleConfiguredServerPreview(req: Request, res: Response, option
   const targetName = req.params.name;
   const edit = getBodyValue(req.body, 'edit');
   try {
+    const model = configuredServerModelSchema.safeParse(getBodyString(req.body, 'model'));
     const result = await options.configuredServerService.previewConfiguredServerEdit({
-      context: buildAdminOperationContext(req, options, { type: 'configured_server', id: targetName }),
+      context: buildAdminOperationContext(req, options, {
+        type: 'configured_server',
+        id: `${targetSource ?? 'mcpServers'}:${targetName}`,
+      }),
       targetName,
+      ...(targetSource ? { targetSource } : {}),
       edit: edit === undefined ? {} : edit,
       connectivityCheck: getBodyString(req.body, 'connectivityCheck') === 'manual' ? 'manual' : 'auto',
+      ...(model.success ? { model: model.data } : {}),
     });
     if (!result.ok) {
       sendAdminOperationResult(res, result);
@@ -1133,7 +1432,12 @@ async function handleConfiguredServerPreview(req: Request, res: Response, option
   }
 }
 
-async function handleConfiguredServerApply(req: Request, res: Response, options: AdminRoutesOptions): Promise<void> {
+async function handleConfiguredServerApply(
+  req: Request,
+  res: Response,
+  options: AdminRoutesOptions,
+  targetSource?: 'mcpServers' | 'mcpTemplates',
+): Promise<void> {
   if (!options.configuredServerService) {
     res.status(404).json({ error: 'admin_configured_servers_unavailable' });
     return;
@@ -1152,11 +1456,17 @@ async function handleConfiguredServerApply(req: Request, res: Response, options:
 
   const targetName = req.params.name;
   try {
+    const model = configuredServerModelSchema.safeParse(getBodyString(req.body, 'model'));
     const result = await options.configuredServerService.applyConfiguredServerEdit({
-      context: buildAdminOperationContext(req, options, { type: 'configured_server', id: targetName }),
+      context: buildAdminOperationContext(req, options, {
+        type: 'configured_server',
+        id: `${targetSource ?? 'mcpServers'}:${targetName}`,
+      }),
       targetName,
+      ...(targetSource ? { targetSource } : {}),
       edit: getBodyValue(req.body, 'edit') ?? {},
       previewFingerprint: getBodyString(req.body, 'previewFingerprint'),
+      ...(model.success ? { model: model.data } : {}),
     });
     if (!result.ok && result.status === 'mutation_failed' && isConfiguredServerApplyErrorCode(result.error)) {
       sendConfiguredServerApplyError(res, result.error);
@@ -1218,6 +1528,7 @@ async function handleConfiguredServerMutation(
   res: Response,
   options: AdminRoutesOptions,
   operationName: 'enableConfiguredServer' | 'disableConfiguredServer',
+  targetSource?: 'mcpServers' | 'mcpTemplates',
 ): Promise<void> {
   if (!options.configuredServerService) {
     res.status(404).json({ error: 'admin_configured_servers_unavailable' });
@@ -1237,8 +1548,11 @@ async function handleConfiguredServerMutation(
   }
 
   const targetName = req.params.name;
-  const context = buildAdminOperationContext(req, options, { type: 'configured_server', id: targetName });
-  const input = { context, targetName };
+  const context = buildAdminOperationContext(req, options, {
+    type: 'configured_server',
+    id: `${targetSource ?? 'mcpServers'}:${targetName}`,
+  });
+  const input = { context, targetName, ...(targetSource ? { targetSource } : {}) };
   const result =
     operationName === 'enableConfiguredServer'
       ? await options.configuredServerService.enableConfiguredServer(input)
@@ -1835,6 +2149,15 @@ function configuredServerRequestFingerprint(
           },
         }
       : {}),
+    ...(operationName.includes('InstructionTemplate') || operationName === 'applyConfiguredServerInstructionOverride'
+      ? {
+          bodyDigest: keyedRequestFingerprint(
+            previewFingerprint || getBodyString(body, 'expectedConfigFingerprint') || operationName,
+            'admin-instruction-operation',
+            stableJsonStringify(body ?? {}),
+          ),
+        }
+      : {}),
   });
   if (operationName === 'applyConfiguredServerCreate') {
     return `configured_server_create_${keyedRequestFingerprint(previewFingerprint, 'configured-server-create', normalized)}`;
@@ -1934,6 +2257,21 @@ function cliOperationErrorDetails(result: AdminOperationFailure): Record<string,
 }
 
 function operationNameForRequest(req: Request): string {
+  if (req.path.startsWith('/api/instruction-templates')) {
+    if (req.path.endsWith('/clone')) return 'cloneInstructionTemplate';
+    if (req.path.endsWith('/update')) return 'updateInstructionTemplate';
+    if (req.path.endsWith('/validate')) return 'validateInstructionTemplate';
+    if (req.path.endsWith('/preview')) return 'previewInstructionTemplate';
+    if (req.path.endsWith('/activate')) return 'activateInstructionTemplate';
+    if (req.path.endsWith('/delete-preview')) return 'previewDeleteInstructionTemplate';
+    if (req.path.endsWith('/import-legacy')) return 'importLegacyInstructionTemplate';
+    if (req.method === 'DELETE') return 'deleteInstructionTemplate';
+    if (req.method === 'POST') return 'createInstructionTemplate';
+    return req.path === '/api/instruction-templates' ? 'listInstructionTemplates' : 'getInstructionTemplate';
+  }
+  if (req.path.endsWith('/instruction-override')) {
+    return 'applyConfiguredServerInstructionOverride';
+  }
   if (req.path.startsWith('/api/oauth/')) {
     return req.path.endsWith('/restart') ? 'restartBackendOAuth' : 'authorizeBackendOAuth';
   }

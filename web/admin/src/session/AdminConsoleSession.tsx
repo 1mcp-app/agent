@@ -13,6 +13,7 @@ import { AdminConsoleApp } from '../components/AdminConsoleApp';
 import { ConfirmationDialogProvider, useConfirmationDialog } from '../components/ConfirmationDialogProvider';
 import { useConfiguredServerCreate } from '../configuredServerCreate/useConfiguredServerCreate';
 import { useConfiguredServerEdit } from '../configuredServerEdit/useConfiguredServerEdit';
+import { useInstructionTemplates } from '../instructionTemplates/useInstructionTemplates';
 import { type AdminConsoleAction, createInitialState, reduceAdminConsoleState } from '../state/adminConsoleState';
 import { pollingDelayForVisibility, shouldPollConsole } from '../state/polling';
 import type {
@@ -195,6 +196,13 @@ export function useAdminConsoleSession({
     authenticated: Boolean(state.session),
     onUnauthenticated: () => invalidateAdminSession('loginRequired'),
   });
+  const instructionTemplates = useInstructionTemplates({
+    api,
+    active: route === 'instructions',
+    csrfToken: state.session?.csrfToken,
+    confirm,
+    onUnauthenticated: invalidateAdminSession,
+  });
 
   const isCurrentSession = useCallback((sessionKey: string) => stateRef.current.session?.csrfToken === sessionKey, []);
 
@@ -361,6 +369,10 @@ export function useAdminConsoleSession({
   const loadSession = useCallback(async () => {
     try {
       const session = await api.getSession();
+      if (!session.authenticated) {
+        invalidateAdminSession(session.adminStatus ?? 'loginRequired');
+        return;
+      }
       dispatch({ type: 'sessionLoaded', session });
       await refreshConsole('Session loaded, but refresh failed: ', session);
     } catch (error) {
@@ -370,7 +382,7 @@ export function useAdminConsoleSession({
     } finally {
       schedulePoll();
     }
-  }, [api, dispatch, handleUnauthenticated, refreshConsole, schedulePoll]);
+  }, [api, dispatch, handleUnauthenticated, invalidateAdminSession, refreshConsole, schedulePoll]);
 
   const login = useCallback(
     async (input: { username: string; password: string }) => {
@@ -537,6 +549,7 @@ export function useAdminConsoleSession({
       save: savePreset,
       delete: deletePreset,
     },
+    instructions: instructionTemplates,
   };
 }
 
@@ -551,6 +564,7 @@ function adminRoute(pathname: string): AdminConsoleRoute {
   if (pathname === '/admin/oauth' || pathname.startsWith('/admin/oauth/')) return 'oauth';
   if (pathname === '/admin/audit' || pathname.startsWith('/admin/audit/')) return 'audit';
   if (pathname.startsWith('/admin/presets')) return 'presets';
+  if (pathname.startsWith('/admin/instructions')) return 'instructions';
   if (pathname.startsWith('/admin/logs')) return 'logs';
   if (pathname.startsWith('/admin/about')) return 'about';
   return 'dashboard';

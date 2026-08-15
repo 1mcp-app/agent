@@ -1,7 +1,9 @@
-import { Alert, Badge, Button, Group, Paper, Stack, Text, Title } from '@mantine/core';
+import { Alert, Badge, Button, Group, Paper, SegmentedControl, Stack, Text, Textarea, Title } from '@mantine/core';
 
 import { Pencil, ServerCog, ShieldCheck } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 
+import type { ConfiguredServerEditField } from '../../api/adminApi';
 import {
   fieldAppliesToTransport,
   fieldKey,
@@ -11,11 +13,26 @@ import type { ConfiguredServerEditModel } from '../../configuredServerEdit/useCo
 import { configuredServerApplyEligibility } from '../../configuredServerEdit/useConfiguredServerEdit';
 import { EmptyState, Panel } from '../AdminConsoleShared';
 import { transportSummaryLabel } from '../adminConsoleUtils';
+import { ConfiguredToolTable } from './ConfiguredToolTable';
 import { ConfiguredServerFieldDraft, editGroupHelp, SecretFieldDraft } from './EditControls';
 import { PreviewResult } from './PreviewResult';
 
 export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditModel }) {
   const { state } = model;
+  const advancedSettingsRef = useRef<HTMLDetailsElement>(null);
+  const hasAdvancedPreviewErrors =
+    state.status === 'loaded' &&
+    Boolean(
+      state.preview?.validation.errors.some((error) =>
+        state.detail.editContract.fieldGroups
+          .flatMap((group) => group.fields)
+          .some((field) => fieldKey(field.fieldPath) === fieldKey(error.fieldPath) && !isPrimaryEditField(field)),
+      ),
+    );
+
+  useEffect(() => {
+    if (hasAdvancedPreviewErrors && advancedSettingsRef.current) advancedSettingsRef.current.open = true;
+  }, [hasAdvancedPreviewErrors]);
 
   if (state.status === 'list') {
     return (
@@ -64,7 +81,7 @@ export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditM
             {state.status === 'committedRefreshFailed' ? (
               <Button onClick={() => void model.open(state.serverId)}>Retry detail</Button>
             ) : null}
-            <Button variant="default" onClick={() => void model.close()}>
+            <Button variant="default" onClick={() => void model.close('/admin/servers')}>
               Back to servers
             </Button>
           </Group>
@@ -85,7 +102,7 @@ export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditM
           <Alert color="yellow" variant="light">
             Old detail URLs are not aliases. Use the server list after a rename instead of bookmarking the previous ID.
           </Alert>
-          <Button variant="default" onClick={() => model.close()}>
+          <Button variant="default" onClick={() => model.close('/admin/servers')}>
             Back to servers
           </Button>
         </Stack>
@@ -104,7 +121,7 @@ export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditM
             Refresh the console or return to the server list, then retry. Preserve any non-secret request ID from the
             error when asking for support.
           </Text>
-          <Button variant="default" onClick={() => model.close()}>
+          <Button variant="default" onClick={() => model.close('/admin/servers')}>
             Back to servers
           </Button>
         </Stack>
@@ -113,13 +130,58 @@ export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditM
   }
 
   const transportType = selectedTransportType(state.fieldDraft, state.detail.server.transport.type);
-  const fieldGroups = state.detail.editContract.fieldGroups
+  const templateTarget = state.detail.server.source === 'mcpTemplates';
+  const fieldGroups = (templateTarget ? [] : state.detail.editContract.fieldGroups)
     .map((group) => ({
       ...group,
       fields: group.fields.filter((field) => fieldAppliesToTransport(field, transportType)),
     }))
     .filter((group) => group.fields.length > 0);
+  const primaryGroups = fieldGroups
+    .map((group) => ({ ...group, fields: group.fields.filter(isPrimaryEditField) }))
+    .filter((group) => group.fields.length > 0);
+  const advancedFields = fieldGroups.flatMap((group) => group.fields).filter((field) => !isPrimaryEditField(field));
   const applyEligibility = configuredServerApplyEligibility(state);
+
+  const renderField = (field: ConfiguredServerEditField) => {
+    const overrideKey = field.fieldPath[0] === 'transport' ? field.fieldPath[1] : field.fieldPath[0];
+    const overrideCleared = Boolean(overrideKey && state.clearedTransportOverrides.includes(overrideKey));
+    const timeout = ['timeout', 'connectionTimeout', 'requestTimeout'].includes(field.fieldPath[1] ?? '');
+    const presentedField = timeout ? { ...field, label: `${field.label} (ms)` } : field;
+    return (
+      <Stack key={fieldKey(field.fieldPath)} gap={4}>
+        {field.control === 'secret' ? (
+          <SecretFieldDraft
+            field={presentedField}
+            draft={state.secretDraft[fieldKey(field.fieldPath)]}
+            onChange={(draft) => model.changeSecret(field.fieldPath, draft)}
+          />
+        ) : (
+          <ConfiguredServerFieldDraft
+            field={presentedField}
+            value={state.fieldDraft[fieldKey(field.fieldPath)]}
+            onChange={(value) => model.changeField(field.fieldPath, value)}
+          />
+        )}
+        {field.overrideSupported && overrideKey ? (
+          <Group justify="space-between" gap="xs">
+            <Badge variant="outline">
+              {overrideCleared ? 'will inherit' : field.source === 'inherited' ? 'inherited' : field.source}
+            </Badge>
+            {field.clearOverrideSupported ? (
+              <Button
+                size="compact-xs"
+                variant="subtle"
+                onClick={() => model.changeTransportOverride(overrideKey, !overrideCleared)}
+              >
+                {overrideCleared ? 'Restore override' : 'Clear override'}
+              </Button>
+            ) : null}
+          </Group>
+        ) : null}
+      </Stack>
+    );
+  };
 
   return (
     <Panel
@@ -146,11 +208,11 @@ export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditM
               Draft changes stay local until preview.
             </Text>
           </div>
-          <Button variant="default" onClick={() => model.close()}>
+          <Button variant="default" onClick={() => model.close('/admin/servers')}>
             Back
           </Button>
         </Group>
-        {fieldGroups.map((group) => (
+        {primaryGroups.map((group) => (
           <Paper key={group.id} className="edit-section" withBorder>
             <Stack gap="xs">
               <Group justify="space-between" align="flex-start">
@@ -162,46 +224,74 @@ export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditM
                 </div>
                 <Badge variant="outline">{group.fields.length} fields</Badge>
               </Group>
-              {group.fields.map((field) => {
-                const overrideKey = field.fieldPath[0] === 'transport' ? field.fieldPath[1] : field.fieldPath[0];
-                const overrideCleared = Boolean(overrideKey && state.clearedTransportOverrides.includes(overrideKey));
-                return (
-                  <Stack key={fieldKey(field.fieldPath)} gap={4}>
-                    {field.control === 'secret' ? (
-                      <SecretFieldDraft
-                        field={field}
-                        draft={state.secretDraft[fieldKey(field.fieldPath)]}
-                        onChange={(draft) => model.changeSecret(field.fieldPath, draft)}
-                      />
-                    ) : (
-                      <ConfiguredServerFieldDraft
-                        field={field}
-                        value={state.fieldDraft[fieldKey(field.fieldPath)]}
-                        onChange={(value) => model.changeField(field.fieldPath, value)}
-                      />
-                    )}
-                    {field.overrideSupported && overrideKey ? (
-                      <Group justify="space-between" gap="xs">
-                        <Badge variant="outline">
-                          {overrideCleared ? 'will inherit' : field.source === 'inherited' ? 'inherited' : field.source}
-                        </Badge>
-                        {field.clearOverrideSupported ? (
-                          <Button
-                            size="compact-xs"
-                            variant="subtle"
-                            onClick={() => model.changeTransportOverride(overrideKey, !overrideCleared)}
-                          >
-                            {overrideCleared ? 'Restore override' : 'Clear override'}
-                          </Button>
-                        ) : null}
-                      </Group>
-                    ) : null}
-                  </Stack>
-                );
-              })}
+              {group.fields.map(renderField)}
             </Stack>
           </Paper>
         ))}
+        {state.detail.toolInventory ? (
+          <Paper className="edit-section" withBorder>
+            <ConfiguredToolTable
+              inventory={state.detail.toolInventory}
+              draft={state.toolDraft}
+              disabled={state.applyBusy}
+              onToolChange={model.changeTool}
+              onBulkChange={model.changeVisibleTools}
+              onModelChange={model.changeToolModel}
+            />
+          </Paper>
+        ) : null}
+        {advancedFields.length > 0 ? (
+          <details ref={advancedSettingsRef} className="advanced-settings">
+            <summary>Advanced settings</summary>
+            <Stack gap="sm" mt="sm">
+              <Text c="dimmed" size="xs">
+                Timeouts use milliseconds. Prefer Connection Timeout and Request Timeout over Deprecated Timeout.
+              </Text>
+              {advancedFields.map(renderField)}
+            </Stack>
+          </details>
+        ) : null}
+        <Paper className="edit-section instruction-override-editor" withBorder>
+          <Stack gap="xs">
+            <Group justify="space-between" align="flex-start">
+              <div>
+                <Text fw={800}>Server instructions</Text>
+                <Text c="dimmed" size="xs">
+                  Choose whether clients receive upstream instructions, an operator replacement, or no instructions.
+                </Text>
+              </div>
+              <Badge variant="outline">
+                Effective:{' '}
+                {state.instructionOverride.mode === 'replace' ? 'replacement' : state.instructionOverride.mode}
+              </Badge>
+            </Group>
+            <SegmentedControl
+              fullWidth
+              aria-label="Instruction override outcome"
+              value={state.instructionOverride.mode}
+              onChange={(value) => model.changeInstructionOverride(value as 'upstream' | 'replace' | 'suppress')}
+              data={[
+                { value: 'upstream', label: 'Use upstream' },
+                { value: 'replace', label: 'Replace' },
+                { value: 'suppress', label: 'Suppress' },
+              ]}
+            />
+            {state.instructionOverride.mode === 'replace' ? (
+              <Textarea
+                label="Replacement instructions"
+                minRows={5}
+                value={state.instructionOverride.value}
+                onChange={(event) => model.changeInstructionOverride('replace', event.currentTarget.value)}
+              />
+            ) : (
+              <Text size="sm" className="instruction-override-readonly">
+                {state.instructionOverride.mode === 'upstream'
+                  ? 'Upstream state is preserved. Effective instructions are resolved when the server connects.'
+                  : 'Effective instructions are an intentional empty value.'}
+              </Text>
+            )}
+          </Stack>
+        </Paper>
         <Group className="draft-action-bar" justify="space-between" gap="sm">
           <div>
             <Badge color={state.dirty ? 'yellow' : 'gray'} variant={state.dirty ? 'light' : 'outline'}>
@@ -254,7 +344,6 @@ export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditM
         ) : null}
         {state.preview ? (
           <>
-            <PreviewResult preview={state.preview} />
             <Group justify="flex-end" align="center">
               {!applyEligibility.eligible ? (
                 <Text c="dimmed" size="sm">
@@ -270,9 +359,15 @@ export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditM
                 Apply changes
               </Button>
             </Group>
+            <PreviewResult preview={state.preview} />
           </>
         ) : null}
       </Stack>
     </Panel>
   );
+}
+
+function isPrimaryEditField(field: ConfiguredServerEditField): boolean {
+  if (field.control === 'secret') return false;
+  return field.fieldPath[0] !== 'transport' || ['type', 'command', 'args', 'url'].includes(field.fieldPath[1] ?? '');
 }

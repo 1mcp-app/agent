@@ -1,0 +1,155 @@
+﻿# Test suite for install-windows-task.ps1
+# Usage: .\scripts\test-install-windows-task.ps1 [[-ScriptPath] <path>]
+#
+# Does NOT require Administrator privileges.
+# Does NOT register any actual Task Scheduler task.
+# Follows the same plain-PowerShell pattern as test-binary-windows.ps1.
+
+param(
+    [Parameter(Mandatory = $false)]
+    [string]$ScriptPath = ''
+)
+
+if (-not $ScriptPath) {
+    $ScriptPath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'install-windows-task.ps1'
+}
+
+$ErrorActionPreference = 'Stop'
+$failures = 0
+
+function Assert-Pass {
+    param([string]$Label, [scriptblock]$Test)
+    try {
+        & $Test
+        Write-Host "PASS: $Label"
+    } catch {
+        Write-Host "FAIL: $Label — $_"
+        $script:failures++
+    }
+}
+
+Write-Host "Testing $ScriptPath"
+Write-Host ("─" * 60)
+
+# ── Test 1: Script file exists ────────────────────────────────────────────────
+Assert-Pass '1. Script file exists' {
+    if (-not (Test-Path $ScriptPath -PathType Leaf)) {
+        throw "Not found: $ScriptPath"
+    }
+}
+
+# ── Test 2: PowerShell syntax is valid (0 parse errors) ──────────────────────
+Assert-Pass '2. Syntax: 0 parse errors' {
+    $parseErrors = $null
+    [System.Management.Automation.Language.Parser]::ParseFile(
+        (Resolve-Path $ScriptPath).Path, [ref]$null, [ref]$parseErrors) | Out-Null
+    if ($parseErrors.Count -gt 0) {
+        throw ($parseErrors | Format-List | Out-String)
+    }
+}
+
+# ── Test 3: Get-Help returns a non-empty synopsis ─────────────────────────────
+Assert-Pass '3. Get-Help: synopsis present' {
+    $help = Get-Help $ScriptPath -ErrorAction Stop
+    if (-not $help.Synopsis -or $help.Synopsis.Trim() -ne 'Register or remove 1mcp serve as a Windows Task Scheduler daemon.') {
+        throw "Synopsis mismatch: expected 'Register or remove 1mcp serve as a Windows Task Scheduler daemon.', got: '$($help.Synopsis)'"
+    }
+}
+
+# ── Test 4: -BinaryPath that does not exist triggers Write-Error ──────────────
+Assert-Pass '4. -BinaryPath nonexistent: exits non-zero and prints correct error' {
+    $fakePath = 'C:\nonexistent-path\1mcp.exe'
+    $tempErr = [System.IO.Path]::GetTempFileName()
+    $tempOut = [System.IO.Path]::GetTempFileName()
+    $proc = Start-Process powershell.exe `
+        -ArgumentList @(
+            '-NoProfile', '-NonInteractive',
+            '-ExecutionPolicy', 'Bypass',
+            '-File', ('"{0}"' -f $ScriptPath),
+            '-BinaryPath', $fakePath
+        ) `
+        -RedirectStandardError $tempErr -RedirectStandardOutput $tempOut `
+        -PassThru -Wait -NoNewWindow
+
+    $errOutput = Get-Content $tempErr -ErrorAction SilentlyContinue | Out-String
+    Remove-Item $tempErr, $tempOut -ErrorAction SilentlyContinue
+
+    if ($proc.ExitCode -eq 0) {
+        throw "Expected non-zero exit code for missing binary, got 0"
+    }
+    if (-not ($errOutput -match "Binary not found")) {
+        throw "Expected 'Binary not found' in output, but got: $errOutput"
+    }
+}
+
+# ── Test 5: -Uninstall with a nonexistent task name exits 0 ──────────────────
+Assert-Pass '5. -Uninstall nonexistent task: clean exit (code 0)' {
+    $fakeName = "1mcp-test-$([System.Guid]::NewGuid().ToString('N').Substring(0, 8))"
+    $proc = Start-Process powershell.exe `
+        -ArgumentList @(
+            '-NoProfile', '-NonInteractive',
+            '-ExecutionPolicy', 'Bypass',
+            '-File', ('"{0}"' -f $ScriptPath),
+            '-Uninstall',
+            '-TaskName', $fakeName
+        ) `
+        -PassThru -Wait -NoNewWindow
+    if ($proc.ExitCode -ne 0) {
+        throw "Exit code was $($proc.ExitCode), expected 0"
+    }
+}
+
+# ── Test 6: -WhatIf leaves no task and mentions LogonType Password ────────────
+Assert-Pass '6. -WhatIf: no task registered, mentions Password logon, no cred prompt' {
+    $fakeName = "1mcp-whatif-$([System.Guid]::NewGuid().ToString('N').Substring(0, 8))"
+    $ps = (Get-Command powershell.exe).Source
+
+    $tempErr = [System.IO.Path]::GetTempFileName()
+    $tempOut = [System.IO.Path]::GetTempFileName()
+    $proc = Start-Process powershell.exe `
+        -ArgumentList @(
+            '-NoProfile', '-NonInteractive',
+            '-ExecutionPolicy', 'Bypass',
+            '-File', ('"{0}"' -f $ScriptPath),
+            '-BinaryPath', ('"{0}"' -f $ps),
+            '-TaskName', $fakeName,
+            '-WhatIf'
+        ) `
+        -RedirectStandardOutput $tempOut -RedirectStandardError $tempErr `
+        -PassThru -Wait -NoNewWindow
+
+    $outOutput = Get-Content $tempOut -ErrorAction SilentlyContinue | Out-String
+    $errOutput = Get-Content $tempErr -ErrorAction SilentlyContinue | Out-String
+    Remove-Item $tempErr, $tempOut -ErrorAction SilentlyContinue
+
+    if ($proc.ExitCode -ne 0) {
+        throw "Script exited with code $($proc.ExitCode). Error output: $errOutput"
+    }
+    if (-not ($outOutput -match 'Register-ScheduledTask')) {
+        throw "Expected output to contain 'What if:' (or localized equivalent), but got: $outOutput"
+    }
+
+    $taskLookup = $null
+    try {
+        $taskLookup = Get-ScheduledTask -TaskName $fakeName -ErrorAction Stop
+    } catch {
+        if ($_.FullyQualifiedErrorId -notmatch 'CmdletizationQuery_NotFound_TaskName') {
+            throw "Unexpected error checking task '$fakeName': $_"
+        }
+    }
+    $stillAbsent = -not $taskLookup
+    if (-not $stillAbsent) {
+        Unregister-ScheduledTask -TaskName $fakeName -Confirm:$false -ErrorAction SilentlyContinue
+        throw "Task '$fakeName' was registered despite -WhatIf"
+    }
+}
+
+# ── Summary ───────────────────────────────────────────────────────────────────
+Write-Host ("─" * 60)
+if ($failures -eq 0) {
+    Write-Host "All tests passed."
+    exit 0
+} else {
+    Write-Host "$failures test(s) failed."
+    exit 1
+}
