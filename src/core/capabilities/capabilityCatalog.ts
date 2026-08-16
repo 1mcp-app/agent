@@ -3,9 +3,21 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { executeWithPostAuthOAuthRecovery } from '@src/core/client/postAuthOAuthRecovery.js';
 import { ConnectionResolver, type TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { getDisabledToolError, isToolDisabled } from '@src/core/server/disabledTools.js';
-import { ClientStatus, type MCPServerParams, type OutboundConnections } from '@src/core/types/index.js';
+import { applyEffectiveToolDescription } from '@src/core/server/toolDescriptionOverrides.js';
+import {
+  ClientStatus,
+  type MCPServerParams,
+  type OutboundConnection,
+  type OutboundConnections,
+} from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 
+import {
+  type CapabilityKind,
+  type CapabilityPage,
+  type CapabilityPaginationResult,
+  walkCapabilityPages,
+} from './capabilityPagination.js';
 import { type CapabilityVisibility, getCapabilityVisibleServerNames } from './capabilityVisibility.js';
 import { SchemaCache } from './schemaCache.js';
 import type { ListToolsOptions, ListToolsResult as RegistryListToolsResult, ToolMetadata } from './toolRegistry.js';
@@ -97,6 +109,84 @@ export class CapabilityCatalog {
     this.connectionResolver = new ConnectionResolver(deps.outboundConnections, deps.templateHashProvider);
   }
 
+  /**
+   * List one aggregate page while keeping provider traversal, cursor binding, and
+   * visibility enforcement inside the Capability Catalog.
+   */
+  public async listVisibleCapabilityPages<T>(options: {
+    kind: CapabilityKind;
+    visibility: CapabilityVisibility;
+    cursor?: string;
+    enablePagination: boolean;
+    list: (
+      connection: OutboundConnection,
+      cursor: string | undefined,
+      serverName: string,
+    ) => Promise<CapabilityPage<T>>;
+    mapItem?: (item: T, serverName: string) => T;
+    internalPages?: Array<{ id: string; name: string; items: T[] }>;
+    includeExternal?: boolean;
+    filterSelection?: unknown;
+    generationSignature?: unknown;
+    serverConfigs?: Record<string, MCPServerParams>;
+  }): Promise<CapabilityPaginationResult<T>> {
+    const externalProviders =
+      options.includeExternal === false
+        ? []
+        : Array.from(options.visibility.serverCandidates.entries()).flatMap(([connectionKey, serverName]) => {
+            const connection = this.deps.outboundConnections.get(connectionKey);
+            if (!connection || connection.status !== ClientStatus.Connected) return [];
+            return [
+              {
+                id: connectionKey,
+                name: serverName,
+                list: async (cursor?: string) => {
+                  const page = await options.list(connection, cursor, serverName);
+                  const mapPage = (items: T[]): CapabilityPage<T> => ({
+                    ...page,
+                    items: options.mapItem ? items.map((item) => options.mapItem!(item, serverName)) : items,
+                  });
+                  if (options.kind !== 'tools') return mapPage(page.items);
+                  const serverConfigs = options.serverConfigs ?? this.deps.getServerConfigs();
+                  const visibleItems = page.items.filter((item) => {
+                    const name =
+                      item && typeof item === 'object' && 'name' in item && typeof item.name === 'string'
+                        ? item.name
+                        : undefined;
+                    return name === undefined || !isToolDisabled(serverConfigs, serverName, name);
+                  });
+                  return mapPage(visibleItems);
+                },
+              },
+            ];
+          });
+    const internalProviders = (options.internalPages ?? []).map((page) => ({
+      id: page.id,
+      name: page.name,
+      list: async () => ({ items: page.items }),
+    }));
+
+    return walkCapabilityPages({
+      connections: this.deps.outboundConnections,
+      providers: [...externalProviders, ...internalProviders],
+      kind: options.kind,
+      cursor: options.cursor,
+      filterSelection: {
+        visibility: {
+          sessionId: options.visibility.sessionId,
+          serverCandidates: Array.from(options.visibility.serverCandidates.entries()).sort(([left], [right]) => {
+            if (left === right) return 0;
+            return left < right ? -1 : 1;
+          }),
+          filterSelection: options.visibility.filterSelection,
+        },
+        selection: options.filterSelection,
+      },
+      extraGenerationSignature: options.generationSignature,
+      enablePagination: options.enablePagination,
+    });
+  }
+
   public async listVisibleTools(
     options: ListToolsOptions = {},
     visibility?: CapabilityVisibility,
@@ -134,7 +224,12 @@ export class CapabilityCatalog {
     const { route } = access;
     const cached = this.deps.schemaCache.getIfCached(route.connectionKey, route.toolName);
     if (cached) {
-      return { schema: cached, fromCache: true, route, refresh };
+      return {
+        schema: applyEffectiveToolDescription(cached, this.deps.getServerConfigs()[route.server], route.server),
+        fromCache: true,
+        route,
+        refresh,
+      };
     }
 
     if (!this.deps.loadSchema) {
@@ -151,7 +246,12 @@ export class CapabilityCatalog {
 
     try {
       const tool = await this.deps.schemaCache.getOrLoad(route.connectionKey, route.toolName, this.deps.loadSchema);
-      return { schema: tool, fromCache: false, route, refresh };
+      return {
+        schema: applyEffectiveToolDescription(tool, this.deps.getServerConfigs()[route.server], route.server),
+        fromCache: false,
+        route,
+        refresh,
+      };
     } catch (error) {
       logger.error(`Failed to load tool schema from upstream server: ${route.server}:${route.toolName}`, { error });
       return {
@@ -284,11 +384,15 @@ export class CapabilityCatalog {
         .getAllTools()
         .filter((tool) => !isToolDisabled(serverConfigs, tool.server, tool.name))
         .map((tool) => ({
-          tool: {
-            name: tool.name,
-            description: tool.description,
-            inputSchema: tool.inputSchema ?? { type: 'object' },
-          },
+          tool: applyEffectiveToolDescription(
+            {
+              name: tool.name,
+              description: tool.description,
+              inputSchema: tool.inputSchema ?? { type: 'object' },
+            },
+            serverConfigs[tool.server],
+            tool.server,
+          ),
           server: tool.server,
           connectionKey: tool.connectionKey,
           tags: tool.tags,

@@ -2,6 +2,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import { setupCapabilities } from '@src/core/capabilities/capabilityManager.js';
+import { unregisterCapabilityPaginationForwarder } from '@src/core/capabilities/capabilityPagination.js';
 import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
 import type { OutboundConnections } from '@src/core/types/client.js';
 import { InboundConnection, InboundConnectionConfig, OperationOptions, ServerStatus } from '@src/core/types/index.js';
@@ -111,6 +112,7 @@ export class ConnectionManager {
         // Untrack client from preset notification service
         const notificationService = PresetNotificationService.getInstance();
         notificationService.untrackClient(sessionId);
+        unregisterCapabilityPaginationForwarder(this.outboundConns, server);
         debugIf(() => ({ message: 'Untracked client from preset notifications', meta: { sessionId } }));
 
         this.inboundConns.delete(sessionId);

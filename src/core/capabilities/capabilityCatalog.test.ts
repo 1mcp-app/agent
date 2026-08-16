@@ -73,6 +73,15 @@ describe('CapabilityCatalog', () => {
           type: 'stdio',
           command: 'node',
           disabledTools: ['write_file'],
+          toolDescriptionOverrides: {
+            read_file: 'Read a workspace file safely',
+            write_file: 'Hidden override',
+          },
+        } as any,
+        'template-server': {
+          type: 'stdio',
+          command: 'node',
+          toolDescriptionOverrides: { template_tool: 'Describe a rendered project' },
         } as any,
       }),
       templateHashProvider,
@@ -96,6 +105,83 @@ describe('CapabilityCatalog', () => {
       'template-server:rendered123',
     ]);
     expect(result.servers).toEqual(['filesystem', 'template-server']);
+  });
+
+  it('uses effective descriptions consistently for listing and full-schema inspection', async () => {
+    const upstreamSchema: Tool = {
+      name: 'read_file',
+      description: 'Upstream description',
+      inputSchema: { type: 'object', properties: { path: { type: 'string' } } },
+      outputSchema: { type: 'object', properties: { content: { type: 'string' } } },
+      annotations: { readOnlyHint: true },
+    };
+    const catalog = createCatalog(undefined, {
+      loadSchema: vi.fn(async () => upstreamSchema),
+    });
+
+    const listed = await catalog.listVisibleTools({});
+    const described = await catalog.describeVisibleTool({ server: 'filesystem', toolName: 'read_file' });
+
+    expect(listed.tools.find((tool) => tool.name === 'read_file')?.description).toBe('Read a workspace file safely');
+    expect(listed.tools.find((tool) => tool.name === 'template_tool')?.description).toBe('Describe a rendered project');
+    expect(described.schema).toEqual({
+      ...upstreamSchema,
+      description: 'Read a workspace file safely',
+    });
+  });
+
+  it('maps external capability items for non-tool kinds', async () => {
+    const mapItem = vi.fn((item: { name: string }, serverName: string) => ({
+      ...item,
+      name: `${serverName}:${item.name}`,
+    }));
+
+    const result = await createCatalog().listVisibleCapabilityPages({
+      kind: 'resources',
+      visibility: createCapabilityVisibility([['filesystem', 'filesystem']]),
+      enablePagination: true,
+      list: async () => ({ items: [{ name: 'readme' }] }),
+      mapItem,
+    });
+
+    expect(result.items).toEqual([{ name: 'filesystem:readme' }]);
+    expect(mapItem).toHaveBeenCalledWith({ name: 'readme' }, 'filesystem');
+  });
+
+  it('accepts a cursor when visibility candidates are rebuilt in a different insertion order', async () => {
+    const catalog = createCatalog();
+    const list = vi.fn(async (_connection: unknown, cursor: string | undefined, serverName: string) => ({
+      items: [{ name: `${serverName}:${cursor ? 'second' : 'first'}` }],
+      nextCursor: cursor ? undefined : `${serverName}-next`,
+    }));
+    const firstVisibility = createCapabilityVisibility([
+      ['filesystem', 'filesystem'],
+      ['template-server:rendered123', 'template-server'],
+    ]);
+    const rebuiltVisibility = createCapabilityVisibility([
+      ['template-server:rendered123', 'template-server'],
+      ['filesystem', 'filesystem'],
+    ]);
+    const first = await catalog.listVisibleCapabilityPages({
+      kind: 'resources',
+      visibility: firstVisibility,
+      enablePagination: true,
+      list,
+    });
+
+    const second = await catalog.listVisibleCapabilityPages({
+      kind: 'resources',
+      visibility: rebuiltVisibility,
+      cursor: first.nextCursor,
+      enablePagination: true,
+      list,
+    });
+
+    expect(second.items).toEqual([{ name: 'filesystem:second' }]);
+    expect(list.mock.calls.map(([, cursor, serverName]) => [serverName, cursor])).toEqual([
+      ['filesystem', undefined],
+      ['filesystem', 'filesystem-next'],
+    ]);
   });
 
   it('rejects schema access to a disabled tool through visibility', async () => {

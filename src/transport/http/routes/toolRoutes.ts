@@ -1,6 +1,6 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
-import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { CapabilityCatalog } from '@src/core/capabilities/capabilityCatalog.js';
 import {
   type CapabilityVisibility,
@@ -29,7 +29,7 @@ import {
 } from './inspectRoutes.js';
 
 function getServerConfigs() {
-  return McpConfigManager.getInstance().getTransportConfig();
+  return getConfiguredServerTargets();
 }
 
 function getCapabilityVisibilityFromRequest(

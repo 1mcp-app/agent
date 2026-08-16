@@ -12,6 +12,21 @@ function detail() {
   return state.detail;
 }
 
+function toolInventoryRow(name: string) {
+  return {
+    name,
+    effectiveDescription: `${name} upstream`,
+    descriptionOverridden: false,
+    enabled: true,
+    observed: true,
+    unresolved: false,
+    observedInstanceCount: 1,
+    activeInstanceCount: 1,
+    observedInSomeInstances: false,
+    approximateTokens: 10,
+  };
+}
+
 describe('configured server edit state', () => {
   it('initializes a loaded contract without a dirty draft', () => {
     const state = reduceConfiguredServerEditState(createConfiguredServerEditState(), {
@@ -26,6 +41,113 @@ describe('configured server edit state', () => {
     expect(state.fieldDraft['transport\0url']).toBe('https://example.com/mcp?token=REDACTED');
     expect(state.secretDraft['url\0query\0token']).toMatchObject({ action: 'preserve' });
     expect(configuredServerEditDraft(state)).toEqual({});
+  });
+
+  it('serializes complete configured-tool selection and description overrides', () => {
+    const toolDetail = detail();
+    toolDetail.toolInventory = {
+      targetName: 'github',
+      source: 'mcpServers',
+      targetEnabled: true,
+      freshness: 'live',
+      model: 'gpt-4o',
+      generation: 'generation-1',
+      activeInstanceCount: 1,
+      rows: [
+        {
+          name: 'read',
+          effectiveDescription: 'Read upstream',
+          descriptionOverridden: false,
+          enabled: true,
+          observed: true,
+          unresolved: false,
+          observedInstanceCount: 1,
+          activeInstanceCount: 1,
+          observedInSomeInstances: false,
+          approximateTokens: 10,
+        },
+        {
+          name: 'write',
+          effectiveDescription: 'Write safely',
+          descriptionOverride: 'Write safely',
+          descriptionOverridden: true,
+          enabled: false,
+          observed: true,
+          unresolved: false,
+          observedInstanceCount: 1,
+          activeInstanceCount: 1,
+          observedInSomeInstances: false,
+          approximateTokens: 12,
+        },
+      ],
+      counts: { observed: 2, enabled: 1, disabled: 1, unresolved: 0 },
+      approximateTokens: { enabled: 10, allObserved: 22, savings: 12 },
+    };
+    let state = reduceConfiguredServerEditState(createConfiguredServerEditState(), {
+      type: 'detailLoaded',
+      serverId: 'github',
+      detail: toolDetail,
+    });
+    state = reduceConfiguredServerEditState(state, {
+      type: 'toolChanged',
+      name: 'read',
+      enabled: false,
+      descriptionOverride: 'Read safely',
+    });
+    state = reduceConfiguredServerEditState(state, {
+      type: 'toolChanged',
+      name: 'write',
+      enabled: true,
+      descriptionOverride: '',
+    });
+
+    expect(configuredServerEditDraft(state)).toEqual({
+      disabledTools: ['read'],
+      toolDescriptionOverrides: { read: 'Read safely' },
+    });
+  });
+
+  it('preserves unsaved tool edits and adds newly observed rows after recalculation', () => {
+    const toolDetail = detail();
+    toolDetail.toolInventory = {
+      targetName: 'github',
+      source: 'mcpServers',
+      targetEnabled: true,
+      freshness: 'live',
+      model: 'gpt-4o',
+      generation: 'generation-1',
+      activeInstanceCount: 1,
+      rows: [toolInventoryRow('search')],
+      counts: { observed: 1, enabled: 1, disabled: 0, unresolved: 0 },
+      approximateTokens: { enabled: 10, allObserved: 10, savings: 0 },
+    };
+    let state = reduceConfiguredServerEditState(createConfiguredServerEditState(), {
+      type: 'detailLoaded',
+      serverId: 'github',
+      detail: toolDetail,
+    });
+    state = reduceConfiguredServerEditState(state, {
+      type: 'toolChanged',
+      name: 'search',
+      descriptionOverride: 'Search safely',
+    });
+    state = reduceConfiguredServerEditState(state, {
+      type: 'toolInventoryRecalculated',
+      inventory: {
+        ...toolDetail.toolInventory,
+        model: 'gpt-4o-mini',
+        generation: 'generation-2',
+        rows: [toolInventoryRow('search'), toolInventoryRow('issues')],
+        counts: { observed: 2, enabled: 2, disabled: 0, unresolved: 0 },
+        approximateTokens: { enabled: 20, allObserved: 20, savings: 0 },
+      },
+    });
+    state = reduceConfiguredServerEditState(state, { type: 'toolChanged', name: 'issues', enabled: false });
+
+    expect(configuredServerEditDraft(state)).toEqual({
+      disabledTools: ['issues'],
+      toolDescriptionOverrides: { search: 'Search safely' },
+    });
   });
 
   it('owns normalized field and secret draft construction', () => {
@@ -220,6 +342,61 @@ describe('configured server edit state', () => {
     });
     expect(configuredServerEditDraft(state)).toEqual({});
     expect(state).toMatchObject({ dirty: false });
+  });
+
+  it('owns instruction outcomes in the dirty preview state machine', () => {
+    let state = reduceConfiguredServerEditState(createConfiguredServerEditState(), {
+      type: 'detailLoaded',
+      serverId: 'github',
+      detail: detail(),
+    });
+    state = reduceConfiguredServerEditState(state, {
+      type: 'instructionOverrideChanged',
+      mode: 'replace',
+      value: 'Operator guidance',
+    });
+    expect(configuredServerEditDraft(state)).toEqual({
+      instructionOverride: { action: 'set', value: 'Operator guidance' },
+    });
+    expect(state).toMatchObject({ status: 'loaded', dirty: true });
+
+    state = reduceConfiguredServerEditState(state, { type: 'instructionOverrideChanged', mode: 'suppress' });
+    expect(configuredServerEditDraft(state)).toEqual({ instructionOverride: { action: 'set', value: '' } });
+
+    state = reduceConfiguredServerEditState(state, { type: 'instructionOverrideChanged', mode: 'replace' });
+    expect(configuredServerEditDraft(state)).toEqual({
+      instructionOverride: { action: 'set', value: 'Operator guidance' },
+    });
+
+    state = reduceConfiguredServerEditState(state, { type: 'instructionOverrideChanged', mode: 'upstream' });
+    expect(configuredServerEditDraft(state)).toEqual({});
+    expect(state).toMatchObject({ status: 'loaded', dirty: false });
+  });
+
+  it('rejects non-override draft changes for template-backed targets', () => {
+    const templateDetail = detail();
+    templateDetail.server.source = 'mcpTemplates';
+    templateDetail.server.target.source = 'mcpTemplates';
+    templateDetail.editContract.target.source = 'mcpTemplates';
+    let state = reduceConfiguredServerEditState(createConfiguredServerEditState(), {
+      type: 'detailLoaded',
+      serverId: 'github',
+      detail: templateDetail,
+    });
+
+    state = reduceConfiguredServerEditState(state, {
+      type: 'fieldChanged',
+      fieldPath: ['transport', 'url'],
+      value: 'https://unsupported.example/mcp',
+    });
+    state = reduceConfiguredServerEditState(state, {
+      type: 'transportOverrideChanged',
+      key: 'requestTimeout',
+      clear: true,
+    });
+
+    expect(configuredServerEditDraft(state)).toEqual({});
+    expect(state).toMatchObject({ status: 'loaded', dirty: false });
   });
 
   it('invalidates stale previews and keeps committed writes non-retryable when detail refresh fails', () => {

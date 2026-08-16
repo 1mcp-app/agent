@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { AdminApiError } from './api/adminApi';
 import type { AdminApiClient } from './api/adminApi';
+import { configuredServerCreateContract } from './configuredServerCreate/configuredServerCreate.fixtures';
 import { AdminConsoleRoot } from './session/AdminConsoleSession';
 
 const session = {
@@ -58,7 +59,7 @@ describe('AdminConsoleRoot', () => {
     await waitFor(() => expect(api.listConfiguredServers).toHaveBeenCalledTimes(1));
     expect(await screen.findByText('filesystem')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /disable filesystem/i }));
+    await user.click(screen.getByRole('switch', { name: /disable filesystem/i }));
     expect(api.setConfiguredServerEnabled).toHaveBeenCalledWith({
       name: 'filesystem',
       enabled: false,
@@ -70,11 +71,36 @@ describe('AdminConsoleRoot', () => {
     expect(await screen.findByRole('heading', { name: /operator login/i })).toBeInTheDocument();
   });
 
+  it('keeps a dirty create draft and route when reopening creation is cancelled', async () => {
+    const user = userEvent.setup();
+    const routeWindow = createRouteWindow('/admin/servers');
+    const api = apiClient({
+      getSession: vi.fn(async () => session),
+      getStatus: vi.fn(async () => status),
+      listConfiguredServers: vi.fn(async () => []),
+      getConfiguredServerCreateContract: vi.fn(async () => configuredServerCreateContract()),
+    });
+
+    renderRoot(api, { windowRef: routeWindow });
+
+    expect(await screen.findByRole('heading', { name: /server inventory/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /configure server/i }));
+    const nameInput = await screen.findByLabelText('Name');
+    await user.type(nameInput, 'keep-me');
+    expect(routeWindow.location.pathname).toBe('/admin/servers/new');
+
+    await user.click(screen.getByRole('button', { name: /^back$/i }));
+    expect(await screen.findByRole('dialog', { name: /discard custom server/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(routeWindow.location.pathname).toBe('/admin/servers/new');
+    expect(nameInput).toHaveValue('keep-me');
+    expect(api.getConfiguredServerCreateContract).toHaveBeenCalledOnce();
+  });
+
   it('shows setup guidance for setup-required unauthenticated sessions', async () => {
     const api = apiClient({
-      getSession: vi.fn(async () => {
-        throw new AdminApiError(401, { authenticated: false, adminStatus: 'setupRequired' }, 'Unauthorized');
-      }),
+      getSession: vi.fn(async () => ({ authenticated: false as const, adminStatus: 'setupRequired' as const })),
     });
 
     renderRoot(api);
@@ -89,9 +115,7 @@ describe('AdminConsoleRoot', () => {
   it('maps known API failures to operator-friendly recovery copy', async () => {
     const user = userEvent.setup();
     const api = apiClient({
-      getSession: vi.fn(async () => {
-        throw new AdminApiError(401, { authenticated: false, adminStatus: 'loginRequired' }, 'Unauthorized');
-      }),
+      getSession: vi.fn(async () => ({ authenticated: false as const, adminStatus: 'loginRequired' as const })),
       login: vi.fn(async () => {
         throw new AdminApiError(401, { error: 'invalid_credentials', requestId: 'req_login' }, 'invalid_credentials');
       }),
@@ -101,7 +125,7 @@ describe('AdminConsoleRoot', () => {
 
     expect(await screen.findByRole('heading', { name: /operator login/i })).toBeInTheDocument();
     await user.type(screen.getByLabelText(/username/i), 'operator');
-    await user.type(screen.getByLabelText(/password/i), 'incorrect');
+    await user.type(screen.getByLabelText(/^Password/, { selector: 'input' }), 'incorrect');
     await user.click(screen.getByRole('button', { name: /log in/i }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -134,7 +158,7 @@ describe('AdminConsoleRoot', () => {
 
     expect(await screen.findByRole('heading', { name: /operator login/i })).toBeInTheDocument();
     await user.type(screen.getByLabelText(/username/i), 'operator');
-    await user.type(screen.getByLabelText(/password/i), 'correct horse battery staple');
+    await user.type(screen.getByLabelText(/^Password/, { selector: 'input' }), 'correct horse battery staple');
     await user.click(screen.getByRole('button', { name: /log in/i }));
 
     expect(await screen.findByRole('heading', { name: /server inventory/i })).toBeInTheDocument();
@@ -191,11 +215,11 @@ describe('AdminConsoleRoot', () => {
     renderRoot(api, { windowRef: routeWindow });
 
     expect(await screen.findByRole('heading', { name: /server inventory/i })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /edit github\/api server/i }));
+    await user.click(screen.getByRole('button', { name: /edit static github\/api server/i }));
 
     expect(routeWindow.history.pushState).toHaveBeenCalledWith(null, '', '/admin/servers/github%2Fapi');
     expect(await screen.findByRole('heading', { name: /github\/api/i })).toBeInTheDocument();
-    expect(api.getConfiguredServerDetail).toHaveBeenCalledWith('github/api');
+    expect(api.getConfiguredServerDetail).toHaveBeenCalledWith({ source: 'mcpServers', id: 'github/api' });
     expect(screen.getByDisplayValue('https://api.example.com/mcp?token=REDACTED')).toBeInTheDocument();
     expect(screen.queryByText(/raw-token|Bearer raw/i)).not.toBeInTheDocument();
 
@@ -204,7 +228,7 @@ describe('AdminConsoleRoot', () => {
     await user.click(screen.getByRole('button', { name: /preview change/i }));
 
     expect(api.previewConfiguredServerEdit).toHaveBeenCalledWith({
-      name: 'github/api',
+      target: { source: 'mcpServers', id: 'github/api' },
       csrfToken: 'csrf_123',
       connectivityCheck: 'auto',
       edit: {
@@ -223,7 +247,7 @@ describe('AdminConsoleRoot', () => {
     await user.click(screen.getByRole('button', { name: /rerun connectivity/i }));
 
     expect(api.previewConfiguredServerEdit).toHaveBeenLastCalledWith({
-      name: 'github/api',
+      target: { source: 'mcpServers', id: 'github/api' },
       csrfToken: 'csrf_123',
       connectivityCheck: 'manual',
       edit: {
@@ -287,7 +311,8 @@ describe('AdminConsoleRoot', () => {
       routeWindow.emitPopState();
     });
 
-    expect(await screen.findByText(/Select Edit server to change target settings/i)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /server inventory/i })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /github\/api/i })).not.toBeInTheDocument();
   });
 
   it('follows browser navigation between top-level admin workspaces', async () => {
@@ -433,7 +458,7 @@ describe('AdminConsoleRoot', () => {
 
     await user.click(screen.getByRole('button', { name: /log out/i }));
     await user.type(await screen.findByLabelText(/username/i), 'operator');
-    await user.type(screen.getByLabelText(/password/i), 'password');
+    await user.type(screen.getByLabelText(/^Password/, { selector: 'input' }), 'password');
     await user.click(screen.getByRole('button', { name: /log in/i }));
 
     expect(await screen.findByRole('button', { name: /authorize github/i })).toBeEnabled();
@@ -550,7 +575,7 @@ describe('AdminConsoleRoot', () => {
     renderRoot(api, { windowRef: routeWindow });
 
     expect(await screen.findByRole('heading', { name: /server inventory/i })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /edit github\/api server/i }));
+    await user.click(screen.getByRole('button', { name: /edit static github\/api server/i }));
     expect(await screen.findByRole('heading', { name: /github\/api/i })).toBeInTheDocument();
     await user.clear(screen.getByLabelText('URL'));
     await user.type(screen.getByLabelText('URL'), 'https://api.example.com/v2/mcp');
@@ -576,22 +601,27 @@ describe('AdminConsoleRoot', () => {
         configuredServerListItem('github/api'),
         configuredServerListItem('filesystem'),
       ]),
-      getConfiguredServerDetail: vi.fn(async (serverId: string) => configuredServerDetail(serverId)),
+      getConfiguredServerDetail: vi.fn(async (target: string | { id: string }) =>
+        configuredServerDetail(typeof target === 'string' ? target : target.id),
+      ),
     });
 
     renderRoot(api, { windowRef: routeWindow });
 
     expect(await screen.findByRole('heading', { name: /server inventory/i })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /edit github\/api server/i }));
+    await user.click(screen.getByRole('button', { name: /edit static github\/api server/i }));
     expect(await screen.findByRole('heading', { name: /github\/api/i })).toBeInTheDocument();
     await user.clear(screen.getByLabelText('URL'));
     await user.type(screen.getByLabelText('URL'), 'https://api.example.com/v2/mcp');
 
-    await user.click(screen.getByRole('button', { name: /edit filesystem server/i }));
+    routeWindow.location.pathname = '/admin/servers/filesystem';
+    await act(async () => {
+      routeWindow.emitPopState();
+    });
 
     expect(await screen.findByRole('dialog', { name: /discard unsaved changes/i })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /^cancel$/i }));
-    expect(api.getConfiguredServerDetail).not.toHaveBeenCalledWith('filesystem');
+    expect(api.getConfiguredServerDetail).not.toHaveBeenCalledWith({ source: 'mcpServers', id: 'filesystem' });
     expect(routeWindow.history.pushState).toHaveBeenLastCalledWith(null, '', '/admin/servers/github%2Fapi');
     expect(screen.getByRole('heading', { name: /github\/api/i })).toBeInTheDocument();
   });
@@ -650,14 +680,16 @@ describe('AdminConsoleRoot', () => {
         configuredServerListItem('github/api'),
         configuredServerListItem('filesystem'),
       ]),
-      getConfiguredServerDetail: vi.fn(async (serverId: string) => configuredServerDetail(serverId)),
+      getConfiguredServerDetail: vi.fn(async (target: string | { id: string }) =>
+        configuredServerDetail(typeof target === 'string' ? target : target.id),
+      ),
       previewConfiguredServerEdit: vi.fn(() => stalePreview.promise),
     });
 
     renderRoot(api, { windowRef: routeWindow });
 
     expect(await screen.findByRole('heading', { name: /server inventory/i })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /edit github\/api server/i }));
+    await user.click(screen.getByRole('button', { name: /edit static github\/api server/i }));
     expect(await screen.findByRole('heading', { name: /github\/api/i })).toBeInTheDocument();
     await user.click(screen.getByRole('radio', { name: /replace url\.query\.token/i }));
     await user.type(screen.getByLabelText(/environment variable for url\.query\.token/i), 'GITHUB_TOKEN');
@@ -665,7 +697,10 @@ describe('AdminConsoleRoot', () => {
     const previewButton = screen.getByRole('button', { name: /preview change/i });
     fireEvent.click(previewButton);
     expect(api.previewConfiguredServerEdit).toHaveBeenCalledTimes(1);
-    await user.click(screen.getByRole('button', { name: /edit filesystem server/i }));
+    routeWindow.location.pathname = '/admin/servers/filesystem';
+    await act(async () => {
+      routeWindow.emitPopState();
+    });
     await user.click(await screen.findByRole('button', { name: /discard changes/i }));
     expect(await screen.findByRole('heading', { name: /^filesystem$/i })).toBeInTheDocument();
 
@@ -702,7 +737,7 @@ describe('AdminConsoleRoot', () => {
     renderRoot(api, { windowRef: createRouteWindow('/admin/servers') });
 
     expect(await screen.findByRole('heading', { name: /server inventory/i })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /disable filesystem/i }));
+    await user.click(screen.getByRole('switch', { name: /disable filesystem/i }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Server disable failed: The runtime could not confirm the operation result. Refresh the console and inspect the current state before retrying. Request ID: req_mutation',

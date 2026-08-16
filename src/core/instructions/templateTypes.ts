@@ -1,6 +1,15 @@
-/**
- * Individual server data for template iteration
- */
+export interface ServerSummaryData {
+  type?: string;
+  status?: string;
+  available?: boolean;
+  availableKnown: boolean;
+  loadTracked?: boolean;
+  loadTrackedKnown: boolean;
+  toolCount: number;
+  hasInstructions: boolean;
+}
+
+/** Individual server data for template iteration. */
 export interface ServerData {
   /** Server name (e.g., "api-server") */
   name: string;
@@ -13,6 +22,20 @@ export interface ServerData {
 
   /** Optional description for tool categories (extracted from instructions) */
   description?: string;
+
+  /** Configured target source used to resolve instruction overrides. */
+  source?: 'mcpServers' | 'mcpTemplates';
+
+  /** Runtime availability metadata used by the CLI instruction surface. */
+  type?: string;
+  status?: string;
+  available?: boolean;
+  loadTracked?: boolean;
+  toolCount?: number;
+  note?: string;
+  availableKnown?: boolean;
+  loadTrackedKnown?: boolean;
+  summary?: ServerSummaryData;
 }
 
 /**
@@ -327,3 +350,49 @@ No MCP servers are currently connected. 1MCP is ready to connect to servers and 
 
 1MCP will automatically detect and connect to available MCP servers. Once connected, their tools and capabilities will become available through the unified interface.
 {{/if}}`;
+
+/** Built-in direct CLI variant matching the established `1mcp instructions` layout. */
+export const DEFAULT_CLI_INSTRUCTION_TEMPLATE = `1MCP CLI Instructions
+
+=== PLAYBOOK ===
+
+1. Start here before selecting tools.
+2. Review the available servers below and choose the server that matches the task.
+3. Run \`1mcp inspect <server>\` to list that server's tools.
+4. Run \`1mcp inspect <server>/<tool>\` to inspect the tool schema and arguments.
+5. Run \`1mcp wait <server>\` when a configured static server is still loading.
+6. Run \`1mcp run <server>/<tool> --args '<json>'\` only after inspecting the tool.
+7. Use \`--preset\`, \`--tags\`, or \`--tag-filter\` to narrow the server set when needed.
+8. If authentication is required, run \`1mcp auth login --context <name> --token <token>\` and retry.
+
+=== SERVER SUMMARY ===
+{{#each servers}}
+
+<server_summary name="{{name}}">
+	server: {{name}}
+{{#if summary.type}}	type: {{summary.type}}
+{{/if}}{{#if summary.status}}	status: {{summary.status}}
+{{/if}}{{#if summary.availableKnown}}	available: {{#if summary.available}}yes{{else}}no{{/if}}
+{{/if}}{{#if summary.loadTrackedKnown}}	load_tracked: {{#if summary.loadTracked}}yes{{else}}no{{/if}}
+{{/if}}	tools: {{summary.toolCount}}
+	instructions: {{#if summary.hasInstructions}}yes{{else}}no{{/if}}
+</server_summary>
+{{/each}}
+
+=== SERVER DETAILS ===
+{{#each servers}}
+
+<server_detail name="{{name}}">
+	server: {{name}}
+{{#if type}}	type: {{type}}
+{{/if}}{{#if status}}	status: {{status}}
+{{/if}}{{#if availableKnown}}	available: {{#if available}}yes{{else}}no{{/if}}
+{{/if}}{{#if loadTrackedKnown}}	load_tracked: {{#if loadTracked}}yes{{else}}no{{/if}}
+{{/if}}	tools: {{toolCount}}
+	instructions: {{#if hasInstructions}}yes{{else}}no{{/if}}
+{{#if hasInstructions}}	<server_instructions name="{{name}}">
+{{instructions}}
+	</server_instructions>
+{{else}}	<note>{{#if note}}{{note}}{{else}}(none provided){{/if}}</note>
+{{/if}}</server_detail>{{#unless @last}}
+{{/unless}}{{/each~}}`;

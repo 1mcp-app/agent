@@ -1,4 +1,5 @@
 import { CONFIG_EVENTS, ConfigChange, ConfigChangeType, ConfigManager } from '@src/config/configManager.js';
+import { clearLastConfiguredToolSnapshot } from '@src/core/capabilities/configuredToolSnapshot.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { MCPServerParams } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
@@ -24,6 +25,14 @@ export class ConfigChangeHandler {
   /**
    * Get the ServerManager instance lazily
    */
+  private tryGetServerManager(): ServerManager | undefined {
+    try {
+      return ServerManager.current;
+    } catch {
+      return undefined;
+    }
+  }
+
   private getServerManager(): ServerManager {
     return ServerManager.current;
   }
@@ -54,8 +63,12 @@ export class ConfigChangeHandler {
    * Handle configuration changes with business logic
    */
   private async handleConfigChanges(changes: ConfigChange[]): Promise<void> {
-    this.reconcileDeclaredTemplates();
+    const templateToolMetadataChanged = this.reconcileDeclaredTemplates();
+    this.refreshRuntimeInstructionConfiguration();
     if (changes.length === 0) {
+      if (templateToolMetadataChanged) {
+        await this.sendListChangedNotifications();
+      }
       return;
     }
 
@@ -77,19 +90,31 @@ export class ConfigChangeHandler {
 
     // Notify clients if capabilities changed
     await this.notifyClientsIfNeeded(appliedChanges, newConfig);
+    if (templateToolMetadataChanged && appliedChanges.length === 0) {
+      await this.sendListChangedNotifications();
+    }
   }
 
-  private reconcileDeclaredTemplates(): void {
-    if (typeof this.configManager.loadDeclaredServerConfigs !== 'function') return;
-    const serverManager = this.getServerManager();
-    if (typeof serverManager?.getTemplateServerManager !== 'function') return;
+  private refreshRuntimeInstructionConfiguration(): void {
+    if (typeof this.configManager.getRuntimeInstructionConfiguration !== 'function') return;
+    const aggregator = this.tryGetServerManager()?.getInstructionAggregator();
+    aggregator?.setRuntimeInstructionConfiguration(this.configManager.getRuntimeInstructionConfiguration());
+  }
+
+  private reconcileDeclaredTemplates(): boolean {
+    if (typeof this.configManager.loadDeclaredServerConfigs !== 'function') return false;
+    const serverManager = this.tryGetServerManager();
+    if (typeof serverManager?.getTemplateServerManager !== 'function') return false;
 
     const { templateServers, errors } = this.configManager.loadDeclaredServerConfigs();
     if (errors.length > 0) {
       logger.warn('Skipping template reconciliation because the declared configuration is invalid', { errors });
-      return;
+      return false;
     }
-    serverManager.getTemplateServerManager().rebuildTemplateIndex({ mcpTemplates: templateServers });
+    return (
+      serverManager.getTemplateServerManager().rebuildTemplateIndex({ mcpTemplates: templateServers })
+        ?.toolMetadataChanged ?? false
+    );
   }
 
   /**
@@ -117,8 +142,12 @@ export class ConfigChangeHandler {
       }
 
       case ConfigChangeType.REMOVED:
-        await this.handleServerRemoved(change.serverName);
-        return true;
+        try {
+          await this.handleServerRemoved(change.serverName);
+          return true;
+        } finally {
+          clearLastConfiguredToolSnapshot(change.serverName);
+        }
 
       case ConfigChangeType.MODIFIED: {
         const config = newConfig[change.serverName];
@@ -215,9 +244,8 @@ export class ConfigChangeHandler {
       return true; // Conservative approach - restart if we don't know what changed
     }
 
-    // Only restart if non-tag fields changed
-    const nonTagFields = fieldsChanged.filter((field) => field !== 'tags');
-    return nonTagFields.length > 0;
+    const metadataOnlyFields = new Set(['tags', 'instructionOverride', 'disabledTools', 'toolDescriptionOverrides']);
+    return fieldsChanged.some((field) => !metadataOnlyFields.has(field));
   }
 
   /**

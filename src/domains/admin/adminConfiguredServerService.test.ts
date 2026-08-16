@@ -12,6 +12,7 @@ import {
   type ConfiguredServerConnectivityChecker,
 } from './adminConfiguredServerService.js';
 import { type AdminOperationContext, AdminOperationService } from './adminOperationService.js';
+import type { ConfiguredToolInventory } from './configuredToolInventory.js';
 
 const mockAgentConfig = {
   get: vi.fn().mockImplementation((key: string) => {
@@ -67,7 +68,7 @@ describe('AdminConfiguredServerService', () => {
 
     const result = await service.enableConfiguredServer({
       context: context({
-        target: { type: 'configured_server', id: 'filesystem' },
+        target: { type: 'configured_server', id: 'mcpServers:filesystem' },
         idempotencyKey: 'enable-filesystem',
         requestFingerprint: 'enable:fingerprint',
       }),
@@ -100,7 +101,7 @@ describe('AdminConfiguredServerService', () => {
       expect.objectContaining({
         operationName: 'enableConfiguredServer',
         result: 'completed',
-        target: { type: 'configured_server', id: 'filesystem' },
+        target: { type: 'configured_server', id: 'mcpServers:filesystem' },
       }),
     ]);
   });
@@ -401,6 +402,446 @@ describe('AdminConfiguredServerService', () => {
     });
     expect(JSON.stringify(result)).not.toMatch(/raw-url-token|raw-header-token|raw-client-secret/);
     expect(JSON.stringify(result)).not.toMatch(/zod|rawSchema|storageShape/i);
+  });
+
+  it('loads a Template Server with one shared configured-tool inventory and no raw disabled-tools field', async () => {
+    const toolInventory: ConfiguredToolInventory = {
+      targetName: 'project',
+      source: 'mcpTemplates',
+      targetEnabled: true,
+      freshness: 'live',
+      model: 'gpt-4o',
+      generation: 'generation-1',
+      activeInstanceCount: 2,
+      rows: [
+        {
+          name: 'search',
+          upstreamDescription: 'Search upstream',
+          effectiveDescription: 'Search the project',
+          descriptionOverride: 'Search the project',
+          descriptionOverridden: true,
+          enabled: false,
+          observed: true,
+          unresolved: false,
+          observedInstanceCount: 2,
+          activeInstanceCount: 2,
+          observedInSomeInstances: false,
+          approximateTokens: 42,
+        },
+      ],
+      counts: { observed: 1, enabled: 0, disabled: 1, unresolved: 0 },
+      approximateTokens: { enabled: 0, allObserved: 42, savings: 42 },
+    };
+    const readToolInventory = vi.fn(async () => toolInventory);
+    const service = createService({
+      readConfigDocument: () => ({
+        mcpTemplates: {
+          project: {
+            type: 'stdio',
+            command: 'node',
+            disabledTools: ['search'],
+            toolDescriptionOverrides: { search: 'Search the project' },
+          },
+        },
+      }),
+      readToolInventory,
+    });
+
+    const result = await service.getConfiguredServerDetail({
+      context: context(),
+      targetName: 'project',
+      model: 'gpt-4o',
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        server: { id: 'project', source: 'mcpTemplates' },
+        editContract: { target: { id: 'project', source: 'mcpTemplates' } },
+        toolInventory,
+      },
+    });
+    if (!result.ok) return;
+    expect(
+      result.result.editContract.fieldGroups
+        .flatMap((group) => group.fields)
+        .some((field) => field.fieldPath.includes('disabledTools')),
+    ).toBe(false);
+    expect(readToolInventory).toHaveBeenCalledWith({
+      targetName: 'project',
+      source: 'mcpTemplates',
+      config: expect.objectContaining({ command: 'node' }),
+      model: 'gpt-4o',
+    });
+  });
+
+  it('previews and applies selection and description edits against one capability generation', async () => {
+    writeConfig({
+      mcpServers: {
+        filesystem: {
+          type: 'stdio',
+          command: 'node',
+          disabledTools: ['search'],
+        },
+      },
+    });
+    const readToolInventory = vi.fn(async ({ config }: { config: Record<string, any> }) => {
+      const enabled = !(config.disabledTools ?? []).includes('search');
+      const description = config.toolDescriptionOverrides?.search ?? 'Search upstream';
+      return {
+        targetName: 'filesystem',
+        source: 'mcpServers' as const,
+        targetEnabled: true,
+        freshness: 'live' as const,
+        model: 'gpt-4o',
+        generation: 'generation-1',
+        activeInstanceCount: 1,
+        rows: [
+          {
+            name: 'search',
+            upstreamDescription: 'Search upstream',
+            effectiveDescription: description,
+            ...(config.toolDescriptionOverrides?.search
+              ? { descriptionOverride: config.toolDescriptionOverrides.search }
+              : {}),
+            descriptionOverridden: Boolean(config.toolDescriptionOverrides?.search),
+            enabled,
+            observed: true,
+            unresolved: false,
+            observedInstanceCount: 1,
+            activeInstanceCount: 1,
+            observedInSomeInstances: false,
+            approximateTokens: 25,
+          },
+        ],
+        counts: { observed: 1, enabled: enabled ? 1 : 0, disabled: enabled ? 0 : 1, unresolved: 0 },
+        approximateTokens: { enabled: enabled ? 25 : 0, allObserved: 25, savings: enabled ? 0 : 25 },
+      } satisfies ConfiguredToolInventory;
+    });
+    const service = createService({ readToolInventory });
+    const edit = {
+      disabledTools: [],
+      toolDescriptionOverrides: { search: 'Search the workspace' },
+    };
+
+    const preview = await service.previewConfiguredServerEdit({
+      context: context(),
+      targetName: 'filesystem',
+      edit,
+      model: 'gpt-4o',
+    });
+
+    expect(preview).toMatchObject({
+      ok: true,
+      result: {
+        diff: expect.arrayContaining([
+          expect.objectContaining({ fieldPath: ['disabledTools'] }),
+          expect.objectContaining({ fieldPath: ['toolDescriptionOverrides'] }),
+        ]),
+        toolSelection: {
+          capabilityGeneration: 'generation-1',
+          model: 'gpt-4o',
+          counts: { observed: 1, enabled: 1, disabled: 0, unresolved: 0 },
+          approximateTokens: { before: 0, after: 25, savings: -25 },
+        },
+      },
+    });
+    if (!preview.ok) return;
+
+    const applied = await service.applyConfiguredServerEdit({
+      context: context({
+        idempotencyKey: 'apply-tools',
+        requestFingerprint: 'apply-tools:fingerprint',
+        confirmationFacts: { previewConfirmed: preview.result.previewFingerprint },
+      }),
+      targetName: 'filesystem',
+      edit,
+      model: 'gpt-4o',
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+
+    expect(applied.ok).toBe(true);
+    expect(readConfig().mcpServers.filesystem).toMatchObject({
+      toolDescriptionOverrides: { search: 'Search the workspace' },
+    });
+    expect(readConfig().mcpServers.filesystem.disabledTools).toBeUndefined();
+  });
+
+  it('removes a qualified denylist alias when applying the logical enabled selection', async () => {
+    writeConfig({
+      mcpServers: {
+        filesystem: {
+          type: 'stdio',
+          command: 'node',
+          disabledTools: ['filesystem_1mcp_write_file'],
+        },
+      },
+    });
+    const readToolInventory = vi.fn(async ({ config }: { config: Record<string, any> }) => {
+      const enabled = !config.disabledTools?.some(
+        (name: string) => name === 'write_file' || name === 'filesystem_1mcp_write_file',
+      );
+      return {
+        targetName: 'filesystem',
+        source: 'mcpServers' as const,
+        targetEnabled: true,
+        freshness: 'live' as const,
+        model: 'gpt-4o',
+        generation: 'qualified-generation',
+        activeInstanceCount: 1,
+        rows: [
+          {
+            name: 'write_file',
+            enabled,
+            observed: true,
+            unresolved: false,
+            descriptionOverridden: false,
+            observedInstanceCount: 1,
+            activeInstanceCount: 1,
+            observedInSomeInstances: false,
+            approximateTokens: 20,
+          },
+        ],
+        counts: { observed: 1, enabled: enabled ? 1 : 0, disabled: enabled ? 0 : 1, unresolved: 0 },
+        approximateTokens: { enabled: enabled ? 20 : 0, allObserved: 20, savings: enabled ? 0 : 20 },
+      } satisfies ConfiguredToolInventory;
+    });
+    const service = createService({ readToolInventory });
+    const edit = { disabledTools: [] };
+    const preview = await service.previewConfiguredServerEdit({ context: context(), targetName: 'filesystem', edit });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+
+    const applied = await service.applyConfiguredServerEdit({
+      context: context({ confirmationFacts: { previewConfirmed: preview.result.previewFingerprint } }),
+      targetName: 'filesystem',
+      edit,
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+
+    expect(applied.ok).toBe(true);
+    expect(readConfig().mcpServers.filesystem.disabledTools).toBeUndefined();
+  });
+
+  it('rejects apply when the observed capability generation changes after preview', async () => {
+    writeConfig({
+      mcpServers: { filesystem: { type: 'stdio', command: 'node' } },
+    });
+    let generation = 'generation-1';
+    const readToolInventory = vi.fn(
+      async ({ config }: { config: Record<string, any> }): Promise<ConfiguredToolInventory> => {
+        const enabled = !(config.disabledTools ?? []).includes('search');
+        return {
+          targetName: 'filesystem',
+          source: 'mcpServers',
+          targetEnabled: true,
+          freshness: 'live',
+          model: 'gpt-4o',
+          generation,
+          activeInstanceCount: 1,
+          rows: [
+            {
+              name: 'search',
+              upstreamDescription: 'Search upstream',
+              effectiveDescription: 'Search upstream',
+              descriptionOverridden: false,
+              enabled,
+              observed: true,
+              unresolved: false,
+              observedInstanceCount: 1,
+              activeInstanceCount: 1,
+              observedInSomeInstances: false,
+              approximateTokens: 25,
+            },
+          ],
+          counts: { observed: 1, enabled: enabled ? 1 : 0, disabled: enabled ? 0 : 1, unresolved: 0 },
+          approximateTokens: { enabled: enabled ? 25 : 0, allObserved: 25, savings: enabled ? 0 : 25 },
+        };
+      },
+    );
+    const service = createService({ readToolInventory });
+    const edit = { toolDescriptionOverrides: { search: 'Search the workspace' } };
+    const preview = await service.previewConfiguredServerEdit({
+      context: context(),
+      targetName: 'filesystem',
+      edit,
+    });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    generation = 'generation-2';
+
+    await expect(
+      service.applyConfiguredServerEdit({
+        context: context({ confirmationFacts: { previewConfirmed: preview.result.previewFingerprint } }),
+        targetName: 'filesystem',
+        edit,
+        previewFingerprint: preview.result.previewFingerprint,
+      }),
+    ).rejects.toMatchObject({ code: 'configured_server_stale_preview' });
+    expect(readConfig().mcpServers.filesystem.toolDescriptionOverrides).toBeUndefined();
+  });
+
+  it('requires explicit confirmation before disabling the final enabled tool', async () => {
+    writeConfig({
+      mcpServers: { filesystem: { type: 'stdio', command: 'node' } },
+    });
+    const readToolInventory = vi.fn(
+      async ({ config }: { config: Record<string, any> }): Promise<ConfiguredToolInventory> => {
+        const enabled = !(config.disabledTools ?? []).includes('search');
+        return {
+          targetName: 'filesystem',
+          source: 'mcpServers',
+          targetEnabled: true,
+          freshness: 'live',
+          model: 'gpt-4o',
+          generation: 'generation-1',
+          activeInstanceCount: 1,
+          rows: [
+            {
+              name: 'search',
+              effectiveDescription: 'Search upstream',
+              descriptionOverridden: false,
+              enabled,
+              observed: true,
+              unresolved: false,
+              observedInstanceCount: 1,
+              activeInstanceCount: 1,
+              observedInSomeInstances: false,
+              approximateTokens: 25,
+            },
+            {
+              name: 'retained_override',
+              effectiveDescription: 'Retained configuration',
+              descriptionOverridden: true,
+              descriptionOverride: 'Retained configuration',
+              enabled: true,
+              observed: false,
+              unresolved: true,
+              observedInstanceCount: 0,
+              activeInstanceCount: 1,
+              observedInSomeInstances: false,
+              approximateTokens: 0,
+            },
+          ],
+          counts: { observed: 1, enabled: enabled ? 2 : 1, disabled: enabled ? 0 : 1, unresolved: 1 },
+          approximateTokens: { enabled: enabled ? 25 : 0, allObserved: 25, savings: enabled ? 0 : 25 },
+        };
+      },
+    );
+    const service = createService({ readToolInventory });
+    const edit = { disabledTools: ['search'] };
+    const preview = await service.previewConfiguredServerEdit({
+      context: context(),
+      targetName: 'filesystem',
+      edit,
+    });
+    expect(preview).toMatchObject({
+      ok: true,
+      result: { toolSelection: { counts: { enabled: 1 }, requiresZeroEnabledConfirmation: true } },
+    });
+    if (!preview.ok) return;
+
+    const result = await service.applyConfiguredServerEdit({
+      context: context({ confirmationFacts: { previewConfirmed: preview.result.previewFingerprint } }),
+      targetName: 'filesystem',
+      edit,
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 'mutation_confirmation_required',
+      confirmationRequirements: expect.arrayContaining([{ code: 'zeroEnabledToolsConfirmed', expected: true }]),
+    });
+    expect(readConfig().mcpServers.filesystem.disabledTools).toBeUndefined();
+  });
+
+  it('rejects tool edits for names outside the observed or retained inventory', async () => {
+    writeConfig({
+      mcpServers: { filesystem: { type: 'stdio', command: 'node' } },
+    });
+    const readToolInventory = vi.fn(async (): Promise<ConfiguredToolInventory> => ({
+      targetName: 'filesystem',
+      source: 'mcpServers',
+      targetEnabled: true,
+      freshness: 'live',
+      model: 'gpt-4o',
+      generation: 'generation-1',
+      activeInstanceCount: 1,
+      rows: [],
+      counts: { observed: 0, enabled: 0, disabled: 0, unresolved: 0 },
+      approximateTokens: { enabled: 0, allObserved: 0, savings: 0 },
+    }));
+    const service = createService({ readToolInventory });
+
+    const preview = await service.previewConfiguredServerEdit({
+      context: context(),
+      targetName: 'filesystem',
+      edit: { disabledTools: ['invented'] },
+    });
+
+    expect(preview).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: [expect.objectContaining({ fieldPath: ['tools', 'invented'], code: 'unknown_configured_tool' })],
+        },
+      },
+    });
+  });
+
+  it('applies configured-tool edits to a Template Server definition', async () => {
+    writeConfig({
+      mcpTemplates: { project: { type: 'stdio', command: 'node' } },
+    });
+    const readToolInventory = vi.fn(
+      async ({ config }: { config: Record<string, any> }): Promise<ConfiguredToolInventory> => ({
+        targetName: 'project',
+        source: 'mcpTemplates',
+        targetEnabled: true,
+        freshness: 'live',
+        model: 'gpt-4o',
+        generation: 'generation-1',
+        activeInstanceCount: 1,
+        rows: [
+          {
+            name: 'search',
+            effectiveDescription: config.toolDescriptionOverrides?.search ?? 'Search upstream',
+            descriptionOverridden: Boolean(config.toolDescriptionOverrides?.search),
+            enabled: !(config.disabledTools ?? []).includes('search'),
+            observed: true,
+            unresolved: false,
+            observedInstanceCount: 1,
+            activeInstanceCount: 1,
+            observedInSomeInstances: false,
+            approximateTokens: 25,
+          },
+        ],
+        counts: { observed: 1, enabled: 1, disabled: 0, unresolved: 0 },
+        approximateTokens: { enabled: 25, allObserved: 25, savings: 0 },
+      }),
+    );
+    const service = createService({ readToolInventory });
+    const edit = { toolDescriptionOverrides: { search: 'Search this project' } };
+    const preview = await service.previewConfiguredServerEdit({
+      context: context(),
+      targetName: 'project',
+      edit,
+    });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+
+    const result = await service.applyConfiguredServerEdit({
+      context: context({ confirmationFacts: { previewConfirmed: preview.result.previewFingerprint } }),
+      targetName: 'project',
+      edit,
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(readConfig().mcpTemplates.project.toolDescriptionOverrides).toEqual({ search: 'Search this project' });
+    expect(readConfig().mcpServers).toEqual({});
   });
 
   it('keeps nested secret record values out of editable transport record fields', async () => {
@@ -1716,6 +2157,36 @@ describe('AdminConfiguredServerService', () => {
     });
   });
 
+  it('rejects whitespace-variant tool override keys without normalizing collisions', async () => {
+    writeConfig({
+      mcpServers: {
+        github: { type: 'http', url: 'https://api.example.com/mcp' },
+      },
+    });
+    const service = createService();
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({ target: { type: 'configured_server', id: 'github' } }),
+      targetName: 'github',
+      edit: { toolDescriptionOverrides: { ' search ': 'first', search: 'second' } },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            expect.objectContaining({
+              fieldPath: ['toolDescriptionOverrides'],
+              code: 'invalid_tool_description_overrides',
+            }),
+          ]),
+        },
+      },
+    });
+  });
+
   it('rejects raw values submitted as environment-reference secret replacements without echoing them', async () => {
     writeConfig({
       mcpServers: {
@@ -2660,6 +3131,12 @@ describe('AdminConfiguredServerService', () => {
         ]),
       },
     });
+    await expect(
+      service.enableConfiguredServer({ context: context(), targetName: 'shared', targetSource: 'mcpTemplates' }),
+    ).resolves.toMatchObject({ ok: false, code: 'mutation_failed' });
+    await expect(
+      service.disableConfiguredServer({ context: context(), targetName: 'shared', targetSource: 'mcpTemplates' }),
+    ).resolves.toMatchObject({ ok: false, code: 'mutation_failed' });
   });
 
   it('marks template secret changes with rendered-template risk', async () => {
@@ -3916,9 +4393,662 @@ describe('AdminConfiguredServerService', () => {
     expect(JSON.stringify(service.getRecentAuditFacts())).not.toContain('secret-value');
   });
 
+  it('publishes a normalized create contract for stdio, HTTP, and SSE only', async () => {
+    const result = await createService().getConfiguredServerCreateContract({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        schemaVersion: 1,
+        capabilities: {
+          create: { supported: true },
+          forceReplacement: { supported: false },
+          rawJson: { supported: false },
+        },
+      },
+    });
+    expect(result.ok && result.result.fieldGroups).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          fields: expect.arrayContaining([
+            expect.objectContaining({ fieldPath: ['transport', 'type'], options: ['stdio', 'http', 'sse'] }),
+          ]),
+        }),
+      ]),
+    );
+    if (!result.ok) return;
+    expect(
+      result.result.fieldGroups
+        .flatMap((group) => group.fields)
+        .filter((field) => field.fieldPath[0] === 'transport')
+        .map((field) => field.fieldPath[1]),
+    ).toEqual([
+      'type',
+      'timeout',
+      'connectionTimeout',
+      'requestTimeout',
+      'url',
+      'headers',
+      'command',
+      'args',
+      'cwd',
+      'env',
+      'restartOnExit',
+      'maxRestarts',
+      'restartDelay',
+    ]);
+  });
+
+  it('previews a direct create with an opaque secret-bound fingerprint and no inline secret exposure', async () => {
+    const service = createService();
+    const draft = {
+      name: 'custom',
+      enabled: true,
+      tags: ['local'],
+      transport: { type: 'stdio', command: 'node', args: ['server.js'] },
+      secrets: [
+        {
+          fieldPath: ['env', 'API_TOKEN'],
+          action: 'replace',
+          replacement: { kind: 'inlineSecret', value: 'super-secret-value' },
+        },
+      ],
+    };
+
+    const result = await service.previewConfiguredServerCreate({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      draft,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        targetName: 'custom',
+        previewFingerprint: expect.stringMatching(/^preview_[a-f0-9]{64}$/u),
+        validation: { status: 'valid', errors: [] },
+        configChange: {
+          status: 'changed',
+          operation: 'create_static',
+          changed: true,
+          backup: { created: false },
+          reload: { status: 'skipped' },
+        },
+        connectivityCheck: { status: 'skipped', reason: 'local_stdio_transport' },
+        expectedReload: {
+          policy: 'observe_after_write',
+          possibleStatuses: ['observed', 'runtime_not_running', 'reload_disabled', 'failed'],
+        },
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain('super-secret-value');
+    if (!result.ok) return;
+
+    const applied = await service.applyConfiguredServerCreate({
+      context: context({
+        idempotencyKey: 'create-secret',
+        requestFingerprint: 'create-secret:fingerprint',
+        confirmationFacts: {
+          previewConfirmed: result.result.previewFingerprint,
+          targetNameConfirmed: 'custom',
+          connectionCriticalConfirmed: true,
+          secretChangeConfirmed: true,
+        },
+      }),
+      draft,
+      previewFingerprint: result.result.previewFingerprint,
+    });
+    expect(applied.ok).toBe(true);
+    expect(JSON.stringify(service.getRecentAuditFacts())).not.toContain('super-secret-value');
+  });
+
+  it('binds the semantic connectivity result into the create preview fingerprint', async () => {
+    const checkConnectivity = vi
+      .fn<ConfiguredServerConnectivityChecker>()
+      .mockResolvedValueOnce({
+        status: 'passed',
+        mode: 'bounded_dry_run',
+        checkedAt: '2026-08-05T00:00:00.000Z',
+      })
+      .mockResolvedValueOnce({
+        status: 'passed',
+        mode: 'bounded_dry_run',
+        checkedAt: '2026-08-05T00:00:01.000Z',
+      })
+      .mockResolvedValueOnce({ status: 'failed', mode: 'bounded_dry_run', message: 'Connection refused' });
+    const service = createService({ checkConnectivity });
+    const draft = { name: 'remote', enabled: true, transport: { type: 'http', url: 'https://mcp.example' } };
+
+    const first = await service.previewConfiguredServerCreate({ context: context(), draft });
+    const second = await service.previewConfiguredServerCreate({ context: context(), draft });
+    const failed = await service.previewConfiguredServerCreate({ context: context(), draft });
+
+    expect(first.ok && second.ok && first.result.previewFingerprint).toBe(
+      second.ok ? second.result.previewFingerprint : '',
+    );
+    expect(first.ok && failed.ok && first.result.previewFingerprint).not.toBe(
+      failed.ok ? failed.result.previewFingerprint : '',
+    );
+  });
+
+  it.each(['http', 'sse'] as const)(
+    'previews and creates an enabled %s target after connectivity passes',
+    async (type) => {
+      const checkConnectivity = vi.fn<ConfiguredServerConnectivityChecker>().mockResolvedValue({
+        status: 'passed',
+        mode: 'bounded_dry_run',
+        checkedAt: '2026-08-05T00:00:00.000Z',
+      });
+      const service = createService({ checkConnectivity });
+      const draft = {
+        name: `remote-${type}`,
+        enabled: true,
+        transport: { type, url: `https://${type}.example/mcp`, connectionTimeout: 2_000, requestTimeout: 5_000 },
+      };
+      const preview = await service.previewConfiguredServerCreate({ context: context(), draft });
+      expect(preview).toMatchObject({
+        ok: true,
+        result: {
+          validation: { status: 'valid' },
+          connectivityCheck: { status: 'passed' },
+          configChange: { changed: true },
+        },
+      });
+      if (!preview.ok) return;
+
+      const applied = await service.applyConfiguredServerCreate({
+        context: context({
+          idempotencyKey: `create-${type}`,
+          requestFingerprint: `create-${type}:fingerprint`,
+          confirmationFacts: {
+            previewConfirmed: preview.result.previewFingerprint,
+            targetNameConfirmed: draft.name,
+            connectionCriticalConfirmed: true,
+          },
+        }),
+        draft,
+        previewFingerprint: preview.result.previewFingerprint,
+      });
+
+      expect(applied.ok).toBe(true);
+      expect(readConfig().mcpServers[draft.name]).toMatchObject({
+        type,
+        url: draft.transport.url,
+        connectionTimeout: 2_000,
+        requestTimeout: 5_000,
+      });
+    },
+  );
+
+  it('requires an explicit override to create after a failed remote connectivity preview', async () => {
+    const checkConnectivity = vi.fn<ConfiguredServerConnectivityChecker>().mockResolvedValue({
+      status: 'failed',
+      mode: 'bounded_dry_run',
+      message: 'Connection refused',
+    });
+    const service = createService({ checkConnectivity });
+    const draft = { name: 'remote-failed', enabled: true, transport: { type: 'http', url: 'https://bad.example/mcp' } };
+    const preview = await service.previewConfiguredServerCreate({ context: context(), draft });
+    expect(preview).toMatchObject({ ok: true, result: { connectivityCheck: { status: 'failed' } } });
+    if (!preview.ok) return;
+
+    await expect(
+      service.applyConfiguredServerCreate({
+        context: context({
+          idempotencyKey: 'create-failed-without-override',
+          requestFingerprint: 'create-failed-without-override:fingerprint',
+          confirmationFacts: {
+            previewConfirmed: preview.result.previewFingerprint,
+            targetNameConfirmed: draft.name,
+            connectionCriticalConfirmed: true,
+          },
+        }),
+        draft,
+        previewFingerprint: preview.result.previewFingerprint,
+      }),
+    ).rejects.toMatchObject({ code: 'configured_server_connectivity_blocked' });
+
+    const applied = await service.applyConfiguredServerCreate({
+      context: context({
+        idempotencyKey: 'create-failed-with-override',
+        requestFingerprint: 'create-failed-with-override:fingerprint',
+        confirmationFacts: {
+          previewConfirmed: preview.result.previewFingerprint,
+          targetNameConfirmed: draft.name,
+          connectionCriticalConfirmed: true,
+          connectivityFailureOverrideConfirmed: true,
+        },
+      }),
+      draft,
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+    expect(applied.ok).toBe(true);
+  });
+
+  it('creates an enabled remote target when the connectivity checker is unavailable', async () => {
+    const service = createService();
+    const draft = { name: 'remote-unchecked', enabled: true, transport: { type: 'http', url: 'https://mcp.example' } };
+    const preview = await service.previewConfiguredServerCreate({ context: context(), draft });
+    expect(preview).toMatchObject({
+      ok: true,
+      result: { connectivityCheck: { status: 'skipped', reason: 'checker_unavailable' } },
+    });
+    if (!preview.ok) return;
+
+    const applied = await service.applyConfiguredServerCreate({
+      context: context({
+        idempotencyKey: 'create-remote-unchecked',
+        requestFingerprint: 'create-remote-unchecked:fingerprint',
+        confirmationFacts: {
+          previewConfirmed: preview.result.previewFingerprint,
+          targetNameConfirmed: draft.name,
+          connectionCriticalConfirmed: true,
+        },
+      }),
+      draft,
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+
+    expect(applied.ok).toBe(true);
+    expect(readConfig().mcpServers[draft.name]).toMatchObject({ type: 'http', url: 'https://mcp.example' });
+  });
+
+  it('returns non-secret validation facts for malformed create secrets', async () => {
+    const result = await createService().previewConfiguredServerCreate({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      draft: {
+        name: 'custom',
+        transport: { type: 'stdio', command: 'node' },
+        secrets: [
+          {
+            fieldPath: ['unsupported', 'API_TOKEN'],
+            action: 'replace',
+            replacement: { kind: 'inlineSecret', value: '' },
+          },
+        ],
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            expect.objectContaining({ code: 'unsupported_secret_field' }),
+            expect.objectContaining({ code: 'empty_inline_secret' }),
+          ]),
+        },
+      },
+    });
+  });
+
+  it('rejects secret fields that do not apply to the selected create transport', async () => {
+    const result = await createService().previewConfiguredServerCreate({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      draft: {
+        name: 'custom',
+        transport: { type: 'stdio', command: 'node' },
+        secrets: [
+          {
+            fieldPath: ['headers', 'Authorization'],
+            action: 'replace',
+            replacement: { kind: 'environmentReference', value: 'API_TOKEN' },
+          },
+        ],
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([expect.objectContaining({ code: 'unsupported_secret_field' })]),
+        },
+        configChange: { changed: false },
+      },
+    });
+  });
+
+  it.each([
+    ['mcpServers', 'mcpServers'],
+    ['mcpTemplates', 'mcpTemplates'],
+  ] as const)('identifies an existing %s target in the create preview', async (collection, source) => {
+    writeConfig({ [collection]: { occupied: { type: 'stdio', command: 'external' } } });
+
+    const result = await createService().previewConfiguredServerCreate({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      draft: { name: 'occupied', enabled: true, transport: { type: 'stdio', command: 'node' } },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        configChange: {
+          status: collection === 'mcpServers' ? 'destination_conflict' : 'template_conflict',
+          target: { name: 'occupied', source },
+          changed: false,
+        },
+      },
+    });
+  });
+
+  it.each(['mcpServers', 'mcpTemplates'] as const)(
+    'atomically rejects a post-preview create conflict in %s without replacing the occupant',
+    async (collection) => {
+      writeConfig({ mcpServers: {}, mcpTemplates: {} });
+      const service = createService();
+      const draft = { name: 'occupied', enabled: true, transport: { type: 'stdio', command: 'node' } };
+      const preview = await service.previewConfiguredServerCreate({
+        context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+        draft,
+      });
+      expect(preview.ok).toBe(true);
+      if (!preview.ok) return;
+      writeConfig({ [collection]: { occupied: { type: 'stdio', command: 'external' } } });
+
+      await expect(
+        service.applyConfiguredServerCreate({
+          context: context({
+            idempotencyKey: `create-${collection}`,
+            requestFingerprint: `create-${collection}:fingerprint`,
+            confirmationFacts: {
+              previewConfirmed: preview.result.previewFingerprint,
+              targetNameConfirmed: 'occupied',
+              connectionCriticalConfirmed: true,
+            },
+          }),
+          draft,
+          previewFingerprint: preview.result.previewFingerprint,
+        }),
+      ).rejects.toMatchObject({ code: 'configured_server_stale_preview' });
+      expect(readConfig()).toEqual({ [collection]: { occupied: { type: 'stdio', command: 'external' } } });
+      expect(reload).not.toHaveBeenCalled();
+      expect(fs.readdirSync(tempDir).filter((name) => name.includes('.backup.'))).toEqual([]);
+    },
+  );
+
+  it('replays a completed create before re-reading config and leaves a later external occupant untouched', async () => {
+    writeConfig({ mcpServers: {} });
+    const service = createService();
+    const draft = { name: 'custom', enabled: true, transport: { type: 'stdio', command: 'node' } };
+    const preview = await service.previewConfiguredServerCreate({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      draft,
+    });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    const applyInput = {
+      context: context({
+        idempotencyKey: 'create-custom',
+        requestFingerprint: 'create-custom:fingerprint',
+        confirmationFacts: {
+          previewConfirmed: preview.result.previewFingerprint,
+          targetNameConfirmed: 'custom',
+          connectionCriticalConfirmed: true,
+        },
+      }),
+      draft,
+      previewFingerprint: preview.result.previewFingerprint,
+    };
+
+    const first = await service.applyConfiguredServerCreate(applyInput);
+    writeConfig({ mcpServers: { custom: { type: 'stdio', command: 'external' } } });
+    const replay = await service.applyConfiguredServerCreate(applyInput);
+
+    expect(first).toMatchObject({ ok: true, replayed: false, result: { targetName: 'custom' } });
+    expect(replay).toMatchObject({ ok: true, replayed: true, result: { targetName: 'custom' } });
+    expect(readConfig().mcpServers.custom).toEqual({ type: 'stdio', command: 'external' });
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a create preview after any config document revision changes', async () => {
+    writeConfig({ mcpServers: {}, unrelated: { revision: 1 } });
+    const service = createService();
+    const draft = { name: 'custom', enabled: true, transport: { type: 'stdio', command: 'node' } };
+    const preview = await service.previewConfiguredServerCreate({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      draft,
+    });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    writeConfig({ mcpServers: {}, unrelated: { revision: 2 } });
+
+    await expect(
+      service.applyConfiguredServerCreate({
+        context: context({
+          confirmationFacts: {
+            previewConfirmed: preview.result.previewFingerprint,
+            targetNameConfirmed: 'custom',
+            connectionCriticalConfirmed: true,
+          },
+        }),
+        draft,
+        previewFingerprint: preview.result.previewFingerprint,
+      }),
+    ).rejects.toMatchObject({ code: 'configured_server_stale_preview' });
+    expect(readConfig().mcpServers).toEqual({});
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('completes and replays a create whose write succeeded but reload observation failed', async () => {
+    writeConfig({ mcpServers: {} });
+    reload.mockImplementationOnce(() => {
+      throw new Error('reload sentinel should be reported');
+    });
+    const service = createService();
+    const draft = { name: 'custom', enabled: true, transport: { type: 'stdio', command: 'node' } };
+    const preview = await service.previewConfiguredServerCreate({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      draft,
+    });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    const applyInput = {
+      context: context({
+        idempotencyKey: 'reload-create',
+        requestFingerprint: 'reload-create:fingerprint',
+        confirmationFacts: {
+          previewConfirmed: preview.result.previewFingerprint,
+          targetNameConfirmed: 'custom',
+          connectionCriticalConfirmed: true,
+        },
+      }),
+      draft,
+      previewFingerprint: preview.result.previewFingerprint,
+    };
+
+    const first = await service.applyConfiguredServerCreate(applyInput);
+    const replay = await service.applyConfiguredServerCreate(applyInput);
+
+    expect(first).toMatchObject({
+      ok: true,
+      replayed: false,
+      result: {
+        configChange: { status: 'changed', reload: { status: 'failed', error: 'reload sentinel should be reported' } },
+      },
+    });
+    expect(replay).toMatchObject({ ok: true, replayed: true, result: first.ok ? first.result : undefined });
+    expect(readConfig().mcpServers.custom).toEqual({ type: 'stdio', command: 'node', disabled: false });
+  });
+
+  it('keeps create preview available but rejects apply when the runtime-scope writer lock is unavailable', async () => {
+    writeConfig({ mcpServers: {} });
+    const service = createService({ mutationAvailability: { available: false, reason: 'writer_lock_unavailable' } });
+    const draft = { name: 'custom', enabled: true, transport: { type: 'stdio', command: 'node' } };
+    const preview = await service.previewConfiguredServerCreate({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      draft,
+    });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+
+    const result = await service.applyConfiguredServerCreate({
+      context: context({
+        confirmationFacts: {
+          previewConfirmed: preview.result.previewFingerprint,
+          targetNameConfirmed: 'custom',
+          connectionCriticalConfirmed: true,
+        },
+      }),
+      draft,
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 'runtime_scope_locked',
+      code: 'runtime_scope_locked',
+      retryable: true,
+      reason: 'writer_lock_unavailable',
+    });
+    expect(readConfig().mcpServers).toEqual({});
+  });
+
+  it('lists same-name static and template definitions with independent instruction override states', async () => {
+    writeConfig({
+      mcpServers: {
+        shared: { type: 'stdio', command: 'node' },
+      },
+      mcpTemplates: {
+        shared: { type: 'stdio', command: '{{project.cwd}}/server', instructionOverride: '' },
+        replaced: { type: 'http', url: 'https://example.com', instructionOverride: 'operator guidance' },
+      },
+    });
+
+    const result = await createService().listConfiguredServers({ context: context() });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.result.servers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'shared',
+          source: 'mcpServers',
+          target: expect.objectContaining({ source: 'mcpServers', id: 'shared' }),
+          instructionOverride: { state: 'upstream' },
+        }),
+        expect.objectContaining({
+          id: 'shared',
+          source: 'mcpTemplates',
+          target: expect.objectContaining({ source: 'mcpTemplates', id: 'shared' }),
+          instructionOverride: { state: 'suppress', value: '' },
+        }),
+        expect.objectContaining({
+          id: 'replaced',
+          source: 'mcpTemplates',
+          instructionOverride: { state: 'replace', value: 'operator guidance' },
+        }),
+      ]),
+    );
+  });
+
+  it('reads a template definition by source when a static definition has the same name', async () => {
+    writeConfig({
+      mcpServers: { shared: { type: 'stdio', command: 'static' } },
+      mcpTemplates: { shared: { type: 'stdio', command: '{{project.cwd}}/template', instructionOverride: '' } },
+    });
+
+    const result = await createService().getConfiguredServerDetail({
+      context: context(),
+      targetName: 'shared',
+      targetSource: 'mcpTemplates',
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        server: {
+          source: 'mcpTemplates',
+          target: expect.objectContaining({ source: 'mcpTemplates', id: 'shared' }),
+          transport: { command: '{{project.cwd}}/template' },
+          instructionOverride: { state: 'suppress', value: '' },
+        },
+      },
+    });
+  });
+
+  it('previews and applies a template edit without changing the same-name static definition', async () => {
+    writeConfig({
+      mcpServers: { shared: { type: 'stdio', command: 'static', tags: ['static'] } },
+      mcpTemplates: { shared: { type: 'stdio', command: '{{project.cwd}}/template', tags: ['template'] } },
+    });
+    const service = createService();
+    const edit = { instructionOverride: { action: 'set' as const, value: '' } };
+    const preview = await service.previewConfiguredServerEdit({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'shared',
+      targetSource: 'mcpTemplates',
+      edit,
+    });
+    expect(preview).toMatchObject({
+      ok: true,
+      result: {
+        configChange: { target: { source: 'mcpTemplates' } },
+        diff: expect.arrayContaining([expect.objectContaining({ fieldPath: ['instructionOverride'] })]),
+      },
+    });
+    if (!preview.ok) return;
+
+    const applied = await service.applyConfiguredServerEdit({
+      context: context({ confirmationFacts: { previewConfirmed: preview.result.previewFingerprint } }),
+      targetName: 'shared',
+      targetSource: 'mcpTemplates',
+      edit,
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+
+    expect(applied).toMatchObject({ ok: true, result: { configChange: { target: { source: 'mcpTemplates' } } } });
+    expect(readConfig().mcpTemplates.shared).toMatchObject({ tags: ['template'], instructionOverride: '' });
+    expect(readConfig().mcpServers.shared).toMatchObject({ command: 'static', tags: ['static'] });
+  });
+
+  it('rejects non-override edits and lifecycle actions for Template Server definitions', async () => {
+    writeConfig({
+      mcpServers: {},
+      mcpTemplates: { shared: { type: 'stdio', command: '{{project.cwd}}/template', tags: ['template'] } },
+    });
+    const service = createService();
+
+    const detail = await service.getConfiguredServerDetail({
+      context: context(),
+      targetName: 'shared',
+      targetSource: 'mcpTemplates',
+    });
+    const preview = await service.previewConfiguredServerEdit({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'shared',
+      targetSource: 'mcpTemplates',
+      edit: { tags: ['changed'] },
+    });
+
+    expect(detail).toMatchObject({ ok: true, result: { server: { mutationAvailability: { available: false } } } });
+    expect(preview).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: [expect.objectContaining({ code: 'template_edit_field_unsupported', fieldPath: ['tags'] })],
+        },
+      },
+    });
+  });
+
   function createService(
     options: {
-      readConfigDocument?: () => { serverDefaults?: Record<string, any>; mcpServers?: Record<string, any> } | null;
+      readConfigDocument?: () => {
+        serverDefaults?: Record<string, any>;
+        mcpServers?: Record<string, any>;
+        mcpTemplates?: Record<string, any>;
+      } | null;
+      readToolInventory?: (input: {
+        targetName: string;
+        source: 'mcpServers' | 'mcpTemplates';
+        config: Record<string, any>;
+        model?: string;
+      }) => Promise<ConfiguredToolInventory>;
       checkConnectivity?: ConfiguredServerConnectivityChecker;
       mutationAvailability?: { available: boolean; reason?: 'writer_lock_unavailable' };
     } = {},
@@ -3943,7 +5073,10 @@ describe('AdminConfiguredServerService', () => {
           if (!fs.existsSync(configPath)) {
             return null;
           }
-          return JSON.parse(fs.readFileSync(configPath, 'utf8')) as { mcpServers?: Record<string, any> };
+          return JSON.parse(fs.readFileSync(configPath, 'utf8')) as {
+            mcpServers?: Record<string, any>;
+            mcpTemplates?: Record<string, any>;
+          };
         }),
       ...serviceOptions,
     });

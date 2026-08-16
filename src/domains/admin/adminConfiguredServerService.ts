@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import { mergeGlobalAndServerConfig } from '@src/config/mcpConfigMerge.js';
+import { normalizeDisabledToolsForServer } from '@src/core/server/disabledTools.js';
 import {
   GLOBAL_TRANSPORT_CONFIG_KEYS,
   type GlobalTransportConfig,
@@ -10,11 +11,19 @@ import {
 import {
   type ConfigChangeResult,
   type ConfigChangeService,
+  type ConfiguredServerTargetSource,
+  fingerprintConfiguredServerConfigDocument,
   fingerprintConfiguredServerDefaults,
   fingerprintConfiguredServerSecretValue,
   fingerprintConfiguredServerTarget,
+  type InstructionOverrideMutation,
   isConfiguredServerTargetDisabled,
 } from '@src/domains/config-change/configChange.js';
+import {
+  createServerInstallationWorkflow,
+  type DirectInstallationSource,
+  type ServerInstallationWorkflowResult,
+} from '@src/domains/installation/serverInstallationWorkflow.js';
 
 import { z } from 'zod';
 
@@ -25,6 +34,7 @@ import type {
   AdminOperationResult,
   AdminOperationService,
 } from './adminOperationService.js';
+import type { ConfiguredToolInventory, ConfiguredToolTargetSource } from './configuredToolInventory.js';
 
 type ConfiguredServerSecretAction = 'preserve' | 'replace' | 'clear';
 type ConfiguredServerSecretReplacementKind = 'environmentReference' | 'inlineSecret';
@@ -43,11 +53,445 @@ interface AdminConfiguredServerServiceOptions {
   configChangeService: ConfigChangeService;
   readConfigDocument: () => ConfiguredServerConfigDocument | null;
   checkConnectivity?: ConfiguredServerConnectivityChecker;
+  readToolInventory?: (input: {
+    targetName: string;
+    source: ConfiguredToolTargetSource;
+    config: MCPServerParams;
+    model?: string;
+  }) => Promise<ConfiguredToolInventory>;
+}
+
+interface PreparedConfiguredServerCreate {
+  draft: ConfiguredServerCreateDraft;
+  source: DirectInstallationSource;
+  targetName: string;
+  enabled: boolean;
+  workflow: ServerInstallationWorkflowResult;
+  config?: MCPServerParams;
+  validation: ConfiguredServerPreviewValidation;
+}
+
+const configuredServerCreateSecretSchema = z
+  .object({
+    fieldPath: z.array(z.string()).min(2),
+    action: z.literal('replace'),
+    replacement: z.object({
+      kind: z.enum(['environmentReference', 'inlineSecret']),
+      value: z.string(),
+    }),
+  })
+  .strict();
+
+const configuredServerCreateDraftSchema = z
+  .object({
+    name: z.string(),
+    enabled: z.boolean().optional(),
+    tags: z.array(z.string()).optional(),
+    transport: z
+      .object({
+        type: z.enum(['stdio', 'http', 'sse']),
+        command: z.string().optional(),
+        url: z.string().optional(),
+        args: z.array(z.string()).optional(),
+        cwd: z.string().optional(),
+        env: z.record(z.string(), z.string()).optional(),
+        headers: z.record(z.string(), z.string()).optional(),
+        timeout: z.number().optional(),
+        connectionTimeout: z.number().optional(),
+        requestTimeout: z.number().optional(),
+        restartOnExit: z.boolean().optional(),
+        maxRestarts: z.number().optional(),
+        restartDelay: z.number().optional(),
+      })
+      .strict(),
+    secrets: z.array(configuredServerCreateSecretSchema).optional(),
+  })
+  .strict();
+
+const CONFIGURED_SERVER_CREATE_TRANSPORT_FIELD_KEYS = new Set([
+  'type',
+  'timeout',
+  'connectionTimeout',
+  'requestTimeout',
+  'url',
+  'headers',
+  'command',
+  'args',
+  'cwd',
+  'env',
+  'restartOnExit',
+  'maxRestarts',
+  'restartDelay',
+]);
+
+function normalizeConfiguredServerCreateDraft(value: unknown): {
+  draft: ConfiguredServerCreateDraft;
+  source: DirectInstallationSource;
+  validation: ConfiguredServerPreviewValidation;
+} {
+  const parsed = configuredServerCreateDraftSchema.safeParse(value);
+  if (!parsed.success) {
+    const record =
+      value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+    const transport =
+      record.transport && typeof record.transport === 'object' && !Array.isArray(record.transport)
+        ? (record.transport as Record<string, unknown>)
+        : {};
+    const transportType = transport.type === 'http' || transport.type === 'sse' ? transport.type : 'stdio';
+    return {
+      draft: {},
+      source: {
+        type: 'direct',
+        localName: typeof record.name === 'string' ? record.name : '',
+        transport: transportType,
+      },
+      validation: {
+        status: 'invalid',
+        errors: parsed.error.issues.map((issue) => ({
+          fieldPath: issue.path.map(String),
+          code: 'invalid_create_field',
+          message: issue.message,
+        })),
+      },
+    };
+  }
+
+  const { transport } = parsed.data;
+  const draft: ConfiguredServerCreateDraft = {
+    name: parsed.data.name,
+    enabled: parsed.data.enabled,
+    tags: parsed.data.tags,
+    transport: { ...transport },
+    secrets: parsed.data.secrets,
+  };
+  const secretContainer = transport.type === 'stdio' ? 'env' : 'headers';
+  const secretValues = configuredServerCreateSecretValues(draft, secretContainer);
+  const source: DirectInstallationSource = {
+    type: 'direct',
+    localName: parsed.data.name,
+    transport: transport.type,
+    enabled: parsed.data.enabled,
+    tags: parsed.data.tags,
+    command: transport.command,
+    url: transport.url,
+    args: transport.args,
+    cwd: transport.cwd,
+    env: mergeConfiguredServerCreateRecord(transport.env, secretContainer === 'env' ? secretValues : undefined),
+    headers: mergeConfiguredServerCreateRecord(
+      transport.headers,
+      secretContainer === 'headers' ? secretValues : undefined,
+    ),
+    timeout: transport.timeout,
+    connectionTimeout: transport.connectionTimeout,
+    requestTimeout: transport.requestTimeout,
+    autoRestart: transport.restartOnExit,
+    maxRestarts: transport.maxRestarts,
+    restartDelay: transport.restartDelay,
+  };
+  return { draft, source, validation: { status: 'valid', errors: [] } };
+}
+
+function configuredServerCreateSecretValues(
+  draft: ConfiguredServerCreateDraft,
+  container: 'env' | 'headers',
+): Record<string, string> {
+  const values: Record<string, string> = {};
+  for (const secret of draft.secrets ?? []) {
+    if (secret.fieldPath.length !== 2 || secret.fieldPath[0] !== container || !isValidFieldPath(secret.fieldPath)) {
+      continue;
+    }
+    if (!secret.replacement) continue;
+    values[secret.fieldPath[1]] = replacementValue(secret.replacement);
+  }
+  return values;
+}
+
+function mergeConfiguredServerCreateRecord(
+  base: Record<string, string> | undefined,
+  additions: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  const merged = { ...base, ...additions };
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+function createWorkflowValidation(
+  workflow: ServerInstallationWorkflowResult,
+  config: MCPServerParams | undefined,
+): ConfiguredServerPreviewValidation {
+  const errors: ConfiguredServerPreviewValidationError[] = [];
+  for (const [field, messages] of Object.entries(workflow.fieldErrors ?? {})) {
+    for (const message of messages) {
+      errors.push({
+        fieldPath: field === 'localName' ? ['name'] : ['transport', field],
+        code: 'invalid_create_field',
+        message,
+      });
+    }
+  }
+  if (workflow.status === 'exists' || workflow.status === 'template_conflict') {
+    errors.push({
+      fieldPath: ['name'],
+      code: workflow.status === 'template_conflict' ? 'template_name_conflict' : 'configured_server_name_conflict',
+      message: 'A configured server or Template Server definition already uses this name.',
+    });
+  }
+  if (config) {
+    const parsed = previewTransportConfigSchema.safeParse(config);
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        errors.push({
+          fieldPath: ['transport', ...issue.path.map(String)],
+          code: 'invalid_transport_config',
+          message: issue.message,
+        });
+      }
+    }
+  }
+  return { status: errors.length === 0 ? 'valid' : 'invalid', errors };
+}
+
+function validateConfiguredServerCreateSecrets(draft: ConfiguredServerCreateDraft): ConfiguredServerPreviewValidation {
+  const errors: ConfiguredServerPreviewValidationError[] = [];
+  const expectedContainer = draft.transport?.type === 'stdio' ? 'env' : 'headers';
+  for (const [index, secret] of (draft.secrets ?? []).entries()) {
+    const basePath = ['secrets', String(index)];
+    if (
+      !isValidFieldPath(secret.fieldPath) ||
+      secret.fieldPath.length !== 2 ||
+      secret.fieldPath[0] !== expectedContainer
+    ) {
+      errors.push({
+        fieldPath: [...basePath, 'fieldPath'],
+        code: 'unsupported_secret_field',
+        message: `Secret replacement must target ${expectedContainer} for the selected transport.`,
+      });
+    }
+    if (!secret.replacement) {
+      errors.push({
+        fieldPath: [...basePath, 'replacement'],
+        code: 'missing_secret_replacement',
+        message: 'Create secret actions require a replacement.',
+      });
+      continue;
+    }
+    if (secret.replacement.kind === 'environmentReference' && !isEnvironmentReferenceInput(secret.replacement.value)) {
+      errors.push({
+        fieldPath: [...basePath, 'replacement', 'value'],
+        code: 'invalid_environment_reference',
+        message: 'Environment reference must be an environment variable name or substitution expression.',
+      });
+    }
+    if (secret.replacement.kind === 'inlineSecret' && secret.replacement.value.length === 0) {
+      errors.push({
+        fieldPath: [...basePath, 'replacement', 'value'],
+        code: 'empty_inline_secret',
+        message: 'Inline secret replacement cannot be empty.',
+      });
+    }
+  }
+  return { status: errors.length === 0 ? 'valid' : 'invalid', errors };
+}
+
+function createConfiguredServerCreateContract(): ConfiguredServerCreateContract {
+  const transportFields = TRANSPORT_FIELD_DEFINITIONS.filter((definition) =>
+    CONFIGURED_SERVER_CREATE_TRANSPORT_FIELD_KEYS.has(definition.key),
+  ).map((definition) => ({
+    fieldPath: ['transport', definition.key],
+    label: definition.label,
+    control: definition.control,
+    value: definition.defaultValue,
+    options: definition.key === 'type' ? ['stdio', 'http', 'sse'] : definition.options,
+    editable: true,
+    applicableTransportTypes: definition.applicableTransportTypes?.filter((type) => type !== 'streamableHttp'),
+  }));
+  return {
+    schemaVersion: 1,
+    capabilities: {
+      create: { supported: true },
+      forceReplacement: { supported: false },
+      rawJson: { supported: false },
+      preview: { supported: true },
+      apply: { supported: true },
+    },
+    secretPolicy: {
+      allowedActions: ['replace'],
+      environmentReference: {
+        recommended: true,
+        storesSecretMaterial: false,
+        guidance: 'Store an environment variable name or substitution expression instead of secret material.',
+      },
+      inlineReplacement: {
+        emphasis: 'secondary',
+        guidance: 'Inline secret material is stored in the Runtime Scope configuration.',
+      },
+    },
+    fieldGroups: [
+      {
+        id: 'identity',
+        label: 'Identity',
+        fields: [
+          { fieldPath: ['name'], label: 'Server Name', control: 'text', editable: true },
+          { fieldPath: ['enabled'], label: 'Enabled', control: 'switch', value: true, editable: true },
+          { fieldPath: ['tags'], label: 'Tags', control: 'tag-list', value: [], editable: true },
+        ],
+      },
+      { id: 'transport', label: 'Transport', fields: transportFields },
+    ],
+  };
+}
+
+function createConfiguredServerCreateDiff(
+  proposed: ConfiguredServerReadModel,
+  draft: ConfiguredServerCreateDraft,
+): ConfiguredServerPreviewDiffEntry[] {
+  const diff: ConfiguredServerPreviewDiffEntry[] = [
+    { fieldPath: ['name'], oldValue: undefined, newValue: proposed.id, riskFlags: [] },
+    { fieldPath: ['enabled'], oldValue: undefined, newValue: proposed.enabled, riskFlags: ['connection_critical'] },
+    { fieldPath: ['tags'], oldValue: undefined, newValue: proposed.tags, riskFlags: [] },
+  ];
+  for (const [key, value] of Object.entries(proposed.transport)) {
+    diff.push({
+      fieldPath: ['transport', key],
+      oldValue: undefined,
+      newValue: value,
+      riskFlags: previewRiskFlags([key]),
+    });
+  }
+  for (const secret of draft.secrets ?? []) {
+    diff.push({
+      fieldPath: secret.fieldPath,
+      oldValue: undefined,
+      newValue: previewSecretNewValue(secret),
+      secretAction: 'replace',
+      riskFlags: ['connection_critical', 'secret'],
+    });
+  }
+  return diff;
+}
+
+function previewSecretNewValue(secret: ConfiguredServerSecretEditDraft): unknown {
+  const replacement = secret.replacement;
+  if (!replacement) return { present: false, value: '[REDACTED]', secret: true };
+  if (replacement.kind === 'environmentReference') {
+    return {
+      kind: 'environmentReference',
+      value: normalizeEnvironmentReference(replacement.value),
+      storesSecretMaterial: false,
+    };
+  }
+  return { present: true, value: '[REDACTED]', secret: true };
+}
+
+function configuredServerCreatePreviewFingerprint(input: {
+  configFingerprint: string;
+  draft: ConfiguredServerCreateDraft;
+  proposed?: ConfiguredServerReadModel;
+  diff: ConfiguredServerPreviewDiffEntry[];
+  validation: ConfiguredServerPreviewValidation;
+  connectivityCheck: ConfiguredServerConnectivityCheckResult;
+}): string {
+  const redactedDraft = {
+    ...input.draft,
+    secrets: input.draft.secrets?.map((secret) => ({
+      fieldPath: secret.fieldPath,
+      action: secret.action,
+      replacement: secret.replacement ? fingerprintSecretReplacement(secret.replacement) : undefined,
+    })),
+  };
+  return `preview_${createHash('sha256')
+    .update(
+      stableStringify({
+        schemaVersion: 1,
+        configFingerprint: input.configFingerprint,
+        draft: redactedDraft,
+        proposed: input.proposed,
+        diff: input.diff,
+        validation: input.validation,
+        connectivityCheck: connectivityFingerprintFacts(input.connectivityCheck),
+      }),
+    )
+    .digest('hex')}`;
+}
+
+function connectivityFingerprintFacts(
+  connectivityCheck: ConfiguredServerConnectivityCheckResult,
+):
+  | Omit<ConfiguredServerConnectivityCheckPassed, 'checkedAt'>
+  | ConfiguredServerConnectivityCheckFailed
+  | ConfiguredServerConnectivityCheckSkipped {
+  if (connectivityCheck.status !== 'passed') return connectivityCheck;
+  return { status: connectivityCheck.status, mode: connectivityCheck.mode };
+}
+
+function previewCreateConfigChange(
+  targetName: string,
+  workflowStatus: ServerInstallationWorkflowResult['status'],
+  changed: boolean,
+): ConfigChangeResult {
+  const status =
+    workflowStatus === 'template_conflict'
+      ? 'template_conflict'
+      : workflowStatus === 'exists'
+        ? 'destination_conflict'
+        : changed
+          ? 'changed'
+          : 'failed';
+  return {
+    status,
+    operation: 'create_static',
+    configPath: '[redacted]',
+    target: {
+      name: targetName,
+      ...(workflowStatus === 'template_conflict'
+        ? { source: 'mcpTemplates' as const }
+        : workflowStatus === 'exists'
+          ? { source: 'mcpServers' as const }
+          : {}),
+    },
+    changed,
+    backup: { created: false },
+    retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
+    reload: { status: 'skipped' },
+    warnings: [],
+  };
+}
+
+function createDraftCandidateName(value: unknown): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
+  const name = (value as Record<string, unknown>).name;
+  return typeof name === 'string' ? name : '';
+}
+
+function sanitizeCreateConfirmationFacts(
+  facts: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!facts) return undefined;
+  const allowed = [
+    'previewConfirmed',
+    'targetNameConfirmed',
+    'secretChangeConfirmed',
+    'connectionCriticalConfirmed',
+    'connectivityFailureOverrideConfirmed',
+  ];
+  const sanitized = Object.fromEntries(allowed.filter((key) => key in facts).map((key) => [key, facts[key]]));
+  return Object.keys(sanitized).length ? sanitized : undefined;
+}
+
+function assertSuccessfulConfiguredServerCreate(configChange: ConfigChangeResult): void {
+  if (configChange.status === 'changed') return;
+  if (configChange.status === 'source_conflict') {
+    throw new AdminConfiguredServerApplyError('configured_server_stale_preview');
+  }
+  if (configChange.status === 'destination_conflict' || configChange.status === 'template_conflict') {
+    throw new AdminConfiguredServerApplyError('configured_server_destination_conflict');
+  }
+  throw new AdminConfiguredServerApplyError('configured_server_create_failed');
 }
 
 interface ConfiguredServerMutationInput {
   context: AdminOperationContext;
   targetName: string;
+  targetSource?: ConfiguredServerTargetSource;
   dryRun?: boolean;
   confirmationRequirements?: AdminConfirmationRequirement[];
 }
@@ -55,19 +499,41 @@ interface ConfiguredServerMutationInput {
 interface ConfiguredServerDetailInput {
   context: AdminOperationContext;
   targetName: string;
+  targetSource?: ConfiguredServerTargetSource;
+  model?: string;
 }
 
 interface ConfiguredServerPreviewInput {
   context: AdminOperationContext;
   targetName: string;
+  targetSource?: ConfiguredServerTargetSource;
   edit: unknown;
   connectivityCheck?: 'auto' | 'manual';
+  model?: string;
 }
 
 interface ConfiguredServerApplyInput {
   context: AdminOperationContext;
   targetName: string;
+  targetSource?: ConfiguredServerTargetSource;
   edit: unknown;
+  previewFingerprint: string;
+  model?: string;
+}
+
+interface ConfiguredServerCreateContractInput {
+  context: AdminOperationContext;
+}
+
+interface ConfiguredServerCreatePreviewInput {
+  context: AdminOperationContext;
+  draft: unknown;
+  connectivityCheck?: 'auto' | 'manual';
+}
+
+interface ConfiguredServerCreateApplyInput {
+  context: AdminOperationContext;
+  draft: unknown;
   previewFingerprint: string;
 }
 
@@ -89,6 +555,9 @@ export interface ConfiguredServerEditDraft {
   transport?: Record<string, unknown>;
   secrets?: ConfiguredServerSecretEditDraft[];
   clearTransportOverrides?: string[];
+  instructionOverride?: InstructionOverrideMutation;
+  disabledTools?: string[];
+  toolDescriptionOverrides?: Record<string, string>;
 }
 
 export interface ConfiguredServerSecretInput {
@@ -107,8 +576,11 @@ export interface RedactedConfiguredServerValue {
 export interface ConfiguredServerTargetIdentity {
   type: 'configured_server';
   id: string;
-  source: 'mcpServers';
+  source: ConfiguredServerTargetSource;
 }
+
+export type ConfiguredServerInstructionOverrideReadState =
+  { state: 'upstream' } | { state: 'replace'; value: string } | { state: 'suppress'; value: '' };
 
 export interface ConfiguredServerTransportSummary {
   kind: string;
@@ -133,8 +605,9 @@ export interface ConfiguredServerActionState {
 
 export interface ConfiguredServerReadModel {
   id: string;
-  source: 'mcpServers';
+  source: ConfiguredServerTargetSource;
   target: ConfiguredServerTargetIdentity;
+  revision?: string;
   enabled: boolean;
   tags: string[];
   transportSummary: ConfiguredServerTransportSummary;
@@ -142,6 +615,7 @@ export interface ConfiguredServerReadModel {
   actionState: ConfiguredServerActionState;
   transport: Record<string, unknown>;
   secretInputs: ConfiguredServerSecretInput[];
+  instructionOverride?: ConfiguredServerInstructionOverrideReadState;
 }
 
 export interface ConfiguredServerMutationResult {
@@ -157,7 +631,7 @@ export interface ConfiguredServerPreviewDiffEntry {
   oldValue: unknown;
   newValue: unknown;
   secretAction?: ConfiguredServerSecretAction;
-  riskFlags: Array<'rename' | 'connection_critical' | 'secret' | 'template_risk'>;
+  riskFlags: Array<'rename' | 'connection_critical' | 'secret' | 'template_risk' | 'tool_visibility' | 'tool_metadata'>;
 }
 
 export interface ConfiguredServerPreviewValidationError {
@@ -212,10 +686,68 @@ export interface ConfiguredServerPreviewResult {
   diff: ConfiguredServerPreviewDiffEntry[];
   configChange: ConfigChangeResult;
   connectivityCheck: ConfiguredServerConnectivityCheckResult;
+  toolSelection?: ConfiguredToolSelectionPreview;
+}
+
+export interface ConfiguredToolSelectionPreview {
+  capabilityGeneration: string;
+  model: string;
+  changedTools: string[];
+  counts: ConfiguredToolInventory['counts'];
+  approximateTokens: { before: number; after: number; savings: number };
+  targetEnabled: boolean;
+  effect: 'immediate' | 'deferred_until_target_enabled';
+  requiresZeroEnabledConfirmation: boolean;
 }
 
 export interface ConfiguredServerApplyResult {
   originalTargetName: string;
+  targetName: string;
+  previewFingerprint: string;
+  configChange: ConfigChangeResult;
+}
+
+export interface ConfiguredServerCreateContract {
+  schemaVersion: 1;
+  capabilities: {
+    create: { supported: true };
+    forceReplacement: { supported: false };
+    rawJson: { supported: false };
+    preview: { supported: true };
+    apply: { supported: true };
+  };
+  secretPolicy: {
+    allowedActions: ['replace'];
+    environmentReference: { recommended: true; storesSecretMaterial: false; guidance: string };
+    inlineReplacement: { emphasis: 'secondary'; guidance: string };
+  };
+  fieldGroups: ConfiguredServerEditFieldGroup[];
+}
+
+export interface ConfiguredServerCreateDraft {
+  name?: string;
+  enabled?: boolean;
+  tags?: string[];
+  transport?: Record<string, unknown>;
+  secrets?: ConfiguredServerSecretEditDraft[];
+}
+
+export interface ConfiguredServerCreatePreviewResult {
+  targetName: string;
+  previewFingerprint: string;
+  validation: ConfiguredServerPreviewValidation;
+  diff: ConfiguredServerPreviewDiffEntry[];
+  configChange: ConfigChangeResult;
+  connectivityCheck: ConfiguredServerConnectivityCheckResult;
+  expectedReload: ConfiguredServerExpectedReload;
+}
+
+export interface ConfiguredServerExpectedReload {
+  policy: 'observe_after_write';
+  possibleStatuses: readonly ['observed', 'runtime_not_running', 'reload_disabled', 'failed'];
+}
+
+export interface ConfiguredServerCreateApplyResult {
   targetName: string;
   previewFingerprint: string;
   configChange: ConfigChangeResult;
@@ -283,17 +815,28 @@ export interface ConfiguredServerEditContract {
 export interface ConfiguredServerDetailResult {
   server: ConfiguredServerReadModel;
   editContract: ConfiguredServerEditContract;
+  toolInventory?: ConfiguredToolInventory;
 }
 
 export interface ConfiguredServerConfigDocument {
   serverDefaults?: GlobalTransportConfig;
   mcpServers?: Record<string, MCPServerParams>;
+  mcpTemplates?: Record<string, MCPServerParams>;
 }
 
 export interface AdminConfiguredServerOperations {
+  getConfiguredServerCreateContract(
+    input: ConfiguredServerCreateContractInput,
+  ): Promise<AdminOperationResult<ConfiguredServerCreateContract>>;
+  previewConfiguredServerCreate(
+    input: ConfiguredServerCreatePreviewInput,
+  ): Promise<AdminOperationResult<ConfiguredServerCreatePreviewResult>>;
+  applyConfiguredServerCreate(
+    input: ConfiguredServerCreateApplyInput,
+  ): Promise<AdminOperationResult<ConfiguredServerCreateApplyResult>>;
   listConfiguredServers(input: {
     context: AdminOperationContext;
-  }): Promise<AdminOperationResult<{ servers: ConfiguredServerReadModel[] }>>;
+  }): Promise<AdminOperationResult<{ servers: ConfiguredServerReadModel[]; configFingerprint?: string }>>;
   getConfiguredServerDetail(
     input: ConfiguredServerDetailInput,
   ): Promise<AdminOperationResult<ConfiguredServerDetailResult>>;
@@ -324,35 +867,151 @@ export class AdminConfiguredServerNotFoundError extends Error {
 export class AdminConfiguredServerService implements AdminConfiguredServerOperations {
   constructor(private readonly options: AdminConfiguredServerServiceOptions) {}
 
+  async getConfiguredServerCreateContract(
+    input: ConfiguredServerCreateContractInput,
+  ): Promise<AdminOperationResult<ConfiguredServerCreateContract>> {
+    return this.options.operationService.executeReadOnly({
+      context: input.context,
+      operationName: 'getConfiguredServerCreateContract',
+      run: async () => createConfiguredServerCreateContract(),
+    });
+  }
+
+  async previewConfiguredServerCreate(
+    input: ConfiguredServerCreatePreviewInput,
+  ): Promise<AdminOperationResult<ConfiguredServerCreatePreviewResult>> {
+    return this.options.operationService.executeDryRun({
+      context: input.context,
+      operationName: 'previewConfiguredServerCreate',
+      run: async () => this.previewConfiguredServerCreateResult(input),
+    });
+  }
+
+  async applyConfiguredServerCreate(
+    input: ConfiguredServerCreateApplyInput,
+  ): Promise<AdminOperationResult<ConfiguredServerCreateApplyResult>> {
+    const candidateName = createDraftCandidateName(input.draft);
+    const context = {
+      ...input.context,
+      target: { type: 'configured_server', id: candidateName },
+      confirmationFacts: sanitizeCreateConfirmationFacts(input.context.confirmationFacts),
+    };
+    return this.options.operationService.executeMutation({
+      context,
+      operationName: 'applyConfiguredServerCreate',
+      prepare: async () => {
+        const document = this.options.readConfigDocument() ?? {};
+        const preview = await this.previewConfiguredServerCreateResult(
+          { ...input, connectivityCheck: 'auto' },
+          true,
+          document,
+        );
+        if (preview.previewFingerprint !== input.previewFingerprint) {
+          throw new AdminConfiguredServerApplyError('configured_server_stale_preview');
+        }
+        if (preview.validation.status !== 'valid' || !preview.configChange.changed) {
+          throw new AdminConfiguredServerApplyError('configured_server_create_invalid');
+        }
+        const prepared = await this.resolveConfiguredServerCreate(input.draft, document);
+        if (!prepared.config) {
+          throw new AdminConfiguredServerApplyError('configured_server_create_invalid');
+        }
+        if (
+          prepared.enabled &&
+          !wouldUseLocalStdioTransport(prepared.config) &&
+          preview.connectivityCheck.status !== 'passed' &&
+          !(
+            preview.connectivityCheck.status === 'skipped' && preview.connectivityCheck.reason === 'checker_unavailable'
+          ) &&
+          !(
+            preview.connectivityCheck.status === 'failed' &&
+            input.context.confirmationFacts?.connectivityFailureOverrideConfirmed === true
+          )
+        ) {
+          throw new AdminConfiguredServerApplyError('configured_server_connectivity_blocked');
+        }
+        const secretChange = prepared.draft.secrets?.length;
+        const configFingerprint = fingerprintConfiguredServerConfigDocument(document);
+        return {
+          confirmationRequirements: [
+            { code: 'previewConfirmed', expected: input.previewFingerprint },
+            { code: 'targetNameConfirmed', expected: prepared.targetName },
+            { code: 'connectionCriticalConfirmed', expected: true },
+            ...(secretChange ? [{ code: 'secretChangeConfirmed', expected: true }] : []),
+            ...(preview.connectivityCheck.status === 'failed'
+              ? [{ code: 'connectivityFailureOverrideConfirmed', expected: true }]
+              : []),
+          ],
+          run: async () => {
+            let configChange: ConfigChangeResult;
+            try {
+              configChange = await this.options.configChangeService.createStaticConfiguredServerTarget({
+                targetName: prepared.targetName,
+                serverConfig: prepared.config!,
+                operation: 'install',
+                backup: 'skip',
+                expectedConfigFingerprint: configFingerprint,
+              });
+            } catch {
+              throw new AdminConfiguredServerApplyError('configured_server_create_failed');
+            }
+            assertSuccessfulConfiguredServerCreate(configChange);
+            return {
+              targetName: prepared.targetName,
+              previewFingerprint: preview.previewFingerprint,
+              configChange,
+            };
+          },
+        };
+      },
+    });
+  }
+
   async listConfiguredServers(input: {
     context: AdminOperationContext;
-  }): Promise<AdminOperationResult<{ servers: ConfiguredServerReadModel[] }>> {
+  }): Promise<AdminOperationResult<{ servers: ConfiguredServerReadModel[]; configFingerprint?: string }>> {
     return this.options.operationService.executeReadOnly({
       context: input.context,
       operationName: 'listConfiguredServers',
-      run: async () => ({ servers: this.readConfiguredServers() }),
+      run: async () => this.readConfiguredServers(),
     });
   }
 
   async getConfiguredServerDetail(
     input: ConfiguredServerDetailInput,
   ): Promise<AdminOperationResult<ConfiguredServerDetailResult>> {
+    const configuredState = this.readConfiguredServerState(input.targetName, input.targetSource);
+    const source = configuredState.source;
     const context = {
       ...input.context,
-      target: { type: 'configured_server', id: input.targetName },
+      target: { type: 'configured_server', id: `${source}:${input.targetName}` },
     };
     return this.options.operationService.executeReadOnly({
       context,
       operationName: 'getConfiguredServerDetail',
       run: async () => {
-        const { currentConfig, serverDefaults } = this.readConfiguredServerState(input.targetName);
+        const { currentConfig, serverDefaults } = configuredState;
         const server = createConfiguredServerReadModel(
           input.targetName,
           mergeGlobalAndServerConfig(serverDefaults, currentConfig),
+          source,
+          fingerprintConfiguredServerTarget(currentConfig),
+          Object.hasOwn(currentConfig, 'instructionOverride') ? currentConfig.instructionOverride : undefined,
+          Object.hasOwn(currentConfig, 'instructionOverride'),
         );
         return {
           server,
           editContract: createConfiguredServerEditContract(server, currentConfig, serverDefaults),
+          ...(this.options.readToolInventory
+            ? {
+                toolInventory: await this.options.readToolInventory({
+                  targetName: input.targetName,
+                  source,
+                  config: currentConfig,
+                  ...(input.model ? { model: input.model } : {}),
+                }),
+              }
+            : {}),
         };
       },
     });
@@ -361,24 +1020,27 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
   async previewConfiguredServerEdit(
     input: ConfiguredServerPreviewInput,
   ): Promise<AdminOperationResult<ConfiguredServerPreviewResult>> {
+    const configuredState = this.readConfiguredServerState(input.targetName, input.targetSource);
+    const source = configuredState.source;
     const context = {
       ...input.context,
-      target: { type: 'configured_server', id: input.targetName },
+      target: { type: 'configured_server', id: `${source}:${input.targetName}` },
     };
-    const { currentConfig, serverDefaults } = this.readConfiguredServerState(input.targetName);
+    const { currentConfig, serverDefaults } = configuredState;
     return this.options.operationService.executeDryRun({
       context,
       operationName: 'previewConfiguredServerEdit',
-      run: async () => this.previewConfiguredServerEditResult(input, currentConfig, serverDefaults),
+      run: async () => this.previewConfiguredServerEditResult(input, currentConfig, serverDefaults, false, source),
     });
   }
 
   async applyConfiguredServerEdit(
     input: ConfiguredServerApplyInput,
   ): Promise<AdminOperationResult<ConfiguredServerApplyResult>> {
+    const source = this.resolveConfiguredServerSource(input.targetName, input.targetSource);
     const context = {
       ...input.context,
-      target: { type: 'configured_server', id: input.targetName },
+      target: { type: 'configured_server', id: `${source}:${input.targetName}` },
       confirmationFacts: sanitizeApplyConfirmationFacts(input.context.confirmationFacts),
     };
 
@@ -386,23 +1048,26 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
       context,
       operationName: 'applyConfiguredServerEdit',
       prepare: async () => {
-        const { currentConfig, serverDefaults } = this.readConfiguredServerState(input.targetName);
+        const { currentConfig, serverDefaults } = this.readConfiguredServerState(input.targetName, source);
         const preview = await this.previewConfiguredServerEditResult(
           { ...input, connectivityCheck: 'auto' },
           currentConfig,
           serverDefaults,
           true,
+          source,
         );
         const normalizedEdit = normalizeEditDraft(input.edit);
         const currentReadModel = createConfiguredServerReadModel(
           input.targetName,
           mergeGlobalAndServerConfig(serverDefaults, currentConfig),
+          source,
         );
         const applicableEdit = filterApplicableSecretEdits(normalizedEdit.edit, currentReadModel.secretInputs);
-        const proposedConfig = applyEditDraft(currentConfig, applicableEdit, serverDefaults);
+        const proposedConfig = applyEditDraft(currentConfig, applicableEdit, serverDefaults, input.targetName);
         const proposedReadModel = createConfiguredServerReadModel(
           preview.proposedTargetName,
           mergeGlobalAndServerConfig(serverDefaults, proposedConfig),
+          source,
         );
         const connectionCritical = preview.diff.some((entry) => entry.riskFlags.includes('connection_critical'));
         const secretChange = preview.diff.some((entry) => entry.riskFlags.includes('secret'));
@@ -437,6 +1102,9 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
               : []),
             ...(secretChange ? [{ code: 'secretChangeConfirmed', expected: true }] : []),
             ...(connectionCritical ? [{ code: 'connectionCriticalConfirmed', expected: true }] : []),
+            ...(preview.toolSelection?.requiresZeroEnabledConfirmation
+              ? [{ code: 'zeroEnabledToolsConfirmed', expected: true }]
+              : []),
             ...(preview.connectivityCheck.status === 'failed'
               ? [{ code: 'connectivityFailureOverrideConfirmed', expected: true }]
               : []),
@@ -444,6 +1112,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
           run: async () => {
             const configChange = await this.options.configChangeService.editConfiguredServerTarget({
               sourceName: input.targetName,
+              targetSource: source,
               targetName: preview.proposedTargetName,
               serverConfig: proposedConfig,
               expectedSourceFingerprint: fingerprintConfiguredServerTarget(currentConfig),
@@ -483,9 +1152,10 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
     enabled: boolean,
   ): Promise<AdminOperationResult<ConfiguredServerMutationResult>> {
     const operationName = enabled ? 'enableConfiguredServer' : 'disableConfiguredServer';
+    const source = input.targetSource ?? 'mcpServers';
     const context = {
       ...input.context,
-      target: { type: 'configured_server', id: input.targetName },
+      target: { type: 'configured_server', id: `${source}:${input.targetName}` },
     };
 
     if (input.dryRun) {
@@ -493,8 +1163,12 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
         context,
         operationName,
         run: async () => {
+          if (source !== 'mcpServers') {
+            throw new Error('Template Server definitions do not support enable or disable operations');
+          }
           const configChange = await this.options.configChangeService.previewConfiguredServerTargetEnabledState({
             targetName: input.targetName,
+            targetSource: source,
             enabled,
             backup: 'skip',
           });
@@ -515,8 +1189,12 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
       operationName,
       confirmationRequirements: input.confirmationRequirements,
       run: async () => {
+        if (source !== 'mcpServers') {
+          throw new Error('Template Server definitions do not support enable or disable operations');
+        }
         const configChange = await this.options.configChangeService.setConfiguredServerTargetEnabledState({
           targetName: input.targetName,
+          targetSource: source,
           enabled,
           backup: 'required',
         });
@@ -531,32 +1209,58 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
     });
   }
 
-  private readConfiguredServers(): ConfiguredServerReadModel[] {
+  private readConfiguredServers(): { servers: ConfiguredServerReadModel[]; configFingerprint: string } {
     const parsed = this.options.readConfigDocument();
     if (!parsed) {
-      return [];
+      return { servers: [], configFingerprint: fingerprintConfiguredServerConfigDocument({}) };
     }
 
-    return Object.entries(parsed.mcpServers ?? {}).map(([name, serverConfig]) =>
-      createConfiguredServerReadModel(name, mergeGlobalAndServerConfig(parsed.serverDefaults, serverConfig)),
-    );
+    return {
+      configFingerprint: fingerprintConfiguredServerConfigDocument(parsed),
+      servers: (['mcpServers', 'mcpTemplates'] as const).flatMap((source) =>
+        Object.entries(parsed[source] ?? {}).map(([name, serverConfig]) =>
+          createConfiguredServerReadModel(
+            name,
+            mergeGlobalAndServerConfig(parsed.serverDefaults, serverConfig),
+            source,
+            fingerprintConfiguredServerTarget(serverConfig),
+            Object.hasOwn(serverConfig, 'instructionOverride') ? serverConfig.instructionOverride : undefined,
+            Object.hasOwn(serverConfig, 'instructionOverride'),
+          ),
+        ),
+      ),
+    };
   }
 
-  private readConfiguredServerState(targetName: string): {
+  private readConfiguredServerState(
+    targetName: string,
+    targetSource?: ConfiguredServerTargetSource,
+  ): {
     currentConfig: MCPServerParams;
     serverDefaults: GlobalTransportConfig | undefined;
+    source: ConfiguredToolTargetSource;
   } {
     const parsed = this.options.readConfigDocument();
-    const currentConfig = parsed?.mcpServers?.[targetName];
+    const source = this.resolveConfiguredServerSource(targetName, targetSource, parsed);
+    const currentConfig = parsed?.[source]?.[targetName];
     if (!currentConfig) {
       throw new AdminConfiguredServerNotFoundError(targetName);
     }
-    return { currentConfig, serverDefaults: parsed?.serverDefaults };
+    return { currentConfig, serverDefaults: parsed?.serverDefaults, source };
+  }
+
+  private resolveConfiguredServerSource(
+    targetName: string,
+    targetSource?: ConfiguredServerTargetSource,
+    document: ConfiguredServerConfigDocument | null = this.options.readConfigDocument(),
+  ): ConfiguredServerTargetSource {
+    if (targetSource) return targetSource;
+    return document?.mcpTemplates?.[targetName] ? 'mcpTemplates' : 'mcpServers';
   }
 
   private readConfiguredServerConfig(targetName: string): MCPServerParams {
     const parsed = this.options.readConfigDocument();
-    const currentConfig = parsed?.mcpServers?.[targetName];
+    const currentConfig = parsed?.mcpTemplates?.[targetName] ?? parsed?.mcpServers?.[targetName];
     if (!currentConfig) {
       throw new AdminConfiguredServerNotFoundError(targetName);
     }
@@ -568,32 +1272,55 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
     currentConfig: MCPServerParams,
     serverDefaults: GlobalTransportConfig | undefined,
     requireCriticalConnectivity = false,
+    source: ConfiguredToolTargetSource = 'mcpServers',
   ): Promise<ConfiguredServerPreviewResult> {
     const normalizedEdit = normalizeEditDraft(input.edit);
+    const sourceValidation = validateEditForSource(source, normalizedEdit.edit);
     const currentReadModel = createConfiguredServerReadModel(
       input.targetName,
       mergeGlobalAndServerConfig(serverDefaults, currentConfig),
+      source,
     );
     const secretValidation = validateSecretEditCapabilities(normalizedEdit.edit, currentReadModel.secretInputs);
     const transportApplicabilityValidation = validateTransportFieldApplicability(currentConfig, normalizedEdit.edit);
     const overrideValidation = validateTransportOverrideClears(currentConfig, normalizedEdit.edit);
     const applicableEdit = filterApplicableSecretEdits(normalizedEdit.edit, currentReadModel.secretInputs);
     const proposedTargetName = applicableEdit.id?.trim() || input.targetName;
-    const proposedConfig = applyEditDraft(currentConfig, applicableEdit, serverDefaults);
+    const proposedConfig = applyEditDraft(currentConfig, applicableEdit, serverDefaults, input.targetName);
     const proposedReadModel = createConfiguredServerReadModel(
       proposedTargetName,
       mergeGlobalAndServerConfig(serverDefaults, proposedConfig),
+      source,
     );
     const proposedTransportType = configuredTransportType(proposedConfig);
     const serverValidation = validatePreviewServerConfig(proposedConfig);
+    const currentToolInventory = this.options.readToolInventory
+      ? await this.options.readToolInventory({
+          targetName: input.targetName,
+          source,
+          config: currentConfig,
+          ...(input.model ? { model: input.model } : {}),
+        })
+      : undefined;
+    const toolEditValidation = validateConfiguredToolEdit(applicableEdit, currentToolInventory);
     const validation = mergeValidation(
       mergeValidation(
         mergeValidation(mergeValidation(normalizedEdit.validation, secretValidation), transportApplicabilityValidation),
         overrideValidation,
       ),
-      serverValidation,
+      mergeValidation(mergeValidation(serverValidation, sourceValidation), toolEditValidation),
     );
     const diff = createPreviewDiff(currentReadModel, proposedReadModel, applicableEdit);
+    pushDiff(diff, ['disabledTools'], currentConfig.disabledTools ?? [], proposedConfig.disabledTools ?? [], [
+      'tool_visibility',
+    ]);
+    pushDiff(
+      diff,
+      ['toolDescriptionOverrides'],
+      currentConfig.toolDescriptionOverrides ?? {},
+      proposedConfig.toolDescriptionOverrides ?? {},
+      ['tool_metadata'],
+    );
     appendClearedOverrideDiff(diff, currentReadModel, proposedReadModel, applicableEdit);
     const changed = validation.status === 'valid' && diff.length > 0;
     const endpointChangedWithPreservedSecrets =
@@ -605,11 +1332,25 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
         applicableEdit,
       );
 
+    const proposedToolInventory = this.options.readToolInventory
+      ? await this.options.readToolInventory({
+          targetName: proposedTargetName,
+          source,
+          config: proposedConfig,
+          ...(input.model ? { model: input.model } : {}),
+        })
+      : undefined;
+    const toolSelection =
+      currentToolInventory && proposedToolInventory
+        ? createConfiguredToolSelectionPreview(currentToolInventory, proposedToolInventory)
+        : undefined;
+
     return {
       targetName: input.targetName,
       proposedTargetName,
       previewFingerprint: previewFingerprint({
         targetName: input.targetName,
+        targetSource: source,
         sourceFingerprint: fingerprintConfiguredServerTarget(currentConfig),
         globalConfigFingerprint: fingerprintConfiguredServerDefaults(serverDefaults),
         edit: normalizedEdit.edit,
@@ -617,10 +1358,11 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
         proposed: proposedReadModel,
         diff,
         validation,
+        toolSelection,
       }),
       validation,
       diff,
-      configChange: previewConfigChange(input.targetName, changed),
+      configChange: previewConfigChange(input.targetName, changed, source),
       connectivityCheck: await this.previewConnectivityCheck({
         targetName: proposedTargetName,
         serverConfig: proposedConfig,
@@ -632,6 +1374,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
           (requireCriticalConnectivity && diff.some((entry) => entry.riskFlags.includes('connection_critical'))),
         endpointChangedWithPreservedSecrets,
       }),
+      ...(toolSelection ? { toolSelection } : {}),
     };
   }
 
@@ -673,6 +1416,100 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
       serverConfig: input.serverConfig,
     });
   }
+
+  private async previewConfiguredServerCreateResult(
+    input: ConfiguredServerCreatePreviewInput,
+    forceConnectivity = false,
+    document: ConfiguredServerConfigDocument = this.options.readConfigDocument() ?? {},
+  ): Promise<ConfiguredServerCreatePreviewResult> {
+    const prepared = await this.resolveConfiguredServerCreate(input.draft, document);
+    const proposedReadModel = prepared.config
+      ? createConfiguredServerReadModel(
+          prepared.targetName,
+          mergeGlobalAndServerConfig(document.serverDefaults, prepared.config),
+        )
+      : undefined;
+    const validation = prepared.validation;
+    const diff = proposedReadModel ? createConfiguredServerCreateDiff(proposedReadModel, prepared.draft) : [];
+    const changed = validation.status === 'valid' && prepared.workflow.status === 'preview';
+    const connectivityCheck = prepared.config
+      ? await this.previewConnectivityCheck({
+          targetName: prepared.targetName,
+          serverConfig: prepared.config,
+          enabled: prepared.enabled,
+          validationStatus: validation.status,
+          connectionCriticalChanged: true,
+          force: forceConnectivity || input.connectivityCheck === 'manual',
+          endpointChangedWithPreservedSecrets: false,
+        })
+      : ({ status: 'skipped', reason: 'validation_failed' } as const);
+    const preview = {
+      targetName: prepared.targetName,
+      previewFingerprint: configuredServerCreatePreviewFingerprint({
+        configFingerprint: fingerprintConfiguredServerConfigDocument(document),
+        draft: prepared.draft,
+        proposed: proposedReadModel,
+        diff,
+        validation,
+        connectivityCheck,
+      }),
+      validation,
+      diff,
+      configChange: previewCreateConfigChange(prepared.targetName, prepared.workflow.status, changed),
+      connectivityCheck,
+      expectedReload: {
+        policy: 'observe_after_write' as const,
+        possibleStatuses: ['observed', 'runtime_not_running', 'reload_disabled', 'failed'] as const,
+      },
+    };
+    return preview;
+  }
+
+  private async resolveConfiguredServerCreate(
+    draftValue: unknown,
+    document: ConfiguredServerConfigDocument = this.options.readConfigDocument() ?? {},
+  ): Promise<PreparedConfiguredServerCreate> {
+    const normalized = normalizeConfiguredServerCreateDraft(draftValue);
+    const workflow = createServerInstallationWorkflow({
+      findConfiguredTarget: (targetName) => {
+        if (document.mcpTemplates?.[targetName]) return { name: targetName, source: 'mcpTemplates' };
+        if (document.mcpServers?.[targetName]) return { name: targetName, source: 'mcpServers' };
+        return null;
+      },
+    });
+    const workflowResult = await workflow.run({ mode: 'preview', source: normalized.source });
+    const config = workflowResult.config;
+    const validation = mergeValidation(
+      mergeValidation(normalized.validation, validateConfiguredServerCreateSecrets(normalized.draft)),
+      createWorkflowValidation(workflowResult, config),
+    );
+    return {
+      draft: normalized.draft,
+      source: normalized.source,
+      targetName: normalized.source.localName,
+      enabled: normalized.source.enabled !== false,
+      workflow: workflowResult,
+      config,
+      validation,
+    };
+  }
+}
+
+function validateEditForSource(
+  source: ConfiguredServerTargetSource,
+  edit: ConfiguredServerEditDraft,
+): ConfiguredServerPreviewValidation {
+  if (source !== 'mcpTemplates') return { status: 'valid', errors: [] };
+  const supportedTemplateMetadata = new Set(['instructionOverride', 'disabledTools', 'toolDescriptionOverrides']);
+  const unsupported = Object.keys(edit).filter((key) => !supportedTemplateMetadata.has(key));
+  return {
+    status: unsupported.length === 0 ? 'valid' : 'invalid',
+    errors: unsupported.map((key) => ({
+      fieldPath: [key],
+      code: 'template_edit_field_unsupported',
+      message: 'Template Server edits may only change instruction and tool metadata.',
+    })),
+  };
 }
 
 function assertSuccessfulConfigChange(configChange: ConfigChangeResult): void {
@@ -724,6 +1561,7 @@ function sanitizeApplyConfirmationFacts(
   if (!facts) return undefined;
   const allowed = ['previewConfirmed', 'targetNameConfirmed', 'secretChangeConfirmed', 'connectionCriticalConfirmed'];
   allowed.push('connectivityFailureOverrideConfirmed');
+  allowed.push('zeroEnabledToolsConfirmed');
   const sanitized = Object.fromEntries(allowed.filter((key) => key in facts).map((key) => [key, facts[key]]));
   return Object.keys(sanitized).length > 0 ? sanitized : undefined;
 }
@@ -741,7 +1579,17 @@ function normalizeEditDraft(value: unknown): {
 } {
   const errors: ConfiguredServerPreviewValidationError[] = [];
   const edit: ConfiguredServerEditDraft = {};
-  const supportedKeys = new Set(['id', 'enabled', 'tags', 'transport', 'secrets', 'clearTransportOverrides']);
+  const supportedKeys = new Set([
+    'id',
+    'enabled',
+    'tags',
+    'transport',
+    'secrets',
+    'clearTransportOverrides',
+    'instructionOverride',
+    'disabledTools',
+    'toolDescriptionOverrides',
+  ]);
 
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {
@@ -806,6 +1654,44 @@ function normalizeEditDraft(value: unknown): {
     }
   }
 
+  if (record.disabledTools !== undefined) {
+    if (Array.isArray(record.disabledTools) && record.disabledTools.every((name) => typeof name === 'string')) {
+      edit.disabledTools = Array.from(
+        new Set(record.disabledTools.map((name) => name.trim()).filter((name) => name.length > 0)),
+      ).sort((left, right) => left.localeCompare(right));
+    } else {
+      errors.push({
+        fieldPath: ['disabledTools'],
+        code: 'invalid_disabled_tools',
+        message: 'Disabled tools must be a list of logical tool names.',
+      });
+    }
+  }
+
+  if (record.toolDescriptionOverrides !== undefined) {
+    if (
+      record.toolDescriptionOverrides &&
+      typeof record.toolDescriptionOverrides === 'object' &&
+      !Array.isArray(record.toolDescriptionOverrides) &&
+      Object.entries(record.toolDescriptionOverrides).every(
+        ([name, description]) => name.length > 0 && name === name.trim() && typeof description === 'string',
+      )
+    ) {
+      edit.toolDescriptionOverrides = Object.fromEntries(
+        Object.entries(record.toolDescriptionOverrides as Record<string, string>)
+          .map(([name, description]) => [name, description.trim()] as const)
+          .filter(([name, description]) => name.length > 0 && description.length > 0)
+          .sort(([left], [right]) => left.localeCompare(right)),
+      );
+    } else {
+      errors.push({
+        fieldPath: ['toolDescriptionOverrides'],
+        code: 'invalid_tool_description_overrides',
+        message: 'Tool description overrides must map logical tool names to descriptions.',
+      });
+    }
+  }
+
   if (record.transport !== undefined) {
     if (record.transport && typeof record.transport === 'object' && !Array.isArray(record.transport)) {
       edit.transport = normalizeTransportEditDraft(record.transport as Record<string, unknown>, errors);
@@ -846,6 +1732,23 @@ function normalizeEditDraft(value: unknown): {
     }
   }
 
+  if (record.instructionOverride !== undefined) {
+    const parsed = z
+      .discriminatedUnion('action', [
+        z.object({ action: z.literal('set'), value: z.string() }).strict(),
+        z.object({ action: z.literal('remove') }).strict(),
+      ])
+      .safeParse(record.instructionOverride);
+    if (parsed.success) edit.instructionOverride = parsed.data;
+    else {
+      errors.push({
+        fieldPath: ['instructionOverride'],
+        code: 'invalid_instruction_override',
+        message: 'Instruction override must set a string value or remove the configured override.',
+      });
+    }
+  }
+
   return {
     edit,
     validation: { status: errors.length === 0 ? 'valid' : 'invalid', errors },
@@ -881,6 +1784,23 @@ function normalizeTransportEditDraft(
   }
 
   return transport;
+}
+
+function validateConfiguredToolEdit(
+  edit: ConfiguredServerEditDraft,
+  inventory: ConfiguredToolInventory | undefined,
+): ConfiguredServerPreviewValidation {
+  if (!inventory) return { status: 'valid', errors: [] };
+  const allowedNames = new Set(inventory.rows.map((row) => row.name));
+  const requestedNames = new Set([...(edit.disabledTools ?? []), ...Object.keys(edit.toolDescriptionOverrides ?? {})]);
+  const errors = Array.from(requestedNames)
+    .filter((name) => !allowedNames.has(name))
+    .map((name) => ({
+      fieldPath: ['tools', name],
+      code: 'unknown_configured_tool',
+      message: 'Tool changes must refer to an observed tool or a retained unresolved entry.',
+    }));
+  return { status: errors.length === 0 ? 'valid' : 'invalid', errors };
 }
 
 function isSecretCapableRawTransportEdit(key: string, value: unknown): boolean {
@@ -1265,6 +2185,7 @@ function applyEditDraft(
   currentConfig: MCPServerParams,
   edit: ConfiguredServerEditDraft,
   serverDefaults?: GlobalTransportConfig,
+  logicalServerName?: string,
 ): MCPServerParams {
   const nextConfig = cloneServerConfig(currentConfig);
 
@@ -1282,6 +2203,25 @@ function applyEditDraft(
 
   if (Array.isArray(edit.tags)) {
     nextConfig.tags = edit.tags.filter((tag): tag is string => typeof tag === 'string');
+  }
+
+  if (edit.instructionOverride?.action === 'set') {
+    nextConfig.instructionOverride = edit.instructionOverride.value;
+  } else if (edit.instructionOverride?.action === 'remove') {
+    delete nextConfig.instructionOverride;
+  }
+
+  if (Array.isArray(edit.disabledTools)) {
+    const disabledTools = logicalServerName
+      ? normalizeDisabledToolsForServer(logicalServerName, edit.disabledTools)
+      : edit.disabledTools;
+    if (disabledTools.length === 0) delete nextConfig.disabledTools;
+    else nextConfig.disabledTools = disabledTools;
+  }
+
+  if (edit.toolDescriptionOverrides) {
+    if (Object.keys(edit.toolDescriptionOverrides).length === 0) delete nextConfig.toolDescriptionOverrides;
+    else nextConfig.toolDescriptionOverrides = { ...edit.toolDescriptionOverrides };
   }
 
   if (edit.transport && typeof edit.transport === 'object') {
@@ -1741,12 +2681,16 @@ function isValidUrlOrEnvReference(value: string): boolean {
   }
 }
 
-function previewConfigChange(targetName: string, changed: boolean): ConfigChangeResult {
+function previewConfigChange(
+  targetName: string,
+  changed: boolean,
+  source: ConfiguredServerTargetSource = 'mcpServers',
+): ConfigChangeResult {
   return {
     status: changed ? 'changed' : 'unchanged',
     operation: 'set_static' as ConfigChangeResult['operation'],
     configPath: '[redacted]',
-    target: { name: targetName, source: 'mcpServers' },
+    target: { name: targetName, source },
     changed,
     backup: { created: false },
     retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
@@ -1757,6 +2701,7 @@ function previewConfigChange(targetName: string, changed: boolean): ConfigChange
 
 function previewFingerprint(input: {
   targetName: string;
+  targetSource: ConfiguredServerTargetSource;
   sourceFingerprint: string;
   globalConfigFingerprint: string;
   edit: ConfiguredServerEditDraft;
@@ -1764,12 +2709,14 @@ function previewFingerprint(input: {
   proposed: ConfiguredServerReadModel;
   diff: ConfiguredServerPreviewDiffEntry[];
   validation: ConfiguredServerPreviewValidation;
+  toolSelection?: ConfiguredToolSelectionPreview;
 }): string {
   return `preview_${createHash('sha256')
     .update(
       stableStringify({
         schemaVersion: 2,
         targetName: input.targetName,
+        targetSource: input.targetSource,
         sourceFingerprint: input.sourceFingerprint,
         globalConfigFingerprint: input.globalConfigFingerprint,
         edit: redactEditDraftForFingerprint(input.edit),
@@ -1777,9 +2724,47 @@ function previewFingerprint(input: {
         proposed: input.proposed,
         diff: input.diff,
         validation: input.validation,
+        toolSelection: input.toolSelection,
       }),
     )
     .digest('hex')}`;
+}
+
+function createConfiguredToolSelectionPreview(
+  current: ConfiguredToolInventory,
+  proposed: ConfiguredToolInventory,
+): ConfiguredToolSelectionPreview {
+  const currentRows = new Map(current.rows.map((row) => [row.name, row]));
+  const proposedRows = new Map(proposed.rows.map((row) => [row.name, row]));
+  const changedTools = Array.from(new Set([...currentRows.keys(), ...proposedRows.keys()]))
+    .filter((name) => {
+      const before = currentRows.get(name);
+      const after = proposedRows.get(name);
+      return (
+        before?.enabled !== after?.enabled ||
+        before?.descriptionOverride !== after?.descriptionOverride ||
+        before?.effectiveDescription !== after?.effectiveDescription
+      );
+    })
+    .sort((left, right) => left.localeCompare(right));
+
+  return {
+    capabilityGeneration: current.generation,
+    model: proposed.model,
+    changedTools,
+    counts: proposed.counts,
+    approximateTokens: {
+      before: current.approximateTokens.enabled,
+      after: proposed.approximateTokens.enabled,
+      savings: current.approximateTokens.enabled - proposed.approximateTokens.enabled,
+    },
+    targetEnabled: proposed.targetEnabled,
+    effect: proposed.targetEnabled ? 'immediate' : 'deferred_until_target_enabled',
+    requiresZeroEnabledConfirmation:
+      changedTools.length > 0 &&
+      current.rows.some((row) => row.observed && row.enabled) &&
+      !proposed.rows.some((row) => row.observed && row.enabled),
+  };
 }
 
 function redactEditDraftForFingerprint(edit: ConfiguredServerEditDraft): ConfiguredServerEditDraft {
@@ -1819,6 +2804,9 @@ function createPreviewDiff(
   pushDiff(diff, ['id'], current.id, proposed.id, proposed.id === current.id ? [] : ['rename']);
   pushDiff(diff, ['enabled'], current.enabled, proposed.enabled, ['connection_critical']);
   pushDiff(diff, ['tags'], current.tags, proposed.tags, []);
+  if (edit.instructionOverride) {
+    pushDiff(diff, ['instructionOverride'], current.instructionOverride, proposed.instructionOverride, []);
+  }
 
   const secretEditedTopLevelKeys = new Set((edit.secrets ?? []).map((secret) => secret.fieldPath[0]));
   const transportEditedKeys = new Set(Object.keys(edit.transport ?? {}));
@@ -1988,12 +2976,25 @@ function stableStringify(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function createConfiguredServerReadModel(name: string, serverConfig: MCPServerParams): ConfiguredServerReadModel {
+function createConfiguredServerReadModel(
+  name: string,
+  serverConfig: MCPServerParams,
+  source: ConfiguredServerTargetSource = 'mcpServers',
+  revision: string = fingerprintConfiguredServerTarget(serverConfig),
+  instructionOverride: string | undefined = serverConfig.instructionOverride,
+  hasInstructionOverride: boolean = Object.hasOwn(serverConfig, 'instructionOverride'),
+): ConfiguredServerReadModel {
   const secretInputs: ConfiguredServerSecretInput[] = [];
   const transport: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(serverConfig)) {
-    if (key === 'disabled' || key === 'tags') {
+    if (
+      key === 'disabled' ||
+      key === 'tags' ||
+      key === 'instructionOverride' ||
+      key === 'disabledTools' ||
+      key === 'toolDescriptionOverrides'
+    ) {
       continue;
     }
 
@@ -2029,22 +3030,34 @@ function createConfiguredServerReadModel(name: string, serverConfig: MCPServerPa
 
   return {
     id: name,
-    source: 'mcpServers',
+    source,
     target: {
       type: 'configured_server',
       id: name,
-      source: 'mcpServers',
+      source,
     },
+    revision,
     enabled,
     tags: normalizeTags(serverConfig.tags),
     transportSummary: createTransportSummary(serverConfig, transport),
     mutationAvailability: {
-      available: true,
-      operations: ['enable', 'disable'],
+      available: source === 'mcpServers',
+      operations: source === 'mcpServers' ? ['enable', 'disable'] : [],
     },
-    actionState: createActionState(name, enabled),
+    actionState:
+      source === 'mcpServers'
+        ? createActionState(name, enabled)
+        : {
+            enable: { available: false, label: `Enable ${name}`, disabledReason: 'already_enabled' },
+            disable: { available: false, label: `Disable ${name}`, disabledReason: 'already_disabled' },
+          },
     transport,
     secretInputs,
+    instructionOverride: !hasInstructionOverride
+      ? { state: 'upstream' }
+      : instructionOverride === ''
+        ? { state: 'suppress', value: '' }
+        : { state: 'replace', value: instructionOverride! },
   };
 }
 
@@ -2070,7 +3083,6 @@ const TRANSPORT_FIELD_DEFINITIONS: TransportFieldDefinition[] = [
   { key: 'timeout', label: 'Deprecated Timeout', control: 'number' },
   { key: 'connectionTimeout', label: 'Connection Timeout', control: 'number' },
   { key: 'requestTimeout', label: 'Request Timeout', control: 'number' },
-  { key: 'disabledTools', label: 'Disabled Tools', control: 'string-list', defaultValue: [] },
   { key: 'template', label: 'Template', control: 'record', defaultValue: {} },
   {
     key: 'url',

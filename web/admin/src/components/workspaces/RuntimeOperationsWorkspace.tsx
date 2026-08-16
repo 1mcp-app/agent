@@ -1,11 +1,12 @@
 import { Alert, Button, Group, Paper, SimpleGrid, Stack, Text, Title } from '@mantine/core';
 
-import { ArrowRight, LogOut, RefreshCw } from 'lucide-react';
-import { type MouseEvent, useState } from 'react';
+import { AlertTriangle, ArrowRight, CircleCheck, KeyRound, Plus, ServerOff } from 'lucide-react';
+import { type MouseEvent, type ReactNode, useState } from 'react';
 
 import type { AdminConsoleRoute, OperatorWorkspaceModel } from '../../session/AdminConsoleSessionModel';
 import { DetailRow, Panel } from '../AdminConsoleShared';
 import { disabledServers, enabledServers, humanize, isOAuthAttention } from '../adminConsoleUtils';
+import { ConfiguredServerCreator } from '../configuredServerCreator';
 import { ConfiguredServerEditor } from '../configuredServerEditor';
 import { ConfiguredServersPanel } from '../ConfiguredServersPanel';
 import { AuditPanel } from '../OperationsStatusPanels';
@@ -20,8 +21,13 @@ export function DashboardWorkspace({
   const { state, configuredServers } = model;
   const failedAudits = (state.status?.audit.facts ?? []).filter((fact) => fact.result === 'failed').length;
   const oauthAttention = (state.status?.oauth.services ?? []).filter(isOAuthAttention).length;
+  const disabled = disabledServers(state.configuredServers);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const runtime = state.status?.runtime;
+
+  async function configureServer() {
+    await configuredServers.create.open();
+  }
 
   async function copyText(label: string, value: string): Promise<void> {
     try {
@@ -38,10 +44,28 @@ export function DashboardWorkspace({
         Runtime operations
       </Title>
       <WorkspaceHeading
-        title="Operations dashboard"
+        title="Overview"
         description={`Runtime summaries for ${state.session?.account.username ?? 'operator'} · updated ${state.lastUpdatedAt ?? 'never'}`}
-        model={model}
       />
+      <div className="runtime-status-strip" role="status" aria-label="Runtime status and freshness">
+        <Group gap="xs" wrap="nowrap" className="runtime-status-main">
+          <span className="runtime-live-dot" />
+          <Text fw={800} size="sm">
+            Runtime online
+          </Text>
+          <Text c="dimmed" size="sm" className="truncate">
+            {runtime?.externalUrl ?? 'Local runtime'}
+          </Text>
+        </Group>
+        <Group gap="lg" wrap="nowrap" className="runtime-status-facts">
+          <Text size="xs" c="dimmed">
+            Version <strong>{runtime?.runtimeVersion ?? 'unavailable'}</strong>
+          </Text>
+          <Text size="xs" c="dimmed">
+            Updated <strong>{state.lastUpdatedAt ?? 'never'}</strong>
+          </Text>
+        </Group>
+      </div>
       <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="sm" className="summary-grid">
         <SummaryLink
           label="Enabled servers"
@@ -53,7 +77,7 @@ export function DashboardWorkspace({
         />
         <SummaryLink
           label="Disabled servers"
-          value={disabledServers(state.configuredServers)}
+          value={disabled}
           tone="warn"
           icon="02"
           href="/admin/servers"
@@ -76,17 +100,79 @@ export function DashboardWorkspace({
           onNavigate={() => navigate('audit')}
         />
       </SimpleGrid>
-      <div className="dashboard-runtime-panel">
+      <div className="dashboard-grid">
+        <section className="attention-panel" aria-labelledby="attention-title">
+          <Group justify="space-between" align="flex-start" mb="sm">
+            <div>
+              <Text className="eyebrow" size="xs">
+                Triage
+              </Text>
+              <Title id="attention-title" order={3}>
+                Needs attention
+              </Title>
+            </div>
+            <Button leftSection={<Plus size={16} />} onClick={() => void configureServer()}>
+              Configure server
+            </Button>
+          </Group>
+          <Stack gap={0} className="attention-list">
+            {disabled > 0 ? (
+              <AttentionLink
+                icon={<ServerOff size={17} />}
+                label={`${disabled} disabled ${disabled === 1 ? 'server' : 'servers'}`}
+                detail="Review availability before enabling a target."
+                href="/admin/servers"
+                onNavigate={() => navigate('servers')}
+              />
+            ) : null}
+            {oauthAttention > 0 ? (
+              <AttentionLink
+                icon={<KeyRound size={17} />}
+                label={`${oauthAttention} OAuth ${oauthAttention === 1 ? 'service needs' : 'services need'} action`}
+                detail="Authorization or restart is required."
+                href="/admin/oauth"
+                onNavigate={() => navigate('oauth')}
+              />
+            ) : null}
+            {failedAudits > 0 ? (
+              <AttentionLink
+                icon={<AlertTriangle size={17} />}
+                label={`${failedAudits} failed ${failedAudits === 1 ? 'operation' : 'operations'}`}
+                detail="Inspect recent redacted audit facts."
+                href="/admin/audit"
+                onNavigate={() => navigate('audit')}
+              />
+            ) : null}
+            {disabled === 0 && oauthAttention === 0 && failedAudits === 0 ? (
+              <div className="attention-clear">
+                <CircleCheck size={18} />
+                <div>
+                  <Text fw={800}>No action required</Text>
+                  <Text c="dimmed" size="sm">
+                    Configured servers and runtime services report a clear state.
+                  </Text>
+                </div>
+              </div>
+            ) : null}
+          </Stack>
+        </section>
         <Panel title="Runtime identity" utility="current target" icon={<span className="runtime-live-dot" />}>
           {runtime ? (
-            <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="sm">
+            <SimpleGrid cols={1} spacing="sm" className="runtime-identity-grid">
               <DetailRow label="Version" value={runtime.runtimeVersion} />
-              <DetailRow label="External URL" value={runtime.externalUrl ?? '-'} />
+              <DetailRow
+                label="External URL"
+                value={runtime.externalUrl ?? '-'}
+                copyLabel="externalUrl"
+                onCopyText={copyText}
+                wrapValue
+              />
               <DetailRow
                 label="Runtime scope"
                 value={runtime.runtimeScopeId}
                 copyLabel="runtimeScopeId"
                 onCopyText={copyText}
+                wrapValue
               />
             </SimpleGrid>
           ) : (
@@ -101,6 +187,8 @@ export function DashboardWorkspace({
 
 export function ServersWorkspace({ model }: { model: OperatorWorkspaceModel }) {
   const { state, configuredServers } = model;
+  const creating = configuredServers.create.state.status !== 'idle';
+  const editing = configuredServers.edit.state.status !== 'list';
 
   return (
     <section aria-labelledby="servers-workspace-title" className="operations-workspace">
@@ -108,20 +196,24 @@ export function ServersWorkspace({ model }: { model: OperatorWorkspaceModel }) {
         title="Configured servers"
         titleId="servers-workspace-title"
         description={`${state.configuredServers.length} configured targets · updated ${state.lastUpdatedAt ?? 'never'}`}
-        model={model}
       />
-      <div className="workspace-grid">
-        <div className="inventory-column">
-          <ConfiguredServersPanel
-            state={state}
-            onServerAction={configuredServers.mutate}
-            onOpenServerDetail={configuredServers.edit.open}
-          />
-        </div>
-        <div className="inspector-column">
-          <ConfiguredServerEditor model={configuredServers.edit} />
-        </div>
+      <div className="inventory-column server-browse-workspace" hidden={creating || editing}>
+        <ConfiguredServersPanel
+          state={state}
+          onServerAction={configuredServers.mutate}
+          onOpenServerDetail={configuredServers.edit.open}
+          onConfigureCustomServer={configuredServers.create.open}
+        />
       </div>
+      {creating || editing ? (
+        <div className="server-task-workspace">
+          {creating ? (
+            <ConfiguredServerCreator model={configuredServers.create} />
+          ) : (
+            <ConfiguredServerEditor model={configuredServers.edit} />
+          )}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -145,7 +237,6 @@ export function AuditTrailWorkspace({ model }: { model: OperatorWorkspaceModel }
         title="Audit trail"
         titleId="audit-workspace-title"
         description={`Recent redacted Admin Operations · updated ${state.lastUpdatedAt ?? 'never'}`}
-        model={model}
       />
       <AuditPanel facts={state.status?.audit.facts ?? []} onCopyText={copyText} />
       <CopyFeedback message={copyFeedback} />
@@ -157,12 +248,10 @@ export function WorkspaceHeading({
   title,
   titleId,
   description,
-  model,
 }: {
   title: string;
   titleId?: string;
   description: string;
-  model: Pick<OperatorWorkspaceModel, 'refresh' | 'logout'>;
 }) {
   return (
     <Group justify="space-between" align="flex-start" className="workspace-heading">
@@ -177,15 +266,44 @@ export function WorkspaceHeading({
           {description}
         </Text>
       </div>
-      <Group gap="xs">
-        <Button variant="default" leftSection={<RefreshCw size={16} />} onClick={() => void model.refresh()}>
-          Refresh
-        </Button>
-        <Button color="red" variant="light" leftSection={<LogOut size={16} />} onClick={() => void model.logout()}>
-          Log out
-        </Button>
-      </Group>
     </Group>
+  );
+}
+
+function AttentionLink({
+  icon,
+  label,
+  detail,
+  href,
+  onNavigate,
+}: {
+  icon: ReactNode;
+  label: string;
+  detail: string;
+  href: string;
+  onNavigate(): void | Promise<void>;
+}) {
+  return (
+    <a
+      className="attention-row"
+      href={href}
+      onClick={(event) => {
+        if (!isSamePageNavigation(event)) return;
+        event.preventDefault();
+        void onNavigate();
+      }}
+    >
+      <span className="attention-icon">{icon}</span>
+      <span className="attention-copy">
+        <Text component="span" fw={800} size="sm">
+          {label}
+        </Text>
+        <Text component="span" c="dimmed" size="xs">
+          {detail}
+        </Text>
+      </span>
+      <ArrowRight size={16} />
+    </a>
   );
 }
 

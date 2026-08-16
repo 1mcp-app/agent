@@ -6,6 +6,7 @@ import ConfigContext from '@src/config/configContext.js';
 import { ConfigLoader } from '@src/config/configLoader.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import type { MCPServerParams } from '@src/core/types/index.js';
+import { mcpServerConfigSchema } from '@src/core/types/transport.js';
 import logger from '@src/logger/logger.js';
 
 import { parse as parseToml } from 'smol-toml';
@@ -23,6 +24,7 @@ import {
   type ReleaseConfigLock,
 } from './configLock.js';
 import type {
+  ChangeConfiguredServerInstructionOverrideInput,
   ConfigBackupPolicy,
   ConfigBackupResult,
   ConfigChangePorts,
@@ -32,10 +34,13 @@ import type {
   ConfigReloadResult,
   ConfigRetentionCleanupResult,
   ConfiguredServerTargetRef,
+  ConfiguredServerTargetSource,
+  CreateStaticConfiguredServerTargetInput,
   EditConfiguredServerTargetInput,
   MutableConfigDocument,
   RemoveConfiguredServerTargetInput,
   SetConfiguredServerTargetEnabledStateInput,
+  SetInstructionTemplateConfigurationInput,
   SetStaticConfiguredServerTargetInput,
 } from './types.js';
 
@@ -53,9 +58,13 @@ export type {
   ConfigRetentionCleanupResult,
   ConfiguredServerTargetRef,
   ConfiguredServerTargetSource,
+  InstructionOverrideMutation,
+  ChangeConfiguredServerInstructionOverrideInput,
+  CreateStaticConfiguredServerTargetInput,
   EditConfiguredServerTargetInput,
   RemoveConfiguredServerTargetInput,
   SetConfiguredServerTargetEnabledStateInput,
+  SetInstructionTemplateConfigurationInput,
   SetStaticConfiguredServerTargetInput,
 } from './types.js';
 
@@ -71,6 +80,16 @@ export function fingerprintConfiguredServerTarget(serverConfig: MCPServerParams)
 
 export function fingerprintConfiguredServerDefaults(serverDefaults: unknown): string {
   return `configured_server_defaults_${keyedConfiguredServerFingerprint('defaults', stableStringify(serverDefaults ?? {}))}`;
+}
+
+export function fingerprintConfiguredServerConfigDocument(config: unknown): string {
+  const record =
+    config && typeof config === 'object' && !Array.isArray(config) ? (config as Record<string, unknown>) : {};
+  const normalized = {
+    ...record,
+    mcpServers: record.mcpServers && typeof record.mcpServers === 'object' ? record.mcpServers : {},
+  };
+  return `configured_server_config_${keyedConfiguredServerFingerprint('config-document', stableStringify(normalized))}`;
 }
 
 export function fingerprintConfiguredServerSecretValue(value: string): string {
@@ -240,6 +259,93 @@ class DefaultConfigChangeService implements ConfigChangeService {
     };
   }
 
+  async createStaticConfiguredServerTarget(
+    input: CreateStaticConfiguredServerTargetInput,
+  ): Promise<ConfigChangeResult> {
+    const configPath = this.resolveConfigPath();
+    let releaseLock: ReleaseConfigLock;
+
+    try {
+      releaseLock = await acquireConfigLock(configPath, this.ports.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS);
+    } catch (error) {
+      if (error instanceof ConfigLockTimeoutError) {
+        return {
+          status: 'failed',
+          operation: 'create_static',
+          configPath,
+          target: { name: input.targetName },
+          changed: false,
+          backup: { created: false },
+          retentionCleanup: retentionSkipped(),
+          reload: { status: 'skipped' },
+          warnings: [],
+          error: error.message,
+        };
+      }
+      throw error;
+    }
+
+    let resultWithoutReload: ConfigChangeResult;
+    try {
+      const config = this.loadConfigForSet(configPath);
+      if (
+        input.expectedConfigFingerprint !== undefined &&
+        fingerprintConfiguredServerConfigDocument(config) !== input.expectedConfigFingerprint
+      ) {
+        return {
+          status: 'source_conflict',
+          operation: 'create_static',
+          configPath,
+          target: { name: input.targetName },
+          changed: false,
+          backup: { created: false },
+          retentionCleanup: retentionSkipped(),
+          reload: { status: 'skipped' },
+          warnings: [],
+          error: 'Configured server state changed after preview',
+        };
+      }
+      const target = resolveConfiguredServerTarget(config, input.targetName);
+      if (target.source) {
+        const templateConflict = target.source === 'mcpTemplates';
+        return {
+          status: templateConflict ? 'template_conflict' : 'destination_conflict',
+          operation: 'create_static',
+          configPath,
+          target,
+          changed: false,
+          backup: { created: false },
+          retentionCleanup: retentionSkipped(),
+          reload: { status: 'skipped' },
+          warnings: [],
+          error: `Configured server target '${input.targetName}' already exists`,
+        };
+      }
+
+      const backup = this.createBackupIfNeeded(configPath, input.backup ?? 'skip');
+      config.mcpServers = normalizeServerRecord(config.mcpServers);
+      config.mcpServers[input.targetName] = input.serverConfig;
+      this.validateConfig(configPath, config);
+      this.writeConfig(configPath, config);
+      const retentionCleanup = this.cleanupBackups(configPath, backup);
+      resultWithoutReload = {
+        status: 'changed',
+        operation: 'create_static',
+        configPath,
+        target: { name: input.targetName, source: 'mcpServers' },
+        changed: true,
+        backup,
+        retentionCleanup,
+        reload: { status: 'skipped' },
+        warnings: retentionCleanup.warnings,
+      };
+    } finally {
+      releaseLock();
+    }
+
+    return { ...resultWithoutReload, reload: this.reloadConfig(configPath) };
+  }
+
   async setConfiguredServerTargetEnabledState(
     input: SetConfiguredServerTargetEnabledStateInput,
   ): Promise<ConfigChangeResult> {
@@ -272,7 +378,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
 
     try {
       const config = this.loadConfig(configPath);
-      const target = resolveConfiguredServerTarget(config, input.targetName);
+      const target = resolveConfiguredServerTargetForSource(config, input.targetName, input.targetSource);
 
       if (!target.source) {
         resultWithoutReload = {
@@ -387,20 +493,12 @@ class DefaultConfigChangeService implements ConfigChangeService {
     let resultWithoutReload: ConfigChangeResult;
     try {
       const config = this.loadConfig(configPath);
-      const source = resolveConfiguredServerTarget(config, input.sourceName);
+      const source = resolveConfiguredServerTargetForSource(config, input.sourceName, input.targetSource);
       if (!source.source) {
         return editConflictResult('not_found', configPath, source);
       }
-      if (source.source === 'mcpTemplates') {
-        return editConflictResult(
-          'template_conflict',
-          configPath,
-          source,
-          `Configured server target '${input.sourceName}' exists in mcpTemplates and cannot be edited`,
-        );
-      }
-
-      const existingConfig = config.mcpServers?.[input.sourceName];
+      const sourceSection = source.source === 'mcpTemplates' ? config.mcpTemplates : config.mcpServers;
+      const existingConfig = sourceSection?.[input.sourceName];
       if (!existingConfig) {
         return editConflictResult('not_found', configPath, source);
       }
@@ -425,8 +523,9 @@ class DefaultConfigChangeService implements ConfigChangeService {
       }
 
       if (input.targetName !== input.sourceName) {
-        const destination = resolveConfiguredServerTarget(config, input.targetName);
-        if (destination.source) {
+        const destinationSection = source.source === 'mcpTemplates' ? config.mcpTemplates : config.mcpServers;
+        if (destinationSection?.[input.targetName]) {
+          const destination = { name: input.targetName, source: source.source };
           return editConflictResult(
             'destination_conflict',
             configPath,
@@ -444,9 +543,10 @@ class DefaultConfigChangeService implements ConfigChangeService {
       }
 
       const nextConfig = cloneConfig(config);
-      nextConfig.mcpServers = normalizeServerRecord(nextConfig.mcpServers);
-      delete nextConfig.mcpServers[input.sourceName];
-      nextConfig.mcpServers[input.targetName] = input.serverConfig;
+      const nextSection = normalizeServerRecord(nextConfig[source.source]);
+      nextConfig[source.source] = nextSection;
+      delete nextSection[input.sourceName];
+      nextSection[input.targetName] = input.serverConfig;
       this.validateConfig(configPath, nextConfig);
       const backup = this.createBackupIfNeeded(configPath, 'required');
       this.writeConfig(configPath, nextConfig);
@@ -455,7 +555,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
         status: 'changed',
         operation: 'edit',
         configPath,
-        target: { name: input.targetName, source: 'mcpServers' },
+        target: { name: input.targetName, source: source.source },
         changed: true,
         backup,
         retentionCleanup,
@@ -475,7 +575,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
     const configPath = this.resolveConfigPath();
     const operation = input.enabled ? 'enable' : 'disable';
     const config = this.loadConfig(configPath);
-    const target = resolveConfiguredServerTarget(config, input.targetName);
+    const target = resolveConfiguredServerTargetForSource(config, input.targetName, input.targetSource);
 
     if (!target.source) {
       return {
@@ -578,6 +678,149 @@ class DefaultConfigChangeService implements ConfigChangeService {
       reload: { status: 'skipped' },
       warnings: [],
     };
+  }
+
+  async setInstructionTemplateConfiguration(
+    input: SetInstructionTemplateConfigurationInput,
+  ): Promise<ConfigChangeResult> {
+    const configPath = this.resolveConfigPath();
+    let releaseLock: ReleaseConfigLock;
+    try {
+      releaseLock = await acquireConfigLock(configPath, this.ports.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS);
+    } catch (error) {
+      if (error instanceof ConfigLockTimeoutError) {
+        return instructionChangeResult('failed', input.operation, configPath, { name: input.identity }, error.message);
+      }
+      throw error;
+    }
+
+    let resultWithoutReload: ConfigChangeResult;
+    try {
+      const config = this.loadConfig(configPath);
+      if (fingerprintConfiguredServerConfigDocument(config) !== input.expectedConfigFingerprint) {
+        return instructionChangeResult(
+          'source_conflict',
+          input.operation,
+          configPath,
+          { name: input.identity },
+          'Instruction template configuration changed after it was read',
+        );
+      }
+
+      const currentState = {
+        instructionTemplates: config.instructionTemplates,
+        publishedInstructionTemplates: config.publishedInstructionTemplates,
+        activeInstructionTemplate: config.activeInstructionTemplate,
+      };
+      const requestedState = {
+        instructionTemplates: input.instructionTemplates,
+        publishedInstructionTemplates: input.publishedInstructionTemplates,
+        activeInstructionTemplate: input.activeInstructionTemplate,
+      };
+      if (stableStringify(currentState) === stableStringify(requestedState)) {
+        return instructionChangeResult('unchanged', input.operation, configPath, { name: input.identity });
+      }
+
+      const nextConfig = cloneConfig(config);
+      if (input.instructionTemplates === undefined) delete nextConfig.instructionTemplates;
+      else nextConfig.instructionTemplates = input.instructionTemplates;
+      if (input.publishedInstructionTemplates === undefined) delete nextConfig.publishedInstructionTemplates;
+      else nextConfig.publishedInstructionTemplates = input.publishedInstructionTemplates;
+      if (input.activeInstructionTemplate === undefined) delete nextConfig.activeInstructionTemplate;
+      else nextConfig.activeInstructionTemplate = input.activeInstructionTemplate;
+
+      this.validateConfig(configPath, nextConfig);
+      const backup = this.createBackupIfNeeded(configPath, 'required');
+      this.writeConfig(configPath, nextConfig);
+      const retentionCleanup = this.cleanupBackups(configPath, backup);
+      resultWithoutReload = {
+        ...instructionChangeResult('changed', input.operation, configPath, { name: input.identity }),
+        changed: true,
+        backup,
+        retentionCleanup,
+        warnings: retentionCleanup.warnings,
+      };
+    } finally {
+      releaseLock();
+    }
+
+    return { ...resultWithoutReload, reload: this.reloadConfig(configPath) };
+  }
+
+  async changeConfiguredServerInstructionOverride(
+    input: ChangeConfiguredServerInstructionOverrideInput,
+  ): Promise<ConfigChangeResult> {
+    const configPath = this.resolveConfigPath();
+    const operation = input.mutation.action === 'set' ? 'instruction_override_set' : 'instruction_override_remove';
+    let releaseLock: ReleaseConfigLock;
+    try {
+      releaseLock = await acquireConfigLock(configPath, this.ports.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS);
+    } catch (error) {
+      if (error instanceof ConfigLockTimeoutError) {
+        return instructionChangeResult('failed', operation, configPath, input.target, error.message);
+      }
+      throw error;
+    }
+
+    let resultWithoutReload: ConfigChangeResult;
+    try {
+      const config = this.loadConfig(configPath);
+      if (
+        input.expectedConfigFingerprint !== undefined &&
+        fingerprintConfiguredServerConfigDocument(config) !== input.expectedConfigFingerprint
+      ) {
+        return instructionChangeResult(
+          'source_conflict',
+          operation,
+          configPath,
+          input.target,
+          'Configured server state changed after it was read',
+        );
+      }
+      const section = input.target.source === 'mcpServers' ? config.mcpServers : config.mcpTemplates;
+      const existing = section?.[input.target.name];
+      if (!existing) return instructionChangeResult('not_found', operation, configPath, input.target);
+      if (fingerprintConfiguredServerTarget(existing) !== input.expectedSourceFingerprint) {
+        return instructionChangeResult(
+          'source_conflict',
+          operation,
+          configPath,
+          input.target,
+          `Configured server target '${input.target.name}' changed after it was read`,
+        );
+      }
+
+      const hasOverride = Object.hasOwn(existing, 'instructionOverride');
+      if (
+        (input.mutation.action === 'set' && hasOverride && existing.instructionOverride === input.mutation.value) ||
+        (input.mutation.action === 'remove' && !hasOverride)
+      ) {
+        return instructionChangeResult('unchanged', operation, configPath, input.target);
+      }
+
+      const nextConfig = cloneConfig(config);
+      const nextSection = input.target.source === 'mcpServers' ? nextConfig.mcpServers : nextConfig.mcpTemplates;
+      const nextTarget = nextSection?.[input.target.name];
+      if (!nextTarget) return instructionChangeResult('not_found', operation, configPath, input.target);
+      if (input.mutation.action === 'set') nextTarget.instructionOverride = input.mutation.value;
+      else delete nextTarget.instructionOverride;
+
+      this.validateConfig(configPath, nextConfig);
+      const backup = this.createBackupIfNeeded(configPath, 'required');
+      this.writeConfig(configPath, nextConfig);
+      const retentionCleanup = this.cleanupBackups(configPath, backup);
+      resultWithoutReload = {
+        ...instructionChangeResult('changed', operation, configPath, input.target),
+        changed: true,
+        backup,
+        retentionCleanup,
+        warnings: retentionCleanup.warnings,
+      };
+    } finally {
+      releaseLock();
+    }
+
+    return { ...resultWithoutReload, reload: this.reloadConfig(configPath) };
   }
 
   async acquireConfigLockForTest(configPath: string): Promise<() => void> {
@@ -710,6 +953,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
 
   private validateConfig(configPath: string, config: MutableConfigDocument): void {
     const loader = new ConfigLoader(configPath, { ensureConfigExists: false });
+    mcpServerConfigSchema.parse(config);
 
     for (const [serverName, serverConfig] of Object.entries(config.mcpServers ?? {})) {
       loader.validateServerConfig(serverName, serverConfig);
@@ -779,6 +1023,15 @@ function resolveConfiguredServerTarget(config: MutableConfigDocument, targetName
   return { name: targetName };
 }
 
+function resolveConfiguredServerTargetForSource(
+  config: MutableConfigDocument,
+  targetName: string,
+  targetSource?: ConfiguredServerTargetSource,
+): ConfiguredServerTargetRef {
+  if (!targetSource) return resolveConfiguredServerTarget(config, targetName);
+  return config[targetSource]?.[targetName] ? { name: targetName, source: targetSource } : { name: targetName };
+}
+
 function removeTarget(config: MutableConfigDocument, target: Required<ConfiguredServerTargetRef>): void {
   const section = target.source === 'mcpTemplates' ? config.mcpTemplates : config.mcpServers;
   if (!section) {
@@ -808,6 +1061,27 @@ function editConflictResult(
   return {
     status,
     operation: 'edit',
+    configPath,
+    target,
+    changed: false,
+    backup: { created: false },
+    retentionCleanup: retentionSkipped(),
+    reload: { status: 'skipped' },
+    warnings: [],
+    ...(error ? { error } : {}),
+  };
+}
+
+function instructionChangeResult(
+  status: ConfigChangeResult['status'],
+  operation: ConfigChangeResult['operation'],
+  configPath: string,
+  target: ConfiguredServerTargetRef,
+  error?: string,
+): ConfigChangeResult {
+  return {
+    status,
+    operation,
     configPath,
     target,
     changed: false,

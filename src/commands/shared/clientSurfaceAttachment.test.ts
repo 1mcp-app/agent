@@ -1,6 +1,12 @@
 import { createMockCliSessionCache } from '@test/unit-utils/MockFactories.js';
 
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
+import { authorizeTemplateContext, TemplateContextCapabilityStore } from '@src/core/context/templateContextTrust.js';
+import { writePidFile } from '@src/core/server/pidFileManager.js';
 import type { ContextData } from '@src/types/context.js';
 
 import { describe, expect, it, vi } from 'vitest';
@@ -303,7 +309,7 @@ describe('attachReusableClientSurface', () => {
     );
   });
 
-  it('initializes MCP without a transport session when REST transiently fails without a cache', async () => {
+  it('initializes MCP with the proof-bound request session when REST transiently fails without a cache', async () => {
     const ports = makePorts();
     const rest = vi.fn(async (): Promise<ClientSurfaceRestResponse<string>> => ({
       status: 'fallback',
@@ -327,7 +333,7 @@ describe('attachReusableClientSurface', () => {
     expect(result.status).toBe('success');
     expect(mcp).toHaveBeenCalledWith(
       expect.objectContaining({
-        sessionId: undefined,
+        sessionId: result.requestSessionId,
         sendInitialize: true,
       }),
     );
@@ -395,7 +401,15 @@ describe('attachReusableClientSurface', () => {
       1,
       expect.objectContaining({ sessionId: 'cached-session', sendInitialize: false }),
     );
-    expect(mcp).toHaveBeenNthCalledWith(2, expect.objectContaining({ sessionId: undefined, sendInitialize: true }));
+    expect(mcp).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        cachedSession: null,
+        sessionId: expect.stringMatching(/^stream-[0-9a-f-]{36}$/),
+        sendInitialize: true,
+      }),
+    );
+    expect(mcp.mock.calls[1]?.[0].sessionId).not.toBe('cached-session');
   });
 
   it('passes auth profile token and project-config environment into attachment context', async () => {
@@ -610,6 +624,116 @@ describe('attachReusableClientSurface', () => {
       );
     } finally {
       stderr.mockRestore();
+    }
+  });
+});
+
+describe('local template context proof attachment', () => {
+  it('signs only a live PID-owned URL in the selected Runtime Scope', async () => {
+    const storagePath = fs.mkdtempSync(path.join(os.tmpdir(), '1mcp-local-proof-'));
+    try {
+      const capability = new TemplateContextCapabilityStore({
+        storageDir: storagePath,
+        runtimeScopeId: 'scope-a',
+      }).getOrCreate();
+      writePidFile(storagePath, {
+        pid: process.pid,
+        url: 'http://127.0.0.1:3050/mcp',
+        port: 3050,
+        host: '127.0.0.1',
+        transport: 'http',
+        startedAt: '2026-08-04T00:00:00.000Z',
+        configDir: storagePath,
+      });
+      const target = makeResolvedTarget({
+        serverPid: process.pid,
+        localRuntimeScope: { storagePath },
+      });
+
+      const attachment = await attachFreshClientSurface({
+        clientSurface: 'stdio-proxy',
+        version: 'proxy',
+        options: { 'config-dir': storagePath },
+        ports: makePorts({ target }),
+      });
+
+      expect(attachment.contextProof).toBeDefined();
+      expect(
+        authorizeTemplateContext({
+          mode: 'verified',
+          context: attachment.context,
+          proof: attachment.contextProof,
+          capability,
+          transportSessionId: attachment.sessionId,
+        }),
+      ).toMatchObject({ status: 'trusted', provenance: 'verified-local' });
+    } finally {
+      fs.rmSync(storagePath, { recursive: true, force: true });
+    }
+  });
+
+  it('does not sign when an explicit URL differs from live PID metadata', async () => {
+    const storagePath = fs.mkdtempSync(path.join(os.tmpdir(), '1mcp-local-proof-mismatch-'));
+    try {
+      new TemplateContextCapabilityStore({ storageDir: storagePath, runtimeScopeId: 'scope-a' }).getOrCreate();
+      writePidFile(storagePath, {
+        pid: process.pid,
+        url: 'http://127.0.0.1:4050/mcp',
+        port: 4050,
+        host: '127.0.0.1',
+        transport: 'http',
+        startedAt: '2026-08-04T00:00:00.000Z',
+        configDir: storagePath,
+      });
+      const target = makeResolvedTarget({
+        serverPid: undefined,
+        source: 'user',
+        localRuntimeScope: { storagePath },
+      });
+
+      const attachment = await attachFreshClientSurface({
+        clientSurface: 'stdio-proxy',
+        version: 'proxy',
+        options: { url: 'http://127.0.0.1:3050/mcp', 'config-dir': storagePath },
+        ports: makePorts({ target }),
+      });
+
+      expect(attachment.contextProof).toBeUndefined();
+    } finally {
+      fs.rmSync(storagePath, { recursive: true, force: true });
+    }
+  });
+
+  it('does not sign for a non-loopback cleartext Runtime Target', async () => {
+    const storagePath = fs.mkdtempSync(path.join(os.tmpdir(), '1mcp-local-proof-cleartext-'));
+    try {
+      new TemplateContextCapabilityStore({ storageDir: storagePath, runtimeScopeId: 'scope-a' }).getOrCreate();
+      writePidFile(storagePath, {
+        pid: process.pid,
+        url: 'http://192.0.2.10:3050/mcp',
+        port: 3050,
+        host: '192.0.2.10',
+        transport: 'http',
+        startedAt: '2026-08-04T00:00:00.000Z',
+        configDir: storagePath,
+      });
+      const target = makeResolvedTarget({
+        discoveredUrl: 'http://192.0.2.10:3050/mcp',
+        serverUrl: new URL('http://192.0.2.10:3050/mcp'),
+        serverPid: process.pid,
+        localRuntimeScope: { storagePath },
+      });
+
+      const attachment = await attachFreshClientSurface({
+        clientSurface: 'stdio-proxy',
+        version: 'proxy',
+        options: { 'config-dir': storagePath },
+        ports: makePorts({ target }),
+      });
+
+      expect(attachment.contextProof).toBeUndefined();
+    } finally {
+      fs.rmSync(storagePath, { recursive: true, force: true });
     }
   });
 });

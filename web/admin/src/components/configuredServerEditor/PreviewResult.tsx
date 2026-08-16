@@ -1,11 +1,15 @@
 import { Alert, Badge, Code, Group, Paper, SimpleGrid, Stack, Text } from '@mantine/core';
 
-import type { ConfiguredServerPreviewResponse } from '../../api/adminApi';
+import type { ConfiguredServerCreatePreviewResponse, ConfiguredServerPreviewResponse } from '../../api/adminApi';
 import { fieldKey, formatPreviewValue } from '../../configuredServerEdit/configuredServerEditDraft';
 import { DetailRow } from '../AdminConsoleShared';
 import { connectivityMeta, connectivitySummary, riskFlagColor, riskFlagLabel } from '../adminConsoleUtils';
 
-export function PreviewResult({ preview }: { preview: ConfiguredServerPreviewResponse['preview'] }) {
+export function PreviewResult({
+  preview,
+}: {
+  preview: ConfiguredServerPreviewResponse['preview'] | ConfiguredServerCreatePreviewResponse['preview'];
+}) {
   const connectivity = preview.connectivityCheck;
   const validationTone = preview.validation.status === 'valid' ? 'teal' : 'red';
   const connectivityTone =
@@ -27,7 +31,11 @@ export function PreviewResult({ preview }: { preview: ConfiguredServerPreviewRes
           Preview only - no config has been written.
         </Alert>
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
-          <DetailRow label="Target" value={preview.targetName} meta={`Proposed: ${preview.proposedTargetName}`} />
+          <DetailRow
+            label="Target"
+            value={preview.targetName}
+            meta={`Proposed: ${preview.proposedTargetName ?? preview.targetName}`}
+          />
           <DetailRow
             label="Validation"
             value={preview.validation.status}
@@ -42,11 +50,19 @@ export function PreviewResult({ preview }: { preview: ConfiguredServerPreviewRes
             value={preview.configChange.status}
             meta={`${preview.configChange.operation} / ${preview.configChange.changed ? 'changed' : 'unchanged'}`}
           />
-          <DetailRow
-            label="Reload"
-            value={preview.configChange.reload.status}
-            meta={preview.configChange.reload.error}
-          />
+          {'expectedReload' in preview ? (
+            <DetailRow
+              label="Expected reload"
+              value="Checked after creation"
+              meta="The runtime reports the reload outcome after configuration is written."
+            />
+          ) : (
+            <DetailRow
+              label="Reload"
+              value={preview.configChange.reload.status}
+              meta={preview.configChange.reload.error}
+            />
+          )}
           <DetailRow
             label="Backup"
             value={preview.configChange.backup.created ? 'created' : 'not created'}
@@ -69,6 +85,36 @@ export function PreviewResult({ preview }: { preview: ConfiguredServerPreviewRes
             </Stack>
           </Paper>
         </SimpleGrid>
+        {preview.toolSelection ? (
+          <Stack gap="xs">
+            <Group gap="xs">
+              <Text fw={800}>Tool impact</Text>
+              <Badge variant="outline">{preview.toolSelection.model}</Badge>
+            </Group>
+            <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="xs">
+              <DetailRow
+                label="Selection"
+                value={`${preview.toolSelection.counts.enabled} enabled / ${preview.toolSelection.counts.disabled} disabled`}
+                meta={`${preview.toolSelection.counts.unresolved} unresolved`}
+              />
+              <DetailRow
+                label="Approximate tokens"
+                value={`${preview.toolSelection.approximateTokens.before} to ${preview.toolSelection.approximateTokens.after}`}
+                meta={`Savings: ${preview.toolSelection.approximateTokens.savings}`}
+              />
+              <DetailRow
+                label="Runtime effect"
+                value={preview.toolSelection.effect === 'immediate' ? 'Immediate' : 'Deferred'}
+                meta={`${preview.toolSelection.changedTools.length} changed tools`}
+              />
+            </SimpleGrid>
+            {preview.toolSelection.requiresZeroEnabledConfirmation ? (
+              <Alert color="red" role="alert">
+                Applying this preview disables every currently observed tool.
+              </Alert>
+            ) : null}
+          </Stack>
+        ) : null}
         {preview.configChange.warnings?.map((warning) => (
           <DetailRow key={`warning:${warning}`} label="Warning" value={warning} />
         ))}

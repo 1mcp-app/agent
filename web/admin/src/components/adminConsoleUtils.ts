@@ -1,4 +1,5 @@
 import type {
+  ConfiguredServerCreatePreviewResponse,
   ConfiguredServerPreviewResponse,
   ConfiguredServerReadModel,
   OAuthServiceStatus,
@@ -67,7 +68,9 @@ export function serverActionState(server: ConfiguredServerReadModel, action: 'en
   );
 }
 
-export function connectivityMeta(preview: ConfiguredServerPreviewResponse['preview']): string | undefined {
+export function connectivityMeta(
+  preview: ConfiguredServerPreviewResponse['preview'] | ConfiguredServerCreatePreviewResponse['preview'],
+): string | undefined {
   const check = preview.connectivityCheck;
   if (check.status === 'skipped') {
     return connectivitySkipReason(check.reason);
@@ -117,6 +120,10 @@ export function riskFlagColor(flag: string): string {
       return 'grape';
     case 'template_risk':
       return 'orange';
+    case 'tool_visibility':
+      return 'yellow';
+    case 'tool_metadata':
+      return 'blue';
     default:
       return 'gray';
   }
@@ -132,6 +139,10 @@ export function riskFlagLabel(flag: string): string {
       return 'secret';
     case 'template_risk':
       return 'template risk';
+    case 'tool_visibility':
+      return 'tool visibility';
+    case 'tool_metadata':
+      return 'tool metadata';
     default:
       return flag;
   }

@@ -156,6 +156,7 @@ This is a dictionary of all the backend MCP servers the agent will manage.
 - `timeout` (number, optional): **Deprecated** fallback timeout in milliseconds. Used when specific timeouts are not set. New configurations should use `connectionTimeout` and `requestTimeout`.
 - `enabled` (boolean, optional): Set to `false` to disable the server. Defaults to `true`.
 - `disabledTools` (array of strings, optional): Hide selected tools from this server without disabling the entire server.
+- `toolDescriptionOverrides` (object, optional): Replace upstream tool descriptions by logical server-local tool name.
 
 **HTTP Transport Properties:**
 
@@ -250,7 +251,7 @@ This is a dictionary of all the backend MCP servers the agent will manage.
 }
 ```
 
-### Disabling Individual Tools
+### Configuring Individual Tools
 
 Use `disabledTools` when a server should stay enabled but selected tools should be hidden:
 
@@ -260,13 +261,18 @@ Use `disabledTools` when a server should stay enabled but selected tools should 
     "filesystem": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
-      "disabledTools": ["write_file"]
+      "disabledTools": ["write_file"],
+      "toolDescriptionOverrides": {
+        "read_file": "Read a file from the approved workspace root"
+      }
     }
   }
 }
 ```
 
 Disabled tools are per-server only. Use logical server-local names such as `write_file`; runtime filtering also recognizes qualified names like `filesystem_1mcp_write_file`, but logical names are easier to maintain.
+
+`toolDescriptionOverrides` changes the description exposed through full `tools/list`, lazy tool discovery and schema inspection, REST capability views, and Admin. It does not mutate the upstream server or change the tool input schema, annotations, or execution route. Remove a key, or use **Reset** in Admin, to inherit the upstream description again. Empty names and blank descriptions are rejected.
 
 Manage this field with [`mcp tools`](/commands/mcp/tools):
 
@@ -278,7 +284,11 @@ npx -y @1mcp/agent mcp tools list filesystem --disabled
 
 The `mcp tools` list, enable, and disable subcommands update `mcp.json`. A running `1mcp serve` instance picks up the change through config hot reload.
 
-If the same server name exists in both `mcpTemplates` and `mcpServers`, the template entry is authoritative. Tool enable/disable commands update `mcpTemplates.<name>.disabledTools` and leave any stale `mcpServers.<name>.disabledTools` value unchanged.
+Admin uses the same `disabledTools` and `toolDescriptionOverrides` fields. The editor shows the observed upstream inventory, effective descriptions, per-tool token estimates, search/filter controls, and visible-row bulk actions. Entries retained in configuration after a tool disappears remain visible as unresolved so they can be repaired or removed. Preview reports enabled/disabled counts and the approximate token change; applying a zero-enabled result requires explicit confirmation. These metadata changes propagate to connected clients without restarting the outbound server.
+
+For a Template Server, Admin shows the union observed across active instances and marks tools seen in only some instances. The selection and description rules are stored on the template definition and inherited by future instances; `disabledTools` is therefore a denylist, so newly introduced tool names remain enabled unless explicitly disabled.
+
+If the same server name exists in both `mcpTemplates` and `mcpServers`, the template entry is authoritative. Tool enable/disable commands update `mcpTemplates.<name>.disabledTools` and leave any stale `mcpServers.<name>.disabledTools` value unchanged. Direct config edits and Admin remain interoperable because both persist the same fields.
 
 ---
 

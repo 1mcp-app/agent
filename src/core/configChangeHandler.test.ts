@@ -1,4 +1,8 @@
 import { ConfigChangeType, ConfigManager } from '@src/config/configManager.js';
+import {
+  publishLastConfiguredToolSnapshot,
+  readLastConfiguredToolSnapshot,
+} from '@src/core/capabilities/configuredToolSnapshot.js';
 import { ConfigChangeHandler } from '@src/core/configChangeHandler.js';
 import logger from '@src/logger/logger.js';
 
@@ -20,6 +24,7 @@ vi.mock('@src/core/server/serverManager.js', () => ({
       getTemplateServerManager: vi.fn().mockReturnValue({
         rebuildTemplateIndex: vi.fn(),
       }),
+      getInstructionAggregator: vi.fn().mockReturnValue(undefined),
     },
   },
 }));
@@ -85,14 +90,19 @@ describe('ConfigChangeHandler', () => {
         templateServers,
         errors: [],
       }));
+      const { ServerManager } = await import('@src/core/server/serverManager.js');
+      vi.mocked(ServerManager.current.getTemplateServerManager().rebuildTemplateIndex).mockReturnValue({
+        toolMetadataChanged: true,
+      });
+      const notify = vi.spyOn(configChangeHandler as any, 'sendListChangedNotifications').mockResolvedValue(undefined);
       const changeHandler = (mockConfigManager.on as any).mock.calls[0][1];
 
       await changeHandler([]);
 
-      const { ServerManager } = await import('@src/core/server/serverManager.js');
       expect(ServerManager.current.getTemplateServerManager().rebuildTemplateIndex).toHaveBeenCalledWith({
         mcpTemplates: templateServers,
       });
+      expect(notify).toHaveBeenCalledOnce();
     });
 
     it('preserves running template instances when declared config validation fails', async () => {
@@ -175,6 +185,19 @@ describe('ConfigChangeHandler', () => {
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
       expect(ServerManager.current.unloadMcpServer).toHaveBeenCalledWith('removed-server');
+    });
+
+    it('clears the retained tool snapshot when unloading a removed server fails', async () => {
+      publishLastConfiguredToolSnapshot('removed-server', [{ name: 'stale', inputSchema: { type: 'object' } }]);
+      const { ServerManager } = await import('@src/core/server/serverManager.js');
+      (ServerManager.current.unloadMcpServer as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new Error('Unload failed'),
+      );
+      const changeHandler = (mockConfigManager.on as any).mock.calls[0][1];
+
+      await changeHandler([{ serverName: 'removed-server', type: ConfigChangeType.REMOVED }]);
+
+      expect(readLastConfiguredToolSnapshot('removed-server')).toEqual([]);
     });
   });
 
@@ -960,6 +983,40 @@ describe('ConfigChangeHandler', () => {
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
       expect(ServerManager.current.loadMcpServer).not.toHaveBeenCalled();
+    });
+
+    it('refreshes instruction metadata without restarting for an override-only change', async () => {
+      const runtimeConfiguration = {
+        configuredTargets: {
+          mcpServers: { 'test-server': { command: 'node', instructionOverride: 'replacement' } },
+          mcpTemplates: {},
+        },
+      };
+      const setRuntimeInstructionConfiguration = vi.fn();
+      const changes = [
+        {
+          serverName: 'test-server',
+          type: ConfigChangeType.MODIFIED,
+          fieldsChanged: ['instructionOverride'],
+        },
+      ];
+      mockConfigManager.getTransportConfig = vi.fn(() => runtimeConfiguration.configuredTargets.mcpServers);
+      mockConfigManager.getRuntimeInstructionConfiguration = vi.fn(() => runtimeConfiguration);
+
+      const { ServerManager } = await import('@src/core/server/serverManager.js');
+      vi.mocked(ServerManager.current.getInstructionAggregator).mockReturnValue({
+        setRuntimeInstructionConfiguration,
+      } as any);
+
+      const changeHandler = (mockConfigManager.on as any).mock.calls[0][1];
+      await changeHandler(changes);
+
+      expect(ServerManager.current.loadMcpServer).not.toHaveBeenCalled();
+      expect(ServerManager.current.updateServerMetadata).toHaveBeenCalledWith(
+        'test-server',
+        runtimeConfiguration.configuredTargets.mcpServers['test-server'],
+      );
+      expect(setRuntimeInstructionConfiguration).toHaveBeenCalledWith(runtimeConfiguration);
     });
 
     it('should return true for mixed field changes (including tags)', async () => {

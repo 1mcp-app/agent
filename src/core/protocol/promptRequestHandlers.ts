@@ -4,44 +4,54 @@ import {
   GetPromptRequestSchema,
   ListPromptsRequest,
   ListPromptsRequestSchema,
+  type Prompt,
 } from '@modelcontextprotocol/sdk/types.js';
 
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
-import { byCapabilities } from '@src/core/filtering/clientFiltering.js';
-import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { InboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 import { buildUri, parseUri } from '@src/utils/core/parsing.js';
 import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
-import { handlePagination } from '@src/utils/ui/pagination.js';
 
-import { filterConnectionsForSession, getRequestSession, resolveOutboundConnection } from './requestHandlerUtils.js';
+import {
+  createProtocolCapabilityCatalog,
+  getRequestSession,
+  resolveCapabilityVisibility,
+  resolveOutboundConnection,
+} from './requestHandlerUtils.js';
 
 export function registerPromptHandlers(outboundConns: OutboundConnections, inboundConn: InboundConnection): void {
   const sessionId = getRequestSession(inboundConn);
+  const catalog = createProtocolCapabilityCatalog(outboundConns);
 
   inboundConn.server.setRequestHandler(
     ListPromptsRequestSchema,
     withErrorHandling(async (request: ListPromptsRequest) => {
-      const sessionFilteredConns = filterConnectionsForSession(outboundConns, sessionId);
-      const capabilityFilteredClients = byCapabilities({ prompts: {} })(sessionFilteredConns);
-      const filteredClients = FilteringService.getFilteredConnections(capabilityFilteredClients, inboundConn);
-
-      const result = await handlePagination(
-        filteredClients,
-        request.params || {},
-        (client, params, opts) => client.listPrompts(params as ListPromptsRequest['params'], opts),
-        (outboundConn, result) =>
-          result.prompts?.map((prompt) => ({
-            ...prompt,
-            name: buildUri(outboundConn.name, prompt.name, MCP_URI_SEPARATOR),
-          })) ?? [],
-        inboundConn.enablePagination ?? false,
-      );
+      const visibility = resolveCapabilityVisibility(outboundConns, inboundConn, sessionId, 'prompts');
+      const result = await catalog.listVisibleCapabilityPages<Prompt>({
+        kind: 'prompts',
+        visibility,
+        cursor: request.params?.cursor,
+        list: async (outboundConn, cursor, serverName) => {
+          const upstream = await outboundConn.client.listPrompts(
+            { cursor },
+            { timeout: getRequestTimeout(outboundConn.transport) },
+          );
+          return {
+            items: (upstream.prompts ?? []).map((prompt) => ({
+              ...prompt,
+              name: buildUri(serverName, prompt.name, MCP_URI_SEPARATOR),
+            })),
+            nextCursor: upstream.nextCursor,
+          };
+        },
+        enablePagination: inboundConn.enablePagination ?? false,
+      });
 
       return {
         prompts: result.items,
         nextCursor: result.nextCursor,
+        _meta: result._meta,
       };
     }, 'Error listing prompts'),
   );

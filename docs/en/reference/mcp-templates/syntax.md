@@ -358,6 +358,8 @@ When a client connects, 1MCP collects context from:
 - System information (user details)
 - Connection details (transport, client info)
 
+Collecting or decoding context does not authorize template rendering. In the default `verified` trust mode, first-party local Client Surfaces attach a Runtime Scope proof; unsigned clients remain connected with static servers only. See [Security Features](/reference/security#template-context-trust).
+
 ### Step 2: Template Lookup
 
 1MCP looks up templates from `mcpTemplates` in `mcp.json` that match the client's filter criteria (tags, preset).

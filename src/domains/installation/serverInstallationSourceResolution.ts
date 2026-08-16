@@ -145,6 +145,8 @@ function createDirectServerConfig(source: DirectInstallationSource): MCPServerPa
   const common = {
     tags: source.tags,
     timeout: source.timeout,
+    connectionTimeout: source.connectionTimeout,
+    requestTimeout: source.requestTimeout,
     disabled: source.enabled === undefined ? undefined : !source.enabled,
   };
 

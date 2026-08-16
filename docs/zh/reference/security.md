@@ -87,6 +87,14 @@
 - **机器人排除**：防止索引 OAuth 端点
 - **时序攻击预防**：身份验证端点的随机延迟
 
+## 模板上下文信任
+
+请求上下文属于执行输入，因为模板值可以进入后端的 `command`、`args`、`cwd` 和 `env`。默认的 `verified` 策略只允许第一方本地客户端入口使用所选 Runtime Scope 的仅所有者可读能力为上下文签名后进行渲染。分离式证明会绑定可读上下文哈希、`runtimeScopeId` 与规范请求会话。
+
+未签名客户端不会被断开，仍可访问静态服务器。运维人员可以选择 `disabled` 忽略所有模板上下文，或选择 `legacy` 恢复未签名渲染。`legacy` 对不受信任客户端是不安全的；HTTP 监听非回环地址时必须同时提供 `--confirm-untrusted-template-context`。
+
+常规审计日志会包含上下文来源、项目名称与路径、会话、上下文哈希、Runtime Scope 身份和验证结果。环境值、自定义值以及用户 home/email/shell 均会脱敏。通用 HTTP 日志不会记录原始 base64 上下文或证明签名。
+
 ## 审计日志记录
 
 ### 全面的审计跟踪 (`src/utils/scopeValidation.ts`)

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react';
 
 import { AdminApiError, createConfiguredServerApplyIdempotencyKey } from '../api/adminApi';
-import type { AdminApiClient, AdminSession } from '../api/adminApi';
+import type { AdminApiClient, AdminSession, ConfiguredServerTargetIdentity } from '../api/adminApi';
 import type { ConfirmationRequest } from '../components/ConfirmationDialogProvider';
+import { useConfiguredServerMutationLifecycle } from '../configuredServerMutation/useConfiguredServerMutationLifecycle';
 import { type SecretDraftState, selectedTransportType } from './configuredServerEditDraft';
 import {
   configuredServerEditDraft,
@@ -21,11 +22,15 @@ export interface ConfiguredServerEditBrowser {
 
 export interface ConfiguredServerEditModel {
   state: ConfiguredServerEditState;
-  open(serverId: string): void | Promise<void>;
+  open(server: string | ConfiguredServerTargetIdentity): void | Promise<void>;
   close(pathname?: string): Promise<boolean>;
   changeField(fieldPath: string[], value: unknown): void;
   changeSecret(fieldPath: string[], value: SecretDraftState[string]): void;
   changeTransportOverride(key: string, clear: boolean): void;
+  changeInstructionOverride(mode: 'upstream' | 'replace' | 'suppress', value?: string): void;
+  changeTool(name: string, change: { enabled?: boolean; descriptionOverride?: string }): void;
+  changeVisibleTools(names: string[], enabled: boolean): void;
+  changeToolModel(model: string): void | Promise<void>;
   preview(connectivityCheck?: 'auto' | 'manual'): void | Promise<void>;
   apply(): void | Promise<void>;
 }
@@ -50,24 +55,22 @@ export function useConfiguredServerEdit({
   const sessionRef = useRef(session);
   const apiRef = useRef(api);
   const onUnauthenticatedRef = useRef(onUnauthenticated);
-  const detailRequestRef = useRef(0);
-  const previewRequestRef = useRef(0);
-  const applyRequestRef = useRef(0);
-  const applyInteractionRef = useRef(false);
-  const applyAttemptRef = useRef<{ previewFingerprint: string; idempotencyKey: string }>();
+  const toolModelRequestRef = useRef(0);
   stateRef.current = state;
   sessionRef.current = session;
   apiRef.current = api;
   onUnauthenticatedRef.current = onUnauthenticated;
 
-  const reset = useCallback(() => {
-    detailRequestRef.current += 1;
-    previewRequestRef.current += 1;
-    applyRequestRef.current += 1;
-    applyInteractionRef.current = false;
-    applyAttemptRef.current = undefined;
-    dispatch({ type: 'closed' });
-  }, []);
+  const {
+    loadRequestRef: detailRequestRef,
+    previewRequestRef,
+    applyRequestRef,
+    applyInteractionRef,
+    applyAttemptRef,
+    invalidatePreview,
+    invalidateApply,
+    reset,
+  } = useConfiguredServerMutationLifecycle(() => dispatch({ type: 'closed' }));
 
   const handleUnauthenticated = useCallback(
     (error: unknown) => {
@@ -80,18 +83,18 @@ export function useConfiguredServerEdit({
   );
 
   const load = useCallback(
-    async (serverId: string) => {
+    async (server: string | ConfiguredServerTargetIdentity) => {
+      const serverId = typeof server === 'string' ? server : server.id;
       const activeSession = sessionRef.current;
       if (!activeSession) return;
-      applyRequestRef.current += 1;
-      applyAttemptRef.current = undefined;
+      invalidateApply();
       const sessionKey = activeSession.csrfToken;
       const requestId = detailRequestRef.current + 1;
       detailRequestRef.current = requestId;
-      previewRequestRef.current += 1;
+      invalidatePreview();
       dispatch({ type: 'detailLoadStarted', serverId });
       try {
-        const detail = await apiRef.current.getConfiguredServerDetail(serverId);
+        const detail = await apiRef.current.getConfiguredServerDetail(server);
         if (requestId !== detailRequestRef.current || sessionRef.current?.csrfToken !== sessionKey) return;
         dispatch({ type: 'detailLoaded', serverId, detail });
       } catch (error) {
@@ -104,22 +107,22 @@ export function useConfiguredServerEdit({
         dispatch({ type: 'detailFailed', serverId, message: `Server detail failed: ${failureMessage(error)}` });
       }
     },
-    [handleUnauthenticated],
+    [handleUnauthenticated, invalidateApply, invalidatePreview],
   );
 
   const open = useCallback(
-    async (serverId: string) => {
+    async (server: string | ConfiguredServerTargetIdentity) => {
       const current = stateRef.current;
       if (
         current.status === 'loaded' &&
-        current.serverId !== serverId &&
+        !sameConfiguredServerTarget(current, server) &&
         current.dirty &&
         !(await confirmDiscard(browser))
       ) {
         return;
       }
-      browser.push(serverPath(serverId));
-      await load(serverId);
+      browser.push(serverPath(server));
+      await load(server);
     },
     [browser, load],
   );
@@ -137,23 +140,84 @@ export function useConfiguredServerEdit({
     [browser, reset],
   );
 
-  const changeField = useCallback((fieldPath: string[], value: unknown) => {
-    previewRequestRef.current += 1;
-    applyAttemptRef.current = undefined;
-    dispatch({ type: 'fieldChanged', fieldPath, value });
-  }, []);
+  const changeField = useCallback(
+    (fieldPath: string[], value: unknown) => {
+      invalidatePreview();
+      dispatch({ type: 'fieldChanged', fieldPath, value });
+    },
+    [invalidatePreview],
+  );
 
-  const changeSecret = useCallback((fieldPath: string[], value: SecretDraftState[string]) => {
-    previewRequestRef.current += 1;
-    applyAttemptRef.current = undefined;
-    dispatch({ type: 'secretChanged', fieldPath, value });
-  }, []);
+  const changeSecret = useCallback(
+    (fieldPath: string[], value: SecretDraftState[string]) => {
+      invalidatePreview();
+      dispatch({ type: 'secretChanged', fieldPath, value });
+    },
+    [invalidatePreview],
+  );
 
-  const changeTransportOverride = useCallback((key: string, clear: boolean) => {
-    previewRequestRef.current += 1;
-    applyAttemptRef.current = undefined;
-    dispatch({ type: 'transportOverrideChanged', key, clear });
-  }, []);
+  const changeTransportOverride = useCallback(
+    (key: string, clear: boolean) => {
+      invalidatePreview();
+      dispatch({ type: 'transportOverrideChanged', key, clear });
+    },
+    [invalidatePreview],
+  );
+
+  const changeInstructionOverride = useCallback(
+    (mode: 'upstream' | 'replace' | 'suppress', value?: string) => {
+      invalidatePreview();
+      dispatch({ type: 'instructionOverrideChanged', mode, value });
+    },
+    [invalidatePreview],
+  );
+
+  const changeTool = useCallback(
+    (name: string, change: { enabled?: boolean; descriptionOverride?: string }) => {
+      invalidatePreview();
+      dispatch({ type: 'toolChanged', name, ...change });
+    },
+    [invalidatePreview],
+  );
+
+  const changeVisibleTools = useCallback(
+    (names: string[], enabled: boolean) => {
+      invalidatePreview();
+      dispatch({ type: 'toolsBulkChanged', names, enabled });
+    },
+    [invalidatePreview],
+  );
+
+  const changeToolModel = useCallback(
+    async (model: string) => {
+      const current = stateRef.current;
+      if (current.status !== 'loaded' || current.applyBusy || model === current.toolModel) return;
+      const activeSession = sessionRef.current;
+      if (!activeSession) return;
+      const sessionKey = activeSession.csrfToken;
+      const requestId = toolModelRequestRef.current + 1;
+      toolModelRequestRef.current = requestId;
+      invalidatePreview();
+      try {
+        const detail = await apiRef.current.getConfiguredServerDetail(current.serverId, model);
+        if (
+          requestId !== toolModelRequestRef.current ||
+          sessionRef.current?.csrfToken !== sessionKey ||
+          stateRef.current.status !== 'loaded' ||
+          stateRef.current.serverId !== current.serverId
+        ) {
+          return;
+        }
+        if (detail.toolInventory) dispatch({ type: 'toolInventoryRecalculated', inventory: detail.toolInventory });
+      } catch (error) {
+        if (requestId !== toolModelRequestRef.current || sessionRef.current?.csrfToken !== sessionKey) return;
+        if (!handleUnauthenticated(error)) {
+          dispatch({ type: 'previewFailed', message: `Token estimate failed: ${failureMessage(error)}` });
+        }
+      }
+    },
+    [handleUnauthenticated, invalidatePreview],
+  );
 
   const preview = useCallback(
     async (connectivityCheck: 'auto' | 'manual' = 'auto') => {
@@ -167,9 +231,10 @@ export function useConfiguredServerEdit({
       dispatch({ type: 'previewStarted' });
       try {
         const response = await apiRef.current.previewConfiguredServerEdit({
-          name: serverId,
+          target: configuredServerTarget(current),
           csrfToken: sessionKey,
           connectivityCheck,
+          ...(current.detail.toolInventory ? { model: current.toolModel } : {}),
           edit: configuredServerEditDraft(current),
         });
         if (requestId !== previewRequestRef.current || sessionRef.current?.csrfToken !== sessionKey) return;
@@ -201,15 +266,24 @@ export function useConfiguredServerEdit({
       const previewResult = current.preview;
       const riskFlags = Array.from(new Set(previewResult.diff.flatMap((entry) => entry.riskFlags)));
       const overridingConnectivityFailure = previewResult.connectivityCheck.status === 'failed';
+      const disablingAllTools = previewResult.toolSelection?.requiresZeroEnabledConfirmation === true;
       const confirmed = await browser.confirm({
-        title: overridingConnectivityFailure
-          ? `Apply despite failed connectivity to ${previewResult.proposedTargetName}?`
-          : `Apply changes to ${previewResult.proposedTargetName}?`,
-        message: overridingConnectivityFailure
-          ? 'The bounded connectivity check failed. Applying may make this configured server unavailable.'
-          : 'This writes the validated configuration and reloads the Runtime Scope.',
-        confirmLabel: overridingConnectivityFailure ? 'Apply despite failure' : 'Apply changes',
-        tone: overridingConnectivityFailure ? 'danger' : undefined,
+        title: disablingAllTools
+          ? `Disable all observed tools for ${previewResult.proposedTargetName}?`
+          : overridingConnectivityFailure
+            ? `Apply despite failed connectivity to ${previewResult.proposedTargetName}?`
+            : `Apply changes to ${previewResult.proposedTargetName}?`,
+        message: disablingAllTools
+          ? 'No currently observed tools will remain enabled. Newly discovered tools will still be enabled by default.'
+          : overridingConnectivityFailure
+            ? 'The bounded connectivity check failed. Applying may make this configured server unavailable.'
+            : 'This writes the validated configuration and reloads the Runtime Scope.',
+        confirmLabel: disablingAllTools
+          ? 'Disable all tools'
+          : overridingConnectivityFailure
+            ? 'Apply despite failure'
+            : 'Apply changes',
+        tone: disablingAllTools || overridingConnectivityFailure ? 'danger' : undefined,
         details: [
           { label: 'Current target', value: previewResult.targetName },
           { label: 'Final target', value: previewResult.proposedTargetName },
@@ -237,11 +311,12 @@ export function useConfiguredServerEdit({
       let response: Awaited<ReturnType<AdminApiClient['applyConfiguredServerEdit']>>;
       try {
         response = await apiRef.current.applyConfiguredServerEdit({
-          name: serverId,
+          target: configuredServerTarget(current),
           csrfToken: sessionKey,
           idempotencyKey: attempt.idempotencyKey,
           edit: configuredServerEditDraft(current),
           previewFingerprint: previewResult.previewFingerprint,
+          ...(current.detail.toolInventory ? { model: current.toolModel } : {}),
           confirmationFacts: {
             previewConfirmed: previewResult.previewFingerprint,
             ...(previewResult.proposedTargetName !== previewResult.targetName
@@ -250,6 +325,9 @@ export function useConfiguredServerEdit({
             ...(riskFlags.includes('connection_critical') ? { connectionCriticalConfirmed: true } : {}),
             ...(riskFlags.includes('secret') ? { secretChangeConfirmed: true } : {}),
             ...(overridingConnectivityFailure ? { connectivityFailureOverrideConfirmed: true } : {}),
+            ...(previewResult.toolSelection?.requiresZeroEnabledConfirmation
+              ? { zeroEnabledToolsConfirmed: true }
+              : {}),
           },
         });
       } catch (error) {
@@ -278,7 +356,11 @@ export function useConfiguredServerEdit({
       }
 
       try {
-        const detail = await apiRef.current.getConfiguredServerDetail(finalName);
+        const detail = await apiRef.current.getConfiguredServerDetail(
+          current.detail.server.source === 'mcpTemplates'
+            ? { source: 'mcpTemplates', id: finalName }
+            : { source: 'mcpServers', id: finalName },
+        );
         if (requestId !== applyRequestRef.current || sessionRef.current?.csrfToken !== sessionKey) return;
         dispatch({ type: 'applySucceeded', serverId: finalName, detail, result: response.result });
       } catch (error) {
@@ -300,8 +382,8 @@ export function useConfiguredServerEdit({
       reset();
       return;
     }
-    const serverId = serverIdFromPath(browser.pathname());
-    if (serverId) void load(serverId);
+    const server = serverTargetFromPath(browser.pathname());
+    if (server) void load(server);
     else reset();
   }, [browser, load, reset, session?.csrfToken]);
 
@@ -311,14 +393,14 @@ export function useConfiguredServerEdit({
         void (async () => {
           const current = stateRef.current;
           const requestedPath = browser.pathname();
-          const nextServerId = serverIdFromPath(requestedPath);
-          const changingTarget = current.status === 'loaded' && nextServerId !== current.serverId;
+          const nextServer = serverTargetFromPath(requestedPath);
+          const changingTarget = current.status === 'loaded' && !sameConfiguredServerTarget(current, nextServer);
           if (changingTarget && current.dirty) {
-            browser.replace(serverPath(current.serverId));
+            browser.replace(serverPath(current.detail.server.target));
             if (!(await confirmDiscard(browser))) return;
             browser.replace(requestedPath);
           }
-          if (nextServerId) void load(nextServerId);
+          if (nextServer) void load(nextServer);
           else reset();
           onPathCommitted?.(requestedPath);
         })();
@@ -326,7 +408,20 @@ export function useConfiguredServerEdit({
     [browser, load, onPathCommitted, reset],
   );
 
-  return { state, open, close, changeField, changeSecret, changeTransportOverride, preview, apply };
+  return {
+    state,
+    open,
+    close,
+    changeField,
+    changeSecret,
+    changeTransportOverride,
+    changeInstructionOverride,
+    changeTool,
+    changeVisibleTools,
+    changeToolModel,
+    preview,
+    apply,
+  };
 }
 
 export function configuredServerApplyEligibility(state: ConfiguredServerEditState): {
@@ -341,6 +436,12 @@ export function configuredServerApplyEligibility(state: ConfiguredServerEditStat
   if (!state.preview.configChange.changed || state.preview.diff.length === 0) {
     return { eligible: false, reason: 'The preview contains no changes.' };
   }
+  if (
+    state.detail.server.source === 'mcpTemplates' &&
+    state.preview.diff.some((entry) => entry.fieldPath.join('.') !== 'instructionOverride')
+  ) {
+    return { eligible: false, reason: 'Template targets only support instruction overrides.' };
+  }
   const connectionCritical = state.preview.diff.some((entry) => entry.riskFlags.includes('connection_critical'));
   const transportType = selectedTransportType(state.fieldDraft, state.detail.server.transport.type);
   const proposedEnabled = configuredServerEditDraft(state).enabled ?? state.detail.server.enabled;
@@ -354,6 +455,20 @@ export function configuredServerApplyEligibility(state: ConfiguredServerEditStat
     return { eligible: false, reason: 'A connectivity check must run before applying these changes.' };
   }
   return { eligible: true };
+}
+
+function configuredServerTarget(state: Extract<ConfiguredServerEditState, { status: 'loaded' }>) {
+  return { source: state.detail.server.source, id: state.serverId };
+}
+
+function sameConfiguredServerTarget(
+  state: Extract<ConfiguredServerEditState, { status: 'loaded' }>,
+  target: string | ConfiguredServerTargetIdentity | null,
+): boolean {
+  if (!target) return false;
+  const source = typeof target === 'string' ? 'mcpServers' : target.source;
+  const id = typeof target === 'string' ? target : target.id;
+  return state.serverId === id && state.detail.server.source === source;
 }
 
 function isStalePreviewFailure(error: unknown): boolean {
@@ -378,18 +493,27 @@ function failureMessage(error: unknown): string {
   throw error;
 }
 
-function serverPath(serverId: string): string {
-  return `/admin/servers/${encodeURIComponent(serverId)}`;
+function serverPath(server: string | ConfiguredServerTargetIdentity): string {
+  if (typeof server === 'string') return `/admin/servers/${encodeURIComponent(server)}`;
+  if (server.source === 'mcpServers') return `/admin/servers/${encodeURIComponent(server.id)}`;
+  return `/admin/servers/${server.source}/${encodeURIComponent(server.id)}`;
 }
 
-function serverIdFromPath(pathname: string): string | null {
+function serverTargetFromPath(pathname: string): string | ConfiguredServerTargetIdentity | null {
   const prefix = '/admin/servers/';
   if (!pathname.startsWith(prefix)) return null;
   const encoded = pathname.slice(prefix.length).split('#', 1)[0];
   if (!encoded) return null;
+  let decoded: string;
   try {
-    return decodeURIComponent(encoded);
+    decoded = decodeURIComponent(encoded);
   } catch {
-    return encoded;
+    decoded = encoded;
   }
+  if (decoded === 'new') return null;
+  const [source, ...nameParts] = decoded.split('/');
+  if ((source === 'mcpServers' || source === 'mcpTemplates') && nameParts.length > 0) {
+    return { source, id: nameParts.join('/') };
+  }
+  return decoded;
 }

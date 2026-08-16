@@ -175,6 +175,28 @@ describe('ConfigLoader', () => {
 
       expect(result.disabledTools).toEqual(['write_file', 'delete_file']);
     });
+
+    it('should validate non-empty tool description overrides', () => {
+      const result = loader.validateServerConfig('described-server', {
+        command: 'echo',
+        toolDescriptionOverrides: {
+          read_file: 'Read a file from the workspace',
+        },
+      });
+
+      expect(result.toolDescriptionOverrides).toEqual({
+        read_file: 'Read a file from the workspace',
+      });
+    });
+
+    it('should reject whitespace-only tool description overrides', () => {
+      expect(() =>
+        loader.validateServerConfig('described-server', {
+          command: 'echo',
+          toolDescriptionOverrides: { read_file: '   ' },
+        }),
+      ).toThrow(/Invalid configuration for server 'described-server'/);
+    });
   });
 
   describe('getTransportConfig', () => {
@@ -417,6 +439,20 @@ minServers = 2
       expect(result.auth?.sessionTtl).toBe(720);
       expect(result.asyncLoading?.enabled).toBe(true);
       expect(result.asyncLoading?.minServers).toBe(2);
+    });
+
+    it('loads template context trust mode from config.toml', async () => {
+      await fsPromises.writeFile(join(tempConfigDir, 'config.toml'), '[templateContext]\ntrust = "legacy"\n');
+
+      const result = loader.loadAppConfigFromToml();
+
+      expect(result.templateContext?.trust).toBe('legacy');
+    });
+
+    it('rejects an invalid template context trust mode', async () => {
+      await fsPromises.writeFile(join(tempConfigDir, 'config.toml'), '[templateContext]\ntrust = "sometimes"\n');
+
+      expect(loader.loadAppConfigFromToml()).toEqual({});
     });
 
     it('accepts the legacy lazy mode while warning that enabled controls runtime behavior', async () => {

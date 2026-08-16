@@ -4,6 +4,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
 import { MCP_SERVER_NAME } from '@src/constants.js';
 import { DEFAULT_MAX_CONCURRENT_LOADS } from '@src/constants/mcp.js';
+import { registerCapabilityPaginationNotifications } from '@src/core/capabilities/capabilityPagination.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import { ParallelExecutor } from '@src/core/loading/parallelExecutor.js';
 import { BackendStdioSupervisor, type BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
@@ -124,7 +125,7 @@ export class ClientManager extends EventEmitter {
       const cleanName = connectionInfo?.name || name;
 
       if (this.instructionAggregator) {
-        this.instructionAggregator.setInstructions(cleanName, instructions);
+        this.instructionAggregator.setInstructions({ source: 'mcpServers', name: cleanName }, instructions, name);
       }
 
       if (instructions?.trim()) {
@@ -175,7 +176,7 @@ export class ClientManager extends EventEmitter {
       }
       // Use cleanName for removal to match the key used during caching
       const cleanName = clientInfo?.name || name;
-      this.instructionAggregator?.removeServer(cleanName);
+      this.instructionAggregator?.removeServer({ source: 'mcpServers', name: cleanName }, name);
       logger.info(`Client ${name} disconnected`);
     };
 
@@ -190,6 +191,11 @@ export class ClientManager extends EventEmitter {
         this.recoverFromSessionLoss(name, client);
       }
     };
+
+    const connection = this.outboundConns.get(name);
+    if (connection?.client === client) {
+      registerCapabilityPaginationNotifications(this.outboundConns, connection);
+    }
   }
 
   /**
@@ -622,7 +628,7 @@ export class ClientManager extends EventEmitter {
 
       this.outboundConns.delete(name);
       delete this.transports[name];
-      this.instructionAggregator?.removeServer(name);
+      this.instructionAggregator?.removeServer({ source: 'mcpServers', name: clientInfo.name || name }, name);
 
       logger.info(`Client ${name} removed successfully`);
     } catch (error) {
@@ -694,7 +700,7 @@ export class ClientManager extends EventEmitter {
           logger.warn(`Error closing client during shutdown for ${name}: ${errorMessage}`);
           await connection.transport.close().catch(() => undefined);
         }
-        this.instructionAggregator?.removeServer(connection.name);
+        this.instructionAggregator?.removeServer({ source: 'mcpServers', name: connection.name }, name);
       }),
     );
 
@@ -795,14 +801,14 @@ export class ClientManager extends EventEmitter {
         connection.capabilities = undefined;
         connection.instructions = undefined;
         if (snapshot.backendId.startsWith('static:')) {
-          this.instructionAggregator?.removeServer(connection.name);
+          this.instructionAggregator?.removeServer({ source: 'mcpServers', name: connection.name }, name);
         }
       } else if (snapshot.state === 'crash-loop') {
         connection.status = ClientStatus.CrashLoop;
         connection.capabilities = undefined;
         connection.instructions = undefined;
         if (snapshot.backendId.startsWith('static:')) {
-          this.instructionAggregator?.removeServer(connection.name);
+          this.instructionAggregator?.removeServer({ source: 'mcpServers', name: connection.name }, name);
         }
       } else if (snapshot.state === 'connected') {
         connection.status = ClientStatus.Connected;

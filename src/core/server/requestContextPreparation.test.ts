@@ -1,19 +1,19 @@
+import type { TrustedTemplateContext } from '@src/core/context/templateContextTrust.js';
 import type { MCPServerParams } from '@src/core/types/index.js';
-import type { ContextData } from '@src/types/context.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { prepareRequestContext, type RequestContextPreparationDependencies } from './requestContextPreparation.js';
 
 describe('requestContextPreparation', () => {
-  const context: ContextData = {
+  const context: TrustedTemplateContext = {
     version: '1.0.0',
     sessionId: 'context-session',
     project: { name: 'project', path: '/repo' },
     user: { uid: 'user-1', username: 'user' },
     environment: { variables: {} },
     timestamp: '2026-05-19T00:00:00.000Z',
-  };
+  } as TrustedTemplateContext;
 
   const templateConfig: MCPServerParams = {
     type: 'stdio',

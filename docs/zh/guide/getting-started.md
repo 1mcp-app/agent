@@ -329,7 +329,8 @@ curl -X POST http://localhost:3050/token \
 
 ### **您将实现**
 
-- ✅ 用于自动启动的 Systemd 服务
+- ✅ 用于自动启动的 Systemd 服务（Linux/macOS）
+- ✅ 用于自动启动的 Windows 任务计划程序任务（Windows）
 - ✅ 基本安全配置
 - ✅ 日志管理和轮换
 - ✅ 配置备份
@@ -399,6 +400,12 @@ sudo systemctl start 1mcp
 sudo systemctl status 1mcp
 ```
 
+### **Windows：任务计划程序**（仅 Windows）
+
+在 Windows 上，任务计划程序是持久 `1mcp serve` 守护进程的正确监管者。它提供开机触发启动、崩溃重启和非交互式登录——等价于 Linux 上的 systemd 服务。
+
+→ 独立二进制和 npm 路径、凭据处理、生命周期命令和故障排查的完整指南：**[Windows：任务计划程序](/zh/guide/advanced/windows-task-scheduler)**
+
 ### **步骤 3：基本监控** (5 分钟)
 
 ```bash
@@ -462,7 +469,7 @@ chmod +x ~/1mcp-backup.sh
 
 **🎉 成功指标**：
 
-- [ ] 1MCP 作为 systemd 服务运行
+- [ ] 1MCP 作为 systemd 服务运行（Linux/macOS）或 Windows 任务计划程序任务运行（Windows）
 - [ ] 服务在启动时自动启动
 - [ ] 健康检查脚本正常工作
 - [ ] 配置已备份

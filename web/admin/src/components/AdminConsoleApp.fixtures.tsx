@@ -4,18 +4,22 @@ import { render } from '@testing-library/react';
 import { useReducer } from 'react';
 
 import type { ConfiguredServerReadModel } from '../api/adminApi';
+import { createConfiguredServerCreateState } from '../configuredServerCreate/configuredServerCreateState';
+import type { ConfiguredServerCreateModel } from '../configuredServerCreate/useConfiguredServerCreate';
 import {
   type ConfiguredServerEditState,
   createConfiguredServerEditState,
   reduceConfiguredServerEditState,
 } from '../configuredServerEdit/configuredServerEditState';
 import type { ConfiguredServerEditModel } from '../configuredServerEdit/useConfiguredServerEdit';
+import type { InstructionTemplatesModel } from '../instructionTemplates/useInstructionTemplates';
 import type { AdminConsoleSessionModel } from '../session/AdminConsoleSessionModel';
 import type { AdminConsoleState } from '../state/adminConsoleState';
 import { createInitialState } from '../state/adminConsoleState';
 import { AdminConsoleApp } from './AdminConsoleApp';
 
 interface ConfiguredServerOverrides {
+  create?: ConfiguredServerCreateModel;
   editor?: ConfiguredServerEditState;
   mutate?: AdminConsoleSessionModel['configuredServers']['mutate'];
   open?: ConfiguredServerEditModel['open'];
@@ -23,6 +27,7 @@ interface ConfiguredServerOverrides {
   preview?: ConfiguredServerEditModel['preview'];
   apply?: ConfiguredServerEditModel['apply'];
   copy?: AdminConsoleSessionModel['configuredServers']['copy'];
+  changeInstructionOverride?: ConfiguredServerEditModel['changeInstructionOverride'];
 }
 
 interface SessionOverrides {
@@ -35,6 +40,7 @@ interface SessionOverrides {
   oauth?: Partial<AdminConsoleSessionModel['oauth']>;
   logs?: Partial<AdminConsoleSessionModel['logs']>;
   presets?: Partial<AdminConsoleSessionModel['presets']>;
+  instructions?: Partial<InstructionTemplatesModel>;
 }
 
 export function renderApp(state: AdminConsoleState, overrides: SessionOverrides = {}) {
@@ -59,6 +65,13 @@ function FixtureAdminConsoleApp({ state, overrides }: { state: AdminConsoleState
     changeField: (fieldPath, value) => editDispatch({ type: 'fieldChanged', fieldPath, value }),
     changeSecret: (fieldPath, value) => editDispatch({ type: 'secretChanged', fieldPath, value }),
     changeTransportOverride: (key, clear) => editDispatch({ type: 'transportOverrideChanged', key, clear }),
+    changeInstructionOverride: (mode, value) => {
+      editDispatch({ type: 'instructionOverrideChanged', mode, value });
+      configuredServers?.changeInstructionOverride?.(mode, value);
+    },
+    changeTool: (name, change) => editDispatch({ type: 'toolChanged', name, ...change }),
+    changeVisibleTools: (names, enabled) => editDispatch({ type: 'toolsBulkChanged', names, enabled }),
+    changeToolModel: () => undefined,
     preview: configuredServers?.preview ?? (() => undefined),
     apply: configuredServers?.apply ?? (() => undefined),
   };
@@ -81,6 +94,7 @@ export function fixtureSession(
       navigate: overrides.navigation?.navigate ?? (() => undefined),
     },
     configuredServers: {
+      create: overrides.configuredServers?.create ?? staticConfiguredServerCreateModel(),
       edit,
       mutate: overrides.configuredServers?.mutate ?? (() => undefined),
       copy: overrides.configuredServers?.copy ?? (() => undefined),
@@ -116,6 +130,56 @@ export function fixtureSession(
       save: overrides.presets?.save ?? (() => true),
       delete: overrides.presets?.delete ?? (() => undefined),
     },
+    instructions: {
+      items: overrides.instructions?.items ?? [],
+      activeIdentity: overrides.instructions?.activeIdentity,
+      selectionExplicit: overrides.instructions?.selectionExplicit ?? false,
+      configFingerprint: overrides.instructions?.configFingerprint ?? '',
+      legacyAvailable: overrides.instructions?.legacyAvailable ?? false,
+      renderFailures: overrides.instructions?.renderFailures ?? {},
+      selectedIdentity: overrides.instructions?.selectedIdentity,
+      draft: overrides.instructions?.draft ?? { identity: '', variants: { initialization: '', cli: '' } },
+      surface: overrides.instructions?.surface ?? 'initialize',
+      selection: overrides.instructions?.selection ?? { mode: 'all' },
+      requestContext: overrides.instructions?.requestContext ?? '',
+      preview: overrides.instructions?.preview ?? null,
+      activationValidation: overrides.instructions?.activationValidation ?? null,
+      previewStale: overrides.instructions?.previewStale ?? false,
+      dirty: overrides.instructions?.dirty ?? false,
+      busy: overrides.instructions?.busy ?? false,
+      error: overrides.instructions?.error ?? null,
+      reloadWarning: overrides.instructions?.reloadWarning ?? null,
+      select: overrides.instructions?.select ?? (() => undefined),
+      newDraft: overrides.instructions?.newDraft ?? (() => undefined),
+      changeIdentity: overrides.instructions?.changeIdentity ?? (() => undefined),
+      changeVariant: overrides.instructions?.changeVariant ?? (() => undefined),
+      changeSurface: overrides.instructions?.changeSurface ?? (() => undefined),
+      changeSelection: overrides.instructions?.changeSelection ?? (() => undefined),
+      changeRequestContext: overrides.instructions?.changeRequestContext ?? (() => undefined),
+      load: overrides.instructions?.load ?? (async () => undefined),
+      saveDraft: overrides.instructions?.saveDraft ?? (async () => false),
+      previewDraft: overrides.instructions?.previewDraft ?? (async () => undefined),
+      validateDraft: overrides.instructions?.validateDraft ?? (async () => undefined),
+      activate: overrides.instructions?.activate ?? (async () => undefined),
+      clone: overrides.instructions?.clone ?? (async () => undefined),
+      importLegacy: overrides.instructions?.importLegacy ?? (async () => undefined),
+      deleteSelected: overrides.instructions?.deleteSelected ?? (async () => undefined),
+    },
+  };
+}
+
+function staticConfiguredServerCreateModel(): ConfiguredServerCreateModel {
+  return {
+    state: createConfiguredServerCreateState(),
+    open: () => undefined,
+    close: async () => true,
+    editExisting: () => undefined,
+    changeField: () => undefined,
+    addSecret: () => undefined,
+    changeSecret: () => undefined,
+    removeSecret: () => undefined,
+    preview: () => undefined,
+    apply: () => undefined,
   };
 }
 
@@ -127,6 +191,10 @@ function staticConfiguredServerEditModel(overrides?: ConfiguredServerOverrides):
     changeField: () => undefined,
     changeSecret: () => undefined,
     changeTransportOverride: () => undefined,
+    changeInstructionOverride: overrides?.changeInstructionOverride ?? (() => undefined),
+    changeTool: () => undefined,
+    changeVisibleTools: () => undefined,
+    changeToolModel: () => undefined,
     preview: () => undefined,
     apply: overrides?.apply ?? (() => undefined),
   };

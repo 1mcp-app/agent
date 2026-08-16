@@ -1,5 +1,7 @@
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
+import { registerCapabilityPaginationNotifications } from '@src/core/capabilities/capabilityPagination.js';
+import { clearLastConfiguredToolSnapshot } from '@src/core/capabilities/configuredToolSnapshot.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
 import { ClientTemplateTracker, TemplateFilteringService, TemplateIndex } from '@src/core/filtering/index.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
@@ -11,6 +13,7 @@ import {
   resolveTemplateIdentityMode,
   serializeTemplateIdentity,
   templateRenderedHash,
+  templateRuntimeHash,
 } from '@src/core/server/templateIdentity.js';
 import {
   cleanupExpiredEphemeralClients,
@@ -31,6 +34,10 @@ export interface TemplateRebuildOptions {
   mcpTemplates?: Record<string, MCPServerParams>;
 }
 
+export interface TemplateRebuildResult {
+  toolMetadataChanged: boolean;
+}
+
 export type TemplateClientLifecycle = 'persistent' | 'ephemeral';
 
 /**
@@ -46,6 +53,7 @@ export class TemplateServerManager {
   private outboundConns?: OutboundConnections;
   private transports?: Record<string, Transport>;
   private templateConfigHashes = new Map<string, string>();
+  private templateToolMetadataHashes = new Map<string, string>();
   private templateRetirements = new Map<string, Promise<void>>();
 
   // Maps sessionId -> (templateName -> renderedHash) for routing shareable servers
@@ -158,13 +166,16 @@ export class TemplateServerManager {
         );
         instance.outboundKeys.add(outboundKey);
 
+        const instructions = instance.client.getInstructions();
         outboundConns.set(outboundKey, {
           name: templateName, // Keep clean name for tool namespacing (serena_1mcp_*)
           transport: instance.transport as AuthProviderTransport,
           client: instance.client,
           status: ClientStatus.Connected, // Template servers should be connected
           capabilities: undefined, // Will be populated by setupCapabilities
+          instructions,
         });
+        registerCapabilityPaginationNotifications(outboundConns, outboundConns.get(outboundKey)!);
         if (instance.supervision) {
           this.publishTemplateSupervision(instance, instance.supervision);
         }
@@ -173,10 +184,12 @@ export class TemplateServerManager {
         // This ensures instructions are available on first connection
         if (this.instructionAggregator) {
           try {
-            const instructions = instance.client.getInstructions();
+            this.instructionAggregator.setInstructions(
+              { source: 'mcpTemplates', name: templateName },
+              instructions,
+              outboundKey,
+            );
             if (instructions?.trim()) {
-              // Use clean template name (not the hash-suffixed outboundKey)
-              this.instructionAggregator.setInstructions(templateName, instructions);
               debugIf(() => ({
                 message: `Cached instructions for template server: ${templateName}`,
                 meta: { templateName, instructionLength: instructions.length },
@@ -410,13 +423,14 @@ export class TemplateServerManager {
   private refreshTemplateInstructions(templateName: string): void {
     if (!this.instructionAggregator) return;
 
-    const instructions = Array.from(this.outboundConns?.values() ?? []).find(
-      (connection) =>
-        connection.name === templateName &&
-        connection.status === ClientStatus.Connected &&
-        Boolean(connection.instructions?.trim()),
-    )?.instructions;
-    this.instructionAggregator.setInstructions(templateName, instructions);
+    for (const [outboundKey, connection] of this.outboundConns ?? []) {
+      if (connection.name !== templateName) continue;
+      this.instructionAggregator.setInstructions(
+        { source: 'mcpTemplates', name: templateName },
+        connection.status === ClientStatus.Connected ? connection.instructions : undefined,
+        outboundKey,
+      );
+    }
   }
 
   /**
@@ -477,25 +491,40 @@ export class TemplateServerManager {
   /**
    * Rebuild the template index
    */
-  public rebuildTemplateIndex(serverConfigData?: TemplateRebuildOptions): void {
+  public rebuildTemplateIndex(serverConfigData?: TemplateRebuildOptions): TemplateRebuildResult {
     const templates = serverConfigData?.mcpTemplates ?? {};
     const currentNames = new Set(Object.keys(templates));
+    let toolMetadataChanged = false;
     for (const existingName of this.templateConfigHashes.keys()) {
       if (!currentNames.has(existingName)) {
         void this.scheduleTemplateRetirement(existingName);
         this.templateConfigHashes.delete(existingName);
+        this.templateToolMetadataHashes.delete(existingName);
+        clearLastConfiguredToolSnapshot(existingName);
+        toolMetadataChanged = true;
       }
     }
     for (const [templateName, config] of Object.entries(templates)) {
-      const nextHash = templateRenderedHash(config);
+      const nextHash = templateRuntimeHash(config);
       const previousHash = this.templateConfigHashes.get(templateName);
       if (previousHash && previousHash !== nextHash) {
         void this.scheduleTemplateRetirement(templateName);
       }
       this.templateConfigHashes.set(templateName, nextHash);
+      const nextToolMetadataHash = templateRenderedHash({
+        disabledTools: [...(config.disabledTools ?? [])].sort(),
+        toolDescriptionOverrides: Object.fromEntries(
+          Object.entries(config.toolDescriptionOverrides ?? {}).sort(([left], [right]) => left.localeCompare(right)),
+        ),
+      });
+      if (this.templateToolMetadataHashes.get(templateName) !== nextToolMetadataHash) {
+        toolMetadataChanged = true;
+      }
+      this.templateToolMetadataHashes.set(templateName, nextToolMetadataHash);
     }
     this.templateIndex.buildIndex(templates);
     logger.info('Template index rebuilt');
+    return { toolMetadataChanged };
   }
 
   private scheduleTemplateRetirement(templateName: string): Promise<void> {

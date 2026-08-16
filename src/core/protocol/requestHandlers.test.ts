@@ -37,10 +37,6 @@ vi.mock('../utils/clientFiltering.js', () => ({
   byTags: vi.fn(() => () => true),
 }));
 
-vi.mock('../utils/pagination.js', () => ({
-  handlePagination: vi.fn(),
-}));
-
 vi.mock('../utils/parsing.js', () => ({
   parseUri: vi.fn(),
 }));
@@ -59,7 +55,6 @@ vi.mock('@src/core/server/serverManager.js', () => ({
 const mockParseUri = vi.fn();
 const mockByCapabilities = vi.fn();
 const mockGetFilteredConnections = vi.fn();
-const mockHandlePagination = vi.fn();
 const mockWithErrorHandling = vi.fn((fn) => fn);
 const mockGetRenderedHashForSession = vi.fn();
 const mockGetAllRenderedHashesForSession = vi.fn();
@@ -82,10 +77,6 @@ vi.mock('@src/core/filtering/filteringService.js', () => ({
   FilteringService: {
     getFilteredConnections: (connections: OutboundConnections) => mockGetFilteredConnections(connections),
   },
-}));
-
-vi.mock('@src/utils/ui/pagination.js', () => ({
-  handlePagination: mockHandlePagination,
 }));
 
 vi.mock('@src/utils/core/errorHandling.js', () => ({

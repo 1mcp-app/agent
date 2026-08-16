@@ -1,4 +1,5 @@
 import { MCP_SERVER_VERSION } from '@src/constants.js';
+import type { TemplateContextProof } from '@src/core/context/templateContextTrust.js';
 import { CONTEXT_HEADERS, encodeContextValue } from '@src/transport/http/utils/contextExtractor.js';
 import type { ContextData } from '@src/types/context.js';
 
@@ -8,6 +9,7 @@ export interface ApiClientOptions {
   timeout?: number;
   sessionId?: string;
   context?: ContextData;
+  contextProof?: TemplateContextProof;
 }
 
 export interface ApiResponse<T> {
@@ -29,6 +31,7 @@ export class ApiClient {
   private readonly timeout: number;
   private readonly sessionId?: string;
   private readonly context?: ContextData;
+  private readonly contextProof?: TemplateContextProof;
 
   constructor(options: ApiClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, '');
@@ -36,6 +39,7 @@ export class ApiClient {
     this.timeout = options.timeout ?? 10_000;
     this.sessionId = options.sessionId;
     this.context = options.context;
+    this.contextProof = options.contextProof;
   }
 
   async get<T>(path: string, query?: Record<string, string>, options: ApiRequestOptions = {}): Promise<ApiResponse<T>> {
@@ -49,6 +53,9 @@ export class ApiClient {
     }
     if (this.context) {
       url.searchParams.set('context', encodeContextValue(this.context));
+    }
+    if (this.contextProof) {
+      url.searchParams.set('contextProof', encodeContextValue(this.contextProof));
     }
     return this.request<T>(url.toString(), 'GET', undefined, options);
   }
@@ -91,6 +98,7 @@ export class ApiClient {
         method,
         headers,
         body: body !== undefined ? JSON.stringify(body) : undefined,
+        redirect: this.contextProof ? 'error' : 'follow',
         signal: controller.signal,
       });
 

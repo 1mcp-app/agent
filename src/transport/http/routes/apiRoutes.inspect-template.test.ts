@@ -10,6 +10,7 @@ const mockedLoadDeclaredServerConfigs = vi.hoisted(() => vi.fn());
 const mockedLoadConfigWithTemplates = vi.hoisted(() => vi.fn());
 const mockedExtractRequestContext = vi.hoisted(() => vi.fn());
 const mockedGetTransportConfig = vi.hoisted(() => vi.fn());
+const mockedGetConfiguredServerTargets = vi.hoisted(() => vi.fn());
 
 vi.mock('@src/config/configManager.js', () => ({
   ConfigManager: {
@@ -24,6 +25,7 @@ vi.mock('@src/config/mcpConfigManager.js', () => ({
   McpConfigManager: {
     getInstance: vi.fn(() => ({
       getTransportConfig: mockedGetTransportConfig,
+      getConfiguredServerTargets: mockedGetConfiguredServerTargets,
     })),
   },
 }));
@@ -34,6 +36,14 @@ vi.mock('@src/transport/http/utils/contextExtractor.js', () => ({
   },
   deriveContextSessionId: vi.fn(() => 'derived-session-id'),
   extractRequestContext: mockedExtractRequestContext,
+  extractTemplateContextRequest: vi.fn(() => {
+    const context = mockedExtractRequestContext();
+    return context ? { context, source: 'meta' } : null;
+  }),
+}));
+
+vi.mock('@src/transport/http/utils/templateContextAuthority.js', () => ({
+  authorizeRequestTemplateContext: vi.fn(({ context }) => ({ status: 'trusted', context })),
 }));
 
 vi.mock('@src/logger/logger.js', () => ({
@@ -114,6 +124,8 @@ describe('apiRoutes inspect', () => {
     });
     mockedGetTransportConfig.mockReset();
     mockedGetTransportConfig.mockReturnValue({});
+    mockedGetConfiguredServerTargets.mockReset();
+    mockedGetConfiguredServerTargets.mockImplementation(() => mockedGetTransportConfig());
     mockedLoadConfigWithTemplates.mockResolvedValue({
       staticServers: {},
       templateServers: {},
@@ -196,6 +208,38 @@ describe('apiRoutes inspect', () => {
     };
 
     inspectHandler = createInspectHandler(serverManager as never);
+  });
+
+  it('uses the configured effective description in server and tool payloads', async () => {
+    mockedGetConfiguredServerTargets.mockReturnValue({
+      context7: {
+        type: 'stdio',
+        command: 'node',
+        toolDescriptionOverrides: { 'context7_1mcp_query-docs': 'Search the current documentation' },
+      },
+    });
+
+    const serverRequest = { query: { target: 'context7' } };
+    const serverResponse = createMockResponse();
+    await invokeInspectRoute(scopeAuthMiddleware, serverRequest, serverResponse);
+    await invokeInspectRoute(inspectHandler, serverRequest, serverResponse);
+
+    expect(serverResponse.statusCode, JSON.stringify(serverResponse.body)).toBe(200);
+    expect(serverResponse.body).toMatchObject({
+      kind: 'server',
+      tools: [{ tool: 'query-docs', description: 'Search the current documentation' }],
+    });
+
+    const toolRequest = { query: { target: 'context7/query-docs' } };
+    const toolResponse = createMockResponse();
+    await invokeInspectRoute(scopeAuthMiddleware, toolRequest, toolResponse);
+    await invokeInspectRoute(inspectHandler, toolRequest, toolResponse);
+
+    expect(toolResponse.statusCode, JSON.stringify(toolResponse.body)).toBe(200);
+    expect(toolResponse.body).toMatchObject({
+      kind: 'tool',
+      description: 'Search the current documentation',
+    });
   });
 
   it('does not initialize template servers for bare inspect listings even when request context is present', async () => {

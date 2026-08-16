@@ -152,6 +152,93 @@ export interface AdminPresetPreview {
   };
 }
 
+export type InstructionTemplateSurface = 'initialize' | 'cli';
+
+export interface AdminInstructionTemplateDraft {
+  identity: string;
+  variants: {
+    initialization: string;
+    cli: string;
+  };
+}
+
+export interface AdminInstructionTemplateListItem extends AdminInstructionTemplateDraft {
+  protected: boolean;
+  active: boolean;
+  draft: boolean;
+  validation: {
+    valid: boolean;
+    initialization: { valid: boolean; error?: string };
+    cli: { valid: boolean; error?: string };
+  };
+}
+
+export interface AdminInstructionTemplateStore {
+  templates: AdminInstructionTemplateListItem[];
+  activeIdentity?: string;
+  selectionExplicit: boolean;
+  configFingerprint: string;
+  legacyImportAvailable: boolean;
+  renderFailures: Partial<
+    Record<
+      InstructionTemplateSurface,
+      {
+        code: 'managed_template_render_failed';
+        surface: InstructionTemplateSurface;
+        templateIdentity: string;
+        occurredAt: string;
+      }
+    >
+  >;
+}
+
+export interface AdminInstructionTemplateDetail {
+  template: AdminInstructionTemplateListItem;
+  configFingerprint: string;
+  renderFailures: AdminInstructionTemplateStore['renderFailures'];
+}
+
+export type InstructionTemplateSelection =
+  | { mode: 'all' }
+  | { mode: 'preset'; preset: string }
+  | { mode: 'tags'; tags: string[] }
+  | { mode: 'tag-filter'; expression: string };
+
+export interface AdminInstructionTemplatePreview {
+  surface: InstructionTemplateSurface;
+  rendered?: string;
+  validation?: { valid: false; code: string; message: string };
+  effectiveServers: Array<{
+    target: { source: ConfiguredServerTargetIdentity['source']; name: string };
+    hasInstructions: boolean;
+  }>;
+  unresolvedTemplates: string[];
+}
+
+export interface AdminInstructionTemplateValidationPreview {
+  identity: string;
+  validation?: AdminInstructionTemplateListItem['validation'];
+  expectedConfigFingerprint: string;
+  previewFingerprint: string;
+}
+
+export interface AdminInstructionTemplateMutationResponse {
+  ok: true;
+  operationId: string;
+  result: {
+    reload?: { status: string; error?: string };
+    [key: string]: unknown;
+  };
+}
+
+export interface ConfiguredServerTargetIdentity {
+  source: 'mcpServers' | 'mcpTemplates';
+  id: string;
+}
+
+export type ConfiguredServerInstructionOverride =
+  { state: 'upstream' } | { state: 'replace'; value: string } | { state: 'suppress'; value?: '' };
+
 export interface ConfiguredServerSecretInput {
   fieldPath: string[];
   label: string;
@@ -161,12 +248,14 @@ export interface ConfiguredServerSecretInput {
 
 export interface ConfiguredServerReadModel {
   id: string;
-  source: 'mcpServers';
+  source: ConfiguredServerTargetIdentity['source'];
   target: {
     type: 'configured_server';
     id: string;
-    source: 'mcpServers';
+    source: ConfiguredServerTargetIdentity['source'];
   };
+  revision?: string;
+  instructionOverride?: ConfiguredServerInstructionOverride;
   enabled: boolean;
   tags: string[];
   transportSummary: {
@@ -247,11 +336,76 @@ export interface ConfiguredServerEditContract {
   fieldGroups: ConfiguredServerEditFieldGroup[];
 }
 
+export type ConfiguredServerCreateTransport = 'stdio' | 'http' | 'sse';
+
+export interface ConfiguredServerCreateDraft {
+  name: string;
+  enabled: boolean;
+  tags: string[];
+  transport: Record<string, unknown> & { type: ConfiguredServerCreateTransport };
+  secrets?: Array<{
+    fieldPath: string[];
+    action: 'replace';
+    replacement: ConfiguredServerSecretReplacement;
+  }>;
+}
+
+export interface ConfiguredServerCreateContractResponse {
+  ok: true;
+  operationId: string;
+  createContract: {
+    schemaVersion: 1;
+    capabilities: {
+      create: { supported: true };
+      forceReplacement: { supported: false };
+      rawJson: { supported: false };
+      preview: { supported: true };
+      apply: { supported: boolean };
+    };
+    fieldGroups: ConfiguredServerEditFieldGroup[];
+    secretPolicy: {
+      allowedActions: ['replace'];
+      environmentReference: { recommended: true; storesSecretMaterial: false; guidance: string };
+      inlineReplacement: { emphasis: 'secondary'; guidance: string };
+    };
+  };
+}
+
 export interface ConfiguredServerDetailResponse {
   ok: true;
   operationId: string;
   server: ConfiguredServerReadModel;
   editContract: ConfiguredServerEditContract;
+  toolInventory?: ConfiguredToolInventory;
+}
+
+export interface ConfiguredToolInventoryRow {
+  name: string;
+  upstreamDescription?: string;
+  effectiveDescription?: string;
+  descriptionOverride?: string;
+  descriptionOverridden: boolean;
+  enabled: boolean;
+  observed: boolean;
+  stale?: boolean;
+  unresolved: boolean;
+  observedInstanceCount: number;
+  activeInstanceCount: number;
+  observedInSomeInstances: boolean;
+  approximateTokens: number;
+}
+
+export interface ConfiguredToolInventory {
+  targetName: string;
+  source: 'mcpServers' | 'mcpTemplates';
+  targetEnabled: boolean;
+  freshness: 'live' | 'unavailable';
+  model: string;
+  generation: string;
+  activeInstanceCount: number;
+  rows: ConfiguredToolInventoryRow[];
+  counts: { observed: number; enabled: number; disabled: number; unresolved: number };
+  approximateTokens: { enabled: number; allObserved: number; savings: number };
 }
 
 export interface ConfiguredServerSecretReplacement {
@@ -272,9 +426,13 @@ export interface ConfiguredServerEditDraft {
   transport?: Record<string, unknown>;
   secrets?: ConfiguredServerSecretEditDraft[];
   clearTransportOverrides?: string[];
+  instructionOverride?: { action: 'set'; value: string } | { action: 'remove' };
+  disabledTools?: string[];
+  toolDescriptionOverrides?: Record<string, string>;
 }
 
-export type ConfiguredServerPreviewRiskFlag = 'rename' | 'connection_critical' | 'secret' | 'template_risk';
+export type ConfiguredServerPreviewRiskFlag =
+  'rename' | 'connection_critical' | 'secret' | 'template_risk' | 'tool_visibility' | 'tool_metadata';
 
 export type ConfiguredServerConnectivityCheck =
   | {
@@ -346,6 +504,16 @@ export interface ConfiguredServerPreviewResponse {
     }>;
     configChange: ConfiguredServerPreviewConfigChange;
     connectivityCheck: ConfiguredServerConnectivityCheck;
+    toolSelection?: {
+      capabilityGeneration: string;
+      model: string;
+      changedTools: string[];
+      counts: ConfiguredToolInventory['counts'];
+      approximateTokens: { before: number; after: number; savings: number };
+      targetEnabled: boolean;
+      effect: 'immediate' | 'deferred_until_target_enabled';
+      requiresZeroEnabledConfirmation: boolean;
+    };
   };
 }
 
@@ -354,6 +522,28 @@ export interface ConfiguredServerApplyResponse {
   operationId: string;
   result: {
     originalTargetName: string;
+    targetName: string;
+    previewFingerprint: string;
+    configChange: ConfiguredServerPreviewConfigChange;
+  };
+}
+
+export interface ConfiguredServerCreatePreviewResponse {
+  ok: true;
+  operationId: string;
+  preview: Omit<ConfiguredServerPreviewResponse['preview'], 'proposedTargetName'> & {
+    proposedTargetName?: string;
+    expectedReload: {
+      policy: 'observe_after_write';
+      possibleStatuses: readonly ['observed', 'runtime_not_running', 'reload_disabled', 'failed'];
+    };
+  };
+}
+
+export interface ConfiguredServerCreateResponse {
+  ok: true;
+  operationId: string;
+  result: {
     targetName: string;
     previewFingerprint: string;
     configChange: ConfiguredServerPreviewConfigChange;
@@ -452,7 +642,7 @@ export function createAdminApi(options: AdminApiOptions = {}) {
       });
     },
 
-    getSession(): Promise<AdminSession> {
+    getSession(): Promise<AdminSession | UnauthenticatedSession> {
       return request('/admin/api/session');
     },
 
@@ -657,22 +847,232 @@ export function createAdminApi(options: AdminApiOptions = {}) {
       });
     },
 
+    async getConfiguredServerCatalog(): Promise<{ servers: ConfiguredServerReadModel[]; configFingerprint: string }> {
+      const response = await request<{ servers: ConfiguredServerReadModel[]; configFingerprint?: string }>(
+        '/admin/api/configured-servers',
+      );
+      return { servers: response.servers ?? [], configFingerprint: response.configFingerprint ?? '' };
+    },
+
     async listConfiguredServers(): Promise<ConfiguredServerReadModel[]> {
       const response = await request<{ servers: ConfiguredServerReadModel[] }>('/admin/api/configured-servers');
       return response.servers ?? [];
     },
 
-    getConfiguredServerDetail(name: string): Promise<ConfiguredServerDetailResponse> {
-      return request(`/admin/api/configured-servers/${encodeURIComponent(name)}`);
+    getConfiguredServerCreateContract(): Promise<ConfiguredServerCreateContractResponse> {
+      return request('/admin/api/configured-servers/create-contract');
+    },
+
+    previewConfiguredServerCreate(input: {
+      draft: ConfiguredServerCreateDraft;
+      csrfToken: string;
+      connectivityCheck?: 'auto' | 'manual';
+    }): Promise<ConfiguredServerCreatePreviewResponse> {
+      return request('/admin/api/configured-servers/create-preview', {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': input.csrfToken },
+        body: JSON.stringify({
+          draft: input.draft,
+          ...(input.connectivityCheck ? { connectivityCheck: input.connectivityCheck } : {}),
+        }),
+      });
+    },
+
+    createConfiguredServer(input: {
+      draft: ConfiguredServerCreateDraft;
+      csrfToken: string;
+      idempotencyKey: string;
+      previewFingerprint: string;
+      confirmationFacts: Record<string, unknown>;
+    }): Promise<ConfiguredServerCreateResponse> {
+      return request('/admin/api/configured-servers', {
+        method: 'POST',
+        headers: {
+          'X-CSRF-Token': input.csrfToken,
+          'Idempotency-Key': input.idempotencyKey,
+        },
+        body: JSON.stringify({
+          draft: input.draft,
+          previewFingerprint: input.previewFingerprint,
+          confirmationFacts: input.confirmationFacts,
+        }),
+      });
+    },
+
+    getConfiguredServerDetail(
+      target: string | ConfiguredServerTargetIdentity,
+      model?: string,
+    ): Promise<ConfiguredServerDetailResponse> {
+      const query = model ? `?model=${encodeURIComponent(model)}` : '';
+      return request(`${configuredServerPath(target)}${query}`);
+    },
+
+    async listInstructionTemplates(): Promise<AdminInstructionTemplateStore> {
+      const response = await request<{ result: AdminInstructionTemplateStore }>('/admin/api/instruction-templates');
+      return response.result;
+    },
+
+    async getInstructionTemplate(identity: string): Promise<AdminInstructionTemplateDetail> {
+      const response = await request<{ result: AdminInstructionTemplateDetail }>(instructionTemplatePath(identity));
+      return response.result;
+    },
+
+    saveInstructionTemplate(input: {
+      action: 'create' | 'update';
+      draft: AdminInstructionTemplateDraft;
+      expectedConfigFingerprint?: string;
+      csrfToken: string;
+      idempotencyKey: string;
+    }): Promise<AdminInstructionTemplateMutationResponse> {
+      const path =
+        input.action === 'create'
+          ? '/admin/api/instruction-templates'
+          : `${instructionTemplatePath(input.draft.identity)}/update`;
+      return request(path, {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': input.csrfToken, 'Idempotency-Key': input.idempotencyKey },
+        body: JSON.stringify({
+          ...(input.action === 'create' ? { identity: input.draft.identity } : {}),
+          variants: input.draft.variants,
+          ...(input.expectedConfigFingerprint ? { expectedConfigFingerprint: input.expectedConfigFingerprint } : {}),
+        }),
+      });
+    },
+
+    cloneInstructionTemplate(input: {
+      sourceIdentity: string;
+      identity: string;
+      expectedConfigFingerprint: string;
+      csrfToken: string;
+      idempotencyKey: string;
+    }): Promise<AdminInstructionTemplateMutationResponse> {
+      return request(`${instructionTemplatePath(input.sourceIdentity)}/clone`, {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': input.csrfToken, 'Idempotency-Key': input.idempotencyKey },
+        body: JSON.stringify({ identity: input.identity, expectedConfigFingerprint: input.expectedConfigFingerprint }),
+      });
+    },
+
+    async validateInstructionTemplate(input: {
+      identity: string;
+      expectedConfigFingerprint: string;
+      csrfToken: string;
+    }): Promise<AdminInstructionTemplateValidationPreview> {
+      const response = await request<{ result: AdminInstructionTemplateValidationPreview }>(
+        `${instructionTemplatePath(input.identity)}/validate`,
+        {
+          method: 'POST',
+          headers: { 'X-CSRF-Token': input.csrfToken },
+          body: JSON.stringify({ expectedConfigFingerprint: input.expectedConfigFingerprint }),
+        },
+      );
+      return response.result;
+    },
+
+    async previewInstructionTemplate(input: {
+      identity: string;
+      surface: InstructionTemplateSurface;
+      selection: InstructionTemplateSelection;
+      requestContext?: Record<string, unknown>;
+      csrfToken: string;
+    }): Promise<AdminInstructionTemplatePreview> {
+      const response = await request<{ result: AdminInstructionTemplatePreview }>(
+        `${instructionTemplatePath(input.identity)}/preview`,
+        {
+          method: 'POST',
+          headers: { 'X-CSRF-Token': input.csrfToken },
+          body: JSON.stringify({
+            surface: input.surface,
+            selection: input.selection,
+            ...(input.requestContext ? { requestContext: input.requestContext } : {}),
+          }),
+        },
+      );
+      return response.result;
+    },
+
+    activateInstructionTemplate(input: {
+      identity: string;
+      expectedConfigFingerprint: string;
+      previewFingerprint: string;
+      csrfToken: string;
+      idempotencyKey: string;
+    }): Promise<AdminInstructionTemplateMutationResponse> {
+      return request(`${instructionTemplatePath(input.identity)}/activate`, {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': input.csrfToken, 'Idempotency-Key': input.idempotencyKey },
+        body: JSON.stringify({
+          expectedConfigFingerprint: input.expectedConfigFingerprint,
+          previewFingerprint: input.previewFingerprint,
+        }),
+      });
+    },
+
+    importLegacyInstructionTemplate(input: {
+      identity: string;
+      expectedConfigFingerprint: string;
+      csrfToken: string;
+      idempotencyKey: string;
+    }): Promise<AdminInstructionTemplateMutationResponse> {
+      return request('/admin/api/instruction-templates/import-legacy', {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': input.csrfToken, 'Idempotency-Key': input.idempotencyKey },
+        body: JSON.stringify({ identity: input.identity, expectedConfigFingerprint: input.expectedConfigFingerprint }),
+      });
+    },
+
+    async previewInstructionTemplateDelete(input: {
+      identity: string;
+      expectedConfigFingerprint: string;
+      csrfToken: string;
+    }): Promise<{
+      identity: string;
+      allowed: boolean;
+      reason?: 'protected' | 'active_conflict' | 'not_found';
+      expectedConfigFingerprint: string;
+      previewFingerprint: string;
+    }> {
+      const response = await request<{
+        result: {
+          identity: string;
+          allowed: boolean;
+          reason?: 'protected' | 'active_conflict' | 'not_found';
+          expectedConfigFingerprint: string;
+          previewFingerprint: string;
+        };
+      }>(`${instructionTemplatePath(input.identity)}/delete-preview`, {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': input.csrfToken },
+        body: JSON.stringify({ expectedConfigFingerprint: input.expectedConfigFingerprint }),
+      });
+      return response.result;
+    },
+
+    deleteInstructionTemplate(input: {
+      identity: string;
+      expectedConfigFingerprint: string;
+      previewFingerprint: string;
+      csrfToken: string;
+      idempotencyKey: string;
+    }): Promise<AdminInstructionTemplateMutationResponse> {
+      return request(instructionTemplatePath(input.identity), {
+        method: 'DELETE',
+        headers: { 'X-CSRF-Token': input.csrfToken, 'Idempotency-Key': input.idempotencyKey },
+        body: JSON.stringify({
+          expectedConfigFingerprint: input.expectedConfigFingerprint,
+          previewFingerprint: input.previewFingerprint,
+        }),
+      });
     },
 
     previewConfiguredServerEdit(input: {
-      name: string;
+      target: string | ConfiguredServerTargetIdentity;
       csrfToken: string;
       edit: ConfiguredServerEditDraft;
       connectivityCheck?: 'auto' | 'manual';
+      model?: string;
     }): Promise<ConfiguredServerPreviewResponse> {
-      return request(`/admin/api/configured-servers/${encodeURIComponent(input.name)}/preview`, {
+      return request(`${configuredServerPath(input.target)}/preview`, {
         method: 'POST',
         headers: {
           'X-CSRF-Token': input.csrfToken,
@@ -680,19 +1080,21 @@ export function createAdminApi(options: AdminApiOptions = {}) {
         body: JSON.stringify({
           edit: input.edit,
           ...(input.connectivityCheck ? { connectivityCheck: input.connectivityCheck } : {}),
+          ...(input.model ? { model: input.model } : {}),
         }),
       });
     },
 
     applyConfiguredServerEdit(input: {
-      name: string;
+      target: string | ConfiguredServerTargetIdentity;
       csrfToken: string;
       idempotencyKey: string;
       edit: ConfiguredServerEditDraft;
       previewFingerprint: string;
       confirmationFacts: Record<string, unknown>;
+      model?: string;
     }): Promise<ConfiguredServerApplyResponse> {
-      return request(`/admin/api/configured-servers/${encodeURIComponent(input.name)}/apply`, {
+      return request(`${configuredServerPath(input.target)}/apply`, {
         method: 'POST',
         headers: {
           'X-CSRF-Token': input.csrfToken,
@@ -702,6 +1104,7 @@ export function createAdminApi(options: AdminApiOptions = {}) {
           edit: input.edit,
           previewFingerprint: input.previewFingerprint,
           confirmationFacts: input.confirmationFacts,
+          ...(input.model ? { model: input.model } : {}),
         }),
       });
     },
@@ -720,8 +1123,25 @@ export function createAdminApi(options: AdminApiOptions = {}) {
   };
 }
 
+function instructionTemplatePath(identity: string): string {
+  return `/admin/api/instruction-templates/${encodeURIComponent(identity)}`;
+}
+
+function configuredServerPath(target: string | ConfiguredServerTargetIdentity): string {
+  if (typeof target === 'string') return `/admin/api/configured-servers/${encodeURIComponent(target)}`;
+  return `/admin/api/configured-servers/${target.source}/${encodeURIComponent(target.id)}`;
+}
+
 export function createConfiguredServerApplyIdempotencyKey(name: string): string {
   return `admin-console-server-apply-${encodeIdempotencyKeyPart(name)}-${Date.now()}-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`;
+}
+
+export function createConfiguredServerCreateIdempotencyKey(name: string): string {
+  return `admin-console-server-create-${encodeIdempotencyKeyPart(name)}-${Date.now()}-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`;
+}
+
+export function createInstructionTemplateIdempotencyKey(action: string, identity: string): string {
+  return `admin-console-instruction-template-${encodeIdempotencyKeyPart(action)}-${encodeIdempotencyKeyPart(identity)}-${Date.now()}-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`;
 }
 
 function defaultPresetIdempotencyKey(action: string, name: string): string {

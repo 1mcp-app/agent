@@ -168,6 +168,7 @@ export async function getInspectResult(
         sessionId: context.sessionId,
         bearerToken: context.bearerToken,
         context: context.context,
+        contextProof: context.contextProof,
         sendInitialize: context.sendInitialize,
       });
       const target = parseInspectTarget(context.options.target);
@@ -211,6 +212,7 @@ export async function getInspectResult(
       bearerToken: attachment.bearerToken,
       sessionId: attachment.sessionId ?? attachment.requestSessionId,
       context: attachment.context,
+      contextProof: attachment.contextProof,
     });
     const refreshedApiResponse = await apiClient.get<unknown>(
       API_INSPECT_ENDPOINT,
@@ -258,6 +260,7 @@ async function tryInspectRest(
     bearerToken: context.bearerToken,
     sessionId: context.sessionId,
     context: context.context,
+    contextProof: context.contextProof,
   });
   const apiResponse = await apiClient.get<unknown>(
     API_INSPECT_ENDPOINT,
@@ -324,6 +327,7 @@ export async function inspectTools(options: {
   sessionId?: string;
   bearerToken?: string;
   context?: ContextData;
+  contextProof?: import('@src/core/context/templateContextTrust.js').TemplateContextProof;
   sendInitialize?: boolean;
 }): Promise<{
   rawResponse: JsonRpcResponse<unknown>;
@@ -338,7 +342,7 @@ export async function inspectTools(options: {
   try {
     const shouldSendInitialize = options.sendInitialize ?? !options.sessionId;
     if (shouldSendInitialize) {
-      const initializeResponse = await client.initialize(options.context);
+      const initializeResponse = await client.initialize(options.context, options.contextProof);
       if ('error' in initializeResponse) {
         return {
           rawResponse: initializeResponse,
