@@ -9,7 +9,7 @@ import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CapabilityAggregator } from './capabilityAggregator.js';
-import { readLastConfiguredToolSnapshot } from './configuredToolSnapshot.js';
+import { readConfiguredToolSnapshot, readLastConfiguredToolSnapshot } from './configuredToolSnapshot.js';
 
 // Mock InternalCapabilitiesProvider
 vi.mock('@src/core/capabilities/internalCapabilitiesProvider.js', () => ({
@@ -277,9 +277,12 @@ describe('CapabilityAggregator', () => {
       Object.setPrototypeOf(transport, StreamableHTTPClientTransport.prototype);
 
       const unauthorized = new StreamableHTTPError(401, 'Server returned 401 after successful authentication');
-      const listTools = vi.fn().mockRejectedValue(unauthorized);
-      const listResources = vi.fn().mockRejectedValue(unauthorized);
-      const listPrompts = vi.fn().mockRejectedValue(unauthorized);
+      const listTools = vi
+        .fn()
+        .mockResolvedValueOnce({ tools: [mockTool] })
+        .mockRejectedValue(unauthorized);
+      const listResources = vi.fn().mockResolvedValueOnce({ resources: [] }).mockRejectedValue(unauthorized);
+      const listPrompts = vi.fn().mockResolvedValueOnce({ prompts: [] }).mockRejectedValue(unauthorized);
       const close = vi.fn().mockResolvedValue(undefined);
       const mockClient = {
         listTools,
@@ -298,8 +301,11 @@ describe('CapabilityAggregator', () => {
         lastConnected: new Date(),
       });
 
-      const first = await aggregator.updateCapabilities();
       const connection = mockConnections.get('oauth-server')!;
+      await aggregator.updateCapabilities();
+      expect(readConfiguredToolSnapshot(connection)?.map((tool) => tool.name)).toEqual(['test-tool']);
+
+      const first = await aggregator.updateCapabilities();
 
       expect(oauthProvider.invalidateCredentials).toHaveBeenCalledTimes(1);
       expect(oauthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
@@ -309,11 +315,13 @@ describe('CapabilityAggregator', () => {
       expect(connection.transport.oauthProvider).toBe(oauthProvider);
       expect((connection.transport as any)._hasCompletedAuthFlow).toBe(false);
       expect(first.current.readyServers).not.toContain('oauth-server');
+      expect(readConfiguredToolSnapshot(connection)).toBeUndefined();
+      expect(readLastConfiguredToolSnapshot('oauth-server').map((tool) => tool.name)).toEqual(['test-tool']);
 
       await aggregator.updateCapabilities();
-      expect(listTools).toHaveBeenCalledTimes(1);
-      expect(listResources).toHaveBeenCalledTimes(1);
-      expect(listPrompts).toHaveBeenCalledTimes(1);
+      expect(listTools).toHaveBeenCalledTimes(2);
+      expect(listResources).toHaveBeenCalledTimes(2);
+      expect(listPrompts).toHaveBeenCalledTimes(2);
       expect(oauthProvider.invalidateCredentials).toHaveBeenCalledTimes(1);
     });
 

@@ -198,6 +198,7 @@ export class CapabilityAggregator extends EventEmitter {
         const results = await Promise.allSettled(promises);
 
         if (connection.status !== ClientStatus.Connected) {
+          clearConfiguredToolSnapshot(connection);
           readyServers.splice(readyServers.indexOf(serverName), 1);
           continue;
         }
