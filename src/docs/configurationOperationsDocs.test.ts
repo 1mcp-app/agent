@@ -60,12 +60,8 @@ describe('configuration and operations documentation', () => {
     const zhServerManagement = readDoc('docs/zh/guide/essentials/server-management.md');
 
     for (const page of [enConfiguration, zhConfiguration]) {
-      const inventory = mcpServerConfigSchema.parse(
-        JSON.parse(extractCodeBlock(page, 'json', '"mcpServers"')),
-      );
-      const runtime = applicationConfigSchema.parse(
-        parseToml(extractCodeBlock(page, 'toml', '[asyncLoading]')),
-      );
+      const inventory = mcpServerConfigSchema.parse(JSON.parse(extractCodeBlock(page, 'json', '"mcpServers"')));
+      const runtime = applicationConfigSchema.parse(parseToml(extractCodeBlock(page, 'toml', '[asyncLoading]')));
 
       expect(inventory.mcpServers.filesystem).toMatchObject({ type: 'stdio' });
       expect(inventory.mcpServers['remote-api']).toMatchObject({ type: 'http', disabled: false });

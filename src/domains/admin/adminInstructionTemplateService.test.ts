@@ -4,12 +4,12 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { ConfigChangeResult } from '../config-change/configChange.js';
 import type {
   InstructionTemplateCollectionReadModel,
   InstructionTemplateManager,
   InstructionTemplateMutationResult,
 } from '../instruction-template/instructionTemplateManager.js';
-import type { ConfigChangeResult } from '../config-change/configChange.js';
 import {
   type AdminInstructionPreviewInput,
   type AdminInstructionPreviewResult,

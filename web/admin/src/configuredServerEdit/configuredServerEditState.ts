@@ -313,11 +313,7 @@ function withDraftChange(
   change: Partial<
     Pick<
       LoadedConfiguredServerEditState,
-      | 'fieldDraft'
-      | 'secretDraft'
-      | 'clearedTransportOverrides'
-      | 'instructionOverride'
-      | 'toolDraft'
+      'fieldDraft' | 'secretDraft' | 'clearedTransportOverrides' | 'instructionOverride' | 'toolDraft'
     >
   >,
 ): LoadedConfiguredServerEditState {
