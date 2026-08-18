@@ -437,6 +437,9 @@ describe('ConfigManager (Integration)', () => {
       expect(validationErrors).toHaveLength(1);
       expect(String(validationErrors[0])).toContain(join(tempConfigDir, '.env'));
       expect(String(validationErrors[0])).not.toContain('must-not-appear');
+      expect((configManager as any).loader.checkRuntimeEnvModified()).toBe(false);
+
+      await fsPromises.writeFile(join(tempConfigDir, '.env'), 'SECRET=changed-value\ninvalid line\n');
       expect((configManager as any).loader.checkRuntimeEnvModified()).toBe(true);
     });
 

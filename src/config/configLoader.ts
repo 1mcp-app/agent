@@ -154,6 +154,7 @@ export class ConfigLoader {
   private configFilePath: string;
   private lastModified = 0;
   private runtimeEnvSignature = '';
+  private failedRuntimeEnvSignature?: string;
 
   constructor(configFilePath?: string, options?: ConfigLoaderOptions) {
     this.configFilePath = configFilePath || getGlobalConfigPath();
@@ -191,11 +192,16 @@ export class ConfigLoader {
 
   public checkRuntimeEnvModified(): boolean {
     const nextSignature = this.getRuntimeEnvSignature();
-    return nextSignature !== this.runtimeEnvSignature;
+    return nextSignature !== this.runtimeEnvSignature && nextSignature !== this.failedRuntimeEnvSignature;
   }
 
   public markRuntimeEnvObserved(): void {
     this.runtimeEnvSignature = this.getRuntimeEnvSignature();
+    this.failedRuntimeEnvSignature = undefined;
+  }
+
+  public markRuntimeEnvAttempted(): void {
+    this.failedRuntimeEnvSignature = this.getRuntimeEnvSignature();
   }
 
   private getRuntimeEnvSignature(): string {

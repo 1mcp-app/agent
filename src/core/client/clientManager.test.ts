@@ -912,6 +912,44 @@ describe('ClientManager (Integration)', () => {
       expect(JSON.stringify(vi.mocked(logger.info).mock.calls)).not.toContain(secret);
     });
 
+    it('closes a recreated transport when replacement client construction fails', async () => {
+      const initialClient = {
+        ...mockClient,
+        connect: vi.fn().mockResolvedValue(undefined),
+        getServerVersion: vi.fn().mockResolvedValue({ name: 'fixture', version: '1.0.0' }),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as Partial<Client>;
+      (Client as unknown as MockInstance).mockImplementationOnce(function () {
+        return initialClient;
+      });
+      const replacementTransport = {
+        start: vi.fn(),
+        send: vi.fn(),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AuthProviderTransport;
+      const supervisedTransport = {
+        start: vi.fn(),
+        send: vi.fn(),
+        close: vi.fn(),
+        pid: 111,
+        stdioSupervision: {
+          policy: { restartOnExit: true as const, maxRestarts: 1, restartDelay: 25 },
+          recreate: () => replacementTransport,
+          getLastExit: () => ({ code: 9, signal: null, pid: 111, at: new Date() }),
+        },
+      } as unknown as AuthProviderTransport;
+      replacementTransport.stdioSupervision = supervisedTransport.stdioSupervision;
+
+      await clientManager.createSingleClient('supervised', supervisedTransport);
+      vi.spyOn((clientManager as any).clientFactory, 'createClient').mockImplementationOnce(() => {
+        throw new Error('client construction failed');
+      });
+      clientManager.getClient('supervised').client.onclose?.();
+      await vi.advanceTimersByTimeAsync(25);
+
+      expect(replacementTransport.close).toHaveBeenCalledOnce();
+    });
+
     it('contains rejected backend availability updates', async () => {
       const availabilityHandler = vi.fn().mockRejectedValue(new Error('notification failed'));
       clientManager.setBackendAvailabilityHandler(availabilityHandler);

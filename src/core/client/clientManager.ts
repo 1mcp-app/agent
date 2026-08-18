@@ -756,12 +756,15 @@ export class ClientManager extends EventEmitter {
     let transport: AuthProviderTransport | undefined;
     let client: Client | undefined;
     const dispose = async (): Promise<void> => {
-      if (!client || !transport) return;
+      if (!client) {
+        await transport?.close().catch(() => undefined);
+        return;
+      }
       client.onclose = undefined;
       try {
         await client.close();
       } catch {
-        await transport.close().catch(() => undefined);
+        await transport?.close().catch(() => undefined);
       }
     };
 

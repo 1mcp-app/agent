@@ -110,6 +110,26 @@ describe('ConfigChangeHandler', () => {
       expect(ServerManager.current.reloadTemplatesForRuntimeEnvironment).toHaveBeenCalledWith([]);
     });
 
+    it('contains asynchronous Runtime Scope template reload failures', async () => {
+      const environmentHandler = (mockConfigManager.on as any).mock.calls.find(
+        ([event]: [string]) => event === 'runtimeEnvironmentChanged',
+      )[1];
+      const { ServerManager } = await import('@src/core/server/serverManager.js');
+      const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => logger);
+      vi.mocked(ServerManager.current.reloadTemplatesForRuntimeEnvironment).mockRejectedValueOnce(
+        new Error('reload failed'),
+      );
+
+      await expect(
+        environmentHandler({ staticServerNames: [], templateServerNames: ['affected-template'] }),
+      ).resolves.toBeUndefined();
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        'Failed to reload templates after Runtime Scope environment change',
+        expect.any(Error),
+      );
+    });
+
     it('reconciles declared templates even when the static config diff is empty', async () => {
       const templateServers = { worker: { type: 'stdio', command: 'node', args: ['worker.js'] } };
       mockConfigManager.loadDeclaredServerConfigs = vi.fn(() => ({

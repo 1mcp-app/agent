@@ -282,19 +282,20 @@ describe('TemplateServerManager', () => {
 
     it('retires only the rendered instance whose context introduced a changed env reference', async () => {
       const manager = templateServerManager as any;
-      activateRuntimeScopeEnvironment({ TOKEN: 'before' });
+      const envKey = 'ONE_MCP_TEST_RENDERED_TEMPLATE_RUNTIME_462';
+      activateRuntimeScopeEnvironment({ [envKey]: 'before' });
       const affectedConfig = new HandlebarsTemplateRenderer().renderTemplate(
         { type: 'stdio' as const, command: 'node', args: ['{{project.path}}'] },
-        { project: { path: '$TOKEN' }, user: {}, environment: {} },
+        { project: { path: '$' + envKey }, user: {}, environment: {} },
       );
       const unaffectedConfig = { type: 'stdio' as const, command: 'node', args: ['literal'] };
-      expect(affectedConfig.args).toEqual(['$TOKEN']);
+      expect(affectedConfig.args).toEqual(['$' + envKey]);
       const affected = {
         id: 'affected-id',
         instanceKey: 'worker:affected',
         templateName: 'worker',
         processedConfig: affectedConfig,
-        runtimeFingerprint: createRuntimeTargetFingerprint(affectedConfig, { TOKEN: 'before' }, true),
+        runtimeFingerprint: createRuntimeTargetFingerprint(affectedConfig, { [envKey]: 'before' }, true),
         client: { close: vi.fn() },
         clientIds: new Set(['affected-session']),
       };
@@ -303,7 +304,7 @@ describe('TemplateServerManager', () => {
         instanceKey: 'worker:unaffected',
         templateName: 'worker',
         processedConfig: unaffectedConfig,
-        runtimeFingerprint: createRuntimeTargetFingerprint(unaffectedConfig, { TOKEN: 'before' }, true),
+        runtimeFingerprint: createRuntimeTargetFingerprint(unaffectedConfig, { [envKey]: 'before' }, true),
         client: { close: vi.fn() },
         clientIds: new Set(['unaffected-session']),
       };
@@ -312,11 +313,13 @@ describe('TemplateServerManager', () => {
         ['affected-session', new Map([['worker', 'affected']])],
         ['unaffected-session', new Map([['worker', 'unaffected']])],
       ]);
-      activateRuntimeScopeEnvironment({ TOKEN: 'after' });
+      activateRuntimeScopeEnvironment({ [envKey]: 'after' });
 
       const targets = await templateServerManager.retireTemplatesForRuntimeEnvironment([]);
 
-      expect(targets).toEqual([{ sessionId: 'affected-session', templateName: 'worker' }]);
+      expect(targets).toEqual([
+        { sessionId: 'affected-session', templateName: 'worker', lifecycle: 'ephemeral' },
+      ]);
       expect(manager.clientInstancePool.removeInstance).toHaveBeenCalledOnce();
       expect(manager.clientInstancePool.removeInstance).toHaveBeenCalledWith('worker:affected');
       expect(manager.sessionToRenderedHash.has('affected-session')).toBe(false);

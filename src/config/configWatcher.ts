@@ -92,7 +92,7 @@ export class ConfigWatcher extends EventEmitter {
     }));
 
     const isConfigFileEvent = filename === configFileName;
-    const isRuntimeEnvEvent = filename === runtimeEnvFileName;
+    const isRuntimeEnvEvent = filename === runtimeEnvFileName && this.loader.checkRuntimeEnvModified();
 
     if (
       isConfigFileEvent ||

@@ -343,15 +343,15 @@ export class ServerManager {
     const reloadTargets = await this.templateServerManager.retireTemplatesForRuntimeEnvironment(templateNames);
     if (reloadTargets.length === 0) return;
 
-    const templatesBySession = new Map<string, Set<string>>();
-    for (const { sessionId, templateName } of reloadTargets) {
-      const names = templatesBySession.get(sessionId) ?? new Set<string>();
-      names.add(templateName);
-      templatesBySession.set(sessionId, names);
+    const templatesBySession = new Map<string, { names: Set<string>; lifecycle: 'persistent' | 'ephemeral' }>();
+    for (const { sessionId, templateName, lifecycle } of reloadTargets) {
+      const target = templatesBySession.get(sessionId) ?? { names: new Set<string>(), lifecycle };
+      target.names.add(templateName);
+      templatesBySession.set(sessionId, target);
     }
 
     try {
-      for (const [sessionId, affectedNames] of templatesBySession) {
+      for (const [sessionId, { names: affectedNames, lifecycle }] of templatesBySession) {
         const inboundConnection = this.connectionManager.getInboundConnections().get(sessionId);
         const context = inboundConnection?.context as ContextData | undefined;
         if (!inboundConnection || !context) continue;
@@ -372,6 +372,7 @@ export class ServerManager {
           { mcpTemplates: affectedTemplates },
           this.outboundConns,
           this.transports,
+          lifecycle,
         );
       }
     } finally {

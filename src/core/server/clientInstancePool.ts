@@ -19,6 +19,13 @@ import { ClientPoolOptions, DEFAULT_POOL_OPTIONS, PooledClientInstance } from '.
 
 export type { ClientPoolOptions, PooledClientInstance };
 
+interface PendingCreation {
+  runtimeFingerprint: string;
+  promise: Promise<PooledClientInstance>;
+}
+
+class StaleRuntimeEnvironmentError extends Error {}
+
 /**
  * Manages a pool of MCP client instances created from templates
  *
@@ -33,7 +40,7 @@ export class ClientInstancePool {
   private templateToInstances = new Map<string, Set<string>>();
   private options: ClientPoolOptions;
   private cleanupTimer?: ReturnType<typeof setInterval>;
-  private pendingCreations = new Map<string, Promise<PooledClientInstance>>();
+  private pendingCreations = new Map<string, PendingCreation>();
   private removalOperations = new Map<string, Promise<void>>();
   private supervisionPublisher?: (instance: PooledClientInstance, snapshot: BackendSupervisionSnapshot) => void;
   private isShuttingDown = false;
@@ -75,11 +82,6 @@ export class ClientInstancePool {
     const renderer = new HandlebarsTemplateRenderer();
     const renderedConfig = renderer.renderTemplate(templateConfig, context);
     const renderedHash = templateRuntimeHash(renderedConfig);
-    const runtimeFingerprint = createRuntimeTargetFingerprint(
-      renderedConfig,
-      getRuntimeScopeEnvironment(),
-      AgentConfigManager.getInstance().isEnvSubstitutionEnabled(),
-    );
 
     // Debug logging to verify template rendering
     debugIf(() => ({
@@ -113,68 +115,92 @@ export class ClientInstancePool {
     );
     logger.info(`Template ${templateName}, renderedHash: ${renderedHash}, Instance key: ${instanceKey}`);
 
-    // Check for existing instance
-    const existingInstance = this.instances.get(instanceKey);
-
-    if (existingInstance && existingInstance.status !== 'terminating') {
-      // Check if this template is shareable
-      if (templateSettings.shareable || existingInstance.clientIds.has(clientId)) {
-        return this.addClientToInstance(existingInstance, clientId);
+    while (true) {
+      const runtimeFingerprint = this.createRuntimeFingerprint(renderedConfig);
+      const existingInstance = this.instances.get(instanceKey);
+      if (existingInstance && existingInstance.status !== 'terminating') {
+        if (existingInstance.runtimeFingerprint !== runtimeFingerprint) {
+          await this.removeInstance(instanceKey);
+          continue;
+        }
+        if (templateSettings.shareable || existingInstance.clientIds.has(clientId)) {
+          return this.addClientToInstance(existingInstance, clientId);
+        }
       }
-    }
 
-    const pendingCreation = this.pendingCreations.get(instanceKey);
-    if (pendingCreation) {
-      const instance = await pendingCreation;
-      if (instance.status !== 'terminating') {
-        return this.addClientToInstance(instance, clientId);
+      const pendingCreation = this.pendingCreations.get(instanceKey);
+      if (pendingCreation) {
+        try {
+          const instance = await pendingCreation.promise;
+          const currentFingerprint = this.createRuntimeFingerprint(renderedConfig);
+          if (
+            pendingCreation.runtimeFingerprint === currentFingerprint &&
+            instance.runtimeFingerprint === currentFingerprint &&
+            instance.status !== 'terminating'
+          ) {
+            return this.addClientToInstance(instance, clientId);
+          }
+          if (this.instances.get(instanceKey) === instance) {
+            await this.removeInstance(instanceKey);
+          }
+        } catch (error) {
+          if (
+            !(error instanceof StaleRuntimeEnvironmentError) &&
+            pendingCreation.runtimeFingerprint === this.createRuntimeFingerprint(renderedConfig)
+          ) {
+            throw error;
+          }
+        }
+        continue;
       }
-    }
 
-    const instancePromise = (async (): Promise<PooledClientInstance> => {
-      // Check instance limits before creating new
-      this.checkInstanceLimits(templateName);
-
-      // Create new client instance
-      const instance: PooledClientInstance = await createPooledClientInstance({
-        instanceId: createTemplateInstanceId(),
-        instanceKey,
-        templateName,
-        processedConfig: renderedConfig,
-        renderedHash,
-        runtimeFingerprint,
-        clientId,
-        idleTimeout: templateSettings.idleTimeout,
-      });
-      if (this.isShuttingDown) {
-        await this.disposeInstance(instance);
-        throw new Error('ClientInstancePool is shutting down');
-      }
-      this.configureInstanceSupervision(instance);
-
-      this.instances.set(instanceKey, instance);
-      this.addToTemplateIndex(templateName, instanceKey);
-
-      infoIf(() => ({
-        message: 'Created new client instance from template',
-        meta: {
-          instanceId: instance.id,
+      const instancePromise = (async (): Promise<PooledClientInstance> => {
+        this.checkInstanceLimits(templateName);
+        const instance = await createPooledClientInstance({
+          instanceId: createTemplateInstanceId(),
+          instanceKey,
           templateName,
-          renderedHash: renderedHash.substring(0, 8) + '...',
+          processedConfig: renderedConfig,
+          renderedHash,
+          runtimeFingerprint,
           clientId,
-          shareable: templateSettings.shareable,
-        },
-      }));
+          idleTimeout: templateSettings.idleTimeout,
+        });
+        if (this.isShuttingDown) {
+          await this.disposeInstance(instance);
+          throw new Error('ClientInstancePool is shutting down');
+        }
+        if (this.createRuntimeFingerprint(renderedConfig) !== runtimeFingerprint) {
+          await this.disposeInstance(instance);
+          throw new StaleRuntimeEnvironmentError();
+        }
+        this.configureInstanceSupervision(instance);
+        this.instances.set(instanceKey, instance);
+        this.addToTemplateIndex(templateName, instanceKey);
 
-      return instance;
-    })();
+        infoIf(() => ({
+          message: 'Created new client instance from template',
+          meta: {
+            instanceId: instance.id,
+            templateName,
+            renderedHash: renderedHash.substring(0, 8) + '...',
+            clientId,
+            shareable: templateSettings.shareable,
+          },
+        }));
+        return instance;
+      })();
 
-    this.pendingCreations.set(instanceKey, instancePromise);
-    try {
-      return await instancePromise;
-    } finally {
-      if (this.pendingCreations.get(instanceKey) === instancePromise) {
-        this.pendingCreations.delete(instanceKey);
+      const pending = { runtimeFingerprint, promise: instancePromise };
+      this.pendingCreations.set(instanceKey, pending);
+      try {
+        return await instancePromise;
+      } catch (error) {
+        if (!(error instanceof StaleRuntimeEnvironmentError)) throw error;
+      } finally {
+        if (this.pendingCreations.get(instanceKey) === pending) {
+          this.pendingCreations.delete(instanceKey);
+        }
       }
     }
   }
@@ -423,7 +449,7 @@ export class ClientInstancePool {
       this.cleanupTimer = undefined;
     }
 
-    await Promise.allSettled(Array.from(this.pendingCreations.values()));
+    await Promise.allSettled(Array.from(this.pendingCreations.values(), ({ promise }) => promise));
 
     const instanceCount = this.instances.size;
 
@@ -449,6 +475,14 @@ export class ClientInstancePool {
     if (this.isShuttingDown) {
       throw new Error('ClientInstancePool is shutting down');
     }
+  }
+
+  private createRuntimeFingerprint(config: MCPServerParams): string {
+    return createRuntimeTargetFingerprint(
+      config,
+      getRuntimeScopeEnvironment(),
+      AgentConfigManager.getInstance().isEnvSubstitutionEnabled(),
+    );
   }
 
   private async disposeInstance(instance: PooledClientInstance): Promise<void> {

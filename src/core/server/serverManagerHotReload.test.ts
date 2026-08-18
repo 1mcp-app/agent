@@ -348,7 +348,7 @@ describe('ServerManager hot-reload lifecycle facade', () => {
       server: { transport: {}, notification: vi.fn() },
     });
     mockState.retireTemplatesForRuntimeEnvironment.mockResolvedValueOnce([
-      { sessionId: 'session-1', templateName: 'affected' },
+      { sessionId: 'session-1', templateName: 'affected', lifecycle: 'ephemeral' },
     ]);
     mockState.loadConfigWithTemplates.mockResolvedValueOnce({
       staticServers: {},
@@ -372,6 +372,7 @@ describe('ServerManager hot-reload lifecycle facade', () => {
       { mcpTemplates: { affected: { command: 'node', args: ['$TOKEN'] } } },
       outboundConns,
       transports,
+      'ephemeral',
     );
     expect(mockState.createTemplateBasedServers).toHaveBeenCalledOnce();
     expect(refreshCapabilities).toHaveBeenCalledOnce();

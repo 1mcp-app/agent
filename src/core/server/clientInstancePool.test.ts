@@ -1,3 +1,4 @@
+import { activateRuntimeScopeEnvironment } from '@src/config/runtimeScopeEnv.js';
 import type { MCPServerParams } from '@src/core/types/transport.js';
 import type { ContextData } from '@src/types/context.js';
 import { createHash } from '@src/utils/crypto.js';
@@ -121,10 +122,57 @@ describe('ClientInstancePool', () => {
   });
 
   afterEach(async () => {
+    activateRuntimeScopeEnvironment({});
     await pool.shutdown();
   });
 
   describe('getOrCreateClientInstance', () => {
+    it('discards a pending instance created for a stale Runtime Scope fingerprint', async () => {
+      const { createTransportsWithContext } = await import('@src/transport/transportFactory.js');
+      const { ClientManager } = await import('@src/core/client/clientManager.js');
+      let finishFirstConnection!: () => void;
+      const firstConnection = new Promise<void>((resolve) => {
+        finishFirstConnection = resolve;
+      });
+      const firstClient = {
+        connect: vi.fn(() => firstConnection),
+        close: vi.fn().mockResolvedValue(undefined),
+        getInstructions: vi.fn(),
+      } as any;
+      const secondClient = {
+        connect: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        getInstructions: vi.fn(),
+      } as any;
+      const firstTransport = { close: vi.fn().mockResolvedValue(undefined) } as any;
+      const secondTransport = { close: vi.fn().mockResolvedValue(undefined) } as any;
+      const pooledClientFactory = vi
+        .fn()
+        .mockReturnValueOnce(firstClient)
+        .mockReturnValueOnce(secondClient);
+      vi.mocked(ClientManager.getOrCreateInstance).mockReturnValue({
+        createPooledClientInstance: pooledClientFactory,
+      } as any);
+      vi.mocked(createTransportsWithContext)
+        .mockResolvedValueOnce({ testTemplate: firstTransport })
+        .mockResolvedValueOnce({ testTemplate: secondTransport });
+      const envKey = 'ONE_MCP_TEST_PENDING_RUNTIME_462';
+      const config = { ...mockTemplateConfig, args: ['$' + envKey] };
+      activateRuntimeScopeEnvironment({ [envKey]: 'before' });
+
+      const creation = pool.getOrCreateClientInstance('testTemplate', config, mockContext, 'client-1');
+      await vi.waitFor(() => expect(firstClient.connect).toHaveBeenCalledOnce());
+      activateRuntimeScopeEnvironment({ [envKey]: 'after' });
+      finishFirstConnection();
+
+      const instance = await creation;
+
+      expect(instance.client).toBe(secondClient);
+      expect(firstClient.close).toHaveBeenCalledOnce();
+      expect(firstTransport.close).toHaveBeenCalledOnce();
+      expect(secondClient.connect).toHaveBeenCalledOnce();
+    });
+
     it('should create a new instance for first request', async () => {
       const { createTransportsWithContext } = await import('@src/transport/transportFactory.js');
       const { ClientManager } = await import('@src/core/client/clientManager.js');

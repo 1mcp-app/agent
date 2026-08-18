@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { OAuthRequiredError } from '@src/core/client/types.js';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ConfigLoader } from './configLoader.js';
 import {
@@ -59,6 +59,33 @@ describe('Runtime Scope environment', () => {
     const diagnostic = Object.assign(new TypeError('OAuth session storage is unavailable'), { code: 'EACCES' });
 
     expect(sanitizeRuntimeScopeError(diagnostic)).toBe(diagnostic);
+  });
+
+  it('redacts secret values even when they are short', () => {
+    activateRuntimeScopeEnvironment({ FLAG: 'x' });
+    const diagnostic = new Error('flag x failed');
+
+    expect(sanitizeRuntimeScopeError(diagnostic).message).toBe('flag [REDACTED] failed');
+  });
+
+  it('redacts arbitrary non-enumerable string and symbol data without invoking accessors', () => {
+    const secret = 'hidden-diagnostic-secret';
+    const symbol = Symbol('hidden');
+    const getter = vi.fn(() => secret);
+    activateRuntimeScopeEnvironment({ TOKEN: secret });
+    const diagnostic = new Error('safe');
+    Object.defineProperty(diagnostic, 'detail', { value: secret, enumerable: false, configurable: true });
+    Object.defineProperty(diagnostic, symbol, { value: { token: secret }, enumerable: false, configurable: true });
+    Object.defineProperty(diagnostic, 'computed', { get: getter, enumerable: false, configurable: true });
+
+    const sanitized = sanitizeRuntimeScopeError(diagnostic) as Error & { detail: string; [symbol]: { token: string } };
+
+    expect(sanitized).not.toBe(diagnostic);
+    expect(sanitized.detail).toBe('[REDACTED]');
+    expect(sanitized[symbol].token).toBe('[REDACTED]');
+    expect(Object.getOwnPropertyDescriptor(sanitized, 'detail')?.enumerable).toBe(false);
+    expect(Object.getOwnPropertyDescriptor(sanitized, symbol)?.enumerable).toBe(false);
+    expect(getter).not.toHaveBeenCalled();
   });
 
   it('sanitizes cyclic cause, AggregateError errors, and symbol metadata', () => {
@@ -205,7 +232,24 @@ describe('Runtime Scope environment', () => {
     }
   });
 
-  it.skipIf(process.platform === 'win32')('reports unreadable files without exposing contents', async () => {
+  it('decodes double-quoted escapes without reinterpreting escaped backslashes', () => {
+    const parsed = parseRuntimeScopeEnvironment(
+      'NEWLINE="first\\nsecond"\nLITERAL="first\\\\nsecond"\nQUOTED="say \\"hello\\""\nTAB="left\\tright"\nBACKSLASH="left\\\\right"',
+      '/scope/.env',
+    );
+
+    expect(parsed).toEqual({
+      NEWLINE: 'first\nsecond',
+      LITERAL: 'first\\nsecond',
+      QUOTED: 'say "hello"',
+      TAB: 'left\tright',
+      BACKSLASH: 'left\\right',
+    });
+  });
+
+  it.skipIf(process.platform === 'win32' || (typeof process.getuid === 'function' && process.getuid() === 0))(
+    'reports unreadable files without exposing contents',
+    async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'runtime-env-'));
     directories.push(directory);
     const envPath = path.join(directory, '.env');
@@ -217,5 +261,6 @@ describe('Runtime Scope environment', () => {
     } finally {
       await chmod(envPath, 0o600);
     }
-  });
+    },
+  );
 });

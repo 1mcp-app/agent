@@ -46,6 +46,7 @@ export type TemplateClientLifecycle = 'persistent' | 'ephemeral';
 export interface RuntimeTemplateReloadTarget {
   sessionId: string;
   templateName: string;
+  lifecycle: TemplateClientLifecycle;
 }
 
 /**
@@ -549,7 +550,11 @@ export class TemplateServerManager {
           instance.runtimeFingerprint,
       );
     const targets = changedInstances.flatMap((instance) =>
-      Array.from(instance.clientIds, (sessionId) => ({ sessionId, templateName: instance.templateName })),
+      Array.from(instance.clientIds, (sessionId) => ({
+        sessionId,
+        templateName: instance.templateName,
+        lifecycle: this.persistentSessions.has(sessionId) ? ('persistent' as const) : ('ephemeral' as const),
+      })),
     );
 
     for (const instance of changedInstances) {

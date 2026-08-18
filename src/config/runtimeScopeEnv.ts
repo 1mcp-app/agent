@@ -96,14 +96,7 @@ function parseValue(value: string, filePath: string, lineNumber: number): string
       throw new RuntimeScopeEnvError(filePath, 'parse', lineNumber);
     }
     const quoted = value.slice(1, closingIndex);
-    return quote === '"'
-      ? quoted
-          .replace(/\\n/g, '\n')
-          .replace(/\\r/g, '\r')
-          .replace(/\\t/g, '\t')
-          .replace(/\\"/g, '"')
-          .replace(/\\\\/g, '\\')
-      : quoted;
+    return quote === '"' ? quoted.replace(/\\([nrt"\\])/g, (_match, escaped: string) => decodeEscape(escaped)) : quoted;
   }
 
   const commentIndex = value.search(/\s#/u);
@@ -122,6 +115,19 @@ function countPrecedingBackslashes(value: string, index: number): number {
   let count = 0;
   for (let cursor = index - 1; cursor >= 0 && value[cursor] === '\\'; cursor -= 1) count += 1;
   return count;
+}
+
+function decodeEscape(escaped: string): string {
+  switch (escaped) {
+    case 'n':
+      return '\n';
+    case 'r':
+      return '\r';
+    case 't':
+      return '\t';
+    default:
+      return escaped;
+  }
 }
 
 function getActiveRuntimeScopeValues(): string[] {
@@ -147,7 +153,7 @@ function containsSecret(value: unknown, secrets: readonly string[], seen: WeakSe
     }
   }
 
-  for (const { key, value: nested } of enumerableDataProperties(value)) {
+  for (const { key, value: nested } of diagnosticDataProperties(value)) {
     const keyDescription = typeof key === 'symbol' ? key.description : key;
     if ((keyDescription && containsSecret(keyDescription, secrets, seen)) || containsSecret(nested, secrets, seen)) {
       return true;
@@ -166,7 +172,7 @@ function cloneSanitizedError(error: Error, secrets: readonly string[], seen: Wea
 
   copyErrorDiagnosticProperty(error, replacement, 'cause', secrets, seen);
   copyErrorDiagnosticProperty(error, replacement, 'errors', secrets, seen);
-  for (const property of enumerableDataProperties(error)) {
+  for (const property of diagnosticDataProperties(error)) {
     if (property.key === 'cause' || property.key === 'errors') continue;
     defineSanitizedProperty(replacement, property, secrets, seen);
   }
@@ -182,7 +188,7 @@ function cloneSanitizedValue(value: unknown, secrets: readonly string[], seen: W
 
   const replacement: unknown[] | Record<string, unknown> = Array.isArray(value) ? [] : {};
   seen.set(value, replacement);
-  for (const property of enumerableDataProperties(value)) {
+  for (const property of diagnosticDataProperties(value)) {
     defineSanitizedProperty(replacement, property, secrets, seen);
   }
   return replacement;
@@ -194,12 +200,13 @@ interface DiagnosticProperty {
   enumerable: boolean;
 }
 
-function enumerableDataProperties(value: object): DiagnosticProperty[] {
+function diagnosticDataProperties(value: object): DiagnosticProperty[] {
   const properties: DiagnosticProperty[] = [];
   for (const key of Reflect.ownKeys(value)) {
+    if (Array.isArray(value) && key === 'length') continue;
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (descriptor?.enumerable && 'value' in descriptor) {
-      properties.push({ key, value: descriptor.value as unknown, enumerable: descriptor.enumerable });
+    if (descriptor && 'value' in descriptor) {
+      properties.push({ key, value: descriptor.value as unknown, enumerable: Boolean(descriptor.enumerable) });
     }
   }
   return properties;

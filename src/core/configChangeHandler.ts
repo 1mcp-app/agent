@@ -104,7 +104,11 @@ export class ConfigChangeHandler {
   private async handleRuntimeEnvironmentChange(change: RuntimeEnvironmentChange): Promise<void> {
     const serverManager = this.tryGetServerManager();
     if (!serverManager) return;
-    await serverManager.reloadTemplatesForRuntimeEnvironment(change.templateServerNames);
+    try {
+      await serverManager.reloadTemplatesForRuntimeEnvironment(change.templateServerNames);
+    } catch (error) {
+      logger.error('Failed to reload templates after Runtime Scope environment change', error);
+    }
   }
 
   private refreshRuntimeInstructionConfiguration(): void {

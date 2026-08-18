@@ -10,13 +10,22 @@ import { activateRuntimeScopeEnvironment } from '@src/config/runtimeScopeEnv.js'
 import { MCPServerParams, transportConfigSchema } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createTransports, createTransportsWithContext } from './transportFactory.js';
 
 describe('TransportFactory environment substitution', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    activateRuntimeScopeEnvironment({});
+  });
+
+  afterEach(() => {
+    delete process.env.CONTEXT7_API_KEY;
+    delete process.env.RUNTIME_SCOPE_TOKEN;
+    delete process.env.RUNTIME_SCOPE_PRECEDENCE;
+    delete process.env.RUNTIME_SCOPE_HTTP;
+    delete process.env.RUNTIME_SCOPE_SSE;
     activateRuntimeScopeEnvironment({});
   });
 
@@ -52,7 +61,6 @@ describe('TransportFactory environment substitution', () => {
     createTransports(config);
 
     expect(StdioClientTransport).toHaveBeenCalledWith(expect.objectContaining({ args: ['parent-value'] }));
-    delete process.env.RUNTIME_SCOPE_PRECEDENCE;
   });
 
   it('substitutes Runtime Scope values in HTTP URLs, headers, and OAuth fields', () => {

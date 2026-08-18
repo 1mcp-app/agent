@@ -456,6 +456,9 @@ export class ConfigManager extends EventEmitter {
       const declared = this.loadDeclaredServerConfigs();
       declaredTemplates = declared.templateServers;
     } catch (error) {
+      if (this.loader.checkRuntimeEnvModified()) {
+        this.loader.markRuntimeEnvAttempted();
+      }
       logger.error(
         `Failed to load or validate configuration: ${error instanceof Error ? error.message : String(error)}`,
       );
