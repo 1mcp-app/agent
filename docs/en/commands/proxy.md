@@ -130,6 +130,8 @@ Affected Windows MCP clients may not reliably pass arguments when they launch np
 
 Replace the example path with the executable's actual location. This invokes `proxy` directly without relying on a client to launch the npm `.cmd` shim. Add options such as `"--preset", "development"` or `"--url", "http://127.0.0.1:3050/mcp"` after `"proxy"` in the `args` array when needed.
 
+The executable name and argument shape above are verified against the release packaging workflow and deterministic tests. This exact client launch path was not exercised on a live Windows host for this change.
+
 ### Prefer CLI mode instead of `proxy`
 
 If the client is an agent session, prefer:

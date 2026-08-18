@@ -1,8 +1,7 @@
+import { resolveServeTarget } from '@src/commands/shared/serveTargetResolver.js';
 import type { ResolvedProjectContext } from '@src/config/projectConfigLoader.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-import { resolveServeTarget } from './serveTargetResolver.js';
 
 const mockedResolveProjectContext = vi.hoisted(() => vi.fn());
 const mockedDiscoverScopedRuntime = vi.hoisted(() => vi.fn());
@@ -52,10 +51,10 @@ describe('resolveServeTarget port-scan composition', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const result = await resolveServeTarget(
-      {},
+      { context: 'local' },
       {
         runtimeTargetStore: {
-          inspect: vi.fn(),
+          inspect: vi.fn().mockReturnValue({ name: 'local', kind: 'local', synthetic: true, current: true }),
           current: vi.fn().mockReturnValue({ name: 'local', kind: 'local', synthetic: true, current: true }),
           requireInsecureTlsConfirmation: vi.fn(),
           updateObservedIdentityMetadata: vi.fn(),
@@ -65,6 +64,11 @@ describe('resolveServeTarget port-scan composition', () => {
 
     expect(result.source).toBe('portscan');
     expect(result.discoveredUrl).toBe('http://127.0.0.1:3050/mcp');
+    expect(result.runtimeTargetContext).toEqual({
+      name: 'local',
+      kind: 'local',
+      runtimeScopeId: 'ae625936-93ea-4d98-a2d7-c7967c5c19ca',
+    });
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       'http://127.0.0.1:3050/.well-known/1mcp/runtime-identity',

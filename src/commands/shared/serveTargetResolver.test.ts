@@ -219,13 +219,21 @@ describe('resolveServeTarget', () => {
   });
 
   it('resolves explicit local context runtime identity for context-scoped credentials', async () => {
+    const discoveredIdentity = {
+      identityProtocolVersion: '1' as const,
+      runtimeScopeId: 'scope_local',
+      externalUrl: 'http://127.0.0.1:3050',
+      runtimeVersion: '0.34.0',
+    };
+    mockedDiscoverServerWithPidFile.mockResolvedValueOnce({
+      url: 'http://127.0.0.1:3050/mcp',
+      pid: 4242,
+      source: 'pidfile',
+      validated: true,
+      runtimeIdentity: discoveredIdentity,
+    });
     const verifyRuntimeIdentity = vi.fn().mockResolvedValue({
-      identity: {
-        identityProtocolVersion: '1',
-        runtimeScopeId: 'scope_local',
-        externalUrl: 'http://127.0.0.1:3050',
-        runtimeVersion: '0.34.0',
-      },
+      identity: discoveredIdentity,
       warnings: [],
     });
 
@@ -257,11 +265,36 @@ describe('resolveServeTarget', () => {
         url: 'http://127.0.0.1:3050',
         observedIdentity: undefined,
       }),
+      candidateIdentity: discoveredIdentity,
     });
     expect(result.runtimeTargetContext).toEqual({
       name: 'local',
       kind: 'local',
       runtimeScopeId: 'scope_local',
+    });
+  });
+
+  it('does not repeat discovery when an explicit local context reaches a legacy runtime', async () => {
+    const verifyRuntimeIdentity = vi.fn();
+
+    const result = await resolveServeTarget(
+      { context: 'local' },
+      {
+        runtimeTargetStore: {
+          inspect: vi.fn().mockReturnValue({ name: 'local', kind: 'local', synthetic: true, current: true }),
+          current: vi.fn(),
+          requireInsecureTlsConfirmation: vi.fn(),
+          updateObservedIdentityMetadata: vi.fn(),
+        },
+        verifyRuntimeIdentity,
+      },
+    );
+
+    expect(verifyRuntimeIdentity).not.toHaveBeenCalled();
+    expect(result.runtimeTargetContext).toEqual({
+      name: 'local',
+      kind: 'local',
+      runtimeScopeId: undefined,
     });
   });
 

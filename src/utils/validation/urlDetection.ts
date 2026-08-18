@@ -11,21 +11,20 @@ import {
   RuntimeProbeError,
   type RuntimeProbeFailure,
 } from '@src/domains/runtime-targets/runtimeProbe.js';
+import type { RuntimeTargetObservedIdentity } from '@src/domains/runtime-targets/runtimeTargetStore.js';
 import { debugIf } from '@src/logger/logger.js';
 import { sanitizeForLogging } from '@src/logger/secureLogger.js';
 import { normalizedArgv } from '@src/utils/cli/normalizedArgv.js';
+
+import type { DiscoveredServer } from './discoveredServer.js';
+
+const LOOPBACK_ADDRESSES = ['127.0.0.1', '[::1]'] as const;
 
 export interface RuntimeUrlValidationResult {
   valid: boolean;
   error?: string;
   failure?: RuntimeProbeFailure;
-}
-
-interface DiscoveredServer {
-  url: string;
-  source: 'user' | 'pidfile' | 'portscan';
-  validated: boolean;
-  pid?: number;
+  identity?: RuntimeTargetObservedIdentity;
 }
 
 /**
@@ -66,11 +65,8 @@ export async function detectRunningServerUrl(): Promise<string | null> {
   const commonPorts = [3050, 3051, 3052];
 
   for (const port of commonPorts) {
-    const controller = new AbortController();
     try {
-      return await Promise.any(
-        ['127.0.0.1', '[::1]'].map((host) => probeLocalPortAddress(host, port, controller.signal)),
-      );
+      return await raceLoopbackAddresses((host, signal) => probeLocalPortAddress(host, port, signal));
     } catch (error) {
       // Connection refused is the expected case while scanning unused ports, but
       // a TLS/DNS/abort error on a port that IS listening is diagnostic — log it
@@ -79,8 +75,6 @@ export async function detectRunningServerUrl(): Promise<string | null> {
         message: `Port scan probe failed on ${port}`,
         meta: { port, error: error instanceof Error ? error.message : String(error) },
       }));
-    } finally {
-      controller.abort();
     }
   }
   return null;
@@ -185,16 +179,25 @@ export async function discoverServerWithPidFile(configDir?: string, userUrl?: st
   //    when the endpoint rejects or cannot satisfy the probe.
   const dir = getConfigDir(configDir);
   let ownedProbeFailure: RuntimeProbeFailure | undefined;
+  let runtimeIdentity: RuntimeTargetObservedIdentity | undefined;
   const runtime = await discoverScopedRuntime(dir, async (info) => {
     const validation = await validateServer1mcpUrl(info.url);
     if (!validation.valid) {
       ownedProbeFailure = toRuntimeProbeFailure(validation, info.url);
+    } else {
+      runtimeIdentity = validation.identity;
     }
     return validation.valid;
   });
 
   if (runtime.status === 'running' && runtime.info) {
-    return { url: runtime.info.url, source: 'pidfile', validated: true, pid: runtime.info.pid };
+    return {
+      url: runtime.info.url,
+      source: 'pidfile',
+      validated: true,
+      pid: runtime.info.pid,
+      ...(runtimeIdentity ? { runtimeIdentity } : {}),
+    };
   }
 
   if (runtime.status === 'unreachable' && runtime.info) {
@@ -277,24 +280,17 @@ export async function validateServer1mcpUrl(
 
   const parsedBaseUrl = new URL(baseUrl);
   if (parsedBaseUrl.protocol === 'http:' && parsedBaseUrl.hostname === 'localhost') {
-    const controller = new AbortController();
-    const candidates = ['127.0.0.1', '[::1]'].map((host) => {
-      const candidate = new URL(baseUrl);
-      candidate.hostname = host;
-      return validateConcreteServer1mcpUrl(candidate.toString().replace(/\/$/, ''), tls, controller.signal).then(
-        (result) => {
-          if (result.valid) return result;
-          throw result;
-        },
-      );
-    });
     try {
-      return await Promise.any(candidates);
+      return await raceLoopbackAddresses(async (host, signal) => {
+        const candidate = new URL(baseUrl);
+        candidate.hostname = host;
+        const result = await validateConcreteServer1mcpUrl(candidate.toString().replace(/\/$/, ''), tls, signal);
+        if (result.valid) return result;
+        throw result;
+      });
     } catch (error) {
       const failures = error instanceof AggregateError ? error.errors.filter(isRuntimeUrlValidationResult) : [];
       return selectMostActionableFailure(failures) ?? invalidProbeResult(probeFailureFromError(error, '/'));
-    } finally {
-      controller.abort();
     }
   }
 
@@ -307,7 +303,7 @@ async function validateConcreteServer1mcpUrl(
   signal?: AbortSignal,
 ): Promise<RuntimeUrlValidationResult> {
   try {
-    await fetchRuntimeIdentity(baseUrl, {
+    const identity = await fetchRuntimeIdentity(baseUrl, {
       fetch: (url, init) =>
         fetchRuntimeTargetUrl(url, {
           ...init,
@@ -315,7 +311,7 @@ async function validateConcreteServer1mcpUrl(
         }),
       ...tls,
     });
-    return { valid: true };
+    return { valid: true, identity };
   } catch (error) {
     if (!isMissingRuntimeIdentityEndpoint(error)) {
       return invalidProbeResult(probeFailureFromError(error, '/.well-known/1mcp/runtime-identity'));
@@ -341,6 +337,15 @@ async function validateConcreteServer1mcpUrl(
     return { valid: true };
   } catch (error) {
     return invalidProbeResult(probeFailureFromError(error, '/oauth/'));
+  }
+}
+
+async function raceLoopbackAddresses<T>(probe: (host: string, signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  try {
+    return await Promise.any(LOOPBACK_ADDRESSES.map((host) => probe(host, controller.signal)));
+  } finally {
+    controller.abort();
   }
 }
 

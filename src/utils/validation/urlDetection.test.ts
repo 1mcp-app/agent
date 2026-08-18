@@ -71,7 +71,10 @@ describe('validateServer1mcpUrl', () => {
       return response({ status: 429 });
     });
 
-    await expect(validateServer1mcpUrl('http://127.0.0.1:3050/mcp')).resolves.toEqual({ valid: true });
+    await expect(validateServer1mcpUrl('http://127.0.0.1:3050/mcp')).resolves.toMatchObject({
+      valid: true,
+      identity: { runtimeScopeId: 'ae625936-93ea-4d98-a2d7-c7967c5c19ca' },
+    });
 
     expect(mockedFetchRuntimeTargetUrl).toHaveBeenCalledTimes(1);
     expect(mockedFetchRuntimeTargetUrl).not.toHaveBeenCalledWith('http://127.0.0.1:3050/oauth/', expect.anything());
@@ -160,7 +163,10 @@ describe('validateServer1mcpUrl', () => {
       throw new Error(`Unexpected probe URL: ${url}`);
     });
 
-    await expect(validateServer1mcpUrl('http://localhost:3050/mcp')).resolves.toEqual({ valid: true });
+    await expect(validateServer1mcpUrl('http://localhost:3050/mcp')).resolves.toMatchObject({
+      valid: true,
+      identity: { runtimeScopeId: 'ae625936-93ea-4d98-a2d7-c7967c5c19ca' },
+    });
 
     expect(mockedFetchRuntimeTargetUrl).toHaveBeenCalledWith(
       'http://[::1]:3050/.well-known/1mcp/runtime-identity',
@@ -283,6 +289,13 @@ describe('validateServer1mcpUrl', () => {
       source: 'pidfile',
       pid: 4242,
       validated: true,
+      runtimeIdentity: {
+        identityProtocolVersion: '1',
+        runtimeScopeId: 'ae625936-93ea-4d98-a2d7-c7967c5c19ca',
+        externalUrl: 'http://[::1]:3050',
+        runtimeVersion: '0.35.0-beta.3',
+        serverTime: undefined,
+      },
     });
     expect(mockedFetchRuntimeTargetUrl).toHaveBeenCalledTimes(1);
   });
