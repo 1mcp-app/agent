@@ -51,6 +51,8 @@ export function createRuntimeTargetFingerprint(
     effective = config;
   }
 
+  // This keyed, process-local digest detects config changes; it does not store or verify passwords.
+  // codeql[js/insufficient-password-hash]
   return createHmac('sha256', fingerprintKey).update(stableStringify(effective)).digest('hex');
 }
 
