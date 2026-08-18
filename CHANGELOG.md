@@ -5,9 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.35.0-beta.4] - 2026-08-12
+## [0.35.0] - 2026-08-18
 
 ### 🚀 Features
+- Configure per-server tool metadata by @xizhibei in [#458](https://github.com/1mcp-app/agent/pull/458)
+- Add admin-managed instruction templates by @xizhibei in [#457](https://github.com/1mcp-app/agent/pull/457)
+- Add Windows Task Scheduler install script and tests by @RCrushMe in [#455](https://github.com/1mcp-app/agent/pull/455)
 - Refine console workflows and bundle loading by @xizhibei in [#456](https://github.com/1mcp-app/agent/pull/456)
 - Authorize template context per runtime scope by @xizhibei in [#439](https://github.com/1mcp-app/agent/pull/439)
 - Add custom configured server creation by @xizhibei in [#440](https://github.com/1mcp-app/agent/pull/440)
@@ -22,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Ship Admin Console operations cockpit by @xizhibei in [#375](https://github.com/1mcp-app/agent/pull/375)
 
 ### 🐛 Bug Fixes
+- Speed up Windows proxy startup by @xizhibei in [#460](https://github.com/1mcp-app/agent/pull/460)
+- Stop capability polling after terminal 401 by @iddictive in [#426](https://github.com/1mcp-app/agent/pull/426)
 - Handle EPERM error on Windows in isOwnershipExistsError by @RCrushMe in [#446](https://github.com/1mcp-app/agent/pull/446)
 - Stabilize aggregate capability pagination by @xizhibei in [#448](https://github.com/1mcp-app/agent/pull/448)
 - Use basic parsing in Windows smoke test by @xizhibei in [#441](https://github.com/1mcp-app/agent/pull/441)
@@ -39,6 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Clean up imports and improve code formatting across test files by @xizhibei
 
 ### 📚 Documentation
+- Align documentation with current codebase by @xizhibei in [#443](https://github.com/1mcp-app/agent/pull/443)
+- Add Windows Task Scheduler deployment guide by @RCrushMe in [#449](https://github.com/1mcp-app/agent/pull/449)
 - Add ADRs for OAuth refresh tokens and managed backend log delivery by @xizhibei
 - Document async loading sub-parameters by @adity982 in [#398](https://github.com/1mcp-app/agent/pull/398)
 
@@ -50,7 +57,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add .agents/skills to .gitignore by @xizhibei
 
 ## New Contributors
-* @RCrushMe made their first contribution in [#446](https://github.com/1mcp-app/agent/pull/446)
+* @iddictive made their first contribution in [#426](https://github.com/1mcp-app/agent/pull/426)
+* @RCrushMe made their first contribution in [#449](https://github.com/1mcp-app/agent/pull/449)
 * @Quentin-M made their first contribution in [#414](https://github.com/1mcp-app/agent/pull/414)
 * @Congee-wine made their first contribution in [#416](https://github.com/1mcp-app/agent/pull/416)
 * @adity982 made their first contribution in [#398](https://github.com/1mcp-app/agent/pull/398)
@@ -1095,7 +1103,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * @xizhibei made their first contribution in [#1](https://github.com/1mcp-app/agent/pull/1)
 * @dependabot[bot] made their first contribution
 
-[0.35.0-beta.4]: https://github.com/1mcp-app/agent/compare/v0.34.4..v0.35.0-beta.4
+[0.35.0]: https://github.com/1mcp-app/agent/compare/v0.34.4..v0.35.0
 [0.34.4]: https://github.com/1mcp-app/agent/compare/v0.34.3..v0.34.4
 [0.34.3]: https://github.com/1mcp-app/agent/compare/v0.34.2..v0.34.3
 [0.34.2]: https://github.com/1mcp-app/agent/compare/v0.34.1..v0.34.2
