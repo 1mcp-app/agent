@@ -1,9 +1,15 @@
-export function localRuntimePidFile(configDir: string) {
+export function localRuntimePidFile(
+  configDir: string,
+  overrides: {
+    host?: string;
+    url?: string;
+  } = {},
+) {
   return {
     pid: process.pid,
-    url: 'http://localhost:3050/mcp',
+    url: overrides.url ?? 'http://localhost:3050/mcp',
     port: 3050,
-    host: 'localhost',
+    host: overrides.host ?? 'localhost',
     transport: 'http' as const,
     startedAt: '2026-08-18T00:00:00.000Z',
     configDir,

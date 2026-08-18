@@ -15,7 +15,13 @@ describe('local Runtime Target Context PID discovery', () => {
 
   beforeEach(async () => {
     configDir = await mkdtemp(join(tmpdir(), '1mcp-local-target-probe-'));
-    writePidFile(configDir, localRuntimePidFile(configDir));
+    writePidFile(
+      configDir,
+      localRuntimePidFile(configDir, {
+        host: '127.0.0.2',
+        url: 'http://127.0.0.2:3050/mcp',
+      }),
+    );
   });
 
   afterEach(async () => {
@@ -28,7 +34,7 @@ describe('local Runtime Target Context PID discovery', () => {
     const fetchMock = vi.fn(async (_url: string | URL | Request) =>
       runtimeIdentityResponse({
         runtimeScopeId: 'scope-local',
-        externalUrl: 'http://localhost:3050',
+        externalUrl: 'http://127.0.0.2:3050',
       }),
     );
     vi.stubGlobal('fetch', fetchMock);
@@ -38,11 +44,11 @@ describe('local Runtime Target Context PID discovery', () => {
       { runtimeTargetStore: new RuntimeTargetStore({ storeDir: join(configDir, 'targets') }) },
     );
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
-      'http://127.0.0.1:3050/.well-known/1mcp/runtime-identity',
-      'http://[::1]:3050/.well-known/1mcp/runtime-identity',
+      'http://127.0.0.2:3050/.well-known/1mcp/runtime-identity',
     ]);
+    expect(result.discoveredUrl).toBe('http://127.0.0.2:3050/mcp');
     expect(result.runtimeTargetContext).toEqual({
       name: 'local',
       kind: 'local',
