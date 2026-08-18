@@ -1,5 +1,6 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
+import { executeWithPostAuthOAuthRecovery } from '@src/core/client/postAuthOAuthRecovery.js';
 import { ConnectionResolver, type TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { getDisabledToolError, isToolDisabled } from '@src/core/server/disabledTools.js';
 import { applyEffectiveToolDescription } from '@src/core/server/toolDescriptionOverrides.js';
@@ -11,13 +12,13 @@ import {
 } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 
-import { type CapabilityVisibility, getCapabilityVisibleServerNames } from './capabilityVisibility.js';
 import {
   type CapabilityKind,
   type CapabilityPage,
   type CapabilityPaginationResult,
   walkCapabilityPages,
 } from './capabilityPagination.js';
+import { type CapabilityVisibility, getCapabilityVisibleServerNames } from './capabilityVisibility.js';
 import { SchemaCache } from './schemaCache.js';
 import type { ListToolsOptions, ListToolsResult as RegistryListToolsResult, ToolMetadata } from './toolRegistry.js';
 import { ToolRegistry } from './toolRegistry.js';
@@ -117,7 +118,11 @@ export class CapabilityCatalog {
     visibility: CapabilityVisibility;
     cursor?: string;
     enablePagination: boolean;
-    list: (connection: OutboundConnection, cursor: string | undefined, serverName: string) => Promise<CapabilityPage<T>>;
+    list: (
+      connection: OutboundConnection,
+      cursor: string | undefined,
+      serverName: string,
+    ) => Promise<CapabilityPage<T>>;
     mapItem?: (item: T, serverName: string) => T;
     internalPages?: Array<{ id: string; name: string; items: T[] }>;
     includeExternal?: boolean;
@@ -294,10 +299,12 @@ export class CapabilityCatalog {
     }
 
     try {
-      const result = await connection.client.callTool({
-        name: route.toolName,
-        arguments: args.args as Record<string, unknown>,
-      });
+      const result = await executeWithPostAuthOAuthRecovery(route.server, connection, () =>
+        connection.client.callTool({
+          name: route.toolName,
+          arguments: args.args as Record<string, unknown>,
+        }),
+      );
       return { result, server: route.server, tool: route.toolName, route, refresh };
     } catch (error) {
       logger.error(`Tool invocation failed: ${route.server}:${route.toolName}`, { error });

@@ -1,3 +1,6 @@
+import { StreamableHTTPClientTransport, StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+
 import {
   ClientStatus,
   type InboundConnection,
@@ -38,7 +41,7 @@ vi.mock('../utils/parsing.js', () => ({
   parseUri: vi.fn(),
 }));
 
-vi.mock('../core/server/serverManager.js', () => ({
+vi.mock('@src/core/server/serverManager.js', () => ({
   ServerManager: {
     get current() {
       return {
@@ -72,7 +75,7 @@ vi.mock('@src/core/filtering/clientFiltering.js', () => ({
 
 vi.mock('@src/core/filtering/filteringService.js', () => ({
   FilteringService: {
-    getFilteredConnections: () => mockGetFilteredConnections,
+    getFilteredConnections: (connections: OutboundConnections) => mockGetFilteredConnections(connections),
   },
 }));
 
@@ -90,6 +93,7 @@ describe('Request Handlers', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    mockGetFilteredConnections.mockImplementation((connections) => connections);
 
     // Dynamic import to avoid circular dependency
     const module = await import('./requestHandlers.js');
@@ -196,6 +200,35 @@ describe('Request Handlers', () => {
       }).not.toThrow();
 
       expect(mockServer.setRequestHandler).toHaveBeenCalled();
+    });
+
+    it('recovers OAuth for a direct MCP tool call', async () => {
+      const oauthProvider = { invalidateCredentials: vi.fn().mockResolvedValue(undefined) };
+      const transport = {
+        _url: new URL('https://example.com/mcp'),
+        oauthProvider,
+        close: vi.fn().mockResolvedValue(undefined),
+        timeout: 5000,
+      } as any;
+      Object.setPrototypeOf(transport, StreamableHTTPClientTransport.prototype);
+      const unauthorized = new StreamableHTTPError(401, 'Server returned 401 after successful authentication');
+      mockClient1.callTool.mockRejectedValue(unauthorized);
+      mockClient1.close = vi.fn().mockResolvedValue(undefined);
+      mockClient1.transport = transport;
+      const connection = mockOutboundConns.get('client1')!;
+      connection.transport = transport;
+      mockParseUri.mockReturnValue({ clientName: 'client1', resourceName: 'tool' });
+
+      registerRequestHandlers(mockOutboundConns, mockInboundConn);
+      const handler = mockServer.setRequestHandler.mock.calls.find(
+        ([schema]: [unknown]) => schema === CallToolRequestSchema,
+      )?.[1];
+
+      await expect(handler({ params: { name: 'client1_tool', arguments: {} } })).rejects.toBe(unauthorized);
+      expect(connection.status).toBe(ClientStatus.AwaitingOAuth);
+      expect(oauthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
+      expect(mockClient1.close).toHaveBeenCalledOnce();
+      expect(connection.transport).not.toBe(transport);
     });
 
     it('should handle clients with different statuses', () => {

@@ -1,6 +1,5 @@
 import { EventEmitter } from 'events';
 
-import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import {
   ListPromptsResult,
   ListResourcesResult,
@@ -18,9 +17,10 @@ import {
   publishConfiguredToolSnapshot,
 } from '@src/core/capabilities/configuredToolSnapshot.js';
 import { InternalCapabilitiesProvider } from '@src/core/capabilities/internalCapabilitiesProvider.js';
+import { executeWithPostAuthOAuthRecovery } from '@src/core/client/postAuthOAuthRecovery.js';
 import { filterDisabledTools } from '@src/core/server/disabledTools.js';
 import { applyEffectiveToolDescription } from '@src/core/server/toolDescriptionOverrides.js';
-import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
+import { ClientStatus, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import type { EnhancedTransport } from '@src/core/types/transport.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
@@ -185,17 +185,23 @@ export class CapabilityAggregator extends EventEmitter {
         const serverCapabilities = connection.client.getServerCapabilities() || {};
 
         // Build promises array based on actual capabilities
-        const promises: Promise<unknown>[] = [this.safeListTools(serverName, connection.client, connection.transport)];
+        const promises: Promise<unknown>[] = [this.safeListTools(serverName, connection)];
 
         if (serverCapabilities.resources) {
-          promises.push(this.safeListResources(serverName, connection.client, connection.transport));
+          promises.push(this.safeListResources(serverName, connection));
         }
         if (serverCapabilities.prompts) {
-          promises.push(this.safeListPrompts(serverName, connection.client, connection.transport));
+          promises.push(this.safeListPrompts(serverName, connection));
         }
 
         // Fetch capabilities in parallel (only those supported)
         const results = await Promise.allSettled(promises);
+
+        if (connection.status !== ClientStatus.Connected) {
+          clearConfiguredToolSnapshot(connection);
+          readyServers.splice(readyServers.indexOf(serverName), 1);
+          continue;
+        }
 
         // Process tools (always first in promises array)
         if (results[0]?.status === 'fulfilled') {
@@ -257,14 +263,14 @@ export class CapabilityAggregator extends EventEmitter {
   /**
    * Safely list tools from a server
    */
-  private async safeListTools(
-    serverName: string,
-    client: Pick<Client, 'listTools'>,
-    transport: EnhancedTransport,
-  ): Promise<ListToolsResult> {
+  private async safeListTools(serverName: string, connection: OutboundConnection): Promise<ListToolsResult> {
     try {
-      return await collectConfiguredToolPages((cursor) =>
-        client.listTools(cursor === undefined ? undefined : { cursor }, { timeout: getRequestTimeout(transport) }),
+      return await executeWithPostAuthOAuthRecovery(serverName, connection, () =>
+        collectConfiguredToolPages((cursor) =>
+          connection.client.listTools(cursor === undefined ? undefined : { cursor }, {
+            timeout: getRequestTimeout(connection.transport as EnhancedTransport),
+          }),
+        ),
       );
     } catch (error) {
       logger.warn(`Failed to list tools from ${serverName}`, { error: String(error) });
@@ -275,13 +281,13 @@ export class CapabilityAggregator extends EventEmitter {
   /**
    * Safely list resources from a server
    */
-  private async safeListResources(
-    serverName: string,
-    client: Pick<Client, 'listResources'>,
-    transport: EnhancedTransport,
-  ): Promise<ListResourcesResult> {
+  private async safeListResources(serverName: string, connection: OutboundConnection): Promise<ListResourcesResult> {
     try {
-      return await client.listResources(undefined, { timeout: getRequestTimeout(transport) });
+      return await executeWithPostAuthOAuthRecovery(serverName, connection, () =>
+        connection.client.listResources(undefined, {
+          timeout: getRequestTimeout(connection.transport as EnhancedTransport),
+        }),
+      );
     } catch (error) {
       logger.warn(`Failed to list resources from ${serverName}`, { error: String(error) });
       return { resources: [] };
@@ -291,13 +297,13 @@ export class CapabilityAggregator extends EventEmitter {
   /**
    * Safely list prompts from a server
    */
-  private async safeListPrompts(
-    serverName: string,
-    client: Pick<Client, 'listPrompts'>,
-    transport: EnhancedTransport,
-  ): Promise<ListPromptsResult> {
+  private async safeListPrompts(serverName: string, connection: OutboundConnection): Promise<ListPromptsResult> {
     try {
-      return await client.listPrompts(undefined, { timeout: getRequestTimeout(transport) });
+      return await executeWithPostAuthOAuthRecovery(serverName, connection, () =>
+        connection.client.listPrompts(undefined, {
+          timeout: getRequestTimeout(connection.transport as EnhancedTransport),
+        }),
+      );
     } catch (error) {
       logger.warn(`Failed to list prompts from ${serverName}`, { error: String(error) });
       return { prompts: [] };
