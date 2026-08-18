@@ -1,3 +1,8 @@
+---
+title: mcp update 命令
+description: 更新已配置 MCP 服务器的命令、传输和选项。
+---
+
 # mcp update
 
 更新现有 MCP 服务器的配置。

@@ -205,31 +205,22 @@ describe('MCP Add Command E2E', () => {
       expect(config.mcpServers['restart-server'].restartDelay).toBe(2000);
     });
 
-    it('should add server with restart enabled but no limits', async () => {
+    it('should show the default restart limit when max restarts is omitted', async () => {
       const result = await runner.runMcpCommand('add', {
-        args: [
-          'unlimited-restart-server',
-          '--type',
-          'stdio',
-          '--command',
-          'echo',
-          '--args',
-          'test',
-          '--restart-on-exit',
-        ],
+        args: ['default-restart-server', '--type', 'stdio', '--command', 'echo', '--args', 'test', '--restart-on-exit'],
       });
 
       runner.assertSuccess(result);
       runner.assertOutputContains(result, 'Restart on Exit: Enabled');
-      runner.assertOutputContains(result, 'Max Restarts: Unlimited');
+      runner.assertOutputContains(result, 'Max Restarts: 5 (default)');
       runner.assertOutputContains(result, 'Restart Delay: 1000ms (default)');
 
       // Verify configuration
       const configContent = await readFile(environment.getConfigPath(), 'utf-8');
       const config = JSON.parse(configContent);
-      expect(config.mcpServers['unlimited-restart-server'].restartOnExit).toBe(true);
-      expect(config.mcpServers['unlimited-restart-server'].maxRestarts).toBeUndefined();
-      expect(config.mcpServers['unlimited-restart-server'].restartDelay).toBeUndefined();
+      expect(config.mcpServers['default-restart-server'].restartOnExit).toBe(true);
+      expect(config.mcpServers['default-restart-server'].maxRestarts).toBeUndefined();
+      expect(config.mcpServers['default-restart-server'].restartDelay).toBeUndefined();
     });
 
     it('should display restart configuration in list command', async () => {

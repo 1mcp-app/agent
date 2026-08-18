@@ -28,7 +28,7 @@ head:
 
 ## 先决条件
 
-- Node.js 18+
+- npm 安装需要 Node.js `^20.19.0 || ^22.12.0 || >=23.0.0`
 - 一个 AI agent 客户端，例如 Codex 或 Claude
 
 ## 5 分钟 Agent 设置
@@ -67,7 +67,7 @@ npm install -g @1mcp/agent
 1mcp cli-setup --claude --scope repo --repo-root .
 ```
 
-这个命令会安装引导文件，让 agent 按顺序使用 `instructions`、`inspect` 和 `run`。目标类型和作用域细节见 [`cli-setup`](/zh/commands/cli-setup)。
+这个命令会安装引导文件，让 agent 按顺序使用 `instructions`、`inspect` 和 `run`。对于 Codex，它还会打印必须加入 `config.toml` 的改动，但**不会**自动写入。请在启动 Codex 前把打印出的片段复制到 `config.toml`。目标类型和作用域细节见 [`cli-setup`](/zh/commands/cli-setup)。
 
 ### 5. 验证工作流
 
@@ -86,6 +86,7 @@ npm install -g @1mcp/agent
 - `inspect context7` 能列出上游 server 的工具
 - `inspect context7/query-docs` 会在调用前展示 schema
 - `run ...` 会返回来自上游 server 的真实结果
+- 对于 Codex，在启动下一次 Codex 会话前，打印出的 `config.toml` 改动已经生效
 
 到这里，你的 agent 已经可以在不额外阅读其他设置页面的前提下，通过 CLI 模式使用 1MCP。
 
@@ -141,7 +142,7 @@ npm install -g @1mcp/agent
 
 **`1mcp serve` 启动失败**
 
-- 检查是否安装了 Node.js 18+：`node --version`
+- 检查 Node.js 是否满足 `^20.19.0 || ^22.12.0 || >=23.0.0`：`node --version`
 - 重新运行 `1mcp mcp list`，确认上游 server 已成功添加
 
 **`cli-setup` 没有影响到我的 agent**

@@ -113,15 +113,17 @@ Remove-Item "1mcp-win32-x64.zip"
 
 - ✅ **无依赖**: 无需安装 Node.js
 - ✅ **快速启动**: 即时执行，无包解析过程
-- ✅ **便携性**: 单文件随处可运行
-- ✅ **安全性**: 由 GitHub Actions 预构建和签名
+- ✅ **便携性**: 平台专用的单一可执行文件，无需安装 Node.js
+- ✅ **发布构建**: 平台归档由发布工作流构建
 - ✅ **压缩归档**: tar.gz/zip 格式，下载速度提升 67%
-- ✅ **多架构**: 支持所有平台的 x64 和 ARM64 架构
+- ✅ **平台覆盖**: Linux 和 macOS 支持 x64 与 ARM64；Windows 发布版支持 x64
 - ✅ **标准格式**: 无需特殊解压工具，适用于所有系统
 
 ## 包管理器
 
 ### npm/pnpm
+
+npm 安装路径需要 Node.js `^20.19.0 || ^22.12.0 || >=23.0.0`。
 
 ```bash
 # 全局安装
@@ -140,32 +142,42 @@ npx @1mcp/agent --config mcp.json
 - **`latest`**: 包含额外工具 (uv, bun) 的全功能镜像 - 默认
 - **`lite`**: 仅包含基本 Node.js 包管理器 (npm, pnpm, yarn) 的轻量级镜像
 
+请将 `mcp.json` 和可选的同级 `config.toml` 放在专用目录中。该目录以可写方式挂载，使 `mcp add` 和 `mcp update` 能够持久化更改。
+
 ```bash
-# 拉取并运行 (全功能镜像) - 重要：设置主机为 0.0.0.0 以支持 Docker 网络
-docker run -p 3050:3050 \
+# 准备容器配置目录
+mkdir -p 1mcp-config
+cp mcp.json 1mcp-config/
+# 如果使用 auth 等应用设置：cp config.toml 1mcp-config/
+
+# 拉取并运行 (全功能镜像)；仅发布到宿主机回环接口
+docker run -p 127.0.0.1:3050:3050 \
   -e ONE_MCP_HOST=0.0.0.0 \
   -e ONE_MCP_PORT=3050 \
   -e ONE_MCP_EXTERNAL_URL=http://127.0.0.1:3050 \
-  -v $(pwd)/mcp.json:/app/mcp.json \
+  -e ONE_MCP_CONFIG=/usr/src/app/config/mcp.json \
+  -v "$(pwd)/1mcp-config:/usr/src/app/config" \
   ghcr.io/1mcp-app/agent:latest
 
 # 拉取并运行 (轻量级镜像) 带正确的网络配置
-docker run -p 3050:3050 \
+docker run -p 127.0.0.1:3050:3050 \
   -e ONE_MCP_HOST=0.0.0.0 \
   -e ONE_MCP_PORT=3050 \
   -e ONE_MCP_EXTERNAL_URL=http://127.0.0.1:3050 \
-  -v $(pwd)/mcp.json:/app/mcp.json \
+  -e ONE_MCP_CONFIG=/usr/src/app/config/mcp.json \
+  -v "$(pwd)/1mcp-config:/usr/src/app/config" \
   ghcr.io/1mcp-app/agent:lite
 
 # 中国用户 - 更快的包安装速度
-docker run -p 3050:3050 \
+docker run -p 127.0.0.1:3050:3050 \
   -e ONE_MCP_HOST=0.0.0.0 \
   -e ONE_MCP_PORT=3050 \
   -e ONE_MCP_EXTERNAL_URL=http://127.0.0.1:3050 \
   -e npm_config_registry=https://registry.npmmirror.com \
   -e UV_INDEX=http://mirrors.aliyun.com/pypi/simple \
   -e UV_DEFAULT_INDEX=http://mirrors.aliyun.com/pypi/simple \
-  -v $(pwd)/mcp.json:/app/mcp.json \
+  -e ONE_MCP_CONFIG=/usr/src/app/config/mcp.json \
+  -v "$(pwd)/1mcp-config:/usr/src/app/config" \
   ghcr.io/1mcp-app/agent:latest
 
 # 使用 docker-compose (推荐)
@@ -174,15 +186,15 @@ services:
   1mcp:
     image: ghcr.io/1mcp-app/agent:latest
     ports:
-      - "3050:3050"
+      - "127.0.0.1:3050:3050"
     volumes:
-      - ./mcp.json:/app/mcp.json
+      - ./1mcp-config:/usr/src/app/config
     environment:
       - ONE_MCP_HOST=0.0.0.0
       - ONE_MCP_PORT=3050
       - ONE_MCP_EXTERNAL_URL=http://127.0.0.1:3050
       - ONE_MCP_LOG_LEVEL=info
-      - ONE_MCP_CONFIG=/app/mcp.json
+      - ONE_MCP_CONFIG=/usr/src/app/config/mcp.json
       # 可选：中国大陆用户加速
       # - npm_config_registry=https://registry.npmmirror.com
       # - UV_INDEX=http://mirrors.aliyun.com/pypi/simple
@@ -194,6 +206,8 @@ EOF
 
 docker compose up -d
 ```
+
+这些示例只能从 Docker 宿主机访问。将 1MCP 发布到其他接口前，请在 `1mcp-config/config.toml` 中启用身份验证，将 `ONE_MCP_EXTERNAL_URL` 设置为公共 HTTPS URL，并遵循[身份验证指南](/zh/guide/advanced/authentication)。在未启用身份验证时绑定到回环接口以外的地址，会把 MCP 能力暴露给网络。
 
 #### 可用标签
 
@@ -225,7 +239,8 @@ docker compose up -d
 
 ### 先决条件
 
-- Node.js (来自 `.node-version` 的版本 - 目前为 22)
+- 使用 `.node-version` 记录的 Node.js 版本
+- 仓库版本是受支持的源码构建环境，而不是已发布的包支持契约。
 - pnpm 包管理器
 
 ### 构建步骤
@@ -272,7 +287,7 @@ npx @1mcp/agent --version
 - **磁盘**：用于 Node.js 依赖和日志的空间
 - **网络**：MCP 服务器的 HTTP/HTTPS 出站访问
 - **操作系统**：Linux (x64/ARM64)、macOS (ARM64/x64)、Windows (x64)
-- **运行时**：Node.js 21+
+- **运行时**：npm 安装使用 Node.js `^20.19.0 || ^22.12.0 || >=23.0.0`；源码构建使用 `.node-version`
 
 ## 下一步
 

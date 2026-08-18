@@ -33,6 +33,7 @@ npx -y @1mcp/agent run <server>/<tool> [选项]
 
 - **`<server>/<tool>`** - 限定格式的工具引用
 - **`--url, -u <url>`** - 覆盖自动发现到的 1MCP 服务器 URL
+- **`--context <name>`** - 使用具名 Runtime Target Context 及其保存的 bearer token（如有）
 - **`--preset, -p <name>`** - 调用运行中服务器时使用预设
 - **`--tag-filter, -f <expression>`** - 应用高级标签过滤表达式
 - **`--tags <tag>`** - 应用简单的逗号分隔标签
@@ -75,6 +76,12 @@ npx -y @1mcp/agent run summarizer/summarize < README.md
 
 ```bash
 npx -y @1mcp/agent run --preset development validator/validate --args '{"path":"./schema.json"}'
+```
+
+### 通过 Runtime Target Context 调用
+
+```bash
+1mcp run --context prod filesystem/read_file --args '{"path":"./README.md"}'
 ```
 
 ### 使用 JSON 输出方便脚本处理

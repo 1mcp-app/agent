@@ -110,6 +110,8 @@ Connect your agent to CLI mode:
 1mcp cli-setup --claude --scope repo --repo-root .
 ```
 
+For Codex, copy the required `config.toml` snippet printed by `cli-setup`; the command does not apply that change itself. The setup is ready when that snippet is present and the next session can complete `instructions -> inspect -> run`.
+
 Verify the workflow:
 
 ```bash
@@ -140,7 +142,7 @@ This is only the preview path. For prerequisites, success checks, and troublesho
     <p>Best for Codex, Claude, and similar agent loops that benefit from progressive discovery.</p>
   </a>
 
-  <a href="/commands/serve" class="vp-feature-box">
+  <a href="/commands/proxy" class="vp-feature-box">
     <h3>Proxy Compatibility Path</h3>
     <p>Best non-CLI path when you want project context, `.1mcprc`, template servers, and the widest client compatibility.</p>
   </a>

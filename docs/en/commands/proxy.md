@@ -76,6 +76,7 @@ Priority order is:
 ### Connection
 
 - **`--url, -u <url>`**: Override runtime auto-discovery.
+- **`--context <name>`**: Use a named Runtime Target Context, including its saved bearer token when present.
 - **`--config-dir, -d <path>`**: Use a specific config directory during discovery.
 
 ### Exposure control
@@ -140,23 +141,22 @@ If the client can talk to streamable HTTP MCP directly and you do not need proje
 http://127.0.0.1:3050/mcp?app=cursor
 ```
 
-## Authentication Caveat
+## Authentication
 
-This is the most important limitation on this page:
+`proxy --context <name>` resolves a named Runtime Target Context and can send its saved bearer token to the runtime. Create and authenticate the context first:
 
-- stdio transport does not give a client an OAuth browser flow
-- `proxy` does not magically make a stdio client auth-capable
-- if your runtime requires auth, a client that cannot complete HTTP auth cannot use it through `proxy`
+```bash
+1mcp target add prod https://mcp.example.com/mcp --use
+1mcp auth login --context prod --token "$TOKEN"
+1mcp proxy --context prod
+```
 
-In practice:
-
-- use CLI mode for agent loops whenever possible
-- use direct HTTP for clients that can authenticate and do not need project context
-- use `proxy` only with runtimes that do not require auth
-- run a separate unauthenticated `serve` instance if a stdio client still needs compatibility access
+`proxy --url <url>` is an ephemeral connection. It does not load or attach saved credentials, so it remains credentialless. Stdio clients still do not receive an interactive OAuth browser flow; use a named context when the proxy must call a bearer-protected runtime.
 
 ## See Also
 
 - **[CLI Mode Guide](/guide/integrations/cli-mode)**
 - **[Serve Command](/commands/serve)**
+- **[Runtime Target Context Commands](/commands/target)**
+- **[Auth Commands](/commands/auth)**
 - **[Architecture](/reference/architecture)**

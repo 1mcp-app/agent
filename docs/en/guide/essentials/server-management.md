@@ -33,13 +33,13 @@ Install your first server from the registry:
 
 ```bash
 # Search for available servers
-npx -y @1mcp/agent registry search --category=filesystem
+npx -y @1mcp/agent registry search filesystem --type=npm --transport=stdio
 
 # Install the filesystem server
 npx -y @1mcp/agent mcp install filesystem
 
-# Or use the interactive wizard
-npx -y @1mcp/agent mcp wizard
+# Or use interactive installation
+npx -y @1mcp/agent mcp install --interactive
 ```
 
 ### Registry Workflow
@@ -81,11 +81,8 @@ npx -y @1mcp/agent mcp install git --repository /path/to/project
 Launch the configuration wizard for guided installation:
 
 ```bash
-# Start interactive wizard
-npx -y @1mcp/agent mcp wizard
-
-# Start with predefined template
-npx -y @1mcp/agent mcp wizard --template development
+# Start interactive installation
+npx -y @1mcp/agent mcp install --interactive
 ```
 
 The wizard provides:
@@ -146,7 +143,7 @@ npx -y @1mcp/agent mcp add remote-api --type=http --url="https://mcp.example.com
 
 - **Remote Access**: Connect to servers on your local network or the internet.
 - **Custom Headers**: Add custom HTTP headers for authentication or other purposes.
-- **Connection Pooling**: Efficiently manages connections to the remote server.
+- **Endpoint Configuration**: Configure the remote MCP endpoint and its request headers.
 
 ### SSE Transport (Deprecated)
 
@@ -187,10 +184,10 @@ The modern workflow using the registry provides automatic dependency resolution 
 
     ```bash
     # Search for development servers
-    npx -y @1mcp/agent registry search --category=development
+    npx -y @1mcp/agent registry search development --type=npm
 
     # Browse all available servers
-    npx -y @1mcp/agent mcp wizard
+    npx -y @1mcp/agent mcp install --interactive
     ```
 
 2.  **Install Servers**: Install servers with automatic configuration.
@@ -213,8 +210,8 @@ The modern workflow using the registry provides automatic dependency resolution 
 4.  **Manage Updates**: Keep servers updated with latest versions.
 
     ```bash
-    # Check for available updates
-    npx -y @1mcp/agent registry search --updates
+    # Inspect the installed server before updating
+    npx -y @1mcp/agent mcp status filesystem
 
     # Update specific server
     npx -y @1mcp/agent mcp update filesystem

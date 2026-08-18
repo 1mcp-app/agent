@@ -1,3 +1,8 @@
+---
+title: preset delete 命令
+description: 从配置中删除不再使用的命名预设。
+---
+
 # preset delete
 
 从您的配置中删除预设。

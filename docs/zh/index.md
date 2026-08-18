@@ -107,6 +107,8 @@ npm install -g @1mcp/agent
 1mcp cli-setup --claude --scope repo --repo-root .
 ```
 
+对于 Codex，请把 `cli-setup` 打印出的必需 `config.toml` 片段复制进去；该命令不会自动应用此改动。当该片段已生效且下一次会话能够完成 `instructions -> inspect -> run` 时，设置才算完成。
+
 验证工作流：
 
 ```bash

@@ -1,3 +1,8 @@
+---
+title: mcp status 命令
+description: 查看一个或全部已配置 MCP 服务器的连接状态和详情。
+---
+
 # mcp status
 
 检查已配置的 MCP 服务器的状态和详细信息。

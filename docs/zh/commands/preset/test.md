@@ -1,3 +1,8 @@
+---
+title: preset test 命令
+description: 验证预设的服务器筛选条件是否符合当前配置。
+---
+
 # preset test
 
 针对您当前的服务器配置测试预设。

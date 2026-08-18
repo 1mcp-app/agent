@@ -94,7 +94,7 @@ npx -y @1mcp/agent preset edit development
 [Interactive TUI opens with current configuration loaded]
 
 ✅ Preset 'development' updated successfully!
-🔗 URL: http://127.0.0.1:3050/?preset=development
+🔗 URL: http://127.0.0.1:3050/mcp?preset=development
 ```
 
 ## Interactive Mode Details

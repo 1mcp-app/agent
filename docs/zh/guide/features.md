@@ -22,7 +22,7 @@ head:
 - **🖥️ 我使用 Claude Desktop** → [Claude Desktop 集成](/zh/guide/integrations/claude-desktop)
 - **⚙️ 我需要服务器管理** → [服务器管理](/zh/guide/essentials/server-management)
 - **🏷️ 我想要服务器过滤** → [服务器过滤](/zh/guide/advanced/server-filtering)
-- **🤖 我需要 AI 自动化** → [AI 助手内部工具](/zh/reference/internal-tools)
+- **🤖 我需要 AI 自动化** → [AI 助手内部工具](/zh/reference/internal-tools/)
 - **⚡ 我需要快速启动** → [快速启动](/zh/guide/advanced/fast-startup)
 
 ---
@@ -139,7 +139,7 @@ head:
 
 ---
 
-## 🤖 [AI 助手内部工具](/zh/reference/internal-tools)
+## 🤖 [AI 助手内部工具](/zh/reference/internal-tools/)
 
 为 AI 助手提供程序化 MCP 服务器管理功能：
 
@@ -207,7 +207,7 @@ head:
 - **Claude Desktop** → [Claude Desktop 集成](/zh/guide/integrations/claude-desktop)
 - **服务器管理** → [服务器管理指南](/zh/guide/essentials/server-management)
 - **服务器过滤** → [服务器过滤指南](/zh/guide/advanced/server-filtering)
-- **AI 自动化** → [内部工具参考](/zh/reference/internal-tools)
+- **AI 自动化** → [内部工具参考](/zh/reference/internal-tools/)
 - **性能** → [快速启动指南](/zh/guide/advanced/fast-startup)
 - **架构** → [系统架构](/zh/reference/architecture)
 

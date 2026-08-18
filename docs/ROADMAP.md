@@ -1,4 +1,13 @@
-# 1MCP Project Roadmap
+---
+title: Historical 1MCP Project Roadmap
+description: Archived 2025 roadmap retained as historical planning context; it does not describe the current release.
+status: archived
+archived: 2026-08-06
+---
+
+# Historical 1MCP Project Roadmap
+
+> Archived on 2026-08-06. This is a historical planning snapshot, not current product guidance. Its references to v0.28.0 describe the release line planned at the time. Consult the [changelog](https://github.com/1mcp-app/agent/blob/main/CHANGELOG.md), current command documentation, and release workflows for current behavior.
 
 > **Unified Model Context Protocol server that aggregates multiple MCP servers into a single interface**
 

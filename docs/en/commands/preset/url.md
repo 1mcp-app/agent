@@ -32,7 +32,7 @@ The `preset url` command generates the client URL for a specific preset. This UR
 ### URL Format
 
 ```
-http://host:port/?preset=name
+http://host:port/mcp?preset=name
 ```
 
 - **host:port**: Your 1MCP server address (default: `127.0.0.1:3050`)
@@ -45,26 +45,25 @@ http://host:port/?preset=name
 ```bash
 # Generate URL for development preset
 npx -y @1mcp/agent preset url development
-# Output: http://127.0.0.1:3050/?preset=development
+# Output: http://127.0.0.1:3050/mcp?preset=development
 
 # Generate URL for production preset
 npx -y @1mcp/agent preset url production
-# Output: http://127.0.0.1:3050/?preset=production
+# Output: http://127.0.0.1:3050/mcp?preset=production
 ```
 
 ### Integration with Client Configuration
 
 #### Claude Desktop
 
+Use the stdio proxy to connect Claude Desktop to a running 1MCP HTTP server and apply the preset:
+
 ```json
 {
   "mcpServers": {
     "1mcp-development": {
       "command": "npx",
-      "args": ["-y", "@1mcp/agent", "serve"],
-      "env": {
-        "ONE_MCP_PRESET_URL": "http://127.0.0.1:3050/?preset=development"
-      }
+      "args": ["-y", "@1mcp/agent", "proxy", "--preset", "development"]
     }
   }
 }
@@ -76,7 +75,7 @@ npx -y @1mcp/agent preset url production
 {
   "mcp.servers": {
     "1mcp-production": {
-      "url": "http://127.0.0.1:3050/?preset=production"
+      "url": "http://127.0.0.1:3050/mcp?preset=production"
     }
   }
 }
@@ -123,7 +122,7 @@ When a client uses a preset URL:
 2. **Preset Resolution**: Server looks up the preset configuration
 3. **Server Filtering**: Applies preset's tag query to available servers
 4. **Dynamic Response**: Returns only matching servers to the client
-5. **Fallback**: If preset not found, returns all servers (safe default)
+5. **Unknown preset**: Returns HTTP `400`; it never falls back to an unfiltered server list
 
 ### Context Switching
 
@@ -131,13 +130,13 @@ Clients can switch server contexts by changing the preset parameter:
 
 ```bash
 # Development context
-http://127.0.0.1:3050/?preset=development
+http://127.0.0.1:3050/mcp?preset=development
 
 # Production context
-http://127.0.0.1:3050/?preset=production
+http://127.0.0.1:3050/mcp?preset=production
 
 # All servers (no filtering)
-http://127.0.0.1:3050/
+http://127.0.0.1:3050/mcp
 ```
 
 ## Error Handling
@@ -188,7 +187,7 @@ If your 1MCP server runs on a different host/port:
 # The URL will reflect your server's actual configuration
 # For example, if running on port 3052:
 npx -y @1mcp/agent preset url development
-# Output: http://127.0.0.1:3052/?preset=development
+# Output: http://127.0.0.1:3052/mcp?preset=development
 ```
 
 ### Multiple Environments

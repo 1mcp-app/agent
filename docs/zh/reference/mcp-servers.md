@@ -1,3 +1,8 @@
+---
+title: MCP 服务器配置参考
+description: 参考 mcp.json 中 MCP 服务器、传输和共享默认值的配置结构。
+---
+
 # MCP 服务器配置参考
 
 本文档提供了在 1MCP 代理中配置 MCP (Model Context Protocol) 服务器的全面参考文档。
@@ -128,12 +133,12 @@ npx -y @1mcp/agent --config-dir ./project-config
 
 **通用属性：**
 
-- `transport` (字符串, 可选): `stdio` 或 `http`。如果存在 `command` 则默认为 `stdio`，如果存在 `url` 则默认为 `http`。
+- `type`（字符串，可选）：`stdio`、`http`、`sse` 或 `streamableHttp`。存在 `command` 时默认为 `stdio`，存在 `url` 时默认为 `http`。
 - `tags` (字符串数组, 可选): 用于路由和访问控制的标签。预设过滤功能需要此字段才能正常工作。
 - `connectionTimeout` (数字, 可选): 连接超时时间（毫秒）。用于建立初始连接。优先级高于 `timeout`。
 - `requestTimeout` (数字, 可选): 请求超时时间（毫秒）。用于单个 MCP 操作（callTool、readResource 等）。优先级高于 `timeout`。
 - `timeout` (数字, 可选): **已弃用** 的回退超时时间（毫秒）。当未设置特定超时时使用。新配置应使用 `connectionTimeout` 和 `requestTimeout`。
-- `enabled` (布尔值, 可选): 设置为 `false` 以禁用服务器。默认为 `true`。
+- `disabled`（布尔值或模板字符串，可选）：设为 `true` 可阻止服务器启动；省略或设为 `false` 表示启用服务器。
 - `disabledTools` (字符串数组, 可选): 隐藏此服务器中的指定工具，而不禁用整个服务器。
 - `toolDescriptionOverrides` (对象, 可选): 按服务器本地逻辑工具名替换上游工具描述。
 
@@ -175,7 +180,7 @@ npx -y @1mcp/agent --config-dir ./project-config
       "tags": ["files", "local-data"]
     },
     "remote-api": {
-      "transport": "http",
+      "type": "http",
       "url": "https://api.example.com/mcp",
       "headers": {
         "Authorization": "Bearer local-token"
@@ -455,21 +460,21 @@ Admin 使用相同的 `disabledTools` 和 `toolDescriptionOverrides` 字段。�
 {
   "mcpServers": {
     "fast-api": {
-      "transport": "http",
+      "type": "http",
       "url": "https://fast-api.example.com/mcp",
       "connectionTimeout": 3000,
       "requestTimeout": 10000,
       "tags": ["api", "fast"]
     },
     "heavy-processor": {
-      "transport": "http",
+      "type": "http",
       "url": "https://heavy.example.com/mcp",
       "connectionTimeout": 10000,
       "requestTimeout": 120000,
       "tags": ["processing", "slow"]
     },
     "backward-compatible": {
-      "transport": "http",
+      "type": "http",
       "url": "https://legacy.example.com/mcp",
       "timeout": 30000,
       "tags": ["legacy"]

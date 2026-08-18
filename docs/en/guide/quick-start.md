@@ -28,7 +28,7 @@ If you want `proxy`, direct streamable HTTP, or deeper runtime operator docs ins
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js `^20.19.0 || ^22.12.0 || >=23.0.0` for npm installs
 - An AI agent client such as Codex or Claude
 
 ## 5-Minute Agent Setup
@@ -67,7 +67,7 @@ Pick one client:
 1mcp cli-setup --claude --scope repo --repo-root .
 ```
 
-The command installs the startup files that tell the agent to use `instructions`, `inspect`, and `run` in order. See [`cli-setup`](/commands/cli-setup) for target and scope details.
+The command installs the startup files that tell the agent to use `instructions`, `inspect`, and `run` in order. For Codex, it also prints required changes for `config.toml`; it does **not** apply those changes. Copy the printed snippet into `config.toml` before starting Codex. See [`cli-setup`](/commands/cli-setup) for target and scope details.
 
 ### 5. Verify the workflow
 
@@ -86,6 +86,7 @@ Run the same commands your agent will use:
 - `inspect context7` lists tools from the upstream server
 - `inspect context7/query-docs` shows the tool schema before invocation
 - `run ...` returns a real result from the upstream server
+- For Codex, the printed `config.toml` changes are present before the next Codex session starts
 
 At that point your agent can use 1MCP through CLI mode without reading another setup page.
 
@@ -141,7 +142,7 @@ Use these once the basic flow works and you want to manage the runtime itself:
 
 **`1mcp serve` fails to start**
 
-- Check that Node.js 18+ is installed: `node --version`
+- Check that Node.js satisfies `^20.19.0 || ^22.12.0 || >=23.0.0`: `node --version`
 - Re-run `1mcp mcp list` to confirm the upstream server was added
 
 **`cli-setup` does not affect my agent**

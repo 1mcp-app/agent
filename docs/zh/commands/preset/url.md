@@ -1,3 +1,8 @@
+---
+title: preset url 命令
+description: 为命名预设生成带筛选参数的 MCP 客户端 URL。
+---
+
 # preset url
 
 为预设生成客户端 URL。
@@ -23,7 +28,7 @@ npx -y @1mcp/agent preset url <name>
 ### URL 格式
 
 ```
-http://host:port/?preset=name
+http://host:port/mcp?preset=name
 ```
 
 - **host:port**：您的 1MCP 服务器地址（默认：`127.0.0.1:3050`）
@@ -36,26 +41,25 @@ http://host:port/?preset=name
 ```bash
 # 为开发预设生成 URL
 npx -y @1mcp/agent preset url development
-# Output: http://127.0.0.1:3050/?preset=development
+# Output: http://127.0.0.1:3050/mcp?preset=development
 
 # 为生产预设生成 URL
 npx -y @1mcp/agent preset url production
-# Output: http://127.0.0.1:3050/?preset=production
+# Output: http://127.0.0.1:3050/mcp?preset=production
 ```
 
 ### 与客户端配置的集成
 
 #### Claude Desktop
 
+使用 stdio 代理将 Claude Desktop 连接到正在运行的 1MCP HTTP 服务器，并应用预设：
+
 ```json
 {
   "mcpServers": {
     "1mcp-development": {
       "command": "npx",
-      "args": ["-y", "@1mcp/agent", "serve"],
-      "env": {
-        "ONE_MCP_PRESET_URL": "http://127.0.0.1:3050/?preset=development"
-      }
+      "args": ["-y", "@1mcp/agent", "proxy", "--preset", "development"]
     }
   }
 }
@@ -67,7 +71,7 @@ npx -y @1mcp/agent preset url production
 {
   "mcp.servers": {
     "1mcp-production": {
-      "url": "http://127.0.0.1:3050/?preset=production"
+      "url": "http://127.0.0.1:3050/mcp?preset=production"
     }
   }
 }
@@ -114,7 +118,7 @@ sed -i "s|preset=production|${PROD_URL}|g" config/prod.json
 2. **预设解析**：服务器查找预设配置
 3. **服务器过滤**：将预设的标签查询应用于可用服务器
 4. **动态响应**：仅将匹配的服务器返回给客户端
-5. **回退**：如果未找到预设，则返回所有服务器（安全默认）
+5. **未知预设**：返回 HTTP `400`；绝不会回退到未过滤的服务器列表
 
 ### 上下文切换
 
@@ -122,13 +126,13 @@ sed -i "s|preset=production|${PROD_URL}|g" config/prod.json
 
 ```bash
 # 开发上下文
-http://127.0.0.1:3050/?preset=development
+http://127.0.0.1:3050/mcp?preset=development
 
 # 生产上下文
-http://127.0.0.1:3050/?preset=production
+http://127.0.0.1:3050/mcp?preset=production
 
 # 所有服务器（无过滤）
-http://127.0.0.1:3050/
+http://127.0.0.1:3050/mcp
 ```
 
 ## 错误处理
@@ -179,7 +183,7 @@ npx -y @1mcp/agent preset test development
 # URL 将反映您服务器的实际配置
 # 例如，如果在端口 3052 上运行：
 npx -y @1mcp/agent preset url development
-# Output: http://127.0.0.1:3052/?preset=development
+# Output: http://127.0.0.1:3052/mcp?preset=development
 ```
 
 ### 多环境

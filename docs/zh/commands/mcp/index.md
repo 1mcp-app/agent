@@ -1,3 +1,8 @@
+---
+title: MCP 命令
+description: 浏览用于添加、维护和检查 1MCP 后端服务器的命令。
+---
+
 # MCP 命令
 
 在您的 1MCP 实例中管理 MCP 服务器配置。

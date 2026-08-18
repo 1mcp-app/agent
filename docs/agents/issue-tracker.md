@@ -1,6 +1,6 @@
 # Issue tracker: GitHub
 
-Issues and PRDs for this repo live as GitHub issues in `1mcp-app/agent`. Use the `gh` CLI for all operations.
+Issues and PRDs for this repo live as GitHub issues in `1mcp-app/agent`. Use the GitHub CLI (`gh`) for issue operations.
 
 ## Conventions
 

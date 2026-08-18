@@ -1,3 +1,8 @@
+---
+title: preset create 命令
+description: 使用筛选表达式创建可复用的命名预设。
+---
+
 # preset create
 
 使用过滤表达式进行命令行预设创建。

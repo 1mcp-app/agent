@@ -1,683 +1,125 @@
 ---
 title: Getting Started with 1MCP
-description: Learn how to set up 1MCP step-by-step. From a basic runtime to production deployment with OAuth 2.1 authentication. Complete guide for all skill levels.
+description: Choose a supported 1MCP onboarding path, install a runtime, verify a first run, and continue to the canonical configuration, authentication, or deployment guide.
 head:
   - [
       'meta',
-      {
-        name: 'keywords',
-        content: 'MCP server setup,Model Context Protocol,AI runtime setup,1MCP tutorial,getting started,OAuth 2.1,authentication,server management,configuration',
-      },
+      { name: 'keywords', content: '1MCP getting started,installation,first run,CLI mode,OAuth 2.1,configuration' },
     ]
-  - ['meta', { property: 'og:title', content: 'Getting Started with 1MCP | Complete Setup Guide' }]
+  - ['meta', { property: 'og:title', content: 'Getting Started with 1MCP' }]
   - [
       'meta',
-      {
-        property: 'og:description',
-        content: 'Complete step-by-step guide to setting up 1MCP. From a basic runtime to production deployment.',
-      },
+      { property: 'og:description', content: 'Choose a supported 1MCP onboarding path and verify your first runtime.' },
     ]
 ---
 
 # Getting Started with 1MCP
 
-This page helps you choose the right 1MCP adoption path. It is broader than [Quick Start](/guide/quick-start), but it should still route you to the correct guide instead of duplicating the entire docs site.
+Use this page to choose and stage an onboarding path. It preserves one small first run, then sends you to the canonical guide for installation, configuration, authentication, or deployment details.
 
-Use this page when you want to understand which path fits your situation:
+If you want the shortest agent-focused path, start with [Quick Start](/guide/quick-start).
 
-- a first agent-oriented setup
-- a direct MCP runtime setup
-- a secured or production-oriented deployment
-- a deeper configuration and architecture path
+## Choose Your Path
 
-If you only want the fastest working setup, use [Quick Start](/guide/quick-start).
-
-## 🗺️ Your Journey Overview
-
-```mermaid
-graph LR
-    A[5 min<br/>Basic Setup] --> B[10 min<br/>Add Authentication]
-    B --> C[15 min<br/>Production Deployment]
-
-    A1[Single unified<br/>MCP endpoint] -.-> A
-    B1[OAuth 2.1<br/>authentication] -.-> B
-    C1[Stable production<br/>configuration] -.-> C
-```
-
-## Choose Your Starting Point
-
-- New to 1MCP and using an agent workflow: start with [Quick Start](/guide/quick-start)
-- Need the CLI-mode mental model: read [CLI Mode](/guide/integrations/cli-mode)
-- Need direct runtime details: read [Configuration](/guide/essentials/configuration) and [serve](/commands/serve)
-- Need authentication or shared deployment guidance: read [Authentication](/guide/advanced/authentication)
-- Need system behavior and loading details: read [Architecture](/reference/architecture)
-
----
+- **Agent CLI mode**: [Quick Start](/guide/quick-start) for `serve`, `cli-setup`, and progressive discovery.
+- **Direct runtime**: [Configuration](/guide/essentials/configuration) and the [serve command](/commands/serve) for an HTTP runtime.
+- **Maximum compatibility**: the [Proxy command](/commands/proxy) for stdio clients that need project context.
+- **Protected runtime**: [Authentication](/guide/advanced/authentication) for OAuth 2.1 and scope configuration.
+- **Shared or public deployment**: [Cloud Deployment with Caddy](/guide/advanced/cloud-deployment).
+- **Persistent Windows deployment**: [Windows Task Scheduler](/guide/advanced/windows-task-scheduler) for boot startup, restart-on-failure, and non-interactive supervision.
 
 ## Prerequisites
 
-### System Requirements
+- Linux, macOS, or Windows
+- A terminal and a writable configuration directory
+- Node.js `^20.19.0 || ^22.12.0 || >=23.0.0` for npm installs
 
-- **OS**: Linux, macOS, or Windows
-- **Memory**: 512MB RAM minimum, 2GB recommended
-- **Node.js**: Version 18+ (for MCP servers)
-- **Network**: HTTP/HTTPS outbound access
+Standalone release archives do not require a local Node.js installation. Contributors and source installs should use the version in `.node-version`; it is the repository default, not a published package support contract.
 
-### What You'll Need
+## Stage 1: Install a Runtime
 
-- [ ] Existing MCP servers or intention to install them
-- [ ] Text editor for configuration files
-- [ ] Terminal/command line access
-- [ ] Basic understanding of JSON configuration
+Choose one installation method. The [Installation guide](/guide/installation) is the canonical source for every platform and Docker option.
 
-### Quick Environment Check
+### Release Archive
+
+Releases publish archives, not raw executable downloads. Use the archive for your platform, extract it, then run the extracted binary:
 
 ```bash
-# Check Node.js version
-node --version  # Should be 18+
+# Linux x64
+curl -LO https://github.com/1mcp-app/agent/releases/latest/download/1mcp-linux-x64.tar.gz
+tar -xzf 1mcp-linux-x64.tar.gz
+sudo install -m 0755 1mcp-linux-x64 /usr/local/bin/1mcp
+1mcp --version
 
-# Verify you can create files in your home directory
-touch ~/.test-file && rm ~/.test-file && echo "✅ File permissions OK"
-
-# Check if you have existing MCP servers
-ls ~/.config/*/mcp.json 2>/dev/null || echo "ℹ️ No existing MCP config found"
+# macOS Apple Silicon
+curl -LO https://github.com/1mcp-app/agent/releases/latest/download/1mcp-darwin-arm64.tar.gz
+tar -xzf 1mcp-darwin-arm64.tar.gz
+sudo install -m 0755 1mcp-darwin-arm64 /usr/local/bin/1mcp
+1mcp --version
 ```
 
----
+```powershell
+# Windows x64
+Invoke-WebRequest -Uri "https://github.com/1mcp-app/agent/releases/latest/download/1mcp-win32-x64.zip" -OutFile "1mcp-win32-x64.zip"
+Expand-Archive -Path "1mcp-win32-x64.zip" -DestinationPath "."
+.\1mcp-win32-x64.exe --version
+```
 
-## Level 1: Basic Runtime
+The remaining published archives are `1mcp-linux-arm64.tar.gz` and `1mcp-darwin-x64.tar.gz`. See [Installation](/guide/installation) for their exact commands, npm, and Docker.
 
-Goal: replace individual MCP connections with one runtime endpoint.
+### npm
 
-Best for: first-time users, simple setups, and proof-of-concept work.
-
-### What You'll Achieve
-
-- ✅ Single configuration file instead of multiple connections
-- ✅ Unified health monitoring for all MCP servers
-- ✅ Automatic connection management and retry logic
-- ✅ One endpoint for your AI assistant to connect to
-
-### Step 1: Get 1MCP
-
-**Option A: Binary Download (Fastest - No Node.js Required)**
+With a supported Node.js runtime, you can install globally:
 
 ```bash
-# Linux:
-curl -L -o 1mcp https://github.com/1mcp-app/agent/releases/latest/download/1mcp-linux-x64
-sudo mv 1mcp /usr/local/bin/ && sudo chmod +x /usr/local/bin/1mcp
-1mcp --help
-
-# macOS:
-curl -L -o 1mcp https://github.com/1mcp-app/agent/releases/latest/download/1mcp-darwin-arm64
-sudo mv 1mcp /usr/local/bin/ && sudo chmod +x /usr/local/bin/1mcp
-1mcp --help
-
-# Windows (PowerShell):
-Invoke-WebRequest -Uri "https://github.com/1mcp-app/agent/releases/latest/download/1mcp-win32-x64.exe" -OutFile "1mcp.exe"
-.\1mcp.exe --help
+npm install -g @1mcp/agent
+1mcp --version
 ```
 
-**Option B: NPM (No Installation Needed)**
+## Stage 2: Prove a First Runtime
+
+Add one upstream MCP server and start the runtime:
 
 ```bash
-# 1MCP runs via npx - no global installation required
-# Verify it works:
-npx -y @1mcp/agent --help
+1mcp mcp add context7 -- npx -y @upstash/context7-mcp
+1mcp serve
 ```
 
-### Step 2: Create Basic Configuration
+Keep `serve` running. In another shell, confirm the runtime can describe its connected server:
 
 ```bash
-# Create config directory
-mkdir -p ~/.config/1mcp
-
-# Create basic configuration file
-cat > ~/.config/1mcp/mcp.json << 'EOF'
-{
-  "$schema": "https://docs.1mcp.app/schemas/v1.0.0/mcp-config.json",
-  "mcpServers": {
-    "filesystem": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
-      "tags": ["local", "files"]
-    },
-    "memory": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-memory"],
-      "tags": ["memory", "notes"]
-    }
-  }
-}
-EOF
+1mcp inspect context7
 ```
 
-::: tip JSON Schema Support
-The `$schema` field enables IDE autocompletion and validation. Most modern editors will automatically provide:
+Continue with [Configuration](/guide/essentials/configuration) for configuration-file locations, selectors, environment variables, and runtime options. Use [Quick Start](/guide/quick-start) to connect an agent through CLI mode.
 
-- Property autocompletion as you type
-- Inline documentation on hover
-- Real-time error highlighting
-- Schema-aware refactoring
+## Stage 3: Connect a Client
 
-For local development, use: `"$schema": "./schemas/v1.0.0/mcp-config.json"`
-:::
-
-### Step 3: Start 1MCP
-
-```bash
-# Binary option:
-1mcp serve --config ~/.config/1mcp/mcp.json --port 3050
-
-# NPM option:
-npx -y @1mcp/agent serve --config ~/.config/1mcp/mcp.json --port 3050
-
-# You should see:
-# ✅ Server is running on port 3050 with HTTP/SSE transport
-# ✅ Connected to filesystem, memory servers
-```
-
-### Step 4: Test Your Setup
-
-```bash
-# Use MCP Inspector for testing and debugging (recommended)
-npx @modelcontextprotocol/inspector
-
-# This opens a powerful UI at http://localhost:5173 that lets you:
-# - Connect to your 1MCP runtime at http://localhost:3050
-# - Test all available tools and resources
-# - Debug authentication flows
-# - Monitor real-time MCP protocol messages
-
-# Alternative: Check the health via curl
-curl http://localhost:3050/health
-# Or visit http://localhost:3050/health in your browser
-```
-
-### Level 1 Complete
-
-Success indicators:
-
-- [ ] 1MCP server running on port 3050
-- [ ] MCP Inspector connects successfully at http://localhost:5173
-- [ ] Health endpoint shows servers connected at http://localhost:3050/health
-- [ ] Can test filesystem and memory tools via Inspector UI
-
-Common issues:
-
-- **Port 3050 in use?** → Use `--port 3051`
-- **MCP servers fail to start?** → Check Node.js version is 18+
-- **Permission errors?** → Ensure ~/.config/1mcp directory is writable
-- **Config not found?** → Use absolute path: `--config $HOME/.config/1mcp/mcp.json`
-
-Next path: [Add authentication and access control](#-level-2-secure-access-15-minutes)
-
-### Optional: Switch Agent Sessions to CLI Mode
-
-If your client is an autonomous or semi-autonomous agent, the user-facing setup step after Level 1 is:
+For Codex or Claude, run the agent path from [Quick Start](/guide/quick-start):
 
 ```bash
 1mcp cli-setup --codex
 ```
 
-After that, the AI agent will normally use the CLI workflow:
+For Codex, `cli-setup` prints required `config.toml` changes but does not apply them. Add the printed snippet before opening the next Codex session, then verify `instructions -> inspect -> run`.
 
-```bash
-1mcp instructions
-1mcp inspect filesystem
-1mcp inspect filesystem/read_file
-1mcp run filesystem/read_file --args '{"path":"/tmp/example.txt"}'
-```
+For a non-CLI stdio client, use [Proxy](/commands/proxy). For an MCP-native HTTP client that does not need project context, use [serve](/commands/serve).
 
-This is the recommended way to migrate from direct MCP attachment inside an agent loop to 1MCP's progressive-disclosure flow. You can run those workflow commands manually for testing, but they are primarily designed for the agent.
+## Stage 4: Add Authentication When Needed
 
----
+Do this only after the basic runtime works. 1MCP supports dynamic client registration (DCR) followed by an authorization-code flow with PKCE. Use a client or tested tool that supports that browser-mediated flow; do not use a client-credentials grant or invent a client secret.
 
-## 🔒 Level 2: Secure Access (15 minutes)
+Follow the [Authentication guide](/guide/advanced/authentication) for enabling the runtime, registering a client through DCR, authorization, scopes, and troubleshooting.
 
-**🎯 Goal**: Add authentication and granular access control
-**👤 Perfect for**: Teams, shared environments, security-conscious users
+## Stage 5: Deploy Deliberately
 
-### **What You'll Achieve**
+For a shared or public runtime, move to [Cloud Deployment with Caddy](/guide/advanced/cloud-deployment). It covers the public HTTPS origin, proxy trust, Admin Console, and local CLI target setup that a production deployment requires.
 
-- ✅ OAuth 2.1 authentication with secure token management
-- ✅ Scope-based permissions controlling MCP server access
-- ✅ User session management with automatic token refresh
-- ✅ Audit logging of all access attempts
+On Windows, use [Windows Task Scheduler](/guide/advanced/windows-task-scheduler) to supervise a foreground `1mcp serve` process across reboots. The guide covers standalone binary and npm paths, credential handling, lifecycle commands, and troubleshooting.
 
-### **Step 1: Enable Authentication** (1 minute)
+## First-Run Checklist
 
-```bash
-# Stop your existing 1MCP instance (Ctrl+C)
-
-# Start with authentication enabled
-# Binary option:
-1mcp --config ~/.config/1mcp/mcp.json --port 3050 --enable-auth
-
-# NPM option:
-npx -y @1mcp/agent --config ~/.config/1mcp/mcp.json --port 3050 --enable-auth
-
-# New output shows:
-# 🔐 Authentication enabled - OAuth 2.1 endpoints available via SDK
-# 📋 OAuth Management Dashboard: http://localhost:3050/oauth
-```
-
-### **Step 2: Use the OAuth Management Dashboard** (2 minutes)
-
-Instead of a manual registration endpoint, the 1MCP Agent provides an OAuth Management Dashboard to manage the authorization flow with your backend services. When a backend service requires OAuth, you can use this dashboard to initiate and approve the authorization request.
-
-Visit the dashboard in your browser to see the status of your services and authorize any that are awaiting OAuth.
-
-### **Step 3: Configure Scope-Based Access** (2 minutes)
-
-```bash
-# Update your configuration with more detailed tagging
-cat > ~/.config/1mcp/mcp.json << 'EOF'
-{
-  "$schema": "https://docs.1mcp.app/schemas/v1.0.0/mcp-config.json",
-  "mcpServers": {
-    "filesystem": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
-      "tags": ["filesystem", "local", "sensitive"]
-    },
-    "memory": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-memory"],
-      "tags": ["memory", "notes", "safe"]
-    }
-  }
-}
-EOF
-
-# Config will hot-reload automatically - no restart needed!
-```
-
-### **Step 4: Test Authentication** (2 minutes)
-
-```bash
-# Use MCP Inspector to test OAuth flow (recommended)
-npx @modelcontextprotocol/inspector
-
-# In the Inspector UI:
-# 1. Connect to http://localhost:3050
-# 2. You'll see OAuth authentication prompts
-# 3. Use the built-in OAuth flow testing
-# 4. Test scope-based access with different tags
-
-# Alternative: Manual OAuth testing via curl
-# Try accessing SSE endpoint without authentication
-curl http://localhost:3050/sse
-# Should require authentication when auth is enabled
-
-# Manual token flow (if needed for debugging)
-export CLIENT_ID="your-client-id-from-step-2"
-export CLIENT_SECRET="your-client-secret-from-step-2"
-
-curl -X POST http://localhost:3050/token \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=client_credentials&client_id=$CLIENT_ID&client_secret=$CLIENT_SECRET&scope=tag:safe"
-```
-
-### **✅ Level 2 Complete!**
-
-**🎉 Success Indicators**:
-
-- [ ] MCP Inspector successfully handles OAuth flow
-- [ ] OAuth client registration works via Inspector UI
-- [ ] Scope restrictions properly enforced (tag-based access)
-- [ ] Can test different scopes using Inspector interface
-- [ ] Management dashboard shows authentication status
-
-**🔧 Common Issues**:
-
-- **MCP Inspector can't connect?** → Verify 1MCP is running on port 3050
-- **OAuth flow fails in Inspector?** → Check 1MCP is running with --enable-auth
-- **Scope errors?** → Ensure server tags match requested scopes
-- **Inspector shows "Unauthorized"?** → Complete OAuth flow in Inspector UI first
-- **Dashboard not loading?** → Ensure --enable-auth flag is used
-
-**➡️ Next Level**: [Production-ready deployment](#-level-3-production-ready-45-minutes)
-
----
-
-## 🏗️ Level 3: Production Ready (15 minutes)
-
-**🎯 Goal**: Stable production deployment with basic security
-**👤 Perfect for**: Production environments, teams, shared deployments
-
-For a public cloud runtime with Admin Console access and local CLI targets, use the blessed **[Cloud Deployment with Caddy](/guide/advanced/cloud-deployment)** path after this basic service setup.
-
-### **What You'll Achieve**
-
-- ✅ Systemd service for automatic startup (Linux/macOS)
-- ✅ Windows Task Scheduler service for automatic startup (Windows)
-- ✅ Basic security configuration
-- ✅ Log management and rotation
-- ✅ Configuration backup
-- ✅ Basic monitoring
-
-### **Step 1: Production Configuration** (5 minutes)
-
-```bash
-# Create production config directory
-sudo mkdir -p /etc/1mcp
-sudo chown $USER:$USER /etc/1mcp
-
-# Production configuration
-cat > /etc/1mcp/mcp.json << 'EOF'
-{
-  "$schema": "https://docs.1mcp.app/schemas/v1.0.0/mcp-config.json",
-  "mcpServers": {
-    "filesystem": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/app/data"],
-      "tags": ["filesystem", "data", "sensitive"]
-    },
-    "memory": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-memory"],
-      "tags": ["memory", "cache", "safe"]
-    }
-  }
-}
-EOF
-```
-
-### **Step 2: Create Systemd Service** (5 minutes)
-
-```bash
-# First, install the binary system-wide (if not already done)
-sudo curl -L -o /usr/local/bin/1mcp https://github.com/1mcp-app/agent/releases/latest/download/1mcp-linux-x64
-sudo chmod +x /usr/local/bin/1mcp
-
-# Create systemd service file
-sudo tee /etc/systemd/system/1mcp.service << 'EOF'
-[Unit]
-Description=1MCP - Universal MCP Server Proxy
-After=network.target
-
-[Service]
-Type=simple
-User=$USER
-WorkingDirectory=/home/$USER
-ExecStart=/usr/local/bin/1mcp --config /etc/1mcp/mcp.json --port 3050 --enable-auth
-Restart=always
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Enable and start service
-sudo systemctl daemon-reload
-sudo systemctl enable 1mcp
-sudo systemctl start 1mcp
-
-# Check status
-sudo systemctl status 1mcp
-```
-
-### **Windows: Task Scheduler** (Windows only)
-
-On Windows, Task Scheduler is the correct supervisor for a persistent `1mcp serve` daemon. It provides boot-triggered startup, restart-on-failure, and non-interactive logon — the equivalent of a systemd service on Linux.
-
-→ Full guide with standalone binary and npm paths, credential handling, lifecycle commands, and troubleshooting: **[Windows: Task Scheduler](/guide/advanced/windows-task-scheduler)**
-
-### **Step 3: Basic Monitoring** (5 minutes)
-
-```bash
-# Simple health check script
-cat > /usr/local/bin/1mcp-health-check << 'EOF'
-#!/bin/bash
-HEALTH_URL="http://localhost:3050/health"
-RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL")
-
-if [ "$RESPONSE" = "200" ]; then
-    echo "✅ 1MCP healthy ($(date))"
-    exit 0
-else
-    echo "❌ 1MCP unhealthy (HTTP $RESPONSE) ($(date))"
-    exit 1
-fi
-EOF
-
-sudo chmod +x /usr/local/bin/1mcp-health-check
-
-# Add to crontab for regular health checks
-(crontab -l 2>/dev/null; echo "*/5 * * * * /usr/local/bin/1mcp-health-check >> /var/log/1mcp-health.log 2>&1") | crontab -
-
-# Check logs
-tail -f /var/log/1mcp-health.log
-```
-
-### **Step 4: Configure Environment** (Optional)
-
-```bash
-# Set environment variables for production
-sudo tee -a /etc/environment << 'EOF'
-ONE_MCP_ENABLE_AUTH=true
-ONE_MCP_ENABLE_ENHANCED_SECURITY=true
-ONE_MCP_RATE_LIMIT_WINDOW=15
-ONE_MCP_RATE_LIMIT_MAX=100
-EOF
-
-# Restart service to pick up environment changes
-sudo systemctl restart 1mcp
-```
-
-### **Step 5: Backup Configuration** (Optional)
-
-```bash
-# Simple backup script
-cat > ~/1mcp-backup.sh << 'EOF'
-#!/bin/bash
-TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-cp /etc/1mcp/mcp.json ~/"1mcp-config-backup-$TIMESTAMP.json"
-echo "✅ Configuration backed up to ~/1mcp-config-backup-$TIMESTAMP.json"
-EOF
-
-chmod +x ~/1mcp-backup.sh
-
-# Run backup
-~/1mcp-backup.sh
-```
-
-### **✅ Level 3 Complete!**
-
-**🎉 Success Indicators**:
-
-- [ ] 1MCP running as systemd service (Linux/macOS) or Windows Task Scheduler task (Windows)
-- [ ] Service starts automatically on boot
-- [ ] Health check script working
-- [ ] Configuration backed up
-- [ ] Health endpoint accessible at http://localhost:3050/health
-
-**🔧 Production Checklist**:
-
-- [ ] SSL/TLS certificate configured through Caddy; see [Cloud Deployment with Caddy](/guide/advanced/cloud-deployment)
-- [ ] Firewall rules configured (allow only port 3050)
-- [ ] OAuth clients registered for your applications
-- [ ] Server tags configured appropriately
-- [ ] Configuration backed up regularly
-
-**➡️ Next Level**: [Advanced optimization](#-level-4-advanced-optimization-2-hours)
-
----
-
-## 🔧 Beyond Basic Setup
-
-**Additional configuration options available:**
-
-### **Transport Configuration**
-
-- Use `--transport sse` for Server-Sent Events
-- Use `--transport stdio` for standard input/output
-- Use `--transport http` for streamable HTTP (default)
-
-### **Tag Filtering**
-
-- Filter exposed servers at runtime: `--filter "network,filesystem"`
-- Configure tag-based OAuth scopes
-
-### **Reverse Proxy Setup**
-
-- Configure `--trust-proxy` for proxy environments
-- Use `--external-url` for public-facing deployments
-- For the recommended public HTTPS Admin Console path, use [Cloud Deployment with Caddy](/guide/advanced/cloud-deployment)
-
-### **Legacy nginx Reverse Proxy Example** (Optional)
-
-For new public HTTPS deployments, use the Caddy path in [Cloud Deployment with Caddy](/guide/advanced/cloud-deployment). Keep this nginx example only when your existing platform already standardizes on nginx.
-
-```bash
-# Basic nginx configuration for SSL termination
-sudo tee /etc/nginx/sites-available/1mcp << 'EOF'
-server {
-    listen 80;
-    server_name your-domain.com;
-    return 301 https://$server_name$request_uri;
-}
-
-server {
-    listen 443 ssl;
-    server_name your-domain.com;
-
-    ssl_certificate /path/to/your/cert.pem;
-    ssl_certificate_key /path/to/your/key.pem;
-
-    location / {
-        proxy_pass http://localhost:3050;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-EOF
-```
-
-### **Using Different Configurations**
-
-```bash
-# Create environment-specific configs
-cp /etc/1mcp/mcp.json /etc/1mcp/mcp-dev.json
-cp /etc/1mcp/mcp.json /etc/1mcp/mcp-staging.json
-
-# Start with different configs
-npx -y @1mcp/agent --config /etc/1mcp/mcp-dev.json --port 3051
-npx -y @1mcp/agent --config /etc/1mcp/mcp-staging.json --port 3052
-```
-
-### **Basic Log Monitoring**
-
-```bash
-# Monitor 1MCP logs
-sudo journalctl -u 1mcp -f
-
-# Check for errors
-sudo journalctl -u 1mcp --since "1 hour ago" | grep -i error
-
-# Simple log analysis script
-cat > ~/1mcp-log-summary.sh << 'EOF'
-#!/bin/bash
-echo "=== 1MCP Service Status ==="
-sudo systemctl status 1mcp --no-pager
-echo
-echo "=== Recent Errors ==="
-sudo journalctl -u 1mcp --since "1 hour ago" | grep -i error | tail -10
-EOF
-
-chmod +x ~/1mcp-log-summary.sh
-```
-
-### **Environment Variables Reference**
-
-```bash
-# Authentication settings
-ONE_MCP_ENABLE_AUTH=true
-ONE_MCP_ENABLE_SCOPE_VALIDATION=true
-
-# Rate limiting
-ONE_MCP_RATE_LIMIT_WINDOW=15  # 15 minutes
-ONE_MCP_RATE_LIMIT_MAX=100
-
-# Security
-ONE_MCP_ENABLE_ENHANCED_SECURITY=true
-ONE_MCP_TRUST_PROXY=loopback
-
-# Session management
-ONE_MCP_SESSION_TTL=1440  # 24 hours
-ONE_MCP_SESSION_STORAGE_PATH=/var/lib/1mcp/sessions
-```
-
-### **✅ Setup Complete!**
-
-You now have 1MCP running as a stable service with basic authentication and monitoring.
-
----
-
-## 🆘 Troubleshooting Guide
-
-### **Common Issues & Solutions**
-
-#### **🔌 Connection Issues**
-
-```bash
-# Problem: "Connection refused"
-# Solution: Check if 1MCP is running
-systemctl status 1mcp
-# Check application logs for server status
-
-# Problem: "MCP server not responding"
-# Solution: Check individual server health (debug mode)
-# Binary:
-ONE_MCP_LOG_LEVEL=debug 1mcp --config ~/.config/1mcp/mcp.json
-# NPM:
-ONE_MCP_LOG_LEVEL=debug npx -y @1mcp/agent --config ~/.config/1mcp/mcp.json
-```
-
-#### **🔐 Authentication Issues**
-
-```bash
-# Problem: "Invalid token"
-# Solution: Check token expiration and scopes
-# Check token validity through OAuth endpoints (when auth enabled)
-
-# Problem: "Insufficient scope"
-# Solution: Verify server tags match token scopes
-cat ~/.config/1mcp/mcp.json | jq '.mcpServers[].tags'
-```
-
-#### **⚡ Performance Issues**
-
-```bash
-# Problem: Slow response times
-# Solution: Check server status and logs
-# Check application logs for server status
-# Check logs for connection issues
-htop # Check CPU/memory usage
-
-# Problem: High error rates
-# Solution: Check server logs for patterns
-journalctl -u 1mcp -f --lines=100
-```
-
-### **Getting Help**
-
-- 📖 **Documentation**: [Documentation Home](/)
-- 🐛 **Issues**: [GitHub Issues](https://github.com/1mcp-app/agent/issues)
-- 💬 **Community**: [Discussions](https://github.com/1mcp-app/agent/discussions)
-
----
-
-## 🎯 Next Steps
-
-- [Explore security features](/reference/security)
-- [Advanced architecture](/reference/architecture)
-
----
-
-> **🎉 Congratulations!** You've successfully set up 1MCP from a basic runtime to enterprise-grade infrastructure. Your AI assistants now have reliable, secure, and scalable access to all their MCP capabilities through a single, unified interface.
+- `1mcp --version` succeeds using the selected installation method
+- `1mcp serve` stays running
+- `1mcp inspect <server>` reports the configured upstream server
+- Your next guide matches the path you selected: CLI mode, configuration, authentication, proxy, cloud deployment, or Windows Task Scheduler

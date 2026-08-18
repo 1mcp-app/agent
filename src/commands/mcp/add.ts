@@ -105,7 +105,7 @@ export function buildAddCommand(yargs: Argv) {
       type: 'boolean',
     })
     .option('max-restarts', {
-      describe: 'Maximum number of restart attempts (stdio only, unlimited if not specified)',
+      describe: 'Maximum number of restart attempts (stdio only, default: 5; use 0 for unlimited)',
       type: 'number',
     })
     .option('restart-delay', {
@@ -261,7 +261,7 @@ export async function addCommand(argv: AddCommandArgs): Promise<void> {
         if (serverConfig.maxRestarts !== undefined) {
           printer.keyValue({ 'Max Restarts': serverConfig.maxRestarts });
         } else {
-          printer.keyValue({ 'Max Restarts': 'Unlimited' });
+          printer.keyValue({ 'Max Restarts': '5 (default)' });
         }
         if (serverConfig.restartDelay !== undefined) {
           printer.keyValue({ 'Restart Delay': `${serverConfig.restartDelay}ms` });

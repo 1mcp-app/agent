@@ -32,6 +32,8 @@ If you are still trying to get a first setup working, use [Quick Start](/guide/q
 - **`run`** - Call a tool through a running 1MCP server
 - **`cli-setup`** - Install Codex or Claude bootstrap hooks and startup docs
 - **`auth`** - Manage authentication profiles for secured servers
+- **`target`** - Manage verified Runtime Target Contexts
+- **`admin`** - Manage CLI Admin sessions for Runtime Target Contexts
 - **`app`** - Manage desktop application MCP configurations
 - **`mcp`** - Manage MCP server configurations
 - **`preset`** - Manage server presets for dynamic filtering
@@ -144,6 +146,20 @@ npx -y @1mcp/agent proxy                            # Auto-discover and connect
 npx -y @1mcp/agent proxy --url http://localhost:3051/mcp  # Connect to specific URL
 npx -y @1mcp/agent proxy --filter "web,api"         # Connect with tag filtering
 ```
+
+### Runtime Targets and Admin Sessions
+
+Use a named target when a remote runtime needs saved bearer or Admin credentials.
+
+```bash
+1mcp target add prod https://mcp.example.com/mcp --use
+1mcp auth login --context prod --token "$TOKEN"
+1mcp instructions --context prod
+1mcp admin login --context prod --username operator
+```
+
+- **[Runtime Target Contexts](/commands/target)** - Add, verify, import, and select named targets
+- **[Admin Commands](/commands/admin)** - Bootstrap, login, check, and revoke Admin sessions
 
 ### Agent Bootstrap
 

@@ -13,9 +13,11 @@ head:
 
 ## 先决条件
 
-- [Node.js](https://nodejs.org/)（版本 21 或更高）
+- [Node.js](https://nodejs.org/)（使用 `.node-version` 中记录的版本）
 - [pnpm](https://pnpm.io/) 包管理器
 - Git
+
+仓库版本是受支持的贡献者环境，而不是已发布的包支持契约。
 
 ## 从源码安装
 
@@ -111,7 +113,7 @@ cp .env.example .env
 - `ONE_MCP_PORT=3051` - 开发服务器端口
 - `ONE_MCP_ENABLE_AUTH=true` - 启用身份验证
 - `ONE_MCP_ENABLE_ASYNC_LOADING=true` - 启用异步加载
-- `ONE_MCP_CONFIG_DIR=./config` - 开发自定义配置目录
+- `ONE_MCP_CONFIG=./mcp.json` - 选定的开发配置文件
 
 ## 架构概述
 
@@ -236,8 +238,8 @@ ONE_MCP_CONFIG_DIR=.tmp-test node build/index.js mcp add test-server -- echo '{"
 # 使用不同客户端类型测试 HTTP 传输
 curl "http://localhost:3050/mcp?app=cursor&tags=filesystem"
 
-# 使用标签过滤测试 STDIO 传输
-echo '{"jsonrpc":"2.0","method":"initialize","params":{}}' | node build/index.js --transport stdio --tag-filter filesystem
+# 使用当前选择器测试 STDIO 传输
+echo '{"jsonrpc":"2.0","method":"initialize","params":{}}' | node build/index.js serve --transport stdio --filter filesystem
 ```
 
 ## 贡献

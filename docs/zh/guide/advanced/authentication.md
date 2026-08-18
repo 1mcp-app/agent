@@ -25,7 +25,9 @@ head:
 npx -y @1mcp/agent --config mcp.json --enable-auth
 ```
 
-这将激活 OAuth 2.1 端点，并要求对所有传入请求进行身份验证。
+这会为 MCP 传输和 API 请求启用 OAuth 2.1 bearer 保护。它不会让每个 HTTP 路由都要求 bearer token：健康检查路由以及 OAuth 发现和授权端点会有意保持可访问，以便客户端和运维人员发现服务并完成 OAuth。
+
+Admin Console 是独立的访问面。其浏览器路由使用 Admin Session 登录流程和会话 cookie；MCP/API bearer token 不是 Admin Console 会话，Admin Session 也不是 MCP bearer token。
 
 ## 刷新令牌轮换
 

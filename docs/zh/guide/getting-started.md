@@ -1,663 +1,119 @@
 ---
 title: 1MCP 入门指南
-description: 学习如何设置 1MCP。从基础运行时到生产部署，包含 OAuth 2.1 身份验证。适合所有技能水平的完整指南。
+description: 选择受支持的 1MCP 上手路径，安装运行时并验证首次运行，然后进入配置、身份验证或部署的权威指南。
 head:
-  - [
-      'meta',
-      {
-        name: 'keywords',
-        content: 'MCP 服务器设置,模型上下文协议,AI 运行时设置,1MCP 教程,入门指南,OAuth 2.1,身份验证,服务器管理,配置',
-      },
-    ]
-  - ['meta', { property: 'og:title', content: '1MCP 入门指南 | 完整设置指南' }]
-  - ['meta', { property: 'og:description', content: '完整的 1MCP 设置步骤指南。从基础运行时到生产部署。' }]
+  - ['meta', { name: 'keywords', content: '1MCP 入门,安装,首次运行,CLI 模式,OAuth 2.1,配置' }]
+  - ['meta', { property: 'og:title', content: '1MCP 入门指南' }]
+  - ['meta', { property: 'og:description', content: '选择受支持的 1MCP 上手路径并验证你的第一个运行时。' }]
 ---
 
 # 1MCP 入门指南
 
-这个页面用来帮你选择合适的 1MCP 接入路径。它比[快速入门](/zh/guide/quick-start)更宽一些，但不应该重复整站文档的全部内容。
+本页用于选择并分阶段完成上手路径。它只保留一个精简的首次运行流程，然后把安装、配置、身份验证和部署细节导向各自的权威指南。
 
-适合在以下情况阅读：
+如果你只想走最短的面向 agent 路径，请从[快速入门](/zh/guide/quick-start)开始。
 
-- 你想判断自己应该走哪条上手路径
-- 你要在 agent 工作流和直接 MCP 运行时之间做选择
-- 你需要安全、共享或生产部署相关入口
-- 你要继续深入配置或架构说明
+## 选择你的路径
 
-如果你只想最快跑通一个可用流程，请直接看[快速入门](/zh/guide/quick-start)。
-
-## 🗺️ 您的旅程概览
-
-```mermaid
-graph LR
-    A[5 分钟<br/>基本设置] --> B[10 分钟<br/>添加身份验证]
-    B --> C[15 分钟<br/>生产部署]
-
-    A1[单一统一的<br/>MCP 端点] -.-> A
-    B1[OAuth 2.1<br/>身份验证] -.-> B
-    C1[稳定的生产<br/>配置] -.-> C
-```
-
-## 选择你的起点
-
-- 第一次使用 1MCP，且以 agent 工作流为主：看[快速入门](/zh/guide/quick-start)
-- 想先建立 CLI 模式心智模型：看 [CLI 模式](/zh/guide/integrations/cli-mode)
-- 需要直接运行时配置细节：看[配置](/zh/guide/essentials/configuration)和 [serve](/zh/commands/serve)
-- 需要鉴权或共享部署说明：看[身份验证](/zh/guide/advanced/authentication)
-- 需要了解系统行为、加载方式和模板：看[架构](/zh/reference/architecture)
-
----
+- **Agent CLI 模式**：[快速入门](/zh/guide/quick-start)，包含 `serve`、`cli-setup` 与渐进式发现。
+- **直接运行时**：通过[配置](/zh/guide/essentials/configuration)和 [serve 命令](/zh/commands/serve)运行 HTTP 运行时。
+- **最大兼容性**：为需要项目上下文的 stdio 客户端使用 [Proxy 命令](/zh/commands/proxy)。
+- **受保护的运行时**：通过[身份验证](/zh/guide/advanced/authentication)配置 OAuth 2.1 和作用域。
+- **共享或公网部署**：阅读 [使用 Caddy 的云部署](/zh/guide/advanced/cloud-deployment)。
+- **Windows 持久部署**：使用 [Windows 任务计划程序](/zh/guide/advanced/windows-task-scheduler)实现开机启动、失败重启和非交互式监管。
 
 ## 先决条件
 
-### 系统要求
+- Linux、macOS 或 Windows
+- 终端以及可写的配置目录
+- npm 安装需要 Node.js `^20.19.0 || ^22.12.0 || >=23.0.0`
 
-- **操作系统**：Linux、macOS 或 Windows
-- **内存**：最低 512MB RAM，推荐 2GB
-- **Node.js**：版本 18+ (用于 MCP 服务器)
-- **网络**：HTTP/HTTPS 出站访问
+独立发布归档不需要本地 Node.js。贡献者和源码安装应使用 `.node-version` 中的版本；它是仓库默认版本，而不是已发布的包支持契约。
 
-### 你需要准备
+## 阶段 1：安装运行时
 
-- [ ] 已有的 MCP 服务器或计划安装它们
-- [ ] 用于配置文件的文本编辑器
-- [ ] 终端/命令行访问权限
-- [ ] 对 JSON 配置的基本了解
+选择一种安装方式。[安装指南](/zh/guide/installation)是所有平台和 Docker 选项的权威来源。
 
-### 快速环境检查
+### 发布归档
+
+发布版本提供的是归档文件，而不是原始可执行文件下载。下载对应平台的归档，解压后运行其中的二进制文件：
 
 ```bash
-# 检查 Node.js 版本
-node --version  # 应为 18+
+# Linux x64
+curl -LO https://github.com/1mcp-app/agent/releases/latest/download/1mcp-linux-x64.tar.gz
+tar -xzf 1mcp-linux-x64.tar.gz
+sudo install -m 0755 1mcp-linux-x64 /usr/local/bin/1mcp
+1mcp --version
 
-# 验证您可以在主目录中创建文件
-touch ~/.test-file && rm ~/.test-file && echo "✅ 文件权限正常"
-
-# 检查您是否有现有的 MCP 服务器
-ls ~/.config/*/mcp.json 2>/dev/null || echo "ℹ️ 未找到现有 MCP 配置"
+# macOS Apple Silicon
+curl -LO https://github.com/1mcp-app/agent/releases/latest/download/1mcp-darwin-arm64.tar.gz
+tar -xzf 1mcp-darwin-arm64.tar.gz
+sudo install -m 0755 1mcp-darwin-arm64 /usr/local/bin/1mcp
+1mcp --version
 ```
 
----
+```powershell
+# Windows x64
+Invoke-WebRequest -Uri "https://github.com/1mcp-app/agent/releases/latest/download/1mcp-win32-x64.zip" -OutFile "1mcp-win32-x64.zip"
+Expand-Archive -Path "1mcp-win32-x64.zip" -DestinationPath "."
+.\1mcp-win32-x64.exe --version
+```
 
-## 第 1 级：基础运行时
+其余已发布归档为 `1mcp-linux-arm64.tar.gz` 和 `1mcp-darwin-x64.tar.gz`。它们的精确命令、npm 和 Docker 说明见[安装](/zh/guide/installation)。
 
-目标：用单个运行时端点替换分散的 MCP 连接。
+### npm
 
-适用于：第一次上手、简单场景、概念验证。
-
-### 你将获得
-
-- ✅ 单个配置文件取代多个连接
-- ✅ 所有 MCP 服务器的统一健康监控
-- ✅ 自动连接管理和重试逻辑
-- ✅ 您的 AI 助手连接的单一端点
-
-### 步骤 1：获取 1MCP
-
-**选项 A：二进制下载 (最快 - 无需 Node.js)**
+在受支持的 Node.js 运行时下，可以全局安装：
 
 ```bash
-# Linux:
-curl -L -o 1mcp https://github.com/1mcp-app/agent/releases/latest/download/1mcp-linux-x64
-sudo mv 1mcp /usr/local/bin/ && sudo chmod +x /usr/local/bin/1mcp
-1mcp --help
-
-# macOS:
-curl -L -o 1mcp https://github.com/1mcp-app/agent/releases/latest/download/1mcp-darwin-arm64
-sudo mv 1mcp /usr/local/bin/ && sudo chmod +x /usr/local/bin/1mcp
-1mcp --help
-
-# Windows (PowerShell):
-Invoke-WebRequest -Uri "https://github.com/1mcp-app/agent/releases/latest/download/1mcp-win32-x64.exe" -OutFile "1mcp.exe"
-.\1mcp.exe --help
+npm install -g @1mcp/agent
+1mcp --version
 ```
 
-**选项 B：NPM (无需安装)**
+## 阶段 2：验证第一个运行时
+
+添加一个上游 MCP server 并启动运行时：
 
 ```bash
-# 1MCP 通过 npx 运行 - 无需全局安装
-# 验证其是否有效：
-npx -y @1mcp/agent --help
+1mcp mcp add context7 -- npx -y @upstash/context7-mcp
+1mcp serve
 ```
 
-### 步骤 2：创建基本配置
+保持 `serve` 运行。在另一个 shell 中，确认运行时可以描述已连接的 server：
 
 ```bash
-# 创建配置目录
-mkdir -p ~/.config/1mcp
-
-# 创建基本配置文件
-cat > ~/.config/1mcp/mcp.json << 'EOF'
-{
-  "mcpServers": {
-    "filesystem": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
-      "tags": ["local", "files"]
-    },
-    "memory": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-memory"],
-      "tags": ["memory", "notes"]
-    }
-  }
-}
-EOF
+1mcp inspect context7
 ```
 
-### 步骤 3：启动 1MCP
+配置文件位置、选择器、环境变量和运行时选项请继续看[配置](/zh/guide/essentials/configuration)。要通过 CLI 模式连接 agent，请阅读[快速入门](/zh/guide/quick-start)。
 
-```bash
-# 二进制选项：
-1mcp serve --config ~/.config/1mcp/mcp.json --port 3050
+## 阶段 3：连接客户端
 
-# NPM 选项：
-npx -y @1mcp/agent serve --config ~/.config/1mcp/mcp.json --port 3050
-
-# 您应该会看到：
-# ✅ 服务器正在端口 3050 上运行，使用 HTTP/SSE 传输
-# ✅ 已连接到 filesystem、memory 服务器
-```
-
-### 步骤 4：测试你的设置
-
-```bash
-# 使用 MCP Inspector 进行测试和调试 (推荐)
-npx @modelcontextprotocol/inspector
-
-# 这将在 http://localhost:5173 打开一个强大的用户界面，让您：
-# - 连接到您的 1MCP 运行时 http://localhost:3050
-# - 测试所有可用的工具和资源
-# - 调试身份验证流程
-# - 监控实时的 MCP 协议消息
-
-# 备选方案：通过 curl 检查健康状况
-curl http://localhost:3050/health
-# 或在浏览器中访问 http://localhost:3050/health
-```
-
-### 第 1 级完成
-
-成功指标：
-
-- [ ] 1MCP 服务器在端口 3050 上运行
-- [ ] MCP Inspector 在 http://localhost:5173 成功连接
-- [ ] 健康端点在 http://localhost:3050/health 显示服务器已连接
-- [ ] 可以通过 Inspector UI 测试 filesystem 和 memory 工具
-
-常见问题：
-
-- **端口 3050 被占用？** → 使用 `--port 3051`
-- **MCP 服务器启动失败？** → 检查 Node.js 版本是否为 18+
-- **权限错误？** → 确保 ~/.config/1mcp 目录可写
-- **找不到配置？** → 使用绝对路径：`--config $HOME/.config/1mcp/mcp.json`
-
-下一条路径：[添加身份验证和访问控制](#-第-2-级安全访问-15-分钟)
-
-### 可选：把 Agent 会话切换到 CLI 模式
-
-如果你的客户端是自主或半自主 agent，在完成第 1 级后，用户侧推荐先执行：
+对于 Codex 或 Claude，请按[快速入门](/zh/guide/quick-start)中的 agent 路径执行：
 
 ```bash
 1mcp cli-setup --codex
 ```
 
-之后通常由 AI agent 执行 CLI 工作流：
+对于 Codex，`cli-setup` 会打印必须加入 `config.toml` 的改动，但不会自动应用。请在打开下一次 Codex 会话前加入打印出的片段，然后验证 `instructions -> inspect -> run`。
 
-```bash
-1mcp instructions
-1mcp inspect filesystem
-1mcp inspect filesystem/read_file
-1mcp run filesystem/read_file --args '{"path":"/tmp/example.txt"}'
-```
+对于非 CLI 的 stdio 客户端，请使用 [Proxy](/zh/commands/proxy)。对于不需要项目上下文的原生 HTTP MCP 客户端，请使用 [serve](/zh/commands/serve)。
 
-这是把 agent 从“直接挂载 MCP”迁移到 1MCP 渐进式工作流的推荐方式。你也可以手动运行这些工作流命令做测试，但它们主要是为 agent 设计的。
+## 阶段 4：按需添加身份验证
 
----
+只在基础运行时跑通后再执行这一步。1MCP 支持动态客户端注册（DCR），随后使用带 PKCE 的授权码流程。请使用支持该浏览器授权流程的客户端或已测试工具；不要使用客户端凭据授权，也不要虚构客户端密钥。
 
-## 🔒 第 2 级：安全访问 (15 分钟)
+如何启用运行时、通过 DCR 注册客户端、完成授权、配置作用域和排障，请阅读[身份验证指南](/zh/guide/advanced/authentication)。
 
-**🎯 目标**：添加身份验证和精细的访问控制
-**👤 适用于**：团队、共享环境、注重安全的用户
+## 阶段 5：有计划地部署
 
-### **您将实现**
+要部署共享或公网运行时，请继续阅读[使用 Caddy 的云部署](/zh/guide/advanced/cloud-deployment)。其中覆盖了生产部署所需的公网 HTTPS 地址、代理信任、Admin Console 和本地 CLI target 设置。
 
-- ✅ 使用安全令牌管理的 OAuth 2.1 身份验证
-- ✅ 基于范围的权限控制 MCP 服务器访问
-- ✅ 具有自动令牌刷新功能的用户会话管理
-- ✅ 所有访问尝试的审计日志
+在 Windows 上，请使用 [Windows 任务计划程序](/zh/guide/advanced/windows-task-scheduler)监管前台运行的 `1mcp serve` 进程，使其能够跨重启持续运行。该指南涵盖独立二进制和 npm 路径、凭据处理、生命周期命令与故障排查。
 
-### **步骤 1：启用身份验证** (1 分钟)
+## 首次运行检查清单
 
-```bash
-# 停止您现有的 1MCP 实例 (Ctrl+C)
-
-# 启用身份验证并启动
-# 二进制选项：
-1mcp --config ~/.config/1mcp/mcp.json --port 3050 --enable-auth
-
-# NPM 选项：
-npx -y @1mcp/agent --config ~/.config/1mcp/mcp.json --port 3050 --enable-auth
-
-# 新输出显示：
-# 🔐 身份验证已启用 - OAuth 2.1 端点可通过 SDK 使用
-# 📋 OAuth 管理仪表板：http://localhost:3050/oauth
-```
-
-### **步骤 2：使用 OAuth 管理仪表板** (2 分钟)
-
-1MCP Agent 提供了一个 OAuth 管理仪表板，而不是手动注册端点，用于管理与后端服务的授权流程。当后端服务需要 OAuth 时，您可以使用此仪表板启动和批准授权请求。
-
-在浏览器中访问仪表板，查看您的服务状态并授权任何等待 OAuth 的服务。
-
-### **步骤 3：配置基于范围的访问** (2 分钟)
-
-```bash
-# 使用更详细的标签更新您的配置
-cat > ~/.config/1mcp/mcp.json << 'EOF'
-{
-  "mcpServers": {
-    "filesystem": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
-      "tags": ["filesystem", "local", "sensitive"]
-    },
-    "memory": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-memory"],
-      "tags": ["memory", "notes", "safe"]
-    }
-  }
-}
-EOF
-
-# 配置将自动热重载 - 无需重启！
-```
-
-### **步骤 4：测试身份验证** (2 分钟)
-
-```bash
-# 使用 MCP Inspector 测试 OAuth 流程 (推荐)
-npx @modelcontextprotocol/inspector
-
-# 在 Inspector UI 中：
-# 1. 连接到 http://localhost:3050
-# 2. 您将看到 OAuth 身份验证提示
-# 3. 使用内置的 OAuth 流程测试
-# 4. 使用不同的标签测试基于范围的访问
-
-# 备选方案：通过 curl 手动进行 OAuth 测试
-# 尝试在没有身份验证的情况下访问 SSE 端点
-curl http://localhost:3050/sse
-# 当启用身份验证时，应要求身份验证
-
-# 手动令牌流程 (如果需要用于调试)
-export CLIENT_ID="your-client-id-from-step-2"
-export CLIENT_SECRET="your-client-secret-from-step-2"
-
-curl -X POST http://localhost:3050/token \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=client_credentials&client_id=$CLIENT_ID&client_secret=$CLIENT_SECRET&scope=tag:safe"
-```
-
-### **✅ 第 2 级完成！**
-
-**🎉 成功指标**：
-
-- [ ] MCP Inspector 成功处理 OAuth 流程
-- [ ] OAuth 客户端注册通过 Inspector UI 工作
-- [ ] 范围限制被正确执行 (基于标签的访问)
-- [ ] 可以使用 Inspector 界面测试不同的范围
-- [ ] 管理仪表板显示身份验证状态
-
-**🔧 常见问题**：
-
-- **MCP Inspector 无法连接？** → 验证 1MCP 是否在端口 3050 上运行
-- **Inspector 中的 OAuth 流程失败？** → 检查 1MCP 是否使用 --enable-auth 运行
-- **范围错误？** → 确保服务器标签与请求的范围匹配
-- **Inspector 显示"未授权"？** → 首先在 Inspector UI 中完成 OAuth 流程
-- **仪表板未加载？** → 确保使用了 --enable-auth 标志
-
-**➡️ 下一级**：[生产就绪部署](#-第-3-级生产就绪-45-分钟)
-
----
-
-## 🏗️ 第 3 级：生产就绪 (15 分钟)
-
-**🎯 目标**：具有基本安全性的稳定生产部署
-**👤 适用于**：生产环境、团队、共享部署
-
-### **您将实现**
-
-- ✅ 用于自动启动的 Systemd 服务（Linux/macOS）
-- ✅ 用于自动启动的 Windows 任务计划程序任务（Windows）
-- ✅ 基本安全配置
-- ✅ 日志管理和轮换
-- ✅ 配置备份
-- ✅ 基本监控
-
-如果要公开云端运行时、Admin Console 和本地 CLI target，完成这个基础服务设置后，请使用推荐的 **[使用 Caddy 进行云端部署](/zh/guide/advanced/cloud-deployment)** 路径。
-
-### **步骤 1：生产配置** (5 分钟)
-
-```bash
-# 创建生产配置目录
-sudo mkdir -p /etc/1mcp
-sudo chown $USER:$USER /etc/1mcp
-
-# 生产配置
-cat > /etc/1mcp/mcp.json << 'EOF'
-{
-  "mcpServers": {
-    "filesystem": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/app/data"],
-      "tags": ["filesystem", "data", "sensitive"]
-    },
-    "memory": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-memory"],
-      "tags": ["memory", "cache", "safe"]
-    }
-  }
-}
-EOF
-```
-
-### **步骤 2：创建 Systemd 服务** (5 分钟)
-
-```bash
-# 首先，系统范围安装二进制文件 (如果尚未完成)
-sudo curl -L -o /usr/local/bin/1mcp https://github.com/1mcp-app/agent/releases/latest/download/1mcp-linux-x64
-sudo chmod +x /usr/local/bin/1mcp
-
-# 创建 systemd 服务文件
-sudo tee /etc/systemd/system/1mcp.service << 'EOF'
-[Unit]
-Description=1MCP - 通用 MCP 服务器代理
-After=network.target
-
-[Service]
-Type=simple
-User=$USER
-WorkingDirectory=/home/$USER
-ExecStart=/usr/local/bin/1mcp --config /etc/1mcp/mcp.json --port 3050 --enable-auth
-Restart=always
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# 启用并启动服务
-sudo systemctl daemon-reload
-sudo systemctl enable 1mcp
-sudo systemctl start 1mcp
-
-# 检查状态
-sudo systemctl status 1mcp
-```
-
-### **Windows：任务计划程序**（仅 Windows）
-
-在 Windows 上，任务计划程序是持久 `1mcp serve` 守护进程的正确监管者。它提供开机触发启动、崩溃重启和非交互式登录——等价于 Linux 上的 systemd 服务。
-
-→ 独立二进制和 npm 路径、凭据处理、生命周期命令和故障排查的完整指南：**[Windows：任务计划程序](/zh/guide/advanced/windows-task-scheduler)**
-
-### **步骤 3：基本监控** (5 分钟)
-
-```bash
-# 简单的健康检查脚本
-cat > /usr/local/bin/1mcp-health-check << 'EOF'
-#!/bin/bash
-HEALTH_URL="http://localhost:3050/health"
-RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL")
-
-if [ "$RESPONSE" = "200" ]; then
-    echo "✅ 1MCP 健康 ($(date))"
-    exit 0
-else
-    echo "❌ 1MCP 不健康 (HTTP $RESPONSE) ($(date))"
-    exit 1
-fi
-EOF
-
-sudo chmod +x /usr/local/bin/1mcp-health-check
-
-# 添加到 crontab 以进行定期健康检查
-(crontab -l 2>/dev/null; echo "*/5 * * * * /usr/local/bin/1mcp-health-check >> /var/log/1mcp-health.log 2>&1") | crontab -
-
-# 检查日志
-tail -f /var/log/1mcp-health.log
-```
-
-### **步骤 4：配置环境** (可选)
-
-```bash
-# 为生产设置环境变量
-sudo tee -a /etc/environment << 'EOF'
-ONE_MCP_ENABLE_AUTH=true
-ONE_MCP_ENABLE_ENHANCED_SECURITY=true
-ONE_MCP_RATE_LIMIT_WINDOW=15
-ONE_MCP_RATE_LIMIT_MAX=100
-EOF
-
-# 重启服务以应用环境更改
-sudo systemctl restart 1mcp
-```
-
-### **步骤 5：备份配置** (可选)
-
-```bash
-# 简单的备份脚本
-cat > ~/1mcp-backup.sh << 'EOF'
-#!/bin/bash
-TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-cp /etc/1mcp/mcp.json ~/"1mcp-config-backup-$TIMESTAMP.json"
-echo "✅ 配置已备份到 ~/1mcp-config-backup-$TIMESTAMP.json"
-EOF
-
-chmod +x ~/1mcp-backup.sh
-
-# 运行备份
-~/1mcp-backup.sh
-```
-
-### **✅ 第 3 级完成！**
-
-**🎉 成功指标**：
-
-- [ ] 1MCP 作为 systemd 服务运行（Linux/macOS）或 Windows 任务计划程序任务运行（Windows）
-- [ ] 服务在启动时自动启动
-- [ ] 健康检查脚本正常工作
-- [ ] 配置已备份
-- [ ] 健康端点可在 http://localhost:3050/health 访问
-
-**🔧 生产清单**：
-
-- [ ] 已通过 Caddy 配置 SSL/TLS 证书；参阅[使用 Caddy 进行云端部署](/zh/guide/advanced/cloud-deployment)
-- [ ] 防火墙规则已配置 (仅允许端口 3050)
-- [ ] 已为您的应用程序注册 OAuth 客户端
-- [ ] 服务器标签已适当配置
-- [ ] 定期备份配置
-
-**➡️ 下一级**：[高级优化](#-第-4-级高级优化-2-小时)
-
----
-
-## 🔧 超越基本设置
-
-**可用的其他配置选项：**
-
-### **传输配置**
-
-- 使用 `--transport sse` 进行服务器发送事件
-- 使用 `--transport stdio` 进行标准输入/输出
-- 使用 `--transport http` 进行可流式传输的 HTTP (默认)
-
-### **标签过滤**
-
-- 在运行时按条件筛选暴露的服务器：`--filter "network,filesystem"`
-- 配置基于标签的 OAuth 范围
-
-### **反向代理设置**
-
-- 为代理环境配置 `--trust-proxy`
-- 为面向公众的部署使用 `--external-url`
-- 推荐的公开 HTTPS Admin Console 路径请使用[使用 Caddy 进行云端部署](/zh/guide/advanced/cloud-deployment)
-
-### **旧版 nginx 反向代理示例** (可选)
-
-新的公开 HTTPS 部署应优先使用[使用 Caddy 进行云端部署](/zh/guide/advanced/cloud-deployment)中的 Caddy 路径。只有在现有平台已经标准化使用 nginx 时，才保留这个 nginx 示例。
-
-```bash
-# 用于 SSL 终止的基本 nginx 配置
-sudo tee /etc/nginx/sites-available/1mcp << 'EOF'
-server {
-    listen 80;
-    server_name your-domain.com;
-    return 301 https://$server_name$request_uri;
-}
-
-server {
-    listen 443 ssl;
-    server_name your-domain.com;
-
-    ssl_certificate /path/to/your/cert.pem;
-    ssl_certificate_key /path/to/your/key.pem;
-
-    location / {
-        proxy_pass http://localhost:3050;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-EOF
-```
-
-### **使用不同的配置**
-
-```bash
-# 创建特定于环境的配置
-cp /etc/1mcp/mcp.json /etc/1mcp/mcp-dev.json
-cp /etc/1mcp/mcp.json /etc/1mcp/mcp-staging.json
-
-# 使用不同的配置启动
-npx -y @1mcp/agent --config /etc/1mcp/mcp-dev.json --port 3051
-npx -y @1mcp/agent --config /etc/1mcp/mcp-staging.json --port 3052
-```
-
-### **基本日志监控**
-
-```bash
-# 监控 1MCP 日志
-sudo journalctl -u 1mcp -f
-
-# 检查错误
-sudo journalctl -u 1mcp --since "1 hour ago" | grep -i error
-
-# 简单的日志分析脚本
-cat > ~/1mcp-log-summary.sh << 'EOF'
-#!/bin/bash
-echo "=== 1MCP 服务状态 ==="
-sudo systemctl status 1mcp --no-pager
-echo
-echo "=== 最近的错误 ==="
-sudo journalctl -u 1mcp --since "1 hour ago" | grep -i error | tail -10
-EOF
-
-chmod +x ~/1mcp-log-summary.sh
-```
-
-### **环境变量参考**
-
-```bash
-# 身份验证设置
-ONE_MCP_ENABLE_AUTH=true
-ONE_MCP_ENABLE_SCOPE_VALIDATION=true
-
-# 速率限制
-ONE_MCP_RATE_LIMIT_WINDOW=15  # 15 分钟
-ONE_MCP_RATE_LIMIT_MAX=100
-
-# 安全
-ONE_MCP_ENABLE_ENHANCED_SECURITY=true
-ONE_MCP_TRUST_PROXY=loopback
-
-# 会话管理
-ONE_MCP_SESSION_TTL=1440  # 24 小时
-ONE_MCP_SESSION_STORAGE_PATH=/var/lib/1mcp/sessions
-```
-
-### **✅ 设置完成！**
-
-您现在已将 1MCP 作为具有基本身份验证和监控的稳定服务运行。
-
----
-
-## 🆘 故障排除指南
-
-### **常见问题与解决方案**
-
-#### **🔌 连接问题**
-
-```bash
-# 问题："连接被拒绝"
-# 解决方案：检查 1MCP 是否正在运行
-systemctl status 1mcp
-# 检查应用程序日志以获取服务器状态
-
-# 问题："MCP 服务器无响应"
-# 解决方案：检查单个服务器的健康状况 (调试模式)
-# 二进制：
-ONE_MCP_LOG_LEVEL=debug 1mcp --config ~/.config/1mcp/mcp.json
-# NPM：
-ONE_MCP_LOG_LEVEL=debug npx -y @1mcp/agent --config ~/.config/1mcp/mcp.json
-```
-
-#### **🔐 身份验证问题**
-
-```bash
-# 问题："无效令牌"
-# 解决方案：检查令牌过期时间和范围
-# 通过 OAuth 端点检查令牌有效性 (当启用身份验证时)
-
-# 问题："范围不足"
-# 解决方案：验证服务器标签是否与令牌范围匹配
-cat ~/.config/1mcp/mcp.json | jq '.mcpServers[].tags'
-```
-
-#### **⚡ 性能问题**
-
-```bash
-# 问题：响应时间慢
-# 解决方案：检查服务器状态和日志
-# 检查应用程序日志以获取服务器状态
-# 检查日志以查找连接问题
-htop # 检查 CPU/内存使用情况
-
-# 问题：错误率高
-# 解决方案：检查服务器日志以查找模式
-journalctl -u 1mcp -f --lines=100
-```
-
-### **获取帮助**
-
-- 📖 **文档**：[文档主页](/)
-- 🐛 **问题**：[GitHub Issues](https://github.com/1mcp-app/agent/issues)
-- 💬 **社区**：[Discussions](https://github.com/1mcp-app/agent/discussions)
-
----
-
-## 🎯 后续步骤
-
-- [探索安全功能](/zh/reference/security)
-- [高级架构](/zh/reference/architecture)
-
----
-
-> **🎉 恭喜！** 您已成功将 1MCP 从基础运行时设置到企业级基础设施。您的 AI 助手现在可以通过单一、统一的界面可靠、安全、可扩展地访问其所有 MCP 功能。
+- 通过所选安装方式，`1mcp --version` 可以成功执行
+- `1mcp serve` 保持运行
+- `1mcp inspect <server>` 能报告已配置的上游 server
+- 下一篇指南与所选路径匹配：CLI 模式、配置、身份验证、代理、云部署或 Windows 任务计划程序
