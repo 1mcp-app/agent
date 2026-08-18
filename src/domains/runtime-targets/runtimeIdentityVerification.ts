@@ -112,12 +112,15 @@ export async function fetchRuntimeIdentity(
 export async function verifyRuntimeIdentityForTarget(input: {
   target: Pick<StoredRuntimeTarget, 'name' | 'url' | 'observedIdentity' | 'caFile' | 'insecureSkipVerify'>;
   fetch?: RuntimeIdentityFetch;
+  candidateIdentity?: RuntimeTargetObservedIdentity;
 }): Promise<VerifiedRuntimeIdentity> {
-  const identity = await fetchRuntimeIdentity(input.target.url, {
-    fetch: input.fetch,
-    caFile: input.target.caFile,
-    insecureSkipVerify: input.target.insecureSkipVerify,
-  });
+  const identity =
+    input.candidateIdentity ??
+    (await fetchRuntimeIdentity(input.target.url, {
+      fetch: input.fetch,
+      caFile: input.target.caFile,
+      insecureSkipVerify: input.target.insecureSkipVerify,
+    }));
   const expectedRuntimeScopeId = input.target.observedIdentity?.runtimeScopeId;
 
   if (expectedRuntimeScopeId && expectedRuntimeScopeId !== identity.runtimeScopeId) {

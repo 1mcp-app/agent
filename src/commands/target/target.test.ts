@@ -269,6 +269,7 @@ describe('target commands', () => {
             url: 'http://127.0.0.1:3050/mcp',
             source: 'pidfile' as const,
             pid: 1234,
+            validated: true as const,
           })),
           fetchRuntimeIdentity: vi.fn(async () =>
             identity({ runtimeScopeId: 'scope_local', externalUrl: 'http://127.0.0.1:3050' }),
@@ -559,6 +560,7 @@ describe('target commands', () => {
         url: 'http://127.0.0.1:3050/mcp',
         source: 'pidfile' as const,
         pid: 1234,
+        validated: true as const,
       })),
       ...overrides,
     };

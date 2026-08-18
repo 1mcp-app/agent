@@ -133,6 +133,22 @@ describe('runtime target identity verification', () => {
     });
   });
 
+  it('verifies an already observed identity without fetching it again', async () => {
+    const fetchImpl = vi.fn();
+
+    await expect(
+      verifyRuntimeIdentityForTarget({
+        target: target(),
+        candidateIdentity: { ...identity, externalUrl: 'https://proxy.example.com' },
+        fetch: fetchImpl,
+      }),
+    ).resolves.toMatchObject({
+      identity: expect.objectContaining({ runtimeScopeId: 'scope_prod' }),
+      warnings: [expect.objectContaining({ code: 'warning_external_url_mismatch' })],
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it('checks named remote identity before allowing credential use', async () => {
     let credentialUseCount = 0;
 

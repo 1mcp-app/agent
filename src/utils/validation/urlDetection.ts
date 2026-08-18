@@ -11,14 +11,20 @@ import {
   RuntimeProbeError,
   type RuntimeProbeFailure,
 } from '@src/domains/runtime-targets/runtimeProbe.js';
+import type { RuntimeTargetObservedIdentity } from '@src/domains/runtime-targets/runtimeTargetStore.js';
 import { debugIf } from '@src/logger/logger.js';
 import { sanitizeForLogging } from '@src/logger/secureLogger.js';
 import { normalizedArgv } from '@src/utils/cli/normalizedArgv.js';
+
+import type { DiscoveredServer } from './discoveredServer.js';
+
+const LOOPBACK_ADDRESSES = ['127.0.0.1', '[::1]'] as const;
 
 export interface RuntimeUrlValidationResult {
   valid: boolean;
   error?: string;
   failure?: RuntimeProbeFailure;
+  identity?: RuntimeTargetObservedIdentity;
 }
 
 /**
@@ -60,25 +66,7 @@ export async function detectRunningServerUrl(): Promise<string | null> {
 
   for (const port of commonPorts) {
     try {
-      const baseUrl = `http://localhost:${port}`;
-      const identityResponse = await fetch(`${baseUrl}/.well-known/1mcp/runtime-identity`, {
-        redirect: 'manual',
-        signal: AbortSignal.timeout(2000),
-      });
-      if (identityResponse.ok) {
-        return `http://localhost:${port}/mcp`;
-      }
-
-      // Compatibility fallback for runtimes that predate runtime identity.
-      if (identityResponse.status === 404) {
-        const oauthResponse = await fetch(`${baseUrl}/oauth/`, {
-          redirect: 'manual',
-          signal: AbortSignal.timeout(2000),
-        });
-        if (isReachableOAuthProbeResponse(oauthResponse)) {
-          return `http://localhost:${port}/mcp`;
-        }
-      }
+      return await raceLoopbackAddresses((host, signal) => probeLocalPortAddress(host, port, signal));
     } catch (error) {
       // Connection refused is the expected case while scanning unused ports, but
       // a TLS/DNS/abort error on a port that IS listening is diagnostic — log it
@@ -90,6 +78,30 @@ export async function detectRunningServerUrl(): Promise<string | null> {
     }
   }
   return null;
+}
+
+async function probeLocalPortAddress(host: string, port: number, signal: AbortSignal): Promise<string> {
+  const baseUrl = `http://${host}:${port}`;
+  const identityResponse = await fetch(`${baseUrl}/.well-known/1mcp/runtime-identity`, {
+    redirect: 'manual',
+    signal: AbortSignal.any([signal, AbortSignal.timeout(2000)]),
+  });
+  if (identityResponse.ok) {
+    return `${baseUrl}/mcp`;
+  }
+
+  // Compatibility fallback for runtimes that predate runtime identity.
+  if (identityResponse.status === 404) {
+    const oauthResponse = await fetch(`${baseUrl}/oauth/`, {
+      redirect: 'manual',
+      signal: AbortSignal.any([signal, AbortSignal.timeout(2000)]),
+    });
+    if (isReachableOAuthProbeResponse(oauthResponse)) {
+      return `${baseUrl}/mcp`;
+    }
+  }
+
+  throw new Error(`No reachable 1MCP runtime at ${baseUrl}`);
 }
 
 /**
@@ -156,30 +168,36 @@ export async function detectServer1mcpUrl(): Promise<string> {
  * Method 6: Combined detection with PID file support (for proxy command)
  * Priority: user URL → PID file → port scanning → error
  */
-export async function discoverServerWithPidFile(
-  configDir?: string,
-  userUrl?: string,
-): Promise<{ url: string; source: 'user' | 'pidfile' | 'portscan'; pid?: number }> {
+export async function discoverServerWithPidFile(configDir?: string, userUrl?: string): Promise<DiscoveredServer> {
   // 1. User override (highest priority)
   if (userUrl) {
     const normalizedUrl = userUrl.endsWith('/mcp') ? userUrl : `${userUrl}/mcp`;
-    return { url: normalizedUrl, source: 'user' };
+    return { url: normalizedUrl, source: 'user', validated: false };
   }
 
   // 2. Try PID file. A live PID is authoritative for its Runtime Scope, even
   //    when the endpoint rejects or cannot satisfy the probe.
   const dir = getConfigDir(configDir);
   let ownedProbeFailure: RuntimeProbeFailure | undefined;
+  let runtimeIdentity: RuntimeTargetObservedIdentity | undefined;
   const runtime = await discoverScopedRuntime(dir, async (info) => {
     const validation = await validateServer1mcpUrl(info.url);
     if (!validation.valid) {
       ownedProbeFailure = toRuntimeProbeFailure(validation, info.url);
+    } else {
+      runtimeIdentity = validation.identity;
     }
     return validation.valid;
   });
 
   if (runtime.status === 'running' && runtime.info) {
-    return { url: runtime.info.url, source: 'pidfile', pid: runtime.info.pid };
+    return {
+      url: runtime.info.url,
+      source: 'pidfile',
+      validated: true,
+      pid: runtime.info.pid,
+      ...(runtimeIdentity ? { runtimeIdentity } : {}),
+    };
   }
 
   if (runtime.status === 'unreachable' && runtime.info) {
@@ -203,7 +221,7 @@ export async function discoverServerWithPidFile(
   // 3. Fallback to port scanning
   const portScanUrl = await detectRunningServerUrl();
   if (portScanUrl) {
-    return { url: portScanUrl, source: 'portscan' };
+    return { url: portScanUrl, source: 'portscan', validated: false };
   }
 
   // 4. No server found
@@ -260,12 +278,40 @@ export async function validateServer1mcpUrl(
   // like http://host/mcp-internal/mcp is not mangled by stripping the first match.
   const baseUrl = url.replace(/\/mcp\/?$/, '');
 
+  const parsedBaseUrl = new URL(baseUrl);
+  if (parsedBaseUrl.protocol === 'http:' && parsedBaseUrl.hostname === 'localhost') {
+    try {
+      return await raceLoopbackAddresses(async (host, signal) => {
+        const candidate = new URL(baseUrl);
+        candidate.hostname = host;
+        const result = await validateConcreteServer1mcpUrl(candidate.toString().replace(/\/$/, ''), tls, signal);
+        if (result.valid) return result;
+        throw result;
+      });
+    } catch (error) {
+      const failures = error instanceof AggregateError ? error.errors.filter(isRuntimeUrlValidationResult) : [];
+      return selectMostActionableFailure(failures) ?? invalidProbeResult(probeFailureFromError(error, '/'));
+    }
+  }
+
+  return validateConcreteServer1mcpUrl(baseUrl, tls);
+}
+
+async function validateConcreteServer1mcpUrl(
+  baseUrl: string,
+  tls?: RuntimeTargetTlsOptions,
+  signal?: AbortSignal,
+): Promise<RuntimeUrlValidationResult> {
   try {
-    await fetchRuntimeIdentity(baseUrl, {
-      fetch: fetchRuntimeTargetUrl,
+    const identity = await fetchRuntimeIdentity(baseUrl, {
+      fetch: (url, init) =>
+        fetchRuntimeTargetUrl(url, {
+          ...init,
+          ...(signal ? { signal: combineAbortSignals(signal, init.signal) } : {}),
+        }),
       ...tls,
     });
-    return { valid: true };
+    return { valid: true, identity };
   } catch (error) {
     if (!isMissingRuntimeIdentityEndpoint(error)) {
       return invalidProbeResult(probeFailureFromError(error, '/.well-known/1mcp/runtime-identity'));
@@ -280,7 +326,7 @@ export async function validateServer1mcpUrl(
     // Compatibility fallback for runtimes that predate runtime identity.
     const oauthResponse = await fetchRuntimeTargetUrl(`${baseUrl}/oauth/`, {
       redirect: 'manual',
-      signal: AbortSignal.timeout(5000),
+      signal: combineAbortSignals(AbortSignal.timeout(5000), signal),
       tls,
     });
 
@@ -292,6 +338,36 @@ export async function validateServer1mcpUrl(
   } catch (error) {
     return invalidProbeResult(probeFailureFromError(error, '/oauth/'));
   }
+}
+
+async function raceLoopbackAddresses<T>(probe: (host: string, signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  try {
+    return await Promise.any(LOOPBACK_ADDRESSES.map((host) => probe(host, controller.signal)));
+  } finally {
+    controller.abort();
+  }
+}
+
+function isRuntimeUrlValidationResult(value: unknown): value is RuntimeUrlValidationResult {
+  return typeof value === 'object' && value !== null && 'valid' in value;
+}
+
+function selectMostActionableFailure(failures: RuntimeUrlValidationResult[]): RuntimeUrlValidationResult | undefined {
+  return [...failures].sort((left, right) => failurePriority(right.failure) - failurePriority(left.failure))[0];
+}
+
+function failurePriority(failure?: RuntimeProbeFailure): number {
+  if (failure?.httpStatus === 429) return 6;
+  if (failure?.failureKind === 'http_rejection') return 5;
+  if (failure?.failureKind === 'tls_failure') return 4;
+  if (failure?.failureKind === 'invalid_response') return 3;
+  if (failure?.failureKind === 'timeout') return 2;
+  return 1;
+}
+
+function combineAbortSignals(primary: AbortSignal, secondary?: AbortSignal): AbortSignal {
+  return secondary ? AbortSignal.any([primary, secondary]) : primary;
 }
 
 export function toRuntimeProbeFailure(validation: RuntimeUrlValidationResult, url: string): RuntimeProbeFailure {

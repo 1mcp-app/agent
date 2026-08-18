@@ -173,10 +173,10 @@ export async function resolveServeTarget<TOptions extends ResolvableServeTargetO
   }
 
   const localDiscovery = await discoverServerWithPidFile(mergedOptions['config-dir'], mergedOptions.url);
-  const { url: discoveredUrl, pid: serverPid, source } = localDiscovery;
-  const validation = await validateServer1mcpUrl(discoveredUrl);
+  const { url: discoveredUrl, pid: serverPid, source, validated, runtimeIdentity } = localDiscovery;
+  const validation = validated ? undefined : await validateServer1mcpUrl(discoveredUrl);
 
-  if (!validation.valid) {
+  if (validation && !validation.valid) {
     const isEphemeral = Boolean(mergedOptions.url);
     throw new RuntimeProbeError(toRuntimeProbeFailure(validation, discoveredUrl), {
       targetKind: isEphemeral ? 'ephemeral' : 'local',
@@ -190,22 +190,19 @@ export async function resolveServeTarget<TOptions extends ResolvableServeTargetO
     });
   }
 
-  let localRuntimeIdentity: Awaited<ReturnType<typeof verifyRuntimeIdentityForTarget>> | undefined;
-  if (!mergedOptions.url && mergedOptions.context === 'local') {
-    try {
-      localRuntimeIdentity = await (ports.verifyRuntimeIdentity ?? verifyRuntimeIdentityForTarget)({
-        target: {
-          name: 'local',
-          url: withoutMcpSuffix(discoveredUrl),
-          observedIdentity: undefined,
-        },
-      });
-    } catch (error) {
-      if (mergedOptions.context === 'local') {
-        throw error;
-      }
-    }
-  }
+  const isExplicitLocalContext = !mergedOptions.url && mergedOptions.context === 'local';
+  const candidateRuntimeIdentity = runtimeIdentity ?? validation?.identity;
+  const localRuntimeIdentity =
+    isExplicitLocalContext && candidateRuntimeIdentity
+      ? await (ports.verifyRuntimeIdentity ?? verifyRuntimeIdentityForTarget)({
+          target: {
+            name: 'local',
+            url: withoutMcpSuffix(discoveredUrl),
+            observedIdentity: undefined,
+          },
+          candidateIdentity: candidateRuntimeIdentity,
+        })
+      : undefined;
 
   return {
     cwd: resolvedProjectContext.cwd,
@@ -218,14 +215,13 @@ export async function resolveServeTarget<TOptions extends ResolvableServeTargetO
     serverPid,
     source,
     projectContextSource: resolvedProjectContext.source,
-    runtimeTargetContext:
-      localRuntimeIdentity && !mergedOptions.url && mergedOptions.context === 'local'
-        ? {
-            name: 'local',
-            kind: 'local',
-            runtimeScopeId: localRuntimeIdentity.identity.runtimeScopeId,
-          }
-        : undefined,
+    runtimeTargetContext: isExplicitLocalContext
+      ? {
+          name: 'local',
+          kind: 'local',
+          runtimeScopeId: localRuntimeIdentity?.identity.runtimeScopeId,
+        }
+      : undefined,
     localRuntimeScope: {
       storagePath: getConfigDir(mergedOptions['config-dir']),
       runtimeScopeId: localRuntimeIdentity?.identity.runtimeScopeId,
