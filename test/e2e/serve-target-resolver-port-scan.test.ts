@@ -3,6 +3,8 @@ import type { ResolvedProjectContext } from '@src/config/projectConfigLoader.js'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { runtimeIdentityResponse } from './fixtures/runtimeTargetFixtures.js';
+
 const mockedResolveProjectContext = vi.hoisted(() => vi.fn());
 const mockedDiscoverScopedRuntime = vi.hoisted(() => vi.fn());
 
@@ -44,7 +46,10 @@ describe('resolveServeTarget port-scan composition', () => {
         throw Object.assign(new TypeError('fetch failed'), { cause });
       }
       if (url.startsWith('http://127.0.0.1:3050/')) {
-        return runtimeIdentityResponse();
+        return runtimeIdentityResponse({
+          runtimeScopeId: 'ae625936-93ea-4d98-a2d7-c7967c5c19ca',
+          externalUrl: 'http://127.0.0.1:3050',
+        });
       }
       throw new Error(`Unexpected probe URL: ${url}`);
     });
@@ -77,15 +82,3 @@ describe('resolveServeTarget port-scan composition', () => {
     ]);
   });
 });
-
-function runtimeIdentityResponse(): Response {
-  return new Response(
-    JSON.stringify({
-      identityProtocolVersion: '1',
-      runtimeScopeId: 'ae625936-93ea-4d98-a2d7-c7967c5c19ca',
-      externalUrl: 'http://127.0.0.1:3050',
-      runtimeVersion: '0.35.0-beta.4',
-    }),
-    { status: 200, headers: { 'content-type': 'application/json' } },
-  );
-}
