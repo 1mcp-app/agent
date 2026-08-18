@@ -76,6 +76,7 @@ export function ConfiguredToolTable({
     return { disabled: disabledCount, enabledTokens };
   }, [draft, inventory.rows]);
   const inspectionMessage = configuredToolInspectionMessage(inventory, refreshError);
+  const inspectionFacts = configuredToolInspectionFacts(inventory);
   const retryable = Boolean(refreshError) || inventory.inspection?.retryable === true;
 
   return (
@@ -88,13 +89,29 @@ export function ConfiguredToolTable({
             unresolved
           </Text>
           {inspectionMessage ? (
-            <Text
-              c={refreshError || inventory.inspection?.status === 'failed' ? 'red' : 'yellow'}
-              size="xs"
+            <div
               role={refreshError || inventory.inspection?.status === 'failed' ? 'alert' : 'status'}
+              aria-live="polite"
             >
-              {inspectionMessage}
-            </Text>
+              <Text c={refreshError || inventory.inspection?.status === 'failed' ? 'red' : 'yellow'} size="xs">
+                {inspectionMessage}
+              </Text>
+              {inspectionFacts.length > 0 ? (
+                <Stack component="ul" gap={2} m={0} pl="md">
+                  {inspectionFacts.map((fact) => (
+                    <Text
+                      component="li"
+                      c="red"
+                      size="xs"
+                      key={`${fact.instanceId}:${fact.error}`}
+                      style={{ overflowWrap: 'anywhere' }}
+                    >
+                      {fact.instanceId}: {fact.error}
+                    </Text>
+                  ))}
+                </Stack>
+              ) : null}
+            </div>
           ) : null}
         </div>
         <Group align="flex-end" gap="xs">
@@ -233,6 +250,18 @@ export function ConfiguredToolTable({
       </Text>
     </Stack>
   );
+}
+
+function configuredToolInspectionFacts(
+  inventory: ConfiguredToolInventory,
+): Array<{ instanceId: string; error: string }> {
+  return (inventory.inspection?.instances ?? [])
+    .flatMap((fact) => {
+      const error = fact.error?.trim();
+      if (fact.status === 'complete' || !error) return [];
+      return [{ instanceId: fact.instanceId, error: error.length > 240 ? `${error.slice(0, 237)}...` : error }];
+    })
+    .slice(0, 5);
 }
 
 function configuredToolInspectionMessage(

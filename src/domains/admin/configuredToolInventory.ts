@@ -191,16 +191,7 @@ export async function createConfiguredToolInventory(input: {
       JSON.stringify({
         targetName: input.targetName,
         source: input.source,
-        instances: generationInstances
-          .map(({ instanceId, tools }) => ({
-            instanceId,
-            tools: tools
-              .map((tool) => normalizeGenerationValue(tool))
-              .sort((left, right) =>
-                String((left as { name?: unknown }).name).localeCompare(String((right as { name?: unknown }).name)),
-              ),
-          }))
-          .sort((left, right) => left.instanceId.localeCompare(right.instanceId)),
+        instances: normalizeInstanceLayout(generationInstances),
       }),
     )
     .digest('base64url');

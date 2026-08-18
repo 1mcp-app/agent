@@ -220,6 +220,7 @@ describe('AdminConsoleRoot', () => {
     expect(routeWindow.history.pushState).toHaveBeenCalledWith(null, '', '/admin/servers/github%2Fapi');
     expect(await screen.findByRole('heading', { name: /github\/api/i })).toBeInTheDocument();
     expect(api.getConfiguredServerDetail).toHaveBeenCalledWith({ source: 'mcpServers', id: 'github/api' });
+    expect(api.refreshConfiguredToolInventory).not.toHaveBeenCalled();
     expect(screen.getByDisplayValue('https://api.example.com/mcp?token=REDACTED')).toBeInTheDocument();
     expect(screen.queryByText(/raw-token|Bearer raw/i)).not.toBeInTheDocument();
 
@@ -966,6 +967,7 @@ function configuredServerDetail(id = 'github/api') {
         },
       ],
     },
+    toolInventory: configuredToolInventory(server.target),
   };
 }
 

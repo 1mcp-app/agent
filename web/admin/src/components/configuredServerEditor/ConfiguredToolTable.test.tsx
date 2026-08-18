@@ -158,7 +158,7 @@ describe('ConfiguredToolTable', () => {
       </MantineProvider>,
     );
 
-    expect(screen.getByText(/configured server is disconnected/i)).toHaveAttribute('role', 'status');
+    expect(screen.getByRole('status')).toHaveTextContent(/configured server is disconnected/i);
     expect(screen.getByRole('switch', { name: 'Enable common' })).toBeEnabled();
     await user.click(screen.getByRole('button', { name: 'Retry' }));
     expect(onRefresh).toHaveBeenCalledOnce();
@@ -182,5 +182,40 @@ describe('ConfiguredToolTable', () => {
     );
 
     expect(screen.getByRole('alert')).toHaveTextContent('Tool refresh failed: runtime unavailable.');
+  });
+
+  it('announces concrete failed instance facts without empty or successful facts', () => {
+    render(
+      <MantineProvider>
+        <ConfiguredToolTable
+          inventory={{
+            ...inventory,
+            freshness: 'unavailable',
+            inspection: {
+              status: 'failed',
+              reason: 'inspection_failed',
+              retryable: true,
+              instances: [
+                { instanceId: 'worker-a', status: 'failed', error: 'connection reset by peer' },
+                { instanceId: 'worker-b', status: 'unavailable' },
+                { instanceId: 'worker-c', status: 'complete' },
+              ],
+            },
+          }}
+          draft={{ common: { enabled: true, descriptionOverride: '' } }}
+          disabled={false}
+          refreshBusy={false}
+          onToolChange={vi.fn()}
+          onBulkChange={vi.fn()}
+          onModelChange={vi.fn()}
+          onRefresh={vi.fn()}
+        />
+      </MantineProvider>,
+    );
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('worker-a: connection reset by peer');
+    expect(alert).not.toHaveTextContent('worker-b');
+    expect(alert).not.toHaveTextContent('worker-c');
   });
 });

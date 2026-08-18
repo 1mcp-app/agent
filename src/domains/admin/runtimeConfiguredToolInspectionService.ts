@@ -157,17 +157,19 @@ export class RuntimeConfiguredToolInspectionService {
         ).tools,
       })),
     );
-    const failures = settled.flatMap((result, index) =>
-      result.status === 'rejected'
-        ? [
-            {
-              instanceId: initial.candidates[index]!.instanceId,
-              status: 'failed' as const,
-              error: errorMessage(result.reason),
-            },
-          ]
-        : [],
-    );
+    const complete: Array<{ candidate: InspectionCandidate; tools: Tool[] }> = [];
+    const failures: Array<{ instanceId: string; status: 'failed'; error: string }> = [];
+    settled.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        complete.push(result.value);
+        return;
+      }
+      failures.push({
+        instanceId: initial.candidates[index]!.instanceId,
+        status: 'failed',
+        error: errorMessage(result.reason),
+      });
+    });
     if (failures.length > 0) {
       return {
         inspection: {
@@ -175,11 +177,7 @@ export class RuntimeConfiguredToolInspectionService {
           reason: 'inspection_failed',
           retryable: true,
           instances: [
-            ...settled.flatMap((result, index) =>
-              result.status === 'fulfilled'
-                ? [{ instanceId: initial.candidates[index]!.instanceId, status: 'complete' as const }]
-                : [],
-            ),
+            ...complete.map(({ candidate }) => ({ instanceId: candidate.instanceId, status: 'complete' as const })),
             ...failures,
           ],
         },
@@ -202,9 +200,6 @@ export class RuntimeConfiguredToolInspectionService {
       );
     }
 
-    const complete = settled.map(
-      (result) => (result as PromiseFulfilledResult<{ candidate: InspectionCandidate; tools: Tool[] }>).value,
-    );
     publishCompleteConfiguredToolInspection({
       source: input.source,
       targetName: input.targetName,

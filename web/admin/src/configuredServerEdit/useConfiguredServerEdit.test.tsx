@@ -37,8 +37,19 @@ function detailFor(target: { source: 'mcpServers' | 'mcpTemplates'; id: string }
     target: { type: 'configured_server', ...target },
   };
   response.editContract = { ...response.editContract, target: response.server.target };
-  response.toolInventory = toolInventory(target);
+  response.toolInventory = unavailableToolInventory(target);
   return response;
+}
+
+function unavailableToolInventory(
+  target: { source: 'mcpServers' | 'mcpTemplates'; id: string } = { source: 'mcpServers', id: 'github' },
+  model = 'gpt-4o',
+): ConfiguredToolInventory {
+  return {
+    ...toolInventory(target, model),
+    freshness: 'unavailable',
+    inspection: { status: 'unavailable', reason: 'snapshot_unavailable', retryable: true, instances: [] },
+  };
 }
 
 function toolInventory(
@@ -157,7 +168,6 @@ describe('useConfiguredServerEdit', () => {
       target: { source: 'mcpTemplates', id: 'shared' },
       csrfToken: 'csrf-token',
       connectivityCheck: 'auto',
-      model: 'gpt-4o',
       edit: { instructionOverride: { action: 'set', value: '' } },
     });
 
@@ -221,7 +231,6 @@ describe('useConfiguredServerEdit', () => {
       target: { source: 'mcpServers', id: 'github' },
       csrfToken: 'csrf-token',
       connectivityCheck: 'auto',
-      model: 'gpt-4o',
       edit: { transport: { url: 'https://example.com/v2/mcp' } },
     });
     expect(result.current.state).toMatchObject({
@@ -262,7 +271,12 @@ describe('useConfiguredServerEdit', () => {
         operationId: 'refresh-retry',
         toolInventory: toolInventory(),
       });
-    const adminApi = api({ refreshConfiguredToolInventory });
+    const unavailableDetail = detail();
+    unavailableDetail.toolInventory = unavailableToolInventory();
+    const adminApi = api({
+      getConfiguredServerDetail: vi.fn(async () => unavailableDetail),
+      refreshConfiguredToolInventory,
+    });
     const browserAdapter = browser('/admin/servers/github');
     const { result } = renderHook(() =>
       useConfiguredServerEdit({ api: adminApi, session, browser: browserAdapter.adapter, onUnauthenticated: vi.fn() }),
@@ -288,6 +302,20 @@ describe('useConfiguredServerEdit', () => {
     expect(result.current.state).toMatchObject({ status: 'loaded', toolInventoryBusy: false });
   });
 
+  it('does not actively refresh when passive inventory is already live', async () => {
+    const liveDetail = detail();
+    liveDetail.toolInventory = toolInventory();
+    const adminApi = api({ getConfiguredServerDetail: vi.fn(async () => liveDetail) });
+    const browserAdapter = browser('/admin/servers/github');
+
+    const { result } = renderHook(() =>
+      useConfiguredServerEdit({ api: adminApi, session, browser: browserAdapter.adapter, onUnauthenticated: vi.fn() }),
+    );
+
+    await waitFor(() => expect(result.current.state.status).toBe('loaded'));
+    expect(adminApi.refreshConfiguredToolInventory).not.toHaveBeenCalled();
+  });
+
   it('blocks preview and apply while an inventory refresh owns the request lane', async () => {
     const pendingRefresh = deferred<Awaited<ReturnType<AdminApiClient['refreshConfiguredToolInventory']>>>();
     const refreshConfiguredToolInventory = vi
@@ -296,7 +324,14 @@ describe('useConfiguredServerEdit', () => {
       .mockImplementationOnce(() => pendingRefresh.promise);
     const previewConfiguredServerEdit = vi.fn(async () => applyPreview());
     const applyConfiguredServerEdit = vi.fn(async () => applyResponse());
-    const adminApi = api({ refreshConfiguredToolInventory, previewConfiguredServerEdit, applyConfiguredServerEdit });
+    const unavailableDetail = detail();
+    unavailableDetail.toolInventory = unavailableToolInventory();
+    const adminApi = api({
+      getConfiguredServerDetail: vi.fn(async () => unavailableDetail),
+      refreshConfiguredToolInventory,
+      previewConfiguredServerEdit,
+      applyConfiguredServerEdit,
+    });
     const browserAdapter = browser('/admin/servers/github');
     const { result } = renderHook(() =>
       useConfiguredServerEdit({ api: adminApi, session, browser: browserAdapter.adapter, onUnauthenticated: vi.fn() }),
@@ -376,7 +411,10 @@ describe('useConfiguredServerEdit', () => {
             toolInventory: { ...toolInventory(), generation: 'generation-new-session' },
           }),
     );
+    const unavailableDetail = detail();
+    unavailableDetail.toolInventory = unavailableToolInventory();
     const adminApi = api({
+      getConfiguredServerDetail: vi.fn(async () => unavailableDetail),
       refreshConfiguredToolInventory:
         refreshConfiguredToolInventory as AdminApiClient['refreshConfiguredToolInventory'],
     });
@@ -438,7 +476,7 @@ describe('useConfiguredServerEdit', () => {
       { source: 'mcpServers', id: 'github' },
       'gpt-4o-mini',
     );
-    expect(adminApi.refreshConfiguredToolInventory).toHaveBeenCalledOnce();
+    expect(adminApi.refreshConfiguredToolInventory).not.toHaveBeenCalled();
     expect(result.current.state).toMatchObject({ status: 'loaded', toolModel: 'gpt-4o-mini' });
   });
 
@@ -585,7 +623,6 @@ describe('useConfiguredServerEdit', () => {
       target: { source: 'mcpServers', id: 'github' },
       csrfToken: 'csrf-token',
       idempotencyKey: expect.stringMatching(/^admin-console-server-apply-/),
-      model: 'gpt-4o',
       edit: { transport: { url: 'https://example.com/renamed' } },
       previewFingerprint: 'preview-rename',
       confirmationFacts: {

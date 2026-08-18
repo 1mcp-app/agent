@@ -209,17 +209,20 @@ describe('admin SPA browser smoke', () => {
       expect(configuredServerFixture.refreshCount).toBe(1);
       await expectVisible(page.getByRole('heading', { name: 'github', exact: true }));
       await expectText(page, 'Configured Tool Selection');
+      const inspectionAlert = page.getByRole('alert');
+      await expectVisible(inspectionAlert);
+      await expectVisible(inspectionAlert.getByText('github-worker: inspection transport closed'));
 
       const searchTool = page.locator('.configured-tool-row', { hasText: 'search' });
       await searchTool.getByRole('switch', { name: 'Enable search' }).locator('..').click();
       await searchTool.getByRole('textbox', { name: 'Description override' }).fill('Search approved repositories');
 
-      const manualRefreshPromise = page.waitForResponse((response) =>
+      const retryRefreshPromise = page.waitForResponse((response) =>
         response.url().endsWith('/admin/api/configured-servers/mcpServers/github/tool-inventory/refresh'),
       );
-      await page.getByRole('button', { name: 'Refresh', exact: true }).click();
-      const manualRefresh = await manualRefreshPromise;
-      expect(manualRefresh.status(), await manualRefresh.text()).toBe(200);
+      await page.getByRole('button', { name: 'Retry', exact: true }).click();
+      const retryRefresh = await retryRefreshPromise;
+      expect(retryRefresh.status(), await retryRefresh.text()).toBe(200);
       expect(configuredServerFixture.refreshCount).toBe(2);
       expect(await searchTool.getByRole('switch', { name: 'Enable search' }).isChecked()).toBe(false);
       expect(await searchTool.getByRole('textbox', { name: 'Description override' }).inputValue()).toBe(
@@ -243,6 +246,23 @@ describe('admin SPA browser smoke', () => {
 
       await expectText(page, 'Preview result');
       await expectText(page, 'Preview only - no config has been written.');
+
+      const generationRefreshPromise = page.waitForResponse((response) =>
+        response.url().endsWith('/admin/api/configured-servers/mcpServers/github/tool-inventory/refresh'),
+      );
+      await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+      const generationRefresh = await generationRefreshPromise;
+      expect(generationRefresh.status(), await generationRefresh.text()).toBe(200);
+      expect(configuredServerFixture.refreshCount).toBe(3);
+      await page.getByText('Preview result', { exact: true }).waitFor({ state: 'hidden' });
+      expect(await page.getByRole('button', { name: 'Apply changes' }).count()).toBe(0);
+      expect(await searchTool.getByRole('switch', { name: 'Enable search' }).isChecked()).toBe(false);
+      expect(await searchTool.getByRole('textbox', { name: 'Description override' }).inputValue()).toBe(
+        'Search approved repositories',
+      );
+
+      await page.getByRole('button', { name: 'Preview change' }).click();
+      await expectText(page, 'Preview result');
       const applyButton = page.getByRole('button', { name: 'Apply changes' });
       await applyButton.click();
 
@@ -1161,14 +1181,43 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
           ],
         },
         ...(server.id === 'github'
-          ? { toolInventory: configuredToolInventory(disabledTools, toolDescriptionOverrides, input.model) }
+          ? {
+              toolInventory: {
+                ...configuredToolInventory(disabledTools, toolDescriptionOverrides, input.model),
+                freshness: 'unavailable' as const,
+                generation: 'generation-passive',
+                inspection: {
+                  status: 'unavailable' as const,
+                  reason: 'snapshot_unavailable',
+                  retryable: true,
+                  instances: [],
+                },
+              },
+            }
           : {}),
       });
     },
     async refreshConfiguredToolInventory(input) {
       fixture.refreshCount += 1;
+      const inventory = configuredToolInventory(disabledTools, toolDescriptionOverrides, input.model);
+      if (fixture.refreshCount === 1) {
+        return operationSuccess('refreshConfiguredToolInventory', 'op_tool_refresh_1', {
+          ...inventory,
+          freshness: 'unavailable' as const,
+          generation: 'generation-passive',
+          inspection: {
+            status: 'failed' as const,
+            reason: 'inspection_failed',
+            retryable: true,
+            instances: [
+              { instanceId: 'github-worker', status: 'failed' as const, error: 'inspection transport closed' },
+            ],
+          },
+        });
+      }
       return operationSuccess('refreshConfiguredToolInventory', `op_tool_refresh_${fixture.refreshCount}`, {
-        ...configuredToolInventory(disabledTools, toolDescriptionOverrides, input.model),
+        ...inventory,
+        generation: `generation-smoke-${fixture.refreshCount}`,
         inspection: {
           status: 'complete',
           retryable: false,

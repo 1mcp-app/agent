@@ -149,10 +149,10 @@ export function useConfiguredServerEdit({
       try {
         const detail = await apiRef.current.getConfiguredServerDetail(server);
         if (requestId !== detailRequestRef.current || sessionRef.current?.csrfToken !== sessionKey) return;
-        initialToolInventoryRefreshRef.current = {
-          target: detail.server.target,
-          model: detail.toolInventory?.model ?? 'gpt-4o',
-        };
+        initialToolInventoryRefreshRef.current =
+          detail.toolInventory?.freshness === 'unavailable'
+            ? { target: detail.server.target, model: detail.toolInventory.model }
+            : undefined;
         dispatch({ type: 'detailLoaded', serverId, detail });
       } catch (error) {
         if (requestId !== detailRequestRef.current || sessionRef.current?.csrfToken !== sessionKey) return;
