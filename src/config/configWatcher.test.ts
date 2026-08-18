@@ -141,7 +141,9 @@ describe('ConfigWatcher', () => {
     it('does not reschedule a failed Runtime Scope signature until the file changes again', async () => {
       vi.useFakeTimers();
       vi.spyOn(configLoader, 'checkFileModified').mockReturnValue(false);
-      const reloadSpy = vi.fn(() => configLoader.markRuntimeEnvAttempted());
+      const reloadSpy = vi.fn(() =>
+        configLoader.markRuntimeEnvAttempted(configLoader.captureRuntimeEnvSignature()),
+      );
       configWatcher.on('reload', reloadSpy);
       configWatcher.startWatching();
       await fsPromises.writeFile(join(tempConfigDir, '.env'), 'invalid line\n');
@@ -161,7 +163,9 @@ describe('ConfigWatcher', () => {
     it('does not repeat a direct Runtime Scope reload after a successful transactional acknowledgement', async () => {
       vi.useFakeTimers();
       vi.spyOn(configLoader, 'checkFileModified').mockReturnValue(false);
-      const reloadSpy = vi.fn(() => configLoader.markRuntimeEnvObserved());
+      const reloadSpy = vi.fn(() =>
+        configLoader.markRuntimeEnvObserved(configLoader.captureRuntimeEnvSignature()),
+      );
       configWatcher.on('reload', reloadSpy);
       configWatcher.startWatching();
       await fsPromises.writeFile(join(tempConfigDir, '.env'), 'TOKEN=changed\n');

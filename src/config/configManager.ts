@@ -93,6 +93,7 @@ export class ConfigManager extends EventEmitter {
     logger.info('ConfigManager stopped');
   }
   private loadConfig(): void {
+    const runtimeEnvSignature = this.loader.captureRuntimeEnvSignature();
     try {
       const runtimeEnvironment = loadRuntimeScopeEnvironment(this.loader.getConfigFilePath());
       this.transportConfig = this.loader.loadConfigWithEnvSubstitution();
@@ -101,7 +102,7 @@ export class ConfigManager extends EventEmitter {
       activateRuntimeScopeEnvironment(runtimeEnvironment);
       this.staticRuntimeFingerprints = this.createRuntimeFingerprints(this.transportConfig, runtimeEnvironment);
       this.templateRuntimeFingerprints = this.createRuntimeFingerprints(declared.templateServers, runtimeEnvironment);
-      this.loader.markRuntimeEnvObserved();
+      this.loader.markRuntimeEnvObserved(runtimeEnvSignature);
 
       const agentConfig = AgentConfigManager.getInstance();
       const features = agentConfig.get('features');
@@ -446,6 +447,7 @@ export class ConfigManager extends EventEmitter {
     }
 
     const oldConfig = { ...this.transportConfig };
+    const runtimeEnvSignature = this.loader.captureRuntimeEnvSignature();
     let newConfig: Record<string, MCPServerParams>;
     let runtimeEnvironment: Readonly<Record<string, string>>;
     let declaredTemplates: Record<string, MCPServerParams>;
@@ -456,9 +458,7 @@ export class ConfigManager extends EventEmitter {
       const declared = this.loadDeclaredServerConfigs();
       declaredTemplates = declared.templateServers;
     } catch (error) {
-      if (this.loader.checkRuntimeEnvModified()) {
-        this.loader.markRuntimeEnvAttempted();
-      }
+      this.loader.markRuntimeEnvAttempted(runtimeEnvSignature);
       logger.error(
         `Failed to load or validate configuration: ${error instanceof Error ? error.message : String(error)}`,
       );
@@ -486,7 +486,7 @@ export class ConfigManager extends EventEmitter {
     this.staticRuntimeFingerprints = nextStaticFingerprints;
     this.templateRuntimeFingerprints = nextTemplateFingerprints;
     McpConfigManager.getInstance(this.loader.getConfigFilePath()).reloadConfig();
-    this.loader.markRuntimeEnvObserved();
+    this.loader.markRuntimeEnvObserved(runtimeEnvSignature);
 
     logger.info(`Detected ${changes.length} configuration changes`);
     this.emit(CONFIG_EVENTS.CONFIG_CHANGED, changes);

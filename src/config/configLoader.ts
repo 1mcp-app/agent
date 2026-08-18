@@ -195,13 +195,17 @@ export class ConfigLoader {
     return nextSignature !== this.runtimeEnvSignature && nextSignature !== this.failedRuntimeEnvSignature;
   }
 
-  public markRuntimeEnvObserved(): void {
-    this.runtimeEnvSignature = this.getRuntimeEnvSignature();
+  public captureRuntimeEnvSignature(): string {
+    return this.getRuntimeEnvSignature();
+  }
+
+  public markRuntimeEnvObserved(signature: string): void {
+    this.runtimeEnvSignature = signature;
     this.failedRuntimeEnvSignature = undefined;
   }
 
-  public markRuntimeEnvAttempted(): void {
-    this.failedRuntimeEnvSignature = this.getRuntimeEnvSignature();
+  public markRuntimeEnvAttempted(signature: string): void {
+    this.failedRuntimeEnvSignature = signature;
   }
 
   private getRuntimeEnvSignature(): string {

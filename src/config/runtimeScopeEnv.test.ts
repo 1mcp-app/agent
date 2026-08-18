@@ -203,16 +203,49 @@ describe('Runtime Scope environment', () => {
     await writeFile(envPath, 'VALUE=created\n');
     expect(loader.checkRuntimeEnvModified()).toBe(true);
     expect(loader.checkRuntimeEnvModified()).toBe(true);
-    loader.markRuntimeEnvObserved();
+    loader.markRuntimeEnvObserved(loader.captureRuntimeEnvSignature());
     expect(loader.checkRuntimeEnvModified()).toBe(false);
     await writeFile(envPath, 'VALUE=changed-longer\n');
     expect(loader.checkRuntimeEnvModified()).toBe(true);
-    loader.markRuntimeEnvObserved();
+    loader.markRuntimeEnvObserved(loader.captureRuntimeEnvSignature());
     await writeFile(`${envPath}.next`, 'VALUE=replaced\n');
     await rename(`${envPath}.next`, envPath);
     expect(loader.checkRuntimeEnvModified()).toBe(true);
-    loader.markRuntimeEnvObserved();
+    loader.markRuntimeEnvObserved(loader.captureRuntimeEnvSignature());
     await unlink(envPath);
+    expect(loader.checkRuntimeEnvModified()).toBe(true);
+  });
+
+  it('does not acknowledge an atomic replacement that occurred after a successful load', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'runtime-env-'));
+    directories.push(directory);
+    const configPath = path.join(directory, 'mcp.json');
+    const envPath = path.join(directory, '.env');
+    await writeFile(envPath, 'VALUE=loaded\n');
+    const loader = new ConfigLoader(configPath);
+    const loadedSignature = loader.captureRuntimeEnvSignature();
+
+    expect(loadRuntimeScopeEnvironment(configPath)).toEqual({ VALUE: 'loaded' });
+    await writeFile(envPath + '.next', 'VALUE=unseen\n');
+    await rename(envPath + '.next', envPath);
+    loader.markRuntimeEnvObserved(loadedSignature);
+
+    expect(loader.checkRuntimeEnvModified()).toBe(true);
+  });
+
+  it('does not acknowledge a deletion that occurred after a failed load attempt began', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'runtime-env-'));
+    directories.push(directory);
+    const configPath = path.join(directory, 'mcp.json');
+    const envPath = path.join(directory, '.env');
+    await writeFile(envPath, 'invalid line\n');
+    const loader = new ConfigLoader(configPath);
+    const attemptedSignature = loader.captureRuntimeEnvSignature();
+
+    expect(() => loadRuntimeScopeEnvironment(configPath)).toThrow(RuntimeScopeEnvError);
+    await unlink(envPath);
+    loader.markRuntimeEnvAttempted(attemptedSignature);
+
     expect(loader.checkRuntimeEnvModified()).toBe(true);
   });
 
