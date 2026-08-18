@@ -26,6 +26,8 @@ interface LoadedConfiguredServerEditState {
   toolDraft: Record<string, { enabled: boolean; descriptionOverride: string }>;
   initialToolDraft: Record<string, { enabled: boolean; descriptionOverride: string }>;
   toolModel: string;
+  toolInventoryBusy: boolean;
+  toolInventoryError?: string;
   dirty: boolean;
   preview?: ConfiguredServerPreviewResponse['preview'];
   previewBusy: boolean;
@@ -57,7 +59,13 @@ export type ConfiguredServerEditAction =
   | { type: 'instructionOverrideChanged'; mode: 'upstream' | 'replace' | 'suppress'; value?: string }
   | { type: 'toolChanged'; name: string; enabled?: boolean; descriptionOverride?: string }
   | { type: 'toolsBulkChanged'; names: string[]; enabled: boolean }
-  | { type: 'toolInventoryRecalculated'; inventory: NonNullable<ConfiguredServerDetailResponse['toolInventory']> }
+  | { type: 'toolInventoryRequestStarted'; clearPreview: boolean }
+  | {
+      type: 'toolInventoryReceived';
+      inventory: NonNullable<ConfiguredServerDetailResponse['toolInventory']>;
+      clearPreview: 'always' | 'generationChanged';
+    }
+  | { type: 'toolInventoryRequestFailed'; message: string }
   | { type: 'previewStarted' }
   | { type: 'previewSucceeded'; preview: ConfiguredServerPreviewResponse['preview'] }
   | { type: 'previewFailed'; message: string }
@@ -187,36 +195,48 @@ export function reduceConfiguredServerEditState(
           ]),
         ),
       });
-    case 'toolInventoryRecalculated': {
-      if (state.status !== 'loaded' || state.applyBusy) return state;
-      const toolDraft = Object.fromEntries(
-        action.inventory.rows.map((row) => [
-          row.name,
-          state.toolDraft[row.name] ?? {
-            enabled: row.enabled,
-            descriptionOverride: row.descriptionOverride ?? '',
-          },
-        ]),
-      );
-      const initialToolDraft = Object.fromEntries(
-        action.inventory.rows.map((row) => [
-          row.name,
-          state.initialToolDraft[row.name] ?? {
-            enabled: row.enabled,
-            descriptionOverride: row.descriptionOverride ?? '',
-          },
-        ]),
-      );
-      return withDraftChange(
-        {
-          ...state,
-          detail: { ...state.detail, toolInventory: action.inventory },
-          toolModel: action.inventory.model,
-          initialToolDraft,
-        },
-        { toolDraft },
-      );
+    case 'toolInventoryRequestStarted':
+      if (state.status !== 'loaded' || state.applyBusy || state.toolInventoryBusy) return state;
+      return {
+        ...state,
+        toolInventoryBusy: true,
+        toolInventoryError: undefined,
+        ...(action.clearPreview
+          ? { preview: undefined, previewBusy: false, previewError: undefined, applyError: undefined }
+          : {}),
+      };
+    case 'toolInventoryReceived': {
+      if (state.status !== 'loaded') return state;
+      const toolDraft = { ...state.toolDraft };
+      const initialToolDraft = { ...state.initialToolDraft };
+      for (const row of action.inventory.rows) {
+        toolDraft[row.name] ??= {
+          enabled: row.enabled,
+          descriptionOverride: row.descriptionOverride ?? '',
+        };
+        initialToolDraft[row.name] ??= {
+          enabled: row.enabled,
+          descriptionOverride: row.descriptionOverride ?? '',
+        };
+      }
+      const generationChanged = state.detail.toolInventory?.generation !== action.inventory.generation;
+      const next: LoadedConfiguredServerEditState = {
+        ...state,
+        detail: { ...state.detail, toolInventory: action.inventory },
+        toolDraft,
+        initialToolDraft,
+        toolModel: action.inventory.model,
+        toolInventoryBusy: false,
+        toolInventoryError: undefined,
+        ...(action.clearPreview === 'always' || generationChanged
+          ? { preview: undefined, previewBusy: false, previewError: undefined, applyError: undefined }
+          : {}),
+      };
+      return { ...next, dirty: Object.keys(configuredServerEditDraft(next)).length > 0 };
     }
+    case 'toolInventoryRequestFailed':
+      if (state.status !== 'loaded') return state;
+      return { ...state, toolInventoryBusy: false, toolInventoryError: action.message };
     case 'previewStarted':
       if (state.status !== 'loaded') return state;
       return { ...state, previewBusy: true, previewError: undefined };
@@ -302,6 +322,7 @@ function loadedState(serverId: string, detail: ConfiguredServerDetailResponse): 
     toolDraft,
     initialToolDraft: toolDraft,
     toolModel: detail.toolInventory?.model ?? 'gpt-4o',
+    toolInventoryBusy: false,
     dirty: false,
     previewBusy: false,
     applyBusy: false,

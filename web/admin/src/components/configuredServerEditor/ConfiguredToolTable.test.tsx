@@ -60,9 +60,11 @@ describe('ConfiguredToolTable', () => {
             missing: { enabled: false, descriptionOverride: 'Retained override' },
           }}
           disabled={false}
+          refreshBusy={false}
           onToolChange={vi.fn()}
           onBulkChange={onBulkChange}
           onModelChange={vi.fn()}
+          onRefresh={vi.fn()}
         />
       </MantineProvider>,
     );
@@ -88,9 +90,11 @@ describe('ConfiguredToolTable', () => {
             missing: { enabled: false, descriptionOverride: 'Retained override' },
           }}
           disabled={false}
+          refreshBusy={false}
           onToolChange={onToolChange}
           onBulkChange={vi.fn()}
           onModelChange={onModelChange}
+          onRefresh={vi.fn()}
         />
       </MantineProvider>,
     );
@@ -114,14 +118,69 @@ describe('ConfiguredToolTable', () => {
             missing: { enabled: true, descriptionOverride: 'Retained override' },
           }}
           disabled={false}
+          refreshBusy={false}
           onToolChange={vi.fn()}
           onBulkChange={vi.fn()}
           onModelChange={vi.fn()}
+          onRefresh={vi.fn()}
         />
       </MantineProvider>,
     );
 
     expect(screen.getByText(/1 observed, 1 disabled, 1 unresolved/)).toBeInTheDocument();
     expect(screen.getByText(/approximately 0 enabled tokens/)).toBeInTheDocument();
+  });
+
+  it('shows a precise refresh reason and offers retry without disabling drafts', async () => {
+    const user = userEvent.setup();
+    const onRefresh = vi.fn();
+    render(
+      <MantineProvider>
+        <ConfiguredToolTable
+          inventory={{
+            ...inventory,
+            freshness: 'unavailable',
+            inspection: {
+              status: 'unavailable',
+              reason: 'target_disconnected',
+              retryable: true,
+              instances: [],
+            },
+          }}
+          draft={{ common: { enabled: true, descriptionOverride: '' } }}
+          disabled={false}
+          refreshBusy={false}
+          onToolChange={vi.fn()}
+          onBulkChange={vi.fn()}
+          onModelChange={vi.fn()}
+          onRefresh={onRefresh}
+        />
+      </MantineProvider>,
+    );
+
+    expect(screen.getByText(/configured server is disconnected/i)).toHaveAttribute('role', 'status');
+    expect(screen.getByRole('switch', { name: 'Enable common' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(onRefresh).toHaveBeenCalledOnce();
+  });
+
+  it('announces dynamically arriving refresh failures as alerts', () => {
+    render(
+      <MantineProvider>
+        <ConfiguredToolTable
+          inventory={inventory}
+          draft={{ common: { enabled: true, descriptionOverride: '' } }}
+          disabled={false}
+          refreshBusy={false}
+          refreshError="Tool refresh failed: runtime unavailable."
+          onToolChange={vi.fn()}
+          onBulkChange={vi.fn()}
+          onModelChange={vi.fn()}
+          onRefresh={vi.fn()}
+        />
+      </MantineProvider>,
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Tool refresh failed: runtime unavailable.');
   });
 });

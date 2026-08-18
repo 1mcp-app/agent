@@ -199,14 +199,32 @@ describe('admin SPA browser smoke', () => {
       await page.getByRole('link', { name: 'Server inventory' }).click();
       await page.waitForURL(`${baseUrl}/admin/servers`);
 
+      const initialRefreshPromise = page.waitForResponse((response) =>
+        response.url().endsWith('/admin/api/configured-servers/mcpServers/github/tool-inventory/refresh'),
+      );
       await page.getByRole('button', { name: 'Edit static github server' }).click();
       await page.waitForURL(`${baseUrl}/admin/servers/github`);
+      const initialRefresh = await initialRefreshPromise;
+      expect(initialRefresh.status(), await initialRefresh.text()).toBe(200);
+      expect(configuredServerFixture.refreshCount).toBe(1);
       await expectVisible(page.getByRole('heading', { name: 'github', exact: true }));
       await expectText(page, 'Configured Tool Selection');
 
       const searchTool = page.locator('.configured-tool-row', { hasText: 'search' });
       await searchTool.getByRole('switch', { name: 'Enable search' }).locator('..').click();
       await searchTool.getByRole('textbox', { name: 'Description override' }).fill('Search approved repositories');
+
+      const manualRefreshPromise = page.waitForResponse((response) =>
+        response.url().endsWith('/admin/api/configured-servers/mcpServers/github/tool-inventory/refresh'),
+      );
+      await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+      const manualRefresh = await manualRefreshPromise;
+      expect(manualRefresh.status(), await manualRefresh.text()).toBe(200);
+      expect(configuredServerFixture.refreshCount).toBe(2);
+      expect(await searchTool.getByRole('switch', { name: 'Enable search' }).isChecked()).toBe(false);
+      expect(await searchTool.getByRole('textbox', { name: 'Description override' }).inputValue()).toBe(
+        'Search approved repositories',
+      );
 
       const tags = page.getByRole('textbox', { name: 'Tags' });
       await tags.fill('verified');
@@ -890,6 +908,7 @@ describe('admin SPA browser smoke', () => {
 type ResettableConfiguredServerFixture = AdminConfiguredServerOperations & {
   reset(): void;
   clear(): void;
+  refreshCount: number;
   lastEdit?: Record<string, unknown>;
 };
 type ResettableInstructionTemplateFixture = AdminInstructionTemplateOperations & {
@@ -964,10 +983,12 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
   let toolDescriptionOverrides: Record<string, string> = {};
 
   const fixture: ResettableConfiguredServerFixture = {
+    refreshCount: 0,
     reset() {
       servers = createConfiguredServerReadModels();
       templateServer = createTemplateConfiguredServerReadModel();
       fixture.lastEdit = undefined;
+      fixture.refreshCount = 0;
       disabledTools = [];
       toolDescriptionOverrides = {};
     },
@@ -1142,6 +1163,17 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
         ...(server.id === 'github'
           ? { toolInventory: configuredToolInventory(disabledTools, toolDescriptionOverrides, input.model) }
           : {}),
+      });
+    },
+    async refreshConfiguredToolInventory(input) {
+      fixture.refreshCount += 1;
+      return operationSuccess('refreshConfiguredToolInventory', `op_tool_refresh_${fixture.refreshCount}`, {
+        ...configuredToolInventory(disabledTools, toolDescriptionOverrides, input.model),
+        inspection: {
+          status: 'complete',
+          retryable: false,
+          instances: [{ instanceId: input.targetName, status: 'complete' }],
+        },
       });
     },
     async previewConfiguredServerEdit(input) {

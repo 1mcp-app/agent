@@ -142,6 +142,31 @@ describe('admin API client', () => {
       },
     });
   });
+
+  it('actively refreshes source-qualified configured tool inventory with CSRF and an optional model', async () => {
+    const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+    const api = createAdminApi({
+      fetch: async (input, init) => {
+        calls.push({ input, init });
+        return jsonResponse({ ok: true, operationId: 'op_refresh', toolInventory: {} });
+      },
+    });
+
+    await api.refreshConfiguredToolInventory({
+      target: { source: 'mcpTemplates', id: 'github/api' },
+      csrfToken: 'csrf_123',
+      model: 'gpt-4o-mini',
+    });
+
+    expect(calls[0]).toMatchObject({
+      input: '/admin/api/configured-servers/mcpTemplates/github%2Fapi/tool-inventory/refresh',
+      init: {
+        method: 'POST',
+        headers: expect.objectContaining({ 'X-CSRF-Token': 'csrf_123' }),
+        body: JSON.stringify({ model: 'gpt-4o-mini' }),
+      },
+    });
+  });
   it('opens one same-origin backend log stream and decodes multiplexed events', () => {
     const listeners = new Map<string, (event: MessageEvent<string>) => void>();
     const close = vi.fn();

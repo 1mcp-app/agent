@@ -7,6 +7,7 @@ import type {
   ConfiguredServerApplyResponse,
   ConfiguredServerDetailResponse,
   ConfiguredServerPreviewResponse,
+  ConfiguredToolInventory,
 } from '../api/adminApi';
 import { configuredServerDetailState } from '../components/AdminConsoleApp.fixtures';
 import { createConfiguredServerEditState, reduceConfiguredServerEditState } from './configuredServerEditState';
@@ -25,6 +26,38 @@ function detail(): ConfiguredServerDetailResponse {
   const state = configuredServerDetailState();
   if (state.status !== 'loaded') throw new Error('Expected loaded fixture');
   return state.detail;
+}
+
+function detailFor(target: { source: 'mcpServers' | 'mcpTemplates'; id: string }): ConfiguredServerDetailResponse {
+  const response = detail();
+  response.server = {
+    ...response.server,
+    id: target.id,
+    source: target.source,
+    target: { type: 'configured_server', ...target },
+  };
+  response.editContract = { ...response.editContract, target: response.server.target };
+  response.toolInventory = toolInventory(target);
+  return response;
+}
+
+function toolInventory(
+  target: { source: 'mcpServers' | 'mcpTemplates'; id: string } = { source: 'mcpServers', id: 'github' },
+  model = 'gpt-4o',
+): ConfiguredToolInventory {
+  return {
+    targetName: target.id,
+    source: target.source,
+    targetEnabled: true,
+    freshness: 'live',
+    model,
+    generation: 'generation-1',
+    activeInstanceCount: 1,
+    inspection: { status: 'complete', retryable: false, instances: [{ instanceId: target.id, status: 'complete' }] },
+    rows: [],
+    counts: { observed: 0, enabled: 0, disabled: 0, unresolved: 0 },
+    approximateTokens: { enabled: 0, allObserved: 0, savings: 0 },
+  };
 }
 
 function browser(initialPathname: string) {
@@ -58,6 +91,11 @@ function browser(initialPathname: string) {
 function api(overrides: Partial<AdminApiClient> = {}): AdminApiClient {
   return {
     getConfiguredServerDetail: vi.fn(async () => detail()),
+    refreshConfiguredToolInventory: vi.fn(async ({ target, model }) => ({
+      ok: true,
+      operationId: 'refresh-op',
+      toolInventory: toolInventory(target, model),
+    })),
     previewConfiguredServerEdit: vi.fn(async () => {
       throw new Error('not implemented');
     }),
@@ -119,6 +157,7 @@ describe('useConfiguredServerEdit', () => {
       target: { source: 'mcpTemplates', id: 'shared' },
       csrfToken: 'csrf-token',
       connectivityCheck: 'auto',
+      model: 'gpt-4o',
       edit: { instructionOverride: { action: 'set', value: '' } },
     });
 
@@ -182,6 +221,7 @@ describe('useConfiguredServerEdit', () => {
       target: { source: 'mcpServers', id: 'github' },
       csrfToken: 'csrf-token',
       connectivityCheck: 'auto',
+      model: 'gpt-4o',
       edit: { transport: { url: 'https://example.com/v2/mcp' } },
     });
     expect(result.current.state).toMatchObject({
@@ -212,46 +252,194 @@ describe('useConfiguredServerEdit', () => {
     expect(result.current.state).toMatchObject({ status: 'loaded', serverId: 'slack' });
   });
 
-  it('ignores stale token-model recalculations that resolve out of order', async () => {
-    const slower = deferred<ConfiguredServerDetailResponse>();
-    const newer = deferred<ConfiguredServerDetailResponse>();
-    const initial = detail();
-    initial.toolInventory = {
-      targetName: 'github',
-      source: 'mcpServers',
-      targetEnabled: true,
-      freshness: 'live',
-      model: 'gpt-4o',
-      generation: 'generation-1',
-      activeInstanceCount: 1,
-      rows: [],
-      counts: { observed: 0, enabled: 0, disabled: 0, unresolved: 0 },
-      approximateTokens: { enabled: 0, allObserved: 0, savings: 0 },
-    };
-    const withModel = (model: string): ConfiguredServerDetailResponse => ({
-      ...initial,
-      toolInventory: { ...initial.toolInventory!, model },
-    });
-    const adminApi = api({
-      getConfiguredServerDetail: vi.fn((_serverId: string, model?: string) => {
-        if (!model) return Promise.resolve(initial);
-        return model === 'gpt-4o-mini' ? slower.promise : newer.promise;
+  it('starts one active refresh, suppresses overlaps, and allows retry after failure', async () => {
+    const pending = deferred<Awaited<ReturnType<AdminApiClient['refreshConfiguredToolInventory']>>>();
+    const refreshConfiguredToolInventory = vi
+      .fn()
+      .mockImplementationOnce(() => pending.promise)
+      .mockResolvedValue({
+        ok: true,
+        operationId: 'refresh-retry',
+        toolInventory: toolInventory(),
+      });
+    const adminApi = api({ refreshConfiguredToolInventory });
+    const browserAdapter = browser('/admin/servers/github');
+    const { result } = renderHook(() =>
+      useConfiguredServerEdit({ api: adminApi, session, browser: browserAdapter.adapter, onUnauthenticated: vi.fn() }),
+    );
+    await waitFor(() => expect(refreshConfiguredToolInventory).toHaveBeenCalledOnce());
+    expect(result.current.state).toMatchObject({ status: 'loaded', toolInventoryBusy: true });
+
+    act(() => void result.current.refreshToolInventory?.());
+    act(() => void result.current.refreshToolInventory?.());
+    expect(refreshConfiguredToolInventory).toHaveBeenCalledOnce();
+
+    pending.reject(new AdminApiError(503, { error: 'inspection_unavailable' }, 'inspection unavailable'));
+    await waitFor(() =>
+      expect(result.current.state).toMatchObject({
+        status: 'loaded',
+        toolInventoryBusy: false,
+        toolInventoryError: expect.stringContaining('Tool refresh failed:'),
       }),
+    );
+
+    await act(() => result.current.refreshToolInventory?.());
+    expect(refreshConfiguredToolInventory).toHaveBeenCalledTimes(2);
+    expect(result.current.state).toMatchObject({ status: 'loaded', toolInventoryBusy: false });
+  });
+
+  it('blocks preview and apply while an inventory refresh owns the request lane', async () => {
+    const pendingRefresh = deferred<Awaited<ReturnType<AdminApiClient['refreshConfiguredToolInventory']>>>();
+    const refreshConfiguredToolInventory = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, operationId: 'refresh-initial', toolInventory: toolInventory() })
+      .mockImplementationOnce(() => pendingRefresh.promise);
+    const previewConfiguredServerEdit = vi.fn(async () => applyPreview());
+    const applyConfiguredServerEdit = vi.fn(async () => applyResponse());
+    const adminApi = api({ refreshConfiguredToolInventory, previewConfiguredServerEdit, applyConfiguredServerEdit });
+    const browserAdapter = browser('/admin/servers/github');
+    const { result } = renderHook(() =>
+      useConfiguredServerEdit({ api: adminApi, session, browser: browserAdapter.adapter, onUnauthenticated: vi.fn() }),
+    );
+    await waitFor(() => expect(result.current.state).toMatchObject({ status: 'loaded', toolInventoryBusy: false }));
+    act(() => result.current.changeField(['transport', 'url'], 'https://example.com/v2/mcp'));
+    await act(() => result.current.preview());
+    expect(previewConfiguredServerEdit).toHaveBeenCalledOnce();
+
+    act(() => void result.current.refreshToolInventory?.());
+    await waitFor(() => expect(result.current.state).toMatchObject({ status: 'loaded', toolInventoryBusy: true }));
+    await act(() => result.current.preview());
+    await act(() => result.current.apply());
+
+    expect(previewConfiguredServerEdit).toHaveBeenCalledOnce();
+    expect(applyConfiguredServerEdit).not.toHaveBeenCalled();
+    expect(browserAdapter.adapter.confirm).not.toHaveBeenCalled();
+    pendingRefresh.resolve({ ok: true, operationId: 'refresh-manual', toolInventory: toolInventory() });
+    await waitFor(() => expect(result.current.state).toMatchObject({ status: 'loaded', toolInventoryBusy: false }));
+  });
+
+  it('ignores a stale inventory refresh after switching source-qualified targets', async () => {
+    const githubRefresh = deferred<Awaited<ReturnType<AdminApiClient['refreshConfiguredToolInventory']>>>();
+    const refreshConfiguredToolInventory = vi.fn(({ target }: { target: { source: 'mcpServers'; id: string } }) =>
+      target.id === 'github'
+        ? githubRefresh.promise
+        : Promise.resolve({
+            ok: true as const,
+            operationId: 'refresh-slack',
+            toolInventory: { ...toolInventory(target), generation: 'generation-slack' },
+          }),
+    );
+    const adminApi = api({
+      getConfiguredServerDetail: vi.fn((target: string | { source: 'mcpServers'; id: string }) => {
+        const identity = typeof target === 'string' ? { source: 'mcpServers' as const, id: target } : target;
+        return Promise.resolve(detailFor(identity));
+      }),
+      refreshConfiguredToolInventory:
+        refreshConfiguredToolInventory as AdminApiClient['refreshConfiguredToolInventory'],
     });
     const browserAdapter = browser('/admin/servers/github');
     const { result } = renderHook(() =>
       useConfiguredServerEdit({ api: adminApi, session, browser: browserAdapter.adapter, onUnauthenticated: vi.fn() }),
     );
-    await waitFor(() => expect(result.current.state.status).toBe('loaded'));
+    await waitFor(() => expect(refreshConfiguredToolInventory).toHaveBeenCalledOnce());
 
-    act(() => void result.current.changeToolModel('gpt-4o-mini'));
-    act(() => void result.current.changeToolModel('gpt-3.5-turbo'));
-    newer.resolve(withModel('gpt-3.5-turbo'));
-    await waitFor(() => expect(result.current.state).toMatchObject({ status: 'loaded', toolModel: 'gpt-3.5-turbo' }));
-    slower.resolve(withModel('gpt-4o-mini'));
+    await act(() => result.current.open('slack'));
+    await waitFor(() =>
+      expect(result.current.state).toMatchObject({
+        status: 'loaded',
+        serverId: 'slack',
+        detail: { toolInventory: { generation: 'generation-slack' } },
+      }),
+    );
+    githubRefresh.resolve({
+      ok: true,
+      operationId: 'refresh-github-stale',
+      toolInventory: { ...toolInventory(), generation: 'generation-github-stale' },
+    });
     await act(async () => undefined);
 
-    expect(result.current.state).toMatchObject({ status: 'loaded', toolModel: 'gpt-3.5-turbo' });
+    expect(result.current.state).toMatchObject({
+      status: 'loaded',
+      serverId: 'slack',
+      detail: { toolInventory: { generation: 'generation-slack' } },
+    });
+  });
+
+  it('ignores a stale inventory refresh after the Admin session changes', async () => {
+    const firstRefresh = deferred<Awaited<ReturnType<AdminApiClient['refreshConfiguredToolInventory']>>>();
+    const refreshConfiguredToolInventory = vi.fn(({ csrfToken }: { csrfToken: string }) =>
+      csrfToken === 'csrf-token'
+        ? firstRefresh.promise
+        : Promise.resolve({
+            ok: true as const,
+            operationId: 'refresh-new-session',
+            toolInventory: { ...toolInventory(), generation: 'generation-new-session' },
+          }),
+    );
+    const adminApi = api({
+      refreshConfiguredToolInventory:
+        refreshConfiguredToolInventory as AdminApiClient['refreshConfiguredToolInventory'],
+    });
+    const browserAdapter = browser('/admin/servers/github');
+    const nextSession = { ...session, csrfToken: 'csrf-next' };
+    const { result, rerender } = renderHook(
+      ({ activeSession }: { activeSession: AdminSession }) =>
+        useConfiguredServerEdit({
+          api: adminApi,
+          session: activeSession,
+          browser: browserAdapter.adapter,
+          onUnauthenticated: vi.fn(),
+        }),
+      { initialProps: { activeSession: session } },
+    );
+    await waitFor(() => expect(refreshConfiguredToolInventory).toHaveBeenCalledOnce());
+
+    rerender({ activeSession: nextSession });
+    await waitFor(() =>
+      expect(result.current.state).toMatchObject({
+        status: 'loaded',
+        detail: { toolInventory: { generation: 'generation-new-session' } },
+      }),
+    );
+    firstRefresh.resolve({
+      ok: true,
+      operationId: 'refresh-old-session',
+      toolInventory: { ...toolInventory(), generation: 'generation-old-session' },
+    });
+    await act(async () => undefined);
+
+    expect(result.current.state).toMatchObject({
+      status: 'loaded',
+      detail: { toolInventory: { generation: 'generation-new-session' } },
+    });
+  });
+
+  it('recalculates token models passively without starting another active refresh', async () => {
+    const initial = detail();
+    initial.toolInventory = toolInventory();
+    const withModel = (model: string): ConfiguredServerDetailResponse => ({
+      ...initial,
+      toolInventory: { ...initial.toolInventory!, model },
+    });
+    const adminApi = api({
+      getConfiguredServerDetail: vi.fn((_serverId, model?: string) =>
+        Promise.resolve(model ? withModel(model) : initial),
+      ),
+    });
+    const browserAdapter = browser('/admin/servers/github');
+    const { result } = renderHook(() =>
+      useConfiguredServerEdit({ api: adminApi, session, browser: browserAdapter.adapter, onUnauthenticated: vi.fn() }),
+    );
+    await waitFor(() => expect(result.current.state).toMatchObject({ status: 'loaded', toolInventoryBusy: false }));
+
+    await act(() => result.current.changeToolModel('gpt-4o-mini'));
+
+    expect(adminApi.getConfiguredServerDetail).toHaveBeenLastCalledWith(
+      { source: 'mcpServers', id: 'github' },
+      'gpt-4o-mini',
+    );
+    expect(adminApi.refreshConfiguredToolInventory).toHaveBeenCalledOnce();
+    expect(result.current.state).toMatchObject({ status: 'loaded', toolModel: 'gpt-4o-mini' });
   });
 
   it('restores the current edit URL without adding history when dirty navigation is canceled', async () => {
@@ -397,6 +585,7 @@ describe('useConfiguredServerEdit', () => {
       target: { source: 'mcpServers', id: 'github' },
       csrfToken: 'csrf-token',
       idempotencyKey: expect.stringMatching(/^admin-console-server-apply-/),
+      model: 'gpt-4o',
       edit: { transport: { url: 'https://example.com/renamed' } },
       previewFingerprint: 'preview-rename',
       confirmationFacts: {
@@ -679,8 +868,10 @@ function applyResponse(targetName = 'github') {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
+    reject = rejectPromise;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }

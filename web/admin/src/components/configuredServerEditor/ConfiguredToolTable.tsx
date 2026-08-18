@@ -12,7 +12,7 @@ import {
   Tooltip,
 } from '@mantine/core';
 
-import { RotateCcw, Search } from 'lucide-react';
+import { RefreshCw, RotateCcw, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 import type { ConfiguredToolInventory } from '../../api/adminApi';
@@ -24,16 +24,22 @@ export function ConfiguredToolTable({
   inventory,
   draft,
   disabled,
+  refreshBusy,
+  refreshError,
   onToolChange,
   onBulkChange,
   onModelChange,
+  onRefresh,
 }: {
   inventory: ConfiguredToolInventory;
   draft: ToolDraft;
   disabled: boolean;
+  refreshBusy: boolean;
+  refreshError?: string;
   onToolChange(name: string, change: { enabled?: boolean; descriptionOverride?: string }): void;
   onBulkChange(names: string[], enabled: boolean): void;
   onModelChange(model: string): void | Promise<void>;
+  onRefresh(): void | Promise<void>;
 }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<ToolFilter>('all');
@@ -69,6 +75,8 @@ export function ConfiguredToolTable({
     }
     return { disabled: disabledCount, enabledTokens };
   }, [draft, inventory.rows]);
+  const inspectionMessage = configuredToolInspectionMessage(inventory, refreshError);
+  const retryable = Boolean(refreshError) || inventory.inspection?.retryable === true;
 
   return (
     <Stack className="configured-tool-table" gap="sm">
@@ -79,23 +87,38 @@ export function ConfiguredToolTable({
             {inventory.counts.observed} observed, {draftSummary.disabled} disabled, {inventory.counts.unresolved}{' '}
             unresolved
           </Text>
-          {inventory.freshness === 'unavailable' ? (
-            <Text c="yellow" size="xs">
-              Live inventory is unavailable. Rows may come from the last complete snapshot or stored configuration.
+          {inspectionMessage ? (
+            <Text
+              c={refreshError || inventory.inspection?.status === 'failed' ? 'red' : 'yellow'}
+              size="xs"
+              role={refreshError || inventory.inspection?.status === 'failed' ? 'alert' : 'status'}
+            >
+              {inspectionMessage}
             </Text>
           ) : null}
         </div>
-        <Select
-          label="Estimate model"
-          aria-label="Token estimate model"
-          value={inventory.model}
-          data={modelOptions}
-          allowDeselect={false}
-          disabled={disabled}
-          onChange={(value) => {
-            if (value) void onModelChange(value);
-          }}
-        />
+        <Group align="flex-end" gap="xs">
+          <Button
+            variant="default"
+            leftSection={<RefreshCw size={15} />}
+            loading={refreshBusy}
+            disabled={disabled || refreshBusy}
+            onClick={() => void onRefresh()}
+          >
+            {retryable ? 'Retry' : 'Refresh'}
+          </Button>
+          <Select
+            label="Estimate model"
+            aria-label="Token estimate model"
+            value={inventory.model}
+            data={modelOptions}
+            allowDeselect={false}
+            disabled={disabled || refreshBusy}
+            onChange={(value) => {
+              if (value) void onModelChange(value);
+            }}
+          />
+        </Group>
       </Group>
       <Group align="flex-end" grow>
         <TextInput
@@ -210,4 +233,32 @@ export function ConfiguredToolTable({
       </Text>
     </Stack>
   );
+}
+
+function configuredToolInspectionMessage(
+  inventory: ConfiguredToolInventory,
+  refreshError?: string,
+): string | undefined {
+  if (refreshError) return refreshError;
+  const inspection = inventory.inspection;
+  if (inspection?.status === 'in_progress') return 'Refreshing live tool inventory from connected instances.';
+  if (inspection?.status === 'complete' && inventory.freshness === 'live') return undefined;
+  switch (inspection?.reason) {
+    case 'target_disabled':
+      return 'This target is disabled, so live tool inventory cannot be refreshed.';
+    case 'target_disconnected':
+      return 'This configured server is disconnected. Reconnect it before refreshing live tool inventory.';
+    case 'no_active_instances':
+      return 'This Template Server has no active instances to inspect.';
+    case 'active_instance_unavailable':
+      return 'An active instance became unavailable before its tools could be inspected.';
+    case 'inspection_failed':
+      return 'Live tool inspection failed for one or more active instances.';
+    case 'snapshot_unavailable':
+      return 'No complete live tool snapshot is available yet.';
+    default:
+      return inventory.freshness === 'unavailable'
+        ? 'Live inventory is unavailable. Rows may come from the last complete snapshot or stored configuration.'
+        : undefined;
+  }
 }
