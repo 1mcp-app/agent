@@ -1,6 +1,7 @@
 import { createMockClient, createMockOutboundConnection, createMockTransport } from '@test/unit-utils/MockFactories.js';
 
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport, StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { Prompt, Resource, Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
@@ -8,7 +9,7 @@ import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CapabilityAggregator } from './capabilityAggregator.js';
-import { readLastConfiguredToolSnapshot } from './configuredToolSnapshot.js';
+import { readConfiguredToolSnapshot, readLastConfiguredToolSnapshot } from './configuredToolSnapshot.js';
 
 // Mock InternalCapabilitiesProvider
 vi.mock('@src/core/capabilities/internalCapabilitiesProvider.js', () => ({
@@ -262,6 +263,66 @@ describe('CapabilityAggregator', () => {
       expect(changes.current.tools).toHaveLength(0);
       expect(changes.current.resources).toHaveLength(0);
       expect(changes.current.prompts).toHaveLength(0);
+    });
+
+    it('should stop capability polling after a terminal post-authentication 401', async () => {
+      const oauthProvider = {
+        invalidateCredentials: vi.fn().mockResolvedValue(undefined),
+      };
+      const transport = {
+        _url: new URL('https://example.com/mcp'),
+        oauthProvider,
+        close: vi.fn().mockResolvedValue(undefined),
+      } as any;
+      Object.setPrototypeOf(transport, StreamableHTTPClientTransport.prototype);
+
+      const unauthorized = new StreamableHTTPError(401, 'Server returned 401 after successful authentication');
+      const listTools = vi
+        .fn()
+        .mockResolvedValueOnce({ tools: [mockTool] })
+        .mockRejectedValue(unauthorized);
+      const listResources = vi.fn().mockResolvedValueOnce({ resources: [] }).mockRejectedValue(unauthorized);
+      const listPrompts = vi.fn().mockResolvedValueOnce({ prompts: [] }).mockRejectedValue(unauthorized);
+      const close = vi.fn().mockResolvedValue(undefined);
+      const mockClient = {
+        listTools,
+        listResources,
+        listPrompts,
+        close,
+        getServerCapabilities: vi.fn().mockReturnValue({ resources: true, prompts: true }),
+        transport,
+      } as any;
+
+      mockConnections.set('oauth-server', {
+        name: 'oauth-server',
+        client: mockClient,
+        status: ClientStatus.Connected,
+        transport,
+        lastConnected: new Date(),
+      });
+
+      const connection = mockConnections.get('oauth-server')!;
+      await aggregator.updateCapabilities();
+      expect(readConfiguredToolSnapshot(connection)?.map((tool) => tool.name)).toEqual(['test-tool']);
+
+      const first = await aggregator.updateCapabilities();
+
+      expect(oauthProvider.invalidateCredentials).toHaveBeenCalledTimes(1);
+      expect(oauthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(connection.status).toBe(ClientStatus.AwaitingOAuth);
+      expect(connection.transport).not.toBe(transport);
+      expect(connection.transport.oauthProvider).toBe(oauthProvider);
+      expect((connection.transport as any)._hasCompletedAuthFlow).toBe(false);
+      expect(first.current.readyServers).not.toContain('oauth-server');
+      expect(readConfiguredToolSnapshot(connection)).toBeUndefined();
+      expect(readLastConfiguredToolSnapshot('oauth-server').map((tool) => tool.name)).toEqual(['test-tool']);
+
+      await aggregator.updateCapabilities();
+      expect(listTools).toHaveBeenCalledTimes(2);
+      expect(listResources).toHaveBeenCalledTimes(2);
+      expect(listPrompts).toHaveBeenCalledTimes(2);
+      expect(oauthProvider.invalidateCredentials).toHaveBeenCalledTimes(1);
     });
 
     it('should deduplicate tools with same name', async () => {

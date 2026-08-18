@@ -14,6 +14,7 @@ import {
 } from '@src/core/capabilities/configuredToolSnapshot.js';
 import { InternalCapabilitiesProvider } from '@src/core/capabilities/internalCapabilitiesProvider.js';
 import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
+import { executeWithPostAuthOAuthRecovery } from '@src/core/client/postAuthOAuthRecovery.js';
 import { getDisabledToolError } from '@src/core/server/disabledTools.js';
 import { applyEffectiveToolDescription } from '@src/core/server/toolDescriptionOverrides.js';
 import { InboundConnection, OutboundConnections } from '@src/core/types/index.js';
@@ -207,9 +208,11 @@ export function registerToolHandlers(
           },
         });
       }
-      return outboundConn.client.callTool({ ...request.params, name: extractedToolName }, CallToolResultSchema, {
-        timeout: getRequestTimeout(outboundConn.transport),
-      });
+      return executeWithPostAuthOAuthRecovery(clientName, outboundConn, () =>
+        outboundConn.client.callTool({ ...request.params, name: extractedToolName }, CallToolResultSchema, {
+          timeout: getRequestTimeout(outboundConn.transport),
+        }),
+      );
     }, 'Error calling tool'),
   );
 }

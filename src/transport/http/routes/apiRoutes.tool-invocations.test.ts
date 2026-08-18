@@ -1,3 +1,4 @@
+import { StreamableHTTPClientTransport, StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
@@ -170,6 +171,44 @@ describe('apiRoutes /api/tool-invocations', () => {
 
     expect(res.statusCode).toBe(502);
     expect(res.body).toEqual({ error: 'Upstream error: Upstream error' });
+  });
+
+  it('recovers OAuth for a non-lazy HTTP direct tool invocation', async () => {
+    const oauthProvider = { invalidateCredentials: vi.fn().mockResolvedValue(undefined) };
+    const transport = {
+      _url: new URL('https://example.com/mcp'),
+      oauthProvider,
+      close: vi.fn().mockResolvedValue(undefined),
+    } as any;
+    Object.setPrototypeOf(transport, StreamableHTTPClientTransport.prototype);
+    const unauthorized = new StreamableHTTPError(401, 'Server returned 401 after successful authentication');
+    const connection = {
+      name: 'server',
+      status: ClientStatus.Connected,
+      transport,
+      client: {
+        callTool: vi.fn().mockRejectedValue(unauthorized),
+        close: vi.fn().mockResolvedValue(undefined),
+        transport,
+      },
+    } as any;
+    const connections = new Map([['server', connection]]) as OutboundConnections;
+    const serverManager = {
+      getLazyLoadingOrchestrator: vi.fn(() => undefined),
+      getClients: vi.fn(() => connections),
+      getClient: vi.fn(() => connection),
+    };
+    const handler = createToolInvocationsHandler(serverManager as never);
+    const res = createMockResponse();
+
+    await invokeInspectRoute(scopeAuthMiddleware, { body: { tool: 'server/tool' } }, res);
+    await invokeInspectRoute(handler, { body: { tool: 'server/tool' } }, res);
+
+    expect(res.statusCode).toBe(502);
+    expect(connection.status).toBe(ClientStatus.AwaitingOAuth);
+    expect(oauthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
+    expect(connection.client.close).toHaveBeenCalledOnce();
+    expect(connection.transport).not.toBe(transport);
   });
 
   it('returns 404 for disabled direct invocations and does not call upstream', async () => {
