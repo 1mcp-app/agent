@@ -475,6 +475,52 @@ describe('AdminConfiguredServerService', () => {
     });
   });
 
+  it('runs configured-tool refresh as a source-qualified read-only Admin operation', async () => {
+    const inventory: ConfiguredToolInventory = {
+      targetName: 'project',
+      source: 'mcpTemplates',
+      targetEnabled: true,
+      freshness: 'live',
+      model: 'gpt-4o-mini',
+      generation: 'generation-refresh',
+      activeInstanceCount: 1,
+      inspection: {
+        status: 'complete',
+        retryable: false,
+        instances: [{ instanceId: 'instance-1', status: 'complete' }],
+      },
+      rows: [],
+      counts: { observed: 0, enabled: 0, disabled: 0, unresolved: 0 },
+      approximateTokens: { enabled: 0, allObserved: 0, savings: 0 },
+    };
+    const refreshToolInventory = vi.fn(async () => inventory);
+    const service = createService({
+      readConfigDocument: () => ({
+        mcpTemplates: { project: { type: 'stdio', command: 'node' } },
+      }),
+      refreshToolInventory,
+    });
+
+    const result = await service.refreshConfiguredToolInventory({
+      context: context(),
+      targetName: 'project',
+      targetSource: 'mcpTemplates',
+      model: 'gpt-4o-mini',
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      operationName: 'refreshConfiguredToolInventory',
+      result: inventory,
+    });
+    expect(refreshToolInventory).toHaveBeenCalledWith({
+      targetName: 'project',
+      source: 'mcpTemplates',
+      config: { type: 'stdio', command: 'node' },
+      model: 'gpt-4o-mini',
+    });
+  });
+
   it('previews and applies selection and description edits against one capability generation', async () => {
     writeConfig({
       mcpServers: {
@@ -5044,6 +5090,12 @@ describe('AdminConfiguredServerService', () => {
         mcpTemplates?: Record<string, any>;
       } | null;
       readToolInventory?: (input: {
+        targetName: string;
+        source: 'mcpServers' | 'mcpTemplates';
+        config: Record<string, any>;
+        model?: string;
+      }) => Promise<ConfiguredToolInventory>;
+      refreshToolInventory?: (input: {
         targetName: string;
         source: 'mcpServers' | 'mcpTemplates';
         config: Record<string, any>;

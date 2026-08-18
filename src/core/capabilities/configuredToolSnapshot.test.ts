@@ -5,11 +5,14 @@ import { ClientStatus, type OutboundConnection, type OutboundConnections } from 
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  clearCompleteConfiguredToolTargetSnapshot,
   clearLastConfiguredToolSnapshot,
   collectConfiguredToolPages,
+  publishCompleteConfiguredToolInspection,
   publishCompleteConfiguredToolTargetSnapshots,
   publishConfiguredToolPage,
   publishConfiguredToolSnapshot,
+  readCompleteConfiguredToolTargetSnapshot,
   readConfiguredToolSnapshot,
   readLastConfiguredToolSnapshot,
 } from './configuredToolSnapshot.js';
@@ -32,6 +35,28 @@ describe('configured tool snapshots', () => {
     clearLastConfiguredToolSnapshot('removed-target');
 
     expect(readLastConfiguredToolSnapshot('removed-target')).toEqual([]);
+  });
+
+  it('clears only the requested source-qualified target snapshot', () => {
+    const staticConnection = connection('shared-target');
+    const templateConnection = connection('shared-target');
+    publishCompleteConfiguredToolInspection({
+      source: 'mcpServers',
+      targetName: 'shared-target',
+      instances: [{ instanceId: 'static', connections: [staticConnection], tools: [] }],
+    });
+    publishCompleteConfiguredToolInspection({
+      source: 'mcpTemplates',
+      targetName: 'shared-target',
+      instances: [{ instanceId: 'template', connections: [templateConnection], tools: [] }],
+    });
+
+    clearCompleteConfiguredToolTargetSnapshot('mcpTemplates', 'shared-target');
+
+    expect(readCompleteConfiguredToolTargetSnapshot('mcpTemplates', 'shared-target')).toBeUndefined();
+    expect(readCompleteConfiguredToolTargetSnapshot('mcpServers', 'shared-target')).toMatchObject({
+      instances: [{ instanceId: 'static' }],
+    });
   });
 
   it('publishes only after an ordered protocol page sequence is complete', () => {
@@ -65,6 +90,17 @@ describe('configured tool snapshots', () => {
 
     expect(result.tools.map((tool) => tool.name)).toEqual(['first', 'second']);
     expect(listPage).toHaveBeenNthCalledWith(2, 'page-2');
+  });
+
+  it('rejects pagination that exceeds the bounded page limit', async () => {
+    let page = 0;
+    const listPage = vi.fn(async () => ({
+      tools: [],
+      nextCursor: `page-${++page}`,
+    }));
+
+    await expect(collectConfiguredToolPages(listPage)).rejects.toThrow('Tool pagination exceeded 1000 pages');
+    expect(listPage).toHaveBeenCalledTimes(1_000);
   });
 
   it('promotes a complete per-instance union to the bounded target fallback', () => {

@@ -1,5 +1,8 @@
 import { CONFIG_EVENTS, ConfigChange, ConfigChangeType, ConfigManager } from '@src/config/configManager.js';
-import { clearLastConfiguredToolSnapshot } from '@src/core/capabilities/configuredToolSnapshot.js';
+import {
+  clearCompleteConfiguredToolTargetSnapshot,
+  clearLastConfiguredToolSnapshot,
+} from '@src/core/capabilities/configuredToolSnapshot.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { MCPServerParams } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
@@ -147,6 +150,7 @@ export class ConfigChangeHandler {
           return true;
         } finally {
           clearLastConfiguredToolSnapshot(change.serverName);
+          clearCompleteConfiguredToolTargetSnapshot('mcpServers', change.serverName);
         }
 
       case ConfigChangeType.MODIFIED: {

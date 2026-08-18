@@ -163,10 +163,10 @@ describe('Configured Tool Inventory', () => {
     const outbound = connection('generation-target', [
       { name: 'read', description: 'Read', inputSchema: { type: 'object', properties: { path: { type: 'string' } } } },
     ]);
-    const connections: OutboundConnections = new Map([['generation-target', outbound]]);
+    const connections: OutboundConnections = new Map([['generation-target:first', outbound]]);
     const first = await createConfiguredToolInventory({
       targetName: 'generation-target',
-      source: 'mcpServers',
+      source: 'mcpTemplates',
       config: { type: 'stdio', command: 'node' },
       connections,
     });
@@ -175,20 +175,50 @@ describe('Configured Tool Inventory', () => {
     ]);
     const schemaChanged = await createConfiguredToolInventory({
       targetName: 'generation-target',
-      source: 'mcpServers',
+      source: 'mcpTemplates',
       config: { type: 'stdio', command: 'node' },
       connections,
     });
     connections.set('second', connection('generation-target', []));
     const availabilityChanged = await createConfiguredToolInventory({
       targetName: 'generation-target',
-      source: 'mcpServers',
+      source: 'mcpTemplates',
       config: { type: 'stdio', command: 'node' },
       connections,
     });
 
     expect(schemaChanged.generation).not.toBe(first.generation);
     expect(availabilityChanged.generation).not.toBe(schemaChanged.generation);
+  });
+
+  it('changes generation when tools move between logical instances without changing the union', async () => {
+    const firstConnection = connection('redistributed', [{ name: 'first', inputSchema: { type: 'object' } }]);
+    const secondConnection = connection('redistributed', [{ name: 'second', inputSchema: { type: 'object' } }]);
+    const connections: OutboundConnections = new Map([
+      ['redistributed:first', firstConnection],
+      ['redistributed:second', secondConnection],
+    ]);
+    const first = await createConfiguredToolInventory({
+      targetName: 'redistributed',
+      source: 'mcpTemplates',
+      config: { type: 'stdio', command: 'node' },
+      connections,
+    });
+
+    publishConfiguredToolSnapshot(firstConnection, [
+      { name: 'first', inputSchema: { type: 'object' } },
+      { name: 'second', inputSchema: { type: 'object' } },
+    ]);
+    publishConfiguredToolSnapshot(secondConnection, []);
+    const redistributed = await createConfiguredToolInventory({
+      targetName: 'redistributed',
+      source: 'mcpTemplates',
+      config: { type: 'stdio', command: 'node' },
+      connections,
+    });
+
+    expect(redistributed.rows.map((row) => row.name)).toEqual(first.rows.map((row) => row.name));
+    expect(redistributed.generation).not.toBe(first.generation);
   });
 
   it('does not claim partial template occurrence when an active instance snapshot is unknown', async () => {
