@@ -257,19 +257,24 @@ describe('publishing documentation', () => {
     expect(fullArtifact).toContain('Only Codex also prints a manual `config.toml` notice');
   });
 
+  it('uses portable CLI commands in repository documentation', () => {
+    const issueTracker = readRepoFile('docs/agents/issue-tracker.md');
+    const documentation = markdownFiles('docs').map(readRepoFile).join('\n');
+
+    expect(issueTracker).toContain('`gh issue create --repo 1mcp-app/agent');
+    expect(documentation).not.toMatch(/\brtk\b/i);
+  });
+
   it('keeps non-public research and Chinese metadata governed', () => {
     const vitepressConfig = readRepoFile('docs/.vitepress/config/index.ts');
     const roadmap = readRepoFile('docs/ROADMAP.md');
     const readme = readRepoFile('docs/README.md');
-    const issueTracker = readRepoFile('docs/agents/issue-tracker.md');
     const architecture = readRepoFile('docs/agents/architecture-opportunities.md');
 
     expect(vitepressConfig).toContain("'research/**'");
     expect(roadmap).toContain('status: archived');
     expect(roadmap).toContain('not current product guidance');
     expect(readme).toContain('publishingDocs.test.ts');
-    expect(issueTracker).toContain('rtk proxy gh issue create');
-    expect(issueTracker).not.toMatch(/`gh issue/);
     expect(architecture).toContain('Milestones 1-6 are complete for their planned scopes.');
     expect(architecture).not.toContain('known follow-ups after the Milestone 1-6 roadmap');
 
