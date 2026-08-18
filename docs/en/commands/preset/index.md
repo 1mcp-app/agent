@@ -234,15 +234,14 @@ Use presets in different MCP client configurations:
 
 **Claude Desktop (`claude_desktop_config.json`):**
 
+Use the stdio proxy to connect Claude Desktop to a running 1MCP HTTP server and apply the preset:
+
 ```json
 {
   "mcpServers": {
     "1mcp-development": {
       "command": "npx",
-      "args": ["-y", "@1mcp/agent", "serve"],
-      "env": {
-        "ONE_MCP_PRESET_URL": "http://localhost:3050/mcp?preset=development"
-      }
+      "args": ["-y", "@1mcp/agent", "proxy", "--preset", "development"]
     }
   }
 }

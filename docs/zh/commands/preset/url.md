@@ -52,15 +52,14 @@ npx -y @1mcp/agent preset url production
 
 #### Claude Desktop
 
+使用 stdio 代理将 Claude Desktop 连接到正在运行的 1MCP HTTP 服务器，并应用预设：
+
 ```json
 {
   "mcpServers": {
     "1mcp-development": {
       "command": "npx",
-      "args": ["-y", "@1mcp/agent", "serve"],
-      "env": {
-        "ONE_MCP_PRESET_URL": "http://127.0.0.1:3050/mcp?preset=development"
-      }
+      "args": ["-y", "@1mcp/agent", "proxy", "--preset", "development"]
     }
   }
 }

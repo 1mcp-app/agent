@@ -201,15 +201,14 @@ description: 管理用于选择 MCP 服务器的命名筛选预设。
 
 **Claude Desktop (`claude_desktop_config.json`):**
 
+使用 stdio 代理将 Claude Desktop 连接到正在运行的 1MCP HTTP 服务器，并应用预设：
+
 ```json
 {
   "mcpServers": {
     "1mcp-development": {
       "command": "npx",
-      "args": ["-y", "@1mcp/agent", "serve"],
-      "env": {
-        "ONE_MCP_PRESET_URL": "http://localhost:3050/mcp?preset=development"
-      }
+      "args": ["-y", "@1mcp/agent", "proxy", "--preset", "development"]
     }
   }
 }

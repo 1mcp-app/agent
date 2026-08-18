@@ -124,10 +124,16 @@ describe('CLI reference documentation', () => {
 
     expect(docs).not.toContain('/?preset=');
     expect(docs).toContain('/mcp?preset=');
+    expect(docs).not.toContain('ONE_MCP_PRESET_URL');
     for (const locale of ['en', 'zh']) {
       const presetIndex = readRepoFile(`docs/${locale}/commands/preset/index.md`);
       expect(presetIndex).toContain('`http://localhost:3050/mcp`');
       expect(presetIndex).not.toContain('`http://localhost:3050/`');
+
+      for (const page of ['index', 'url']) {
+        const presetDocs = readRepoFile(`docs/${locale}/commands/preset/${page}.md`);
+        expect(presetDocs).toContain('"args": ["-y", "@1mcp/agent", "proxy", "--preset", "development"]');
+      }
     }
     expect(readRepoFile('docs/en/commands/preset/url.md')).toContain('HTTP `400`');
     expect(readRepoFile('docs/zh/commands/preset/url.md')).toContain('HTTP `400`');

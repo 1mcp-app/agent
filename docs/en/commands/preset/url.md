@@ -56,15 +56,14 @@ npx -y @1mcp/agent preset url production
 
 #### Claude Desktop
 
+Use the stdio proxy to connect Claude Desktop to a running 1MCP HTTP server and apply the preset:
+
 ```json
 {
   "mcpServers": {
     "1mcp-development": {
       "command": "npx",
-      "args": ["-y", "@1mcp/agent", "serve"],
-      "env": {
-        "ONE_MCP_PRESET_URL": "http://127.0.0.1:3050/mcp?preset=development"
-      }
+      "args": ["-y", "@1mcp/agent", "proxy", "--preset", "development"]
     }
   }
 }
