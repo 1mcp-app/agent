@@ -16,11 +16,11 @@ This guide covers how to set up a development environment for 1MCP Agent, build 
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) `^20.19.0 || ^22.12.0 || >=24.0.0` (the package `engines.node` contract)
+- [Node.js](https://nodejs.org/) at the version recorded in `.node-version`
 - [pnpm](https://pnpm.io/) package manager
 - Git
 
-For contributor environments, use the version recorded in `.node-version`. It is the repository default, not the package minimum.
+The repository version is the supported contributor environment, not a published package support contract.
 
 ## Installation from Source
 

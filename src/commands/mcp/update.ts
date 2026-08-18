@@ -103,7 +103,7 @@ export function buildUpdateCommand(yargs: Argv) {
       type: 'boolean',
     })
     .option('max-restarts', {
-      describe: 'Maximum number of restart attempts (stdio only, unlimited if not specified)',
+      describe: 'Maximum number of restart attempts (stdio only, default: 5; use 0 for unlimited)',
       type: 'number',
     })
     .option('restart-delay', {

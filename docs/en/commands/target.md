@@ -23,6 +23,8 @@ Runtime Target Contexts are verified, named runtime endpoints. A named context c
 - `add`: `--use`, `--display-name <label>`, `--ca-file <path>`, `--insecure-skip-verify`, `--replace`, `--accept-new-identity`.
 - `use`: `--accept-insecure-tls`, `--json`.
 
+Security: `--insecure-skip-verify` disables TLS certificate verification, and `--accept-insecure-tls` confirms continued use of that unsafe setting. Both remove protection against man-in-the-middle attacks. Prefer `--ca-file`; use the insecure flags only for a target whose identity you have verified independently.
+
 ```bash
 1mcp target add prod https://mcp.example.com/mcp --use
 1mcp target add staging https://mcp.example.com/mcp --ca-file ./company-ca.pem

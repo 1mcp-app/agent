@@ -13,11 +13,11 @@ head:
 
 ## 先决条件
 
-- [Node.js](https://nodejs.org/) `^20.19.0 || ^22.12.0 || >=24.0.0`（与包的 `engines.node` 契约一致）
+- [Node.js](https://nodejs.org/)（使用 `.node-version` 中记录的版本）
 - [pnpm](https://pnpm.io/) 包管理器
 - Git
 
-对于贡献者环境，建议使用 `.node-version` 记录的版本。它是仓库默认版本，而不是包的最低版本。
+仓库版本是受支持的贡献者环境，而不是已发布的包支持契约。
 
 ## 从源码安装
 

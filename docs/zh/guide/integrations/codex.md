@@ -1,6 +1,13 @@
 ---
 title: Codex 集成
 description: 为 Codex 选择一种 1MCP 工作流：CLI 模式、直接 HTTP 或 stdio 代理。
+head:
+  - ['meta', { name: 'keywords', content: '1MCP Codex 集成,Codex MCP,config.toml,stdio 代理' }]
+  - ['meta', { property: 'og:title', content: '1MCP Codex 集成' }]
+  - [
+      'meta',
+      { property: 'og:description', content: '为 Codex 选择一种 1MCP 工作流：CLI 模式、直接 HTTP 或 stdio 代理。' },
+    ]
 ---
 
 # Codex 集成
@@ -9,11 +16,11 @@ description: 为 Codex 选择一种 1MCP 工作流：CLI 模式、直接 HTTP �
 
 每个 Codex 项目只能选择一种面向 agent 的 1MCP 模式。不要同时启用直接 HTTP 条目、代理条目和 CLI 工作流：它们会暴露重复的工具面，并让工具选择变得不明确。
 
-| 模式 | 适用场景 | 不要配置 |
-| --- | --- | --- |
-| CLI 模式 | Codex 应通过引导说明渐进使用 1MCP 命令。 | Codex 中的 1MCP MCP server 条目。 |
-| 直接 HTTP | 受信任项目只需要聚合的 1MCP MCP 端点。 | 同一项目的 `1mcp proxy`。 |
-| Stdio 代理 | 项目需要 `.1mcprc` 预设/过滤选择或 stdio 桥接。 | 同一项目的直接 HTTP 条目。 |
+| 模式       | 适用场景                                        | 不要配置                          |
+| ---------- | ----------------------------------------------- | --------------------------------- |
+| CLI 模式   | Codex 应通过引导说明渐进使用 1MCP 命令。        | Codex 中的 1MCP MCP server 条目。 |
+| 直接 HTTP  | 受信任项目只需要聚合的 1MCP MCP 端点。          | 同一项目的 `1mcp proxy`。         |
+| Stdio 代理 | 项目需要 `.1mcprc` 预设/过滤选择或 stdio 桥接。 | 同一项目的直接 HTTP 条目。        |
 
 下列示例均使用默认 1MCP 端口 `3050`。如果 `1mcp serve` 运行在其他端口，请保持替换后的端口一致。
 

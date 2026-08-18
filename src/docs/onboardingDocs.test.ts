@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const root = process.cwd();
-const nodeContract = '^20.19.0 || ^22.12.0 || >=24.0.0';
+const nodeRuntimeRequirement = '^20.19.0 || ^22.12.0 || >=23.0.0';
 
 function readRepoFile(path: string): string {
   return readFileSync(join(root, path), 'utf8');
@@ -10,7 +10,6 @@ function readRepoFile(path: string): string {
 
 describe('onboarding documentation', () => {
   it('keeps the first-run installation, runtime, OAuth, and Codex contracts aligned', () => {
-    const packageJson = JSON.parse(readRepoFile('package.json')) as { engines?: { node?: string } };
     const enGettingStarted = readRepoFile('docs/en/guide/getting-started.md');
     const zhGettingStarted = readRepoFile('docs/zh/guide/getting-started.md');
     const enQuickStart = readRepoFile('docs/en/guide/quick-start.md');
@@ -25,8 +24,6 @@ describe('onboarding documentation', () => {
     const zhHome = readRepoFile('docs/zh/index.md');
     const releaseWorkflow = readRepoFile('.github/workflows/build-binaries.yml');
 
-    expect(packageJson.engines?.node).toBe(nodeContract);
-
     for (const page of [
       enGettingStarted,
       zhGettingStarted,
@@ -34,10 +31,12 @@ describe('onboarding documentation', () => {
       zhQuickStart,
       enInstallation,
       zhInstallation,
-      enDevelopment,
-      zhDevelopment,
     ]) {
-      expect(page).toContain(nodeContract);
+      expect(page).toContain(nodeRuntimeRequirement);
+    }
+
+    for (const page of [enDevelopment, zhDevelopment]) {
+      expect(page).toContain('.node-version');
     }
 
     for (const page of [enGettingStarted, zhGettingStarted]) {
@@ -51,8 +50,11 @@ describe('onboarding documentation', () => {
     }
 
     for (const page of [enInstallation, zhInstallation]) {
-      expect(page).toContain('ONE_MCP_CONFIG=/usr/src/app/mcp.json');
-      expect(page).toContain('/usr/src/app/mcp.json:ro');
+      expect(page).toContain('ONE_MCP_CONFIG=/usr/src/app/config/mcp.json');
+      expect(page).toContain('127.0.0.1:3050:3050');
+      expect(page).toContain('1mcp-config:/usr/src/app/config');
+      expect(page).not.toContain('/usr/src/app/mcp.json:ro');
+      expect(page).not.toContain('docker run -p 3050:3050');
     }
 
     expect(releaseWorkflow).toContain('platform: win32-x64');

@@ -91,6 +91,13 @@ const restoredPages = [
     ogDescription: '通过预览、备份和恢复，将受支持应用的 MCP 配置整合到 1MCP。',
   },
   {
+    path: 'docs/.vitepress/dist/zh/guide/integrations/codex.html',
+    description: '为 Codex 选择一种 1MCP 工作流：CLI 模式、直接 HTTP 或 stdio 代理。',
+    keywords: '1MCP Codex 集成,Codex MCP,config.toml,stdio 代理',
+    ogTitle: '1MCP Codex 集成',
+    ogDescription: '为 Codex 选择一种 1MCP 工作流：CLI 模式、直接 HTTP 或 stdio 代理。',
+  },
+  {
     path: 'docs/.vitepress/dist/zh/reference/internal-tools.html',
     description: '内部工具参考已迁移至规范路由。',
     keywords: '1MCP 内部工具,MCP 管理工具,内部工具参考',
@@ -147,7 +154,7 @@ function htmlFiles(path) {
   });
 }
 
-assert.equal(restoredPages.length, 15, 'the restored SEO manifest must cover all 15 historical pages');
+assert.equal(restoredPages.length, 16, 'the restored SEO manifest must cover all 16 localized pages');
 for (const page of restoredPages) {
   const html = readFileSync(join(root, page.path), 'utf8');
   const meta = readElements(html, 'meta');

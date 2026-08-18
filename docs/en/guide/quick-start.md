@@ -28,7 +28,7 @@ If you want `proxy`, direct streamable HTTP, or deeper runtime operator docs ins
 
 ## Prerequisites
 
-- Node.js `^20.19.0 || ^22.12.0 || >=24.0.0` (the package `engines.node` contract)
+- Node.js `^20.19.0 || ^22.12.0 || >=23.0.0` for npm installs
 - An AI agent client such as Codex or Claude
 
 ## 5-Minute Agent Setup
@@ -142,7 +142,7 @@ Use these once the basic flow works and you want to manage the runtime itself:
 
 **`1mcp serve` fails to start**
 
-- Check that Node.js satisfies `^20.19.0 || ^22.12.0 || >=24.0.0`: `node --version`
+- Check that Node.js satisfies `^20.19.0 || ^22.12.0 || >=23.0.0`: `node --version`
 - Re-run `1mcp mcp list` to confirm the upstream server was added
 
 **`cli-setup` does not affect my agent**

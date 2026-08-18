@@ -316,7 +316,7 @@ function displayServer(
       if (inferredConfig.maxRestarts !== undefined) {
         printer.keyValue({ 'Max Restarts': inferredConfig.maxRestarts });
       } else {
-        printer.keyValue({ 'Max Restarts': 'Unlimited' });
+        printer.keyValue({ 'Max Restarts': '5 (default)' });
       }
       const delay = inferredConfig.restartDelay ?? 1000;
       printer.keyValue({ 'Restart Delay': `${delay}ms` });

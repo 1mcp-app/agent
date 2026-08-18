@@ -129,7 +129,7 @@ Visit the [latest release page](https://github.com/1mcp-app/agent/releases/lates
 
 ### npm/pnpm
 
-The npm and source-install paths require Node.js `^20.19.0 || ^22.12.0 || >=24.0.0` (the package `engines.node` contract).
+The npm install path requires Node.js `^20.19.0 || ^22.12.0 || >=23.0.0`.
 
 ```bash
 # Install globally
@@ -148,35 +148,42 @@ You can also run 1MCP using Docker. We provide two image variants:
 - **`latest`**: Full-featured image with extra tools (uv, bun) - default
 - **`lite`**: Lightweight image with basic Node.js package managers only (npm, pnpm, yarn)
 
+Keep `mcp.json` and the optional sibling `config.toml` in a dedicated directory. The directory is mounted writable so `mcp add` and `mcp update` can persist changes.
+
 ```bash
-# Pull and run (full image) - IMPORTANT: Set host to 0.0.0.0 for Docker networking
-docker run -p 3050:3050 \
+# Prepare the container configuration directory
+mkdir -p 1mcp-config
+cp mcp.json 1mcp-config/
+# If you use application settings such as auth: cp config.toml 1mcp-config/
+
+# Pull and run (full image); publish only on the host loopback interface
+docker run -p 127.0.0.1:3050:3050 \
   -e ONE_MCP_HOST=0.0.0.0 \
   -e ONE_MCP_PORT=3050 \
   -e ONE_MCP_EXTERNAL_URL=http://127.0.0.1:3050 \
-  -e ONE_MCP_CONFIG=/usr/src/app/mcp.json \
-  -v "$(pwd)/mcp.json:/usr/src/app/mcp.json:ro" \
+  -e ONE_MCP_CONFIG=/usr/src/app/config/mcp.json \
+  -v "$(pwd)/1mcp-config:/usr/src/app/config" \
   ghcr.io/1mcp-app/agent:latest
 
 # Pull and run (lite image) with proper networking
-docker run -p 3050:3050 \
+docker run -p 127.0.0.1:3050:3050 \
   -e ONE_MCP_HOST=0.0.0.0 \
   -e ONE_MCP_PORT=3050 \
   -e ONE_MCP_EXTERNAL_URL=http://127.0.0.1:3050 \
-  -e ONE_MCP_CONFIG=/usr/src/app/mcp.json \
-  -v "$(pwd)/mcp.json:/usr/src/app/mcp.json:ro" \
+  -e ONE_MCP_CONFIG=/usr/src/app/config/mcp.json \
+  -v "$(pwd)/1mcp-config:/usr/src/app/config" \
   ghcr.io/1mcp-app/agent:lite
 
 # For users in China - faster package installation
-docker run -p 3050:3050 \
+docker run -p 127.0.0.1:3050:3050 \
   -e ONE_MCP_HOST=0.0.0.0 \
   -e ONE_MCP_PORT=3050 \
   -e ONE_MCP_EXTERNAL_URL=http://127.0.0.1:3050 \
   -e npm_config_registry=https://registry.npmmirror.com \
   -e UV_INDEX=http://mirrors.aliyun.com/pypi/simple \
   -e UV_DEFAULT_INDEX=http://mirrors.aliyun.com/pypi/simple \
-  -e ONE_MCP_CONFIG=/usr/src/app/mcp.json \
-  -v "$(pwd)/mcp.json:/usr/src/app/mcp.json:ro" \
+  -e ONE_MCP_CONFIG=/usr/src/app/config/mcp.json \
+  -v "$(pwd)/1mcp-config:/usr/src/app/config" \
   ghcr.io/1mcp-app/agent:latest
 
 # With docker-compose (recommended)
@@ -185,15 +192,15 @@ services:
   1mcp:
     image: ghcr.io/1mcp-app/agent:latest
     ports:
-      - "3050:3050"
+      - "127.0.0.1:3050:3050"
     volumes:
-      - ./mcp.json:/usr/src/app/mcp.json:ro
+      - ./1mcp-config:/usr/src/app/config
     environment:
       - ONE_MCP_HOST=0.0.0.0
       - ONE_MCP_PORT=3050
       - ONE_MCP_EXTERNAL_URL=http://127.0.0.1:3050
       - ONE_MCP_LOG_LEVEL=info
-      - ONE_MCP_CONFIG=/usr/src/app/mcp.json
+      - ONE_MCP_CONFIG=/usr/src/app/config/mcp.json
       # Optional: For users in China mainland
       # - npm_config_registry=https://registry.npmmirror.com
       # - UV_INDEX=http://mirrors.aliyun.com/pypi/simple
@@ -205,6 +212,8 @@ EOF
 
 docker compose up -d
 ```
+
+These examples are reachable only from the Docker host. Before publishing 1MCP on another interface, enable authentication in `1mcp-config/config.toml`, set `ONE_MCP_EXTERNAL_URL` to the public HTTPS URL, and follow the [Authentication guide](/guide/advanced/authentication). Binding a runtime beyond loopback without authentication exposes its MCP capabilities to the network.
 
 #### Available Tags
 
@@ -236,8 +245,8 @@ docker compose up -d
 
 ### Prerequisites
 
-- Node.js `^20.19.0 || ^22.12.0 || >=24.0.0` (the package `engines.node` contract)
-- For contributors, use the version recorded in `.node-version`; it is the repository default, not the package minimum.
+- Node.js at the version recorded in `.node-version`
+- The repository version is the supported source-build environment, not a published package support contract.
 - pnpm package manager
 
 ### Build Steps
@@ -284,7 +293,7 @@ npx @1mcp/agent --version
 - **Disk**: Space for Node.js dependencies and logs
 - **Network**: HTTP/HTTPS outbound access for MCP servers
 - **OS**: Linux (x64/ARM64), macOS (ARM64/x64), Windows (x64)
-- **Runtime**: Node.js `^20.19.0 || ^22.12.0 || >=24.0.0`
+- **Runtime**: Node.js `^20.19.0 || ^22.12.0 || >=23.0.0` for npm installs; `.node-version` for source builds
 
 ## Next Steps
 

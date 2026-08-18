@@ -28,7 +28,7 @@ head:
 
 ## 先决条件
 
-- Node.js `^20.19.0 || ^22.12.0 || >=24.0.0`（与包的 `engines.node` 契约一致）
+- npm 安装需要 Node.js `^20.19.0 || ^22.12.0 || >=23.0.0`
 - 一个 AI agent 客户端，例如 Codex 或 Claude
 
 ## 5 分钟 Agent 设置
@@ -142,7 +142,7 @@ npm install -g @1mcp/agent
 
 **`1mcp serve` 启动失败**
 
-- 检查 Node.js 是否满足 `^20.19.0 || ^22.12.0 || >=24.0.0`：`node --version`
+- 检查 Node.js 是否满足 `^20.19.0 || ^22.12.0 || >=23.0.0`：`node --version`
 - 重新运行 `1mcp mcp list`，确认上游 server 已成功添加
 
 **`cli-setup` 没有影响到我的 agent**

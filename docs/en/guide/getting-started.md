@@ -32,9 +32,9 @@ If you want the shortest agent-focused path, start with [Quick Start](/guide/qui
 
 - Linux, macOS, or Windows
 - A terminal and a writable configuration directory
-- Node.js `^20.19.0 || ^22.12.0 || >=24.0.0` for npm or source installs (the package `engines.node` contract)
+- Node.js `^20.19.0 || ^22.12.0 || >=23.0.0` for npm installs
 
-Standalone release archives do not require a local Node.js installation. Contributors should use the version in `.node-version`; it is a repository default, not the package minimum.
+Standalone release archives do not require a local Node.js installation. Contributors and source installs should use the version in `.node-version`; it is the repository default, not a published package support contract.
 
 ## Stage 1: Install a Runtime
 

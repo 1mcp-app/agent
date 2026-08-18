@@ -23,6 +23,8 @@ Runtime Target Context 是已验证且具名的运行时端点。具名 context 
 - `add`：`--use`、`--display-name <label>`、`--ca-file <path>`、`--insecure-skip-verify`、`--replace`、`--accept-new-identity`。
 - `use`：`--accept-insecure-tls`、`--json`。
 
+安全提示：`--insecure-skip-verify` 会禁用 TLS 证书验证，`--accept-insecure-tls` 则确认继续使用该不安全设置。两者都会失去对中间人攻击的防护。请优先使用 `--ca-file`；只有在通过其他方式验证目标身份后，才应使用这些不安全选项。
+
 ```bash
 1mcp target add prod https://mcp.example.com/mcp --use
 1mcp target add staging https://mcp.example.com/mcp --ca-file ./company-ca.pem

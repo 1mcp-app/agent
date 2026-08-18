@@ -110,6 +110,7 @@ describe('CLI reference documentation', () => {
       for (const command of ['instructions', 'inspect', 'run', 'proxy']) {
         expect(readRepoFile(`docs/${locale}/commands/${command}.md`)).toContain('--context <name>');
       }
+      expect(target).toContain(locale === 'en' ? 'man-in-the-middle' : '中间人攻击');
     }
 
     expect(config).toContain("'/commands/target'");
@@ -142,6 +143,9 @@ describe('CLI reference documentation', () => {
     }
 
     const supervisor = readRepoFile('src/core/server/backendStdioSupervisor.ts');
+    const addCommand = readRepoFile('src/commands/mcp/add.ts');
+    const updateCommand = readRepoFile('src/commands/mcp/update.ts');
+    const listCommand = readRepoFile('src/commands/mcp/list.ts');
     expect(supervisor).toContain('const DEFAULT_MAX_RESTARTS = 5');
     expect(supervisor).toContain('options.policy.maxRestarts === 0 ? null');
     expect(supervisor).toContain('2 ** Math.min(nextAttempt - 1, 4)');
@@ -153,6 +157,12 @@ describe('CLI reference documentation', () => {
       'Each later delay doubles, capped at 16 times this value.',
     );
     expect(readRepoFile('docs/zh/commands/mcp/add.md')).toContain('后续延迟每次翻倍，最大为该值的 16 倍。');
+    for (const command of [addCommand, updateCommand]) {
+      expect(command).toContain('default: 5; use 0 for unlimited');
+    }
+    for (const command of [addCommand, listCommand]) {
+      expect(command).toContain("'Max Restarts': '5 (default)'");
+    }
 
     for (const locale of ['en', 'zh']) {
       const overview = `docs/${locale}/reference/internal-tools/index.md`;

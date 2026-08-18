@@ -17,6 +17,7 @@ const preservedSeoHeadPages = [
   'docs/zh/commands/registry/search.md',
   'docs/zh/guide/advanced/performance.md',
   'docs/zh/guide/integrations/app-consolidation.md',
+  'docs/zh/guide/integrations/codex.md',
   'docs/zh/reference/internal-tools.md',
   'docs/zh/reference/internal-tools/index.md',
   'docs/zh/reference/internal-tools/installation.md',
@@ -183,7 +184,7 @@ function validateLlmCommandForms(artifacts: string[]): void {
 
 describe('publishing documentation', () => {
   it('preserves page-specific SEO heads from the documentation rewrite', () => {
-    expect(preservedSeoHeadPages).toHaveLength(15);
+    expect(preservedSeoHeadPages).toHaveLength(16);
 
     for (const path of preservedSeoHeadPages) {
       const content = readRepoFile(path);
@@ -206,9 +207,7 @@ describe('publishing documentation', () => {
     expect(vitepressConfig).not.toContain("property: 'og:url', content: 'https://docs.1mcp.app/'");
     expect(vitepressConfig).toContain("head.push(['meta', { property: 'og:url', content: url }])");
 
-    for (const enPath of preservedSeoHeadPages.filter(
-      (path) => path.startsWith('docs/en/') && !path.endsWith('/codex.md'),
-    )) {
+    for (const enPath of preservedSeoHeadPages.filter((path) => path.startsWith('docs/en/'))) {
       const zhPath = enPath.replace('docs/en/', 'docs/zh/');
       expect(preservedSeoHeadPages).toContain(zhPath as (typeof preservedSeoHeadPages)[number]);
     }
@@ -281,6 +280,5 @@ describe('publishing documentation', () => {
       expect(frontmatter?.[1]).toMatch(/^title:\s*\S/m);
       expect(frontmatter?.[1]).toMatch(/^description:\s*\S/m);
     }
-
   });
 });
