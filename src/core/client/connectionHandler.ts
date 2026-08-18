@@ -3,6 +3,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { OAuthError } from '@modelcontextprotocol/sdk/server/auth/errors.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
+import { sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
 import { CONNECTION_RETRY, MCP_SERVER_NAME } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { AuthProviderTransport } from '@src/core/types/index.js';
@@ -65,15 +66,16 @@ export class ConnectionHandler {
           throw new OAuthRequiredError(name, currentClient);
         }
 
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        logger.error(`Failed to connect to ${name}: ${errorMessage}`);
+        const nonRetryableOAuthError = isNonRetryableOAuthError(error);
+        const safeError = sanitizeRuntimeScopeError(error);
+        logger.error(`Failed to connect to ${name}: ${safeError.message}`);
 
-        if (isNonRetryableOAuthError(error)) {
-          throw new NonRetryableClientConnectionError(name, error);
+        if (nonRetryableOAuthError) {
+          throw new NonRetryableClientConnectionError(name, safeError);
         }
 
         if (i >= CONNECTION_RETRY.MAX_ATTEMPTS - 1) {
-          throw new ClientConnectionError(name, error instanceof Error ? error : new Error(String(error)));
+          throw new ClientConnectionError(name, safeError);
         }
 
         logger.info(`Retrying in ${retryDelay}ms...`);
@@ -81,7 +83,8 @@ export class ConnectionHandler {
         try {
           await currentTransport.close();
         } catch (closeError) {
-          debugIf(() => ({ message: `Error closing transport during retry: ${closeError}` }));
+          const safeCloseError = sanitizeRuntimeScopeError(closeError);
+          debugIf(() => ({ message: `Error closing transport during retry: ${safeCloseError}` }));
         }
 
         await this.createCancellableDelay(retryDelay, abortSignal);

@@ -1,4 +1,5 @@
 import { CONFIG_EVENTS, ConfigChange, ConfigChangeType, ConfigManager } from '@src/config/configManager.js';
+import type { RuntimeEnvironmentChange } from '@src/config/types.js';
 import { clearLastConfiguredToolSnapshot } from '@src/core/capabilities/configuredToolSnapshot.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { MCPServerParams } from '@src/core/types/index.js';
@@ -11,15 +12,20 @@ import logger, { debugIf } from '@src/logger/logger.js';
 export class ConfigChangeHandler {
   private static instance: ConfigChangeHandler;
   private configManager: ConfigManager;
+  private readonly configChangesListener: (changes: ConfigChange[]) => Promise<void>;
+  private readonly runtimeEnvironmentListener: (change: RuntimeEnvironmentChange) => Promise<void>;
 
   /**
    * Private constructor to enforce singleton pattern
    */
   private constructor(configManager?: ConfigManager) {
     this.configManager = configManager || ConfigManager.getInstance();
+    this.configChangesListener = this.handleConfigChanges.bind(this);
+    this.runtimeEnvironmentListener = this.handleRuntimeEnvironmentChange.bind(this);
 
     // Listen to config changes
-    this.configManager.on(CONFIG_EVENTS.CONFIG_CHANGED, this.handleConfigChanges.bind(this));
+    this.configManager.on(CONFIG_EVENTS.CONFIG_CHANGED, this.configChangesListener);
+    this.configManager.on(CONFIG_EVENTS.RUNTIME_ENVIRONMENT_CHANGED, this.runtimeEnvironmentListener);
   }
 
   /**
@@ -93,6 +99,12 @@ export class ConfigChangeHandler {
     if (templateToolMetadataChanged && appliedChanges.length === 0) {
       await this.sendListChangedNotifications();
     }
+  }
+
+  private async handleRuntimeEnvironmentChange(change: RuntimeEnvironmentChange): Promise<void> {
+    const serverManager = this.tryGetServerManager();
+    if (!serverManager) return;
+    await serverManager.reloadTemplatesForRuntimeEnvironment(change.templateServerNames);
   }
 
   private refreshRuntimeInstructionConfiguration(): void {
@@ -425,8 +437,8 @@ export class ConfigChangeHandler {
    * Stop the handler and clean up resources
    */
   public async stop(): Promise<void> {
-    // Remove event listeners
-    this.configManager.removeAllListeners(CONFIG_EVENTS.CONFIG_CHANGED);
+    this.configManager.off(CONFIG_EVENTS.CONFIG_CHANGED, this.configChangesListener);
+    this.configManager.off(CONFIG_EVENTS.RUNTIME_ENVIRONMENT_CHANGED, this.runtimeEnvironmentListener);
     logger.info('ConfigChangeHandler stopped');
   }
 }

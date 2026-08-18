@@ -339,6 +339,46 @@ export class ServerManager {
     return this.templateServerManager;
   }
 
+  public async reloadTemplatesForRuntimeEnvironment(templateNames: readonly string[]): Promise<void> {
+    const reloadTargets = await this.templateServerManager.retireTemplatesForRuntimeEnvironment(templateNames);
+    if (reloadTargets.length === 0) return;
+
+    const templatesBySession = new Map<string, Set<string>>();
+    for (const { sessionId, templateName } of reloadTargets) {
+      const names = templatesBySession.get(sessionId) ?? new Set<string>();
+      names.add(templateName);
+      templatesBySession.set(sessionId, names);
+    }
+
+    try {
+      for (const [sessionId, affectedNames] of templatesBySession) {
+        const inboundConnection = this.connectionManager.getInboundConnections().get(sessionId);
+        const context = inboundConnection?.context as ContextData | undefined;
+        if (!inboundConnection || !context) continue;
+        const { templateServers, errors } = await ConfigManager.getInstance().loadConfigWithTemplates(context);
+        if (errors.length > 0) {
+          logger.warn('Some templates could not be rendered during Runtime Scope environment reload', {
+            templateCount: affectedNames.size,
+            errorCount: errors.length,
+          });
+        }
+        const affectedTemplates = Object.fromEntries(
+          Object.entries(templateServers).filter(([templateName]) => affectedNames.has(templateName)),
+        );
+        await this.templateServerManager.createTemplateBasedServers(
+          sessionId,
+          context,
+          inboundConnection,
+          { mcpTemplates: affectedTemplates },
+          this.outboundConns,
+          this.transports,
+        );
+      }
+    } finally {
+      await this.notifyBackendCapabilityListsChanged();
+    }
+  }
+
   public getServerRegistry(): ServerRegistry {
     return this.serverRegistry;
   }

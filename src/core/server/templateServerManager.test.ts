@@ -1,7 +1,11 @@
+import { activateRuntimeScopeEnvironment } from '@src/config/runtimeScopeEnv.js';
+import { createRuntimeTargetFingerprint } from '@src/config/runtimeTargetFingerprint.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
 import { TemplateFilteringService } from '@src/core/filtering/index.js';
 import type { BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
 import { ClientStatus } from '@src/core/types/client.js';
+import logger from '@src/logger/logger.js';
+import { HandlebarsTemplateRenderer } from '@src/template/handlebarsTemplateRenderer.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -106,6 +110,7 @@ describe('TemplateServerManager', () => {
   });
 
   afterEach(() => {
+    activateRuntimeScopeEnvironment({});
     if (templateServerManager) {
       templateServerManager.cleanup();
     }
@@ -245,6 +250,79 @@ describe('TemplateServerManager', () => {
   });
 
   describe('helper methods', () => {
+    it('redacts async template spawn failures before logging or failure history', async () => {
+      const secret = 'template-spawn-secret';
+      const manager = templateServerManager as any;
+      activateRuntimeScopeEnvironment({ TOKEN: secret });
+      const spawnError = Object.assign(new Error(`spawn /bin/${secret} ENOENT`), {
+        code: 'ENOENT',
+        path: `/bin/${secret}`,
+        spawnargs: ['--token', secret],
+      });
+      manager.clientInstancePool.getOrCreateClientInstance.mockRejectedValueOnce(spawnError);
+      vi.mocked(TemplateFilteringService.getMatchingTemplates).mockReturnValueOnce([
+        ['test-template', { type: 'stdio', command: '$TOKEN' }],
+      ] as any);
+
+      await templateServerManager.createTemplateBasedServers(
+        'client-a',
+        {} as any,
+        {} as any,
+        { mcpTemplates: { 'test-template': { type: 'stdio', command: '$TOKEN' } } },
+        new Map(),
+        {},
+      );
+
+      expect(JSON.stringify(vi.mocked(logger.error).mock.calls)).not.toContain(secret);
+      expect(JSON.stringify(manager.failedTemplates)).not.toContain(secret);
+      expect(manager.failedTemplates).toMatchObject([
+        { templateName: 'test-template', sessionId: 'client-a', error: expect.stringContaining('[REDACTED]') },
+      ]);
+    });
+
+    it('retires only the rendered instance whose context introduced a changed env reference', async () => {
+      const manager = templateServerManager as any;
+      activateRuntimeScopeEnvironment({ TOKEN: 'before' });
+      const affectedConfig = new HandlebarsTemplateRenderer().renderTemplate(
+        { type: 'stdio' as const, command: 'node', args: ['{{project.path}}'] },
+        { project: { path: '$TOKEN' }, user: {}, environment: {} },
+      );
+      const unaffectedConfig = { type: 'stdio' as const, command: 'node', args: ['literal'] };
+      expect(affectedConfig.args).toEqual(['$TOKEN']);
+      const affected = {
+        id: 'affected-id',
+        instanceKey: 'worker:affected',
+        templateName: 'worker',
+        processedConfig: affectedConfig,
+        runtimeFingerprint: createRuntimeTargetFingerprint(affectedConfig, { TOKEN: 'before' }, true),
+        client: { close: vi.fn() },
+        clientIds: new Set(['affected-session']),
+      };
+      const unaffected = {
+        id: 'unaffected-id',
+        instanceKey: 'worker:unaffected',
+        templateName: 'worker',
+        processedConfig: unaffectedConfig,
+        runtimeFingerprint: createRuntimeTargetFingerprint(unaffectedConfig, { TOKEN: 'before' }, true),
+        client: { close: vi.fn() },
+        clientIds: new Set(['unaffected-session']),
+      };
+      manager.clientInstancePool.getAllInstances.mockReturnValue([affected, unaffected]);
+      manager.sessionToRenderedHash = new Map([
+        ['affected-session', new Map([['worker', 'affected']])],
+        ['unaffected-session', new Map([['worker', 'unaffected']])],
+      ]);
+      activateRuntimeScopeEnvironment({ TOKEN: 'after' });
+
+      const targets = await templateServerManager.retireTemplatesForRuntimeEnvironment([]);
+
+      expect(targets).toEqual([{ sessionId: 'affected-session', templateName: 'worker' }]);
+      expect(manager.clientInstancePool.removeInstance).toHaveBeenCalledOnce();
+      expect(manager.clientInstancePool.removeInstance).toHaveBeenCalledWith('worker:affected');
+      expect(manager.sessionToRenderedHash.has('affected-session')).toBe(false);
+      expect(manager.sessionToRenderedHash.get('unaffected-session')?.get('worker')).toBe('unaffected');
+    });
+
     it('resolves an operational instance ID within its template', () => {
       const manager = templateServerManager as any;
       const instance = { id: '0123456789abcdef' };

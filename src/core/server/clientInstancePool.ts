@@ -1,3 +1,6 @@
+import { getRuntimeScopeEnvironment, sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
+import { createRuntimeTargetFingerprint } from '@src/config/runtimeTargetFingerprint.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { BackendStdioSupervisor, type BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
 import {
   createTemplateInstanceId,
@@ -72,6 +75,11 @@ export class ClientInstancePool {
     const renderer = new HandlebarsTemplateRenderer();
     const renderedConfig = renderer.renderTemplate(templateConfig, context);
     const renderedHash = templateRuntimeHash(renderedConfig);
+    const runtimeFingerprint = createRuntimeTargetFingerprint(
+      renderedConfig,
+      getRuntimeScopeEnvironment(),
+      AgentConfigManager.getInstance().isEnvSubstitutionEnabled(),
+    );
 
     // Debug logging to verify template rendering
     debugIf(() => ({
@@ -134,6 +142,7 @@ export class ClientInstancePool {
         templateName,
         processedConfig: renderedConfig,
         renderedHash,
+        runtimeFingerprint,
         clientId,
         idleTimeout: templateSettings.idleTimeout,
       });
@@ -446,12 +455,12 @@ export class ClientInstancePool {
     try {
       await instance.client.close();
     } catch (error) {
-      logger.warn(`Error closing client for instance ${instance.id}:`, error);
+      logger.warn(`Error closing client for instance ${instance.id}:`, sanitizeRuntimeScopeError(error));
     }
     try {
       await instance.transport.close();
     } catch (error) {
-      logger.warn(`Error closing transport for instance ${instance.id}:`, error);
+      logger.warn(`Error closing transport for instance ${instance.id}:`, sanitizeRuntimeScopeError(error));
     }
   }
 
@@ -495,6 +504,7 @@ export class ClientInstancePool {
             templateName: instance.templateName,
             processedConfig: instance.processedConfig,
             renderedHash: instance.renderedHash,
+            runtimeFingerprint: instance.runtimeFingerprint,
             clientId,
             idleTimeout: instance.idleTimeout,
           });

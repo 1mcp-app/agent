@@ -10,6 +10,7 @@ import {
 
 import { OAuthClientConfig, SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
 import { processEnvironment, substituteEnvVars } from '@src/config/envProcessor.js';
+import { getRuntimeScopeEnvironment, sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
 import { AUTH_CONFIG, MCP_SERVER_VERSION } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { AuthProviderTransport, MCPServerParams, transportConfigSchema } from '@src/core/types/index.js';
@@ -106,27 +107,30 @@ function withTransportEnvSubstitution(validatedTransport: ValidatedTransport): V
     return validatedTransport;
   }
 
+  const referenceEnvironment = { ...getRuntimeScopeEnvironment(), ...process.env };
   let oauth = validatedTransport.oauth;
   if (oauth) {
     oauth = { ...oauth };
     if (oauth.clientId) {
-      oauth.clientId = substituteEnvVars(oauth.clientId);
+      oauth.clientId = substituteEnvVars(oauth.clientId, referenceEnvironment);
     }
     if (oauth.clientSecret) {
-      oauth.clientSecret = substituteEnvVars(oauth.clientSecret);
+      oauth.clientSecret = substituteEnvVars(oauth.clientSecret, referenceEnvironment);
     }
     if (oauth.redirectUrl) {
-      oauth.redirectUrl = substituteEnvVars(oauth.redirectUrl);
+      oauth.redirectUrl = substituteEnvVars(oauth.redirectUrl, referenceEnvironment);
     }
     if (oauth.scopes) {
-      oauth.scopes = oauth.scopes.map((scope) => substituteEnvVars(scope));
+      oauth.scopes = oauth.scopes.map((scope) => substituteEnvVars(scope, referenceEnvironment));
     }
   }
 
   return {
     ...validatedTransport,
-    url: validatedTransport.url ? substituteEnvVars(validatedTransport.url) : validatedTransport.url,
-    headers: substituteStringRecord(validatedTransport.headers),
+    url: validatedTransport.url
+      ? substituteEnvVars(validatedTransport.url, referenceEnvironment)
+      : validatedTransport.url,
+    headers: substituteStringRecord(validatedTransport.headers, referenceEnvironment),
     oauth,
   };
 }
@@ -207,7 +211,12 @@ function createStdioTransport(
     envFilter: validatedTransport.envFilter,
     env: validatedTransport.env,
     substituteEnv,
+    runtimeEnv: getRuntimeScopeEnvironment(),
   });
+  const referenceEnvironment =
+    validatedTransport.envFilter && validatedTransport.envFilter.length > 0
+      ? envResult.processedEnv
+      : { ...getRuntimeScopeEnvironment(), ...process.env, ...envResult.processedEnv };
 
   debugIf(() => ({
     message: `Environment processing for ${name}:`,
@@ -221,14 +230,14 @@ function createStdioTransport(
   }));
 
   const command = substituteEnv
-    ? substituteEnvVars(validatedTransport.command, envResult.processedEnv)
+    ? substituteEnvVars(validatedTransport.command, referenceEnvironment)
     : validatedTransport.command;
   const args = substituteEnv
-    ? validatedTransport.args?.map((arg) => substituteEnvVars(arg, envResult.processedEnv))
+    ? validatedTransport.args?.map((arg) => substituteEnvVars(arg, referenceEnvironment))
     : validatedTransport.args;
   const cwd =
     substituteEnv && validatedTransport.cwd
-      ? substituteEnvVars(validatedTransport.cwd, envResult.processedEnv)
+      ? substituteEnvVars(validatedTransport.cwd, referenceEnvironment)
       : validatedTransport.cwd;
 
   const shouldManageStderr = isManagedStderr(validatedTransport.stderr);
@@ -304,14 +313,25 @@ function createSingleTransport(
 ): AuthProviderTransport {
   switch (validatedTransport.type) {
     case 'sse':
-      return createSSETransport(name, validatedTransport);
+      if (!validatedTransport.url) throw new Error(`URL is required for SSE transport: ${name}`);
+      return createResolvedTransportSafely(() => createSSETransport(name, validatedTransport));
     case 'http':
     case 'streamableHttp':
-      return createHTTPTransport(name, validatedTransport);
+      if (!validatedTransport.url) throw new Error(`URL is required for HTTP transport: ${name}`);
+      return createResolvedTransportSafely(() => createHTTPTransport(name, validatedTransport));
     case 'stdio':
-      return createStdioTransport(name, validatedTransport, backendLogSource);
+      if (!validatedTransport.command) throw new Error(`Command is required for stdio transport: ${name}`);
+      return createResolvedTransportSafely(() => createStdioTransport(name, validatedTransport, backendLogSource));
     default:
       throw new Error(`Invalid transport type: ${validatedTransport.type}`);
+  }
+}
+
+function createResolvedTransportSafely(create: () => AuthProviderTransport): AuthProviderTransport {
+  try {
+    return create();
+  } catch (error) {
+    throw sanitizeRuntimeScopeError(error);
   }
 }
 

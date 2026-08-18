@@ -10,6 +10,7 @@ export interface EnvProcessingConfig {
   readonly envFilter?: string[];
   readonly env?: Record<string, string> | string[];
   readonly substituteEnv?: boolean;
+  readonly runtimeEnv?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -37,7 +38,10 @@ export interface ProcessedEnvironment {
  * @param envArray Array in format ["KEY=value", "PATH=/usr/bin"]
  * @returns Object in format {KEY: "value", PATH: "/usr/bin"}
  */
-export function parseEnvArray(envArray: string[]): Record<string, string> {
+export function parseEnvArray(
+  envArray: string[],
+  sourceEnv: Readonly<Record<string, string | undefined>> = process.env,
+): Record<string, string> {
   const envObject: Record<string, string> = {};
 
   for (const entry of envArray) {
@@ -45,7 +49,7 @@ export function parseEnvArray(envArray: string[]): Record<string, string> {
     if (equalIndex === -1) {
       // No equals sign, treat as inheritance key
       const key = entry.trim();
-      const envValue = process.env[key] as string | undefined;
+      const envValue = sourceEnv[key];
       if (envValue !== undefined) {
         envObject[key] = envValue;
       }
@@ -144,10 +148,10 @@ function applyEnvPatterns(
  * Gets environment variables from parent process, excluding dangerous ones
  * @returns Safe environment variables from parent process
  */
-function getParentEnvironment(): Record<string, string> {
+function getParentEnvironment(runtimeEnv: Readonly<Record<string, string>> = {}): Record<string, string> {
   const parentEnv: Record<string, string> = {};
 
-  for (const [key, value] of Object.entries(process.env as Record<string, string | undefined>)) {
+  for (const [key, value] of Object.entries({ ...runtimeEnv, ...process.env })) {
     if (value === undefined) continue;
 
     // Skip bash functions and other potentially dangerous variables
@@ -189,6 +193,7 @@ export function substituteEnvVars(configValue: string, env: Record<string, strin
  * @returns Processed environment variables with metadata
  */
 export function processEnvironment(config: EnvProcessingConfig): ProcessedEnvironment {
+  const referenceEnvironment = { ...config.runtimeEnv, ...process.env };
   // 1. Start with SDK safe defaults
   const sdkDefaults = getDefaultEnvironment();
   const sdkDefaultKeys = Object.keys(sdkDefaults);
@@ -200,7 +205,7 @@ export function processEnvironment(config: EnvProcessingConfig): ProcessedEnviro
   let inheritedKeys: string[] = [];
 
   if (config.inheritParentEnv) {
-    const parentEnv = getParentEnvironment();
+    const parentEnv = getParentEnvironment(config.runtimeEnv);
     inheritedEnv = { ...parentEnv };
     inheritedKeys = Object.keys(parentEnv).filter((key) => !sdkDefaultKeys.includes(key));
     debugIf(() => ({ message: `Inheriting ${inheritedKeys.length} additional environment variables from parent` }));
@@ -226,7 +231,7 @@ export function processEnvironment(config: EnvProcessingConfig): ProcessedEnviro
 
   if (config.env) {
     if (Array.isArray(config.env)) {
-      customEnv = parseEnvArray(config.env);
+      customEnv = parseEnvArray(config.env, referenceEnvironment);
     } else {
       customEnv = { ...config.env };
     }
@@ -236,7 +241,7 @@ export function processEnvironment(config: EnvProcessingConfig): ProcessedEnviro
       const substitutionEnv =
         config.envFilter && config.envFilter.length > 0
           ? { ...combinedEnv, ...customEnv }
-          : { ...process.env, ...combinedEnv, ...customEnv };
+          : { ...referenceEnvironment, ...combinedEnv, ...customEnv };
 
       for (const key of Object.keys(customEnv)) {
         const value = customEnv[key];

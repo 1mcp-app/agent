@@ -214,7 +214,7 @@ export class BackendStdioSupervisor {
       }
 
       this.recoveryController = null;
-      const recoveryError = error instanceof Error ? error : new Error(String(error));
+      const recoveryError = sanitizeRuntimeScopeError(error);
       this.lastError = recoveryError;
       this.scheduleNextAttempt(generation);
       if (manual) {
@@ -256,3 +256,4 @@ export class BackendStdioSupervisor {
     this.onStateChange?.(this.snapshot());
   }
 }
+import { sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';

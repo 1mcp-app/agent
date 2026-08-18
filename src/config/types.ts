@@ -12,7 +12,13 @@ export const CONFIG_EVENTS = {
   SERVER_REMOVED: 'serverRemoved',
   METADATA_UPDATED: 'metadataUpdated',
   VALIDATION_ERROR: 'validationError',
+  RUNTIME_ENVIRONMENT_CHANGED: 'runtimeEnvironmentChanged',
 } as const;
+
+export interface RuntimeEnvironmentChange {
+  readonly staticServerNames: readonly string[];
+  readonly templateServerNames: readonly string[];
+}
 
 /**
  * Configuration change event with discriminated union to prevent invalid states.

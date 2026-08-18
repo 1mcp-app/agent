@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 
+import { sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
 import { DEFAULT_MAX_CONCURRENT_LOADS } from '@src/constants/mcp.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
 import { AuthProviderTransport, MCPServerParams, OutboundConnections } from '@src/core/types/index.js';
@@ -253,10 +254,11 @@ export class McpLoadingManager extends EventEmitter {
       const transports = createTransports({ [name]: config });
       transport = transports[name];
     } catch (error) {
-      logger.error(`Failed to create transport for ${name}: ${error}`);
+      const safeError = sanitizeRuntimeScopeError(error);
+      logger.error(`Failed to create transport for ${name}: ${safeError}`);
       this.stateTracker.registerServer(name);
       this.stateTracker.updateServerState(name, LoadingState.Failed, {
-        error: error instanceof Error ? error : new Error(String(error)),
+        error: safeError,
       });
       this.serverOpAbortControllers.delete(name);
       return;
@@ -402,7 +404,7 @@ export class McpLoadingManager extends EventEmitter {
           return;
         }
 
-        lastError = error instanceof Error ? error : new Error(String(error));
+        lastError = sanitizeRuntimeScopeError(error);
         // Handle OAuth case specially
         if (lastError.name === 'OAuthRequiredError') {
           logger.info(`OAuth required for ${name}`);

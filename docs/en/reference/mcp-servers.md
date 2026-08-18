@@ -314,6 +314,25 @@ Use `${VARIABLE_NAME}` syntax in your configuration to substitute environment va
 }
 ```
 
+Both `$VARIABLE_NAME` and `${VARIABLE_NAME}` references can read from the parent process environment or from an optional Runtime Scope `.env` file. The file must be beside the effective `mcp.json`:
+
+- Default discovery uses the `.env` in the default configuration directory.
+- `--config-dir <directory>` uses `<directory>/.env`.
+- `--config <path>` uses the `.env` beside that selected file, regardless of the invoking working directory.
+
+For example:
+
+```dotenv
+SECRET_API_KEY=local-development-value
+SERVER_PORT=3100
+```
+
+Parent process values take precedence when the same name is present in both sources. Runtime Scope values are available only to backend Environment Secret References and explicit environment inheritance. They are not added to the 1MCP process environment, cannot configure `ONE_MCP_*` options, and are not automatically passed to unrelated backends. Literal values in `mcp.json` continue to override inherited values as before.
+
+The Aggregated Runtime watches this file when configuration hot reload is enabled. Creation, edits, atomic replacement, and deletion trigger a debounced recomputation. Only static servers and rendered Template Server Instances whose effective configuration changed are restarted or recreated. A malformed or unreadable update is rejected and the last working environment remains active.
+
+Treat `.env` as local secret material: add it to the applicable `.gitignore`, restrict filesystem permissions, and never commit it. For shared, staging, or production deployments, prefer an external secret manager and inject its values into the parent environment; the Runtime Scope file is a local operational convenience, not an encrypted secret store or rotation system.
+
 ### Environment Inheritance and Filtering
 
 **Inherit Parent Environment:**

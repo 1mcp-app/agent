@@ -23,8 +23,10 @@ vi.mock('@src/core/server/serverManager.js', () => ({
       getClients: vi.fn().mockReturnValue(new Map()),
       getTemplateServerManager: vi.fn().mockReturnValue({
         rebuildTemplateIndex: vi.fn(),
+        retireTemplatesForRuntimeEnvironment: vi.fn().mockResolvedValue(undefined),
       }),
       getInstructionAggregator: vi.fn().mockReturnValue(undefined),
+      reloadTemplatesForRuntimeEnvironment: vi.fn().mockResolvedValue(undefined),
     },
   },
 }));
@@ -32,6 +34,7 @@ vi.mock('@src/core/server/serverManager.js', () => ({
 vi.mock('@src/config/configManager.js', () => ({
   CONFIG_EVENTS: {
     CONFIG_CHANGED: 'configChanged',
+    RUNTIME_ENVIRONMENT_CHANGED: 'runtimeEnvironmentChanged',
     METADATA_UPDATED: 'metadataUpdated',
   },
   ConfigChangeType: {
@@ -59,6 +62,7 @@ describe('ConfigChangeHandler', () => {
       on: vi.fn(),
       getTransportConfig: vi.fn(() => ({})),
       emit: vi.fn(),
+      off: vi.fn(),
       removeAllListeners: vi.fn(),
     } as any;
 
@@ -81,6 +85,29 @@ describe('ConfigChangeHandler', () => {
 
     it('should register listener for config changes', () => {
       expect(mockConfigManager.on).toHaveBeenCalledWith('configChanged', expect.any(Function));
+      expect(mockConfigManager.on).toHaveBeenCalledWith('runtimeEnvironmentChanged', expect.any(Function));
+    });
+
+    it('retires only template instances affected by Runtime Scope environment changes', async () => {
+      const environmentHandler = (mockConfigManager.on as any).mock.calls.find(
+        ([event]: [string]) => event === 'runtimeEnvironmentChanged',
+      )[1];
+
+      await environmentHandler({ staticServerNames: ['static'], templateServerNames: ['affected-template'] });
+
+      const { ServerManager } = await import('@src/core/server/serverManager.js');
+      expect(ServerManager.current.reloadTemplatesForRuntimeEnvironment).toHaveBeenCalledWith(['affected-template']);
+    });
+
+    it('checks rendered template instances even when declared template fingerprints are unchanged', async () => {
+      const environmentHandler = (mockConfigManager.on as any).mock.calls.find(
+        ([event]: [string]) => event === 'runtimeEnvironmentChanged',
+      )[1];
+
+      await environmentHandler({ staticServerNames: [], templateServerNames: [] });
+
+      const { ServerManager } = await import('@src/core/server/serverManager.js');
+      expect(ServerManager.current.reloadTemplatesForRuntimeEnvironment).toHaveBeenCalledWith([]);
     });
 
     it('reconciles declared templates even when the static config diff is empty', async () => {
@@ -925,9 +952,16 @@ describe('ConfigChangeHandler', () => {
 
   describe('cleanup', () => {
     it('should remove event listeners on stop', async () => {
+      const configListener = mockConfigManager.on.mock.calls.find(([event]: [string]) => event === 'configChanged')[1];
+      const runtimeListener = mockConfigManager.on.mock.calls.find(
+        ([event]: [string]) => event === 'runtimeEnvironmentChanged',
+      )[1];
+
       await configChangeHandler.stop();
 
-      expect(mockConfigManager.removeAllListeners).toHaveBeenCalledWith('configChanged');
+      expect(mockConfigManager.off).toHaveBeenCalledWith('configChanged', configListener);
+      expect(mockConfigManager.off).toHaveBeenCalledWith('runtimeEnvironmentChanged', runtimeListener);
+      expect(mockConfigManager.removeAllListeners).not.toHaveBeenCalled();
     });
   });
 

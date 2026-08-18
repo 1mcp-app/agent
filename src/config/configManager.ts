@@ -21,8 +21,10 @@ import { z } from 'zod';
 import { ConfigChangeDetector } from './configChangeDetector.js';
 import { ConfigLoader } from './configLoader.js';
 import { ConfigWatcher } from './configWatcher.js';
+import { activateRuntimeScopeEnvironment, loadRuntimeScopeEnvironment } from './runtimeScopeEnv.js';
+import { createRuntimeTargetFingerprint } from './runtimeTargetFingerprint.js';
 import { TemplateProcessor } from './templateProcessor.js';
-import { CONFIG_EVENTS, ConfigChange, ConfigChangeType } from './types.js';
+import { CONFIG_EVENTS, ConfigChange, ConfigChangeType, RuntimeEnvironmentChange } from './types.js';
 
 export class ConfigManager extends EventEmitter {
   private static instance: ConfigManager;
@@ -41,6 +43,9 @@ export class ConfigManager extends EventEmitter {
     staticServers: Record<string, MCPServerParams>;
     templateServers: Record<string, MCPServerParams>;
   } = { staticServers: {}, templateServers: {} };
+  private runtimeEnvironment: Readonly<Record<string, string>> = {};
+  private staticRuntimeFingerprints = new Map<string, string>();
+  private templateRuntimeFingerprints = new Map<string, string>();
 
   /**
    * Private constructor to enforce singleton pattern
@@ -89,7 +94,14 @@ export class ConfigManager extends EventEmitter {
   }
   private loadConfig(): void {
     try {
+      const runtimeEnvironment = loadRuntimeScopeEnvironment(this.loader.getConfigFilePath());
       this.transportConfig = this.loader.loadConfigWithEnvSubstitution();
+      const declared = this.loadDeclaredServerConfigs();
+      this.runtimeEnvironment = runtimeEnvironment;
+      activateRuntimeScopeEnvironment(runtimeEnvironment);
+      this.staticRuntimeFingerprints = this.createRuntimeFingerprints(this.transportConfig, runtimeEnvironment);
+      this.templateRuntimeFingerprints = this.createRuntimeFingerprints(declared.templateServers, runtimeEnvironment);
+      this.loader.markRuntimeEnvObserved();
 
       const agentConfig = AgentConfigManager.getInstance();
       const features = agentConfig.get('features');
@@ -435,9 +447,14 @@ export class ConfigManager extends EventEmitter {
 
     const oldConfig = { ...this.transportConfig };
     let newConfig: Record<string, MCPServerParams>;
+    let runtimeEnvironment: Readonly<Record<string, string>>;
+    let declaredTemplates: Record<string, MCPServerParams>;
 
     try {
+      runtimeEnvironment = loadRuntimeScopeEnvironment(this.loader.getConfigFilePath());
       newConfig = this.loader.loadConfigWithEnvSubstitution();
+      const declared = this.loadDeclaredServerConfigs();
+      declaredTemplates = declared.templateServers;
     } catch (error) {
       logger.error(
         `Failed to load or validate configuration: ${error instanceof Error ? error.message : String(error)}`,
@@ -447,11 +464,32 @@ export class ConfigManager extends EventEmitter {
     }
 
     const changes = this.changeDetector.detectChanges(oldConfig, newConfig);
+    const nextStaticFingerprints = this.createRuntimeFingerprints(newConfig, runtimeEnvironment);
+    const nextTemplateFingerprints = this.createRuntimeFingerprints(declaredTemplates, runtimeEnvironment);
+    const runtimeEnvironmentChanged = !environmentsEqual(this.runtimeEnvironment, runtimeEnvironment);
+    const environmentChange = !runtimeEnvironmentChanged
+      ? { staticServerNames: [], templateServerNames: [] }
+      : this.detectRuntimeEnvironmentChanges(nextStaticFingerprints, nextTemplateFingerprints);
+    const alreadyChanged = new Set(changes.map((change) => change.serverName));
+    for (const serverName of environmentChange.staticServerNames) {
+      if (!alreadyChanged.has(serverName) && newConfig[serverName]) {
+        changes.push({ serverName, type: ConfigChangeType.MODIFIED, fieldsChanged: ['runtimeEnvironment'] });
+      }
+    }
+
+    this.runtimeEnvironment = runtimeEnvironment;
+    activateRuntimeScopeEnvironment(runtimeEnvironment);
     this.transportConfig = newConfig;
+    this.staticRuntimeFingerprints = nextStaticFingerprints;
+    this.templateRuntimeFingerprints = nextTemplateFingerprints;
     McpConfigManager.getInstance(this.loader.getConfigFilePath()).reloadConfig();
+    this.loader.markRuntimeEnvObserved();
 
     logger.info(`Detected ${changes.length} configuration changes`);
     this.emit(CONFIG_EVENTS.CONFIG_CHANGED, changes);
+    if (runtimeEnvironmentChanged) {
+      this.emit(CONFIG_EVENTS.RUNTIME_ENVIRONMENT_CHANGED, environmentChange);
+    }
 
     for (const change of changes) {
       switch (change.type) {
@@ -463,6 +501,29 @@ export class ConfigManager extends EventEmitter {
           break;
       }
     }
+  }
+
+  private createRuntimeFingerprints(
+    configs: Record<string, MCPServerParams>,
+    runtimeEnvironment: Readonly<Record<string, string>>,
+  ): Map<string, string> {
+    const substituteEnv = AgentConfigManager.getInstance().get('features').envSubstitution;
+    return new Map(
+      Object.entries(configs).map(([name, config]) => [
+        name,
+        createRuntimeTargetFingerprint(config, runtimeEnvironment, substituteEnv),
+      ]),
+    );
+  }
+
+  private detectRuntimeEnvironmentChanges(
+    nextStatic: ReadonlyMap<string, string>,
+    nextTemplates: ReadonlyMap<string, string>,
+  ): RuntimeEnvironmentChange {
+    return {
+      staticServerNames: changedFingerprintNames(this.staticRuntimeFingerprints, nextStatic),
+      templateServerNames: changedFingerprintNames(this.templateRuntimeFingerprints, nextTemplates),
+    };
   }
 
   public async reloadConfig(): Promise<void> {
@@ -486,3 +547,21 @@ export type { ConfigChange };
 export { ConfigChangeType, CONFIG_EVENTS };
 
 export default ConfigManager;
+
+function changedFingerprintNames(previous: ReadonlyMap<string, string>, next: ReadonlyMap<string, string>): string[] {
+  return Array.from(next)
+    .filter(([name, fingerprint]) => previous.has(name) && previous.get(name) !== fingerprint)
+    .map(([name]) => name);
+}
+
+function environmentsEqual(
+  previous: Readonly<Record<string, string>>,
+  next: Readonly<Record<string, string>>,
+): boolean {
+  const previousKeys = Object.keys(previous).sort();
+  const nextKeys = Object.keys(next).sort();
+  return (
+    previousKeys.length === nextKeys.length &&
+    previousKeys.every((key, index) => key === nextKeys[index] && previous[key] === next[key])
+  );
+}

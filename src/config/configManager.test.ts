@@ -4,6 +4,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 
 import { CONFIG_EVENTS, ConfigChangeType, ConfigManager } from '@src/config/configManager.js';
+import { getRuntimeScopeEnvironment } from '@src/config/runtimeScopeEnv.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -337,6 +338,106 @@ describe('ConfigManager (Integration)', () => {
         '--transport',
         'stdio',
       ]);
+    });
+
+    it('targets only static servers whose effective Runtime Scope environment changes', async () => {
+      const variable = 'ONE_MCP_TEST_RUNTIME_SCOPE_STATIC';
+      delete process.env[variable];
+      const scopedConfig = {
+        mcpServers: {
+          affected: { command: 'node', args: ['server.js'], env: { TOKEN: `$${variable}` } },
+          unaffected: { command: 'node', args: ['server.js'], env: { TOKEN: 'literal' } },
+        },
+      };
+      await fsPromises.writeFile(configFilePath, JSON.stringify(scopedConfig));
+      await fsPromises.writeFile(join(tempConfigDir, '.env'), `${variable}=first\nUNUSED=one\n`);
+      (ConfigManager as any).instance = null;
+      configManager = ConfigManager.getInstance(configFilePath);
+      await configManager.initialize();
+
+      const changes: any[] = [];
+      configManager.on(CONFIG_EVENTS.CONFIG_CHANGED, (detectedChanges) => changes.push(...detectedChanges));
+      await fsPromises.writeFile(join(tempConfigDir, '.env'), `${variable}=second\nUNUSED=two\n`);
+      await configManager.reloadConfig();
+
+      expect(changes).toEqual([
+        { serverName: 'affected', type: ConfigChangeType.MODIFIED, fieldsChanged: ['runtimeEnvironment'] },
+      ]);
+      expect(configManager.getTransportConfig().affected.env).toEqual({ TOKEN: `$${variable}` });
+      expect(process.env[variable]).toBeUndefined();
+      expect((configManager as any).loader.checkRuntimeEnvModified()).toBe(false);
+    });
+
+    it('targets only rendered templates whose effective Runtime Scope environment changes', async () => {
+      const variable = 'ONE_MCP_TEST_RUNTIME_SCOPE_TEMPLATE';
+      delete process.env[variable];
+      const scopedConfig = {
+        mcpServers: {},
+        mcpTemplates: {
+          affected: { command: 'node', args: ['{{project.path}}', `$${variable}`] },
+          unaffected: { command: 'node', args: ['{{project.path}}', 'literal'] },
+        },
+      };
+      await fsPromises.writeFile(configFilePath, JSON.stringify(scopedConfig));
+      await fsPromises.writeFile(join(tempConfigDir, '.env'), `${variable}=first\n`);
+      (ConfigManager as any).instance = null;
+      configManager = ConfigManager.getInstance(configFilePath);
+      await configManager.initialize();
+
+      const environmentChanges: any[] = [];
+      configManager.on(CONFIG_EVENTS.RUNTIME_ENVIRONMENT_CHANGED, (change) => environmentChanges.push(change));
+      await fsPromises.writeFile(join(tempConfigDir, '.env'), `${variable}=second\n`);
+      await configManager.reloadConfig();
+
+      expect(environmentChanges).toEqual([{ staticServerNames: [], templateServerNames: ['affected'] }]);
+    });
+
+    it('emits a Runtime Scope event when only context rendering can introduce an env reference', async () => {
+      const scopedConfig = {
+        mcpServers: {},
+        mcpTemplates: {
+          contextual: { command: 'node', args: ['{{project.path}}'] },
+        },
+      };
+      await fsPromises.writeFile(configFilePath, JSON.stringify(scopedConfig));
+      await fsPromises.writeFile(join(tempConfigDir, '.env'), 'TOKEN=first\n');
+      (ConfigManager as any).instance = null;
+      configManager = ConfigManager.getInstance(configFilePath);
+      await configManager.initialize();
+      const environmentChanges: any[] = [];
+      configManager.on(CONFIG_EVENTS.RUNTIME_ENVIRONMENT_CHANGED, (change) => environmentChanges.push(change));
+
+      await fsPromises.writeFile(join(tempConfigDir, '.env'), 'TOKEN=second\n');
+      await configManager.reloadConfig();
+
+      expect(environmentChanges).toEqual([{ staticServerNames: [], templateServerNames: [] }]);
+    });
+
+    it('keeps the last-known-good Runtime Scope environment after an invalid reload', async () => {
+      const variable = 'ONE_MCP_TEST_RUNTIME_SCOPE_ROLLBACK';
+      delete process.env[variable];
+      const scopedConfig = {
+        mcpServers: { affected: { command: 'node', args: ['server.js'], env: { TOKEN: `$${variable}` } } },
+      };
+      await fsPromises.writeFile(configFilePath, JSON.stringify(scopedConfig));
+      await fsPromises.writeFile(join(tempConfigDir, '.env'), `${variable}=working\n`);
+      (ConfigManager as any).instance = null;
+      configManager = ConfigManager.getInstance(configFilePath);
+      await configManager.initialize();
+      const validationErrors: Error[] = [];
+      const changes: unknown[] = [];
+      configManager.on(CONFIG_EVENTS.VALIDATION_ERROR, (error) => validationErrors.push(error));
+      configManager.on(CONFIG_EVENTS.CONFIG_CHANGED, (change) => changes.push(change));
+
+      await fsPromises.writeFile(join(tempConfigDir, '.env'), `SECRET=must-not-appear\ninvalid line\n`);
+      await configManager.reloadConfig();
+
+      expect(getRuntimeScopeEnvironment()).toEqual({ [variable]: 'working' });
+      expect(changes).toEqual([]);
+      expect(validationErrors).toHaveLength(1);
+      expect(String(validationErrors[0])).toContain(join(tempConfigDir, '.env'));
+      expect(String(validationErrors[0])).not.toContain('must-not-appear');
+      expect((configManager as any).loader.checkRuntimeEnvModified()).toBe(true);
     });
 
     it('should emit specific events for server additions and removals', async () => {

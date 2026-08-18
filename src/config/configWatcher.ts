@@ -9,6 +9,8 @@ interface ConfigLoader {
   getConfigFilePath: () => string;
   checkFileModified: () => boolean;
   isReloadEnabled: () => boolean;
+  getRuntimeEnvFilePath: () => string;
+  checkRuntimeEnvModified: () => boolean;
 }
 
 export class ConfigWatcher extends EventEmitter {
@@ -38,6 +40,7 @@ export class ConfigWatcher extends EventEmitter {
     try {
       const configDir = path.dirname(this.configFilePath);
       const configFileName = path.basename(this.configFilePath);
+      const runtimeEnvFileName = path.basename(this.loader.getRuntimeEnvFilePath());
 
       // Verify directory exists before watching
       if (!fs.existsSync(configDir)) {
@@ -45,7 +48,7 @@ export class ConfigWatcher extends EventEmitter {
       }
 
       this.configWatcher = fs.watch(configDir, (eventType: fs.WatchEventType, filename: string | null) => {
-        this.handleWatchEvent(eventType, filename, configDir, configFileName);
+        this.handleWatchEvent(eventType, filename, configDir, configFileName, runtimeEnvFileName);
       });
       this.configWatcher.on('error', (error) => {
         logger.warn('Configuration file watcher failed; falling back to polling', { error });
@@ -81,6 +84,7 @@ export class ConfigWatcher extends EventEmitter {
     filename: string | null,
     configDir: string,
     configFileName: string,
+    runtimeEnvFileName: string,
   ): void {
     debugIf(() => ({
       message: 'Directory change detected',
@@ -88,8 +92,14 @@ export class ConfigWatcher extends EventEmitter {
     }));
 
     const isConfigFileEvent = filename === configFileName;
+    const isRuntimeEnvEvent = filename === runtimeEnvFileName;
 
-    if (isConfigFileEvent || this.loader.checkFileModified()) {
+    if (
+      isConfigFileEvent ||
+      isRuntimeEnvEvent ||
+      this.loader.checkFileModified() ||
+      this.loader.checkRuntimeEnvModified()
+    ) {
       debugIf(() => ({
         message: 'Configuration file change detected, debouncing reload',
         meta: { eventType, filename },
@@ -109,7 +119,7 @@ export class ConfigWatcher extends EventEmitter {
     }
 
     this.pollTimer = setInterval(() => {
-      if (this.loader.checkFileModified()) {
+      if (this.loader.checkFileModified() || this.loader.checkRuntimeEnvModified()) {
         debugIf('Configuration file modification detected by polling, debouncing reload');
         this.debouncedReloadConfig();
       }
