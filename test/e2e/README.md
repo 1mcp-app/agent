@@ -41,6 +41,7 @@ test/e2e/
 ├── fixtures/       # Controlled MCP servers and process fixtures
 ├── http/           # Live HTTP, OAuth, and Streamable HTTP boundaries
 ├── integration/    # Cross-component process and protocol journeys
+├── oauth-loopback-consent.browser.e2e.test.ts # OAuth callback consent in Chromium
 ├── setup/          # Global setup and teardown
 ├── stdio/          # STDIO transport and lifecycle journeys
 └── utils/          # Hermetic process, client, and environment helpers

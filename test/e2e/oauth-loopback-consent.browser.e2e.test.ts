@@ -253,12 +253,20 @@ function waitForCallback(timeoutMs = 10_000): Promise<URL> {
 
 async function listenOnLoopback(server: Server): Promise<string> {
   await new Promise<void>((resolve, reject) => {
-    const handleError = (error: Error) => reject(error);
-    server.once('error', handleError);
-    server.listen(0, '127.0.0.1', () => {
+    const handleError = (error: Error) => {
       server.off('error', handleError);
-      resolve();
-    });
+      reject(error);
+    };
+    server.once('error', handleError);
+    try {
+      server.listen(0, '127.0.0.1', () => {
+        server.off('error', handleError);
+        resolve();
+      });
+    } catch (error) {
+      server.off('error', handleError);
+      reject(error);
+    }
   });
   const address = server.address();
   if (!address || typeof address === 'string') {

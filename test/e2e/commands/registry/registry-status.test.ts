@@ -277,8 +277,11 @@ describe('Registry Status Command E2E', () => {
         expect(result.exitCode).toBe(0);
         expect(result.stdout).toContain('MCP Registry Status');
       });
-      expect(environment.getMockRegistryRequests()).toHaveLength(3);
-      expect(environment.getMockRegistryRequests().every((request) => request.pathname === '/v0.1/health')).toBe(true);
+      expect(environment.getMockRegistryRequests()).toEqual([
+        { method: 'GET', pathname: '/v0.1/health', search: '' },
+        { method: 'GET', pathname: '/v0.1/health', search: '' },
+        { method: 'GET', pathname: '/v0.1/health', search: '' },
+      ]);
     });
   });
 });

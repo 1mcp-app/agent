@@ -433,22 +433,33 @@ describe('Command Workflows Integration E2E', () => {
 
   describe('Reliability', () => {
     it('should preserve state through a complete command sequence', async () => {
-      const serverName = 'performance-test-server';
+      const serverName = 'lifecycle-test-server';
 
-      const results = [
-        await runner.runMcpCommand('add', {
-          args: [serverName, '--type', 'stdio', '--command', 'echo', '--args', 'performance'],
-        }),
-        await runner.runMcpCommand('list'),
-        await runner.runMcpCommand('status', { args: [serverName] }),
-        await runner.runMcpCommand('disable', { args: [serverName] }),
-        await runner.runMcpCommand('enable', { args: [serverName] }),
-        await runner.runMcpCommand('update', { args: [serverName, '--tags', 'performance'] }),
-        await runner.runMcpCommand('list', { args: ['--verbose'] }),
-        await runner.runMcpCommand('remove', { args: [serverName, '--yes'] }),
-      ];
+      const addResult = await runner.runMcpCommand('add', {
+        args: [serverName, '--type', 'stdio', '--command', 'echo', '--args', 'lifecycle'],
+      });
+      runner.assertSuccess(addResult);
 
-      results.forEach((result) => runner.assertSuccess(result));
+      const listResult = await runner.runMcpCommand('list');
+      runner.assertSuccess(listResult);
+
+      const statusResult = await runner.runMcpCommand('status', { args: [serverName] });
+      runner.assertSuccess(statusResult);
+
+      const disableResult = await runner.runMcpCommand('disable', { args: [serverName] });
+      runner.assertSuccess(disableResult);
+
+      const enableResult = await runner.runMcpCommand('enable', { args: [serverName] });
+      runner.assertSuccess(enableResult);
+
+      const updateResult = await runner.runMcpCommand('update', { args: [serverName, '--tags', 'lifecycle'] });
+      runner.assertSuccess(updateResult);
+
+      const verboseListResult = await runner.runMcpCommand('list', { args: ['--verbose'] });
+      runner.assertSuccess(verboseListResult);
+
+      const removeResult = await runner.runMcpCommand('remove', { args: [serverName, '--yes'] });
+      runner.assertSuccess(removeResult);
 
       // Verify final state is clean
       const finalList = await runner.runMcpCommand('list');
