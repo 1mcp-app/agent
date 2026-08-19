@@ -220,6 +220,7 @@ describe('AdminConsoleRoot', () => {
     expect(routeWindow.history.pushState).toHaveBeenCalledWith(null, '', '/admin/servers/github%2Fapi');
     expect(await screen.findByRole('heading', { name: /github\/api/i })).toBeInTheDocument();
     expect(api.getConfiguredServerDetail).toHaveBeenCalledWith({ source: 'mcpServers', id: 'github/api' });
+    expect(api.refreshConfiguredToolInventory).not.toHaveBeenCalled();
     expect(screen.getByDisplayValue('https://api.example.com/mcp?token=REDACTED')).toBeInTheDocument();
     expect(screen.queryByText(/raw-token|Bearer raw/i)).not.toBeInTheDocument();
 
@@ -231,6 +232,7 @@ describe('AdminConsoleRoot', () => {
       target: { source: 'mcpServers', id: 'github/api' },
       csrfToken: 'csrf_123',
       connectivityCheck: 'auto',
+      model: 'gpt-4o',
       edit: {
         secrets: [
           {
@@ -250,6 +252,7 @@ describe('AdminConsoleRoot', () => {
       target: { source: 'mcpServers', id: 'github/api' },
       csrfToken: 'csrf_123',
       connectivityCheck: 'manual',
+      model: 'gpt-4o',
       edit: {
         secrets: [
           {
@@ -811,6 +814,11 @@ function apiClient(overrides: Partial<AdminApiClient>): AdminApiClient {
     getStatus: vi.fn(),
     listConfiguredServers: vi.fn(),
     getConfiguredServerDetail: vi.fn(),
+    refreshConfiguredToolInventory: vi.fn(async ({ target, model }) => ({
+      ok: true,
+      operationId: 'op_tool_inventory_refresh',
+      toolInventory: configuredToolInventory(target, model),
+    })),
     previewConfiguredServerEdit: vi.fn(),
     applyConfiguredServerEdit: vi.fn(),
     setConfiguredServerEnabled: vi.fn(),
@@ -959,6 +967,27 @@ function configuredServerDetail(id = 'github/api') {
         },
       ],
     },
+    toolInventory: configuredToolInventory(server.target),
+  };
+}
+
+function configuredToolInventory(target: { source: 'mcpServers' | 'mcpTemplates'; id: string }, model = 'gpt-4o') {
+  return {
+    targetName: target.id,
+    source: target.source,
+    targetEnabled: true,
+    freshness: 'live' as const,
+    model,
+    generation: `generation-${target.source}-${target.id}`,
+    activeInstanceCount: 1,
+    inspection: {
+      status: 'complete' as const,
+      retryable: false,
+      instances: [{ instanceId: target.id, status: 'complete' as const }],
+    },
+    rows: [],
+    counts: { observed: 0, enabled: 0, disabled: 0, unresolved: 0 },
+    approximateTokens: { enabled: 0, allObserved: 0, savings: 0 },
   };
 }
 

@@ -395,6 +395,24 @@ export interface ConfiguredToolInventoryRow {
   approximateTokens: number;
 }
 
+export interface ConfiguredToolInspectionOutcome {
+  status: 'unavailable' | 'in_progress' | 'failed' | 'complete';
+  reason?:
+    | 'target_disabled'
+    | 'target_disconnected'
+    | 'no_active_instances'
+    | 'active_instance_unavailable'
+    | 'inspection_failed'
+    | 'snapshot_unavailable'
+    | 'active_instances_changed';
+  retryable: boolean;
+  instances: Array<{
+    instanceId: string;
+    status: 'unavailable' | 'failed' | 'complete';
+    error?: string;
+  }>;
+}
+
 export interface ConfiguredToolInventory {
   targetName: string;
   source: 'mcpServers' | 'mcpTemplates';
@@ -403,9 +421,16 @@ export interface ConfiguredToolInventory {
   model: string;
   generation: string;
   activeInstanceCount: number;
+  inspection?: ConfiguredToolInspectionOutcome;
   rows: ConfiguredToolInventoryRow[];
   counts: { observed: number; enabled: number; disabled: number; unresolved: number };
   approximateTokens: { enabled: number; allObserved: number; savings: number };
+}
+
+export interface ConfiguredToolInventoryRefreshResponse {
+  ok: true;
+  operationId: string;
+  toolInventory: ConfiguredToolInventory;
 }
 
 export interface ConfiguredServerSecretReplacement {
@@ -905,6 +930,18 @@ export function createAdminApi(options: AdminApiOptions = {}) {
     ): Promise<ConfiguredServerDetailResponse> {
       const query = model ? `?model=${encodeURIComponent(model)}` : '';
       return request(`${configuredServerPath(target)}${query}`);
+    },
+
+    refreshConfiguredToolInventory(input: {
+      target: ConfiguredServerTargetIdentity;
+      csrfToken: string;
+      model?: string;
+    }): Promise<ConfiguredToolInventoryRefreshResponse> {
+      return request(`${configuredServerPath(input.target)}/tool-inventory/refresh`, {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': input.csrfToken },
+        body: JSON.stringify(input.model ? { model: input.model } : {}),
+      });
     },
 
     async listInstructionTemplates(): Promise<AdminInstructionTemplateStore> {

@@ -60,6 +60,9 @@ describe('admin routes', () => {
     >;
     listConfiguredServers: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['listConfiguredServers']>>;
     getConfiguredServerDetail: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['getConfiguredServerDetail']>>;
+    refreshConfiguredToolInventory: ReturnType<
+      typeof vi.fn<NonNullable<AdminConfiguredServerOperations['refreshConfiguredToolInventory']>>
+    >;
     previewConfiguredServerEdit: ReturnType<
       typeof vi.fn<AdminConfiguredServerOperations['previewConfiguredServerEdit']>
     >;
@@ -87,6 +90,8 @@ describe('admin routes', () => {
       applyConfiguredServerCreate: vi.fn<AdminConfiguredServerOperations['applyConfiguredServerCreate']>(),
       listConfiguredServers: vi.fn<AdminConfiguredServerOperations['listConfiguredServers']>(),
       getConfiguredServerDetail: vi.fn<AdminConfiguredServerOperations['getConfiguredServerDetail']>(),
+      refreshConfiguredToolInventory:
+        vi.fn<NonNullable<AdminConfiguredServerOperations['refreshConfiguredToolInventory']>>(),
       previewConfiguredServerEdit: vi.fn<AdminConfiguredServerOperations['previewConfiguredServerEdit']>(),
       applyConfiguredServerEdit: vi.fn<AdminConfiguredServerOperations['applyConfiguredServerEdit']>(),
       enableConfiguredServer: vi.fn<AdminConfiguredServerOperations['enableConfiguredServer']>(),
@@ -2050,6 +2055,72 @@ describe('admin routes', () => {
       model: 'gpt-4o-mini',
     });
     expect(JSON.stringify(response.body)).not.toMatch(/raw-token|raw-secret|Bearer raw/i);
+  });
+
+  it('protects configured-tool refresh with Admin Session and CSRF and forwards the model', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    configuredServerService.refreshConfiguredToolInventory.mockResolvedValue({
+      ok: true,
+      status: 'completed',
+      operationId: 'op_refresh',
+      operationName: 'refreshConfiguredToolInventory',
+      replayed: false,
+      result: {
+        targetName: 'project',
+        source: 'mcpTemplates',
+        targetEnabled: true,
+        freshness: 'live',
+        model: 'gpt-4o-mini',
+        generation: 'generation-refresh',
+        activeInstanceCount: 1,
+        inspection: {
+          status: 'complete',
+          retryable: false,
+          instances: [{ instanceId: 'instance-1', status: 'complete' }],
+        },
+        rows: [],
+        counts: { observed: 0, enabled: 0, disabled: 0, unresolved: 0 },
+        approximateTokens: { enabled: 0, allObserved: 0, savings: 0 },
+      },
+    });
+    const app = mountAdminRoutes();
+
+    const unauthenticated = await request(app)
+      .post('/admin/api/configured-servers/mcpTemplates/project/tool-inventory/refresh')
+      .send({ model: 'gpt-4o-mini' });
+    expect(unauthenticated.status).toBe(401);
+
+    const login = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = login.headers['set-cookie']?.[0] as string;
+    const csrfRejected = await request(app)
+      .post('/admin/api/configured-servers/mcpTemplates/project/tool-inventory/refresh')
+      .set('Cookie', cookie)
+      .send({ model: 'gpt-4o-mini' });
+    expect(csrfRejected.status).toBe(403);
+
+    const response = await request(app)
+      .post('/admin/api/configured-servers/mcpTemplates/project/tool-inventory/refresh')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', login.body.csrfToken)
+      .send({ model: 'gpt-4o-mini' });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      ok: true,
+      operationId: 'op_refresh',
+      toolInventory: { inspection: { status: 'complete' }, generation: 'generation-refresh' },
+    });
+    expect(configuredServerService.refreshConfiguredToolInventory).toHaveBeenCalledWith({
+      context: expect.objectContaining({
+        actor: expect.objectContaining({ type: 'admin_session' }),
+        target: { type: 'configured_server', id: 'mcpTemplates:project' },
+      }),
+      targetName: 'project',
+      targetSource: 'mcpTemplates',
+      model: 'gpt-4o-mini',
+    });
   });
 
   it('returns an operator-friendly not-found error for missing configured-server detail', async () => {

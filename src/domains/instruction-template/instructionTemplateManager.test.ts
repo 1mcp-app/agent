@@ -130,9 +130,7 @@ describe('InstructionTemplateManager', () => {
 
     state = await service.list();
     expect(
-      (
-        await service.activate({ identity: 'team', expectedConfigFingerprint: state.configFingerprint })
-      ).status,
+      (await service.activate({ identity: 'team', expectedConfigFingerprint: state.configFingerprint })).status,
     ).toBe('invalid');
     expect((await readConfig()).publishedInstructionTemplates.team.initialization).toBe('published init');
 
@@ -144,9 +142,7 @@ describe('InstructionTemplateManager', () => {
     });
     state = await service.list();
     expect(
-      (
-        await service.activate({ identity: 'team', expectedConfigFingerprint: state.configFingerprint })
-      ).status,
+      (await service.activate({ identity: 'team', expectedConfigFingerprint: state.configFingerprint })).status,
     ).toBe('changed');
     expect((await readConfig()).publishedInstructionTemplates.team).toEqual({
       initialization: 'activated init',
@@ -168,9 +164,7 @@ describe('InstructionTemplateManager', () => {
     expect(state.templates.find((template) => template.identity === 'team')?.draft).toBe(true);
 
     expect(
-      (
-        await service.delete({ identity: 'team', expectedConfigFingerprint: state.configFingerprint })
-      ).status,
+      (await service.delete({ identity: 'team', expectedConfigFingerprint: state.configFingerprint })).status,
     ).toBe('changed');
     const config = await readConfig();
     expect(config.instructionTemplates).toBeUndefined();

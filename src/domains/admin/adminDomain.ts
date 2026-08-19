@@ -43,6 +43,12 @@ export interface AdminDomainOptions {
     config: MCPServerParams;
     model?: string;
   }) => Promise<ConfiguredToolInventory>;
+  refreshToolInventory?: (input: {
+    targetName: string;
+    source: ConfiguredToolTargetSource;
+    config: MCPServerParams;
+    model?: string;
+  }) => Promise<ConfiguredToolInventory>;
   mutationAvailability?: AdminMutationAvailability;
   now?: () => Date;
   createOperationId?: () => string;
@@ -85,6 +91,7 @@ export function createAdminDomain(options: AdminDomainOptions): AdminDomain {
     readConfigDocument: options.readConfigDocument,
     ...(options.checkConnectivity ? { checkConnectivity: options.checkConnectivity } : {}),
     ...(options.readToolInventory ? { readToolInventory: options.readToolInventory } : {}),
+    ...(options.refreshToolInventory ? { refreshToolInventory: options.refreshToolInventory } : {}),
   });
   const instructionTemplateService =
     options.getConfigPath && options.previewInstructions

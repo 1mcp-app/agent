@@ -31,6 +31,7 @@ export interface ConfiguredServerEditModel {
   changeTool(name: string, change: { enabled?: boolean; descriptionOverride?: string }): void;
   changeVisibleTools(names: string[], enabled: boolean): void;
   changeToolModel(model: string): void | Promise<void>;
+  refreshToolInventory?(): void | Promise<void>;
   preview(connectivityCheck?: 'auto' | 'manual'): void | Promise<void>;
   apply(): void | Promise<void>;
 }
@@ -43,7 +44,13 @@ export function useConfiguredServerEdit({
   onApplied,
   onPathCommitted,
 }: {
-  api: Pick<AdminApiClient, 'getConfiguredServerDetail' | 'previewConfiguredServerEdit' | 'applyConfiguredServerEdit'>;
+  api: Pick<
+    AdminApiClient,
+    | 'getConfiguredServerDetail'
+    | 'refreshConfiguredToolInventory'
+    | 'previewConfiguredServerEdit'
+    | 'applyConfiguredServerEdit'
+  >;
   session: AdminSession | null;
   browser: ConfiguredServerEditBrowser;
   onUnauthenticated(adminStatus: 'setupRequired' | 'loginRequired'): void;
@@ -55,7 +62,9 @@ export function useConfiguredServerEdit({
   const sessionRef = useRef(session);
   const apiRef = useRef(api);
   const onUnauthenticatedRef = useRef(onUnauthenticated);
-  const toolModelRequestRef = useRef(0);
+  const toolInventoryRequestRef = useRef(0);
+  const toolInventoryInteractionRef = useRef(false);
+  const initialToolInventoryRefreshRef = useRef<{ target: ConfiguredServerTargetIdentity; model: string }>();
   stateRef.current = state;
   sessionRef.current = session;
   apiRef.current = api;
@@ -69,8 +78,19 @@ export function useConfiguredServerEdit({
     applyAttemptRef,
     invalidatePreview,
     invalidateApply,
-    reset,
+    reset: resetMutationLifecycle,
   } = useConfiguredServerMutationLifecycle(() => dispatch({ type: 'closed' }));
+
+  const invalidateToolInventory = useCallback(() => {
+    toolInventoryRequestRef.current += 1;
+    toolInventoryInteractionRef.current = false;
+    initialToolInventoryRefreshRef.current = undefined;
+  }, []);
+
+  const reset = useCallback(() => {
+    invalidateToolInventory();
+    resetMutationLifecycle();
+  }, [invalidateToolInventory, resetMutationLifecycle]);
 
   const handleUnauthenticated = useCallback(
     (error: unknown) => {
@@ -82,12 +102,45 @@ export function useConfiguredServerEdit({
     [reset],
   );
 
+  const refreshInventory = useCallback(
+    async (target: ConfiguredServerTargetIdentity, model: string) => {
+      const activeSession = sessionRef.current;
+      if (!activeSession || toolInventoryInteractionRef.current) return;
+      toolInventoryInteractionRef.current = true;
+      const sessionKey = activeSession.csrfToken;
+      const requestId = toolInventoryRequestRef.current + 1;
+      toolInventoryRequestRef.current = requestId;
+      dispatch({ type: 'toolInventoryRequestStarted', clearPreview: false });
+      try {
+        const response = await apiRef.current.refreshConfiguredToolInventory({ target, csrfToken: sessionKey, model });
+        if (requestId !== toolInventoryRequestRef.current || sessionRef.current?.csrfToken !== sessionKey) return;
+        const latest = stateRef.current;
+        if (latest.status !== 'loaded' || !sameConfiguredServerTarget(latest, target)) return;
+        if (latest.detail.toolInventory?.generation !== response.toolInventory.generation) invalidatePreview();
+        dispatch({
+          type: 'toolInventoryReceived',
+          inventory: response.toolInventory,
+          clearPreview: 'generationChanged',
+        });
+      } catch (error) {
+        if (requestId !== toolInventoryRequestRef.current || sessionRef.current?.csrfToken !== sessionKey) return;
+        if (!handleUnauthenticated(error)) {
+          dispatch({ type: 'toolInventoryRequestFailed', message: `Tool refresh failed: ${failureMessage(error)}` });
+        }
+      } finally {
+        if (requestId === toolInventoryRequestRef.current) toolInventoryInteractionRef.current = false;
+      }
+    },
+    [handleUnauthenticated, invalidatePreview],
+  );
+
   const load = useCallback(
     async (server: string | ConfiguredServerTargetIdentity) => {
       const serverId = typeof server === 'string' ? server : server.id;
       const activeSession = sessionRef.current;
       if (!activeSession) return;
       invalidateApply();
+      invalidateToolInventory();
       const sessionKey = activeSession.csrfToken;
       const requestId = detailRequestRef.current + 1;
       detailRequestRef.current = requestId;
@@ -96,6 +149,10 @@ export function useConfiguredServerEdit({
       try {
         const detail = await apiRef.current.getConfiguredServerDetail(server);
         if (requestId !== detailRequestRef.current || sessionRef.current?.csrfToken !== sessionKey) return;
+        initialToolInventoryRefreshRef.current =
+          detail.toolInventory?.freshness === 'unavailable'
+            ? { target: detail.server.target, model: detail.toolInventory.model }
+            : undefined;
         dispatch({ type: 'detailLoaded', serverId, detail });
       } catch (error) {
         if (requestId !== detailRequestRef.current || sessionRef.current?.csrfToken !== sessionKey) return;
@@ -107,7 +164,7 @@ export function useConfiguredServerEdit({
         dispatch({ type: 'detailFailed', serverId, message: `Server detail failed: ${failureMessage(error)}` });
       }
     },
-    [handleUnauthenticated, invalidateApply, invalidatePreview],
+    [handleUnauthenticated, invalidateApply, invalidatePreview, invalidateToolInventory],
   );
 
   const open = useCallback(
@@ -191,39 +248,79 @@ export function useConfiguredServerEdit({
   const changeToolModel = useCallback(
     async (model: string) => {
       const current = stateRef.current;
-      if (current.status !== 'loaded' || current.applyBusy || model === current.toolModel) return;
+      if (
+        current.status !== 'loaded' ||
+        current.applyBusy ||
+        current.toolInventoryBusy ||
+        toolInventoryInteractionRef.current ||
+        applyInteractionRef.current ||
+        model === current.toolModel
+      ) {
+        return;
+      }
       const activeSession = sessionRef.current;
       if (!activeSession) return;
       const sessionKey = activeSession.csrfToken;
-      const requestId = toolModelRequestRef.current + 1;
-      toolModelRequestRef.current = requestId;
+      toolInventoryInteractionRef.current = true;
+      const requestId = toolInventoryRequestRef.current + 1;
+      toolInventoryRequestRef.current = requestId;
       invalidatePreview();
+      dispatch({ type: 'toolInventoryRequestStarted', clearPreview: true });
       try {
-        const detail = await apiRef.current.getConfiguredServerDetail(current.serverId, model);
+        const detail = await apiRef.current.getConfiguredServerDetail(configuredServerTarget(current), model);
         if (
-          requestId !== toolModelRequestRef.current ||
+          requestId !== toolInventoryRequestRef.current ||
           sessionRef.current?.csrfToken !== sessionKey ||
           stateRef.current.status !== 'loaded' ||
-          stateRef.current.serverId !== current.serverId
+          !sameConfiguredServerTarget(stateRef.current, configuredServerTarget(current))
         ) {
           return;
         }
-        if (detail.toolInventory) dispatch({ type: 'toolInventoryRecalculated', inventory: detail.toolInventory });
-      } catch (error) {
-        if (requestId !== toolModelRequestRef.current || sessionRef.current?.csrfToken !== sessionKey) return;
-        if (!handleUnauthenticated(error)) {
-          dispatch({ type: 'previewFailed', message: `Token estimate failed: ${failureMessage(error)}` });
+        if (detail.toolInventory) {
+          dispatch({ type: 'toolInventoryReceived', inventory: detail.toolInventory, clearPreview: 'always' });
+        } else {
+          dispatch({ type: 'toolInventoryRequestFailed', message: 'Token estimate failed: inventory unavailable.' });
         }
+      } catch (error) {
+        if (requestId !== toolInventoryRequestRef.current || sessionRef.current?.csrfToken !== sessionKey) return;
+        if (!handleUnauthenticated(error)) {
+          dispatch({ type: 'toolInventoryRequestFailed', message: `Token estimate failed: ${failureMessage(error)}` });
+        }
+      } finally {
+        if (requestId === toolInventoryRequestRef.current) toolInventoryInteractionRef.current = false;
       }
     },
     [handleUnauthenticated, invalidatePreview],
   );
 
+  const refreshToolInventory = useCallback(() => {
+    const current = stateRef.current;
+    if (current.status !== 'loaded' || current.applyBusy || current.toolInventoryBusy || applyInteractionRef.current) {
+      return;
+    }
+    return refreshInventory(configuredServerTarget(current), current.toolModel);
+  }, [refreshInventory]);
+
+  useEffect(() => {
+    if (state.status !== 'loaded') return;
+    const pending = initialToolInventoryRefreshRef.current;
+    if (!pending || !sameConfiguredServerTarget(state, pending.target)) return;
+    initialToolInventoryRefreshRef.current = undefined;
+    void refreshInventory(pending.target, pending.model);
+  }, [refreshInventory, state]);
+
   const preview = useCallback(
     async (connectivityCheck: 'auto' | 'manual' = 'auto') => {
       const activeSession = sessionRef.current;
       const current = stateRef.current;
-      if (!activeSession || current.status !== 'loaded') return;
+      if (
+        !activeSession ||
+        current.status !== 'loaded' ||
+        current.toolInventoryBusy ||
+        toolInventoryInteractionRef.current
+      ) {
+        return;
+      }
       const sessionKey = activeSession.csrfToken;
       const serverId = current.serverId;
       const requestId = previewRequestRef.current + 1;
@@ -258,7 +355,15 @@ export function useConfiguredServerEdit({
     if (applyInteractionRef.current) return;
     const activeSession = sessionRef.current;
     const current = stateRef.current;
-    if (!activeSession || current.status !== 'loaded' || !current.preview) return;
+    if (
+      !activeSession ||
+      current.status !== 'loaded' ||
+      !current.preview ||
+      current.toolInventoryBusy ||
+      toolInventoryInteractionRef.current
+    ) {
+      return;
+    }
     if (!configuredServerApplyEligibility(current).eligible) return;
     applyInteractionRef.current = true;
 
@@ -294,6 +399,15 @@ export function useConfiguredServerEdit({
         ],
       });
       if (!confirmed) return;
+      const confirmedState = stateRef.current;
+      if (
+        confirmedState.status !== 'loaded' ||
+        confirmedState.toolInventoryBusy ||
+        toolInventoryInteractionRef.current ||
+        confirmedState.preview?.previewFingerprint !== previewResult.previewFingerprint
+      ) {
+        return;
+      }
 
       const sessionKey = activeSession.csrfToken;
       const serverId = current.serverId;
@@ -419,6 +533,7 @@ export function useConfiguredServerEdit({
     changeTool,
     changeVisibleTools,
     changeToolModel,
+    refreshToolInventory,
     preview,
     apply,
   };
@@ -429,6 +544,7 @@ export function configuredServerApplyEligibility(state: ConfiguredServerEditStat
   reason?: string;
 } {
   if (state.status !== 'loaded' || !state.preview) return { eligible: false, reason: 'Preview changes first.' };
+  if (state.toolInventoryBusy) return { eligible: false, reason: 'Wait for the tool inventory refresh to finish.' };
   if (!state.detail.editContract.capabilities.apply.supported) {
     return { eligible: false, reason: 'This runtime does not support applying server edits.' };
   }

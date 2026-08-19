@@ -234,9 +234,12 @@ export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditM
               inventory={state.detail.toolInventory}
               draft={state.toolDraft}
               disabled={state.applyBusy}
+              refreshBusy={state.toolInventoryBusy}
+              refreshError={state.toolInventoryError}
               onToolChange={model.changeTool}
               onBulkChange={model.changeVisibleTools}
               onModelChange={model.changeToolModel}
+              onRefresh={() => model.refreshToolInventory?.()}
             />
           </Paper>
         ) : null}
@@ -305,7 +308,7 @@ export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditM
           <Group gap="xs">
             <Button
               loading={state.previewBusy}
-              disabled={!state.dirty || state.previewBusy || state.applyBusy}
+              disabled={!state.dirty || state.previewBusy || state.applyBusy || state.toolInventoryBusy}
               onClick={() => void model.preview('auto')}
             >
               Preview change
@@ -314,7 +317,7 @@ export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditM
               <Button
                 variant="default"
                 loading={state.previewBusy}
-                disabled={state.applyBusy}
+                disabled={state.applyBusy || state.toolInventoryBusy}
                 onClick={() => void model.preview('manual')}
               >
                 Rerun connectivity
@@ -353,7 +356,7 @@ export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditM
               <Button
                 leftSection={<ShieldCheck size={16} />}
                 loading={state.applyBusy}
-                disabled={!applyEligibility.eligible || state.applyBusy}
+                disabled={!applyEligibility.eligible || state.applyBusy || state.toolInventoryBusy}
                 onClick={() => void model.apply()}
               >
                 Apply changes

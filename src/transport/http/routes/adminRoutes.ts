@@ -86,6 +86,7 @@ const backendLogSnapshotQuerySchema = z.object({
   sourceId: z.string().trim().min(1).max(256).optional(),
 });
 const configuredServerModelSchema = z.string().trim().min(1).max(64);
+const configuredToolInventoryRefreshSchema = z.object({ model: configuredServerModelSchema.optional() }).strict();
 const cliConfiguredServerMutationBodySchema = z.object({
   targetName: z.string().trim().min(1).max(256),
   dryRun: z.boolean().optional(),
@@ -656,6 +657,12 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
 
   router.get('/api/configured-servers/:name', async (req, res) => {
     await handleConfiguredServerDetail(req, res, options);
+  });
+
+  router.post('/api/configured-servers/:source/:name/tool-inventory/refresh', async (req, res) => {
+    const source = configuredServerSourceSchema.safeParse(req.params.source);
+    if (!source.success) return void res.status(400).json({ error: 'configured_server_source_invalid' });
+    await handleConfiguredToolInventoryRefresh(req, res, options, source.data);
   });
 
   router.post('/api/configured-servers/:source/:name/preview', async (req, res) => {
@@ -1276,6 +1283,57 @@ async function handleConfiguredServerDetail(
         code: error.code,
         message: 'Configured server target was not found',
         target: { type: 'configured_server', id: error.targetName },
+      });
+      return;
+    }
+    throw error;
+  }
+}
+
+async function handleConfiguredToolInventoryRefresh(
+  req: Request,
+  res: Response,
+  options: AdminRoutesOptions,
+  targetSource: 'mcpServers' | 'mcpTemplates',
+): Promise<void> {
+  if (!options.configuredServerService?.refreshConfiguredToolInventory) {
+    res.status(404).json({ error: 'admin_configured_servers_unavailable' });
+    return;
+  }
+
+  const body = configuredToolInventoryRefreshSchema.safeParse(req.body ?? {});
+  if (!body.success) {
+    res.status(400).json({ error: 'configured_tool_inventory_refresh_invalid' });
+    return;
+  }
+  const targetName = req.params.name;
+  try {
+    const result = await options.configuredServerService.refreshConfiguredToolInventory({
+      context: buildAdminOperationContext(req, options, {
+        type: 'configured_server',
+        id: `${targetSource}:${targetName}`,
+      }),
+      targetName,
+      targetSource,
+      ...(body.data.model ? { model: body.data.model } : {}),
+    });
+    if (!result.ok) {
+      sendAdminOperationResult(res, result);
+      return;
+    }
+    res.status(200).json({
+      ok: true,
+      operationId: result.operationId,
+      toolInventory: result.result,
+    });
+  } catch (error) {
+    if (error instanceof AdminConfiguredServerNotFoundError) {
+      res.status(404).json({
+        ok: false,
+        error: error.code,
+        code: error.code,
+        message: 'Configured server target was not found',
+        target: { type: 'configured_server', id: `${targetSource}:${targetName}` },
       });
       return;
     }

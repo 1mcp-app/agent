@@ -3,7 +3,10 @@ import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { getRuntimeScopeEnvironment, sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
 import { createRuntimeTargetFingerprint } from '@src/config/runtimeTargetFingerprint.js';
 import { registerCapabilityPaginationNotifications } from '@src/core/capabilities/capabilityPagination.js';
-import { clearLastConfiguredToolSnapshot } from '@src/core/capabilities/configuredToolSnapshot.js';
+import {
+  clearCompleteConfiguredToolTargetSnapshot,
+  clearLastConfiguredToolSnapshot,
+} from '@src/core/capabilities/configuredToolSnapshot.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
 import { ClientTemplateTracker, TemplateFilteringService, TemplateIndex } from '@src/core/filtering/index.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
@@ -510,6 +513,7 @@ export class TemplateServerManager {
         this.templateConfigHashes.delete(existingName);
         this.templateToolMetadataHashes.delete(existingName);
         clearLastConfiguredToolSnapshot(existingName);
+        clearCompleteConfiguredToolTargetSnapshot('mcpTemplates', existingName);
         toolMetadataChanged = true;
       }
     }

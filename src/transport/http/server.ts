@@ -19,7 +19,7 @@ import type { ConfiguredServerConfigDocument } from '@src/domains/admin/adminCon
 import { createAdminConnectivityChecker } from '@src/domains/admin/adminConnectivityChecker.js';
 import { createAdminDomain } from '@src/domains/admin/adminDomain.js';
 import { createAdminInstructionPreviewRuntime } from '@src/domains/admin/adminInstructionPreviewRuntime.js';
-import { createConfiguredToolInventory } from '@src/domains/admin/configuredToolInventory.js';
+import { RuntimeConfiguredToolInspectionService } from '@src/domains/admin/runtimeConfiguredToolInspectionService.js';
 import {
   type AdminMutationAvailability,
   type RuntimeScopeAdminLockHandle,
@@ -411,6 +411,7 @@ export class ExpressServer {
     );
     const adminConfigPath = ConfigContext.getInstance().getResolvedConfigPath();
     const getConfigPath = () => adminConfigPath;
+    const configuredToolInspectionService = new RuntimeConfiguredToolInspectionService(this.serverManager);
     const adminDomain = createAdminDomain({
       runtimeScopeId: runtimeIdentity.runtimeScopeId,
       storageDir: adminStorageDir,
@@ -419,11 +420,8 @@ export class ExpressServer {
       configChangeService: createConfigChangeService({ getConfigPath }),
       getConfigPath,
       readConfigDocument: () => readConfiguredServerConfigDocument(getConfigPath),
-      readToolInventory: (input) =>
-        createConfiguredToolInventory({
-          ...input,
-          connections: this.serverManager.getClients(),
-        }),
+      readToolInventory: (input) => configuredToolInspectionService.read(input),
+      refreshToolInventory: (input) => configuredToolInspectionService.refresh(input),
       checkConnectivity: createAdminConnectivityChecker(),
       presetManager: PresetManager.getInstance(path.dirname(adminConfigPath)),
       previewInstructions: createAdminInstructionPreviewRuntime(

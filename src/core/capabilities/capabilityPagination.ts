@@ -87,10 +87,7 @@ function getRuntimeState(connections: OutboundConnections): RuntimePaginationSta
 }
 
 /** Invalidate outstanding cursors for one capability collection. */
-export function advanceCapabilityPaginationGeneration(
-  connections: OutboundConnections,
-  kind: CapabilityKind,
-): void {
+export function advanceCapabilityPaginationGeneration(connections: OutboundConnections, kind: CapabilityKind): void {
   getRuntimeState(connections).generation[kind] += 1;
 }
 
@@ -116,7 +113,10 @@ export function registerCapabilityPaginationNotifications(
 
   const setNotificationHandler = connection.client.setNotificationHandler?.bind(connection.client);
   if (!setNotificationHandler) return;
-  const forwardNotification = async (notification: { method: string; params?: Record<string, unknown> }): Promise<void> => {
+  const forwardNotification = async (notification: {
+    method: string;
+    params?: Record<string, unknown>;
+  }): Promise<void> => {
     await Promise.all(Array.from(state!.forwarders.values(), (handler) => handler(notification)));
   };
   setNotificationHandler(ToolListChangedNotificationSchema, async (notification) => {
@@ -142,10 +142,7 @@ export function registerCapabilityPaginationNotifications(
 }
 
 /** Remove one inbound notification forwarder from every connected provider. */
-export function unregisterCapabilityPaginationForwarder(
-  connections: OutboundConnections,
-  forwardingKey: object,
-): void {
+export function unregisterCapabilityPaginationForwarder(connections: OutboundConnections, forwardingKey: object): void {
   for (const connection of connections.values()) {
     notificationStates.get(connection.client)?.forwarders.delete(forwardingKey);
   }
@@ -164,7 +161,9 @@ function stableValue(value: unknown): unknown {
 }
 
 function digest(value: unknown): string {
-  return createHash('sha256').update(JSON.stringify(stableValue(value))).digest('base64url');
+  return createHash('sha256')
+    .update(JSON.stringify(stableValue(value)))
+    .digest('base64url');
 }
 
 function compareCodePoints(left: string, right: string): number {
@@ -177,11 +176,7 @@ function compareCodePoints(left: string, right: string): number {
   return leftPoints.length - rightPoints.length;
 }
 
-function observeGeneration(
-  connections: OutboundConnections,
-  kind: CapabilityKind,
-  extraSignature: unknown,
-): string {
+function observeGeneration(connections: OutboundConnections, kind: CapabilityKind, extraSignature: unknown): string {
   const state = getRuntimeState(connections);
   const signature = digest({
     connections: Array.from(connections.entries())
@@ -280,7 +275,7 @@ function decodeFailurePositions(value: string | undefined, providerCount: number
     if ((bytes[Math.floor(position / 8)] & (1 << (position % 8))) !== 0) positions.push(position);
   }
   const unusedBits = bytes.length * 8 - providerCount;
-  if (unusedBits > 0 && (bytes.at(-1)! >> (8 - unusedBits)) !== 0) invalidCursor('malformed');
+  if (unusedBits > 0 && bytes.at(-1)! >> (8 - unusedBits) !== 0) invalidCursor('malformed');
   return positions;
 }
 
@@ -326,10 +321,7 @@ export async function walkCapabilityPages<T>(options: {
           items.push(...page.items);
           cursor = page.nextCursor;
           pages += 1;
-          if (
-            cursor !== undefined &&
-            (seenCursors.has(cursor) || pages >= MAX_DISABLED_PAGINATION_PAGES)
-          ) {
+          if (cursor !== undefined && (seenCursors.has(cursor) || pages >= MAX_DISABLED_PAGINATION_PAGES)) {
             throw new Error('Upstream pagination did not terminate');
           }
           if (cursor !== undefined) seenCursors.add(cursor);

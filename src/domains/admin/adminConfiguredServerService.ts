@@ -59,6 +59,12 @@ interface AdminConfiguredServerServiceOptions {
     config: MCPServerParams;
     model?: string;
   }) => Promise<ConfiguredToolInventory>;
+  refreshToolInventory?: (input: {
+    targetName: string;
+    source: ConfiguredToolTargetSource;
+    config: MCPServerParams;
+    model?: string;
+  }) => Promise<ConfiguredToolInventory>;
 }
 
 interface PreparedConfiguredServerCreate {
@@ -503,6 +509,13 @@ interface ConfiguredServerDetailInput {
   model?: string;
 }
 
+interface ConfiguredToolInventoryRefreshInput {
+  context: AdminOperationContext;
+  targetName: string;
+  targetSource: ConfiguredServerTargetSource;
+  model?: string;
+}
+
 interface ConfiguredServerPreviewInput {
   context: AdminOperationContext;
   targetName: string;
@@ -840,6 +853,9 @@ export interface AdminConfiguredServerOperations {
   getConfiguredServerDetail(
     input: ConfiguredServerDetailInput,
   ): Promise<AdminOperationResult<ConfiguredServerDetailResult>>;
+  refreshConfiguredToolInventory?(
+    input: ConfiguredToolInventoryRefreshInput,
+  ): Promise<AdminOperationResult<ConfiguredToolInventory>>;
   previewConfiguredServerEdit(
     input: ConfiguredServerPreviewInput,
   ): Promise<AdminOperationResult<ConfiguredServerPreviewResult>>;
@@ -1013,6 +1029,40 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
               }
             : {}),
         };
+      },
+    });
+  }
+
+  async refreshConfiguredToolInventory(
+    input: ConfiguredToolInventoryRefreshInput,
+  ): Promise<AdminOperationResult<ConfiguredToolInventory>> {
+    const configuredState = this.readConfiguredServerState(input.targetName, input.targetSource);
+    const context = {
+      ...input.context,
+      target: { type: 'configured_server', id: `${configuredState.source}:${input.targetName}` },
+    };
+    return this.options.operationService.executeReadOnly({
+      context,
+      operationName: 'refreshConfiguredToolInventory',
+      run: async () => {
+        const refresh = this.options.refreshToolInventory;
+        if (!refresh) {
+          if (!this.options.readToolInventory) {
+            throw new Error('Configured tool inventory is unavailable');
+          }
+          return this.options.readToolInventory({
+            targetName: input.targetName,
+            source: configuredState.source,
+            config: configuredState.currentConfig,
+            ...(input.model ? { model: input.model } : {}),
+          });
+        }
+        return refresh({
+          targetName: input.targetName,
+          source: configuredState.source,
+          config: configuredState.currentConfig,
+          ...(input.model ? { model: input.model } : {}),
+        });
       },
     });
   }

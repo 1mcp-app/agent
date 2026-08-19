@@ -8,7 +8,26 @@ const pendingPages = new WeakMap<
   { nextCursor: string; tools: Tool[]; seenCursors: Set<string>; pageCount: number }
 >();
 const lastCompleteTargetSnapshots = new Map<string, Tool[]>();
+const completeTargetSnapshots = new Map<string, ConfiguredToolTargetSnapshot>();
 const MAX_TOOL_PAGES = 1_000;
+
+export type ConfiguredToolSnapshotSource = 'mcpServers' | 'mcpTemplates';
+
+export interface ConfiguredToolTargetSnapshot {
+  source: ConfiguredToolSnapshotSource;
+  targetName: string;
+  instances: Array<{ instanceId: string; tools: Tool[] }>;
+}
+
+export interface ConfiguredToolInspectionPublication {
+  source: ConfiguredToolSnapshotSource;
+  targetName: string;
+  instances: Array<{
+    instanceId: string;
+    connections: readonly OutboundConnection[];
+    tools: readonly Tool[];
+  }>;
+}
 
 export function publishConfiguredToolSnapshot(
   connection: OutboundConnection,
@@ -92,11 +111,64 @@ export function clearLastConfiguredToolSnapshot(targetName: string): void {
   lastCompleteTargetSnapshots.delete(targetName);
 }
 
+export function clearCompleteConfiguredToolTargetSnapshot(
+  source: ConfiguredToolSnapshotSource,
+  targetName: string,
+): void {
+  completeTargetSnapshots.delete(targetSnapshotKey(source, targetName));
+}
+
 export function publishLastConfiguredToolSnapshot(targetName: string, tools: readonly Tool[]): void {
   lastCompleteTargetSnapshots.set(
     targetName,
     tools.map((tool) => ({ ...tool })),
   );
+}
+
+export function readCompleteConfiguredToolTargetSnapshot(
+  source: ConfiguredToolSnapshotSource,
+  targetName: string,
+): ConfiguredToolTargetSnapshot | undefined {
+  const snapshot = completeTargetSnapshots.get(targetSnapshotKey(source, targetName));
+  return snapshot ? cloneTargetSnapshot(snapshot) : undefined;
+}
+
+/** Publish a fully collected target observation without yielding between writes. */
+export function publishCompleteConfiguredToolInspection(publication: ConfiguredToolInspectionPublication): void {
+  const snapshot: ConfiguredToolTargetSnapshot = {
+    source: publication.source,
+    targetName: publication.targetName,
+    instances: publication.instances.map(({ instanceId, tools }) => ({
+      instanceId,
+      tools: tools.map((tool) => ({ ...tool })),
+    })),
+  };
+
+  for (const instance of publication.instances) {
+    for (const connection of new Set(instance.connections)) {
+      publishConfiguredToolSnapshot(connection, instance.tools);
+    }
+  }
+  completeTargetSnapshots.set(targetSnapshotKey(publication.source, publication.targetName), snapshot);
+  publishLastConfiguredToolSnapshot(
+    publication.targetName,
+    Array.from(new Map(snapshot.instances.flatMap(({ tools }) => tools.map((tool) => [tool.name, tool]))).values()),
+  );
+}
+
+function targetSnapshotKey(source: ConfiguredToolSnapshotSource, targetName: string): string {
+  return `${source}\0${targetName}`;
+}
+
+function cloneTargetSnapshot(snapshot: ConfiguredToolTargetSnapshot): ConfiguredToolTargetSnapshot {
+  return {
+    source: snapshot.source,
+    targetName: snapshot.targetName,
+    instances: snapshot.instances.map(({ instanceId, tools }) => ({
+      instanceId,
+      tools: tools.map((tool) => ({ ...tool })),
+    })),
+  };
 }
 
 export function publishCompleteConfiguredToolTargetSnapshots(connections: OutboundConnections): void {

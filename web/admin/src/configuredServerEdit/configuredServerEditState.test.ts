@@ -129,25 +129,106 @@ describe('configured server edit state', () => {
     state = reduceConfiguredServerEditState(state, {
       type: 'toolChanged',
       name: 'search',
+      enabled: false,
       descriptionOverride: 'Search safely',
     });
     state = reduceConfiguredServerEditState(state, {
-      type: 'toolInventoryRecalculated',
+      type: 'toolInventoryReceived',
+      clearPreview: 'always',
       inventory: {
         ...toolDetail.toolInventory,
         model: 'gpt-4o-mini',
         generation: 'generation-2',
-        rows: [toolInventoryRow('search'), toolInventoryRow('issues')],
-        counts: { observed: 2, enabled: 2, disabled: 0, unresolved: 0 },
+        rows: [
+          toolInventoryRow('search'),
+          toolInventoryRow('issues'),
+          { ...toolInventoryRow('stored'), observed: false, unresolved: true },
+        ],
+        counts: { observed: 2, enabled: 3, disabled: 0, unresolved: 1 },
         approximateTokens: { enabled: 20, allObserved: 20, savings: 0 },
       },
     });
     state = reduceConfiguredServerEditState(state, { type: 'toolChanged', name: 'issues', enabled: false });
 
     expect(configuredServerEditDraft(state)).toEqual({
-      disabledTools: ['issues'],
+      disabledTools: ['issues', 'search'],
       toolDescriptionOverrides: { search: 'Search safely' },
     });
+    expect(state).toMatchObject({ toolDraft: { stored: { enabled: true, descriptionOverride: '' } } });
+  });
+
+  it('retains a preview for the same capability generation and clears it when refreshed capabilities change', () => {
+    const toolDetail = detail();
+    toolDetail.toolInventory = {
+      targetName: 'github',
+      source: 'mcpServers',
+      targetEnabled: true,
+      freshness: 'live',
+      model: 'gpt-4o',
+      generation: 'generation-1',
+      activeInstanceCount: 1,
+      rows: [toolInventoryRow('search')],
+      counts: { observed: 1, enabled: 1, disabled: 0, unresolved: 0 },
+      approximateTokens: { enabled: 10, allObserved: 10, savings: 0 },
+    };
+    let state = reduceConfiguredServerEditState(createConfiguredServerEditState(), {
+      type: 'detailLoaded',
+      serverId: 'github',
+      detail: toolDetail,
+    });
+    state = reduceConfiguredServerEditState(state, {
+      type: 'previewSucceeded',
+      preview: previewWithConnectionFailure(),
+    });
+    state = reduceConfiguredServerEditState(state, { type: 'toolInventoryRequestStarted', clearPreview: false });
+    state = reduceConfiguredServerEditState(state, {
+      type: 'toolInventoryReceived',
+      clearPreview: 'generationChanged',
+      inventory: { ...toolDetail.toolInventory, model: 'gpt-4o-mini' },
+    });
+    expect(state).toMatchObject({
+      status: 'loaded',
+      toolModel: 'gpt-4o-mini',
+      preview: { previewFingerprint: 'preview-critical' },
+    });
+
+    state = reduceConfiguredServerEditState(state, { type: 'toolInventoryRequestStarted', clearPreview: false });
+    state = reduceConfiguredServerEditState(state, {
+      type: 'toolInventoryReceived',
+      clearPreview: 'generationChanged',
+      inventory: { ...toolDetail.toolInventory, generation: 'generation-2' },
+    });
+    expect(state).toMatchObject({ status: 'loaded', preview: undefined, toolInventoryBusy: false });
+  });
+
+  it('always reconciles an owned inventory response so its busy state cannot stick', () => {
+    const toolDetail = detail();
+    toolDetail.toolInventory = {
+      targetName: 'github',
+      source: 'mcpServers',
+      targetEnabled: true,
+      freshness: 'live',
+      model: 'gpt-4o',
+      generation: 'generation-1',
+      activeInstanceCount: 1,
+      rows: [toolInventoryRow('search')],
+      counts: { observed: 1, enabled: 1, disabled: 0, unresolved: 0 },
+      approximateTokens: { enabled: 10, allObserved: 10, savings: 0 },
+    };
+    let state = reduceConfiguredServerEditState(createConfiguredServerEditState(), {
+      type: 'detailLoaded',
+      serverId: 'github',
+      detail: toolDetail,
+    });
+    state = reduceConfiguredServerEditState(state, { type: 'toolInventoryRequestStarted', clearPreview: false });
+    state = reduceConfiguredServerEditState(state, { type: 'applyStarted' });
+    state = reduceConfiguredServerEditState(state, {
+      type: 'toolInventoryReceived',
+      clearPreview: 'generationChanged',
+      inventory: { ...toolDetail.toolInventory, generation: 'generation-2' },
+    });
+
+    expect(state).toMatchObject({ status: 'loaded', applyBusy: true, toolInventoryBusy: false, preview: undefined });
   });
 
   it('owns normalized field and secret draft construction', () => {
