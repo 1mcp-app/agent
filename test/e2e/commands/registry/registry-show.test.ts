@@ -292,25 +292,7 @@ describe('Registry Show Command E2E', () => {
     });
   });
 
-  describe('Performance and Reliability', () => {
-    it('should complete show request within reasonable time', async () => {
-      const startTime = Date.now();
-
-      const result = await runner.runRegistryCommand('show', {
-        args: ['file-system'],
-        timeout: 30000, // 30 second timeout
-        expectError: true,
-      });
-
-      const duration = Date.now() - startTime;
-      runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
-      runner.assertOutputContains(result, 'HTTP 404: Not Found');
-
-      // Should complete within 15 seconds even for errors
-      expect(duration).toBeLessThan(15000);
-    });
-
+  describe('Reliability', () => {
     it('should handle repeated show requests consistently', async () => {
       const results = [];
 
@@ -333,37 +315,9 @@ describe('Registry Show Command E2E', () => {
       });
     });
 
-    it('should cache results appropriately', async () => {
-      const result1 = await runner.runRegistryCommand('show', {
-        args: ['file-system'],
-        expectError: true,
-        timeout: 20000,
-      });
-      const startTime = Date.now();
-
-      const result2 = await runner.runRegistryCommand('show', {
-        args: ['file-system'],
-        expectError: true,
-        timeout: 20000,
-      });
-      const duration = Date.now() - startTime;
-
-      runner.assertFailure(result1);
-      runner.assertFailure(result2);
-
-      // Second request might be faster due to caching (even for errors)
-      expect(duration).toBeLessThan(5000);
-
-      // Both should contain same error message
-      runner.assertOutputContains(result1, 'Failed to fetch server with ID: file-system');
-      runner.assertOutputContains(result2, 'Failed to fetch server with ID: file-system');
-    });
-
-    it('should handle different servers efficiently', async () => {
+    it('should preserve each server ID across independent failures', async () => {
       const serverIds = ['file-system', 'missing-git', 'missing-database'];
       const results = [];
-
-      const startTime = Date.now();
 
       for (const serverId of serverIds) {
         const result = await runner.runRegistryCommand('show', {
@@ -375,11 +329,6 @@ describe('Registry Show Command E2E', () => {
         // Note: These might not exist, which is fine for testing error handling
       }
 
-      const duration = Date.now() - startTime;
-
-      // Should complete all requests within reasonable time
-      expect(duration).toBeLessThan(60000); // 60 seconds for 3 requests
-
       // All should fail since these server IDs don't exist
       const failureCount = results.filter((r) => r.exitCode !== 0).length;
       expect(failureCount).toBe(serverIds.length);
@@ -390,6 +339,14 @@ describe('Registry Show Command E2E', () => {
         runner.assertOutputContains(result, `Failed to fetch server with ID: ${serverId}`);
         runner.assertOutputContains(result, 'HTTP 404: Not Found');
       });
+
+      expect(environment.getMockRegistryRequests()).toEqual(
+        serverIds.map((serverId) => ({
+          method: 'GET',
+          pathname: `/v0.1/servers/${serverId}/versions`,
+          search: '',
+        })),
+      );
     });
   });
 

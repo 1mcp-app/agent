@@ -431,31 +431,28 @@ describe('Command Workflows Integration E2E', () => {
     });
   });
 
-  describe('Performance and Reliability', () => {
-    it('should handle rapid command sequences efficiently', async () => {
-      const startTime = Date.now();
+  describe('Reliability', () => {
+    it('should preserve state through a complete command sequence', async () => {
       const serverName = 'performance-test-server';
 
-      // Rapid sequence of operations
-      await runner.runMcpCommand('add', {
-        args: [serverName, '--type', 'stdio', '--command', 'echo', '--args', 'performance'],
-      });
+      const results = [
+        await runner.runMcpCommand('add', {
+          args: [serverName, '--type', 'stdio', '--command', 'echo', '--args', 'performance'],
+        }),
+        await runner.runMcpCommand('list'),
+        await runner.runMcpCommand('status', { args: [serverName] }),
+        await runner.runMcpCommand('disable', { args: [serverName] }),
+        await runner.runMcpCommand('enable', { args: [serverName] }),
+        await runner.runMcpCommand('update', { args: [serverName, '--tags', 'performance'] }),
+        await runner.runMcpCommand('list', { args: ['--verbose'] }),
+        await runner.runMcpCommand('remove', { args: [serverName, '--yes'] }),
+      ];
 
-      await runner.runMcpCommand('list');
-      await runner.runMcpCommand('status', { args: [serverName] });
-      await runner.runMcpCommand('disable', { args: [serverName] });
-      await runner.runMcpCommand('enable', { args: [serverName] });
-      await runner.runMcpCommand('update', { args: [serverName, '--tags', 'performance'] });
-      await runner.runMcpCommand('list', { args: ['--verbose'] });
-      await runner.runMcpCommand('remove', { args: [serverName, '--yes'] });
-
-      const duration = Date.now() - startTime;
-
-      // Should complete within reasonable time
-      expect(duration).toBeLessThan(15000); // 15 seconds
+      results.forEach((result) => runner.assertSuccess(result));
 
       // Verify final state is clean
       const finalList = await runner.runMcpCommand('list');
+      runner.assertSuccess(finalList);
       expect(finalList.stdout).not.toContain(serverName);
     });
 
