@@ -75,6 +75,8 @@
     "test:unit:watch": "vitest",
     "test:unit:coverage": "vitest run --coverage",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "test:e2e:browser": "vitest run --config vitest.e2e.config.ts test/e2e/admin-spa-browser-smoke.e2e.test.ts test/e2e/oauth-loopback-consent.e2e.test.ts",
+    "test:e2e:non-browser": "vitest run --config vitest.e2e.config.ts --exclude test/e2e/admin-spa-browser-smoke.e2e.test.ts --exclude test/e2e/oauth-loopback-consent.e2e.test.ts",
     "test:e2e:watch": "vitest --config vitest.e2e.config.ts",
     "test:e2e:coverage": "vitest run --config vitest.e2e.config.ts --coverage",
     "test:e2e:performance": "node scripts/test-e2e-performance.js",
