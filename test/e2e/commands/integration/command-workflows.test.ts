@@ -442,24 +442,30 @@ describe('Command Workflows Integration E2E', () => {
 
       const listResult = await runner.runMcpCommand('list');
       runner.assertSuccess(listResult);
+      runner.assertOutputContains(listResult, serverName);
 
       const statusResult = await runner.runMcpCommand('status', { args: [serverName] });
       runner.assertSuccess(statusResult);
+      runner.assertOutputContains(statusResult, 'Enabled');
 
       const disableResult = await runner.runMcpCommand('disable', { args: [serverName] });
       runner.assertSuccess(disableResult);
+      runner.assertOutputContains(disableResult, 'Successfully disabled server');
 
       const enableResult = await runner.runMcpCommand('enable', { args: [serverName] });
       runner.assertSuccess(enableResult);
+      runner.assertOutputContains(enableResult, 'Successfully enabled server');
 
       const updateResult = await runner.runMcpCommand('update', { args: [serverName, '--tags', 'lifecycle'] });
       runner.assertSuccess(updateResult);
 
       const verboseListResult = await runner.runMcpCommand('list', { args: ['--verbose'] });
       runner.assertSuccess(verboseListResult);
+      runner.assertOutputContains(verboseListResult, 'Tags: lifecycle');
 
       const removeResult = await runner.runMcpCommand('remove', { args: [serverName, '--yes'] });
       runner.assertSuccess(removeResult);
+      runner.assertOutputContains(removeResult, 'Successfully removed server');
 
       // Verify final state is clean
       const finalList = await runner.runMcpCommand('list');

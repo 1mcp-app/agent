@@ -31,6 +31,7 @@ describe('test-and-validate workflow', () => {
     const nonBrowserJob = workflow.match(/\n\s{2}test-e2e-parallel:\n(?<body>(?:\s{4}.*\n)+)/)?.groups?.body;
     const systemJob = workflow.match(/\n\s{2}test-e2e-system:\n(?<body>(?:\s{4}.*\n)+)/)?.groups?.body;
     const browserJob = workflow.match(/\n\s{2}test-e2e-browser:\n(?<body>(?:\s{4}.*\n)+)/)?.groups?.body;
+    const checkoutCount = workflow.match(/uses: actions\/checkout@v7/g)?.length ?? 0;
 
     expect(ciJob).toMatch(/pnpm ci:static[\s\S]*pnpm test:unit[\s\S]*pnpm test:admin/);
     expect(packageJson.scripts['ci:static']).toContain('pnpm lint');
@@ -48,6 +49,8 @@ describe('test-and-validate workflow', () => {
     expect(browserJob).toContain('mcr.microsoft.com/playwright:v1.61.1-noble');
     expect(browserJob).toContain('options: --ipc=host');
     expect(browserJob).toContain('timeout-minutes: 15');
+    expect(checkoutCount).toBeGreaterThan(0);
+    expect(workflow.match(/persist-credentials: false/g)).toHaveLength(checkoutCount);
   });
 
   it('routes every Playwright spec through the browser lane naming contract', () => {
