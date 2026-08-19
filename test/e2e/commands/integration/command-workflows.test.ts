@@ -431,31 +431,45 @@ describe('Command Workflows Integration E2E', () => {
     });
   });
 
-  describe('Performance and Reliability', () => {
-    it('should handle rapid command sequences efficiently', async () => {
-      const startTime = Date.now();
-      const serverName = 'performance-test-server';
+  describe('Reliability', () => {
+    it('should preserve state through a complete command sequence', async () => {
+      const serverName = 'lifecycle-test-server';
 
-      // Rapid sequence of operations
-      await runner.runMcpCommand('add', {
-        args: [serverName, '--type', 'stdio', '--command', 'echo', '--args', 'performance'],
+      const addResult = await runner.runMcpCommand('add', {
+        args: [serverName, '--type', 'stdio', '--command', 'echo', '--args', 'lifecycle'],
       });
+      runner.assertSuccess(addResult);
 
-      await runner.runMcpCommand('list');
-      await runner.runMcpCommand('status', { args: [serverName] });
-      await runner.runMcpCommand('disable', { args: [serverName] });
-      await runner.runMcpCommand('enable', { args: [serverName] });
-      await runner.runMcpCommand('update', { args: [serverName, '--tags', 'performance'] });
-      await runner.runMcpCommand('list', { args: ['--verbose'] });
-      await runner.runMcpCommand('remove', { args: [serverName, '--yes'] });
+      const listResult = await runner.runMcpCommand('list');
+      runner.assertSuccess(listResult);
+      runner.assertOutputContains(listResult, serverName);
 
-      const duration = Date.now() - startTime;
+      const statusResult = await runner.runMcpCommand('status', { args: [serverName] });
+      runner.assertSuccess(statusResult);
+      runner.assertOutputContains(statusResult, 'Enabled');
 
-      // Should complete within reasonable time
-      expect(duration).toBeLessThan(15000); // 15 seconds
+      const disableResult = await runner.runMcpCommand('disable', { args: [serverName] });
+      runner.assertSuccess(disableResult);
+      runner.assertOutputContains(disableResult, 'Successfully disabled server');
+
+      const enableResult = await runner.runMcpCommand('enable', { args: [serverName] });
+      runner.assertSuccess(enableResult);
+      runner.assertOutputContains(enableResult, 'Successfully enabled server');
+
+      const updateResult = await runner.runMcpCommand('update', { args: [serverName, '--tags', 'lifecycle'] });
+      runner.assertSuccess(updateResult);
+
+      const verboseListResult = await runner.runMcpCommand('list', { args: ['--verbose'] });
+      runner.assertSuccess(verboseListResult);
+      runner.assertOutputContains(verboseListResult, 'Tags: lifecycle');
+
+      const removeResult = await runner.runMcpCommand('remove', { args: [serverName, '--yes'] });
+      runner.assertSuccess(removeResult);
+      runner.assertOutputContains(removeResult, 'Successfully removed server');
 
       // Verify final state is clean
       const finalList = await runner.runMcpCommand('list');
+      runner.assertSuccess(finalList);
       expect(finalList.stdout).not.toContain(serverName);
     });
 

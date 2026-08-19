@@ -159,6 +159,7 @@ describe('ConfiguredToolTable', () => {
     );
 
     expect(screen.getByRole('status')).toHaveTextContent(/configured server is disconnected/i);
+    expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite');
     expect(screen.getByRole('switch', { name: 'Enable common' })).toBeEnabled();
     await user.click(screen.getByRole('button', { name: 'Retry' }));
     expect(onRefresh).toHaveBeenCalledOnce();
@@ -182,6 +183,27 @@ describe('ConfiguredToolTable', () => {
     );
 
     expect(screen.getByRole('alert')).toHaveTextContent('Tool refresh failed: runtime unavailable.');
+    expect(screen.getByRole('alert')).not.toHaveAttribute('aria-live');
+  });
+
+  it('disables refresh and model selection while a refresh runs', () => {
+    render(
+      <MantineProvider>
+        <ConfiguredToolTable
+          inventory={inventory}
+          draft={{ common: { enabled: true, descriptionOverride: '' } }}
+          disabled={false}
+          refreshBusy={true}
+          onToolChange={vi.fn()}
+          onBulkChange={vi.fn()}
+          onModelChange={vi.fn()}
+          onRefresh={vi.fn()}
+        />
+      </MantineProvider>,
+    );
+
+    expect(screen.getByRole('button', { name: 'Refresh' })).toBeDisabled();
+    expect(screen.getByRole('textbox', { name: 'Token estimate model' })).toBeDisabled();
   });
 
   it('announces concrete failed instance facts without empty or successful facts', () => {

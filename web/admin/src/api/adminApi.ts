@@ -397,7 +397,14 @@ export interface ConfiguredToolInventoryRow {
 
 export interface ConfiguredToolInspectionOutcome {
   status: 'unavailable' | 'in_progress' | 'failed' | 'complete';
-  reason?: string;
+  reason?:
+    | 'target_disabled'
+    | 'target_disconnected'
+    | 'no_active_instances'
+    | 'active_instance_unavailable'
+    | 'inspection_failed'
+    | 'snapshot_unavailable'
+    | 'active_instances_changed';
   retryable: boolean;
   instances: Array<{
     instanceId: string;

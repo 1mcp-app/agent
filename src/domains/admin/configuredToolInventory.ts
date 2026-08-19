@@ -102,6 +102,8 @@ export async function createConfiguredToolInventory(input: {
       else toolsByName.set(tool.name, { tool, instances: new Set([instanceId]), live: true });
     }
   }
+  // Passive construction promotes a fully observed current set into retained state.
+  // Explicit runtime inspections publish separately after validating the instance set.
   let retainedSnapshot = readCompleteConfiguredToolTargetSnapshot(input.source, input.targetName);
   if (
     !input.inspection &&

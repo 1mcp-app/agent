@@ -11,6 +11,16 @@ const mockState = vi.hoisted(() => ({
     ((data: { newContext?: unknown; sessionIdChanged: boolean }) => Promise<void>) | undefined,
   reprocessTemplatesWithNewContext: vi.fn(),
   updateServersWithNewConfig: vi.fn(),
+  inboundConnections: new Map(),
+  retireTemplatesForRuntimeEnvironment: vi.fn().mockResolvedValue([]),
+  createTemplateBasedServers: vi.fn(),
+  loadConfigWithTemplates: vi.fn(),
+}));
+
+vi.mock('@src/config/configManager.js', () => ({
+  ConfigManager: {
+    getInstance: vi.fn(() => ({ loadConfigWithTemplates: mockState.loadConfigWithTemplates })),
+  },
 }));
 
 vi.mock('@src/core/loading/mcpLoadingManager.js', () => ({
@@ -58,7 +68,7 @@ vi.mock('./connectionManager.js', () => ({
   ConnectionManager: vi.fn(function () {
     return {
       setLazyLoadingOrchestrator: vi.fn(),
-      getInboundConnections: vi.fn(() => new Map()),
+      getInboundConnections: vi.fn(() => mockState.inboundConnections),
       getTransports: vi.fn(() => new Map()),
       cleanup: vi.fn(),
     };
@@ -75,6 +85,8 @@ vi.mock('./templateServerManager.js', () => ({
       getIdleTemplateInstances: vi.fn(() => []),
       cleanupIdleInstances: vi.fn().mockResolvedValue(0),
       shutdown: vi.fn().mockResolvedValue(undefined),
+      retireTemplatesForRuntimeEnvironment: mockState.retireTemplatesForRuntimeEnvironment,
+      createTemplateBasedServers: mockState.createTemplateBasedServers,
     };
   }),
 }));
@@ -106,6 +118,7 @@ describe('ServerManager hot-reload lifecycle facade', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     mockState.contextChangedHandler = undefined;
+    mockState.inboundConnections.clear();
     vi.mocked(McpLoadingManager.current.getStateTracker).mockReturnValue({
       getServerState: vi.fn(() => ({ state: LoadingState.Ready })),
     } as never);
@@ -322,5 +335,50 @@ describe('ServerManager hot-reload lifecycle facade', () => {
     expect(serverManager.startServer).not.toHaveBeenCalled();
     expect(serverManager.stopServer).not.toHaveBeenCalled();
     expect(serverManager.restartServer).not.toHaveBeenCalled();
+  });
+
+  it('recreates only affected template instances for connected sessions after Runtime Scope env changes', async () => {
+    const context = { sessionId: 'session-1', project: { path: '/project' } };
+    const notification = vi.fn().mockResolvedValue(undefined);
+    const inbound = { context, tags: ['runtime'], server: { transport: {}, notification } };
+    mockState.inboundConnections.set('session-1', inbound);
+    mockState.inboundConnections.set('session-2', {
+      context: { sessionId: 'session-2', project: { path: '/literal' } },
+      tags: ['runtime'],
+      server: { transport: {}, notification: vi.fn() },
+    });
+    mockState.retireTemplatesForRuntimeEnvironment.mockResolvedValueOnce([
+      { sessionId: 'session-1', templateName: 'affected', lifecycle: 'ephemeral' },
+    ]);
+    mockState.loadConfigWithTemplates.mockResolvedValueOnce({
+      staticServers: {},
+      templateServers: {
+        affected: { command: 'node', args: ['$TOKEN'] },
+        unaffected: { command: 'node', args: ['literal'] },
+      },
+      errors: [],
+    });
+    const refreshCapabilities = vi.fn().mockResolvedValue(undefined);
+    (serverManager as any).lazyLoadingOrchestrator = { refreshCapabilities };
+
+    await serverManager.reloadTemplatesForRuntimeEnvironment([]);
+
+    expect(mockState.retireTemplatesForRuntimeEnvironment).toHaveBeenCalledWith([]);
+    expect(mockState.loadConfigWithTemplates).toHaveBeenCalledOnce();
+    expect(mockState.createTemplateBasedServers).toHaveBeenCalledWith(
+      'session-1',
+      context,
+      inbound,
+      { mcpTemplates: { affected: { command: 'node', args: ['$TOKEN'] } } },
+      outboundConns,
+      transports,
+      'ephemeral',
+    );
+    expect(mockState.createTemplateBasedServers).toHaveBeenCalledOnce();
+    expect(refreshCapabilities).toHaveBeenCalledOnce();
+    expect(notification).toHaveBeenCalledTimes(3);
+    expect(notification).toHaveBeenCalledWith({ method: 'notifications/tools/list_changed', params: {} });
+    expect(notification).toHaveBeenCalledWith({ method: 'notifications/resources/list_changed', params: {} });
+    expect(notification).toHaveBeenCalledWith({ method: 'notifications/prompts/list_changed', params: {} });
   });
 });

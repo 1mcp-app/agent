@@ -1,6 +1,6 @@
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
-import { processEnvironment } from '@src/config/envProcessor.js';
+import { sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
 import { getGlobalContextManager } from '@src/core/context/globalContextManager.js';
 import type { OutboundConnections } from '@src/core/types/client.js';
@@ -43,11 +43,8 @@ export class MCPServerLifecycleManager {
         return;
       }
 
-      // Process environment variables in config
-      const processedConfig = this.processServerConfig(config);
-
       // Infer transport type if not specified
-      const configWithType = inferTransportType(processedConfig, serverName);
+      const configWithType = inferTransportType(config, serverName);
 
       // Create transport for the server
       const transport = await this.createServerTransport(serverName, configWithType);
@@ -63,8 +60,9 @@ export class MCPServerLifecycleManager {
 
       logger.info(`Successfully started MCP server: ${serverName}`);
     } catch (error) {
-      logger.error(`Failed to start MCP server ${serverName}:`, error);
-      throw error;
+      const safeError = sanitizeRuntimeScopeError(error);
+      logger.error(`Failed to start MCP server ${serverName}:`, safeError);
+      throw safeError;
     }
   }
 
@@ -96,7 +94,7 @@ export class MCPServerLifecycleManager {
           await transport.close();
         }
       } catch (error) {
-        logger.warn(`Error closing transport for server ${serverName}:`, error);
+        logger.warn(`Error closing transport for server ${serverName}:`, sanitizeRuntimeScopeError(error));
       }
 
       // Remove from tracking
@@ -104,8 +102,9 @@ export class MCPServerLifecycleManager {
 
       logger.info(`Successfully stopped MCP server: ${serverName}`);
     } catch (error) {
-      logger.error(`Failed to stop MCP server ${serverName}:`, error);
-      throw error;
+      const safeError = sanitizeRuntimeScopeError(error);
+      logger.error(`Failed to stop MCP server ${serverName}:`, safeError);
+      throw safeError;
     }
   }
 
@@ -133,8 +132,9 @@ export class MCPServerLifecycleManager {
 
       logger.info(`Successfully restarted MCP server: ${serverName}`);
     } catch (error) {
-      logger.error(`Failed to restart MCP server ${serverName}:`, error);
-      throw error;
+      const safeError = sanitizeRuntimeScopeError(error);
+      logger.error(`Failed to restart MCP server ${serverName}:`, safeError);
+      throw safeError;
     }
   }
 
@@ -239,35 +239,6 @@ export class MCPServerLifecycleManager {
   }
 
   /**
-   * Process server configuration to handle environment variables
-   */
-  private processServerConfig(config: MCPServerParams): MCPServerParams {
-    try {
-      // Create a mutable copy for processing
-      const processedConfig = { ...config };
-
-      // Process environment variables if enabled - only pass env-related fields
-      const envConfig = {
-        inheritParentEnv: config.inheritParentEnv,
-        envFilter: config.envFilter,
-        env: config.env,
-      };
-
-      const processedEnv = processEnvironment(envConfig);
-
-      // Replace environment variables in the config while preserving all other fields
-      if (processedEnv.processedEnv && Object.keys(processedEnv.processedEnv).length > 0) {
-        processedConfig.env = processedEnv.processedEnv;
-      }
-
-      return processedConfig;
-    } catch (error) {
-      logger.warn(`Failed to process environment variables for server config:`, error);
-      return config;
-    }
-  }
-
-  /**
    * Create a transport for the given server configuration
    */
   private async createServerTransport(serverName: string, config: MCPServerParams): Promise<AuthProviderTransport> {
@@ -297,8 +268,9 @@ export class MCPServerLifecycleManager {
 
       return transport as AuthProviderTransport;
     } catch (error) {
-      logger.error(`Failed to create transport for server ${serverName}:`, error);
-      throw error;
+      const safeError = sanitizeRuntimeScopeError(error);
+      logger.error(`Failed to create transport for server ${serverName}:`, safeError);
+      throw safeError;
     }
   }
 
@@ -332,8 +304,9 @@ export class MCPServerLifecycleManager {
         meta: { serverName, status: newClient?.status },
       }));
     } catch (error) {
-      logger.error(`Failed to connect to server ${serverName}:`, error);
-      throw error;
+      const safeError = sanitizeRuntimeScopeError(error);
+      logger.error(`Failed to connect to server ${serverName}:`, safeError);
+      throw safeError;
     }
   }
 

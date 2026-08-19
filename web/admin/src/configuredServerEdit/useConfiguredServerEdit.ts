@@ -253,6 +253,7 @@ export function useConfiguredServerEdit({
         current.applyBusy ||
         current.toolInventoryBusy ||
         toolInventoryInteractionRef.current ||
+        applyInteractionRef.current ||
         model === current.toolModel
       ) {
         return;

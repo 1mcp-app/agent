@@ -1,3 +1,4 @@
+import { DEFAULT_REQUEST_TIMEOUT_MSEC } from '@modelcontextprotocol/sdk/shared/protocol.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import {
@@ -16,6 +17,8 @@ import {
   type ConfiguredToolTargetSource,
   createConfiguredToolInventory,
 } from './configuredToolInventory.js';
+
+const INSPECTION_PAGE_TIMEOUT_BUDGET = 4;
 
 interface InspectionCandidate {
   instanceId: string;
@@ -148,13 +151,7 @@ export class RuntimeConfiguredToolInspectionService {
     const settled = await Promise.allSettled(
       initial.candidates.map(async (candidate) => ({
         candidate,
-        tools: (
-          await collectConfiguredToolPages((cursor) =>
-            candidate.connection.client.listTools(cursor === undefined ? undefined : { cursor }, {
-              timeout: getRequestTimeout(candidate.connection.transport),
-            }),
-          )
-        ).tools,
+        tools: await this.inspectCandidate(candidate),
       })),
     );
     const complete: Array<{ candidate: InspectionCandidate; tools: Tool[] }> = [];
@@ -221,6 +218,28 @@ export class RuntimeConfiguredToolInspectionService {
         connection: candidate.connection,
       })),
     };
+  }
+
+  private async inspectCandidate(candidate: InspectionCandidate): Promise<Tool[]> {
+    const requestTimeout = getRequestTimeout(candidate.connection.transport);
+    const totalTimeout = (requestTimeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC) * INSPECTION_PAGE_TIMEOUT_BUDGET;
+    const controller = new AbortController();
+    const deadline = setTimeout(() => {
+      controller.abort(new Error(`Tool inspection exceeded the ${totalTimeout}ms deadline`));
+    }, totalTimeout);
+
+    try {
+      return (
+        await collectConfiguredToolPages((cursor) =>
+          candidate.connection.client.listTools(cursor === undefined ? undefined : { cursor }, {
+            timeout: requestTimeout,
+            signal: controller.signal,
+          }),
+        )
+      ).tools;
+    } finally {
+      clearTimeout(deadline);
+    }
   }
 
   private resolveCandidates(source: ConfiguredToolTargetSource, targetName: string): CandidateResolution {
@@ -294,10 +313,11 @@ function sameCandidates(left: CandidateResolution, right: CandidateResolution): 
   if (left.unavailable.length > 0 || right.unavailable.length > 0) return false;
   if (left.activeInstanceIds.join('\0') !== right.activeInstanceIds.join('\0')) return false;
   if (left.candidates.length !== right.candidates.length) return false;
-  return left.candidates.every((candidate, index) => {
-    const other = right.candidates[index];
+  const rightById = new Map(right.candidates.map((candidate) => [candidate.instanceId, candidate]));
+  return left.candidates.every((candidate) => {
+    const other = rightById.get(candidate.instanceId);
     return (
-      other?.instanceId === candidate.instanceId &&
+      other !== undefined &&
       other.connection === candidate.connection &&
       other.connections.length === candidate.connections.length &&
       other.connections.every((connection, connectionIndex) => connection === candidate.connections[connectionIndex])

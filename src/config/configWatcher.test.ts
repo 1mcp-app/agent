@@ -124,6 +124,75 @@ describe('ConfigWatcher', () => {
       expect(reloadSpy).toHaveBeenCalledOnce();
     });
 
+    it.each(['change', 'rename'] as const)('reloads for Runtime Scope .env %s events', (eventType) => {
+      vi.useFakeTimers();
+      const reloadSpy = vi.fn();
+      vi.spyOn(configLoader, 'checkFileModified').mockReturnValue(false);
+      vi.spyOn(configLoader, 'checkRuntimeEnvModified').mockReturnValue(true);
+      configWatcher.on('reload', reloadSpy);
+
+      configWatcher.startWatching();
+      watchMock.callback?.(eventType, '.env');
+      vi.advanceTimersByTime(100);
+
+      expect(reloadSpy).toHaveBeenCalledOnce();
+    });
+
+    it('does not reschedule a failed Runtime Scope signature until the file changes again', async () => {
+      vi.useFakeTimers();
+      vi.spyOn(configLoader, 'checkFileModified').mockReturnValue(false);
+      const reloadSpy = vi.fn(() =>
+        configLoader.markRuntimeEnvAttempted(configLoader.captureRuntimeEnvSignature()),
+      );
+      configWatcher.on('reload', reloadSpy);
+      configWatcher.startWatching();
+      await fsPromises.writeFile(join(tempConfigDir, '.env'), 'invalid line\n');
+
+      watchMock.callback?.('change', '.env');
+      await vi.advanceTimersByTimeAsync(1200);
+      watchMock.callback?.('change', '.env');
+      await vi.advanceTimersByTimeAsync(1200);
+      expect(reloadSpy).toHaveBeenCalledOnce();
+
+      await fsPromises.writeFile(join(tempConfigDir, '.env'), 'different invalid line\n');
+      watchMock.callback?.('change', '.env');
+      await vi.advanceTimersByTimeAsync(100);
+      expect(reloadSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not repeat a direct Runtime Scope reload after a successful transactional acknowledgement', async () => {
+      vi.useFakeTimers();
+      vi.spyOn(configLoader, 'checkFileModified').mockReturnValue(false);
+      const reloadSpy = vi.fn(() =>
+        configLoader.markRuntimeEnvObserved(configLoader.captureRuntimeEnvSignature()),
+      );
+      configWatcher.on('reload', reloadSpy);
+      configWatcher.startWatching();
+      await fsPromises.writeFile(join(tempConfigDir, '.env'), 'TOKEN=changed\n');
+
+      watchMock.callback?.('change', '.env');
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(1100);
+
+      expect(reloadSpy).toHaveBeenCalledOnce();
+    });
+
+    it('keeps an unacknowledged Runtime Scope change retryable after a failed reload', async () => {
+      vi.useFakeTimers();
+      vi.spyOn(configLoader, 'checkFileModified').mockReturnValue(false);
+      const reloadSpy = vi.fn();
+      configWatcher.on('reload', reloadSpy);
+      configWatcher.startWatching();
+      await fsPromises.writeFile(join(tempConfigDir, '.env'), 'invalid line\n');
+
+      watchMock.callback?.('change', '.env');
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(reloadSpy).toHaveBeenCalledTimes(2);
+    });
+
     it('should ignore backup files prefixed with the config filename', () => {
       vi.useFakeTimers();
       const reloadSpy = vi.fn();

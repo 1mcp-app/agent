@@ -1,4 +1,5 @@
 import { CONFIG_EVENTS, ConfigChange, ConfigChangeType, ConfigManager } from '@src/config/configManager.js';
+import type { RuntimeEnvironmentChange } from '@src/config/types.js';
 import {
   clearCompleteConfiguredToolTargetSnapshot,
   clearLastConfiguredToolSnapshot,
@@ -14,15 +15,20 @@ import logger, { debugIf } from '@src/logger/logger.js';
 export class ConfigChangeHandler {
   private static instance: ConfigChangeHandler;
   private configManager: ConfigManager;
+  private readonly configChangesListener: (changes: ConfigChange[]) => Promise<void>;
+  private readonly runtimeEnvironmentListener: (change: RuntimeEnvironmentChange) => Promise<void>;
 
   /**
    * Private constructor to enforce singleton pattern
    */
   private constructor(configManager?: ConfigManager) {
     this.configManager = configManager || ConfigManager.getInstance();
+    this.configChangesListener = this.handleConfigChanges.bind(this);
+    this.runtimeEnvironmentListener = this.handleRuntimeEnvironmentChange.bind(this);
 
     // Listen to config changes
-    this.configManager.on(CONFIG_EVENTS.CONFIG_CHANGED, this.handleConfigChanges.bind(this));
+    this.configManager.on(CONFIG_EVENTS.CONFIG_CHANGED, this.configChangesListener);
+    this.configManager.on(CONFIG_EVENTS.RUNTIME_ENVIRONMENT_CHANGED, this.runtimeEnvironmentListener);
   }
 
   /**
@@ -95,6 +101,16 @@ export class ConfigChangeHandler {
     await this.notifyClientsIfNeeded(appliedChanges, newConfig);
     if (templateToolMetadataChanged && appliedChanges.length === 0) {
       await this.sendListChangedNotifications();
+    }
+  }
+
+  private async handleRuntimeEnvironmentChange(change: RuntimeEnvironmentChange): Promise<void> {
+    const serverManager = this.tryGetServerManager();
+    if (!serverManager) return;
+    try {
+      await serverManager.reloadTemplatesForRuntimeEnvironment(change.templateServerNames);
+    } catch (error) {
+      logger.error('Failed to reload templates after Runtime Scope environment change', error);
     }
   }
 
@@ -429,8 +445,8 @@ export class ConfigChangeHandler {
    * Stop the handler and clean up resources
    */
   public async stop(): Promise<void> {
-    // Remove event listeners
-    this.configManager.removeAllListeners(CONFIG_EVENTS.CONFIG_CHANGED);
+    this.configManager.off(CONFIG_EVENTS.CONFIG_CHANGED, this.configChangesListener);
+    this.configManager.off(CONFIG_EVENTS.RUNTIME_ENVIRONMENT_CHANGED, this.runtimeEnvironmentListener);
     logger.info('ConfigChangeHandler stopped');
   }
 }

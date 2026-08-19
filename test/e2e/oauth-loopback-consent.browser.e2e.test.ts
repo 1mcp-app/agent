@@ -14,8 +14,16 @@ import { createOAuthRoutes } from '@src/transport/http/routes/oauthRoutes.js';
 import express from 'express';
 import { type Browser, chromium } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 
 let resolveCallback: ((url: URL) => void) | undefined;
+
+const registeredClientSchema = z.object({ client_id: z.string().min(1) });
+const tokenResponseSchema = z.object({
+  access_token: z.string().min(1),
+  refresh_token: z.string().min(1),
+  scope: z.string(),
+});
 
 describe('OAuth loopback consent browser flow', () => {
   let authServer: Server;
@@ -88,7 +96,7 @@ describe('OAuth loopback consent browser flow', () => {
       }),
     });
     expect(registrationResponse.status, await registrationResponse.clone().text()).toBe(201);
-    const client = (await registrationResponse.json()) as { client_id: string };
+    const client = registeredClientSchema.parse(await registrationResponse.json());
 
     const codeVerifier = randomBytes(48).toString('base64url');
     const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
@@ -131,7 +139,7 @@ describe('OAuth loopback consent browser flow', () => {
         resource,
       });
       expect(tokenResponse.status, await tokenResponse.clone().text()).toBe(200);
-      const tokens = (await tokenResponse.json()) as { access_token: string; refresh_token: string; scope: string };
+      const tokens = tokenResponseSchema.parse(await tokenResponse.json());
       expect(tokens.access_token).toMatch(/^tk-/);
       expect(tokens.refresh_token).toMatch(/^rt-[A-Za-z0-9_-]{43}$/);
 
@@ -162,7 +170,7 @@ describe('OAuth loopback consent browser flow', () => {
         resource,
       });
       expect(refreshResponse.status, await refreshResponse.clone().text()).toBe(200);
-      const rotated = (await refreshResponse.json()) as { access_token: string; refresh_token: string; scope: string };
+      const rotated = tokenResponseSchema.parse(await refreshResponse.json());
       expect(rotated.access_token).toMatch(/^tk-/);
       expect(rotated.refresh_token).toMatch(/^rt-/);
       expect(rotated.refresh_token).not.toBe(tokens.refresh_token);
@@ -206,7 +214,7 @@ describe('OAuth loopback consent browser flow', () => {
         resource,
       });
       expect(secondTokenResponse.status).toBe(200);
-      const secondTokens = (await secondTokenResponse.json()) as { access_token: string; refresh_token: string };
+      const secondTokens = tokenResponseSchema.parse(await secondTokenResponse.json());
 
       const revocationResponse = await postForm(`${authBaseUrl}/revoke`, {
         token: secondTokens.refresh_token,
@@ -244,7 +252,22 @@ function waitForCallback(timeoutMs = 10_000): Promise<URL> {
 }
 
 async function listenOnLoopback(server: Server): Promise<string> {
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve, reject) => {
+    const handleError = (error: Error) => {
+      server.off('error', handleError);
+      reject(error);
+    };
+    server.once('error', handleError);
+    try {
+      server.listen(0, '127.0.0.1', () => {
+        server.off('error', handleError);
+        resolve();
+      });
+    } catch (error) {
+      server.off('error', handleError);
+      reject(error);
+    }
+  });
   const address = server.address();
   if (!address || typeof address === 'string') {
     throw new Error('Test server did not bind to a loopback port');

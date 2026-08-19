@@ -209,7 +209,7 @@ describe('admin SPA browser smoke', () => {
       expect(configuredServerFixture.refreshCount).toBe(1);
       await expectVisible(page.getByRole('heading', { name: 'github', exact: true }));
       await expectText(page, 'Configured Tool Selection');
-      const inspectionAlert = page.getByRole('alert');
+      const inspectionAlert = page.getByRole('alert').first();
       await expectVisible(inspectionAlert);
       await expectVisible(inspectionAlert.getByText('github-worker: inspection transport closed'));
 

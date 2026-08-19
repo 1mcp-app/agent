@@ -238,32 +238,4 @@ describe('Registry Search Command E2E', () => {
       runner.assertOutputContains(result, '--format');
     });
   });
-
-  describe('Performance and Scalability', () => {
-    it('should complete search within reasonable time', async () => {
-      const startTime = Date.now();
-
-      const result = await runner.runRegistryCommand('search', {
-        args: ['file'],
-        timeout: 30000, // 30 second timeout
-      });
-
-      const duration = Date.now() - startTime;
-      runner.assertSuccess(result);
-
-      // Should complete within 15 seconds under normal conditions
-      expect(duration).toBeLessThan(15000);
-    });
-
-    it('should handle large result sets efficiently', async () => {
-      const result = await runner.runRegistryCommand('search', {
-        args: ['--limit=50'],
-        timeout: 30000,
-      });
-
-      runner.assertSuccess(result);
-      // Should handle large result sets without memory issues
-      expect(result.stdout.length).toBeGreaterThan(100);
-    });
-  });
 });

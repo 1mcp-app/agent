@@ -41,6 +41,7 @@ function templateInstance(
     client: outbound.client,
     transport: outbound.transport,
     renderedHash: id,
+    runtimeFingerprint: id,
     processedConfig: config,
     referenceCount: 1,
     createdAt: new Date(),
@@ -95,6 +96,36 @@ describe('RuntimeConfiguredToolInspectionService', () => {
     expect(recalculated.generation).toBe(inventory.generation);
     expect(recalculated.model).toBe('gpt-4o-mini');
     expect(listTools).toHaveBeenCalledTimes(2);
+  });
+
+  it('bounds the total duration of a paginated inspection', async () => {
+    vi.useFakeTimers();
+    try {
+      const listTools = vi.fn(
+        (_params?: { cursor?: string }, options?: { signal?: AbortSignal }) =>
+          new Promise<never>((_resolve, reject) => {
+            options?.signal?.addEventListener('abort', () => reject(options.signal?.reason), { once: true });
+          }),
+      );
+      const outbound = connection('deadline', listTools);
+      outbound.transport.requestTimeout = 25;
+      const refresh = runtime(new Map([['deadline', outbound]])).refresh({
+        targetName: 'deadline',
+        source: 'mcpServers',
+        config,
+      });
+
+      await vi.advanceTimersByTimeAsync(100);
+      const inventory = await refresh;
+
+      expect(inventory.inspection).toMatchObject({ status: 'failed', reason: 'inspection_failed' });
+      expect(inventory.inspection?.instances).toEqual([
+        expect.objectContaining({ error: 'Tool inspection exceeded the 100ms deadline' }),
+      ]);
+      expect(listTools).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it.each([
@@ -295,6 +326,40 @@ describe('RuntimeConfiguredToolInspectionService', () => {
 
     expect(inventory.inspection).toMatchObject({ status: 'failed', reason: 'active_instances_changed' });
     expect(readConfiguredToolSnapshot(outbound)).toBeUndefined();
+  });
+
+  it('accepts the same active template instances returned in a different order', async () => {
+    const first = connection('reordered-template', vi.fn());
+    const second = connection(
+      'reordered-template',
+      vi.fn(async () => ({ tools: [tool('second')] })),
+    );
+    const instances = {
+      'reordered-template': [
+        templateInstance('first', 'reordered-template', ['reordered-template:first'], first),
+        templateInstance('second', 'reordered-template', ['reordered-template:second'], second),
+      ],
+    };
+    first.client.listTools = vi.fn(async () => {
+      instances['reordered-template'].reverse();
+      return { tools: [tool('first')] };
+    });
+    const service = runtime(
+      new Map([
+        ['reordered-template:first', first],
+        ['reordered-template:second', second],
+      ]),
+      instances,
+    );
+
+    const inventory = await service.refresh({
+      targetName: 'reordered-template',
+      source: 'mcpTemplates',
+      config,
+    });
+
+    expect(inventory.inspection).toMatchObject({ status: 'complete', retryable: false });
+    expect(inventory.rows.map((row) => row.name).sort()).toEqual(['first', 'second']);
   });
 
   it('does not instantiate a template with no active instances', async () => {

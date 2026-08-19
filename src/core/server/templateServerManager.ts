@@ -1,5 +1,7 @@
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
+import { getRuntimeScopeEnvironment, sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
+import { createRuntimeTargetFingerprint } from '@src/config/runtimeTargetFingerprint.js';
 import { registerCapabilityPaginationNotifications } from '@src/core/capabilities/capabilityPagination.js';
 import {
   clearCompleteConfiguredToolTargetSnapshot,
@@ -8,6 +10,7 @@ import {
 import { ClientManager } from '@src/core/client/clientManager.js';
 import { ClientTemplateTracker, TemplateFilteringService, TemplateIndex } from '@src/core/filtering/index.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import type { BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
 import { ClientInstancePool, type PooledClientInstance } from '@src/core/server/clientInstancePool.js';
 import {
@@ -42,6 +45,12 @@ export interface TemplateRebuildResult {
 }
 
 export type TemplateClientLifecycle = 'persistent' | 'ephemeral';
+
+export interface RuntimeTemplateReloadTarget {
+  sessionId: string;
+  templateName: string;
+  lifecycle: TemplateClientLifecycle;
+}
 
 /**
  * Manages template-based server instances and client pools
@@ -249,14 +258,14 @@ export class TemplateServerManager {
           registeredInCapabilities: true,
         });
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        logger.error(`Failed to create client instance from template ${templateName}:`, error);
+        const safeError = sanitizeRuntimeScopeError(error);
+        logger.error(`Failed to create client instance from template ${templateName}:`, safeError);
 
         // Track the failure
         this.failedTemplates.push({
           templateName,
           sessionId,
-          error: errorMessage,
+          error: safeError.message,
           timestamp: new Date(),
         });
 
@@ -529,6 +538,48 @@ export class TemplateServerManager {
     this.templateIndex.buildIndex(templates);
     logger.info('Template index rebuilt');
     return { toolMetadataChanged };
+  }
+
+  /** Retire only rendered instances whose effective Runtime Scope inputs changed. */
+  public async retireTemplatesForRuntimeEnvironment(
+    _declaredTemplateNames: readonly string[],
+  ): Promise<RuntimeTemplateReloadTarget[]> {
+    const runtimeEnvironment = getRuntimeScopeEnvironment();
+    const substituteEnv = AgentConfigManager.getInstance().isEnvSubstitutionEnabled();
+    const changedInstances = this.clientInstancePool
+      .getAllInstances()
+      .filter(
+        (instance) =>
+          createRuntimeTargetFingerprint(instance.processedConfig, runtimeEnvironment, substituteEnv) !==
+          instance.runtimeFingerprint,
+      );
+    const targets = changedInstances.flatMap((instance) =>
+      Array.from(instance.clientIds, (sessionId) => ({
+        sessionId,
+        templateName: instance.templateName,
+        lifecycle: this.persistentSessions.has(sessionId) ? ('persistent' as const) : ('ephemeral' as const),
+      })),
+    );
+
+    for (const instance of changedInstances) {
+      await this.retireRuntimeTemplateInstance(instance);
+    }
+    return targets;
+  }
+
+  private async retireRuntimeTemplateInstance(instance: PooledClientInstance): Promise<void> {
+    for (const clientId of instance.clientIds) {
+      this.clientTemplateTracker.removeClientFromInstance(clientId, instance.templateName, instance.id);
+      const hashes = this.sessionToRenderedHash.get(clientId);
+      hashes?.delete(instance.templateName);
+      if (hashes?.size === 0) this.sessionToRenderedHash.delete(clientId);
+      this.ephemeralClients.get(clientId)?.delete(instance.templateName);
+    }
+    for (const [outboundKey, connection] of this.outboundConns ?? []) {
+      if (connection.client === instance.client) this.outboundConns?.delete(outboundKey);
+    }
+    if (this.transports) delete this.transports[instance.id];
+    await this.clientInstancePool.removeInstance(instance.instanceKey);
   }
 
   private scheduleTemplateRetirement(templateName: string): Promise<void> {

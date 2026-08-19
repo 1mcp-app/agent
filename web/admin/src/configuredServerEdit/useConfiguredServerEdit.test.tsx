@@ -782,6 +782,39 @@ describe('useConfiguredServerEdit', () => {
     );
   });
 
+  it('blocks token model changes while apply confirmation is active', async () => {
+    const browserAdapter = browser('/admin/servers/github');
+    const confirmation = deferred<boolean>();
+    browserAdapter.adapter.confirm = vi.fn(() => confirmation.promise);
+    const loadedDetail = detail();
+    loadedDetail.editContract.capabilities.apply.supported = true;
+    loadedDetail.toolInventory = toolInventory();
+    const getConfiguredServerDetail = vi.fn(async () => loadedDetail);
+    const adminApi = api({
+      getConfiguredServerDetail,
+      previewConfiguredServerEdit: vi.fn(async () => applyPreview()),
+      applyConfiguredServerEdit: vi.fn(async () => applyResponse()),
+    });
+    const { result } = renderHook(() =>
+      useConfiguredServerEdit({ api: adminApi, session, browser: browserAdapter.adapter, onUnauthenticated: vi.fn() }),
+    );
+
+    await waitFor(() => expect(result.current.state.status).toBe('loaded'));
+    act(() => result.current.changeField(['transport', 'url'], 'https://example.com/v2/mcp'));
+    await act(() => result.current.preview());
+    let applyPromise!: Promise<void>;
+    act(() => {
+      applyPromise = result.current.apply();
+    });
+    await waitFor(() => expect(browserAdapter.adapter.confirm).toHaveBeenCalledOnce());
+
+    await act(() => result.current.changeToolModel('gpt-4o-mini'));
+
+    expect(getConfiguredServerDetail).toHaveBeenCalledOnce();
+    confirmation.resolve(false);
+    await act(() => applyPromise);
+  });
+
   it('reuses one idempotency key for a network retry and blocks reentrant apply confirmation', async () => {
     const browserAdapter = browser('/admin/servers/github');
     const loadedDetail = detail();

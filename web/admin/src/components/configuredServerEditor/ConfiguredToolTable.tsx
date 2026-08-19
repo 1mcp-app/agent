@@ -91,7 +91,7 @@ export function ConfiguredToolTable({
           {inspectionMessage ? (
             <div
               role={refreshError || inventory.inspection?.status === 'failed' ? 'alert' : 'status'}
-              aria-live="polite"
+              aria-live={refreshError || inventory.inspection?.status === 'failed' ? undefined : 'polite'}
             >
               <Text c={refreshError || inventory.inspection?.status === 'failed' ? 'red' : 'yellow'} size="xs">
                 {inspectionMessage}
@@ -285,6 +285,8 @@ function configuredToolInspectionMessage(
       return 'Live tool inspection failed for one or more active instances.';
     case 'snapshot_unavailable':
       return 'No complete live tool snapshot is available yet.';
+    case 'active_instances_changed':
+      return 'The active instance set changed during inspection. Retry to inspect the current instances.';
     default:
       return inventory.freshness === 'unavailable'
         ? 'Live inventory is unavailable. Rows may come from the last complete snapshot or stored configuration.'

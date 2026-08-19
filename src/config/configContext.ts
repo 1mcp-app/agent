@@ -1,4 +1,5 @@
 import { getConfigPath } from '@src/constants.js';
+import { getRuntimeScopeEnvPath } from './runtimeScopeEnv.js';
 
 /**
  * Singleton context for managing configuration file resolution
@@ -63,6 +64,11 @@ class ConfigContext {
     }
 
     return getConfigPath();
+  }
+
+  /** Get the optional environment file beside the effective MCP configuration. */
+  getResolvedEnvPath(): string {
+    return getRuntimeScopeEnvPath(this.getResolvedConfigPath());
   }
 }
 

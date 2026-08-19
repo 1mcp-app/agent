@@ -18,6 +18,8 @@ import logger, { debugIf } from '@src/logger/logger.js';
 import { parse as parseToml } from 'smol-toml';
 import { z, ZodError } from 'zod';
 
+import { getRuntimeScopeEnvPath } from './runtimeScopeEnv.js';
+
 interface ErrnoException extends Error {
   code?: string;
 }
@@ -151,9 +153,12 @@ export function loadAppConfigFromTomlPath(tomlPath: string): ApplicationConfig {
 export class ConfigLoader {
   private configFilePath: string;
   private lastModified = 0;
+  private runtimeEnvSignature = '';
+  private failedRuntimeEnvSignature?: string;
 
   constructor(configFilePath?: string, options?: ConfigLoaderOptions) {
     this.configFilePath = configFilePath || getGlobalConfigPath();
+    this.runtimeEnvSignature = this.getRuntimeEnvSignature();
     if (options?.ensureConfigExists !== false) {
       this.ensureConfigExists();
     }
@@ -179,6 +184,39 @@ export class ConfigLoader {
 
   public getConfigFilePath(): string {
     return this.configFilePath;
+  }
+
+  public getRuntimeEnvFilePath(): string {
+    return getRuntimeScopeEnvPath(this.configFilePath);
+  }
+
+  public checkRuntimeEnvModified(): boolean {
+    const nextSignature = this.getRuntimeEnvSignature();
+    return nextSignature !== this.runtimeEnvSignature && nextSignature !== this.failedRuntimeEnvSignature;
+  }
+
+  public captureRuntimeEnvSignature(): string {
+    return this.getRuntimeEnvSignature();
+  }
+
+  public markRuntimeEnvObserved(signature: string): void {
+    this.runtimeEnvSignature = signature;
+    this.failedRuntimeEnvSignature = undefined;
+  }
+
+  public markRuntimeEnvAttempted(signature: string): void {
+    this.failedRuntimeEnvSignature = signature;
+  }
+
+  private getRuntimeEnvSignature(): string {
+    try {
+      const stats = fs.statSync(this.getRuntimeEnvFilePath());
+      return `${stats.dev}:${stats.ino}:${stats.size}:${stats.mtimeMs}:${stats.ctimeMs}`;
+    } catch (error) {
+      const code = (error as ErrnoException).code;
+      if (code === 'ENOENT') return 'missing';
+      return `error:${code ?? 'unknown'}`;
+    }
   }
 
   public checkFileModified(): boolean {

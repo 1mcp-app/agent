@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
+import { sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
 import { MCP_SERVER_NAME } from '@src/constants.js';
 import { DEFAULT_MAX_CONCURRENT_LOADS } from '@src/constants/mcp.js';
 import { registerCapabilityPaginationNotifications } from '@src/core/capabilities/capabilityPagination.js';
@@ -185,9 +186,10 @@ export class ClientManager extends EventEmitter {
         logger.error(`Client ${name} received a response for an unknown message ID`);
         return;
       }
-      logger.error(`Client ${name} error: ${error}`);
+      const safeError = sanitizeRuntimeScopeError(error);
+      logger.error(`Client ${name} error: ${safeError}`);
 
-      if (isSessionLostError(error)) {
+      if (isSessionLostError(safeError)) {
         this.recoverFromSessionLoss(name, client);
       }
     };
@@ -342,7 +344,7 @@ export class ClientManager extends EventEmitter {
       if (this.isShuttingDown) {
         return;
       }
-      this.handleClientCreationError(name, transport, error);
+      this.handleClientCreationError(name, transport, sanitizeRuntimeScopeError(error));
     }
   }
 
@@ -449,10 +451,11 @@ export class ClientManager extends EventEmitter {
       this.recordConnectedClient(name, connected);
     } catch (error) {
       if (this.isShuttingDown) {
-        throw error;
+        throw sanitizeRuntimeScopeError(error);
       }
-      this.handleSingleClientError(name, attemptTransport, error);
-      throw error;
+      const safeError = sanitizeRuntimeScopeError(error);
+      this.handleSingleClientError(name, attemptTransport, safeError);
+      throw safeError;
     }
   }
 
@@ -741,7 +744,8 @@ export class ClientManager extends EventEmitter {
       try {
         await current.client.close();
       } catch (error) {
-        debugIf(() => ({ message: `Could not close previous supervised client ${name}: ${error}` }));
+        const safeError = sanitizeRuntimeScopeError(error);
+        debugIf(() => ({ message: `Could not close previous supervised client ${name}: ${safeError}` }));
       }
     }
 
@@ -749,18 +753,24 @@ export class ClientManager extends EventEmitter {
       throw new Error(`Backend recovery cancelled for ${name}`);
     }
 
-    const transport = metadata.recreate() as AuthProviderTransport;
-    const client = this.clientFactory.createClient();
+    let transport: AuthProviderTransport | undefined;
+    let client: Client | undefined;
     const dispose = async (): Promise<void> => {
+      if (!client) {
+        await transport?.close().catch(() => undefined);
+        return;
+      }
       client.onclose = undefined;
       try {
         await client.close();
       } catch {
-        await transport.close().catch(() => undefined);
+        await transport?.close().catch(() => undefined);
       }
     };
 
     try {
+      transport = metadata.recreate() as AuthProviderTransport;
+      client = this.clientFactory.createClient();
       const timeout = getConnectionTimeout(transport);
       await client.connect(transport, timeout ? { timeout } : undefined);
       const serverVersion = await client.getServerVersion();
@@ -770,15 +780,17 @@ export class ClientManager extends EventEmitter {
       if (signal.aborted) {
         throw new Error(`Backend recovery cancelled for ${name}`);
       }
+      const recoveredClient = client;
+      const recoveredTransport = transport;
 
       return {
-        pid: this.getTransportPid(transport),
-        activate: () => this.recordConnectedClient(name, { client, transport }),
+        pid: this.getTransportPid(recoveredTransport),
+        activate: () => this.recordConnectedClient(name, { client: recoveredClient, transport: recoveredTransport }),
         dispose,
       };
     } catch (error) {
       await dispose();
-      throw error;
+      throw sanitizeRuntimeScopeError(error);
     }
   }
 

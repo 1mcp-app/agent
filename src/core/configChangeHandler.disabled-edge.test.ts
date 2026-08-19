@@ -23,6 +23,7 @@ vi.mock('@src/core/server/serverManager.js', () => ({
 vi.mock('@src/config/configManager.js', () => ({
   CONFIG_EVENTS: {
     CONFIG_CHANGED: 'configChanged',
+    RUNTIME_ENVIRONMENT_CHANGED: 'runtimeEnvironmentChanged',
     METADATA_UPDATED: 'metadataUpdated',
   },
   ConfigChangeType: {
@@ -50,6 +51,7 @@ describe('ConfigChangeHandler', () => {
       on: vi.fn(),
       getTransportConfig: vi.fn(() => ({})),
       emit: vi.fn(),
+      off: vi.fn(),
       removeAllListeners: vi.fn(),
     } as any;
 
@@ -261,9 +263,16 @@ describe('ConfigChangeHandler', () => {
 
   describe('cleanup', () => {
     it('should remove event listeners on stop', async () => {
+      const configListener = mockConfigManager.on.mock.calls.find(([event]: [string]) => event === 'configChanged')[1];
+      const runtimeListener = mockConfigManager.on.mock.calls.find(
+        ([event]: [string]) => event === 'runtimeEnvironmentChanged',
+      )[1];
+
       await configChangeHandler.stop();
 
-      expect(mockConfigManager.removeAllListeners).toHaveBeenCalledWith('configChanged');
+      expect(mockConfigManager.off).toHaveBeenCalledWith('configChanged', configListener);
+      expect(mockConfigManager.off).toHaveBeenCalledWith('runtimeEnvironmentChanged', runtimeListener);
+      expect(mockConfigManager.removeAllListeners).not.toHaveBeenCalled();
     });
   });
 });

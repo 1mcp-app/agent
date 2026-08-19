@@ -204,7 +204,7 @@ describeInspectE2E('inspect command E2E', () => {
     runner.assertSuccess(second);
   });
 
-  it('shows CLI instructions and keeps bare inspect as the server list entrypoint', async () => {
+  it('completes the instructions, inspect, run, and wait CLI journey', async () => {
     await environment.updateConfig({
       servers: [
         {
@@ -273,6 +273,32 @@ describeInspectE2E('inspect command E2E', () => {
     expect(listResult.stdout).toContain('runner,external,connected,true,true,4,false');
     expect(listResult.stdout).toContain('serena,template,disconnected,false,false,0,true');
     expect(listResult.stdout).not.toContain('# 1MCP - Model Context Protocol Proxy');
+
+    const runResult = await runner.runRunCommand('runner/echo_args', {
+      cwd: environment.getTempDir(),
+      args: [...getCliSessionCacheArgs(), '--args', '{"message":"journey complete"}', '--format', 'json'],
+    });
+
+    runner.assertSuccess(runResult);
+    expect(runner.parseJsonOutput<{ echoed: string }>(runResult).echoed).toContain('journey complete');
+
+    const waitResult = await runner.runCommand('wait', 'runner', {
+      cwd: environment.getTempDir(),
+      args: ['--config-dir', environment.getConfigDir(), ...getCliSessionCacheArgs(), '--format', 'json'],
+    });
+
+    runner.assertSuccess(waitResult);
+    const waitOutput = runner.parseJsonOutput<{
+      kind: string;
+      servers: Array<{ server: string; status: string; available: boolean; loadTracked: boolean }>;
+      waitedMs: number;
+    }>(waitResult);
+    expect(waitOutput).toMatchObject({
+      kind: 'wait',
+      servers: [{ server: 'runner', status: 'connected', available: true, loadTracked: true }],
+    });
+    expect(Number.isInteger(waitOutput.waitedMs)).toBe(true);
+    expect(waitOutput.waitedMs).toBeGreaterThanOrEqual(0);
 
     const serverResult = await runner.runInspectCommand('serena', {
       cwd: environment.getTempDir(),
