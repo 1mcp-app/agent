@@ -257,7 +257,45 @@ describeRunE2E('run command E2E', () => {
     expect(runResult.stdout).toContain('TestSymbol');
   });
 
-  async function startServeProcess(): Promise<void> {
+  it('reloads only backends affected by Runtime Scope environment changes', async () => {
+    const variable = `ONE_MCP_TEST_RUNTIME_SCOPE_E2E_${process.pid}`;
+    const fixture = join(process.cwd(), 'test/e2e/fixtures/inspect-template-server.js');
+    const config = {
+      mcpServers: {
+        affected: { type: 'stdio', command: 'node', args: [fixture, `$${variable}`] },
+        unaffected: { type: 'stdio', command: 'node', args: [fixture, 'literal'] },
+      },
+      mcpTemplates: {
+        contextual: {
+          type: 'stdio',
+          command: 'node',
+          args: [fixture, `$${variable}`, '{{project.path}}'],
+          template: { shareable: true },
+        },
+      },
+    };
+    await writeFile(environment.getConfigPath(), JSON.stringify(config, null, 2), 'utf8');
+    await writeFile(join(environment.getConfigDir(), '.env'), `${variable}=first\n`, 'utf8');
+    await startServeProcess({ enableConfigReload: true });
+
+    const affectedBefore = await readRuntimeState('affected');
+    const unaffectedBefore = await readRuntimeState('unaffected');
+    const templateBefore = await readRuntimeState('contextual');
+    expect(affectedBefore.runtimeValue).toBe('first');
+    expect(unaffectedBefore.runtimeValue).toBe('literal');
+    expect(templateBefore.runtimeValue).toBe('first');
+
+    await writeFile(join(environment.getConfigDir(), '.env'), `${variable}=second\n`, 'utf8');
+
+    const affectedAfter = await waitForRuntimeState('affected', 'second', affectedBefore.pid);
+    const templateAfter = await waitForRuntimeState('contextual', 'second', templateBefore.pid);
+    const unaffectedAfter = await readRuntimeState('unaffected');
+    expect(unaffectedAfter).toEqual(unaffectedBefore);
+    expect(affectedAfter.pid).not.toBe(affectedBefore.pid);
+    expect(templateAfter.pid).not.toBe(templateBefore.pid);
+  });
+
+  async function startServeProcess(options: { enableConfigReload?: boolean } = {}): Promise<void> {
     if (serveProcess) {
       return;
     }
@@ -265,7 +303,7 @@ describeRunE2E('run command E2E', () => {
     let lastError = 'unknown startup failure';
     for (let attempt = 0; attempt < 3; attempt += 1) {
       servePort = await getAvailablePort();
-      const stderr = await spawnServeProcess();
+      const stderr = await spawnServeProcess(options.enableConfigReload);
 
       try {
         await waitForServeReady(stderr);
@@ -307,6 +345,38 @@ describeRunE2E('run command E2E', () => {
 
   function getCliSessionCacheArgs(): string[] {
     return ['--cli-session-cache-path', getExpectedCachePath()];
+  }
+
+  async function readRuntimeState(serverName: string): Promise<{ runtimeValue: string | null; pid: number }> {
+    const result = await runner.runRunCommand(`${serverName}/find_symbol`, {
+      cwd: environment.getTempDir(),
+      timeout: 20000,
+      args: [...getCliSessionCacheArgs(), '--args', '{"name_path_pattern":"RuntimeEnv"}', '--format', 'text'],
+    });
+    runner.assertSuccess(result);
+    return JSON.parse(result.stdout) as { runtimeValue: string | null; pid: number };
+  }
+
+  async function waitForRuntimeState(
+    serverName: string,
+    expectedValue: string,
+    previousPid: number,
+  ): Promise<{ runtimeValue: string | null; pid: number }> {
+    const deadline = Date.now() + 15000;
+    let lastError = 'backend did not report updated runtime state';
+
+    while (Date.now() < deadline) {
+      try {
+        const state = await readRuntimeState(serverName);
+        if (state.runtimeValue === expectedValue && state.pid !== previousPid) return state;
+        lastError = `runtimeValue=${String(state.runtimeValue)}, pid=${state.pid}`;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+
+    throw new Error(`Timed out waiting for ${serverName} Runtime Scope reload. Last state: ${lastError}`);
   }
 
   async function waitForServeReady(initialStderr: string): Promise<void> {
@@ -360,7 +430,8 @@ describeRunE2E('run command E2E', () => {
     await rm(join(environment.getConfigDir(), 'server.pid'), { force: true });
   }
 
-  async function spawnServeProcess(): Promise<string> {
+  async function spawnServeProcess(enableConfigReload = false): Promise<string> {
+    const reloadArgs = enableConfigReload ? [] : ['--no-enable-config-reload'];
     serveProcess = spawn(
       'node',
       [
@@ -374,7 +445,7 @@ describeRunE2E('run command E2E', () => {
         environment.getConfigPath(),
         '--config-dir',
         environment.getConfigDir(),
-        '--no-enable-config-reload',
+        ...reloadArgs,
         '--log-level',
         'error',
       ],

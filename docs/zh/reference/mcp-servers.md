@@ -301,7 +301,7 @@ Admin 使用相同的 `disabledTools` 和 `toolDescriptionOverrides` 字段。�
 `$VARIABLE_NAME` 和 `${VARIABLE_NAME}` 都可以读取父进程环境，或读取可选的 Runtime Scope `.env` 文件。该文件必须与实际生效的 `mcp.json` 位于同一目录：
 
 - 全局配置：`~/.config/1mcp/.env`
-- 项目配置：`<project>/.1mcp/.env`
+- `--config-dir <directory>`：使用 `<directory>/.env`
 - 通过 `--config` 指定配置：与该配置文件相邻的 `.env`
 
 父进程中的同名值优先于 Runtime Scope 文件。文件中的值只用于后端环境机密引用和显式环境继承：不会写入 1MCP 的进程环境、不会配置 `ONE_MCP_*` 选项，也不会自动传递给无关后端。`mcp.json` 中的字面量仍具有最高优先级。
