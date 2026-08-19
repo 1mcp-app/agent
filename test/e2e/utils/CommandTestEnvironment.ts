@@ -33,6 +33,12 @@ export interface MockMcpServer {
   headers?: Record<string, string>;
 }
 
+export interface MockRegistryRequest {
+  method: string;
+  pathname: string;
+  search: string;
+}
+
 /**
  * Provides isolated test environments for CLI command testing.
  * Each environment gets its own temporary directory structure with
@@ -42,6 +48,7 @@ export class CommandTestEnvironment {
   private tempDir: string | null = null;
   private configPath: string | null = null;
   private registryUrl: string | null = null;
+  private registryRequests: MockRegistryRequest[] = [];
   private cleanupHandlers: Array<() => Promise<void>> = [];
 
   constructor(private config: TestEnvironmentConfig) {}
@@ -114,6 +121,10 @@ export class CommandTestEnvironment {
    */
   getRegistryUrl(): string | undefined {
     return this.registryUrl || undefined;
+  }
+
+  getMockRegistryRequests(): MockRegistryRequest[] {
+    return [...this.registryRequests];
   }
 
   /**
@@ -366,6 +377,11 @@ export class CommandTestEnvironment {
   private handleMockRegistryRequest(req: IncomingMessage, res: ServerResponse): void {
     res.on('error', (err) => console.warn('Mock registry response error:', err));
     const url = new URL(req.url || '/', 'http://127.0.0.1');
+    this.registryRequests.push({
+      method: req.method || 'GET',
+      pathname: url.pathname,
+      search: url.search,
+    });
 
     if (url.pathname === '/v0.1/health') {
       this.writeJson(res, { status: 'ok', github_client_id: 'test-registry-client' });

@@ -1,224 +1,79 @@
-# E2E Testing for 1MCP Agent
+# End-to-End Testing
 
-This directory contains comprehensive end-to-end tests for the 1MCP agent, covering both stdio and HTTP transports with real MCP protocol communication.
+The E2E suite verifies built 1MCP behavior across process, protocol, HTTP, and browser boundaries. Tests in this directory must cross at least one production boundary that a unit or component test cannot cover efficiently.
 
-## Test Structure
+## Test Lanes
 
-```
-src/test/e2e/
-├── fixtures/           # Test MCP servers
-├── utils/             # Test utilities and helpers
-├── stdio/             # Stdio transport E2E tests
-├── http/              # HTTP transport E2E tests
-├── integration/       # Multi-transport integration tests
-└── setup/             # Global test setup/teardown
-```
+| Lane            | Boundary                                                        | Command                     |
+| --------------- | --------------------------------------------------------------- | --------------------------- |
+| Non-browser E2E | Built CLI/server, subprocess, filesystem, MCP, or loopback HTTP | `pnpm test:e2e:non-browser` |
+| Shardable E2E   | Non-browser tests except the background-runtime lifecycle       | `pnpm test:e2e:shardable`   |
+| System E2E      | Background supervisor and runtime lifecycle                     | `pnpm test:e2e:system`      |
+| Browser E2E     | Packaged Admin SPA or OAuth consent in Chromium                 | `pnpm test:e2e:browser`     |
+| Full E2E        | Browser and non-browser lanes                                   | `pnpm test:e2e`             |
 
-## Test Fixtures
+Browser files use the `*.browser.e2e.test.ts` suffix. CI runs them in the Playwright container, runs the long background-runtime lifecycle in a dedicated system lane, and shards the remaining files separately.
 
-The test fixtures include simple MCP servers for various testing scenarios:
-
-- **echo-server.js** - Reflects all requests for basic communication testing
-- **error-server.js** - Returns various error conditions for error handling tests
-- **capability-server.js** - Tests resource/tool/prompt capabilities
-- **slow-server.js** - Introduces delays for timeout testing
-- **crash-server.js** - Intentionally crashes for error scenario testing
-
-## Running E2E Tests
-
-### Working Demo Tests (Recommended)
+## Running Tests
 
 ```bash
-# Run the working infrastructure demo
-pnpm test:e2e:demo
+# Build the artifact exercised by process tests
+pnpm build
 
-# Or run all E2E tests (currently only demo tests)
+# Run all E2E tests
 pnpm test:e2e
-```
 
-### Watch Mode
+# Run one file
+pnpm test:e2e test/e2e/http/http-mcp.test.ts
 
-```bash
+# Run one named test
+pnpm test:e2e -t "connects with the SDK"
+
+# Watch the suite locally
 pnpm test:e2e:watch
 ```
 
-### Full Test Suite (Future)
+## Directory Layout
 
-```bash
-# Stdio transport tests (requires MCP SDK fixes)
-pnpm test:e2e:stdio
-
-# HTTP transport tests (requires full implementation)
-pnpm test:e2e:http
-
-# Integration tests (requires working servers)
-pnpm test:e2e:integration
+```text
+test/e2e/
+├── commands/       # Built CLI journeys and command persistence
+├── fixtures/       # Controlled MCP servers and process fixtures
+├── http/           # Live HTTP, OAuth, and Streamable HTTP boundaries
+├── integration/    # Cross-component process and protocol journeys
+├── oauth-loopback-consent.browser.e2e.test.ts # OAuth callback consent in Chromium
+├── setup/          # Global setup and teardown
+├── stdio/          # STDIO transport and lifecycle journeys
+└── utils/          # Hermetic process, client, and environment helpers
 ```
 
-### Combined Unit + E2E Tests
+## Fidelity Rules
 
-```bash
-pnpm test:all
-```
+- Start the built CLI or server when the behavior depends on command parsing, process lifecycle, packaging, or transport wiring.
+- Use the MCP SDK client for protocol journeys instead of validating hand-written request objects.
+- Use loopback servers, temporary directories, and controlled fixtures. Do not depend on public services or the user's configuration.
+- Bind port `0` when possible. When the CLI needs a concrete port, allocate a loopback port and wait for a health or protocol-ready signal.
+- Assert exact exit codes, protocol results, persisted state, request counts, and recovery output.
+- Keep test and harness timeouts as hang guards with diagnostic errors. Do not use elapsed wall-clock thresholds as functional assertions.
+- Put schema, formatting, validation matrices, fabricated metrics, and time arithmetic in unit or component tests, not E2E.
+- Keep one representative error path per critical journey instead of repeating every option combination through a process.
 
-## Current Status
+## Core Journeys
 
-✅ **Working Components:**
+The presubmit suite should retain exact coverage for these paths:
 
-- E2E test directory structure and organization
-- Test utilities (ConfigBuilder, ProtocolValidator, TestProcessManager)
-- Test configuration generation and management
-- Protocol validation for JSON-RPC and MCP messages
-- Basic process management for test scenarios
+- STDIO aggregation and namespaced capability invocation.
+- Streamable HTTP SDK initialization, capability listing/invocation, and session behavior.
+- `instructions -> inspect -> run -> wait` against a live 1MCP process.
+- Packaged Admin Console operations in Chromium.
+- Downstream crash, reload, OAuth, and cleanup behavior.
+- CLI configuration mutation with final persisted-state verification.
 
-⚠️ **Pending Components:**
+## Fixtures And Helpers
 
-- MCP test servers (require SDK compatibility fixes)
-- Full stdio transport E2E tests (require working test servers)
-- HTTP transport E2E tests (require full HTTP implementation)
-- Integration tests (require working MCP protocol communication)
+- `CommandTestEnvironment` creates isolated configuration, application, log, and mock-registry state under `build/.tmp/e2e`.
+- `TestProcessManager` owns child processes and cleanup.
+- `McpTestClient` drives STDIO, SSE, and Streamable HTTP through the official MCP SDK.
+- `echo-server.js`, `error-server.js`, `slow-server.js`, and related fixtures provide deterministic downstream behavior.
 
-The E2E test infrastructure is complete and demonstrated with working tests. The comprehensive test suites await resolution of MCP SDK compatibility issues and full server implementation.
-
-## Test Categories
-
-### Stdio Transport Tests
-
-- **stdio-lifecycle.test.ts** - Process management and server lifecycle
-- **stdio-protocol.test.ts** - MCP protocol communication over stdio
-- **stdio-errors.test.ts** - Error handling and edge cases
-- **stdio-integration.test.ts** - Full client workflow scenarios
-
-### HTTP Transport Tests
-
-- **http-auth.test.ts** - OAuth 2.1 authentication flows
-- **http-mcp.test.ts** - MCP protocol over HTTP
-- **http-management.test.ts** - Management API endpoints
-- **http-sessions.test.ts** - Session management and lifecycle
-
-### Integration Tests
-
-- **multi-transport.test.ts** - Mixed stdio + HTTP server scenarios
-- **performance.test.ts** - Performance and load testing
-
-## Test Utilities
-
-### TestProcessManager
-
-Manages child process lifecycle for stdio servers:
-
-```typescript
-const processManager = new TestProcessManager();
-const processInfo = await processManager.startProcess('test-server', {
-  command: 'node',
-  args: ['path/to/server.js'],
-  timeout: 10000,
-});
-```
-
-### McpTestClient
-
-Test client for MCP protocol communication:
-
-```typescript
-const client = new McpTestClient({
-  transport: 'stdio',
-  stdioConfig: {
-    command: 'node',
-    args: ['server.js'],
-  },
-});
-await client.connect();
-const response = await client.listTools();
-```
-
-### ConfigBuilder
-
-Dynamic test configuration generation:
-
-```typescript
-const config = ConfigBuilder.create()
-  .enableStdioTransport()
-  .enableHttpTransport(3000)
-  .addStdioServer('echo', 'node', ['echo-server.js'])
-  .writeToFile();
-```
-
-### ProtocolValidator
-
-Validates MCP message compliance:
-
-```typescript
-const validation = ProtocolValidator.validateRequest(request);
-expect(validation.valid).toBe(true);
-```
-
-## Configuration
-
-E2E tests use a separate vitest configuration (`vitest.e2e.config.ts`) with:
-
-- Extended timeouts (60s test timeout, 30s setup/teardown)
-- Sequential execution to avoid port conflicts
-- Retry logic for flaky network issues
-- Global setup/teardown for environment preparation
-
-## Environment Variables
-
-- `NODE_ENV=test` - Set automatically during E2E tests
-- `LOG_LEVEL=warn` - Reduces log noise during testing
-- `MCP_DISABLE_CONSOLE=true` - Disables console logging in MCP servers
-- `CI=true` - Enables single fork mode for CI environments
-
-## Best Practices
-
-### Writing E2E Tests
-
-1. **Use real processes** - E2E tests spawn actual MCP server processes
-2. **Test real protocols** - Use actual JSON-RPC over stdin/stdout or HTTP
-3. **Handle async properly** - Always await process startup/shutdown
-4. **Clean up resources** - Use beforeEach/afterEach for proper cleanup
-5. **Expect failures** - Test error conditions and edge cases
-
-### Performance Considerations
-
-- Tests run sequentially to avoid port conflicts
-- Each test gets a fresh server instance
-- Random ports are used for HTTP tests
-- Cleanup timeouts prevent hanging tests
-
-### CI/CD Integration
-
-E2E tests are designed to run in CI environments:
-
-- Cross-platform compatibility (Windows/Unix)
-- Proper resource cleanup
-- Reasonable timeout limits
-- Retry logic for flaky conditions
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Port conflicts** - Tests use random ports, but conflicts can still occur
-2. **Process cleanup** - Ensure proper cleanup in test teardown
-3. **Timing issues** - Use appropriate waits for async operations
-4. **Resource limits** - CI environments may have limited resources
-
-### Debugging
-
-- Use `test:e2e:watch` for interactive debugging
-- Check process manager logs for startup issues
-- Verify server fixture implementations
-- Use protocol validator for message format issues
-
-## Coverage and Quality
-
-E2E tests complement unit tests by:
-
-- Testing real process communication
-- Validating protocol compliance
-- Checking error handling under real conditions
-- Performance testing with actual workloads
-- Cross-platform compatibility verification
-
-The E2E test suite provides confidence that the 1MCP agent works correctly in real-world scenarios with actual MCP servers and clients.
+Always close clients, browsers, HTTP servers, and subprocesses in teardown. A retry is diagnostic protection, not evidence that a flaky test is acceptable.

@@ -106,7 +106,7 @@ describe('Registry Status Command E2E', () => {
   });
 
   describe('Status Information Validation', () => {
-    it('should show reasonable response time', async () => {
+    it('should report the measured registry health check', async () => {
       const result = await runner.runRegistryCommand('status', {
         timeout: 30000, // 30 second timeout
       });
@@ -116,13 +116,12 @@ describe('Registry Status Command E2E', () => {
       // Should show response time in milliseconds
       runner.assertOutputMatches(result, /Response Time\s*:\s*\d+ms/);
 
-      // Extract response time and validate it's reasonable (under 10 seconds)
       const responseTimeMatch = result.stdout.match(/Response Time\s*:\s*(\d+)ms/);
-      if (responseTimeMatch) {
-        const responseTime = parseInt(responseTimeMatch[1]);
-        expect(responseTime).toBeGreaterThan(0);
-        expect(responseTime).toBeLessThan(10000); // Less than 10 seconds
-      }
+      expect(responseTimeMatch).not.toBeNull();
+      const responseTime = Number(responseTimeMatch?.[1]);
+      expect(Number.isInteger(responseTime)).toBe(true);
+      expect(responseTime).toBeGreaterThanOrEqual(0);
+      expect(environment.getMockRegistryRequests()).toEqual([{ method: 'GET', pathname: '/v0.1/health', search: '' }]);
     });
 
     it('should show valid URL format', async () => {
@@ -243,29 +242,6 @@ describe('Registry Status Command E2E', () => {
     });
   });
 
-  describe('Error Handling', () => {
-    it('should handle invalid flag combinations', async () => {
-      const result = await runner.runRegistryCommand('status', {
-        args: ['--invalid-flag'],
-        expectError: true,
-      });
-
-      // Yargs should handle unknown options gracefully
-      // May succeed with warnings or fail with error
-      expect(result.exitCode === 0 || result.exitCode !== 0).toBe(true);
-    });
-
-    it('should handle malformed JSON output request', async () => {
-      const result = await runner.runRegistryCommand('status', {
-        args: ['--json', '--invalid-option'],
-        expectError: true,
-      });
-
-      // Should handle gracefully
-      expect(result.exitCode !== 0 || result.exitCode === 0).toBe(true);
-    });
-  });
-
   describe('Help Command', () => {
     it('should show help for status command', async () => {
       const result = await runner.runRegistryCommand('status', {
@@ -283,21 +259,7 @@ describe('Registry Status Command E2E', () => {
     });
   });
 
-  describe('Performance and Reliability', () => {
-    it('should complete status check within reasonable time', async () => {
-      const startTime = Date.now();
-
-      const result = await runner.runRegistryCommand('status', {
-        timeout: 30000, // 30 second timeout
-      });
-
-      const duration = Date.now() - startTime;
-      runner.assertSuccess(result);
-
-      // Should complete within 10 seconds under normal conditions
-      expect(duration).toBeLessThan(10000);
-    });
-
+  describe('Reliability', () => {
     it('should handle repeated status checks consistently', async () => {
       const results = [];
 
@@ -315,27 +277,11 @@ describe('Registry Status Command E2E', () => {
         expect(result.exitCode).toBe(0);
         expect(result.stdout).toContain('MCP Registry Status');
       });
-    });
-
-    it('should cache results appropriately', async () => {
-      const result1 = await runner.runRegistryCommand('status', {
-        timeout: 30000, // 30 second timeout
-      });
-      const startTime = Date.now();
-
-      const result2 = await runner.runRegistryCommand('status', {
-        timeout: 30000, // 30 second timeout
-      });
-      const duration = Date.now() - startTime;
-
-      runner.assertSuccess(result1);
-      runner.assertSuccess(result2);
-
-      // Second request might be faster due to caching
-      // But should still show recent timestamp
-      expect(duration).toBeLessThan(5000); // Should be quite fast if cached
-
-      expect(result2.stdout).toMatch(/Last Checked\s*:/);
+      expect(environment.getMockRegistryRequests()).toEqual([
+        { method: 'GET', pathname: '/v0.1/health', search: '' },
+        { method: 'GET', pathname: '/v0.1/health', search: '' },
+        { method: 'GET', pathname: '/v0.1/health', search: '' },
+      ]);
     });
   });
 });

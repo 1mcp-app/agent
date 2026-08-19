@@ -279,24 +279,7 @@ describe('Registry Versions Command E2E', () => {
     });
   });
 
-  describe('Performance and Reliability', () => {
-    it('should complete 404 error handling within reasonable time', async () => {
-      const startTime = Date.now();
-
-      const result = await runner.runRegistryCommand('versions', {
-        args: ['file-system'],
-        expectError: true,
-        timeout: 30000, // 30 second timeout
-      });
-
-      const duration = Date.now() - startTime;
-      runner.assertFailure(result);
-
-      // Should complete within 20 seconds under normal conditions
-      expect(duration).toBeLessThan(20000);
-      runner.assertOutputContains(result, 'Failed to fetch versions for server with ID: file-system');
-    });
-
+  describe('Reliability', () => {
     it('should handle repeated 404 errors consistently', async () => {
       const results = [];
 
@@ -316,32 +299,11 @@ describe('Registry Versions Command E2E', () => {
         expect(result.exitCode).not.toBe(0);
         runner.assertOutputContains(result, 'Failed to fetch versions for server with ID: file-system');
       });
-    });
-
-    it('should handle 404 errors efficiently across multiple requests', async () => {
-      const result1 = await runner.runRegistryCommand('versions', {
-        args: ['file-system'],
-        expectError: true,
-        timeout: 20000,
-      });
-      const startTime = Date.now();
-
-      const result2 = await runner.runRegistryCommand('versions', {
-        args: ['file-system'],
-        expectError: true,
-        timeout: 20000,
-      });
-      const duration = Date.now() - startTime;
-
-      runner.assertFailure(result1);
-      runner.assertFailure(result2);
-
-      // Second request should complete quickly even with error
-      expect(duration).toBeLessThan(10000);
-
-      // Both should contain error information
-      runner.assertOutputContains(result1, 'Failed to fetch versions for server with ID: file-system');
-      runner.assertOutputContains(result2, 'Failed to fetch versions for server with ID: file-system');
+      expect(environment.getMockRegistryRequests()).toEqual([
+        { method: 'GET', pathname: '/v0.1/servers/file-system/versions', search: '' },
+        { method: 'GET', pathname: '/v0.1/servers/file-system/versions', search: '' },
+        { method: 'GET', pathname: '/v0.1/servers/file-system/versions', search: '' },
+      ]);
     });
 
     it('should handle 404 errors efficiently with timeout', async () => {
