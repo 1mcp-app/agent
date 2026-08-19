@@ -22,11 +22,6 @@ on:
         description: Ref to check out for reusable CI runs.
         required: false
         type: string
-      run_e2e:
-        description: Run the E2E test jobs.
-        required: false
-        default: true
-        type: boolean
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -67,7 +62,8 @@ jobs:
   # run separately so ordinary shards do not install Playwright dependencies.
   test-e2e-parallel:
     runs-on: ubuntu-latest
-    if: github.ref_type != 'tag' && (github.event_name != 'workflow_call' || inputs.run_e2e)
+    timeout-minutes: 15
+    if: github.ref_type != 'tag'
     env:
       E2E_SHARD_COUNT: 4
     strategy:
@@ -90,18 +86,24 @@ jobs:
       - name: Test E2E - Shard ${{ matrix.shard }}/${{ env.E2E_SHARD_COUNT }}
         run: |
           started_at=$(date +%s)
+          set +e
           pnpm test:e2e:non-browser --shard=${{ matrix.shard }}/${{ env.E2E_SHARD_COUNT }} --reporter=minimal
+          test_status=$?
+          set -e
           finished_at=$(date +%s)
           duration=$((finished_at - started_at))
           echo "E2E shard ${{ matrix.shard }}/${{ env.E2E_SHARD_COUNT }} took ${duration}s" >> "$GITHUB_STEP_SUMMARY"
+          exit "$test_status"
         env:
           CI: true
 
   test-e2e-browser:
     runs-on: ubuntu-latest
-    if: github.ref_type != 'tag' && (github.event_name != 'workflow_call' || inputs.run_e2e)
+    timeout-minutes: 15
+    if: github.ref_type != 'tag'
     container:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
+      options: --ipc=host
     permissions:
       contents: read
     steps:
@@ -116,6 +118,15 @@ jobs:
         run: pnpm build
 
       - name: Test browser E2E
-        run: pnpm test:e2e:browser --reporter=minimal
+        run: |
+          started_at=$(date +%s)
+          set +e
+          pnpm test:e2e:browser --reporter=minimal
+          test_status=$?
+          set -e
+          finished_at=$(date +%s)
+          duration=$((finished_at - started_at))
+          echo "Browser E2E took ${duration}s" >> "$GITHUB_STEP_SUMMARY"
+          exit "$test_status"
         env:
           CI: true

@@ -51,9 +51,6 @@ jobs:
     uses: ./.github/workflows/test-and-validate.yml
     with:
       checkout_ref: refs/heads/${{ needs.validate.outputs.release_ref }}
-      # Main has already passed the push-triggered E2E workflow. Maintenance
-      # release branches do not have that guarantee, so keep E2E enabled there.
-      run_e2e: ${{ needs.validate.outputs.release_ref != 'main' }}
     permissions:
       contents: read
 
