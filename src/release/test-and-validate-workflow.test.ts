@@ -22,14 +22,21 @@ function findTestFiles(directory: string): string[] {
 }
 
 describe('test-and-validate workflow', () => {
-  it('runs E2E independently and isolates browser setup', () => {
+  it('runs E2E independently and keeps test suites isolated', () => {
     const workflow = readRepoFile('.github/workflows/test-and-validate.yml');
+    const packageJson = JSON.parse(readRepoFile('package.json')) as {
+      scripts: Record<string, string>;
+    };
     const ciJob = workflow.match(/\n\s{2}ci:\n(?<body>(?:\s{4}.*\n)+)/)?.groups?.body;
     const nonBrowserJob = workflow.match(/\n\s{2}test-e2e-parallel:\n(?<body>(?:\s{4}.*\n)+)/)?.groups?.body;
     const systemJob = workflow.match(/\n\s{2}test-e2e-system:\n(?<body>(?:\s{4}.*\n)+)/)?.groups?.body;
     const browserJob = workflow.match(/\n\s{2}test-e2e-browser:\n(?<body>(?:\s{4}.*\n)+)/)?.groups?.body;
 
-    expect(ciJob).toContain('pnpm ci:validate');
+    expect(ciJob).toMatch(/pnpm ci:static[\s\S]*pnpm test:unit[\s\S]*pnpm test:admin/);
+    expect(packageJson.scripts['ci:static']).toContain('pnpm lint');
+    expect(packageJson.scripts['ci:static']).toContain('pnpm typecheck');
+    expect(packageJson.scripts['ci:static']).toContain('pnpm build');
+    expect(packageJson.scripts['ci:static']).not.toContain('pnpm test:');
     expect(nonBrowserJob).toBeDefined();
     expect(nonBrowserJob).toContain('timeout-minutes: 15');
     expect(nonBrowserJob).not.toContain('needs: ci');

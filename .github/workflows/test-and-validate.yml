@@ -43,8 +43,14 @@ jobs:
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node-pnpm
 
-      - name: Validate
-        run: pnpm ci:validate
+      - name: Validate static checks
+        run: pnpm ci:static
+
+      - name: Test Unit
+        run: pnpm test:unit
+
+      - name: Test Admin Console
+        run: pnpm test:admin
 
   # E2E runs concurrently with lint, typecheck, and unit tests. Browser specs
   # run separately so ordinary shards do not install Playwright dependencies.
