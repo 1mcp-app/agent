@@ -43,20 +43,8 @@ jobs:
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node-pnpm
 
-      - name: Lint
-        run: pnpm lint
-
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Build
-        run: pnpm build
-
-      - name: Test Unit
-        run: pnpm test:unit
-
-      - name: Test Admin Console
-        run: pnpm test:admin
+      - name: Validate
+        run: pnpm ci:validate
 
   # E2E runs concurrently with lint, typecheck, and unit tests. Browser specs
   # run separately so ordinary shards do not install Playwright dependencies.
@@ -87,12 +75,43 @@ jobs:
         run: |
           started_at=$(date +%s)
           set +e
-          pnpm test:e2e:non-browser --shard=${{ matrix.shard }}/${{ env.E2E_SHARD_COUNT }} --reporter=minimal
+          pnpm test:e2e:shardable --shard=${{ matrix.shard }}/${{ env.E2E_SHARD_COUNT }} --reporter=minimal
           test_status=$?
           set -e
           finished_at=$(date +%s)
           duration=$((finished_at - started_at))
           echo "E2E shard ${{ matrix.shard }}/${{ env.E2E_SHARD_COUNT }} took ${duration}s" >> "$GITHUB_STEP_SUMMARY"
+          exit "$test_status"
+        env:
+          CI: true
+
+  test-e2e-system:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.ref_type != 'tag'
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.checkout_ref || github.ref }}
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test background runtime E2E
+        run: |
+          started_at=$(date +%s)
+          set +e
+          pnpm test:e2e:system --reporter=minimal
+          test_status=$?
+          set -e
+          finished_at=$(date +%s)
+          duration=$((finished_at - started_at))
+          echo "Background runtime E2E took ${duration}s" >> "$GITHUB_STEP_SUMMARY"
           exit "$test_status"
         env:
           CI: true
