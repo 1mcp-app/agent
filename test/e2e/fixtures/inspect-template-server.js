@@ -5,6 +5,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema, PingRequestSchema } from
 
 class InspectTemplateServer {
   constructor() {
+    this.runtimeValue = process.argv[2] ?? null;
     this.server = new Server(
       {
         name: 'inspect-template-server',
@@ -56,7 +57,11 @@ class InspectTemplateServer {
         content: [
           {
             type: 'text',
-            text: JSON.stringify({ matched: args?.name_path_pattern ?? null }),
+            text: JSON.stringify({
+              matched: args?.name_path_pattern ?? null,
+              runtimeValue: this.runtimeValue,
+              pid: process.pid,
+            }),
           },
         ],
       };

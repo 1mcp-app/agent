@@ -44,6 +44,8 @@ export interface PooledClientInstance {
   transport: AuthProviderTransport;
   /** Hash of the rendered configuration used to create this instance */
   renderedHash: string;
+  /** Keyed fingerprint of the effective configuration after Runtime Scope substitution. */
+  runtimeFingerprint: string;
   /** Processed server configuration */
   processedConfig: MCPServerParams;
   /** Number of clients currently connected to this instance */

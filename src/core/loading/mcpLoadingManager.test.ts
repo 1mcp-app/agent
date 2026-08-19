@@ -26,6 +26,7 @@
  *   The background retry policy test uses fake timers for deterministic interval coverage.
  */
 // ── Helpers ───────────────────────────────────────────────────────────────────
+import { activateRuntimeScopeEnvironment } from '@src/config/runtimeScopeEnv.js';
 import { createTransports } from '@src/transport/transportFactory.js';
 import { NonRetryableClientConnectionError } from '@src/utils/core/errorTypes.js';
 
@@ -139,6 +140,7 @@ describe('McpLoadingManager', () => {
   });
 
   afterEach(() => {
+    activateRuntimeScopeEnvironment({});
     manager.shutdown();
   });
 
@@ -211,6 +213,30 @@ describe('McpLoadingManager', () => {
       expect(clientManager.createSingleClient).toHaveBeenCalledTimes(1);
       expect(state?.state).toBe(LoadingState.Failed);
       expect(state?.error).toBe(terminalError);
+    });
+
+    it('stores only a detached sanitized async spawn failure', async () => {
+      const secret = 'static-spawn-secret';
+      activateRuntimeScopeEnvironment({ TOKEN: secret });
+      const spawnError = Object.assign(new Error(`spawn /bin/${secret} ENOENT`), {
+        code: 'ENOENT',
+        path: `/bin/${secret}`,
+        spawnargs: ['--token', secret],
+      });
+      clientManager.createSingleClient.mockRejectedValue(spawnError);
+
+      await manager.loadServer('srv', makeServerConfig());
+
+      const stored = manager.getStateTracker().getServerState('srv')?.error as Error & {
+        code: string;
+        path: string;
+        spawnargs: string[];
+      };
+      expect(stored).not.toBe(spawnError);
+      expect(stored.code).toBe('ENOENT');
+      expect(stored.path).toBe('/bin/[REDACTED]');
+      expect(stored.spawnargs).toEqual(['--token', '[REDACTED]']);
+      expect(`${stored.message}\n${stored.stack}\n${JSON.stringify(stored)}`).not.toContain(secret);
     });
 
     it('copies OAuth authorization URL into loading tracker when authorization is required', async () => {

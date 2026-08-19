@@ -3,6 +3,7 @@ import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
+import { activateRuntimeScopeEnvironment } from '@src/config/runtimeScopeEnv.js';
 import { CONNECTION_RETRY, MCP_SERVER_NAME } from '@src/constants.js';
 import { AuthProviderTransport, ClientStatus } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
@@ -80,6 +81,7 @@ describe('ClientManager (Integration)', () => {
   });
 
   afterEach(() => {
+    activateRuntimeScopeEnvironment({});
     vi.useRealTimers();
     ClientManager.resetInstance();
   });
@@ -846,6 +848,108 @@ describe('ClientManager (Integration)', () => {
   });
 
   describe('runtime-owned stdio supervision', () => {
+    it('sanitizes supervised restart errors before snapshot storage and publication', async () => {
+      const secret = 'supervised-spawn-secret';
+      activateRuntimeScopeEnvironment({ TOKEN: secret });
+      const initialClient = {
+        ...mockClient,
+        connect: vi.fn().mockResolvedValue(undefined),
+        getServerVersion: vi.fn().mockResolvedValue({ name: 'fixture', version: '1.0.0' }),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as Partial<Client>;
+      const spawnError = Object.assign(new Error(`spawn /bin/${secret} ENOENT`), {
+        code: 'ENOENT',
+        path: `/bin/${secret}`,
+        spawnargs: ['--token', secret],
+      });
+      const replacementClient = {
+        ...mockClient,
+        connect: vi.fn().mockRejectedValue(spawnError),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as Partial<Client>;
+      (Client as unknown as MockInstance)
+        .mockImplementationOnce(function () {
+          return initialClient;
+        })
+        .mockImplementationOnce(function () {
+          return replacementClient;
+        });
+      const replacementTransport = {
+        start: vi.fn(),
+        send: vi.fn(),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AuthProviderTransport;
+      const supervisedTransport = {
+        start: vi.fn(),
+        send: vi.fn(),
+        close: vi.fn(),
+        pid: 111,
+        stdioSupervision: {
+          policy: { restartOnExit: true as const, maxRestarts: 1, restartDelay: 25 },
+          recreate: () => replacementTransport,
+          getLastExit: () => ({ code: 9, signal: null, pid: 111, at: new Date() }),
+        },
+      } as unknown as AuthProviderTransport;
+      replacementTransport.stdioSupervision = supervisedTransport.stdioSupervision;
+      const published: unknown[] = [];
+      clientManager.setBackendAvailabilityHandler((_name, snapshot) => {
+        published.push(snapshot);
+      });
+
+      await clientManager.createSingleClient('supervised', supervisedTransport);
+      clientManager.getClient('supervised').client.onclose?.();
+      await vi.advanceTimersByTimeAsync(25);
+
+      const snapshot = clientManager.getBackendSupervision('supervised')!;
+      const lastError = snapshot.lastError as Error & { code: string; path: string; spawnargs: string[] };
+      expect(snapshot.state).toBe('crash-loop');
+      expect(lastError).not.toBe(spawnError);
+      expect(lastError.code).toBe('ENOENT');
+      expect(lastError.path).toBe('/bin/[REDACTED]');
+      expect(lastError.spawnargs).toEqual(['--token', '[REDACTED]']);
+      expect(`${lastError.message}\n${lastError.stack}\n${JSON.stringify(lastError)}`).not.toContain(secret);
+      expect(JSON.stringify(published)).not.toContain(secret);
+      expect(JSON.stringify(vi.mocked(logger.info).mock.calls)).not.toContain(secret);
+    });
+
+    it('closes a recreated transport when replacement client construction fails', async () => {
+      const initialClient = {
+        ...mockClient,
+        connect: vi.fn().mockResolvedValue(undefined),
+        getServerVersion: vi.fn().mockResolvedValue({ name: 'fixture', version: '1.0.0' }),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as Partial<Client>;
+      (Client as unknown as MockInstance).mockImplementationOnce(function () {
+        return initialClient;
+      });
+      const replacementTransport = {
+        start: vi.fn(),
+        send: vi.fn(),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AuthProviderTransport;
+      const supervisedTransport = {
+        start: vi.fn(),
+        send: vi.fn(),
+        close: vi.fn(),
+        pid: 111,
+        stdioSupervision: {
+          policy: { restartOnExit: true as const, maxRestarts: 1, restartDelay: 25 },
+          recreate: () => replacementTransport,
+          getLastExit: () => ({ code: 9, signal: null, pid: 111, at: new Date() }),
+        },
+      } as unknown as AuthProviderTransport;
+      replacementTransport.stdioSupervision = supervisedTransport.stdioSupervision;
+
+      await clientManager.createSingleClient('supervised', supervisedTransport);
+      vi.spyOn((clientManager as any).clientFactory, 'createClient').mockImplementationOnce(() => {
+        throw new Error('client construction failed');
+      });
+      clientManager.getClient('supervised').client.onclose?.();
+      await vi.advanceTimersByTimeAsync(25);
+
+      expect(replacementTransport.close).toHaveBeenCalledOnce();
+    });
+
     it('contains rejected backend availability updates', async () => {
       const availabilityHandler = vi.fn().mockRejectedValue(new Error('notification failed'));
       clientManager.setBackendAvailabilityHandler(availabilityHandler);

@@ -9,6 +9,7 @@ import {
 } from '@modelcontextprotocol/sdk/server/auth/errors.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
+import { activateRuntimeScopeEnvironment } from '@src/config/runtimeScopeEnv.js';
 import { CONNECTION_RETRY, MCP_SERVER_NAME } from '@src/constants.js';
 import { AuthProviderTransport } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
@@ -81,6 +82,7 @@ describe('ConnectionHandler', () => {
   });
 
   afterEach(() => {
+    activateRuntimeScopeEnvironment({});
     vi.useRealTimers();
     vi.clearAllMocks();
   });
@@ -135,6 +137,25 @@ describe('ConnectionHandler', () => {
 
       await expect(connectPromise).rejects.toThrow();
       expect(mockClient.connect).toHaveBeenCalledTimes(CONNECTION_RETRY.MAX_ATTEMPTS);
+    });
+
+    it('redacts Runtime Scope values from async URL connection errors before logging or propagation', async () => {
+      const secret = 'runtime-url-secret';
+      activateRuntimeScopeEnvironment({ BACKEND_URL: `https://example.test/${secret}` });
+      const error = Object.assign(new Error(`connect https://example.test/${secret} failed`), {
+        code: 'ECONNREFUSED',
+        url: `https://example.test/${secret}`,
+      });
+      (mockClient.connect as unknown as MockInstance).mockRejectedValue(error);
+
+      const connectPromise = connectionHandler.connectWithRetry(mockClient as Client, mockTransport, 'test-client');
+      connectPromise.catch(() => {});
+      await vi.runAllTimersAsync();
+      const thrown = await connectPromise.catch((connectionError: unknown) => connectionError);
+
+      expect(`${String(thrown)}\n${(thrown as Error).stack}\n${JSON.stringify(thrown)}`).not.toContain(secret);
+      expect(JSON.stringify(vi.mocked(logger.error).mock.calls)).not.toContain(secret);
+      expect((thrown as Error).name).toBe('ClientConnectionError');
     });
 
     it('should not retry a permanent OAuth HTTP error', async () => {

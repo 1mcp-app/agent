@@ -159,6 +159,33 @@ describe('EnvProcessor', () => {
       expect(result.sources.inherited.length).toBeGreaterThan(0);
     });
 
+    it('inherits Runtime Scope values without mutating process.env and gives the parent precedence', () => {
+      process.env.PARENT_WINS = 'parent';
+      const result = processEnvironment({
+        inheritParentEnv: true,
+        runtimeEnv: { FILE_ONLY: 'scope', PARENT_WINS: 'scope' },
+      });
+
+      expect(result.processedEnv).toMatchObject({ FILE_ONLY: 'scope', PARENT_WINS: 'parent' });
+      expect(process.env.FILE_ONLY).toBeUndefined();
+    });
+
+    it('applies inherited environment filters to Runtime Scope values', () => {
+      const result = processEnvironment({
+        inheritParentEnv: true,
+        envFilter: ['ALLOWED_*'],
+        runtimeEnv: { ALLOWED_SECRET: 'included', BLOCKED_SECRET: 'excluded' },
+      });
+
+      expect(result.processedEnv).toEqual({ ALLOWED_SECRET: 'included' });
+      expect(result.sources.filtered).toContain('BLOCKED_SECRET');
+    });
+
+    it('resolves explicit array inheritance from the Runtime Scope source', () => {
+      const result = processEnvironment({ env: ['FILE_ONLY'], runtimeEnv: { FILE_ONLY: 'scope' } });
+      expect(result.processedEnv.FILE_ONLY).toBe('scope');
+    });
+
     it('should apply environment filters', () => {
       const result = processEnvironment({
         inheritParentEnv: true,

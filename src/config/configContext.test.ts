@@ -92,6 +92,22 @@ describe('ConfigContext', () => {
     });
   });
 
+  describe('getResolvedEnvPath', () => {
+    it('uses the default Runtime Scope directory', () => {
+      expect(configContext.getResolvedEnvPath()).toBe(getConfigPath().replace(/mcp\.json$/u, '.env'));
+    });
+
+    it('uses the directory selected by --config-dir semantics', () => {
+      configContext.setConfigDir('/test/runtime-scope');
+      expect(configContext.getResolvedEnvPath()).toBe('/test/runtime-scope/.env');
+    });
+
+    it('uses the sibling of the file selected by --config semantics', () => {
+      configContext.setConfigPath('/test/custom/location.json');
+      expect(configContext.getResolvedEnvPath()).toBe('/test/custom/.env');
+    });
+  });
+
   describe('reset', () => {
     it('should clear all configuration', () => {
       configContext.setConfigPath('/test/config.json');

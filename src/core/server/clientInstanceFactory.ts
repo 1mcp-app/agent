@@ -1,3 +1,4 @@
+import { sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
 import type { MCPServerParams } from '@src/core/types/transport.js';
 import { templateBackendLogSource } from '@src/domains/backend-logs/backendLogSource.js';
 import { createTransportsWithContext } from '@src/transport/transportFactory.js';
@@ -11,6 +12,7 @@ export interface CreatePooledInstanceParams {
   templateName: string;
   processedConfig: MCPServerParams;
   renderedHash: string;
+  runtimeFingerprint: string;
   clientId: string;
   idleTimeout: number;
 }
@@ -21,6 +23,7 @@ export async function createPooledClientInstance({
   templateName,
   processedConfig,
   renderedHash,
+  runtimeFingerprint,
   clientId,
   idleTimeout,
 }: CreatePooledInstanceParams): Promise<PooledClientInstance> {
@@ -47,7 +50,11 @@ export async function createPooledClientInstance({
   const client = clientManager.createPooledClientInstance();
 
   const connectionTimeout = getConnectionTimeout(transport);
-  await client.connect(transport, connectionTimeout ? { timeout: connectionTimeout } : undefined);
+  try {
+    await client.connect(transport, connectionTimeout ? { timeout: connectionTimeout } : undefined);
+  } catch (error) {
+    throw sanitizeRuntimeScopeError(error);
+  }
 
   return {
     id: instanceId,
@@ -56,6 +63,7 @@ export async function createPooledClientInstance({
     client,
     transport,
     renderedHash,
+    runtimeFingerprint,
     processedConfig,
     referenceCount: 1,
     createdAt: new Date(),
