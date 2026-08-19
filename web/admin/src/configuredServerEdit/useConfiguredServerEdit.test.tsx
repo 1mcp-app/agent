@@ -804,7 +804,9 @@ describe('useConfiguredServerEdit', () => {
     await act(() => result.current.preview());
     let applyPromise!: Promise<void>;
     act(() => {
-      applyPromise = result.current.apply();
+      const pendingApply = result.current.apply();
+      if (!pendingApply) throw new Error('Expected apply to return a promise');
+      applyPromise = pendingApply;
     });
     await waitFor(() => expect(browserAdapter.adapter.confirm).toHaveBeenCalledOnce());
 
