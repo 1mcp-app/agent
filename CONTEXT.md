@@ -176,14 +176,6 @@ _Avoid_: log dump, health blob, debug page
 An explainable, ranked cause candidate within a **Server Diagnosis**, containing severity, supporting evidence, confidence, and safe guided next actions.
 _Avoid_: error string, health flag, guessed root cause
 
-**Diagnostic Finding**:
-An explainable, ranked cause candidate within a **Server Diagnosis**, containing severity, supporting evidence, confidence, and safe guided next actions.
-_Avoid_: error string, health flag, guessed root cause
-
-**Server Diagnosis**:
-A point-in-time, redacted explanation of why one **Configured Server Target** is unavailable, degraded, or behaving unexpectedly, with ranked likely causes and safe guided recovery actions.
-_Avoid_: log dump, health blob, debug page
-
 **Environment Secret Reference**:
 A configuration value that names or references a secret supplied by the runtime environment or external secret management instead of storing the secret material directly in a **Runtime Scope** config file.
 _Avoid_: inline secret, copied env value
