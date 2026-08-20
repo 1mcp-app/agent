@@ -238,7 +238,7 @@ export function processEnvironment(config: EnvProcessingConfig): ProcessedEnviro
 
     // Apply environment variable substitution to custom env.
     if (config.substituteEnv !== false) {
-      const substitutionEnv = { ...referenceEnvironment, ...combinedEnv, ...customEnv };
+      const substitutionEnv = { ...combinedEnv, ...referenceEnvironment, ...customEnv };
 
       for (const key of Object.keys(customEnv)) {
         const value = customEnv[key];

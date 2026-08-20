@@ -6,11 +6,10 @@ import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { z } from 'zod';
 
 const ENVIRONMENT_REFERENCE_PATTERN = /\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*/u;
-const transportUrlSchema = z
-  .string()
-  .refine((value) => ENVIRONMENT_REFERENCE_PATTERN.test(value) || z.string().url().safeParse(value).success, {
-    message: 'URL must be a valid URL or environment substitution reference.',
-  });
+const transportUrlSchema = z.union([
+  z.string().url(),
+  z.string().regex(ENVIRONMENT_REFERENCE_PATTERN, 'URL must be a valid URL or environment substitution reference.'),
+]);
 
 /**
  * Enhanced transport interface that includes MCP-specific properties

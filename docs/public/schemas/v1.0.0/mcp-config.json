@@ -217,7 +217,16 @@
           },
           "url": {
             "description": "URL for HTTP or SSE transport",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uri"
+              },
+              {
+                "type": "string",
+                "pattern": "\\$\\{[^}]+\\}|\\$[A-Za-z_][A-Za-z0-9_]*"
+              }
+            ]
           },
           "headers": {
             "description": "Custom HTTP headers to send with requests",
@@ -447,7 +456,16 @@
           },
           "url": {
             "description": "URL for HTTP or SSE transport",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uri"
+              },
+              {
+                "type": "string",
+                "pattern": "\\$\\{[^}]+\\}|\\$[A-Za-z_][A-Za-z0-9_]*"
+              }
+            ]
           },
           "headers": {
             "description": "Custom HTTP headers to send with requests",

@@ -265,6 +265,17 @@ describe('EnvProcessor', () => {
       expect(result.sources.filtered).toContain('CONTEXT7_API_KEY');
     });
 
+    it('prefers parent values over SDK defaults when resolving explicit references', () => {
+      process.env.PATH = '/parent/bin';
+
+      const result = processEnvironment({
+        runtimeEnv: { PATH: '/runtime-scope/bin' },
+        env: { PATH_COPY: '$PATH' },
+      });
+
+      expect(result.processedEnv.PATH_COPY).toBe('/parent/bin');
+    });
+
     it('should keep custom environment placeholders when substitution is disabled', () => {
       process.env.CONTEXT7_API_KEY = 'context7-key';
 
