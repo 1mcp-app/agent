@@ -217,8 +217,7 @@
           },
           "url": {
             "description": "URL for HTTP or SSE transport",
-            "type": "string",
-            "format": "uri"
+            "type": "string"
           },
           "headers": {
             "description": "Custom HTTP headers to send with requests",
@@ -448,8 +447,7 @@
           },
           "url": {
             "description": "URL for HTTP or SSE transport",
-            "type": "string",
-            "format": "uri"
+            "type": "string"
           },
           "headers": {
             "description": "Custom HTTP headers to send with requests",

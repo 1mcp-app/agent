@@ -38,15 +38,6 @@ import type { ConfiguredToolInventory, ConfiguredToolTargetSource } from './conf
 
 type ConfiguredServerSecretAction = 'preserve' | 'replace' | 'clear';
 type ConfiguredServerSecretReplacementKind = 'environmentReference' | 'inlineSecret';
-const ENV_PLACEHOLDER_PATTERN = /\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*/u;
-const previewTransportConfigSchema = transportConfigSchema.extend({
-  url: z
-    .string()
-    .refine((value) => ENV_PLACEHOLDER_PATTERN.test(value) || z.string().url().safeParse(value).success, {
-      message: 'URL must be a valid URL or environment substitution reference.',
-    })
-    .optional(),
-});
 
 interface AdminConfiguredServerServiceOptions {
   operationService: AdminOperationService;
@@ -242,7 +233,7 @@ function createWorkflowValidation(
     });
   }
   if (config) {
-    const parsed = previewTransportConfigSchema.safeParse(config);
+    const parsed = transportConfigSchema.safeParse(config);
     if (!parsed.success) {
       for (const issue of parsed.error.issues) {
         errors.push({
@@ -2631,7 +2622,7 @@ function validatePreviewServerConfig(serverConfig: MCPServerParams): ConfiguredS
   const type = typeof serverConfig.type === 'string' ? serverConfig.type : undefined;
   const url = typeof serverConfig.url === 'string' ? serverConfig.url : undefined;
   const command = typeof serverConfig.command === 'string' ? serverConfig.command : undefined;
-  const schemaResult = previewTransportConfigSchema.safeParse(serverConfig);
+  const schemaResult = transportConfigSchema.safeParse(serverConfig);
 
   if (!schemaResult.success) {
     for (const issue of schemaResult.error.issues) {

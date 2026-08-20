@@ -160,6 +160,26 @@ describe('ConfigManager (Integration)', () => {
   });
 
   describe('initialization', () => {
+    it('accepts environment references in declared HTTP URLs', async () => {
+      const configWithUrlReference = {
+        mcpServers: {
+          'http-server': {
+            type: 'http',
+            url: 'http://127.0.0.1:${HTTP_PORT}/mcp',
+          },
+        },
+      };
+      await fsPromises.writeFile(configFilePath, JSON.stringify(configWithUrlReference, null, 2));
+
+      const declared = configManager.loadDeclaredServerConfigs();
+
+      expect(declared.errors).toEqual([]);
+      expect(declared.staticServers['http-server']?.url).toBe('http://127.0.0.1:${HTTP_PORT}/mcp');
+      expect(configManager.getRuntimeInstructionConfiguration().configuredTargets.mcpServers['http-server']?.url).toBe(
+        'http://127.0.0.1:${HTTP_PORT}/mcp',
+      );
+    });
+
     it('preserves published instruction variants across reload and restart', async () => {
       const updatedConfig = {
         mcpServers: {},

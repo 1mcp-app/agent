@@ -320,6 +320,8 @@ Both `$VARIABLE_NAME` and `${VARIABLE_NAME}` references can read from the parent
 - `--config-dir <directory>` uses `<directory>/.env`.
 - `--config <path>` uses the `.env` beside that selected file, regardless of the invoking working directory.
 
+References are supported in stdio `command`, `args`, `cwd`, and `env` values, and in HTTP/SSE `url`, header values, and OAuth fields.
+
 For example:
 
 ```dotenv
@@ -353,6 +355,8 @@ Use `envFilter` to control which variables are inherited using pattern matching:
   "envFilter": ["PATH", "HOME", "NODE_*", "NPM_*", "!SECRET_*", "!BASH_FUNC_*"]
 }
 ```
+
+For explicit `env` entries, `envFilter` controls only implicit inheritance. A variable declared in `env` may reference a parent or Runtime Scope value without also listing that source key in `envFilter`; the declaration itself is the intentional allow. Variables that are neither declared nor matched by `envFilter` remain excluded.
 
 **Filter Patterns:**
 

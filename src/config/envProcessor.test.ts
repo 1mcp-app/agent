@@ -230,7 +230,25 @@ describe('EnvProcessor', () => {
       });
     });
 
-    it('should not substitute custom environment variables from filtered parent env', () => {
+    it('resolves explicit Runtime Scope references independently of inherited environment filters', () => {
+      const result = processEnvironment({
+        inheritParentEnv: true,
+        envFilter: ['PUBLIC_*'],
+        runtimeEnv: {
+          PRIVATE_TOKEN: 'scope-token',
+          UNDECLARED_SECRET: 'must-stay-filtered',
+        },
+        env: {
+          PRIVATE_TOKEN: '${PRIVATE_TOKEN}',
+        },
+      });
+
+      expect(result.processedEnv).toEqual({ PRIVATE_TOKEN: 'scope-token' });
+      expect(result.processedEnv.UNDECLARED_SECRET).toBeUndefined();
+      expect(result.sources.filtered).toContain('UNDECLARED_SECRET');
+    });
+
+    it('substitutes explicit custom environment references without inheriting their source variables', () => {
       process.env.CONTEXT7_API_KEY = 'context7-key';
 
       const result = processEnvironment({
@@ -242,7 +260,7 @@ describe('EnvProcessor', () => {
       });
 
       expect(result.processedEnv).toEqual({
-        API_KEY_COPY: '$CONTEXT7_API_KEY',
+        API_KEY_COPY: 'context7-key',
       });
       expect(result.sources.filtered).toContain('CONTEXT7_API_KEY');
     });
