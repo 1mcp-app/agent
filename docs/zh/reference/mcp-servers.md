@@ -304,6 +304,8 @@ Admin 使用相同的 `disabledTools` 和 `toolDescriptionOverrides` 字段。�
 - `--config-dir <directory>`：使用 `<directory>/.env`
 - 通过 `--config` 指定配置：与该配置文件相邻的 `.env`
 
+引用可用于 stdio 的 `command`、`args`、`cwd` 和 `env` 值，也可用于 HTTP/SSE 的 `url`、请求头值和 OAuth 字段。
+
 父进程中的同名值优先于 Runtime Scope 文件。文件中的值只用于后端环境机密引用和显式环境继承：不会写入 1MCP 的进程环境、不会配置 `ONE_MCP_*` 选项，也不会自动传递给无关后端。`mcp.json` 中的字面量仍具有最高优先级。
 
 启用配置热重载后，1MCP 会监视 `.env` 的创建、修改、原子替换和删除。只有解析后有效配置发生变化的静态服务器和模板实例会重启；无关服务器保持连接。缺少 `.env` 是有效状态。文件不可读或格式错误时，1MCP 会保留上一次有效值，并在文件再次变化后重试。
@@ -330,6 +332,8 @@ Admin 使用相同的 `disabledTools` 和 `toolDescriptionOverrides` 字段。�
   "envFilter": ["PATH", "HOME", "NODE_*", "NPM_*", "!SECRET_*", "!BASH_FUNC_*"]
 }
 ```
+
+对于显式 `env` 条目，`envFilter` 只控制隐式继承。在 `env` 中声明的变量可以引用父进程或 Runtime Scope 中的值，无需再把源变量名加入 `envFilter`；该声明本身就是明确的允许。既未显式声明、也未被 `envFilter` 匹配的变量仍会被排除。
 
 **过滤模式：**
 

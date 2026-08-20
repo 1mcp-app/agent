@@ -1,4 +1,5 @@
 import { getConfigPath } from '@src/constants.js';
+
 import { getRuntimeScopeEnvPath } from './runtimeScopeEnv.js';
 
 /**

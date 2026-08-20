@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 
 import { mcpServerConfigSchema, transportConfigSchema } from './transport.js';
 
@@ -19,6 +20,24 @@ describe('transportConfigSchema stderr', () => {
 describe('transportConfigSchema restart policy', () => {
   it('rejects a fractional maxRestarts value', () => {
     expect(() => transportConfigSchema.parse({ type: 'stdio', command: 'node', maxRestarts: 1.5 })).toThrow();
+  });
+});
+
+describe('transportConfigSchema URL JSON schema', () => {
+  it('publishes the same URI-or-environment-reference alternatives accepted at runtime', () => {
+    const jsonSchema = z.toJSONSchema(transportConfigSchema, {
+      target: 'draft-7',
+      io: 'input',
+      unrepresentable: 'any',
+    });
+    const urlSchema = (jsonSchema.properties as Record<string, Record<string, unknown>>).url;
+
+    expect(urlSchema.anyOf).toEqual(
+      expect.arrayContaining([
+        { type: 'string', format: 'uri' },
+        { type: 'string', pattern: '\\$\\{[^}]+\\}|\\$[A-Za-z_][A-Za-z0-9_]*' },
+      ]),
+    );
   });
 });
 

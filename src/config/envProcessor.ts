@@ -238,15 +238,19 @@ export function processEnvironment(config: EnvProcessingConfig): ProcessedEnviro
 
     // Apply environment variable substitution to custom env.
     if (config.substituteEnv !== false) {
-      const substitutionEnv =
-        config.envFilter && config.envFilter.length > 0
-          ? { ...combinedEnv, ...customEnv }
-          : { ...referenceEnvironment, ...combinedEnv, ...customEnv };
+      const substitutionEnv = { ...combinedEnv, ...referenceEnvironment, ...customEnv };
 
       for (const key of Object.keys(customEnv)) {
         const value = customEnv[key];
         if (typeof value === 'string') {
+          const sourceValue = referenceEnvironment[key] ?? combinedEnv[key];
+          if (sourceValue === undefined) {
+            delete substitutionEnv[key];
+          } else {
+            substitutionEnv[key] = sourceValue;
+          }
           customEnv[key] = substituteEnvVars(value, substitutionEnv);
+          substitutionEnv[key] = customEnv[key];
         }
       }
     }

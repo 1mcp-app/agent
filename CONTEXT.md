@@ -161,12 +161,20 @@ The source-qualified identity of one **Configured Server Target**, combining whe
 _Avoid_: server name, bare target ID
 
 **Global Transport Config**:
-Shared transport settings inherited by **Configured Server Targets** unless a target sets its own override.
+The explicit normalized set of top-level transport defaults that **Configured Server Targets** may inherit unless a target sets its own override. It excludes unrelated global runtime configuration and unknown configuration fields.
 _Avoid_: global server config, default target config
 
 **Configured Server Read Model**:
 A normalized admin-facing view of **Configured Server Targets** with secrets and raw environment values redacted.
 _Avoid_: raw config DTO, config passthrough
+
+**Server Diagnosis**:
+A point-in-time, redacted explanation of why one **Configured Server Target** is unavailable, degraded, or behaving unexpectedly, with ranked likely causes and safe guided recovery actions.
+_Avoid_: log dump, health blob, debug page
+
+**Diagnostic Finding**:
+An explainable, ranked cause candidate within a **Server Diagnosis**, containing severity, supporting evidence, confidence, and safe guided next actions.
+_Avoid_: error string, health flag, guessed root cause
 
 **Environment Secret Reference**:
 A configuration value that names or references a secret supplied by the runtime environment or external secret management instead of storing the secret material directly in a **Runtime Scope** config file.

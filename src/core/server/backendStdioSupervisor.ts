@@ -1,3 +1,5 @@
+import { sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
+
 export type BackendSupervisionState = 'connected' | 'restarting' | 'crash-loop' | 'stopped';
 
 export interface BackendSupervisionPolicy {
@@ -256,4 +258,3 @@ export class BackendStdioSupervisor {
     this.onStateChange?.(this.snapshot());
   }
 }
-import { sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';

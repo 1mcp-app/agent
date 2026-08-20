@@ -283,17 +283,17 @@ describe('Runtime Scope environment', () => {
   it.skipIf(process.platform === 'win32' || (typeof process.getuid === 'function' && process.getuid() === 0))(
     'reports unreadable files without exposing contents',
     async () => {
-    const directory = await mkdtemp(path.join(tmpdir(), 'runtime-env-'));
-    directories.push(directory);
-    const envPath = path.join(directory, '.env');
-    await writeFile(envPath, 'SECRET=must-not-appear\n');
-    await chmod(envPath, 0o000);
+      const directory = await mkdtemp(path.join(tmpdir(), 'runtime-env-'));
+      directories.push(directory);
+      const envPath = path.join(directory, '.env');
+      await writeFile(envPath, 'SECRET=must-not-appear\n');
+      await chmod(envPath, 0o000);
 
-    try {
-      expect(() => loadRuntimeScopeEnvironment(path.join(directory, 'mcp.json'))).toThrow(envPath);
-    } finally {
-      await chmod(envPath, 0o600);
-    }
+      try {
+        expect(() => loadRuntimeScopeEnvironment(path.join(directory, 'mcp.json'))).toThrow(envPath);
+      } finally {
+        await chmod(envPath, 0o600);
+      }
     },
   );
 });

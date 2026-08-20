@@ -146,10 +146,7 @@ describe('ClientInstancePool', () => {
       } as any;
       const firstTransport = { close: vi.fn().mockResolvedValue(undefined) } as any;
       const secondTransport = { close: vi.fn().mockResolvedValue(undefined) } as any;
-      const pooledClientFactory = vi
-        .fn()
-        .mockReturnValueOnce(firstClient)
-        .mockReturnValueOnce(secondClient);
+      const pooledClientFactory = vi.fn().mockReturnValueOnce(firstClient).mockReturnValueOnce(secondClient);
       vi.mocked(ClientManager.getOrCreateInstance).mockReturnValue({
         createPooledClientInstance: pooledClientFactory,
       } as any);

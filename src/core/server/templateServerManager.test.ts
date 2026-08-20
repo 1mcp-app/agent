@@ -317,9 +317,7 @@ describe('TemplateServerManager', () => {
 
       const targets = await templateServerManager.retireTemplatesForRuntimeEnvironment([]);
 
-      expect(targets).toEqual([
-        { sessionId: 'affected-session', templateName: 'worker', lifecycle: 'ephemeral' },
-      ]);
+      expect(targets).toEqual([{ sessionId: 'affected-session', templateName: 'worker', lifecycle: 'ephemeral' }]);
       expect(manager.clientInstancePool.removeInstance).toHaveBeenCalledOnce();
       expect(manager.clientInstancePool.removeInstance).toHaveBeenCalledWith('worker:affected');
       expect(manager.sessionToRenderedHash.has('affected-session')).toBe(false);
