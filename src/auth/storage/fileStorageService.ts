@@ -282,15 +282,42 @@ export class FileStorageService {
   }
 
   /**
+   * Checks if an ID/filePrefix represents sensitive data that should be redacted from logs.
+   */
+  private isSensitiveId(filePrefix?: string): boolean {
+    return filePrefix === AUTH_CONFIG.SERVER.AUTH_CODE.FILE_PREFIX;
+  }
+
+  /**
+   * Gets a log-safe representation of an ID.
+   */
+  private getLoggableId(filePrefix: string, id: string): string {
+    if (this.isSensitiveId(filePrefix)) {
+      return '[REDACTED]';
+    }
+    return id;
+  }
+
+  /**
+   * Gets a log-safe representation of a file path.
+   */
+  private getLoggableFilePath(filePrefix: string, id: string): string {
+    if (this.isSensitiveId(filePrefix)) {
+      return path.join(this.storageDir, `${filePrefix}[REDACTED]${AUTH_CONFIG.SERVER.STORAGE.FILE_EXTENSION}`);
+    }
+    return this.getFilePath(filePrefix, id);
+  }
+
+  /**
    * Writes data to a file with the specified prefix and ID
    */
   writeData<T extends ExpirableData>(filePrefix: string, id: string, data: T): void {
     try {
       const filePath = this.getFilePath(filePrefix, id);
       fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-      logger.debug(`Wrote data to ${filePath}`);
+      logger.debug(`Wrote data to ${this.getLoggableFilePath(filePrefix, id)}`);
     } catch (error) {
-      logger.error(`Failed to write data for ${id}: ${error}`);
+      logger.error(`Failed to write data for ${this.getLoggableId(filePrefix, id)}: ${error}`);
       throw error;
     }
   }
@@ -313,7 +340,7 @@ export class FileStorageService {
       fs.renameSync(temporaryPath, filePath);
       temporaryPath = undefined;
       this.flushStorageDirectory();
-      logger.debug(`Wrote data to ${filePath}`);
+      logger.debug(`Wrote data to ${this.getLoggableFilePath(filePrefix, id)}`);
     } catch (error) {
       if (temporaryPath) {
         try {
@@ -322,7 +349,7 @@ export class FileStorageService {
           // A later startup cleanup removes abandoned temporary files.
         }
       }
-      logger.error(`Failed to write data for ${id}: ${error}`);
+      logger.error(`Failed to write data for ${this.getLoggableId(filePrefix, id)}: ${error}`);
       throw error;
     }
   }
@@ -333,7 +360,7 @@ export class FileStorageService {
    */
   readData<T extends ExpirableData>(filePrefix: string, id: string, schema?: ZodType<T>): T | null {
     if (!this.isValidId(id, filePrefix)) {
-      logger.warn(`Rejected readData with invalid ID: ${id}`);
+      logger.warn(`Rejected readData with invalid ID: ${this.getLoggableId(filePrefix, id)}`);
       return null;
     }
 
@@ -355,7 +382,7 @@ export class FileStorageService {
 
       return parsedData;
     } catch (error) {
-      logger.error(`Failed to read data for ${id}: ${error}`);
+      logger.error(`Failed to read data for ${this.getLoggableId(filePrefix, id)}: ${error}`);
       return null;
     }
   }
@@ -365,7 +392,7 @@ export class FileStorageService {
    */
   deleteData(filePrefix: string, id: string): boolean {
     if (!this.isValidId(id, filePrefix)) {
-      logger.warn(`Rejected deleteData with invalid ID: ${id}`);
+      logger.warn(`Rejected deleteData with invalid ID: ${this.getLoggableId(filePrefix, id)}`);
       return false;
     }
 
@@ -373,12 +400,12 @@ export class FileStorageService {
       const filePath = this.getFilePath(filePrefix, id);
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
-        logger.debug(`Deleted data file: ${filePath}`);
+        logger.debug(`Deleted data file: ${this.getLoggableFilePath(filePrefix, id)}`);
         return true;
       }
       return false;
     } catch (error) {
-      logger.error(`Failed to delete data for ${id}: ${error}`);
+      logger.error(`Failed to delete data for ${this.getLoggableId(filePrefix, id)}: ${error}`);
       throw error;
     }
   }

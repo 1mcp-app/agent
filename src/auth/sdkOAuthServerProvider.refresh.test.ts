@@ -387,14 +387,36 @@ describe('authorization-code-atomic (goiabada#77 double-spend)', () => {
   it('logs do not contain the plaintext authorization code', async () => {
     const infoSpy = vi.spyOn(logger, 'info');
     const debugSpy = vi.spyOn(logger, 'debug');
+    const warnSpy = vi.spyOn(logger, 'warn');
+    const errorSpy = vi.spyOn(logger, 'error');
 
-    const tokens = await exchangeAuthorizationCode(provider, ACCESS_ONLY_CLIENT);
+    const code = provider.oauthStorage.authCodeRepository.create(
+      ACCESS_ONLY_CLIENT.client_id,
+      ACCESS_ONLY_CLIENT.redirect_uris[0],
+      RESOURCE,
+      SCOPES,
+      60_000,
+      'challenge',
+    );
+    const tokens = await provider.exchangeAuthorizationCode(
+      ACCESS_ONLY_CLIENT,
+      code,
+      undefined,
+      ACCESS_ONLY_CLIENT.redirect_uris[0],
+      new URL(RESOURCE),
+    );
     expect(tokens.access_token).toBeDefined();
 
-    for (const spy of [infoSpy, debugSpy]) {
-      for (const call of spy.mock.calls) {
-        expect(JSON.stringify(call)).not.toMatch(/auth-code|ac_[0-9a-f-]{8}/i);
-      }
-    }
+    const allLoggedContent = [
+      ...infoSpy.mock.calls,
+      ...debugSpy.mock.calls,
+      ...warnSpy.mock.calls,
+      ...errorSpy.mock.calls,
+    ]
+      .map((call) => JSON.stringify(call))
+      .join('\n');
+
+    expect(allLoggedContent).not.toContain(code);
+    expect(allLoggedContent).not.toMatch(/auth_code_code-[0-9a-f-]+/i);
   });
 });
