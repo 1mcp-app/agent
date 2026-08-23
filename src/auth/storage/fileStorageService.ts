@@ -285,7 +285,10 @@ export class FileStorageService {
    * Checks if an ID/filePrefix represents sensitive data that should be redacted from logs.
    */
   private isSensitiveId(filePrefix?: string): boolean {
-    return filePrefix === AUTH_CONFIG.SERVER.AUTH_CODE.FILE_PREFIX;
+    return (
+      filePrefix === AUTH_CONFIG.SERVER.AUTH_CODE.FILE_PREFIX ||
+      filePrefix === AUTH_CONFIG.SERVER.AUTH_REQUEST.FILE_PREFIX
+    );
   }
 
   /**
