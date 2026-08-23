@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import fs from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
@@ -32,7 +33,7 @@ describe('FileStorageService', () => {
 
   beforeEach(() => {
     // Create a temporary directory for testing
-    tempDir = path.join(tmpdir(), `file-storage-test-${Date.now()}`);
+    tempDir = path.join(tmpdir(), `file-storage-test-${randomUUID()}`);
     service = new FileStorageService(tempDir);
   });
 
@@ -63,7 +64,8 @@ describe('FileStorageService', () => {
     });
 
     it('should handle directory creation errors', () => {
-      const invalidDir = '/invalid/path/that/cannot/be/created';
+      const invalidDir =
+        process.platform === 'win32' ? 'Z:\\nonexistent_drive_123\\sessions' : '/invalid/path/that/cannot/be/created';
       expect(() => new FileStorageService(invalidDir)).toThrow();
     });
   });

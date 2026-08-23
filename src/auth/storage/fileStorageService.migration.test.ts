@@ -3,6 +3,7 @@ import { tmpdir } from 'os';
 import path from 'path';
 
 import { FILE_PREFIX_MAPPING, STORAGE_SUBDIRS } from '@src/constants.js';
+import logger from '@src/logger/logger.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -456,6 +457,73 @@ describe('FileStorageService', () => {
 
       for (const id of invalidIds) {
         expect(() => service.getFilePath('test_', id)).toThrow();
+      }
+    });
+  });
+
+  describe('Migration Log Redaction', () => {
+    it('redacts sensitive authorization codes and requests during migration', () => {
+      const baseDir = path.join(tmpdir(), `migration-redaction-test-${Date.now()}`);
+      const sessionsDir = path.join(baseDir, 'sessions');
+      fs.mkdirSync(sessionsDir, { recursive: true });
+
+      const sensitiveAuthCode = 'code-99998888-7777-6666-5555-444433332222';
+      const sensitiveAuthRequest = 'code-11112222-3333-4444-5555-666677778888';
+      const authCodeFileName = `auth_code_${sensitiveAuthCode}.json`;
+      const authRequestFileName = `auth_request_${sensitiveAuthRequest}.json`;
+
+      fs.writeFileSync(path.join(sessionsDir, authCodeFileName), JSON.stringify({ test: 'data' }));
+      fs.writeFileSync(path.join(sessionsDir, authRequestFileName), JSON.stringify({ test: 'data' }));
+
+      const testService = new FileStorageService(baseDir, 'server');
+
+      const infoCalls = (logger.info as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+      const allInfo = infoCalls.map((call) => JSON.stringify(call)).join('\n');
+
+      expect(allInfo).not.toContain(sensitiveAuthCode);
+      expect(allInfo).not.toContain(sensitiveAuthRequest);
+      expect(allInfo).not.toMatch(/auth_code_code-[0-9a-f-]+/i);
+      expect(allInfo).not.toMatch(/auth_request_code-[0-9a-f-]+/i);
+      expect(allInfo).toContain('auth_code_[REDACTED].json');
+      expect(allInfo).toContain('auth_request_[REDACTED].json');
+
+      testService.shutdown();
+      fs.rmSync(baseDir, { recursive: true, force: true });
+    });
+
+    it('redacts sensitive file paths and errors on migration failure', () => {
+      const baseDir = path.join(tmpdir(), `migration-fail-redaction-test-${Date.now()}`);
+      const sessionsDir = path.join(baseDir, 'sessions');
+      fs.mkdirSync(sessionsDir, { recursive: true });
+
+      const sensitiveAuthCode = 'code-99998888-7777-6666-5555-444433332222';
+      const authCodeFileName = `auth_code_${sensitiveAuthCode}.json`;
+      fs.writeFileSync(path.join(sessionsDir, authCodeFileName), JSON.stringify({ test: 'data' }));
+
+      const realRenameSync = fs.renameSync;
+      vi.spyOn(fs, 'renameSync').mockImplementation((oldPath, newPath) => {
+        if (String(oldPath).includes(sensitiveAuthCode)) {
+          const err = new Error(`EACCES: permission denied, rename '${String(oldPath)}' -> '${String(newPath)}'`);
+          (err as unknown as { code: string }).code = 'EACCES';
+          throw err;
+        }
+        return realRenameSync(oldPath, newPath);
+      });
+
+      try {
+        const testService = new FileStorageService(baseDir, 'server');
+        testService.shutdown();
+
+        const errorCalls = (logger.error as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+        const allError = errorCalls.map((call) => JSON.stringify(call)).join('\n');
+
+        expect(allError).not.toContain(sensitiveAuthCode);
+        expect(allError).not.toMatch(/auth_code_code-[0-9a-f-]+/i);
+        expect(allError).toContain('auth_code_[REDACTED].json');
+        expect(allError).toContain('EACCES');
+      } finally {
+        fs.renameSync = realRenameSync;
+        fs.rmSync(baseDir, { recursive: true, force: true });
       }
     });
   });

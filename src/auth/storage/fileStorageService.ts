@@ -129,9 +129,11 @@ export class FileStorageService {
         try {
           fs.renameSync(oldPath, newPath);
           migrationCount++;
-          logger.info(`Migrated ${file} from ${sourceDir} to ${this.storageDir}`);
+          logger.info(`Migrated ${this.getLoggableFileName(file)} from ${sourceDir} to ${this.storageDir}`);
         } catch (error) {
-          logger.error(`Failed to migrate ${file}: ${error}`);
+          logger.error(
+            `Failed to migrate ${this.getLoggableFileName(file)}: ${this.getLoggableErrorForFileName(file, error)}`,
+          );
         }
       }
     }
@@ -281,17 +283,19 @@ export class FileStorageService {
     return false;
   }
 
-  private static readonly SENSITIVE_FILE_PREFIXES = [
-    AUTH_CONFIG.SERVER.AUTH_CODE.FILE_PREFIX,
-    AUTH_CONFIG.SERVER.AUTH_REQUEST.FILE_PREFIX,
-  ] as const;
+  private static getSensitivePrefixes(): readonly string[] {
+    return [
+      AUTH_CONFIG?.SERVER?.AUTH_CODE?.FILE_PREFIX ?? 'auth_code_',
+      AUTH_CONFIG?.SERVER?.AUTH_REQUEST?.FILE_PREFIX ?? 'auth_request_',
+    ];
+  }
 
   /**
    * Checks if an ID/filePrefix or filename represents sensitive data that should be redacted from logs.
    */
   private isSensitivePrefix(prefixOrFileName?: string): boolean {
     if (!prefixOrFileName) return false;
-    return FileStorageService.SENSITIVE_FILE_PREFIXES.some((prefix) => prefixOrFileName.startsWith(prefix));
+    return FileStorageService.getSensitivePrefixes().some((prefix) => prefixOrFileName.startsWith(prefix));
   }
 
   /**
@@ -309,7 +313,10 @@ export class FileStorageService {
    */
   private getLoggableFilePath(filePrefix: string, id: string): string {
     if (this.isSensitivePrefix(filePrefix)) {
-      return path.join(this.storageDir, `${filePrefix}[REDACTED]${AUTH_CONFIG.SERVER.STORAGE.FILE_EXTENSION}`);
+      return path.join(
+        this.storageDir,
+        `${filePrefix}[REDACTED]${AUTH_CONFIG?.SERVER?.STORAGE?.FILE_EXTENSION ?? '.json'}`,
+      );
     }
     return this.getFilePath(filePrefix, id);
   }
@@ -331,12 +338,12 @@ export class FileStorageService {
    * Gets a log-safe representation of a file name (including .tmp files).
    */
   private getLoggableFileName(fileName: string): string {
-    for (const prefix of FileStorageService.SENSITIVE_FILE_PREFIXES) {
+    for (const prefix of FileStorageService.getSensitivePrefixes()) {
       if (fileName.startsWith(prefix)) {
         if (fileName.endsWith('.tmp')) {
           return `${prefix}[REDACTED].tmp`;
         }
-        return `${prefix}[REDACTED]${AUTH_CONFIG.SERVER.STORAGE.FILE_EXTENSION}`;
+        return `${prefix}[REDACTED]${AUTH_CONFIG?.SERVER?.STORAGE?.FILE_EXTENSION ?? '.json'}`;
       }
     }
     return fileName;
