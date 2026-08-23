@@ -60,7 +60,6 @@ jobs:
     with:
       release_ref: ${{ needs.validate.outputs.release_ref }}
       version: ${{ needs.validate.outputs.version }}
-    secrets: inherit
     permissions:
       contents: write
 
@@ -103,7 +102,6 @@ jobs:
       version_tag: ${{ needs.validate.outputs.version_tag }}
       npm_tag: ${{ needs.validate.outputs.npm_tag }}
       is_prerelease: ${{ needs.validate.outputs.is_prerelease == 'true' }}
-    secrets: inherit
     permissions:
       contents: write
       id-token: write

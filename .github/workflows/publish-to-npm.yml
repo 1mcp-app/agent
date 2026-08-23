@@ -115,7 +115,9 @@ jobs:
         run: pnpm build
 
       - name: Publish to npm
-        run: pnpm publish --no-git-checks --access public --provenance --tag ${{ inputs.npm_tag }}
+        env:
+          NPM_TAG: ${{ inputs.npm_tag }}
+        run: pnpm publish --no-git-checks --access public --provenance --tag "$NPM_TAG"
 
       - name: Resolve release changelog range
         id: release-notes-range
