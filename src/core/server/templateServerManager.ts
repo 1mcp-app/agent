@@ -44,6 +44,14 @@ export interface TemplateRebuildResult {
   toolMetadataChanged: boolean;
 }
 
+export interface TemplateDefinitionRuntimeImpact {
+  activeInstancesBefore: number;
+  retiredInstances: number;
+  activeInstancesAfter: number;
+  retirementObserved: boolean;
+  error?: string;
+}
+
 export type TemplateClientLifecycle = 'persistent' | 'ephemeral';
 
 export interface RuntimeTemplateReloadTarget {
@@ -395,6 +403,37 @@ export class TemplateServerManager {
 
   public getTemplateInstances(templateName: string): PooledClientInstance[] {
     return this.clientInstancePool.getTemplateInstances(templateName);
+  }
+
+  public getTemplateActiveInstanceCount(templateName: string): number {
+    return this.clientInstancePool
+      .getTemplateInstances(templateName)
+      .filter((instance) => instance.status !== 'terminating').length;
+  }
+
+  public async observeTemplateDefinitionRetirement(templateName: string): Promise<TemplateDefinitionRuntimeImpact> {
+    const activeInstancesBefore = this.getTemplateActiveInstanceCount(templateName);
+    const retirement = this.templateRetirements.get(templateName);
+    if (retirement) {
+      try {
+        await retirement;
+      } catch {
+        return {
+          activeInstancesBefore,
+          retiredInstances: 0,
+          activeInstancesAfter: this.getTemplateActiveInstanceCount(templateName),
+          retirementObserved: false,
+          error: 'Template instance retirement could not be confirmed.',
+        };
+      }
+    }
+    const activeInstancesAfter = this.getTemplateActiveInstanceCount(templateName);
+    return {
+      activeInstancesBefore,
+      retiredInstances: Math.max(0, activeInstancesBefore - activeInstancesAfter),
+      activeInstancesAfter,
+      retirementObserved: activeInstancesAfter === 0,
+    };
   }
 
   public restartTemplateInstance(instance: PooledClientInstance): Promise<BackendSupervisionSnapshot> {

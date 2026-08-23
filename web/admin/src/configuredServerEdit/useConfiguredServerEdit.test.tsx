@@ -118,7 +118,7 @@ function api(overrides: Partial<AdminApiClient> = {}): AdminApiClient {
 }
 
 describe('useConfiguredServerEdit', () => {
-  it('previews a template instruction override through the source-qualified editor', async () => {
+  it('previews and applies a structured Template definition edit through the source-qualified editor', async () => {
     const templateDetail = {
       ...detail(),
       server: {
@@ -135,6 +135,30 @@ describe('useConfiguredServerEdit', () => {
           ...detail().editContract.capabilities,
           apply: { supported: true },
         },
+        fieldGroups: [
+          ...detail().editContract.fieldGroups,
+          {
+            id: 'template',
+            label: 'Template instances',
+            fields: [
+              {
+                fieldPath: ['id'],
+                label: 'Target ID',
+                control: 'text' as const,
+                value: 'shared',
+                editable: true,
+              },
+              {
+                fieldPath: ['transport', 'template', 'shareable'],
+                label: 'Share instances',
+                control: 'switch' as const,
+                value: true,
+                editable: true,
+                applicableSources: ['mcpTemplates' as const],
+              },
+            ],
+          },
+        ],
       },
     };
     const adminApi = api({
@@ -143,14 +167,38 @@ describe('useConfiguredServerEdit', () => {
         ...applyPreview(),
         preview: {
           ...applyPreview().preview,
-          diff: [{ fieldPath: ['instructionOverride'], oldValue: 'upstream', newValue: 'suppress', riskFlags: [] }],
+          proposedTargetName: 'shared-renamed',
+          diff: [
+            { fieldPath: ['id'], oldValue: 'shared', newValue: 'shared-renamed', riskFlags: ['rename'] },
+            {
+              fieldPath: ['transport', 'url'],
+              oldValue: 'https://example.com/mcp?token=REDACTED',
+              newValue: 'https://{{project.host}}/mcp',
+              riskFlags: ['connection_critical'],
+            },
+            {
+              fieldPath: ['transport', 'template', 'shareable'],
+              oldValue: true,
+              newValue: false,
+              riskFlags: ['template_risk'],
+            },
+            {
+              fieldPath: ['url', 'query', 'token'],
+              oldValue: '[REDACTED]',
+              newValue: 'TEMPLATE_TOKEN',
+              secretAction: 'replace',
+              riskFlags: ['secret'],
+            },
+          ],
+          connectivityCheck: { status: 'skipped' as const, reason: 'template_structural_preview' as const },
+          runtimeImpact: { activeInstanceCount: 2, retirementRequired: true, createsInstance: false as const },
           configChange: {
             ...applyPreview().preview.configChange,
             target: { name: 'shared', source: 'mcpTemplates' as const },
           },
         },
       })),
-      applyConfiguredServerEdit: vi.fn(async () => applyResponse('shared')),
+      applyConfiguredServerEdit: vi.fn(async () => applyResponse('shared-renamed')),
     });
     const browserAdapter = browser('/admin');
     const { result } = renderHook(() =>
@@ -161,23 +209,96 @@ describe('useConfiguredServerEdit', () => {
     expect(adminApi.getConfiguredServerDetail).toHaveBeenCalledWith({ source: 'mcpTemplates', id: 'shared' });
     expect(browserAdapter.adapter.push).toHaveBeenCalledWith('/admin/servers/mcpTemplates/shared');
 
-    act(() => result.current.changeInstructionOverride('suppress'));
+    act(() => result.current.changeField(['id'], 'shared-renamed'));
+    act(() => result.current.changeField(['transport', 'url'], 'https://{{project.host}}/mcp'));
+    act(() => result.current.changeField(['transport', 'template', 'shareable'], false));
+    act(() =>
+      result.current.changeSecret(['url', 'query', 'token'], {
+        fieldPath: ['url', 'query', 'token'],
+        action: 'replace',
+        replacementKind: 'environmentReference',
+        replacementValue: 'TEMPLATE_TOKEN',
+      }),
+    );
     expect(result.current.state).toMatchObject({ status: 'loaded', dirty: true, preview: undefined });
     await act(() => result.current.preview());
     expect(adminApi.previewConfiguredServerEdit).toHaveBeenCalledWith({
       target: { source: 'mcpTemplates', id: 'shared' },
       csrfToken: 'csrf-token',
       connectivityCheck: 'auto',
-      edit: { instructionOverride: { action: 'set', value: '' } },
+      edit: {
+        id: 'shared-renamed',
+        transport: { url: 'https://{{project.host}}/mcp', template: { shareable: false } },
+        secrets: [
+          {
+            fieldPath: ['url', 'query', 'token'],
+            action: 'replace',
+            replacement: { kind: 'environmentReference', value: 'TEMPLATE_TOKEN' },
+          },
+        ],
+      },
     });
 
     await act(() => result.current.apply());
-    expect(browserAdapter.adapter.confirm).toHaveBeenCalledOnce();
+    expect(browserAdapter.adapter.confirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Apply template changes to shared-renamed?',
+        confirmLabel: 'Apply template',
+        message: expect.stringContaining('retires active instances'),
+      }),
+    );
     expect(adminApi.applyConfiguredServerEdit).toHaveBeenCalledWith(
       expect.objectContaining({
         target: { source: 'mcpTemplates', id: 'shared' },
-        edit: { instructionOverride: { action: 'set', value: '' } },
+        edit: {
+          id: 'shared-renamed',
+          transport: { url: 'https://{{project.host}}/mcp', template: { shareable: false } },
+          secrets: [
+            {
+              fieldPath: ['url', 'query', 'token'],
+              action: 'replace',
+              replacement: { kind: 'environmentReference', value: 'TEMPLATE_TOKEN' },
+            },
+          ],
+        },
         previewFingerprint: 'preview-retry',
+      }),
+    );
+  });
+
+  it('describes metadata-only Template apply without promising instance retirement', async () => {
+    const templateDetail = detailFor({ source: 'mcpTemplates', id: 'shared' });
+    templateDetail.editContract.capabilities.apply.supported = true;
+    templateDetail.server.instructionOverride = { state: 'upstream' };
+    const adminApi = api({
+      getConfiguredServerDetail: vi.fn(async () => templateDetail),
+      previewConfiguredServerEdit: vi.fn(async () => ({
+        ...applyPreview(),
+        preview: {
+          ...applyPreview().preview,
+          targetName: 'shared',
+          proposedTargetName: 'shared',
+          diff: [{ fieldPath: ['instructionOverride'], oldValue: 'upstream', newValue: 'replace', riskFlags: [] }],
+          connectivityCheck: { status: 'skipped', reason: 'template_structural_preview' },
+          runtimeImpact: { activeInstanceCount: 2, retirementRequired: false, createsInstance: false },
+        },
+      })),
+      applyConfiguredServerEdit: vi.fn(async () => applyResponse('shared')),
+    });
+    const browserAdapter = browser('/admin');
+    const { result } = renderHook(() =>
+      useConfiguredServerEdit({ api: adminApi, session, browser: browserAdapter.adapter, onUnauthenticated: vi.fn() }),
+    );
+
+    await act(() => result.current.open({ source: 'mcpTemplates', id: 'shared' }));
+    act(() => result.current.changeInstructionOverride('replace', 'Operator guidance'));
+    await act(() => result.current.preview());
+    await act(() => result.current.apply());
+
+    expect(browserAdapter.adapter.confirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        confirmLabel: 'Apply template',
+        message: expect.stringContaining('without retiring active instances'),
       }),
     );
   });
@@ -491,7 +612,7 @@ describe('useConfiguredServerEdit', () => {
 
     act(() => browserAdapter.navigate('/admin'));
 
-    expect(browserAdapter.adapter.replace).toHaveBeenCalledWith('/admin/servers/github');
+    expect(browserAdapter.adapter.replace).toHaveBeenCalledWith('/admin/servers/mcpServers/github');
     expect(result.current.state).toMatchObject({ status: 'loaded', serverId: 'github', dirty: true });
   });
 
@@ -630,7 +751,7 @@ describe('useConfiguredServerEdit', () => {
         targetNameConfirmed: 'github-renamed',
       },
     });
-    expect(browserAdapter.adapter.replace).toHaveBeenCalledWith('/admin/servers/github-renamed');
+    expect(browserAdapter.adapter.replace).toHaveBeenCalledWith('/admin/servers/mcpServers/github-renamed');
     expect(onApplied).toHaveBeenCalled();
     expect(result.current.state).toMatchObject({
       status: 'loaded',

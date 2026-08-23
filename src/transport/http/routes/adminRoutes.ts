@@ -1257,7 +1257,7 @@ async function handleConfiguredServerDetail(
     const result = await options.configuredServerService.getConfiguredServerDetail({
       context: buildAdminOperationContext(req, options, {
         type: 'configured_server',
-        id: `${targetSource ?? 'mcpServers'}:${targetName}`,
+        id: `${targetSource ?? 'mcpServers'}/${targetName}`,
       }),
       targetName,
       ...(targetSource ? { targetSource } : {}),
@@ -1282,7 +1282,7 @@ async function handleConfiguredServerDetail(
         error: error.code,
         code: error.code,
         message: 'Configured server target was not found',
-        target: { type: 'configured_server', id: error.targetName },
+        target: { type: 'configured_server', id: `${targetSource ?? 'mcpServers'}/${error.targetName}` },
       });
       return;
     }
@@ -1333,7 +1333,7 @@ async function handleConfiguredToolInventoryRefresh(
         error: error.code,
         code: error.code,
         message: 'Configured server target was not found',
-        target: { type: 'configured_server', id: `${targetSource}:${targetName}` },
+        target: { type: 'configured_server', id: `${targetSource}/${targetName}` },
       });
       return;
     }
@@ -1457,7 +1457,7 @@ async function handleConfiguredServerPreview(
     const result = await options.configuredServerService.previewConfiguredServerEdit({
       context: buildAdminOperationContext(req, options, {
         type: 'configured_server',
-        id: `${targetSource ?? 'mcpServers'}:${targetName}`,
+        id: `${targetSource ?? 'mcpServers'}/${targetName}`,
       }),
       targetName,
       ...(targetSource ? { targetSource } : {}),
@@ -1482,7 +1482,7 @@ async function handleConfiguredServerPreview(
         error: error.code,
         code: error.code,
         message: 'Configured server target was not found',
-        target: { type: 'configured_server', id: error.targetName },
+        target: { type: 'configured_server', id: `${targetSource ?? 'mcpServers'}/${error.targetName}` },
       });
       return;
     }
@@ -1518,7 +1518,7 @@ async function handleConfiguredServerApply(
     const result = await options.configuredServerService.applyConfiguredServerEdit({
       context: buildAdminOperationContext(req, options, {
         type: 'configured_server',
-        id: `${targetSource ?? 'mcpServers'}:${targetName}`,
+        id: `${targetSource ?? 'mcpServers'}/${targetName}`,
       }),
       targetName,
       ...(targetSource ? { targetSource } : {}),
@@ -1608,7 +1608,7 @@ async function handleConfiguredServerMutation(
   const targetName = req.params.name;
   const context = buildAdminOperationContext(req, options, {
     type: 'configured_server',
-    id: `${targetSource ?? 'mcpServers'}:${targetName}`,
+    id: `${targetSource ?? 'mcpServers'}/${targetName}`,
   });
   const input = { context, targetName, ...(targetSource ? { targetSource } : {}) };
   const result =

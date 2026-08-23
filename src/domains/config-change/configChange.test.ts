@@ -958,6 +958,57 @@ describe('Config Change', () => {
     expect(Object.hasOwn((await readConfig())[source][name], 'instructionOverride')).toBe(false);
   });
 
+  it('creates a Template Server definition only when the name is absent from both sources', async () => {
+    const original = { mcpServers: { occupied: { type: 'stdio', command: 'node' } }, mcpTemplates: {} };
+    await writeConfig(original);
+    const service = createConfigChangeService({ reloadConfig: reload });
+
+    const conflict = await service.createTemplateConfiguredServerTarget({
+      targetName: 'occupied',
+      serverConfig: { type: 'stdio', command: '{{project.command}}' },
+      expectedConfigFingerprint: fingerprintConfiguredServerConfigDocument(original),
+    });
+    expect(conflict).toMatchObject({ status: 'destination_conflict', target: { source: 'mcpServers' } });
+    expect(reload).not.toHaveBeenCalled();
+
+    const created = await service.createTemplateConfiguredServerTarget({
+      targetName: 'worker',
+      serverConfig: { type: 'stdio', command: '{{project.command}}' },
+      expectedConfigFingerprint: fingerprintConfiguredServerConfigDocument(original),
+    });
+    expect(created).toMatchObject({
+      status: 'changed',
+      operation: 'create_template',
+      target: { name: 'worker', source: 'mcpTemplates' },
+      reload: { status: 'observed' },
+    });
+    expect((await readConfig()).mcpTemplates.worker.command).toBe('{{project.command}}');
+  });
+
+  it('rejects a source-qualified Template rename when the destination exists in the other source', async () => {
+    const template = { type: 'stdio' as const, command: '{{project.command}}' };
+    await writeConfig({
+      mcpServers: { destination: { type: 'stdio', command: 'node' } },
+      mcpTemplates: { source: template },
+    });
+    const service = createConfigChangeService({ reloadConfig: reload });
+
+    const result = await service.editConfiguredServerTarget({
+      sourceName: 'source',
+      targetSource: 'mcpTemplates',
+      targetName: 'destination',
+      serverConfig: template,
+      expectedSourceFingerprint: fingerprintConfiguredServerTarget(template),
+    });
+
+    expect(result).toMatchObject({
+      status: 'destination_conflict',
+      target: { name: 'destination', source: 'mcpServers' },
+    });
+    expect((await readConfig()).mcpTemplates.source).toEqual(template);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
   it('does not fall back to a same-named target in the other source for override changes', async () => {
     const target = { type: 'stdio' as const, command: 'node' };
     await writeConfig({ mcpServers: { duplicate: target }, mcpTemplates: { duplicate: target } });

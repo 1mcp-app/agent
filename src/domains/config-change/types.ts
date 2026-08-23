@@ -12,6 +12,7 @@ export type ConfigChangeOperation =
   | 'remove'
   | 'set_static'
   | 'create_static'
+  | 'create_template'
   | 'edit'
   | 'enable'
   | 'disable'
@@ -76,6 +77,13 @@ export interface CreateStaticConfiguredServerTargetInput extends SetStaticConfig
   expectedConfigFingerprint?: string;
 }
 
+export interface CreateTemplateConfiguredServerTargetInput {
+  targetName: string;
+  serverConfig: MCPServerParams;
+  expectedConfigFingerprint?: string;
+  backup?: ConfigBackupPolicy;
+}
+
 export interface SetConfiguredServerTargetEnabledStateInput {
   targetName: string;
   targetSource?: ConfiguredServerTargetSource;
@@ -121,6 +129,7 @@ export interface ConfigChangeService {
   removeConfiguredServerTarget(input: RemoveConfiguredServerTargetInput): Promise<ConfigChangeResult>;
   setStaticConfiguredServerTarget(input: SetStaticConfiguredServerTargetInput): Promise<ConfigChangeResult>;
   createStaticConfiguredServerTarget(input: CreateStaticConfiguredServerTargetInput): Promise<ConfigChangeResult>;
+  createTemplateConfiguredServerTarget(input: CreateTemplateConfiguredServerTargetInput): Promise<ConfigChangeResult>;
   previewConfiguredServerTargetEnabledState(
     input: SetConfiguredServerTargetEnabledStateInput,
   ): Promise<ConfigChangeResult>;

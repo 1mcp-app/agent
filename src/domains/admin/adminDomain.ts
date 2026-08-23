@@ -1,4 +1,5 @@
 import type { OAuthAuthorizationFlow } from '@src/auth/oauthAuthorizationFlow.js';
+import type { TemplateDefinitionRuntimeImpact } from '@src/core/server/templateServerManager.js';
 import type { MCPServerParams } from '@src/core/types/index.js';
 import type { ConfigChangeService } from '@src/domains/config-change/configChange.js';
 import { createInstructionTemplateManager } from '@src/domains/instruction-template/instructionTemplateManager.js';
@@ -49,6 +50,8 @@ export interface AdminDomainOptions {
     config: MCPServerParams;
     model?: string;
   }) => Promise<ConfiguredToolInventory>;
+  getTemplateActiveInstanceCount?: (templateName: string) => number;
+  observeTemplateDefinitionRetirement?: (templateName: string) => Promise<TemplateDefinitionRuntimeImpact>;
   mutationAvailability?: AdminMutationAvailability;
   now?: () => Date;
   createOperationId?: () => string;
@@ -92,6 +95,12 @@ export function createAdminDomain(options: AdminDomainOptions): AdminDomain {
     ...(options.checkConnectivity ? { checkConnectivity: options.checkConnectivity } : {}),
     ...(options.readToolInventory ? { readToolInventory: options.readToolInventory } : {}),
     ...(options.refreshToolInventory ? { refreshToolInventory: options.refreshToolInventory } : {}),
+    ...(options.getTemplateActiveInstanceCount
+      ? { getTemplateActiveInstanceCount: options.getTemplateActiveInstanceCount }
+      : {}),
+    ...(options.observeTemplateDefinitionRetirement
+      ? { observeTemplateDefinitionRetirement: options.observeTemplateDefinitionRetirement }
+      : {}),
   });
   const instructionTemplateService =
     options.getConfigPath && options.previewInstructions

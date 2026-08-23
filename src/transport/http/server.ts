@@ -422,6 +422,10 @@ export class ExpressServer {
       readConfigDocument: () => readConfiguredServerConfigDocument(getConfigPath),
       readToolInventory: (input) => configuredToolInspectionService.read(input),
       refreshToolInventory: (input) => configuredToolInspectionService.refresh(input),
+      getTemplateActiveInstanceCount: (templateName) =>
+        this.serverManager.getTemplateServerManager().getTemplateActiveInstanceCount(templateName),
+      observeTemplateDefinitionRetirement: (templateName) =>
+        this.serverManager.getTemplateServerManager().observeTemplateDefinitionRetirement(templateName),
       checkConnectivity: createAdminConnectivityChecker(),
       presetManager: PresetManager.getInstance(path.dirname(adminConfigPath)),
       previewInstructions: createAdminInstructionPreviewRuntime(

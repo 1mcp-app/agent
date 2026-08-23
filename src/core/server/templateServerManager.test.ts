@@ -460,6 +460,65 @@ describe('TemplateServerManager', () => {
       );
     });
 
+    it('observes the retirement scheduled by a functional index rebuild without starting another sweep', async () => {
+      const manager = templateServerManager as any;
+      let removed = false;
+      const replacementConfig = { command: 'node', args: ['new.js'], template: {} };
+      const instance = {
+        id: 'instance-id',
+        instanceKey: 'test-template:rendered',
+        templateName: 'test-template',
+        status: 'active',
+        client: {},
+        clientIds: new Set(['client-a']),
+      };
+      manager.clientInstancePool.getTemplateInstances.mockImplementation(() => (removed ? [] : [instance]));
+      manager.clientInstancePool.removeInstance.mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            setTimeout(() => {
+              removed = true;
+              resolve();
+            }, 0);
+          }),
+      );
+
+      templateServerManager.rebuildTemplateIndex({
+        mcpTemplates: { 'test-template': { command: 'node', args: ['old.js'], template: {} } },
+      });
+      templateServerManager.rebuildTemplateIndex({
+        mcpTemplates: { 'test-template': replacementConfig },
+      });
+
+      const result = await templateServerManager.observeTemplateDefinitionRetirement('test-template');
+
+      expect(result).toEqual({
+        activeInstancesBefore: 1,
+        retiredInstances: 1,
+        activeInstancesAfter: 0,
+        retirementObserved: true,
+      });
+      expect(manager.clientInstancePool.removeInstance).toHaveBeenCalledWith(instance.instanceKey);
+      expect(manager.clientInstancePool.getOrCreateClientInstance).not.toHaveBeenCalled();
+
+      vi.mocked(TemplateFilteringService.getMatchingTemplates).mockReturnValue([['test-template', replacementConfig]]);
+      await templateServerManager.createTemplateBasedServers(
+        'next-session',
+        { project: { path: '/next' } } as any,
+        {} as any,
+        { mcpTemplates: { 'test-template': replacementConfig } },
+        new Map(),
+        {},
+      );
+      expect(manager.clientInstancePool.getOrCreateClientInstance).toHaveBeenCalledWith(
+        'test-template',
+        replacementConfig,
+        expect.anything(),
+        'next-session',
+        replacementConfig.template,
+      );
+    });
+
     it('keeps live instances for override-only refreshes but retires them for functional changes', async () => {
       const manager = templateServerManager as any;
       const instance = {

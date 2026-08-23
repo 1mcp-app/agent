@@ -280,6 +280,22 @@ export interface ConfiguredServerReadModel {
   };
   transport: Record<string, unknown>;
   secretInputs: ConfiguredServerSecretInput[];
+  definition?: {
+    kind: 'static' | 'template';
+    qualifiedId: string;
+    authority: 'authoritative' | 'shadowed' | 'sole';
+  };
+  templateAnalysis?: {
+    syntax: { valid: boolean; errors: Array<{ fieldPath: string[]; code: string; message: string }> };
+    variables: string[];
+    unresolvedVariables: string[];
+    fields: Array<{
+      fieldPath: string[];
+      variables: string[];
+      syntax: { valid: boolean; message?: string };
+    }>;
+  };
+  runtime?: { objectKind: 'definition'; activeInstanceCount: number };
 }
 
 export interface ConfiguredServerSecretEditMetadata {
@@ -312,6 +328,7 @@ export interface ConfiguredServerEditField {
   source?: 'server' | 'inherited' | 'default';
   overrideSupported?: boolean;
   clearOverrideSupported?: boolean;
+  applicableSources?: Array<'mcpServers' | 'mcpTemplates'>;
 }
 
 export interface ConfiguredServerEditFieldGroup {
@@ -339,6 +356,7 @@ export interface ConfiguredServerEditContract {
 export type ConfiguredServerCreateTransport = 'stdio' | 'http' | 'sse';
 
 export interface ConfiguredServerCreateDraft {
+  source: 'mcpServers' | 'mcpTemplates';
   name: string;
   enabled: boolean;
   tags: string[];
@@ -478,7 +496,8 @@ export type ConfiguredServerConnectivityCheck =
         | 'validation_failed'
         | 'local_stdio_transport'
         | 'checker_unavailable'
-        | 'endpoint_changed_with_preserved_secrets';
+        | 'endpoint_changed_with_preserved_secrets'
+        | 'template_structural_preview';
     };
 
 export interface ConfiguredServerPreviewConfigChange {
@@ -539,6 +558,9 @@ export interface ConfiguredServerPreviewResponse {
       effect: 'immediate' | 'deferred_until_target_enabled';
       requiresZeroEnabledConfirmation: boolean;
     };
+    templateAnalysis?: ConfiguredServerReadModel['templateAnalysis'];
+    runtimeImpact?: { activeInstanceCount: number; retirementRequired: boolean; createsInstance: false };
+    warnings?: string[];
   };
 }
 
@@ -550,6 +572,13 @@ export interface ConfiguredServerApplyResponse {
     targetName: string;
     previewFingerprint: string;
     configChange: ConfiguredServerPreviewConfigChange;
+    runtimeImpact?: {
+      activeInstancesBefore: number;
+      retiredInstances: number;
+      activeInstancesAfter: number;
+      retirementObserved: boolean;
+      error?: string;
+    };
   };
 }
 
@@ -570,8 +599,10 @@ export interface ConfiguredServerCreateResponse {
   operationId: string;
   result: {
     targetName: string;
+    targetSource?: 'mcpServers' | 'mcpTemplates';
     previewFingerprint: string;
     configChange: ConfiguredServerPreviewConfigChange;
+    runtimeImpact?: { activeInstanceCount: 0; createdInstance: false };
   };
 }
 

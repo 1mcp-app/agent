@@ -6,6 +6,7 @@ import path from 'node:path';
 import { validateTemplateContent } from '@src/core/instructions/templateValidator.js';
 import {
   AdminConfiguredServerApplyError,
+  AdminConfiguredServerNotFoundError,
   type AdminConfiguredServerOperations,
   type ConfiguredServerMutationResult,
   type ConfiguredServerReadModel,
@@ -203,7 +204,7 @@ describe('admin SPA browser smoke', () => {
         response.url().endsWith('/admin/api/configured-servers/mcpServers/github/tool-inventory/refresh'),
       );
       await page.getByRole('button', { name: 'Edit static github server' }).click();
-      await page.waitForURL(`${baseUrl}/admin/servers/github`);
+      await page.waitForURL(`${baseUrl}/admin/servers/mcpServers/github`);
       const initialRefresh = await initialRefreshPromise;
       expect(initialRefresh.status(), await initialRefresh.text()).toBe(200);
       expect(configuredServerFixture.refreshCount).toBe(1);
@@ -239,7 +240,7 @@ describe('admin SPA browser smoke', () => {
       await expectVisible(leaveDialog);
       await expectVisible(leaveDialog.getByText('Discard unsaved changes?'));
       await leaveDialog.getByRole('button', { name: 'Cancel' }).click();
-      await page.waitForURL(`${baseUrl}/admin/servers/github`);
+      await page.waitForURL(`${baseUrl}/admin/servers/mcpServers/github`);
       await expectText(page, 'Unsaved changes');
 
       await page.getByRole('button', { name: 'Preview change' }).click();
@@ -350,7 +351,7 @@ describe('admin SPA browser smoke', () => {
       const createResponse = await createResponsePromise;
       expect(createResponse.status(), await createResponse.text()).toBe(200);
 
-      await page.waitForURL(`${baseUrl}/admin/servers/custom%20server`);
+      await page.waitForURL(`${baseUrl}/admin/servers/mcpServers/custom%20server`);
       await expectVisible(page.getByRole('heading', { name: 'custom server', exact: true }));
       await expectText(page, '3 configured targets');
       expect(await page.locator('body').innerText()).not.toContain('CUSTOM_SERVER_TOKEN');
@@ -375,8 +376,79 @@ describe('admin SPA browser smoke', () => {
       expect(await page.getByRole('button', { name: 'Create server' }).isDisabled()).toBe(true);
       await page.getByRole('button', { name: 'Edit existing server' }).click();
       await page.getByRole('dialog').getByRole('button', { name: 'Discard draft' }).click();
-      await page.waitForURL(`${baseUrl}/admin/servers/github`);
+      await page.waitForURL(`${baseUrl}/admin/servers/mcpServers/github`);
       await expectVisible(page.getByRole('heading', { name: 'github', exact: true }));
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  it('creates a Template definition through structural preview without creating an instance', async () => {
+    const page = await newPage({ width: 1280, height: 900 });
+    try {
+      await expectCenteredLoginGate(page);
+      await login(page, { skipNavigation: true });
+      await page.getByRole('link', { name: 'Server inventory' }).click();
+      await page.getByRole('button', { name: 'Configure Custom Server' }).click();
+      await page.locator('label:visible', { hasText: 'Template' }).click();
+      await page.getByLabel('Server Name').fill('project-template');
+      await page.getByLabel('Command').fill('{{project.command}}');
+      await page.getByRole('button', { name: 'Preview server' }).click();
+
+      await expectText(page, 'Template structure');
+      await expectText(page, 'project.command');
+      await expectText(page, 'does not contact a backend');
+      await expectText(page, '0 active');
+      await page.getByRole('button', { name: 'Create template' }).click();
+      await page.getByRole('dialog').getByRole('button', { name: 'Create server' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers/mcpTemplates/project-template`);
+      await expectVisible(page.getByRole('heading', { name: 'project-template', exact: true }));
+      await expectText(page, 'This is a definition, not a live instance.');
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  it('filters duplicate definitions and edits, renames, and recovers a Template target by qualified identity', async () => {
+    configuredServerFixture.showTemplateInventory();
+    const page = await newPage({ width: 1280, height: 900 });
+    try {
+      await expectCenteredLoginGate(page);
+      await login(page, { skipNavigation: true });
+      await page.getByRole('link', { name: 'Server inventory' }).click();
+      await expectText(page, 'authoritative');
+      await expectText(page, 'shadowed');
+
+      await page.locator('[aria-label="Server source filter"] label:visible', { hasText: 'Template' }).click();
+      await expectText(page, '1 of 3 targets');
+      await page.getByRole('button', { name: 'Edit template github server' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers/mcpTemplates/github`);
+
+      await page.getByLabel('Command').fill('{{#if do-not-return-this-secret}}');
+      await page.getByRole('button', { name: 'Preview change' }).click();
+      await expectText(page, 'invalid_handlebars');
+      await expectText(page, 'Invalid Handlebars syntax at line 1, column 0.');
+
+      await page.getByLabel('Command').fill('{{project.command}}');
+      await page.getByLabel('Target ID').fill('github-template');
+      await page.getByText('Advanced settings', { exact: true }).click();
+      await page.locator('label:visible', { hasText: 'Share instances' }).click();
+      await page.getByRole('button', { name: 'Preview change' }).click();
+      await expectText(page, 'Template structure');
+      await expectText(page, 'Active instances retire after apply');
+      await page.getByRole('button', { name: 'Apply changes' }).click();
+      const dialog = page.getByRole('dialog');
+      await expectVisible(dialog.getByText('Apply template changes to github-template?'));
+      await dialog.getByRole('button', { name: 'Apply template' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers/mcpTemplates/github-template`);
+      await expectVisible(page.getByRole('heading', { name: 'github-template', exact: true }));
+
+      await page.goto(`${baseUrl}/admin/servers/mcpTemplates/github`);
+      await expectText(page, 'Server target not found');
+      await page.getByRole('button', { name: 'Back to servers' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers`);
+      await expectText(page, 'github-template');
+      expect(await page.getByText('shadowed', { exact: true }).count()).toBe(0);
     } finally {
       await page.context().close();
     }
@@ -396,7 +468,7 @@ describe('admin SPA browser smoke', () => {
       await expectText(page, 'passed');
       await page.getByRole('button', { name: 'Create server' }).click();
       await page.getByRole('dialog').getByRole('button', { name: 'Create server' }).click();
-      await page.waitForURL(`${baseUrl}/admin/servers/remote-${type}`);
+      await page.waitForURL(`${baseUrl}/admin/servers/mcpServers/remote-${type}`);
       await expectVisible(page.getByRole('heading', { name: `remote-${type}`, exact: true }));
     } finally {
       await page.context().close();
@@ -419,7 +491,7 @@ describe('admin SPA browser smoke', () => {
       const dialog = page.getByRole('dialog');
       await expectVisible(dialog.getByText('Create connectivity-failure despite failed connectivity?'));
       await dialog.getByRole('button', { name: 'Create despite failure' }).click();
-      await page.waitForURL(`${baseUrl}/admin/servers/connectivity-failure`);
+      await page.waitForURL(`${baseUrl}/admin/servers/mcpServers/connectivity-failure`);
     } finally {
       await page.context().close();
     }
@@ -461,7 +533,7 @@ describe('admin SPA browser smoke', () => {
       await page.getByRole('button', { name: 'Preview server' }).click();
       await page.getByRole('button', { name: 'Create server' }).click();
       await page.getByRole('dialog').getByRole('button', { name: 'Create server' }).click();
-      await page.waitForURL(`${baseUrl}/admin/servers/reload-failure`);
+      await page.waitForURL(`${baseUrl}/admin/servers/mcpServers/reload-failure`);
       await expectText(page, 'reload observation timed out');
       await page.getByRole('button', { name: 'Open server detail' }).click();
       await expectVisible(page.getByRole('heading', { name: 'reload-failure', exact: true }));
@@ -546,7 +618,7 @@ describe('admin SPA browser smoke', () => {
       await page.getByRole('button', { name: 'Preview server' }).click();
       await page.getByRole('button', { name: 'Create server' }).click();
       await page.getByRole('dialog').getByRole('button', { name: 'Create server' }).click();
-      await page.waitForURL(`${baseUrl}/admin/servers/first-stdio`);
+      await page.waitForURL(`${baseUrl}/admin/servers/mcpServers/first-stdio`);
       await expectVisible(page.getByRole('heading', { name: 'first-stdio', exact: true }));
       await expectNoPageOverflow(page);
 
@@ -554,7 +626,7 @@ describe('admin SPA browser smoke', () => {
       await page.waitForURL(`${baseUrl}/admin/servers`);
       await expectText(page, '1 configured target');
       await page.getByRole('button', { name: 'Edit static first-stdio server' }).click();
-      await page.waitForURL(`${baseUrl}/admin/servers/first-stdio`);
+      await page.waitForURL(`${baseUrl}/admin/servers/mcpServers/first-stdio`);
       await expectVisible(page.getByRole('heading', { name: 'first-stdio', exact: true }));
       await expectNoPageOverflow(page);
     } finally {
@@ -575,7 +647,7 @@ describe('admin SPA browser smoke', () => {
       await expectNoPageOverflow(page);
 
       await page.getByRole('button', { name: 'Edit static github server' }).click();
-      await page.waitForURL(`${baseUrl}/admin/servers/github`);
+      await page.waitForURL(`${baseUrl}/admin/servers/mcpServers/github`);
       expect(await page.locator('.server-table-view').isVisible()).toBe(false);
       expect(await page.getByRole('heading', { name: 'Server inventory' }).count()).toBe(0);
       const widthRatio = await page.locator('.server-task-workspace').evaluate((element) => {
@@ -930,6 +1002,7 @@ type ResettableConfiguredServerFixture = AdminConfiguredServerOperations & {
   clear(): void;
   refreshCount: number;
   lastEdit?: Record<string, unknown>;
+  showTemplateInventory(): void;
 };
 type ResettableInstructionTemplateFixture = AdminInstructionTemplateOperations & {
   reset(): void;
@@ -1001,6 +1074,7 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
   let templateServer = createTemplateConfiguredServerReadModel();
   let disabledTools: string[] = [];
   let toolDescriptionOverrides: Record<string, string> = {};
+  let templateInventoryVisible = false;
 
   const fixture: ResettableConfiguredServerFixture = {
     refreshCount: 0,
@@ -1011,9 +1085,13 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
       fixture.refreshCount = 0;
       disabledTools = [];
       toolDescriptionOverrides = {};
+      templateInventoryVisible = false;
     },
     clear() {
       servers = [];
+    },
+    showTemplateInventory() {
+      templateInventoryVisible = true;
     },
     async getConfiguredServerCreateContract() {
       return operationSuccess('getConfiguredServerCreateContract', 'op_create_contract', {
@@ -1042,13 +1120,16 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
     },
     async previewConfiguredServerCreate(input) {
       const draft = input.draft as {
+        source?: 'mcpServers' | 'mcpTemplates';
         name?: string;
         enabled?: boolean;
         tags?: string[];
         transport?: Record<string, unknown>;
       };
       const name = draft.name ?? '';
-      const exists = servers.some((server) => server.id === name);
+      const source = draft.source === 'mcpTemplates' ? 'mcpTemplates' : 'mcpServers';
+      const exists = servers.some((server) => server.id === name) || templateServer.id === name;
+      const templatePreview = source === 'mcpTemplates';
       return operationSuccess('previewConfiguredServerCreate', 'op_create_preview', {
         targetName: name,
         previewFingerprint: `preview_create_${name}`,
@@ -1077,17 +1158,18 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
             ],
         configChange: {
           status: exists ? 'destination_conflict' : 'changed',
-          operation: 'create_static',
+          operation: templatePreview ? 'create_template' : 'create_static',
           configPath: '[redacted]',
-          target: { name, source: 'mcpServers' },
+          target: { name, source },
           changed: !exists,
           backup: { created: false },
           retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
           reload: { status: 'skipped' },
           warnings: [],
         },
-        connectivityCheck:
-          draft.transport?.type === 'stdio'
+        connectivityCheck: templatePreview
+          ? { status: 'skipped' as const, reason: 'template_structural_preview' as const }
+          : draft.transport?.type === 'stdio'
             ? { status: 'skipped' as const, reason: 'local_stdio_transport' as const }
             : String(draft.transport?.url).includes('unreachable')
               ? { status: 'failed' as const, mode: 'bounded_dry_run' as const, message: 'Connection refused' }
@@ -1096,16 +1178,36 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
           policy: 'observe_after_write' as const,
           possibleStatuses: ['observed', 'runtime_not_running', 'reload_disabled', 'failed'] as const,
         },
+        ...(templatePreview
+          ? {
+              templateAnalysis: {
+                syntax: { valid: true, errors: [] },
+                variables: ['project.command'],
+                unresolvedVariables: ['project.command'],
+                fields: [
+                  {
+                    fieldPath: ['transport', 'command'],
+                    variables: ['project.command'],
+                    syntax: { valid: true as const },
+                  },
+                ],
+              },
+              runtimeImpact: { activeInstanceCount: 0, retirementRequired: false, createsInstance: false as const },
+              warnings: ['Creating a Template Server definition does not create a runtime instance.'],
+            }
+          : {}),
       });
     },
     async applyConfiguredServerCreate(input) {
       const draft = input.draft as {
+        source?: 'mcpServers' | 'mcpTemplates';
         name?: string;
         enabled?: boolean;
         tags?: string[];
         transport?: Record<string, unknown>;
       };
       const name = draft.name ?? 'custom';
+      const source = draft.source === 'mcpTemplates' ? 'mcpTemplates' : 'mcpServers';
       if (name === 'apply-failure') {
         throw new AdminConfiguredServerApplyError('configured_server_create_failed');
       }
@@ -1114,30 +1216,83 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
       }
       const type = String(draft.transport?.type ?? 'stdio');
       const label = type === 'stdio' ? String(draft.transport?.command ?? '') : String(draft.transport?.url ?? '');
-      servers.push({
+      const created: ConfiguredServerReadModel = {
         id: name,
-        source: 'mcpServers',
-        target: { type: 'configured_server', id: name, source: 'mcpServers' },
+        source,
+        target: { type: 'configured_server', id: name, source },
         enabled: draft.enabled !== false,
         tags: draft.tags ?? [],
         transportSummary: { kind: type, label },
-        mutationAvailability: { available: true, operations: ['enable', 'disable'] },
+        mutationAvailability: {
+          available: source === 'mcpServers',
+          operations: source === 'mcpServers' ? ['enable', 'disable'] : [],
+        },
         actionState: actionState(name, draft.enabled !== false),
         transport: { ...(draft.transport ?? {}) },
         secretInputs: [],
-      });
+        definition: {
+          kind: source === 'mcpTemplates' ? 'template' : 'static',
+          qualifiedId: `${source}/${name}`,
+          authority: 'sole',
+        },
+        runtime: { objectKind: 'definition', activeInstanceCount: 0 },
+        ...(source === 'mcpTemplates'
+          ? {
+              templateAnalysis: {
+                syntax: { valid: true, errors: [] },
+                variables: ['project.command'],
+                unresolvedVariables: ['project.command'],
+                fields: [],
+              },
+            }
+          : {}),
+      };
+      if (source === 'mcpTemplates') templateServer = created;
+      else servers.push(created);
       const configChange = configChangeResult(name, true);
       if (name === 'reload-failure') {
         configChange.reload = { status: 'failed', error: 'reload observation timed out' };
       }
       return operationSuccess('applyConfiguredServerCreate', 'op_create_apply', {
         targetName: name,
+        targetSource: source,
         previewFingerprint: input.previewFingerprint,
-        configChange,
+        configChange: {
+          ...configChange,
+          operation: source === 'mcpTemplates' ? 'create_template' : 'create_static',
+          target: { name, source },
+        },
+        ...(source === 'mcpTemplates'
+          ? { runtimeImpact: { activeInstanceCount: 0 as const, createdInstance: false as const } }
+          : {}),
       });
     },
     async listConfiguredServers() {
-      return operationSuccess('listConfiguredServers', 'op_list', { servers });
+      const inventory = templateInventoryVisible
+        ? [
+            ...servers.map((server) =>
+              server.id === templateServer.id
+                ? {
+                    ...server,
+                    definition: {
+                      kind: 'static' as const,
+                      qualifiedId: `mcpServers/${server.id}`,
+                      authority: 'shadowed' as const,
+                    },
+                  }
+                : server,
+            ),
+            {
+              ...templateServer,
+              definition: {
+                kind: 'template' as const,
+                qualifiedId: `mcpTemplates/${templateServer.id}`,
+                authority: 'authoritative' as const,
+              },
+            },
+          ]
+        : servers;
+      return operationSuccess('listConfiguredServers', 'op_list', { servers: inventory });
     },
     async getConfiguredServerDetail(input) {
       const server =
@@ -1147,7 +1302,7 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
             : undefined
           : servers.find((candidate) => candidate.id === input.targetName);
       if (!server) {
-        throw new Error('Configured server target was not found');
+        throw new AdminConfiguredServerNotFoundError(input.targetName);
       }
       return operationSuccess('getConfiguredServerDetail', 'op_detail', {
         server,
@@ -1170,17 +1325,44 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
               label: 'Target',
               fields: [
                 {
+                  fieldPath: ['id'],
+                  label: 'Target ID',
+                  control: 'text',
+                  value: server.id,
+                  editable: true,
+                },
+                {
                   fieldPath: ['tags'],
                   label: 'Tags',
                   control: 'tag-list',
                   value: [...server.tags],
                   editable: true,
                 },
+                ...(server.source === 'mcpTemplates'
+                  ? [
+                      {
+                        fieldPath: ['transport', 'command'],
+                        label: 'Command',
+                        control: 'text' as const,
+                        value: String(server.transport.command ?? ''),
+                        editable: true,
+                        applicableTransportTypes: ['stdio' as const],
+                      },
+                      {
+                        fieldPath: ['transport', 'template', 'shareable'],
+                        label: 'Share instances',
+                        control: 'switch' as const,
+                        value: true,
+                        editable: true,
+                        applicableSources: ['mcpTemplates' as const],
+                      },
+                    ]
+                  : []),
               ],
             },
           ],
         },
-        ...(server.id === 'github'
+        ...(server.id === 'github' && server.source === 'mcpServers'
           ? {
               toolInventory: {
                 ...configuredToolInventory(disabledTools, toolDescriptionOverrides, input.model),
@@ -1241,6 +1423,12 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
         .parse(edit);
       const proposedTargetName =
         typeof (edit as { id?: unknown }).id === 'string' ? (edit as { id: string }).id : input.targetName;
+      const transportEdit =
+        (edit as { transport?: unknown }).transport && typeof (edit as { transport?: unknown }).transport === 'object'
+          ? ((edit as { transport: Record<string, unknown> }).transport ?? {})
+          : {};
+      const malformedTemplate =
+        input.targetSource === 'mcpTemplates' && JSON.stringify(transportEdit).includes('{{#if');
       const server =
         input.targetSource === 'mcpTemplates'
           ? templateServer.id === input.targetName
@@ -1258,36 +1446,81 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
         targetName: input.targetName,
         proposedTargetName,
         previewFingerprint: 'preview_fixture',
-        validation: { status: 'valid', errors: [] },
-        diff: Object.hasOwn(edit, 'instructionOverride')
-          ? [
-              {
-                fieldPath: ['instructionOverride'],
-                oldValue: server?.instructionOverride ?? { state: 'upstream' },
-                newValue: (edit as { instructionOverride?: unknown }).instructionOverride,
-                riskFlags: ['template_risk' as const],
-              },
-            ]
-          : [
-              {
-                fieldPath: ['tags'],
-                oldValue: server?.tags ?? [],
-                newValue: proposedTags,
-                riskFlags: [],
-              },
-            ],
+        validation: malformedTemplate
+          ? {
+              status: 'invalid' as const,
+              errors: [
+                {
+                  fieldPath: ['transport', 'command'],
+                  code: 'invalid_handlebars',
+                  message: 'Invalid Handlebars syntax at line 1, column 0.',
+                },
+              ],
+            }
+          : { status: 'valid' as const, errors: [] },
+        diff:
+          Object.keys(transportEdit).length > 0 || proposedTargetName !== input.targetName
+            ? [
+                ...(proposedTargetName !== input.targetName
+                  ? [
+                      {
+                        fieldPath: ['id'],
+                        oldValue: input.targetName,
+                        newValue: proposedTargetName,
+                        riskFlags: ['rename' as const],
+                      },
+                    ]
+                  : []),
+                ...Object.entries(transportEdit).map(([key, value]) => ({
+                  fieldPath: ['transport', key],
+                  oldValue: server?.transport[key],
+                  newValue: malformedTemplate ? '[REDACTED]' : value,
+                  riskFlags: [key === 'template' ? ('template_risk' as const) : ('connection_critical' as const)],
+                })),
+              ]
+            : Object.hasOwn(edit, 'instructionOverride')
+              ? [
+                  {
+                    fieldPath: ['instructionOverride'],
+                    oldValue: server?.instructionOverride ?? { state: 'upstream' },
+                    newValue: (edit as { instructionOverride?: unknown }).instructionOverride,
+                    riskFlags: ['template_risk' as const],
+                  },
+                ]
+              : [
+                  {
+                    fieldPath: ['tags'],
+                    oldValue: server?.tags ?? [],
+                    newValue: proposedTags,
+                    riskFlags: [],
+                  },
+                ],
         configChange: {
           status: 'changed',
           operation: 'set_static',
           configPath: '[redacted]',
-          target: { name: input.targetName, source: 'mcpServers' },
-          changed: true,
+          target: { name: input.targetName, source: input.targetSource ?? 'mcpServers' },
+          changed: !malformedTemplate,
           backup: { created: false },
           retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
           reload: { status: 'skipped' },
           warnings: [],
         },
-        connectivityCheck: { status: 'skipped', reason: 'connection_critical_fields_unchanged' },
+        connectivityCheck:
+          input.targetSource === 'mcpTemplates'
+            ? { status: 'skipped' as const, reason: 'template_structural_preview' as const }
+            : { status: 'skipped' as const, reason: 'connection_critical_fields_unchanged' as const },
+        ...(input.targetSource === 'mcpTemplates'
+          ? {
+              templateAnalysis: {
+                syntax: { valid: !malformedTemplate, errors: [] },
+                variables: malformedTemplate ? [] : ['project.command'],
+                unresolvedVariables: malformedTemplate ? [] : ['project.command'],
+                fields: [],
+              },
+              runtimeImpact: { activeInstanceCount: 1, retirementRequired: true, createsInstance: false as const },
+            }
+          : {}),
         toolSelection: {
           capabilityGeneration: currentInventory.generation,
           model: proposedInventory.model,
@@ -1322,6 +1555,18 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
       if (server && Array.isArray((edit as { tags?: unknown }).tags)) {
         server.tags = (edit as { tags: unknown[] }).tags.filter((tag): tag is string => typeof tag === 'string');
       }
+      const proposedTargetName =
+        typeof (edit as { id?: unknown }).id === 'string' ? (edit as { id: string }).id : input.targetName;
+      const transportEdit =
+        (edit as { transport?: unknown }).transport && typeof (edit as { transport?: unknown }).transport === 'object'
+          ? (edit as { transport: Record<string, unknown> }).transport
+          : undefined;
+      if (server && transportEdit) server.transport = { ...server.transport, ...transportEdit };
+      if (server && proposedTargetName !== input.targetName) {
+        server.id = proposedTargetName;
+        server.target = { ...server.target, id: proposedTargetName };
+        if (server.definition) server.definition.qualifiedId = `${server.source}/${proposedTargetName}`;
+      }
       const instructionOverride = (
         edit as {
           instructionOverride?: { action: 'set'; value: string } | { action: 'remove' };
@@ -1338,7 +1583,7 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
       if (toolEdit.toolDescriptionOverrides) toolDescriptionOverrides = { ...toolEdit.toolDescriptionOverrides };
       return operationSuccess('applyConfiguredServerEdit', 'op_apply', {
         originalTargetName: input.targetName,
-        targetName: input.targetName,
+        targetName: proposedTargetName,
         previewFingerprint: input.previewFingerprint,
         configChange: configChangeResult(input.targetName, true),
       });
@@ -1635,8 +1880,23 @@ function createFieldGroups() {
       id: 'identity',
       label: 'Identity',
       fields: [
+        {
+          fieldPath: ['source'],
+          label: 'Definition Type',
+          control: 'select' as const,
+          value: 'mcpServers',
+          options: ['mcpServers', 'mcpTemplates'],
+          editable: true,
+        },
         { fieldPath: ['name'], label: 'Server Name', control: 'text' as const, value: '', editable: true },
-        { fieldPath: ['enabled'], label: 'Enabled', control: 'switch' as const, value: true, editable: true },
+        {
+          fieldPath: ['enabled'],
+          label: 'Enabled',
+          control: 'switch' as const,
+          value: true,
+          editable: true,
+          applicableSources: ['mcpServers' as const],
+        },
         { fieldPath: ['tags'], label: 'Tags', control: 'tag-list' as const, value: [], editable: true },
       ],
     },
@@ -1694,6 +1954,27 @@ function createFieldGroups() {
         },
       ],
     },
+    {
+      id: 'template',
+      label: 'Template instances',
+      fields: [
+        {
+          fieldPath: ['transport', 'template', 'shareable'],
+          label: 'Share instances',
+          control: 'switch' as const,
+          value: true,
+          editable: true,
+          applicableSources: ['mcpTemplates' as const],
+        },
+        {
+          fieldPath: ['transport', 'template', 'maxInstances'],
+          label: 'Maximum instances',
+          control: 'number' as const,
+          editable: true,
+          applicableSources: ['mcpTemplates' as const],
+        },
+      ],
+    },
   ];
 }
 
@@ -1748,15 +2029,23 @@ function createTemplateConfiguredServerReadModel(): ConfiguredServerReadModel {
     target: { type: 'configured_server', id: 'github', source: 'mcpTemplates' },
     enabled: true,
     tags: ['template'],
-    transportSummary: { kind: 'template', label: 'github template' },
+    transportSummary: { kind: 'stdio', label: '{{project.command}}' },
     mutationAvailability: { available: false, operations: [] },
     actionState: {
       enable: { available: false, label: 'Enable github', disabledReason: 'already_enabled' },
       disable: { available: false, label: 'Disable github' },
     },
-    transport: { type: 'template' },
+    transport: { type: 'stdio', command: '{{project.command}}', template: { shareable: true } },
     secretInputs: [],
     instructionOverride: { state: 'upstream' },
+    definition: { kind: 'template', qualifiedId: 'mcpTemplates/github', authority: 'authoritative' },
+    runtime: { objectKind: 'definition', activeInstanceCount: 1 },
+    templateAnalysis: {
+      syntax: { valid: true, errors: [] },
+      variables: ['project.command'],
+      unresolvedVariables: ['project.command'],
+      fields: [],
+    },
   };
 }
 

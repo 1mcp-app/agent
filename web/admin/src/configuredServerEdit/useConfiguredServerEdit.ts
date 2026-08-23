@@ -372,22 +372,31 @@ export function useConfiguredServerEdit({
       const riskFlags = Array.from(new Set(previewResult.diff.flatMap((entry) => entry.riskFlags)));
       const overridingConnectivityFailure = previewResult.connectivityCheck.status === 'failed';
       const disablingAllTools = previewResult.toolSelection?.requiresZeroEnabledConfirmation === true;
+      const templateTarget = current.detail.server.source === 'mcpTemplates';
       const confirmed = await browser.confirm({
         title: disablingAllTools
           ? `Disable all observed tools for ${previewResult.proposedTargetName}?`
           : overridingConnectivityFailure
             ? `Apply despite failed connectivity to ${previewResult.proposedTargetName}?`
-            : `Apply changes to ${previewResult.proposedTargetName}?`,
+            : templateTarget
+              ? `Apply template changes to ${previewResult.proposedTargetName}?`
+              : `Apply changes to ${previewResult.proposedTargetName}?`,
         message: disablingAllTools
           ? 'No currently observed tools will remain enabled. Newly discovered tools will still be enabled by default.'
           : overridingConnectivityFailure
             ? 'The bounded connectivity check failed. Applying may make this configured server unavailable.'
-            : 'This writes the validated configuration and reloads the Runtime Scope.',
+            : templateTarget
+              ? previewResult.runtimeImpact?.retirementRequired
+                ? 'This writes the validated template definition, reloads the Runtime Scope, and retires active instances.'
+                : 'This writes the validated template metadata and reloads the Runtime Scope without retiring active instances.'
+              : 'This writes the validated configuration and reloads the Runtime Scope.',
         confirmLabel: disablingAllTools
           ? 'Disable all tools'
           : overridingConnectivityFailure
             ? 'Apply despite failure'
-            : 'Apply changes',
+            : templateTarget
+              ? 'Apply template'
+              : 'Apply changes',
         tone: disablingAllTools || overridingConnectivityFailure ? 'danger' : undefined,
         details: [
           { label: 'Current target', value: previewResult.targetName },
@@ -461,7 +470,9 @@ export function useConfiguredServerEdit({
       if (requestId !== applyRequestRef.current || sessionRef.current?.csrfToken !== sessionKey) return;
       applyAttemptRef.current = undefined;
       const finalName = response.result.targetName;
-      if (finalName !== serverId) browser.replace(serverPath(finalName));
+      if (finalName !== serverId) {
+        browser.replace(serverPath({ source: current.detail.server.source, id: finalName }));
+      }
       dispatch({ type: 'applyCommitted', serverId: finalName, result: response.result });
       try {
         await onApplied?.();
@@ -552,17 +563,12 @@ export function configuredServerApplyEligibility(state: ConfiguredServerEditStat
   if (!state.preview.configChange.changed || state.preview.diff.length === 0) {
     return { eligible: false, reason: 'The preview contains no changes.' };
   }
-  if (
-    state.detail.server.source === 'mcpTemplates' &&
-    state.preview.diff.some((entry) => entry.fieldPath.join('.') !== 'instructionOverride')
-  ) {
-    return { eligible: false, reason: 'Template targets only support instruction overrides.' };
-  }
   const connectionCritical = state.preview.diff.some((entry) => entry.riskFlags.includes('connection_critical'));
   const transportType = selectedTransportType(state.fieldDraft, state.detail.server.transport.type);
   const proposedEnabled = configuredServerEditDraft(state).enabled ?? state.detail.server.enabled;
   if (
     proposedEnabled &&
+    state.detail.server.source !== 'mcpTemplates' &&
     transportType !== 'stdio' &&
     connectionCritical &&
     state.preview.connectivityCheck.status !== 'passed' &&
@@ -611,7 +617,6 @@ function failureMessage(error: unknown): string {
 
 function serverPath(server: string | ConfiguredServerTargetIdentity): string {
   if (typeof server === 'string') return `/admin/servers/${encodeURIComponent(server)}`;
-  if (server.source === 'mcpServers') return `/admin/servers/${encodeURIComponent(server.id)}`;
   return `/admin/servers/${server.source}/${encodeURIComponent(server.id)}`;
 }
 

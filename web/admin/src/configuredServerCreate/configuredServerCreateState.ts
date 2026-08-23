@@ -142,15 +142,17 @@ export function configuredServerCreateDraft(state: ConfiguredServerCreateState):
   const transportType = state.fieldDraft[fieldKey(['transport', 'type'])];
   if (transportType !== 'stdio' && transportType !== 'http' && transportType !== 'sse') return null;
   const transport: Record<string, unknown> & { type: typeof transportType } = { type: transportType };
+  const source =
+    state.fieldDraft[fieldKey(['source'])] === 'mcpTemplates' ? ('mcpTemplates' as const) : ('mcpServers' as const);
   for (const field of state.contract.createContract.fieldGroups.flatMap((group) => group.fields)) {
-    if (field.fieldPath[0] !== 'transport' || field.fieldPath.length !== 2) continue;
+    if (field.fieldPath[0] !== 'transport' || field.fieldPath.length < 2) continue;
+    if (field.applicableSources && !field.applicableSources.includes(source)) continue;
     if (!fieldAppliesToTransport(field, transportType)) continue;
-    const key = field.fieldPath[1];
-    if (key === 'type') continue;
+    if (field.fieldPath[1] === 'type') continue;
     const value = state.fieldDraft[fieldKey(field.fieldPath)];
-    if (field.control === 'string-list') transport[key] = stringArray(value);
-    else if (field.control === 'record') transport[key] = objectRecord(value);
-    else if (value !== '' && value !== undefined) transport[key] = value;
+    const normalized =
+      field.control === 'string-list' ? stringArray(value) : field.control === 'record' ? objectRecord(value) : value;
+    if (normalized !== '' && normalized !== undefined) setNestedValue(transport, field.fieldPath.slice(1), normalized);
   }
   const applicableContainer = transportType === 'stdio' ? 'env' : 'headers';
   const secrets = state.secrets
@@ -161,12 +163,24 @@ export function configuredServerCreateDraft(state: ConfiguredServerCreateState):
       replacement: { kind: secret.replacementKind, value: secret.replacementValue },
     }));
   return {
+    source,
     name: String(state.fieldDraft[fieldKey(['name'])] ?? ''),
-    enabled: Boolean(state.fieldDraft[fieldKey(['enabled'])]),
+    enabled: source === 'mcpServers' ? Boolean(state.fieldDraft[fieldKey(['enabled'])]) : true,
     tags: stringArray(state.fieldDraft[fieldKey(['tags'])]),
     transport,
     ...(secrets.length > 0 ? { secrets } : {}),
   };
+}
+
+function setNestedValue(target: Record<string, unknown>, path: string[], value: unknown): void {
+  let cursor = target;
+  for (const segment of path.slice(0, -1)) {
+    const existing = cursor[segment];
+    if (!existing || typeof existing !== 'object' || Array.isArray(existing)) cursor[segment] = {};
+    cursor = cursor[segment] as Record<string, unknown>;
+  }
+  const leaf = path.at(-1);
+  if (leaf) cursor[leaf] = value;
 }
 
 function changed(
