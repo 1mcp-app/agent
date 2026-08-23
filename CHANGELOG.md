@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.36.0] - 2026-08-23
+
+### 🚀 Features
+- Load Runtime Scope .env files by @xizhibei in [#464](https://github.com/1mcp-app/agent/pull/464)
+
+### 🐛 Bug Fixes
+- Mitigate CI script injection and drop secrets inherit by @Xxx91n in [#471](https://github.com/1mcp-app/agent/pull/471)
+- Resolve declared Runtime Scope environment references by @xizhibei in [#467](https://github.com/1mcp-app/agent/pull/467)
+- Refresh unavailable Admin tool inventory by @xizhibei in [#465](https://github.com/1mcp-app/agent/pull/465)
+
+### ⚙️ Miscellaneous Tasks
+- Reduce end-to-end test runtime by @xizhibei in [#466](https://github.com/1mcp-app/agent/pull/466)
+
+## New Contributors
+* @Xxx91n made their first contribution in [#471](https://github.com/1mcp-app/agent/pull/471)
+
 ## [0.35.0] - 2026-08-18
 
 ### 🚀 Features
@@ -1103,6 +1119,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * @xizhibei made their first contribution in [#1](https://github.com/1mcp-app/agent/pull/1)
 * @dependabot[bot] made their first contribution
 
+[0.36.0]: https://github.com/1mcp-app/agent/compare/v0.35.0..v0.36.0
 [0.35.0]: https://github.com/1mcp-app/agent/compare/v0.34.4..v0.35.0
 [0.34.4]: https://github.com/1mcp-app/agent/compare/v0.34.3..v0.34.4
 [0.34.3]: https://github.com/1mcp-app/agent/compare/v0.34.2..v0.34.3
