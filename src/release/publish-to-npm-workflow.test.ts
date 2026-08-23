@@ -32,11 +32,11 @@ describe('publish-to-npm workflow', () => {
 
   it('passes npm_tag via environment variable rather than direct shell interpolation', () => {
     const workflow = readPublishWorkflow();
+    const publishStep = workflow.match(/- name: Publish to npm\n(?<body>(?:\s{8}.*\n)+)/)?.groups?.body;
 
-    expect(workflow).not.toContain(
-      'pnpm publish --no-git-checks --access public --provenance --tag ${{ inputs.npm_tag }}',
-    );
-    expect(workflow).toContain('NPM_TAG: ${{ inputs.npm_tag }}');
-    expect(workflow).toContain('pnpm publish --no-git-checks --access public --provenance --tag "$NPM_TAG"');
+    expect(publishStep).toBeDefined();
+    expect(publishStep).not.toMatch(/run:[\s\S]*?\${{\s*inputs\.npm_tag\s*}}/);
+    expect(publishStep).toContain('NPM_TAG: ${{ inputs.npm_tag }}');
+    expect(publishStep).toContain('pnpm publish --no-git-checks --access public --provenance --tag "$NPM_TAG"');
   });
 });
