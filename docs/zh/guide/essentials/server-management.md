@@ -139,15 +139,15 @@ Server-Sent Events 是已弃用的传输类型。建议改用 HTTP 传输。
 
 ## 在 Admin Console 中配置自定义服务器
 
-需要添加一个静态服务器、但不希望手动编辑运行时配置文件时，请打开 **Server inventory → Configure Custom Server**。该表单支持本地 STDIO、远程 HTTP 和旧版 SSE 目标。Registry 发现与 Template Server 定义属于独立工作流。
+需要添加静态服务器或 Template Server 定义、但不希望手动编辑运行时配置文件时，请打开 **Server inventory → Configure Custom Server**。共享表单支持本地 STDIO、远程 HTTP 和旧版 SSE 目标。
 
-1. 选择传输类型并填写对应的结构化字段。STDIO 必须提供命令；HTTP 和 SSE 必须提供 URL。
-2. 添加标签，并选择目标创建后是否立即启用。
+1. 选择 **Static** 或 **Template**，然后填写对应传输类型的结构化字段。STDIO 必须提供命令；HTTP 和 SSE 必须提供 URL。
+2. 添加标签。静态目标可以选择初始启用状态；Template 定义提供实例生命周期控件，并允许在运行时实际渲染的字段中使用 Handlebars 表达式。
 3. 凭据优先使用 **Environment Secret Reference**。配置中只保存环境变量名或替换表达式，不保存密钥内容。内联密钥仅作为高级备用方式。
-4. 选择 **Preview server**。预览会验证目标、报告名称冲突、隐藏密钥内容，并在适用时执行有界连接检查。预览不会写入配置。
-5. 检查差异与运行时信息，然后明确确认 **Create server**。
+4. 选择 **Preview server**。预览会验证目标、报告名称冲突并隐藏密钥内容。静态远程目标会在适用时执行有界连接检查；Template 预览只验证结构与请求上下文变量名称，不会渲染上下文、连接后端或创建实例。
+5. 检查差异与运行时信息，然后明确确认与来源匹配的创建操作。
 
-创建流程绝不会替换已有的静态目标或 Template Server 目标。如果预览后有其他写入者占用了同一名称，确认操作会被拒绝，必须重新预览。写入成功后，Admin Console 会刷新服务器清单并打开新目标，以便核对其生效配置和重载状态。
+创建流程绝不会替换已有的静态目标或 Template Server 目标。如果预览后有其他写入者占用了同一名称，确认操作会被拒绝，必须重新预览。写入成功后，Admin Console 会刷新服务器清单并打开带来源的目标。Template 定义会在重载后进入可用索引，只有后续匹配请求提供请求上下文时才会创建实例。
 
 ## Server Configuration Details
 
