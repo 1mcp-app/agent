@@ -136,6 +136,22 @@ describe('FileStorageService', () => {
       expect(fs.statSync(filePath).mode & 0o777).toBe(0o600);
     });
 
+    it('hardens pre-existing migration flag permissions to 0600', () => {
+      // POSIX-only: Windows ACLs do not map to fs.stat modes
+      if (process.platform === 'win32') return;
+      const customDir = path.join(tmpdir(), `custom-migration-flag-test-${Date.now()}`);
+      const sessionsPath = path.join(customDir, 'sessions');
+      fs.mkdirSync(sessionsPath, { recursive: true, mode: 0o700 });
+      const flagPath = path.join(sessionsPath, '.migrated-to-server');
+      fs.writeFileSync(flagPath, JSON.stringify({ migrated: true }), { mode: 0o644 });
+      fs.chmodSync(flagPath, 0o644);
+
+      const serverService = new FileStorageService(customDir, 'server');
+      expect(fs.statSync(flagPath).mode & 0o777).toBe(0o600);
+      serverService.shutdown();
+      fs.rmSync(customDir, { recursive: true, force: true });
+    });
+
     it('preserves the previous record when a replacement write fails after truncation', () => {
       service.writeData(testPrefix, testId, testData);
       const targetPath = service.getFilePath(testPrefix, testId);
