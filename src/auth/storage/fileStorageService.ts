@@ -312,6 +312,19 @@ export class FileStorageService {
   }
 
   /**
+   * Gets a log-safe representation of an error object.
+   */
+  private getLoggableError(filePrefix: string, error: unknown): string {
+    if (this.isSensitiveId(filePrefix)) {
+      if (error instanceof Error && 'code' in error && typeof (error as { code?: unknown }).code === 'string') {
+        return `${error.name} (${(error as { code: string }).code})`;
+      }
+      return '[REDACTED]';
+    }
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  /**
    * Writes data to a file with the specified prefix and ID
    */
   writeData<T extends ExpirableData>(filePrefix: string, id: string, data: T): void {
@@ -320,7 +333,9 @@ export class FileStorageService {
       fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
       logger.debug(`Wrote data to ${this.getLoggableFilePath(filePrefix, id)}`);
     } catch (error) {
-      logger.error(`Failed to write data for ${this.getLoggableId(filePrefix, id)}: ${error}`);
+      logger.error(
+        `Failed to write data for ${this.getLoggableId(filePrefix, id)}: ${this.getLoggableError(filePrefix, error)}`,
+      );
       throw error;
     }
   }
@@ -352,7 +367,9 @@ export class FileStorageService {
           // A later startup cleanup removes abandoned temporary files.
         }
       }
-      logger.error(`Failed to write data for ${this.getLoggableId(filePrefix, id)}: ${error}`);
+      logger.error(
+        `Failed to write data for ${this.getLoggableId(filePrefix, id)}: ${this.getLoggableError(filePrefix, error)}`,
+      );
       throw error;
     }
   }
@@ -385,7 +402,9 @@ export class FileStorageService {
 
       return parsedData;
     } catch (error) {
-      logger.error(`Failed to read data for ${this.getLoggableId(filePrefix, id)}: ${error}`);
+      logger.error(
+        `Failed to read data for ${this.getLoggableId(filePrefix, id)}: ${this.getLoggableError(filePrefix, error)}`,
+      );
       return null;
     }
   }
@@ -408,7 +427,9 @@ export class FileStorageService {
       }
       return false;
     } catch (error) {
-      logger.error(`Failed to delete data for ${this.getLoggableId(filePrefix, id)}: ${error}`);
+      logger.error(
+        `Failed to delete data for ${this.getLoggableId(filePrefix, id)}: ${this.getLoggableError(filePrefix, error)}`,
+      );
       throw error;
     }
   }

@@ -419,4 +419,40 @@ describe('authorization-code-atomic (goiabada#77 double-spend)', () => {
     expect(allLoggedContent).not.toContain(code);
     expect(allLoggedContent).not.toMatch(/auth_code_code-[0-9a-f-]+/i);
   });
+
+  it('failure paths in storage operations do not expose the plaintext code or path in error logs', async () => {
+    const errorSpy = vi.spyOn(logger, 'error');
+    const warnSpy = vi.spyOn(logger, 'warn');
+
+    const code = provider.oauthStorage.authCodeRepository.create(
+      ACCESS_ONLY_CLIENT.client_id,
+      ACCESS_ONLY_CLIENT.redirect_uris[0],
+      RESOURCE,
+      SCOPES,
+      60_000,
+      'challenge',
+    );
+
+    // Simulate an IO failure during deletion that includes the sensitive file path in the native error message
+    const realUnlinkSync = fs.unlinkSync;
+    vi.spyOn(fs, 'unlinkSync').mockImplementation((targetPath) => {
+      const err = new Error(`EACCES: permission denied, unlink '${String(targetPath)}'`);
+      (err as unknown as { code: string }).code = 'EACCES';
+      throw err;
+    });
+
+    // Attempting to delete triggers the failure path
+    expect(() => provider.oauthStorage.authCodeRepository.delete(code)).toThrow();
+
+    const allLoggedErrors = [...errorSpy.mock.calls, ...warnSpy.mock.calls]
+      .map((call) => JSON.stringify(call))
+      .join('\n');
+
+    expect(allLoggedErrors).not.toContain(code);
+    expect(allLoggedErrors).not.toMatch(/auth_code_code-[0-9a-f-]+/i);
+    expect(allLoggedErrors).toContain('[REDACTED]');
+    expect(allLoggedErrors).toContain('EACCES');
+
+    fs.unlinkSync = realUnlinkSync;
+  });
 });
