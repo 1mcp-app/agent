@@ -453,10 +453,27 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
 
     // Configure server settings from CLI arguments (CLI args take precedence over appConfig)
     const serverConfigManager = AgentConfigManager.getInstance();
-    const scopeValidationEnabled =
-      parsedArgv['enable-scope-validation'] ?? appConfig.auth?.enableScopeValidation ?? true;
+    const scopeValidationExplicit = parsedArgv['enable-scope-validation'] ?? appConfig.auth?.enableScopeValidation;
+    const scopeValidationEnabled = scopeValidationExplicit ?? (authEnabled ? true : false);
     const enhancedSecurityEnabled =
       parsedArgv['enable-enhanced-security'] ?? appConfig.auth?.enableEnhancedSecurity ?? false;
+
+    // Startup guard: detect contradictory security configuration that would silently
+    // fail open (auth disabled but scope authorization enforced). Industry references:
+    // Kubernetes apiserver rejects `--authorization-config` × `--authorization-mode`
+    // conflicts at startup; Auth.js CVE-2026-73421 (CVSS 9.1) is a real-world
+    // fail-open caused by config corruption. Policy: WARN and continue (fail-open
+    // preserved for backward compatibility); users can silence by disabling
+    // --enable-scope-validation when --enable-auth is off. CWE-862 / CWE-636.
+    if (!authEnabled && scopeValidationExplicit === true) {
+      logger.warn(
+        '⚠️  SECURITY WARNING: authentication is DISABLED but scope validation is ENABLED. ' +
+          'Requests will be served without a verified identity, so authorization cannot be ' +
+          'enforced (fail-open, CWE-862 / CWE-636). ' +
+          'Action: either enable authentication via `--enable-auth`, or disable scope ' +
+          'validation via `--enable-scope-validation=false`. Test/local use only.',
+      );
+    }
 
     // Handle trust proxy configuration (convert 'true'/'false' strings to boolean)
     const trustProxyValue = parsedArgv['trust-proxy'] ?? appConfig.auth?.trustProxy ?? 'loopback';
