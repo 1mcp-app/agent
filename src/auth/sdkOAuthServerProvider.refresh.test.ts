@@ -45,12 +45,13 @@ describe('SDKOAuthServerProvider refresh token families', () => {
     provider = new SDKOAuthServerProvider(tempDir, 'runtime-scope-a');
     const configManager = AgentConfigManager.getInstance();
     originalAuthEnabled = configManager.get('features').auth;
-    configManager.get('features').auth = true;
+    configManager.updateConfig({ features: { ...configManager.get('features'), auth: true } });
   });
 
   afterEach(() => {
     provider.shutdown();
-    AgentConfigManager.getInstance().get('features').auth = originalAuthEnabled;
+    const configManager = AgentConfigManager.getInstance();
+    configManager.updateConfig({ features: { ...configManager.get('features'), auth: originalAuthEnabled } });
     fs.rmSync(tempDir, { recursive: true, force: true });
     vi.restoreAllMocks();
   });
@@ -339,12 +340,13 @@ describe('authorization-code-atomic (goiabada#77 double-spend)', () => {
     provider = new SDKOAuthServerProvider(tempDir, 'runtime-scope-a');
     const configManager = AgentConfigManager.getInstance();
     originalAuthEnabled = configManager.get('features').auth;
-    configManager.get('features').auth = true;
+    configManager.updateConfig({ features: { ...configManager.get('features'), auth: true } });
   });
 
   afterEach(() => {
     provider.shutdown();
-    AgentConfigManager.getInstance().get('features').auth = originalAuthEnabled;
+    const configManager = AgentConfigManager.getInstance();
+    configManager.updateConfig({ features: { ...configManager.get('features'), auth: originalAuthEnabled } });
     fs.rmSync(tempDir, { recursive: true, force: true });
     vi.restoreAllMocks();
   });
