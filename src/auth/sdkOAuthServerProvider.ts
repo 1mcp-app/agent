@@ -336,7 +336,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
    * Retrieves the PKCE challenge for an authorization code
    */
   async challengeForAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string): Promise<string> {
-    logger.debug('Challenge for authorization code', { clientId: client.client_id, authorizationCode });
+    logger.debug('Challenge for authorization code', { clientId: client.client_id });
 
     const codeData = this.oauthStorage.authCodeRepository.get(authorizationCode);
     if (!codeData || codeData.clientId !== client.client_id) {
@@ -360,82 +360,83 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
   ): Promise<OAuthTokens> {
     logger.debug('Exchanging authorization code', {
       clientId: client.client_id,
-      authorizationCode,
       redirectUri,
       resource,
     });
 
-    const codeData = this.oauthStorage.authCodeRepository.get(authorizationCode);
-    if (!codeData) {
-      throw new InvalidGrantError('Invalid or expired authorization code');
-    }
+    return this.oauthStorage.fileStorage.withExclusiveLock('auth-code-exchange', async () => {
+      const codeData = this.oauthStorage.authCodeRepository.get(authorizationCode);
+      if (!codeData) {
+        throw new InvalidGrantError('Invalid or expired authorization code');
+      }
 
-    // Validate client ID
-    if (codeData.clientId !== client.client_id) {
-      throw new InvalidGrantError('Invalid or expired authorization code');
-    }
+      // Validate client ID
+      if (codeData.clientId !== client.client_id) {
+        throw new InvalidGrantError('Invalid or expired authorization code');
+      }
 
-    // Validate redirect URI if provided
-    if (redirectUri && codeData.redirectUri !== redirectUri) {
-      throw new InvalidGrantError('Redirect URI mismatch');
-    }
+      // Validate redirect URI if provided
+      if (redirectUri && codeData.redirectUri !== redirectUri) {
+        throw new InvalidGrantError('Redirect URI mismatch');
+      }
 
-    // Validate resource if provided
-    if (resource && codeData.resource && codeData.resource !== resource.toString()) {
-      throw new InvalidTargetError('Resource mismatch');
-    }
+      // Validate resource if provided
+      if (resource && codeData.resource && codeData.resource !== resource.toString()) {
+        throw new InvalidTargetError('Resource mismatch');
+      }
 
-    // Delete the authorization code (one-time use)
-    this.oauthStorage.authCodeRepository.delete(authorizationCode);
+      // Delete the authorization code (one-time use)
+      this.oauthStorage.authCodeRepository.delete(authorizationCode);
 
-    // Create access token
-    const tokenId = randomUUID();
-    const accessToken = AUTH_CONFIG.SERVER.TOKEN.ID_PREFIX + tokenId;
-    const ttlMs = this.configManager.get('auth').oauthTokenTtlMs;
+      // Create access token
+      const tokenId = randomUUID();
+      const accessToken = AUTH_CONFIG.SERVER.TOKEN.ID_PREFIX + tokenId;
+      const ttlMs = this.configManager.get('auth').oauthTokenTtlMs;
 
-    const refreshFamily = client.grant_types?.includes('refresh_token')
-      ? await this.oauthStorage.refreshTokenFamilyRepository.create(
-          client.client_id,
-          codeData.scopes,
-          codeData.resource || '',
+      const refreshFamily = client.grant_types?.includes('refresh_token')
+        ? await this.oauthStorage.refreshTokenFamilyRepository.create(
+            client.client_id,
+            codeData.scopes,
+            codeData.resource || '',
+            tokenId,
+            (familyId) =>
+              this.oauthStorage.sessionRepository.createRefreshFamilyAccessSession({
+                tokenId,
+                clientId: client.client_id,
+                resource: codeData.resource || '',
+                scopes: codeData.scopes,
+                ttlMs,
+                familyId,
+              }),
+          )
+        : undefined;
+
+      if (!refreshFamily) {
+        this.oauthStorage.sessionRepository.createWithId(
           tokenId,
-          (familyId) =>
-            this.oauthStorage.sessionRepository.createRefreshFamilyAccessSession({
-              tokenId,
-              clientId: client.client_id,
-              resource: codeData.resource || '',
-              scopes: codeData.scopes,
-              ttlMs,
-              familyId,
-            }),
-        )
-      : undefined;
+          client.client_id,
+          codeData.resource || '',
+          codeData.scopes,
+          ttlMs,
+        );
+      }
 
-    if (!refreshFamily) {
-      this.oauthStorage.sessionRepository.createWithId(
-        tokenId,
-        client.client_id,
-        codeData.resource || '',
-        codeData.scopes,
-        ttlMs,
-      );
-    }
+      const tokens: OAuthTokens = {
+        access_token: accessToken,
+        token_type: 'Bearer',
+        expires_in: Math.floor(ttlMs / 1000),
+        scope: codeData.scopes ? codeData.scopes.join(' ') : '',
+        ...(refreshFamily ? { refresh_token: refreshFamily.refreshToken } : {}),
+      };
 
-    const tokens: OAuthTokens = {
-      access_token: accessToken,
-      token_type: 'Bearer',
-      expires_in: Math.floor(ttlMs / 1000),
-      scope: codeData.scopes ? codeData.scopes.join(' ') : '',
-      ...(refreshFamily ? { refresh_token: refreshFamily.refreshToken } : {}),
-    };
+      logger.info(`Exchanged authorization code for access token`, {
+        clientId: client.client_id,
+        tokenId: tokenId.substring(0, 8) + '...',
+        expiresIn: tokens.expires_in,
+      });
 
-    logger.info(`Exchanged authorization code for access token`, {
-      clientId: client.client_id,
-      tokenId: tokenId.substring(0, 8) + '...',
-      expiresIn: tokens.expires_in,
+      return tokens;
     });
-
-    return tokens;
   }
 
   /**

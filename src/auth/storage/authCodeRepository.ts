@@ -38,7 +38,7 @@ export class AuthCodeRepository {
     };
 
     this.storage.writeData(AUTH_CONFIG.SERVER.AUTH_CODE.FILE_PREFIX, code, authCodeData);
-    logger.info(`Created auth code: ${code} for client: ${clientId}`);
+    logger.info(`Created auth code for client: ${clientId}`);
     return code;
   }
 
@@ -55,7 +55,7 @@ export class AuthCodeRepository {
   delete(code: string): boolean {
     const result = this.storage.deleteData(AUTH_CONFIG.SERVER.AUTH_CODE.FILE_PREFIX, code);
     if (result) {
-      logger.info(`Deleted auth code: ${code}`);
+      logger.info('Deleted auth code');
     }
     return result;
   }

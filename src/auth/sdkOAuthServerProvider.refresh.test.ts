@@ -328,3 +328,71 @@ function readSoleFamily(tempDir: string) {
   expect(familyFiles).toHaveLength(1);
   return RefreshTokenFamilyDataSchema.parse(JSON.parse(fs.readFileSync(familyFiles[0], 'utf8')));
 }
+
+describe('authorization-code-atomic (goiabada#77 double-spend)', () => {
+  let provider: SDKOAuthServerProvider;
+  let tempDir: string;
+  let originalAuthEnabled: boolean;
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), '1mcp-authcode-atomic-'));
+    provider = new SDKOAuthServerProvider(tempDir, 'runtime-scope-a');
+    const configManager = AgentConfigManager.getInstance();
+    originalAuthEnabled = configManager.get('features').auth;
+    configManager.get('features').auth = true;
+  });
+
+  afterEach(() => {
+    provider.shutdown();
+    AgentConfigManager.getInstance().get('features').auth = originalAuthEnabled;
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  it('allows exactly one winner for concurrent exchanges of the same code', async () => {
+    const code = provider.oauthStorage.authCodeRepository.create(
+      CLIENT.client_id,
+      CLIENT.redirect_uris[0],
+      RESOURCE,
+      SCOPES,
+      60_000,
+      'challenge',
+    );
+
+    const attempt = () =>
+      provider.exchangeAuthorizationCode(CLIENT, code, undefined, CLIENT.redirect_uris[0], new URL(RESOURCE));
+
+    const results = await Promise.allSettled([attempt(), attempt(), attempt(), attempt(), attempt()]);
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled') as PromiseFulfilledResult<OAuthTokens>[];
+    const rejected = results.filter((r) => r.status === 'rejected') as PromiseRejectedResult[];
+
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected.length).toBeGreaterThanOrEqual(4);
+    for (const r of rejected) {
+      expect(r.reason).toBeInstanceOf(InvalidGrantError);
+      expect((r.reason as Error).message).toBe('Invalid or expired authorization code');
+    }
+
+    const accessTokens = new Set(fulfilled.map((r) => r.value.access_token));
+    expect(accessTokens.size).toBe(1);
+
+    // code is consumed: a later sequential attempt also fails
+    await expect(attempt()).rejects.toBeInstanceOf(InvalidGrantError);
+    expect(provider.oauthStorage.authCodeRepository.get(code)).toBeNull();
+  }, 20_000);
+
+  it('logs do not contain the plaintext authorization code', async () => {
+    const infoSpy = vi.spyOn(logger, 'info');
+    const debugSpy = vi.spyOn(logger, 'debug');
+
+    const tokens = await exchangeAuthorizationCode(provider, ACCESS_ONLY_CLIENT);
+    expect(tokens.access_token).toBeDefined();
+
+    for (const spy of [infoSpy, debugSpy]) {
+      for (const call of spy.mock.calls) {
+        expect(JSON.stringify(call)).not.toMatch(/auth-code|ac_[0-9a-f-]{8}/i);
+      }
+    }
+  });
+});

@@ -147,6 +147,10 @@ export class OAuthStorageService {
     return this.sessions;
   }
 
+  get fileStorage(): FileStorageService {
+    return this.storage;
+  }
+
   get authCodeRepository(): AuthCodeRepository {
     return this.authCodes;
   }
