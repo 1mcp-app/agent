@@ -87,6 +87,14 @@ describe('FileStorageService', () => {
       expect(retrieved).toEqual(testData);
     });
 
+    it('writes token data files with 0600 permissions', () => {
+      // POSIX-only: Windows ACLs do not map to fs.stat modes
+      if (process.platform === 'win32') return;
+      service.writeData(testPrefix, testId, testData);
+      const filePath = path.join(tempDir, `${testPrefix}${testId}.json`);
+      expect(fs.statSync(filePath).mode & 0o777).toBe(0o600);
+    });
+
     it('preserves the previous record when a replacement write fails after truncation', () => {
       service.writeData(testPrefix, testId, testData);
       const targetPath = service.getFilePath(testPrefix, testId);

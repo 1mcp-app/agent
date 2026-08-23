@@ -368,7 +368,7 @@ export class FileStorageService {
   writeData<T extends ExpirableData>(filePrefix: string, id: string, data: T): void {
     try {
       const filePath = this.getFilePath(filePrefix, id);
-      fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), { mode: 0o600 });
       logger.debug(`Wrote data to ${this.getLoggableFilePath(filePrefix, id)}`);
     } catch (error) {
       logger.error(
