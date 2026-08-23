@@ -52,6 +52,11 @@ export class FileStorageService {
         fs.mkdirSync(this.storageDir, { recursive: true, mode: 0o700 });
         logger.info(`Created storage directory: ${this.storageDir}`);
       }
+      try {
+        fs.chmodSync(this.storageDir, 0o700);
+      } catch {
+        // Ignore chmod errors on systems that don't support POSIX modes (e.g. Windows)
+      }
     } catch (error) {
       logger.error(`Failed to create storage directory: ${error}`);
       throw error;
@@ -370,6 +375,11 @@ export class FileStorageService {
     try {
       const filePath = this.getFilePath(filePrefix, id);
       fs.writeFileSync(filePath, JSON.stringify(data, null, 2), { mode: 0o600 });
+      try {
+        fs.chmodSync(filePath, 0o600);
+      } catch {
+        // Ignore chmod errors on systems that don't support POSIX modes (e.g. Windows)
+      }
       logger.debug(`Wrote data to ${this.getLoggableFilePath(filePrefix, id)}`);
     } catch (error) {
       logger.error(

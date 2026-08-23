@@ -64,10 +64,11 @@ describe('FileStorageService', () => {
     });
 
     it('should handle directory creation errors', () => {
+      vi.spyOn(fs, 'existsSync').mockReturnValueOnce(false);
       vi.spyOn(fs, 'mkdirSync').mockImplementationOnce(() => {
         throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
       });
-      expect(() => new FileStorageService('/any/path')).toThrow();
+      expect(() => new FileStorageService(tempDir)).toThrow(/EACCES/);
     });
   });
 
@@ -92,7 +93,7 @@ describe('FileStorageService', () => {
       // POSIX-only: Windows ACLs do not map to fs.stat modes
       if (process.platform === 'win32') return;
       service.writeData(testPrefix, testId, testData);
-      const filePath = path.join(tempDir, `${testPrefix}${testId}.json`);
+      const filePath = service.getFilePath(testPrefix, testId);
       expect(fs.statSync(filePath).mode & 0o777).toBe(0o600);
     });
 
@@ -100,14 +101,39 @@ describe('FileStorageService', () => {
       // POSIX-only: Windows ACLs do not map to fs.stat modes
       if (process.platform === 'win32') return;
       service.writeDataDurable(testPrefix, testId, testData);
-      const filePath = path.join(tempDir, `${testPrefix}${testId}.json`);
+      const filePath = service.getFilePath(testPrefix, testId);
       expect(fs.statSync(filePath).mode & 0o777).toBe(0o600);
     });
 
     it('creates storage directory with 0700 permissions', () => {
       // POSIX-only: Windows ACLs do not map to fs.stat modes
       if (process.platform === 'win32') return;
-      expect(fs.statSync(tempDir).mode & 0o777).toBe(0o700);
+      expect(fs.statSync(service.getStorageDir()).mode & 0o777).toBe(0o700);
+    });
+
+    it('hardens pre-existing storage directory permissions to 0700', () => {
+      // POSIX-only: Windows ACLs do not map to fs.stat modes
+      if (process.platform === 'win32') return;
+      const customDir = path.join(tmpdir(), `custom-perm-test-${Date.now()}`);
+      const sessionsPath = path.join(customDir, 'sessions');
+      fs.mkdirSync(sessionsPath, { recursive: true, mode: 0o755 });
+      fs.chmodSync(sessionsPath, 0o755);
+
+      const customService = new FileStorageService(customDir);
+      expect(fs.statSync(sessionsPath).mode & 0o777).toBe(0o700);
+      customService.shutdown();
+      fs.rmSync(customDir, { recursive: true, force: true });
+    });
+
+    it('hardens pre-existing data file permissions to 0600 on writeData', () => {
+      // POSIX-only: Windows ACLs do not map to fs.stat modes
+      if (process.platform === 'win32') return;
+      const filePath = service.getFilePath(testPrefix, testId);
+      fs.writeFileSync(filePath, JSON.stringify(testData, null, 2), { mode: 0o644 });
+      fs.chmodSync(filePath, 0o644);
+
+      service.writeData(testPrefix, testId, testData);
+      expect(fs.statSync(filePath).mode & 0o777).toBe(0o600);
     });
 
     it('preserves the previous record when a replacement write fails after truncation', () => {
