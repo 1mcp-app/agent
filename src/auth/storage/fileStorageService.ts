@@ -281,21 +281,24 @@ export class FileStorageService {
     return false;
   }
 
+  private static readonly SENSITIVE_FILE_PREFIXES = [
+    AUTH_CONFIG.SERVER.AUTH_CODE.FILE_PREFIX,
+    AUTH_CONFIG.SERVER.AUTH_REQUEST.FILE_PREFIX,
+  ] as const;
+
   /**
-   * Checks if an ID/filePrefix represents sensitive data that should be redacted from logs.
+   * Checks if an ID/filePrefix or filename represents sensitive data that should be redacted from logs.
    */
-  private isSensitiveId(filePrefix?: string): boolean {
-    return (
-      filePrefix === AUTH_CONFIG.SERVER.AUTH_CODE.FILE_PREFIX ||
-      filePrefix === AUTH_CONFIG.SERVER.AUTH_REQUEST.FILE_PREFIX
-    );
+  private isSensitivePrefix(prefixOrFileName?: string): boolean {
+    if (!prefixOrFileName) return false;
+    return FileStorageService.SENSITIVE_FILE_PREFIXES.some((prefix) => prefixOrFileName.startsWith(prefix));
   }
 
   /**
    * Gets a log-safe representation of an ID.
    */
   private getLoggableId(filePrefix: string, id: string): string {
-    if (this.isSensitiveId(filePrefix)) {
+    if (this.isSensitivePrefix(filePrefix)) {
       return '[REDACTED]';
     }
     return id;
@@ -305,7 +308,7 @@ export class FileStorageService {
    * Gets a log-safe representation of a file path.
    */
   private getLoggableFilePath(filePrefix: string, id: string): string {
-    if (this.isSensitiveId(filePrefix)) {
+    if (this.isSensitivePrefix(filePrefix)) {
       return path.join(this.storageDir, `${filePrefix}[REDACTED]${AUTH_CONFIG.SERVER.STORAGE.FILE_EXTENSION}`);
     }
     return this.getFilePath(filePrefix, id);
@@ -315,7 +318,7 @@ export class FileStorageService {
    * Gets a log-safe representation of an error object.
    */
   private getLoggableError(filePrefix: string, error: unknown): string {
-    if (this.isSensitiveId(filePrefix)) {
+    if (this.isSensitivePrefix(filePrefix)) {
       if (error instanceof Error && 'code' in error && typeof (error as { code?: unknown }).code === 'string') {
         return `${error.name} (${(error as { code: string }).code})`;
       }
@@ -325,12 +328,14 @@ export class FileStorageService {
   }
 
   /**
-   * Gets a log-safe representation of a file name.
+   * Gets a log-safe representation of a file name (including .tmp files).
    */
   private getLoggableFileName(fileName: string): string {
-    const sensitivePrefixes = [AUTH_CONFIG.SERVER.AUTH_CODE.FILE_PREFIX, AUTH_CONFIG.SERVER.AUTH_REQUEST.FILE_PREFIX];
-    for (const prefix of sensitivePrefixes) {
+    for (const prefix of FileStorageService.SENSITIVE_FILE_PREFIXES) {
       if (fileName.startsWith(prefix)) {
+        if (fileName.endsWith('.tmp')) {
+          return `${prefix}[REDACTED].tmp`;
+        }
         return `${prefix}[REDACTED]${AUTH_CONFIG.SERVER.STORAGE.FILE_EXTENSION}`;
       }
     }
@@ -341,9 +346,7 @@ export class FileStorageService {
    * Gets a log-safe representation of an error object associated with a file name.
    */
   private getLoggableErrorForFileName(fileName: string, error: unknown): string {
-    const sensitivePrefixes = [AUTH_CONFIG.SERVER.AUTH_CODE.FILE_PREFIX, AUTH_CONFIG.SERVER.AUTH_REQUEST.FILE_PREFIX];
-    const isSensitive = sensitivePrefixes.some((prefix) => fileName.startsWith(prefix));
-    if (isSensitive) {
+    if (this.isSensitivePrefix(fileName)) {
       if (error instanceof Error && 'code' in error && typeof (error as { code?: unknown }).code === 'string') {
         return `${error.name} (${(error as { code: string }).code})`;
       }
@@ -522,7 +525,9 @@ export class FileStorageService {
               cleanedCount++;
             }
           } catch (error) {
-            logger.warn(`Failed to clean temporary file ${file}: ${error}`);
+            logger.warn(
+              `Failed to clean temporary file ${this.getLoggableFileName(file)}: ${this.getLoggableErrorForFileName(file, error)}`,
+            );
           }
           continue;
         }

@@ -483,4 +483,45 @@ describe('authorization-code-atomic (goiabada#77 double-spend)', () => {
     expect(allLogged).not.toMatch(/auth_code_code-[0-9a-f-]+/i);
     expect(allLogged).toContain('auth_code_[REDACTED].json');
   });
+
+  it('failure when cleaning temporary files for sensitive codes does not log plaintext codes or paths', async () => {
+    const warnSpy = vi.spyOn(logger, 'warn');
+    const errorSpy = vi.spyOn(logger, 'error');
+
+    const storageDir = provider.oauthStorage.fileStorage.getStorageDir();
+    const sensitiveTmpFile = `auth_code_code-11112222-3333-4444-5555-666677778888.json.${process.pid}.random.tmp`;
+    const sensitiveTmpPath = path.join(storageDir, sensitiveTmpFile);
+    fs.writeFileSync(sensitiveTmpPath, 'temp');
+
+    // Age the temporary file so it qualifies for cleanup (>60s)
+    const oldTime = (Date.now() - 120_000) / 1000;
+    fs.utimesSync(sensitiveTmpPath, oldTime, oldTime);
+
+    // Mock unlinkSync to fail on this file
+    const realUnlinkSync = fs.unlinkSync;
+    vi.spyOn(fs, 'unlinkSync').mockImplementation((targetPath) => {
+      if (String(targetPath).includes('auth_code_code-11112222')) {
+        const err = new Error(`EACCES: permission denied, unlink '${String(targetPath)}'`);
+        (err as unknown as { code: string }).code = 'EACCES';
+        throw err;
+      }
+      return realUnlinkSync(targetPath);
+    });
+
+    try {
+      provider.oauthStorage.fileStorage.cleanupExpiredData();
+
+      const allLogged = [...warnSpy.mock.calls, ...errorSpy.mock.calls].map((call) => JSON.stringify(call)).join('\n');
+
+      expect(allLogged).not.toContain('code-11112222-3333-4444-5555-666677778888');
+      expect(allLogged).not.toMatch(/auth_code_code-[0-9a-f-]+/i);
+      expect(allLogged).toContain('auth_code_[REDACTED].tmp');
+      expect(allLogged).toContain('EACCES');
+    } finally {
+      fs.unlinkSync = realUnlinkSync;
+      if (fs.existsSync(sensitiveTmpPath)) {
+        fs.unlinkSync(sensitiveTmpPath);
+      }
+    }
+  });
 });
