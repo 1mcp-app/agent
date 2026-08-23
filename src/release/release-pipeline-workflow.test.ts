@@ -4,7 +4,9 @@ import path from 'path';
 import { describe, expect, it } from 'vitest';
 
 function readReleasePipelineWorkflow(): string {
-  return fs.readFileSync(path.join(process.cwd(), '.github', 'workflows', 'release-pipeline.yml'), 'utf8');
+  return fs
+    .readFileSync(path.join(process.cwd(), '.github', 'workflows', 'release-pipeline.yml'), 'utf8')
+    .replace(/\r\n/g, '\n');
 }
 
 describe('release-pipeline workflow', () => {
@@ -24,5 +26,11 @@ describe('release-pipeline workflow', () => {
     expect(finalizeJob).toBeDefined();
     expect(finalizeJob).toContain("if: ${{ needs.validate.outputs.release_ref == 'main' }}");
     expect(finalizeJob).not.toContain('is_prerelease');
+  });
+
+  it('does not pass secrets: inherit to reusable workflows', () => {
+    const workflow = readReleasePipelineWorkflow();
+
+    expect(workflow).not.toContain('secrets: inherit');
   });
 });
