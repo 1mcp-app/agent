@@ -64,9 +64,10 @@ describe('FileStorageService', () => {
     });
 
     it('should handle directory creation errors', () => {
-      const invalidDir =
-        process.platform === 'win32' ? 'Z:\\nonexistent_drive_123\\sessions' : '/invalid/path/that/cannot/be/created';
-      expect(() => new FileStorageService(invalidDir)).toThrow();
+      vi.spyOn(fs, 'mkdirSync').mockImplementationOnce(() => {
+        throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+      });
+      expect(() => new FileStorageService('/any/path')).toThrow();
     });
   });
 
@@ -93,6 +94,20 @@ describe('FileStorageService', () => {
       service.writeData(testPrefix, testId, testData);
       const filePath = path.join(tempDir, `${testPrefix}${testId}.json`);
       expect(fs.statSync(filePath).mode & 0o777).toBe(0o600);
+    });
+
+    it('durable write: token data files land with 0600 permissions (regression)', () => {
+      // POSIX-only: Windows ACLs do not map to fs.stat modes
+      if (process.platform === 'win32') return;
+      service.writeDataDurable(testPrefix, testId, testData);
+      const filePath = path.join(tempDir, `${testPrefix}${testId}.json`);
+      expect(fs.statSync(filePath).mode & 0o777).toBe(0o600);
+    });
+
+    it('creates storage directory with 0700 permissions', () => {
+      // POSIX-only: Windows ACLs do not map to fs.stat modes
+      if (process.platform === 'win32') return;
+      expect(fs.statSync(tempDir).mode & 0o777).toBe(0o700);
     });
 
     it('preserves the previous record when a replacement write fails after truncation', () => {

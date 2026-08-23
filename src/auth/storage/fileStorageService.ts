@@ -49,7 +49,7 @@ export class FileStorageService {
   private ensureDirectory(): void {
     try {
       if (!fs.existsSync(this.storageDir)) {
-        fs.mkdirSync(this.storageDir, { recursive: true });
+        fs.mkdirSync(this.storageDir, { recursive: true, mode: 0o700 });
         logger.info(`Created storage directory: ${this.storageDir}`);
       }
     } catch (error) {
@@ -159,6 +159,7 @@ export class FileStorageService {
           targetSubDir,
           timestamp: Date.now(),
         }),
+        { mode: 0o600 },
       );
       logger.debug(`Created migration flag: .migrated-to-${targetSubDir} in ${sourceDir}`);
     } catch (error) {
