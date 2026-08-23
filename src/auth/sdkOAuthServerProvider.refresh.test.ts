@@ -455,4 +455,32 @@ describe('authorization-code-atomic (goiabada#77 double-spend)', () => {
 
     fs.unlinkSync = realUnlinkSync;
   });
+
+  it('cleanup of expired authorization codes does not log plaintext codes or paths', async () => {
+    const debugSpy = vi.spyOn(logger, 'debug');
+    const infoSpy = vi.spyOn(logger, 'info');
+    const warnSpy = vi.spyOn(logger, 'warn');
+    const errorSpy = vi.spyOn(logger, 'error');
+
+    // Create an expired authorization code
+    const code = provider.oauthStorage.authCodeRepository.create(
+      ACCESS_ONLY_CLIENT.client_id,
+      ACCESS_ONLY_CLIENT.redirect_uris[0],
+      RESOURCE,
+      SCOPES,
+      -1000, // Expired in the past
+      'challenge',
+    );
+
+    const cleanedCount = provider.oauthStorage.fileStorage.cleanupExpiredData();
+    expect(cleanedCount).toBeGreaterThanOrEqual(1);
+
+    const allLogged = [...debugSpy.mock.calls, ...infoSpy.mock.calls, ...warnSpy.mock.calls, ...errorSpy.mock.calls]
+      .map((call) => JSON.stringify(call))
+      .join('\n');
+
+    expect(allLogged).not.toContain(code);
+    expect(allLogged).not.toMatch(/auth_code_code-[0-9a-f-]+/i);
+    expect(allLogged).toContain('auth_code_[REDACTED].json');
+  });
 });

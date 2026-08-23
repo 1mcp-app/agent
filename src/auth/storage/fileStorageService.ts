@@ -325,6 +325,34 @@ export class FileStorageService {
   }
 
   /**
+   * Gets a log-safe representation of a file name.
+   */
+  private getLoggableFileName(fileName: string): string {
+    const sensitivePrefixes = [AUTH_CONFIG.SERVER.AUTH_CODE.FILE_PREFIX, AUTH_CONFIG.SERVER.AUTH_REQUEST.FILE_PREFIX];
+    for (const prefix of sensitivePrefixes) {
+      if (fileName.startsWith(prefix)) {
+        return `${prefix}[REDACTED]${AUTH_CONFIG.SERVER.STORAGE.FILE_EXTENSION}`;
+      }
+    }
+    return fileName;
+  }
+
+  /**
+   * Gets a log-safe representation of an error object associated with a file name.
+   */
+  private getLoggableErrorForFileName(fileName: string, error: unknown): string {
+    const sensitivePrefixes = [AUTH_CONFIG.SERVER.AUTH_CODE.FILE_PREFIX, AUTH_CONFIG.SERVER.AUTH_REQUEST.FILE_PREFIX];
+    const isSensitive = sensitivePrefixes.some((prefix) => fileName.startsWith(prefix));
+    if (isSensitive) {
+      if (error instanceof Error && 'code' in error && typeof (error as { code?: unknown }).code === 'string') {
+        return `${error.name} (${(error as { code: string }).code})`;
+      }
+      return '[REDACTED]';
+    }
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  /**
    * Writes data to a file with the specified prefix and ID
    */
   writeData<T extends ExpirableData>(filePrefix: string, id: string, data: T): void {
@@ -509,16 +537,20 @@ export class FileStorageService {
             if (parsedData.expires && parsedData.expires < Date.now()) {
               fs.unlinkSync(filePath);
               cleanedCount++;
-              logger.debug(`Cleaned up expired file: ${file}`);
+              logger.debug(`Cleaned up expired file: ${this.getLoggableFileName(file)}`);
             }
           } catch (error) {
             // Remove corrupted files
-            logger.warn(`Removing corrupted file ${file}: ${error}`);
+            logger.warn(
+              `Removing corrupted file ${this.getLoggableFileName(file)}: ${this.getLoggableErrorForFileName(file, error)}`,
+            );
             try {
               fs.unlinkSync(filePath);
               cleanedCount++;
             } catch (unlinkError) {
-              logger.error(`Failed to remove corrupted file ${file}: ${unlinkError}`);
+              logger.error(
+                `Failed to remove corrupted file ${this.getLoggableFileName(file)}: ${this.getLoggableErrorForFileName(file, unlinkError)}`,
+              );
             }
           }
         }
@@ -529,7 +561,7 @@ export class FileStorageService {
       }
       return cleanedCount;
     } catch (error) {
-      logger.error(`Failed to cleanup expired data: ${error}`);
+      logger.error(`Failed to cleanup expired data: ${this.getLoggableError('', error)}`);
       return 0;
     }
   }
