@@ -4,6 +4,8 @@ import { Pencil, ServerCog, ShieldCheck } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 
 import type { ConfiguredServerEditField } from '../../api/adminApi';
+import { ConfiguredServerDelete } from '../../configuredServerDelete/ConfiguredServerDelete';
+import type { ConfiguredServerDeleteModel } from '../../configuredServerDelete/useConfiguredServerDelete';
 import {
   fieldAppliesToTransport,
   fieldKey,
@@ -17,7 +19,13 @@ import { ConfiguredToolTable } from './ConfiguredToolTable';
 import { ConfiguredServerFieldDraft, editGroupHelp, SecretFieldDraft } from './EditControls';
 import { PreviewResult } from './PreviewResult';
 
-export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditModel }) {
+export function ConfiguredServerEditor({
+  model,
+  deleteModel,
+}: {
+  model: ConfiguredServerEditModel;
+  deleteModel: ConfiguredServerDeleteModel;
+}) {
   const { state } = model;
   const advancedSettingsRef = useRef<HTMLDetailsElement>(null);
   const hasAdvancedPreviewErrors =
@@ -395,6 +403,9 @@ export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditM
             </Group>
             <PreviewResult preview={state.preview} />
           </>
+        ) : null}
+        {!state.dirty && state.detail.editContract.capabilities.delete.supported ? (
+          <ConfiguredServerDelete model={deleteModel} target={state.detail.server.target} />
         ) : null}
       </Stack>
     </Panel>

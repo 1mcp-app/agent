@@ -55,8 +55,15 @@ Create and rename fail if either source already owns the destination name, and a
 Creating a definition only adds it to the template index after reload. An instance is still created lazily by a future
 matching request. Renaming a definition or changing structural/runtime-rendered fields retires its active instances
 after the successful reload; future matching requests create instances from the updated definition. Metadata-only
-changes to instructions, disabled tools, or tool descriptions retain live instances. Removing definitions is not part
-of this workspace.
+changes to instructions, disabled tools, or tool descriptions retain live instances.
+
+Deletion starts with a read-only structural preview of exactly one source-qualified definition. The preview shows the
+redacted definition, authority or shadow state, same-name source preservation, required recovery copy, expected reload,
+and runtime impact. Apply requires typing the exact printable identity supplied by the server, such as
+`mcpTemplates/workspace-worker`; a bare name is never accepted. If the definition, source, or preview changes, deletion
+stops without writing. A successful Template definition deletion reloads the Runtime Scope and reports retirement of
+the instances that were active before the write. Presets, filters, credentials, registry state, the other source, and
+individual instance configuration are never deleted as a cascade.
 
 ### Key Difference from Instruction Templates
 

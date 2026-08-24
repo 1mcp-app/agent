@@ -4,8 +4,11 @@ import { render } from '@testing-library/react';
 import { useReducer } from 'react';
 
 import type { ConfiguredServerReadModel } from '../api/adminApi';
+import type { ConfiguredServerDeleteResponse } from '../api/adminApi';
 import { createConfiguredServerCreateState } from '../configuredServerCreate/configuredServerCreateState';
 import type { ConfiguredServerCreateModel } from '../configuredServerCreate/useConfiguredServerCreate';
+import { createConfiguredServerDeleteState } from '../configuredServerDelete/configuredServerDeleteState';
+import type { ConfiguredServerDeleteModel } from '../configuredServerDelete/useConfiguredServerDelete';
 import {
   type ConfiguredServerEditState,
   createConfiguredServerEditState,
@@ -26,6 +29,9 @@ interface ConfiguredServerOverrides {
   close?: ConfiguredServerEditModel['close'];
   preview?: ConfiguredServerEditModel['preview'];
   apply?: ConfiguredServerEditModel['apply'];
+  delete?: ConfiguredServerDeleteModel;
+  deletionNotice?: ConfiguredServerDeleteResponse['result'] | null;
+  dismissDeletionNotice?: () => void;
   copy?: AdminConsoleSessionModel['configuredServers']['copy'];
   changeInstructionOverride?: ConfiguredServerEditModel['changeInstructionOverride'];
 }
@@ -96,6 +102,9 @@ export function fixtureSession(
     configuredServers: {
       create: overrides.configuredServers?.create ?? staticConfiguredServerCreateModel(),
       edit,
+      delete: overrides.configuredServers?.delete ?? staticConfiguredServerDeleteModel(),
+      deletionNotice: overrides.configuredServers?.deletionNotice ?? null,
+      dismissDeletionNotice: overrides.configuredServers?.dismissDeletionNotice ?? (() => undefined),
       mutate: overrides.configuredServers?.mutate ?? (() => undefined),
       copy: overrides.configuredServers?.copy ?? (() => undefined),
     },
@@ -197,6 +206,16 @@ function staticConfiguredServerEditModel(overrides?: ConfiguredServerOverrides):
     changeToolModel: () => undefined,
     preview: () => undefined,
     apply: overrides?.apply ?? (() => undefined),
+  };
+}
+
+function staticConfiguredServerDeleteModel(): ConfiguredServerDeleteModel {
+  return {
+    state: createConfiguredServerDeleteState(),
+    preview: () => undefined,
+    changeConfirmation: () => undefined,
+    apply: () => undefined,
+    reset: () => undefined,
   };
 }
 

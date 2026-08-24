@@ -341,7 +341,7 @@ describe('AdminConfiguredServerService', () => {
             singleTargetEdit: true,
             rename: { supported: true },
             create: { supported: false },
-            delete: { supported: false },
+            delete: { supported: true },
             bulkEdit: { supported: false },
             rawJson: { supported: false },
           },
@@ -4984,6 +4984,25 @@ describe('AdminConfiguredServerService', () => {
     expect(readConfig().mcpServers).toEqual({});
   });
 
+  it('does not advertise delete in detail when runtime mutation admission is locked', async () => {
+    writeConfig({ mcpServers: { locked: { type: 'stdio', command: 'node' } } });
+    const service = createService({ mutationAvailability: { available: false, reason: 'writer_lock_unavailable' } });
+
+    const detail = await service.getConfiguredServerDetail({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'locked',
+      targetSource: 'mcpServers',
+    });
+
+    expect(detail).toMatchObject({
+      ok: true,
+      result: {
+        server: { mutationAvailability: { available: false, deleteAvailable: false } },
+        editContract: { capabilities: { delete: { supported: false } } },
+      },
+    });
+  });
+
   it('lists same-name static and template definitions with independent instruction override states', async () => {
     writeConfig({
       mcpServers: {
@@ -5568,6 +5587,259 @@ describe('AdminConfiguredServerService', () => {
     expect(observeTemplateDefinitionRetirement).toHaveBeenCalledTimes(1);
   });
 
+  it.each(['mcpServers', 'mcpTemplates'] as const)(
+    'previews and deletes only the source-qualified %s definition when names collide',
+    async (targetSource) => {
+      const secret = 'must-not-leak';
+      writeConfig({
+        mcpServers: { shared: { type: 'http', url: `https://user:${secret}@static.example/mcp` } },
+        mcpTemplates: { shared: { type: 'stdio', command: '{{project.command}}', env: { TOKEN: secret } } },
+      });
+      const observeTemplateDefinitionRetirement = vi.fn(async () => ({
+        activeInstancesBefore: 2,
+        retiredInstances: 2,
+        activeInstancesAfter: 0,
+        retirementObserved: true,
+      }));
+      const service = createService({
+        getTemplateActiveInstanceCount: () => 2,
+        getTemplateActiveInstanceIdentities: () => ['instance-one', 'instance-two'],
+        observeTemplateDefinitionRetirement,
+      });
+      const preview = await service.previewConfiguredServerDelete({
+        context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+        targetName: 'shared',
+        targetSource,
+      });
+
+      expect(preview).toMatchObject({
+        ok: true,
+        result: {
+          qualifiedId: `${targetSource}/shared`,
+          authority: targetSource === 'mcpTemplates' ? 'authoritative' : 'shadowed',
+          removal: { preservesSameNamedOtherSource: true, cascades: false },
+          configChange: { operation: 'remove', changed: true, configPath: '[redacted]' },
+          expectedBackup: { policy: 'required', recoveryCopy: true },
+          expectedReload: { policy: 'observe_after_write' },
+        },
+      });
+      expect(JSON.stringify(preview)).not.toContain(secret);
+      if (!preview.ok) return;
+      const mutationContext = context({
+        confirmationFacts: {
+          previewConfirmed: preview.result.previewFingerprint,
+          targetIdentityConfirmed: preview.result.qualifiedId,
+        },
+      });
+      const applied = await service.deleteConfiguredServer({
+        context: mutationContext,
+        targetName: 'shared',
+        targetSource,
+        previewFingerprint: preview.result.previewFingerprint,
+      });
+      const replay = await service.deleteConfiguredServer({
+        context: mutationContext,
+        targetName: 'shared',
+        targetSource,
+        previewFingerprint: preview.result.previewFingerprint,
+      });
+
+      expect(applied).toMatchObject({
+        ok: true,
+        replayed: false,
+        result: { configChange: { status: 'changed', backup: { created: true }, reload: { status: 'observed' } } },
+      });
+      expect(replay).toMatchObject({ ok: true, replayed: true, result: applied.ok ? applied.result : undefined });
+      const remaining = readConfig();
+      expect(remaining[targetSource].shared).toBeUndefined();
+      expect(remaining[targetSource === 'mcpServers' ? 'mcpTemplates' : 'mcpServers'].shared).toBeDefined();
+      expect(observeTemplateDefinitionRetirement).toHaveBeenCalledTimes(targetSource === 'mcpTemplates' ? 1 : 0);
+      if (targetSource === 'mcpTemplates') {
+        expect(observeTemplateDefinitionRetirement).toHaveBeenCalledWith('shared', ['instance-one', 'instance-two']);
+      }
+    },
+  );
+
+  it('requires exact source-qualified typed confirmation and rejects a stale delete preview', async () => {
+    writeConfig({ mcpServers: { alpha: { type: 'stdio', command: 'node' } }, mcpTemplates: {} });
+    const service = createService();
+    const preview = await service.previewConfiguredServerDelete({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'alpha',
+      targetSource: 'mcpServers',
+    });
+    expect(preview).toMatchObject({ ok: true });
+    if (!preview.ok) return;
+
+    const mismatch = await service.deleteConfiguredServer({
+      context: context({
+        idempotencyKey: 'confirmation-mismatch',
+        requestFingerprint: 'confirmation-mismatch',
+        confirmationFacts: {
+          previewConfirmed: preview.result.previewFingerprint,
+          targetIdentityConfirmed: 'alpha',
+        },
+      }),
+      targetName: 'alpha',
+      targetSource: 'mcpServers',
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+    expect(mismatch).toMatchObject({ ok: false, status: 'mutation_confirmation_required' });
+    expect(readConfig().mcpServers.alpha).toBeDefined();
+
+    writeConfig({ mcpServers: { alpha: { type: 'stdio', command: 'bun' } }, mcpTemplates: {} });
+    await expect(
+      service.deleteConfiguredServer({
+        context: context({
+          idempotencyKey: 'stale-delete',
+          requestFingerprint: 'stale-delete',
+          confirmationFacts: {
+            previewConfirmed: preview.result.previewFingerprint,
+            targetIdentityConfirmed: 'mcpServers/alpha',
+          },
+        }),
+        targetName: 'alpha',
+        targetSource: 'mcpServers',
+        previewFingerprint: preview.result.previewFingerprint,
+      }),
+    ).rejects.toMatchObject({ code: 'configured_server_stale_preview' });
+    expect(readConfig().mcpServers.alpha.command).toBe('bun');
+
+    const wrongSource = await service.previewConfiguredServerDelete({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'alpha',
+      targetSource: 'mcpTemplates',
+    });
+    expect(wrongSource).toMatchObject({
+      ok: false,
+      status: 'mutation_failed',
+      error: 'configured_server_source_changed',
+    });
+
+    writeConfig({ mcpServers: {}, mcpTemplates: {} });
+    await expect(
+      service.deleteConfiguredServer({
+        context: context({
+          idempotencyKey: 'already-removed',
+          requestFingerprint: 'already-removed',
+          confirmationFacts: {
+            previewConfirmed: preview.result.previewFingerprint,
+            targetIdentityConfirmed: 'mcpServers/alpha',
+          },
+        }),
+        targetName: 'alpha',
+        targetSource: 'mcpServers',
+        previewFingerprint: preview.result.previewFingerprint,
+      }),
+    ).rejects.toMatchObject({ code: 'configured_server_already_removed' });
+  });
+
+  it('returns and replays a persisted static delete when reload observation fails', async () => {
+    writeConfig({ mcpServers: { worker: { type: 'stdio', command: 'node' } } });
+    reload.mockImplementationOnce(() => {
+      throw new Error('private reload failure');
+    });
+    const service = createService();
+    const preview = await service.previewConfiguredServerDelete({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'worker',
+      targetSource: 'mcpServers',
+    });
+    expect(preview).toMatchObject({ ok: true });
+    if (!preview.ok) return;
+    const mutationContext = context({
+      idempotencyKey: 'delete-reload-recovery',
+      requestFingerprint: 'delete-reload-recovery-fingerprint',
+      confirmationFacts: {
+        previewConfirmed: preview.result.previewFingerprint,
+        targetIdentityConfirmed: 'mcpServers/worker',
+      },
+    });
+    const input = {
+      context: mutationContext,
+      targetName: 'worker',
+      targetSource: 'mcpServers' as const,
+      previewFingerprint: preview.result.previewFingerprint,
+    };
+
+    const first = await service.deleteConfiguredServer(input);
+    const replay = await service.deleteConfiguredServer(input);
+
+    expect(first).toMatchObject({
+      ok: true,
+      replayed: false,
+      result: {
+        configChange: {
+          status: 'changed',
+          backup: { created: true },
+          reload: { status: 'failed', error: 'Runtime reload failed after the configuration was deleted.' },
+        },
+      },
+    });
+    expect(replay).toMatchObject({ ok: true, replayed: true, result: first.ok ? first.result : undefined });
+    expect(readConfig().mcpServers.worker).toBeUndefined();
+    expect(JSON.stringify(first)).not.toContain('private reload failure');
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns and replays persisted Template delete recovery facts after retirement observation failure', async () => {
+    writeConfig({ mcpTemplates: { worker: { type: 'stdio', command: '{{project.command}}' } } });
+    const observeTemplateDefinitionRetirement = vi.fn(async () => {
+      throw new Error('private retirement failure');
+    });
+    const service = createService({
+      getTemplateActiveInstanceCount: () => 2,
+      observeTemplateDefinitionRetirement,
+    });
+    const preview = await service.previewConfiguredServerDelete({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'worker',
+      targetSource: 'mcpTemplates',
+    });
+    expect(preview).toMatchObject({ ok: true });
+    if (!preview.ok) return;
+    const mutationContext = context({
+      idempotencyKey: 'delete-recovery',
+      requestFingerprint: 'delete-recovery-fingerprint',
+      confirmationFacts: {
+        previewConfirmed: preview.result.previewFingerprint,
+        targetIdentityConfirmed: 'mcpTemplates/worker',
+      },
+    });
+
+    const first = await service.deleteConfiguredServer({
+      context: mutationContext,
+      targetName: 'worker',
+      targetSource: 'mcpTemplates',
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+    const replay = await service.deleteConfiguredServer({
+      context: mutationContext,
+      targetName: 'worker',
+      targetSource: 'mcpTemplates',
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+
+    expect(first).toMatchObject({
+      ok: true,
+      replayed: false,
+      result: {
+        configChange: { status: 'changed', backup: { created: true }, reload: { status: 'observed' } },
+        runtimeImpact: {
+          activeInstancesBefore: 2,
+          retiredInstances: 0,
+          activeInstancesAfter: 2,
+          retirementObserved: false,
+          error: 'Template instance retirement could not be confirmed.',
+        },
+      },
+    });
+    expect(replay).toMatchObject({ ok: true, replayed: true, result: first.ok ? first.result : undefined });
+    expect(readConfig().mcpTemplates.worker).toBeUndefined();
+    expect(JSON.stringify(first)).not.toContain('private retirement failure');
+    expect(observeTemplateDefinitionRetirement).toHaveBeenCalledTimes(1);
+  });
+
   function createService(
     options: {
       readConfigDocument?: () => {
@@ -5612,6 +5884,7 @@ describe('AdminConfiguredServerService', () => {
     });
     return new AdminConfiguredServerService({
       operationService,
+      mutationAvailability,
       configChangeService: createConfigChangeService({
         reloadConfig: reload,
         now: () => currentTime.getTime(),

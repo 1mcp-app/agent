@@ -10,6 +10,51 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe('admin API client', () => {
+  it('uses only source-qualified routes and exact confirmation facts for configured-server deletion', async () => {
+    const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+    const api = createAdminApi({
+      fetch: async (input, init) => {
+        calls.push({ input, init });
+        return jsonResponse({ ok: true, operationId: 'op_delete', preview: {}, result: {} });
+      },
+    });
+    const target = { type: 'configured_server' as const, source: 'mcpTemplates' as const, id: 'shared/name' };
+
+    await api.previewConfiguredServerDelete({ target, csrfToken: 'csrf_1' });
+    await api.deleteConfiguredServer({
+      target,
+      csrfToken: 'csrf_1',
+      idempotencyKey: 'delete-shared-1',
+      previewFingerprint: 'delete_preview_1',
+      confirmedIdentity: 'mcpTemplates/shared/name',
+    });
+
+    expect(calls).toMatchObject([
+      {
+        input: '/admin/api/configured-servers/mcpTemplates/shared%2Fname/delete-preview',
+        init: {
+          method: 'POST',
+          headers: { 'X-CSRF-Token': 'csrf_1' },
+          body: '{}',
+        },
+      },
+      {
+        input: '/admin/api/configured-servers/mcpTemplates/shared%2Fname',
+        init: {
+          method: 'DELETE',
+          headers: { 'X-CSRF-Token': 'csrf_1', 'Idempotency-Key': 'delete-shared-1' },
+          body: JSON.stringify({
+            previewFingerprint: 'delete_preview_1',
+            confirmationFacts: {
+              previewConfirmed: 'delete_preview_1',
+              targetIdentityConfirmed: 'mcpTemplates/shared/name',
+            },
+          }),
+        },
+      },
+    ]);
+  });
+
   it('manages instruction-template drafts through explicit lifecycle routes', async () => {
     const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     const api = createAdminApi({

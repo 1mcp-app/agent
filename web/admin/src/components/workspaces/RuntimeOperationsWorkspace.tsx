@@ -3,6 +3,7 @@ import { Alert, Button, Group, Paper, SimpleGrid, Stack, Text, Title } from '@ma
 import { AlertTriangle, ArrowRight, CircleCheck, KeyRound, Plus, ServerOff } from 'lucide-react';
 import { type MouseEvent, type ReactNode, useState } from 'react';
 
+import { ConfiguredServerDeletionNotice } from '../../configuredServerDelete/ConfiguredServerDeletionNotice';
 import type { AdminConsoleRoute, OperatorWorkspaceModel } from '../../session/AdminConsoleSessionModel';
 import { DetailRow, Panel } from '../AdminConsoleShared';
 import { disabledServers, enabledServers, humanize, isOAuthAttention } from '../adminConsoleUtils';
@@ -197,6 +198,12 @@ export function ServersWorkspace({ model }: { model: OperatorWorkspaceModel }) {
         titleId="servers-workspace-title"
         description={`${state.configuredServers.length} configured targets · updated ${state.lastUpdatedAt ?? 'never'}`}
       />
+      {!creating && !editing && configuredServers.deletionNotice ? (
+        <ConfiguredServerDeletionNotice
+          result={configuredServers.deletionNotice}
+          dismiss={configuredServers.dismissDeletionNotice}
+        />
+      ) : null}
       <div className="inventory-column server-browse-workspace" hidden={creating || editing}>
         <ConfiguredServersPanel
           state={state}
@@ -210,7 +217,7 @@ export function ServersWorkspace({ model }: { model: OperatorWorkspaceModel }) {
           {creating ? (
             <ConfiguredServerCreator model={configuredServers.create} />
           ) : (
-            <ConfiguredServerEditor model={configuredServers.edit} />
+            <ConfiguredServerEditor model={configuredServers.edit} deleteModel={configuredServers.delete} />
           )}
         </div>
       ) : null}

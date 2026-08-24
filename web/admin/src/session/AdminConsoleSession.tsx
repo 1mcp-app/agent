@@ -8,10 +8,14 @@ import type {
   AdminPresetPreview,
   AdminPresetTarget,
   AdminSession,
+  ConfiguredServerDeleteResponse,
+  ConfiguredServerTargetIdentity,
 } from '../api/adminApi';
 import { AdminConsoleApp } from '../components/AdminConsoleApp';
 import { ConfirmationDialogProvider, useConfirmationDialog } from '../components/ConfirmationDialogProvider';
 import { useConfiguredServerCreate } from '../configuredServerCreate/useConfiguredServerCreate';
+import { configuredServerDeleteRecoveryRequired } from '../configuredServerDelete/configuredServerDeleteState';
+import { useConfiguredServerDelete } from '../configuredServerDelete/useConfiguredServerDelete';
 import { useConfiguredServerEdit } from '../configuredServerEdit/useConfiguredServerEdit';
 import { useInstructionTemplates } from '../instructionTemplates/useInstructionTemplates';
 import { type AdminConsoleAction, createInitialState, reduceAdminConsoleState } from '../state/adminConsoleState';
@@ -102,10 +106,17 @@ export function useAdminConsoleSession({
   const [presetTargets, setPresetTargets] = useState<AdminPresetTarget[]>([]);
   const [presetRevision, setPresetRevision] = useState('');
   const [presetBusy, setPresetBusy] = useState(false);
+  const [configuredServerDeletionNotice, setConfiguredServerDeletionNotice] = useState<
+    ConfiguredServerDeleteResponse['result'] | null
+  >(null);
   const stateRef = useRef(state);
   const timerRef = useRef<ReturnType<Window['setTimeout']> | null>(null);
   const configuredServerAppliedRef = useRef<() => void | Promise<void>>();
   const configuredServerCreatedRef = useRef<() => void | Promise<void>>();
+  const configuredServerDeletedRef =
+    useRef<
+      (target: ConfiguredServerTargetIdentity, result: ConfiguredServerDeleteResponse['result']) => void | Promise<void>
+    >();
   const presetSaveBusyRef = useRef(false);
   const presetDeleteBusyRef = useRef(false);
   const oauthOperationBusyRef = useRef(false);
@@ -140,6 +151,7 @@ export function useAdminConsoleSession({
     (adminStatus: 'setupRequired' | 'loginRequired') => {
       clearPoll();
       resetOAuthOperation();
+      setConfiguredServerDeletionNotice(null);
       dispatch({ type: 'sessionUnauthenticated', adminStatus });
     },
     [clearPoll, dispatch, resetOAuthOperation],
@@ -189,6 +201,12 @@ export function useAdminConsoleSession({
     onCreated: () => configuredServerCreatedRef.current?.(),
     onOpenCreated: configuredServerEdit.open,
     onPathCommitted: commitBrowserPath,
+  });
+  const configuredServerDelete = useConfiguredServerDelete({
+    api,
+    session: state.session,
+    onUnauthenticated: invalidateAdminSession,
+    onDeleted: (target, result) => configuredServerDeletedRef.current?.(target, result),
   });
   const backendLogs = useBackendLogs({
     api,
@@ -354,6 +372,18 @@ export function useAdminConsoleSession({
   );
   configuredServerAppliedRef.current = () => refreshConsole('');
   configuredServerCreatedRef.current = () => refreshConsole('');
+  configuredServerDeletedRef.current = async (_target, result) => {
+    if (configuredServerDeleteRecoveryRequired(result)) {
+      setConfiguredServerDeletionNotice(null);
+      await refreshConsole('Deletion was persisted, but inventory refresh failed: ');
+      return;
+    }
+    await configuredServerEdit.close('/admin/servers');
+    configuredServerDelete.reset();
+    setConfiguredServerDeletionNotice(result);
+    setRoute('servers');
+    await refreshConsole('Deletion succeeded, but refresh failed: ');
+  };
 
   const schedulePoll = useCallback(() => {
     clearPoll();
@@ -488,6 +518,7 @@ export function useAdminConsoleSession({
       clearPoll();
       resetOAuthOperation();
       dispatch({ type: 'logoutSucceeded' });
+      setConfiguredServerDeletionNotice(null);
     }
   }, [api, clearPoll, dispatch, resetOAuthOperation]);
 
@@ -520,6 +551,7 @@ export function useAdminConsoleSession({
       create: {
         ...configuredServerCreate,
         open: async () => {
+          setConfiguredServerDeletionNotice(null);
           if (configuredServerCreate.state.status !== 'idle') {
             await configuredServerCreate.open();
             return;
@@ -528,7 +560,16 @@ export function useAdminConsoleSession({
           await configuredServerCreate.open();
         },
       },
-      edit: configuredServerEdit,
+      edit: {
+        ...configuredServerEdit,
+        open: async (server) => {
+          setConfiguredServerDeletionNotice(null);
+          await configuredServerEdit.open(server);
+        },
+      },
+      delete: configuredServerDelete,
+      deletionNotice: configuredServerDeletionNotice,
+      dismissDeletionNotice: () => setConfiguredServerDeletionNotice(null),
       mutate: mutateServer,
       copy: copyText,
     },

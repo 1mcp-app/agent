@@ -161,6 +161,17 @@ const requestContextSchema = z
   })
   .strict();
 const configuredServerSourceSchema = z.enum(['mcpServers', 'mcpTemplates']);
+const configuredServerDeleteApplySchema = z
+  .object({
+    previewFingerprint: z.string().trim().min(1).max(256),
+    confirmationFacts: z
+      .object({
+        previewConfirmed: z.string().trim().min(1).max(256),
+        targetIdentityConfirmed: z.string().trim().min(1).max(512),
+      })
+      .strict(),
+  })
+  .strict();
 type AdminOperationFailure = Extract<AdminOperationResult, { ok: false }>;
 interface CliAdminEnvelope {
   ok: boolean;
@@ -675,6 +686,18 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     const source = configuredServerSourceSchema.safeParse(req.params.source);
     if (!source.success) return void res.status(400).json({ error: 'configured_server_source_invalid' });
     await handleConfiguredServerApply(req, res, options, source.data);
+  });
+
+  router.post('/api/configured-servers/:source/:name/delete-preview', async (req, res) => {
+    const source = configuredServerSourceSchema.safeParse(req.params.source);
+    if (!source.success) return void res.status(400).json({ error: 'configured_server_source_invalid' });
+    await handleConfiguredServerDeletePreview(req, res, options, source.data);
+  });
+
+  router.delete('/api/configured-servers/:source/:name', async (req, res) => {
+    const source = configuredServerSourceSchema.safeParse(req.params.source);
+    if (!source.success) return void res.status(400).json({ error: 'configured_server_source_invalid' });
+    await handleConfiguredServerDelete(req, res, options, source.data);
   });
 
   router.post('/api/configured-servers/mcpServers/:name/enable', async (req, res) => {
@@ -1544,6 +1567,108 @@ async function handleConfiguredServerApply(
   }
 }
 
+async function handleConfiguredServerDeletePreview(
+  req: Request,
+  res: Response,
+  options: AdminRoutesOptions,
+  targetSource: 'mcpServers' | 'mcpTemplates',
+): Promise<void> {
+  if (!options.configuredServerService?.previewConfiguredServerDelete) {
+    res.status(404).json({ error: 'admin_configured_server_delete_unavailable' });
+    return;
+  }
+  const targetName = req.params.name;
+  try {
+    const result = await options.configuredServerService.previewConfiguredServerDelete({
+      context: buildAdminOperationContext(req, options, {
+        type: 'configured_server',
+        id: `${targetSource}/${targetName}`,
+      }),
+      targetName,
+      targetSource,
+    });
+    if (!result.ok) {
+      if (result.status === 'mutation_failed' && isConfiguredServerApplyErrorCode(result.error)) {
+        sendConfiguredServerApplyError(res, result.error);
+        return;
+      }
+      sendAdminOperationResult(res, result);
+      return;
+    }
+    res.status(200).json({ ok: true, operationId: result.operationId, preview: result.result });
+  } catch (error) {
+    if (error instanceof AdminConfiguredServerNotFoundError) {
+      sendConfiguredServerApplyError(res, error.code);
+      return;
+    }
+    if (error instanceof AdminConfiguredServerApplyError) {
+      sendConfiguredServerApplyError(res, error.code);
+      return;
+    }
+    throw error;
+  }
+}
+
+async function handleConfiguredServerDelete(
+  req: Request,
+  res: Response,
+  options: AdminRoutesOptions,
+  targetSource: 'mcpServers' | 'mcpTemplates',
+): Promise<void> {
+  if (!options.configuredServerService?.deleteConfiguredServer) {
+    res.status(404).json({ error: 'admin_configured_server_delete_unavailable' });
+    return;
+  }
+  if (!req.header('Idempotency-Key')?.trim()) {
+    res.status(400).json({ ok: false, error: 'idempotency_key_required', code: 'idempotency_key_required' });
+    return;
+  }
+  if (isMutationLocked(options)) {
+    sendAdminOperationResult(res, {
+      ok: false,
+      status: 'runtime_scope_locked',
+      code: 'runtime_scope_locked',
+      retryable: true,
+      operationName: 'deleteConfiguredServer',
+      reason: 'writer_lock_unavailable',
+    });
+    return;
+  }
+  const targetName = req.params.name;
+  const parsedBody = configuredServerDeleteApplySchema.safeParse(req.body);
+  if (!parsedBody.success) {
+    res.status(400).json({
+      ok: false,
+      error: 'configured_server_delete_request_invalid',
+      code: 'configured_server_delete_request_invalid',
+      message: 'Delete requires a current preview fingerprint and exact source-qualified confirmation facts.',
+    });
+    return;
+  }
+  try {
+    const result = await options.configuredServerService.deleteConfiguredServer({
+      context: buildAdminOperationContext(req, options, {
+        type: 'configured_server',
+        id: `${targetSource}/${targetName}`,
+      }),
+      targetName,
+      targetSource,
+      previewFingerprint: parsedBody.data.previewFingerprint,
+    });
+    if (!result.ok && result.status === 'mutation_failed' && isConfiguredServerApplyErrorCode(result.error)) {
+      sendConfiguredServerApplyError(res, result.error);
+      return;
+    }
+    sendAdminOperationResult(res, result);
+  } catch (error) {
+    if (error instanceof AdminConfiguredServerNotFoundError || error instanceof AdminConfiguredServerApplyError) {
+      sendConfiguredServerApplyError(res, error.code);
+      return;
+    }
+    throw error;
+  }
+}
+
 function isConfiguredServerApplyErrorCode(value: string): boolean {
   return value.startsWith('configured_server_');
 }
@@ -1576,6 +1701,12 @@ function configuredServerApplyErrorMessage(code: string): string {
       return 'The configured server could not be persisted. Inspect the Runtime Scope configuration and retry with a new idempotency key.';
     case 'configured_server_not_found':
       return 'Configured server target was not found.';
+    case 'configured_server_already_removed':
+      return 'This source-qualified configured server target was already removed. Refresh the server inventory.';
+    case 'configured_server_source_changed':
+      return 'The requested source no longer owns this configured server target. Refresh the inventory; the same name in the other source was not changed.';
+    case 'configured_server_delete_failed':
+      return 'The configured server target could not be deleted. The recovery backup and original definition were preserved.';
     default:
       return 'The configured server edit could not be applied.';
   }
@@ -2199,6 +2330,19 @@ function configuredServerRequestFingerprint(
           ),
         }
       : {}),
+    ...(operationName === 'deleteConfiguredServer'
+      ? {
+          previewFingerprint,
+          deleteDigest: keyedRequestFingerprint(
+            previewFingerprint,
+            'configured-server-delete-body',
+            stableJsonStringify({
+              previewFingerprint,
+              confirmationFacts: getBodyRecord(body, 'confirmationFacts') ?? {},
+            }),
+          ),
+        }
+      : {}),
     ...(operationName === 'restartBackend'
       ? {
           restartSelection: {
@@ -2219,6 +2363,9 @@ function configuredServerRequestFingerprint(
   });
   if (operationName === 'applyConfiguredServerCreate') {
     return `configured_server_create_${keyedRequestFingerprint(previewFingerprint, 'configured-server-create', normalized)}`;
+  }
+  if (operationName === 'deleteConfiguredServer') {
+    return `configured_server_delete_${keyedRequestFingerprint(previewFingerprint, 'configured-server-delete', normalized)}`;
   }
   return operationName === 'applyConfiguredServerEdit'
     ? `configured_server_apply_${keyedRequestFingerprint(previewFingerprint, 'configured-server-apply', normalized)}`
@@ -2353,6 +2500,12 @@ function operationNameForRequest(req: Request): string {
   }
   if (req.path.endsWith('/preview')) {
     return 'previewConfiguredServerEdit';
+  }
+  if (req.path.endsWith('/delete-preview')) {
+    return 'previewConfiguredServerDelete';
+  }
+  if (req.method === 'DELETE' && req.path.startsWith('/api/configured-servers/')) {
+    return 'deleteConfiguredServer';
   }
   if (req.path.endsWith('/apply')) {
     return 'applyConfiguredServerEdit';

@@ -848,6 +848,77 @@ describe('admin SPA browser smoke', () => {
     }
   }, 60000);
 
+  it('deletes static and Template definitions independently with exact typed confirmation', async () => {
+    configuredServerFixture.showTemplateInventory();
+    const page = await newPage({ width: 1280, height: 900 });
+
+    try {
+      await expectCenteredLoginGate(page);
+      await login(page, { skipNavigation: true });
+      await page.goto(`${baseUrl}/admin/servers/mcpServers/github`);
+      await expectVisible(page.getByRole('button', { name: 'Preview deletion' }));
+      await page.getByRole('button', { name: 'Preview deletion' }).click();
+      await expectText(page, 'The same-named definition in the other source remains.');
+      await expectText(page, 'Identity: mcpServers/github');
+      await expectText(page, 'Authority: shadowed');
+      await expectText(page, 'Target fingerprint: configured_server_fixture');
+      await expectText(page, 'Removal diff: present definition to removed');
+      await expectText(page, 'Backup: required recovery copy before write');
+      await expectText(page, 'Reload: observe after write');
+      await expectText(page, 'Redacted definition');
+      const staticConfirm = page.getByLabel('Type mcpServers/github to confirm');
+      await staticConfirm.fill('github');
+      expect(await page.getByRole('button', { name: 'Delete definition' }).isDisabled()).toBe(true);
+      await staticConfirm.fill('mcpServers/github');
+      await page.getByRole('button', { name: 'Delete definition' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers`);
+      await expectText(page, 'mcpServers/github deleted');
+      await expectText(page, 'Runtime reload observed.');
+      await expectText(page, 'Configured backend removal observed after reload.');
+      await expectVisible(page.getByRole('button', { name: 'Edit template github server' }));
+
+      await page.getByRole('button', { name: 'Edit template github server' }).click();
+      expect(await page.getByText('mcpServers/github deleted').count()).toBe(0);
+      await page.getByRole('button', { name: 'Preview deletion' }).click();
+      await expectText(page, '1 active instance will be retired after reload.');
+      await page.getByLabel('Type mcpTemplates/github to confirm').fill('mcpTemplates/github');
+      await page.getByRole('button', { name: 'Delete definition' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers`);
+      await page.waitForFunction(
+        () => globalThis.document.querySelectorAll('[aria-label="Edit template github server"]').length === 0,
+      );
+      await expectText(page, 'mcpTemplates/github deleted');
+      await expectText(page, 'Instances: 1 before, 1 retired, 0 active after. Retirement observed: yes.');
+      await page.getByRole('button', { name: 'Dismiss deletion notice' }).click();
+      expect(await page.getByText('mcpTemplates/github deleted').count()).toBe(0);
+      await expectNoPageOverflow(page);
+    } finally {
+      await page.context().close();
+    }
+  }, 60000);
+
+  it('keeps post-write delete recovery visible when runtime reload fails', async () => {
+    configuredServerFixture.failNextDeleteReload();
+    const page = await newPage({ width: 1280, height: 900 });
+
+    try {
+      await expectCenteredLoginGate(page);
+      await login(page, { skipNavigation: true });
+      await page.goto(`${baseUrl}/admin/servers/mcpServers/github`);
+      await page.getByRole('button', { name: 'Preview deletion' }).click();
+      await page.getByLabel('Type mcpServers/github to confirm').fill('mcpServers/github');
+      await page.getByRole('button', { name: 'Delete definition' }).click();
+
+      await page.waitForURL(`${baseUrl}/admin/servers/mcpServers/github`);
+      await expectText(page, 'The definition was deleted from disk, but runtime reload failed');
+      await expectText(page, 'runtime may still serve this target');
+      await expectText(page, 'A recovery backup exists');
+      await expectNoPageOverflow(page);
+    } finally {
+      await page.context().close();
+    }
+  }, 60000);
+
   it('keeps source-qualified same-name overrides independent and forwards only explicit preview context', async () => {
     const page = await newPage({ width: 1280, height: 900 });
 
@@ -1005,6 +1076,7 @@ type ResettableConfiguredServerFixture = AdminConfiguredServerOperations & {
   refreshCount: number;
   lastEdit?: Record<string, unknown>;
   showTemplateInventory(): void;
+  failNextDeleteReload(): void;
 };
 type ResettableInstructionTemplateFixture = AdminInstructionTemplateOperations & {
   reset(): void;
@@ -1074,6 +1146,8 @@ async function adminApi(
 function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
   let servers = createConfiguredServerReadModels();
   let templateServer = createTemplateConfiguredServerReadModel();
+  let templateDeleted = false;
+  let deleteReloadFailure = false;
   let disabledTools: string[] = [];
   let toolDescriptionOverrides: Record<string, string> = {};
   let templateInventoryVisible = false;
@@ -1083,6 +1157,8 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
     reset() {
       servers = createConfiguredServerReadModels();
       templateServer = createTemplateConfiguredServerReadModel();
+      templateDeleted = false;
+      deleteReloadFailure = false;
       fixture.lastEdit = undefined;
       fixture.refreshCount = 0;
       disabledTools = [];
@@ -1094,6 +1170,9 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
     },
     showTemplateInventory() {
       templateInventoryVisible = true;
+    },
+    failNextDeleteReload() {
+      deleteReloadFailure = true;
     },
     async getConfiguredServerCreateContract() {
       return operationSuccess('getConfiguredServerCreateContract', 'op_create_contract', {
@@ -1284,14 +1363,18 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
                   }
                 : server,
             ),
-            {
-              ...templateServer,
-              definition: {
-                kind: 'template' as const,
-                qualifiedId: `mcpTemplates/${templateServer.id}`,
-                authority: 'authoritative' as const,
-              },
-            },
+            ...(templateDeleted
+              ? []
+              : [
+                  {
+                    ...templateServer,
+                    definition: {
+                      kind: 'template' as const,
+                      qualifiedId: `mcpTemplates/${templateServer.id}`,
+                      authority: 'authoritative' as const,
+                    },
+                  },
+                ]),
           ]
         : servers;
       return operationSuccess('listConfiguredServers', 'op_list', { servers: inventory });
@@ -1299,7 +1382,7 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
     async getConfiguredServerDetail(input) {
       const server =
         input.targetSource === 'mcpTemplates'
-          ? templateServer.id === input.targetName
+          ? !templateDeleted && templateServer.id === input.targetName
             ? templateServer
             : undefined
           : servers.find((candidate) => candidate.id === input.targetName);
@@ -1315,7 +1398,7 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
             singleTargetEdit: true,
             rename: { supported: true },
             create: { supported: false },
-            delete: { supported: false },
+            delete: { supported: true },
             bulkEdit: { supported: false },
             rawJson: { supported: false },
             preview: { supported: true },
@@ -1599,6 +1682,72 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
         targetName: proposedTargetName,
         previewFingerprint: input.previewFingerprint,
         configChange: configChangeResult(input.targetName, true),
+      });
+    },
+    async previewConfiguredServerDelete(input) {
+      const server =
+        input.targetSource === 'mcpTemplates'
+          ? !templateDeleted && templateServer.id === input.targetName
+            ? templateServer
+            : undefined
+          : servers.find((candidate) => candidate.id === input.targetName);
+      if (!server) throw new AdminConfiguredServerNotFoundError(input.targetName);
+      const otherExists =
+        input.targetSource === 'mcpTemplates'
+          ? servers.some((candidate) => candidate.id === input.targetName)
+          : !templateDeleted && templateServer.id === input.targetName;
+      return operationSuccess('previewConfiguredServerDelete', 'op_delete_preview', {
+        target: server.target,
+        qualifiedId: `${input.targetSource}/${input.targetName}`,
+        targetFingerprint: 'configured_server_fixture',
+        previewFingerprint: `delete_preview_${input.targetSource}_${input.targetName}`,
+        authority: server.definition?.authority ?? (otherExists ? ('shadowed' as const) : ('sole' as const)),
+        removal: { definition: server, preservesSameNamedOtherSource: otherExists, cascades: false as const },
+        configChange: {
+          ...configChangeResult(input.targetName, true),
+          operation: 'remove' as const,
+          target: { name: input.targetName, source: input.targetSource },
+        },
+        expectedBackup: { policy: 'required' as const, recoveryCopy: true as const },
+        expectedReload: {
+          policy: 'observe_after_write' as const,
+          possibleStatuses: ['observed', 'runtime_not_running', 'reload_disabled', 'failed'] as const,
+        },
+        runtimeImpact:
+          input.targetSource === 'mcpTemplates'
+            ? { kind: 'template' as const, activeInstanceCount: 1, retirement: 'reload_scheduled' as const }
+            : { kind: 'static' as const, configuredBackendRemoval: 'after_reload' as const },
+        warnings: otherExists ? ['The same-named definition in the other source remains.'] : [],
+      });
+    },
+    async deleteConfiguredServer(input) {
+      if (input.targetSource === 'mcpTemplates') templateDeleted = true;
+      else servers = servers.filter((candidate) => candidate.id !== input.targetName);
+      const reload = deleteReloadFailure
+        ? { status: 'failed' as const, error: 'Runtime reload failed after the configuration was deleted.' }
+        : { status: 'observed' as const };
+      deleteReloadFailure = false;
+      return operationSuccess('deleteConfiguredServer', 'op_delete', {
+        target: { type: 'configured_server' as const, source: input.targetSource, id: input.targetName },
+        qualifiedId: `${input.targetSource}/${input.targetName}`,
+        previewFingerprint: input.previewFingerprint,
+        configChange: {
+          ...configChangeResult(input.targetName, true),
+          operation: 'remove' as const,
+          target: { name: input.targetName, source: input.targetSource },
+          backup: { created: true, path: '[redacted]' },
+          reload,
+        },
+        ...(input.targetSource === 'mcpTemplates'
+          ? {
+              runtimeImpact: {
+                activeInstancesBefore: 1,
+                retiredInstances: 1,
+                activeInstancesAfter: 0,
+                retirementObserved: true,
+              },
+            }
+          : {}),
       });
     },
     async enableConfiguredServer(input) {

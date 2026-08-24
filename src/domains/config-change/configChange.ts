@@ -37,6 +37,7 @@ import type {
   ConfiguredServerTargetSource,
   CreateStaticConfiguredServerTargetInput,
   CreateTemplateConfiguredServerTargetInput,
+  DeleteConfiguredServerTargetInput,
   EditConfiguredServerTargetInput,
   MutableConfigDocument,
   RemoveConfiguredServerTargetInput,
@@ -180,6 +181,73 @@ class DefaultConfigChangeService implements ConfigChangeService {
       ...resultWithoutReload,
       reload: await this.reloadConfig(configPath),
     };
+  }
+
+  async deleteConfiguredServerTarget(input: DeleteConfiguredServerTargetInput): Promise<ConfigChangeResult> {
+    const configPath = this.resolveConfigPath();
+    let releaseLock: ReleaseConfigLock;
+
+    try {
+      releaseLock = await acquireConfigLock(configPath, this.ports.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS);
+    } catch (error) {
+      if (error instanceof ConfigLockTimeoutError) {
+        return deleteConflictResult(
+          'failed',
+          configPath,
+          { name: input.targetName, source: input.targetSource },
+          error.message,
+        );
+      }
+      throw error;
+    }
+
+    let resultWithoutReload: ConfigChangeResult;
+    try {
+      const config = this.loadConfig(configPath);
+      const existingConfig = config[input.targetSource]?.[input.targetName];
+      if (!existingConfig) {
+        const otherSource = input.targetSource === 'mcpServers' ? 'mcpTemplates' : 'mcpServers';
+        const otherTarget = config[otherSource]?.[input.targetName];
+        return deleteConflictResult(
+          otherTarget ? 'source_conflict' : 'not_found',
+          configPath,
+          { name: input.targetName, ...(otherTarget ? { source: otherSource } : {}) },
+          otherTarget
+            ? `Configured server target '${input.targetName}' no longer exists in ${input.targetSource}; the same name exists in ${otherSource}`
+            : `Configured server target '${input.targetSource}/${input.targetName}' was already removed`,
+        );
+      }
+      if (fingerprintConfiguredServerTarget(existingConfig) !== input.expectedTargetFingerprint) {
+        return deleteConflictResult(
+          'source_conflict',
+          configPath,
+          { name: input.targetName, source: input.targetSource },
+          `Configured server target '${input.targetSource}/${input.targetName}' changed after preview`,
+        );
+      }
+
+      const nextConfig = cloneConfig(config);
+      removeTarget(nextConfig, { name: input.targetName, source: input.targetSource });
+      this.validateConfig(configPath, nextConfig);
+      const backup = this.createBackupIfNeeded(configPath, 'required');
+      this.writeConfig(configPath, nextConfig);
+      const retentionCleanup = this.cleanupBackups(configPath, backup);
+      resultWithoutReload = {
+        status: 'changed',
+        operation: 'remove',
+        configPath,
+        target: { name: input.targetName, source: input.targetSource },
+        changed: true,
+        backup,
+        retentionCleanup,
+        reload: { status: 'skipped' },
+        warnings: retentionCleanup.warnings,
+      };
+    } finally {
+      releaseLock();
+    }
+
+    return { ...resultWithoutReload, reload: await this.reloadConfig(configPath) };
   }
 
   async setStaticConfiguredServerTarget(input: SetStaticConfiguredServerTargetInput): Promise<ConfigChangeResult> {
@@ -1134,6 +1202,26 @@ function cloneConfig(config: MutableConfigDocument): MutableConfigDocument {
 
 function failedEditResult(configPath: string, targetName: string, error: string): ConfigChangeResult {
   return editConflictResult('failed', configPath, { name: targetName }, error);
+}
+
+function deleteConflictResult(
+  status: Extract<ConfigChangeResult['status'], 'not_found' | 'source_conflict' | 'failed'>,
+  configPath: string,
+  target: ConfiguredServerTargetRef,
+  error: string,
+): ConfigChangeResult {
+  return {
+    status,
+    operation: 'remove',
+    configPath,
+    target,
+    changed: false,
+    backup: { created: false },
+    retentionCleanup: retentionSkipped(),
+    reload: { status: 'skipped' },
+    warnings: [],
+    error,
+  };
 }
 
 function editConflictResult(
