@@ -231,7 +231,7 @@ export function sanitizeForLogging(data: unknown): unknown {
  */
 function createLoggerMethod(level: 'debug' | 'info' | 'warn' | 'error') {
   return (message: string, data?: unknown) => {
-    const sanitizedMessage = typeof message === 'string' ? sanitize(message) : message;
+    const sanitizedMessage = sanitizeForLogging(message);
     const sanitizedMessageStr = typeof sanitizedMessage === 'string' ? sanitizedMessage : String(sanitizedMessage);
 
     if (data !== undefined) {
@@ -272,7 +272,7 @@ export function sanitizeOAuthServerList(servers: string[]): string[] {
  * Utility function to create safe error messages that don't expose sensitive data
  */
 export function createSafeErrorMessage(error: string): string {
-  const sanitizedError = sanitize(error);
+  const sanitizedError = sanitizeForLogging(error);
   const errorString = typeof sanitizedError === 'string' ? sanitizedError : String(sanitizedError);
 
   return errorString
