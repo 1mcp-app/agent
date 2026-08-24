@@ -26,6 +26,8 @@ import { createRuntimeTargetFingerprint } from './runtimeTargetFingerprint.js';
 import { TemplateProcessor } from './templateProcessor.js';
 import { CONFIG_EVENTS, ConfigChange, ConfigChangeType, RuntimeEnvironmentChange } from './types.js';
 
+type ConfigReloadAttempt = { status: 'applied' } | { status: 'disabled' } | { status: 'rejected'; error: unknown };
+
 export class ConfigManager extends EventEmitter {
   private static instance: ConfigManager;
   private transportConfig: Record<string, MCPServerParams> = {};
@@ -440,10 +442,10 @@ export class ConfigManager extends EventEmitter {
     return this.loader.isReloadEnabled();
   }
 
-  private async handleConfigChange(): Promise<void> {
+  private async handleConfigChange(): Promise<ConfigReloadAttempt> {
     if (!this.isReloadEnabled()) {
       logger.info('Configuration hot-reload is disabled, ignoring file changes');
-      return;
+      return { status: 'disabled' };
     }
 
     const oldConfig = { ...this.transportConfig };
@@ -463,7 +465,7 @@ export class ConfigManager extends EventEmitter {
         `Failed to load or validate configuration: ${error instanceof Error ? error.message : String(error)}`,
       );
       this.emit(CONFIG_EVENTS.VALIDATION_ERROR, error);
-      return;
+      return { status: 'rejected', error };
     }
 
     const changes = this.changeDetector.detectChanges(oldConfig, newConfig);
@@ -504,6 +506,7 @@ export class ConfigManager extends EventEmitter {
           break;
       }
     }
+    return { status: 'applied' };
   }
 
   private createRuntimeFingerprints(
@@ -530,7 +533,11 @@ export class ConfigManager extends EventEmitter {
   }
 
   public async reloadConfig(): Promise<void> {
-    await this.handleConfigChange();
+    const result = await this.handleConfigChange();
+    if (result.status === 'disabled') throw new Error('Configuration hot-reload is disabled');
+    if (result.status === 'rejected') {
+      throw result.error instanceof Error ? result.error : new Error('Configuration reload was rejected');
+    }
   }
 
   public getTransportConfig(): Record<string, MCPServerParams> {

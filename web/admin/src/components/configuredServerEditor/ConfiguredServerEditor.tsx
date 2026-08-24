@@ -131,7 +131,7 @@ export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditM
 
   const transportType = selectedTransportType(state.fieldDraft, state.detail.server.transport.type);
   const templateTarget = state.detail.server.source === 'mcpTemplates';
-  const fieldGroups = (templateTarget ? [] : state.detail.editContract.fieldGroups)
+  const fieldGroups = state.detail.editContract.fieldGroups
     .map((group) => ({
       ...group,
       fields: group.fields.filter((field) => fieldAppliesToTransport(field, transportType)),
@@ -200,18 +200,49 @@ export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditM
               <Badge color={state.detail.server.enabled ? 'teal' : 'yellow'} variant="light">
                 {state.detail.server.enabled ? 'enabled' : 'disabled'}
               </Badge>
+              <Badge variant="outline">{templateTarget ? 'Template' : 'Static'}</Badge>
+              {state.detail.server.definition?.authority && state.detail.server.definition.authority !== 'sole' ? (
+                <Badge color={state.detail.server.definition.authority === 'authoritative' ? 'teal' : 'yellow'}>
+                  {state.detail.server.definition.authority}
+                </Badge>
+              ) : null}
             </Group>
             <Text c="dimmed" size="sm">
               {transportSummaryLabel(state.detail.server)}
             </Text>
             <Text c="dimmed" size="xs">
-              Draft changes stay local until preview.
+              {state.detail.server.definition?.qualifiedId ?? `${state.detail.server.source}/${state.detail.server.id}`}{' '}
+              · Draft changes stay local until preview.
             </Text>
           </div>
           <Button variant="default" onClick={() => model.close('/admin/servers')}>
             Back
           </Button>
         </Group>
+        {templateTarget ? (
+          <Paper className="edit-section" withBorder>
+            <Stack gap="xs">
+              <Group justify="space-between">
+                <Text fw={800}>Template definition</Text>
+                <Badge variant="outline">
+                  {state.detail.server.runtime?.activeInstanceCount ?? 0} active instance
+                  {(state.detail.server.runtime?.activeInstanceCount ?? 0) === 1 ? '' : 's'}
+                </Badge>
+              </Group>
+              <Text size="sm" c="dimmed">
+                This is a definition, not a live instance. Rename or structural changes retire active instances;
+                metadata-only changes retain them. Future matching requests recreate retired instances lazily.
+              </Text>
+              <Text size="sm">
+                Request Context variables:{' '}
+                {state.detail.server.templateAnalysis?.unresolvedVariables.join(', ') || 'none'}
+              </Text>
+              {state.detail.server.templateAnalysis?.syntax.valid === false ? (
+                <Alert color="red">Template syntax is invalid. Preview lists each affected field.</Alert>
+              ) : null}
+            </Stack>
+          </Paper>
+        ) : null}
         {primaryGroups.map((group) => (
           <Paper key={group.id} className="edit-section" withBorder>
             <Stack gap="xs">
@@ -313,7 +344,7 @@ export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditM
             >
               Preview change
             </Button>
-            {state.preview ? (
+            {state.preview && !templateTarget ? (
               <Button
                 variant="default"
                 loading={state.previewBusy}

@@ -30,6 +30,7 @@ import {
 } from './adminConsoleUtils';
 
 type ServerFilter = 'all' | 'enabled' | 'disabled';
+type ServerSourceFilter = 'all' | 'mcpServers' | 'mcpTemplates';
 
 export function ConfiguredServersPanel({
   state,
@@ -44,10 +45,14 @@ export function ConfiguredServersPanel({
 }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<ServerFilter>('all');
+  const [sourceFilter, setSourceFilter] = useState<ServerSourceFilter>('all');
   const compactLayout = useMediaQuery('(max-width: 620px)', false);
   const servers = useMemo(
-    () => filterServers(state.configuredServers, query, filter),
-    [filter, query, state.configuredServers],
+    () =>
+      filterServers(state.configuredServers, query, filter).filter(
+        (server) => sourceFilter === 'all' || server.source === sourceFilter,
+      ),
+    [filter, query, sourceFilter, state.configuredServers],
   );
   const inventoryEmpty = state.configuredServers.length === 0;
 
@@ -77,6 +82,16 @@ export function ConfiguredServersPanel({
               { label: 'Disabled', value: 'disabled' },
             ]}
           />
+          <SegmentedControl
+            aria-label="Server source filter"
+            value={sourceFilter}
+            onChange={(value) => setSourceFilter(value as ServerSourceFilter)}
+            data={[
+              { label: 'Both', value: 'all' },
+              { label: 'Static', value: 'mcpServers' },
+              { label: 'Template', value: 'mcpTemplates' },
+            ]}
+          />
           <Button leftSection={<Plus size={16} />} onClick={() => void onConfigureCustomServer?.()}>
             Configure Custom Server
           </Button>
@@ -102,6 +117,7 @@ export function ConfiguredServersPanel({
             onClick={() => {
               setQuery('');
               setFilter('all');
+              setSourceFilter('all');
             }}
           >
             Clear filters
@@ -113,7 +129,7 @@ export function ConfiguredServersPanel({
             <ServerCard
               key={`${server.source}:${server.id}`}
               server={server}
-              mutation={state.serverMutations[server.id]}
+              mutation={serverMutation(state, server)}
               onServerAction={onServerAction}
               onOpenServerDetail={onOpenServerDetail}
             />
@@ -137,7 +153,7 @@ export function ConfiguredServersPanel({
                   <ServerRow
                     key={`${server.source}:${server.id}`}
                     server={server}
-                    mutation={state.serverMutations[server.id]}
+                    mutation={serverMutation(state, server)}
                     onServerAction={onServerAction}
                     onOpenServerDetail={onOpenServerDetail}
                   />
@@ -148,6 +164,13 @@ export function ConfiguredServersPanel({
         </div>
       )}
     </Panel>
+  );
+}
+
+function serverMutation(state: AdminConsoleState, server: ConfiguredServerReadModel): ServerMutation | undefined {
+  return (
+    state.serverMutations[`${server.source}/${server.id}`] ??
+    (server.source === 'mcpServers' ? state.serverMutations[server.id] : undefined)
   );
 }
 
@@ -177,6 +200,11 @@ function ServerCard({
             <Badge size="xs" variant="outline">
               {server.source === 'mcpTemplates' ? 'Template' : 'Static'}
             </Badge>
+            {server.definition?.authority && server.definition.authority !== 'sole' ? (
+              <Badge size="xs" color={server.definition.authority === 'authoritative' ? 'teal' : 'yellow'}>
+                {server.definition.authority}
+              </Badge>
+            ) : null}
           </Group>
           {tags.length > 0 ? (
             <Text size="xs" c="dimmed">
@@ -254,6 +282,11 @@ function ServerRow({
           <Badge size="xs" variant="outline">
             {server.source === 'mcpTemplates' ? 'Template' : 'Static'}
           </Badge>
+          {server.definition?.authority && server.definition.authority !== 'sole' ? (
+            <Badge size="xs" color={server.definition.authority === 'authoritative' ? 'teal' : 'yellow'}>
+              {server.definition.authority}
+            </Badge>
+          ) : null}
         </Group>
         {tags.length > 0 ? (
           <Text size="xs" c="dimmed">

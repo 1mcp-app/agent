@@ -34,6 +34,7 @@ describe('configured server create state', () => {
     });
 
     expect(configuredServerCreateDraft(state)).toEqual({
+      source: 'mcpServers',
       name: 'custom',
       enabled: true,
       tags: [],
@@ -53,10 +54,37 @@ describe('configured server create state', () => {
       value: 'sse',
     });
     expect(configuredServerCreateDraft(state)).toEqual({
+      source: 'mcpServers',
       name: 'custom',
       enabled: true,
       tags: [],
       transport: { type: 'sse', url: 'https://ignored.example/mcp', headers: {} },
+    });
+  });
+
+  it('serializes Template lifecycle controls as a structured definition', () => {
+    let state = reduceConfiguredServerCreateState(createConfiguredServerCreateState(), {
+      type: 'contractLoaded',
+      contract: configuredServerCreateContract(),
+    });
+    for (const [fieldPath, value] of [
+      [['source'], 'mcpTemplates'],
+      [['name'], 'workspace-worker'],
+      [['transport', 'command'], '{{project.command}}'],
+      [['transport', 'template', 'shareable'], false],
+      [['transport', 'template', 'maxInstances'], 2],
+    ] as Array<[string[], unknown]>) {
+      state = reduceConfiguredServerCreateState(state, { type: 'fieldChanged', fieldPath, value });
+    }
+
+    expect(configuredServerCreateDraft(state)).toMatchObject({
+      source: 'mcpTemplates',
+      name: 'workspace-worker',
+      transport: {
+        type: 'stdio',
+        command: '{{project.command}}',
+        template: { shareable: false, maxInstances: 2 },
+      },
     });
   });
 

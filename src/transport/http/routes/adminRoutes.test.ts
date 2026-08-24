@@ -2049,7 +2049,7 @@ describe('admin routes', () => {
         actor: expect.objectContaining({ type: 'admin_session', accountId: expect.any(String) }),
         origin: 'browser',
         runtimeIdentity: { runtimeScopeId: 'scope_123', runtimeVersion: '1.2.3' },
-        target: { type: 'configured_server', id: 'mcpServers:github/api server' },
+        target: { type: 'configured_server', id: 'mcpServers/github/api server' },
       }),
       targetName: 'github/api server',
       model: 'gpt-4o-mini',
@@ -2115,7 +2115,7 @@ describe('admin routes', () => {
     expect(configuredServerService.refreshConfiguredToolInventory).toHaveBeenCalledWith({
       context: expect.objectContaining({
         actor: expect.objectContaining({ type: 'admin_session' }),
-        target: { type: 'configured_server', id: 'mcpTemplates:project' },
+        target: { type: 'configured_server', id: 'mcpTemplates/project' },
       }),
       targetName: 'project',
       targetSource: 'mcpTemplates',
@@ -2142,7 +2142,7 @@ describe('admin routes', () => {
       error: 'configured_server_not_found',
       code: 'configured_server_not_found',
       message: 'Configured server target was not found',
-      target: { type: 'configured_server', id: 'missing' },
+      target: { type: 'configured_server', id: 'mcpServers/missing' },
     });
     expect(JSON.stringify(response.body)).not.toMatch(/raw|secret|token|password/i);
   });
@@ -2170,7 +2170,7 @@ describe('admin routes', () => {
       error: 'configured_server_not_found',
       code: 'configured_server_not_found',
       message: 'Configured server target was not found',
-      target: { type: 'configured_server', id: 'missing' },
+      target: { type: 'configured_server', id: 'mcpServers/missing' },
     });
     expect(JSON.stringify(response.body)).not.toMatch(/raw|secret|token|password/i);
   });
@@ -2199,7 +2199,7 @@ describe('admin routes', () => {
       error: 'configured_server_not_found',
       code: 'configured_server_not_found',
       message: 'Configured server target was not found',
-      target: { type: 'configured_server', id: 'missing' },
+      target: { type: 'configured_server', id: 'mcpServers/missing' },
     });
   });
 
@@ -2318,7 +2318,7 @@ describe('admin routes', () => {
       context: expect.objectContaining({
         actor: expect.objectContaining({ type: 'admin_session', accountId: expect.any(String) }),
         origin: 'browser',
-        target: { type: 'configured_server', id: 'mcpServers:github/api' },
+        target: { type: 'configured_server', id: 'mcpServers/github/api' },
         requestFingerprint: expect.stringContaining('previewConfiguredServerEdit'),
       }),
       targetName: 'github/api',
@@ -2529,7 +2529,7 @@ describe('admin routes', () => {
         result: 'completed',
         actor: { type: 'admin_session', accountIdHash: 'hash_account', sessionIdHash: 'hash_session' },
         origin: 'browser',
-        target: { type: 'configured_server', id: 'mcpServers:filesystem' },
+        target: { type: 'configured_server', id: 'mcpServers/filesystem' },
         request: { requestId: 'req_123' },
       },
     ]);
@@ -2577,7 +2577,7 @@ describe('admin routes', () => {
             result: 'completed',
             actor: { type: 'admin_session', accountIdHash: 'hash_account', sessionIdHash: 'hash_session' },
             origin: 'browser',
-            target: { type: 'configured_server', id: 'mcpServers:filesystem' },
+            target: { type: 'configured_server', id: 'mcpServers/filesystem' },
             request: { requestId: 'req_123' },
           },
         ],
@@ -2938,7 +2938,7 @@ describe('admin routes', () => {
     expect(configuredServerService.enableConfiguredServer).toHaveBeenCalledWith({
       context: expect.objectContaining({
         idempotencyKey: 'enable-key',
-        target: { type: 'configured_server', id: 'mcpServers:filesystem' },
+        target: { type: 'configured_server', id: 'mcpServers/filesystem' },
         requestFingerprint: expect.stringContaining('enableConfiguredServer'),
       }),
       targetName: 'filesystem',
@@ -2946,7 +2946,7 @@ describe('admin routes', () => {
     expect(configuredServerService.disableConfiguredServer).toHaveBeenCalledWith({
       context: expect.objectContaining({
         idempotencyKey: 'disable-key',
-        target: { type: 'configured_server', id: 'mcpServers:filesystem' },
+        target: { type: 'configured_server', id: 'mcpServers/filesystem' },
         requestFingerprint: expect.stringContaining('disableConfiguredServer'),
       }),
       targetName: 'filesystem',

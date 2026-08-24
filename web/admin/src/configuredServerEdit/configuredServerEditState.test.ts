@@ -454,11 +454,33 @@ describe('configured server edit state', () => {
     expect(state).toMatchObject({ status: 'loaded', dirty: false });
   });
 
-  it('rejects non-override draft changes for template-backed targets', () => {
+  it('serializes structured identity, transport, lifecycle, secret, and override edits for Template definitions', () => {
     const templateDetail = detail();
     templateDetail.server.source = 'mcpTemplates';
     templateDetail.server.target.source = 'mcpTemplates';
     templateDetail.editContract.target.source = 'mcpTemplates';
+    templateDetail.editContract.capabilities.apply.supported = true;
+    templateDetail.editContract.fieldGroups.push({
+      id: 'template',
+      label: 'Template instances',
+      fields: [
+        {
+          fieldPath: ['id'],
+          label: 'Target ID',
+          control: 'text',
+          value: 'github',
+          editable: true,
+        },
+        {
+          fieldPath: ['transport', 'template', 'shareable'],
+          label: 'Share instances',
+          control: 'switch',
+          value: true,
+          editable: true,
+          applicableSources: ['mcpTemplates'],
+        },
+      ],
+    });
     let state = reduceConfiguredServerEditState(createConfiguredServerEditState(), {
       type: 'detailLoaded',
       serverId: 'github',
@@ -467,8 +489,28 @@ describe('configured server edit state', () => {
 
     state = reduceConfiguredServerEditState(state, {
       type: 'fieldChanged',
+      fieldPath: ['id'],
+      value: 'github-template',
+    });
+    state = reduceConfiguredServerEditState(state, {
+      type: 'fieldChanged',
       fieldPath: ['transport', 'url'],
-      value: 'https://unsupported.example/mcp',
+      value: 'https://{{project.host}}/mcp',
+    });
+    state = reduceConfiguredServerEditState(state, {
+      type: 'fieldChanged',
+      fieldPath: ['transport', 'template', 'shareable'],
+      value: false,
+    });
+    state = reduceConfiguredServerEditState(state, {
+      type: 'secretChanged',
+      fieldPath: ['url', 'query', 'token'],
+      value: {
+        fieldPath: ['url', 'query', 'token'],
+        action: 'replace',
+        replacementKind: 'environmentReference',
+        replacementValue: 'TEMPLATE_TOKEN',
+      },
     });
     state = reduceConfiguredServerEditState(state, {
       type: 'transportOverrideChanged',
@@ -476,8 +518,57 @@ describe('configured server edit state', () => {
       clear: true,
     });
 
-    expect(configuredServerEditDraft(state)).toEqual({});
-    expect(state).toMatchObject({ status: 'loaded', dirty: false });
+    expect(configuredServerEditDraft(state)).toEqual({
+      id: 'github-template',
+      transport: {
+        url: 'https://{{project.host}}/mcp',
+        template: { shareable: false },
+      },
+      secrets: [
+        {
+          fieldPath: ['url', 'query', 'token'],
+          action: 'replace',
+          replacement: { kind: 'environmentReference', value: 'TEMPLATE_TOKEN' },
+        },
+      ],
+      clearTransportOverrides: ['requestTimeout'],
+    });
+    expect(state).toMatchObject({ status: 'loaded', dirty: true });
+
+    const structuralPreview = {
+      ...previewWithConnectionFailure(),
+      proposedTargetName: 'github-template',
+      diff: [
+        {
+          fieldPath: ['transport', 'template', 'shareable'],
+          oldValue: true,
+          newValue: false,
+          riskFlags: ['template_risk' as const],
+        },
+      ],
+      configChange: {
+        ...previewWithConnectionFailure().configChange,
+        target: { name: 'github', source: 'mcpTemplates' },
+      },
+      connectivityCheck: { status: 'skipped' as const, reason: 'template_structural_preview' as const },
+    };
+    state = reduceConfiguredServerEditState(state, { type: 'previewSucceeded', preview: structuralPreview });
+    expect(configuredServerApplyEligibility(state)).toEqual({ eligible: true });
+
+    state = reduceConfiguredServerEditState(state, {
+      type: 'previewSucceeded',
+      preview: { ...structuralPreview, validation: { status: 'invalid', errors: [] } },
+    });
+    expect(configuredServerApplyEligibility(state)).toEqual({ eligible: false, reason: 'Resolve validation issues.' });
+
+    state = reduceConfiguredServerEditState(state, {
+      type: 'previewSucceeded',
+      preview: { ...structuralPreview, diff: [], configChange: { ...structuralPreview.configChange, changed: false } },
+    });
+    expect(configuredServerApplyEligibility(state)).toEqual({
+      eligible: false,
+      reason: 'The preview contains no changes.',
+    });
   });
 
   it('invalidates stale previews and keeps committed writes non-retryable when detail refresh fails', () => {

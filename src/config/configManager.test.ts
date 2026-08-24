@@ -450,7 +450,7 @@ describe('ConfigManager (Integration)', () => {
       configManager.on(CONFIG_EVENTS.CONFIG_CHANGED, (change) => changes.push(change));
 
       await fsPromises.writeFile(join(tempConfigDir, '.env'), `SECRET=must-not-appear\ninvalid line\n`);
-      await configManager.reloadConfig();
+      await expect(configManager.reloadConfig()).rejects.toThrow('Failed to parse Runtime Scope environment file');
 
       expect(getRuntimeScopeEnvironment()).toEqual({ [variable]: 'working' });
       expect(changes).toEqual([]);

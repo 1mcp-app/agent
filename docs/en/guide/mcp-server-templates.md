@@ -35,6 +35,29 @@ Templates allow you to:
 | Lifecycle          | Always running                | Created on-demand per connection  |
 | Use case           | Stable infrastructure         | Dynamic, context-specific tools   |
 
+### Managing definitions in the Admin Console
+
+The Admin Console's **Configured servers** workspace lists static and Template Server definitions together. A
+definition is identified by both its source and name: `mcpServers/<name>` for a static target and
+`mcpTemplates/<name>` for a Template Server definition. If both sources contain the same name, both rows remain
+available. The template definition is authoritative for runtime matching, while the static definition is marked
+shadowed.
+
+Template detail describes the saved definition, not a live Template Server Instance. It shows normalized transport
+and lifecycle fields, redacted secret actions, Handlebars syntax status, referenced Request Context variable names,
+and a bounded active-instance count. Request Context values are never shown.
+
+Create, edit, and rename use structured controls. Preview is structural only: it validates the configuration and the
+Handlebars fields that the runtime renders (`command`, `args`, `env` values, `cwd`, `url`, and `disabled`), reports a
+redacted change plan and active-instance impact, and does not render context, connect a backend, or create an instance.
+Create and rename fail if either source already owns the destination name, and apply requires the current preview.
+
+Creating a definition only adds it to the template index after reload. An instance is still created lazily by a future
+matching request. Renaming a definition or changing structural/runtime-rendered fields retires its active instances
+after the successful reload; future matching requests create instances from the updated definition. Metadata-only
+changes to instructions, disabled tools, or tool descriptions retain live instances. Removing definitions is not part
+of this workspace.
+
 ### Key Difference from Instruction Templates
 
 **MCP Server Templates** (`mcpTemplates`) configure server instances with dynamic values like:

@@ -44,6 +44,14 @@ export interface TemplateRebuildResult {
   toolMetadataChanged: boolean;
 }
 
+export interface TemplateDefinitionRuntimeImpact {
+  activeInstancesBefore: number;
+  retiredInstances: number;
+  activeInstancesAfter: number;
+  retirementObserved: boolean;
+  error?: string;
+}
+
 export type TemplateClientLifecycle = 'persistent' | 'ephemeral';
 
 export interface RuntimeTemplateReloadTarget {
@@ -395,6 +403,54 @@ export class TemplateServerManager {
 
   public getTemplateInstances(templateName: string): PooledClientInstance[] {
     return this.clientInstancePool.getTemplateInstances(templateName);
+  }
+
+  public getTemplateActiveInstanceCount(templateName: string): number {
+    return this.clientInstancePool
+      .getTemplateInstances(templateName)
+      .filter((instance) => instance.status !== 'terminating').length;
+  }
+
+  public getTemplateActiveInstanceIdentities(templateName: string): string[] {
+    return this.clientInstancePool
+      .getTemplateInstances(templateName)
+      .filter((instance) => instance.status !== 'terminating')
+      .map((instance) => instance.id);
+  }
+
+  public async observeTemplateDefinitionRetirement(
+    templateName: string,
+    instanceIdentities: readonly string[],
+  ): Promise<TemplateDefinitionRuntimeImpact> {
+    const activeInstancesBefore = instanceIdentities.length;
+    const retirement = this.templateRetirements.get(templateName);
+    if (retirement) {
+      try {
+        await retirement;
+      } catch {
+        return {
+          activeInstancesBefore,
+          retiredInstances: 0,
+          activeInstancesAfter: this.countRemainingTemplateInstances(templateName, instanceIdentities),
+          retirementObserved: false,
+          error: 'Template instance retirement could not be confirmed.',
+        };
+      }
+    }
+    const activeInstancesAfter = this.countRemainingTemplateInstances(templateName, instanceIdentities);
+    return {
+      activeInstancesBefore,
+      retiredInstances: Math.max(0, activeInstancesBefore - activeInstancesAfter),
+      activeInstancesAfter,
+      retirementObserved: activeInstancesAfter === 0,
+    };
+  }
+
+  private countRemainingTemplateInstances(templateName: string, instanceIdentities: readonly string[]): number {
+    const snapshot = new Set(instanceIdentities);
+    return this.clientInstancePool
+      .getTemplateInstances(templateName)
+      .filter((instance) => instance.status !== 'terminating' && snapshot.has(instance.id)).length;
   }
 
   public restartTemplateInstance(instance: PooledClientInstance): Promise<BackendSupervisionSnapshot> {

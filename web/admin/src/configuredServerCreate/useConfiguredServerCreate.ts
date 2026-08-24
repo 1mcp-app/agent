@@ -4,6 +4,7 @@ import {
   type AdminApiClient,
   AdminApiError,
   type AdminSession,
+  type ConfiguredServerTargetIdentity,
   createConfiguredServerCreateIdempotencyKey,
 } from '../api/adminApi';
 import type { ConfirmationRequest } from '../components/ConfirmationDialogProvider';
@@ -50,7 +51,7 @@ export function useConfiguredServerCreate({
   browser: ConfiguredServerCreateBrowser;
   onUnauthenticated(status: 'setupRequired' | 'loginRequired'): void;
   onCreated?: () => void | Promise<void>;
-  onOpenCreated?: (serverId: string) => void | Promise<void>;
+  onOpenCreated?: (server: string | ConfiguredServerTargetIdentity) => void | Promise<void>;
   onPathCommitted?: (path: string) => void;
 }): ConfiguredServerCreateModel {
   const [state, rawDispatch] = useReducer(
@@ -132,7 +133,7 @@ export function useConfiguredServerCreate({
   const editExisting = useCallback(
     async (serverId: string) => {
       if (!(await close('/admin/servers'))) return;
-      await onOpenCreated?.(serverId);
+      await onOpenCreated?.({ source: 'mcpServers', id: serverId });
     },
     [close, onOpenCreated],
   );
@@ -208,14 +209,23 @@ export function useConfiguredServerCreate({
     try {
       const previewResult = current.preview;
       const connectivityFailed = previewResult.connectivityCheck.status === 'failed';
+      const templateDefinition = draft.source === 'mcpTemplates';
       const confirmed = await browser.confirm({
         title: connectivityFailed
           ? `Create ${draft.name} despite failed connectivity?`
-          : `Create configured server ${draft.name}?`,
+          : templateDefinition
+            ? `Create Template definition ${draft.name}?`
+            : `Create configured server ${draft.name}?`,
         message: connectivityFailed
           ? 'The bounded connectivity check failed. Creating this target may leave it unavailable.'
-          : 'This writes a new static target and reloads the Runtime Scope.',
-        confirmLabel: connectivityFailed ? 'Create despite failure' : 'Create server',
+          : templateDefinition
+            ? 'This writes a Template Server definition and reloads the Runtime Scope. No runtime instance is created.'
+            : 'This writes a new static target and reloads the Runtime Scope.',
+        confirmLabel: connectivityFailed
+          ? 'Create despite failure'
+          : templateDefinition
+            ? 'Create template'
+            : 'Create server',
         tone: connectivityFailed ? 'danger' : undefined,
         details: [
           { label: 'Target', value: draft.name },
@@ -257,7 +267,14 @@ export function useConfiguredServerCreate({
         applyAttemptRef.current = undefined;
         dispatch({ type: 'applySucceeded', response });
         await onCreated?.();
-        await onOpenCreated?.(response.result.targetName);
+        await onOpenCreated?.({
+          source:
+            response.result.targetSource === 'mcpTemplates' ||
+            response.result.configChange.target.source === 'mcpTemplates'
+              ? 'mcpTemplates'
+              : 'mcpServers',
+          id: response.result.targetName,
+        });
         if (response.result.configChange.reload.status !== 'failed') {
           dispatch({ type: 'closed' });
         }

@@ -137,7 +137,6 @@ export function reduceConfiguredServerEditState(
     case 'fieldChanged':
       if (state.status !== 'loaded') return state;
       if (state.applyBusy) return state;
-      if (state.detail.server.source === 'mcpTemplates') return state;
       return withDraftChange(state, {
         fieldDraft: { ...state.fieldDraft, [fieldKey(action.fieldPath)]: action.value },
         clearedTransportOverrides:
@@ -148,13 +147,11 @@ export function reduceConfiguredServerEditState(
     case 'secretChanged':
       if (state.status !== 'loaded') return state;
       if (state.applyBusy) return state;
-      if (state.detail.server.source === 'mcpTemplates') return state;
       return withDraftChange(state, {
         secretDraft: { ...state.secretDraft, [fieldKey(action.fieldPath)]: action.value },
       });
     case 'transportOverrideChanged':
       if (state.status !== 'loaded' || state.applyBusy) return state;
-      if (state.detail.server.source === 'mcpTemplates') return state;
       return withDraftChange(state, {
         clearedTransportOverrides: action.clear
           ? Array.from(new Set([...state.clearedTransportOverrides, action.key]))

@@ -14,6 +14,8 @@ export function PreviewResult({
   const validationTone = preview.validation.status === 'valid' ? 'teal' : 'red';
   const connectivityTone =
     connectivity.status === 'passed' ? 'teal' : connectivity.status === 'failed' ? 'red' : 'yellow';
+  const structuralTemplatePreview =
+    connectivity.status === 'skipped' && connectivity.reason === 'template_structural_preview';
 
   return (
     <Paper className="preview-result" withBorder>
@@ -71,12 +73,16 @@ export function PreviewResult({
           <Paper className={`connectivity-card connectivity-${connectivity.status}`} withBorder>
             <Stack gap={4}>
               <Group justify="space-between" gap="xs">
-                <Text fw={700}>Connectivity</Text>
+                <Text fw={700}>{structuralTemplatePreview ? 'Runtime contact' : 'Connectivity'}</Text>
                 <Badge color={connectivityTone} variant="light">
                   {connectivity.status}
                 </Badge>
               </Group>
-              <Text size="sm">{connectivitySummary(connectivity)}</Text>
+              <Text size="sm">
+                {structuralTemplatePreview
+                  ? 'Skipped. Template preview is structural and does not contact a backend.'
+                  : connectivitySummary(connectivity)}
+              </Text>
               {connectivityMeta(preview) ? (
                 <Text c="dimmed" size="xs">
                   {connectivityMeta(preview)}
@@ -85,6 +91,32 @@ export function PreviewResult({
             </Stack>
           </Paper>
         </SimpleGrid>
+        {preview.templateAnalysis ? (
+          <Stack gap="xs">
+            <Group gap="xs">
+              <Text fw={800}>Template structure</Text>
+              <Badge color={preview.templateAnalysis.syntax.valid ? 'teal' : 'red'} variant="light">
+                {preview.templateAnalysis.syntax.valid ? 'valid syntax' : 'invalid syntax'}
+              </Badge>
+            </Group>
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
+              <DetailRow
+                label="Request Context variables"
+                value={preview.templateAnalysis.variables.join(', ') || 'none'}
+                meta="Names only; values are never loaded or rendered during preview."
+              />
+              <DetailRow
+                label="Runtime instances"
+                value={`${preview.runtimeImpact?.activeInstanceCount ?? 0} active`}
+                meta={
+                  preview.runtimeImpact?.retirementRequired
+                    ? 'Active instances retire after apply and successful reload.'
+                    : 'Preview and creation do not create an instance.'
+                }
+              />
+            </SimpleGrid>
+          </Stack>
+        ) : null}
         {preview.toolSelection ? (
           <Stack gap="xs">
             <Group gap="xs">
@@ -117,6 +149,9 @@ export function PreviewResult({
         ) : null}
         {preview.configChange.warnings?.map((warning) => (
           <DetailRow key={`warning:${warning}`} label="Warning" value={warning} />
+        ))}
+        {preview.warnings?.map((warning) => (
+          <DetailRow key={`preview-warning:${warning}`} label="Preview warning" value={warning} />
         ))}
         {preview.configChange.retentionCleanup.warnings.map((warning) => (
           <DetailRow key={`retention:${warning}`} label="Retention warning" value={warning} />

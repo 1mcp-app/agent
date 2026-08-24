@@ -7,6 +7,7 @@ import { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
 import { FileStorageService } from '@src/auth/storage/fileStorageService.js';
 import { getAllServerTargets, resolveServerTarget } from '@src/commands/shared/baseConfigUtils.js';
 import ConfigContext from '@src/config/configContext.js';
+import ConfigManager from '@src/config/configManager.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { getGlobalConfigDir, MCP_SERVER_VERSION, RATE_LIMIT_CONFIG, STORAGE_SUBDIRS } from '@src/constants.js';
 import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
@@ -417,11 +418,28 @@ export class ExpressServer {
       storageDir: adminStorageDir,
       sessionTtlMs: this.configManager.get('auth').sessionTtlMinutes * 60 * 1000,
       mutationAvailability: adminMutationAvailability,
-      configChangeService: createConfigChangeService({ getConfigPath }),
+      configChangeService: createConfigChangeService({
+        getConfigPath,
+        reloadConfig: async () => {
+          const runtimeConfigManager = ConfigManager.getInstance(adminConfigPath);
+          if (!runtimeConfigManager.isReloadEnabled()) {
+            throw new Error('Configuration hot-reload is disabled');
+          }
+          await runtimeConfigManager.reloadConfig();
+        },
+      }),
       getConfigPath,
       readConfigDocument: () => readConfiguredServerConfigDocument(getConfigPath),
       readToolInventory: (input) => configuredToolInspectionService.read(input),
       refreshToolInventory: (input) => configuredToolInspectionService.refresh(input),
+      getTemplateActiveInstanceCount: (templateName) =>
+        this.serverManager.getTemplateServerManager().getTemplateActiveInstanceCount(templateName),
+      getTemplateActiveInstanceIdentities: (templateName) =>
+        this.serverManager.getTemplateServerManager().getTemplateActiveInstanceIdentities(templateName),
+      observeTemplateDefinitionRetirement: (templateName, instanceIdentities) =>
+        this.serverManager
+          .getTemplateServerManager()
+          .observeTemplateDefinitionRetirement(templateName, instanceIdentities),
       checkConnectivity: createAdminConnectivityChecker(),
       presetManager: PresetManager.getInstance(path.dirname(adminConfigPath)),
       previewInstructions: createAdminInstructionPreviewRuntime(

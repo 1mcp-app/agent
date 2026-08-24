@@ -6,6 +6,7 @@ import {
   NativeSelect,
   Paper,
   PasswordInput,
+  SegmentedControl,
   Stack,
   Text,
   TextInput,
@@ -73,7 +74,13 @@ export function ConfiguredServerCreator({ model }: { model: ConfiguredServerCrea
           <Text c="dimmed" size="sm">
             Refreshing the inventory and opening the created target.
           </Text>
-          <Button onClick={() => void model.close(`/admin/servers/${encodeURIComponent(state.serverId)}`)}>
+          <Button
+            onClick={() =>
+              void model.close(
+                `/admin/servers/${state.result.targetSource ?? state.result.configChange.target.source ?? 'mcpServers'}/${encodeURIComponent(state.serverId)}`,
+              )
+            }
+          >
             Open server detail
           </Button>
         </Stack>
@@ -82,11 +89,17 @@ export function ConfiguredServerCreator({ model }: { model: ConfiguredServerCrea
   }
 
   const transportType = state.fieldDraft[fieldKey(['transport', 'type'])];
+  const source = state.fieldDraft[fieldKey(['source'])] === 'mcpTemplates' ? 'mcpTemplates' : 'mcpServers';
   const selectedTransport = transportType === 'http' || transportType === 'sse' ? transportType : 'stdio';
   const groups = state.contract.createContract.fieldGroups
     .map((group) => ({
       ...group,
-      fields: group.fields.filter((field) => fieldAppliesToTransport(field, selectedTransport)),
+      fields: group.fields.filter(
+        (field) =>
+          field.fieldPath[0] !== 'source' &&
+          (!field.applicableSources || field.applicableSources.includes(source)) &&
+          fieldAppliesToTransport(field, selectedTransport),
+      ),
     }))
     .filter((group) => group.fields.length > 0);
   const primaryGroups = groups
@@ -106,14 +119,18 @@ export function ConfiguredServerCreator({ model }: { model: ConfiguredServerCrea
     );
 
   return (
-    <Panel title="Configure custom server" utility="new static target" icon={<Plus size={17} />}>
+    <Panel
+      title="Configure custom server"
+      utility={source === 'mcpTemplates' ? 'new template definition' : 'new static target'}
+      icon={<Plus size={17} />}
+    >
       <Stack gap="sm">
         <Group justify="space-between" align="flex-start">
           <div>
             <Text className="eyebrow" size="xs">
               Configured Server Target
             </Text>
-            <Title order={2}>New custom server</Title>
+            <Title order={2}>{source === 'mcpTemplates' ? 'New template definition' : 'New custom server'}</Title>
             <Text c="dimmed" size="sm">
               Configure -&gt; Preview -&gt; Confirm creation
             </Text>
@@ -122,6 +139,22 @@ export function ConfiguredServerCreator({ model }: { model: ConfiguredServerCrea
             Back
           </Button>
         </Group>
+        <SegmentedControl
+          fullWidth
+          aria-label="Configured server definition type"
+          value={source}
+          onChange={(value) => model.changeField(['source'], value)}
+          data={[
+            { value: 'mcpServers', label: 'Static' },
+            { value: 'mcpTemplates', label: 'Template' },
+          ]}
+        />
+        {source === 'mcpTemplates' ? (
+          <Alert color="blue" variant="light">
+            Preview checks structure and Request Context variable names only. It never renders context, connects a
+            backend, or creates an instance.
+          </Alert>
+        ) : null}
         {selectedTransport === 'sse' ? (
           <Alert color="yellow" title="Legacy transport">
             SSE is deprecated. Use HTTP for new remote servers when the endpoint supports it.
@@ -227,7 +260,7 @@ export function ConfiguredServerCreator({ model }: { model: ConfiguredServerCrea
                 disabled={!eligibility.eligible || state.applyBusy}
                 onClick={() => void model.apply()}
               >
-                Create server
+                {source === 'mcpTemplates' ? 'Create template' : 'Create server'}
               </Button>
             </Group>
             <PreviewResult preview={state.preview} />

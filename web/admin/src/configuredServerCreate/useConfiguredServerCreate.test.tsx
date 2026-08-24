@@ -223,7 +223,7 @@ describe('useConfiguredServerCreate', () => {
       }),
     );
     expect(onCreated).toHaveBeenCalledOnce();
-    expect(onOpenCreated).toHaveBeenCalledWith('custom');
+    expect(onOpenCreated).toHaveBeenCalledWith({ source: 'mcpServers', id: 'custom' });
   });
 
   it('invalidates an in-flight preview when the draft changes', async () => {
@@ -422,6 +422,6 @@ describe('useConfiguredServerCreate', () => {
       warning: 'reload observation timed out',
     });
     expect(onCreated).toHaveBeenCalledOnce();
-    expect(onOpenCreated).toHaveBeenCalledWith('custom');
+    expect(onOpenCreated).toHaveBeenCalledWith({ source: 'mcpServers', id: 'custom' });
   });
 });

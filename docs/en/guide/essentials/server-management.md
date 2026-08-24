@@ -151,15 +151,15 @@ Server-Sent Events is a deprecated transport type. It is recommended to use the 
 
 ## Configure a Custom Server in the Admin Console
 
-Use **Server inventory → Configure Custom Server** when you need to add one static server without editing the runtime configuration file. The form supports local STDIO, remote HTTP, and legacy SSE targets. Registry discovery and Template Server definitions are separate workflows.
+Use **Server inventory → Configure Custom Server** when you need to add a static server or Template Server definition without editing the runtime configuration file. The shared form supports local STDIO, remote HTTP, and legacy SSE targets.
 
-1. Choose the transport and complete its structured fields. STDIO requires a command; HTTP and SSE require a URL.
-2. Add tags and choose whether the target starts enabled.
+1. Choose **Static** or **Template**, then complete the transport-specific structured fields. STDIO requires a command; HTTP and SSE require a URL.
+2. Add tags. Static targets can start enabled or disabled; Template definitions expose lifecycle controls and accept Handlebars expressions in fields rendered by the runtime.
 3. For credentials, prefer **Environment Secret Reference**. The configuration stores the environment variable name or substitution expression instead of the secret material. Inline secret replacement is an advanced fallback.
-4. Select **Preview server**. Preview validates the target, reports name conflicts, redacts secret material, and runs a bounded connectivity check when applicable. Preview does not write configuration.
-5. Review the diff and runtime facts, then explicitly confirm **Create server**.
+4. Select **Preview server**. Preview validates the target, reports name conflicts, and redacts secret material. Static remote targets run a bounded connectivity check when applicable; Template preview validates structure and Request Context variable names without rendering context, connecting a backend, or creating an instance.
+5. Review the diff and runtime facts, then explicitly confirm the source-specific create action.
 
-Creation never replaces an existing static or Template Server target. If another writer creates the same name after preview, the confirmation is rejected and you must preview again. After a successful write, the Admin Console refreshes the inventory and opens the created target so you can verify its effective configuration and reload status.
+Creation never replaces an existing static or Template Server target. If another writer creates the same name after preview, the confirmation is rejected and you must preview again. After a successful write, the Admin Console refreshes the inventory and opens the created source-qualified target. Template definitions become eligible after reload and create instances only when a later matching request supplies Request Context.
 
 ## Server Configuration Details
 

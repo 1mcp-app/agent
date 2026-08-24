@@ -217,7 +217,7 @@ describe('AdminConsoleRoot', () => {
     expect(await screen.findByRole('heading', { name: /server inventory/i })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /edit static github\/api server/i }));
 
-    expect(routeWindow.history.pushState).toHaveBeenCalledWith(null, '', '/admin/servers/github%2Fapi');
+    expect(routeWindow.history.pushState).toHaveBeenCalledWith(null, '', '/admin/servers/mcpServers/github%2Fapi');
     expect(await screen.findByRole('heading', { name: /github\/api/i })).toBeInTheDocument();
     expect(api.getConfiguredServerDetail).toHaveBeenCalledWith({ source: 'mcpServers', id: 'github/api' });
     expect(api.refreshConfiguredToolInventory).not.toHaveBeenCalled();
@@ -590,7 +590,11 @@ describe('AdminConsoleRoot', () => {
 
     expect(await screen.findByRole('dialog', { name: /discard unsaved changes/i })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /^cancel$/i }));
-    expect(routeWindow.history.replaceState).toHaveBeenLastCalledWith(null, '', '/admin/servers/github%2Fapi');
+    expect(routeWindow.history.replaceState).toHaveBeenLastCalledWith(
+      null,
+      '',
+      '/admin/servers/mcpServers/github%2Fapi',
+    );
     expect(screen.getByRole('heading', { name: /github\/api/i })).toBeInTheDocument();
   });
 
@@ -625,7 +629,7 @@ describe('AdminConsoleRoot', () => {
     expect(await screen.findByRole('dialog', { name: /discard unsaved changes/i })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /^cancel$/i }));
     expect(api.getConfiguredServerDetail).not.toHaveBeenCalledWith({ source: 'mcpServers', id: 'filesystem' });
-    expect(routeWindow.history.pushState).toHaveBeenLastCalledWith(null, '', '/admin/servers/github%2Fapi');
+    expect(routeWindow.history.pushState).toHaveBeenLastCalledWith(null, '', '/admin/servers/mcpServers/github%2Fapi');
     expect(screen.getByRole('heading', { name: /github\/api/i })).toBeInTheDocument();
   });
 

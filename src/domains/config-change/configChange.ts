@@ -36,6 +36,7 @@ import type {
   ConfiguredServerTargetRef,
   ConfiguredServerTargetSource,
   CreateStaticConfiguredServerTargetInput,
+  CreateTemplateConfiguredServerTargetInput,
   EditConfiguredServerTargetInput,
   MutableConfigDocument,
   RemoveConfiguredServerTargetInput,
@@ -61,6 +62,7 @@ export type {
   InstructionOverrideMutation,
   ChangeConfiguredServerInstructionOverrideInput,
   CreateStaticConfiguredServerTargetInput,
+  CreateTemplateConfiguredServerTargetInput,
   EditConfiguredServerTargetInput,
   RemoveConfiguredServerTargetInput,
   SetConfiguredServerTargetEnabledStateInput,
@@ -176,7 +178,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
 
     return {
       ...resultWithoutReload,
-      reload: this.reloadConfig(configPath),
+      reload: await this.reloadConfig(configPath),
     };
   }
 
@@ -255,7 +257,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
 
     return {
       ...resultWithoutReload,
-      reload: this.reloadConfig(configPath),
+      reload: await this.reloadConfig(configPath),
     };
   }
 
@@ -343,7 +345,93 @@ class DefaultConfigChangeService implements ConfigChangeService {
       releaseLock();
     }
 
-    return { ...resultWithoutReload, reload: this.reloadConfig(configPath) };
+    return { ...resultWithoutReload, reload: await this.reloadConfig(configPath) };
+  }
+
+  async createTemplateConfiguredServerTarget(
+    input: CreateTemplateConfiguredServerTargetInput,
+  ): Promise<ConfigChangeResult> {
+    const configPath = this.resolveConfigPath();
+    let releaseLock: ReleaseConfigLock;
+
+    try {
+      releaseLock = await acquireConfigLock(configPath, this.ports.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS);
+    } catch (error) {
+      if (error instanceof ConfigLockTimeoutError) {
+        return {
+          status: 'failed',
+          operation: 'create_template',
+          configPath,
+          target: { name: input.targetName, source: 'mcpTemplates' },
+          changed: false,
+          backup: { created: false },
+          retentionCleanup: retentionSkipped(),
+          reload: { status: 'skipped' },
+          warnings: [],
+          error: error.message,
+        };
+      }
+      throw error;
+    }
+
+    let resultWithoutReload: ConfigChangeResult;
+    try {
+      const config = this.loadConfigForSet(configPath);
+      if (
+        input.expectedConfigFingerprint !== undefined &&
+        fingerprintConfiguredServerConfigDocument(config) !== input.expectedConfigFingerprint
+      ) {
+        return {
+          status: 'source_conflict',
+          operation: 'create_template',
+          configPath,
+          target: { name: input.targetName, source: 'mcpTemplates' },
+          changed: false,
+          backup: { created: false },
+          retentionCleanup: retentionSkipped(),
+          reload: { status: 'skipped' },
+          warnings: [],
+          error: 'Configured server state changed after preview',
+        };
+      }
+      const occupied = resolveConfiguredServerTarget(config, input.targetName);
+      if (occupied.source) {
+        return {
+          status: 'destination_conflict',
+          operation: 'create_template',
+          configPath,
+          target: occupied,
+          changed: false,
+          backup: { created: false },
+          retentionCleanup: retentionSkipped(),
+          reload: { status: 'skipped' },
+          warnings: [],
+          error: `Configured server target '${input.targetName}' already exists`,
+        };
+      }
+
+      const backup = this.createBackupIfNeeded(configPath, input.backup ?? 'skip');
+      config.mcpTemplates = normalizeServerRecord(config.mcpTemplates);
+      config.mcpTemplates[input.targetName] = input.serverConfig;
+      this.validateConfig(configPath, config);
+      this.writeConfig(configPath, config);
+      const retentionCleanup = this.cleanupBackups(configPath, backup);
+      resultWithoutReload = {
+        status: 'changed',
+        operation: 'create_template',
+        configPath,
+        target: { name: input.targetName, source: 'mcpTemplates' },
+        changed: true,
+        backup,
+        retentionCleanup,
+        reload: { status: 'skipped' },
+        warnings: retentionCleanup.warnings,
+      };
+    } finally {
+      releaseLock();
+    }
+
+    return { ...resultWithoutReload, reload: await this.reloadConfig(configPath) };
   }
 
   async setConfiguredServerTargetEnabledState(
@@ -473,7 +561,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
 
     return {
       ...resultWithoutReload,
-      reload: this.reloadConfig(configPath),
+      reload: await this.reloadConfig(configPath),
     };
   }
 
@@ -523,9 +611,8 @@ class DefaultConfigChangeService implements ConfigChangeService {
       }
 
       if (input.targetName !== input.sourceName) {
-        const destinationSection = source.source === 'mcpTemplates' ? config.mcpTemplates : config.mcpServers;
-        if (destinationSection?.[input.targetName]) {
-          const destination = { name: input.targetName, source: source.source };
+        const destination = resolveConfiguredServerTarget(config, input.targetName);
+        if (destination.source) {
           return editConflictResult(
             'destination_conflict',
             configPath,
@@ -566,7 +653,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
       releaseLock();
     }
 
-    return { ...resultWithoutReload, reload: this.reloadConfig(configPath) };
+    return { ...resultWithoutReload, reload: await this.reloadConfig(configPath) };
   }
 
   async previewConfiguredServerTargetEnabledState(
@@ -744,7 +831,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
       releaseLock();
     }
 
-    return { ...resultWithoutReload, reload: this.reloadConfig(configPath) };
+    return { ...resultWithoutReload, reload: await this.reloadConfig(configPath) };
   }
 
   async changeConfiguredServerInstructionOverride(
@@ -820,7 +907,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
       releaseLock();
     }
 
-    return { ...resultWithoutReload, reload: this.reloadConfig(configPath) };
+    return { ...resultWithoutReload, reload: await this.reloadConfig(configPath) };
   }
 
   async acquireConfigLockForTest(configPath: string): Promise<() => void> {
@@ -973,10 +1060,10 @@ class DefaultConfigChangeService implements ConfigChangeService {
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
   }
 
-  private reloadConfig(configPath: string): ConfigReloadResult {
+  private async reloadConfig(configPath: string): Promise<ConfigReloadResult> {
     try {
       if (this.ports.reloadConfig) {
-        this.ports.reloadConfig(configPath);
+        await this.ports.reloadConfig(configPath);
       } else {
         McpConfigManager.getInstance(configPath).reloadConfig();
       }

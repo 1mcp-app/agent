@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import ConfigContext from '@src/config/configContext.js';
+import ConfigManager from '@src/config/configManager.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -371,6 +372,53 @@ describe('ExpressServer', () => {
       ).resolves.toMatchObject({
         target: { name: 'initial' },
       });
+    });
+
+    it('reports canonical Admin reload success, disabled state, and validation rejection', async () => {
+      const configPath = path.join(tempDir, 'admin-reload.json');
+      fs.writeFileSync(configPath, JSON.stringify({ mcpServers: {}, mcpTemplates: {} }));
+      ConfigContext.getInstance().setConfigPath(configPath);
+      const runtimeConfigManager = {
+        isReloadEnabled: vi.fn(() => true),
+        reloadConfig: vi.fn(async () => undefined),
+      };
+      const getInstance = vi.spyOn(ConfigManager, 'getInstance').mockReturnValue(runtimeConfigManager as never);
+      expressServer = new ExpressServer(mockServerManager);
+      const { createAdminDomain } = await import('@src/domains/admin/adminDomain.js');
+      const service = vi.mocked(createAdminDomain).mock.calls[0][0].configChangeService;
+
+      await expect(
+        service.createTemplateConfiguredServerTarget({
+          targetName: 'success',
+          serverConfig: { type: 'stdio', command: 'node' },
+        }),
+      ).resolves.toMatchObject({ status: 'changed', reload: { status: 'observed' } });
+      expect(getInstance).toHaveBeenCalledWith(configPath);
+      expect(runtimeConfigManager.reloadConfig).toHaveBeenCalledOnce();
+
+      runtimeConfigManager.isReloadEnabled.mockReturnValue(false);
+      await expect(
+        service.createTemplateConfiguredServerTarget({
+          targetName: 'disabled',
+          serverConfig: { type: 'stdio', command: 'node' },
+        }),
+      ).resolves.toMatchObject({
+        status: 'changed',
+        reload: { status: 'failed', error: 'Configuration hot-reload is disabled' },
+      });
+
+      runtimeConfigManager.isReloadEnabled.mockReturnValue(true);
+      runtimeConfigManager.reloadConfig.mockRejectedValueOnce(new Error('configuration validation failed'));
+      await expect(
+        service.createTemplateConfiguredServerTarget({
+          targetName: 'invalid',
+          serverConfig: { type: 'stdio', command: 'node' },
+        }),
+      ).resolves.toMatchObject({
+        status: 'changed',
+        reload: { status: 'failed', error: 'configuration validation failed' },
+      });
+      getInstance.mockRestore();
     });
 
     it('constructs one backend OAuth flow for protocol routes, status, and Admin Operations', async () => {
