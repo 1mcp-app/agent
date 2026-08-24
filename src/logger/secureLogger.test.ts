@@ -76,6 +76,83 @@ describe('secureLogger', () => {
       // The circular reference should eventually be cut off with [MAX_DEPTH]
       expect(JSON.stringify(result)).toContain('[MAX_DEPTH]');
     });
+
+    it('should escape CRLF to prevent log forging (CWE-117)', () => {
+      // Attacker-controlled input attempting to forge a second log line
+      const input = 'login failed for user admin\nINFO: User logged in: admin';
+      const result = sanitizeForLogging(input) as string;
+      expect(result).not.toContain('\n');
+      expect(result).toBe('login failed for user admin\\nINFO: User logged in: admin');
+    });
+
+    it('should escape all C0 control chars, DEL, and ANSI ESC', () => {
+      const input = 'a\r\nb\tc\x00d\x1B[31me\x7Ff';
+      const result = sanitizeForLogging(input) as string;
+      expect(result).toBe('a\\r\\nb\\tc\\x00d\\x1B[31me\\x7Ff');
+      // eslint-disable-next-line no-control-regex -- asserting absence of the control chars we just escaped
+      expect(result).not.toMatch(/[\x00-\x1F\x7F]/);
+    });
+
+    it('should escape control chars in nested structures and log messages', () => {
+      const input = {
+        outer: [{ msg: 'line1\nline2' }],
+      };
+      const result = sanitizeForLogging(input) as { outer: Array<{ msg: string }> };
+      expect(result.outer[0].msg).toBe('line1\\nline2');
+    });
+
+    it('should escape control chars in object keys', () => {
+      const input = {
+        'user\nrole': 'admin\r\nFORGED: true',
+      };
+      const result = sanitizeForLogging(input) as Record<string, string>;
+      expect(result).toHaveProperty('user\\nrole');
+      expect(result['user\\nrole']).toBe('admin\\r\\nFORGED: true');
+      expect(Object.keys(result)[0]).not.toContain('\n');
+    });
+
+    it('should sanitize and escape Error objects', () => {
+      const error = new Error('OAuth token=secret123 failed\nSecond line');
+      const result = sanitizeForLogging(error) as Record<string, unknown>;
+      expect(result.name).toBe('Error');
+      expect(result.message).toContain('[REDACTED]');
+      expect(result.message).not.toContain('\n');
+      expect(result.message).toBe('OAuth token=[REDACTED]123 failed\\nSecond line');
+      if (result.stack) {
+        expect(result.stack).not.toContain('secret123');
+        expect(result.stack).not.toContain('\n');
+        expect(typeof result.stack).toBe('string');
+      }
+    });
+
+    it('should still apply pattern redaction before control-char escaping', () => {
+      const input = 'Bearer eyJhbGci\nsecond line';
+      const result = sanitizeForLogging(input) as string;
+      expect(result).toContain('[REDACTED]');
+      expect(result).not.toContain('\n');
+    });
+
+    it('should return [SANITIZATION_ERROR] if sanitization throws', () => {
+      // Create an object where property access throws
+      const throwingObj = {};
+      Object.defineProperty(throwingObj, 'badProp', {
+        get() {
+          throw new Error('Explosion');
+        },
+        enumerable: true,
+      });
+      const result = sanitizeForLogging(throwingObj);
+      expect(result).toBe('[SANITIZATION_ERROR]');
+    });
+
+    it('should handle large input without ReDoS issues', () => {
+      const longInput = 'A'.repeat(50000) + '\r\n' + 'B'.repeat(50000);
+      const start = Date.now();
+      const result = sanitizeForLogging(longInput) as string;
+      const elapsed = Date.now() - start;
+      expect(elapsed).toBeLessThan(1000);
+      expect(result).toContain('\\r\\n');
+    });
   });
 
   describe('sanitizeOAuthServerList', () => {
@@ -89,6 +166,13 @@ describe('secureLogger', () => {
       expect(result[1]).toBe('server2'); // Only takes first part before |
       expect(result[2]).toContain('server3');
       expect(result[2]).toContain('[OAUTH_REDACTED]');
+    });
+
+    it('should escape control characters in OAuth server names', () => {
+      const servers = ['server1\nmalicious', 'server2\x1B[31m'];
+      const result = sanitizeOAuthServerList(servers);
+      expect(result[0]).toBe('server1\\nmalicious');
+      expect(result[1]).toBe('server2\\x1B[31m');
     });
 
     it('should handle clean server names', () => {

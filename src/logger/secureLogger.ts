@@ -26,6 +26,27 @@ const SENSITIVE_PATTERNS = [
 const SENSITIVE_KEY_PATTERNS = ['secret', 'token', 'password', 'passwd', 'key'];
 
 /**
+ * C0 control characters + DEL (CWE-117 log forging defense).
+ * Single character class — linear time, no nested quantifiers, no ReDoS risk.
+ */
+// eslint-disable-next-line no-control-regex -- intentional: this IS the sanitization pattern
+const CONTROL_CHARS_PATTERN = /[\x00-\x1F\x7F]/g;
+
+/**
+ * Escape control characters as visible literals (log4j2 %encode{}{CRLF} /
+ * Veracode CWE-117 guidance style) so attacker-controlled input cannot forge
+ * log lines or inject ANSI escape sequences, while preserving audit intent.
+ */
+function escapeControlChars(value: string): string {
+  return value.replace(CONTROL_CHARS_PATTERN, (char) => {
+    if (char === '\n') return '\\n';
+    if (char === '\r') return '\\r';
+    if (char === '\t') return '\\t';
+    return `\\x${char.charCodeAt(0).toString(16).padStart(2, '0').toUpperCase()}`;
+  });
+}
+
+/**
  * Check if a key contains sensitive patterns
  */
 function isSensitiveKey(key: string): boolean {
@@ -53,11 +74,32 @@ function sanitize(value: unknown, depth = 0): unknown {
     for (const pattern of SENSITIVE_PATTERNS) {
       sanitized = sanitized.replace(pattern, '[REDACTED]');
     }
-    return sanitized;
+    // Escape control characters to prevent log forging (CWE-117).
+    // Runs after pattern redaction so redaction markers are not affected.
+    return escapeControlChars(sanitized);
   }
 
   if (typeof value === 'number' || typeof value === 'boolean') {
     return value;
+  }
+
+  if (value instanceof Error) {
+    const sanitizedError: Record<string, unknown> = {
+      name: escapeControlChars(value.name),
+      message: sanitize(value.message, depth + 1),
+    };
+    if (value.stack) {
+      sanitizedError.stack = sanitize(value.stack, depth + 1);
+    }
+    for (const [key, val] of Object.entries(value)) {
+      const sanitizedKey = escapeControlChars(key);
+      if (isSensitiveKey(key)) {
+        sanitizedError[sanitizedKey] = '[REDACTED]';
+      } else {
+        sanitizedError[sanitizedKey] = sanitize(val, depth + 1);
+      }
+    }
+    return sanitizedError;
   }
 
   if (Array.isArray(value)) {
@@ -68,10 +110,11 @@ function sanitize(value: unknown, depth = 0): unknown {
     const sanitized: Record<string, unknown> = {};
 
     for (const [key, val] of Object.entries(value)) {
+      const sanitizedKey = escapeControlChars(key);
       if (isSensitiveKey(key)) {
-        sanitized[key] = '[REDACTED]';
+        sanitized[sanitizedKey] = '[REDACTED]';
       } else {
-        sanitized[key] = sanitize(val, depth + 1);
+        sanitized[sanitizedKey] = sanitize(val, depth + 1);
       }
     }
 
@@ -131,7 +174,8 @@ export function sanitizeOAuthServerList(servers: string[]): string[] {
   return servers.map((server) => {
     // Only show server name without any sensitive configuration
     const serverName = server.split('|')[0] || server; // Extract just the name part
-    return serverName.replace(/[?&](client_id|client_secret|token|code)=[^&]*/gi, '[OAUTH_REDACTED]');
+    const redacted = serverName.replace(/[?&](client_id|client_secret|token|code)=[^&]*/gi, '[OAUTH_REDACTED]');
+    return escapeControlChars(redacted);
   });
 }
 
