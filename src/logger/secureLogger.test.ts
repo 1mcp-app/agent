@@ -101,14 +101,41 @@ describe('secureLogger', () => {
       expect(result.outer[0].msg).toBe('line1\\nline2');
     });
 
-    it('should escape control chars in object keys', () => {
+    it('should escape control chars and redact credential assignments in object keys', () => {
       const input = {
         'user\nrole': 'admin\r\nFORGED: true',
+        'token=secret123': 'active',
+        'client_secret=secret456': 'valid',
       };
       const result = sanitizeForLogging(input) as Record<string, string>;
       expect(result).toHaveProperty('user\\nrole');
       expect(result['user\\nrole']).toBe('admin\\r\\nFORGED: true');
       expect(Object.keys(result)[0]).not.toContain('\n');
+      expect(JSON.stringify(result)).not.toContain('secret123');
+      expect(JSON.stringify(result)).not.toContain('secret456');
+    });
+
+    it('should redact key-value credential assignments across all key families without leaking values', () => {
+      const cases = [
+        'password=abc123',
+        'secret=def456',
+        'client_secret=ghi789',
+        'api-key=jkl012',
+        'auth-token=mno345',
+        'access_token=pqr678',
+        'refresh_token=stu901',
+      ];
+      for (const testCase of cases) {
+        const result = sanitizeForLogging(testCase) as string;
+        expect(result).toContain('[REDACTED]');
+        expect(result).not.toContain('abc123');
+        expect(result).not.toContain('def456');
+        expect(result).not.toContain('ghi789');
+        expect(result).not.toContain('jkl012');
+        expect(result).not.toContain('mno345');
+        expect(result).not.toContain('pqr678');
+        expect(result).not.toContain('stu901');
+      }
     });
 
     it('should sanitize and escape Error objects including custom name and stack', () => {

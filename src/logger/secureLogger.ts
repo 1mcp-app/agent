@@ -4,23 +4,27 @@ import logger from './logger.js';
  * Consolidated patterns for sensitive data detection
  */
 const SENSITIVE_PATTERNS = [
-  // OAuth tokens and credentials (consolidates 6 patterns)
-  /(?:access_token|refresh_token|authorization_code|client_secret|client_id|bearer\s+[\w\-.~+/]+=*)/gi,
+  // Bearer tokens in Authorization headers (MUST run before generic key-value to avoid splitting "Token: bearer <token>")
+  /bearer\s+[a-zA-Z0-9_\-.~+/]+=*/gi,
+
+  // Key-value credential assignments (e.g., token=xyz, password=xyz, client_secret=xyz)
+  // MUST run before generic keyword replacement so values are redacted before keys are masked
+  /(?:[?&]|\b)(?:[tT]oken|[cC]ode|[sS]ecret|client_secret|client_id|[pP]assword|[pP]asswd|api[_-]?key|auth[_-]?token|access_token|refresh_token)\s*[:=]\s*[^\s,;&]+/gi,
 
   // URLs with sensitive parameters (consolidates 4 patterns)
-  /https?:\/\/[^\s]*[?&](?:[tT]oken|[cC]ode)=[^\s&]*/gi,
+  /https?:\/\/[^\s]*[?&](?:[tT]oken|[cC]ode|[sS]ecret|[kK]ey)=[^\s&]*/gi,
 
   // Query parameters with sensitive data (consolidates 2 patterns)
-  /[?&](?:[tT]oken|[cC]ode)=[^\s&]*/gi,
+  /[?&](?:[tT]oken|[cC]ode|[sS]ecret|[kK]ey)=[^\s&]*/gi,
+
+  // OAuth tokens and credentials (consolidates 6 patterns)
+  /(?:access_token|refresh_token|authorization_code|client_secret|client_id)/gi,
 
   // OAuth configuration patterns (consolidates 4 patterns)
   /(?:scopes?|redirect_uris?|with\s+scope):\s*(?:\[[^\]]*\]|[^\s,}]+(?:\s+[^\s]+)*)/gi,
 
-  // Generic secret patterns (consolidates 5 patterns)
+  // Generic secret patterns (consolidates 5 patterns) - fallback keywords
   /(?:api[_-]?key|secret|password|passwd|auth[_-]?token)/gi,
-
-  // Key-value credential assignments (e.g., token=xyz, secret: xyz)
-  /(?:[?&]|\b)(?:[tT]oken|[cC]ode|[sS]ecret|[pP]assword|[pP]asswd|api[_-]?key|auth[_-]?token)\s*[:=]\s*[^\s,;&]+/gi,
 ];
 
 /**
@@ -51,6 +55,28 @@ function escapeControlChars(value: string): string {
 }
 
 /**
+ * Sanitize a string by applying pattern redaction followed by control character escaping.
+ */
+function sanitizeString(value: string): string {
+  let sanitized = value;
+  for (const pattern of SENSITIVE_PATTERNS) {
+    sanitized = sanitized.replace(pattern, '[REDACTED]');
+  }
+  return escapeControlChars(sanitized);
+}
+
+/**
+ * Sanitize an object key: escapes control characters and redacts any inline credential assignments.
+ */
+function sanitizeKey(key: string): string {
+  const redactedKey = key.replace(
+    /(?:[?&]|\b)(?:[tT]oken|[cC]ode|[sS]ecret|client_secret|client_id|[pP]assword|[pP]asswd|api[_-]?key|auth[_-]?token|access_token|refresh_token)\s*[:=]\s*[^\s,;&]+/gi,
+    '[REDACTED]',
+  );
+  return escapeControlChars(redactedKey);
+}
+
+/**
  * Check if a key contains sensitive patterns
  */
 function isSensitiveKey(key: string): boolean {
@@ -73,14 +99,7 @@ function sanitize(value: unknown, depth = 0): unknown {
   }
 
   if (typeof value === 'string') {
-    // Apply pattern-based redaction to strings
-    let sanitized = value;
-    for (const pattern of SENSITIVE_PATTERNS) {
-      sanitized = sanitized.replace(pattern, '[REDACTED]');
-    }
-    // Escape control characters to prevent log forging (CWE-117).
-    // Runs after pattern redaction so redaction markers are not affected.
-    return escapeControlChars(sanitized);
+    return sanitizeString(value);
   }
 
   if (typeof value === 'number' || typeof value === 'boolean') {
@@ -99,7 +118,7 @@ function sanitize(value: unknown, depth = 0): unknown {
       sanitizedError.stack = sanitize(value.stack, depth + 1);
     }
     for (const [key, val] of Object.entries(value)) {
-      const sanitizedKey = escapeControlChars(key);
+      const sanitizedKey = sanitizeKey(key);
       if (isSensitiveKey(key)) {
         sanitizedError[sanitizedKey] = '[REDACTED]';
       } else {
@@ -117,7 +136,7 @@ function sanitize(value: unknown, depth = 0): unknown {
     const sanitized: Record<string, unknown> = {};
 
     for (const [key, val] of Object.entries(value)) {
-      const sanitizedKey = escapeControlChars(key);
+      const sanitizedKey = sanitizeKey(key);
       if (isSensitiveKey(key)) {
         sanitized[sanitizedKey] = '[REDACTED]';
       } else {
