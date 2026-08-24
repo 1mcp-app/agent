@@ -38,6 +38,7 @@ import type {
   AdminOperationService,
 } from './adminOperationService.js';
 import type { ConfiguredToolInventory, ConfiguredToolTargetSource } from './configuredToolInventory.js';
+import type { AdminMutationAvailability } from './runtimeScopeAdminLock.js';
 import {
   analyzeTemplateServerDefinition,
   type TemplateDefinitionAnalysis,
@@ -69,6 +70,7 @@ interface AdminConfiguredServerServiceOptions {
     templateName: string,
     instanceIdentities: readonly string[],
   ) => Promise<TemplateDefinitionRuntimeImpact>;
+  mutationAvailability?: AdminMutationAvailability;
 }
 
 interface PreparedConfiguredServerCreate {
@@ -609,6 +611,16 @@ interface ConfiguredServerApplyInput {
   model?: string;
 }
 
+interface ConfiguredServerDeletePreviewInput {
+  context: AdminOperationContext;
+  targetName: string;
+  targetSource: ConfiguredServerTargetSource;
+}
+
+interface ConfiguredServerDeleteApplyInput extends ConfiguredServerDeletePreviewInput {
+  previewFingerprint: string;
+}
+
 interface ConfiguredServerCreateContractInput {
   context: AdminOperationContext;
 }
@@ -678,6 +690,7 @@ export interface ConfiguredServerTransportSummary {
 export interface ConfiguredServerMutationAvailability {
   available: boolean;
   operations: Array<'enable' | 'disable'>;
+  deleteAvailable?: boolean;
 }
 
 export interface ConfiguredServerActionAvailability {
@@ -814,6 +827,37 @@ export interface ConfiguredServerApplyResult {
   runtimeImpact?: TemplateDefinitionRuntimeImpact;
 }
 
+export interface ConfiguredServerDeletePreviewResult {
+  target: ConfiguredServerTargetIdentity;
+  qualifiedId: string;
+  targetFingerprint: string;
+  previewFingerprint: string;
+  authority: 'authoritative' | 'shadowed' | 'sole';
+  removal: {
+    definition: ConfiguredServerReadModel;
+    preservesSameNamedOtherSource: boolean;
+    cascades: false;
+  };
+  configChange: ConfigChangeResult;
+  expectedBackup: { policy: 'required'; recoveryCopy: true };
+  expectedReload: {
+    policy: 'observe_after_write';
+    possibleStatuses: readonly ['observed', 'runtime_not_running', 'reload_disabled', 'failed'];
+  };
+  runtimeImpact:
+    | { kind: 'static'; configuredBackendRemoval: 'after_reload' }
+    | { kind: 'template'; activeInstanceCount: number; retirement: 'reload_scheduled' };
+  warnings: string[];
+}
+
+export interface ConfiguredServerDeleteApplyResult {
+  target: ConfiguredServerTargetIdentity;
+  qualifiedId: string;
+  previewFingerprint: string;
+  configChange: ConfigChangeResult;
+  runtimeImpact?: TemplateDefinitionRuntimeImpact;
+}
+
 export interface ConfiguredServerCreateContract {
   schemaVersion: 1;
   capabilities: {
@@ -917,7 +961,7 @@ export interface ConfiguredServerEditContract {
     singleTargetEdit: true;
     rename: { supported: true };
     create: { supported: false };
-    delete: { supported: false };
+    delete: { supported: boolean };
     bulkEdit: { supported: false };
     rawJson: { supported: false };
     preview: { supported: true };
@@ -963,6 +1007,12 @@ export interface AdminConfiguredServerOperations {
   applyConfiguredServerEdit(
     input: ConfiguredServerApplyInput,
   ): Promise<AdminOperationResult<ConfiguredServerApplyResult>>;
+  previewConfiguredServerDelete?(
+    input: ConfiguredServerDeletePreviewInput,
+  ): Promise<AdminOperationResult<ConfiguredServerDeletePreviewResult>>;
+  deleteConfiguredServer?(
+    input: ConfiguredServerDeleteApplyInput,
+  ): Promise<AdminOperationResult<ConfiguredServerDeleteApplyResult>>;
   enableConfiguredServer(
     input: ConfiguredServerMutationInput,
   ): Promise<AdminOperationResult<ConfiguredServerMutationResult>>;
@@ -1130,6 +1180,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
           Object.hasOwn(currentConfig, 'instructionOverride'),
           collision,
           source === 'mcpTemplates' ? (this.options.getTemplateActiveInstanceCount?.(input.targetName) ?? 0) : 0,
+          this.options.mutationAvailability?.available ?? true,
         );
         return {
           server,
@@ -1319,6 +1370,90 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
     });
   }
 
+  async previewConfiguredServerDelete(
+    input: ConfiguredServerDeletePreviewInput,
+  ): Promise<AdminOperationResult<ConfiguredServerDeletePreviewResult>> {
+    const context = {
+      ...input.context,
+      target: { type: 'configured_server', id: `${input.targetSource}/${input.targetName}` },
+    };
+    return this.options.operationService.executeDryRun({
+      context,
+      operationName: 'previewConfiguredServerDelete',
+      run: async () => this.previewConfiguredServerDeleteResult(input),
+    });
+  }
+
+  async deleteConfiguredServer(
+    input: ConfiguredServerDeleteApplyInput,
+  ): Promise<AdminOperationResult<ConfiguredServerDeleteApplyResult>> {
+    const qualifiedId = `${input.targetSource}/${input.targetName}`;
+    const context = {
+      ...input.context,
+      target: { type: 'configured_server', id: qualifiedId },
+      confirmationFacts: sanitizeDeleteConfirmationFacts(input.context.confirmationFacts),
+    };
+    return this.options.operationService.executeMutation({
+      context,
+      operationName: 'deleteConfiguredServer',
+      prepare: async () => {
+        let preview: ConfiguredServerDeletePreviewResult;
+        try {
+          preview = this.previewConfiguredServerDeleteResult(input);
+        } catch (error) {
+          if (error instanceof AdminConfiguredServerNotFoundError) {
+            throw new AdminConfiguredServerApplyError('configured_server_already_removed');
+          }
+          throw error;
+        }
+        if (preview.previewFingerprint !== input.previewFingerprint) {
+          throw new AdminConfiguredServerApplyError('configured_server_stale_preview');
+        }
+        return {
+          confirmationRequirements: [
+            { code: 'previewConfirmed', expected: input.previewFingerprint },
+            { code: 'targetIdentityConfirmed', expected: qualifiedId },
+          ],
+          run: async () => {
+            const instanceIdentities =
+              input.targetSource === 'mcpTemplates'
+                ? (this.options.getTemplateActiveInstanceIdentities?.(input.targetName) ?? [])
+                : [];
+            const activeInstancesBefore =
+              instanceIdentities.length > 0
+                ? instanceIdentities.length
+                : preview.runtimeImpact.kind === 'template'
+                  ? preview.runtimeImpact.activeInstanceCount
+                  : 0;
+            const configChange = await this.options.configChangeService.deleteConfiguredServerTarget({
+              targetName: input.targetName,
+              targetSource: input.targetSource,
+              expectedTargetFingerprint: preview.targetFingerprint,
+            });
+            assertSuccessfulConfiguredServerDelete(configChange);
+            const runtimeImpact =
+              input.targetSource === 'mcpTemplates'
+                ? await this.observeTemplateRetirement(
+                    input.targetName,
+                    configChange,
+                    true,
+                    activeInstancesBefore,
+                    instanceIdentities,
+                  )
+                : undefined;
+            return {
+              target: preview.target,
+              qualifiedId,
+              previewFingerprint: preview.previewFingerprint,
+              configChange: sanitizeConfiguredServerDeleteResult(configChange),
+              ...(runtimeImpact ? { runtimeImpact } : {}),
+            };
+          },
+        };
+      },
+    });
+  }
+
   async enableConfiguredServer(
     input: ConfiguredServerMutationInput,
   ): Promise<AdminOperationResult<ConfiguredServerMutationResult>> {
@@ -1416,22 +1551,102 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
             Object.hasOwn(serverConfig, 'instructionOverride'),
             Boolean((source === 'mcpTemplates' ? parsed.mcpServers : parsed.mcpTemplates)?.[name]),
             source === 'mcpTemplates' ? (this.options.getTemplateActiveInstanceCount?.(name) ?? 0) : 0,
+            this.options.mutationAvailability?.available ?? true,
           ),
         ),
       ),
     };
   }
 
+  private previewConfiguredServerDeleteResult(
+    input: ConfiguredServerDeletePreviewInput,
+  ): ConfiguredServerDeletePreviewResult {
+    const document = this.options.readConfigDocument();
+    const otherSource = input.targetSource === 'mcpServers' ? 'mcpTemplates' : 'mcpServers';
+    if (!document?.[input.targetSource]?.[input.targetName] && document?.[otherSource]?.[input.targetName]) {
+      throw new AdminConfiguredServerApplyError('configured_server_source_changed');
+    }
+    const { currentConfig, serverDefaults, collision } = this.readConfiguredServerState(
+      input.targetName,
+      input.targetSource,
+      document,
+    );
+    const targetFingerprint = fingerprintConfiguredServerTarget(currentConfig);
+    const activeInstanceCount =
+      input.targetSource === 'mcpTemplates'
+        ? (this.options.getTemplateActiveInstanceCount?.(input.targetName) ?? 0)
+        : 0;
+    const definition = createConfiguredServerReadModel(
+      input.targetName,
+      mergeGlobalAndServerConfig(serverDefaults, currentConfig),
+      input.targetSource,
+      targetFingerprint,
+      Object.hasOwn(currentConfig, 'instructionOverride') ? currentConfig.instructionOverride : undefined,
+      Object.hasOwn(currentConfig, 'instructionOverride'),
+      collision,
+      activeInstanceCount,
+      this.options.mutationAvailability?.available ?? true,
+    );
+    const qualifiedId = definition.definition?.qualifiedId ?? `${input.targetSource}/${input.targetName}`;
+    const authority = definition.definition?.authority ?? 'sole';
+    const runtimeImpact =
+      input.targetSource === 'mcpTemplates'
+        ? ({ kind: 'template', activeInstanceCount, retirement: 'reload_scheduled' } as const)
+        : ({ kind: 'static', configuredBackendRemoval: 'after_reload' } as const);
+    const warnings = [
+      'Deletion removes only this source-qualified definition and does not cascade to presets, filters, credentials, registry state, or individually selected live instances.',
+      ...(collision
+        ? [`The same name in ${input.targetSource === 'mcpServers' ? 'mcpTemplates' : 'mcpServers'} is preserved.`]
+        : []),
+      ...(input.targetSource === 'mcpTemplates' && activeInstanceCount > 0
+        ? [
+            `Reload schedules retirement of ${activeInstanceCount} active Template Server instance${activeInstanceCount === 1 ? '' : 's'}.`,
+          ]
+        : []),
+    ];
+    const previewFingerprint = `delete_preview_${createHash('sha256')
+      .update(
+        stableStringify({
+          schemaVersion: 1,
+          qualifiedId,
+          targetFingerprint,
+          authority,
+          collision,
+          runtimeImpact,
+          warnings,
+        }),
+      )
+      .digest('hex')}`;
+
+    return {
+      target: definition.target,
+      qualifiedId,
+      targetFingerprint,
+      previewFingerprint,
+      authority,
+      removal: { definition, preservesSameNamedOtherSource: collision, cascades: false },
+      configChange: previewDeleteConfigChange(input.targetName, input.targetSource),
+      expectedBackup: { policy: 'required', recoveryCopy: true },
+      expectedReload: {
+        policy: 'observe_after_write',
+        possibleStatuses: ['observed', 'runtime_not_running', 'reload_disabled', 'failed'],
+      },
+      runtimeImpact,
+      warnings,
+    };
+  }
+
   private readConfiguredServerState(
     targetName: string,
     targetSource?: ConfiguredServerTargetSource,
+    document: ConfiguredServerConfigDocument | null = this.options.readConfigDocument(),
   ): {
     currentConfig: MCPServerParams;
     serverDefaults: GlobalTransportConfig | undefined;
     source: ConfiguredToolTargetSource;
     collision: boolean;
   } {
-    const parsed = this.options.readConfigDocument();
+    const parsed = document;
     const source = this.resolveConfiguredServerSource(targetName, targetSource, parsed);
     const currentConfig = parsed?.[source]?.[targetName];
     if (!currentConfig) {
@@ -1914,6 +2129,46 @@ function assertSuccessfulConfiguredServerEdit(configChange: ConfigChangeResult):
     default:
       throw new AdminConfiguredServerApplyError('configured_server_apply_failed');
   }
+}
+
+function assertSuccessfulConfiguredServerDelete(configChange: ConfigChangeResult): void {
+  switch (configChange.status) {
+    case 'changed':
+      return;
+    case 'source_conflict':
+      throw new AdminConfiguredServerApplyError('configured_server_stale_preview');
+    case 'not_found':
+      throw new AdminConfiguredServerApplyError('configured_server_already_removed');
+    default:
+      throw new AdminConfiguredServerApplyError('configured_server_delete_failed');
+  }
+}
+
+function sanitizeConfiguredServerDeleteResult(configChange: ConfigChangeResult): ConfigChangeResult {
+  return {
+    ...configChange,
+    configPath: '[redacted]',
+    backup: configChange.backup.created ? { created: true, path: '[redacted]' } : { created: false },
+    retentionCleanup: {
+      attempted: configChange.retentionCleanup.attempted,
+      deletedPaths: configChange.retentionCleanup.deletedPaths.map(() => '[redacted]'),
+      warnings: configChange.retentionCleanup.warnings.map(() => 'A recovery backup retention cleanup failed.'),
+    },
+    reload:
+      configChange.reload.status === 'failed'
+        ? { status: 'failed', error: 'Runtime reload failed after the configuration was deleted.' }
+        : configChange.reload,
+    warnings: configChange.warnings.map(() => 'A recovery backup retention cleanup failed.'),
+  };
+}
+
+function sanitizeDeleteConfirmationFacts(
+  facts: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!facts) return undefined;
+  const allowed = ['previewConfirmed', 'targetIdentityConfirmed'];
+  const sanitized = Object.fromEntries(allowed.filter((key) => key in facts).map((key) => [key, facts[key]]));
+  return Object.keys(sanitized).length > 0 ? sanitized : undefined;
 }
 
 function sanitizeApplyConfirmationFacts(
@@ -3072,6 +3327,20 @@ function previewConfigChange(
   };
 }
 
+function previewDeleteConfigChange(targetName: string, source: ConfiguredServerTargetSource): ConfigChangeResult {
+  return {
+    status: 'changed',
+    operation: 'remove',
+    configPath: '[redacted]',
+    target: { name: targetName, source },
+    changed: true,
+    backup: { created: false },
+    retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
+    reload: { status: 'skipped' },
+    warnings: [],
+  };
+}
+
 function previewFingerprint(input: {
   targetName: string;
   targetSource: ConfiguredServerTargetSource;
@@ -3358,6 +3627,7 @@ function createConfiguredServerReadModel(
   hasInstructionOverride: boolean = Object.hasOwn(serverConfig, 'instructionOverride'),
   collision = false,
   activeInstanceCount = 0,
+  mutationAvailable = true,
 ): ConfiguredServerReadModel {
   const secretInputs: ConfiguredServerSecretInput[] = [];
   const transport: Record<string, unknown> = {};
@@ -3438,8 +3708,9 @@ function createConfiguredServerReadModel(
     tags: normalizeTags(serverConfig.tags),
     transportSummary: createTransportSummary(serverConfig, transport),
     mutationAvailability: {
-      available: source === 'mcpServers',
+      available: mutationAvailable && source === 'mcpServers',
       operations: source === 'mcpServers' ? ['enable', 'disable'] : [],
+      deleteAvailable: mutationAvailable,
     },
     actionState:
       source === 'mcpServers'
@@ -3625,7 +3896,7 @@ function createConfiguredServerEditContract(
       singleTargetEdit: true,
       rename: { supported: true },
       create: { supported: false },
-      delete: { supported: false },
+      delete: { supported: server.mutationAvailability.deleteAvailable === true },
       bulkEdit: { supported: false },
       rawJson: { supported: false },
       preview: { supported: true },

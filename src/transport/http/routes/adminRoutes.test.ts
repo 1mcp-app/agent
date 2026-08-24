@@ -67,6 +67,12 @@ describe('admin routes', () => {
       typeof vi.fn<AdminConfiguredServerOperations['previewConfiguredServerEdit']>
     >;
     applyConfiguredServerEdit: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['applyConfiguredServerEdit']>>;
+    previewConfiguredServerDelete: ReturnType<
+      typeof vi.fn<NonNullable<AdminConfiguredServerOperations['previewConfiguredServerDelete']>>
+    >;
+    deleteConfiguredServer: ReturnType<
+      typeof vi.fn<NonNullable<AdminConfiguredServerOperations['deleteConfiguredServer']>>
+    >;
     enableConfiguredServer: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['enableConfiguredServer']>>;
     disableConfiguredServer: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['disableConfiguredServer']>>;
     getRecentAuditFacts: ReturnType<typeof vi.fn<(options?: { limit?: number }) => AdminAuditFact[]>>;
@@ -94,6 +100,9 @@ describe('admin routes', () => {
         vi.fn<NonNullable<AdminConfiguredServerOperations['refreshConfiguredToolInventory']>>(),
       previewConfiguredServerEdit: vi.fn<AdminConfiguredServerOperations['previewConfiguredServerEdit']>(),
       applyConfiguredServerEdit: vi.fn<AdminConfiguredServerOperations['applyConfiguredServerEdit']>(),
+      previewConfiguredServerDelete:
+        vi.fn<NonNullable<AdminConfiguredServerOperations['previewConfiguredServerDelete']>>(),
+      deleteConfiguredServer: vi.fn<NonNullable<AdminConfiguredServerOperations['deleteConfiguredServer']>>(),
       enableConfiguredServer: vi.fn<AdminConfiguredServerOperations['enableConfiguredServer']>(),
       disableConfiguredServer: vi.fn<AdminConfiguredServerOperations['disableConfiguredServer']>(),
       getRecentAuditFacts: vi.fn<(options?: { limit?: number }) => AdminAuditFact[]>(() => []),
@@ -2145,6 +2154,182 @@ describe('admin routes', () => {
       target: { type: 'configured_server', id: 'mcpServers/missing' },
     });
     expect(JSON.stringify(response.body)).not.toMatch(/raw|secret|token|password/i);
+  });
+
+  it('protects source-qualified configured-server delete preview and apply routes', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    configuredServerService.previewConfiguredServerDelete.mockResolvedValue({
+      ok: true,
+      status: 'completed',
+      operationId: 'op_delete_preview',
+      operationName: 'previewConfiguredServerDelete',
+      replayed: false,
+      result: { previewFingerprint: 'delete_preview_1' },
+    } as Awaited<ReturnType<NonNullable<AdminConfiguredServerOperations['previewConfiguredServerDelete']>>>);
+    configuredServerService.deleteConfiguredServer.mockResolvedValue({
+      ok: true,
+      status: 'completed',
+      operationId: 'op_delete',
+      operationName: 'deleteConfiguredServer',
+      replayed: false,
+      result: { qualifiedId: 'mcpTemplates/project' },
+    } as Awaited<ReturnType<NonNullable<AdminConfiguredServerOperations['deleteConfiguredServer']>>>);
+    const app = mountAdminRoutes();
+    const login = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = login.headers['set-cookie']?.[0] as string;
+
+    const preview = await request(app)
+      .post('/admin/api/configured-servers/mcpTemplates/project/delete-preview')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', login.body.csrfToken)
+      .send({});
+    const missingKey = await request(app)
+      .delete('/admin/api/configured-servers/mcpTemplates/project')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', login.body.csrfToken)
+      .send({ previewFingerprint: 'delete_preview_1' });
+    const malformed = await request(app)
+      .delete('/admin/api/configured-servers/mcpTemplates/project')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', login.body.csrfToken)
+      .set('Idempotency-Key', 'delete-project-malformed')
+      .send({ previewFingerprint: '', confirmationFacts: { targetIdentityConfirmed: 42 } });
+    const missingPreview = await request(app)
+      .delete('/admin/api/configured-servers/mcpTemplates/project')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', login.body.csrfToken)
+      .set('Idempotency-Key', 'delete-project-missing-preview')
+      .send({
+        confirmationFacts: {
+          previewConfirmed: 'delete_preview_1',
+          targetIdentityConfirmed: 'mcpTemplates/project',
+        },
+      });
+    const missingConfirmation = await request(app)
+      .delete('/admin/api/configured-servers/mcpTemplates/project')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', login.body.csrfToken)
+      .set('Idempotency-Key', 'delete-project-missing-confirmation')
+      .send({ previewFingerprint: 'delete_preview_1' });
+    const applied = await request(app)
+      .delete('/admin/api/configured-servers/mcpTemplates/project')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', login.body.csrfToken)
+      .set('Idempotency-Key', 'delete-project-1')
+      .send({
+        previewFingerprint: 'delete_preview_1',
+        confirmationFacts: {
+          previewConfirmed: 'delete_preview_1',
+          targetIdentityConfirmed: 'mcpTemplates/project',
+        },
+      });
+
+    expect(preview.status).toBe(200);
+    expect(missingKey.status).toBe(400);
+    expect(malformed).toMatchObject({
+      status: 400,
+      body: {
+        code: 'configured_server_delete_request_invalid',
+        message: 'Delete requires a current preview fingerprint and exact source-qualified confirmation facts.',
+      },
+    });
+    expect(missingPreview.status).toBe(400);
+    expect(missingConfirmation.status).toBe(400);
+    expect(JSON.stringify(malformed.body)).not.toMatch(/secret|token|password/i);
+    expect(applied.status).toBe(200);
+    expect(configuredServerService.previewConfiguredServerDelete).toHaveBeenCalledWith({
+      context: expect.objectContaining({ target: { type: 'configured_server', id: 'mcpTemplates/project' } }),
+      targetName: 'project',
+      targetSource: 'mcpTemplates',
+    });
+    expect(configuredServerService.deleteConfiguredServer).toHaveBeenCalledWith({
+      context: expect.objectContaining({
+        target: { type: 'configured_server', id: 'mcpTemplates/project' },
+        idempotencyKey: 'delete-project-1',
+        requestFingerprint: expect.stringMatching(/^configured_server_delete_/u),
+        confirmationFacts: {
+          previewConfirmed: 'delete_preview_1',
+          targetIdentityConfirmed: 'mcpTemplates/project',
+        },
+      }),
+      targetName: 'project',
+      targetSource: 'mcpTemplates',
+      previewFingerprint: 'delete_preview_1',
+    });
+  });
+
+  it('binds configured-server delete idempotency to preview and confirmation facts', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const operationService = new AdminOperationService({
+      runtimeScopeId: 'scope_123',
+      storageDir: `${storageDir}/delete-idempotency`,
+      createOperationId: () => 'op_delete_bound',
+    });
+    let durableWrites = 0;
+    configuredServerService.deleteConfiguredServer.mockImplementation(async (input) =>
+      operationService.executeMutation({
+        context: input.context,
+        operationName: 'deleteConfiguredServer',
+        run: async () => {
+          durableWrites += 1;
+          return {
+            target: { type: 'configured_server', source: input.targetSource, id: input.targetName },
+            qualifiedId: `${input.targetSource}/${input.targetName}`,
+            previewFingerprint: input.previewFingerprint,
+            configChange: {
+              status: 'changed',
+              operation: 'remove',
+              configPath: '/tmp/mcp.json',
+              target: { name: input.targetName, source: input.targetSource },
+              changed: true,
+              backup: { created: true, path: '/tmp/mcp.json.backup.1' },
+              retentionCleanup: { attempted: true, deletedPaths: [], warnings: [] },
+              reload: { status: 'observed' },
+              warnings: [],
+            },
+          };
+        },
+      }),
+    );
+    const app = mountAdminRoutes();
+    const login = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = login.headers['set-cookie']?.[0] as string;
+    const sendDelete = (body: Record<string, unknown>) =>
+      request(app)
+        .delete('/admin/api/configured-servers/mcpServers/shared')
+        .set('Cookie', cookie)
+        .set('X-CSRF-Token', login.body.csrfToken)
+        .set('Idempotency-Key', 'delete-shared-bound')
+        .send(body);
+    const body = {
+      previewFingerprint: 'delete_preview_1',
+      confirmationFacts: {
+        previewConfirmed: 'delete_preview_1',
+        targetIdentityConfirmed: 'mcpServers/shared',
+      },
+    };
+
+    const first = await sendDelete(body);
+    const replay = await sendDelete(body);
+    const conflict = await sendDelete({
+      previewFingerprint: 'delete_preview_2',
+      confirmationFacts: {
+        previewConfirmed: 'delete_preview_2',
+        targetIdentityConfirmed: 'mcpServers/shared',
+      },
+    });
+
+    expect(first).toMatchObject({ status: 200, body: { ok: true, operationId: 'op_delete_bound' } });
+    expect(replay).toMatchObject({
+      status: 200,
+      body: { ok: true, operationId: 'op_delete_bound', replayed: true, result: first.body.result },
+    });
+    expect(conflict).toMatchObject({ status: 409, body: { code: 'idempotency_conflict' } });
+    expect(durableWrites).toBe(1);
   });
 
   it('returns an operator-friendly not-found error for missing configured-server preview', async () => {

@@ -281,6 +281,74 @@ describe('Config Change', () => {
     expect(backupContent.mcpServers.filesystem.customServerField).toBe('keep');
   });
 
+  it.each(['mcpServers', 'mcpTemplates'] as const)(
+    'atomically deletes only the source-qualified %s target with a recovery backup',
+    async (targetSource) => {
+      const target = {
+        type: 'stdio' as const,
+        command: targetSource === 'mcpServers' ? 'static-command' : 'template-command',
+      };
+      await writeConfig({
+        mcpServers: { shared: { type: 'stdio', command: 'static-command' } },
+        mcpTemplates: { shared: { type: 'stdio', command: 'template-command' } },
+      });
+      const service = createConfigChangeService({ reloadConfig: reload });
+
+      const result = await service.deleteConfiguredServerTarget({
+        targetName: 'shared',
+        targetSource,
+        expectedTargetFingerprint: fingerprintConfiguredServerTarget(target),
+      });
+
+      expect(result).toMatchObject({
+        status: 'changed',
+        operation: 'remove',
+        target: { name: 'shared', source: targetSource },
+        backup: { created: true },
+        reload: { status: 'observed' },
+      });
+      const saved = await readConfig();
+      expect(saved[targetSource]?.shared).toBeUndefined();
+      const otherSource = targetSource === 'mcpServers' ? 'mcpTemplates' : 'mcpServers';
+      expect(saved[otherSource]?.shared).toBeDefined();
+      expect(JSON.parse(await fs.readFile(result.backup.path!, 'utf8'))[targetSource].shared).toEqual(target);
+      expect(reload).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('rejects stale, wrong-source, and already-removed deletes without a backup, write, or reload', async () => {
+    const original = { type: 'stdio' as const, command: 'node' };
+    await writeConfig({ mcpServers: { shared: original }, mcpTemplates: {} });
+    const service = createConfigChangeService({ reloadConfig: reload });
+
+    const stale = await service.deleteConfiguredServerTarget({
+      targetName: 'shared',
+      targetSource: 'mcpServers',
+      expectedTargetFingerprint: fingerprintConfiguredServerTarget({ ...original, command: 'bun' }),
+    });
+    const wrongSource = await service.deleteConfiguredServerTarget({
+      targetName: 'shared',
+      targetSource: 'mcpTemplates',
+      expectedTargetFingerprint: fingerprintConfiguredServerTarget(original),
+    });
+    const missing = await service.deleteConfiguredServerTarget({
+      targetName: 'missing',
+      targetSource: 'mcpTemplates',
+      expectedTargetFingerprint: fingerprintConfiguredServerTarget(original),
+    });
+
+    expect(stale).toMatchObject({ status: 'source_conflict', changed: false, backup: { created: false } });
+    expect(wrongSource).toMatchObject({
+      status: 'source_conflict',
+      target: { source: 'mcpServers' },
+      changed: false,
+      backup: { created: false },
+    });
+    expect(missing).toMatchObject({ status: 'not_found', changed: false, backup: { created: false } });
+    expect(await readConfig()).toEqual({ mcpServers: { shared: original }, mcpTemplates: {} });
+    expect(reload).not.toHaveBeenCalled();
+  });
+
   it('sets a new static configured target without a backup by default', async () => {
     await writeConfig({
       customTopLevel: { preserved: true },

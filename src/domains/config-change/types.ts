@@ -66,6 +66,12 @@ export interface RemoveConfiguredServerTargetInput {
   backup?: ConfigBackupPolicy;
 }
 
+export interface DeleteConfiguredServerTargetInput {
+  targetName: string;
+  targetSource: ConfiguredServerTargetSource;
+  expectedTargetFingerprint: string;
+}
+
 export interface SetStaticConfiguredServerTargetInput {
   targetName: string;
   serverConfig: MCPServerParams;
@@ -127,6 +133,7 @@ export interface ConfigChangePorts {
 
 export interface ConfigChangeService {
   removeConfiguredServerTarget(input: RemoveConfiguredServerTargetInput): Promise<ConfigChangeResult>;
+  deleteConfiguredServerTarget(input: DeleteConfiguredServerTargetInput): Promise<ConfigChangeResult>;
   setStaticConfiguredServerTarget(input: SetStaticConfiguredServerTargetInput): Promise<ConfigChangeResult>;
   createStaticConfiguredServerTarget(input: CreateStaticConfiguredServerTargetInput): Promise<ConfigChangeResult>;
   createTemplateConfiguredServerTarget(input: CreateTemplateConfiguredServerTargetInput): Promise<ConfigChangeResult>;

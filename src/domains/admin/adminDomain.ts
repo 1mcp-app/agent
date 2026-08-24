@@ -96,6 +96,7 @@ export function createAdminDomain(options: AdminDomainOptions): AdminDomain {
     operationService,
     configChangeService: options.configChangeService,
     readConfigDocument: options.readConfigDocument,
+    mutationAvailability: options.mutationAvailability,
     ...(options.checkConnectivity ? { checkConnectivity: options.checkConnectivity } : {}),
     ...(options.readToolInventory ? { readToolInventory: options.readToolInventory } : {}),
     ...(options.refreshToolInventory ? { refreshToolInventory: options.refreshToolInventory } : {}),

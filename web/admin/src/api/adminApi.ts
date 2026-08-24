@@ -265,6 +265,7 @@ export interface ConfiguredServerReadModel {
   mutationAvailability: {
     available: boolean;
     operations: Array<'enable' | 'disable'>;
+    deleteAvailable?: boolean;
   };
   actionState: {
     enable: {
@@ -344,7 +345,7 @@ export interface ConfiguredServerEditContract {
     singleTargetEdit: true;
     rename: { supported: true };
     create: { supported: false };
-    delete: { supported: false };
+    delete: { supported: boolean };
     bulkEdit: { supported: false };
     rawJson: { supported: false };
     preview: { supported: true };
@@ -570,6 +571,53 @@ export interface ConfiguredServerApplyResponse {
   result: {
     originalTargetName: string;
     targetName: string;
+    previewFingerprint: string;
+    configChange: ConfiguredServerPreviewConfigChange;
+    runtimeImpact?: {
+      activeInstancesBefore: number;
+      retiredInstances: number;
+      activeInstancesAfter: number;
+      retirementObserved: boolean;
+      error?: string;
+    };
+  };
+}
+
+export interface ConfiguredServerDeletePreview {
+  target: ConfiguredServerTargetIdentity;
+  qualifiedId: string;
+  targetFingerprint: string;
+  previewFingerprint: string;
+  authority: 'authoritative' | 'shadowed' | 'sole';
+  removal: {
+    definition: ConfiguredServerReadModel;
+    preservesSameNamedOtherSource: boolean;
+    cascades: false;
+  };
+  configChange: ConfiguredServerPreviewConfigChange;
+  expectedBackup: { policy: 'required'; recoveryCopy: true };
+  expectedReload: {
+    policy: 'observe_after_write';
+    possibleStatuses: readonly ['observed', 'runtime_not_running', 'reload_disabled', 'failed'];
+  };
+  runtimeImpact:
+    | { kind: 'static'; configuredBackendRemoval: 'after_reload' }
+    | { kind: 'template'; activeInstanceCount: number; retirement: 'reload_scheduled' };
+  warnings: string[];
+}
+
+export interface ConfiguredServerDeletePreviewResponse {
+  ok: true;
+  operationId: string;
+  preview: ConfiguredServerDeletePreview;
+}
+
+export interface ConfiguredServerDeleteResponse {
+  ok: true;
+  operationId: string;
+  result: {
+    target: ConfiguredServerTargetIdentity;
+    qualifiedId: string;
     previewFingerprint: string;
     configChange: ConfiguredServerPreviewConfigChange;
     runtimeImpact?: {
@@ -1177,6 +1225,40 @@ export function createAdminApi(options: AdminApiOptions = {}) {
       });
     },
 
+    previewConfiguredServerDelete(input: {
+      target: ConfiguredServerTargetIdentity;
+      csrfToken: string;
+    }): Promise<ConfiguredServerDeletePreviewResponse> {
+      return request(`${configuredServerPath(input.target)}/delete-preview`, {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': input.csrfToken },
+        body: '{}',
+      });
+    },
+
+    deleteConfiguredServer(input: {
+      target: ConfiguredServerTargetIdentity;
+      csrfToken: string;
+      idempotencyKey: string;
+      previewFingerprint: string;
+      confirmedIdentity: string;
+    }): Promise<ConfiguredServerDeleteResponse> {
+      return request(configuredServerPath(input.target), {
+        method: 'DELETE',
+        headers: {
+          'X-CSRF-Token': input.csrfToken,
+          'Idempotency-Key': input.idempotencyKey,
+        },
+        body: JSON.stringify({
+          previewFingerprint: input.previewFingerprint,
+          confirmationFacts: {
+            previewConfirmed: input.previewFingerprint,
+            targetIdentityConfirmed: input.confirmedIdentity,
+          },
+        }),
+      });
+    },
+
     setConfiguredServerEnabled(input: { name: string; enabled: boolean; csrfToken: string }): Promise<unknown> {
       const action = input.enabled ? 'enable' : 'disable';
       return request(`/admin/api/configured-servers/${encodeURIComponent(input.name)}/${action}`, {
@@ -1206,6 +1288,10 @@ export function createConfiguredServerApplyIdempotencyKey(name: string): string 
 
 export function createConfiguredServerCreateIdempotencyKey(name: string): string {
   return `admin-console-server-create-${encodeIdempotencyKeyPart(name)}-${Date.now()}-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`;
+}
+
+export function createConfiguredServerDeleteIdempotencyKey(qualifiedId: string): string {
+  return `admin-console-server-delete-${encodeIdempotencyKeyPart(qualifiedId)}-${Date.now()}-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`;
 }
 
 export function createInstructionTemplateIdempotencyKey(action: string, identity: string): string {

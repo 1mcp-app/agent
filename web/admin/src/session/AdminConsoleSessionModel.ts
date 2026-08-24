@@ -1,5 +1,12 @@
-import type { AdminPresetDraft, AdminPresetListItem, AdminPresetPreview, AdminPresetTarget } from '../api/adminApi';
+import type {
+  AdminPresetDraft,
+  AdminPresetListItem,
+  AdminPresetPreview,
+  AdminPresetTarget,
+  ConfiguredServerDeleteResponse,
+} from '../api/adminApi';
 import type { ConfiguredServerCreateModel } from '../configuredServerCreate/useConfiguredServerCreate';
+import type { ConfiguredServerDeleteModel } from '../configuredServerDelete/useConfiguredServerDelete';
 import type { ConfiguredServerEditModel } from '../configuredServerEdit/useConfiguredServerEdit';
 import type { InstructionTemplatesModel } from '../instructionTemplates/useInstructionTemplates';
 import type { AdminConsoleState } from '../state/adminConsoleState';
@@ -26,6 +33,9 @@ export interface AdminConsoleSessionModel {
   configuredServers: {
     create: ConfiguredServerCreateModel;
     edit: ConfiguredServerEditModel;
+    delete: ConfiguredServerDeleteModel;
+    deletionNotice: ConfiguredServerDeleteResponse['result'] | null;
+    dismissDeletionNotice(): void;
     mutate(serverId: string, action: 'enable' | 'disable'): void | Promise<void>;
     copy(label: string, value: string): void | Promise<void>;
   };
