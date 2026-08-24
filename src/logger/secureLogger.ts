@@ -18,6 +18,9 @@ const SENSITIVE_PATTERNS = [
 
   // Generic secret patterns (consolidates 5 patterns)
   /(?:api[_-]?key|secret|password|passwd|auth[_-]?token)/gi,
+
+  // Key-value credential assignments (e.g., token=xyz, secret: xyz)
+  /(?:[?&]|\b)(?:[tT]oken|[cC]ode|[sS]ecret|[pP]assword|[pP]asswd|api[_-]?key|auth[_-]?token)\s*[:=]\s*[^\s,;&]+/gi,
 ];
 
 /**
@@ -26,11 +29,12 @@ const SENSITIVE_PATTERNS = [
 const SENSITIVE_KEY_PATTERNS = ['secret', 'token', 'password', 'passwd', 'key'];
 
 /**
- * C0 control characters + DEL (CWE-117 log forging defense).
+ * C0 + C1 control characters + DEL (CWE-117 log forging & CWE-150 ANSI injection defense).
+ * Covers \x00-\x1F (C0), \x7F (DEL), and \x80-\x9F (C1 including 8-bit CSI \x9B).
  * Single character class — linear time, no nested quantifiers, no ReDoS risk.
  */
 // eslint-disable-next-line no-control-regex -- intentional: this IS the sanitization pattern
-const CONTROL_CHARS_PATTERN = /[\x00-\x1F\x7F]/g;
+const CONTROL_CHARS_PATTERN = /[\x00-\x1F\x7F-\x9F]/g;
 
 /**
  * Escape control characters as visible literals (log4j2 %encode{}{CRLF} /
@@ -85,7 +89,10 @@ function sanitize(value: unknown, depth = 0): unknown {
 
   if (value instanceof Error) {
     const sanitizedError: Record<string, unknown> = {
-      name: escapeControlChars(value.name),
+      name:
+        typeof value.name === 'string'
+          ? (sanitize(value.name, depth + 1) as string)
+          : escapeControlChars(String(value.name)),
       message: sanitize(value.message, depth + 1),
     };
     if (value.stack) {

@@ -85,12 +85,12 @@ describe('secureLogger', () => {
       expect(result).toBe('login failed for user admin\\nINFO: User logged in: admin');
     });
 
-    it('should escape all C0 control chars, DEL, and ANSI ESC', () => {
-      const input = 'a\r\nb\tc\x00d\x1B[31me\x7Ff';
+    it('should escape all C0 and C1 control chars, DEL, and 7-bit/8-bit ANSI ESC', () => {
+      const input = 'a\r\nb\tc\x00d\x1B[31me\x7Ff\x9B31mg\x80h\x9Fi';
       const result = sanitizeForLogging(input) as string;
-      expect(result).toBe('a\\r\\nb\\tc\\x00d\\x1B[31me\\x7Ff');
-      // eslint-disable-next-line no-control-regex -- asserting absence of the control chars we just escaped
-      expect(result).not.toMatch(/[\x00-\x1F\x7F]/);
+      expect(result).toBe('a\\r\\nb\\tc\\x00d\\x1B[31me\\x7Ff\\x9B31mg\\x80h\\x9Fi');
+      // eslint-disable-next-line no-control-regex -- asserting absence of all C0/C1 and DEL control chars
+      expect(result).not.toMatch(/[\x00-\x1F\x7F-\x9F]/);
     });
 
     it('should escape control chars in nested structures and log messages', () => {
@@ -111,13 +111,16 @@ describe('secureLogger', () => {
       expect(Object.keys(result)[0]).not.toContain('\n');
     });
 
-    it('should sanitize and escape Error objects', () => {
+    it('should sanitize and escape Error objects including custom name and stack', () => {
       const error = new Error('OAuth token=secret123 failed\nSecond line');
+      error.name = 'CustomToken_secret456_Error\nInjected';
       const result = sanitizeForLogging(error) as Record<string, unknown>;
-      expect(result.name).toBe('Error');
+      expect(result.name).toContain('[REDACTED]');
+      expect(result.name).not.toContain('\n');
+      expect(result.name).not.toContain('secret456');
       expect(result.message).toContain('[REDACTED]');
       expect(result.message).not.toContain('\n');
-      expect(result.message).toBe('OAuth token=[REDACTED]123 failed\\nSecond line');
+      expect(result.message).not.toContain('secret123');
       if (result.stack) {
         expect(result.stack).not.toContain('secret123');
         expect(result.stack).not.toContain('\n');
