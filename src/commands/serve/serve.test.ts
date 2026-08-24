@@ -318,4 +318,212 @@ describe('serveCommand - config-dir session isolation', () => {
       expect(typeof cleanupPidFileOnExit).toBe('function');
     });
   });
+
+  describe('Fail-open configuration warning (auth disabled + scope validation enabled)', () => {
+    // See src/commands/serve/serve.ts — startup guard for CWE-862/CWE-636.
+    const buildOptions = (overrides: Partial<ServeOptions>): ServeOptions =>
+      ({
+        transport: 'stdio',
+        port: 3050,
+        host: '127.0.0.1',
+        pagination: false,
+        auth: false,
+        'enable-auth': false,
+        'enable-scope-validation': true,
+        'enable-enhanced-security': false,
+        'session-ttl': 1440,
+        'trust-proxy': 'loopback',
+        'health-info-level': 'minimal',
+        'rate-limit-window': 15,
+        'rate-limit-max': 100,
+        'enable-async-loading': false,
+        'async-min-servers': 1,
+        'async-timeout': 30000,
+        'async-batch-notifications': true,
+        'async-batch-delay': 100,
+        'async-notify-on-ready': true,
+        'enable-lazy-loading': false,
+        'lazy-inline-catalog': false,
+        'lazy-catalog-format': 'grouped',
+        'lazy-cache-max-entries': 1000,
+        'lazy-cache-ttl': 300000,
+        'lazy-preload': undefined,
+        'lazy-preload-keywords': undefined,
+        'lazy-fallback-on-error': undefined,
+        'lazy-fallback-timeout': undefined,
+        'enable-config-reload': true,
+        'config-reload-debounce': 500,
+        'enable-env-substitution': true,
+        'enable-session-persistence': true,
+        'session-persist-requests': 100,
+        'session-persist-interval': 5,
+        'session-background-flush': 60,
+        'enable-client-notifications': true,
+        'enable-jsonrpc-error-logging': true,
+        'enable-internal-tools': false,
+        ...overrides,
+      }) as ServeOptions;
+
+    it('logs a WARN and preserves explicit scope validation when auth is disabled but scope validation is enabled', async () => {
+      const logger = (await import('@src/logger/logger.js')).default;
+      const warnSpy = vi.mocked(logger.warn);
+      const configManager = AgentConfigManager.getInstance();
+      const updateConfigSpy = vi.mocked(configManager.updateConfig);
+      warnSpy.mockClear();
+      updateConfigSpy.mockClear();
+
+      try {
+        await serveCommand(
+          buildOptions({
+            'enable-auth': false,
+            'enable-scope-validation': true,
+          }),
+        );
+      } catch {
+        // downstream mocks throw; we only care about the pre-server startup log.
+      }
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('SECURITY WARNING'));
+      expect(updateConfigSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          features: expect.objectContaining({
+            auth: false,
+            scopeValidation: true,
+          }),
+        }),
+      );
+    });
+
+    it('does NOT log a WARN and defaults scope validation to false when using unauthenticated default configuration', async () => {
+      const logger = (await import('@src/logger/logger.js')).default;
+      const warnSpy = vi.mocked(logger.warn);
+      const configManager = AgentConfigManager.getInstance();
+      const updateConfigSpy = vi.mocked(configManager.updateConfig);
+      warnSpy.mockClear();
+      updateConfigSpy.mockClear();
+
+      try {
+        await serveCommand(
+          buildOptions({
+            'enable-auth': false,
+            'enable-scope-validation': undefined,
+          }),
+        );
+      } catch {
+        // ignore
+      }
+
+      const securityWarnings = warnSpy.mock.calls.filter(
+        (args) => typeof args[0] === 'string' && (args[0] as string).includes('SECURITY WARNING'),
+      );
+      expect(securityWarnings).toHaveLength(0);
+      expect(updateConfigSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          features: expect.objectContaining({
+            auth: false,
+            scopeValidation: false,
+          }),
+        }),
+      );
+    });
+
+    it('does NOT log a WARN and defaults scope validation to true when auth is enabled without explicit scope flag', async () => {
+      const logger = (await import('@src/logger/logger.js')).default;
+      const warnSpy = vi.mocked(logger.warn);
+      const configManager = AgentConfigManager.getInstance();
+      const updateConfigSpy = vi.mocked(configManager.updateConfig);
+      warnSpy.mockClear();
+      updateConfigSpy.mockClear();
+
+      try {
+        await serveCommand(
+          buildOptions({
+            'enable-auth': true,
+            'enable-scope-validation': undefined,
+          }),
+        );
+      } catch {
+        // ignore
+      }
+
+      const securityWarnings = warnSpy.mock.calls.filter(
+        (args) => typeof args[0] === 'string' && (args[0] as string).includes('SECURITY WARNING'),
+      );
+      expect(securityWarnings).toHaveLength(0);
+      expect(updateConfigSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          features: expect.objectContaining({
+            auth: true,
+            scopeValidation: true,
+          }),
+        }),
+      );
+    });
+
+    it('does NOT log a WARN when auth is enabled with explicit scope validation', async () => {
+      const logger = (await import('@src/logger/logger.js')).default;
+      const warnSpy = vi.mocked(logger.warn);
+      const configManager = AgentConfigManager.getInstance();
+      const updateConfigSpy = vi.mocked(configManager.updateConfig);
+      warnSpy.mockClear();
+      updateConfigSpy.mockClear();
+
+      try {
+        await serveCommand(
+          buildOptions({
+            'enable-auth': true,
+            'enable-scope-validation': true,
+          }),
+        );
+      } catch {
+        // ignore
+      }
+
+      const securityWarnings = warnSpy.mock.calls.filter(
+        (args) => typeof args[0] === 'string' && (args[0] as string).includes('SECURITY WARNING'),
+      );
+      expect(securityWarnings).toHaveLength(0);
+      expect(updateConfigSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          features: expect.objectContaining({
+            auth: true,
+            scopeValidation: true,
+          }),
+        }),
+      );
+    });
+
+    it('does NOT log a WARN when scope validation is explicitly disabled', async () => {
+      const logger = (await import('@src/logger/logger.js')).default;
+      const warnSpy = vi.mocked(logger.warn);
+      const configManager = AgentConfigManager.getInstance();
+      const updateConfigSpy = vi.mocked(configManager.updateConfig);
+      warnSpy.mockClear();
+      updateConfigSpy.mockClear();
+
+      try {
+        await serveCommand(
+          buildOptions({
+            'enable-auth': false,
+            'enable-scope-validation': false,
+          }),
+        );
+      } catch {
+        // ignore
+      }
+
+      const securityWarnings = warnSpy.mock.calls.filter(
+        (args) => typeof args[0] === 'string' && (args[0] as string).includes('SECURITY WARNING'),
+      );
+      expect(securityWarnings).toHaveLength(0);
+      expect(updateConfigSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          features: expect.objectContaining({
+            auth: false,
+            scopeValidation: false,
+          }),
+        }),
+      );
+    });
+  });
 });
