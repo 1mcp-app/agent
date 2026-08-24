@@ -127,6 +127,8 @@ describe('secureLogger', () => {
         'password=abc123',
         'password="secret password with spaces 123"',
         "token='secret token with spaces 456'",
+        'password="prefix \\"secret with escaped double quotes\\" suffix"',
+        "token='prefix \\'secret with escaped single quotes\\' suffix'",
         'secret=def456',
         'client_secret=ghi789',
         'api-key=jkl012',
@@ -140,6 +142,8 @@ describe('secureLogger', () => {
         expect(result).not.toContain('abc123');
         expect(result).not.toContain('secret password with spaces 123');
         expect(result).not.toContain('secret token with spaces 456');
+        expect(result).not.toContain('secret with escaped double quotes');
+        expect(result).not.toContain('secret with escaped single quotes');
         expect(result).not.toContain('def456');
         expect(result).not.toContain('ghi789');
         expect(result).not.toContain('jkl012');
