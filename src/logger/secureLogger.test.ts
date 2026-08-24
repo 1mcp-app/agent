@@ -106,6 +106,10 @@ describe('secureLogger', () => {
         'user\nrole': 'admin\r\nFORGED: true',
         'token=secret123': 'active',
         'client_secret=secret456': 'valid',
+        'Authorization: Bearer token_in_key_789': 'header_val',
+        'Authorization: Basic dXNlcjpwYXNzd29yZDk5OQ==': 'auth_val',
+        'jwt_key=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozG5faivvqpPxSyqLDKLw_n8_B6':
+          'jwt_val',
       };
       const result = sanitizeForLogging(input) as Record<string, string>;
       expect(result).toHaveProperty('user\\nrole');
@@ -113,11 +117,16 @@ describe('secureLogger', () => {
       expect(Object.keys(result)[0]).not.toContain('\n');
       expect(JSON.stringify(result)).not.toContain('secret123');
       expect(JSON.stringify(result)).not.toContain('secret456');
+      expect(JSON.stringify(result)).not.toContain('token_in_key_789');
+      expect(JSON.stringify(result)).not.toContain('dXNlcjpwYXNzd29yZDk5OQ==');
+      expect(JSON.stringify(result)).not.toContain('dozG5faivvqpPxSyqLDKLw_n8_B6');
     });
 
     it('should redact key-value credential assignments across all key families without leaking values', () => {
       const cases = [
         'password=abc123',
+        'password="secret password with spaces 123"',
+        "token='secret token with spaces 456'",
         'secret=def456',
         'client_secret=ghi789',
         'api-key=jkl012',
@@ -129,6 +138,8 @@ describe('secureLogger', () => {
         const result = sanitizeForLogging(testCase) as string;
         expect(result).toContain('[REDACTED]');
         expect(result).not.toContain('abc123');
+        expect(result).not.toContain('secret password with spaces 123');
+        expect(result).not.toContain('secret token with spaces 456');
         expect(result).not.toContain('def456');
         expect(result).not.toContain('ghi789');
         expect(result).not.toContain('jkl012');
@@ -169,10 +180,14 @@ describe('secureLogger', () => {
       expect(result).not.toContain('\u202E');
     });
 
-    it('should redact PEM private keys, Basic auth, and JWT tokens', () => {
-      const pem = '-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA0...\n-----END RSA PRIVATE KEY-----';
-      expect(sanitizeForLogging(pem)).toContain('[REDACTED]');
-      expect(sanitizeForLogging(pem)).not.toContain('BEGIN RSA PRIVATE KEY');
+    it('should redact PEM private keys including full body content, Basic auth, and JWT tokens', () => {
+      const pem =
+        '-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA0base64secretkeypayload...\n-----END RSA PRIVATE KEY-----';
+      const sanitizedPem = sanitizeForLogging(pem) as string;
+      expect(sanitizedPem).toBe('[REDACTED]');
+      expect(sanitizedPem).not.toContain('BEGIN RSA PRIVATE KEY');
+      expect(sanitizedPem).not.toContain('MIIEowIBAAKCAQEA0base64secretkeypayload');
+      expect(sanitizedPem).not.toContain('END RSA PRIVATE KEY');
 
       const basic = 'Authorization: Basic dXNlcjpwYXNzd29yZDEyMw==';
       expect(sanitizeForLogging(basic)).toContain('[REDACTED]');

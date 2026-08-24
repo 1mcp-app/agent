@@ -1,10 +1,11 @@
 import logger from './logger.js';
 
 /**
- * Consolidated patterns for sensitive data detection
+ * Patterns matching value-bearing credentials (used for both values and object keys)
  */
-const SENSITIVE_PATTERNS = [
-  // PEM Private Key blocks (CWE-532)
+const KEY_SENSITIVE_PATTERNS = [
+  // PEM Private Key blocks (CWE-532, matches full block or unclosed header)
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/gi,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/gi,
 
   // Bearer tokens in Authorization headers (MUST run before generic key-value to avoid splitting "Token: bearer <token>")
@@ -16,15 +17,21 @@ const SENSITIVE_PATTERNS = [
   // JWT tokens (Header.Payload.Signature)
   /\beyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\b/gi,
 
-  // Key-value credential assignments (e.g., token=xyz, password=xyz, client_secret=xyz)
-  // MUST run before generic keyword replacement so values are redacted before keys are masked
-  /(?:[?&]|\b)(?:[tT]oken|[cC]ode|[sS]ecret|client_secret|client_id|[pP]assword|[pP]asswd|api[_-]?key|auth[_-]?token|access_token|refresh_token|private[_-]?key)\s*[:=]\s*[^\s,;&]+/gi,
+  // Key-value credential assignments (supports unquoted and quoted values with embedded whitespace)
+  /(?:[?&]|\b)(?:[tT]oken|[cC]ode|[sS]ecret|client_secret|client_id|[pP]assword|[pP]asswd|api[_-]?key|auth[_-]?token|access_token|refresh_token|private[_-]?key)\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;&]+)/gi,
 
   // URLs with sensitive parameters (consolidates 4 patterns)
   /https?:\/\/[^\s]*[?&](?:[tT]oken|[cC]ode|[sS]ecret|[kK]ey)=[^\s&]*/gi,
 
   // Query parameters with sensitive data (consolidates 2 patterns)
   /[?&](?:[tT]oken|[cC]ode|[sS]ecret|[kK]ey)=[^\s&]*/gi,
+];
+
+/**
+ * Consolidated patterns for sensitive data detection in string values
+ */
+const SENSITIVE_PATTERNS = [
+  ...KEY_SENSITIVE_PATTERNS,
 
   // OAuth tokens and credentials (consolidates 6 patterns)
   /(?:access_token|refresh_token|authorization_code|client_secret|client_id)/gi,
@@ -81,13 +88,13 @@ function sanitizeString(value: string): string {
 }
 
 /**
- * Sanitize an object key: escapes control characters and redacts any inline credential assignments.
+ * Sanitize an object key: redacts credential patterns and escapes control characters.
  */
 function sanitizeKey(key: string): string {
-  const redactedKey = key.replace(
-    /(?:[?&]|\b)(?:[tT]oken|[cC]ode|[sS]ecret|client_secret|client_id|[pP]assword|[pP]asswd|api[_-]?key|auth[_-]?token|access_token|refresh_token|private[_-]?key)\s*[:=]\s*[^\s,;&]+/gi,
-    '[REDACTED]',
-  );
+  let redactedKey = key;
+  for (const pattern of KEY_SENSITIVE_PATTERNS) {
+    redactedKey = redactedKey.replace(pattern, '[REDACTED]');
+  }
   return escapeControlChars(redactedKey);
 }
 
