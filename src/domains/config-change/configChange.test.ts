@@ -70,6 +70,47 @@ describe('Config Change', () => {
     );
   });
 
+  it('awaits asynchronous runtime reload and reports rejection after the durable write', async () => {
+    await writeConfig({ mcpServers: {}, mcpTemplates: {} });
+    let finishReload!: () => void;
+    const pendingReload = new Promise<void>((resolve) => {
+      finishReload = resolve;
+    });
+    const service = createConfigChangeService({ reloadConfig: vi.fn(() => pendingReload) });
+    let settled = false;
+    const operation = service
+      .createTemplateConfiguredServerTarget({
+        targetName: 'worker',
+        serverConfig: { type: 'stdio', command: '{{project.command}}' },
+      })
+      .then((result) => {
+        settled = true;
+        return result;
+      });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    finishReload();
+    await expect(operation).resolves.toMatchObject({ reload: { status: 'observed' } });
+
+    const rejected = createConfigChangeService({
+      reloadConfig: vi.fn(async () => {
+        throw new Error('hot reload disabled');
+      }),
+    });
+    const result = await rejected.editConfiguredServerTarget({
+      sourceName: 'worker',
+      targetSource: 'mcpTemplates',
+      targetName: 'worker',
+      serverConfig: { type: 'stdio', command: '{{workspace.command}}' },
+      expectedSourceFingerprint: fingerprintConfiguredServerTarget({
+        type: 'stdio',
+        command: '{{project.command}}',
+      }),
+    });
+    expect(result).toMatchObject({ status: 'changed', reload: { status: 'failed', error: 'hot reload disabled' } });
+    expect((await readConfig()).mcpTemplates.worker.command).toBe('{{workspace.command}}');
+  });
+
   it('atomically edits and renames a configured server with one required backup and reload', async () => {
     const original = {
       type: 'http' as const,

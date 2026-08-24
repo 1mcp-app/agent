@@ -5031,6 +5031,15 @@ describe('AdminConfiguredServerService', () => {
           env: { TOKEN: `{{#if ${secret}}}` },
         },
         editable: { type: 'http', url: 'https://example.com/mcp' },
+        'editable-env': { type: 'stdio', command: 'node' },
+        mixed: {
+          type: 'stdio',
+          command: 'node',
+          env: {
+            TOKEN: `literal-${secret}{{project.token}}`,
+            COMPARE: `{{eq project.id "${secret}"}}`,
+          },
+        },
       },
     });
     const service = createService();
@@ -5054,9 +5063,29 @@ describe('AdminConfiguredServerService', () => {
     });
     expect(JSON.stringify(detailResult)).not.toContain(secret);
 
+    const mixedResult = await service.getConfiguredServerDetail({
+      context: context(),
+      targetName: 'mixed',
+      targetSource: 'mcpTemplates',
+    });
+    expect(mixedResult).toMatchObject({
+      ok: true,
+      result: {
+        server: {
+          transport: {
+            env: {
+              TOKEN: { value: '[REDACTED]', secret: true },
+              COMPARE: { value: '[REDACTED]', secret: true },
+            },
+          },
+        },
+      },
+    });
+    expect(JSON.stringify(mixedResult)).not.toContain(secret);
+
     const previewResult = await service.previewConfiguredServerEdit({
       context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
-      targetName: 'editable',
+      targetName: 'editable-env',
       targetSource: 'mcpTemplates',
       edit: {
         transport: {
@@ -5067,6 +5096,88 @@ describe('AdminConfiguredServerService', () => {
     });
     expect(previewResult).toMatchObject({ ok: true, result: { validation: { status: 'invalid' } } });
     expect(JSON.stringify(previewResult)).not.toContain(secret);
+
+    const literalPreview = await service.previewConfiguredServerEdit({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'editable-env',
+      targetSource: 'mcpTemplates',
+      edit: { transport: { env: { COMPARE: `{{eq project.id "${secret}"}}` } } },
+    });
+    expect(literalPreview).toMatchObject({ ok: true, result: { validation: { status: 'valid' } } });
+    expect(JSON.stringify(literalPreview)).not.toContain(secret);
+  });
+
+  it('rejects Template header expressions for create and edit because runtime headers are literal', async () => {
+    writeConfig({
+      mcpServers: {},
+      mcpTemplates: { worker: { type: 'http', url: 'https://example.com/mcp', headers: { Existing: 'literal' } } },
+    });
+    const service = createService();
+    const createPreview = await service.previewConfiguredServerCreate({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      draft: {
+        source: 'mcpTemplates',
+        name: 'created',
+        transport: {
+          type: 'http',
+          url: 'https://example.com/mcp',
+          headers: { Authorization: '{{environment.variables.TOKEN}}' },
+        },
+      },
+    });
+    expect(createPreview).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: [expect.objectContaining({ code: 'template_header_not_rendered' })],
+        },
+      },
+    });
+
+    const editPreview = await service.previewConfiguredServerEdit({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'worker',
+      targetSource: 'mcpTemplates',
+      edit: { transport: { headers: { Authorization: '{{environment.variables.TOKEN}}' } } },
+    });
+    expect(editPreview).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([expect.objectContaining({ code: 'template_header_not_rendered' })]),
+        },
+      },
+    });
+  });
+
+  it('allows Handlebars URLs only for Template definitions', async () => {
+    writeConfig({
+      mcpServers: { static: { type: 'http', url: 'https://example.com/mcp' } },
+      mcpTemplates: { template: { type: 'http', url: 'https://example.com/mcp' } },
+    });
+    const service = createService();
+    const edit = { transport: { url: 'https://{{project.host}}/mcp' } };
+
+    const staticPreview = await service.previewConfiguredServerEdit({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'static',
+      targetSource: 'mcpServers',
+      edit,
+    });
+    expect(staticPreview).toMatchObject({
+      ok: true,
+      result: { validation: { status: 'invalid', errors: [expect.objectContaining({ code: 'invalid_url' })] } },
+    });
+
+    const templatePreview = await service.previewConfiguredServerEdit({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'template',
+      targetSource: 'mcpTemplates',
+      edit,
+    });
+    expect(templatePreview).toMatchObject({ ok: true, result: { validation: { status: 'valid', errors: [] } } });
   });
 
   it('previews and applies a template edit without changing the same-name static definition', async () => {
@@ -5227,7 +5338,11 @@ describe('AdminConfiguredServerService', () => {
       activeInstancesAfter: 0,
       retirementObserved: true,
     }));
-    const service = createService({ getTemplateActiveInstanceCount: () => 2, observeTemplateDefinitionRetirement });
+    const service = createService({
+      getTemplateActiveInstanceCount: () => 2,
+      getTemplateActiveInstanceIdentities: () => ['worker:one', 'worker:two'],
+      observeTemplateDefinitionRetirement,
+    });
     const edit = { transport: { command: '{{workspace.command}}' } };
     const preview = await service.previewConfiguredServerEdit({
       context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
@@ -5254,7 +5369,7 @@ describe('AdminConfiguredServerService', () => {
       ok: true,
       result: { runtimeImpact: { retiredInstances: 2, activeInstancesAfter: 0, retirementObserved: true } },
     });
-    expect(observeTemplateDefinitionRetirement).toHaveBeenCalledWith('worker');
+    expect(observeTemplateDefinitionRetirement).toHaveBeenCalledWith('worker', ['worker:one', 'worker:two']);
   });
 
   it('uses the pre-write active count when reload has already moved instances to terminating', async () => {
@@ -5268,7 +5383,11 @@ describe('AdminConfiguredServerService', () => {
       activeInstancesAfter: 0,
       retirementObserved: true,
     }));
-    const service = createService({ getTemplateActiveInstanceCount: () => 1, observeTemplateDefinitionRetirement });
+    const service = createService({
+      getTemplateActiveInstanceCount: () => 1,
+      getTemplateActiveInstanceIdentities: () => ['worker:terminating'],
+      observeTemplateDefinitionRetirement,
+    });
     const edit = { transport: { command: '{{workspace.command}}' } };
     const preview = await service.previewConfiguredServerEdit({
       context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
@@ -5276,6 +5395,7 @@ describe('AdminConfiguredServerService', () => {
       targetSource: 'mcpTemplates',
       edit,
     });
+    expect(preview.ok).toBe(true);
     if (!preview.ok) return;
 
     const applied = await service.applyConfiguredServerEdit({
@@ -5310,7 +5430,11 @@ describe('AdminConfiguredServerService', () => {
       mcpTemplates: { worker: { type: 'stdio', command: '{{project.command}}' } },
     });
     const observeTemplateDefinitionRetirement = vi.fn();
-    const service = createService({ getTemplateActiveInstanceCount: () => 2, observeTemplateDefinitionRetirement });
+    const service = createService({
+      getTemplateActiveInstanceCount: () => 2,
+      getTemplateActiveInstanceIdentities: () => ['worker:one', 'worker:two'],
+      observeTemplateDefinitionRetirement,
+    });
     const edit = { instructionOverride: { action: 'set' as const, value: 'Operator guidance' } };
     const preview = await service.previewConfiguredServerEdit({
       context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
@@ -5353,7 +5477,11 @@ describe('AdminConfiguredServerService', () => {
     const observeTemplateDefinitionRetirement = vi.fn(async () => {
       throw new Error('retirement observation unavailable');
     });
-    const service = createService({ getTemplateActiveInstanceCount: () => 2, observeTemplateDefinitionRetirement });
+    const service = createService({
+      getTemplateActiveInstanceCount: () => 2,
+      getTemplateActiveInstanceIdentities: () => ['worker:one', 'worker:two'],
+      observeTemplateDefinitionRetirement,
+    });
     const edit = { transport: { command: '{{workspace.command}}' } };
     const preview = await service.previewConfiguredServerEdit({
       context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
@@ -5361,6 +5489,7 @@ describe('AdminConfiguredServerService', () => {
       targetSource: 'mcpTemplates',
       edit,
     });
+    expect(preview.ok).toBe(true);
     if (!preview.ok) return;
     const mutationContext = context({
       confirmationFacts: {
@@ -5426,7 +5555,11 @@ describe('AdminConfiguredServerService', () => {
       checkConnectivity?: ConfiguredServerConnectivityChecker;
       mutationAvailability?: { available: boolean; reason?: 'writer_lock_unavailable' };
       getTemplateActiveInstanceCount?: (templateName: string) => number;
-      observeTemplateDefinitionRetirement?: (templateName: string) => Promise<{
+      getTemplateActiveInstanceIdentities?: (templateName: string) => string[];
+      observeTemplateDefinitionRetirement?: (
+        templateName: string,
+        instanceIdentities: readonly string[],
+      ) => Promise<{
         activeInstancesBefore: number;
         retiredInstances: number;
         activeInstancesAfter: number;

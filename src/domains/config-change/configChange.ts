@@ -178,7 +178,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
 
     return {
       ...resultWithoutReload,
-      reload: this.reloadConfig(configPath),
+      reload: await this.reloadConfig(configPath),
     };
   }
 
@@ -257,7 +257,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
 
     return {
       ...resultWithoutReload,
-      reload: this.reloadConfig(configPath),
+      reload: await this.reloadConfig(configPath),
     };
   }
 
@@ -345,7 +345,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
       releaseLock();
     }
 
-    return { ...resultWithoutReload, reload: this.reloadConfig(configPath) };
+    return { ...resultWithoutReload, reload: await this.reloadConfig(configPath) };
   }
 
   async createTemplateConfiguredServerTarget(
@@ -431,7 +431,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
       releaseLock();
     }
 
-    return { ...resultWithoutReload, reload: this.reloadConfig(configPath) };
+    return { ...resultWithoutReload, reload: await this.reloadConfig(configPath) };
   }
 
   async setConfiguredServerTargetEnabledState(
@@ -561,7 +561,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
 
     return {
       ...resultWithoutReload,
-      reload: this.reloadConfig(configPath),
+      reload: await this.reloadConfig(configPath),
     };
   }
 
@@ -653,7 +653,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
       releaseLock();
     }
 
-    return { ...resultWithoutReload, reload: this.reloadConfig(configPath) };
+    return { ...resultWithoutReload, reload: await this.reloadConfig(configPath) };
   }
 
   async previewConfiguredServerTargetEnabledState(
@@ -831,7 +831,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
       releaseLock();
     }
 
-    return { ...resultWithoutReload, reload: this.reloadConfig(configPath) };
+    return { ...resultWithoutReload, reload: await this.reloadConfig(configPath) };
   }
 
   async changeConfiguredServerInstructionOverride(
@@ -907,7 +907,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
       releaseLock();
     }
 
-    return { ...resultWithoutReload, reload: this.reloadConfig(configPath) };
+    return { ...resultWithoutReload, reload: await this.reloadConfig(configPath) };
   }
 
   async acquireConfigLockForTest(configPath: string): Promise<() => void> {
@@ -1060,10 +1060,10 @@ class DefaultConfigChangeService implements ConfigChangeService {
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
   }
 
-  private reloadConfig(configPath: string): ConfigReloadResult {
+  private async reloadConfig(configPath: string): Promise<ConfigReloadResult> {
     try {
       if (this.ports.reloadConfig) {
-        this.ports.reloadConfig(configPath);
+        await this.ports.reloadConfig(configPath);
       } else {
         McpConfigManager.getInstance(configPath).reloadConfig();
       }

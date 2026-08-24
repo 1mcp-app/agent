@@ -51,7 +51,11 @@ export interface AdminDomainOptions {
     model?: string;
   }) => Promise<ConfiguredToolInventory>;
   getTemplateActiveInstanceCount?: (templateName: string) => number;
-  observeTemplateDefinitionRetirement?: (templateName: string) => Promise<TemplateDefinitionRuntimeImpact>;
+  getTemplateActiveInstanceIdentities?: (templateName: string) => string[];
+  observeTemplateDefinitionRetirement?: (
+    templateName: string,
+    instanceIdentities: readonly string[],
+  ) => Promise<TemplateDefinitionRuntimeImpact>;
   mutationAvailability?: AdminMutationAvailability;
   now?: () => Date;
   createOperationId?: () => string;
@@ -97,6 +101,9 @@ export function createAdminDomain(options: AdminDomainOptions): AdminDomain {
     ...(options.refreshToolInventory ? { refreshToolInventory: options.refreshToolInventory } : {}),
     ...(options.getTemplateActiveInstanceCount
       ? { getTemplateActiveInstanceCount: options.getTemplateActiveInstanceCount }
+      : {}),
+    ...(options.getTemplateActiveInstanceIdentities
+      ? { getTemplateActiveInstanceIdentities: options.getTemplateActiveInstanceIdentities }
       : {}),
     ...(options.observeTemplateDefinitionRetirement
       ? { observeTemplateDefinitionRetirement: options.observeTemplateDefinitionRetirement }

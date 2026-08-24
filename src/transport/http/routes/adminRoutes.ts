@@ -1311,7 +1311,7 @@ async function handleConfiguredToolInventoryRefresh(
     const result = await options.configuredServerService.refreshConfiguredToolInventory({
       context: buildAdminOperationContext(req, options, {
         type: 'configured_server',
-        id: `${targetSource}:${targetName}`,
+        id: `${targetSource}/${targetName}`,
       }),
       targetName,
       targetSource,

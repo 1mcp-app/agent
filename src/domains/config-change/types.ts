@@ -120,7 +120,7 @@ export interface ChangeConfiguredServerInstructionOverrideInput {
 
 export interface ConfigChangePorts {
   getConfigPath?: () => string;
-  reloadConfig?: (configPath: string) => void;
+  reloadConfig?: (configPath: string) => void | Promise<void>;
   now?: () => number;
   lockTimeoutMs?: number;
 }

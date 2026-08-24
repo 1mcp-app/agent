@@ -27,6 +27,7 @@ import {
   type ServerInstallationWorkflowResult,
 } from '@src/domains/installation/serverInstallationWorkflow.js';
 
+import Handlebars from 'handlebars';
 import { z } from 'zod';
 
 import type {
@@ -63,7 +64,11 @@ interface AdminConfiguredServerServiceOptions {
     model?: string;
   }) => Promise<ConfiguredToolInventory>;
   getTemplateActiveInstanceCount?: (templateName: string) => number;
-  observeTemplateDefinitionRetirement?: (templateName: string) => Promise<TemplateDefinitionRuntimeImpact>;
+  getTemplateActiveInstanceIdentities?: (templateName: string) => string[];
+  observeTemplateDefinitionRetirement?: (
+    templateName: string,
+    instanceIdentities: readonly string[],
+  ) => Promise<TemplateDefinitionRuntimeImpact>;
 }
 
 interface PreparedConfiguredServerCreate {
@@ -260,6 +265,7 @@ function mergeConfiguredServerCreateRecord(
 function createWorkflowValidation(
   workflow: ServerInstallationWorkflowResult,
   config: MCPServerParams | undefined,
+  source: ConfiguredServerTargetSource = 'mcpServers',
 ): ConfiguredServerPreviewValidation {
   const errors: ConfiguredServerPreviewValidationError[] = [];
   for (const [field, messages] of Object.entries(workflow.fieldErrors ?? {})) {
@@ -282,6 +288,14 @@ function createWorkflowValidation(
     const parsed = transportConfigSchema.safeParse(config);
     if (!parsed.success) {
       for (const issue of parsed.error.issues) {
+        if (
+          source === 'mcpTemplates' &&
+          issue.path[0] === 'url' &&
+          typeof config.url === 'string' &&
+          config.url.includes('{{')
+        ) {
+          continue;
+        }
         errors.push({
           fieldPath: ['transport', ...issue.path.map(String)],
           code: 'invalid_transport_config',
@@ -1263,8 +1277,16 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
               : []),
           ],
           run: async () => {
+            const instanceIdentities =
+              source === 'mcpTemplates'
+                ? (this.options.getTemplateActiveInstanceIdentities?.(input.targetName) ?? [])
+                : [];
             const activeInstancesBefore =
-              source === 'mcpTemplates' ? (this.options.getTemplateActiveInstanceCount?.(input.targetName) ?? 0) : 0;
+              instanceIdentities.length > 0
+                ? instanceIdentities.length
+                : source === 'mcpTemplates'
+                  ? (this.options.getTemplateActiveInstanceCount?.(input.targetName) ?? 0)
+                  : 0;
             const configChange = await this.options.configChangeService.editConfiguredServerTarget({
               sourceName: input.targetName,
               targetSource: source,
@@ -1281,6 +1303,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
                     configChange,
                     preview.runtimeImpact?.retirementRequired === true,
                     activeInstancesBefore,
+                    instanceIdentities,
                   )
                 : undefined;
             return {
@@ -1449,6 +1472,10 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
   ): Promise<ConfiguredServerPreviewResult> {
     const normalizedEdit = normalizeEditDraft(input.edit);
     const sourceValidation = validateEditForSource(source, normalizedEdit.edit);
+    const rawTemplateHeaderValidation =
+      source === 'mcpTemplates'
+        ? validateRawTemplateHeaderEdit(input.edit)
+        : ({ status: 'valid', errors: [] } as ConfiguredServerPreviewValidation);
     const currentReadModel = createConfiguredServerReadModel(
       input.targetName,
       mergeGlobalAndServerConfig(serverDefaults, currentConfig),
@@ -1466,7 +1493,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
       source,
     );
     const proposedTransportType = configuredTransportType(proposedConfig);
-    const serverValidation = validatePreviewServerConfig(proposedConfig);
+    const serverValidation = validatePreviewServerConfig(proposedConfig, source);
     const templateValidation =
       source === 'mcpTemplates'
         ? templateDefinitionValidation(proposedConfig)
@@ -1486,7 +1513,10 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
         overrideValidation,
       ),
       mergeValidation(
-        mergeValidation(mergeValidation(serverValidation, sourceValidation), toolEditValidation),
+        mergeValidation(
+          mergeValidation(mergeValidation(serverValidation, sourceValidation), toolEditValidation),
+          rawTemplateHeaderValidation,
+        ),
         templateValidation,
       ),
     );
@@ -1623,6 +1653,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
     configChange: ConfigChangeResult,
     retirementRequired: boolean,
     activeInstancesBefore: number,
+    instanceIdentities: readonly string[],
   ): Promise<TemplateDefinitionRuntimeImpact> {
     if (!retirementRequired) {
       return {
@@ -1642,7 +1673,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
       };
     }
     try {
-      const observed = await this.options.observeTemplateDefinitionRetirement(templateName);
+      const observed = await this.options.observeTemplateDefinitionRetirement(templateName, instanceIdentities);
       return {
         ...observed,
         activeInstancesBefore,
@@ -1751,7 +1782,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
     const validation = mergeValidation(
       mergeValidation(
         mergeValidation(normalized.validation, validateConfiguredServerCreateSecrets(normalized.draft)),
-        createWorkflowValidation(workflowResult, config),
+        createWorkflowValidation(workflowResult, config, normalized.targetSource),
       ),
       templateValidation,
     );
@@ -1784,10 +1815,46 @@ function createTemplateServerConfig(draft: ConfiguredServerCreateDraft): MCPServ
 
 function templateDefinitionValidation(config: MCPServerParams): ConfiguredServerPreviewValidation {
   const analysis = analyzeTemplateServerDefinition(config);
+  const headerErrors = Object.entries(config.headers ?? {}).flatMap(([name, value]) =>
+    typeof value === 'string' && value.includes('{{')
+      ? [
+          {
+            fieldPath: ['transport', 'headers', name],
+            code: 'template_header_not_rendered',
+            message: 'Template expressions are not supported in headers because the runtime does not render them.',
+          },
+        ]
+      : [],
+  );
+  const errors = [...analysis.syntax.errors, ...headerErrors];
   return {
-    status: analysis.syntax.valid ? 'valid' : 'invalid',
-    errors: analysis.syntax.errors,
+    status: errors.length === 0 ? 'valid' : 'invalid',
+    errors,
   };
+}
+
+function validateRawTemplateHeaderEdit(value: unknown): ConfiguredServerPreviewValidation {
+  const record = value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  const transport =
+    record.transport && typeof record.transport === 'object' && !Array.isArray(record.transport)
+      ? (record.transport as Record<string, unknown>)
+      : {};
+  const headers =
+    transport.headers && typeof transport.headers === 'object' && !Array.isArray(transport.headers)
+      ? (transport.headers as Record<string, unknown>)
+      : {};
+  const errors = Object.entries(headers).flatMap(([name, entry]) =>
+    typeof entry === 'string' && entry.includes('{{')
+      ? [
+          {
+            fieldPath: ['transport', 'headers', name],
+            code: 'template_header_not_rendered',
+            message: 'Template expressions are not supported in headers because the runtime does not render them.',
+          },
+        ]
+      : [],
+  );
+  return { status: errors.length === 0 ? 'valid' : 'invalid', errors };
 }
 
 function validateEditForSource(
@@ -2878,7 +2945,10 @@ function deleteNestedValue(target: Record<string, unknown>, fieldPath: string[])
   delete cursor[fieldPath[fieldPath.length - 1]];
 }
 
-function validatePreviewServerConfig(serverConfig: MCPServerParams): ConfiguredServerPreviewValidation {
+function validatePreviewServerConfig(
+  serverConfig: MCPServerParams,
+  source: ConfiguredServerTargetSource = 'mcpServers',
+): ConfiguredServerPreviewValidation {
   const errors: ConfiguredServerPreviewValidationError[] = [];
   const type = typeof serverConfig.type === 'string' ? serverConfig.type : undefined;
   const url = typeof serverConfig.url === 'string' ? serverConfig.url : undefined;
@@ -2926,7 +2996,7 @@ function validatePreviewServerConfig(serverConfig: MCPServerParams): ConfiguredS
     });
   }
 
-  if (url !== undefined && !isValidUrlOrEnvReference(url)) {
+  if (url !== undefined && !isValidUrlOrEnvReference(url, source === 'mcpTemplates')) {
     errors.push({
       fieldPath: ['transport', 'url'],
       code: 'invalid_url',
@@ -2970,8 +3040,9 @@ function mergeValidation(
   };
 }
 
-function isValidUrlOrEnvReference(value: string): boolean {
-  if (/\{\{[^}]+\}\}|\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*/u.test(value)) {
+function isValidUrlOrEnvReference(value: string, allowHandlebars = false): boolean {
+  if (value.includes('{{')) return allowHandlebars && /\{\{[^}]+\}\}/u.test(value);
+  if (/\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*/u.test(value)) {
     return true;
   }
 
@@ -3980,7 +4051,7 @@ function redactNamedSecretRecord(
     if (
       exposeTemplateExpressions &&
       typeof entry === 'string' &&
-      entry.includes('{{') &&
+      isSafeTemplateExpressionValue(entry) &&
       !containsSecretLikeString(entry)
     ) {
       redacted[key] = entry;
@@ -3990,6 +4061,24 @@ function redactNamedSecretRecord(
     secretInputs.push(secretInput([...basePath, key], key));
   }
   return redacted;
+}
+
+function isSafeTemplateExpressionValue(value: string): boolean {
+  if (!value.includes('{{')) return false;
+  const withoutExpressions = value.replace(/\{\{\{?[\s\S]*?\}\}\}?/gu, '');
+  if (!/^[\s,;:|/_.-]*$/u.test(withoutExpressions)) return false;
+  try {
+    return !templateAstContainsStringLiteral(Handlebars.parse(value));
+  } catch {
+    return false;
+  }
+}
+
+function templateAstContainsStringLiteral(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  if (Array.isArray(value)) return value.some(templateAstContainsStringLiteral);
+  const node = value as Record<string, unknown>;
+  return node.type === 'StringLiteral' || Object.values(node).some(templateAstContainsStringLiteral);
 }
 
 function redactOAuthConfig(value: unknown, secretInputs: ConfiguredServerSecretInput[]): Record<string, unknown> {

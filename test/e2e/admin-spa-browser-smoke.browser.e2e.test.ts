@@ -400,7 +400,9 @@ describe('admin SPA browser smoke', () => {
       await expectText(page, 'does not contact a backend');
       await expectText(page, '0 active');
       await page.getByRole('button', { name: 'Create template' }).click();
-      await page.getByRole('dialog').getByRole('button', { name: 'Create server' }).click();
+      const createDialog = page.getByRole('dialog');
+      await expectVisible(createDialog.getByText('No runtime instance is created.'));
+      await createDialog.getByRole('button', { name: 'Create template' }).click();
       await page.waitForURL(`${baseUrl}/admin/servers/mcpTemplates/project-template`);
       await expectVisible(page.getByRole('heading', { name: 'project-template', exact: true }));
       await expectText(page, 'This is a definition, not a live instance.');
@@ -1513,7 +1515,18 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
         ...(input.targetSource === 'mcpTemplates'
           ? {
               templateAnalysis: {
-                syntax: { valid: !malformedTemplate, errors: [] },
+                syntax: {
+                  valid: !malformedTemplate,
+                  errors: malformedTemplate
+                    ? [
+                        {
+                          fieldPath: ['transport', 'command'],
+                          code: 'invalid_handlebars' as const,
+                          message: 'Invalid Handlebars syntax at line 1, column 0.',
+                        },
+                      ]
+                    : [],
+                },
                 variables: malformedTemplate ? [] : ['project.command'],
                 unresolvedVariables: malformedTemplate ? [] : ['project.command'],
                 fields: [],

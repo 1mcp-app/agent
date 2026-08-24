@@ -262,7 +262,7 @@ describe('ConfigManager (Integration)', () => {
       expect(configManager.isReloadEnabled()).toBe(true);
     });
 
-    it('should return false when config reload feature is disabled', () => {
+    it('should return false and reject explicit reload when config reload is disabled', async () => {
       mockAgentConfig.get.mockImplementation((key: string) => {
         const config = {
           features: { configReload: false },
@@ -272,6 +272,7 @@ describe('ConfigManager (Integration)', () => {
 
       const newManager = ConfigManager.getInstance(configFilePath);
       expect(newManager.isReloadEnabled()).toBe(false);
+      await expect(newManager.reloadConfig()).rejects.toThrow('Configuration hot-reload is disabled');
 
       // Reset for other tests
       mockAgentConfig.get.mockImplementation((key: string) => {

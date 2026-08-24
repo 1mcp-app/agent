@@ -209,14 +209,23 @@ export function useConfiguredServerCreate({
     try {
       const previewResult = current.preview;
       const connectivityFailed = previewResult.connectivityCheck.status === 'failed';
+      const templateDefinition = draft.source === 'mcpTemplates';
       const confirmed = await browser.confirm({
         title: connectivityFailed
           ? `Create ${draft.name} despite failed connectivity?`
-          : `Create configured server ${draft.name}?`,
+          : templateDefinition
+            ? `Create Template definition ${draft.name}?`
+            : `Create configured server ${draft.name}?`,
         message: connectivityFailed
           ? 'The bounded connectivity check failed. Creating this target may leave it unavailable.'
-          : 'This writes a new static target and reloads the Runtime Scope.',
-        confirmLabel: connectivityFailed ? 'Create despite failure' : 'Create server',
+          : templateDefinition
+            ? 'This writes a Template Server definition and reloads the Runtime Scope. No runtime instance is created.'
+            : 'This writes a new static target and reloads the Runtime Scope.',
+        confirmLabel: connectivityFailed
+          ? 'Create despite failure'
+          : templateDefinition
+            ? 'Create template'
+            : 'Create server',
         tone: connectivityFailed ? 'danger' : undefined,
         details: [
           { label: 'Target', value: draft.name },

@@ -2115,7 +2115,7 @@ describe('admin routes', () => {
     expect(configuredServerService.refreshConfiguredToolInventory).toHaveBeenCalledWith({
       context: expect.objectContaining({
         actor: expect.objectContaining({ type: 'admin_session' }),
-        target: { type: 'configured_server', id: 'mcpTemplates:project' },
+        target: { type: 'configured_server', id: 'mcpTemplates/project' },
       }),
       targetName: 'project',
       targetSource: 'mcpTemplates',

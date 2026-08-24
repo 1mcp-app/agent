@@ -472,7 +472,14 @@ describe('TemplateServerManager', () => {
         client: {},
         clientIds: new Set(['client-a']),
       };
-      manager.clientInstancePool.getTemplateInstances.mockImplementation(() => (removed ? [] : [instance]));
+      const replacementInstance = {
+        ...instance,
+        id: 'replacement-id',
+        instanceKey: instance.instanceKey,
+      };
+      manager.clientInstancePool.getTemplateInstances.mockImplementation(() =>
+        removed ? [replacementInstance] : [instance],
+      );
       manager.clientInstancePool.removeInstance.mockImplementation(
         () =>
           new Promise<void>((resolve) => {
@@ -490,7 +497,7 @@ describe('TemplateServerManager', () => {
         mcpTemplates: { 'test-template': replacementConfig },
       });
 
-      const result = await templateServerManager.observeTemplateDefinitionRetirement('test-template');
+      const result = await templateServerManager.observeTemplateDefinitionRetirement('test-template', [instance.id]);
 
       expect(result).toEqual({
         activeInstancesBefore: 1,
