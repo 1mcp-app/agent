@@ -2404,6 +2404,41 @@ describe('AdminConfiguredServerService', () => {
     expect(JSON.stringify(result)).not.toMatch(/raw-new-token|existing-token/);
   });
 
+  it('rejects mixed Template expressions and literal secrets in raw environment edits', async () => {
+    const secret = 'sk-live-do-not-return';
+    writeConfig({
+      mcpServers: {},
+      mcpTemplates: {
+        worker: { type: 'stdio', command: '{{project.command}}', env: {} },
+      },
+    });
+    const service = createService();
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'worker',
+      targetSource: 'mcpTemplates',
+      edit: { transport: { env: { API_TOKEN: `{{project.id}}-${secret}` } } },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            expect.objectContaining({
+              fieldPath: ['transport', 'env'],
+              code: 'secret_transport_edit_requires_secret_action',
+            }),
+          ]),
+        },
+        diff: [],
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain(secret);
+  });
+
   it('rejects nested raw OAuth secret material submitted through transport edits', async () => {
     writeConfig({
       mcpServers: {
