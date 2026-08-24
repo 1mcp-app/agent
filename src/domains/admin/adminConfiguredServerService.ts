@@ -2431,7 +2431,7 @@ function isSecretCapableRawTransportEdit(key: string, value: unknown): boolean {
   if (key === 'env' && value && typeof value === 'object' && !Array.isArray(value)) {
     return Object.entries(value as Record<string, unknown>).some(
       ([name, entry]) =>
-        !(typeof entry === 'string' && entry.includes('{{')) &&
+        !(typeof entry === 'string' && isSafeTemplateExpressionValue(entry)) &&
         (isSecretLikeKey(name) || containsSecretLikeField(entry)),
     );
   }
