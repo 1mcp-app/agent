@@ -39,7 +39,7 @@ export class AuthRequestRepository {
     };
 
     this.storage.writeData(AUTH_CONFIG.SERVER.AUTH_REQUEST.FILE_PREFIX, authRequestId, authRequestData);
-    logger.info(`Created auth request: ${authRequestId} for client: ${clientId}`);
+    logger.info(`Created auth request for client: ${clientId}`);
     return authRequestId;
   }
 
@@ -56,7 +56,7 @@ export class AuthRequestRepository {
   delete(authRequestId: string): boolean {
     const result = this.storage.deleteData(AUTH_CONFIG.SERVER.AUTH_REQUEST.FILE_PREFIX, authRequestId);
     if (result) {
-      logger.info(`Deleted auth request: ${authRequestId}`);
+      logger.info('Deleted auth request');
     }
     return result;
   }

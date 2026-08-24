@@ -147,6 +147,13 @@ export class OAuthStorageService {
     return this.sessions;
   }
 
+  /**
+   * Underlying file storage service used for exclusive locking and persistence management.
+   */
+  get fileStorage(): FileStorageService {
+    return this.storage;
+  }
+
   get authCodeRepository(): AuthCodeRepository {
     return this.authCodes;
   }
