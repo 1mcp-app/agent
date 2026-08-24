@@ -45,12 +45,13 @@ describe('SDKOAuthServerProvider refresh token families', () => {
     provider = new SDKOAuthServerProvider(tempDir, 'runtime-scope-a');
     const configManager = AgentConfigManager.getInstance();
     originalAuthEnabled = configManager.get('features').auth;
-    configManager.get('features').auth = true;
+    configManager.updateConfig({ features: { ...configManager.get('features'), auth: true } });
   });
 
   afterEach(() => {
     provider.shutdown();
-    AgentConfigManager.getInstance().get('features').auth = originalAuthEnabled;
+    const configManager = AgentConfigManager.getInstance();
+    configManager.updateConfig({ features: { ...configManager.get('features'), auth: originalAuthEnabled } });
     fs.rmSync(tempDir, { recursive: true, force: true });
     vi.restoreAllMocks();
   });
@@ -328,3 +329,199 @@ function readSoleFamily(tempDir: string) {
   expect(familyFiles).toHaveLength(1);
   return RefreshTokenFamilyDataSchema.parse(JSON.parse(fs.readFileSync(familyFiles[0], 'utf8')));
 }
+
+describe('authorization-code-atomic (goiabada#77 double-spend)', () => {
+  let provider: SDKOAuthServerProvider;
+  let tempDir: string;
+  let originalAuthEnabled: boolean;
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), '1mcp-authcode-atomic-'));
+    provider = new SDKOAuthServerProvider(tempDir, 'runtime-scope-a');
+    const configManager = AgentConfigManager.getInstance();
+    originalAuthEnabled = configManager.get('features').auth;
+    configManager.updateConfig({ features: { ...configManager.get('features'), auth: true } });
+  });
+
+  afterEach(() => {
+    provider.shutdown();
+    const configManager = AgentConfigManager.getInstance();
+    configManager.updateConfig({ features: { ...configManager.get('features'), auth: originalAuthEnabled } });
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  it('allows exactly one winner for concurrent exchanges of the same code', async () => {
+    const code = provider.oauthStorage.authCodeRepository.create(
+      CLIENT.client_id,
+      CLIENT.redirect_uris[0],
+      RESOURCE,
+      SCOPES,
+      60_000,
+      'challenge',
+    );
+
+    const attempt = () =>
+      provider.exchangeAuthorizationCode(CLIENT, code, undefined, CLIENT.redirect_uris[0], new URL(RESOURCE));
+
+    const results = await Promise.allSettled([attempt(), attempt(), attempt(), attempt(), attempt()]);
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled') as PromiseFulfilledResult<OAuthTokens>[];
+    const rejected = results.filter((r) => r.status === 'rejected') as PromiseRejectedResult[];
+
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected.length).toBeGreaterThanOrEqual(4);
+    for (const r of rejected) {
+      expect(r.reason).toBeInstanceOf(InvalidGrantError);
+      expect((r.reason as Error).message).toBe('Invalid or expired authorization code');
+    }
+
+    const accessTokens = new Set(fulfilled.map((r) => r.value.access_token));
+    expect(accessTokens.size).toBe(1);
+
+    // code is consumed: a later sequential attempt also fails
+    await expect(attempt()).rejects.toBeInstanceOf(InvalidGrantError);
+    expect(provider.oauthStorage.authCodeRepository.get(code)).toBeNull();
+  }, 20_000);
+
+  it('logs do not contain the plaintext authorization code', async () => {
+    const infoSpy = vi.spyOn(logger, 'info');
+    const debugSpy = vi.spyOn(logger, 'debug');
+    const warnSpy = vi.spyOn(logger, 'warn');
+    const errorSpy = vi.spyOn(logger, 'error');
+
+    const code = provider.oauthStorage.authCodeRepository.create(
+      ACCESS_ONLY_CLIENT.client_id,
+      ACCESS_ONLY_CLIENT.redirect_uris[0],
+      RESOURCE,
+      SCOPES,
+      60_000,
+      'challenge',
+    );
+    const tokens = await provider.exchangeAuthorizationCode(
+      ACCESS_ONLY_CLIENT,
+      code,
+      undefined,
+      ACCESS_ONLY_CLIENT.redirect_uris[0],
+      new URL(RESOURCE),
+    );
+    expect(tokens.access_token).toBeDefined();
+
+    const allLoggedContent = [
+      ...infoSpy.mock.calls,
+      ...debugSpy.mock.calls,
+      ...warnSpy.mock.calls,
+      ...errorSpy.mock.calls,
+    ]
+      .map((call) => JSON.stringify(call))
+      .join('\n');
+
+    expect(allLoggedContent).not.toContain(code);
+    expect(allLoggedContent).not.toMatch(/auth_code_code-[0-9a-f-]+/i);
+  });
+
+  it('failure paths in storage operations do not expose the plaintext code or path in error logs', async () => {
+    const errorSpy = vi.spyOn(logger, 'error');
+    const warnSpy = vi.spyOn(logger, 'warn');
+
+    const code = provider.oauthStorage.authCodeRepository.create(
+      ACCESS_ONLY_CLIENT.client_id,
+      ACCESS_ONLY_CLIENT.redirect_uris[0],
+      RESOURCE,
+      SCOPES,
+      60_000,
+      'challenge',
+    );
+
+    // Simulate an IO failure during deletion that includes the sensitive file path in the native error message
+    const realUnlinkSync = fs.unlinkSync;
+    vi.spyOn(fs, 'unlinkSync').mockImplementation((targetPath) => {
+      const err = new Error(`EACCES: permission denied, unlink '${String(targetPath)}'`);
+      (err as unknown as { code: string }).code = 'EACCES';
+      throw err;
+    });
+
+    // Attempting to delete triggers the failure path
+    expect(() => provider.oauthStorage.authCodeRepository.delete(code)).toThrow();
+
+    const allLoggedErrors = [...errorSpy.mock.calls, ...warnSpy.mock.calls]
+      .map((call) => JSON.stringify(call))
+      .join('\n');
+
+    expect(allLoggedErrors).not.toContain(code);
+    expect(allLoggedErrors).not.toMatch(/auth_code_code-[0-9a-f-]+/i);
+    expect(allLoggedErrors).toContain('[REDACTED]');
+    expect(allLoggedErrors).toContain('EACCES');
+
+    fs.unlinkSync = realUnlinkSync;
+  });
+
+  it('cleanup of expired authorization codes does not log plaintext codes or paths', async () => {
+    const debugSpy = vi.spyOn(logger, 'debug');
+    const infoSpy = vi.spyOn(logger, 'info');
+    const warnSpy = vi.spyOn(logger, 'warn');
+    const errorSpy = vi.spyOn(logger, 'error');
+
+    // Create an expired authorization code
+    const code = provider.oauthStorage.authCodeRepository.create(
+      ACCESS_ONLY_CLIENT.client_id,
+      ACCESS_ONLY_CLIENT.redirect_uris[0],
+      RESOURCE,
+      SCOPES,
+      -1000, // Expired in the past
+      'challenge',
+    );
+
+    const cleanedCount = provider.oauthStorage.fileStorage.cleanupExpiredData();
+    expect(cleanedCount).toBeGreaterThanOrEqual(1);
+
+    const allLogged = [...debugSpy.mock.calls, ...infoSpy.mock.calls, ...warnSpy.mock.calls, ...errorSpy.mock.calls]
+      .map((call) => JSON.stringify(call))
+      .join('\n');
+
+    expect(allLogged).not.toContain(code);
+    expect(allLogged).not.toMatch(/auth_code_code-[0-9a-f-]+/i);
+    expect(allLogged).toContain('auth_code_[REDACTED].json');
+  });
+
+  it('failure when cleaning temporary files for sensitive codes does not log plaintext codes or paths', async () => {
+    const warnSpy = vi.spyOn(logger, 'warn');
+    const errorSpy = vi.spyOn(logger, 'error');
+
+    const storageDir = provider.oauthStorage.fileStorage.getStorageDir();
+    const sensitiveTmpFile = `auth_code_code-11112222-3333-4444-5555-666677778888.json.${process.pid}.random.tmp`;
+    const sensitiveTmpPath = path.join(storageDir, sensitiveTmpFile);
+    fs.writeFileSync(sensitiveTmpPath, 'temp');
+
+    // Age the temporary file so it qualifies for cleanup (>60s)
+    const oldTime = (Date.now() - 120_000) / 1000;
+    fs.utimesSync(sensitiveTmpPath, oldTime, oldTime);
+
+    // Mock unlinkSync to fail on this file
+    const realUnlinkSync = fs.unlinkSync;
+    vi.spyOn(fs, 'unlinkSync').mockImplementation((targetPath) => {
+      if (String(targetPath).includes('auth_code_code-11112222')) {
+        const err = new Error(`EACCES: permission denied, unlink '${String(targetPath)}'`);
+        (err as unknown as { code: string }).code = 'EACCES';
+        throw err;
+      }
+      return realUnlinkSync(targetPath);
+    });
+
+    try {
+      provider.oauthStorage.fileStorage.cleanupExpiredData();
+
+      const allLogged = [...warnSpy.mock.calls, ...errorSpy.mock.calls].map((call) => JSON.stringify(call)).join('\n');
+
+      expect(allLogged).not.toContain('code-11112222-3333-4444-5555-666677778888');
+      expect(allLogged).not.toMatch(/auth_code_code-[0-9a-f-]+/i);
+      expect(allLogged).toContain('auth_code_[REDACTED].tmp');
+      expect(allLogged).toContain('EACCES');
+    } finally {
+      fs.unlinkSync = realUnlinkSync;
+      if (fs.existsSync(sensitiveTmpPath)) {
+        fs.unlinkSync(sensitiveTmpPath);
+      }
+    }
+  });
+});

@@ -129,9 +129,11 @@ export class FileStorageService {
         try {
           fs.renameSync(oldPath, newPath);
           migrationCount++;
-          logger.info(`Migrated ${file} from ${sourceDir} to ${this.storageDir}`);
+          logger.info(`Migrated ${this.getLoggableFileName(file)} from ${sourceDir} to ${this.storageDir}`);
         } catch (error) {
-          logger.error(`Failed to migrate ${file}: ${error}`);
+          logger.error(
+            `Failed to migrate ${this.getLoggableFileName(file)}: ${this.getLoggableErrorForFileName(file, error)}`,
+          );
         }
       }
     }
@@ -281,6 +283,85 @@ export class FileStorageService {
     return false;
   }
 
+  private static getSensitivePrefixes(): readonly string[] {
+    return [
+      AUTH_CONFIG?.SERVER?.AUTH_CODE?.FILE_PREFIX ?? 'auth_code_',
+      AUTH_CONFIG?.SERVER?.AUTH_REQUEST?.FILE_PREFIX ?? 'auth_request_',
+    ];
+  }
+
+  /**
+   * Checks if an ID/filePrefix or filename represents sensitive data that should be redacted from logs.
+   */
+  private isSensitivePrefix(prefixOrFileName?: string): boolean {
+    if (!prefixOrFileName) return false;
+    return FileStorageService.getSensitivePrefixes().some((prefix) => prefixOrFileName.startsWith(prefix));
+  }
+
+  /**
+   * Gets a log-safe representation of an ID.
+   */
+  private getLoggableId(filePrefix: string, id: string): string {
+    if (this.isSensitivePrefix(filePrefix)) {
+      return '[REDACTED]';
+    }
+    return id;
+  }
+
+  /**
+   * Gets a log-safe representation of a file path.
+   */
+  private getLoggableFilePath(filePrefix: string, id: string): string {
+    if (this.isSensitivePrefix(filePrefix)) {
+      return path.join(
+        this.storageDir,
+        `${filePrefix}[REDACTED]${AUTH_CONFIG?.SERVER?.STORAGE?.FILE_EXTENSION ?? '.json'}`,
+      );
+    }
+    return this.getFilePath(filePrefix, id);
+  }
+
+  /**
+   * Gets a log-safe representation of an error object.
+   */
+  private getLoggableError(filePrefix: string, error: unknown): string {
+    if (this.isSensitivePrefix(filePrefix)) {
+      if (error instanceof Error && 'code' in error && typeof (error as { code?: unknown }).code === 'string') {
+        return `${error.name} (${(error as { code: string }).code})`;
+      }
+      return '[REDACTED]';
+    }
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  /**
+   * Gets a log-safe representation of a file name (including .tmp files).
+   */
+  private getLoggableFileName(fileName: string): string {
+    for (const prefix of FileStorageService.getSensitivePrefixes()) {
+      if (fileName.startsWith(prefix)) {
+        if (fileName.endsWith('.tmp')) {
+          return `${prefix}[REDACTED].tmp`;
+        }
+        return `${prefix}[REDACTED]${AUTH_CONFIG?.SERVER?.STORAGE?.FILE_EXTENSION ?? '.json'}`;
+      }
+    }
+    return fileName;
+  }
+
+  /**
+   * Gets a log-safe representation of an error object associated with a file name.
+   */
+  private getLoggableErrorForFileName(fileName: string, error: unknown): string {
+    if (this.isSensitivePrefix(fileName)) {
+      if (error instanceof Error && 'code' in error && typeof (error as { code?: unknown }).code === 'string') {
+        return `${error.name} (${(error as { code: string }).code})`;
+      }
+      return '[REDACTED]';
+    }
+    return error instanceof Error ? error.message : String(error);
+  }
+
   /**
    * Writes data to a file with the specified prefix and ID
    */
@@ -288,9 +369,11 @@ export class FileStorageService {
     try {
       const filePath = this.getFilePath(filePrefix, id);
       fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-      logger.debug(`Wrote data to ${filePath}`);
+      logger.debug(`Wrote data to ${this.getLoggableFilePath(filePrefix, id)}`);
     } catch (error) {
-      logger.error(`Failed to write data for ${id}: ${error}`);
+      logger.error(
+        `Failed to write data for ${this.getLoggableId(filePrefix, id)}: ${this.getLoggableError(filePrefix, error)}`,
+      );
       throw error;
     }
   }
@@ -313,7 +396,7 @@ export class FileStorageService {
       fs.renameSync(temporaryPath, filePath);
       temporaryPath = undefined;
       this.flushStorageDirectory();
-      logger.debug(`Wrote data to ${filePath}`);
+      logger.debug(`Wrote data to ${this.getLoggableFilePath(filePrefix, id)}`);
     } catch (error) {
       if (temporaryPath) {
         try {
@@ -322,7 +405,9 @@ export class FileStorageService {
           // A later startup cleanup removes abandoned temporary files.
         }
       }
-      logger.error(`Failed to write data for ${id}: ${error}`);
+      logger.error(
+        `Failed to write data for ${this.getLoggableId(filePrefix, id)}: ${this.getLoggableError(filePrefix, error)}`,
+      );
       throw error;
     }
   }
@@ -333,7 +418,7 @@ export class FileStorageService {
    */
   readData<T extends ExpirableData>(filePrefix: string, id: string, schema?: ZodType<T>): T | null {
     if (!this.isValidId(id, filePrefix)) {
-      logger.warn(`Rejected readData with invalid ID: ${id}`);
+      logger.warn(`Rejected readData with invalid ID: ${this.getLoggableId(filePrefix, id)}`);
       return null;
     }
 
@@ -355,7 +440,9 @@ export class FileStorageService {
 
       return parsedData;
     } catch (error) {
-      logger.error(`Failed to read data for ${id}: ${error}`);
+      logger.error(
+        `Failed to read data for ${this.getLoggableId(filePrefix, id)}: ${this.getLoggableError(filePrefix, error)}`,
+      );
       return null;
     }
   }
@@ -365,7 +452,7 @@ export class FileStorageService {
    */
   deleteData(filePrefix: string, id: string): boolean {
     if (!this.isValidId(id, filePrefix)) {
-      logger.warn(`Rejected deleteData with invalid ID: ${id}`);
+      logger.warn(`Rejected deleteData with invalid ID: ${this.getLoggableId(filePrefix, id)}`);
       return false;
     }
 
@@ -373,12 +460,14 @@ export class FileStorageService {
       const filePath = this.getFilePath(filePrefix, id);
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
-        logger.debug(`Deleted data file: ${filePath}`);
+        logger.debug(`Deleted data file: ${this.getLoggableFilePath(filePrefix, id)}`);
         return true;
       }
       return false;
     } catch (error) {
-      logger.error(`Failed to delete data for ${id}: ${error}`);
+      logger.error(
+        `Failed to delete data for ${this.getLoggableId(filePrefix, id)}: ${this.getLoggableError(filePrefix, error)}`,
+      );
       throw error;
     }
   }
@@ -443,7 +532,9 @@ export class FileStorageService {
               cleanedCount++;
             }
           } catch (error) {
-            logger.warn(`Failed to clean temporary file ${file}: ${error}`);
+            logger.warn(
+              `Failed to clean temporary file ${this.getLoggableFileName(file)}: ${this.getLoggableErrorForFileName(file, error)}`,
+            );
           }
           continue;
         }
@@ -458,16 +549,20 @@ export class FileStorageService {
             if (parsedData.expires && parsedData.expires < Date.now()) {
               fs.unlinkSync(filePath);
               cleanedCount++;
-              logger.debug(`Cleaned up expired file: ${file}`);
+              logger.debug(`Cleaned up expired file: ${this.getLoggableFileName(file)}`);
             }
           } catch (error) {
             // Remove corrupted files
-            logger.warn(`Removing corrupted file ${file}: ${error}`);
+            logger.warn(
+              `Removing corrupted file ${this.getLoggableFileName(file)}: ${this.getLoggableErrorForFileName(file, error)}`,
+            );
             try {
               fs.unlinkSync(filePath);
               cleanedCount++;
             } catch (unlinkError) {
-              logger.error(`Failed to remove corrupted file ${file}: ${unlinkError}`);
+              logger.error(
+                `Failed to remove corrupted file ${this.getLoggableFileName(file)}: ${this.getLoggableErrorForFileName(file, unlinkError)}`,
+              );
             }
           }
         }
@@ -478,7 +573,7 @@ export class FileStorageService {
       }
       return cleanedCount;
     } catch (error) {
-      logger.error(`Failed to cleanup expired data: ${error}`);
+      logger.error(`Failed to cleanup expired data: ${this.getLoggableError('', error)}`);
       return 0;
     }
   }
