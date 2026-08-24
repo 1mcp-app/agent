@@ -138,8 +138,9 @@ describe('secureLogger', () => {
       }
     });
 
-    it('should sanitize and escape Error objects including custom name and stack', () => {
-      const error = new Error('OAuth token=secret123 failed\nSecond line');
+    it('should sanitize and escape Error objects including custom name, stack, and cause', () => {
+      const causeErr = new Error('Root cause with password=rootpass123\nInner stack');
+      const error = new Error('OAuth token=secret123 failed\nSecond line', { cause: causeErr });
       error.name = 'CustomToken_secret456_Error\nInjected';
       const result = sanitizeForLogging(error) as Record<string, unknown>;
       expect(result.name).toContain('[REDACTED]');
@@ -153,6 +154,56 @@ describe('secureLogger', () => {
         expect(result.stack).not.toContain('\n');
         expect(typeof result.stack).toBe('string');
       }
+      expect(result.cause).toBeDefined();
+      const sanitizedCause = result.cause as Record<string, unknown>;
+      expect(sanitizedCause.message).toContain('[REDACTED]');
+      expect(sanitizedCause.message).not.toContain('rootpass123');
+    });
+
+    it('should escape Unicode line separators and Trojan Source Bidi overrides', () => {
+      const input = 'admin\u2028line_split\u2029paragraph\u202Ereversed\u2066isolate\u200Bzero\uFEFFbom';
+      const result = sanitizeForLogging(input) as string;
+      expect(result).toBe('admin\\u2028line_split\\u2029paragraph\\u202Ereversed\\u2066isolate\\u200Bzero\\uFEFFbom');
+      expect(result).not.toContain('\u2028');
+      expect(result).not.toContain('\u2029');
+      expect(result).not.toContain('\u202E');
+    });
+
+    it('should redact PEM private keys, Basic auth, and JWT tokens', () => {
+      const pem = '-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA0...\n-----END RSA PRIVATE KEY-----';
+      expect(sanitizeForLogging(pem)).toContain('[REDACTED]');
+      expect(sanitizeForLogging(pem)).not.toContain('BEGIN RSA PRIVATE KEY');
+
+      const basic = 'Authorization: Basic dXNlcjpwYXNzd29yZDEyMw==';
+      expect(sanitizeForLogging(basic)).toContain('[REDACTED]');
+      expect(sanitizeForLogging(basic)).not.toContain('dXNlcjpwYXNzd29yZDEyMw==');
+
+      const jwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozG5faivvqpPxSyqLDKLw_n8_B6';
+      expect(sanitizeForLogging(jwt)).toContain('[REDACTED]');
+      expect(sanitizeForLogging(jwt)).not.toContain('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9');
+    });
+
+    it('should safely serialize complex data types (BigInt, Date, RegExp, Set, Map)', () => {
+      const date = new Date('2026-08-24T00:00:00.000Z');
+      expect(sanitizeForLogging(date)).toBe('2026-08-24T00:00:00.000Z');
+
+      const bigint = 9007199254740993n;
+      expect(sanitizeForLogging(bigint)).toBe('9007199254740993n');
+
+      const regex = /test\npattern/g;
+      expect(sanitizeForLogging(regex)).toBe('/test\\npattern/g');
+
+      const set = new Set(['user1', 'token=secret999']);
+      const sanitizedSet = sanitizeForLogging(set) as string[];
+      expect(sanitizedSet).toEqual(['user1', '[REDACTED]']);
+
+      const map = new Map<string, unknown>([
+        ['user\nname', 'alice'],
+        ['secretKey', 'super_secret'],
+      ]);
+      const sanitizedMap = sanitizeForLogging(map) as Record<string, unknown>;
+      expect(sanitizedMap['user\\nname']).toBe('alice');
+      expect(sanitizedMap['secretKey']).toBe('[REDACTED]');
     });
 
     it('should still apply pattern redaction before control-char escaping', () => {

@@ -4,12 +4,21 @@ import logger from './logger.js';
  * Consolidated patterns for sensitive data detection
  */
 const SENSITIVE_PATTERNS = [
+  // PEM Private Key blocks (CWE-532)
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----/gi,
+
   // Bearer tokens in Authorization headers (MUST run before generic key-value to avoid splitting "Token: bearer <token>")
   /bearer\s+[a-zA-Z0-9_\-.~+/]+=*/gi,
 
+  // Basic authentication credentials (Authorization: Basic <base64>)
+  /basic\s+[a-zA-Z0-9+/=]{8,}/gi,
+
+  // JWT tokens (Header.Payload.Signature)
+  /\beyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\b/gi,
+
   // Key-value credential assignments (e.g., token=xyz, password=xyz, client_secret=xyz)
   // MUST run before generic keyword replacement so values are redacted before keys are masked
-  /(?:[?&]|\b)(?:[tT]oken|[cC]ode|[sS]ecret|client_secret|client_id|[pP]assword|[pP]asswd|api[_-]?key|auth[_-]?token|access_token|refresh_token)\s*[:=]\s*[^\s,;&]+/gi,
+  /(?:[?&]|\b)(?:[tT]oken|[cC]ode|[sS]ecret|client_secret|client_id|[pP]assword|[pP]asswd|api[_-]?key|auth[_-]?token|access_token|refresh_token|private[_-]?key)\s*[:=]\s*[^\s,;&]+/gi,
 
   // URLs with sensitive parameters (consolidates 4 patterns)
   /https?:\/\/[^\s]*[?&](?:[tT]oken|[cC]ode|[sS]ecret|[kK]ey)=[^\s&]*/gi,
@@ -24,7 +33,7 @@ const SENSITIVE_PATTERNS = [
   /(?:scopes?|redirect_uris?|with\s+scope):\s*(?:\[[^\]]*\]|[^\s,}]+(?:\s+[^\s]+)*)/gi,
 
   // Generic secret patterns (consolidates 5 patterns) - fallback keywords
-  /(?:api[_-]?key|secret|password|passwd|auth[_-]?token)/gi,
+  /(?:api[_-]?key|secret|password|passwd|auth[_-]?token|private[_-]?key)/gi,
 ];
 
 /**
@@ -33,12 +42,14 @@ const SENSITIVE_PATTERNS = [
 const SENSITIVE_KEY_PATTERNS = ['secret', 'token', 'password', 'passwd', 'key'];
 
 /**
- * C0 + C1 control characters + DEL (CWE-117 log forging & CWE-150 ANSI injection defense).
- * Covers \x00-\x1F (C0), \x7F (DEL), and \x80-\x9F (C1 including 8-bit CSI \x9B).
+ * C0 + C1 control characters + DEL + Unicode Line/Paragraph Separators + Bidi overrides (CWE-117, CWE-150, Trojan Source CVE-2021-42574).
+ * Covers \x00-\x1F (C0), \x7F (DEL), \x80-\x9F (C1 including 8-bit CSI \x9B),
+ * \u2028/\u2029 (Unicode line/paragraph separators), \u202A-\u202E/\u2066-\u2069 (Bidi overrides),
+ * and \u200B-\u200D/\uFEFF (Zero-width formatting characters).
  * Single character class — linear time, no nested quantifiers, no ReDoS risk.
  */
 // eslint-disable-next-line no-control-regex -- intentional: this IS the sanitization pattern
-const CONTROL_CHARS_PATTERN = /[\x00-\x1F\x7F-\x9F]/g;
+const CONTROL_CHARS_PATTERN = /[\x00-\x1F\x7F-\x9F\u200B-\u200D\u2028\u2029\u202A-\u202E\u2066-\u2069\uFEFF]/g;
 
 /**
  * Escape control characters as visible literals (log4j2 %encode{}{CRLF} /
@@ -50,7 +61,11 @@ function escapeControlChars(value: string): string {
     if (char === '\n') return '\\n';
     if (char === '\r') return '\\r';
     if (char === '\t') return '\\t';
-    return `\\x${char.charCodeAt(0).toString(16).padStart(2, '0').toUpperCase()}`;
+    const code = char.charCodeAt(0);
+    if (code <= 0xff) {
+      return `\\x${code.toString(16).padStart(2, '0').toUpperCase()}`;
+    }
+    return `\\u${code.toString(16).padStart(4, '0').toUpperCase()}`;
   });
 }
 
@@ -70,7 +85,7 @@ function sanitizeString(value: string): string {
  */
 function sanitizeKey(key: string): string {
   const redactedKey = key.replace(
-    /(?:[?&]|\b)(?:[tT]oken|[cC]ode|[sS]ecret|client_secret|client_id|[pP]assword|[pP]asswd|api[_-]?key|auth[_-]?token|access_token|refresh_token)\s*[:=]\s*[^\s,;&]+/gi,
+    /(?:[?&]|\b)(?:[tT]oken|[cC]ode|[sS]ecret|client_secret|client_id|[pP]assword|[pP]asswd|api[_-]?key|auth[_-]?token|access_token|refresh_token|private[_-]?key)\s*[:=]\s*[^\s,;&]+/gi,
     '[REDACTED]',
   );
   return escapeControlChars(redactedKey);
@@ -106,6 +121,26 @@ function sanitize(value: unknown, depth = 0): unknown {
     return value;
   }
 
+  if (typeof value === 'bigint') {
+    return `${value.toString()}n`;
+  }
+
+  if (typeof value === 'symbol') {
+    return escapeControlChars(value.toString());
+  }
+
+  if (typeof value === 'function') {
+    return '[Function]';
+  }
+
+  if (value instanceof Date) {
+    return isNaN(value.getTime()) ? 'Invalid Date' : value.toISOString();
+  }
+
+  if (value instanceof RegExp) {
+    return escapeControlChars(value.toString());
+  }
+
   if (value instanceof Error) {
     const sanitizedError: Record<string, unknown> = {
       name:
@@ -117,6 +152,9 @@ function sanitize(value: unknown, depth = 0): unknown {
     if (value.stack) {
       sanitizedError.stack = sanitize(value.stack, depth + 1);
     }
+    if ('cause' in value && value.cause !== undefined) {
+      sanitizedError.cause = sanitize(value.cause, depth + 1);
+    }
     for (const [key, val] of Object.entries(value)) {
       const sanitizedKey = sanitizeKey(key);
       if (isSensitiveKey(key)) {
@@ -126,6 +164,24 @@ function sanitize(value: unknown, depth = 0): unknown {
       }
     }
     return sanitizedError;
+  }
+
+  if (value instanceof Set) {
+    return Array.from(value).map((item) => sanitize(item, depth + 1));
+  }
+
+  if (value instanceof Map) {
+    const mapObj: Record<string, unknown> = {};
+    for (const [k, v] of value.entries()) {
+      const stringKey = typeof k === 'string' ? k : String(k);
+      const sanitizedKey = sanitizeKey(stringKey);
+      if (isSensitiveKey(stringKey)) {
+        mapObj[sanitizedKey] = '[REDACTED]';
+      } else {
+        mapObj[sanitizedKey] = sanitize(v, depth + 1);
+      }
+    }
+    return mapObj;
   }
 
   if (Array.isArray(value)) {
