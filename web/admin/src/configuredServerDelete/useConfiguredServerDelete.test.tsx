@@ -166,4 +166,50 @@ describe('useConfiguredServerDelete', () => {
 
     expect(result.current.state).toMatchObject({ preview: null, confirmation: '', result: recoveryResult });
   });
+
+  it('ignores an in-flight apply result after reset', async () => {
+    let resolveDelete!: (value: Awaited<ReturnType<AdminApiClient['deleteConfiguredServer']>>) => void;
+    const pendingDelete = new Promise<Awaited<ReturnType<AdminApiClient['deleteConfiguredServer']>>>((resolve) => {
+      resolveDelete = resolve;
+    });
+    const onDeleted = vi.fn();
+    const api = {
+      previewConfiguredServerDelete: vi.fn(async () => deletePreview()),
+      deleteConfiguredServer: vi.fn(() => pendingDelete),
+    } as Pick<AdminApiClient, 'previewConfiguredServerDelete' | 'deleteConfiguredServer'>;
+    const { result } = renderHook(() =>
+      useConfiguredServerDelete({ api, session, onUnauthenticated: vi.fn(), onDeleted }),
+    );
+
+    await act(() => result.current.preview(target));
+    act(() => result.current.changeConfirmation('mcpTemplates/shared'));
+    let applyPromise!: Promise<void>;
+    act(() => {
+      applyPromise = result.current.apply(target) as Promise<void>;
+    });
+    act(() => result.current.reset());
+    await act(async () => {
+      resolveDelete({
+        ok: true,
+        operationId: 'delete-op',
+        result: {
+          target,
+          qualifiedId: 'mcpTemplates/shared',
+          previewFingerprint: 'delete-preview-1',
+          configChange: deletePreview().preview.configChange,
+        },
+      });
+      await applyPromise;
+    });
+
+    expect(result.current.state).toEqual({
+      preview: null,
+      confirmation: '',
+      previewBusy: false,
+      applyBusy: false,
+      error: null,
+      result: null,
+    });
+    expect(onDeleted).not.toHaveBeenCalled();
+  });
 });

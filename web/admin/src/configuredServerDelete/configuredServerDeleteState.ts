@@ -54,7 +54,7 @@ export function reduceConfiguredServerDeleteState(
 }
 
 export function configuredServerDeleteRecoveryRequired(result: ConfiguredServerDeleteResponse['result']): boolean {
-  return result.configChange.reload.status === 'failed' || result.runtimeImpact?.retirementObserved === false;
+  return result.configChange.reload.status !== 'observed' || result.runtimeImpact?.retirementObserved === false;
 }
 
 export function configuredServerDeleteEligible(state: ConfiguredServerDeleteState): boolean {

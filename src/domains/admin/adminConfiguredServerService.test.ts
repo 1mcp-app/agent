@@ -5668,6 +5668,7 @@ describe('AdminConfiguredServerService', () => {
       targetName: 'alpha',
       targetSource: 'mcpServers',
     });
+    expect(preview).toMatchObject({ ok: true });
     if (!preview.ok) return;
 
     const mismatch = await service.deleteConfiguredServer({
@@ -5744,6 +5745,7 @@ describe('AdminConfiguredServerService', () => {
       targetName: 'worker',
       targetSource: 'mcpServers',
     });
+    expect(preview).toMatchObject({ ok: true });
     if (!preview.ok) return;
     const mutationContext = context({
       idempotencyKey: 'delete-reload-recovery',
@@ -5794,6 +5796,7 @@ describe('AdminConfiguredServerService', () => {
       targetName: 'worker',
       targetSource: 'mcpTemplates',
     });
+    expect(preview).toMatchObject({ ok: true });
     if (!preview.ok) return;
     const mutationContext = context({
       idempotencyKey: 'delete-recovery',

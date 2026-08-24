@@ -96,6 +96,7 @@ export function useConfiguredServerDelete({
       const current = stateRef.current;
       if (!session || !current.preview || current.applyBusy || current.confirmation !== current.preview.qualifiedId)
         return;
+      const requestId = ++requestRef.current;
       const attempt =
         applyAttemptRef.current?.previewFingerprint === current.preview.previewFingerprint
           ? applyAttemptRef.current
@@ -113,10 +114,12 @@ export function useConfiguredServerDelete({
           previewFingerprint: current.preview.previewFingerprint,
           confirmedIdentity: current.confirmation,
         });
+        if (requestId !== requestRef.current) return;
         applyAttemptRef.current = undefined;
         dispatch({ type: 'applySucceeded', result: response.result });
         await onDeleted(target, response.result);
       } catch (error) {
+        if (requestId !== requestRef.current) return;
         const stale =
           error instanceof AdminApiError &&
           error.failure.kind === 'rejected' &&

@@ -2175,10 +2175,45 @@ describe('admin routes', () => {
       result: { qualifiedId: 'mcpTemplates/project' },
     } as Awaited<ReturnType<NonNullable<AdminConfiguredServerOperations['deleteConfiguredServer']>>>);
     const app = mountAdminRoutes();
+    const unauthenticatedPreview = await request(app)
+      .post('/admin/api/configured-servers/mcpTemplates/project/delete-preview')
+      .send({});
+    const unauthenticatedDelete = await request(app)
+      .delete('/admin/api/configured-servers/mcpTemplates/project')
+      .set('Idempotency-Key', 'delete-project-unauthenticated')
+      .send({
+        previewFingerprint: 'delete_preview_1',
+        confirmationFacts: {
+          previewConfirmed: 'delete_preview_1',
+          targetIdentityConfirmed: 'mcpTemplates/project',
+        },
+      });
+    expect(unauthenticatedPreview.status).toBe(401);
+    expect(unauthenticatedDelete.status).toBe(401);
+
     const login = await request(app)
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = login.headers['set-cookie']?.[0] as string;
+    const csrfRejectedPreview = await request(app)
+      .post('/admin/api/configured-servers/mcpTemplates/project/delete-preview')
+      .set('Cookie', cookie)
+      .send({});
+    const csrfRejectedDelete = await request(app)
+      .delete('/admin/api/configured-servers/mcpTemplates/project')
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', 'delete-project-no-csrf')
+      .send({
+        previewFingerprint: 'delete_preview_1',
+        confirmationFacts: {
+          previewConfirmed: 'delete_preview_1',
+          targetIdentityConfirmed: 'mcpTemplates/project',
+        },
+      });
+    expect(csrfRejectedPreview.status).toBe(403);
+    expect(csrfRejectedDelete.status).toBe(403);
+    expect(configuredServerService.previewConfiguredServerDelete).not.toHaveBeenCalled();
+    expect(configuredServerService.deleteConfiguredServer).not.toHaveBeenCalled();
 
     const preview = await request(app)
       .post('/admin/api/configured-servers/mcpTemplates/project/delete-preview')

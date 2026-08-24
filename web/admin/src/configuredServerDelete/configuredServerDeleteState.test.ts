@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { ConfiguredServerDeletePreview } from '../api/adminApi';
 import {
   configuredServerDeleteEligible,
+  configuredServerDeleteRecoveryRequired,
   createConfiguredServerDeleteState,
   reduceConfiguredServerDeleteState,
 } from './configuredServerDeleteState';
@@ -94,5 +95,36 @@ describe('configured server delete state', () => {
     });
 
     expect(state).toMatchObject({ preview: null, confirmation: '', applyBusy: false, result });
+  });
+
+  it.each(['failed', 'runtime_not_running', 'reload_disabled'] as const)(
+    'requires recovery when runtime reload status is %s',
+    (status) => {
+      expect(
+        configuredServerDeleteRecoveryRequired({
+          target: preview.target,
+          qualifiedId: preview.qualifiedId,
+          previewFingerprint: preview.previewFingerprint,
+          configChange: { ...preview.configChange, reload: { status } },
+        }),
+      ).toBe(true);
+    },
+  );
+
+  it('requires recovery when Template retirement is not observed after reload', () => {
+    expect(
+      configuredServerDeleteRecoveryRequired({
+        target: preview.target,
+        qualifiedId: preview.qualifiedId,
+        previewFingerprint: preview.previewFingerprint,
+        configChange: { ...preview.configChange, reload: { status: 'observed' } },
+        runtimeImpact: {
+          activeInstancesBefore: 2,
+          retiredInstances: 0,
+          activeInstancesAfter: 2,
+          retirementObserved: false,
+        },
+      }),
+    ).toBe(true);
   });
 });

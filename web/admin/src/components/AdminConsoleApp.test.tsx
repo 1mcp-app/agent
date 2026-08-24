@@ -704,6 +704,43 @@ describe('AdminConsoleApp', () => {
     expect(dismissDeletionNotice).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps recovery guidance visible when deletion runtime reconciliation is incomplete', () => {
+    renderApp(consoleState(), {
+      navigation: { route: 'servers' },
+      configuredServers: {
+        deletionNotice: {
+          target: { type: 'configured_server', source: 'mcpTemplates', id: 'worker' },
+          qualifiedId: 'mcpTemplates/worker',
+          previewFingerprint: 'delete-preview',
+          configChange: {
+            status: 'changed',
+            operation: 'remove',
+            target: { name: 'worker', source: 'mcpTemplates' },
+            changed: true,
+            backup: { created: true, path: '[redacted]' },
+            retentionCleanup: { attempted: true, deletedPaths: [], warnings: [] },
+            reload: { status: 'reload_disabled' },
+          },
+          runtimeImpact: {
+            activeInstancesBefore: 2,
+            retiredInstances: 0,
+            activeInstancesAfter: 2,
+            retirementObserved: false,
+          },
+        },
+        dismissDeletionNotice: vi.fn(),
+      },
+    });
+
+    expect(screen.getByRole('status')).toHaveTextContent('mcpTemplates/worker deleted; recovery required');
+    expect(screen.getByRole('status')).toHaveTextContent('Runtime reload status: reload_disabled.');
+    expect(screen.getByRole('status')).toHaveTextContent('runtime may still serve this target');
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'A recovery backup exists. Restore it if the deletion must be reversed.',
+    );
+    expect(screen.getByRole('status')).not.toHaveTextContent('Configured backend removal observed after reload.');
+  });
+
   it('keeps same-name static and template targets distinct and template lifecycle read-only', async () => {
     const user = userEvent.setup();
     const onOpenServerDetail = vi.fn();
