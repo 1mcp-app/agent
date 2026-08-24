@@ -129,6 +129,8 @@ describe('secureLogger', () => {
         "token='secret token with spaces 456'",
         'password="prefix \\"secret with escaped double quotes\\" suffix"',
         "token='prefix \\'secret with escaped single quotes\\' suffix'",
+        'password="top secret unterminated value',
+        "token='top secret single unterminated value",
         'secret=def456',
         'client_secret=ghi789',
         'api-key=jkl012',
@@ -138,12 +140,14 @@ describe('secureLogger', () => {
       ];
       for (const testCase of cases) {
         const result = sanitizeForLogging(testCase) as string;
-        expect(result).toContain('[REDACTED]');
+        expect(result).toBe('[REDACTED]');
         expect(result).not.toContain('abc123');
         expect(result).not.toContain('secret password with spaces 123');
         expect(result).not.toContain('secret token with spaces 456');
-        expect(result).not.toContain('secret with escaped double quotes');
-        expect(result).not.toContain('secret with escaped single quotes');
+        expect(result).not.toContain('prefix');
+        expect(result).not.toContain('suffix');
+        expect(result).not.toContain('escaped');
+        expect(result).not.toContain('unterminated');
         expect(result).not.toContain('def456');
         expect(result).not.toContain('ghi789');
         expect(result).not.toContain('jkl012');
@@ -232,17 +236,22 @@ describe('secureLogger', () => {
       expect(result).not.toContain('\n');
     });
 
-    it('should return [SANITIZATION_ERROR] if sanitization throws', () => {
-      // Create an object where property access throws
+    it('should return [SANITIZATION_ERROR] and log static message if sanitization throws', () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      // Create an object where property access throws sensitive message
       const throwingObj = {};
       Object.defineProperty(throwingObj, 'badProp', {
         get() {
-          throw new Error('Explosion');
+          throw new Error('Explosion with password=secret123\nInjected');
         },
         enumerable: true,
       });
       const result = sanitizeForLogging(throwingObj);
       expect(result).toBe('[SANITIZATION_ERROR]');
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Sanitization error occurred');
+      expect(consoleErrorSpy).not.toHaveBeenCalledWith(expect.stringContaining('Explosion'));
+      expect(consoleErrorSpy).not.toHaveBeenCalledWith(expect.stringContaining('secret123'));
+      consoleErrorSpy.mockRestore();
     });
 
     it('should handle large input without ReDoS issues', () => {

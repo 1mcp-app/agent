@@ -17,8 +17,8 @@ const KEY_SENSITIVE_PATTERNS = [
   // JWT tokens (Header.Payload.Signature)
   /\beyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\b/gi,
 
-  // Key-value credential assignments (supports unquoted and quoted values with embedded whitespace and escaped quotes)
-  /(?:[?&]|\b)(?:[tT]oken|[cC]ode|[sS]ecret|client_secret|client_id|[pP]assword|[pP]asswd|api[_-]?key|auth[_-]?token|access_token|refresh_token|private[_-]?key)\s*[:=]\s*(?:"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|[^\s,;&]+)/gi,
+  // Key-value credential assignments (supports unquoted and quoted values, including embedded whitespace, escaped quotes, and unterminated quotes through string/line boundaries)
+  /(?:[?&]|\b)(?:[tT]oken|[cC]ode|[sS]ecret|client_secret|client_id|[pP]assword|[pP]asswd|api[_-]?key|auth[_-]?token|access_token|refresh_token|private[_-]?key)\s*[:=]\s*(?:"(?:\\[\s\S]|[^"\\])*(?:"|$)|'(?:\\[\s\S]|[^'\\])*(?:'|$)|[^\s,;&]+)/gi,
 
   // URLs with sensitive parameters (consolidates 4 patterns)
   /https?:\/\/[^\s]*[?&](?:[tT]oken|[cC]ode|[sS]ecret|[kK]ey)=[^\s&]*/gi,
@@ -219,9 +219,9 @@ function sanitize(value: unknown, depth = 0): unknown {
 export function sanitizeForLogging(data: unknown): unknown {
   try {
     return sanitize(data);
-  } catch (error) {
-    // Log the actual error safely without exposing sensitive data
-    console.error('Sanitization error occurred:', error instanceof Error ? error.message : 'Unknown error');
+  } catch {
+    // Log safe static marker to stderr without exposing dynamic error.message (preventing throwing getter bypasses)
+    console.error('Sanitization error occurred');
     return '[SANITIZATION_ERROR]';
   }
 }
