@@ -364,10 +364,13 @@ describe('serveCommand - config-dir session isolation', () => {
         ...overrides,
       }) as ServeOptions;
 
-    it('logs a WARN when auth is disabled but scope validation is explicitly enabled via CLI', async () => {
+    it('logs a WARN and preserves explicit scope validation when auth is disabled but scope validation is enabled', async () => {
       const logger = (await import('@src/logger/logger.js')).default;
       const warnSpy = vi.mocked(logger.warn);
+      const configManager = AgentConfigManager.getInstance();
+      const updateConfigSpy = vi.mocked(configManager.updateConfig);
       warnSpy.mockClear();
+      updateConfigSpy.mockClear();
 
       try {
         await serveCommand(
@@ -381,12 +384,23 @@ describe('serveCommand - config-dir session isolation', () => {
       }
 
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('SECURITY WARNING'));
+      expect(updateConfigSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          features: expect.objectContaining({
+            auth: false,
+            scopeValidation: true,
+          }),
+        }),
+      );
     });
 
-    it('does NOT log a WARN when using default configuration (scope validation not explicitly enabled)', async () => {
+    it('does NOT log a WARN and defaults scope validation to false when using unauthenticated default configuration', async () => {
       const logger = (await import('@src/logger/logger.js')).default;
       const warnSpy = vi.mocked(logger.warn);
+      const configManager = AgentConfigManager.getInstance();
+      const updateConfigSpy = vi.mocked(configManager.updateConfig);
       warnSpy.mockClear();
+      updateConfigSpy.mockClear();
 
       try {
         await serveCommand(
@@ -403,12 +417,56 @@ describe('serveCommand - config-dir session isolation', () => {
         (args) => typeof args[0] === 'string' && (args[0] as string).includes('SECURITY WARNING'),
       );
       expect(securityWarnings).toHaveLength(0);
+      expect(updateConfigSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          features: expect.objectContaining({
+            auth: false,
+            scopeValidation: false,
+          }),
+        }),
+      );
     });
 
-    it('does NOT log a WARN when auth is enabled (legitimate configuration)', async () => {
+    it('does NOT log a WARN and defaults scope validation to true when auth is enabled without explicit scope flag', async () => {
       const logger = (await import('@src/logger/logger.js')).default;
       const warnSpy = vi.mocked(logger.warn);
+      const configManager = AgentConfigManager.getInstance();
+      const updateConfigSpy = vi.mocked(configManager.updateConfig);
       warnSpy.mockClear();
+      updateConfigSpy.mockClear();
+
+      try {
+        await serveCommand(
+          buildOptions({
+            'enable-auth': true,
+            'enable-scope-validation': undefined,
+          }),
+        );
+      } catch {
+        // ignore
+      }
+
+      const securityWarnings = warnSpy.mock.calls.filter(
+        (args) => typeof args[0] === 'string' && (args[0] as string).includes('SECURITY WARNING'),
+      );
+      expect(securityWarnings).toHaveLength(0);
+      expect(updateConfigSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          features: expect.objectContaining({
+            auth: true,
+            scopeValidation: true,
+          }),
+        }),
+      );
+    });
+
+    it('does NOT log a WARN when auth is enabled with explicit scope validation', async () => {
+      const logger = (await import('@src/logger/logger.js')).default;
+      const warnSpy = vi.mocked(logger.warn);
+      const configManager = AgentConfigManager.getInstance();
+      const updateConfigSpy = vi.mocked(configManager.updateConfig);
+      warnSpy.mockClear();
+      updateConfigSpy.mockClear();
 
       try {
         await serveCommand(
@@ -425,12 +483,23 @@ describe('serveCommand - config-dir session isolation', () => {
         (args) => typeof args[0] === 'string' && (args[0] as string).includes('SECURITY WARNING'),
       );
       expect(securityWarnings).toHaveLength(0);
+      expect(updateConfigSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          features: expect.objectContaining({
+            auth: true,
+            scopeValidation: true,
+          }),
+        }),
+      );
     });
 
-    it('does NOT log a WARN when scope validation is disabled (auth is the only gate)', async () => {
+    it('does NOT log a WARN when scope validation is explicitly disabled', async () => {
       const logger = (await import('@src/logger/logger.js')).default;
       const warnSpy = vi.mocked(logger.warn);
+      const configManager = AgentConfigManager.getInstance();
+      const updateConfigSpy = vi.mocked(configManager.updateConfig);
       warnSpy.mockClear();
+      updateConfigSpy.mockClear();
 
       try {
         await serveCommand(
@@ -447,6 +516,14 @@ describe('serveCommand - config-dir session isolation', () => {
         (args) => typeof args[0] === 'string' && (args[0] as string).includes('SECURITY WARNING'),
       );
       expect(securityWarnings).toHaveLength(0);
+      expect(updateConfigSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          features: expect.objectContaining({
+            auth: false,
+            scopeValidation: false,
+          }),
+        }),
+      );
     });
   });
 });
