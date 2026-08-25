@@ -14,6 +14,14 @@ describe('resolveAsyncLoadingOptions', () => {
       waitForMinimumServers: 0,
       initialLoadTimeoutMs: 30000,
       batchDelayMs: 1000,
+      loadingPolicy: {
+        maxConcurrentLoads: 5,
+        maxRetries: 3,
+        retryDelayMs: 2000,
+        enableBackgroundRetry: true,
+        backgroundRetryIntervalMs: 60000,
+        backgroundRetryMaxServersPerCycle: 3,
+      },
     });
     expect(warn).not.toHaveBeenCalled();
   });
@@ -70,5 +78,71 @@ describe('resolveAsyncLoadingOptions', () => {
 
     expect(result.notifyOnServerReady).toBe(false);
     expect(warn).toHaveBeenCalledOnce();
+  });
+
+  it('resolves CLI or environment values before config.toml values', () => {
+    const result = resolveAsyncLoadingOptions(
+      {
+        'async-max-concurrent-loads': 7,
+        'async-max-retries': 0,
+        'async-retry-delay': 0,
+        'async-background-retry': false,
+        'async-background-retry-interval': 1200,
+        'async-background-retry-max-servers': 4,
+      },
+      {
+        maxConcurrentLoads: 2,
+        maxRetries: 8,
+        retryDelay: 9000,
+        backgroundRetry: { enabled: true, interval: 8000, maxServersPerCycle: 9 },
+      },
+      vi.fn(),
+    );
+
+    expect(result.loadingPolicy).toEqual({
+      maxConcurrentLoads: 7,
+      maxRetries: 0,
+      retryDelayMs: 0,
+      enableBackgroundRetry: false,
+      backgroundRetryIntervalMs: 1200,
+      backgroundRetryMaxServersPerCycle: 4,
+    });
+  });
+
+  it('uses config.toml policy values before defaults', () => {
+    const result = resolveAsyncLoadingOptions(
+      {},
+      {
+        maxConcurrentLoads: 8,
+        maxRetries: 1,
+        retryDelay: 250,
+        backgroundRetry: { enabled: false, interval: 5000, maxServersPerCycle: 6 },
+      },
+      vi.fn(),
+    );
+
+    expect(result.loadingPolicy).toEqual({
+      maxConcurrentLoads: 8,
+      maxRetries: 1,
+      retryDelayMs: 250,
+      enableBackgroundRetry: false,
+      backgroundRetryIntervalMs: 5000,
+      backgroundRetryMaxServersPerCycle: 6,
+    });
+  });
+
+  it.each([
+    ['async-max-concurrent-loads', 0, 'maximum concurrent loads'],
+    ['async-max-concurrent-loads', 1.5, 'maximum concurrent loads'],
+    ['async-max-retries', -1, 'maximum retries'],
+    ['async-max-retries', 1.5, 'maximum retries'],
+    ['async-retry-delay', -1, 'retry delay'],
+    ['async-retry-delay', Number.NaN, 'retry delay'],
+    ['async-background-retry-interval', 999, 'background retry interval'],
+    ['async-background-retry-interval', 1000.5, 'background retry interval'],
+    ['async-background-retry-max-servers', 0, 'maximum servers per cycle'],
+    ['async-background-retry-max-servers', 2.5, 'maximum servers per cycle'],
+  ] as const)('rejects invalid --%s=%s', (key, value, message) => {
+    expect(() => resolveAsyncLoadingOptions({ [key]: value }, undefined, vi.fn())).toThrow(message);
   });
 });

@@ -155,6 +155,30 @@ export const serverOptions = {
     describe: 'Deprecated compatibility no-op; async loading does not create a startup readiness timeout',
     type: 'number' as const,
   },
+  'async-max-concurrent-loads': {
+    describe: 'Maximum number of backend servers loaded concurrently',
+    type: 'number' as const,
+  },
+  'async-max-retries': {
+    describe: 'Maximum foreground retries per backend after the initial attempt',
+    type: 'number' as const,
+  },
+  'async-retry-delay': {
+    describe: 'Initial foreground retry delay in milliseconds (exponential backoff)',
+    type: 'number' as const,
+  },
+  'async-background-retry': {
+    describe: 'Enable periodic retry of retryable backend loading failures',
+    type: 'boolean' as const,
+  },
+  'async-background-retry-interval': {
+    describe: 'Background retry interval in milliseconds',
+    type: 'number' as const,
+  },
+  'async-background-retry-max-servers': {
+    describe: 'Maximum failed backend servers selected per background retry cycle',
+    type: 'number' as const,
+  },
   'async-batch-notifications': {
     describe: 'Coalesce capability-change notifications within the async batch delay window',
     type: 'boolean' as const,

@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 import type { ServeOptions } from '@src/commands/serve/serve.js';
+import type { AsyncLoadingCliOptions } from '@src/commands/serve/asyncLoadingOptions.js';
 import {
   BACKGROUND_GUARD_FLAG,
   buildBackgroundSupervisorArgs,
@@ -35,7 +36,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const discoverScopedRuntimeMock = vi.fn();
 type StreamChunk = Parameters<typeof process.stdout.write>[0];
 
-function serveOptions(overrides: Partial<ServeOptions> = {}): ServeOptions {
+function serveOptions(
+  overrides: Partial<ServeOptions & AsyncLoadingCliOptions> = {},
+): ServeOptions & AsyncLoadingCliOptions {
   return {
     pagination: false,
     'health-info-level': 'minimal',
@@ -123,6 +126,9 @@ describe('serveBackground helpers', () => {
           host: '127.0.0.2',
           'enable-auth': false,
           'async-min-servers': 3,
+          'async-max-concurrent-loads': 8,
+          'async-background-retry': false,
+          'async-background-retry-interval': 7000,
         }),
         { logFile: '/scope/server.log' },
       );
@@ -134,6 +140,9 @@ describe('serveBackground helpers', () => {
           '--host=127.0.0.2',
           '--enable-auth=false',
           '--async-min-servers=3',
+          '--async-max-concurrent-loads=8',
+          '--async-background-retry=false',
+          '--async-background-retry-interval=7000',
           '--transport=http',
           '--log-file=/scope/server.log',
           `--${BACKGROUND_GUARD_FLAG}`,

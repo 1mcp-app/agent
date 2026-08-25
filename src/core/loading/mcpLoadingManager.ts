@@ -1,13 +1,17 @@
 import { EventEmitter } from 'events';
 
 import { sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
-import { DEFAULT_MAX_CONCURRENT_LOADS } from '@src/constants/mcp.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
 import { AuthProviderTransport, MCPServerParams, OutboundConnections } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { createTransports } from '@src/transport/transportFactory.js';
 import { NonRetryableClientConnectionError } from '@src/utils/core/errorTypes.js';
+import { getConnectionTimeout } from '@src/utils/core/timeoutUtils.js';
 
+import {
+  DEFAULT_BACKEND_LOADING_POLICY,
+  type BackendLoadingPolicy,
+} from './backendLoadingPolicy.js';
 import {
   LoadingState,
   LoadingStateEvent,
@@ -16,39 +20,6 @@ import {
   ServerLoadingInfo,
 } from './loadingStateTracker.js';
 import { ParallelExecutor } from './parallelExecutor.js';
-
-/**
- * Configuration options for MCP loading behavior
- */
-export interface McpLoadingConfig {
-  /** Maximum time to wait for each server (ms) */
-  readonly serverTimeoutMs: number;
-  /** Maximum number of retry attempts per server */
-  readonly maxRetries: number;
-  /** Initial delay between retries (ms) */
-  readonly retryDelayMs: number;
-  /** Maximum number of servers to initialize concurrently */
-  readonly maxConcurrentLoads: number;
-  /** Whether to continue loading other servers if some fail */
-  readonly continueOnFailure: boolean;
-  /** Whether to enable background retry for failed servers */
-  readonly enableBackgroundRetry: boolean;
-  /** Interval for background retry attempts (ms) */
-  readonly backgroundRetryIntervalMs: number;
-}
-
-/**
- * Default configuration for MCP loading
- */
-export const DEFAULT_LOADING_CONFIG: McpLoadingConfig = {
-  serverTimeoutMs: 30000, // 30 seconds per server
-  maxRetries: 3,
-  retryDelayMs: 2000, // 2 seconds initial delay
-  maxConcurrentLoads: DEFAULT_MAX_CONCURRENT_LOADS,
-  continueOnFailure: true,
-  enableBackgroundRetry: true,
-  backgroundRetryIntervalMs: 60000, // Retry every minute
-};
 
 /**
  * Result of loading a specific server
@@ -127,9 +98,10 @@ export class McpLoadingManager extends EventEmitter {
   }
 
   private clientManager: ClientManager;
-  private config: McpLoadingConfig;
+  private config: BackendLoadingPolicy;
   private stateTracker: LoadingStateTracker;
   private backgroundRetryTimer?: ReturnType<typeof setTimeout>;
+  private backgroundRetryRunning = false;
   private isShuttingDown: boolean = false;
   /** Per-connection-attempt abort controllers (timeout window only) */
   private abortControllers: Map<string, AbortController> = new Map();
@@ -147,10 +119,10 @@ export class McpLoadingManager extends EventEmitter {
    */
   private serverOpAbortControllers: Map<string, AbortController> = new Map();
 
-  constructor(clientManager: ClientManager, config: Partial<McpLoadingConfig> = {}) {
+  constructor(clientManager: ClientManager, config: Partial<BackendLoadingPolicy> = {}) {
     super();
     this.clientManager = clientManager;
-    this.config = { ...DEFAULT_LOADING_CONFIG, ...config };
+    this.config = { ...DEFAULT_BACKEND_LOADING_POLICY, ...config };
     this.stateTracker = new LoadingStateTracker();
     McpLoadingManager._current = this;
 
@@ -450,15 +422,10 @@ export class McpLoadingManager extends EventEmitter {
       error: lastError || new Error('Unknown error'),
     });
 
-    if (this.config.continueOnFailure) {
-      if (lastError instanceof NonRetryableClientConnectionError) {
-        logger.error(`Failed to load ${name} with a non-retryable error, continuing with other servers`);
-      } else {
-        logger.error(`Failed to load ${name} after ${this.config.maxRetries} retries, continuing with other servers`);
-      }
+    if (lastError instanceof NonRetryableClientConnectionError) {
+      logger.error(`Failed to load ${name} with a non-retryable error, continuing with other servers`);
     } else {
-      logger.error(`Failed to load ${name}, stopping loading process`);
-      throw lastError;
+      logger.error(`Failed to load ${name} after ${this.config.maxRetries} retries, continuing with other servers`);
     }
   }
 
@@ -483,25 +450,31 @@ export class McpLoadingManager extends EventEmitter {
     const onOpAbort = () => abortController.abort();
     opSignal?.addEventListener('abort', onOpAbort, { once: true });
 
+    const attemptTimeoutMs = getConnectionTimeout(transport) ?? 30000;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let rejectTimeout: ((error: Error) => void) | undefined;
+    const onAttemptAbort = () => {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      rejectTimeout?.(new Error(`Loading ${name} was cancelled`));
+    };
+    abortController.signal.addEventListener('abort', onAttemptAbort, { once: true });
+
     try {
       const timeoutPromise = new Promise<never>((_, reject) => {
-        const timeoutId = setTimeout(() => {
+        rejectTimeout = reject;
+        timeoutId = setTimeout(() => {
+          reject(new Error(`Timeout loading ${name} after ${attemptTimeoutMs}ms`));
           abortController.abort();
-          reject(new Error(`Timeout loading ${name} after ${this.config.serverTimeoutMs}ms`));
-        }, this.config.serverTimeoutMs);
-
-        // Clear timeout if operation is aborted
-        abortController.signal.addEventListener('abort', () => {
-          clearTimeout(timeoutId);
-          reject(new Error(`Loading ${name} was cancelled`));
-        });
+        }, attemptTimeoutMs);
       });
 
       const loadPromise = this.clientManager.createSingleClient(name, transport, abortController.signal);
 
       await Promise.race([loadPromise, timeoutPromise]);
     } finally {
-      // Clean up abort controller
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      rejectTimeout = undefined;
+      abortController.signal.removeEventListener('abort', onAttemptAbort);
       this.abortControllers.delete(name);
       opSignal?.removeEventListener('abort', onOpAbort);
     }
@@ -523,8 +496,10 @@ export class McpLoadingManager extends EventEmitter {
     }
 
     this.backgroundRetryTimer = setInterval(() => {
-      this.performBackgroundRetry();
+      void this.performBackgroundRetry();
     }, this.config.backgroundRetryIntervalMs);
+
+    this.backgroundRetryTimer.unref?.();
 
     logger.info('Background retry enabled for failed servers');
   }
@@ -533,50 +508,53 @@ export class McpLoadingManager extends EventEmitter {
    * Perform background retry for failed servers
    */
   private async performBackgroundRetry(): Promise<void> {
-    if (this.isShuttingDown) return;
+    if (this.isShuttingDown || this.backgroundRetryRunning) return;
+    this.backgroundRetryRunning = true;
 
-    const failedServers = this.stateTracker
-      .getServersByState(LoadingState.Failed)
-      .filter((server) => !(server.error instanceof NonRetryableClientConnectionError));
+    try {
+      const failedServers = this.stateTracker
+        .getServersByState(LoadingState.Failed)
+        .filter((server) => !(server.error instanceof NonRetryableClientConnectionError));
 
-    if (failedServers.length === 0) {
-      return;
-    }
-
-    logger.info(`Background retry for ${failedServers.length} failed servers`);
-
-    // Retry a subset of failed servers to avoid overwhelming the system
-    const serversToRetry = failedServers.slice(0, 3); // Retry max 3 at a time
-
-    for (const serverInfo of serversToRetry) {
-      if (this.isShuttingDown) break;
-
-      const { name } = serverInfo;
-      const transport = this.clientManager.getTransport(name);
-      if (transport) {
-        this.emit(McpLoadingEvent.BackgroundRetry, name, serverInfo.retryCount + 1);
-
-        // Cancel any previous operation for this server and claim a new slot.
-        // This prevents a stale background-retry from racing with a concurrent
-        // loadServer or unloadServer call.
-        this.cancelServerOperation(name);
-        const opController = new AbortController();
-        this.serverOpAbortControllers.set(name, opController);
-
-        // Don't wait for completion, let it run in background
-        this.loadSingleServer(name, transport, opController.signal)
-          .catch((error: unknown) => {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            debugIf(() => ({ message: `Background retry failed for ${name}: ${errorMessage}` }));
-          })
-          .finally(() => {
-            // Clean up our own controller only — a concurrent operation may have
-            // replaced it.
-            if (this.serverOpAbortControllers.get(name) === opController) {
-              this.serverOpAbortControllers.delete(name);
-            }
-          });
+      if (failedServers.length === 0) {
+        return;
       }
+
+      logger.info(`Background retry for ${failedServers.length} failed servers`);
+
+      const serversToRetry = failedServers.slice(0, this.config.backgroundRetryMaxServersPerCycle);
+      const retryOperations: Promise<void>[] = [];
+
+      for (const serverInfo of serversToRetry) {
+        if (this.isShuttingDown) break;
+
+        const { name } = serverInfo;
+        const transport = this.clientManager.getTransport(name);
+        if (transport) {
+          this.emit(McpLoadingEvent.BackgroundRetry, name, serverInfo.retryCount + 1);
+
+          // Cancel any previous operation for this server and claim a new slot.
+          this.cancelServerOperation(name);
+          const opController = new AbortController();
+          this.serverOpAbortControllers.set(name, opController);
+
+          retryOperations.push(
+            this.loadSingleServer(name, transport, opController.signal)
+              .catch((error: unknown) => {
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                debugIf(() => ({ message: `Background retry failed for ${name}: ${errorMessage}` }));
+              })
+              .finally(() => {
+                if (this.serverOpAbortControllers.get(name) === opController) {
+                  this.serverOpAbortControllers.delete(name);
+                }
+              }),
+          );
+        }
+      }
+      await Promise.allSettled(retryOperations);
+    } finally {
+      this.backgroundRetryRunning = false;
     }
   }
 
