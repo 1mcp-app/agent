@@ -31,6 +31,12 @@ import {
 
 type ServerFilter = 'all' | 'enabled' | 'disabled';
 type ServerSourceFilter = 'all' | 'mcpServers' | 'mcpTemplates';
+type ServerAction = 'enable' | 'disable';
+type ServerActionHandler = (
+  serverId: string,
+  action: ServerAction,
+  source?: 'mcpServers' | 'mcpTemplates',
+) => void | Promise<void>;
 
 export function ConfiguredServersPanel({
   state,
@@ -39,7 +45,7 @@ export function ConfiguredServersPanel({
   onConfigureCustomServer,
 }: {
   state: AdminConsoleState;
-  onServerAction?: (serverId: string, action: 'enable' | 'disable') => void | Promise<void>;
+  onServerAction?: ServerActionHandler;
   onOpenServerDetail?: (server: ConfiguredServerTargetIdentity) => void | Promise<void>;
   onConfigureCustomServer?: () => void | Promise<void>;
 }) {
@@ -174,6 +180,16 @@ function serverMutation(state: AdminConsoleState, server: ConfiguredServerReadMo
   );
 }
 
+function invokeServerAction(
+  onServerAction: ServerActionHandler | undefined,
+  server: ConfiguredServerReadModel,
+  action: ServerAction,
+): void | Promise<void> {
+  return server.source === 'mcpTemplates'
+    ? onServerAction?.(server.id, action, server.source)
+    : onServerAction?.(server.id, action);
+}
+
 function ServerCard({
   server,
   mutation,
@@ -182,7 +198,7 @@ function ServerCard({
 }: {
   server: ConfiguredServerReadModel;
   mutation?: ServerMutation;
-  onServerAction?: (serverId: string, action: 'enable' | 'disable') => void | Promise<void>;
+  onServerAction?: ServerActionHandler;
   onOpenServerDetail?: (server: ConfiguredServerTargetIdentity) => void | Promise<void>;
 }) {
   const action = server.enabled ? 'disable' : 'enable';
@@ -242,16 +258,14 @@ function ServerCard({
             <Pencil size={16} />
           </ActionIcon>
         </Tooltip>
-        {server.source === 'mcpServers' ? (
-          <ServerStateControl
-            server={server}
-            busy={busy}
-            action={action}
-            actionLabel={actionState.label}
-            disabled={busy || actionUnavailable}
-            onChange={() => void onServerAction?.(server.id, action)}
-          />
-        ) : null}
+        <ServerStateControl
+          server={server}
+          busy={busy}
+          action={action}
+          actionLabel={actionState.label}
+          disabled={busy || actionUnavailable}
+          onChange={() => void invokeServerAction(onServerAction, server, action)}
+        />
       </Group>
     </article>
   );
@@ -265,7 +279,7 @@ function ServerRow({
 }: {
   server: ConfiguredServerReadModel;
   mutation?: ServerMutation;
-  onServerAction?: (serverId: string, action: 'enable' | 'disable') => void | Promise<void>;
+  onServerAction?: ServerActionHandler;
   onOpenServerDetail?: (server: ConfiguredServerTargetIdentity) => void | Promise<void>;
 }) {
   const action = server.enabled ? 'disable' : 'enable';
@@ -318,16 +332,14 @@ function ServerRow({
               <Pencil size={16} />
             </ActionIcon>
           </Tooltip>
-          {server.source === 'mcpServers' ? (
-            <ServerStateControl
-              server={server}
-              busy={busy}
-              action={action}
-              actionLabel={actionState.label}
-              disabled={busy || actionUnavailable}
-              onChange={() => void onServerAction?.(server.id, action)}
-            />
-          ) : null}
+          <ServerStateControl
+            server={server}
+            busy={busy}
+            action={action}
+            actionLabel={actionState.label}
+            disabled={busy || actionUnavailable}
+            onChange={() => void invokeServerAction(onServerAction, server, action)}
+          />
         </Group>
       </Table.Td>
     </Table.Tr>
@@ -344,7 +356,7 @@ function ServerStateControl({
 }: {
   server: ConfiguredServerReadModel;
   busy: boolean;
-  action: 'enable' | 'disable';
+  action: ServerAction;
   actionLabel: string;
   disabled: boolean;
   onChange(): void;

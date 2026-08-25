@@ -36,7 +36,11 @@ export interface AdminConsoleSessionModel {
     delete: ConfiguredServerDeleteModel;
     deletionNotice: ConfiguredServerDeleteResponse['result'] | null;
     dismissDeletionNotice(): void;
-    mutate(serverId: string, action: 'enable' | 'disable'): void | Promise<void>;
+    mutate(
+      serverId: string,
+      action: 'enable' | 'disable',
+      source?: 'mcpServers' | 'mcpTemplates',
+    ): void | Promise<void>;
     copy(label: string, value: string): void | Promise<void>;
   };
   oauth: {

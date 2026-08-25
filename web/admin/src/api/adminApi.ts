@@ -630,6 +630,46 @@ export interface ConfiguredServerDeleteResponse {
   };
 }
 
+export interface ConfiguredServerLifecyclePreviewResponse {
+  ok: true;
+  operationId: string;
+  preview: {
+    target: ConfiguredServerTargetIdentity;
+    qualifiedId: string;
+    targetFingerprint: string;
+    previewFingerprint: string;
+    current: { enabled: boolean; disabledValueKind: 'absent' | 'literal' | 'context_expression' };
+    proposed: { enabled: boolean; disabledValueKind: 'absent' | 'literal' };
+    expressionReplacement: { occurs: boolean; replacement: 'disabled_true' | 'enabled_absent' };
+    configChange: ConfiguredServerPreviewConfigChange;
+    expectedBackup: { policy: 'required'; recoveryCopy: true };
+    expectedReload: {
+      policy: 'observe_after_write';
+      possibleStatuses: readonly ['observed', 'runtime_not_running', 'reload_disabled', 'failed'];
+    };
+    runtimeImpact: {
+      activeInstanceCount: number;
+      retirement: 'after_successful_reload' | 'not_required';
+      recreation: 'lazy_future_match_only';
+    };
+    warnings: string[];
+  };
+}
+
+export interface ConfiguredServerLifecycleApplyResponse {
+  ok: true;
+  operationId: string;
+  result: {
+    target: ConfiguredServerTargetIdentity;
+    qualifiedId: string;
+    previewFingerprint: string;
+    enabled: boolean;
+    outcome: 'enabled' | 'disabled' | 'already_enabled' | 'already_disabled';
+    configChange: ConfiguredServerPreviewConfigChange;
+    runtimeImpact: NonNullable<ConfiguredServerDeleteResponse['result']['runtimeImpact']>;
+  };
+}
+
 export interface ConfiguredServerCreatePreviewResponse {
   ok: true;
   operationId: string;
@@ -1259,6 +1299,39 @@ export function createAdminApi(options: AdminApiOptions = {}) {
       });
     },
 
+    previewConfiguredServerLifecycle(input: {
+      target: ConfiguredServerTargetIdentity;
+      enabled: boolean;
+      csrfToken: string;
+    }): Promise<ConfiguredServerLifecyclePreviewResponse> {
+      return request(`${configuredServerPath(input.target)}/lifecycle-preview`, {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': input.csrfToken },
+        body: JSON.stringify({ enabled: input.enabled }),
+      });
+    },
+
+    applyConfiguredServerLifecycle(input: {
+      target: ConfiguredServerTargetIdentity;
+      enabled: boolean;
+      csrfToken: string;
+      idempotencyKey: string;
+      previewFingerprint: string;
+    }): Promise<ConfiguredServerLifecycleApplyResponse> {
+      return request(`${configuredServerPath(input.target)}/lifecycle`, {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': input.csrfToken, 'Idempotency-Key': input.idempotencyKey },
+        body: JSON.stringify({
+          enabled: input.enabled,
+          previewFingerprint: input.previewFingerprint,
+          confirmationFacts: {
+            previewConfirmed: input.previewFingerprint,
+            targetIdentityConfirmed: `${input.target.source}/${input.target.id}`,
+          },
+        }),
+      });
+    },
+
     setConfiguredServerEnabled(input: { name: string; enabled: boolean; csrfToken: string }): Promise<unknown> {
       const action = input.enabled ? 'enable' : 'disable';
       return request(`/admin/api/configured-servers/${encodeURIComponent(input.name)}/${action}`, {
@@ -1292,6 +1365,10 @@ export function createConfiguredServerCreateIdempotencyKey(name: string): string
 
 export function createConfiguredServerDeleteIdempotencyKey(qualifiedId: string): string {
   return `admin-console-server-delete-${encodeIdempotencyKeyPart(qualifiedId)}-${Date.now()}-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`;
+}
+
+export function createConfiguredServerLifecycleIdempotencyKey(qualifiedId: string, enabled: boolean): string {
+  return `admin-console-server-${enabled ? 'enable' : 'disable'}-${encodeIdempotencyKeyPart(qualifiedId)}-${Date.now()}-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`;
 }
 
 export function createInstructionTemplateIdempotencyKey(action: string, identity: string): string {
