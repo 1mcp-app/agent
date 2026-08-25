@@ -150,7 +150,7 @@ export async function waitForServers(
     if (response.status === 401 || response.status === 403) {
       return { status: 'auth_required', message: formatClientSurfaceAuthRequiredMessage(context) };
     }
-    if (Date.now() >= deadline) {
+    if (Date.now() >= deadline || response.error?.startsWith('Request timed out')) {
       throwWaitTimeout(timeout, context.options.server, lastServers);
     }
     if (!response.ok) {

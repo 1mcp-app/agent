@@ -76,6 +76,271 @@ describe('secureLogger', () => {
       // The circular reference should eventually be cut off with [MAX_DEPTH]
       expect(JSON.stringify(result)).toContain('[MAX_DEPTH]');
     });
+
+    it('should escape CRLF to prevent log forging (CWE-117)', () => {
+      // Attacker-controlled input attempting to forge a second log line
+      const input = 'login failed for user admin\nINFO: User logged in: admin';
+      const result = sanitizeForLogging(input) as string;
+      expect(result).not.toContain('\n');
+      expect(result).toBe('login failed for user admin\\nINFO: User logged in: admin');
+    });
+
+    it('should escape all C0 and C1 control chars, DEL, and 7-bit/8-bit ANSI ESC', () => {
+      const input = 'a\r\nb\tc\x00d\x1B[31me\x7Ff\x9B31mg\x80h\x9Fi';
+      const result = sanitizeForLogging(input) as string;
+      expect(result).toBe('a\\r\\nb\\tc\\x00d\\x1B[31me\\x7Ff\\x9B31mg\\x80h\\x9Fi');
+      // eslint-disable-next-line no-control-regex -- asserting absence of all C0/C1 and DEL control chars
+      expect(result).not.toMatch(/[\x00-\x1F\x7F-\x9F]/);
+    });
+
+    it('should escape control chars in nested structures and log messages', () => {
+      const input = {
+        outer: [{ msg: 'line1\nline2' }],
+      };
+      const result = sanitizeForLogging(input) as { outer: Array<{ msg: string }> };
+      expect(result.outer[0].msg).toBe('line1\\nline2');
+    });
+
+    it('should escape control chars and redact credential assignments in object keys', () => {
+      const input = {
+        'user\nrole': 'admin\r\nFORGED: true',
+        'token=secret123': 'active',
+        'client_secret=secret456': 'valid',
+        'Authorization: Bearer token_in_key_789': 'header_val',
+        'Authorization: Basic dXNlcjpwYXNzd29yZDk5OQ==': 'auth_val',
+        'jwt_key=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozG5faivvqpPxSyqLDKLw_n8_B6':
+          'jwt_val',
+      };
+      const result = sanitizeForLogging(input) as Record<string, string>;
+      expect(result).toHaveProperty('user\\nrole');
+      expect(result['user\\nrole']).toBe('admin\\r\\nFORGED: true');
+      expect(Object.keys(result)[0]).not.toContain('\n');
+      expect(JSON.stringify(result)).not.toContain('secret123');
+      expect(JSON.stringify(result)).not.toContain('secret456');
+      expect(JSON.stringify(result)).not.toContain('token_in_key_789');
+      expect(JSON.stringify(result)).not.toContain('dXNlcjpwYXNzd29yZDk5OQ==');
+      expect(JSON.stringify(result)).not.toContain('dozG5faivvqpPxSyqLDKLw_n8_B6');
+    });
+
+    it('should redact key-value credential assignments across all key families without leaking values', () => {
+      const cases = [
+        'password=abc123',
+        'password="secret password with spaces 123"',
+        "token='secret token with spaces 456'",
+        'password="prefix \\"secret with escaped double quotes\\" suffix"',
+        "token='prefix \\'secret with escaped single quotes\\' suffix'",
+        'password="top secret unterminated value',
+        "token='top secret single unterminated value",
+        'secret=def456',
+        'client_secret=ghi789',
+        'clientSecret=client_secret_val_888',
+        'api-key=jkl012',
+        'apiKey=api_key_val_777',
+        'auth-token=mno345',
+        'authToken=auth_token_val_666',
+        'access_token=pqr678',
+        'accessToken=access_token_val_555',
+        'refresh_token=stu901',
+        'refreshToken=refresh_token_val_444',
+        'private_key=private_key_val_333',
+        'privateKey=private_key_val_222',
+        'authorization_code=auth_code_val_111',
+        'authorizationCode=auth_code_val_000',
+        'Bearer:bearer_token_val_123',
+        'Bearer: bearer_token_val_456',
+      ];
+      for (const testCase of cases) {
+        const result = sanitizeForLogging(testCase) as string;
+        expect(result).toBe('[REDACTED]');
+        expect(result).not.toContain('abc123');
+        expect(result).not.toContain('secret password with spaces 123');
+        expect(result).not.toContain('secret token with spaces 456');
+        expect(result).not.toContain('prefix');
+        expect(result).not.toContain('suffix');
+        expect(result).not.toContain('escaped');
+        expect(result).not.toContain('unterminated');
+        expect(result).not.toContain('def456');
+        expect(result).not.toContain('ghi789');
+        expect(result).not.toContain('client_secret_val_888');
+        expect(result).not.toContain('jkl012');
+        expect(result).not.toContain('api_key_val_777');
+        expect(result).not.toContain('mno345');
+        expect(result).not.toContain('auth_token_val_666');
+        expect(result).not.toContain('pqr678');
+        expect(result).not.toContain('access_token_val_555');
+        expect(result).not.toContain('stu901');
+        expect(result).not.toContain('refresh_token_val_444');
+        expect(result).not.toContain('private_key_val_333');
+        expect(result).not.toContain('private_key_val_222');
+        expect(result).not.toContain('auth_code_val_111');
+        expect(result).not.toContain('auth_code_val_000');
+        expect(result).not.toContain('bearer_token_val_123');
+        expect(result).not.toContain('bearer_token_val_456');
+      }
+    });
+
+    it('should redact credentials in JSON stringified payloads and URLs', () => {
+      const jsonCases = [
+        '{"token":"JSON_SECRET_TOKEN_333"}',
+        '{"password": "JSON_SECRET_PASS_444"}',
+        '{"clientSecret": "JSON_SECRET_CS_555", "refreshToken": "JSON_SECRET_RT_666"}',
+      ];
+      for (const jc of jsonCases) {
+        const res = sanitizeForLogging(jc) as string;
+        expect(res).not.toContain('JSON_SECRET_TOKEN_333');
+        expect(res).not.toContain('JSON_SECRET_PASS_444');
+        expect(res).not.toContain('JSON_SECRET_CS_555');
+        expect(res).not.toContain('JSON_SECRET_RT_666');
+        expect(res).toContain('[REDACTED]');
+      }
+
+      const urlCases = [
+        'https://example.com/callback?code=AUTH_CODE_URL_111&state=xyz',
+        'https://example.com/api?refreshToken=RT_URL_222',
+        'https://example.com/api?clientSecret=CLIENT_SECRET_URL_333',
+        'https://example.com/api?authorization_code=AUTH_CODE_URL_444',
+      ];
+      for (const uc of urlCases) {
+        const res = sanitizeForLogging(uc) as string;
+        expect(res).not.toContain('AUTH_CODE_URL_111');
+        expect(res).not.toContain('RT_URL_222');
+        expect(res).not.toContain('CLIENT_SECRET_URL_333');
+        expect(res).not.toContain('AUTH_CODE_URL_444');
+        expect(res).toContain('[REDACTED]');
+      }
+    });
+
+    it('should sanitize and escape Error objects including custom name, stack, and cause', () => {
+      const causeErr = new Error('Root cause with password=rootpass123\nInner stack');
+      const error = new Error('OAuth token=secret123 failed\nSecond line', { cause: causeErr });
+      error.name = 'CustomToken_secret456_Error\nInjected';
+      const result = sanitizeForLogging(error) as Record<string, unknown>;
+      expect(result.name).toContain('[REDACTED]');
+      expect(result.name).not.toContain('\n');
+      expect(result.name).not.toContain('secret456');
+      expect(result.message).toContain('[REDACTED]');
+      expect(result.message).not.toContain('\n');
+      expect(result.message).not.toContain('secret123');
+      if (result.stack) {
+        expect(result.stack).not.toContain('secret123');
+        expect(result.stack).not.toContain('\n');
+        expect(typeof result.stack).toBe('string');
+      }
+      expect(result.cause).toBeDefined();
+      const sanitizedCause = result.cause as Record<string, unknown>;
+      expect(sanitizedCause.message).toContain('[REDACTED]');
+      expect(sanitizedCause.message).not.toContain('rootpass123');
+
+      // Non-string Error.name containing credentials
+      const nonStringNameError = new Error('Normal message');
+      (nonStringNameError as any).name = {
+        toString: () => 'CustomToken_NONSTRING_SECRET_123\nInjected',
+      };
+      const sanitizedNonStringErr = sanitizeForLogging(nonStringNameError) as Record<string, unknown>;
+      expect(sanitizedNonStringErr.name).toContain('[REDACTED]');
+      expect(sanitizedNonStringErr.name).not.toContain('NONSTRING_SECRET_123');
+      expect(sanitizedNonStringErr.name).not.toContain('\n');
+      expect(sanitizedNonStringErr.name).toContain('\\n');
+    });
+
+    it('should escape Unicode line separators and Trojan Source Bidi overrides', () => {
+      const input = 'admin\u2028line_split\u2029paragraph\u202Ereversed\u2066isolate\u200Bzero\uFEFFbom';
+      const result = sanitizeForLogging(input) as string;
+      expect(result).toBe('admin\\u2028line_split\\u2029paragraph\\u202Ereversed\\u2066isolate\\u200Bzero\\uFEFFbom');
+      expect(result).not.toContain('\u2028');
+      expect(result).not.toContain('\u2029');
+      expect(result).not.toContain('\u202E');
+    });
+
+    it('should redact PEM private keys including full body content, unterminated blocks, Basic auth, and JWT tokens', () => {
+      const pem =
+        '-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA0base64secretkeypayload...\n-----END RSA PRIVATE KEY-----';
+      const sanitizedPem = sanitizeForLogging(pem) as string;
+      expect(sanitizedPem).toBe('[REDACTED]');
+      expect(sanitizedPem).not.toContain('BEGIN RSA PRIVATE KEY');
+      expect(sanitizedPem).not.toContain('MIIEowIBAAKCAQEA0base64secretkeypayload');
+      expect(sanitizedPem).not.toContain('END RSA PRIVATE KEY');
+
+      const unterminatedPem = '-----BEGIN RSA PRIVATE KEY-----\nUNTERMINATED_PRIVATE_BODY_123';
+      const sanitizedUnterminated = sanitizeForLogging(unterminatedPem) as string;
+      expect(sanitizedUnterminated).toBe('[REDACTED]');
+      expect(sanitizedUnterminated).not.toContain('UNTERMINATED_PRIVATE_BODY_123');
+
+      const basic = 'Authorization: Basic dXNlcjpwYXNzd29yZDEyMw==';
+      expect(sanitizeForLogging(basic)).toContain('[REDACTED]');
+      expect(sanitizeForLogging(basic)).not.toContain('dXNlcjpwYXNzd29yZDEyMw==');
+
+      const jwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozG5faivvqpPxSyqLDKLw_n8_B6';
+      expect(sanitizeForLogging(jwt)).toContain('[REDACTED]');
+      expect(sanitizeForLogging(jwt)).not.toContain('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9');
+    });
+
+    it('should safely serialize complex data types (BigInt, Date, RegExp, Set, Map, Symbol) and sanitize credentials', () => {
+      const date = new Date('2026-08-24T00:00:00.000Z');
+      expect(sanitizeForLogging(date)).toBe('2026-08-24T00:00:00.000Z');
+
+      const bigint = 9007199254740993n;
+      expect(sanitizeForLogging(bigint)).toBe('9007199254740993n');
+
+      const regex = /test\npattern/g;
+      expect(sanitizeForLogging(regex)).toBe('/test\\npattern/g');
+
+      const regexWithCreds = /password=REGEXP_SECRET_123/i;
+      const sanitizedRegex = sanitizeForLogging(regexWithCreds) as string;
+      expect(sanitizedRegex).toContain('[REDACTED]');
+      expect(sanitizedRegex).not.toContain('REGEXP_SECRET_123');
+
+      const symbolWithCreds = Symbol('password=SYMBOL_SECRET_123');
+      const sanitizedSymbol = sanitizeForLogging(symbolWithCreds) as string;
+      expect(sanitizedSymbol).toContain('[REDACTED]');
+      expect(sanitizedSymbol).not.toContain('SYMBOL_SECRET_123');
+
+      const set = new Set(['user1', 'token=secret999']);
+      const sanitizedSet = sanitizeForLogging(set) as string[];
+      expect(sanitizedSet).toEqual(['user1', '[REDACTED]']);
+
+      const map = new Map<string, unknown>([
+        ['user\nname', 'alice'],
+        ['secretKey', 'super_secret'],
+      ]);
+      const sanitizedMap = sanitizeForLogging(map) as Record<string, unknown>;
+      expect(sanitizedMap['user\\nname']).toBe('alice');
+      expect(sanitizedMap['secretKey']).toBe('[REDACTED]');
+    });
+
+    it('should still apply pattern redaction before control-char escaping', () => {
+      const input = 'Bearer eyJhbGci\nsecond line';
+      const result = sanitizeForLogging(input) as string;
+      expect(result).toContain('[REDACTED]');
+      expect(result).not.toContain('\n');
+    });
+
+    it('should return [SANITIZATION_ERROR] and log static message if sanitization throws', () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      // Create an object where property access throws sensitive message
+      const throwingObj = {};
+      Object.defineProperty(throwingObj, 'badProp', {
+        get() {
+          throw new Error('Explosion with password=secret123\nInjected');
+        },
+        enumerable: true,
+      });
+      const result = sanitizeForLogging(throwingObj);
+      expect(result).toBe('[SANITIZATION_ERROR]');
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Sanitization error occurred');
+      expect(consoleErrorSpy).not.toHaveBeenCalledWith(expect.stringContaining('Explosion'));
+      expect(consoleErrorSpy).not.toHaveBeenCalledWith(expect.stringContaining('secret123'));
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('should handle large input without ReDoS issues', () => {
+      const longInput = 'A'.repeat(50000) + '\r\n' + 'B'.repeat(50000);
+      const start = Date.now();
+      const result = sanitizeForLogging(longInput) as string;
+      const elapsed = Date.now() - start;
+      expect(elapsed).toBeLessThan(1000);
+      expect(result).toContain('\\r\\n');
+    });
   });
 
   describe('sanitizeOAuthServerList', () => {
@@ -89,6 +354,13 @@ describe('secureLogger', () => {
       expect(result[1]).toBe('server2'); // Only takes first part before |
       expect(result[2]).toContain('server3');
       expect(result[2]).toContain('[OAUTH_REDACTED]');
+    });
+
+    it('should escape control characters in OAuth server names', () => {
+      const servers = ['server1\nmalicious', 'server2\x1B[31m'];
+      const result = sanitizeOAuthServerList(servers);
+      expect(result[0]).toBe('server1\\nmalicious');
+      expect(result[1]).toBe('server2\\x1B[31m');
     });
 
     it('should handle clean server names', () => {
