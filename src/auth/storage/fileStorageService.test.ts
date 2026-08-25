@@ -198,6 +198,34 @@ describe('FileStorageService', () => {
       fs.rmSync(customDir, { recursive: true, force: true });
     });
 
+    it('does not create migration flag if file hardening fails during migration', () => {
+      // POSIX-only: Windows ACLs do not map to fs.stat modes
+      if (process.platform === 'win32') return;
+      const customDir = path.join(tmpdir(), `custom-migration-fail-test-${Date.now()}`);
+      const sessionsDir = path.join(customDir, 'sessions');
+      fs.mkdirSync(sessionsDir, { recursive: true });
+
+      const legacyFileName = 'session_sess-12345678-1234-4abc-89de-123456789012.json';
+      const legacyFilePath = path.join(sessionsDir, legacyFileName);
+      fs.writeFileSync(legacyFilePath, JSON.stringify(testData), { mode: 0o644 });
+      fs.chmodSync(legacyFilePath, 0o644);
+
+      const originalChmodSync = fs.chmodSync;
+      vi.spyOn(fs, 'chmodSync').mockImplementation((pathArg, modeArg) => {
+        if (String(pathArg).includes(legacyFileName)) {
+          throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+        }
+        return originalChmodSync(pathArg, modeArg);
+      });
+
+      const serverService = new FileStorageService(customDir, 'server');
+      const flagPath = path.join(sessionsDir, '.migrated-to-server');
+      expect(fs.existsSync(flagPath)).toBe(false);
+
+      serverService.shutdown();
+      fs.rmSync(customDir, { recursive: true, force: true });
+    });
+
     it('preserves the previous record when a replacement write fails after truncation', () => {
       service.writeData(testPrefix, testId, testData);
       const targetPath = service.getFilePath(testPrefix, testId);

@@ -127,6 +127,7 @@ export class FileStorageService {
     }
 
     let migrationCount = 0;
+    let hasFailures = false;
 
     // Migrate files matching current subdirectory's prefixes
     for (const file of files) {
@@ -137,17 +138,17 @@ export class FileStorageService {
         const newPath = path.join(this.storageDir, file);
 
         try {
+          if (process.platform !== 'win32') {
+            fs.chmodSync(oldPath, 0o600);
+          }
           fs.renameSync(oldPath, newPath);
           if (process.platform !== 'win32') {
-            try {
-              fs.chmodSync(newPath, 0o600);
-            } catch (error) {
-              logger.warn(`Failed to harden migrated file permissions for ${file}: ${error}`);
-            }
+            fs.chmodSync(newPath, 0o600);
           }
           migrationCount++;
           logger.info(`Migrated ${this.getLoggableFileName(file)} from ${sourceDir} to ${this.storageDir}`);
         } catch (error) {
+          hasFailures = true;
           logger.error(
             `Failed to migrate ${this.getLoggableFileName(file)}: ${this.getLoggableErrorForFileName(file, error)}`,
           );
@@ -155,11 +156,11 @@ export class FileStorageService {
       }
     }
 
-    if (migrationCount > 0) {
+    if (!hasFailures) {
       this.createMigrationFlag(sourceDir, currentSubDir);
-      logger.info(`Migration completed: ${migrationCount} files migrated to ${currentSubDir}/`);
-    } else {
-      this.createMigrationFlag(sourceDir, currentSubDir);
+      if (migrationCount > 0) {
+        logger.info(`Migration completed: ${migrationCount} files migrated to ${currentSubDir}/`);
+      }
     }
   }
 
