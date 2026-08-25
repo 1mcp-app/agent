@@ -36,35 +36,53 @@ export function securityHeaders(req: Request, res: Response, next: NextFunction)
 /**
  * Rate limiter for sensitive operations (stricter than general OAuth)
  */
-export const sensitiveOperationLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // 10 attempts per window
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    error: 'rate_limit_exceeded',
-    error_description: 'Too many sensitive operations. Please try again later.',
-  },
-  skip: (req: Request) => {
-    // Skip rate limiting for health checks or non-sensitive endpoints
-    return req.path === '/health' || req.path === '/';
-  },
-  handler: (req: Request, res: Response) => {
-    const logData: Record<string, unknown> = {
-      ip: req.ip,
-      userAgent: req.get('User-Agent'),
-      path: req.path,
-      method: req.method,
-      timestamp: new Date().toISOString(),
-    };
-    logger.warn(`Rate limit exceeded for sensitive operation`, logData);
+export interface SensitiveOperationRateLimitPolicy {
+  windowMs: number;
+  maxRequests: number;
+}
 
-    res.status(429).json({
+export const DEFAULT_SENSITIVE_OPERATION_RATE_LIMIT_POLICY: SensitiveOperationRateLimitPolicy = {
+  windowMs: 15 * 60 * 1000,
+  maxRequests: 10,
+};
+
+export function createSensitiveOperationLimiter(
+  policy: SensitiveOperationRateLimitPolicy = DEFAULT_SENSITIVE_OPERATION_RATE_LIMIT_POLICY,
+) {
+  return rateLimit({
+    windowMs: policy.windowMs,
+    max: policy.maxRequests,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
       error: 'rate_limit_exceeded',
       error_description: 'Too many sensitive operations. Please try again later.',
-    });
-  },
-});
+    },
+    skip: (req: Request) => {
+      // Skip rate limiting for health checks or non-sensitive endpoints.
+      return req.path === '/health' || req.path === '/';
+    },
+    handler: (req: Request, res: Response) => {
+      const logData: Record<string, unknown> = {
+        ip: req.ip,
+        userAgent: req.get('User-Agent'),
+        path: req.path,
+        method: req.method,
+        timestamp: new Date().toISOString(),
+      };
+      logger.warn(`Rate limit exceeded for sensitive operation`, logData);
+
+      res.status(429).json({
+        error: 'rate_limit_exceeded',
+        error_description: 'Too many sensitive operations. Please try again later.',
+      });
+    },
+  });
+}
+
+// OAuth consent retains its fixed policy. Admin routes construct a separate,
+// startup-captured limiter so the two surfaces never share process-local state.
+export const sensitiveOperationLimiter = createSensitiveOperationLimiter();
 
 /**
  * Enhanced input validation middleware

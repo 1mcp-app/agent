@@ -8,6 +8,7 @@ const ADMIN_STATE_DIR = 'admin';
 const JOURNAL_VERSION = 1;
 const DEFAULT_COMPLETED_RETENTION_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_AUDIT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const STATE_UNKNOWN_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_IN_FLIGHT_WAIT_MS = 100;
 
 type AdminOperationOrigin = 'browser' | 'cli';
@@ -816,7 +817,7 @@ export class AdminOperationService {
     }
 
     if (record.type === 'state_unknown') {
-      if (this.isAuditExpired(record.timestamp)) {
+      if (this.isStateUnknownExpired(record.timestamp)) {
         this.idempotency.delete(record.scopedKeyHash);
         return;
       }
@@ -1006,6 +1007,10 @@ export class AdminOperationService {
     return this.now().getTime() - new Date(timestamp).getTime() > this.auditRetentionMs;
   }
 
+  private isStateUnknownExpired(timestamp: string): boolean {
+    return this.now().getTime() - new Date(timestamp).getTime() > STATE_UNKNOWN_RETENTION_MS;
+  }
+
   private isExpiredTerminal(entry: IdempotencyEntry): boolean {
     return (
       (entry.state === 'completed' || entry.state === 'failed') && this.isExpired(entry.completedAt ?? entry.reservedAt)
@@ -1033,7 +1038,7 @@ export class AdminOperationService {
 
   private shouldRetainJournalRecord(record: JournalRecord): boolean {
     if (record.type === 'state_unknown') {
-      return !this.isAuditExpired(record.timestamp);
+      return !this.isStateUnknownExpired(record.timestamp);
     }
     if (record.type === 'audit') {
       return !this.isAuditExpired(record.timestamp);

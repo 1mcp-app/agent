@@ -54,19 +54,6 @@ vi.mock('@src/application/services/healthService.js', () => {
   };
 });
 
-vi.mock('@src/core/server/agentConfig.js', () => ({
-  AgentConfigManager: {
-    getInstance: vi.fn(() => ({
-      getRateLimitWindowMs: () => 300000, // 5 minutes
-      getRateLimitMax: () => 200,
-    })),
-  },
-}));
-
-vi.mock('express-rate-limit', () => ({
-  default: vi.fn(() => (req: any, res: any, next: any) => next()),
-}));
-
 describe('Health Routes', () => {
   let app: express.Application;
   let mockHealthService: any;
@@ -512,13 +499,19 @@ describe('Health Routes', () => {
   });
 
   describe('Rate limiting', () => {
-    it('should apply rate limiting to health endpoints', async () => {
-      // This test verifies that rate limiting middleware is applied
-      // The actual rate limiting behavior is mocked, but we verify the setup
-      const response = await request(app).get('/health');
+    it('applies one configured process-local limiter across health endpoints', async () => {
+      const limitedApp = express();
+      limitedApp.use('/health', createHealthRoutes(undefined, { windowMs: 60_000, maxRequests: 1 }));
 
-      // Should still work (since we're mocking the rate limiter to allow requests)
-      expect(response.status).not.toBe(429);
+      const first = await request(limitedApp).get('/health/live');
+      const limited = await request(limitedApp).get('/health/ready');
+
+      expect(first.status).toBe(200);
+      expect(limited.status).toBe(429);
+      expect(limited.body).toEqual({
+        error: 'Too many health check requests, please try again later.',
+        status: 'rate_limited',
+      });
     });
   });
 });

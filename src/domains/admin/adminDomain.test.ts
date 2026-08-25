@@ -74,6 +74,29 @@ describe('createAdminDomain', () => {
     });
   });
 
+  it('passes configured audit retention to the shared operation service', async () => {
+    const options = {
+      runtimeScopeId: 'scope_123',
+      storageDir,
+      sessionTtlMs: 60_000,
+      auditRetentionMs: 100,
+      configChangeService: fakeConfigChangeService(),
+      readConfigDocument: () => ({ mcpServers: {} }),
+      now: () => currentTime,
+    };
+    const domain = createAdminDomain(options);
+    await domain.operationService.executeMutation({
+      context: context(),
+      operationName: 'enableConfiguredServer',
+      run: async () => ({ enabled: true }),
+    });
+
+    currentTime = new Date(currentTime.getTime() + 101);
+    const restarted = createAdminDomain(options);
+
+    expect(restarted.operationService.getRecentAuditFacts()).toEqual([]);
+  });
+
   it('passes configured-server preview connectivity through to the service', async () => {
     const checkConnectivity = vi.fn<ConfiguredServerConnectivityChecker>().mockResolvedValue({
       status: 'passed',

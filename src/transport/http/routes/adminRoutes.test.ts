@@ -22,7 +22,12 @@ import express from 'express';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createAdminRoutes, FailedLoginLimiter } from './adminRoutes.js';
+import {
+  type AdminRateLimitPolicy,
+  createAdminRoutes,
+  DEFAULT_ADMIN_RATE_LIMIT_POLICY,
+  FailedLoginLimiter,
+} from './adminRoutes.js';
 import { resolveDefaultAdminConsoleAssetsDir } from './adminRoutes.js';
 
 const runtimeIdentity = {
@@ -128,9 +133,12 @@ describe('admin routes', () => {
       oauthDashboard?: BackendOAuthDashboardResult;
       backendLogBroker?: BackendLogBroker;
       getBackendLogBroker?: () => BackendLogBroker;
+      rateLimit?: AdminRateLimitPolicy;
+      trustProxy?: string | boolean;
     } = {},
   ) {
     const app = express();
+    app.set('trust proxy', options.trustProxy ?? false);
     app.use(express.json());
     const adminRoutes = createAdminRoutes({
       adminEnabled: true,
@@ -171,6 +179,7 @@ describe('admin routes', () => {
       getBackendLogBroker:
         options.getBackendLogBroker ??
         (options.backendLogBroker ? () => options.backendLogBroker as BackendLogBroker : undefined),
+      rateLimit: options.rateLimit,
     });
 
     if (adminRoutes) {
@@ -178,6 +187,20 @@ describe('admin routes', () => {
     }
 
     return app;
+  }
+
+  function rateLimitPolicy(
+    overrides: {
+      login?: Partial<AdminRateLimitPolicy['login']>;
+      status?: Partial<AdminRateLimitPolicy['status']>;
+      sensitive?: Partial<AdminRateLimitPolicy['sensitive']>;
+    } = {},
+  ): AdminRateLimitPolicy {
+    return {
+      login: { ...DEFAULT_ADMIN_RATE_LIMIT_POLICY.login, ...overrides.login },
+      status: { ...DEFAULT_ADMIN_RATE_LIMIT_POLICY.status, ...overrides.status },
+      sensitive: { ...DEFAULT_ADMIN_RATE_LIMIT_POLICY.sensitive, ...overrides.sensitive },
+    };
   }
 
   function createRealConfiguredServerService(
@@ -855,6 +878,153 @@ describe('admin routes', () => {
 
     expect(limitedResponse.status).toBe(429);
     expect(limitedResponse.body).toEqual({ error: 'admin_login_rate_limited' });
+  });
+
+  it('shares normalized failed-login state between CLI and browser adapters', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes({
+      rateLimit: rateLimitPolicy({ login: { maxRequests: 100, maxFailedAttempts: 1 } }),
+    });
+
+    const failed = await request(app)
+      .post('/admin/cli/v1/session/login')
+      .send({ username: ' operator ', password: 'wrong password' });
+    const limited = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+
+    expect(failed.status).toBe(401);
+    expect(limited.status).toBe(429);
+    expect(limited.body).toEqual({ error: 'admin_login_rate_limited' });
+  });
+
+  it('uses the trusted-proxy boundary to separate failed-login client IPs', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes({
+      trustProxy: 'loopback',
+      rateLimit: rateLimitPolicy({ login: { maxRequests: 100, maxFailedAttempts: 1 } }),
+    });
+
+    const failed = await request(app)
+      .post('/admin/api/session/login')
+      .set('X-Forwarded-For', '203.0.113.10')
+      .send({ username: 'operator', password: 'wrong password' });
+    const differentClient = await request(app)
+      .post('/admin/api/session/login')
+      .set('X-Forwarded-For', '198.51.100.20')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+
+    expect(failed.status).toBe(401);
+    expect(differentClient.status).toBe(200);
+  });
+
+  it('collapses forwarded clients when the proxy is not trusted', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes({
+      trustProxy: false,
+      rateLimit: rateLimitPolicy({ login: { maxRequests: 100, maxFailedAttempts: 1 } }),
+    });
+
+    const failed = await request(app)
+      .post('/admin/api/session/login')
+      .set('X-Forwarded-For', '203.0.113.10')
+      .send({ username: 'operator', password: 'wrong password' });
+    const collapsedClient = await request(app)
+      .post('/admin/api/session/login')
+      .set('X-Forwarded-For', '198.51.100.20')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+
+    expect(failed.status).toBe(401);
+    expect(collapsedClient.status).toBe(429);
+  });
+
+  it('keeps failed-login state process-local to each Admin router', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const policy = rateLimitPolicy({ login: { maxRequests: 100, maxFailedAttempts: 1 } });
+    const firstApp = mountAdminRoutes({ rateLimit: policy });
+    const secondApp = mountAdminRoutes({ rateLimit: policy });
+
+    const failed = await request(firstApp)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'wrong password' });
+    const isolated = await request(secondApp)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+
+    expect(failed.status).toBe(401);
+    expect(isolated.status).toBe(200);
+  });
+
+  it('keeps login request bursts separate from failed-credential lockout', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes({
+      rateLimit: rateLimitPolicy({ login: { maxRequests: 1, maxFailedAttempts: 100 } }),
+    });
+
+    const failed = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'wrong password' });
+    const burstLimited = await request(app)
+      .post('/admin/cli/v1/session/login')
+      .send({ username: 'other-operator', password: 'wrong password' });
+
+    expect(failed.status).toBe(401);
+    expect(burstLimited.status).toBe(429);
+    expect(burstLimited.body.code).not.toBe('admin_login_rate_limited');
+  });
+
+  it('applies the status policy only to status and log-snapshot reads', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes({
+      rateLimit: rateLimitPolicy({ status: { maxRequests: 1 } }),
+    });
+    const login = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = login.headers['set-cookie']?.[0] as string;
+
+    const status = await request(app).get('/admin/api/status').set('Cookie', cookie);
+    const snapshot = await request(app).get('/admin/api/logs/snapshot').set('Cookie', cookie);
+    const session = await request(app).get('/admin/api/session').set('Cookie', cookie);
+
+    expect(status.status).toBe(200);
+    expect(snapshot.status).toBe(429);
+    expect(session.status).toBe(200);
+  });
+
+  it('shares the sensitive policy across Admin OAuth authorize and restart only', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    vi.mocked(oauthFlow.startBackendOAuth).mockResolvedValue({
+      status: 'redirect',
+      redirectUrl: 'https://provider.example/authorize',
+    });
+    const app = mountAdminRoutes({
+      rateLimit: rateLimitPolicy({ sensitive: { maxRequests: 1 } }),
+    });
+    const login = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = login.headers['set-cookie']?.[0] as string;
+
+    const authorized = await request(app)
+      .post('/admin/api/oauth/github/authorize')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', login.body.csrfToken as string)
+      .set('Idempotency-Key', 'oauth-authorize-policy');
+    const limited = await request(app)
+      .post('/admin/api/oauth/github/restart')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', login.body.csrfToken as string)
+      .set('Idempotency-Key', 'oauth-restart-policy');
+    const unaffected = await request(app).get('/admin/api/session').set('Cookie', cookie);
+
+    expect(authorized.status).toBe(200);
+    expect(limited.status).toBe(429);
+    expect(limited.body).toEqual({
+      error: 'rate_limit_exceeded',
+      error_description: 'Too many sensitive operations. Please try again later.',
+    });
+    expect(unaffected.status).toBe(200);
   });
 
   it('requires an admin session for protected safe admin API reads', async () => {

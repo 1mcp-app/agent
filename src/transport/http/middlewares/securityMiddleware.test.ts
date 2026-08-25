@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  createSensitiveOperationLimiter,
   inputValidation,
   securityAuditLogger,
   securityHeaders,
@@ -434,8 +435,7 @@ describe('Security Middleware', () => {
     });
 
     it('should be configured with rate limiting', () => {
-      // This test validates that the rate limiter is properly configured
-      expect(typeof sensitiveOperationLimiter).toBe('function');
+      expect(typeof createSensitiveOperationLimiter({ windowMs: 1_000, maxRequests: 2 })).toBe('function');
     });
   });
 
