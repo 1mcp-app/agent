@@ -49,8 +49,11 @@ export class FileStorageService {
   private ensureDirectory(): void {
     try {
       if (!fs.existsSync(this.storageDir)) {
-        fs.mkdirSync(this.storageDir, { recursive: true });
+        fs.mkdirSync(this.storageDir, { recursive: true, mode: 0o700 });
         logger.info(`Created storage directory: ${this.storageDir}`);
+      }
+      if (process.platform !== 'win32') {
+        fs.chmodSync(this.storageDir, 0o700);
       }
     } catch (error) {
       logger.error(`Failed to create storage directory: ${error}`);
@@ -106,6 +109,13 @@ export class FileStorageService {
     // Check subdirectory-specific migration flag
     const migrationFlagPath = path.join(sourceDir, `.migrated-to-${currentSubDir}`);
     if (fs.existsSync(migrationFlagPath)) {
+      if (process.platform !== 'win32') {
+        try {
+          fs.chmodSync(migrationFlagPath, 0o600);
+        } catch (error) {
+          logger.warn(`Failed to harden migration flag permissions: ${error}`);
+        }
+      }
       logger.debug(`Migration from ${sourceDir} to ${currentSubDir} already completed`);
       return;
     }
@@ -117,6 +127,7 @@ export class FileStorageService {
     }
 
     let migrationCount = 0;
+    let hasFailures = false;
 
     // Migrate files matching current subdirectory's prefixes
     for (const file of files) {
@@ -127,10 +138,17 @@ export class FileStorageService {
         const newPath = path.join(this.storageDir, file);
 
         try {
+          if (process.platform !== 'win32') {
+            fs.chmodSync(oldPath, 0o600);
+          }
           fs.renameSync(oldPath, newPath);
+          if (process.platform !== 'win32') {
+            fs.chmodSync(newPath, 0o600);
+          }
           migrationCount++;
           logger.info(`Migrated ${this.getLoggableFileName(file)} from ${sourceDir} to ${this.storageDir}`);
         } catch (error) {
+          hasFailures = true;
           logger.error(
             `Failed to migrate ${this.getLoggableFileName(file)}: ${this.getLoggableErrorForFileName(file, error)}`,
           );
@@ -138,11 +156,11 @@ export class FileStorageService {
       }
     }
 
-    if (migrationCount > 0) {
+    if (!hasFailures) {
       this.createMigrationFlag(sourceDir, currentSubDir);
-      logger.info(`Migration completed: ${migrationCount} files migrated to ${currentSubDir}/`);
-    } else {
-      this.createMigrationFlag(sourceDir, currentSubDir);
+      if (migrationCount > 0) {
+        logger.info(`Migration completed: ${migrationCount} files migrated to ${currentSubDir}/`);
+      }
     }
   }
 
@@ -159,7 +177,15 @@ export class FileStorageService {
           targetSubDir,
           timestamp: Date.now(),
         }),
+        { mode: 0o600 },
       );
+      if (process.platform !== 'win32') {
+        try {
+          fs.chmodSync(migrationFlagPath, 0o600);
+        } catch (error) {
+          logger.warn(`Failed to harden migration flag permissions: ${error}`);
+        }
+      }
       logger.debug(`Created migration flag: .migrated-to-${targetSubDir} in ${sourceDir}`);
     } catch (error) {
       logger.warn(`Failed to create migration flag: ${error}`);
@@ -368,7 +394,13 @@ export class FileStorageService {
   writeData<T extends ExpirableData>(filePrefix: string, id: string, data: T): void {
     try {
       const filePath = this.getFilePath(filePrefix, id);
-      fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+      if (process.platform !== 'win32' && fs.existsSync(filePath)) {
+        fs.chmodSync(filePath, 0o600);
+      }
+      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), { mode: 0o600 });
+      if (process.platform !== 'win32') {
+        fs.chmodSync(filePath, 0o600);
+      }
       logger.debug(`Wrote data to ${this.getLoggableFilePath(filePrefix, id)}`);
     } catch (error) {
       logger.error(
