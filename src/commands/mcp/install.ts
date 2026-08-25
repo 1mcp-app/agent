@@ -1,5 +1,5 @@
 import { createServerInstallationWorkflow } from '@src/domains/installation/serverInstallationWorkflow.js';
-import { MCPRegistryClient } from '@src/domains/registry/mcpRegistryClient.js';
+import { createRegistryClient, resolveRegistryClientOptions } from '@src/domains/registry/mcpRegistryClient.js';
 import { getProgressTrackingService } from '@src/domains/server-management/index.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
@@ -9,6 +9,7 @@ import boxen from 'boxen';
 import chalk from 'chalk';
 import type { Argv } from 'yargs';
 
+import { registryOptions, registryOptionsFromArgv, RegistryYargsOptions } from '../registry/options.js';
 import {
   createRegistryInstallSource,
   deriveLocalServerName,
@@ -19,7 +20,7 @@ import { InstallWizard } from './utils/installWizard.js';
 import { getAllServers, initializeConfigContext } from './utils/mcpServerConfig.js';
 import { generateOperationId, parseServerNameVersion, validateVersion } from './utils/serverUtils.js';
 
-export interface InstallCommandArgs extends GlobalOptions {
+export interface InstallCommandArgs extends GlobalOptions, RegistryYargsOptions {
   serverName?: string;
   force?: boolean;
   dryRun?: boolean;
@@ -59,6 +60,7 @@ export function buildInstallCommand(yargs: Argv) {
       default: false,
       alias: 'v',
     })
+    .options(registryOptions)
     .example([
       ['$0 mcp install', 'Launch interactive installation wizard'],
       ['$0 mcp install filesystem', 'Install latest version (requires exact registry ID)'],
@@ -75,6 +77,7 @@ export function buildInstallCommand(yargs: Argv) {
  * Install command handler
  */
 export async function installCommand(argv: InstallCommandArgs): Promise<void> {
+  let registryClient: ReturnType<typeof createRegistryClient> | undefined;
   const {
     serverName: inputServerName,
     config: configPath,
@@ -122,7 +125,14 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
       logger.info(`Derived local server name: ${serverName} from registry ID: ${registryServerId}`);
     }
 
-    const workflow = createServerInstallationWorkflow();
+    const effectiveRegistryOptions = registryOptionsFromArgv(argv);
+    registryClient = createRegistryClient(effectiveRegistryOptions);
+    const activeRegistryClient = registryClient;
+    const registryOrigin = resolveRegistryClientOptions(effectiveRegistryOptions).baseUrl;
+    const workflow = createServerInstallationWorkflow({
+      getRegistryServer: (registryId, requestedVersion) =>
+        activeRegistryClient.getServerById(registryId, requestedVersion),
+    });
 
     // Dry run mode
     if (dryRun) {
@@ -137,7 +147,7 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
 
       printer.info('Dry run mode - no changes will be made');
       printer.keyValue({ 'Would install': `${preview.targetName ?? serverName}${version ? `@${version}` : ''}` });
-      printer.info('From registry: https://registry.modelcontextprotocol.io');
+      printer.info(`From registry: ${registryOrigin}`);
       printer.info('Use without --dry-run to perform actual installation.');
       return;
     }
@@ -230,6 +240,8 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
       logger.error('Installation error stack:', error.stack);
     }
     throw error;
+  } finally {
+    registryClient?.destroy();
   }
 }
 
@@ -249,15 +261,11 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
   // Initialize configuration context
   initializeConfigContext(configPath, configDir);
 
-  // Create registry client
-  const registryClient = new MCPRegistryClient({
-    baseUrl: 'https://registry.modelcontextprotocol.io',
-    timeout: 30000,
-    cache: {
-      defaultTtl: 300,
-      maxSize: 100,
-      cleanupInterval: 60000,
-    },
+  const effectiveRegistryOptions = registryOptionsFromArgv(argv);
+  const registryClient = createRegistryClient(effectiveRegistryOptions);
+  const registryOrigin = resolveRegistryClientOptions(effectiveRegistryOptions).baseUrl;
+  const workflow = createServerInstallationWorkflow({
+    getRegistryServer: (registryId, requestedVersion) => registryClient.getServerById(registryId, requestedVersion),
   });
 
   // Create wizard
@@ -290,8 +298,6 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
         // Use forceOverride from wizard if user selected override option
         const shouldForce = force || wizardResult.forceOverride || false;
 
-        const workflow = createServerInstallationWorkflow();
-
         // Dry run mode
         if (dryRun) {
           const preview = await workflow.run({
@@ -312,7 +318,7 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
 
           printer.info('Dry run mode - no changes will be made');
           printer.keyValue({ 'Would install': `${preview.targetName ?? serverName}${version ? `@${version}` : ''}` });
-          printer.info('From registry: https://registry.modelcontextprotocol.io');
+          printer.info(`From registry: ${registryOrigin}`);
           if (wizardResult.installAnother) {
             currentServerId = undefined;
             continue;
@@ -478,6 +484,7 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
   } finally {
     // Always cleanup wizard resources
     wizard.cleanup();
+    registryClient.destroy();
   }
 
   // Explicitly exit after successful completion to prevent hanging

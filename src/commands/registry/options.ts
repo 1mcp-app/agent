@@ -1,3 +1,5 @@
+import type { RegistryOptions } from '@src/domains/registry/types.js';
+
 export interface RegistryYargsOptions {
   url?: string;
   timeout?: number;
@@ -53,3 +55,15 @@ export const registryOptions = {
     default: undefined,
   },
 } as const;
+
+export function registryOptionsFromArgv(options: RegistryYargsOptions): RegistryOptions {
+  return {
+    url: options.url,
+    timeout: options.timeout,
+    cacheTtl: options['cache-ttl'],
+    cacheMaxSize: options['cache-max-size'],
+    cacheCleanupInterval: options['cache-cleanup-interval'],
+    proxy: options.proxy,
+    proxyAuth: options['proxy-auth'],
+  };
+}
