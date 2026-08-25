@@ -49,7 +49,7 @@ export class StreamableSessionRepository {
       customTemplate: config.customTemplate,
       context: config.context,
       contextProof: config.contextProof,
-      expires: Date.now() + AUTH_CONFIG.SERVER.STREAMABLE_SESSION.TTL_MS,
+      expires: Date.now() + this.getSessionTtlMs(),
       createdAt: Date.now(),
       lastAccessedAt: Date.now(),
     };
@@ -187,7 +187,7 @@ export class StreamableSessionRepository {
     const sessionData = this.inMemorySessions.get(sessionId);
     if (sessionData) {
       sessionData.lastAccessedAt = now;
-      sessionData.expires = now + AUTH_CONFIG.SERVER.STREAMABLE_SESSION.TTL_MS;
+      sessionData.expires = now + this.getSessionTtlMs();
     }
 
     // Check if persistence is enabled
@@ -343,7 +343,7 @@ export class StreamableSessionRepository {
     if (sessionData) {
       sessionData.lastAccessedAt = accessTime;
       // Extend expiration on access
-      sessionData.expires = accessTime + AUTH_CONFIG.SERVER.STREAMABLE_SESSION.TTL_MS;
+      sessionData.expires = accessTime + this.getSessionTtlMs();
       this.storage.writeData(AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX, sessionId, sessionData);
 
       // Reset counters and update persist time
@@ -402,6 +402,10 @@ export class StreamableSessionRepository {
     this.flushInterval = setInterval(() => {
       this.flushDirtySessions();
     }, flushIntervalMs);
+  }
+
+  private getSessionTtlMs(): number {
+    return AgentConfigManager.getInstance().getSessionTtlMinutes() * 60 * 1000;
   }
 
   /**
