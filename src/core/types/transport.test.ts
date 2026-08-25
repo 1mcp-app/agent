@@ -23,6 +23,18 @@ describe('transportConfigSchema restart policy', () => {
   });
 });
 
+describe('transportConfigSchema template pool compatibility', () => {
+  it('continues accepting legacy non-negative per-template values', () => {
+    const config = transportConfigSchema.parse({
+      type: 'stdio',
+      command: 'node',
+      template: { maxInstances: 10000.5, idleTimeout: 2_592_000_000 },
+    });
+
+    expect(config.template).toMatchObject({ maxInstances: 10000.5, idleTimeout: 2_592_000_000 });
+  });
+});
+
 describe('transportConfigSchema URL JSON schema', () => {
   it('publishes the same URI-or-environment-reference alternatives accepted at runtime', () => {
     const jsonSchema = z.toJSONSchema(transportConfigSchema, {

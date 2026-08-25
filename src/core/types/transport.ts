@@ -256,20 +256,8 @@ export const oAuthConfigSchema = z.object({
  */
 export const templateServerConfigSchema = z.object({
   shareable: z.boolean().optional().describe('Whether this template creates shareable server instances'),
-  maxInstances: z
-    .number()
-    .int()
-    .min(0)
-    .max(10000)
-    .optional()
-    .describe('Maximum instances per template (0 = unlimited)'),
-  idleTimeout: z
-    .number()
-    .int()
-    .min(0)
-    .max(2147483647)
-    .optional()
-    .describe('Idle timeout before termination in milliseconds'),
+  maxInstances: z.number().min(0).optional().describe('Maximum instances per template (0 = unlimited)'),
+  idleTimeout: z.number().min(0).optional().describe('Idle timeout before termination in milliseconds'),
   perClient: z.boolean().optional().describe('Force per-client instances (overrides shareable)'),
   extractionOptions: z
     .object({

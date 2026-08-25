@@ -8,10 +8,7 @@ import { createTransports } from '@src/transport/transportFactory.js';
 import { NonRetryableClientConnectionError } from '@src/utils/core/errorTypes.js';
 import { getConnectionTimeout } from '@src/utils/core/timeoutUtils.js';
 
-import {
-  DEFAULT_BACKEND_LOADING_POLICY,
-  type BackendLoadingPolicy,
-} from './backendLoadingPolicy.js';
+import { type BackendLoadingPolicy, DEFAULT_BACKEND_LOADING_POLICY } from './backendLoadingPolicy.js';
 import {
   LoadingState,
   LoadingStateEvent,
@@ -55,6 +52,12 @@ export interface McpLoadingEvents {
   [McpLoadingEvent.LoadingProgress]: (summary: LoadingSummary) => void;
   [McpLoadingEvent.LoadingComplete]: (summary: LoadingSummary) => void;
   [McpLoadingEvent.BackgroundRetry]: (name: string, attempt: number) => void;
+}
+
+interface LoadingSlotWaiter {
+  signal?: AbortSignal;
+  resolve: (acquired: boolean) => void;
+  onAbort?: () => void;
 }
 
 /**
@@ -118,6 +121,8 @@ export class McpLoadingManager extends EventEmitter {
    * previous controller after aborting it via `cancelServerOperation`.
    */
   private serverOpAbortControllers: Map<string, AbortController> = new Map();
+  private activeLoadOperations = 0;
+  private loadSlotWaiters: LoadingSlotWaiter[] = [];
 
   constructor(clientManager: ClientManager, config: Partial<BackendLoadingPolicy> = {}) {
     super();
@@ -343,6 +348,21 @@ export class McpLoadingManager extends EventEmitter {
     transport: AuthProviderTransport,
     opSignal?: AbortSignal,
   ): Promise<void> {
+    const acquired = await this.acquireLoadSlot(opSignal);
+    if (!acquired) return;
+
+    try {
+      await this.loadSingleServerWithinSlot(name, transport, opSignal);
+    } finally {
+      this.releaseLoadSlot();
+    }
+  }
+
+  private async loadSingleServerWithinSlot(
+    name: string,
+    transport: AuthProviderTransport,
+    opSignal?: AbortSignal,
+  ): Promise<void> {
     if (this.isShuttingDown || opSignal?.aborted) return;
 
     this.emit(McpLoadingEvent.ServerLoading, name);
@@ -429,6 +449,43 @@ export class McpLoadingManager extends EventEmitter {
     }
   }
 
+  private acquireLoadSlot(signal?: AbortSignal): Promise<boolean> {
+    if (this.isShuttingDown || signal?.aborted) return Promise.resolve(false);
+    if (this.activeLoadOperations < this.config.maxConcurrentLoads) {
+      this.activeLoadOperations++;
+      return Promise.resolve(true);
+    }
+
+    return new Promise((resolve) => {
+      const waiter: LoadingSlotWaiter = { signal, resolve };
+      if (signal) {
+        waiter.onAbort = () => {
+          const index = this.loadSlotWaiters.indexOf(waiter);
+          if (index >= 0) this.loadSlotWaiters.splice(index, 1);
+          resolve(false);
+        };
+        signal.addEventListener('abort', waiter.onAbort, { once: true });
+      }
+      this.loadSlotWaiters.push(waiter);
+    });
+  }
+
+  private releaseLoadSlot(): void {
+    this.activeLoadOperations--;
+
+    while (this.loadSlotWaiters.length > 0) {
+      const waiter = this.loadSlotWaiters.shift()!;
+      if (waiter.onAbort) waiter.signal?.removeEventListener('abort', waiter.onAbort);
+      if (this.isShuttingDown || waiter.signal?.aborted) {
+        waiter.resolve(false);
+        continue;
+      }
+      this.activeLoadOperations++;
+      waiter.resolve(true);
+      break;
+    }
+  }
+
   /**
    * Create client with timeout and cancellation support.
    *
@@ -475,7 +532,9 @@ export class McpLoadingManager extends EventEmitter {
       if (timeoutId !== undefined) clearTimeout(timeoutId);
       rejectTimeout = undefined;
       abortController.signal.removeEventListener('abort', onAttemptAbort);
-      this.abortControllers.delete(name);
+      if (this.abortControllers.get(name) === abortController) {
+        this.abortControllers.delete(name);
+      }
       opSignal?.removeEventListener('abort', onOpAbort);
     }
   }

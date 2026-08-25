@@ -323,15 +323,13 @@
               },
               "maxInstances": {
                 "description": "Maximum instances per template (0 = unlimited)",
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 10000
+                "type": "number",
+                "minimum": 0
               },
               "idleTimeout": {
                 "description": "Idle timeout before termination in milliseconds",
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 2147483647
+                "type": "number",
+                "minimum": 0
               },
               "perClient": {
                 "description": "Force per-client instances (overrides shareable)",
@@ -564,15 +562,13 @@
               },
               "maxInstances": {
                 "description": "Maximum instances per template (0 = unlimited)",
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 10000
+                "type": "number",
+                "minimum": 0
               },
               "idleTimeout": {
                 "description": "Idle timeout before termination in milliseconds",
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 2147483647
+                "type": "number",
+                "minimum": 0
               },
               "perClient": {
                 "description": "Force per-client instances (overrides shareable)",

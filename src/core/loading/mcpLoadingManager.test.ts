@@ -552,9 +552,7 @@ describe('McpLoadingManager', () => {
         await mgr.loadServer(name, makeServerConfig());
       }
 
-      await (
-        mgr as unknown as { performBackgroundRetry(): Promise<void> }
-      ).performBackgroundRetry();
+      await (mgr as unknown as { performBackgroundRetry(): Promise<void> }).performBackgroundRetry();
 
       expect(backgroundRetry).toHaveBeenCalledTimes(2);
       mgr.shutdown();
@@ -619,9 +617,7 @@ describe('McpLoadingManager', () => {
         maxConcurrentLoads: 2,
         maxRetries: 0,
       });
-      const transports = Object.fromEntries(
-        ['a', 'b', 'c', 'd', 'e'].map((name) => [name, makeFakeTransport()]),
-      );
+      const transports = Object.fromEntries(['a', 'b', 'c', 'd', 'e'].map((name) => [name, makeFakeTransport()]));
 
       await (
         mgr as unknown as {
@@ -631,6 +627,58 @@ describe('McpLoadingManager', () => {
 
       expect(maximumActiveLoads).toBe(2);
       expect(failingManager.createSingleClient).toHaveBeenCalledTimes(5);
+      mgr.shutdown();
+    });
+
+    it('never exceeds configured concurrency across explicit runtime loads', async () => {
+      let activeLoads = 0;
+      let maximumActiveLoads = 0;
+      const controlledManager = makeClientManagerMock(async () => {
+        activeLoads++;
+        maximumActiveLoads = Math.max(maximumActiveLoads, activeLoads);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        activeLoads--;
+      });
+      const mgr = new McpLoadingManager(controlledManager as never, {
+        ...FAST_CONFIG,
+        maxConcurrentLoads: 2,
+        maxRetries: 0,
+      });
+
+      await Promise.all(['a', 'b', 'c', 'd', 'e'].map((name) => mgr.loadServer(name, makeServerConfig())));
+
+      expect(maximumActiveLoads).toBe(2);
+      expect(controlledManager.createSingleClient).toHaveBeenCalledTimes(5);
+      mgr.shutdown();
+    });
+
+    it('never exceeds configured concurrency during a background retry cycle', async () => {
+      let backgroundPhase = false;
+      let activeLoads = 0;
+      let maximumActiveLoads = 0;
+      const controlledManager = makeClientManagerMock(async () => {
+        if (!backgroundPhase) throw new Error('offline');
+        activeLoads++;
+        maximumActiveLoads = Math.max(maximumActiveLoads, activeLoads);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        activeLoads--;
+        throw new Error('still offline');
+      });
+      controlledManager.getTransport.mockReturnValue(makeFakeTransport());
+      const mgr = new McpLoadingManager(controlledManager as never, {
+        ...FAST_CONFIG,
+        maxConcurrentLoads: 2,
+        maxRetries: 0,
+        backgroundRetryMaxServersPerCycle: 4,
+      });
+
+      for (const name of ['a', 'b', 'c', 'd']) {
+        await mgr.loadServer(name, makeServerConfig());
+      }
+      backgroundPhase = true;
+      await (mgr as unknown as { performBackgroundRetry(): Promise<void> }).performBackgroundRetry();
+
+      expect(maximumActiveLoads).toBe(2);
       mgr.shutdown();
     });
 
@@ -660,6 +708,37 @@ describe('McpLoadingManager', () => {
         mgr.shutdown();
         vi.useRealTimers();
       }
+    });
+
+    it('does not let an older same-name attempt clear the current abort controller', async () => {
+      const firstAttempt = makeDeferred();
+      const secondAttempt = makeDeferred();
+      const controlledManager = makeClientManagerMock();
+      controlledManager.createSingleClient
+        .mockReturnValueOnce(firstAttempt.promise)
+        .mockReturnValueOnce(secondAttempt.promise);
+      const mgr = new McpLoadingManager(controlledManager as never, FAST_CONFIG);
+      const createClient = (
+        mgr as unknown as {
+          createClientWithTimeout(name: string, transport: ReturnType<typeof makeFakeTransport>): Promise<void>;
+        }
+      ).createClientWithTimeout.bind(mgr);
+      const controllers = (mgr as unknown as { abortControllers: Map<string, AbortController> }).abortControllers;
+
+      const first = createClient('srv', makeFakeTransport());
+      const firstController = controllers.get('srv');
+      const second = createClient('srv', makeFakeTransport());
+      const secondController = controllers.get('srv');
+      expect(secondController).not.toBe(firstController);
+
+      firstAttempt.resolve();
+      await first;
+      expect(controllers.get('srv')).toBe(secondController);
+
+      secondAttempt.resolve();
+      await second;
+      expect(controllers.has('srv')).toBe(false);
+      mgr.shutdown();
     });
   });
 
