@@ -58,6 +58,12 @@ describe('configuration and operations documentation', () => {
     const zhCodex = readDoc('docs/zh/guide/integrations/codex.md');
     const enServerManagement = readDoc('docs/en/guide/essentials/server-management.md');
     const zhServerManagement = readDoc('docs/zh/guide/essentials/server-management.md');
+    const enSecurity = readDoc('docs/en/guide/advanced/security.md');
+    const zhSecurity = readDoc('docs/zh/guide/advanced/security.md');
+    const enReverseProxy = readDoc('docs/en/guide/advanced/reverse-proxy.md');
+    const zhReverseProxy = readDoc('docs/zh/guide/advanced/reverse-proxy.md');
+    const enTemplates = readDoc('docs/en/guide/mcp-server-templates.md');
+    const zhTemplates = readDoc('docs/zh/guide/mcp-server-templates.md');
 
     for (const page of [enConfiguration, zhConfiguration]) {
       const inventory = mcpServerConfigSchema.parse(JSON.parse(extractCodeBlock(page, 'json', '"mcpServers"')));
@@ -143,6 +149,30 @@ describe('configuration and operations documentation', () => {
       expect(page).not.toContain('registry search --category');
       expect(page).not.toContain('registry search --updates');
       expect(page).not.toContain('mcp wizard');
+    }
+
+    for (const page of [enConfiguration, zhConfiguration]) {
+      expect(page).toContain('[asyncLoading.backgroundRetry]');
+      expect(page).toContain('[admin.rateLimit.login]');
+      expect(page).toContain('[health.rateLimit]');
+      expect(page).toContain('[admin.audit]');
+      expect(page).toContain('[templateSettings.pool]');
+      expect(page).toContain('maxTotalInstances = 100');
+      expect(page).toContain('ONE_MCP_ASYNC_MAX_CONCURRENT_LOADS');
+    }
+    for (const page of [enSecurity, zhSecurity]) {
+      expect(page).toContain('state_unknown');
+      expect(page).toContain('24');
+      expect(page).toContain('30');
+    }
+    expect(enReverseProxy).toContain('req.ip');
+    expect(enReverseProxy).toContain('process-local');
+    expect(zhReverseProxy).toContain('req.ip');
+    expect(zhReverseProxy).toContain('进程内');
+    for (const page of [enTemplates, zhTemplates]) {
+      expect(page).toContain('[templateSettings.pool]');
+      expect(page).toContain('maxInstancesPerTemplate');
+      expect(page).toContain('maxTotalInstances');
     }
   });
 });

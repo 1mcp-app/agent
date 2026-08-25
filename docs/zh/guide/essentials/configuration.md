@@ -55,8 +55,8 @@ CLI 参数及其 `ONE_MCP_*` 环境变量等价项会覆盖当前进程的这些
 
 Agent 支持三种配置方法，按以下优先级顺序应用：
 
-1. **环境变量**：最高优先级，适用于容器化部署
-2. **命令行标志**：在运行时覆盖设置
+1. **命令行标志**：显式提供时优先级最高
+2. **环境变量**：为进程提供 `ONE_MCP_*` 默认值
 3. **配置文件**：基础配置（在 MCP 服务器参考中介绍）
 
 ---
@@ -85,6 +85,12 @@ Agent 支持三种配置方法，按以下优先级顺序应用：
 | `--rate-limit-window`           | `ONE_MCP_RATE_LIMIT_WINDOW`           | OAuth 速率限制窗口（分钟）（数字）                                |     15     |
 | `--rate-limit-max`              | `ONE_MCP_RATE_LIMIT_MAX`              | 每个 OAuth 速率限制窗口的最大请求数（数字）                       |    100     |
 | `--enable-async-loading`        | `ONE_MCP_ENABLE_ASYNC_LOADING`        | 启用异步 MCP 服务器加载（布尔值）                                 |   false    |
+| `--async-max-concurrent-loads`  | `ONE_MCP_ASYNC_MAX_CONCURRENT_LOADS`  | 最大并发后端加载数                                                  |     5      |
+| `--async-max-retries`           | `ONE_MCP_ASYNC_MAX_RETRIES`           | 首次尝试后的前台重试次数                                            |     3      |
+| `--async-retry-delay`           | `ONE_MCP_ASYNC_RETRY_DELAY`           | 指数退避初始延迟（毫秒）                                            |    2000    |
+| `--async-background-retry`      | `ONE_MCP_ASYNC_BACKGROUND_RETRY`      | 为可重试的后端失败启用周期性重试                                    |    true    |
+| `--async-background-retry-interval` | `ONE_MCP_ASYNC_BACKGROUND_RETRY_INTERVAL` | 后台重试间隔（毫秒）                                           |   60000    |
+| `--async-background-retry-max-servers` | `ONE_MCP_ASYNC_BACKGROUND_RETRY_MAX_SERVERS` | 每轮最多选择的失败后端数                                  |     3      |
 | `--enable-lazy-loading`         | `ONE_MCP_ENABLE_LAZY_LOADING`         | 启用元工具暴露以逐步发现工具（布尔值）                            |   false    |
 | `--enable-config-reload`        | `ONE_MCP_ENABLE_CONFIG_RELOAD`        | 启用配置文件热重载（布尔值）                                      |    true    |
 | `--config-reload-debounce`      | `ONE_MCP_CONFIG_RELOAD_DEBOUNCE`      | 配置重载防抖时间（毫秒）（数字）                                  |    500     |
@@ -388,6 +394,54 @@ ONE_MCP_ENABLE_ASYNC_LOADING=true \
 ONE_MCP_PAGINATION=true \
 npx -y @1mcp/agent
 ```
+
+#### 启动时捕获的运行策略
+
+以下设置会在聚合运行时启动时完成校验并捕获。修改 `config.toml` 不会实时替换限流器、重试定时器、加载并发、日志保留策略或模板实例池限制；必须重启对应 Runtime Scope 才会生效。
+
+```toml
+[asyncLoading]
+maxConcurrentLoads = 5
+maxRetries = 3
+retryDelay = 2000
+
+[asyncLoading.backgroundRetry]
+enabled = true
+interval = 60000
+maxServersPerCycle = 3
+
+[admin.rateLimit.login]
+windowSeconds = 900
+maxRequests = 30
+maxFailedAttempts = 5
+
+[admin.rateLimit.status]
+windowSeconds = 60
+maxRequests = 120
+
+[admin.rateLimit.sensitive]
+windowSeconds = 900
+maxRequests = 10
+
+[health.rateLimit]
+windowSeconds = 300
+maxRequests = 200
+
+[admin.audit]
+retentionDays = 30
+
+[templateSettings.pool]
+maxInstancesPerTemplate = 50
+maxTotalInstances = 100
+idleTimeout = 300000
+cleanupInterval = 30000
+```
+
+异步加载的 CLI 值覆盖对应的 `ONE_MCP_*` 值，环境变量再覆盖 `config.toml`。`maxRetries = 0` 表示只执行首次尝试；`retryDelay = 0` 会取消等待，但重试次数仍然有限。后台间隔至少为 1000 毫秒。后端的 `connectionTimeout`、旧版后端 `timeout`、最后 30000 毫秒回退值依次决定唯一的连接尝试截止时间。已弃用的 `asyncLoading.minServers` 与 `asyncLoading.timeout` 仍只是产生警告的无操作配置。
+
+Admin 与健康检查限流不能关闭。窗口范围为 1-86400 秒，请求上限为 1-100000，登录失败阈值为 1-100，审计保留期为 1-3650 天。这些进程内控制与 OAuth `--rate-limit-*` 配置相互独立。审计保留期只影响脱敏后的审计事实；已完成/失败操作的幂等回放固定为 24 小时，结果不明确的 `state_unknown` 固定保留 30 天。
+
+模板池的时间值使用毫秒。`maxInstancesPerTemplate` 范围为 0-10000，零表示在全局有限上限内不限制单模板实例数；`maxTotalInstances` 范围为 1-10000；`idleTimeout` 范围为 0-2147483647，零表示立即具备清理资格；`cleanupInterval` 范围为 1000-3600000。每个模板的 `template.maxInstances` 与 `template.idleTimeout` 只覆盖各自的回退值。
 
 ### 懒加载
 

@@ -618,6 +618,22 @@ MCP 服务器模板支持动态、上下文感知的服务器配置。您无需�
 
 > **注意**: `tags` 数组中的模板表达式（例如 <span v-pre>`"team-{{project.custom.team}}"`</span>）不会被渲染——它们将作为字面量标签字符串使用。请仅使用静态标签值。
 
+## 模板实例池策略
+
+Runtime Scope 在启动时从 `config.toml` 捕获全局模板实例池策略：
+
+```toml
+[templateSettings.pool]
+maxInstancesPerTemplate = 50
+maxTotalInstances = 100
+idleTimeout = 300000
+cleanupInterval = 30000
+```
+
+当模板服务器定义省略 `template.maxInstances` 时，`maxInstancesPerTemplate` 是回退值；模板中的显式值优先，零表示单模板实例数不受限制。`idleTimeout` 使用相同优先级，零表示无引用实例会在下一次清理时立即具备资格。所有创建仍受正数且有限的 `maxTotalInstances` 限制。唯一的无引用清理定时器只会在有效空闲超时结束后，统一移除成员、路由、传输与实例池状态。
+
+修改实例池策略后必须重启聚合运行时。通用配置重载不会调整实时池容量，也不会驱逐现有实例。模板重新处理的熔断器仍固定为连续失败三次、五分钟后重置，不属于本策略。
+
 ## 故障排除
 
 ### 模板未渲染

@@ -30,3 +30,9 @@ For detailed information on the available options and how to configure them in y
 For a complete cloud-hosted Admin Console and local CLI target workflow using Caddy, see **[Cloud Deployment with Caddy](/guide/advanced/cloud-deployment)**.
 
 For specific examples and security considerations, refer to the **[Trust Proxy Reference](/reference/trust-proxy)**.
+
+## Client identity and rate limits
+
+Admin and health limiters use Express's resolved `req.ip`; 1MCP never parses forwarded headers independently. Trust only the actual proxy hops. With the correct boundary, different forwarded clients keep distinct limiter keys. Without proxy trust, requests collapse to the proxy's address. Over-trusting the path lets callers choose the apparent client IP and bypass process-local limits.
+
+Changing the trusted-proxy boundary or an Admin/health policy requires an Aggregated Runtime restart. These local limiters do not coordinate counters between replicas, so keep edge rate limiting enabled at the reverse proxy or load balancer.
