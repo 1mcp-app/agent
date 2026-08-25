@@ -1,4 +1,3 @@
-import { randomUUID } from 'crypto';
 import fs from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
@@ -32,8 +31,8 @@ describe('FileStorageService', () => {
   let tempDir: string;
 
   beforeEach(() => {
-    // Create a temporary directory for testing
-    tempDir = path.join(tmpdir(), `file-storage-test-${randomUUID()}`);
+    // Create a unique temporary directory for testing
+    tempDir = fs.mkdtempSync(path.join(tmpdir(), 'file-storage-test-'));
     service = new FileStorageService(tempDir);
   });
 
@@ -64,9 +63,11 @@ describe('FileStorageService', () => {
     });
 
     it('should handle directory creation errors', () => {
-      const invalidDir =
-        process.platform === 'win32' ? 'Z:\\nonexistent_drive_123\\sessions' : '/invalid/path/that/cannot/be/created';
-      expect(() => new FileStorageService(invalidDir)).toThrow();
+      vi.spyOn(fs, 'existsSync').mockReturnValueOnce(false);
+      vi.spyOn(fs, 'mkdirSync').mockImplementationOnce(() => {
+        throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+      });
+      expect(() => new FileStorageService(tempDir)).toThrow(/EACCES/);
     });
   });
 
@@ -85,6 +86,144 @@ describe('FileStorageService', () => {
       const retrieved = service.readData<TestData>(testPrefix, testId);
 
       expect(retrieved).toEqual(testData);
+    });
+
+    it('writes token data files with 0600 permissions', () => {
+      // POSIX-only: Windows ACLs do not map to fs.stat modes
+      if (process.platform === 'win32') return;
+      service.writeData(testPrefix, testId, testData);
+      const filePath = service.getFilePath(testPrefix, testId);
+      expect(fs.statSync(filePath).mode & 0o777).toBe(0o600);
+    });
+
+    it('durable write: token data files land with 0600 permissions (regression)', () => {
+      // POSIX-only: Windows ACLs do not map to fs.stat modes
+      if (process.platform === 'win32') return;
+      service.writeDataDurable(testPrefix, testId, testData);
+      const filePath = service.getFilePath(testPrefix, testId);
+      expect(fs.statSync(filePath).mode & 0o777).toBe(0o600);
+    });
+
+    it('creates storage directory with 0700 permissions', () => {
+      // POSIX-only: Windows ACLs do not map to fs.stat modes
+      if (process.platform === 'win32') return;
+      expect(fs.statSync(service.getStorageDir()).mode & 0o777).toBe(0o700);
+    });
+
+    it('hardens pre-existing storage directory permissions to 0700', () => {
+      // POSIX-only: Windows ACLs do not map to fs.stat modes
+      if (process.platform === 'win32') return;
+      const customDir = path.join(tmpdir(), `custom-perm-test-${Date.now()}`);
+      const sessionsPath = path.join(customDir, 'sessions');
+      fs.mkdirSync(sessionsPath, { recursive: true, mode: 0o755 });
+      fs.chmodSync(sessionsPath, 0o755);
+
+      const customService = new FileStorageService(customDir);
+      expect(fs.statSync(sessionsPath).mode & 0o777).toBe(0o700);
+      customService.shutdown();
+      fs.rmSync(customDir, { recursive: true, force: true });
+    });
+
+    it('hardens pre-existing data file permissions to 0600 on writeData', () => {
+      // POSIX-only: Windows ACLs do not map to fs.stat modes
+      if (process.platform === 'win32') return;
+      const filePath = service.getFilePath(testPrefix, testId);
+      fs.writeFileSync(filePath, JSON.stringify(testData, null, 2), { mode: 0o644 });
+      fs.chmodSync(filePath, 0o644);
+
+      service.writeData(testPrefix, testId, testData);
+      expect(fs.statSync(filePath).mode & 0o777).toBe(0o600);
+    });
+
+    it('hardens pre-existing migration flag permissions to 0600', () => {
+      // POSIX-only: Windows ACLs do not map to fs.stat modes
+      if (process.platform === 'win32') return;
+      const customDir = path.join(tmpdir(), `custom-migration-flag-test-${Date.now()}`);
+      const sessionsPath = path.join(customDir, 'sessions');
+      fs.mkdirSync(sessionsPath, { recursive: true, mode: 0o700 });
+      const flagPath = path.join(sessionsPath, '.migrated-to-server');
+      fs.writeFileSync(flagPath, JSON.stringify({ migrated: true }), { mode: 0o644 });
+      fs.chmodSync(flagPath, 0o644);
+
+      const serverService = new FileStorageService(customDir, 'server');
+      expect(fs.statSync(flagPath).mode & 0o777).toBe(0o600);
+      serverService.shutdown();
+      fs.rmSync(customDir, { recursive: true, force: true });
+    });
+
+    it('does not write replacement secret if chmod fails on pre-existing permissive file', () => {
+      // POSIX-only: Windows ACLs do not map to fs.stat modes
+      if (process.platform === 'win32') return;
+      const filePath = service.getFilePath(testPrefix, testId);
+      fs.writeFileSync(filePath, JSON.stringify({ ...testData, value: 'old-secret' }), { mode: 0o644 });
+      fs.chmodSync(filePath, 0o644);
+
+      const originalChmodSync = fs.chmodSync;
+      vi.spyOn(fs, 'chmodSync').mockImplementation((pathArg, modeArg) => {
+        if (pathArg === filePath) {
+          throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+        }
+        return originalChmodSync(pathArg, modeArg);
+      });
+
+      expect(() =>
+        service.writeData(testPrefix, testId, {
+          ...testData,
+          value: 'new-secret',
+        }),
+      ).toThrow(/EPERM/);
+
+      const contentOnDisk = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      expect(contentOnDisk.value).toBe('old-secret');
+    });
+
+    it('hardens legacy data files to 0600 during migration', () => {
+      // POSIX-only: Windows ACLs do not map to fs.stat modes
+      if (process.platform === 'win32') return;
+      const customDir = path.join(tmpdir(), `custom-migration-harden-test-${Date.now()}`);
+      const sessionsDir = path.join(customDir, 'sessions');
+      fs.mkdirSync(sessionsDir, { recursive: true });
+
+      const legacyFileName = 'session_sess-12345678-1234-4abc-89de-123456789012.json';
+      const legacyFilePath = path.join(sessionsDir, legacyFileName);
+      fs.writeFileSync(legacyFilePath, JSON.stringify(testData), { mode: 0o644 });
+      fs.chmodSync(legacyFilePath, 0o644);
+
+      const serverService = new FileStorageService(customDir, 'server');
+      const migratedFilePath = path.join(customDir, 'sessions', 'server', legacyFileName);
+      expect(fs.existsSync(migratedFilePath)).toBe(true);
+      expect(fs.statSync(migratedFilePath).mode & 0o777).toBe(0o600);
+
+      serverService.shutdown();
+      fs.rmSync(customDir, { recursive: true, force: true });
+    });
+
+    it('does not create migration flag if file hardening fails during migration', () => {
+      // POSIX-only: Windows ACLs do not map to fs.stat modes
+      if (process.platform === 'win32') return;
+      const customDir = path.join(tmpdir(), `custom-migration-fail-test-${Date.now()}`);
+      const sessionsDir = path.join(customDir, 'sessions');
+      fs.mkdirSync(sessionsDir, { recursive: true });
+
+      const legacyFileName = 'session_sess-12345678-1234-4abc-89de-123456789012.json';
+      const legacyFilePath = path.join(sessionsDir, legacyFileName);
+      fs.writeFileSync(legacyFilePath, JSON.stringify(testData), { mode: 0o644 });
+      fs.chmodSync(legacyFilePath, 0o644);
+
+      const originalChmodSync = fs.chmodSync;
+      vi.spyOn(fs, 'chmodSync').mockImplementation((pathArg, modeArg) => {
+        if (String(pathArg).includes(legacyFileName)) {
+          throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+        }
+        return originalChmodSync(pathArg, modeArg);
+      });
+
+      const serverService = new FileStorageService(customDir, 'server');
+      const flagPath = path.join(sessionsDir, '.migrated-to-server');
+      expect(fs.existsSync(flagPath)).toBe(false);
+
+      serverService.shutdown();
+      fs.rmSync(customDir, { recursive: true, force: true });
     });
 
     it('preserves the previous record when a replacement write fails after truncation', () => {
