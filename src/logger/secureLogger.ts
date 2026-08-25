@@ -4,9 +4,8 @@ import logger from './logger.js';
  * Patterns matching value-bearing credentials (used for both values and object keys)
  */
 const KEY_SENSITIVE_PATTERNS = [
-  // PEM Private Key blocks (CWE-532, matches full block or unclosed header)
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/gi,
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----/gi,
+  // PEM Private Key blocks (CWE-532, matches full block or unterminated block through string boundary)
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/gi,
 
   // Bearer tokens in Authorization headers (MUST run before generic key-value to avoid splitting "Token: bearer <token>")
   /bearer\s+[a-zA-Z0-9_\-.~+/]+=*/gi,
@@ -133,7 +132,7 @@ function sanitize(value: unknown, depth = 0): unknown {
   }
 
   if (typeof value === 'symbol') {
-    return escapeControlChars(value.toString());
+    return sanitizeString(value.toString());
   }
 
   if (typeof value === 'function') {
@@ -145,7 +144,7 @@ function sanitize(value: unknown, depth = 0): unknown {
   }
 
   if (value instanceof RegExp) {
-    return escapeControlChars(value.toString());
+    return sanitizeString(value.toString());
   }
 
   if (value instanceof Error) {
@@ -153,7 +152,7 @@ function sanitize(value: unknown, depth = 0): unknown {
       name:
         typeof value.name === 'string'
           ? (sanitize(value.name, depth + 1) as string)
-          : escapeControlChars(String(value.name)),
+          : sanitizeString(String(value.name)),
       message: sanitize(value.message, depth + 1),
     };
     if (value.stack) {
@@ -163,6 +162,9 @@ function sanitize(value: unknown, depth = 0): unknown {
       sanitizedError.cause = sanitize(value.cause, depth + 1);
     }
     for (const [key, val] of Object.entries(value)) {
+      if (key === 'name' || key === 'message' || key === 'stack' || key === 'cause' || key === '__proto__') {
+        continue;
+      }
       const sanitizedKey = sanitizeKey(key);
       if (isSensitiveKey(key)) {
         sanitizedError[sanitizedKey] = '[REDACTED]';
@@ -181,6 +183,9 @@ function sanitize(value: unknown, depth = 0): unknown {
     const mapObj: Record<string, unknown> = {};
     for (const [k, v] of value.entries()) {
       const stringKey = typeof k === 'string' ? k : String(k);
+      if (stringKey === '__proto__') {
+        continue;
+      }
       const sanitizedKey = sanitizeKey(stringKey);
       if (isSensitiveKey(stringKey)) {
         mapObj[sanitizedKey] = '[REDACTED]';
@@ -199,6 +204,9 @@ function sanitize(value: unknown, depth = 0): unknown {
     const sanitized: Record<string, unknown> = {};
 
     for (const [key, val] of Object.entries(value)) {
+      if (key === '__proto__') {
+        continue;
+      }
       const sanitizedKey = sanitizeKey(key);
       if (isSensitiveKey(key)) {
         sanitized[sanitizedKey] = '[REDACTED]';

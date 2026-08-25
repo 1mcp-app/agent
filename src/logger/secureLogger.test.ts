@@ -177,6 +177,17 @@ describe('secureLogger', () => {
       const sanitizedCause = result.cause as Record<string, unknown>;
       expect(sanitizedCause.message).toContain('[REDACTED]');
       expect(sanitizedCause.message).not.toContain('rootpass123');
+
+      // Non-string Error.name containing credentials
+      const nonStringNameError = new Error('Normal message');
+      (nonStringNameError as any).name = {
+        toString: () => 'CustomToken_NONSTRING_SECRET_123\nInjected',
+      };
+      const sanitizedNonStringErr = sanitizeForLogging(nonStringNameError) as Record<string, unknown>;
+      expect(sanitizedNonStringErr.name).toContain('[REDACTED]');
+      expect(sanitizedNonStringErr.name).not.toContain('NONSTRING_SECRET_123');
+      expect(sanitizedNonStringErr.name).not.toContain('\n');
+      expect(sanitizedNonStringErr.name).toContain('\\n');
     });
 
     it('should escape Unicode line separators and Trojan Source Bidi overrides', () => {
@@ -188,7 +199,7 @@ describe('secureLogger', () => {
       expect(result).not.toContain('\u202E');
     });
 
-    it('should redact PEM private keys including full body content, Basic auth, and JWT tokens', () => {
+    it('should redact PEM private keys including full body content, unterminated blocks, Basic auth, and JWT tokens', () => {
       const pem =
         '-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA0base64secretkeypayload...\n-----END RSA PRIVATE KEY-----';
       const sanitizedPem = sanitizeForLogging(pem) as string;
@@ -196,6 +207,11 @@ describe('secureLogger', () => {
       expect(sanitizedPem).not.toContain('BEGIN RSA PRIVATE KEY');
       expect(sanitizedPem).not.toContain('MIIEowIBAAKCAQEA0base64secretkeypayload');
       expect(sanitizedPem).not.toContain('END RSA PRIVATE KEY');
+
+      const unterminatedPem = '-----BEGIN RSA PRIVATE KEY-----\nUNTERMINATED_PRIVATE_BODY_123';
+      const sanitizedUnterminated = sanitizeForLogging(unterminatedPem) as string;
+      expect(sanitizedUnterminated).toBe('[REDACTED]');
+      expect(sanitizedUnterminated).not.toContain('UNTERMINATED_PRIVATE_BODY_123');
 
       const basic = 'Authorization: Basic dXNlcjpwYXNzd29yZDEyMw==';
       expect(sanitizeForLogging(basic)).toContain('[REDACTED]');
@@ -206,7 +222,7 @@ describe('secureLogger', () => {
       expect(sanitizeForLogging(jwt)).not.toContain('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9');
     });
 
-    it('should safely serialize complex data types (BigInt, Date, RegExp, Set, Map)', () => {
+    it('should safely serialize complex data types (BigInt, Date, RegExp, Set, Map, Symbol) and sanitize credentials', () => {
       const date = new Date('2026-08-24T00:00:00.000Z');
       expect(sanitizeForLogging(date)).toBe('2026-08-24T00:00:00.000Z');
 
@@ -215,6 +231,16 @@ describe('secureLogger', () => {
 
       const regex = /test\npattern/g;
       expect(sanitizeForLogging(regex)).toBe('/test\\npattern/g');
+
+      const regexWithCreds = /password=REGEXP_SECRET_123/i;
+      const sanitizedRegex = sanitizeForLogging(regexWithCreds) as string;
+      expect(sanitizedRegex).toContain('[REDACTED]');
+      expect(sanitizedRegex).not.toContain('REGEXP_SECRET_123');
+
+      const symbolWithCreds = Symbol('password=SYMBOL_SECRET_123');
+      const sanitizedSymbol = sanitizeForLogging(symbolWithCreds) as string;
+      expect(sanitizedSymbol).toContain('[REDACTED]');
+      expect(sanitizedSymbol).not.toContain('SYMBOL_SECRET_123');
 
       const set = new Set(['user1', 'token=secret999']);
       const sanitizedSet = sanitizeForLogging(set) as string[];
