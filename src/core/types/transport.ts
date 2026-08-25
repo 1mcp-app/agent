@@ -155,6 +155,14 @@ export interface ApplicationConfig {
     readonly timeout?: number;
     readonly batchNotifications?: boolean;
     readonly batchDelay?: number;
+    readonly maxConcurrentLoads?: number;
+    readonly maxRetries?: number;
+    readonly retryDelay?: number;
+    readonly backgroundRetry?: {
+      readonly enabled?: boolean;
+      readonly interval?: number;
+      readonly maxServersPerCycle?: number;
+    };
   };
   readonly lazyLoading?: {
     readonly enabled?: boolean;
@@ -168,6 +176,38 @@ export interface ApplicationConfig {
   };
   readonly admin?: {
     readonly enabled?: boolean;
+    readonly rateLimit?: {
+      readonly login?: {
+        readonly windowSeconds?: number;
+        readonly maxRequests?: number;
+        readonly maxFailedAttempts?: number;
+      };
+      readonly status?: {
+        readonly windowSeconds?: number;
+        readonly maxRequests?: number;
+      };
+      readonly sensitive?: {
+        readonly windowSeconds?: number;
+        readonly maxRequests?: number;
+      };
+    };
+    readonly audit?: {
+      readonly retentionDays?: number;
+    };
+  };
+  readonly health?: {
+    readonly rateLimit?: {
+      readonly windowSeconds?: number;
+      readonly maxRequests?: number;
+    };
+  };
+  readonly templateSettings?: {
+    readonly pool?: {
+      readonly maxInstancesPerTemplate?: number;
+      readonly maxTotalInstances?: number;
+      readonly idleTimeout?: number;
+      readonly cleanupInterval?: number;
+    };
   };
   readonly templateContext?: {
     readonly trust?: 'verified' | 'disabled' | 'legacy';
@@ -216,8 +256,20 @@ export const oAuthConfigSchema = z.object({
  */
 export const templateServerConfigSchema = z.object({
   shareable: z.boolean().optional().describe('Whether this template creates shareable server instances'),
-  maxInstances: z.number().min(0).optional().describe('Maximum instances per template (0 = unlimited)'),
-  idleTimeout: z.number().min(0).optional().describe('Idle timeout before termination in milliseconds'),
+  maxInstances: z
+    .number()
+    .int()
+    .min(0)
+    .max(10000)
+    .optional()
+    .describe('Maximum instances per template (0 = unlimited)'),
+  idleTimeout: z
+    .number()
+    .int()
+    .min(0)
+    .max(2147483647)
+    .optional()
+    .describe('Idle timeout before termination in milliseconds'),
   perClient: z.boolean().optional().describe('Force per-client instances (overrides shareable)'),
   extractionOptions: z
     .object({
@@ -377,7 +429,19 @@ export const applicationConfigSchema = z.object({
         .optional()
         .describe('Coalesce capability-change notifications within the batch delay window'),
       batchDelay: z.number().int().min(0).optional().describe('Notification coalescing window in milliseconds'),
+      maxConcurrentLoads: z.number().int().positive().optional().describe('Maximum concurrent backend loads'),
+      maxRetries: z.number().int().min(0).optional().describe('Maximum foreground retries after the initial attempt'),
+      retryDelay: z.number().int().min(0).optional().describe('Initial retry delay in milliseconds'),
+      backgroundRetry: z
+        .object({
+          enabled: z.boolean().optional().describe('Retry failed backends in the background'),
+          interval: z.number().int().min(1000).optional().describe('Background retry interval in milliseconds'),
+          maxServersPerCycle: z.number().int().positive().optional().describe('Maximum failed backends per cycle'),
+        })
+        .strict()
+        .optional(),
     })
+    .strict()
     .optional(),
   lazyLoading: z
     .object({
@@ -396,7 +460,67 @@ export const applicationConfigSchema = z.object({
   admin: z
     .object({
       enabled: z.boolean().optional().describe('Enable Admin Console and CLI Admin Adapter HTTP surfaces'),
+      rateLimit: z
+        .object({
+          login: z
+            .object({
+              windowSeconds: z.number().int().min(1).max(86400).optional(),
+              maxRequests: z.number().int().min(1).max(100000).optional(),
+              maxFailedAttempts: z.number().int().min(1).max(100).optional(),
+            })
+            .strict()
+            .optional(),
+          status: z
+            .object({
+              windowSeconds: z.number().int().min(1).max(86400).optional(),
+              maxRequests: z.number().int().min(1).max(100000).optional(),
+            })
+            .strict()
+            .optional(),
+          sensitive: z
+            .object({
+              windowSeconds: z.number().int().min(1).max(86400).optional(),
+              maxRequests: z.number().int().min(1).max(100000).optional(),
+            })
+            .strict()
+            .optional(),
+        })
+        .strict()
+        .optional(),
+      audit: z
+        .object({
+          retentionDays: z.number().int().min(1).max(3650).optional(),
+        })
+        .strict()
+        .optional(),
     })
+    .strict()
+    .optional(),
+  health: z
+    .object({
+      rateLimit: z
+        .object({
+          windowSeconds: z.number().int().min(1).max(86400).optional(),
+          maxRequests: z.number().int().min(1).max(100000).optional(),
+        })
+        .strict()
+        .optional(),
+    })
+    .strict()
+    .optional(),
+  templateSettings: z
+    .object({
+      pool: z
+        .object({
+          maxInstancesPerTemplate: z.number().int().min(0).max(10000).optional(),
+          maxTotalInstances: z.number().int().min(1).max(10000).optional(),
+          idleTimeout: z.number().int().min(0).max(2147483647).optional(),
+          cleanupInterval: z.number().int().min(1000).max(3600000).optional(),
+        })
+        .strict()
+        .optional(),
+    })
+    .strict()
     .optional(),
   templateContext: z
     .object({

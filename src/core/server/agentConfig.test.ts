@@ -63,9 +63,21 @@ describe('AgentConfigManager', () => {
         trustProxy: 'loopback',
         admin: {
           enabled: true,
+          rateLimit: {
+            login: { windowMs: 900000, maxRequests: 30, maxFailedAttempts: 5 },
+            status: { windowMs: 60000, maxRequests: 120 },
+            sensitive: { windowMs: 900000, maxRequests: 10 },
+          },
+          audit: { retentionMs: 2592000000 },
         },
         templateContext: {
           trust: 'verified',
+        },
+        templateInstancePool: {
+          maxInstancesPerTemplate: 50,
+          maxTotalInstances: 100,
+          idleTimeoutMs: 300000,
+          cleanupIntervalMs: 30000,
         },
         auth: {
           enabled: false,
@@ -91,6 +103,7 @@ describe('AgentConfigManager', () => {
         },
         health: {
           detailLevel: 'minimal',
+          rateLimit: { windowMs: 300000, maxRequests: 200 },
         },
         asyncLoading: {
           enabled: false,
@@ -99,6 +112,14 @@ describe('AgentConfigManager', () => {
           batchNotifications: true,
           batchDelayMs: 1000,
           notifyOnServerReady: true,
+          loadingPolicy: {
+            maxConcurrentLoads: 5,
+            maxRetries: 3,
+            retryDelayMs: 2000,
+            enableBackgroundRetry: true,
+            backgroundRetryIntervalMs: 60000,
+            backgroundRetryMaxServersPerCycle: 3,
+          },
         },
         configReload: {
           debounceMs: 500,
@@ -361,7 +382,7 @@ describe('AgentConfigManager', () => {
       expect(configManager.get('health').detailLevel).toBe('minimal');
 
       configManager.updateConfig({
-        health: { detailLevel: 'full' },
+        health: { ...configManager.get('health'), detailLevel: 'full' },
       });
       expect(configManager.get('health').detailLevel).toBe('full');
     });
