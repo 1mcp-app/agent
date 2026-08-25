@@ -633,6 +633,101 @@ describe('ClientInstancePool', () => {
       ).rejects.toThrow("Maximum instances (3) reached for template 'testTemplate'");
     });
 
+    it('uses a lower per-template limit instead of the pool fallback', async () => {
+      const config = {
+        ...mockTemplateConfig,
+        template: { ...mockTemplateConfig.template, shareable: false, maxInstances: 1 },
+      };
+
+      await pool.getOrCreateClientInstance('testTemplate', config, mockContext, 'client-1');
+
+      await expect(pool.getOrCreateClientInstance('testTemplate', config, mockContext, 'client-2')).rejects.toThrow(
+        "Maximum instances (1) reached for template 'testTemplate'",
+      );
+    });
+
+    it('uses a higher per-template limit instead of the pool fallback', async () => {
+      await pool.shutdown();
+      pool = new ClientInstancePool({ maxInstances: 1, maxTotalInstances: 3, idleTimeout: 1000 });
+      const config = {
+        ...mockTemplateConfig,
+        template: { ...mockTemplateConfig.template, shareable: false, maxInstances: 2 },
+      };
+
+      await pool.getOrCreateClientInstance('testTemplate', config, mockContext, 'client-1');
+      await pool.getOrCreateClientInstance('testTemplate', config, mockContext, 'client-2');
+
+      await expect(pool.getOrCreateClientInstance('testTemplate', config, mockContext, 'client-3')).rejects.toThrow(
+        "Maximum instances (2) reached for template 'testTemplate'",
+      );
+    });
+
+    it('treats zero as an unlimited per-template limit while retaining the global limit', async () => {
+      await pool.shutdown();
+      pool = new ClientInstancePool({ maxInstances: 1, maxTotalInstances: 2, idleTimeout: 1000 });
+      const config = {
+        ...mockTemplateConfig,
+        template: { ...mockTemplateConfig.template, shareable: false, maxInstances: 0 },
+      };
+
+      await pool.getOrCreateClientInstance('testTemplate', config, mockContext, 'client-1');
+      await pool.getOrCreateClientInstance('testTemplate', config, mockContext, 'client-2');
+
+      await expect(pool.getOrCreateClientInstance('testTemplate', config, mockContext, 'client-3')).rejects.toThrow(
+        'Maximum total instances (2) reached',
+      );
+    });
+
+    it('reserves per-template capacity before concurrent candidates connect', async () => {
+      const { createTransportsWithContext } = await import('@src/transport/transportFactory.js');
+      let resolveTransport!: (transports: Record<string, any>) => void;
+      vi.mocked(createTransportsWithContext).mockReturnValue(
+        new Promise((resolve) => {
+          resolveTransport = resolve;
+        }),
+      );
+      const config = {
+        ...mockTemplateConfig,
+        template: { ...mockTemplateConfig.template, shareable: false, maxInstances: 1 },
+      };
+
+      const first = pool.getOrCreateClientInstance('testTemplate', config, mockContext, 'client-1');
+      await vi.waitFor(() => expect(createTransportsWithContext).toHaveBeenCalledTimes(1));
+
+      await expect(pool.getOrCreateClientInstance('testTemplate', config, mockContext, 'client-2')).rejects.toThrow(
+        "Maximum instances (1) reached for template 'testTemplate'",
+      );
+
+      resolveTransport({ testTemplate: { close: vi.fn(), start: vi.fn(), send: vi.fn() } });
+      await first;
+    });
+
+    it('reserves global capacity before concurrent candidates connect', async () => {
+      await pool.shutdown();
+      pool = new ClientInstancePool({ maxInstances: 5, maxTotalInstances: 1, idleTimeout: 1000 });
+      const { createTransportsWithContext } = await import('@src/transport/transportFactory.js');
+      let resolveTransport!: (transports: Record<string, any>) => void;
+      vi.mocked(createTransportsWithContext).mockReturnValue(
+        new Promise((resolve) => {
+          resolveTransport = resolve;
+        }),
+      );
+      const config = {
+        ...mockTemplateConfig,
+        template: { ...mockTemplateConfig.template, shareable: false },
+      };
+
+      const first = pool.getOrCreateClientInstance('template1', config, mockContext, 'client-1');
+      await vi.waitFor(() => expect(createTransportsWithContext).toHaveBeenCalledTimes(1));
+
+      await expect(pool.getOrCreateClientInstance('template2', config, mockContext, 'client-2')).rejects.toThrow(
+        'Maximum total instances (1) reached',
+      );
+
+      resolveTransport({ template1: { close: vi.fn(), start: vi.fn(), send: vi.fn() } });
+      await first;
+    });
+
     it('should respect max total instances limit', async () => {
       const { createTransportsWithContext } = await import('@src/transport/transportFactory.js');
       const { ClientManager } = await import('@src/core/client/clientManager.js');

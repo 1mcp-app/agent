@@ -39,8 +39,9 @@ export class ClientInstancePool {
   private instances = new Map<string, PooledClientInstance>();
   private templateToInstances = new Map<string, Set<string>>();
   private options: ClientPoolOptions;
-  private cleanupTimer?: ReturnType<typeof setInterval>;
   private pendingCreations = new Map<string, PendingCreation>();
+  private reservedCreationsByTemplate = new Map<string, number>();
+  private reservedCreationCount = 0;
   private removalOperations = new Map<string, Promise<void>>();
   private supervisionPublisher?: (instance: PooledClientInstance, snapshot: BackendSupervisionSnapshot) => void;
   private isShuttingDown = false;
@@ -48,7 +49,6 @@ export class ClientInstancePool {
 
   constructor(options: Partial<ClientPoolOptions> = {}) {
     this.options = { ...DEFAULT_POOL_OPTIONS, ...options };
-    this.startCleanupTimer();
 
     debugIf(() => ({
       message: 'ClientInstancePool initialized',
@@ -155,40 +155,44 @@ export class ClientInstancePool {
       }
 
       const instancePromise = (async (): Promise<PooledClientInstance> => {
-        this.checkInstanceLimits(templateName);
-        const instance = await createPooledClientInstance({
-          instanceId: createTemplateInstanceId(),
-          instanceKey,
-          templateName,
-          processedConfig: renderedConfig,
-          renderedHash,
-          runtimeFingerprint,
-          clientId,
-          idleTimeout: templateSettings.idleTimeout,
-        });
-        if (this.isShuttingDown) {
-          await this.disposeInstance(instance);
-          throw new Error('ClientInstancePool is shutting down');
-        }
-        if (this.createRuntimeFingerprint(renderedConfig) !== runtimeFingerprint) {
-          await this.disposeInstance(instance);
-          throw new StaleRuntimeEnvironmentError();
-        }
-        this.configureInstanceSupervision(instance);
-        this.instances.set(instanceKey, instance);
-        this.addToTemplateIndex(templateName, instanceKey);
-
-        infoIf(() => ({
-          message: 'Created new client instance from template',
-          meta: {
-            instanceId: instance.id,
+        this.reserveCreation(templateName, templateSettings.maxInstances);
+        try {
+          const instance = await createPooledClientInstance({
+            instanceId: createTemplateInstanceId(),
+            instanceKey,
             templateName,
-            renderedHash: renderedHash.substring(0, 8) + '...',
+            processedConfig: renderedConfig,
+            renderedHash,
+            runtimeFingerprint,
             clientId,
-            shareable: templateSettings.shareable,
-          },
-        }));
-        return instance;
+            idleTimeout: templateSettings.idleTimeout,
+          });
+          if (this.isShuttingDown) {
+            await this.disposeInstance(instance);
+            throw new Error('ClientInstancePool is shutting down');
+          }
+          if (this.createRuntimeFingerprint(renderedConfig) !== runtimeFingerprint) {
+            await this.disposeInstance(instance);
+            throw new StaleRuntimeEnvironmentError();
+          }
+          this.configureInstanceSupervision(instance);
+          this.instances.set(instanceKey, instance);
+          this.addToTemplateIndex(templateName, instanceKey);
+
+          infoIf(() => ({
+            message: 'Created new client instance from template',
+            meta: {
+              instanceId: instance.id,
+              templateName,
+              renderedHash: renderedHash.substring(0, 8) + '...',
+              clientId,
+              shareable: templateSettings.shareable,
+            },
+          }));
+          return instance;
+        } finally {
+          this.releaseCreationReservation(templateName);
+        }
       })();
 
       const pending = { runtimeFingerprint, promise: instancePromise };
@@ -403,9 +407,9 @@ export class ClientInstancePool {
       const idleTime = now.getTime() - instance.lastUsedAt.getTime();
 
       // Use instance-specific timeout if available, otherwise use pool-wide timeout
-      const timeoutThreshold = instance.idleTimeout || this.options.idleTimeout!;
+      const timeoutThreshold = instance.idleTimeout ?? this.options.idleTimeout!;
 
-      if (instance.status === 'idle' && idleTime > timeoutThreshold) {
+      if (instance.status === 'idle' && idleTime >= timeoutThreshold) {
         instancesToRemove.push(instanceKey);
       }
     }
@@ -444,11 +448,6 @@ export class ClientInstancePool {
   }
 
   private async performShutdown(): Promise<void> {
-    if (this.cleanupTimer) {
-      clearInterval(this.cleanupTimer);
-      this.cleanupTimer = undefined;
-    }
-
     await Promise.allSettled(Array.from(this.pendingCreations.values(), ({ promise }) => promise));
 
     const instanceCount = this.instances.size;
@@ -461,6 +460,8 @@ export class ClientInstancePool {
     this.instances.clear();
     this.templateToInstances.clear();
     this.pendingCreations.clear();
+    this.reservedCreationsByTemplate.clear();
+    this.reservedCreationCount = 0;
     this.removalOperations.clear();
 
     debugIf(() => ({
@@ -644,7 +645,7 @@ export class ClientInstancePool {
       return {
         shareable: options?.shareable !== false, // Default to true
         perClient: options?.perClient === true, // Default to false
-        idleTimeout: options?.idleTimeout || this.options.idleTimeout!,
+        idleTimeout: options?.idleTimeout ?? this.options.idleTimeout!,
         maxInstances: this.options.maxInstances!,
       };
     }
@@ -652,8 +653,8 @@ export class ClientInstancePool {
     return {
       shareable: templateConfig.template.shareable !== false, // Default to true
       perClient: templateConfig.template.perClient === true, // Default to false
-      idleTimeout: templateConfig.template.idleTimeout || this.options.idleTimeout!,
-      maxInstances: templateConfig.template.maxInstances || this.options.maxInstances!,
+      idleTimeout: templateConfig.template.idleTimeout ?? options?.idleTimeout ?? this.options.idleTimeout!,
+      maxInstances: templateConfig.template.maxInstances ?? this.options.maxInstances!,
     };
   }
 
@@ -667,14 +668,15 @@ export class ClientInstancePool {
   /**
    * Checks if creating a new instance would exceed limits
    */
-  private checkInstanceLimits(templateName: string): void {
+  private reserveCreation(templateName: string, maxInstances: number): void {
     // Check per-template limit
-    if (this.options.maxInstances! > 0) {
+    if (maxInstances > 0) {
       const templateInstances = this.getTemplateInstances(templateName);
       const activeCount = templateInstances.filter((instance) => instance.status !== 'terminating').length;
+      const reservedCount = this.reservedCreationsByTemplate.get(templateName) ?? 0;
 
-      if (activeCount >= this.options.maxInstances!) {
-        throw new Error(`Maximum instances (${this.options.maxInstances}) reached for template '${templateName}'`);
+      if (activeCount + reservedCount >= maxInstances) {
+        throw new Error(`Maximum instances (${maxInstances}) reached for template '${templateName}'`);
       }
     }
 
@@ -684,10 +686,23 @@ export class ClientInstancePool {
         (instance) => instance.status !== 'terminating',
       ).length;
 
-      if (activeCount >= this.options.maxTotalInstances) {
+      if (activeCount + this.reservedCreationCount >= this.options.maxTotalInstances) {
         throw new Error(`Maximum total instances (${this.options.maxTotalInstances}) reached`);
       }
     }
+
+    this.reservedCreationsByTemplate.set(templateName, (this.reservedCreationsByTemplate.get(templateName) ?? 0) + 1);
+    this.reservedCreationCount++;
+  }
+
+  private releaseCreationReservation(templateName: string): void {
+    const reservedCount = this.reservedCreationsByTemplate.get(templateName) ?? 0;
+    if (reservedCount <= 1) {
+      this.reservedCreationsByTemplate.delete(templateName);
+    } else {
+      this.reservedCreationsByTemplate.set(templateName, reservedCount - 1);
+    }
+    this.reservedCreationCount--;
   }
 
   /**
@@ -709,24 +724,6 @@ export class ClientInstancePool {
       instanceKeys.delete(instanceKey);
       if (instanceKeys.size === 0) {
         this.templateToInstances.delete(templateName);
-      }
-    }
-  }
-
-  /**
-   * Starts the periodic cleanup timer
-   */
-  private startCleanupTimer(): void {
-    if (this.options.cleanupInterval! > 0) {
-      this.cleanupTimer = setInterval(() => {
-        this.cleanupIdleInstances().catch((error) => {
-          logger.error('Error during client instance cleanup:', error);
-        });
-      }, this.options.cleanupInterval!);
-
-      // Ensure the timer doesn't prevent process exit
-      if (this.cleanupTimer.unref) {
-        this.cleanupTimer.unref();
       }
     }
   }

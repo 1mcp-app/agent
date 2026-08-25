@@ -14,6 +14,10 @@ import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import type { BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
 import { ClientInstancePool, type PooledClientInstance } from '@src/core/server/clientInstancePool.js';
 import {
+  DEFAULT_TEMPLATE_INSTANCE_POOL_POLICY,
+  type TemplateInstancePoolPolicy,
+} from '@src/core/server/clientInstancePoolTypes.js';
+import {
   createRenderedIdentity,
   createSessionIdentity,
   resolveTemplateIdentityMode,
@@ -91,12 +95,15 @@ export class TemplateServerManager {
     timestamp: Date;
   }> = [];
 
-  constructor() {
+  private readonly poolPolicy: TemplateInstancePoolPolicy;
+
+  constructor(poolPolicy: Partial<TemplateInstancePoolPolicy> = {}) {
+    this.poolPolicy = { ...DEFAULT_TEMPLATE_INSTANCE_POOL_POLICY, ...poolPolicy };
     // Initialize the client instance pool
     this.clientInstancePool = new ClientInstancePool({
-      maxInstances: 50, // Configurable limit
-      idleTimeout: 5 * 60 * 1000, // 5 minutes - faster cleanup for development
-      cleanupInterval: 30 * 1000, // 30 seconds - more frequent cleanup checks
+      maxInstances: this.poolPolicy.maxInstancesPerTemplate,
+      maxTotalInstances: this.poolPolicy.maxTotalInstances,
+      idleTimeout: this.poolPolicy.idleTimeoutMs,
     });
     this.clientInstancePool.setSupervisionPublisher?.((instance, snapshot) => {
       this.publishTemplateSupervision(instance, snapshot);
@@ -117,7 +124,7 @@ export class TemplateServerManager {
    * Starts the periodic cleanup timer for idle template instances
    */
   private startCleanupTimer(): void {
-    const cleanupInterval = 30 * 1000; // 30 seconds - match pool's cleanup interval
+    const cleanupInterval = this.poolPolicy.cleanupIntervalMs;
     this.cleanupTimer = setInterval(async () => {
       try {
         await this.cleanupIdleInstances();
@@ -520,8 +527,9 @@ export class TemplateServerManager {
     const allInstances = this.clientInstancePool.getAllInstances();
     const instancesToCleanup: Array<{ templateName: string; instanceId: string; instance: PooledClientInstance }> = [];
 
+    const now = Date.now();
     for (const instance of allInstances) {
-      if (instance.status === 'idle') {
+      if (instance.status === 'idle' && now - instance.lastUsedAt.getTime() >= instance.idleTimeout) {
         instancesToCleanup.push({
           templateName: instance.templateName,
           instanceId: instance.id,
@@ -534,6 +542,11 @@ export class TemplateServerManager {
 
     for (const { templateName, instanceId, instance } of instancesToCleanup) {
       try {
+        for (const outboundKey of instance.outboundKeys) {
+          outboundConns.delete(outboundKey);
+        }
+        instance.outboundKeys.clear();
+        delete transports[instanceId];
         // Remove the instance from the pool
         await this.clientInstancePool.removeInstance(
           instance.instanceKey ?? `${templateName}:${instance.renderedHash}`,
