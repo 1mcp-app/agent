@@ -138,6 +138,13 @@ export class FileStorageService {
 
         try {
           fs.renameSync(oldPath, newPath);
+          if (process.platform !== 'win32') {
+            try {
+              fs.chmodSync(newPath, 0o600);
+            } catch (error) {
+              logger.warn(`Failed to harden migrated file permissions for ${file}: ${error}`);
+            }
+          }
           migrationCount++;
           logger.info(`Migrated ${this.getLoggableFileName(file)} from ${sourceDir} to ${this.storageDir}`);
         } catch (error) {
@@ -386,6 +393,9 @@ export class FileStorageService {
   writeData<T extends ExpirableData>(filePrefix: string, id: string, data: T): void {
     try {
       const filePath = this.getFilePath(filePrefix, id);
+      if (process.platform !== 'win32' && fs.existsSync(filePath)) {
+        fs.chmodSync(filePath, 0o600);
+      }
       fs.writeFileSync(filePath, JSON.stringify(data, null, 2), { mode: 0o600 });
       if (process.platform !== 'win32') {
         fs.chmodSync(filePath, 0o600);

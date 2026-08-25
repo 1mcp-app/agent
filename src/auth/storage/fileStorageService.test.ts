@@ -1,4 +1,3 @@
-import { randomUUID } from 'crypto';
 import fs from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
@@ -32,8 +31,8 @@ describe('FileStorageService', () => {
   let tempDir: string;
 
   beforeEach(() => {
-    // Create a temporary directory for testing
-    tempDir = path.join(tmpdir(), `file-storage-test-${randomUUID()}`);
+    // Create a unique temporary directory for testing
+    tempDir = fs.mkdtempSync(path.join(tmpdir(), 'file-storage-test-'));
     service = new FileStorageService(tempDir);
   });
 
@@ -148,6 +147,53 @@ describe('FileStorageService', () => {
 
       const serverService = new FileStorageService(customDir, 'server');
       expect(fs.statSync(flagPath).mode & 0o777).toBe(0o600);
+      serverService.shutdown();
+      fs.rmSync(customDir, { recursive: true, force: true });
+    });
+
+    it('does not write replacement secret if chmod fails on pre-existing permissive file', () => {
+      // POSIX-only: Windows ACLs do not map to fs.stat modes
+      if (process.platform === 'win32') return;
+      const filePath = service.getFilePath(testPrefix, testId);
+      fs.writeFileSync(filePath, JSON.stringify({ ...testData, value: 'old-secret' }), { mode: 0o644 });
+      fs.chmodSync(filePath, 0o644);
+
+      const originalChmodSync = fs.chmodSync;
+      vi.spyOn(fs, 'chmodSync').mockImplementation((pathArg, modeArg) => {
+        if (pathArg === filePath) {
+          throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+        }
+        return originalChmodSync(pathArg, modeArg);
+      });
+
+      expect(() =>
+        service.writeData(testPrefix, testId, {
+          ...testData,
+          value: 'new-secret',
+        }),
+      ).toThrow(/EPERM/);
+
+      const contentOnDisk = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      expect(contentOnDisk.value).toBe('old-secret');
+    });
+
+    it('hardens legacy data files to 0600 during migration', () => {
+      // POSIX-only: Windows ACLs do not map to fs.stat modes
+      if (process.platform === 'win32') return;
+      const customDir = path.join(tmpdir(), `custom-migration-harden-test-${Date.now()}`);
+      const sessionsDir = path.join(customDir, 'sessions');
+      fs.mkdirSync(sessionsDir, { recursive: true });
+
+      const legacyFileName = 'session_sess-12345678-1234-4abc-89de-123456789012.json';
+      const legacyFilePath = path.join(sessionsDir, legacyFileName);
+      fs.writeFileSync(legacyFilePath, JSON.stringify(testData), { mode: 0o644 });
+      fs.chmodSync(legacyFilePath, 0o644);
+
+      const serverService = new FileStorageService(customDir, 'server');
+      const migratedFilePath = path.join(customDir, 'sessions', 'server', legacyFileName);
+      expect(fs.existsSync(migratedFilePath)).toBe(true);
+      expect(fs.statSync(migratedFilePath).mode & 0o777).toBe(0o600);
+
       serverService.shutdown();
       fs.rmSync(customDir, { recursive: true, force: true });
     });
