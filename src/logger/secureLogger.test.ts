@@ -133,10 +133,21 @@ describe('secureLogger', () => {
         "token='top secret single unterminated value",
         'secret=def456',
         'client_secret=ghi789',
+        'clientSecret=client_secret_val_888',
         'api-key=jkl012',
+        'apiKey=api_key_val_777',
         'auth-token=mno345',
+        'authToken=auth_token_val_666',
         'access_token=pqr678',
+        'accessToken=access_token_val_555',
         'refresh_token=stu901',
+        'refreshToken=refresh_token_val_444',
+        'private_key=private_key_val_333',
+        'privateKey=private_key_val_222',
+        'authorization_code=auth_code_val_111',
+        'authorizationCode=auth_code_val_000',
+        'Bearer:bearer_token_val_123',
+        'Bearer: bearer_token_val_456',
       ];
       for (const testCase of cases) {
         const result = sanitizeForLogging(testCase) as string;
@@ -150,10 +161,52 @@ describe('secureLogger', () => {
         expect(result).not.toContain('unterminated');
         expect(result).not.toContain('def456');
         expect(result).not.toContain('ghi789');
+        expect(result).not.toContain('client_secret_val_888');
         expect(result).not.toContain('jkl012');
+        expect(result).not.toContain('api_key_val_777');
         expect(result).not.toContain('mno345');
+        expect(result).not.toContain('auth_token_val_666');
         expect(result).not.toContain('pqr678');
+        expect(result).not.toContain('access_token_val_555');
         expect(result).not.toContain('stu901');
+        expect(result).not.toContain('refresh_token_val_444');
+        expect(result).not.toContain('private_key_val_333');
+        expect(result).not.toContain('private_key_val_222');
+        expect(result).not.toContain('auth_code_val_111');
+        expect(result).not.toContain('auth_code_val_000');
+        expect(result).not.toContain('bearer_token_val_123');
+        expect(result).not.toContain('bearer_token_val_456');
+      }
+    });
+
+    it('should redact credentials in JSON stringified payloads and URLs', () => {
+      const jsonCases = [
+        '{"token":"JSON_SECRET_TOKEN_333"}',
+        '{"password": "JSON_SECRET_PASS_444"}',
+        '{"clientSecret": "JSON_SECRET_CS_555", "refreshToken": "JSON_SECRET_RT_666"}',
+      ];
+      for (const jc of jsonCases) {
+        const res = sanitizeForLogging(jc) as string;
+        expect(res).not.toContain('JSON_SECRET_TOKEN_333');
+        expect(res).not.toContain('JSON_SECRET_PASS_444');
+        expect(res).not.toContain('JSON_SECRET_CS_555');
+        expect(res).not.toContain('JSON_SECRET_RT_666');
+        expect(res).toContain('[REDACTED]');
+      }
+
+      const urlCases = [
+        'https://example.com/callback?code=AUTH_CODE_URL_111&state=xyz',
+        'https://example.com/api?refreshToken=RT_URL_222',
+        'https://example.com/api?clientSecret=CLIENT_SECRET_URL_333',
+        'https://example.com/api?authorization_code=AUTH_CODE_URL_444',
+      ];
+      for (const uc of urlCases) {
+        const res = sanitizeForLogging(uc) as string;
+        expect(res).not.toContain('AUTH_CODE_URL_111');
+        expect(res).not.toContain('RT_URL_222');
+        expect(res).not.toContain('CLIENT_SECRET_URL_333');
+        expect(res).not.toContain('AUTH_CODE_URL_444');
+        expect(res).toContain('[REDACTED]');
       }
     });
 

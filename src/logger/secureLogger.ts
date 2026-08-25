@@ -7,8 +7,8 @@ const KEY_SENSITIVE_PATTERNS = [
   // PEM Private Key blocks (CWE-532, matches full block or unterminated block through string boundary)
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/gi,
 
-  // Bearer tokens in Authorization headers (MUST run before generic key-value to avoid splitting "Token: bearer <token>")
-  /bearer\s+[a-zA-Z0-9_\-.~+/]+=*/gi,
+  // Bearer tokens in Authorization headers / raw Bearer prefixes (supports space and colon separators)
+  /bearer(?:\s+|:\s*)[a-zA-Z0-9_\-.~+/]+=*/gi,
 
   // Basic authentication credentials (Authorization: Basic <base64>)
   /basic\s+[a-zA-Z0-9+/=]{8,}/gi,
@@ -16,14 +16,14 @@ const KEY_SENSITIVE_PATTERNS = [
   // JWT tokens (Header.Payload.Signature)
   /\beyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\b/gi,
 
-  // Key-value credential assignments (supports unquoted and quoted values, including embedded whitespace, escaped quotes, and unterminated quotes through string/line boundaries)
-  /(?:[?&]|\b)(?:[tT]oken|[cC]ode|[sS]ecret|client_secret|client_id|[pP]assword|[pP]asswd|api[_-]?key|auth[_-]?token|access_token|refresh_token|private[_-]?key)\s*[:=]\s*(?:"(?:\\[\s\S]|[^"\\])*(?:"|$)|'(?:\\[\s\S]|[^'\\])*(?:'|$)|[^\s,;&]+)/gi,
+  // Key-value credential assignments (supports unquoted, quoted, JSON-stringified, camelCase, snake_case, and kebab-case)
+  /(?:[?&]|["']|\b)(?:[tT]oken|[cC]ode|[sS]ecret|client_secret|clientSecret|[pP]assword|[pP]asswd|api[_-]?key|apiKey|auth[_-]?token|authToken|access[_-]?token|accessToken|refresh[_-]?token|refreshToken|private[_-]?key|privateKey|authorization[_-]?code|authorizationCode)\s*["']?\s*[:=]\s*(?:"(?:\\[\s\S]|[^"\\])*(?:"|$)|'(?:\\[\s\S]|[^'\\])*(?:'|$)|[^\s,;&{}"]+)/gi,
 
   // URLs with sensitive parameters (consolidates 4 patterns)
-  /https?:\/\/[^\s]*[?&](?:[tT]oken|[cC]ode|[sS]ecret|[kK]ey)=[^\s&]*/gi,
+  /https?:\/\/[^\s]*[?&](?:[tT]oken|[cC]ode|[sS]ecret|[kK]ey|client_secret|clientSecret|refreshToken|accessToken|authorization_code|authorizationCode)=[^\s&]*/gi,
 
   // Query parameters with sensitive data (consolidates 2 patterns)
-  /[?&](?:[tT]oken|[cC]ode|[sS]ecret|[kK]ey)=[^\s&]*/gi,
+  /[?&](?:[tT]oken|[cC]ode|[sS]ecret|[kK]ey|client_secret|clientSecret|refreshToken|accessToken|authorization_code|authorizationCode)=[^\s&]*/gi,
 ];
 
 /**
@@ -33,7 +33,7 @@ const SENSITIVE_PATTERNS = [
   ...KEY_SENSITIVE_PATTERNS,
 
   // OAuth tokens and credentials (consolidates 6 patterns)
-  /(?:access_token|refresh_token|authorization_code|client_secret|client_id)/gi,
+  /(?:access_token|refresh_token|authorization_code|client_secret)/gi,
 
   // OAuth configuration patterns (consolidates 4 patterns)
   /(?:scopes?|redirect_uris?|with\s+scope):\s*(?:\[[^\]]*\]|[^\s,}]+(?:\s+[^\s]+)*)/gi,
@@ -45,7 +45,17 @@ const SENSITIVE_PATTERNS = [
 /**
  * Base patterns for sensitive key detection (case-insensitive)
  */
-const SENSITIVE_KEY_PATTERNS = ['secret', 'token', 'password', 'passwd', 'key'];
+const SENSITIVE_KEY_PATTERNS = [
+  'secret',
+  'token',
+  'password',
+  'passwd',
+  'key',
+  'authorization_code',
+  'auth_code',
+  'auth_token',
+  'authtoken',
+];
 
 /**
  * C0 + C1 control characters + DEL + Unicode Line/Paragraph Separators + Bidi overrides (CWE-117, CWE-150, Trojan Source CVE-2021-42574).
