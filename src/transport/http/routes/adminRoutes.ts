@@ -172,6 +172,8 @@ const configuredServerDeleteApplySchema = z
       .strict(),
   })
   .strict();
+const configuredServerLifecyclePreviewSchema = z.object({ enabled: z.boolean() }).strict();
+const configuredServerLifecycleApplySchema = configuredServerDeleteApplySchema.extend({ enabled: z.boolean() }).strict();
 type AdminOperationFailure = Extract<AdminOperationResult, { ok: false }>;
 interface CliAdminEnvelope {
   ok: boolean;
@@ -692,6 +694,14 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     const source = configuredServerSourceSchema.safeParse(req.params.source);
     if (!source.success) return void res.status(400).json({ error: 'configured_server_source_invalid' });
     await handleConfiguredServerDeletePreview(req, res, options, source.data);
+  });
+
+  router.post('/api/configured-servers/mcpTemplates/:name/lifecycle-preview', async (req, res) => {
+    await handleConfiguredServerLifecyclePreview(req, res, options);
+  });
+
+  router.post('/api/configured-servers/mcpTemplates/:name/lifecycle', async (req, res) => {
+    await handleConfiguredServerLifecycleApply(req, res, options);
   });
 
   router.delete('/api/configured-servers/:source/:name', async (req, res) => {
@@ -1669,6 +1679,95 @@ async function handleConfiguredServerDelete(
   }
 }
 
+async function handleConfiguredServerLifecyclePreview(
+  req: Request,
+  res: Response,
+  options: AdminRoutesOptions,
+): Promise<void> {
+  if (!options.configuredServerService?.previewConfiguredServerLifecycle) {
+    res.status(404).json({ error: 'admin_configured_server_lifecycle_unavailable' });
+    return;
+  }
+  const body = configuredServerLifecyclePreviewSchema.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ ok: false, error: 'configured_server_lifecycle_request_invalid' });
+    return;
+  }
+  try {
+    const result = await options.configuredServerService.previewConfiguredServerLifecycle({
+      context: buildAdminOperationContext(req, options, {
+        type: 'configured_server',
+        id: `mcpTemplates/${req.params.name}`,
+      }),
+      targetName: req.params.name,
+      targetSource: 'mcpTemplates',
+      enabled: body.data.enabled,
+    });
+    if (!result.ok) return void sendAdminOperationResult(res, result);
+    res.status(200).json({ ok: true, operationId: result.operationId, preview: result.result });
+  } catch (error) {
+    if (error instanceof AdminConfiguredServerNotFoundError || error instanceof AdminConfiguredServerApplyError) {
+      sendConfiguredServerApplyError(res, error.code);
+      return;
+    }
+    throw error;
+  }
+}
+
+async function handleConfiguredServerLifecycleApply(
+  req: Request,
+  res: Response,
+  options: AdminRoutesOptions,
+): Promise<void> {
+  if (!options.configuredServerService?.applyConfiguredServerLifecycle) {
+    res.status(404).json({ error: 'admin_configured_server_lifecycle_unavailable' });
+    return;
+  }
+  if (!req.header('Idempotency-Key')?.trim()) {
+    res.status(400).json({ ok: false, error: 'idempotency_key_required', code: 'idempotency_key_required' });
+    return;
+  }
+  if (isMutationLocked(options)) {
+    sendAdminOperationResult(res, {
+      ok: false,
+      status: 'runtime_scope_locked',
+      code: 'runtime_scope_locked',
+      retryable: true,
+      operationName: 'applyConfiguredServerLifecycle',
+      reason: 'writer_lock_unavailable',
+    });
+    return;
+  }
+  const body = configuredServerLifecycleApplySchema.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ ok: false, error: 'configured_server_lifecycle_request_invalid' });
+    return;
+  }
+  try {
+    const result = await options.configuredServerService.applyConfiguredServerLifecycle({
+      context: buildAdminOperationContext(req, options, {
+        type: 'configured_server',
+        id: `mcpTemplates/${req.params.name}`,
+      }),
+      targetName: req.params.name,
+      targetSource: 'mcpTemplates',
+      enabled: body.data.enabled,
+      previewFingerprint: body.data.previewFingerprint,
+    });
+    if (!result.ok && result.status === 'mutation_failed' && isConfiguredServerApplyErrorCode(result.error)) {
+      sendConfiguredServerApplyError(res, result.error);
+      return;
+    }
+    sendAdminOperationResult(res, result);
+  } catch (error) {
+    if (error instanceof AdminConfiguredServerNotFoundError || error instanceof AdminConfiguredServerApplyError) {
+      sendConfiguredServerApplyError(res, error.code);
+      return;
+    }
+    throw error;
+  }
+}
+
 function isConfiguredServerApplyErrorCode(value: string): boolean {
   return value.startsWith('configured_server_');
 }
@@ -2343,6 +2442,20 @@ function configuredServerRequestFingerprint(
           ),
         }
       : {}),
+    ...(operationName === 'applyConfiguredServerLifecycle'
+      ? {
+          previewFingerprint,
+          lifecycleDigest: keyedRequestFingerprint(
+            previewFingerprint,
+            'configured-server-lifecycle-body',
+            stableJsonStringify({
+              enabled: getBodyValue(body, 'enabled') === true,
+              previewFingerprint,
+              confirmationFacts: getBodyRecord(body, 'confirmationFacts') ?? {},
+            }),
+          ),
+        }
+      : {}),
     ...(operationName === 'restartBackend'
       ? {
           restartSelection: {
@@ -2366,6 +2479,9 @@ function configuredServerRequestFingerprint(
   }
   if (operationName === 'deleteConfiguredServer') {
     return `configured_server_delete_${keyedRequestFingerprint(previewFingerprint, 'configured-server-delete', normalized)}`;
+  }
+  if (operationName === 'applyConfiguredServerLifecycle') {
+    return `configured_server_lifecycle_${keyedRequestFingerprint(previewFingerprint, 'configured-server-lifecycle', normalized)}`;
   }
   return operationName === 'applyConfiguredServerEdit'
     ? `configured_server_apply_${keyedRequestFingerprint(previewFingerprint, 'configured-server-apply', normalized)}`
@@ -2497,6 +2613,12 @@ function operationNameForRequest(req: Request): string {
   }
   if (req.method === 'GET' && req.path === '/api/configured-servers/create-contract') {
     return 'getConfiguredServerCreateContract';
+  }
+  if (req.path.endsWith('/lifecycle-preview')) {
+    return 'previewConfiguredServerLifecycle';
+  }
+  if (req.path.endsWith('/lifecycle')) {
+    return 'applyConfiguredServerLifecycle';
   }
   if (req.path.endsWith('/preview')) {
     return 'previewConfiguredServerEdit';

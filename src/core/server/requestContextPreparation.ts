@@ -1,5 +1,6 @@
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
+import { isOperatorDisabledTemplateDefinition } from '@src/config/configuredServerTargets.js';
 import type { TrustedTemplateContext } from '@src/core/context/templateContextTrust.js';
 import type { OutboundConnections } from '@src/core/types/client.js';
 import type { MCPServerParams } from '@src/core/types/index.js';
@@ -61,7 +62,9 @@ export async function prepareRequestContext(
   });
   const canonicalContext = withCanonicalSessionId(context, sessionId);
   const renderedTemplates = await deps.loadRenderedTemplates(canonicalContext);
-  const templateEntries = Object.entries(renderedTemplates);
+  const templateEntries = Object.entries(renderedTemplates).filter(
+    ([_templateName, config]) => !isOperatorDisabledTemplateDefinition(config),
+  );
   const templateNames = templateEntries.map(([templateName]) => templateName);
 
   if (templateEntries.length === 0) {

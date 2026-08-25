@@ -5269,7 +5269,7 @@ describe('AdminConfiguredServerService', () => {
     expect(readConfig().mcpServers.shared).toMatchObject({ command: 'static', tags: ['static'] });
   });
 
-  it('accepts structured Template definition edits but rejects enable or disable operations', async () => {
+  it('accepts structured Template definition edits and advertises lifecycle operations separately', async () => {
     writeConfig({
       mcpServers: {},
       mcpTemplates: { shared: { type: 'stdio', command: '{{project.cwd}}/template', tags: ['template'] } },
@@ -5295,7 +5295,15 @@ describe('AdminConfiguredServerService', () => {
       },
     });
 
-    expect(detail).toMatchObject({ ok: true, result: { server: { mutationAvailability: { available: false } } } });
+    expect(detail).toMatchObject({
+      ok: true,
+      result: {
+        server: {
+          mutationAvailability: { available: true, operations: ['enable', 'disable'] },
+          actionState: { disable: { available: true }, enable: { available: false } },
+        },
+      },
+    });
     expect(preview).toMatchObject({
       ok: true,
       result: {
@@ -5322,6 +5330,173 @@ describe('AdminConfiguredServerService', () => {
         },
       },
     });
+  });
+
+  it('previews and applies a source-qualified Template disable with expression disclosure and retirement', async () => {
+    writeConfig({
+      mcpServers: { shared: { type: 'stdio', command: 'static' } },
+      mcpTemplates: { shared: { type: 'stdio', command: '{{project.command}}', disabled: '{{project.disabled}}' } },
+    });
+    const observeTemplateDefinitionRetirement = vi.fn(async () => ({
+      activeInstancesBefore: 2,
+      retiredInstances: 2,
+      activeInstancesAfter: 0,
+      retirementObserved: true,
+    }));
+    const service = createService({
+      getTemplateActiveInstanceCount: () => 2,
+      getTemplateActiveInstanceIdentities: () => ['shared:hash-a', 'shared:hash-b'],
+      observeTemplateDefinitionRetirement,
+    });
+    const preview = await service.previewConfiguredServerLifecycle({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'shared',
+      targetSource: 'mcpTemplates',
+      enabled: false,
+    });
+    expect(preview).toMatchObject({
+      ok: true,
+      result: {
+        qualifiedId: 'mcpTemplates/shared',
+        current: { enabled: true, disabledValueKind: 'context_expression' },
+        proposed: { enabled: false, disabledValueKind: 'literal' },
+        expressionReplacement: { occurs: true, replacement: 'disabled_true' },
+        configChange: { configPath: '[redacted]', backup: { created: false } },
+        runtimeImpact: { activeInstanceCount: 2, retirement: 'after_successful_reload' },
+      },
+    });
+    if (!preview.ok) return;
+
+    const applied = await service.applyConfiguredServerLifecycle({
+      context: context({
+        confirmationFacts: {
+          previewConfirmed: preview.result.previewFingerprint,
+          targetIdentityConfirmed: 'mcpTemplates/shared',
+        },
+      }),
+      targetName: 'shared',
+      targetSource: 'mcpTemplates',
+      enabled: false,
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+
+    expect(applied).toMatchObject({
+      ok: true,
+      result: {
+        outcome: 'disabled',
+        configChange: {
+          status: 'changed',
+          configPath: '[redacted]',
+          backup: { created: true, path: '[redacted]' },
+          reload: { status: 'observed' },
+        },
+        runtimeImpact: { activeInstancesBefore: 2, activeInstancesAfter: 0, retirementObserved: true },
+      },
+    });
+    expect(readConfig().mcpTemplates.shared.disabled).toBe(true);
+    expect(readConfig().mcpServers.shared.command).toBe('static');
+    expect(observeTemplateDefinitionRetirement).toHaveBeenCalledWith('shared', ['shared:hash-a', 'shared:hash-b']);
+  });
+
+  it('rejects a stale Template lifecycle preview before persistence', async () => {
+    writeConfig({ mcpTemplates: { worker: { type: 'stdio', command: 'node' } } });
+    const service = createService();
+    const preview = await service.previewConfiguredServerLifecycle({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'worker',
+      targetSource: 'mcpTemplates',
+      enabled: false,
+    });
+    if (!preview.ok) return;
+    writeConfig({ mcpTemplates: { worker: { type: 'stdio', command: 'bun' } } });
+
+    await expect(
+      service.applyConfiguredServerLifecycle({
+        context: context({
+          confirmationFacts: {
+            previewConfirmed: preview.result.previewFingerprint,
+            targetIdentityConfirmed: 'mcpTemplates/worker',
+          },
+        }),
+        targetName: 'worker',
+        targetSource: 'mcpTemplates',
+        enabled: false,
+        previewFingerprint: preview.result.previewFingerprint,
+      }),
+    ).rejects.toMatchObject({ code: 'configured_server_stale_preview' });
+    expect(readConfig().mcpTemplates.worker).toEqual({ type: 'stdio', command: 'bun' });
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('re-enables Template eligibility lazily and reports reload failure without claiming retirement', async () => {
+    writeConfig({ mcpTemplates: { worker: { type: 'stdio', command: 'node', disabled: true } } });
+    const observeTemplateDefinitionRetirement = vi.fn();
+    const service = createService({ getTemplateActiveInstanceCount: () => 0, observeTemplateDefinitionRetirement });
+    const preview = await service.previewConfiguredServerLifecycle({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'worker',
+      targetSource: 'mcpTemplates',
+      enabled: true,
+    });
+    if (!preview.ok) return;
+    const applied = await service.applyConfiguredServerLifecycle({
+      context: context({
+        confirmationFacts: {
+          previewConfirmed: preview.result.previewFingerprint,
+          targetIdentityConfirmed: 'mcpTemplates/worker',
+        },
+      }),
+      targetName: 'worker',
+      targetSource: 'mcpTemplates',
+      enabled: true,
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+
+    expect(preview.result.runtimeImpact).toMatchObject({ activeInstanceCount: 0, recreation: 'lazy_future_match_only' });
+    expect(applied).toMatchObject({ ok: true, result: { outcome: 'enabled', runtimeImpact: { retiredInstances: 0 } } });
+    expect(readConfig().mcpTemplates.worker).not.toHaveProperty('disabled');
+    expect(observeTemplateDefinitionRetirement).not.toHaveBeenCalled();
+
+    writeConfig({ mcpTemplates: { worker: { type: 'stdio', command: 'node' } } });
+    reload.mockRejectedValueOnce(new Error('reload unavailable'));
+    const failedPreview = await service.previewConfiguredServerLifecycle({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'worker',
+      targetSource: 'mcpTemplates',
+      enabled: false,
+    });
+    if (!failedPreview.ok) return;
+    const failed = await service.applyConfiguredServerLifecycle({
+      context: context({
+        idempotencyKey: 'reload-failure',
+        requestFingerprint: 'reload-failure',
+        confirmationFacts: {
+          previewConfirmed: failedPreview.result.previewFingerprint,
+          targetIdentityConfirmed: 'mcpTemplates/worker',
+        },
+      }),
+      targetName: 'worker',
+      targetSource: 'mcpTemplates',
+      enabled: false,
+      previewFingerprint: failedPreview.result.previewFingerprint,
+    });
+    expect(failed).toMatchObject({
+      ok: true,
+      result: {
+        configChange: {
+          status: 'changed',
+          configPath: '[redacted]',
+          backup: { created: true, path: '[redacted]' },
+          reload: {
+            status: 'failed',
+            error: 'Runtime reload failed after the lifecycle configuration was persisted.',
+          },
+        },
+        runtimeImpact: { retirementObserved: true, activeInstancesBefore: 0, activeInstancesAfter: 0 },
+      },
+    });
+    expect(JSON.stringify(failed)).not.toContain('reload unavailable');
+    expect(JSON.stringify(failed)).not.toContain(configPath);
   });
 
   it('creates a Template definition structurally without connectivity or instance creation', async () => {

@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { mergeGlobalAndServerConfig } from '@src/config/mcpConfigMerge.js';
+import { isOperatorDisabledTemplateDefinition } from '@src/config/configuredServerTargets.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import {
   ApplicationConfig,
@@ -38,6 +39,7 @@ export class ConfigManager extends EventEmitter {
 
   // Template processing related properties
   private templateProcessingErrors: string[] = [];
+  private processedDisabledTemplateNames: string[] = [];
   private processedTemplates: Record<string, MCPServerParams> = {};
   private lastContextHash?: string;
   private templateRenderer?: HandlebarsTemplateRenderer;
@@ -163,6 +165,7 @@ export class ConfigManager extends EventEmitter {
     // Process templates if context available, otherwise return raw templates
     let templateServers: Record<string, MCPServerParams> = {};
     let errors: string[] = [];
+    let disabledTemplateNames = new Set<string>();
 
     if (config.mcpTemplates) {
       if (context) {
@@ -177,11 +180,13 @@ export class ConfigManager extends EventEmitter {
         ) {
           templateServers = this.processedTemplates;
           errors = this.templateProcessingErrors;
+          disabledTemplateNames = new Set(this.processedDisabledTemplateNames);
         } else {
           // Process templates with validation
           const result = await this.processTemplates(config.mcpTemplates, context, config.templateSettings);
           templateServers = {};
           errors = [...result.errors];
+          disabledTemplateNames = new Set(result.disabledTemplateNames);
           for (const [serverName, templateConfig] of Object.entries(result.servers)) {
             try {
               templateServers[serverName] = this.validateServerConfig(
@@ -199,6 +204,7 @@ export class ConfigManager extends EventEmitter {
           if (config.templateSettings?.cacheContext) {
             this.processedTemplates = templateServers;
             this.templateProcessingErrors = errors;
+            this.processedDisabledTemplateNames = [...disabledTemplateNames];
             this.lastContextHash = contextHash;
           }
         }
@@ -209,11 +215,11 @@ export class ConfigManager extends EventEmitter {
       }
     }
 
-    // Filter out static servers that conflict with template servers
-    // Template servers take precedence
+    // Declared template identity remains authoritative even when lifecycle or context makes it ineligible.
     const conflictingServers: string[] = [];
+    const declaredTemplateNames = new Set([...Object.keys(templateServers), ...disabledTemplateNames]);
     for (const staticServerName of Object.keys(staticServers)) {
-      if (staticServerName in templateServers) {
+      if (declaredTemplateNames.has(staticServerName)) {
         conflictingServers.push(staticServerName);
         delete staticServers[staticServerName];
       }
@@ -316,8 +322,9 @@ export class ConfigManager extends EventEmitter {
     templates: Record<string, MCPServerParams>,
     context: ContextData,
     settings?: TemplateSettings,
-  ): Promise<{ servers: Record<string, MCPServerParams>; errors: string[] }> {
+  ): Promise<{ servers: Record<string, MCPServerParams>; errors: string[]; disabledTemplateNames: string[] }> {
     const errors: string[] = [];
+    const disabledTemplateNames: string[] = [];
 
     // Initialize template renderer
     this.templateRenderer = new HandlebarsTemplateRenderer();
@@ -325,8 +332,16 @@ export class ConfigManager extends EventEmitter {
     const processedServers: Record<string, MCPServerParams> = {};
 
     for (const [serverName, templateConfig] of Object.entries(templates)) {
+      if (isOperatorDisabledTemplateDefinition(templateConfig)) {
+        disabledTemplateNames.push(serverName);
+        continue;
+      }
       try {
         const processedConfig = this.templateRenderer.renderTemplate(templateConfig, context);
+        if (isOperatorDisabledTemplateDefinition(processedConfig)) {
+          disabledTemplateNames.push(serverName);
+          continue;
+        }
         processedServers[serverName] = processedConfig;
 
         debugIf(() => ({
@@ -347,7 +362,7 @@ export class ConfigManager extends EventEmitter {
       }
     }
 
-    return { servers: processedServers, errors };
+    return { servers: processedServers, errors, disabledTemplateNames };
   }
 
   /**
@@ -402,6 +417,7 @@ export class ConfigManager extends EventEmitter {
    */
   public clearTemplateCache(): void {
     this.processedTemplates = {};
+    this.processedDisabledTemplateNames = [];
     this.lastContextHash = undefined;
     this.templateProcessingErrors = [];
   }

@@ -73,6 +73,12 @@ describe('admin routes', () => {
     deleteConfiguredServer: ReturnType<
       typeof vi.fn<NonNullable<AdminConfiguredServerOperations['deleteConfiguredServer']>>
     >;
+    previewConfiguredServerLifecycle: ReturnType<
+      typeof vi.fn<NonNullable<AdminConfiguredServerOperations['previewConfiguredServerLifecycle']>>
+    >;
+    applyConfiguredServerLifecycle: ReturnType<
+      typeof vi.fn<NonNullable<AdminConfiguredServerOperations['applyConfiguredServerLifecycle']>>
+    >;
     enableConfiguredServer: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['enableConfiguredServer']>>;
     disableConfiguredServer: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['disableConfiguredServer']>>;
     getRecentAuditFacts: ReturnType<typeof vi.fn<(options?: { limit?: number }) => AdminAuditFact[]>>;
@@ -103,6 +109,10 @@ describe('admin routes', () => {
       previewConfiguredServerDelete:
         vi.fn<NonNullable<AdminConfiguredServerOperations['previewConfiguredServerDelete']>>(),
       deleteConfiguredServer: vi.fn<NonNullable<AdminConfiguredServerOperations['deleteConfiguredServer']>>(),
+      previewConfiguredServerLifecycle:
+        vi.fn<NonNullable<AdminConfiguredServerOperations['previewConfiguredServerLifecycle']>>(),
+      applyConfiguredServerLifecycle:
+        vi.fn<NonNullable<AdminConfiguredServerOperations['applyConfiguredServerLifecycle']>>(),
       enableConfiguredServer: vi.fn<AdminConfiguredServerOperations['enableConfiguredServer']>(),
       disableConfiguredServer: vi.fn<AdminConfiguredServerOperations['disableConfiguredServer']>(),
       getRecentAuditFacts: vi.fn<(options?: { limit?: number }) => AdminAuditFact[]>(() => []),
@@ -2293,6 +2303,155 @@ describe('admin routes', () => {
       targetSource: 'mcpTemplates',
       previewFingerprint: 'delete_preview_1',
     });
+  });
+
+  it('binds Template lifecycle preview and apply routes to the source-qualified target', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    configuredServerService.previewConfiguredServerLifecycle.mockResolvedValue({
+      ok: true,
+      status: 'completed',
+      operationId: 'op_lifecycle_preview',
+      operationName: 'previewConfiguredServerLifecycle',
+      replayed: false,
+      result: { previewFingerprint: 'lifecycle_preview_1' },
+    } as any);
+    configuredServerService.applyConfiguredServerLifecycle.mockResolvedValue({
+      ok: true,
+      status: 'completed',
+      operationId: 'op_lifecycle_apply',
+      operationName: 'applyConfiguredServerLifecycle',
+      replayed: false,
+      result: { qualifiedId: 'mcpTemplates/project' },
+    } as any);
+    const app = mountAdminRoutes();
+    const login = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = login.headers['set-cookie']?.[0] as string;
+    const preview = await request(app)
+      .post('/admin/api/configured-servers/mcpTemplates/project/lifecycle-preview')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', login.body.csrfToken)
+      .send({ enabled: false });
+    const applied = await request(app)
+      .post('/admin/api/configured-servers/mcpTemplates/project/lifecycle')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', login.body.csrfToken)
+      .set('Idempotency-Key', 'disable-template-project')
+      .send({
+        enabled: false,
+        previewFingerprint: 'lifecycle_preview_1',
+        confirmationFacts: {
+          previewConfirmed: 'lifecycle_preview_1',
+          targetIdentityConfirmed: 'mcpTemplates/project',
+        },
+      });
+
+    expect(preview.status).toBe(200);
+    expect(applied.status).toBe(200);
+    expect(configuredServerService.previewConfiguredServerLifecycle).toHaveBeenCalledWith({
+      context: expect.objectContaining({ target: { type: 'configured_server', id: 'mcpTemplates/project' } }),
+      targetName: 'project',
+      targetSource: 'mcpTemplates',
+      enabled: false,
+    });
+    expect(configuredServerService.applyConfiguredServerLifecycle).toHaveBeenCalledWith({
+      context: expect.objectContaining({
+        target: { type: 'configured_server', id: 'mcpTemplates/project' },
+        idempotencyKey: 'disable-template-project',
+        confirmationFacts: {
+          previewConfirmed: 'lifecycle_preview_1',
+          targetIdentityConfirmed: 'mcpTemplates/project',
+        },
+      }),
+      targetName: 'project',
+      targetSource: 'mcpTemplates',
+      enabled: false,
+      previewFingerprint: 'lifecycle_preview_1',
+    });
+  });
+
+  it('rejects lifecycle idempotency reuse when state, preview, or confirmation changes', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const operationService = new AdminOperationService({
+      runtimeScopeId: 'scope_123',
+      storageDir: `${storageDir}/lifecycle-idempotency`,
+      createOperationId: () => 'op_lifecycle_bound',
+    });
+    let durableWrites = 0;
+    configuredServerService.applyConfiguredServerLifecycle.mockImplementation(async (input) =>
+      operationService.executeMutation({
+        context: input.context,
+        operationName: 'applyConfiguredServerLifecycle',
+        run: async () => {
+          durableWrites += 1;
+          return {
+            target: { type: 'configured_server', source: 'mcpTemplates', id: input.targetName },
+            qualifiedId: `mcpTemplates/${input.targetName}`,
+            previewFingerprint: input.previewFingerprint,
+            enabled: input.enabled,
+            outcome: input.enabled ? ('enabled' as const) : ('disabled' as const),
+            configChange: {
+              status: 'changed' as const,
+              operation: input.enabled ? ('enable' as const) : ('disable' as const),
+              configPath: '[redacted]',
+              target: { name: input.targetName, source: 'mcpTemplates' as const },
+              changed: true,
+              backup: { created: true, path: '[redacted]' },
+              retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
+              reload: { status: 'observed' as const },
+              warnings: [],
+            },
+            runtimeImpact: {
+              activeInstancesBefore: 1,
+              retiredInstances: input.enabled ? 0 : 1,
+              activeInstancesAfter: 0,
+              retirementObserved: true,
+            },
+          };
+        },
+      }),
+    );
+    const app = mountAdminRoutes();
+    const login = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = login.headers['set-cookie']?.[0] as string;
+    const sendLifecycle = (body: Record<string, unknown>) =>
+      request(app)
+        .post('/admin/api/configured-servers/mcpTemplates/worker/lifecycle')
+        .set('Cookie', cookie)
+        .set('X-CSRF-Token', login.body.csrfToken)
+        .set('Idempotency-Key', 'lifecycle-worker-bound')
+        .send(body);
+    const body = {
+      enabled: false,
+      previewFingerprint: 'lifecycle_preview_1',
+      confirmationFacts: {
+        previewConfirmed: 'lifecycle_preview_1',
+        targetIdentityConfirmed: 'mcpTemplates/worker',
+      },
+    };
+
+    const first = await sendLifecycle(body);
+    const replay = await sendLifecycle(body);
+    const changedState = await sendLifecycle({ ...body, enabled: true });
+    const changedPreview = await sendLifecycle({
+      ...body,
+      previewFingerprint: 'lifecycle_preview_2',
+      confirmationFacts: { ...body.confirmationFacts, previewConfirmed: 'lifecycle_preview_2' },
+    });
+    const changedConfirmation = await sendLifecycle({
+      ...body,
+      confirmationFacts: { ...body.confirmationFacts, targetIdentityConfirmed: 'mcpTemplates/other' },
+    });
+
+    expect(first).toMatchObject({ status: 200, body: { ok: true, operationId: 'op_lifecycle_bound' } });
+    expect(replay).toMatchObject({ status: 200, body: { ok: true, replayed: true } });
+    expect(changedState).toMatchObject({ status: 409, body: { code: 'idempotency_conflict' } });
+    expect(changedPreview).toMatchObject({ status: 409, body: { code: 'idempotency_conflict' } });
+    expect(changedConfirmation).toMatchObject({ status: 409, body: { code: 'idempotency_conflict' } });
+    expect(durableWrites).toBe(1);
   });
 
   it('binds configured-server delete idempotency to preview and confirmation facts', async () => {

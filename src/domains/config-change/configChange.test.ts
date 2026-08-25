@@ -140,6 +140,7 @@ describe('Config Change', () => {
       mcpServers: { renamed: { ...original, url: 'https://new.example.com/mcp' } },
     });
     expect(reload).toHaveBeenCalledTimes(1);
+
   });
 
   it('edits a Template Server definition without creating per-instance state', async () => {
@@ -511,6 +512,7 @@ describe('Config Change', () => {
     expect(results.map((result) => result.status).sort()).toEqual(['changed', 'destination_conflict']);
     expect(['first', 'second']).toContain((await readConfig()).mcpServers.custom.command);
     expect(reload).toHaveBeenCalledTimes(1);
+
   });
 
   it('creates a backup before replacing a static configured target when requested', async () => {
@@ -819,13 +821,13 @@ describe('Config Change', () => {
     });
   });
 
-  it('refuses to enable or disable template configured targets', async () => {
+  it('disables a source-qualified template target and replaces its disabled expression', async () => {
     await writeConfig({
       mcpTemplates: {
         templateOnly: {
           type: 'stdio',
           command: 'node',
-          disabled: true,
+          disabled: '{{project.disabled}}',
         },
       },
     });
@@ -834,22 +836,66 @@ describe('Config Change', () => {
 
     const result = await service.setConfiguredServerTargetEnabledState({
       targetName: 'templateOnly',
-      enabled: true,
+      targetSource: 'mcpTemplates',
+      enabled: false,
       backup: 'required',
+      expectedTargetFingerprint: fingerprintConfiguredServerTarget({
+        type: 'stdio',
+        command: 'node',
+        disabled: '{{project.disabled}}',
+      }),
     });
 
     expect(result).toMatchObject({
-      status: 'template_conflict',
-      operation: 'enable',
-      changed: false,
+      status: 'changed',
+      operation: 'disable',
+      changed: true,
       target: {
         name: 'templateOnly',
         source: 'mcpTemplates',
       },
-      reload: {
-        status: 'skipped',
-      },
+      reload: { status: 'observed' },
     });
+    expect(await readConfig()).toEqual({
+      mcpServers: {},
+      mcpTemplates: { templateOnly: { type: 'stdio', command: 'node', disabled: true } },
+    });
+    expect(reload).toHaveBeenCalledTimes(1);
+
+    const unchanged = await service.setConfiguredServerTargetEnabledState({
+      targetName: 'templateOnly',
+      targetSource: 'mcpTemplates',
+      enabled: false,
+      backup: 'required',
+      expectedTargetFingerprint: fingerprintConfiguredServerTarget({
+        type: 'stdio',
+        command: 'node',
+        disabled: true,
+      }),
+    });
+    expect(unchanged).toMatchObject({
+      status: 'unchanged',
+      changed: false,
+      backup: { created: false },
+      reload: { status: 'skipped' },
+    });
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a stale source-qualified template lifecycle mutation without writing', async () => {
+    const original = { type: 'stdio' as const, command: 'node' };
+    await writeConfig({ mcpTemplates: { shared: original }, mcpServers: { shared: original } });
+    const service = createConfigChangeService({ reloadConfig: reload });
+
+    const result = await service.setConfiguredServerTargetEnabledState({
+      targetName: 'shared',
+      targetSource: 'mcpTemplates',
+      enabled: false,
+      expectedTargetFingerprint: fingerprintConfiguredServerTarget({ ...original, command: 'changed' }),
+    });
+
+    expect(result).toMatchObject({ status: 'source_conflict', changed: false, backup: { created: false } });
+    expect(await readConfig()).toEqual({ mcpTemplates: { shared: original }, mcpServers: { shared: original } });
     expect(reload).not.toHaveBeenCalled();
   });
 

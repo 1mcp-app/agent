@@ -621,6 +621,17 @@ interface ConfiguredServerDeleteApplyInput extends ConfiguredServerDeletePreview
   previewFingerprint: string;
 }
 
+interface ConfiguredServerLifecyclePreviewInput {
+  context: AdminOperationContext;
+  targetName: string;
+  targetSource: 'mcpTemplates';
+  enabled: boolean;
+}
+
+interface ConfiguredServerLifecycleApplyInput extends ConfiguredServerLifecyclePreviewInput {
+  previewFingerprint: string;
+}
+
 interface ConfiguredServerCreateContractInput {
   context: AdminOperationContext;
 }
@@ -858,6 +869,35 @@ export interface ConfiguredServerDeleteApplyResult {
   runtimeImpact?: TemplateDefinitionRuntimeImpact;
 }
 
+export interface ConfiguredServerLifecyclePreviewResult {
+  target: ConfiguredServerTargetIdentity;
+  qualifiedId: string;
+  targetFingerprint: string;
+  previewFingerprint: string;
+  current: { enabled: boolean; disabledValueKind: 'absent' | 'literal' | 'context_expression' };
+  proposed: { enabled: boolean; disabledValueKind: 'absent' | 'literal' };
+  expressionReplacement: { occurs: boolean; replacement: 'disabled_true' | 'enabled_absent' };
+  configChange: ConfigChangeResult;
+  expectedBackup: { policy: 'required'; recoveryCopy: true };
+  expectedReload: ConfiguredServerExpectedReload;
+  runtimeImpact: {
+    activeInstanceCount: number;
+    retirement: 'after_successful_reload' | 'not_required';
+    recreation: 'lazy_future_match_only';
+  };
+  warnings: string[];
+}
+
+export interface ConfiguredServerLifecycleApplyResult {
+  target: ConfiguredServerTargetIdentity;
+  qualifiedId: string;
+  previewFingerprint: string;
+  enabled: boolean;
+  outcome: 'enabled' | 'disabled' | 'already_enabled' | 'already_disabled';
+  configChange: ConfigChangeResult;
+  runtimeImpact: TemplateDefinitionRuntimeImpact;
+}
+
 export interface ConfiguredServerCreateContract {
   schemaVersion: 1;
   capabilities: {
@@ -1013,6 +1053,12 @@ export interface AdminConfiguredServerOperations {
   deleteConfiguredServer?(
     input: ConfiguredServerDeleteApplyInput,
   ): Promise<AdminOperationResult<ConfiguredServerDeleteApplyResult>>;
+  previewConfiguredServerLifecycle?(
+    input: ConfiguredServerLifecyclePreviewInput,
+  ): Promise<AdminOperationResult<ConfiguredServerLifecyclePreviewResult>>;
+  applyConfiguredServerLifecycle?(
+    input: ConfiguredServerLifecycleApplyInput,
+  ): Promise<AdminOperationResult<ConfiguredServerLifecycleApplyResult>>;
   enableConfiguredServer(
     input: ConfiguredServerMutationInput,
   ): Promise<AdminOperationResult<ConfiguredServerMutationResult>>;
@@ -1391,7 +1437,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
     const context = {
       ...input.context,
       target: { type: 'configured_server', id: qualifiedId },
-      confirmationFacts: sanitizeDeleteConfirmationFacts(input.context.confirmationFacts),
+      confirmationFacts: sanitizeConfiguredServerIdentityConfirmationFacts(input.context.confirmationFacts),
     };
     return this.options.operationService.executeMutation({
       context,
@@ -1447,6 +1493,76 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
               previewFingerprint: preview.previewFingerprint,
               configChange: sanitizeConfiguredServerDeleteResult(configChange),
               ...(runtimeImpact ? { runtimeImpact } : {}),
+            };
+          },
+        };
+      },
+    });
+  }
+
+  async previewConfiguredServerLifecycle(
+    input: ConfiguredServerLifecyclePreviewInput,
+  ): Promise<AdminOperationResult<ConfiguredServerLifecyclePreviewResult>> {
+    const context = {
+      ...input.context,
+      target: { type: 'configured_server', id: `${input.targetSource}/${input.targetName}` },
+    };
+    return this.options.operationService.executeDryRun({
+      context,
+      operationName: 'previewConfiguredServerLifecycle',
+      run: async () => this.previewConfiguredServerLifecycleResult(input),
+    });
+  }
+
+  async applyConfiguredServerLifecycle(
+    input: ConfiguredServerLifecycleApplyInput,
+  ): Promise<AdminOperationResult<ConfiguredServerLifecycleApplyResult>> {
+    const qualifiedId = `${input.targetSource}/${input.targetName}`;
+    const context = {
+      ...input.context,
+      target: { type: 'configured_server', id: qualifiedId },
+      confirmationFacts: sanitizeConfiguredServerIdentityConfirmationFacts(input.context.confirmationFacts),
+    };
+    return this.options.operationService.executeMutation({
+      context,
+      operationName: 'applyConfiguredServerLifecycle',
+      prepare: async () => {
+        const preview = await this.previewConfiguredServerLifecycleResult(input);
+        if (preview.previewFingerprint !== input.previewFingerprint) {
+          throw new AdminConfiguredServerApplyError('configured_server_stale_preview');
+        }
+        return {
+          confirmationRequirements: [
+            { code: 'previewConfirmed', expected: input.previewFingerprint },
+            { code: 'targetIdentityConfirmed', expected: qualifiedId },
+          ],
+          run: async () => {
+            const instanceIdentities = this.options.getTemplateActiveInstanceIdentities?.(input.targetName) ?? [];
+            const activeInstancesBefore =
+              instanceIdentities.length || this.options.getTemplateActiveInstanceCount?.(input.targetName) || 0;
+            const configChange = await this.options.configChangeService.setConfiguredServerTargetEnabledState({
+              targetName: input.targetName,
+              targetSource: input.targetSource,
+              enabled: input.enabled,
+              backup: 'required',
+              expectedTargetFingerprint: preview.targetFingerprint,
+            });
+            assertSuccessfulConfiguredServerLifecycle(configChange);
+            const runtimeImpact = await this.observeTemplateRetirement(
+              input.targetName,
+              configChange,
+              !input.enabled && configChange.changed,
+              activeInstancesBefore,
+              instanceIdentities,
+            );
+            return {
+              target: preview.target,
+              qualifiedId,
+              previewFingerprint: preview.previewFingerprint,
+              enabled: input.enabled,
+              outcome: mutationOutcome(input.enabled, configChange.changed),
+              configChange: sanitizeConfiguredServerLifecycleResult(configChange),
+              runtimeImpact,
             };
           },
         };
@@ -1626,6 +1742,94 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
       authority,
       removal: { definition, preservesSameNamedOtherSource: collision, cascades: false },
       configChange: previewDeleteConfigChange(input.targetName, input.targetSource),
+      expectedBackup: { policy: 'required', recoveryCopy: true },
+      expectedReload: {
+        policy: 'observe_after_write',
+        possibleStatuses: ['observed', 'runtime_not_running', 'reload_disabled', 'failed'],
+      },
+      runtimeImpact,
+      warnings,
+    };
+  }
+
+  private async previewConfiguredServerLifecycleResult(
+    input: ConfiguredServerLifecyclePreviewInput,
+  ): Promise<ConfiguredServerLifecyclePreviewResult> {
+    const document = this.options.readConfigDocument();
+    const currentConfig = document?.mcpTemplates?.[input.targetName];
+    if (!currentConfig) {
+      if (document?.mcpServers?.[input.targetName]) {
+        throw new AdminConfiguredServerApplyError('configured_server_source_changed');
+      }
+      throw new AdminConfiguredServerNotFoundError(input.targetName);
+    }
+    const targetFingerprint = fingerprintConfiguredServerTarget(currentConfig);
+    const qualifiedId = `mcpTemplates/${input.targetName}`;
+    const disabled = currentConfig.disabled;
+    const currentEnabled = !isConfiguredServerTargetDisabled(disabled);
+    const disabledValueKind =
+      disabled === undefined
+        ? ('absent' as const)
+        : typeof disabled === 'string' && disabled.includes('{{')
+          ? ('context_expression' as const)
+          : ('literal' as const);
+    const expressionReplacement = {
+      occurs: disabledValueKind === 'context_expression' && !input.enabled,
+      replacement: input.enabled ? ('enabled_absent' as const) : ('disabled_true' as const),
+    };
+    const activeInstanceCount = this.options.getTemplateActiveInstanceCount?.(input.targetName) ?? 0;
+    const configChange = await this.options.configChangeService.previewConfiguredServerTargetEnabledState({
+      targetName: input.targetName,
+      targetSource: input.targetSource,
+      enabled: input.enabled,
+      backup: 'skip',
+    });
+    if (configChange.status === 'not_found' || configChange.status === 'source_conflict') {
+      throw new AdminConfiguredServerApplyError('configured_server_stale_preview');
+    }
+    if (configChange.status === 'failed') {
+      throw new AdminConfiguredServerApplyError('configured_server_apply_failed');
+    }
+    const warnings = [
+      ...(expressionReplacement.occurs
+        ? ['The context-rendered disabled expression will be replaced with literal true without evaluating Request Context.']
+        : []),
+      ...(input.enabled
+        ? ['Re-enable restores eligibility only; instances and Request Sessions are created lazily by future matching requests.']
+        : activeInstanceCount > 0
+          ? [`Successful reload retires ${activeInstanceCount} active Template Server instance${activeInstanceCount === 1 ? '' : 's'} and removes their Request Session memberships.`]
+          : []),
+    ];
+    const runtimeImpact = {
+      activeInstanceCount,
+      retirement: !input.enabled && configChange.changed ? ('after_successful_reload' as const) : ('not_required' as const),
+      recreation: 'lazy_future_match_only' as const,
+    };
+    const previewFingerprint = `lifecycle_preview_${createHash('sha256')
+      .update(
+        stableStringify({
+          schemaVersion: 1,
+          qualifiedId,
+          targetFingerprint,
+          currentEnabled,
+          proposedEnabled: input.enabled,
+          disabledValueKind,
+          expressionReplacement,
+          changed: configChange.changed,
+          runtimeImpact,
+          warnings,
+        }),
+      )
+      .digest('hex')}`;
+    return {
+      target: { type: 'configured_server', id: input.targetName, source: input.targetSource },
+      qualifiedId,
+      targetFingerprint,
+      previewFingerprint,
+      current: { enabled: currentEnabled, disabledValueKind },
+      proposed: { enabled: input.enabled, disabledValueKind: input.enabled ? 'absent' : 'literal' },
+      expressionReplacement,
+      configChange: sanitizeConfiguredServerLifecycleResult(configChange),
       expectedBackup: { policy: 'required', recoveryCopy: true },
       expectedReload: {
         policy: 'observe_after_write',
@@ -2144,7 +2348,37 @@ function assertSuccessfulConfiguredServerDelete(configChange: ConfigChangeResult
   }
 }
 
+function assertSuccessfulConfiguredServerLifecycle(configChange: ConfigChangeResult): void {
+  switch (configChange.status) {
+    case 'changed':
+    case 'unchanged':
+      return;
+    case 'source_conflict':
+    case 'not_found':
+      throw new AdminConfiguredServerApplyError('configured_server_stale_preview');
+    default:
+      throw new AdminConfiguredServerApplyError('configured_server_apply_failed');
+  }
+}
+
 function sanitizeConfiguredServerDeleteResult(configChange: ConfigChangeResult): ConfigChangeResult {
+  return sanitizeConfiguredServerMutationResult(
+    configChange,
+    'Runtime reload failed after the configuration was deleted.',
+  );
+}
+
+function sanitizeConfiguredServerLifecycleResult(configChange: ConfigChangeResult): ConfigChangeResult {
+  return sanitizeConfiguredServerMutationResult(
+    configChange,
+    'Runtime reload failed after the lifecycle configuration was persisted.',
+  );
+}
+
+function sanitizeConfiguredServerMutationResult(
+  configChange: ConfigChangeResult,
+  reloadFailureMessage: string,
+): ConfigChangeResult {
   return {
     ...configChange,
     configPath: '[redacted]',
@@ -2156,13 +2390,13 @@ function sanitizeConfiguredServerDeleteResult(configChange: ConfigChangeResult):
     },
     reload:
       configChange.reload.status === 'failed'
-        ? { status: 'failed', error: 'Runtime reload failed after the configuration was deleted.' }
+        ? { status: 'failed', error: reloadFailureMessage }
         : configChange.reload,
     warnings: configChange.warnings.map(() => 'A recovery backup retention cleanup failed.'),
   };
 }
 
-function sanitizeDeleteConfirmationFacts(
+function sanitizeConfiguredServerIdentityConfirmationFacts(
   facts: Record<string, unknown> | undefined,
 ): Record<string, unknown> | undefined {
   if (!facts) return undefined;
@@ -3708,17 +3942,11 @@ function createConfiguredServerReadModel(
     tags: normalizeTags(serverConfig.tags),
     transportSummary: createTransportSummary(serverConfig, transport),
     mutationAvailability: {
-      available: mutationAvailable && source === 'mcpServers',
-      operations: source === 'mcpServers' ? ['enable', 'disable'] : [],
+      available: mutationAvailable,
+      operations: ['enable', 'disable'],
       deleteAvailable: mutationAvailable,
     },
-    actionState:
-      source === 'mcpServers'
-        ? createActionState(name, enabled)
-        : {
-            enable: { available: false, label: `Enable ${name}`, disabledReason: 'already_enabled' },
-            disable: { available: false, label: `Disable ${name}`, disabledReason: 'already_disabled' },
-          },
+    actionState: createActionState(name, enabled),
     transport,
     secretInputs,
     instructionOverride: !hasInstructionOverride

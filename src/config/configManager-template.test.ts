@@ -186,6 +186,31 @@ describe('ConfigManager Template Integration', () => {
       expect(result.errors).toEqual([]);
     });
 
+    it('excludes operator-disabled definitions before rendering and rendered-disabled definitions afterward', async () => {
+      await fsPromises.writeFile(
+        configFilePath,
+        JSON.stringify({
+          mcpServers: {
+            operatorDisabled: { command: 'static-operator' },
+            contextDisabled: { command: 'static-context' },
+            unrelated: { command: 'static-unrelated' },
+          },
+          mcpTemplates: {
+            operatorDisabled: { command: '{{missing.command}}', disabled: true },
+            contextDisabled: { command: 'node', disabled: '{{#if project.name}}true{{else}}false{{/if}}' },
+            enabled: { command: 'node', disabled: '{{#if missing}}true{{else}}false{{/if}}' },
+          },
+        }),
+      );
+      await initializeConfigManager();
+
+      const result = await configManager.loadConfigWithTemplates(mockContext);
+
+      expect(result.templateServers).toEqual({ enabled: { command: 'node', disabled: false } });
+      expect(result.staticServers).toEqual({ unrelated: { command: 'static-unrelated' } });
+      expect(result.errors).toEqual([]);
+    });
+
     it('should apply restart settings from serverDefaults to rendered stdio templates', async () => {
       const config = {
         serverDefaults: {
