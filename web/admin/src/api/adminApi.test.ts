@@ -9,6 +9,69 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+function lifecycleConfigChange(reloadStatus = 'observed') {
+  return {
+    status: 'changed',
+    operation: 'disable',
+    configPath: '[redacted]',
+    target: { name: 'shared/name', source: 'mcpTemplates' },
+    changed: true,
+    backup: { created: true, path: '[redacted]' },
+    retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
+    reload: { status: reloadStatus },
+    warnings: [],
+  };
+}
+
+function lifecyclePreviewEnvelope() {
+  return {
+    ok: true,
+    operationId: 'op_lifecycle_preview',
+    preview: {
+      target: { type: 'configured_server', id: 'shared/name', source: 'mcpTemplates' },
+      qualifiedId: 'mcpTemplates/shared/name',
+      targetFingerprint: 'configured_server_target',
+      previewFingerprint: 'lifecycle_preview_1',
+      current: { enabled: true, disabledValueKind: 'absent' },
+      proposed: { enabled: false, disabledValueKind: 'literal' },
+      expressionReplacement: { occurs: false, replacement: 'disabled_true' },
+      configChange: lifecycleConfigChange('skipped'),
+      expectedBackup: { policy: 'required', recoveryCopy: true },
+      expectedReload: {
+        policy: 'observe_after_write',
+        possibleStatuses: ['observed', 'runtime_not_running', 'reload_disabled', 'failed'],
+      },
+      runtimeImpact: {
+        activeInstanceCount: 1,
+        retirement: 'after_successful_reload',
+        recreation: 'lazy_future_match_only',
+      },
+      warnings: [],
+    },
+  };
+}
+
+function lifecycleApplyEnvelope() {
+  return {
+    ok: true,
+    operationId: 'op_lifecycle_apply',
+    result: {
+      target: { type: 'configured_server', id: 'shared/name', source: 'mcpTemplates' },
+      qualifiedId: 'mcpTemplates/shared/name',
+      previewFingerprint: 'lifecycle_preview_1',
+      enabled: false,
+      outcome: 'disabled',
+      configChange: lifecycleConfigChange(),
+      runtimeImpact: {
+        activeInstancesBefore: 1,
+        retiredInstances: 1,
+        activeInstancesAfter: 0,
+        retirementObserved: true,
+      },
+    },
+  };
+}
+
 describe('admin API client', () => {
   it('uses only source-qualified routes and exact confirmation facts for configured-server deletion', async () => {
     const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
@@ -60,7 +123,7 @@ describe('admin API client', () => {
     const api = createAdminApi({
       fetch: async (input, init) => {
         calls.push({ input, init });
-        return jsonResponse({ ok: true, operationId: 'op_lifecycle', preview: {}, result: {} });
+        return jsonResponse(String(input).endsWith('/lifecycle-preview') ? lifecyclePreviewEnvelope() : lifecycleApplyEnvelope());
       },
     });
     const target = { type: 'configured_server' as const, source: 'mcpTemplates' as const, id: 'shared/name' };
@@ -95,6 +158,27 @@ describe('admin API client', () => {
         },
       },
     ]);
+  });
+
+  it.each([
+    ['preview', '/lifecycle-preview'] as const,
+    ['apply', '/lifecycle'] as const,
+  ])('rejects malformed successful Template lifecycle %s envelopes', async (kind) => {
+    const api = createAdminApi({ fetch: async () => jsonResponse({ ok: true }) });
+    const target = { type: 'configured_server' as const, source: 'mcpTemplates' as const, id: 'worker' };
+
+    const operation =
+      kind === 'preview'
+        ? api.previewConfiguredServerLifecycle({ target, enabled: false, csrfToken: 'csrf_1' })
+        : api.applyConfiguredServerLifecycle({
+            target,
+            enabled: false,
+            csrfToken: 'csrf_1',
+            idempotencyKey: 'disable-worker',
+            previewFingerprint: 'lifecycle_preview_1',
+          });
+
+    await expect(operation).rejects.toThrow();
   });
 
   it('manages instruction-template drafts through explicit lifecycle routes', async () => {

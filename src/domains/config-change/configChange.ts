@@ -577,6 +577,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
           configPath,
           target,
           `Configured server target '${target.source}/${input.targetName}' changed after preview`,
+          operation,
         );
         return resultWithoutReload;
       }
@@ -1216,10 +1217,11 @@ function editConflictResult(
   configPath: string,
   target: ConfiguredServerTargetRef,
   error?: string,
+  operation: ConfigChangeResult['operation'] = 'edit',
 ): ConfigChangeResult {
   return {
     status,
-    operation: 'edit',
+    operation,
     configPath,
     target,
     changed: false,

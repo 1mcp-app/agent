@@ -2314,7 +2314,7 @@ describe('admin routes', () => {
       operationName: 'previewConfiguredServerLifecycle',
       replayed: false,
       result: { previewFingerprint: 'lifecycle_preview_1' },
-    } as any);
+    } as Awaited<ReturnType<NonNullable<AdminConfiguredServerOperations['previewConfiguredServerLifecycle']>>>);
     configuredServerService.applyConfiguredServerLifecycle.mockResolvedValue({
       ok: true,
       status: 'completed',
@@ -2322,7 +2322,7 @@ describe('admin routes', () => {
       operationName: 'applyConfiguredServerLifecycle',
       replayed: false,
       result: { qualifiedId: 'mcpTemplates/project' },
-    } as any);
+    } as Awaited<ReturnType<NonNullable<AdminConfiguredServerOperations['applyConfiguredServerLifecycle']>>>);
     const app = mountAdminRoutes();
     const login = await request(app)
       .post('/admin/api/session/login')

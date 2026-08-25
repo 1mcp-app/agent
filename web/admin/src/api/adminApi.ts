@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 export interface AdminAccount {
   id: string;
   username: string;
@@ -670,6 +672,102 @@ export interface ConfiguredServerLifecycleApplyResponse {
   };
 }
 
+const configuredServerTargetIdentitySchema = z
+  .object({
+    type: z.literal('configured_server'),
+    id: z.string(),
+    source: z.enum(['mcpServers', 'mcpTemplates']),
+  })
+  .passthrough();
+const configuredServerPreviewConfigChangeSchema = z
+  .object({
+    status: z.string(),
+    operation: z.string(),
+    configPath: z.string().optional(),
+    target: z.object({ name: z.string(), source: z.string() }).passthrough(),
+    changed: z.boolean(),
+    backup: z.object({ created: z.boolean(), path: z.string().optional() }).passthrough(),
+    retentionCleanup: z
+      .object({ attempted: z.boolean(), deletedPaths: z.array(z.string()), warnings: z.array(z.string()) })
+      .passthrough(),
+    reload: z
+      .object({ status: z.string(), error: z.string().optional(), before: z.unknown().optional(), after: z.unknown().optional() })
+      .passthrough(),
+    warnings: z.array(z.string()).optional(),
+    error: z.string().optional(),
+  })
+  .passthrough();
+const configuredServerLifecycleRuntimeImpactSchema = z
+  .object({
+    activeInstancesBefore: z.number(),
+    retiredInstances: z.number(),
+    activeInstancesAfter: z.number(),
+    retirementObserved: z.boolean(),
+    error: z.string().optional(),
+  })
+  .passthrough();
+const configuredServerLifecyclePreviewResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    operationId: z.string(),
+    preview: z
+      .object({
+        target: configuredServerTargetIdentitySchema,
+        qualifiedId: z.string(),
+        targetFingerprint: z.string(),
+        previewFingerprint: z.string(),
+        current: z
+          .object({ enabled: z.boolean(), disabledValueKind: z.enum(['absent', 'literal', 'context_expression']) })
+          .passthrough(),
+        proposed: z
+          .object({ enabled: z.boolean(), disabledValueKind: z.enum(['absent', 'literal']) })
+          .passthrough(),
+        expressionReplacement: z
+          .object({ occurs: z.boolean(), replacement: z.enum(['disabled_true', 'enabled_absent']) })
+          .passthrough(),
+        configChange: configuredServerPreviewConfigChangeSchema,
+        expectedBackup: z.object({ policy: z.literal('required'), recoveryCopy: z.literal(true) }).passthrough(),
+        expectedReload: z
+          .object({
+            policy: z.literal('observe_after_write'),
+            possibleStatuses: z.tuple([
+              z.literal('observed'),
+              z.literal('runtime_not_running'),
+              z.literal('reload_disabled'),
+              z.literal('failed'),
+            ]),
+          })
+          .passthrough(),
+        runtimeImpact: z
+          .object({
+            activeInstanceCount: z.number(),
+            retirement: z.enum(['after_successful_reload', 'not_required']),
+            recreation: z.literal('lazy_future_match_only'),
+          })
+          .passthrough(),
+        warnings: z.array(z.string()),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+const configuredServerLifecycleApplyResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    operationId: z.string(),
+    result: z
+      .object({
+        target: configuredServerTargetIdentitySchema,
+        qualifiedId: z.string(),
+        previewFingerprint: z.string(),
+        enabled: z.boolean(),
+        outcome: z.enum(['enabled', 'disabled', 'already_enabled', 'already_disabled']),
+        configChange: configuredServerPreviewConfigChangeSchema,
+        runtimeImpact: configuredServerLifecycleRuntimeImpactSchema,
+      })
+      .passthrough(),
+  })
+  .passthrough();
+
 export interface ConfiguredServerCreatePreviewResponse {
   ok: true;
   operationId: string;
@@ -720,6 +818,15 @@ export class AdminApiError extends Error {
     super(message);
     this.name = 'AdminApiError';
     this.failure = failure ?? classifyAdminApiError(this);
+  }
+}
+
+function parseConfiguredServerLifecycleResponse<T>(schema: z.ZodType<T>, response: unknown): T {
+  try {
+    return schema.parse(response);
+  } catch {
+    const message = 'The runtime returned an invalid configured-server lifecycle response.';
+    throw new AdminApiError(502, {}, message, { kind: 'unavailable', message });
   }
 }
 
@@ -1308,7 +1415,9 @@ export function createAdminApi(options: AdminApiOptions = {}) {
         method: 'POST',
         headers: { 'X-CSRF-Token': input.csrfToken },
         body: JSON.stringify({ enabled: input.enabled }),
-      });
+      }).then((response) =>
+        parseConfiguredServerLifecycleResponse(configuredServerLifecyclePreviewResponseSchema, response),
+      );
     },
 
     applyConfiguredServerLifecycle(input: {
@@ -1329,7 +1438,9 @@ export function createAdminApi(options: AdminApiOptions = {}) {
             targetIdentityConfirmed: `${input.target.source}/${input.target.id}`,
           },
         }),
-      });
+      }).then((response) =>
+        parseConfiguredServerLifecycleResponse(configuredServerLifecycleApplyResponseSchema, response),
+      );
     },
 
     setConfiguredServerEnabled(input: { name: string; enabled: boolean; csrfToken: string }): Promise<unknown> {

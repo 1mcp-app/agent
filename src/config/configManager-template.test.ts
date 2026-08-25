@@ -4,6 +4,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 
 import { ConfigManager } from '@src/config/configManager.js';
+import { HandlebarsTemplateRenderer } from '@src/template/handlebarsTemplateRenderer.js';
 import type { ContextData } from '@src/types/context.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -209,6 +210,49 @@ describe('ConfigManager Template Integration', () => {
       expect(result.templateServers).toEqual({ enabled: { command: 'node', disabled: false } });
       expect(result.staticServers).toEqual({ unrelated: { command: 'static-unrelated' } });
       expect(result.errors).toEqual([]);
+    });
+
+    it('keeps declared Template authority when loading without Request Context', async () => {
+      await fsPromises.writeFile(
+        configFilePath,
+        JSON.stringify({
+          mcpServers: { shared: { command: 'static' }, unrelated: { command: 'unrelated' } },
+          mcpTemplates: { shared: { command: 'template', disabled: true } },
+        }),
+      );
+      await initializeConfigManager();
+
+      const result = await configManager.loadConfigWithTemplates();
+
+      expect(result.templateServers).toEqual({});
+      expect(result.staticServers).toEqual({ unrelated: { command: 'unrelated' } });
+    });
+
+    it('keeps declared Template authority when rendering that definition fails', async () => {
+      await fsPromises.writeFile(
+        configFilePath,
+        JSON.stringify({
+          templateSettings: { failureMode: 'strict' },
+          mcpServers: { shared: { command: 'static' }, unrelated: { command: 'unrelated' } },
+          mcpTemplates: { shared: { command: '{{project.command}}' } },
+        }),
+      );
+      await initializeConfigManager();
+      const render = vi
+        .spyOn(HandlebarsTemplateRenderer.prototype, 'renderTemplate')
+        .mockImplementation(() => {
+          throw new Error('render failed');
+        });
+
+      try {
+        const result = await configManager.loadConfigWithTemplates(mockContext);
+
+        expect(result.templateServers).toEqual({});
+        expect(result.staticServers).toEqual({ unrelated: { command: 'unrelated' } });
+        expect(result.errors).toEqual([expect.stringContaining('Template processing failed for shared')]);
+      } finally {
+        render.mockRestore();
+      }
     });
 
     it('should apply restart settings from serverDefaults to rendered stdio templates', async () => {

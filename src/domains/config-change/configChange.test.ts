@@ -193,7 +193,12 @@ describe('Config Change', () => {
       expectedSourceFingerprint: fingerprintConfiguredServerTarget({ ...original, command: 'changed' }),
     });
 
-    expect(result).toMatchObject({ status: 'source_conflict', changed: false, backup: { created: false } });
+    expect(result).toMatchObject({
+      status: 'source_conflict',
+      operation: 'edit',
+      changed: false,
+      backup: { created: false },
+    });
     expect(await readConfig()).toEqual({ mcpServers: { alpha: original } });
     expect(reload).not.toHaveBeenCalled();
   });
@@ -894,8 +899,29 @@ describe('Config Change', () => {
       expectedTargetFingerprint: fingerprintConfiguredServerTarget({ ...original, command: 'changed' }),
     });
 
-    expect(result).toMatchObject({ status: 'source_conflict', changed: false, backup: { created: false } });
+    expect(result).toMatchObject({
+      status: 'source_conflict',
+      operation: 'disable',
+      changed: false,
+      backup: { created: false },
+    });
     expect(await readConfig()).toEqual({ mcpTemplates: { shared: original }, mcpServers: { shared: original } });
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('reports enable when a stale enable lifecycle fingerprint conflicts', async () => {
+    const original = { type: 'stdio' as const, command: 'node', disabled: true };
+    await writeConfig({ mcpTemplates: { worker: original } });
+    const service = createConfigChangeService({ reloadConfig: reload });
+
+    const result = await service.setConfiguredServerTargetEnabledState({
+      targetName: 'worker',
+      targetSource: 'mcpTemplates',
+      enabled: true,
+      expectedTargetFingerprint: fingerprintConfiguredServerTarget({ ...original, command: 'changed' }),
+    });
+
+    expect(result).toMatchObject({ status: 'source_conflict', operation: 'enable', changed: false });
     expect(reload).not.toHaveBeenCalled();
   });
 

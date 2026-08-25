@@ -39,7 +39,6 @@ export class ConfigManager extends EventEmitter {
 
   // Template processing related properties
   private templateProcessingErrors: string[] = [];
-  private processedDisabledTemplateNames: string[] = [];
   private processedTemplates: Record<string, MCPServerParams> = {};
   private lastContextHash?: string;
   private templateRenderer?: HandlebarsTemplateRenderer;
@@ -165,7 +164,6 @@ export class ConfigManager extends EventEmitter {
     // Process templates if context available, otherwise return raw templates
     let templateServers: Record<string, MCPServerParams> = {};
     let errors: string[] = [];
-    let disabledTemplateNames = new Set<string>();
 
     if (config.mcpTemplates) {
       if (context) {
@@ -180,13 +178,11 @@ export class ConfigManager extends EventEmitter {
         ) {
           templateServers = this.processedTemplates;
           errors = this.templateProcessingErrors;
-          disabledTemplateNames = new Set(this.processedDisabledTemplateNames);
         } else {
           // Process templates with validation
           const result = await this.processTemplates(config.mcpTemplates, context, config.templateSettings);
           templateServers = {};
           errors = [...result.errors];
-          disabledTemplateNames = new Set(result.disabledTemplateNames);
           for (const [serverName, templateConfig] of Object.entries(result.servers)) {
             try {
               templateServers[serverName] = this.validateServerConfig(
@@ -204,7 +200,6 @@ export class ConfigManager extends EventEmitter {
           if (config.templateSettings?.cacheContext) {
             this.processedTemplates = templateServers;
             this.templateProcessingErrors = errors;
-            this.processedDisabledTemplateNames = [...disabledTemplateNames];
             this.lastContextHash = contextHash;
           }
         }
@@ -217,7 +212,7 @@ export class ConfigManager extends EventEmitter {
 
     // Declared template identity remains authoritative even when lifecycle or context makes it ineligible.
     const conflictingServers: string[] = [];
-    const declaredTemplateNames = new Set([...Object.keys(templateServers), ...disabledTemplateNames]);
+    const declaredTemplateNames = new Set(Object.keys(config.mcpTemplates ?? {}));
     for (const staticServerName of Object.keys(staticServers)) {
       if (declaredTemplateNames.has(staticServerName)) {
         conflictingServers.push(staticServerName);
@@ -322,9 +317,8 @@ export class ConfigManager extends EventEmitter {
     templates: Record<string, MCPServerParams>,
     context: ContextData,
     settings?: TemplateSettings,
-  ): Promise<{ servers: Record<string, MCPServerParams>; errors: string[]; disabledTemplateNames: string[] }> {
+  ): Promise<{ servers: Record<string, MCPServerParams>; errors: string[] }> {
     const errors: string[] = [];
-    const disabledTemplateNames: string[] = [];
 
     // Initialize template renderer
     this.templateRenderer = new HandlebarsTemplateRenderer();
@@ -333,13 +327,11 @@ export class ConfigManager extends EventEmitter {
 
     for (const [serverName, templateConfig] of Object.entries(templates)) {
       if (isOperatorDisabledTemplateDefinition(templateConfig)) {
-        disabledTemplateNames.push(serverName);
         continue;
       }
       try {
         const processedConfig = this.templateRenderer.renderTemplate(templateConfig, context);
         if (isOperatorDisabledTemplateDefinition(processedConfig)) {
-          disabledTemplateNames.push(serverName);
           continue;
         }
         processedServers[serverName] = processedConfig;
@@ -362,7 +354,7 @@ export class ConfigManager extends EventEmitter {
       }
     }
 
-    return { servers: processedServers, errors, disabledTemplateNames };
+    return { servers: processedServers, errors };
   }
 
   /**
@@ -417,7 +409,6 @@ export class ConfigManager extends EventEmitter {
    */
   public clearTemplateCache(): void {
     this.processedTemplates = {};
-    this.processedDisabledTemplateNames = [];
     this.lastContextHash = undefined;
     this.templateProcessingErrors = [];
   }

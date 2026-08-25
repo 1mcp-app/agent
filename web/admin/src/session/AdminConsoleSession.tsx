@@ -478,7 +478,7 @@ export function useAdminConsoleSession({
           if (applied.result.configChange.reload.status === 'failed') {
             lifecycleRecoveryMessage =
               'Lifecycle configuration was saved, but runtime reload failed. Recovery is required.';
-          } else if (!applied.result.runtimeImpact.retirementObserved) {
+          } else if (!enabled && !applied.result.runtimeImpact.retirementObserved) {
             lifecycleRecoveryMessage =
               'Lifecycle configuration was saved, but Template instance retirement was not confirmed. Recovery is required.';
           }

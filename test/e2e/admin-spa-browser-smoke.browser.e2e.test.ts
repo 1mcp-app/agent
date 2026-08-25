@@ -470,7 +470,9 @@ describe('admin SPA browser smoke', () => {
       await expectVisible(dialog.getByText(/retires 1 active Template Server instance/i));
       await expectVisible(dialog.getByText(/Future matching requests create instances lazily/i));
       await dialog.getByRole('button', { name: 'Disable template' }).click();
-      await expectVisible(page.getByText('disabled', { exact: true }));
+      const templateRow = page.locator('tbody tr').filter({ hasText: 'github' }).filter({ hasText: 'Template' });
+      await expectVisible(templateRow.getByText('disabled', { exact: true }));
+      await expectVisible(templateRow.getByRole('switch', { name: 'Enable github' }));
     } finally {
       await page.context().close();
     }

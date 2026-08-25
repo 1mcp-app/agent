@@ -5365,6 +5365,7 @@ describe('AdminConfiguredServerService', () => {
         runtimeImpact: { activeInstanceCount: 2, retirement: 'after_successful_reload' },
       },
     });
+    expect(preview.ok).toBe(true);
     if (!preview.ok) return;
 
     const applied = await service.applyConfiguredServerLifecycle({
@@ -5407,6 +5408,7 @@ describe('AdminConfiguredServerService', () => {
       targetSource: 'mcpTemplates',
       enabled: false,
     });
+    expect(preview.ok).toBe(true);
     if (!preview.ok) return;
     writeConfig({ mcpTemplates: { worker: { type: 'stdio', command: 'bun' } } });
 
@@ -5438,6 +5440,7 @@ describe('AdminConfiguredServerService', () => {
       targetSource: 'mcpTemplates',
       enabled: true,
     });
+    expect(preview.ok).toBe(true);
     if (!preview.ok) return;
     const applied = await service.applyConfiguredServerLifecycle({
       context: context({
@@ -5465,6 +5468,7 @@ describe('AdminConfiguredServerService', () => {
       targetSource: 'mcpTemplates',
       enabled: false,
     });
+    expect(failedPreview.ok).toBe(true);
     if (!failedPreview.ok) return;
     const failed = await service.applyConfiguredServerLifecycle({
       context: context({

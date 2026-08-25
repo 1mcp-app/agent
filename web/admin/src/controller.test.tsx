@@ -75,39 +75,66 @@ describe('AdminConsoleRoot', () => {
     {
       label: 'failed reload',
       reload: { status: 'failed' as const, error: 'Runtime reload failed after persistence.' },
+      initialEnabled: true,
+      requestedEnabled: false,
       retirementObserved: false,
+      malformed: false,
       message: 'Lifecycle configuration was saved, but runtime reload failed. Recovery is required.',
     },
     {
       label: 'unconfirmed retirement',
       reload: { status: 'observed' as const },
+      initialEnabled: true,
+      requestedEnabled: false,
       retirementObserved: false,
+      malformed: false,
       message:
         'Lifecycle configuration was saved, but Template instance retirement was not confirmed. Recovery is required.',
     },
-  ])('refreshes persisted Template state and keeps $label visibly failed', async ({ reload, retirementObserved, message }) => {
+    {
+      label: 'enable without retirement observation',
+      reload: { status: 'observed' as const },
+      initialEnabled: false,
+      requestedEnabled: true,
+      retirementObserved: false,
+      malformed: false,
+      message: undefined,
+    },
+    {
+      label: 'malformed apply envelope',
+      reload: { status: 'observed' as const },
+      initialEnabled: true,
+      requestedEnabled: false,
+      retirementObserved: false,
+      malformed: true,
+      message:
+        'Server disable failed: The runtime returned an invalid configured-server lifecycle response.',
+    },
+  ])(
+    'reports persisted Template $label truthfully',
+    async ({ reload, initialEnabled, requestedEnabled, retirementObserved, malformed, message }) => {
     const user = userEvent.setup();
-    let persisted = false;
+    let currentEnabled = initialEnabled;
     const templateServer = () => ({
       id: 'worker',
       source: 'mcpTemplates' as const,
       target: { type: 'configured_server' as const, id: 'worker', source: 'mcpTemplates' as const },
-      enabled: !persisted,
+      enabled: currentEnabled,
       tags: [],
       transportSummary: { kind: 'stdio', label: 'node' },
       mutationAvailability: { available: true, operations: ['enable' as const, 'disable' as const] },
-      actionState: persisted
+      actionState: currentEnabled
         ? {
-            enable: { available: true, label: 'Enable worker' },
-            disable: { available: false, label: 'Disable worker', disabledReason: 'already_disabled' as const },
-          }
-        : {
             enable: { available: false, label: 'Enable worker', disabledReason: 'already_enabled' as const },
             disable: { available: true, label: 'Disable worker' },
+          }
+        : {
+            enable: { available: true, label: 'Enable worker' },
+            disable: { available: false, label: 'Disable worker', disabledReason: 'already_disabled' as const },
           },
       transport: { type: 'stdio', command: 'node' },
       secretInputs: [],
-      runtime: { objectKind: 'definition' as const, activeInstanceCount: persisted ? 0 : 1 },
+      runtime: { objectKind: 'definition' as const, activeInstanceCount: currentEnabled ? 1 : 0 },
     });
     const listConfiguredServers = vi.fn(async () => [templateServer()]);
     const api = apiClient({
@@ -122,9 +149,12 @@ describe('AdminConsoleRoot', () => {
           qualifiedId: 'mcpTemplates/worker',
           targetFingerprint: 'configured_server_target',
           previewFingerprint: 'lifecycle_preview_1',
-          current: { enabled: true, disabledValueKind: 'absent' },
-          proposed: { enabled: false, disabledValueKind: 'literal' },
-          expressionReplacement: { occurs: false, replacement: 'disabled_true' },
+          current: { enabled: !requestedEnabled, disabledValueKind: requestedEnabled ? 'literal' : 'absent' },
+          proposed: { enabled: requestedEnabled, disabledValueKind: requestedEnabled ? 'absent' : 'literal' },
+          expressionReplacement: {
+            occurs: false,
+            replacement: requestedEnabled ? 'enabled_absent' : 'disabled_true',
+          },
           configChange: lifecycleConfigChange({ status: 'skipped' }),
           expectedBackup: { policy: 'required', recoveryCopy: true },
           expectedReload: {
@@ -132,15 +162,19 @@ describe('AdminConsoleRoot', () => {
             possibleStatuses: ['observed', 'runtime_not_running', 'reload_disabled', 'failed'],
           },
           runtimeImpact: {
-            activeInstanceCount: 1,
-            retirement: 'after_successful_reload',
+            activeInstanceCount: requestedEnabled ? 0 : 1,
+            retirement: requestedEnabled ? 'not_required' : 'after_successful_reload',
             recreation: 'lazy_future_match_only',
           },
           warnings: ['Successful reload retires 1 active Template Server instance.'],
         },
       })),
-      applyConfiguredServerLifecycle: vi.fn(async () => {
-        persisted = true;
+      applyConfiguredServerLifecycle: vi.fn(async (input) => {
+        if (malformed) {
+          const message = 'The runtime returned an invalid configured-server lifecycle response.';
+          throw new AdminApiError(502, {}, message, { kind: 'unavailable', message });
+        }
+        currentEnabled = input.enabled;
         return {
           ok: true,
           operationId: 'op_lifecycle_apply',
@@ -148,8 +182,8 @@ describe('AdminConsoleRoot', () => {
             target: templateServer().target,
             qualifiedId: 'mcpTemplates/worker',
             previewFingerprint: 'lifecycle_preview_1',
-            enabled: false,
-            outcome: 'disabled',
+            enabled: input.enabled,
+            outcome: input.enabled ? ('enabled' as const) : ('disabled' as const),
             configChange: lifecycleConfigChange(reload),
             runtimeImpact: {
               activeInstancesBefore: 1,
@@ -164,13 +198,20 @@ describe('AdminConsoleRoot', () => {
 
     renderRoot(api, { windowRef: createRouteWindow('/admin/servers') });
     await screen.findByText('worker');
-    await user.click(screen.getByRole('switch', { name: 'Disable worker' }));
-    await user.click(await screen.findByRole('button', { name: 'Disable template' }));
+    await user.click(screen.getByRole('switch', { name: requestedEnabled ? 'Enable worker' : 'Disable worker' }));
+    await user.click(
+      await screen.findByRole('button', { name: requestedEnabled ? 'Enable template' : 'Disable template' }),
+    );
 
-    expect((await screen.findAllByText(message)).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText('disabled', { exact: true })).toBeInTheDocument();
-    expect(listConfiguredServers).toHaveBeenCalledTimes(2);
-  });
+    if (message) {
+      expect((await screen.findAllByText(message)).length).toBeGreaterThanOrEqual(1);
+    } else {
+      expect(await screen.findByText('Server enable completed.')).toBeInTheDocument();
+    }
+    expect(screen.getByText(malformed ? 'enabled' : requestedEnabled ? 'enabled' : 'disabled', { exact: true })).toBeInTheDocument();
+    expect(listConfiguredServers).toHaveBeenCalledTimes(malformed ? 1 : 2);
+    },
+  );
 
   it('keeps a dirty create draft and route when reopening creation is cancelled', async () => {
     const user = userEvent.setup();
