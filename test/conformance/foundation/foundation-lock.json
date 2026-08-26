@@ -39,7 +39,7 @@
     {
       "id": "integrity-verifier",
       "path": "test/conformance/integrity/index.ts",
-      "digest": "sha256:9c09064c868b28964534518b44d106eb31fa853bc578df03136c8b20b55a3876"
+      "digest": "sha256:1e260eaaf1835f946370614fc9f6a27c07c8d02f943fd22aeb2771c9b6b4c413"
     },
     {
       "id": "official-runner",
@@ -54,7 +54,7 @@
     {
       "id": "foundation-run",
       "path": "test/conformance/foundation/foundationRun.ts",
-      "digest": "sha256:ccf3aec2e5baaf92efd7f10f9b5a9c837f53fbe6f2a763f79456ea1e6603d668"
+      "digest": "sha256:296facd9c3c5209b760c769fac194bd85524e3a58b1932d4b6c6a6d53f7c91cc"
     },
     {
       "id": "typescript-manifest",

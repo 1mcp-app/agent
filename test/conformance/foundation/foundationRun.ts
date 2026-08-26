@@ -171,6 +171,7 @@ async function integrityReport(root: string, expectedSourceSha: string) {
           '@modelcontextprotocol/server-legacy',
         ].map((name) => [name, packageManifestPath(root, name)]),
       ),
+      manifestSpecifiers: { '@modelcontextprotocol/sdk': '^1.25.1' },
     },
     requirements: {
       '2025-11-25': join(packageRoot, 'requirements', '2025-11-25.yaml'),

@@ -71,6 +71,7 @@ export interface ConformanceIntegrityOptions {
     pnpmLockPath: string;
     parseYaml: (source: string) => unknown;
     installedPackages: Readonly<Record<string, string>>;
+    manifestSpecifiers?: Readonly<Record<string, string>>;
   };
   requirements: Readonly<Record<RequirementRevision, string>>;
   go: { goModPath: string; goSumPath: string; vendorPath: string };
@@ -301,7 +302,8 @@ export function verifyConformanceIntegrity(options: ConformanceIntegrityOptions)
   }
 
   const npmPackages = ACCEPTED_NPM_PINS.map((pin) => {
-    if (dependencyVersion(manifest ?? {}, pin.name) !== pin.version) {
+    const expectedSpecifier = options.npm.manifestSpecifiers?.[pin.name] ?? pin.version;
+    if (dependencyVersion(manifest ?? {}, pin.name) !== expectedSpecifier) {
       addIssue('npm-manifest-version-mismatch', pin.name);
     }
 
@@ -323,7 +325,7 @@ export function verifyConformanceIntegrity(options: ConformanceIntegrityOptions)
     const installedLockVersionMatches =
       importerVersion === pin.version ||
       (typeof importerVersion === 'string' && importerVersion.startsWith(`${pin.version}(`));
-    if (importer?.specifier !== pin.version || !installedLockVersionMatches) {
+    if (importer?.specifier !== expectedSpecifier || !installedLockVersionMatches) {
       addIssue('pnpm-lock-version-mismatch', pin.name);
     }
     const packageEntry = asRecord(asRecord(lock?.packages)?.[`${pin.name}@${pin.version}`]);
