@@ -3,9 +3,15 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { createRequire } from 'node:module';
+
 import { ACCEPTED_NPM_PINS, hashConformancePath, verifyConformanceIntegrity } from './index.js';
 
-const REQUIREMENTS_ROOT = '/Users/x/workplace/1mcp/agent/node_modules/@modelcontextprotocol/conformance/requirements';
+const require = createRequire(import.meta.url);
+const REQUIREMENTS_ROOT = path.join(
+  path.dirname(require.resolve('@modelcontextprotocol/conformance/package.json')),
+  'requirements',
+);
 
 function write(root: string, relative: string, contents: string | Buffer): string {
   const target = path.join(root, relative);
