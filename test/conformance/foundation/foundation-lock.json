@@ -19,7 +19,7 @@
     {
       "id": "baseline",
       "path": "test/conformance/baseline/baseline.ts",
-      "digest": "sha256:269564279b5b4a2c768409bf64ae0e1a0e4f60647cb1699b84f14a698840ed59"
+      "digest": "sha256:d405d9ad4997d979a3958c8acfeb551380546260290db0838d1756a3217e79f7"
     },
     {
       "id": "capture-schema",
@@ -49,12 +49,12 @@
     {
       "id": "matrix-runtime",
       "path": "test/conformance/runtime/matrixRuntime.ts",
-      "digest": "sha256:2ee231e916babc385be1e881b7b07a68caa37a34ae0b6d0fd51ff0a22a13aaca"
+      "digest": "sha256:4f08ff52c11c6dc183ffff79ee4d1383aff22bf4500fc0d9593dad01dc12e2de"
     },
     {
       "id": "foundation-run",
       "path": "test/conformance/foundation/foundationRun.ts",
-      "digest": "sha256:299fbd6e441912ed77721b3102a175894594d1bfdc9cbcf73dc5613c263882d0"
+      "digest": "sha256:e57397cef3ab5b991d21c684843701037d348e9aab957d3e44cc3266ee50407d"
     },
     {
       "id": "typescript-manifest",

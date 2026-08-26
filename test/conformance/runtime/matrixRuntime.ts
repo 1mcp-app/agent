@@ -203,6 +203,15 @@ export type MatrixExecutionResult =
       evidence: { inbound: SanitizedWireEvidenceFile; upstream: SanitizedWireEvidenceFile };
     }
   | {
+      kind: 'product';
+      status: 'fail';
+      reason: 'wire_schema_invalid';
+      assignmentId: string;
+      firstAttempt: true;
+      facts: ProbeFacts | z.infer<typeof ProbeUnsupportedSchema> | z.infer<typeof ProbeRejectedSchema>;
+      evidence: { inbound: SanitizedWireEvidenceFile; upstream: SanitizedWireEvidenceFile };
+    }
+  | {
       kind: 'infrastructure';
       defect: 'fixture' | 'process' | 'harness';
       reason: InfrastructureReason;
@@ -517,14 +526,12 @@ function validatorForRevision(revision: string): (envelope: Record<string, unkno
 function evidenceIsValid(evidence: SanitizedWireEvidenceFile): boolean {
   return (
     SanitizedWireEvidenceFileSchema.safeParse(evidence).success &&
-    evidence.records.every((record) =>
-      record.bodySize === 'empty'
-        ? record.schemaResult === 'not_applicable'
-        : record.contentKind === 'json'
-          ? record.schemaResult === 'valid'
-          : record.schemaResult === 'not_applicable',
-    )
+    evidence.records.every((record) => record.schemaResult !== 'infrastructure_error')
   );
+}
+
+function evidenceHasInvalidMessage(evidence: SanitizedWireEvidenceFile): boolean {
+  return evidence.records.some((record) => record.schemaResult === 'invalid');
 }
 
 function transportConfig(
@@ -669,7 +676,17 @@ export async function executeMatrixAssignment(input: MatrixExecutionOptions): Pr
       throw new RuntimeFault('harness', 'wire_evidence_invalid');
     }
 
-    if ('errorCode' in probeFacts) {
+    if (evidenceHasInvalidMessage(evidence.inbound) || evidenceHasInvalidMessage(evidence.upstream)) {
+      outcome = {
+        kind: 'product',
+        status: 'fail',
+        reason: 'wire_schema_invalid',
+        assignmentId: options.assignmentId,
+        firstAttempt: true,
+        facts: probeFacts,
+        evidence,
+      };
+    } else if ('errorCode' in probeFacts) {
       outcome = {
         kind: 'product',
         status: 'fail',

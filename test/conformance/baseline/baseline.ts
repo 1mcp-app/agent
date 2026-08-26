@@ -80,7 +80,13 @@ const matrixProductRunSchema = z
     assignmentId: safeIdSchema,
     attempt: z.literal(1),
     productVerdict: z.enum(['pass', 'fail']),
-    reasonCode: z.enum(['probe-complete', 'unsupported-protocol-era', 'unsupported-operation', 'gateway-rejected']),
+    reasonCode: z.enum([
+      'probe-complete',
+      'unsupported-protocol-era',
+      'unsupported-operation',
+      'gateway-rejected',
+      'schema-invalid',
+    ]),
     executedProfiles: z.array(profileSchema).min(1),
     probe: z
       .object({

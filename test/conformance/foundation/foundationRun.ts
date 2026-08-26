@@ -698,17 +698,19 @@ function normalizedMatrixRuns(
       reasonCode:
         result.status === 'pass'
           ? ('probe-complete' as const)
-          : result.reason === 'gateway_rejected'
-            ? ('gateway-rejected' as const)
-            : ('unsupported-operation' as const),
+          : result.reason === 'wire_schema_invalid'
+            ? ('schema-invalid' as const)
+            : result.reason === 'gateway_rejected'
+              ? ('gateway-rejected' as const)
+              : ('unsupported-operation' as const),
       executedProfiles: transportProfilesSchema.parse(descriptor.executedProfiles),
       probe: {
         negotiatedRevision:
-          result.reason === 'gateway_rejected'
+          'errorCode' in result.facts
             ? ('not-negotiated' as const)
             : canonicalRevisionSchema.parse(result.facts.negotiatedRevision),
         operations:
-          result.reason === 'gateway_rejected'
+          'errorCode' in result.facts
             ? (['transport/connect'] as const)
             : canonicalOperationsSchema.parse(result.facts.operations),
       },
