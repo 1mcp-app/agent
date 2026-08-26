@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from contextlib import AsyncExitStack
 
 import httpx2
-from mcp import Client, StdioServerParameters, stdio_client
+from mcp import Client, MCPError, StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import MCPServer
 
@@ -40,6 +40,7 @@ def self_check() -> None:
     emit(
         {
             "fixtureId": FIXTURE_ID,
+            "protocolEras": ["legacy", "modern"],
             "roles": ["client", "server"],
             "transports": ["stdio", "streamable-http"],
             "unsupportedProfiles": ["retained-http-sse", "protocol-2024-10-07"],
@@ -68,7 +69,7 @@ def parse_command(value: str) -> list[str]:
     return command
 
 
-async def probe(transport_name: str, endpoint: str | None, command_json: str | None) -> None:
+async def probe(protocol_era: str, transport_name: str, endpoint: str | None, command_json: str | None) -> None:
     try:
         async with AsyncExitStack() as stack:
             if transport_name == "stdio":
@@ -83,11 +84,31 @@ async def probe(transport_name: str, endpoint: str | None, command_json: str | N
                 transport = streamable_http_client(endpoint, http_client=http_client)
             else:
                 raise FixtureError("unsupported-transport")
-            async with Client(transport, mode="legacy", read_timeout_seconds=10) as client:
-                await client.session.send_ping()
+            mode = "auto" if protocol_era == "modern" else "legacy"
+            async with Client(transport, mode=mode, read_timeout_seconds=10) as client:
+                negotiated_revision = client.protocol_version
+                if (protocol_era == "modern") != (negotiated_revision == "2026-07-28"):
+                    raise FixtureError("protocol-era-mismatch")
+                operations = ["server/discover" if protocol_era == "modern" else "initialize"]
+                unsupported: list[dict[str, str]] = []
+                initialized = protocol_era == "legacy"
+                ping = True
+                if protocol_era == "modern":
+                    unsupported.append({"operation": "initialize", "reason": "modern-uses-server-discover"})
+                try:
+                    await client.session.send_ping()
+                except MCPError as error:
+                    if protocol_era != "modern" or error.code != -32601:
+                        raise
+                    ping = False
+                    unsupported.append({"operation": "ping", "reason": "not-in-2026-07-28"})
+                else:
+                    if protocol_era == "modern":
+                        raise FixtureError("removed-operation-mismatch")
+                    operations.append("ping")
                 tools = await client.list_tools(cache_mode="reload")
                 result = await client.call_tool(TOOL_NAME, {"marker": "synthetic-private-argument"})
-                negotiated_revision = client.protocol_version
+                operations.extend(["tools/list", "tools/call"])
     except FixtureError:
         raise
     except Exception as error:
@@ -96,18 +117,22 @@ async def probe(transport_name: str, endpoint: str | None, command_json: str | N
     emit(
         {
             "callError": result.is_error,
+            **({"classification": "unsupported-operation"} if unsupported else {}),
             "fixtureId": FIXTURE_ID,
-            "initialized": True,
+            "initialized": initialized,
             "negotiatedRevision": negotiated_revision,
-            "operations": ["initialize", "ping", "tools/list", "tools/call"],
-            "ping": True,
+            "ok": not unsupported,
+            "operations": operations,
+            "ping": ping,
+            "protocolEra": protocol_era,
             "toolsCount": len(tools.tools),
             "transport": transport_name,
+            **({"unsupported": unsupported} if unsupported else {}),
         }
     )
 
 
-async def serve_streamable_http() -> None:
+async def serve_streamable_http(protocol_era: str) -> None:
     import uvicorn
 
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -116,13 +141,18 @@ async def serve_streamable_http() -> None:
     listener.listen(128)
     listener.setblocking(False)
     port = listener.getsockname()[1]
-    app = server.streamable_http_app(json_response=True, stateless_http=False, host="127.0.0.1")
+    app = server.streamable_http_app(
+        json_response=True,
+        stateless_http=protocol_era == "modern",
+        host="127.0.0.1",
+    )
     config = uvicorn.Config(app, log_level="error", lifespan="on")
     http_server = uvicorn.Server(config)
     emit(
         {
             "endpoint": f"http://127.0.0.1:{port}/mcp",
             "fixtureId": FIXTURE_ID,
+            "protocolEra": protocol_era,
             "ready": True,
             "transport": "streamable-http",
         }
@@ -136,10 +166,12 @@ def parser() -> argparse.ArgumentParser:
     subcommands = cli.add_subparsers(dest="command", parser_class=FixtureArgumentParser)
     server_command = subcommands.add_parser("server", add_help=False)
     server_command.add_argument("--transport", choices=("stdio", "streamable-http"), default="stdio")
+    server_command.add_argument("--protocol-era", choices=("legacy", "modern"), default="legacy")
     probe_command = subcommands.add_parser("probe", add_help=False)
     probe_command.add_argument("--transport", choices=("stdio", "streamable-http"), required=True)
     probe_command.add_argument("--endpoint")
     probe_command.add_argument("--command-json")
+    probe_command.add_argument("--protocol-era", choices=("legacy", "modern"), default="legacy")
     return cli
 
 
@@ -151,9 +183,9 @@ def run(argv: Sequence[str]) -> None:
         if arguments.transport == "stdio":
             server.run("stdio")
         else:
-            asyncio.run(serve_streamable_http())
+            asyncio.run(serve_streamable_http(arguments.protocol_era))
     elif arguments.command == "probe":
-        asyncio.run(probe(arguments.transport, arguments.endpoint, arguments.command_json))
+        asyncio.run(probe(arguments.protocol_era, arguments.transport, arguments.endpoint, arguments.command_json))
     else:
         raise FixtureError("usage")
 

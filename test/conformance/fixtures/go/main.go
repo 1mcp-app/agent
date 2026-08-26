@@ -35,22 +35,32 @@ type echoOutput struct {
 	Receipt string `json:"receipt" jsonschema:"synthetic receipt"`
 }
 
+type unsupportedFact struct {
+	Operation string `json:"operation"`
+	Reason    string `json:"reason"`
+}
+
 type facts struct {
-	FixtureID           string   `json:"fixtureId"`
-	Version             string   `json:"version,omitempty"`
-	Roles               []string `json:"roles,omitempty"`
-	Transports          []string `json:"transports,omitempty"`
-	UnsupportedProfiles []string `json:"unsupportedProfiles,omitempty"`
-	Transport           string   `json:"transport,omitempty"`
-	NegotiatedRevision  string   `json:"negotiatedRevision,omitempty"`
-	Operations          []string `json:"operations,omitempty"`
-	Initialized         bool     `json:"initialized,omitempty"`
-	Ping                bool     `json:"ping,omitempty"`
-	ToolsCount          int      `json:"toolsCount,omitempty"`
-	CallError           bool     `json:"callError,omitempty"`
-	Ready               bool     `json:"ready,omitempty"`
-	Endpoint            string   `json:"endpoint,omitempty"`
-	ErrorCode           string   `json:"errorCode,omitempty"`
+	FixtureID           string            `json:"fixtureId"`
+	Version             string            `json:"version,omitempty"`
+	Roles               []string          `json:"roles,omitempty"`
+	Transports          []string          `json:"transports,omitempty"`
+	ProtocolEras        []string          `json:"protocolEras,omitempty"`
+	UnsupportedProfiles []string          `json:"unsupportedProfiles,omitempty"`
+	Transport           string            `json:"transport,omitempty"`
+	ProtocolEra         string            `json:"protocolEra,omitempty"`
+	OK                  *bool             `json:"ok,omitempty"`
+	Classification      string            `json:"classification,omitempty"`
+	NegotiatedRevision  string            `json:"negotiatedRevision,omitempty"`
+	Operations          []string          `json:"operations,omitempty"`
+	Unsupported         []unsupportedFact `json:"unsupported,omitempty"`
+	Initialized         *bool             `json:"initialized,omitempty"`
+	Ping                *bool             `json:"ping,omitempty"`
+	ToolsCount          int               `json:"toolsCount,omitempty"`
+	CallError           *bool             `json:"callError,omitempty"`
+	Ready               bool              `json:"ready,omitempty"`
+	Endpoint            string            `json:"endpoint,omitempty"`
+	ErrorCode           string            `json:"errorCode,omitempty"`
 }
 
 func main() {
@@ -71,6 +81,7 @@ func run(args []string) error {
 			Version:             version,
 			Roles:               []string{"client", "server"},
 			Transports:          []string{"stdio", "streamable-http"},
+			ProtocolEras:        []string{"legacy", "modern"},
 			UnsupportedProfiles: []string{"retained-http-sse", "protocol-2024-10-07"},
 		})
 	}
@@ -107,20 +118,22 @@ func linkedSDKVersion() (string, error) {
 	return "", errors.New("sdk-not-linked")
 }
 
-func newMCPServer() *mcp.Server {
+func newMCPServer(protocolEra string) *mcp.Server {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	server := mcp.NewServer(
 		&mcp.Implementation{Name: "one-mcp-go-conformance-fixture", Version: "1"},
 		&mcp.ServerOptions{Logger: logger},
 	)
-	server.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
-		return func(ctx context.Context, method string, request mcp.Request) (mcp.Result, error) {
-			if method == "server/discover" {
-				return nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "Method not found"}
+	if protocolEra == "legacy" {
+		server.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+			return func(ctx context.Context, method string, request mcp.Request) (mcp.Result, error) {
+				if method == "server/discover" {
+					return nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "Method not found"}
+				}
+				return next(ctx, method, request)
 			}
-			return next(ctx, method, request)
-		}
-	})
+		})
+	}
 	mcp.AddTool(server, &mcp.Tool{Name: toolName, Description: "Return a synthetic receipt"},
 		func(_ context.Context, _ *mcp.CallToolRequest, _ echoInput) (*mcp.CallToolResult, echoOutput, error) {
 			return nil, echoOutput{Receipt: "synthetic-private-result"}, nil
@@ -132,30 +145,34 @@ func runServer(args []string) error {
 	flags := flag.NewFlagSet("server", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	transport := flags.String("transport", "stdio", "transport")
+	protocolEra := flags.String("protocol-era", "legacy", "protocol era")
 	if err := flags.Parse(args); err != nil {
 		return errors.New("invalid-arguments")
 	}
+	if *protocolEra != "legacy" && *protocolEra != "modern" {
+		return errors.New("unsupported-protocol-era")
+	}
 	switch *transport {
 	case "stdio":
-		return newMCPServer().Run(context.Background(), &mcp.StdioTransport{})
+		return newMCPServer(*protocolEra).Run(context.Background(), &mcp.StdioTransport{})
 	case "streamable-http":
-		return serveHTTP()
+		return serveHTTP(*protocolEra)
 	default:
 		return errors.New("unsupported-transport")
 	}
 }
 
-func serveHTTP() error {
+func serveHTTP(protocolEra string) error {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return errors.New("listen-failed")
 	}
 	defer listener.Close()
 	mux := http.NewServeMux()
-	server := newMCPServer()
+	server := newMCPServer(protocolEra)
 	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return server },
-		&mcp.StreamableHTTPOptions{JSONResponse: true, Stateless: false},
+		&mcp.StreamableHTTPOptions{JSONResponse: true, Stateless: protocolEra == "modern"},
 	))
 	mux.HandleFunc("/health", func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
@@ -165,7 +182,7 @@ func serveHTTP() error {
 	serverErrors := make(chan error, 1)
 	go func() { serverErrors <- httpServer.Serve(listener) }()
 	endpoint := "http://" + listener.Addr().String() + "/mcp"
-	if err := emit(facts{FixtureID: fixtureID, Transport: "streamable-http", Ready: true, Endpoint: endpoint}); err != nil {
+	if err := emit(facts{FixtureID: fixtureID, Transport: "streamable-http", ProtocolEra: protocolEra, Ready: true, Endpoint: endpoint}); err != nil {
 		return err
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -192,8 +209,12 @@ func runProbe(args []string) error {
 	transportName := flags.String("transport", "", "transport")
 	endpoint := flags.String("endpoint", "", "streamable HTTP endpoint")
 	commandJSON := flags.String("command-json", "", "stdio command as a JSON string array")
+	protocolEra := flags.String("protocol-era", "legacy", "protocol era")
 	if err := flags.Parse(args); err != nil {
 		return errors.New("invalid-arguments")
+	}
+	if *protocolEra != "legacy" && *protocolEra != "modern" {
+		return errors.New("unsupported-protocol-era")
 	}
 	var transport mcp.Transport
 	switch *transportName {
@@ -233,8 +254,30 @@ func runProbe(args []string) error {
 			_ = session.Close()
 		}
 	}()
-	if err := session.Ping(ctx, nil); err != nil {
-		return errors.New("ping-failed")
+	negotiated := session.InitializeResult()
+	if negotiated == nil {
+		return errors.New("initialize-failed")
+	}
+	if (*protocolEra == "modern") != (negotiated.ProtocolVersion == "2026-07-28") {
+		return errors.New("protocol-era-mismatch")
+	}
+	operations := []string{"initialize"}
+	unsupported := []unsupportedFact{}
+	initialized := true
+	ping := true
+	if *protocolEra == "modern" {
+		operations[0] = "server/discover"
+		initialized = false
+		unsupported = append(unsupported, unsupportedFact{Operation: "initialize", Reason: "modern-uses-server-discover"})
+	}
+	if *protocolEra == "modern" {
+		ping = false
+		unsupported = append(unsupported, unsupportedFact{Operation: "ping", Reason: "not-in-2026-07-28"})
+	} else {
+		if err := session.Ping(ctx, nil); err != nil {
+			return errors.New("ping-failed")
+		}
+		operations = append(operations, "ping")
 	}
 	tools, err := session.ListTools(ctx, nil)
 	if err != nil {
@@ -246,23 +289,28 @@ func runProbe(args []string) error {
 	if err != nil {
 		return errors.New("tools-call-failed")
 	}
-	negotiated := session.InitializeResult()
-	if negotiated == nil {
-		return errors.New("initialize-failed")
-	}
-	connectionOperation := "initialize"
-	if negotiated.ProtocolVersion >= "2026-07-28" {
-		connectionOperation = "server/discover"
-	}
+	operations = append(operations, "tools/list", "tools/call")
 	if err := session.Close(); err != nil {
 		return errors.New("teardown-failed")
 	}
 	closed = true
+	ok := len(unsupported) == 0
+	callError := result.IsError
 	return emit(facts{
-		FixtureID: fixtureID, Transport: *transportName, Initialized: true, Ping: true,
+		FixtureID: fixtureID, Transport: *transportName, ProtocolEra: *protocolEra,
+		OK:                 &ok,
 		NegotiatedRevision: negotiated.ProtocolVersion,
-		Operations:         []string{connectionOperation, "ping", "tools/list", "tools/call"},
-		ToolsCount:         len(tools.Tools), CallError: result.IsError,
+		Operations:         operations,
+		Unsupported:        unsupported,
+		Initialized:        &initialized,
+		Ping:               &ping,
+		ToolsCount:         len(tools.Tools), CallError: &callError,
+		Classification: func() string {
+			if ok {
+				return ""
+			}
+			return "unsupported-operation"
+		}(),
 	})
 }
 
@@ -282,6 +330,7 @@ func classifyError(err error) string {
 	code := err.Error()
 	switch code {
 	case "usage", "invalid-arguments", "invalid-command", "unsupported-transport", "missing-endpoint",
+		"unsupported-protocol-era", "protocol-era-mismatch",
 		"build-info-unavailable", "sdk-version-mismatch", "sdk-not-linked", "listen-failed",
 		"http-server-failed", "http-shutdown-failed", "initialize-failed", "ping-failed",
 		"tools-list-failed", "tools-call-failed", "teardown-failed":
