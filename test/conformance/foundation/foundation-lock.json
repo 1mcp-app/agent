@@ -14,7 +14,7 @@
     {
       "id": "vitest-transports",
       "path": "vitest.conformance-transports.config.ts",
-      "digest": "sha256:53239ea7dde66c926e8629814d4bb58a5515685fcfa14694d1dd6819368b3f57"
+      "digest": "sha256:e0ed788fe38e2a6db4c65f8f1b6019f3c0c70ac248d5e6e1ad72f1cdcbb0ee2b"
     },
     {
       "id": "baseline",

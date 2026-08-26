@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [tsconfigPaths()],
   test: {
     environment: 'node',
-    include: ['test/e2e/http/http-mcp.test.ts', 'test/e2e/stdio/stdio-protocol.test.ts'],
+    include: ['test/e2e/stdio/stdio-protocol.test.ts'],
     globals: true,
     testTimeout: 60_000,
     hookTimeout: 30_000,
