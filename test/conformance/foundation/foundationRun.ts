@@ -492,6 +492,10 @@ export async function runFoundationConformance(options: FoundationRunOptions): P
   const sourceSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
   const expectedSourceSha = process.env.GITHUB_SHA ?? sourceSha;
   const integrity = await integrityReport(root, expectedSourceSha);
+  await writeFile(join(outputDirectory, 'conformance-integrity.json'), `${JSON.stringify(integrity, null, 2)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
   const proofs = profileProofFileSchema.safeParse(
     JSON.parse(await readFile(join(outputDirectory, 'profile-proofs.json'), 'utf8')),
   );
