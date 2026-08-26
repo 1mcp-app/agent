@@ -1,0 +1,203 @@
+import { cp, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { createRequire } from 'node:module';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import {
+  OFFICIAL_REQUIREMENT_DIGESTS,
+  runOfficialConformance,
+  verifyOfficialConformancePackage,
+} from './officialRunner.js';
+
+const fixtureDirectory = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
+const require = createRequire(import.meta.url);
+const temporaryDirectories: string[] = [];
+let fixturePackageRoot: string;
+let temporaryParent: string;
+
+function installedPackageRoot(): string {
+  const explicitRoot = process.env.MCP_CONFORMANCE_TEST_PACKAGE_ROOT;
+  if (explicitRoot) return explicitRoot;
+  return dirname(require.resolve('@modelcontextprotocol/conformance/package.json'));
+}
+
+beforeEach(async () => {
+  temporaryParent = await mkdtemp(join(tmpdir(), 'official-runner-test-'));
+  temporaryDirectories.push(temporaryParent);
+  fixturePackageRoot = join(temporaryParent, 'package');
+  await cp(installedPackageRoot(), fixturePackageRoot, { recursive: true });
+  await cp(join(fixtureDirectory, 'fake-conformance-cli.mjs'), join(fixturePackageRoot, 'dist', 'index.js'));
+});
+
+afterEach(async () => {
+  delete process.env.OFFICIAL_RUNNER_PARENT_SECRET;
+  await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+});
+
+describe('verifyOfficialConformancePackage', () => {
+  it('verifies the exact package and both frozen requirement digests', async () => {
+    const verified = await verifyOfficialConformancePackage(fixturePackageRoot);
+
+    expect(verified).toEqual({
+      name: '@modelcontextprotocol/conformance',
+      version: '0.2.0-alpha.11',
+      requirementDigests: OFFICIAL_REQUIREMENT_DIGESTS,
+    });
+  });
+
+  it('rejects a modified frozen requirement file', async () => {
+    const requirementPath = join(fixturePackageRoot, 'requirements', '2025-11-25.yaml');
+    await writeFile(requirementPath, `${await readFile(requirementPath, 'utf8')}\n# modified\n`);
+
+    await expect(verifyOfficialConformancePackage(fixturePackageRoot)).rejects.toMatchObject({
+      name: 'OfficialConformanceFixtureError',
+      code: 'requirement-integrity',
+    });
+  });
+});
+
+describe('runOfficialConformance', () => {
+  it('runs a server requirement set once and returns only sanitized structured observations', async () => {
+    process.env.OFFICIAL_RUNNER_PARENT_SECRET = 'parent-secret';
+
+    const result = await runOfficialConformance({
+      packageRoot: fixturePackageRoot,
+      role: 'server',
+      revision: '2025-11-25',
+      url: 'http://127.0.0.1:3050/mcp',
+      temporaryParentDirectory: temporaryParent,
+    });
+
+    expect(result.classification).toBe('product');
+    if (result.classification !== 'product') return;
+
+    expect(result.productVerdict).toBe('pass');
+    expect(result.role).toBe('server');
+    expect(result.revision).toBe('2025-11-25');
+    expect(result.counts.FAILURE).toBe(0);
+    expect(result.counts.WARNING).toBe(0);
+    expect(result.counts.SUCCESS).toBeGreaterThan(result.scenarios.length);
+    expect(result.scenarios[0].checks.filter((check) => check.id === 'official-check')).toHaveLength(2);
+    expect(result.scenarios[0].checks[0]).toEqual({
+      id: 'official-check',
+      status: 'SUCCESS',
+      specReferenceIds: ['MCP-Lifecycle'],
+    });
+    expect(JSON.stringify(result)).not.toMatch(/secret|stdout|stderr|Users|timestamp|description|errorMessage|details/);
+    expect(await readdir(temporaryParent)).toEqual(['package']);
+  });
+
+  it('preserves first-attempt warnings as a red client product verdict', async () => {
+    const result = await runOfficialConformance({
+      packageRoot: fixturePackageRoot,
+      role: 'client',
+      revision: '2025-11-25',
+      command: `${process.execPath} client-fixture.mjs`,
+      temporaryParentDirectory: temporaryParent,
+    });
+
+    expect(result.classification).toBe('product');
+    if (result.classification !== 'product') return;
+    expect(result.productVerdict).toBe('fail');
+    expect(result.counts.WARNING).toBe(1);
+    expect(result.scenarios.some((scenario) => scenario.scenarioId.startsWith('auth/'))).toBe(true);
+  });
+
+  it.each([
+    ['missing-output', 'missing-output'],
+    ['malformed-output', 'artifact-invalid'],
+  ] as const)('classifies %s as a harness failure without outcomes', async (path, reason) => {
+    const result = await runOfficialConformance({
+      packageRoot: fixturePackageRoot,
+      role: 'server',
+      revision: '2026-07-28',
+      url: `http://127.0.0.1:3050/${path}`,
+      temporaryParentDirectory: temporaryParent,
+    });
+
+    expect(result).toEqual({
+      classification: 'harness',
+      role: 'server',
+      revision: '2026-07-28',
+      reason,
+    });
+  });
+
+  it('classifies a nonzero process with no report separately from product failures', async () => {
+    const result = await runOfficialConformance({
+      packageRoot: fixturePackageRoot,
+      role: 'client',
+      revision: '2026-07-28',
+      command: 'process-failure',
+      temporaryParentDirectory: temporaryParent,
+    });
+
+    expect(result).toEqual({
+      classification: 'process',
+      role: 'client',
+      revision: '2026-07-28',
+      reason: 'nonzero-exit',
+    });
+  });
+
+  it('honors cancellation without starting a run and still removes the owned workspace', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await runOfficialConformance({
+      packageRoot: fixturePackageRoot,
+      role: 'server',
+      revision: '2025-11-25',
+      url: 'http://127.0.0.1:3050/mcp',
+      temporaryParentDirectory: temporaryParent,
+      signal: controller.signal,
+    });
+
+    expect(result).toEqual({
+      classification: 'process',
+      role: 'server',
+      revision: '2025-11-25',
+      reason: 'aborted',
+    });
+    expect(await readdir(temporaryParent)).toEqual(['package']);
+  });
+
+  it('terminates the owned process group on timeout and removes its workspace', async () => {
+    const result = await runOfficialConformance({
+      packageRoot: fixturePackageRoot,
+      role: 'server',
+      revision: '2025-11-25',
+      url: 'http://127.0.0.1:3050/hang',
+      temporaryParentDirectory: temporaryParent,
+      timeoutMs: 50,
+    });
+
+    expect(result).toEqual({
+      classification: 'process',
+      role: 'server',
+      revision: '2025-11-25',
+      reason: 'timeout',
+    });
+    expect(await readdir(temporaryParent)).toEqual(['package']);
+  });
+
+  it('rejects non-loopback server targets as fixture failures', async () => {
+    const result = await runOfficialConformance({
+      packageRoot: fixturePackageRoot,
+      role: 'server',
+      revision: '2025-11-25',
+      url: 'https://example.com/mcp',
+      temporaryParentDirectory: temporaryParent,
+    });
+
+    expect(result).toEqual({
+      classification: 'fixture',
+      role: 'server',
+      revision: '2025-11-25',
+      reason: 'invalid-target',
+    });
+  });
+});
