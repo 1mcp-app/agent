@@ -232,7 +232,19 @@ async function main() {
   }
   const command = positionals[0];
   if (command === 'server') return runServer(values);
-  if (command === 'probe') return runProbe(values);
+  if (command === 'probe') {
+    if (!values['runtime-output']) return runProbe(values);
+    try {
+      return await runProbe(values);
+    } catch {
+      writeJson(process.stdout, {
+        fixtureId: values['sdk-era'] === 'v2' ? 'typescript-v2' : 'typescript-v1',
+        errorCode: 'gateway-probe-rejected',
+      });
+      process.exitCode = 1;
+      return;
+    }
+  }
   if (positionals.length === 1 && process.env.MCP_CONFORMANCE_SCENARIO !== undefined) {
     return runOfficialConformanceClient(command);
   }

@@ -113,6 +113,7 @@ const ProbeRejectedSchema = z
       'tools-list-failed',
       'tools-call-failed',
       'aggregated-tool-not-found',
+      'gateway-probe-rejected',
       'removed-operation-mismatch',
     ]),
   })

@@ -348,7 +348,7 @@ func classifyError(err error) string {
 		"unsupported-protocol-era", "protocol-era-mismatch",
 		"build-info-unavailable", "sdk-version-mismatch", "sdk-not-linked", "listen-failed",
 		"http-server-failed", "http-shutdown-failed", "initialize-failed", "ping-failed",
-		"tools-list-failed", "tools-call-failed", "teardown-failed":
+		"tools-list-failed", "tools-call-failed", "aggregated-tool-not-found", "teardown-failed":
 		return code
 	default:
 		return "fixture-failed"

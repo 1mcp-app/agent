@@ -49,7 +49,7 @@
     {
       "id": "matrix-runtime",
       "path": "test/conformance/runtime/matrixRuntime.ts",
-      "digest": "sha256:67521ae16de7b227728362e5e52d9732fee737b7ec0417e9b982aae277395e0d"
+      "digest": "sha256:6707526ecd6be293b3a7362f680ee1685c2fb68dfb5e8eb1282d0380b06eddb8"
     },
     {
       "id": "foundation-run",
@@ -74,7 +74,7 @@
     {
       "id": "typescript-driver",
       "path": "test/conformance/fixtures/typescript/src/fixture.mjs",
-      "digest": "sha256:cbdb0922db2685b4b6f372c87d8e390e212c6c8ea8a20b8a04fb0f6df5bdfa14"
+      "digest": "sha256:c5b9547b1fa45c02f64d7ee1625c11838e38e64a67a989233f1d10b367b005c7"
     },
     {
       "id": "typescript-self-check",
@@ -94,7 +94,7 @@
     {
       "id": "go-driver",
       "path": "test/conformance/fixtures/go/main.go",
-      "digest": "sha256:ddc3e9b4638ed72a688029e245f463344dd561cd72c05c416ce2e3f1723e8e05"
+      "digest": "sha256:c3df8ac6228010641bf719ceac593b4dcaeb0e61d46f831a6f303644723319bc"
     },
     {
       "id": "python-driver",
