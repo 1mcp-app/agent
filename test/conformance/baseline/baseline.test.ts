@@ -48,6 +48,7 @@ function matrixPlan() {
       cellId,
       variantKind,
       profiles: profile < requiredProfiles.length ? [requiredProfiles[profile++]!] : [requiredProfiles[0]],
+      peerIds: ['typescript-v1-1.30.0', 'typescript-v2-2.0.0'],
     })),
   );
 }
@@ -73,24 +74,55 @@ function matrixRuns(plan: ReturnType<typeof matrixPlan>, pass = false) {
 
 function input() {
   const plan = matrixPlan();
+  const officialRuns = [
+    official('client', '2025-11-25'),
+    official('server', '2025-11-25'),
+    official('client', '2026-07-28', false),
+    official('server', '2026-07-28', false),
+  ];
   return {
     mode: 'baseline' as const,
     sourceSha: '0123456789abcdef0123456789abcdef01234567',
     integrity: { ok: true, digest: `sha256:${'a'.repeat(64)}`, source: { clean: true } },
-    officialRuns: [
-      official('client', '2025-11-25'),
-      official('server', '2025-11-25'),
-      official('client', '2026-07-28', false),
-      official('server', '2026-07-28', false),
-    ],
+    requirementCatalog: officialRuns.flatMap((run) =>
+      run.scenarios.map((scenario) => ({
+        requirementId: `official.${run.revision}.${run.role}.${scenario.scenarioId}`,
+        sourceRevision: run.revision,
+        role: run.role,
+        scenarioId: scenario.scenarioId,
+        strength: 'normative' as const,
+        applicability: { status: 'required' as const },
+        deliveryStage: 'compatibility' as const,
+        matrixCellIds: [...cells],
+        peerIds: [run.revision === '2026-07-28' ? 'typescript-v2-2.0.0' : 'typescript-v1-1.30.0'],
+        transportProfiles: [
+          run.revision === '2026-07-28'
+            ? ('inbound-streamable-http-modern' as const)
+            : ('inbound-streamable-http-legacy' as const),
+        ],
+        sourceDigest: `sha256:${'4'.repeat(64)}`,
+        fixtureDigest: `sha256:${'a'.repeat(64)}`,
+      })),
+    ),
+    officialRuns,
     matrixPlan: plan,
     matrixRuns: matrixRuns(plan),
     profileProofs: [] as Array<{
       profile: (typeof requiredProfiles)[number];
       testId: string;
+      artifactId: string;
       evidenceDigest: `sha256:${string}`;
       attempt: 1;
     }>,
+    legacyRevisionProofs: ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07'].map((revision) => ({
+      revision: revision as '2025-11-25' | '2025-06-18' | '2025-03-26' | '2024-11-05' | '2024-10-07',
+      fixtureId: 'typescript-v1-1.30.0',
+      transportProfile: 'inbound-streamable-http-legacy' as const,
+      testId: `legacy.${revision}.initialize`,
+      artifactId: `legacy-revisions/${revision}.json`,
+      evidenceDigest: `sha256:${'5'.repeat(64)}`,
+      attempt: 1 as const,
+    })),
     requiredProfiles: [...requiredProfiles],
   };
 }
@@ -104,15 +136,36 @@ describe('Conformance Baseline aggregation', () => {
     expect(baseline.officialRuns).toHaveLength(4);
     expect(baseline.matrixRuns).toHaveLength(12);
     expect(baseline.traceability.every((trace) => trace.testIds.length > 0)).toBe(true);
+    expect(
+      baseline.traceability.every(
+        (trace) =>
+          trace.matrixCellIds.length > 0 &&
+          trace.peerIds.length > 0 &&
+          trace.transportProfiles.length > 0 &&
+          trace.sourceDigest.startsWith('sha256:') &&
+          trace.fixtureDigest.startsWith('sha256:'),
+      ),
+    ).toBe(true);
     expect(validateConformanceBaseline(baseline)).toEqual(baseline);
     expect(conformanceExitCode('baseline', baseline)).toBe(0);
     expect(conformanceExitCode('gate', baseline)).toBe(1);
+  });
+
+  it('retains a classified exclusion from the frozen requirement inventory', () => {
+    const value = input();
+    value.requirementCatalog[0]!.applicability = { status: 'excluded', reason: 'pending' } as never;
+
+    const baseline = buildConformanceBaseline(value);
+    expect(
+      baseline.traceability.find((trace) => trace.requirementId === value.requirementCatalog[0]!.requirementId),
+    ).toMatchObject({ applicability: { status: 'excluded', reason: 'pending' } });
   });
 
   it.each([
     ['dirty source', (value: ReturnType<typeof input>) => void (value.integrity.source.clean = false)],
     ['integrity mismatch', (value: ReturnType<typeof input>) => void (value.integrity.ok = false)],
     ['missing official run', (value: ReturnType<typeof input>) => void value.officialRuns.pop()],
+    ['missing requirement mapping', (value: ReturnType<typeof input>) => void value.requirementCatalog.pop()],
     ['missing matrix cell', (value: ReturnType<typeof input>) => void value.matrixRuns.pop()],
     [
       'missing upstream evidence',
@@ -124,12 +177,14 @@ describe('Conformance Baseline aggregation', () => {
       (value: ReturnType<typeof input>) => void value.matrixRuns[0]!.executedProfiles.pop(),
     ],
     ['unexecuted profile', (value: ReturnType<typeof input>) => void value.matrixPlan[0]!.profiles.pop()],
+    ['missing legacy revision', (value: ReturnType<typeof input>) => void value.legacyRevisionProofs.pop()],
     [
       'stale profile proof',
       (value: ReturnType<typeof input>) =>
         void value.profileProofs.push({
           profile: 'direct-serve-stdio',
           testId: 'profile.direct-serve-stdio',
+          artifactId: 'profile.direct-serve-stdio.json',
           evidenceDigest: `sha256:${'3'.repeat(64)}`,
           attempt: 1,
         }),

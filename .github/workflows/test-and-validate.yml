@@ -176,7 +176,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: conformance-${{ github.sha }}
-          path: .tmp/conformance/conformance-baseline.json
+          path: .tmp/conformance/
           if-no-files-found: error
 
   test-e2e-browser:

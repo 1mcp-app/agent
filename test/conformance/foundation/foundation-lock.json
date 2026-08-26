@@ -4,7 +4,7 @@
     {
       "id": "command-runner",
       "path": "scripts/run-conformance.mjs",
-      "digest": "sha256:b28bfaabc97704640cffd163381b2fac0001c8ed9ec30579853f229be85227d6"
+      "digest": "sha256:c7b86f0a8c1e4189e28b7029c52d43a9f940ebded0c1fc851f689a554ac822b4"
     },
     {
       "id": "vitest-conformance",
@@ -19,12 +19,12 @@
     {
       "id": "baseline",
       "path": "test/conformance/baseline/baseline.ts",
-      "digest": "sha256:3a684bfc7d74419d7c6bfb38618ace29e7ceca42a2d8b12488deeda17a8d290b"
+      "digest": "sha256:269564279b5b4a2c768409bf64ae0e1a0e4f60647cb1699b84f14a698840ed59"
     },
     {
       "id": "capture-schema",
       "path": "test/conformance/capture/sanitizedWireEvidence.ts",
-      "digest": "sha256:8cf7ee39d45424b73add67ac3ceb0a08d4f05e815b2d14f4a6c4f74d173c427e"
+      "digest": "sha256:44f6967b0e42f4dd599c61318a3a44575c21f9eff1149f657f103db0189c7830"
     },
     {
       "id": "capture-http",
@@ -39,7 +39,7 @@
     {
       "id": "integrity-verifier",
       "path": "test/conformance/integrity/index.ts",
-      "digest": "sha256:1e260eaaf1835f946370614fc9f6a27c07c8d02f943fd22aeb2771c9b6b4c413"
+      "digest": "sha256:c6eb9c2e3794ee352fcc7cb9f8aa7badf4c71fcde628604f59daa4d6c7520478"
     },
     {
       "id": "official-runner",
@@ -49,12 +49,12 @@
     {
       "id": "matrix-runtime",
       "path": "test/conformance/runtime/matrixRuntime.ts",
-      "digest": "sha256:6707526ecd6be293b3a7362f680ee1685c2fb68dfb5e8eb1282d0380b06eddb8"
+      "digest": "sha256:2ee231e916babc385be1e881b7b07a68caa37a34ae0b6d0fd51ff0a22a13aaca"
     },
     {
       "id": "foundation-run",
       "path": "test/conformance/foundation/foundationRun.ts",
-      "digest": "sha256:8f691bafe5efa599c134d8c8ec69ddec9755cde871f50e99d4129ddd0bde589a"
+      "digest": "sha256:c08ab5bed41160d063507f2969347b252e7c84028d7855dc0e109bb9d7fa0a55"
     },
     {
       "id": "typescript-manifest",
@@ -104,7 +104,7 @@
     {
       "id": "ci-lane",
       "path": ".github/workflows/test-and-validate.yml",
-      "digest": "sha256:e010033dbfe25ade3904e2c5cb614d320d5051115c6a642fe69c4236983ce4b1"
+      "digest": "sha256:43e09a1ca93ef1ccccf503b0e35475ab3c756604978d335a0946a4c0112d58dd"
     }
   ]
 }

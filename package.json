@@ -135,6 +135,7 @@
     "@mantine/hooks": "8.3.14",
     "@modelcontextprotocol/client": "2.0.0",
     "@modelcontextprotocol/conformance": "0.2.0-alpha.11",
+    "@modelcontextprotocol/core": "2.0.0",
     "@modelcontextprotocol/node": "2.0.0",
     "@modelcontextprotocol/server": "2.0.0",
     "@modelcontextprotocol/server-legacy": "2.0.0",

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -112,6 +112,22 @@ describe('Sanitized Wire Evidence', () => {
     expect(serialized).not.toContain('validator exploded');
   });
 
+  it('classifies an empty transport response as having no applicable message schema', () => {
+    const capture = createSanitizedWireCapture({
+      contexts: [{ id: 'case-empty', negotiatedRevision: '2025-11-25' }],
+      validateEnvelope: () => false,
+    });
+    capture.observe({
+      contextId: 'case-empty',
+      hop: 'inbound',
+      direction: 'gateway_to_client',
+      headers: { 'content-type': 'application/json' },
+      body: Buffer.alloc(0),
+    });
+
+    expect(capture.snapshot().records[0]).toMatchObject({ bodySize: 'empty', schemaResult: 'not_applicable' });
+  });
+
   it('produces stable canonical digests and rejects tampered or open-schema artifacts', () => {
     const makeEvidence = () => {
       const capture = createSanitizedWireCapture({
@@ -176,16 +192,20 @@ describe('Sanitized Wire Evidence', () => {
       validateEnvelope: () => true,
     });
     const base = await mkdtemp(join(tmpdir(), 'wire-path-'));
-    const invalidPath = join(base, secret);
-    await mkdir(invalidPath);
-
-    let failure = '';
     try {
-      await writeEvidence(invalidPath, capture.snapshot());
-    } catch (error) {
-      failure = String(error);
+      const invalidPath = join(base, secret);
+      await mkdir(invalidPath);
+
+      let failure = '';
+      try {
+        await writeEvidence(invalidPath, capture.snapshot());
+      } catch (error) {
+        failure = String(error);
+      }
+      expect(failure).toContain('Evidence persistence failure');
+      expect(failure).not.toContain(secret);
+    } finally {
+      await rm(base, { recursive: true, force: true });
     }
-    expect(failure).toContain('Evidence persistence failure');
-    expect(failure).not.toContain(secret);
   });
 });

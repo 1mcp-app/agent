@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { createServer, request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -119,6 +119,7 @@ describe('HTTP wire tap', () => {
     expect(evidence.records[2]).toMatchObject({ contentKind: 'sse', schemaResult: 'not_applicable' });
 
     const directory = await mkdtemp(join(tmpdir(), 'wire-evidence-'));
+    closeTasks.push(() => rm(directory, { recursive: true, force: true }));
     const evidencePath = join(directory, 'evidence.json');
     await writeEvidence(evidencePath, evidence);
     const persisted = await readFile(evidencePath, 'utf8');

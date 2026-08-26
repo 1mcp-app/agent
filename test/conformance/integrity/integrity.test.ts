@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -8,10 +8,22 @@ import { createRequire } from 'node:module';
 import { ACCEPTED_NPM_PINS, hashConformancePath, verifyConformanceIntegrity } from './index.js';
 
 const require = createRequire(import.meta.url);
+const temporaryRoots = new Set<string>();
 const REQUIREMENTS_ROOT = path.join(
   path.dirname(require.resolve('@modelcontextprotocol/conformance/package.json')),
   'requirements',
 );
+
+function temporaryDirectory(prefix: string): string {
+  const root = mkdtempSync(path.join(tmpdir(), prefix));
+  temporaryRoots.add(root);
+  return root;
+}
+
+afterEach(() => {
+  for (const root of temporaryRoots) rmSync(root, { recursive: true, force: true });
+  temporaryRoots.clear();
+});
 
 function write(root: string, relative: string, contents: string | Buffer): string {
   const target = path.join(root, relative);
@@ -39,7 +51,7 @@ function mutateJson(inputPath: string, mutate: (value: Record<string, any>) => v
 }
 
 function createFixture(prefix = 'integrity-repo-') {
-  const root = mkdtempSync(path.join(tmpdir(), prefix));
+  const root = temporaryDirectory(prefix);
   git(root, ['init', '--quiet']);
   git(root, ['config', 'user.name', 'Conformance Test']);
   git(root, ['config', 'user.email', 'conformance@example.invalid']);
@@ -130,8 +142,8 @@ function createFixture(prefix = 'integrity-repo-') {
 
 describe('hashConformancePath', () => {
   it('hashes directory contents independently of creation order and root path', () => {
-    const first = mkdtempSync(path.join(tmpdir(), 'integrity-first-'));
-    const second = mkdtempSync(path.join(tmpdir(), 'integrity-second-'));
+    const first = temporaryDirectory('integrity-first-');
+    const second = temporaryDirectory('integrity-second-');
 
     mkdirSync(path.join(first, 'nested'));
     writeFileSync(path.join(first, 'z.txt'), 'last\n');
@@ -146,7 +158,7 @@ describe('hashConformancePath', () => {
   });
 
   it('does not expose a missing absolute path in its error', () => {
-    const root = mkdtempSync(path.join(tmpdir(), 'integrity-missing-'));
+    const root = temporaryDirectory('integrity-missing-');
     const missing = path.join(root, 'private-user-path.txt');
     expect(() => hashConformancePath(missing)).toThrow('artifact-unreadable');
     try {

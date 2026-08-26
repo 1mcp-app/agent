@@ -17,6 +17,11 @@ export const ACCEPTED_NPM_PINS = [
     integrity: 'sha512-8f1OghQ2rjzIOfqgUCP+8GiUWqRs89njoWLNqAe8kWmDePv3s1fZXseej+QXemssEuuOvLLmLO/kqM3IQHtISw==',
   },
   {
+    name: '@modelcontextprotocol/core',
+    version: '2.0.0',
+    integrity: 'sha512-pJCEwGG7Lfr/+PQp9ZTwKXNeO5wzbfKL7H3MYpCorM4oFBoQrdjnBgEoqG+RjhsvS1FKrDbKux+M1HhlnGWqcA==',
+  },
+  {
     name: '@modelcontextprotocol/server',
     version: '2.0.0',
     integrity: 'sha512-YhHWdHfpFMQfd0prsEnxKeS3Qz3ytIGmsS0sth4KDjnacIT7hxk6hXHkJ9KysxlkvTM+WZAtQbbcUhdoP4Hvtw==',

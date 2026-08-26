@@ -1,4 +1,5 @@
 import { type ChildProcess, execFile, execFileSync, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -77,6 +78,7 @@ const profileProofFileSchema = z
         .object({
           profile: z.enum(REQUIRED_TRANSPORT_PROFILES),
           testId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._/-]+$/u),
+          artifactId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._/-]+$/u),
           evidenceDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
           attempt: z.literal(1),
         })
@@ -84,6 +86,25 @@ const profileProofFileSchema = z
     ),
   })
   .strict();
+
+const frozenRequirementFileSchema = z
+  .object({
+    server: z.array(z.string().min(1)),
+    client: z.array(z.string().min(1)),
+    not_scored: z
+      .array(
+        z
+          .object({
+            scenario: z.string().min(1),
+            leg: z.enum(['client', 'server']),
+            reason: z.enum(['extension', 'added-after-release', 'pending']),
+            note: z.string().optional(),
+          })
+          .strip(),
+      )
+      .default([]),
+  })
+  .strip();
 
 type Era = keyof typeof revisionByEra;
 type Variant = 'typescript-baseline' | 'alternate-inbound' | 'alternate-upstream';
@@ -165,6 +186,7 @@ async function integrityReport(root: string, expectedSourceSha: string) {
         [
           '@modelcontextprotocol/client',
           '@modelcontextprotocol/conformance',
+          '@modelcontextprotocol/core',
           '@modelcontextprotocol/node',
           '@modelcontextprotocol/sdk',
           '@modelcontextprotocol/server',
@@ -187,6 +209,50 @@ async function integrityReport(root: string, expectedSourceSha: string) {
       uvLockPath: join(root, 'test/conformance/fixtures/python/uv.lock'),
     },
   });
+}
+
+async function requirementCatalog(root: string, integrity: Awaited<ReturnType<typeof integrityReport>>) {
+  const packageRoot = dirname(packageManifestPath(root, '@modelcontextprotocol/conformance'));
+  return (
+    await Promise.all(
+      (['2025-11-25', '2026-07-28'] as const).map(async (revision) => {
+        const requirements = frozenRequirementFileSchema.parse(
+          parseYaml(await readFile(join(packageRoot, 'requirements', `${revision}.yaml`), 'utf8')),
+        );
+        const era: Era = revision === '2026-07-28' ? 'modern' : 'legacy';
+        const matrixCellIds = matrixPlan()
+          .filter(({ descriptor }) => descriptor.inboundEra === era || descriptor.upstreamEra === era)
+          .map(({ descriptor }) => `${descriptor.inboundEra}-${descriptor.upstreamEra}`);
+        const sourceDigest = integrity.requirements.find((entry) => entry.revision === revision)?.digest;
+        if (!sourceDigest) throw new Error('requirement-digest-missing');
+        const excluded = new Map(
+          requirements.not_scored.map((entry) => [`${entry.leg}.${entry.scenario}`, entry.reason]),
+        );
+        return (['server', 'client'] as const).flatMap((role) =>
+          [
+            ...requirements[role],
+            ...requirements.not_scored.filter((entry) => entry.leg === role).map((entry) => entry.scenario),
+          ].map((scenarioId) => {
+            const reason = excluded.get(`${role}.${scenarioId}`);
+            return {
+              requirementId: `official.${revision}.${role}.${scenarioId}`,
+              sourceRevision: revision,
+              role,
+              scenarioId,
+              strength: 'normative' as const,
+              applicability: reason ? { status: 'excluded' as const, reason } : { status: 'required' as const },
+              deliveryStage: 'compatibility' as const,
+              matrixCellIds,
+              peerIds: [revision === '2026-07-28' ? 'typescript-v2-2.0.0' : 'typescript-v1-1.30.0'],
+              transportProfiles: [role === 'server' ? streamableProfile.inbound[era] : streamableProfile.upstream[era]],
+              sourceDigest,
+              fixtureDigest: integrity.digest,
+            };
+          }),
+        );
+      }),
+    )
+  ).flat();
 }
 
 function stopChild(child: ChildProcess): Promise<void> {
@@ -219,31 +285,89 @@ async function startTypescriptServer(
       stdio: ['ignore', 'pipe', 'ignore'],
     },
   );
-  const ready = await new Promise<unknown>((resolvePromise, reject) => {
-    const timeout = setTimeout(() => reject(new Error('fixture-readiness-timeout')), 15_000);
-    let output = '';
-    child.once('exit', () => reject(new Error('fixture-exited')));
-    child.stdout?.on('data', (chunk: Buffer | string) => {
-      output += String(chunk);
-      const lineEnd = output.indexOf('\n');
-      if (lineEnd < 0) return;
-      clearTimeout(timeout);
-      try {
-        resolvePromise(JSON.parse(output.slice(0, lineEnd)));
-      } catch {
-        reject(new Error('fixture-readiness-invalid'));
-      }
+  try {
+    const ready = await new Promise<unknown>((resolvePromise, reject) => {
+      const timeout = setTimeout(() => reject(new Error('fixture-readiness-timeout')), 15_000);
+      let output = '';
+      child.once('exit', () => reject(new Error('fixture-exited')));
+      child.stdout?.on('data', (chunk: Buffer | string) => {
+        output += String(chunk);
+        const lineEnd = output.indexOf('\n');
+        if (lineEnd < 0) return;
+        clearTimeout(timeout);
+        try {
+          resolvePromise(JSON.parse(output.slice(0, lineEnd)));
+        } catch {
+          reject(new Error('fixture-readiness-invalid'));
+        }
+      });
     });
-  });
-  const parsed = z
-    .object({
-      ready: z.literal(true),
-      fixtureId: z.enum(['typescript-v1', 'typescript-v2']),
-      endpoint: z.string().url(),
-    })
-    .passthrough()
-    .parse(ready);
-  return { endpoint: parsed.endpoint, close: () => stopChild(child) };
+    const parsed = z
+      .object({
+        ready: z.literal(true),
+        fixtureId: z.enum(['typescript-v1', 'typescript-v2']),
+        endpoint: z.string().url(),
+      })
+      .passthrough()
+      .parse(ready);
+    return { endpoint: parsed.endpoint, close: () => stopChild(child) };
+  } catch (error) {
+    await stopChild(child);
+    throw error;
+  }
+}
+
+async function runRetainedRevisionProbes(root: string, outputDirectory: string) {
+  const revisions = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07'] as const;
+  const server = await startTypescriptServer(root, 'legacy', outputDirectory);
+  await mkdir(join(outputDirectory, 'legacy-revisions'), { recursive: true, mode: 0o700 });
+  try {
+    return await Promise.all(
+      revisions.map(async (revision) => {
+        const response = await fetch(server.endpoint, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'initialize',
+            params: {
+              protocolVersion: revision,
+              capabilities: {},
+              clientInfo: { name: 'revision-probe', version: '1' },
+            },
+          }),
+        });
+        if (!response.ok) throw new Error('legacy-revision-http-failed');
+        const dataLine = (await response.text()).split(/\r?\n/u).find((line) => line.startsWith('data: '));
+        if (!dataLine) throw new Error('legacy-revision-response-missing');
+        const negotiated = z
+          .object({ result: z.object({ protocolVersion: z.literal(revision) }).passthrough() })
+          .passthrough()
+          .parse(JSON.parse(dataLine.slice('data: '.length)));
+        const evidence = {
+          schemaVersion: 1,
+          revision,
+          negotiatedRevision: negotiated.result.protocolVersion,
+          fixtureId: 'typescript-v1-1.30.0',
+          transportProfile: 'inbound-streamable-http-legacy',
+          testId: `legacy.${revision}.initialize`,
+          attempt: 1,
+          status: 'passed',
+        } as const;
+        const evidenceDigest = `sha256:${createHash('sha256').update(JSON.stringify(evidence)).digest('hex')}` as const;
+        const artifactId = `legacy-revisions/${revision}.json`;
+        await writeFile(
+          join(outputDirectory, artifactId),
+          `${JSON.stringify({ ...evidence, digest: evidenceDigest }, null, 2)}\n`,
+          { encoding: 'utf8', mode: 0o600 },
+        );
+        return { ...evidence, artifactId, evidenceDigest };
+      }),
+    );
+  } finally {
+    await server.close();
+  }
 }
 
 function shellArgument(value: string): string {
@@ -376,6 +500,11 @@ function peer(root: string, goBinary: string, language: Language, era: Era, role
   if (language === 'typescript') return typescriptPeer(root, era, role);
   if (language === 'go') return goPeer(goBinary, era, role);
   return pythonPeer(root, era, role);
+}
+
+function peerIdentity(language: Language, era: Era): string {
+  if (language === 'typescript') return era === 'modern' ? 'typescript-v2-2.0.0' : 'typescript-v1-1.30.0';
+  return language === 'go' ? 'go-sdk-1.7.0' : 'python-sdk-2.0.0';
 }
 
 async function runMatrix(
@@ -521,31 +650,45 @@ export async function runFoundationConformance(options: FoundationRunOptions): P
         digest: integrity.digest,
         source: { clean: integrity.source.clean },
       },
+      requirementCatalog: [],
       officialRuns: [],
       matrixPlan: [],
       matrixRuns: [],
       profileProofs: [],
+      legacyRevisionProofs: [],
       requiredProfiles: [...REQUIRED_TRANSPORT_PROFILES],
     });
     await persistBaseline(outputDirectory, baseline);
     return baseline;
   }
 
+  const legacyRevisionProofs = await runRetainedRevisionProbes(root, outputDirectory);
   const officialRuns = await runOfficialPeers(root, outputDirectory);
   const matrix = await runMatrix(root, outputDirectory);
+  const planEntries = new Map(matrixPlan().map((entry) => [entry.descriptor.assignmentId, entry]));
   const observedInput: ConformanceBaselineInput = {
     mode: options.mode,
     sourceSha,
     integrity: { ok: integrity.ok, digest: integrity.digest, source: { clean: integrity.source.clean } },
+    requirementCatalog: await requirementCatalog(root, integrity),
     officialRuns,
     matrixPlan: matrix.plan.map((assignment) => ({
       id: assignment.assignmentId,
       cellId: `${assignment.inboundEra}-${assignment.upstreamEra}`,
       variantKind: assignment.variant,
       profiles: transportProfilesSchema.parse(assignment.executedProfiles),
+      peerIds: (() => {
+        const entry = planEntries.get(assignment.assignmentId);
+        if (!entry) throw new Error('matrix-plan-missing');
+        return [
+          peerIdentity(entry.inboundLanguage, assignment.inboundEra),
+          peerIdentity(entry.upstreamLanguage, assignment.upstreamEra),
+        ];
+      })(),
     })),
     matrixRuns: normalizedMatrixRuns(matrix.plan, matrix.results),
     profileProofs: proofs.data.profileProofs,
+    legacyRevisionProofs,
     requiredProfiles: [...REQUIRED_TRANSPORT_PROFILES],
   };
   await writeFile(join(outputDirectory, 'observed-inputs.json'), `${JSON.stringify(observedInput, null, 2)}\n`, {

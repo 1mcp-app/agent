@@ -1,9 +1,13 @@
+import { JSONRPCMessageSchema as ModernJSONRPCMessageSchema } from '@modelcontextprotocol/core';
+
 import { type ChildProcess, spawn } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
+
+import { JSONRPCMessageSchema as LegacyJSONRPCMessageSchema } from '@modelcontextprotocol/sdk/types.js';
 
 import { z } from 'zod';
 
@@ -505,16 +509,21 @@ async function runProbe(
   throw new RuntimeFault('fixture', 'probe_output_invalid');
 }
 
-function validatesJsonRpcEnvelope(envelope: Record<string, unknown>): boolean {
-  if (envelope.jsonrpc !== '2.0') return false;
-  if (typeof envelope.method === 'string') return true;
-  return Object.hasOwn(envelope, 'id') && (Object.hasOwn(envelope, 'result') || Object.hasOwn(envelope, 'error'));
+function validatorForRevision(revision: string): (envelope: Record<string, unknown>) => boolean {
+  const schema = revision === '2026-07-28' ? ModernJSONRPCMessageSchema : LegacyJSONRPCMessageSchema;
+  return (envelope) => schema.safeParse(envelope).success;
 }
 
 function evidenceIsValid(evidence: SanitizedWireEvidenceFile): boolean {
   return (
     SanitizedWireEvidenceFileSchema.safeParse(evidence).success &&
-    evidence.records.every((record) => record.schemaResult !== 'infrastructure_error')
+    evidence.records.every((record) =>
+      record.bodySize === 'empty'
+        ? record.schemaResult === 'not_applicable'
+        : record.contentKind === 'json'
+          ? record.schemaResult === 'valid'
+          : record.schemaResult === 'not_applicable',
+    )
   );
 }
 
@@ -562,11 +571,11 @@ export async function executeMatrixAssignment(input: MatrixExecutionOptions): Pr
 
     const inboundCapture = createSanitizedWireCapture({
       contexts: [options.captureContexts.inbound as TrustedWireContext],
-      validateEnvelope: validatesJsonRpcEnvelope,
+      validateEnvelope: validatorForRevision(options.revisions.inbound),
     });
     const upstreamCapture = createSanitizedWireCapture({
       contexts: [options.captureContexts.upstream as TrustedWireContext],
-      validateEnvelope: validatesJsonRpcEnvelope,
+      validateEnvelope: validatorForRevision(options.revisions.upstream),
     });
 
     let upstreamEndpoint: URL | undefined;

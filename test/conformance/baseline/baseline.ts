@@ -66,6 +66,7 @@ const matrixAssignmentSchema = z
     cellId: z.enum(['modern-modern', 'modern-legacy', 'legacy-modern', 'legacy-legacy']),
     variantKind: z.enum(['typescript-baseline', 'alternate-inbound', 'alternate-upstream']),
     profiles: z.array(profileSchema).min(1),
+    peerIds: z.array(safeIdSchema).min(2),
   })
   .strict();
 
@@ -104,10 +105,50 @@ const matrixInfrastructureRunSchema = z
 
 const matrixRunSchema = z.union([matrixProductRunSchema, matrixInfrastructureRunSchema]);
 
+const applicabilitySchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('required') }).strict(),
+  z
+    .object({
+      status: z.literal('excluded'),
+      reason: z.enum(['extension', 'added-after-release', 'pending', 'version-not-applicable']),
+    })
+    .strict(),
+]);
+
+const requirementMetadataSchema = z
+  .object({
+    requirementId: safeIdSchema,
+    sourceRevision: revisionSchema,
+    role: roleSchema,
+    scenarioId: safeIdSchema,
+    strength: z.literal('normative'),
+    applicability: applicabilitySchema,
+    deliveryStage: z.literal('compatibility'),
+    matrixCellIds: z.array(safeIdSchema).min(1),
+    peerIds: z.array(safeIdSchema).min(1),
+    transportProfiles: z.array(profileSchema).min(1),
+    sourceDigest: sha256Schema,
+    fixtureDigest: sha256Schema,
+  })
+  .strict();
+
 const profileProofSchema = z
   .object({
     profile: profileSchema,
     testId: safeIdSchema,
+    artifactId: safeIdSchema,
+    evidenceDigest: sha256Schema,
+    attempt: z.literal(1),
+  })
+  .strict();
+
+const legacyRevisionProofSchema = z
+  .object({
+    revision: z.enum(['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07']),
+    fixtureId: safeIdSchema,
+    transportProfile: profileSchema,
+    testId: safeIdSchema,
+    artifactId: safeIdSchema,
     evidenceDigest: sha256Schema,
     attempt: z.literal(1),
   })
@@ -118,8 +159,17 @@ const traceSchema = z
     requirementId: safeIdSchema,
     sourceRevision: z.enum(['2025-11-25', '2026-07-28', '1mcp-accepted-contracts']),
     strength: z.enum(['normative', 'accepted-contract']),
+    role: roleSchema.optional(),
+    scenarioId: safeIdSchema.optional(),
+    applicability: applicabilitySchema,
+    deliveryStage: z.enum(['foundation', 'compatibility']),
+    matrixCellIds: z.array(safeIdSchema).min(1),
+    peerIds: z.array(safeIdSchema).min(1),
+    transportProfiles: z.array(profileSchema).min(1),
     testIds: z.array(safeIdSchema).min(1),
     evidenceArtifactIds: z.array(safeIdSchema).min(1),
+    sourceDigest: sha256Schema,
+    fixtureDigest: sha256Schema,
   })
   .strict();
 
@@ -130,10 +180,12 @@ const baselineInputSchema = z
     integrity: z
       .object({ ok: z.boolean(), digest: sha256Schema, source: z.object({ clean: z.boolean() }).strict() })
       .strict(),
+    requirementCatalog: z.array(requirementMetadataSchema),
     officialRuns: z.array(officialRunSchema),
     matrixPlan: z.array(matrixAssignmentSchema),
     matrixRuns: z.array(matrixRunSchema),
     profileProofs: z.array(profileProofSchema),
+    legacyRevisionProofs: z.array(legacyRevisionProofSchema),
     requiredProfiles: z.array(profileSchema),
   })
   .strict();
@@ -148,10 +200,12 @@ const baselinePayloadSchema = z
     infrastructureVerdict: z.enum(['green', 'red']),
     productVerdict: z.enum(['green', 'red', 'not-evaluated']),
     infrastructureErrorCodes: z.array(safeIdSchema),
+    requirementCatalog: z.array(requirementMetadataSchema),
     officialRuns: z.array(officialRunSchema),
     matrixPlan: z.array(matrixAssignmentSchema),
     matrixRuns: z.array(matrixRunSchema),
     profileProofs: z.array(profileProofSchema),
+    legacyRevisionProofs: z.array(legacyRevisionProofSchema),
     requiredProfiles: z.array(profileSchema),
     traceability: z.array(traceSchema),
   })
@@ -197,6 +251,19 @@ function infrastructureErrors(input: z.infer<typeof baselineInputSchema>): strin
   const requiredOfficial = ['client.2025-11-25', 'server.2025-11-25', 'client.2026-07-28', 'server.2026-07-28'];
   if (!exactSet(officialIdentities, requiredOfficial)) errors.push('official-run-set-invalid');
   if (input.officialRuns.some((run) => run.classification !== 'product')) errors.push('official-infrastructure-failed');
+  const observedRequirementIds = input.officialRuns.flatMap((run) =>
+    run.classification === 'product'
+      ? run.scenarios.map((scenario) => `official.${run.revision}.${run.role}.${scenario.scenarioId}`)
+      : [],
+  );
+  if (
+    !exactSet(
+      input.requirementCatalog.map((requirement) => requirement.requirementId),
+      observedRequirementIds,
+    )
+  ) {
+    errors.push('requirement-catalog-mismatch');
+  }
 
   const requiredAssignments = input.matrixPlan.map((assignment) => assignment.id);
   const observedAssignments = input.matrixRuns.map((run) => run.assignmentId);
@@ -248,32 +315,57 @@ function infrastructureErrors(input: z.infer<typeof baselineInputSchema>): strin
   if (input.profileProofs.some((proof) => matrixProfiles.has(proof.profile))) {
     errors.push('transport-profile-proof-stale');
   }
+  if (
+    !exactSet(
+      input.legacyRevisionProofs.map((proof) => proof.revision),
+      ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07'],
+    )
+  ) {
+    errors.push('legacy-revision-proof-set-invalid');
+  }
   return [...new Set(errors)];
 }
 
 function buildTraceability(input: z.infer<typeof baselineInputSchema>): z.infer<typeof traceSchema>[] {
+  const metadataById = new Map(input.requirementCatalog.map((requirement) => [requirement.requirementId, requirement]));
   const official = input.officialRuns.flatMap((run) => {
     if (run.classification !== 'product') return [];
-    return run.scenarios.map((scenario) => ({
-      requirementId: `official.${run.revision}.${run.role}.${scenario.scenarioId}`,
-      sourceRevision: run.revision,
-      strength: 'normative' as const,
-      testIds:
-        scenario.checks.length > 0
-          ? scenario.checks.map((check) => `official.${run.role}.${run.revision}.${scenario.scenarioId}.${check.id}`)
-          : [`official.${run.role}.${run.revision}.${scenario.scenarioId}.no-checks-observed`],
-      evidenceArtifactIds: [`official.${run.role}.${run.revision}.${scenario.scenarioId}`],
-    }));
+    return run.scenarios.flatMap((scenario) => {
+      const requirementId = `official.${run.revision}.${run.role}.${scenario.scenarioId}`;
+      const metadata = metadataById.get(requirementId);
+      if (!metadata) return [];
+      return [
+        {
+          ...metadata,
+          testIds:
+            scenario.checks.length > 0
+              ? scenario.checks.map(
+                  (check) => `official.${run.role}.${run.revision}.${scenario.scenarioId}.${check.id}`,
+                )
+              : [`official.${run.role}.${run.revision}.${scenario.scenarioId}.no-checks-observed`],
+          evidenceArtifactIds: [`official.${run.role}.${run.revision}.${scenario.scenarioId}`],
+        },
+      ];
+    });
   });
   const matrix = input.matrixRuns.flatMap((run) => {
     if (run.classification !== 'product') return [];
+    const assignment = input.matrixPlan.find((candidate) => candidate.id === run.assignmentId);
+    if (!assignment) return [];
     return [
       {
         requirementId: `1mcp.matrix.${run.assignmentId}`,
         sourceRevision: '1mcp-accepted-contracts' as const,
         strength: 'accepted-contract' as const,
+        applicability: { status: 'required' as const },
+        deliveryStage: 'foundation' as const,
+        matrixCellIds: [assignment.cellId],
+        peerIds: assignment.peerIds,
+        transportProfiles: assignment.profiles,
         testIds: [`matrix.${run.assignmentId}`],
         evidenceArtifactIds: [run.evidence.inbound.artifactId, run.evidence.upstream.artifactId],
+        sourceDigest: input.integrity.digest,
+        fixtureDigest: input.integrity.digest,
       },
     ];
   });
@@ -281,12 +373,51 @@ function buildTraceability(input: z.infer<typeof baselineInputSchema>): z.infer<
     requirementId: `1mcp.profile.${proof.profile}`,
     sourceRevision: '1mcp-accepted-contracts' as const,
     strength: 'accepted-contract' as const,
+    applicability: { status: 'required' as const },
+    deliveryStage: 'foundation' as const,
+    matrixCellIds: ['profile-evidence'],
+    peerIds: ['fixture-profile-suite'],
+    transportProfiles: [proof.profile],
     testIds: [proof.testId],
-    evidenceArtifactIds: [
-      `profile.${proof.profile}.${proof.evidenceDigest.slice('sha256:'.length, 'sha256:'.length + 16)}`,
-    ],
+    evidenceArtifactIds: [proof.artifactId],
+    sourceDigest: input.integrity.digest,
+    fixtureDigest: proof.evidenceDigest,
   }));
-  return [...official, ...matrix, ...profiles];
+  const legacyRevisions = input.legacyRevisionProofs.map((proof) => ({
+    requirementId: `1mcp.legacy-revision.${proof.revision}`,
+    sourceRevision: '1mcp-accepted-contracts' as const,
+    strength: 'accepted-contract' as const,
+    applicability: { status: 'required' as const },
+    deliveryStage: 'foundation' as const,
+    matrixCellIds: ['modern-legacy', 'legacy-modern', 'legacy-legacy'],
+    peerIds: [proof.fixtureId],
+    transportProfiles: [proof.transportProfile],
+    testIds: [proof.testId],
+    evidenceArtifactIds: [proof.artifactId],
+    sourceDigest: input.integrity.digest,
+    fixtureDigest: proof.evidenceDigest,
+  }));
+  const acceptedContracts = [
+    ['baseline-gate-semantics', 'baseline.verdict-modes'],
+    ['exact-source-integrity', 'integrity.exact-source'],
+    ['two-hop-sanitization', 'capture.adversarial-corpus'],
+    ['first-attempt-no-retry', 'baseline.first-attempt'],
+    ['four-era-matrix', 'matrix.assignment-completeness'],
+  ].map(([id, testId]) => ({
+    requirementId: `1mcp.contract.${id}`,
+    sourceRevision: '1mcp-accepted-contracts' as const,
+    strength: 'accepted-contract' as const,
+    applicability: { status: 'required' as const },
+    deliveryStage: 'foundation' as const,
+    matrixCellIds: input.matrixPlan.map((assignment) => assignment.cellId),
+    peerIds: [...new Set(input.matrixPlan.flatMap((assignment) => assignment.peerIds))],
+    transportProfiles: input.requiredProfiles,
+    testIds: [testId],
+    evidenceArtifactIds: ['conformance-baseline', 'conformance-integrity'],
+    sourceDigest: input.integrity.digest,
+    fixtureDigest: input.integrity.digest,
+  }));
+  return [...official, ...matrix, ...profiles, ...legacyRevisions, ...acceptedContracts];
 }
 
 function finalize(payload: z.infer<typeof baselinePayloadSchema>): ConformanceBaseline {
@@ -309,10 +440,12 @@ function invalidBaseline(raw: unknown, code: string): ConformanceBaseline {
     infrastructureVerdict: 'red',
     productVerdict: 'not-evaluated',
     infrastructureErrorCodes: [code],
+    requirementCatalog: [],
     officialRuns: [],
     matrixPlan: [],
     matrixRuns: [],
     profileProofs: [],
+    legacyRevisionProofs: [],
     requiredProfiles: [],
     traceability: [],
   });
@@ -336,10 +469,12 @@ export function buildConformanceBaseline(rawInput: ConformanceBaselineInput): Co
     infrastructureVerdict,
     productVerdict: infrastructureVerdict === 'red' ? 'not-evaluated' : productRed ? 'red' : 'green',
     infrastructureErrorCodes: errors,
+    requirementCatalog: parsed.data.requirementCatalog,
     officialRuns: parsed.data.officialRuns,
     matrixPlan: parsed.data.matrixPlan,
     matrixRuns: parsed.data.matrixRuns,
     profileProofs: parsed.data.profileProofs,
+    legacyRevisionProofs: parsed.data.legacyRevisionProofs,
     requiredProfiles: parsed.data.requiredProfiles,
     traceability: buildTraceability(parsed.data),
   });
@@ -349,6 +484,23 @@ export function validateConformanceBaseline(input: unknown): ConformanceBaseline
   const baseline = conformanceBaselineSchema.parse(input);
   const { artifactDigest, ...payload } = baseline;
   if (digest(payload) !== artifactDigest) throw new Error('Conformance baseline artifact digest mismatch');
+  const traceInput = baselineInputSchema.parse({
+    mode: baseline.mode,
+    sourceSha: baseline.sourceSha,
+    integrity: { ok: true, digest: baseline.integrityDigest, source: { clean: true } },
+    requirementCatalog: baseline.requirementCatalog,
+    officialRuns: baseline.officialRuns,
+    matrixPlan: baseline.matrixPlan,
+    matrixRuns: baseline.matrixRuns,
+    profileProofs: baseline.profileProofs,
+    legacyRevisionProofs: baseline.legacyRevisionProofs,
+    requiredProfiles: baseline.requiredProfiles,
+  });
+  if (
+    JSON.stringify(canonicalize(buildTraceability(traceInput))) !== JSON.stringify(canonicalize(baseline.traceability))
+  ) {
+    throw new Error('Conformance baseline traceability mismatch');
+  }
   return baseline;
 }
 

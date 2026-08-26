@@ -298,7 +298,8 @@ export function createSanitizedWireCapture(options: {
       const kind = contentKind(observation.headers);
       const envelope = kind === 'json' || kind === 'absent' ? parseEnvelope(observation.body) : null;
       let schemaResult: z.infer<typeof SchemaResultSchema> = 'not_applicable';
-      if (kind === 'json' || kind === 'absent') {
+      const retainedBodyBytes = observation.bodyByteLength ?? observation.body.byteLength;
+      if ((kind === 'json' || kind === 'absent') && retainedBodyBytes > 0) {
         if (!envelope) {
           schemaResult = 'invalid';
         } else {
