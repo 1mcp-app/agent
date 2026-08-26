@@ -95,6 +95,7 @@ export interface SetConfiguredServerTargetEnabledStateInput {
   targetSource?: ConfiguredServerTargetSource;
   enabled: boolean;
   backup?: ConfigBackupPolicy;
+  expectedTargetFingerprint?: string;
 }
 
 export interface EditConfiguredServerTargetInput {

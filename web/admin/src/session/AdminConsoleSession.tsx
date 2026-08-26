@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { AdminApiError } from '../api/adminApi';
+import { AdminApiError, createConfiguredServerLifecycleIdempotencyKey } from '../api/adminApi';
 import type {
   AdminApiClient,
   AdminPresetDraft,
@@ -435,25 +435,73 @@ export function useAdminConsoleSession({
   );
 
   const mutateServer = useCallback(
-    async (name: string, action: 'enable' | 'disable') => {
+    async (name: string, action: 'enable' | 'disable', source: 'mcpServers' | 'mcpTemplates' = 'mcpServers') => {
       const activeSession = stateRef.current.session;
       if (!activeSession) {
         return;
       }
       const sessionKey = activeSession.csrfToken;
 
-      dispatch({ type: 'mutationStarted', serverId: name, action });
+      const serverId = source === 'mcpTemplates' ? `${source}/${name}` : name;
+      dispatch({ type: 'mutationStarted', serverId, action });
       try {
-        await api.setConfiguredServerEnabled({
-          name,
-          enabled: action === 'enable',
-          csrfToken: sessionKey,
-        });
+        const enabled = action === 'enable';
+        let lifecycleRecoveryMessage: string | undefined;
+        if (source === 'mcpTemplates') {
+          const target: ConfiguredServerTargetIdentity = { id: name, source };
+          const preview = await api.previewConfiguredServerLifecycle({ target, enabled, csrfToken: sessionKey });
+          const confirmed = await confirm({
+            title: `${enabled ? 'Enable' : 'Disable'} Template Server ${name}?`,
+            message: preview.preview.warnings.join(' ') || 'Apply the source-qualified definition lifecycle change.',
+            confirmLabel: enabled ? 'Enable template' : 'Disable template',
+            tone: enabled ? 'default' : 'danger',
+            details: [
+              { label: 'Target', value: preview.preview.qualifiedId },
+              { label: 'Active instances', value: String(preview.preview.runtimeImpact.activeInstanceCount) },
+              ...(preview.preview.expressionReplacement.occurs
+                ? [{ label: 'Expression replacement', value: 'Context-rendered disabled expression becomes literal true.' }]
+                : []),
+              { label: 'Re-enable behavior', value: 'Future matching requests create instances lazily.' },
+            ],
+          });
+          if (!confirmed) {
+            dispatch({ type: 'mutationFailed', serverId, action, message: 'Lifecycle change cancelled.' });
+            return;
+          }
+          const applied = await api.applyConfiguredServerLifecycle({
+            target,
+            enabled,
+            csrfToken: sessionKey,
+            previewFingerprint: preview.preview.previewFingerprint,
+            idempotencyKey: createConfiguredServerLifecycleIdempotencyKey(preview.preview.qualifiedId, enabled),
+          });
+          if (applied.result.configChange.reload.status === 'failed') {
+            lifecycleRecoveryMessage =
+              'Lifecycle configuration was saved, but runtime reload failed. Recovery is required.';
+          } else if (applied.result.configChange.reload.status === 'runtime_not_running') {
+            lifecycleRecoveryMessage =
+              'Lifecycle configuration was saved, but the runtime is not running. Recovery is required.';
+          } else if (applied.result.configChange.reload.status === 'reload_disabled') {
+            lifecycleRecoveryMessage =
+              'Lifecycle configuration was saved, but runtime reload is disabled. Recovery is required.';
+          } else if (!enabled && !applied.result.runtimeImpact.retirementObserved) {
+            lifecycleRecoveryMessage =
+              'Lifecycle configuration was saved, but Template instance retirement was not confirmed. Recovery is required.';
+          }
+        } else {
+          await api.setConfiguredServerEnabled({ name, enabled, csrfToken: sessionKey });
+        }
         if (!isCurrentSession(sessionKey)) {
           return;
         }
-        dispatch({ type: 'mutationSucceeded', serverId: name, action });
-        await refreshConsole('');
+        await refreshConsole(
+          lifecycleRecoveryMessage ? 'Lifecycle was persisted, but inventory refresh failed: ' : '',
+        );
+        dispatch(
+          lifecycleRecoveryMessage
+            ? { type: 'mutationFailed', serverId, action, message: lifecycleRecoveryMessage }
+            : { type: 'mutationSucceeded', serverId, action },
+        );
       } catch (error) {
         if (!isCurrentSession(sessionKey)) {
           return;
@@ -461,14 +509,14 @@ export function useAdminConsoleSession({
         if (!handleUnauthenticated(error)) {
           dispatch({
             type: 'mutationFailed',
-            serverId: name,
+            serverId,
             action,
             message: `Server ${action} failed: ${failureMessage(error)}`,
           });
         }
       }
     },
-    [api, dispatch, handleUnauthenticated, isCurrentSession, refreshConsole],
+    [api, confirm, dispatch, handleUnauthenticated, isCurrentSession, refreshConsole],
   );
 
   const operateOAuth = useCallback(

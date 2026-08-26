@@ -1206,6 +1206,37 @@ describe('AdminConsoleApp', () => {
     expect(onServerAction).toHaveBeenCalledWith('legacy', 'enable');
   });
 
+  it('exposes the source-qualified lifecycle action for Template definitions', async () => {
+    const user = userEvent.setup();
+    const onServerAction = vi.fn();
+    renderApp(
+      {
+        ...consoleState(),
+        configuredServers: [
+          {
+            id: 'project-worker',
+            source: 'mcpTemplates',
+            target: { type: 'configured_server', id: 'project-worker', source: 'mcpTemplates' },
+            enabled: true,
+            tags: [],
+            transportSummary: { kind: 'stdio', label: 'node' },
+            mutationAvailability: { available: true, operations: ['enable', 'disable'] },
+            actionState: {
+              enable: { available: false, label: 'Enable project-worker', disabledReason: 'already_enabled' },
+              disable: { available: true, label: 'Disable project-worker' },
+            },
+            transport: { type: 'stdio', command: 'node' },
+            secretInputs: [],
+          },
+        ],
+      },
+      { navigation: { route: 'servers' }, configuredServers: { mutate: onServerAction } },
+    );
+
+    await user.click(screen.getByRole('switch', { name: /disable project-worker/i }));
+    expect(onServerAction).toHaveBeenCalledWith('project-worker', 'disable', 'mcpTemplates');
+  });
+
   it('disables server actions when the read model marks mutations unavailable', async () => {
     const user = userEvent.setup();
     const onServerAction = vi.fn();

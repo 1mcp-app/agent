@@ -7,3 +7,9 @@ export function getConfiguredServerTargets(): Record<string, MCPServerParams> {
     ? manager.getConfiguredServerTargets()
     : manager.getTransportConfig();
 }
+
+export function isOperatorDisabledTemplateDefinition(config: MCPServerParams): boolean {
+  if (typeof config.disabled !== 'string') return config.disabled === true;
+  const normalized = config.disabled.trim().toLowerCase();
+  return normalized === 'true' || normalized === '1' || normalized === 'yes';
+}

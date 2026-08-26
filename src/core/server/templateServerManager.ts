@@ -1,6 +1,7 @@
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import { getRuntimeScopeEnvironment, sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
+import { isOperatorDisabledTemplateDefinition } from '@src/config/configuredServerTargets.js';
 import { createRuntimeTargetFingerprint } from '@src/config/runtimeTargetFingerprint.js';
 import { registerCapabilityPaginationNotifications } from '@src/core/capabilities/capabilityPagination.js';
 import {
@@ -366,7 +367,9 @@ export class TemplateServerManager {
     }
 
     // Validate template entries to ensure type safety
-    const templateEntries = Object.entries(serverConfigData.mcpTemplates);
+    const templateEntries = Object.entries(serverConfigData.mcpTemplates).filter(
+      ([_name, config]) => !isOperatorDisabledTemplateDefinition(config),
+    );
     const templates: Array<[string, MCPServerParams]> = templateEntries.filter(([_name, config]) => {
       // Basic validation of MCPServerParams structure
       return config && typeof config === 'object' && 'command' in config;
@@ -560,7 +563,11 @@ export class TemplateServerManager {
    * Rebuild the template index
    */
   public rebuildTemplateIndex(serverConfigData?: TemplateRebuildOptions): TemplateRebuildResult {
-    const templates = serverConfigData?.mcpTemplates ?? {};
+    const templates = Object.fromEntries(
+      Object.entries(serverConfigData?.mcpTemplates ?? {}).filter(
+        ([_name, config]) => !isOperatorDisabledTemplateDefinition(config),
+      ),
+    );
     const currentNames = new Set(Object.keys(templates));
     let toolMetadataChanged = false;
     for (const existingName of this.templateConfigHashes.keys()) {
@@ -664,6 +671,7 @@ export class TemplateServerManager {
       for (const clientId of instance.clientIds) {
         this.clientTemplateTracker.removeClientFromInstance(clientId, templateName, instance.id);
       }
+      this.clientTemplateTracker.cleanupInstance(templateName, instance.id);
       for (const [outboundKey, connection] of this.outboundConns ?? []) {
         if (connection.client === instance.client) {
           this.outboundConns?.delete(outboundKey);
@@ -677,8 +685,9 @@ export class TemplateServerManager {
       hashes.delete(templateName);
       if (hashes.size === 0) this.sessionToRenderedHash.delete(sessionId);
     }
-    for (const clients of this.ephemeralClients.values()) {
+    for (const [sessionId, clients] of this.ephemeralClients) {
       clients.delete(templateName);
+      if (clients.size === 0) this.ephemeralClients.delete(sessionId);
     }
     this.templateSessionMap?.delete(templateName);
     if (instances.length > 0) {

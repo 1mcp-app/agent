@@ -432,6 +432,20 @@ describe('TemplateServerManager', () => {
       ).not.toThrow();
     });
 
+    it('keeps operator-disabled definitions out of the Template Index', () => {
+      templateServerManager.rebuildTemplateIndex({
+        mcpTemplates: {
+          enabled: { command: 'node', args: ['enabled.js'], template: {} },
+          disabled: { command: 'node', args: ['disabled.js'], disabled: true, template: {} },
+        },
+      });
+
+      const manager = templateServerManager as any;
+      expect(manager.templateIndex.buildIndex).toHaveBeenCalledWith({
+        enabled: { command: 'node', args: ['enabled.js'], template: {} },
+      });
+    });
+
     it('retires active instances when a template configuration is replaced', async () => {
       const manager = templateServerManager as any;
       const instance = {

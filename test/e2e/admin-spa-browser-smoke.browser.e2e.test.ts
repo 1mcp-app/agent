@@ -456,6 +456,28 @@ describe('admin SPA browser smoke', () => {
     }
   });
 
+  it('previews and applies a source-qualified Template definition disable from the packaged console', async () => {
+    configuredServerFixture.showTemplateInventory();
+    const page = await newPage({ width: 1280, height: 900 });
+    try {
+      await expectCenteredLoginGate(page);
+      await login(page, { skipNavigation: true });
+      await page.getByRole('link', { name: 'Server inventory' }).click();
+      await page.locator('[aria-label="Server source filter"] label:visible', { hasText: 'Template' }).click();
+      await page.getByRole('switch', { name: 'Disable github' }).click();
+      const dialog = page.getByRole('dialog');
+      await expectVisible(dialog.getByText('Disable Template Server github?'));
+      await expectVisible(dialog.getByText(/retires 1 active Template Server instance/i));
+      await expectVisible(dialog.getByText(/Future matching requests create instances lazily/i));
+      await dialog.getByRole('button', { name: 'Disable template' }).click();
+      const templateRow = page.locator('tbody tr').filter({ hasText: 'github' }).filter({ hasText: 'Template' });
+      await expectVisible(templateRow.getByText('disabled', { exact: true }));
+      await expectVisible(templateRow.getByRole('switch', { name: 'Enable github' }));
+    } finally {
+      await page.context().close();
+    }
+  });
+
   it.each(['http', 'sse'] as const)('creates a remote %s target from its transport-specific controls', async (type) => {
     const page = await newPage({ width: 1280, height: 900 });
     try {
@@ -1750,6 +1772,67 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
           : {}),
       });
     },
+    async previewConfiguredServerLifecycle(input) {
+      return operationSuccess('previewConfiguredServerLifecycle', 'op_lifecycle_preview', {
+        target: templateServer.target,
+        qualifiedId: `mcpTemplates/${input.targetName}`,
+        targetFingerprint: 'configured_server_fixture',
+        previewFingerprint: `lifecycle_preview_${input.targetName}_${input.enabled}`,
+        current: { enabled: templateServer.enabled, disabledValueKind: 'context_expression' as const },
+        proposed: { enabled: input.enabled, disabledValueKind: input.enabled ? ('absent' as const) : ('literal' as const) },
+        expressionReplacement: {
+          occurs: !input.enabled,
+          replacement: input.enabled ? ('enabled_absent' as const) : ('disabled_true' as const),
+        },
+        configChange: {
+          ...configChangeResult(input.targetName, input.enabled),
+          target: { name: input.targetName, source: 'mcpTemplates' as const },
+        },
+        expectedBackup: { policy: 'required' as const, recoveryCopy: true as const },
+        expectedReload: {
+          policy: 'observe_after_write' as const,
+          possibleStatuses: ['observed', 'runtime_not_running', 'reload_disabled', 'failed'] as const,
+        },
+        runtimeImpact: {
+          activeInstanceCount: templateServer.runtime?.activeInstanceCount ?? 0,
+          retirement: input.enabled ? ('not_required' as const) : ('after_successful_reload' as const),
+          recreation: 'lazy_future_match_only' as const,
+        },
+        warnings: input.enabled
+          ? ['Re-enable restores eligibility only; instances and Request Sessions are created lazily by future matching requests.']
+          : ['Successful reload retires 1 active Template Server instance and removes its Request Session memberships.'],
+      });
+    },
+    async applyConfiguredServerLifecycle(input) {
+      templateServer.enabled = input.enabled;
+      templateServer.actionState = input.enabled
+        ? {
+            enable: { available: false, label: 'Enable github', disabledReason: 'already_enabled' },
+            disable: { available: true, label: 'Disable github' },
+          }
+        : {
+            enable: { available: true, label: 'Enable github' },
+            disable: { available: false, label: 'Disable github', disabledReason: 'already_disabled' },
+          };
+      if (templateServer.runtime) templateServer.runtime.activeInstanceCount = 0;
+      return operationSuccess('applyConfiguredServerLifecycle', 'op_lifecycle_apply', {
+        target: templateServer.target,
+        qualifiedId: `mcpTemplates/${input.targetName}`,
+        previewFingerprint: input.previewFingerprint,
+        enabled: input.enabled,
+        outcome: input.enabled ? ('enabled' as const) : ('disabled' as const),
+        configChange: {
+          ...configChangeResult(input.targetName, input.enabled),
+          target: { name: input.targetName, source: 'mcpTemplates' as const },
+        },
+        runtimeImpact: {
+          activeInstancesBefore: 1,
+          retiredInstances: input.enabled ? 0 : 1,
+          activeInstancesAfter: 0,
+          retirementObserved: true,
+        },
+      });
+    },
     async enableConfiguredServer(input) {
       setEnabled(servers, input.targetName, true);
       return operationSuccess('enableConfiguredServer', 'op_enable', mutationResult(input.targetName, true));
@@ -2192,10 +2275,10 @@ function createTemplateConfiguredServerReadModel(): ConfiguredServerReadModel {
     enabled: true,
     tags: ['template'],
     transportSummary: { kind: 'stdio', label: '{{project.command}}' },
-    mutationAvailability: { available: false, operations: [] },
+    mutationAvailability: { available: true, operations: ['enable', 'disable'] },
     actionState: {
       enable: { available: false, label: 'Enable github', disabledReason: 'already_enabled' },
-      disable: { available: false, label: 'Disable github' },
+      disable: { available: true, label: 'Disable github' },
     },
     transport: { type: 'stdio', command: '{{project.command}}', template: { shareable: true } },
     secretInputs: [],

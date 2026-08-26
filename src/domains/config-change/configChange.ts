@@ -551,23 +551,8 @@ class DefaultConfigChangeService implements ConfigChangeService {
         return resultWithoutReload;
       }
 
-      if (target.source === 'mcpTemplates') {
-        resultWithoutReload = {
-          status: 'template_conflict',
-          operation,
-          configPath,
-          target,
-          changed: false,
-          backup: { created: false },
-          retentionCleanup: retentionSkipped(),
-          reload: { status: 'skipped' },
-          warnings: [],
-          error: `Configured server target '${input.targetName}' exists in mcpTemplates and does not support enable/disable`,
-        };
-        return resultWithoutReload;
-      }
-
-      const existingConfig = config.mcpServers?.[input.targetName];
+      const targetSection = target.source === 'mcpTemplates' ? config.mcpTemplates : config.mcpServers;
+      const existingConfig = targetSection?.[input.targetName];
       if (!existingConfig) {
         resultWithoutReload = {
           status: 'not_found',
@@ -580,6 +565,20 @@ class DefaultConfigChangeService implements ConfigChangeService {
           reload: { status: 'skipped' },
           warnings: [],
         };
+        return resultWithoutReload;
+      }
+
+      if (
+        input.expectedTargetFingerprint !== undefined &&
+        fingerprintConfiguredServerTarget(existingConfig) !== input.expectedTargetFingerprint
+      ) {
+        resultWithoutReload = editConflictResult(
+          'source_conflict',
+          configPath,
+          target,
+          `Configured server target '${target.source}/${input.targetName}' changed after preview`,
+          operation,
+        );
         return resultWithoutReload;
       }
 
@@ -606,8 +605,8 @@ class DefaultConfigChangeService implements ConfigChangeService {
       if (input.enabled) {
         delete updatedConfig.disabled;
       }
-      config.mcpServers = normalizeServerRecord(config.mcpServers);
-      config.mcpServers[input.targetName] = updatedConfig;
+      config[target.source] = normalizeServerRecord(config[target.source]);
+      config[target.source]![input.targetName] = updatedConfig;
       this.validateConfig(configPath, config);
       this.writeConfig(configPath, config);
       const retentionCleanup = this.cleanupBackups(configPath, backup);
@@ -746,22 +745,8 @@ class DefaultConfigChangeService implements ConfigChangeService {
       };
     }
 
-    if (target.source === 'mcpTemplates') {
-      return {
-        status: 'template_conflict',
-        operation,
-        configPath,
-        target,
-        changed: false,
-        backup: { created: false },
-        retentionCleanup: retentionSkipped(),
-        reload: { status: 'skipped' },
-        warnings: [],
-        error: `Configured server target '${input.targetName}' exists in mcpTemplates and does not support enable/disable`,
-      };
-    }
-
-    const existingConfig = config.mcpServers?.[input.targetName];
+    const targetSection = target.source === 'mcpTemplates' ? config.mcpTemplates : config.mcpServers;
+    const existingConfig = targetSection?.[input.targetName];
     if (!existingConfig) {
       return {
         status: 'not_found',
@@ -779,8 +764,8 @@ class DefaultConfigChangeService implements ConfigChangeService {
     const changed = isConfiguredServerTargetDisabled(existingConfig.disabled) !== !input.enabled;
     if (changed) {
       const previewConfig = cloneConfig(config);
-      previewConfig.mcpServers = normalizeServerRecord(previewConfig.mcpServers);
-      const previewTargetConfig = previewConfig.mcpServers[input.targetName];
+      previewConfig[target.source] = normalizeServerRecord(previewConfig[target.source]);
+      const previewTargetConfig = previewConfig[target.source]![input.targetName];
       if (!previewTargetConfig) {
         return {
           status: 'not_found',
@@ -802,7 +787,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
       if (input.enabled) {
         delete updatedConfig.disabled;
       }
-      previewConfig.mcpServers[input.targetName] = updatedConfig;
+      previewConfig[target.source]![input.targetName] = updatedConfig;
 
       try {
         this.validateConfig(configPath, previewConfig);
@@ -1232,10 +1217,11 @@ function editConflictResult(
   configPath: string,
   target: ConfiguredServerTargetRef,
   error?: string,
+  operation: ConfigChangeResult['operation'] = 'edit',
 ): ConfigChangeResult {
   return {
     status,
-    operation: 'edit',
+    operation,
     configPath,
     target,
     changed: false,

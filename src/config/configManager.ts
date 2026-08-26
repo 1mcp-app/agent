@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { mergeGlobalAndServerConfig } from '@src/config/mcpConfigMerge.js';
+import { isOperatorDisabledTemplateDefinition } from '@src/config/configuredServerTargets.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import {
   ApplicationConfig,
@@ -209,11 +210,11 @@ export class ConfigManager extends EventEmitter {
       }
     }
 
-    // Filter out static servers that conflict with template servers
-    // Template servers take precedence
+    // Declared template identity remains authoritative even when lifecycle or context makes it ineligible.
     const conflictingServers: string[] = [];
+    const declaredTemplateNames = new Set(Object.keys(config.mcpTemplates ?? {}));
     for (const staticServerName of Object.keys(staticServers)) {
-      if (staticServerName in templateServers) {
+      if (declaredTemplateNames.has(staticServerName)) {
         conflictingServers.push(staticServerName);
         delete staticServers[staticServerName];
       }
@@ -325,8 +326,14 @@ export class ConfigManager extends EventEmitter {
     const processedServers: Record<string, MCPServerParams> = {};
 
     for (const [serverName, templateConfig] of Object.entries(templates)) {
+      if (isOperatorDisabledTemplateDefinition(templateConfig)) {
+        continue;
+      }
       try {
         const processedConfig = this.templateRenderer.renderTemplate(templateConfig, context);
+        if (isOperatorDisabledTemplateDefinition(processedConfig)) {
+          continue;
+        }
         processedServers[serverName] = processedConfig;
 
         debugIf(() => ({

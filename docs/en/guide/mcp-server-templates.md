@@ -57,6 +57,19 @@ matching request. Renaming a definition or changing structural/runtime-rendered 
 after the successful reload; future matching requests create instances from the updated definition. Metadata-only
 changes to instructions, disabled tools, or tool descriptions retain live instances.
 
+Full administrators can also disable or re-enable one source-qualified Template definition. The read-only preview
+binds the current definition fingerprint, requested state, reload plan, and current active-instance count. A
+context-rendered `disabled` expression is treated as operator-enabled; disabling it explicitly replaces the expression
+with literal `true` without evaluating or exposing Request Context. Re-enable removes `disabled`. A same-named static
+definition is never changed.
+
+After a disable is persisted, retirement runs only after a successful reload. Every instance that was active before
+the write is retired, and its persistent and ephemeral Request Session memberships are removed; the Request Sessions
+themselves remain. The result reports persistence, reload, and observed retirement separately, so a durable write with
+a failed reload is not described as runtime success. Re-enable restores index eligibility but does not recreate old
+instances or memberships. A later matching request creates a new instance lazily. Repeating an already-satisfied
+lifecycle action is unchanged and skips backup, write, reload, and retirement.
+
 Deletion starts with a read-only structural preview of exactly one source-qualified definition. The preview shows the
 redacted definition, authority or shadow state, same-name source preservation, required recovery copy, expected reload,
 and runtime impact. Apply requires typing the exact printable identity supplied by the server, such as

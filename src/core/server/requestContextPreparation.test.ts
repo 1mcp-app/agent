@@ -146,4 +146,25 @@ describe('requestContextPreparation', () => {
 
     expect(deps.registerTemplateAdapter).not.toHaveBeenCalled();
   });
+
+  it('defensively excludes rendered-disabled templates from preparation', async () => {
+    deps.loadRenderedTemplates = vi.fn().mockResolvedValue({
+      disabled: { ...templateConfig, disabled: true },
+      enabled: templateConfig,
+    });
+
+    const result = await prepareRequestContext({ deps, context, filterConfig: {} });
+
+    expect(result).toMatchObject({ templateNames: ['enabled'], createdTemplateNames: ['enabled'] });
+    expect(deps.registerTemplateAdapter).not.toHaveBeenCalledWith('disabled', expect.anything());
+    expect(deps.createTemplateBasedServers).toHaveBeenCalledWith(
+      'derived-session',
+      expect.anything(),
+      {},
+      { mcpTemplates: { enabled: templateConfig } },
+      expect.any(Map),
+      {},
+      'ephemeral',
+    );
+  });
 });
