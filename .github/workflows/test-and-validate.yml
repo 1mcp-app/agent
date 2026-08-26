@@ -176,7 +176,14 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: conformance-${{ github.sha }}
-          path: .tmp/conformance/
+          path: |
+            .tmp/conformance/conformance-baseline.json
+            .tmp/conformance/conformance-integrity.json
+            .tmp/conformance/observed-inputs.json
+            .tmp/conformance/profile-proofs.json
+            .tmp/conformance/profile-evidence/
+            .tmp/conformance/legacy-revisions/
+            .tmp/conformance/evidence/
           if-no-files-found: error
 
   test-e2e-browser:

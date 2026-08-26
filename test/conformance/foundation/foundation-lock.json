@@ -54,7 +54,7 @@
     {
       "id": "foundation-run",
       "path": "test/conformance/foundation/foundationRun.ts",
-      "digest": "sha256:e7c245fa63f6cf8138fbb109545db6aed8ac76a26bf70cc8256347869655fbfb"
+      "digest": "sha256:299fbd6e441912ed77721b3102a175894594d1bfdc9cbcf73dc5613c263882d0"
     },
     {
       "id": "typescript-manifest",
@@ -104,7 +104,7 @@
     {
       "id": "ci-lane",
       "path": ".github/workflows/test-and-validate.yml",
-      "digest": "sha256:43e09a1ca93ef1ccccf503b0e35475ab3c756604978d335a0946a4c0112d58dd"
+      "digest": "sha256:e41ca320a5c7bf52409896765851257633d85f8d468c0671758af1f0c0ba79b5"
     }
   ]
 }

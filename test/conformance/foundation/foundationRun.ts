@@ -13,7 +13,7 @@ import {
   type ConformanceBaselineInput,
   validateConformanceBaseline,
 } from '../baseline/baseline.js';
-import { writeEvidence } from '../capture/index.js';
+import { SanitizedWireEvidenceFileSchema, writeEvidence } from '../capture/index.js';
 import { verifyConformanceIntegrity } from '../integrity/index.js';
 import { type OfficialConformanceResult, runOfficialConformance } from '../official/officialRunner.js';
 import {
@@ -36,6 +36,37 @@ const streamableProfile = {
     legacy: 'upstream-streamable-http-legacy',
   },
 } as const;
+const PROFILE_TEST_REGISTRY: Record<string, readonly { path: string; needle: string }[]> = {
+  'fixture.typescript.retained-sse': [
+    {
+      path: 'test/conformance/fixtures/typescript/test/fixture.test.mjs',
+      needle: 'retained SSE fixture completes a legacy MCP probe',
+    },
+  ],
+  'transport.stdio-protocol': [
+    { path: 'test/e2e/stdio/stdio-protocol.test.ts', needle: "describe('Stdio Transport MCP Protocol E2E'" },
+  ],
+  'fixture.typescript.v2-stdio': [
+    {
+      path: 'test/conformance/fixtures/typescript/test/fixture.test.mjs',
+      needle: 'stdio fixture owns its subprocess and completes the MCP probe',
+    },
+  ],
+  'fixture.polyglot-and-typescript.legacy-stdio': [
+    {
+      path: 'test/conformance/fixtures/typescript/test/fixture.test.mjs',
+      needle: 'stdio fixture owns its subprocess and completes the MCP probe',
+    },
+    {
+      path: 'test/conformance/fixtures/go/main_test.go',
+      needle: 'func TestStdioProbeExercisesProtocolWithoutPayloadOutput',
+    },
+    {
+      path: 'test/conformance/fixtures/python/test_driver.py',
+      needle: 'def test_stdio_probe_exercises_protocol_without_payload_output',
+    },
+  ],
+};
 export const REQUIRED_TRANSPORT_PROFILES = [
   'inbound-streamable-http-modern',
   'inbound-streamable-http-legacy',
@@ -95,6 +126,20 @@ const profileEvidenceSchema = z
     attempt: z.literal(1),
     status: z.literal('passed'),
     checks: z.array(z.string().regex(/^[a-z0-9][a-z0-9-]+$/u)).min(1),
+    digest: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
+  })
+  .strict();
+
+const legacyRevisionEvidenceSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    revision: z.enum(['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07']),
+    negotiatedRevision: z.enum(['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07']),
+    fixtureId: z.literal('typescript-v1-1.30.0'),
+    transportProfile: z.literal('inbound-streamable-http-legacy'),
+    testId: z.string().min(1),
+    attempt: z.literal(1),
+    status: z.literal('passed'),
     digest: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
   })
   .strict();
@@ -232,9 +277,6 @@ async function requirementCatalog(root: string, integrity: Awaited<ReturnType<ty
           parseYaml(await readFile(join(packageRoot, 'requirements', `${revision}.yaml`), 'utf8')),
         );
         const era: Era = revision === '2026-07-28' ? 'modern' : 'legacy';
-        const matrixCellIds = matrixPlan()
-          .filter(({ descriptor }) => descriptor.inboundEra === era || descriptor.upstreamEra === era)
-          .map(({ descriptor }) => `${descriptor.inboundEra}-${descriptor.upstreamEra}`);
         const sourceDigest = integrity.requirements.find((entry) => entry.revision === revision)?.digest;
         if (!sourceDigest) throw new Error('requirement-digest-missing');
         const excluded = new Map(
@@ -246,6 +288,15 @@ async function requirementCatalog(root: string, integrity: Awaited<ReturnType<ty
             ...requirements.not_scored.filter((entry) => entry.leg === role).map((entry) => entry.scenario),
           ].map((scenarioId) => {
             const reason = excluded.get(`${role}.${scenarioId}`);
+            const matrixCellIds = [
+              ...new Set(
+                matrixPlan()
+                  .filter(({ descriptor }) =>
+                    role === 'server' ? descriptor.inboundEra === era : descriptor.upstreamEra === era,
+                  )
+                  .map(({ descriptor }) => `${descriptor.inboundEra}-${descriptor.upstreamEra}`),
+              ),
+            ];
             return {
               requirementId: `official.${revision}.${role}.${scenarioId}`,
               sourceRevision: revision,
@@ -268,6 +319,7 @@ async function requirementCatalog(root: string, integrity: Awaited<ReturnType<ty
 }
 
 async function verifyProfileProofs(
+  root: string,
   outputDirectory: string,
   proofs: z.infer<typeof profileProofFileSchema>,
 ): Promise<boolean> {
@@ -285,6 +337,11 @@ async function verifyProfileProofs(
         proof.testId !== evidence.testId
       ) {
         return false;
+      }
+      const registeredTests = PROFILE_TEST_REGISTRY[proof.testId];
+      if (!registeredTests?.length) return false;
+      for (const registered of registeredTests) {
+        if (!(await readFile(join(root, registered.path), 'utf8')).includes(registered.needle)) return false;
       }
     }
     return true;
@@ -325,18 +382,25 @@ async function startTypescriptServer(
   );
   try {
     const ready = await new Promise<unknown>((resolvePromise, reject) => {
-      const timeout = setTimeout(() => reject(new Error('fixture-readiness-timeout')), 15_000);
+      let settled = false;
+      const finish = (result: { value: unknown } | { error: Error }): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        if ('error' in result) reject(result.error);
+        else resolvePromise(result.value);
+      };
+      const timeout = setTimeout(() => finish({ error: new Error('fixture-readiness-timeout') }), 15_000);
       let output = '';
-      child.once('exit', () => reject(new Error('fixture-exited')));
+      child.once('exit', () => finish({ error: new Error('fixture-exited') }));
       child.stdout?.on('data', (chunk: Buffer | string) => {
         output += String(chunk);
         const lineEnd = output.indexOf('\n');
         if (lineEnd < 0) return;
-        clearTimeout(timeout);
         try {
-          resolvePromise(JSON.parse(output.slice(0, lineEnd)));
+          finish({ value: JSON.parse(output.slice(0, lineEnd)) });
         } catch {
-          reject(new Error('fixture-readiness-invalid'));
+          finish({ error: new Error('fixture-readiness-invalid') });
         }
       });
     });
@@ -400,7 +464,15 @@ async function runRetainedRevisionProbes(root: string, outputDirectory: string) 
           `${JSON.stringify({ ...evidence, digest: evidenceDigest }, null, 2)}\n`,
           { encoding: 'utf8', mode: 0o600 },
         );
-        return { ...evidence, artifactId, evidenceDigest };
+        return {
+          revision,
+          fixtureId: evidence.fixtureId,
+          transportProfile: evidence.transportProfile,
+          testId: evidence.testId,
+          artifactId,
+          evidenceDigest,
+          attempt: 1 as const,
+        };
       }),
     );
   } finally {
@@ -642,12 +714,12 @@ function normalizedMatrixRuns(
       },
       evidence: {
         inbound: {
-          artifactId: `wire.${result.assignmentId}.inbound`,
+          artifactId: `evidence/${result.assignmentId}.inbound.json`,
           digest: result.evidence.inbound.digest,
           records: result.evidence.inbound.records.length,
         },
         upstream: {
-          artifactId: `wire.${result.assignmentId}.upstream`,
+          artifactId: `evidence/${result.assignmentId}.upstream.json`,
           digest: result.evidence.upstream.digest,
           records: result.evidence.upstream.records.length,
         },
@@ -656,8 +728,56 @@ function normalizedMatrixRuns(
   });
 }
 
-async function persistBaseline(outputDirectory: string, baseline: ConformanceBaseline): Promise<void> {
+async function validateEvidenceBundle(
+  root: string,
+  outputDirectory: string,
+  baseline: ConformanceBaseline,
+): Promise<void> {
+  const artifactPath = (artifactId: string, prefix: string): string => {
+    if (!artifactId.startsWith(prefix) || artifactId.includes('..') || !artifactId.endsWith('.json')) {
+      throw new Error('evidence-artifact-id-invalid');
+    }
+    return join(outputDirectory, artifactId);
+  };
+  if (
+    !(await verifyProfileProofs(root, outputDirectory, {
+      schemaVersion: 1,
+      profileProofs: baseline.profileProofs,
+    }))
+  ) {
+    throw new Error('profile-evidence-mismatch');
+  }
+  for (const run of baseline.matrixRuns) {
+    if (run.classification !== 'product') continue;
+    for (const reference of [run.evidence.inbound, run.evidence.upstream]) {
+      const evidence = SanitizedWireEvidenceFileSchema.parse(
+        JSON.parse(await readFile(artifactPath(reference.artifactId, 'evidence/'), 'utf8')),
+      );
+      if (evidence.digest !== reference.digest || evidence.records.length !== reference.records) {
+        throw new Error('matrix-evidence-mismatch');
+      }
+    }
+  }
+  for (const proof of baseline.legacyRevisionProofs) {
+    const evidence = legacyRevisionEvidenceSchema.parse(
+      JSON.parse(await readFile(artifactPath(proof.artifactId, 'legacy-revisions/'), 'utf8')),
+    );
+    const { digest: recordedDigest, ...payload } = evidence;
+    const computedDigest = `sha256:${createHash('sha256').update(JSON.stringify(payload)).digest('hex')}`;
+    if (
+      recordedDigest !== computedDigest ||
+      proof.evidenceDigest !== computedDigest ||
+      proof.revision !== evidence.revision ||
+      proof.testId !== evidence.testId
+    ) {
+      throw new Error('legacy-revision-evidence-mismatch');
+    }
+  }
+}
+
+async function persistBaseline(root: string, outputDirectory: string, baseline: ConformanceBaseline): Promise<void> {
   const validated = validateConformanceBaseline(baseline);
+  await validateEvidenceBundle(root, outputDirectory, validated);
   await writeFile(join(outputDirectory, 'conformance-baseline.json'), `${JSON.stringify(validated, null, 2)}\n`, {
     encoding: 'utf8',
     mode: 0o600,
@@ -678,7 +798,7 @@ export async function runFoundationConformance(options: FoundationRunOptions): P
   const proofs = profileProofFileSchema.safeParse(
     JSON.parse(await readFile(join(outputDirectory, 'profile-proofs.json'), 'utf8')),
   );
-  const proofsValid = proofs.success && (await verifyProfileProofs(outputDirectory, proofs.data));
+  const proofsValid = proofs.success && (await verifyProfileProofs(root, outputDirectory, proofs.data));
 
   if (!integrity.ok || !proofsValid) {
     const baseline = buildConformanceBaseline({
@@ -697,7 +817,7 @@ export async function runFoundationConformance(options: FoundationRunOptions): P
       legacyRevisionProofs: [],
       requiredProfiles: [...REQUIRED_TRANSPORT_PROFILES],
     });
-    await persistBaseline(outputDirectory, baseline);
+    await persistBaseline(root, outputDirectory, baseline);
     return baseline;
   }
   if (!proofs.success) throw new Error('profile-proof-validation-inconsistent');
@@ -736,7 +856,7 @@ export async function runFoundationConformance(options: FoundationRunOptions): P
     mode: 0o600,
   });
   const baseline = buildConformanceBaseline(observedInput);
-  await persistBaseline(outputDirectory, baseline);
+  await persistBaseline(root, outputDirectory, baseline);
   return baseline;
 }
 
