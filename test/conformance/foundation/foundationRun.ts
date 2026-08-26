@@ -78,12 +78,24 @@ const profileProofFileSchema = z
         .object({
           profile: z.enum(REQUIRED_TRANSPORT_PROFILES),
           testId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._/-]+$/u),
-          artifactId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._/-]+$/u),
+          artifactId: z.string().regex(/^profile-evidence\/[a-z0-9][a-z0-9.-]+\.json$/u),
           evidenceDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
           attempt: z.literal(1),
         })
         .strict(),
     ),
+  })
+  .strict();
+
+const profileEvidenceSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    profile: z.enum(REQUIRED_TRANSPORT_PROFILES),
+    testId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._/-]+$/u),
+    attempt: z.literal(1),
+    status: z.literal('passed'),
+    checks: z.array(z.string().regex(/^[a-z0-9][a-z0-9-]+$/u)).min(1),
+    digest: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
   })
   .strict();
 
@@ -253,6 +265,32 @@ async function requirementCatalog(root: string, integrity: Awaited<ReturnType<ty
       }),
     )
   ).flat();
+}
+
+async function verifyProfileProofs(
+  outputDirectory: string,
+  proofs: z.infer<typeof profileProofFileSchema>,
+): Promise<boolean> {
+  try {
+    for (const proof of proofs.profileProofs) {
+      const evidence = profileEvidenceSchema.parse(
+        JSON.parse(await readFile(join(outputDirectory, proof.artifactId), 'utf8')),
+      );
+      const { digest: recordedDigest, ...payload } = evidence;
+      const computedDigest = `sha256:${createHash('sha256').update(JSON.stringify(payload)).digest('hex')}`;
+      if (
+        recordedDigest !== computedDigest ||
+        proof.evidenceDigest !== computedDigest ||
+        proof.profile !== evidence.profile ||
+        proof.testId !== evidence.testId
+      ) {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function stopChild(child: ChildProcess): Promise<void> {
@@ -640,13 +678,14 @@ export async function runFoundationConformance(options: FoundationRunOptions): P
   const proofs = profileProofFileSchema.safeParse(
     JSON.parse(await readFile(join(outputDirectory, 'profile-proofs.json'), 'utf8')),
   );
+  const proofsValid = proofs.success && (await verifyProfileProofs(outputDirectory, proofs.data));
 
-  if (!integrity.ok || !proofs.success) {
+  if (!integrity.ok || !proofsValid) {
     const baseline = buildConformanceBaseline({
       mode: options.mode,
       sourceSha,
       integrity: {
-        ok: integrity.ok && proofs.success,
+        ok: integrity.ok && proofsValid,
         digest: integrity.digest,
         source: { clean: integrity.source.clean },
       },
@@ -661,6 +700,7 @@ export async function runFoundationConformance(options: FoundationRunOptions): P
     await persistBaseline(outputDirectory, baseline);
     return baseline;
   }
+  if (!proofs.success) throw new Error('profile-proof-validation-inconsistent');
 
   const legacyRevisionProofs = await runRetainedRevisionProbes(root, outputDirectory);
   const officialRuns = await runOfficialPeers(root, outputDirectory);
