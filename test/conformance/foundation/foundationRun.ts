@@ -522,7 +522,7 @@ export async function runFoundationConformance(options: FoundationRunOptions): P
 
   const officialRuns = await runOfficialPeers(root, outputDirectory);
   const matrix = await runMatrix(root, outputDirectory);
-  const baseline = buildConformanceBaseline({
+  const observedInput: ConformanceBaselineInput = {
     mode: options.mode,
     sourceSha,
     integrity: { ok: integrity.ok, digest: integrity.digest, source: { clean: integrity.source.clean } },
@@ -536,7 +536,12 @@ export async function runFoundationConformance(options: FoundationRunOptions): P
     matrixRuns: normalizedMatrixRuns(matrix.plan, matrix.results),
     profileProofs: proofs.data.profileProofs,
     requiredProfiles: [...REQUIRED_TRANSPORT_PROFILES],
+  };
+  await writeFile(join(outputDirectory, 'observed-inputs.json'), `${JSON.stringify(observedInput, null, 2)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600,
   });
+  const baseline = buildConformanceBaseline(observedInput);
   await persistBaseline(outputDirectory, baseline);
   return baseline;
 }

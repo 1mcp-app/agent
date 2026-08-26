@@ -54,7 +54,7 @@
     {
       "id": "foundation-run",
       "path": "test/conformance/foundation/foundationRun.ts",
-      "digest": "sha256:296facd9c3c5209b760c769fac194bd85524e3a58b1932d4b6c6a6d53f7c91cc"
+      "digest": "sha256:271440dbe6ed6967964dfd2da174b508a9776827be028adff03f635d99ae441d"
     },
     {
       "id": "typescript-manifest",
