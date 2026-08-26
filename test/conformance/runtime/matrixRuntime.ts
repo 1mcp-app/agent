@@ -103,6 +103,21 @@ const ProbeUnsupportedSchema = z
   })
   .strict();
 
+const ProbeRejectedSchema = z
+  .object({
+    fixtureId: SafeIdSchema,
+    errorCode: z.enum([
+      'initialize-failed',
+      'protocol-probe-failed',
+      'protocol-era-mismatch',
+      'tools-list-failed',
+      'tools-call-failed',
+      'aggregated-tool-not-found',
+      'removed-operation-mismatch',
+    ]),
+  })
+  .strict();
+
 const PeerProbeSchema = z
   .object({
     fixtureId: SafeIdSchema,
@@ -171,6 +186,15 @@ export type MatrixExecutionResult =
       assignmentId: string;
       firstAttempt: true;
       facts: z.infer<typeof ProbeUnsupportedSchema>;
+      evidence: { inbound: SanitizedWireEvidenceFile; upstream: SanitizedWireEvidenceFile };
+    }
+  | {
+      kind: 'product';
+      status: 'fail';
+      reason: 'gateway_rejected';
+      assignmentId: string;
+      firstAttempt: true;
+      facts: z.infer<typeof ProbeRejectedSchema>;
       evidence: { inbound: SanitizedWireEvidenceFile; upstream: SanitizedWireEvidenceFile };
     }
   | {
@@ -397,7 +421,9 @@ async function runProbe(
   environment: Environment,
   cwd: string,
   timeoutMs: number,
-): Promise<z.infer<typeof ProbeSuccessSchema> | z.infer<typeof ProbeUnsupportedSchema>> {
+): Promise<
+  z.infer<typeof ProbeSuccessSchema> | z.infer<typeof ProbeUnsupportedSchema> | z.infer<typeof ProbeRejectedSchema>
+> {
   const child = startChild(command, args, environment, cwd);
   const chunks: Buffer[] = [];
   let bytes = 0;
@@ -415,9 +441,8 @@ async function runProbe(
     await stopChild(child, Math.min(timeoutMs, 1_000));
     throw new RuntimeFault('process', 'probe_timeout');
   }
-  if (completion.spawnFailed || completion.code !== 0) {
-    throw new RuntimeFault('process', 'probe_process_failed');
-  }
+  if (completion.spawnFailed) throw new RuntimeFault('process', 'probe_process_failed');
+  if (completion.code !== 0 && bytes === 0) throw new RuntimeFault('process', 'probe_process_failed');
   if (bytes === 0 || bytes > 65_536) throw new RuntimeFault('fixture', 'probe_output_invalid');
 
   const output = Buffer.concat(chunks);
@@ -434,6 +459,13 @@ async function runProbe(
     throw new RuntimeFault('fixture', 'probe_output_invalid');
   }
   output.fill(0);
+
+  const rejected = ProbeRejectedSchema.safeParse(value);
+  if (completion.code !== 0) {
+    if (rejected.success) return rejected.data;
+    throw new RuntimeFault('process', 'probe_process_failed');
+  }
+  if (rejected.success) throw new RuntimeFault('fixture', 'probe_output_invalid');
 
   const success = ProbeSuccessSchema.safeParse(value);
   if (success.success) return success.data;
@@ -618,7 +650,7 @@ export async function executeMatrixAssignment(input: MatrixExecutionOptions): Pr
       runtimeScope,
       options.timeouts.probeMs,
     );
-    if (probeFacts.negotiatedRevision !== options.revisions.inbound) {
+    if ('negotiatedRevision' in probeFacts && probeFacts.negotiatedRevision !== options.revisions.inbound) {
       throw new RuntimeFault('harness', 'wire_evidence_invalid');
     }
     await new Promise<void>((resolve) => setImmediate(resolve));
@@ -627,7 +659,17 @@ export async function executeMatrixAssignment(input: MatrixExecutionOptions): Pr
       throw new RuntimeFault('harness', 'wire_evidence_invalid');
     }
 
-    if ('status' in probeFacts) {
+    if ('errorCode' in probeFacts) {
+      outcome = {
+        kind: 'product',
+        status: 'fail',
+        reason: 'gateway_rejected',
+        assignmentId: options.assignmentId,
+        firstAttempt: true,
+        facts: probeFacts,
+        evidence,
+      };
+    } else if ('status' in probeFacts) {
       outcome = {
         kind: 'product',
         status: 'fail',

@@ -28,9 +28,7 @@ const officialCheckSchema = z
   })
   .strict();
 
-const officialScenarioSchema = z
-  .object({ scenarioId: safeIdSchema, checks: z.array(officialCheckSchema).min(1) })
-  .strict();
+const officialScenarioSchema = z.object({ scenarioId: safeIdSchema, checks: z.array(officialCheckSchema) }).strict();
 
 const officialProductRunSchema = z
   .object({
@@ -85,8 +83,10 @@ const matrixProductRunSchema = z
     executedProfiles: z.array(profileSchema).min(1),
     probe: z
       .object({
-        negotiatedRevision: revisionSchema,
-        operations: z.array(z.enum(['server/discover', 'initialize', 'ping', 'tools/list', 'tools/call'])).min(1),
+        negotiatedRevision: z.union([revisionSchema, z.literal('not-negotiated')]),
+        operations: z
+          .array(z.enum(['transport/connect', 'server/discover', 'initialize', 'ping', 'tools/list', 'tools/call']))
+          .min(1),
       })
       .strict(),
     evidence: z.object({ inbound: evidenceReferenceSchema, upstream: evidenceReferenceSchema }).strict(),
@@ -258,9 +258,10 @@ function buildTraceability(input: z.infer<typeof baselineInputSchema>): z.infer<
       requirementId: `official.${run.revision}.${run.role}.${scenario.scenarioId}`,
       sourceRevision: run.revision,
       strength: 'normative' as const,
-      testIds: scenario.checks.map(
-        (check) => `official.${run.role}.${run.revision}.${scenario.scenarioId}.${check.id}`,
-      ),
+      testIds:
+        scenario.checks.length > 0
+          ? scenario.checks.map((check) => `official.${run.role}.${run.revision}.${scenario.scenarioId}.${check.id}`)
+          : [`official.${run.role}.${run.revision}.${scenario.scenarioId}.no-checks-observed`],
       evidenceArtifactIds: [`official.${run.role}.${run.revision}.${scenario.scenarioId}`],
     }));
   });

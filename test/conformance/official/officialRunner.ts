@@ -214,7 +214,7 @@ const rawCheckSchema = z.object({
     .max(64)
     .optional(),
 });
-const rawChecksSchema = z.array(rawCheckSchema).min(1).max(10_000);
+const rawChecksSchema = z.array(rawCheckSchema).max(10_000);
 
 export interface VerifiedOfficialConformancePackage {
   name: typeof OFFICIAL_CONFORMANCE_PACKAGE.name;
@@ -497,7 +497,6 @@ async function parseReports(
         },
       ];
     });
-    if (checks.length === 0) throw new Error('invalid');
     reports.set(scenarioId, checks);
   }
 
@@ -582,7 +581,8 @@ export async function runOfficialConformance(
         const scoredScenarios = new Set(REQUIRED_SCENARIOS[options.revision][options.role]);
         const hasProductFailure = scenarios.some(
           (scenario) =>
-            scoredScenarios.has(scenario.scenarioId) && scenario.checks.some((check) => check.status !== 'SUCCESS'),
+            scoredScenarios.has(scenario.scenarioId) &&
+            (scenario.checks.length === 0 || scenario.checks.some((check) => check.status !== 'SUCCESS')),
         );
         result =
           processResult.exitCode !== 0 && !hasProductFailure

@@ -19,7 +19,7 @@
     {
       "id": "baseline",
       "path": "test/conformance/baseline/baseline.ts",
-      "digest": "sha256:b5c62f02e0a79e770fa85944eadcae1d1eff31803115fec207041eedaaf436e4"
+      "digest": "sha256:3a684bfc7d74419d7c6bfb38618ace29e7ceca42a2d8b12488deeda17a8d290b"
     },
     {
       "id": "capture-schema",
@@ -44,17 +44,17 @@
     {
       "id": "official-runner",
       "path": "test/conformance/official/officialRunner.ts",
-      "digest": "sha256:38d1530807b10741be9e580ea59a18dba0f30a6a6a54ca4301839271936bc8ac"
+      "digest": "sha256:1b164d8de5896e6f64b3a3394784a6753802728ca4597dfb73dd04fd31147290"
     },
     {
       "id": "matrix-runtime",
       "path": "test/conformance/runtime/matrixRuntime.ts",
-      "digest": "sha256:56ae477e1e7fe1417183bf922134d9e5a6bd0ea4bef587b40e3eab267a0b7f04"
+      "digest": "sha256:67521ae16de7b227728362e5e52d9732fee737b7ec0417e9b982aae277395e0d"
     },
     {
       "id": "foundation-run",
       "path": "test/conformance/foundation/foundationRun.ts",
-      "digest": "sha256:271440dbe6ed6967964dfd2da174b508a9776827be028adff03f635d99ae441d"
+      "digest": "sha256:8f691bafe5efa599c134d8c8ec69ddec9755cde871f50e99d4129ddd0bde589a"
     },
     {
       "id": "typescript-manifest",

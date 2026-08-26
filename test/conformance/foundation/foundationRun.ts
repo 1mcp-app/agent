@@ -50,7 +50,7 @@ export const REQUIRED_TRANSPORT_PROFILES = [
 const transportProfilesSchema = z.array(z.enum(REQUIRED_TRANSPORT_PROFILES));
 const canonicalRevisionSchema = z.enum(['2025-11-25', '2026-07-28']);
 const canonicalOperationsSchema = z.array(
-  z.enum(['server/discover', 'initialize', 'ping', 'tools/list', 'tools/call']),
+  z.enum(['transport/connect', 'server/discover', 'initialize', 'ping', 'tools/list', 'tools/call']),
 );
 type TransportProfile = (typeof REQUIRED_TRANSPORT_PROFILES)[number];
 
@@ -456,11 +456,22 @@ function normalizedMatrixRuns(
       assignmentId: result.assignmentId,
       attempt: 1 as const,
       productVerdict: result.status,
-      reasonCode: result.status === 'pass' ? ('probe-complete' as const) : ('unsupported-operation' as const),
+      reasonCode:
+        result.status === 'pass'
+          ? ('probe-complete' as const)
+          : result.reason === 'gateway_rejected'
+            ? ('gateway-rejected' as const)
+            : ('unsupported-operation' as const),
       executedProfiles: transportProfilesSchema.parse(descriptor.executedProfiles),
       probe: {
-        negotiatedRevision: canonicalRevisionSchema.parse(result.facts.negotiatedRevision),
-        operations: canonicalOperationsSchema.parse(result.facts.operations),
+        negotiatedRevision:
+          result.reason === 'gateway_rejected'
+            ? ('not-negotiated' as const)
+            : canonicalRevisionSchema.parse(result.facts.negotiatedRevision),
+        operations:
+          result.reason === 'gateway_rejected'
+            ? (['transport/connect'] as const)
+            : canonicalOperationsSchema.parse(result.facts.operations),
       },
       evidence: {
         inbound: {
