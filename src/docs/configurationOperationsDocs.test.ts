@@ -42,6 +42,7 @@ function extractCodeBlock(page: string, language: string, requiredContent: strin
 
 describe('configuration and operations documentation', () => {
   it('keeps configuration schemas, recovery, and integration modes aligned', () => {
+    const exampleConfig = applicationConfigSchema.parse(parseToml(readDoc('config.toml.example')));
     const enConfiguration = readDoc('docs/en/guide/essentials/configuration.md');
     const zhConfiguration = readDoc('docs/zh/guide/essentials/configuration.md');
     const enReference = readDoc('docs/en/reference/mcp-servers.md');
@@ -64,6 +65,28 @@ describe('configuration and operations documentation', () => {
     const zhReverseProxy = readDoc('docs/zh/guide/advanced/reverse-proxy.md');
     const enTemplates = readDoc('docs/en/guide/mcp-server-templates.md');
     const zhTemplates = readDoc('docs/zh/guide/mcp-server-templates.md');
+
+    expect(exampleConfig.asyncLoading).toMatchObject({
+      maxConcurrentLoads: 5,
+      maxRetries: 3,
+      retryDelay: 2000,
+      backgroundRetry: { enabled: true, interval: 60000, maxServersPerCycle: 3 },
+    });
+    expect(exampleConfig.admin).toMatchObject({
+      rateLimit: {
+        login: { windowSeconds: 900, maxRequests: 30, maxFailedAttempts: 5 },
+        status: { windowSeconds: 60, maxRequests: 120 },
+        sensitive: { windowSeconds: 900, maxRequests: 10 },
+      },
+      audit: { retentionDays: 30 },
+    });
+    expect(exampleConfig.health?.rateLimit).toEqual({ windowSeconds: 300, maxRequests: 200 });
+    expect(exampleConfig.templateSettings?.pool).toEqual({
+      maxInstancesPerTemplate: 50,
+      maxTotalInstances: 100,
+      idleTimeout: 300000,
+      cleanupInterval: 30000,
+    });
 
     for (const page of [enConfiguration, zhConfiguration]) {
       const inventory = mcpServerConfigSchema.parse(JSON.parse(extractCodeBlock(page, 'json', '"mcpServers"')));

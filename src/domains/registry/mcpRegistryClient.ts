@@ -618,9 +618,7 @@ function parseProxyFromStandardEnv(): RegistryClientOptions['proxy'] | undefined
   return proxyUrl ? { url: proxyUrl } : undefined;
 }
 
-/**
- * Create a registry client instance with CLI options or defaults
- */
+/** Resolve registry client options while preserving CLI-over-default precedence. */
 export function resolveRegistryClientOptions(cliOptions?: RegistryOptions): RegistryClientOptions {
   const testRegistryUrl =
     process.env.NODE_ENV === 'test' && typeof process.env.TEST_MCP_REGISTRY_URL === 'string'
@@ -630,6 +628,7 @@ export function resolveRegistryClientOptions(cliOptions?: RegistryOptions): Regi
   return convertCliOptionsToClientOptions(effectiveOptions);
 }
 
+/** Create a registry client instance with CLI options or defaults. */
 export function createRegistryClient(cliOptions?: RegistryOptions): MCPRegistryClient {
   return new MCPRegistryClient(resolveRegistryClientOptions(cliOptions));
 }

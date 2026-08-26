@@ -1,14 +1,13 @@
 import { cleanupRegistryHandler, handleGetRegistryStatus } from '@src/core/tools/handlers/registryHandler.js';
 import { formatTimestamp } from '@src/domains/registry/formatters/commonFormatters.js';
 import { GetRegistryStatusArgs } from '@src/domains/registry/mcpToolSchemas.js';
-import { RegistryOptions } from '@src/domains/registry/types.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
 import printer from '@src/utils/ui/printer.js';
 
 import type { Arguments, Argv } from 'yargs';
 
-import { RegistryYargsOptions } from './options.js';
+import { registryOptionsFromArgv, RegistryYargsOptions } from './options.js';
 
 export interface RegistryStatusCommandArgs extends Arguments, GlobalOptions, RegistryYargsOptions {
   stats?: boolean;
@@ -46,16 +45,7 @@ export async function registryStatusCommand(argv: RegistryStatusCommandArgs): Pr
       include_stats: argv.stats || false,
     };
 
-    // Extract registry configuration from CLI options
-    const registryOptions: RegistryOptions = {
-      url: argv['url'],
-      timeout: argv['timeout'],
-      cacheTtl: argv['cache-ttl'],
-      cacheMaxSize: argv['cache-max-size'],
-      cacheCleanupInterval: argv['cache-cleanup-interval'],
-      proxy: argv['proxy'],
-      proxyAuth: argv['proxy-auth'],
-    };
+    const registryOptions = registryOptionsFromArgv(argv);
 
     logger.info('Getting MCP registry status...');
     const result = await handleGetRegistryStatus(statusArgs, registryOptions);

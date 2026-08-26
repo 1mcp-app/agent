@@ -36,4 +36,16 @@ describe('registryOptionsFromArgv', () => {
       proxyAuth: undefined,
     });
   });
+
+  it.each([
+    ['url', { url: 'not-a-url' }],
+    ['timeout', { timeout: 0 }],
+    ['cache TTL', { 'cache-ttl': -1 }],
+    ['cache maximum size', { 'cache-max-size': 1.5 }],
+    ['cache cleanup interval', { 'cache-cleanup-interval': 0 }],
+    ['proxy URL', { proxy: 'not-a-url' }],
+    ['proxy authentication', { 'proxy-auth': 'missing-password' }],
+  ])('rejects invalid %s values', (_name, options) => {
+    expect(() => registryOptionsFromArgv(options)).toThrow();
+  });
 });

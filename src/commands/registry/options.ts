@@ -1,5 +1,7 @@
 import type { RegistryOptions } from '@src/domains/registry/types.js';
 
+import { z } from 'zod';
+
 export interface RegistryYargsOptions {
   url?: string;
   timeout?: number;
@@ -9,6 +11,20 @@ export interface RegistryYargsOptions {
   proxy?: string;
   'proxy-auth'?: string;
 }
+
+const positiveInteger = z.number().int().positive();
+const registryYargsOptionsSchema = z.object({
+  url: z.string().url().optional(),
+  timeout: positiveInteger.optional(),
+  'cache-ttl': positiveInteger.optional(),
+  'cache-max-size': positiveInteger.optional(),
+  'cache-cleanup-interval': positiveInteger.optional(),
+  proxy: z.string().url().optional(),
+  'proxy-auth': z
+    .string()
+    .regex(/^[^:]+:.+$/, 'Registry proxy authentication must use username:password')
+    .optional(),
+});
 
 // Registry-specific options
 export const registryOptions = {
@@ -56,14 +72,16 @@ export const registryOptions = {
   },
 } as const;
 
+/** Validate and map the shared registry CLI surface to the domain contract. */
 export function registryOptionsFromArgv(options: RegistryYargsOptions): RegistryOptions {
+  const parsed = registryYargsOptionsSchema.parse(options);
   return {
-    url: options.url,
-    timeout: options.timeout,
-    cacheTtl: options['cache-ttl'],
-    cacheMaxSize: options['cache-max-size'],
-    cacheCleanupInterval: options['cache-cleanup-interval'],
-    proxy: options.proxy,
-    proxyAuth: options['proxy-auth'],
+    url: parsed.url,
+    timeout: parsed.timeout,
+    cacheTtl: parsed['cache-ttl'],
+    cacheMaxSize: parsed['cache-max-size'],
+    cacheCleanupInterval: parsed['cache-cleanup-interval'],
+    proxy: parsed.proxy,
+    proxyAuth: parsed['proxy-auth'],
   };
 }
