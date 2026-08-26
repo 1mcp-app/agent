@@ -69,7 +69,13 @@ def parse_command(value: str) -> list[str]:
     return command
 
 
-async def probe(protocol_era: str, transport_name: str, endpoint: str | None, command_json: str | None) -> None:
+async def probe(
+    protocol_era: str,
+    transport_name: str,
+    endpoint: str | None,
+    command_json: str | None,
+    aggregated: bool,
+) -> None:
     try:
         async with AsyncExitStack() as stack:
             if transport_name == "stdio":
@@ -107,7 +113,19 @@ async def probe(protocol_era: str, transport_name: str, endpoint: str | None, co
                         raise FixtureError("removed-operation-mismatch")
                     operations.append("ping")
                 tools = await client.list_tools(cache_mode="reload")
-                result = await client.call_tool(TOOL_NAME, {"marker": "synthetic-private-argument"})
+                selected_tool_name = TOOL_NAME
+                if aggregated:
+                    selected_tool_name = next(
+                        (
+                            tool.name
+                            for tool in tools.tools
+                            if tool.name == TOOL_NAME or tool.name.endswith(f"_1mcp_{TOOL_NAME}")
+                        ),
+                        "",
+                    )
+                    if not selected_tool_name:
+                        raise FixtureError("aggregated-tool-not-found")
+                result = await client.call_tool(selected_tool_name, {"marker": "synthetic-private-argument"})
                 operations.extend(["tools/list", "tools/call"])
     except FixtureError:
         raise
@@ -172,6 +190,7 @@ def parser() -> argparse.ArgumentParser:
     probe_command.add_argument("--endpoint")
     probe_command.add_argument("--command-json")
     probe_command.add_argument("--protocol-era", choices=("legacy", "modern"), default="legacy")
+    probe_command.add_argument("--aggregated", action="store_true")
     return cli
 
 
@@ -185,7 +204,15 @@ def run(argv: Sequence[str]) -> None:
         else:
             asyncio.run(serve_streamable_http(arguments.protocol_era))
     elif arguments.command == "probe":
-        asyncio.run(probe(arguments.protocol_era, arguments.transport, arguments.endpoint, arguments.command_json))
+        asyncio.run(
+            probe(
+                arguments.protocol_era,
+                arguments.transport,
+                arguments.endpoint,
+                arguments.command_json,
+                arguments.aggregated,
+            )
+        )
     else:
         raise FixtureError("usage")
 

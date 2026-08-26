@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime/debug"
+	"strings"
 	"syscall"
 	"time"
 
@@ -210,6 +211,7 @@ func runProbe(args []string) error {
 	endpoint := flags.String("endpoint", "", "streamable HTTP endpoint")
 	commandJSON := flags.String("command-json", "", "stdio command as a JSON string array")
 	protocolEra := flags.String("protocol-era", "legacy", "protocol era")
+	aggregated := flags.Bool("aggregated", false, "use the matching aggregated tool name")
 	if err := flags.Parse(args); err != nil {
 		return errors.New("invalid-arguments")
 	}
@@ -283,8 +285,21 @@ func runProbe(args []string) error {
 	if err != nil {
 		return errors.New("tools-list-failed")
 	}
+	selectedToolName := toolName
+	if *aggregated {
+		selectedToolName = ""
+		for _, tool := range tools.Tools {
+			if tool.Name == toolName || strings.HasSuffix(tool.Name, "_1mcp_"+toolName) {
+				selectedToolName = tool.Name
+				break
+			}
+		}
+		if selectedToolName == "" {
+			return errors.New("aggregated-tool-not-found")
+		}
+	}
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name: toolName, Arguments: map[string]any{"marker": "synthetic-private-argument"},
+		Name: selectedToolName, Arguments: map[string]any{"marker": "synthetic-private-argument"},
 	})
 	if err != nil {
 		return errors.New("tools-call-failed")

@@ -96,17 +96,48 @@ const ProbeUnsupportedSchema = z
       .max(64)
       .regex(/^[a-z0-9][a-z0-9/._-]*$/u),
     negotiatedRevision: RevisionSchema,
+    operations: z
+      .array(z.enum(['server/discover', 'initialize', 'ping', 'tools/list', 'tools/call']))
+      .min(1)
+      .max(5),
   })
   .strict();
 
-const UpstreamReadySchema = z
+const PeerProbeSchema = z
   .object({
-    endpoint: z.string().url(),
     fixtureId: SafeIdSchema,
-    ready: z.literal(true),
     transport: SafeIdSchema,
+    protocolEra: EraSchema,
+    ok: z.boolean(),
+    classification: z.literal('unsupported-operation').optional(),
+    unsupported: z
+      .array(
+        z
+          .object({
+            operation: z.enum(['initialize', 'ping']),
+            reason: z.enum(['modern-uses-server-discover', 'not-in-2026-07-28']),
+          })
+          .strict(),
+      )
+      .optional(),
+    initialized: z.boolean(),
+    ping: z.boolean(),
+    negotiatedRevision: RevisionSchema,
+    operations: z
+      .array(z.enum(['server/discover', 'initialize', 'ping', 'tools/list', 'tools/call']))
+      .min(1)
+      .max(5),
+    toolsCount: z.number().int().nonnegative().max(100_000),
+    callError: z.boolean(),
   })
   .strict();
+
+const UpstreamReadySchema = z.object({
+  endpoint: z.string().url(),
+  fixtureId: SafeIdSchema,
+  ready: z.literal(true),
+  transport: SafeIdSchema,
+});
 
 export const MatrixAssignmentDescriptorSchema = z
   .object({
@@ -408,6 +439,36 @@ async function runProbe(
   if (success.success) return success.data;
   const unsupported = ProbeUnsupportedSchema.safeParse(value);
   if (unsupported.success) return unsupported.data;
+  const peer = PeerProbeSchema.safeParse(value);
+  if (peer.success) {
+    if (!peer.data.ok) {
+      const unsupportedOperation = peer.data.unsupported?.[0]?.operation;
+      if (peer.data.classification !== 'unsupported-operation' || !unsupportedOperation) {
+        throw new RuntimeFault('fixture', 'probe_output_invalid');
+      }
+      return {
+        fixtureId: peer.data.fixtureId,
+        transport: peer.data.transport,
+        status: 'unsupported',
+        unsupportedOperation,
+        negotiatedRevision: peer.data.negotiatedRevision,
+        operations: peer.data.operations,
+      };
+    }
+    if (peer.data.classification || peer.data.unsupported?.length || !peer.data.initialized || !peer.data.ping) {
+      throw new RuntimeFault('fixture', 'probe_output_invalid');
+    }
+    return {
+      fixtureId: peer.data.fixtureId,
+      transport: peer.data.transport,
+      initialized: true,
+      ping: true,
+      negotiatedRevision: peer.data.negotiatedRevision,
+      operations: peer.data.operations,
+      toolsCount: peer.data.toolsCount,
+      callError: peer.data.callError,
+    };
+  }
   throw new RuntimeFault('fixture', 'probe_output_invalid');
 }
 
@@ -557,6 +618,9 @@ export async function executeMatrixAssignment(input: MatrixExecutionOptions): Pr
       runtimeScope,
       options.timeouts.probeMs,
     );
+    if (probeFacts.negotiatedRevision !== options.revisions.inbound) {
+      throw new RuntimeFault('harness', 'wire_evidence_invalid');
+    }
     await new Promise<void>((resolve) => setImmediate(resolve));
     const evidence = { inbound: inboundCapture.snapshot(), upstream: upstreamCapture.snapshot() };
     if (!evidenceIsValid(evidence.inbound) || !evidenceIsValid(evidence.upstream)) {

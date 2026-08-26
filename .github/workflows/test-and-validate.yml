@@ -125,6 +125,60 @@ jobs:
         env:
           CI: true
 
+  test-conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.ref_type != 'tag'
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.checkout_ref || github.ref }}
+          persist-credentials: false
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.0'
+          cache-dependency-path: test/conformance/fixtures/go/go.sum
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13.0'
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: '0.11.32'
+          enable-cache: true
+          cache-dependency-glob: test/conformance/fixtures/python/uv.lock
+
+      - name: Sync frozen Python fixture
+        working-directory: test/conformance/fixtures/python
+        run: uv sync --frozen --no-dev
+
+      - name: Install frozen TypeScript peer fixtures
+        working-directory: test/conformance/fixtures/typescript
+        run: pnpm install --ignore-workspace --frozen-lockfile
+
+      - name: Run no-retry conformance baseline and focused transports
+        run: pnpm test:conformance -- --reporter=minimal
+        env:
+          CI: true
+
+      - name: Upload exact-source conformance evidence
+        if: success()
+        uses: actions/upload-artifact@v6
+        with:
+          name: conformance-${{ github.sha }}
+          path: .tmp/conformance/conformance-baseline.json
+          if-no-files-found: error
+
   test-e2e-browser:
     runs-on: ubuntu-latest
     timeout-minutes: 15

@@ -1,0 +1,110 @@
+{
+  "schemaVersion": 1,
+  "artifacts": [
+    {
+      "id": "command-runner",
+      "path": "scripts/run-conformance.mjs",
+      "digest": "sha256:bce1deb8afe43211a8f6f2b3051edd3ab700dcfe0f1358a42e7aca1ff61133b0"
+    },
+    {
+      "id": "vitest-conformance",
+      "path": "vitest.conformance.config.ts",
+      "digest": "sha256:7dbee309708fe8178a59facd806ee2f081d99bf0ef0cbc761e59e34e3d1f086d"
+    },
+    {
+      "id": "vitest-transports",
+      "path": "vitest.conformance-transports.config.ts",
+      "digest": "sha256:53239ea7dde66c926e8629814d4bb58a5515685fcfa14694d1dd6819368b3f57"
+    },
+    {
+      "id": "baseline",
+      "path": "test/conformance/baseline/baseline.ts",
+      "digest": "sha256:fcf00ebed9f8606b74810b37e01ab129eb65251f313bb485af4b5a260dd6e07e"
+    },
+    {
+      "id": "capture-schema",
+      "path": "test/conformance/capture/sanitizedWireEvidence.ts",
+      "digest": "sha256:8cf7ee39d45424b73add67ac3ceb0a08d4f05e815b2d14f4a6c4f74d173c427e"
+    },
+    {
+      "id": "capture-http",
+      "path": "test/conformance/capture/httpWireTap.ts",
+      "digest": "sha256:30c257fd7524e81269ea6053606ad39d448ba6829ba73b51d003118331cebc30"
+    },
+    {
+      "id": "capture-stdio",
+      "path": "test/conformance/capture/stdioWireTap.ts",
+      "digest": "sha256:30be9bf841f2672cd09a967d442288a4370cf006dcaddafb876e33d808bdacc9"
+    },
+    {
+      "id": "integrity-verifier",
+      "path": "test/conformance/integrity/index.ts",
+      "digest": "sha256:9c09064c868b28964534518b44d106eb31fa853bc578df03136c8b20b55a3876"
+    },
+    {
+      "id": "official-runner",
+      "path": "test/conformance/official/officialRunner.ts",
+      "digest": "sha256:38d1530807b10741be9e580ea59a18dba0f30a6a6a54ca4301839271936bc8ac"
+    },
+    {
+      "id": "matrix-runtime",
+      "path": "test/conformance/runtime/matrixRuntime.ts",
+      "digest": "sha256:56ae477e1e7fe1417183bf922134d9e5a6bd0ea4bef587b40e3eab267a0b7f04"
+    },
+    {
+      "id": "foundation-run",
+      "path": "test/conformance/foundation/foundationRun.ts",
+      "digest": "sha256:298a18b4a1323f9f21d62792847e62eb40c5f5019df0ee81195ee38d18bd6397"
+    },
+    {
+      "id": "typescript-manifest",
+      "path": "test/conformance/fixtures/typescript/package.json",
+      "digest": "sha256:a2582a4cac94ebb0b59db82a804337d04ea03877e9341a627fbaed57424adc70"
+    },
+    {
+      "id": "typescript-lock",
+      "path": "test/conformance/fixtures/typescript/pnpm-lock.yaml",
+      "digest": "sha256:b0ac81c509c6da6caa3851984cc3237faad48d6ce16c236fb5a3a49fd7596d4a"
+    },
+    {
+      "id": "typescript-constants",
+      "path": "test/conformance/fixtures/typescript/src/constants.mjs",
+      "digest": "sha256:eab51a7f7505dc22bfaf3b88d38dc031cd45769473d37f9d4b597f5fb7df9205"
+    },
+    {
+      "id": "typescript-driver",
+      "path": "test/conformance/fixtures/typescript/src/fixture.mjs",
+      "digest": "sha256:cbdb0922db2685b4b6f372c87d8e390e212c6c8ea8a20b8a04fb0f6df5bdfa14"
+    },
+    {
+      "id": "typescript-self-check",
+      "path": "test/conformance/fixtures/typescript/src/self-check.mjs",
+      "digest": "sha256:89e28c40b9d28ebfd787e1ed9d9bd419fea301ebc541f33f0b8a144969637bb7"
+    },
+    {
+      "id": "typescript-v1",
+      "path": "test/conformance/fixtures/typescript/src/eras/v1.mjs",
+      "digest": "sha256:f6a8f9b420e77436242f12ad5b85680356ccfb5ddaaa257b3ec3cd96c89199ac"
+    },
+    {
+      "id": "typescript-v2",
+      "path": "test/conformance/fixtures/typescript/src/eras/v2.mjs",
+      "digest": "sha256:e63744f35e6381910ad6354e5d8534c930bff5be17f21a28391d927de936c72d"
+    },
+    {
+      "id": "go-driver",
+      "path": "test/conformance/fixtures/go/main.go",
+      "digest": "sha256:ddc3e9b4638ed72a688029e245f463344dd561cd72c05c416ce2e3f1723e8e05"
+    },
+    {
+      "id": "python-driver",
+      "path": "test/conformance/fixtures/python/driver.py",
+      "digest": "sha256:6c32c426600acd2023eb08beb069b8e72fa1f32625f4667f138d489dd0a4131e"
+    },
+    {
+      "id": "ci-lane",
+      "path": ".github/workflows/test-and-validate.yml",
+      "digest": "sha256:b0797140a4d80f85c2354d4c3afc9edeb40f60b8c965649d32bba93e190bca59"
+    }
+  ]
+}

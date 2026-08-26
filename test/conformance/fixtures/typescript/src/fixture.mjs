@@ -23,6 +23,8 @@ function parseCli() {
       endpoint: { type: 'string' },
       command: { type: 'string' },
       arg: { type: 'string', multiple: true },
+      aggregated: { type: 'boolean' },
+      'runtime-output': { type: 'boolean' },
     },
   });
 }
@@ -62,7 +64,16 @@ async function runServer(values) {
   process.once('SIGTERM', () => void shutdown().then(() => process.exit(0)));
 
   if (transport !== 'stdio') {
-    writeJson(process.stdout, { kind: 'ready', sdkEra, transport, host: '127.0.0.1', port: close.port });
+    writeJson(process.stdout, {
+      kind: 'ready',
+      fixtureId: `typescript-${sdkEra}`,
+      ready: true,
+      sdkEra,
+      transport,
+      host: '127.0.0.1',
+      port: close.port,
+      endpoint: `http://127.0.0.1:${close.port}/mcp`,
+    });
   }
 }
 
@@ -108,10 +119,39 @@ async function runProbe(values) {
       unsupported.push({ operation: 'ping', reason: 'not-in-2026-07-28' });
     }
     const listed = await client.listTools();
+    const toolName = values.aggregated
+      ? listed.tools.find((tool) => tool.name === TOOL_NAME || tool.name.endsWith(`_1mcp_${TOOL_NAME}`))?.name
+      : TOOL_NAME;
+    if (!toolName) throw new Error('AGGREGATED_TOOL_NOT_FOUND');
     const called = await client.callTool({
-      name: TOOL_NAME,
+      name: toolName,
       arguments: { marker: TOOL_INPUT_SENTINEL },
     });
+    if (values['runtime-output']) {
+      const negotiatedRevision = protocolEra === 'modern' ? '2026-07-28' : '2025-11-25';
+      if (unsupported.length > 0) {
+        writeJson(process.stdout, {
+          fixtureId: `typescript-${sdkEra}`,
+          transport,
+          status: 'unsupported',
+          unsupportedOperation: unsupported[0].operation,
+          negotiatedRevision,
+          operations: ['server/discover', 'tools/list', 'tools/call'],
+        });
+      } else {
+        writeJson(process.stdout, {
+          fixtureId: `typescript-${sdkEra}`,
+          transport,
+          initialized,
+          ping,
+          negotiatedRevision,
+          operations: ['initialize', 'ping', 'tools/list', 'tools/call'],
+          toolsCount: listed.tools.length,
+          callError: called.isError === true,
+        });
+      }
+      return;
+    }
     writeJson(process.stdout, {
       kind: 'probe',
       ok: unsupported.length === 0,
