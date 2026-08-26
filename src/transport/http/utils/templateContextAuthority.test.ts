@@ -1,12 +1,58 @@
+import * as templateContextTrust from '@src/core/context/templateContextTrust.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
 import type { ContextData } from '@src/types/context.js';
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  authorizeRequestTemplateContext,
   redactContextForAudit,
   redactTemplateContextBodyForLogging,
   redactTemplateContextQueryForLogging,
 } from './templateContextAuthority.js';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe('template context session policy', () => {
+  it('uses the same effective TTL for transport sessions and proof verification', () => {
+    const sessionTtlMinutes = 37;
+    vi.spyOn(AgentConfigManager, 'getInstance').mockReturnValue({
+      get: vi.fn((key: string) => {
+        if (key === 'features') return { sessionPersistence: false };
+        if (key === 'sessionPersistence') return { backgroundFlushSeconds: 60 };
+        if (key === 'templateContext') return { trust: 'disabled' };
+        if (key === 'runtimeScopeStoragePath') return undefined;
+        if (key === 'auth') return { sessionTtlMinutes };
+        return undefined;
+      }),
+      getSessionBackgroundFlushSeconds: vi.fn(() => 60),
+      getSessionTtlMinutes: vi.fn(() => sessionTtlMinutes),
+    } as unknown as AgentConfigManager);
+    const context: ContextData = {
+      project: { name: 'agent', path: '/work/agent' },
+      user: {},
+      environment: {},
+      sessionId: 'session-a',
+    };
+    const authorizeSpy = vi.spyOn(templateContextTrust, 'authorizeTemplateContext').mockReturnValue({
+      status: 'disabled',
+      reason: 'trust_disabled',
+      contextHash: 'context-hash',
+    });
+    const repository = new StreamableSessionRepository({ writeData: vi.fn() } as never);
+    const now = Date.now();
+
+    repository.create('session-a', { context });
+    authorizeRequestTemplateContext({ source: 'persisted', context, transportSessionId: 'session-a' });
+
+    expect(repository.getSessionData('session-a')?.expires).toBeGreaterThanOrEqual(now + sessionTtlMinutes * 60 * 1000);
+    expect(authorizeSpy).toHaveBeenCalledWith(expect.objectContaining({ maxAgeMs: sessionTtlMinutes * 60 * 1000 }));
+    repository.stopPeriodicFlush();
+  });
+});
 
 describe('template context audit redaction', () => {
   it('keeps useful structure while redacting environment, custom, and user values', () => {

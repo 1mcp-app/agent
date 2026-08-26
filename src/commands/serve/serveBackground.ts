@@ -31,6 +31,7 @@ import { normalizedArgv } from '@src/utils/cli/normalizedArgv.js';
 
 import { resolveServeConfigPaths } from './runtimeScope.js';
 import type { ServeOptions } from './serve.js';
+import type { AsyncLoadingCliOptions } from './asyncLoadingOptions.js';
 
 /**
  * `serve --background`: start a detached persistent supervisor for the selected
@@ -72,6 +73,12 @@ const BACKGROUND_STARTUP_OPTION_KEYS = [
   'enable-async-loading',
   'async-min-servers',
   'async-timeout',
+  'async-max-concurrent-loads',
+  'async-max-retries',
+  'async-retry-delay',
+  'async-background-retry',
+  'async-background-retry-interval',
+  'async-background-retry-max-servers',
   'async-batch-notifications',
   'async-batch-delay',
   'async-notify-on-snapshot',
@@ -99,7 +106,7 @@ const BACKGROUND_STARTUP_OPTION_KEYS = [
   'enable-internal-tools',
   'internal-tools',
   'instructions-template',
-] as const satisfies readonly (keyof ServeOptions)[];
+] as const satisfies readonly (keyof ServeOptions | keyof AsyncLoadingCliOptions)[];
 
 /** Default log file for a background runtime when none is configured. */
 export function defaultBackgroundLogFile(configDir: string): string {
@@ -107,7 +114,10 @@ export function defaultBackgroundLogFile(configDir: string): string {
 }
 
 /** Materialize parsed CLI, environment, and default values for the supervisor. */
-export function buildBackgroundSupervisorArgs(parsedArgv: ServeOptions, opts: { logFile: string }): string[] {
+export function buildBackgroundSupervisorArgs(
+  parsedArgv: ServeOptions & AsyncLoadingCliOptions,
+  opts: { logFile: string },
+): string[] {
   const args: string[] = [];
   for (const key of BACKGROUND_STARTUP_OPTION_KEYS) {
     if (key === 'transport' || key === 'log-file') continue;

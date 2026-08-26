@@ -49,7 +49,11 @@ import type {
   BackendLogSourceUpdate,
 } from '@src/domains/backend-logs/backendLogTypes.js';
 import type { InstructionTemplateMutationResult } from '@src/domains/instruction-template/instructionTemplateManager.js';
-import { sensitiveOperationLimiter } from '@src/transport/http/middlewares/securityMiddleware.js';
+import {
+  createSensitiveOperationLimiter,
+  DEFAULT_SENSITIVE_OPERATION_RATE_LIMIT_POLICY,
+  type SensitiveOperationRateLimitPolicy,
+} from '@src/transport/http/middlewares/securityMiddleware.js';
 import { sanitizeErrorMessage } from '@src/utils/validation/sanitization.js';
 
 import express, { Request, Response, Router } from 'express';
@@ -183,6 +187,32 @@ interface CliAdminEnvelope {
   [key: string]: unknown;
 }
 
+export interface AdminRateLimitPolicy {
+  login: {
+    windowMs: number;
+    maxRequests: number;
+    maxFailedAttempts: number;
+  };
+  status: {
+    windowMs: number;
+    maxRequests: number;
+  };
+  sensitive: SensitiveOperationRateLimitPolicy;
+}
+
+export const DEFAULT_ADMIN_RATE_LIMIT_POLICY: AdminRateLimitPolicy = {
+  login: {
+    windowMs: ADMIN_AUTH_RATE_LIMIT_WINDOW_MS,
+    maxRequests: ADMIN_AUTH_RATE_LIMIT,
+    maxFailedAttempts: FAILED_LOGIN_LIMIT,
+  },
+  status: {
+    windowMs: ADMIN_STATUS_RATE_LIMIT_WINDOW_MS,
+    maxRequests: ADMIN_STATUS_RATE_LIMIT,
+  },
+  sensitive: { ...DEFAULT_SENSITIVE_OPERATION_RATE_LIMIT_POLICY },
+};
+
 interface AdminRoutesOptions {
   adminEnabled: boolean;
   adminService: AdminIdentityService;
@@ -196,6 +226,7 @@ interface AdminRoutesOptions {
   getOAuthDashboard?: () => BackendOAuthDashboardResult;
   adminConsoleAssetsDir?: string;
   getBackendLogBroker?: () => BackendLogBroker;
+  rateLimit?: AdminRateLimitPolicy;
 }
 
 export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
@@ -205,19 +236,26 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
   }
 
   const router = Router();
-  const failedLoginLimiter = new FailedLoginLimiter();
+  const rateLimitPolicy = options.rateLimit ?? DEFAULT_ADMIN_RATE_LIMIT_POLICY;
+  const failedLoginLimiter = new FailedLoginLimiter(
+    Date.now,
+    FAILED_LOGIN_MAX_ACTIVE_KEYS,
+    rateLimitPolicy.login.windowMs,
+    rateLimitPolicy.login.maxFailedAttempts,
+  );
   const authenticationLimiter = rateLimit({
-    windowMs: ADMIN_AUTH_RATE_LIMIT_WINDOW_MS,
-    max: ADMIN_AUTH_RATE_LIMIT,
+    windowMs: rateLimitPolicy.login.windowMs,
+    max: rateLimitPolicy.login.maxRequests,
     standardHeaders: true,
     legacyHeaders: false,
   });
   const statusLimiter = rateLimit({
-    windowMs: ADMIN_STATUS_RATE_LIMIT_WINDOW_MS,
-    max: ADMIN_STATUS_RATE_LIMIT,
+    windowMs: rateLimitPolicy.status.windowMs,
+    max: rateLimitPolicy.status.maxRequests,
     standardHeaders: true,
     legacyHeaders: false,
   });
+  const sensitiveOperationLimiter = createSensitiveOperationLimiter(rateLimitPolicy.sensitive);
   const adminConsoleAssets = resolveAdminConsoleAssets(options.adminConsoleAssetsDir);
   options.adminService.bootstrapFirstAdminFromEnvironment();
 
@@ -1890,13 +1928,14 @@ export class FailedLoginLimiter {
     private readonly now: () => number = Date.now,
     private readonly maxActiveKeys = FAILED_LOGIN_MAX_ACTIVE_KEYS,
     private readonly windowMs = FAILED_LOGIN_WINDOW_MS,
+    private readonly maxFailedAttempts = FAILED_LOGIN_LIMIT,
   ) {}
 
   isLimited(username: string, origin: string): boolean {
     this.pruneExpired();
     const attempt = this.getAttempt(username, origin);
     if (attempt) {
-      return attempt.count >= FAILED_LOGIN_LIMIT;
+      return attempt.count >= this.maxFailedAttempts;
     }
     return this.attempts.size >= this.maxActiveKeys;
   }
@@ -1950,7 +1989,7 @@ function isUnsafeMethod(method: string): boolean {
 }
 
 function getLoginSource(req: Request): string {
-  return req.ip ?? req.socket.remoteAddress ?? req.header('origin') ?? 'unknown';
+  return req.ip ?? 'unknown';
 }
 
 function setAdminSessionCookie(res: Response, externalUrl: string, sessionToken: string, expiresAt: string): void {

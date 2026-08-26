@@ -17,10 +17,23 @@ function isBackendSupervisionSummary(value: BackendSupervisionHealth): value is 
   return typeof (value as BackendSupervisionSummary).total === 'number';
 }
 
+export interface HealthRateLimitPolicy {
+  windowMs: number;
+  maxRequests: number;
+}
+
+export const DEFAULT_HEALTH_RATE_LIMIT_POLICY: HealthRateLimitPolicy = {
+  windowMs: 5 * 60 * 1000,
+  maxRequests: 200,
+};
+
 /**
  * Creates health check routes
  */
-export function createHealthRoutes(loadingManager?: McpLoadingManager): Router {
+export function createHealthRoutes(
+  loadingManager?: McpLoadingManager,
+  rateLimitPolicy: HealthRateLimitPolicy = DEFAULT_HEALTH_RATE_LIMIT_POLICY,
+): Router {
   const router: Router = Router();
   const healthService = HealthService.getInstance();
   const getBackendSupervision = (): Record<string, BackendSupervisionSnapshot> => {
@@ -36,8 +49,8 @@ export function createHealthRoutes(loadingManager?: McpLoadingManager): Router {
   // Rate limiter for health endpoints - more permissive than OAuth endpoints
   const createHealthLimiter = () => {
     return rateLimit({
-      windowMs: 5 * 60 * 1000, // 5 minutes
-      max: 200, // max requests per window per IP (higher limit for monitoring)
+      windowMs: rateLimitPolicy.windowMs,
+      max: rateLimitPolicy.maxRequests,
       standardHeaders: true,
       legacyHeaders: false,
       message: {

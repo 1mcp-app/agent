@@ -12,19 +12,32 @@ export interface ClientPoolOptions {
   maxInstances?: number;
   /** Time in milliseconds to wait before terminating idle instances */
   idleTimeout?: number;
-  /** Interval in milliseconds to run cleanup checks */
+  /** @deprecated Cleanup is owned by TemplateServerManager. */
   cleanupInterval?: number;
-  /** Maximum total instances across all templates (0 = unlimited) */
+  /** Maximum total instances across all templates */
   maxTotalInstances?: number;
 }
+
+export interface TemplateInstancePoolPolicy {
+  maxInstancesPerTemplate: number;
+  maxTotalInstances: number;
+  idleTimeoutMs: number;
+  cleanupIntervalMs: number;
+}
+
+export const DEFAULT_TEMPLATE_INSTANCE_POOL_POLICY: TemplateInstancePoolPolicy = {
+  maxInstancesPerTemplate: 50,
+  maxTotalInstances: 100,
+  idleTimeoutMs: 5 * 60 * 1000,
+  cleanupIntervalMs: 30 * 1000,
+};
 
 /**
  * Default pool configuration
  */
 export const DEFAULT_POOL_OPTIONS: ClientPoolOptions = {
-  maxInstances: 10,
-  idleTimeout: 5 * 60 * 1000,
-  cleanupInterval: 60 * 1000,
+  maxInstances: DEFAULT_TEMPLATE_INSTANCE_POOL_POLICY.maxInstancesPerTemplate,
+  idleTimeout: DEFAULT_TEMPLATE_INSTANCE_POOL_POLICY.idleTimeoutMs,
   maxTotalInstances: 100,
 };
 

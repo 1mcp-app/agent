@@ -1,13 +1,13 @@
 import { cleanupVersionsHandler, handleListMCPServerVersions } from '@src/core/tools/handlers/versionsHandler.js';
 import { formatServerVersions } from '@src/domains/registry/formatters/versionsFormatter.js';
-import { OutputFormat, RegistryOptions, VersionsCommandArgs } from '@src/domains/registry/types.js';
+import { OutputFormat, VersionsCommandArgs } from '@src/domains/registry/types.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
 import printer from '@src/utils/ui/printer.js';
 
 import type { Arguments, Argv } from 'yargs';
 
-import { RegistryYargsOptions } from './options.js';
+import { registryOptionsFromArgv, RegistryYargsOptions } from './options.js';
 
 export interface VersionsCommandCliArgs extends Arguments, GlobalOptions, RegistryYargsOptions {
   serverId: string;
@@ -51,16 +51,7 @@ export async function versionsCommand(argv: VersionsCommandCliArgs): Promise<voi
       format: argv.format || 'table',
     };
 
-    // Extract registry configuration from CLI options
-    const registryOptions: RegistryOptions = {
-      url: argv['url'],
-      timeout: argv['timeout'],
-      cacheTtl: argv['cache-ttl'],
-      cacheMaxSize: argv['cache-max-size'],
-      cacheCleanupInterval: argv['cache-cleanup-interval'],
-      proxy: argv['proxy'],
-      proxyAuth: argv['proxy-auth'],
-    };
+    const registryOptions = registryOptionsFromArgv(argv);
 
     logger.info(`Fetching versions for MCP server: ${versionsArgs.serverId}`);
     const versionsResponse = await handleListMCPServerVersions(versionsArgs, registryOptions);

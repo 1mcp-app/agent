@@ -1,7 +1,18 @@
+import {
+  DEFAULT_BACKEND_LOADING_POLICY,
+  type BackendLoadingPolicy,
+} from '@src/core/loading/backendLoadingPolicy.js';
+
 export interface AsyncLoadingCliOptions {
   'enable-async-loading'?: boolean;
   'async-min-servers'?: number;
   'async-timeout'?: number;
+  'async-max-concurrent-loads'?: number;
+  'async-max-retries'?: number;
+  'async-retry-delay'?: number;
+  'async-background-retry'?: boolean;
+  'async-background-retry-interval'?: number;
+  'async-background-retry-max-servers'?: number;
   'async-batch-notifications'?: boolean;
   'async-batch-delay'?: number;
   'async-notify-on-snapshot'?: boolean;
@@ -12,6 +23,14 @@ export interface AsyncLoadingAppOptions {
   enabled?: boolean;
   minServers?: number;
   timeout?: number;
+  maxConcurrentLoads?: number;
+  maxRetries?: number;
+  retryDelay?: number;
+  backgroundRetry?: {
+    enabled?: boolean;
+    interval?: number;
+    maxServersPerCycle?: number;
+  };
   batchNotifications?: boolean;
   batchDelay?: number;
 }
@@ -23,6 +42,7 @@ export interface ResolvedAsyncLoadingOptions {
   initialLoadTimeoutMs: number;
   batchNotifications: boolean;
   batchDelayMs: number;
+  loadingPolicy: BackendLoadingPolicy;
 }
 
 const DEPRECATED_INPUTS = {
@@ -30,6 +50,14 @@ const DEPRECATED_INPUTS = {
     '`--async-min-servers`, `ONE_MCP_ASYNC_MIN_SERVERS`, and `asyncLoading.minServers` are deprecated compatibility no-ops',
   timeout: '`--async-timeout`, `ONE_MCP_ASYNC_TIMEOUT`, and `asyncLoading.timeout` are deprecated compatibility no-ops',
 } as const;
+
+function requireInteger(name: string, value: number, minimum: number): number {
+  if (!Number.isInteger(value) || value < minimum) {
+    const requirement = minimum === 0 ? 'a non-negative integer' : `an integer of at least ${minimum}`;
+    throw new Error(`${name} must be ${requirement}.`);
+  }
+  return value;
+}
 
 /**
  * Resolve async-loading controls without treating compatibility settings as
@@ -57,6 +85,38 @@ export function resolveAsyncLoadingOptions(
     throw new Error('Async notification batch delay must be a non-negative integer number of milliseconds.');
   }
 
+  const maxConcurrentLoads = requireInteger(
+    'Async maximum concurrent loads',
+    cliOptions['async-max-concurrent-loads'] ??
+      appOptions?.maxConcurrentLoads ??
+      DEFAULT_BACKEND_LOADING_POLICY.maxConcurrentLoads,
+    1,
+  );
+  const maxRetries = requireInteger(
+    'Async maximum retries',
+    cliOptions['async-max-retries'] ?? appOptions?.maxRetries ?? DEFAULT_BACKEND_LOADING_POLICY.maxRetries,
+    0,
+  );
+  const retryDelayMs = requireInteger(
+    'Async retry delay',
+    cliOptions['async-retry-delay'] ?? appOptions?.retryDelay ?? DEFAULT_BACKEND_LOADING_POLICY.retryDelayMs,
+    0,
+  );
+  const backgroundRetryIntervalMs = requireInteger(
+    'Async background retry interval',
+    cliOptions['async-background-retry-interval'] ??
+      appOptions?.backgroundRetry?.interval ??
+      DEFAULT_BACKEND_LOADING_POLICY.backgroundRetryIntervalMs,
+    1000,
+  );
+  const backgroundRetryMaxServersPerCycle = requireInteger(
+    'Async background retry maximum servers per cycle',
+    cliOptions['async-background-retry-max-servers'] ??
+      appOptions?.backgroundRetry?.maxServersPerCycle ??
+      DEFAULT_BACKEND_LOADING_POLICY.backgroundRetryMaxServersPerCycle,
+    1,
+  );
+
   return {
     enabled: cliOptions['enable-async-loading'] ?? appOptions?.enabled ?? false,
     // The canonical spelling wins when both it and the compatibility alias are explicit.
@@ -66,5 +126,16 @@ export function resolveAsyncLoadingOptions(
     initialLoadTimeoutMs: 30000,
     batchNotifications: cliOptions['async-batch-notifications'] ?? appOptions?.batchNotifications ?? true,
     batchDelayMs,
+    loadingPolicy: {
+      maxConcurrentLoads,
+      maxRetries,
+      retryDelayMs,
+      enableBackgroundRetry:
+        cliOptions['async-background-retry'] ??
+        appOptions?.backgroundRetry?.enabled ??
+        DEFAULT_BACKEND_LOADING_POLICY.enableBackgroundRetry,
+      backgroundRetryIntervalMs,
+      backgroundRetryMaxServersPerCycle,
+    },
   };
 }

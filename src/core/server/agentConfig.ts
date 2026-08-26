@@ -1,5 +1,10 @@
 import { AUTH_CONFIG, HOST, PORT, RATE_LIMIT_CONFIG, STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
 import type { TemplateContextTrustMode } from '@src/core/context/templateContextTrust.js';
+import { type BackendLoadingPolicy, DEFAULT_BACKEND_LOADING_POLICY } from '@src/core/loading/backendLoadingPolicy.js';
+import {
+  DEFAULT_TEMPLATE_INSTANCE_POOL_POLICY,
+  type TemplateInstancePoolPolicy,
+} from '@src/core/server/clientInstancePoolTypes.js';
 
 /**
  * Deep merge utility for nested objects
@@ -37,10 +42,17 @@ export interface AgentConfig {
   trustProxy: string | boolean;
   admin: {
     enabled: boolean;
+    rateLimit: {
+      login: { windowMs: number; maxRequests: number; maxFailedAttempts: number };
+      status: { windowMs: number; maxRequests: number };
+      sensitive: { windowMs: number; maxRequests: number };
+    };
+    audit: { retentionMs: number };
   };
   templateContext: {
     trust: TemplateContextTrustMode;
   };
+  templateInstancePool: TemplateInstancePoolPolicy;
   auth: {
     enabled: boolean;
     sessionTtlMinutes: number;
@@ -66,6 +78,7 @@ export interface AgentConfig {
   };
   health: {
     detailLevel: 'full' | 'basic' | 'minimal';
+    rateLimit: { windowMs: number; maxRequests: number };
   };
   asyncLoading: {
     enabled: boolean;
@@ -74,6 +87,7 @@ export interface AgentConfig {
     initialLoadTimeoutMs: number;
     batchNotifications: boolean;
     batchDelayMs: number;
+    loadingPolicy: BackendLoadingPolicy;
   };
   lazyLoading: {
     enabled: boolean;
@@ -137,10 +151,17 @@ export class AgentConfigManager {
       trustProxy: 'loopback',
       admin: {
         enabled: true,
+        rateLimit: {
+          login: { windowMs: 15 * 60 * 1000, maxRequests: 30, maxFailedAttempts: 5 },
+          status: { windowMs: 60 * 1000, maxRequests: 120 },
+          sensitive: { windowMs: 15 * 60 * 1000, maxRequests: 10 },
+        },
+        audit: { retentionMs: 30 * 24 * 60 * 60 * 1000 },
       },
       templateContext: {
         trust: 'verified',
       },
+      templateInstancePool: { ...DEFAULT_TEMPLATE_INSTANCE_POOL_POLICY },
       auth: {
         enabled: AUTH_CONFIG.SERVER.DEFAULT_ENABLED,
         sessionTtlMinutes: AUTH_CONFIG.SERVER.SESSION.TTL_MINUTES,
@@ -166,6 +187,7 @@ export class AgentConfigManager {
       },
       health: {
         detailLevel: 'minimal',
+        rateLimit: { windowMs: 5 * 60 * 1000, maxRequests: 200 },
       },
       asyncLoading: {
         enabled: false, // Default: disabled (opt-in behavior)
@@ -174,6 +196,7 @@ export class AgentConfigManager {
         initialLoadTimeoutMs: 30000, // 30 seconds
         batchNotifications: true,
         batchDelayMs: 1000, // 1 second
+        loadingPolicy: { ...DEFAULT_BACKEND_LOADING_POLICY },
       },
       lazyLoading: {
         enabled: false, // Default: disabled (opt-in behavior)

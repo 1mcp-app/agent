@@ -594,7 +594,7 @@ function convertCliOptionsToClientOptions(cliOptions: RegistryOptions = {}): Reg
   }
 
   return {
-    baseUrl: cliOptions.url || 'https://registry.modelcontextprotocol.io',
+    baseUrl: (cliOptions.url || 'https://registry.modelcontextprotocol.io').replace(/\/$/, ''),
     timeout: cliOptions.timeout || 10000,
     cache: {
       defaultTtl: cliOptions.cacheTtl || 300,
@@ -618,15 +618,17 @@ function parseProxyFromStandardEnv(): RegistryClientOptions['proxy'] | undefined
   return proxyUrl ? { url: proxyUrl } : undefined;
 }
 
-/**
- * Create a registry client instance with CLI options or defaults
- */
-export function createRegistryClient(cliOptions?: RegistryOptions): MCPRegistryClient {
+/** Resolve registry client options while preserving CLI-over-default precedence. */
+export function resolveRegistryClientOptions(cliOptions?: RegistryOptions): RegistryClientOptions {
   const testRegistryUrl =
     process.env.NODE_ENV === 'test' && typeof process.env.TEST_MCP_REGISTRY_URL === 'string'
       ? process.env.TEST_MCP_REGISTRY_URL
       : undefined;
   const effectiveOptions = testRegistryUrl && !cliOptions?.url ? { ...cliOptions, url: testRegistryUrl } : cliOptions;
-  const clientOptions = convertCliOptionsToClientOptions(effectiveOptions);
-  return new MCPRegistryClient(clientOptions);
+  return convertCliOptionsToClientOptions(effectiveOptions);
+}
+
+/** Create a registry client instance with CLI options or defaults. */
+export function createRegistryClient(cliOptions?: RegistryOptions): MCPRegistryClient {
+  return new MCPRegistryClient(resolveRegistryClientOptions(cliOptions));
 }

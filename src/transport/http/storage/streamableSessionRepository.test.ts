@@ -1,4 +1,5 @@
 import { AUTH_CONFIG } from '@src/constants.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -13,9 +14,13 @@ const mockFileStorageService = {
 
 describe('StreamableSessionRepository', () => {
   let repository: StreamableSessionRepository;
+  let sessionTtlMinutesSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     vi.resetAllMocks();
+    sessionTtlMinutesSpy = vi
+      .spyOn(AgentConfigManager.getInstance(), 'getSessionTtlMinutes')
+      .mockReturnValue(AUTH_CONFIG.SERVER.SESSION.TTL_MINUTES);
     repository = new StreamableSessionRepository(mockFileStorageService as any);
   });
 
@@ -73,7 +78,7 @@ describe('StreamableSessionRepository', () => {
       );
     });
 
-    it('should set TTL for session expiration', () => {
+    it('uses the default effective session TTL for session expiration', () => {
       // Arrange
       const sessionId = 'stream-test-session-id';
       const config = { tags: ['test'] };
@@ -84,9 +89,22 @@ describe('StreamableSessionRepository', () => {
 
       // Assert
       const callArgs = mockFileStorageService.writeData.mock.calls[0][2];
-      expect(callArgs.expires).toBeGreaterThanOrEqual(now + AUTH_CONFIG.SERVER.STREAMABLE_SESSION.TTL_MS);
+      expect(callArgs.expires).toBeGreaterThanOrEqual(now + AUTH_CONFIG.SERVER.SESSION.TTL_MINUTES * 60 * 1000);
       expect(callArgs.createdAt).toBeGreaterThanOrEqual(now);
       expect(callArgs.lastAccessedAt).toBeGreaterThanOrEqual(now);
+    });
+
+    it('uses a custom effective session TTL for persisted and in-memory expiration', () => {
+      sessionTtlMinutesSpy.mockReturnValue(37);
+      const now = Date.now();
+
+      repository.create('custom-ttl-session', { tags: ['test'] });
+
+      const persisted = mockFileStorageService.writeData.mock.calls[0][2];
+      const inMemory = repository.getSessionData('custom-ttl-session');
+      expect(persisted.expires).toBeGreaterThanOrEqual(now + 37 * 60 * 1000);
+      expect(persisted.expires).toBeLessThanOrEqual(Date.now() + 37 * 60 * 1000);
+      expect(inMemory?.expires).toBe(persisted.expires);
     });
   });
 
@@ -197,7 +215,22 @@ describe('StreamableSessionRepository', () => {
 
       const updatedData = mockFileStorageService.writeData.mock.calls[0][2];
       expect(updatedData.lastAccessedAt).toBeGreaterThanOrEqual(now);
-      expect(updatedData.expires).toBeGreaterThanOrEqual(now + AUTH_CONFIG.SERVER.STREAMABLE_SESSION.TTL_MS);
+      expect(updatedData.expires).toBeGreaterThanOrEqual(now + AUTH_CONFIG.SERVER.SESSION.TTL_MINUTES * 60 * 1000);
+    });
+
+    it('extends persisted and in-memory expiration with a custom effective session TTL', () => {
+      sessionTtlMinutesSpy.mockReturnValue(19);
+      repository.create('custom-refresh-session', { tags: ['test'] });
+      mockFileStorageService.writeData.mockClear();
+      const now = Date.now();
+
+      repository.updateAccess('custom-refresh-session');
+
+      const persisted = mockFileStorageService.writeData.mock.calls[0][2];
+      const inMemory = repository.getSessionData('custom-refresh-session');
+      expect(persisted.expires).toBeGreaterThanOrEqual(now + 19 * 60 * 1000);
+      expect(persisted.expires).toBeLessThanOrEqual(Date.now() + 19 * 60 * 1000);
+      expect(inMemory?.expires).toBe(persisted.expires);
     });
 
     it('should not update if session does not exist', () => {

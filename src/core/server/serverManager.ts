@@ -8,6 +8,7 @@ import { InstructionAggregator } from '@src/core/instructions/instructionAggrega
 import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { ServerRegistry } from '@src/core/server/adapters/ServerRegistry.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ConnectionManager } from '@src/core/server/connectionManager.js';
 import { MCPServerLifecycleManager } from '@src/core/server/mcpServerLifecycleManager.js';
 import { TemplateConfigurationManager } from '@src/core/server/templateConfigurationManager.js';
@@ -76,7 +77,9 @@ export class ServerManager {
 
     // Initialize component managers
     this.connectionManager = new ConnectionManager(config, capabilities, outboundConns);
-    this.templateServerManager = new TemplateServerManager();
+    this.templateServerManager = new TemplateServerManager(
+      AgentConfigManager.getInstance().get('templateInstancePool'),
+    );
     this.mcpServerLifecycleManager = new MCPServerLifecycleManager();
     this.templateConfigurationManager = new TemplateConfigurationManager();
     this.serverRegistry = new ServerRegistry(outboundConns, this.templateServerManager);

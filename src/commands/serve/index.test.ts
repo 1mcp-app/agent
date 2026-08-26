@@ -72,4 +72,30 @@ describe('setupServeCommand', () => {
 
     expect(serveCommandMock).toHaveBeenCalledWith(expect.objectContaining({ 'async-min-servers': 7 }));
   });
+
+  it('maps loading policy environment values and lets explicit CLI override them', async () => {
+    vi.stubEnv('ONE_MCP_ASYNC_MAX_CONCURRENT_LOADS', '4');
+    vi.stubEnv('ONE_MCP_ASYNC_MAX_RETRIES', '9');
+    vi.stubEnv('ONE_MCP_ASYNC_RETRY_DELAY', '3500');
+    vi.stubEnv('ONE_MCP_ASYNC_BACKGROUND_RETRY', 'true');
+    vi.stubEnv('ONE_MCP_ASYNC_BACKGROUND_RETRY_INTERVAL', '8000');
+    vi.stubEnv('ONE_MCP_ASYNC_BACKGROUND_RETRY_MAX_SERVERS', '6');
+
+    await setupServeCommand(yargs([]).env('ONE_MCP').exitProcess(false).help(false).version(false)).parseAsync([
+      'serve',
+      '--async-max-retries=2',
+      '--no-async-background-retry',
+    ]);
+
+    expect(serveCommandMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        'async-max-concurrent-loads': 4,
+        'async-max-retries': 2,
+        'async-retry-delay': 3500,
+        'async-background-retry': false,
+        'async-background-retry-interval': 8000,
+        'async-background-retry-max-servers': 6,
+      }),
+    );
+  });
 });

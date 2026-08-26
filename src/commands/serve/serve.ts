@@ -83,6 +83,12 @@ export interface ServeOptions {
   'async-batch-delay'?: number;
   'async-notify-on-snapshot'?: boolean;
   'async-notify-on-ready'?: boolean;
+  'async-max-concurrent-loads'?: number;
+  'async-max-retries'?: number;
+  'async-retry-delay'?: number;
+  'async-background-retry'?: boolean;
+  'async-background-retry-interval'?: number;
+  'async-background-retry-max-servers'?: number;
   'enable-lazy-loading'?: boolean;
   'lazy-mode'?: string;
   'lazy-inline-catalog'?: boolean;
@@ -504,9 +510,33 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       trustProxy,
       admin: {
         enabled: appConfig.admin?.enabled ?? true,
+        rateLimit: {
+          login: {
+            windowMs: (appConfig.admin?.rateLimit?.login?.windowSeconds ?? 900) * 1000,
+            maxRequests: appConfig.admin?.rateLimit?.login?.maxRequests ?? 30,
+            maxFailedAttempts: appConfig.admin?.rateLimit?.login?.maxFailedAttempts ?? 5,
+          },
+          status: {
+            windowMs: (appConfig.admin?.rateLimit?.status?.windowSeconds ?? 60) * 1000,
+            maxRequests: appConfig.admin?.rateLimit?.status?.maxRequests ?? 120,
+          },
+          sensitive: {
+            windowMs: (appConfig.admin?.rateLimit?.sensitive?.windowSeconds ?? 900) * 1000,
+            maxRequests: appConfig.admin?.rateLimit?.sensitive?.maxRequests ?? 10,
+          },
+        },
+        audit: {
+          retentionMs: (appConfig.admin?.audit?.retentionDays ?? 30) * 24 * 60 * 60 * 1000,
+        },
       },
       templateContext: {
         trust: templateContextTrust,
+      },
+      templateInstancePool: {
+        maxInstancesPerTemplate: appConfig.templateSettings?.pool?.maxInstancesPerTemplate ?? 50,
+        maxTotalInstances: appConfig.templateSettings?.pool?.maxTotalInstances ?? 100,
+        idleTimeoutMs: appConfig.templateSettings?.pool?.idleTimeout ?? 300000,
+        cleanupIntervalMs: appConfig.templateSettings?.pool?.cleanupInterval ?? 30000,
       },
       auth: {
         enabled: authEnabled,
@@ -534,6 +564,10 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       },
       health: {
         detailLevel: parsedArgv['health-info-level'] as 'full' | 'basic' | 'minimal',
+        rateLimit: {
+          windowMs: (appConfig.health?.rateLimit?.windowSeconds ?? 300) * 1000,
+          maxRequests: appConfig.health?.rateLimit?.maxRequests ?? 200,
+        },
       },
       asyncLoading,
       lazyLoading: {
@@ -584,8 +618,11 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     resetBackendLogBroker();
 
     // Initialize server and get server manager with custom config path if provided
-    const { serverManager, loadingManager, asyncOrchestrator, instructionAggregator } =
-      await setupServer(configFilePath);
+    const { serverManager, loadingManager, asyncOrchestrator, instructionAggregator } = await setupServer(
+      configFilePath,
+      undefined,
+      asyncLoading.loadingPolicy,
+    );
 
     // Load custom instructions template if provided (applies to all transport types)
     const customTemplate = loadInstructionsTemplate(parsedArgv['instructions-template'], runtimeScope);

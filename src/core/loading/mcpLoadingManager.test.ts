@@ -99,15 +99,14 @@ function makeClientManagerMock(createSingleClientImpl?: () => Promise<void>) {
   };
 }
 
-/** Fast loading config to avoid 30 s timeouts and 2 s retry delays in tests. */
+/** Fast loading policy to avoid the default retry delays in tests. */
 const FAST_CONFIG = {
-  serverTimeoutMs: 200,
   maxRetries: 2,
   retryDelayMs: 10,
   maxConcurrentLoads: 5,
-  continueOnFailure: true,
   enableBackgroundRetry: false, // disabled by default; override per test
   backgroundRetryIntervalMs: 100,
+  backgroundRetryMaxServersPerCycle: 3,
 };
 
 /** Minimal MCPServerParams for a stdio server. */
@@ -478,7 +477,7 @@ describe('McpLoadingManager', () => {
 
       const mgr = new McpLoadingManager(controlledManager as never, {
         ...FAST_CONFIG,
-        continueOnFailure: true,
+        maxRetries: 0,
         enableBackgroundRetry: true,
         backgroundRetryIntervalMs: 50,
       });
@@ -537,6 +536,210 @@ describe('McpLoadingManager', () => {
         vi.useRealTimers();
       }
     });
+
+    it('selects no more than the configured number of failed servers per cycle', async () => {
+      const failingManager = makeClientManagerMock(() => Promise.reject(new Error('offline')));
+      failingManager.getTransport.mockReturnValue(makeFakeTransport());
+      const mgr = new McpLoadingManager(failingManager as never, {
+        ...FAST_CONFIG,
+        maxRetries: 0,
+        backgroundRetryMaxServersPerCycle: 2,
+      });
+      const backgroundRetry = vi.fn();
+      mgr.on(McpLoadingEvent.BackgroundRetry, backgroundRetry);
+
+      for (const name of ['a', 'b', 'c', 'd']) {
+        await mgr.loadServer(name, makeServerConfig());
+      }
+
+      await (mgr as unknown as { performBackgroundRetry(): Promise<void> }).performBackgroundRetry();
+
+      expect(backgroundRetry).toHaveBeenCalledTimes(2);
+      mgr.shutdown();
+    });
+
+    it('does not create an interval when background retry is disabled', async () => {
+      const intervalSpy = vi.spyOn(globalThis, 'setInterval');
+      const mgr = new McpLoadingManager(clientManager as never, {
+        ...FAST_CONFIG,
+        enableBackgroundRetry: false,
+      });
+
+      await mgr.loadServer('srv', makeServerConfig());
+
+      expect(intervalSpy).not.toHaveBeenCalled();
+      intervalSpy.mockRestore();
+      mgr.shutdown();
+    });
+  });
+
+  describe('loading policy', () => {
+    it('performs only the initial attempt when maxRetries is zero', async () => {
+      const failingManager = makeClientManagerMock(() => Promise.reject(new Error('offline')));
+      const mgr = new McpLoadingManager(failingManager as never, {
+        ...FAST_CONFIG,
+        maxRetries: 0,
+      });
+
+      await mgr.loadServer('srv', makeServerConfig());
+
+      expect(failingManager.createSingleClient).toHaveBeenCalledTimes(1);
+      expect(mgr.getStateTracker().getServerState('srv')?.state).toBe(LoadingState.Failed);
+      mgr.shutdown();
+    });
+
+    it('supports immediate finite retries when retryDelayMs is zero', async () => {
+      const failingManager = makeClientManagerMock(() => Promise.reject(new Error('offline')));
+      const mgr = new McpLoadingManager(failingManager as never, {
+        ...FAST_CONFIG,
+        maxRetries: 2,
+        retryDelayMs: 0,
+      });
+
+      await mgr.loadServer('srv', makeServerConfig());
+
+      expect(failingManager.createSingleClient).toHaveBeenCalledTimes(3);
+      mgr.shutdown();
+    });
+
+    it('never exceeds configured startup concurrency when every load fails', async () => {
+      let activeLoads = 0;
+      let maximumActiveLoads = 0;
+      const failingManager = makeClientManagerMock(async () => {
+        activeLoads++;
+        maximumActiveLoads = Math.max(maximumActiveLoads, activeLoads);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        activeLoads--;
+        throw new Error('offline');
+      });
+      const mgr = new McpLoadingManager(failingManager as never, {
+        ...FAST_CONFIG,
+        maxConcurrentLoads: 2,
+        maxRetries: 0,
+      });
+      const transports = Object.fromEntries(['a', 'b', 'c', 'd', 'e'].map((name) => [name, makeFakeTransport()]));
+
+      await (
+        mgr as unknown as {
+          loadServersWithConcurrency(transports: Record<string, ReturnType<typeof makeFakeTransport>>): Promise<void>;
+        }
+      ).loadServersWithConcurrency(transports);
+
+      expect(maximumActiveLoads).toBe(2);
+      expect(failingManager.createSingleClient).toHaveBeenCalledTimes(5);
+      mgr.shutdown();
+    });
+
+    it('never exceeds configured concurrency across explicit runtime loads', async () => {
+      let activeLoads = 0;
+      let maximumActiveLoads = 0;
+      const controlledManager = makeClientManagerMock(async () => {
+        activeLoads++;
+        maximumActiveLoads = Math.max(maximumActiveLoads, activeLoads);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        activeLoads--;
+      });
+      const mgr = new McpLoadingManager(controlledManager as never, {
+        ...FAST_CONFIG,
+        maxConcurrentLoads: 2,
+        maxRetries: 0,
+      });
+
+      await Promise.all(['a', 'b', 'c', 'd', 'e'].map((name) => mgr.loadServer(name, makeServerConfig())));
+
+      expect(maximumActiveLoads).toBe(2);
+      expect(controlledManager.createSingleClient).toHaveBeenCalledTimes(5);
+      mgr.shutdown();
+    });
+
+    it('never exceeds configured concurrency during a background retry cycle', async () => {
+      let backgroundPhase = false;
+      let activeLoads = 0;
+      let maximumActiveLoads = 0;
+      const controlledManager = makeClientManagerMock(async () => {
+        if (!backgroundPhase) throw new Error('offline');
+        activeLoads++;
+        maximumActiveLoads = Math.max(maximumActiveLoads, activeLoads);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        activeLoads--;
+        throw new Error('still offline');
+      });
+      controlledManager.getTransport.mockReturnValue(makeFakeTransport());
+      const mgr = new McpLoadingManager(controlledManager as never, {
+        ...FAST_CONFIG,
+        maxConcurrentLoads: 2,
+        maxRetries: 0,
+        backgroundRetryMaxServersPerCycle: 4,
+      });
+
+      for (const name of ['a', 'b', 'c', 'd']) {
+        await mgr.loadServer(name, makeServerConfig());
+      }
+      backgroundPhase = true;
+      await (mgr as unknown as { performBackgroundRetry(): Promise<void> }).performBackgroundRetry();
+
+      expect(maximumActiveLoads).toBe(2);
+      mgr.shutdown();
+    });
+
+    it.each([
+      ['connectionTimeout', { connectionTimeout: 25, timeout: 50 }, 25],
+      ['legacy timeout', { timeout: 40 }, 40],
+      ['fallback', {}, 30000],
+    ] as const)('uses the %s as the sole loading attempt deadline', async (_label, timeoutFields, timeoutMs) => {
+      vi.useFakeTimers();
+      const blockingManager = makeClientManagerMock(() => new Promise<void>(() => undefined));
+      const mgr = new McpLoadingManager(blockingManager as never, FAST_CONFIG);
+      const transport = { ...makeFakeTransport(), ...timeoutFields };
+      try {
+        const load = (
+          mgr as unknown as {
+            createClientWithTimeout(
+              name: string,
+              transport: ReturnType<typeof makeFakeTransport> & typeof timeoutFields,
+            ): Promise<void>;
+          }
+        ).createClientWithTimeout('srv', transport);
+        const rejection = expect(load).rejects.toThrow(`Timeout loading srv after ${timeoutMs}ms`);
+
+        await vi.advanceTimersByTimeAsync(timeoutMs);
+        await rejection;
+      } finally {
+        mgr.shutdown();
+        vi.useRealTimers();
+      }
+    });
+
+    it('does not let an older same-name attempt clear the current abort controller', async () => {
+      const firstAttempt = makeDeferred();
+      const secondAttempt = makeDeferred();
+      const controlledManager = makeClientManagerMock();
+      controlledManager.createSingleClient
+        .mockReturnValueOnce(firstAttempt.promise)
+        .mockReturnValueOnce(secondAttempt.promise);
+      const mgr = new McpLoadingManager(controlledManager as never, FAST_CONFIG);
+      const createClient = (
+        mgr as unknown as {
+          createClientWithTimeout(name: string, transport: ReturnType<typeof makeFakeTransport>): Promise<void>;
+        }
+      ).createClientWithTimeout.bind(mgr);
+      const controllers = (mgr as unknown as { abortControllers: Map<string, AbortController> }).abortControllers;
+
+      const first = createClient('srv', makeFakeTransport());
+      const firstController = controllers.get('srv');
+      const second = createClient('srv', makeFakeTransport());
+      const secondController = controllers.get('srv');
+      expect(secondController).not.toBe(firstController);
+
+      firstAttempt.resolve();
+      await first;
+      expect(controllers.get('srv')).toBe(secondController);
+
+      secondAttempt.resolve();
+      await second;
+      expect(controllers.has('srv')).toBe(false);
+      mgr.shutdown();
+    });
   });
 
   describe('shutdown', () => {
@@ -565,7 +768,6 @@ describe('McpLoadingManager', () => {
       const blockingManager = makeClientManagerMock(() => deferred.promise);
       const mgr = new McpLoadingManager(blockingManager as never, {
         ...FAST_CONFIG,
-        serverTimeoutMs: 60000, // long timeout so it stays Loading
       });
 
       // Start loading; don't await
@@ -578,6 +780,22 @@ describe('McpLoadingManager', () => {
 
       const state = mgr.getStateTracker().getServerState('srv');
       expect(state?.state).toBe(LoadingState.Cancelled);
+    });
+
+    it('clears the background retry interval exactly once', async () => {
+      const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');
+      const mgr = new McpLoadingManager(clientManager as never, {
+        ...FAST_CONFIG,
+        enableBackgroundRetry: true,
+        backgroundRetryIntervalMs: 60000,
+      });
+
+      await mgr.loadServer('srv', makeServerConfig());
+      mgr.shutdown();
+      mgr.shutdown();
+
+      expect(clearIntervalSpy).toHaveBeenCalledTimes(1);
+      clearIntervalSpy.mockRestore();
     });
   });
 

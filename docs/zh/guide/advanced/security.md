@@ -122,3 +122,11 @@ npx -y @1mcp/agent --config mcp.json --enable-auth
 ---
 
 > **🔒 安全提示**：所有安全功能都设计为协同工作。首先启用 OAuth 2.1，然后分层添加基于标签的访问控制和速率限制，以获得全面保护。
+
+## Admin 与健康检查运行限制
+
+OAuth、Admin 与健康检查限流是相互独立的控制。`--rate-limit-window` 和 `--rate-limit-max` 只配置 OAuth。Admin 登录、Admin 状态读取、敏感 Admin OAuth 操作与健康检查路由使用[配置指南](/zh/guide/essentials/configuration#启动时捕获的运行策略)中不可关闭的 `config.toml` 策略。
+
+这些状态都保存在单个进程内。多副本部署仍需要网关级防护。登录请求突发与凭据失败跟踪是两种控制；浏览器和 CLI 登录适配器会按规范化账户标识加 Express 解析出的客户端 IP 共享失败次数。
+
+`admin.audit.retentionDays` 只控制日志回放与压缩期间保留的本地脱敏审计事实。已完成/失败操作的幂等回放固定为 24 小时，结果不明确的 `state_unknown` 固定为 30 天。本地历史可作为运行证据，但不是不可篡改的合规审计系统。

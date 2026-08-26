@@ -44,17 +44,64 @@ trustProxy = "loopback"
 # Enable asynchronous MCP server loading
 enabled = false
 
-# Minimum servers to wait for before accepting requests
-minServers = 1
+# Maximum concurrent backend loads
+maxConcurrentLoads = 5
 
-# Initial load timeout in milliseconds
-timeout = 30000
+# Foreground retries after the initial attempt (0 = no retries)
+maxRetries = 3
+
+# Initial retry delay in milliseconds (0 = immediate finite retries)
+retryDelay = 2000
+
+# Deprecated compatibility options; accepted but do not affect readiness.
+# minServers = 1
+# timeout = 30000
 
 # Batch capability change notifications
 # batchNotifications = false
 
 # Batch delay in milliseconds
 # batchDelay = 100
+
+[asyncLoading.backgroundRetry]
+# Retry failed backends in the background
+enabled = true
+
+# Retry interval in milliseconds (minimum 1000)
+interval = 60000
+
+# Maximum failed backends processed per cycle
+maxServersPerCycle = 3
+
+[admin.rateLimit.login]
+windowSeconds = 900
+maxRequests = 30
+maxFailedAttempts = 5
+
+[admin.rateLimit.status]
+windowSeconds = 60
+maxRequests = 120
+
+[admin.rateLimit.sensitive]
+windowSeconds = 900
+maxRequests = 10
+
+[admin.audit]
+# Sanitized audit fact retention; idempotency retention remains fixed
+retentionDays = 30
+
+[health.rateLimit]
+windowSeconds = 300
+maxRequests = 200
+
+[templateSettings.pool]
+# Zero removes the per-template limit but not the mandatory global limit
+maxInstancesPerTemplate = 50
+maxTotalInstances = 100
+
+# Milliseconds; zero idle timeout makes an unused instance immediately eligible
+idleTimeout = 300000
+cleanupInterval = 30000
 
 [lazyLoading]
 # Opt in to stable meta-tool exposure for progressive discovery. When false

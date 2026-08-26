@@ -441,6 +441,132 @@ minServers = 2
       expect(result.asyncLoading?.minServers).toBe(2);
     });
 
+    it('loads Template Instance Pool policy from config.toml', async () => {
+      await fsPromises.writeFile(
+        join(tempConfigDir, 'config.toml'),
+        `[templateSettings.pool]
+maxInstancesPerTemplate = 0
+maxTotalInstances = 250
+idleTimeout = 0
+cleanupInterval = 1000
+`,
+      );
+
+      expect(loader.loadAppConfigFromToml().templateSettings?.pool).toEqual({
+        maxInstancesPerTemplate: 0,
+        maxTotalInstances: 250,
+        idleTimeout: 0,
+        cleanupInterval: 1000,
+      });
+    });
+
+    it.each([
+      ['maxInstancesPerTemplate = -1'],
+      ['maxInstancesPerTemplate = 10001'],
+      ['maxInstancesPerTemplate = 1.5'],
+      ['maxTotalInstances = 0'],
+      ['maxTotalInstances = 10001'],
+      ['idleTimeout = -1'],
+      ['idleTimeout = 2147483648'],
+      ['cleanupInterval = 999'],
+      ['cleanupInterval = 3600001'],
+    ])('rejects invalid Template Instance Pool policy: %s', async (setting) => {
+      await fsPromises.writeFile(join(tempConfigDir, 'config.toml'), `[templateSettings.pool]\n${setting}\n`);
+
+      expect(loader.loadAppConfigFromToml()).toEqual({});
+    });
+
+    it('loads backend loading policy from config.toml', async () => {
+      await fsPromises.writeFile(
+        join(tempConfigDir, 'config.toml'),
+        `[asyncLoading]
+maxConcurrentLoads = 8
+maxRetries = 0
+retryDelay = 0
+
+[asyncLoading.backgroundRetry]
+enabled = false
+interval = 5000
+maxServersPerCycle = 4
+`,
+      );
+
+      expect(loader.loadAppConfigFromToml().asyncLoading).toEqual({
+        maxConcurrentLoads: 8,
+        maxRetries: 0,
+        retryDelay: 0,
+        backgroundRetry: { enabled: false, interval: 5000, maxServersPerCycle: 4 },
+      });
+    });
+
+    it.each([
+      ['[asyncLoading]\nmaxConcurrentLoads = 0'],
+      ['[asyncLoading]\nmaxConcurrentLoads = 1.5'],
+      ['[asyncLoading]\nmaxRetries = -1'],
+      ['[asyncLoading]\nretryDelay = -1'],
+      ['[asyncLoading.backgroundRetry]\ninterval = 999'],
+      ['[asyncLoading.backgroundRetry]\nmaxServersPerCycle = 0'],
+      ['[asyncLoading.backgroundRetry]\ndisabled = true'],
+    ])('rejects invalid backend loading policy: %s', async (toml) => {
+      await fsPromises.writeFile(join(tempConfigDir, 'config.toml'), `${toml}\n`);
+
+      expect(loader.loadAppConfigFromToml()).toEqual({});
+    });
+
+    it('loads Admin and health operational policy from config.toml', async () => {
+      await fsPromises.writeFile(
+        join(tempConfigDir, 'config.toml'),
+        `[admin.rateLimit.login]
+windowSeconds = 60
+maxRequests = 40
+maxFailedAttempts = 6
+
+[admin.rateLimit.status]
+windowSeconds = 30
+maxRequests = 200
+
+[admin.rateLimit.sensitive]
+windowSeconds = 120
+maxRequests = 12
+
+[admin.audit]
+retentionDays = 90
+
+[health.rateLimit]
+windowSeconds = 10
+maxRequests = 50
+`,
+      );
+
+      const result = loader.loadAppConfigFromToml();
+      expect(result.admin).toEqual({
+        rateLimit: {
+          login: { windowSeconds: 60, maxRequests: 40, maxFailedAttempts: 6 },
+          status: { windowSeconds: 30, maxRequests: 200 },
+          sensitive: { windowSeconds: 120, maxRequests: 12 },
+        },
+        audit: { retentionDays: 90 },
+      });
+      expect(result.health).toEqual({ rateLimit: { windowSeconds: 10, maxRequests: 50 } });
+    });
+
+    it.each([
+      ['[admin.rateLimit.login]\nwindowSeconds = 0'],
+      ['[admin.rateLimit.login]\nwindowSeconds = 86401'],
+      ['[admin.rateLimit.login]\nmaxRequests = 0'],
+      ['[admin.rateLimit.login]\nmaxFailedAttempts = 101'],
+      ['[admin.rateLimit.status]\nmaxRequests = 1.5'],
+      ['[admin.rateLimit.sensitive]\nenabled = false'],
+      ['[admin.audit]\nretentionDays = 0'],
+      ['[admin.audit]\nretentionDays = 3651'],
+      ['[health.rateLimit]\nmaxRequests = 100001'],
+      ['[health.rateLimit]\nenabled = false'],
+    ])('rejects invalid or disable-style Admin/health policy: %s', async (toml) => {
+      await fsPromises.writeFile(join(tempConfigDir, 'config.toml'), `${toml}\n`);
+
+      expect(loader.loadAppConfigFromToml()).toEqual({});
+    });
+
     it('loads template context trust mode from config.toml', async () => {
       await fsPromises.writeFile(join(tempConfigDir, 'config.toml'), '[templateContext]\ntrust = "legacy"\n');
 

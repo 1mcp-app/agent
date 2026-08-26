@@ -59,6 +59,7 @@ export interface AdminDomainOptions {
   mutationAvailability?: AdminMutationAvailability;
   now?: () => Date;
   createOperationId?: () => string;
+  auditRetentionMs?: number;
   presetManager?: PresetManager;
   readServerTargets?: () => Record<string, MCPServerParams>;
   runtimeBackendRestartService?: RuntimeBackendRestartService;
@@ -89,6 +90,7 @@ export function createAdminDomain(options: AdminDomainOptions): AdminDomain {
     runtimeScopeId: options.runtimeScopeId,
     storageDir: options.storageDir,
     mutationAvailability: options.mutationAvailability,
+    ...(options.auditRetentionMs !== undefined ? { auditRetentionMs: options.auditRetentionMs } : {}),
     ...(options.now ? { now: options.now } : {}),
     ...(options.createOperationId ? { createOperationId: options.createOperationId } : {}),
   });

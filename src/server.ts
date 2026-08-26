@@ -14,6 +14,10 @@ import { InternalCapabilitiesProvider } from './core/capabilities/internalCapabi
 import { LazyLoadingOrchestrator } from './core/capabilities/lazyLoadingOrchestrator.js';
 import { ClientManager } from './core/client/clientManager.js';
 import { InstructionAggregator } from './core/instructions/instructionAggregator.js';
+import {
+  DEFAULT_BACKEND_LOADING_POLICY,
+  type BackendLoadingPolicy,
+} from './core/loading/backendLoadingPolicy.js';
 import { McpLoadingManager } from './core/loading/mcpLoadingManager.js';
 import { ServerManager } from './core/server/serverManager.js';
 import { PresetManager } from './domains/preset/manager/presetManager.js';
@@ -42,7 +46,11 @@ export interface ServerSetupResult {
  * Main function to set up the MCP server
  * Conditionally uses async or legacy loading based on configuration
  */
-async function setupServer(configFilePath?: string, context?: ContextData): Promise<ServerSetupResult> {
+async function setupServer(
+  configFilePath?: string,
+  context?: ContextData,
+  backendLoadingPolicy: BackendLoadingPolicy = DEFAULT_BACKEND_LOADING_POLICY,
+): Promise<ServerSetupResult> {
   try {
     // Initialize the new unified config management system
     const configManager = ConfigManager.getInstance(configFilePath);
@@ -77,8 +85,8 @@ async function setupServer(configFilePath?: string, context?: ContextData): Prom
     );
 
     const setupResult = asyncLoadingEnabled
-      ? await setupServerAsync(transports, context)
-      : await setupServerSync(transports, context);
+      ? await setupServerAsync(transports, context, backendLoadingPolicy)
+      : await setupServerSync(transports, context, backendLoadingPolicy);
 
     const { templateServers, errors } = configManager.loadDeclaredServerConfigs();
     if (errors.length === 0) {
@@ -106,7 +114,8 @@ async function setupServer(configFilePath?: string, context?: ContextData): Prom
  */
 async function setupServerAsync(
   transports: Record<string, AuthProviderTransport>,
-  _context?: ContextData,
+  _context: ContextData | undefined,
+  backendLoadingPolicy: BackendLoadingPolicy,
 ): Promise<ServerSetupResult> {
   // Get agent config for feature flags
   const agentConfig = AgentConfigManager.getInstance();
@@ -133,7 +142,7 @@ async function setupServerAsync(
   // Config reload is now handled by ConfigManager and ConfigChangeHandler initialized in setupServer
 
   // Create loading manager for async MCP server initialization
-  const loadingManager = new McpLoadingManager(clientManager);
+  const loadingManager = new McpLoadingManager(clientManager, backendLoadingPolicy);
 
   // Create async loading orchestrator for capability tracking and notifications
   const asyncOrchestrator = new AsyncLoadingOrchestrator(clients, serverManager, loadingManager);
@@ -190,7 +199,8 @@ async function setupServerAsync(
  */
 async function setupServerSync(
   transports: Record<string, AuthProviderTransport>,
-  _context?: ContextData,
+  _context: ContextData | undefined,
+  backendLoadingPolicy: BackendLoadingPolicy,
 ): Promise<ServerSetupResult> {
   // Get agent config for feature flags
   const agentConfig = AgentConfigManager.getInstance();
@@ -233,7 +243,7 @@ async function setupServerSync(
   }
 
   // Create a dummy loading manager for compatibility
-  const loadingManager = new McpLoadingManager(clientManager);
+  const loadingManager = new McpLoadingManager(clientManager, backendLoadingPolicy);
   const loadingPromise = Promise.resolve(); // Already loaded
   clientManager.setBackendAvailabilityHandler(() => serverManager.notifyBackendCapabilityListsChanged());
 

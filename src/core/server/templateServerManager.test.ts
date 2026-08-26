@@ -9,6 +9,7 @@ import { HandlebarsTemplateRenderer } from '@src/template/handlebarsTemplateRend
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ClientInstancePool } from './clientInstancePool.js';
 import { TemplateServerManager } from './templateServerManager.js';
 
 // Mock logger
@@ -247,6 +248,39 @@ describe('TemplateServerManager', () => {
     it('should clear cleanup timer', () => {
       expect(() => templateServerManager.cleanup()).not.toThrow();
     });
+
+    it('owns one unreferenced cleanup timer and clears it during shutdown', async () => {
+      const timer = { unref: vi.fn() } as unknown as ReturnType<typeof setInterval>;
+      const setIntervalSpy = vi.spyOn(globalThis, 'setInterval').mockReturnValue(timer);
+      const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval').mockImplementation(() => undefined);
+      const manager = new TemplateServerManager({ cleanupIntervalMs: 1234 });
+
+      expect(setIntervalSpy).toHaveBeenCalledOnce();
+      expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 1234);
+      expect((timer as unknown as { unref: ReturnType<typeof vi.fn> }).unref).toHaveBeenCalledOnce();
+
+      await manager.shutdown();
+
+      expect(clearIntervalSpy).toHaveBeenCalledOnce();
+      expect(clearIntervalSpy).toHaveBeenCalledWith(timer);
+      setIntervalSpy.mockRestore();
+      clearIntervalSpy.mockRestore();
+    });
+
+    it('passes the effective pool policy to ClientInstancePool', () => {
+      new TemplateServerManager({
+        maxInstancesPerTemplate: 0,
+        maxTotalInstances: 25,
+        idleTimeoutMs: 0,
+        cleanupIntervalMs: 1000,
+      }).cleanup();
+
+      expect(ClientInstancePool).toHaveBeenLastCalledWith({
+        maxInstances: 0,
+        maxTotalInstances: 25,
+        idleTimeout: 0,
+      });
+    });
   });
 
   describe('helper methods', () => {
@@ -341,6 +375,55 @@ describe('TemplateServerManager', () => {
     it('cleanupIdleInstances should return 0 when no instances', async () => {
       const cleaned = await templateServerManager.cleanupIdleInstances();
       expect(cleaned).toBe(0);
+    });
+
+    it('does not remove an idle instance before its effective timeout', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-01-01T00:00:01.000Z'));
+      try {
+        const manager = templateServerManager as any;
+        manager.clientInstancePool.getAllInstances.mockReturnValue([
+          {
+            id: 'recent',
+            instanceKey: 'worker:recent',
+            templateName: 'worker',
+            renderedHash: 'recent',
+            status: 'idle',
+            lastUsedAt: new Date('2026-01-01T00:00:00.001Z'),
+            idleTimeout: 1000,
+            outboundKeys: new Set(),
+          },
+        ]);
+
+        expect(await templateServerManager.cleanupIdleInstances()).toBe(0);
+        expect(manager.clientInstancePool.removeInstance).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('removes an idle instance when its zero timeout makes it immediately eligible', async () => {
+      const manager = templateServerManager as any;
+      const outboundConns = new Map([['worker:zero', { name: 'worker' }]]);
+      const transports = { zero: { close: vi.fn() } };
+      manager.clientInstancePool.getAllInstances.mockReturnValue([
+        {
+          id: 'zero',
+          instanceKey: 'worker:zero',
+          templateName: 'worker',
+          renderedHash: 'zero',
+          status: 'idle',
+          lastUsedAt: new Date(),
+          idleTimeout: 0,
+          outboundKeys: new Set(['worker:zero']),
+        },
+      ]);
+
+      expect(await templateServerManager.cleanupIdleInstances(outboundConns as never, transports as never)).toBe(1);
+      expect(manager.clientInstancePool.removeInstance).toHaveBeenCalledWith('worker:zero');
+      expect(manager.clientTemplateTracker.cleanupInstance).toHaveBeenCalledWith('worker', 'zero');
+      expect(outboundConns.has('worker:zero')).toBe(false);
+      expect(transports).not.toHaveProperty('zero');
     });
 
     it('expires stale ephemeral REST sessions and leaves persistent sessions active', async () => {

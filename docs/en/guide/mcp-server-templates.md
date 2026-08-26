@@ -641,6 +641,22 @@ Use static tags to enable proper filtering with presets:
 
 > **Note**: Template expressions inside `tags` arrays (e.g. <span v-pre>`"team-{{project.custom.team}}"`</span>) are not rendered — they will be used as literal tag strings. Use static tag values only.
 
+## Template Instance Pool Policy
+
+The Runtime Scope captures global Template Instance Pool policy from `config.toml` at startup:
+
+```toml
+[templateSettings.pool]
+maxInstancesPerTemplate = 50
+maxTotalInstances = 100
+idleTimeout = 300000
+cleanupInterval = 30000
+```
+
+`maxInstancesPerTemplate` is the fallback for a Template Server definition that omits `template.maxInstances`; an explicit template value wins, including zero for unlimited per-template capacity. `idleTimeout` follows the same precedence, and zero makes an unreferenced instance immediately eligible for the next cleanup sweep. Every creation remains subject to the positive finite `maxTotalInstances` limit. One unreferenced cleanup timer removes idle membership, routing, transport, and pool state only after the effective timeout has elapsed.
+
+Pool policy changes require an Aggregated Runtime restart. They do not resize the live pool or evict existing instances on generic configuration reload. The template-reprocessing circuit breaker remains fixed at three failures with a five-minute reset and is not part of this policy.
+
 ## Troubleshooting
 
 ### Template Not Rendering

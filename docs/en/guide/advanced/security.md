@@ -131,3 +131,11 @@ npx -y @1mcp/agent --config mcp.json --enable-auth
 ---
 
 > **🔒 Security Note**: All security features are designed to work together. Enable OAuth 2.1 first, then layer on tag-based access control and rate limiting for comprehensive protection.
+
+## Admin and health operational limits
+
+OAuth, Admin, and health throttles are separate controls. `--rate-limit-window` and `--rate-limit-max` configure OAuth only. Admin login, Admin status reads, sensitive Admin OAuth operations, and health routes use the non-disableable `config.toml` policies documented in the [Configuration Guide](/guide/essentials/configuration#startup-captured-operational-policies).
+
+These stores are process-local. A multi-replica deployment still needs gateway-level protection. Login request bursts and failed-credential tracking are separate: the browser and CLI login adapters share failed-attempt state keyed by the normalized account identity plus Express's resolved client IP.
+
+`admin.audit.retentionDays` controls only the local sanitized audit facts kept during journal replay and compaction. Completed/failed idempotency replay stays fixed at 24 hours, and ambiguous `state_unknown` outcomes stay fixed at 30 days. This local history is useful operational evidence, not an immutable compliance audit system.

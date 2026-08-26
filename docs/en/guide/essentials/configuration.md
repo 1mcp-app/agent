@@ -61,8 +61,8 @@ CLI flags and their `ONE_MCP_*` environment-variable equivalents override these 
 
 The agent supports three configuration methods, applied in this order of precedence:
 
-1. **Environment Variables**: Highest priority, useful for containerized deployments
-2. **Command-Line Flags**: Override settings at runtime
+1. **Command-Line Flags**: Highest priority when explicitly supplied
+2. **Environment Variables**: `ONE_MCP_*` defaults for the process
 3. **Configuration File**: Base configuration (covered in MCP Servers Reference)
 
 ---
@@ -91,6 +91,12 @@ All available command-line options and their corresponding environment variables
 | `--rate-limit-window`           | `ONE_MCP_RATE_LIMIT_WINDOW`           | OAuth rate limit window in minutes (number)                                                     |     15     |
 | `--rate-limit-max`              | `ONE_MCP_RATE_LIMIT_MAX`              | Maximum requests per OAuth rate limit window (number)                                           |    100     |
 | `--enable-async-loading`        | `ONE_MCP_ENABLE_ASYNC_LOADING`        | Enable asynchronous MCP server loading(boolean)                                                 |   false    |
+| `--async-max-concurrent-loads`  | `ONE_MCP_ASYNC_MAX_CONCURRENT_LOADS`  | Maximum concurrent backend loads                                                                |     5      |
+| `--async-max-retries`           | `ONE_MCP_ASYNC_MAX_RETRIES`           | Foreground retries after the initial attempt                                                     |     3      |
+| `--async-retry-delay`           | `ONE_MCP_ASYNC_RETRY_DELAY`           | Initial exponential-backoff delay in milliseconds                                                |    2000    |
+| `--async-background-retry`      | `ONE_MCP_ASYNC_BACKGROUND_RETRY`      | Enable periodic retries for retryable backend failures                                           |    true    |
+| `--async-background-retry-interval` | `ONE_MCP_ASYNC_BACKGROUND_RETRY_INTERVAL` | Background retry interval in milliseconds                                                   |   60000    |
+| `--async-background-retry-max-servers` | `ONE_MCP_ASYNC_BACKGROUND_RETRY_MAX_SERVERS` | Maximum failed backends selected per cycle                                              |     3      |
 | `--enable-lazy-loading`         | `ONE_MCP_ENABLE_LAZY_LOADING`         | Enable meta-tool exposure for progressive tool discovery (boolean)                              |   false    |
 | `--enable-config-reload`        | `ONE_MCP_ENABLE_CONFIG_RELOAD`        | Enable configuration file hot-reload (boolean)                                                  |    true    |
 | `--config-reload-debounce`      | `ONE_MCP_CONFIG_RELOAD_DEBOUNCE`      | Configuration reload debounce time in milliseconds (number)                                     |    500     |
@@ -394,6 +400,54 @@ ONE_MCP_ENABLE_ASYNC_LOADING=true \
 ONE_MCP_PAGINATION=true \
 npx -y @1mcp/agent
 ```
+
+#### Startup-captured operational policies
+
+The following settings are validated when an Aggregated Runtime starts. Editing `config.toml` does not replace active limiters, retry timers, loading concurrency, journal retention, or Template Instance Pool limits. Restart the Runtime Scope to activate a change.
+
+```toml
+[asyncLoading]
+maxConcurrentLoads = 5
+maxRetries = 3
+retryDelay = 2000
+
+[asyncLoading.backgroundRetry]
+enabled = true
+interval = 60000
+maxServersPerCycle = 3
+
+[admin.rateLimit.login]
+windowSeconds = 900
+maxRequests = 30
+maxFailedAttempts = 5
+
+[admin.rateLimit.status]
+windowSeconds = 60
+maxRequests = 120
+
+[admin.rateLimit.sensitive]
+windowSeconds = 900
+maxRequests = 10
+
+[health.rateLimit]
+windowSeconds = 300
+maxRequests = 200
+
+[admin.audit]
+retentionDays = 30
+
+[templateSettings.pool]
+maxInstancesPerTemplate = 50
+maxTotalInstances = 100
+idleTimeout = 300000
+cleanupInterval = 30000
+```
+
+Async CLI values override matching `ONE_MCP_*` values, which override `config.toml`. `maxRetries = 0` means one initial attempt only; `retryDelay = 0` keeps retries finite but removes the delay. The background interval is at least 1000 ms. A backend's `connectionTimeout`, legacy backend `timeout`, then 30000 ms fallback is the only connection-attempt deadline. Deprecated `asyncLoading.minServers` and `asyncLoading.timeout` remain warning-only no-ops.
+
+Admin and health limits cannot be disabled. Windows accept 1-86400 seconds, request limits 1-100000, failed login attempts 1-100, and audit retention 1-3650 days. These process-local controls are separate from OAuth `--rate-limit-*` settings. Audit retention applies only to sanitized audit facts; completed/failed idempotency replay remains 24 hours and ambiguous `state_unknown` outcomes remain 30 days.
+
+Template pool values are milliseconds where applicable. `maxInstancesPerTemplate` accepts 0-10000, where zero is unlimited within the mandatory global bound. `maxTotalInstances` accepts 1-10000. `idleTimeout` accepts 0-2147483647, where zero is immediately cleanup-eligible. `cleanupInterval` accepts 1000-3600000. Per-template `template.maxInstances` and `template.idleTimeout` override only their corresponding fallbacks.
 
 ### Lazy Loading
 

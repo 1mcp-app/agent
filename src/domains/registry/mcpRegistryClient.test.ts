@@ -2,7 +2,7 @@
 import axios from 'axios';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createRegistryClient, MCPRegistryClient } from './mcpRegistryClient.js';
+import { createRegistryClient, MCPRegistryClient, resolveRegistryClientOptions } from './mcpRegistryClient.js';
 import type { RegistryServer } from './types.js';
 
 // Mock axios instance
@@ -98,6 +98,31 @@ describe('MCPRegistryClient', () => {
   });
 
   describe('createRegistryClient', () => {
+    it('resolves all shared defaults and normalizes the effective origin', () => {
+      expect(resolveRegistryClientOptions({ url: 'https://registry.example.test/' })).toMatchObject({
+        baseUrl: 'https://registry.example.test',
+        timeout: 10000,
+        cache: {
+          defaultTtl: 300,
+          maxSize: 1000,
+          cleanupInterval: 60000,
+        },
+      });
+    });
+
+    it('propagates all shared operational overrides', () => {
+      const envClient = createRegistryClient({
+        timeout: 4321,
+        cacheTtl: 123,
+        cacheMaxSize: 456,
+        cacheCleanupInterval: 789,
+      });
+
+      expect(axios.create).toHaveBeenLastCalledWith(expect.objectContaining({ timeout: 4321 }));
+      expect(envClient.getCacheStats().maxSize).toBe(456);
+      envClient.destroy();
+    });
+
     it('uses CLI options when provided', () => {
       const envClient = createRegistryClient({ url: 'http://127.0.0.1:12345', timeout: 1234 });
 

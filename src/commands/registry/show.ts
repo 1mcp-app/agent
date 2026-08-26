@@ -1,13 +1,13 @@
 import { cleanupShowHandler, handleShowMCPServer } from '@src/core/tools/handlers/showHandler.js';
 import { formatServerDetails } from '@src/domains/registry/formatters/serverDetailFormatter.js';
-import { OutputFormat, RegistryOptions, ShowCommandArgs } from '@src/domains/registry/types.js';
+import { OutputFormat, ShowCommandArgs } from '@src/domains/registry/types.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
 import printer from '@src/utils/ui/printer.js';
 
 import type { Arguments, Argv } from 'yargs';
 
-import { RegistryYargsOptions } from './options.js';
+import { registryOptionsFromArgv, RegistryYargsOptions } from './options.js';
 
 export interface ShowCommandCliArgs extends Arguments, GlobalOptions, RegistryYargsOptions {
   serverId: string;
@@ -58,16 +58,7 @@ export async function showCommand(argv: ShowCommandCliArgs): Promise<void> {
       format: argv.format || 'detailed',
     };
 
-    // Extract registry configuration from CLI options
-    const registryOptions: RegistryOptions = {
-      url: argv['url'],
-      timeout: argv['timeout'],
-      cacheTtl: argv['cache-ttl'],
-      cacheMaxSize: argv['cache-max-size'],
-      cacheCleanupInterval: argv['cache-cleanup-interval'],
-      proxy: argv['proxy'],
-      proxyAuth: argv['proxy-auth'],
-    };
+    const registryOptions = registryOptionsFromArgv(argv);
 
     logger.info(
       `Fetching MCP server details: ${showArgs.serverId}${showArgs.version ? ` (v${showArgs.version})` : ''}`,

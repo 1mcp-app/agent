@@ -397,14 +397,15 @@ export class ExpressServer {
     const getOAuthDashboard = createBackendOAuthDashboardProvider(this.oauthProvider, this.loadingManager, oauthFlow);
 
     // Setup health check routes (no auth required for monitoring)
-    this.app.use('/health', createHealthRoutes(this.loadingManager));
+    this.app.use('/health', createHealthRoutes(this.loadingManager, this.configManager.get('health')?.rateLimit));
 
     const adminStorageDir =
       this.configManager.get('runtimeScopeStoragePath') ??
       this.configManager.get('auth').sessionStoragePath ??
       getGlobalConfigDir();
     const runtimeIdentity = getRuntimeIdentity();
-    const adminEnabled = this.configManager.get('admin')?.enabled ?? true;
+    const adminConfig = this.configManager.get('admin');
+    const adminEnabled = adminConfig?.enabled ?? true;
     const adminMutationAvailability = this.acquireAdminMutationAvailability(
       adminEnabled,
       runtimeIdentity.runtimeScopeId,
@@ -417,6 +418,7 @@ export class ExpressServer {
       runtimeScopeId: runtimeIdentity.runtimeScopeId,
       storageDir: adminStorageDir,
       sessionTtlMs: this.configManager.get('auth').sessionTtlMinutes * 60 * 1000,
+      auditRetentionMs: adminConfig?.audit?.retentionMs,
       mutationAvailability: adminMutationAvailability,
       configChangeService: createConfigChangeService({
         getConfigPath,
@@ -473,6 +475,7 @@ export class ExpressServer {
       getRuntimeIdentity,
       getOAuthDashboard,
       getBackendLogBroker,
+      rateLimit: adminConfig?.rateLimit,
     });
     if (adminRoutes) {
       this.app.use('/admin', adminRoutes);

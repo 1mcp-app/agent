@@ -6,6 +6,7 @@ import logger from '@src/logger/logger.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ClientManager } from './core/client/clientManager.js';
+import type { BackendLoadingPolicy } from './core/loading/backendLoadingPolicy.js';
 import { ServerManager } from './core/server/serverManager.js';
 import { setupServer } from './server.js';
 import { createTransports } from './transport/transportFactory.js';
@@ -209,6 +210,23 @@ describe('server', () => {
       const result = await setupServer();
 
       expect(result.serverManager).toBe(mockServerManager);
+    });
+
+    it('captures the supplied backend loading policy in the loading manager', async () => {
+      const policy: BackendLoadingPolicy = {
+        maxConcurrentLoads: 2,
+        maxRetries: 0,
+        retryDelayMs: 0,
+        enableBackgroundRetry: false,
+        backgroundRetryIntervalMs: 5000,
+        backgroundRetryMaxServersPerCycle: 1,
+      };
+
+      const result = await setupServer(undefined, undefined, policy);
+
+      expect(
+        (result.loadingManager as unknown as { config: BackendLoadingPolicy }).config,
+      ).toEqual(policy);
     });
   });
 

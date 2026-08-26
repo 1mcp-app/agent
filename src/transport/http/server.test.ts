@@ -69,6 +69,8 @@ vi.mock('./middlewares/errorHandler.js', () => ({
 }));
 
 vi.mock('./middlewares/securityMiddleware.js', () => ({
+  DEFAULT_SENSITIVE_OPERATION_RATE_LIMIT_POLICY: { windowMs: 900000, maxRequests: 10 },
+  createSensitiveOperationLimiter: vi.fn(() => vi.fn((_req, _res, next) => next())),
   sensitiveOperationLimiter: vi.fn((_req, _res, next) => next()),
   setupSecurityMiddleware: vi.fn(() => [vi.fn()]),
 }));

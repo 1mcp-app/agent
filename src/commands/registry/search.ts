@@ -11,7 +11,7 @@ import {
   truncateString,
 } from '@src/domains/registry/formatters/commonFormatters.js';
 import { SearchMCPServersArgs } from '@src/domains/registry/mcpToolSchemas.js';
-import { OFFICIAL_REGISTRY_KEY, RegistryOptions } from '@src/domains/registry/types.js';
+import { OFFICIAL_REGISTRY_KEY } from '@src/domains/registry/types.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
 import printer from '@src/utils/ui/printer.js';
@@ -19,7 +19,7 @@ import printer from '@src/utils/ui/printer.js';
 import chalk from 'chalk';
 import type { Arguments, Argv } from 'yargs';
 
-import { RegistryYargsOptions } from './options.js';
+import { registryOptionsFromArgv, RegistryYargsOptions } from './options.js';
 
 export interface SearchCommandArgs extends Arguments, GlobalOptions, RegistryYargsOptions {
   query?: string;
@@ -98,16 +98,7 @@ export async function searchCommand(argv: SearchCommandArgs): Promise<void> {
       cursor: argv.cursor,
     };
 
-    // Extract registry configuration from CLI options
-    const registryOptions: RegistryOptions = {
-      url: argv['url'],
-      timeout: argv['timeout'],
-      cacheTtl: argv['cache-ttl'],
-      cacheMaxSize: argv['cache-max-size'],
-      cacheCleanupInterval: argv['cache-cleanup-interval'],
-      proxy: argv['proxy'],
-      proxyAuth: argv['proxy-auth'],
-    };
+    const registryOptions = registryOptionsFromArgv(argv);
 
     logger.info('Searching MCP registry...', searchArgs);
     const results = await handleSearchMCPServers(searchArgs, registryOptions);

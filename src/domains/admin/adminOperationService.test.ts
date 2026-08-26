@@ -725,6 +725,38 @@ describe('AdminOperationService', () => {
     expect(executionCount).toBe(2);
   });
 
+  it('keeps completed replay fixed at 24 hours when audit retention is shorter', async () => {
+    const startedAt = currentTime.getTime();
+    const service = createService({ auditRetentionMs: 100 });
+    let executionCount = 0;
+    await service.executeMutation({
+      context: context(),
+      operationName: 'enableConfiguredServer',
+      run: async () => ({ sequence: ++executionCount }),
+    });
+
+    currentTime = new Date(startedAt + 101);
+    const retained = createService({ auditRetentionMs: 100 });
+    const replay = await retained.executeMutation({
+      context: context(),
+      operationName: 'enableConfiguredServer',
+      run: async () => ({ sequence: ++executionCount }),
+    });
+
+    expect(replay).toMatchObject({ ok: true, replayed: true, result: { sequence: 1 } });
+    expect(retained.getRecentAuditFacts()).toEqual([]);
+
+    currentTime = new Date(startedAt + 24 * 60 * 60 * 1000 + 1);
+    const expired = createService({ auditRetentionMs: 100 });
+    const rerun = await expired.executeMutation({
+      context: context(),
+      operationName: 'enableConfiguredServer',
+      run: async () => ({ sequence: ++executionCount }),
+    });
+
+    expect(rerun).toMatchObject({ ok: true, replayed: false, result: { sequence: 2 } });
+  });
+
   it('does not conflict with an expired terminal record when the reused key has a different fingerprint', async () => {
     const service = createService({ retentionMs: 100 });
     let executionCount = 0;
@@ -902,7 +934,7 @@ describe('AdminOperationService', () => {
     expect(mutation).toMatchObject({ ok: true, status: 'completed', replayed: false });
   });
 
-  it('compacts old state_unknown records after audit retention while retaining recent unresolved records', async () => {
+  it('uses fixed 30-day state_unknown retention independently from audit retention', async () => {
     const service = createService({ auditRetentionMs: 100 });
     await service.executeMutation({
       context: context(),
@@ -915,13 +947,13 @@ describe('AdminOperationService', () => {
         schemaVersion: 1,
         type: 'state_unknown',
         runtimeScopeId: 'scope_a',
-        timestamp: '2026-07-06T00:00:00.000Z',
+        timestamp: '2026-06-06T23:59:59.999Z',
         operationId: 'op_old_unknown',
         operationName: 'disableConfiguredServer',
         scopedKeyHash: 'old_unknown_key_hash',
         fingerprintHash: 'old_unknown_fingerprint_hash',
         target: { type: 'configured_server', id: 'server_old' },
-        reservedAt: '2026-07-06T00:00:00.000Z',
+        reservedAt: '2026-06-06T23:59:59.999Z',
       })}\n${JSON.stringify({
         schemaVersion: 1,
         type: 'state_unknown',
