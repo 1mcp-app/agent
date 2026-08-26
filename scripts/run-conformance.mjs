@@ -62,7 +62,7 @@ function run(command, commandArgs, cwd = root) {
 const fixtureChecks = [
   ['pnpm', ['check'], path.join(root, 'test', 'conformance', 'fixtures', 'typescript')],
   ['go', ['test', '-mod=vendor', './...'], path.join(root, 'test', 'conformance', 'fixtures', 'go')],
-  ['uv', ['run', '--frozen', '--no-dev', 'pytest', '-q'], path.join(root, 'test', 'conformance', 'fixtures', 'python')],
+  ['uv', ['run', '--frozen', 'pytest', '-q'], path.join(root, 'test', 'conformance', 'fixtures', 'python')],
 ];
 
 for (const [command, commandArgs, cwd] of fixtureChecks) {

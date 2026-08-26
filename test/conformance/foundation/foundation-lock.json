@@ -4,7 +4,7 @@
     {
       "id": "command-runner",
       "path": "scripts/run-conformance.mjs",
-      "digest": "sha256:bce1deb8afe43211a8f6f2b3051edd3ab700dcfe0f1358a42e7aca1ff61133b0"
+      "digest": "sha256:b28bfaabc97704640cffd163381b2fac0001c8ed9ec30579853f229be85227d6"
     },
     {
       "id": "vitest-conformance",
@@ -104,7 +104,7 @@
     {
       "id": "ci-lane",
       "path": ".github/workflows/test-and-validate.yml",
-      "digest": "sha256:b0797140a4d80f85c2354d4c3afc9edeb40f60b8c965649d32bba93e190bca59"
+      "digest": "sha256:e010033dbfe25ade3904e2c5cb614d320d5051115c6a642fe69c4236983ce4b1"
     }
   ]
 }

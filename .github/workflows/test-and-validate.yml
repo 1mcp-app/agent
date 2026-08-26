@@ -160,7 +160,7 @@ jobs:
 
       - name: Sync frozen Python fixture
         working-directory: test/conformance/fixtures/python
-        run: uv sync --frozen --no-dev
+        run: uv sync --frozen
 
       - name: Install frozen TypeScript peer fixtures
         working-directory: test/conformance/fixtures/typescript
