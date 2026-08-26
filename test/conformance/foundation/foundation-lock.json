@@ -19,7 +19,7 @@
     {
       "id": "baseline",
       "path": "test/conformance/baseline/baseline.ts",
-      "digest": "sha256:fcf00ebed9f8606b74810b37e01ab129eb65251f313bb485af4b5a260dd6e07e"
+      "digest": "sha256:b5c62f02e0a79e770fa85944eadcae1d1eff31803115fec207041eedaaf436e4"
     },
     {
       "id": "capture-schema",

@@ -4,7 +4,7 @@ import { z } from 'zod';
 
 const sha256Schema = z.string().regex(/^sha256:[a-f0-9]{64}$/u);
 const sourceShaSchema = z.string().regex(/^[a-f0-9]{40}$/u);
-const safeIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$/u);
+const safeIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9$._/-]{0,255}$/u);
 const revisionSchema = z.enum(['2025-11-25', '2026-07-28']);
 const roleSchema = z.enum(['client', 'server']);
 const profileSchema = z.enum([
