@@ -40,33 +40,9 @@ export function scanWorkflowSecurity(content: string, filename = 'workflow.yml')
     const line = lines[i];
     const trimmed = line.trim();
 
-    // Skip full-line comments
-    if (trimmed.startsWith('#')) {
-      continue;
-    }
-
-    // Match run: block headers including YAML block indentation indicators (e.g. 'run: |2', 'run: >-', 'run: |2-', etc.)
-    const multiLineRunStartMatch = line.match(/^(\s*)(?:-\s+)?['"]?run['"]?:\s*[|>][0-9+-]*\s*(?:#.*)?$/i);
-    // Match single-line run commands
-    const singleLineRunMatch = line.match(/^(\s*)(?:-\s+)?['"]?run['"]?:\s*(.+)$/i);
-
-    if (multiLineRunStartMatch) {
-      inRun = true;
-      runIndent = line.search(/\S/);
-    } else if (singleLineRunMatch) {
-      inRun = false;
-      const scriptContent = singleLineRunMatch[2];
-      if (expressionPattern.test(scriptContent)) {
-        violations.push({
-          file: filename,
-          line: i + 1,
-          rule: 'NO_RUN_INJECTION',
-          message:
-            'Direct interpolation of expressions in run: step detected. Pass dynamic values via env: variables instead.',
-          snippet: line.trim(),
-        });
-      }
-    } else if (inRun) {
+    // If currently inside a multiline run block scalar (e.g. run: |), evaluate all lines
+    // including comment lines (since GitHub Actions evaluates expressions before executing shell)
+    if (inRun) {
       if (trimmed.length === 0) {
         continue;
       }
@@ -84,6 +60,49 @@ export function scanWorkflowSecurity(content: string, filename = 'workflow.yml')
         }
       } else {
         inRun = false;
+      }
+    }
+
+    if (!inRun) {
+      // Top-level YAML comments are skipped
+      if (trimmed.startsWith('#')) {
+        continue;
+      }
+
+      // Match run: block headers including YAML block indentation indicators (e.g. 'run: |2', 'run: >-', 'run: |2-', etc.)
+      const multiLineRunStartMatch = line.match(/^(\s*)(?:-\s+)?['"]?run['"]?:\s*[|>][0-9+-]*\s*(?:#.*)?$/i);
+      // Match standard single-line run commands
+      const singleLineRunMatch = line.match(/^(\s*)(?:-\s+)?['"]?run['"]?:\s*(.+)$/i);
+      // Match YAML flow-style mapping (e.g. '- { run: ... }', '- { name: test, run: ... }')
+      const flowStyleRunMatch = line.match(/\{[^{}]*\b['"]?run['"]?\s*:\s*([^,}]+)/i);
+
+      if (multiLineRunStartMatch) {
+        inRun = true;
+        runIndent = line.search(/\S/);
+      } else if (singleLineRunMatch) {
+        const scriptContent = singleLineRunMatch[2];
+        if (expressionPattern.test(scriptContent)) {
+          violations.push({
+            file: filename,
+            line: i + 1,
+            rule: 'NO_RUN_INJECTION',
+            message:
+              'Direct interpolation of expressions in run: step detected. Pass dynamic values via env: variables instead.',
+            snippet: line.trim(),
+          });
+        }
+      } else if (flowStyleRunMatch) {
+        const scriptContent = flowStyleRunMatch[1];
+        if (expressionPattern.test(scriptContent)) {
+          violations.push({
+            file: filename,
+            line: i + 1,
+            rule: 'NO_RUN_INJECTION',
+            message:
+              'Direct interpolation of expressions in run: step detected. Pass dynamic values via env: variables instead.',
+            snippet: line.trim(),
+          });
+        }
       }
     }
   }
@@ -175,6 +194,38 @@ describe('GitHub Actions Workflow & Composite Action Security Gate', () => {
       const violations = scanWorkflowSecurity(malicious, 'test.yml');
       expect(violations).toHaveLength(2);
       expect(violations.every((v) => v.rule === 'NO_RUN_INJECTION')).toBe(true);
+    });
+
+    it('detects and blocks flow-style YAML mapping run steps', () => {
+      const maliciousFlow = [
+        'name: Test',
+        'jobs:',
+        '  t:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - { run: "echo ' + String.fromCharCode(36) + '{{ github.actor }}" }',
+      ].join('\n');
+
+      const violations = scanWorkflowSecurity(maliciousFlow, 'test.yml');
+      expect(violations).toHaveLength(1);
+      expect(violations[0].rule).toBe('NO_RUN_INJECTION');
+    });
+
+    it('detects and blocks expressions in multiline run shell comment lines', () => {
+      const maliciousComment = [
+        'name: Test',
+        'jobs:',
+        '  t:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - run: |',
+        '          # echo "' + String.fromCharCode(36) + '{{ github.actor }}"',
+        '          echo "safe"',
+      ].join('\n');
+
+      const violations = scanWorkflowSecurity(maliciousComment, 'test.yml');
+      expect(violations).toHaveLength(1);
+      expect(violations[0].rule).toBe('NO_RUN_INJECTION');
     });
 
     it('detects and blocks index bracket syntax in run', () => {
