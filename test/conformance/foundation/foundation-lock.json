@@ -69,7 +69,7 @@
     {
       "id": "official-client-bridge",
       "path": "test/conformance/foundation/officialClientBridge.mjs",
-      "digest": "sha256:bee7bf9ae1bf0147797a0996e6c4c4a2a2d1dae156e80cdff9fa1c859a752e1c"
+      "digest": "sha256:1d8f9ce675c9ebf8eea7af5608506c4c84cce40c4363a349a903e9a369b35a87"
     },
     {
       "id": "official-client-scenario-catalog",

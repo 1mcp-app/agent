@@ -150,12 +150,12 @@ async function main() {
   if (family === 'auth') {
     const oauth = { autoRegister: typeof context?.client_id !== 'string' };
     if (typeof context?.client_id === 'string') {
-      oauth.clientId = '${ONE_MCP_CONFORMANCE_CLIENT_ID}';
-      oauthEnvironment.ONE_MCP_CONFORMANCE_CLIENT_ID = context.client_id;
+      oauth.clientId = '${MCP_CONFORMANCE_FIXTURE_CLIENT_ID}';
+      oauthEnvironment.MCP_CONFORMANCE_FIXTURE_CLIENT_ID = context.client_id;
     }
     if (typeof context?.client_secret === 'string') {
-      oauth.clientSecret = '${ONE_MCP_CONFORMANCE_CLIENT_SECRET}';
-      oauthEnvironment.ONE_MCP_CONFORMANCE_CLIENT_SECRET = context.client_secret;
+      oauth.clientSecret = '${MCP_CONFORMANCE_FIXTURE_CLIENT_SECRET}';
+      oauthEnvironment.MCP_CONFORMANCE_FIXTURE_CLIENT_SECRET = context.client_secret;
     }
     upstream.oauth = oauth;
   }
