@@ -21,8 +21,14 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))));
 const BASELINE_PATH = path.join(ROOT, 'scripts', 'security', 'permission-guard-baseline.json');
 
-const WRITE_PATTERN = /\bfs\.(writeFileSync|appendFileSync|openSync|copyFileSync|createWriteStream|mkdirSync)\s*\(/;
+const SYNC_WRITE_PATTERN = /\bfs\.(writeFileSync|appendFileSync|openSync|copyFileSync|createWriteStream|mkdirSync)\s*\(/;
+const ASYNC_WRITE_PATTERN = /\bfs\.(writeFile|appendFile|mkdir|copyFile|cp)\s*\(/;
+// Destructured async/sensitive identifiers imported from 'node:fs/promises' /
+// `promises as fs` — these escape the fs.-prefix requirement entirely.
+const DESTRUCTURED_WRITE_PATTERN = /\b(writeFile|appendFile|mkdir|copyFile|cp)\s*\(/;
+const DESTRUCTURED_IMPORTS = /from\s+['"]node?:fs\/promises['"]|promises\s+as\s+\w+\s+from\s+['"]node?:fs['"]/;
 const MODE_PATTERN = /mode\s*:\s*0o|,\s*0o[67][0-7]{2}\b/;
+const CHMOD_PATTERN = /\bchmod(Sync)?\s*\(/;
 const TEST_FILE = /\.test\.ts$|__tests__|\/test\//;
 
 function listSourceFiles() {
@@ -37,22 +43,32 @@ function findingFingerprint(file, index, snippet) {
 
 function scanFile(rel) {
   const abs = path.join(ROOT, rel);
-  const lines = fs.readFileSync(abs, 'utf8').split('\n');
+  const content = fs.readFileSync(abs, 'utf8');
+  const lines = content.split('\n');
+  const hasDestructuredImport = DESTRUCTURED_IMPORTS.test(content);
   const findings = [];
   let occurrence = 0;
   lines.forEach((line, i) => {
-    const m = line.match(WRITE_PATTERN);
+    const m = line.match(SYNC_WRITE_PATTERN) || line.match(ASYNC_WRITE_PATTERN) || (hasDestructuredImport && line.match(DESTRUCTURED_WRITE_PATTERN));
     if (!m) return;
     occurrence += 1;
     // Statement window: current line + next 5 lines (multi-line call args)
     const block = lines.slice(i, i + 6).join(' ');
-    if (MODE_PATTERN.test(block)) return;
-    const snippet = m[1];
+    const call = m[1];
+    const isCopy = call === 'copyFileSync' || call === 'copyFile' || call === 'cp';
+    if (isCopy) {
+      // fs.copy* has no mode parameter; the invariant is a chmod on the
+      // destination within 8 lines after the copy.
+      const after = lines.slice(i, i + 9).join(' ');
+      if (CHMOD_PATTERN.test(after)) return;
+    } else if (MODE_PATTERN.test(block)) {
+      return;
+    }
     findings.push({
       file: rel,
       line: i + 1,
-      call: m[1],
-      fingerprint: findingFingerprint(rel, occurrence, snippet),
+      call,
+      fingerprint: findingFingerprint(rel, occurrence, call),
     });
   });
   return findings;
@@ -79,6 +95,9 @@ function reasonFor(f) {
     ['src/commands/shared/baseConfigUtils.ts', 'writes user-owned mcp.json config (may embed env but guaranteed non-secret at authoring time) — ticket-08'],
     ['src/commands/target/target.ts', 'serializes user-authored target config to user-owned path — ticket-08'],
     ['src/config/configLoader.ts', 'writes DEFAULT_CONFIG scaffold on first run (no secrets); acceptable default-mode — ticket-08'],
+    ['src/domains/preset/manager/presetStorage.ts', 'preset config cache mirrors user-authored mcp.json (non-secret at authoring time) — async fs.promises path, tightening under ticket-08'],
+    ['src/commands/cliSetup/setupFiles.ts', 'writes IDE/cli setup scaffolding config files in user-owned paths — ticket-08'],
+    ['src/commands/shared/authProfileStore.ts', 'async fs.promises path for bearer-token storage; mkdir has mode 0o700 and rename target chmod 0o600 — listed only if an edge path lingers'],
     ['src/commands/app/consolidate.ts', 'writes consolidated config derived from existing user config file — ticket-08'],
   ];
   for (const [prefix, reason] of byPrefix) {

@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { TemplateContextCapabilityStore } from './templateContextTrust.js';
 
 const isPosix = process.platform !== 'win32';
+const isRoot = process.getuid?.() === 0;
 
 describe('capability/storage permission invariants (POSIX-only, AUTH-07 gate)', () => {
   let storageDir: string;
@@ -20,10 +21,7 @@ describe('capability/storage permission invariants (POSIX-only, AUTH-07 gate)', 
     fs.rmSync(storageDir, { recursive: true, force: true });
   });
 
-  it('capability file is created 0600 via an atomic owner-only write', () => {
-    if (!isPosix) {
-      return;
-    }
+  it.skipIf(!isPosix)('capability file is created 0600 via an atomic owner-only write', () => {
     const store = new TemplateContextCapabilityStore({
       storageDir,
       runtimeScopeId: 'scope-invariant',
@@ -35,10 +33,7 @@ describe('capability/storage permission invariants (POSIX-only, AUTH-07 gate)', 
     expect(fs.readdirSync(storageDir).filter((name) => name.endsWith('.tmp'))).toEqual([]);
   });
 
-  it('fails closed when a pre-existing capability file is group/other-readable', () => {
-    if (!isPosix) {
-      return;
-    }
+  it.skipIf(!isPosix)('fails closed when a pre-existing capability file is group/other-readable', () => {
     const store = new TemplateContextCapabilityStore({
       storageDir,
       runtimeScopeId: 'scope-invariant',
@@ -50,10 +45,7 @@ describe('capability/storage permission invariants (POSIX-only, AUTH-07 gate)', 
     expect(() => store.getOrCreate()).toThrow();
   });
 
-  it('fails closed when the capability write itself is denied (EACCES)', () => {
-    if (!isPosix || process.getuid?.() === 0) {
-      return; // root bypasses permission bits — skip to avoid a false-green
-    }
+  it.skipIf(!isPosix || isRoot)('fails closed when the capability write itself is denied (EACCES)', () => {
     fs.chmodSync(storageDir, 0o500);
     try {
       const store = new TemplateContextCapabilityStore({

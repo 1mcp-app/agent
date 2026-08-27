@@ -49,10 +49,7 @@ describe('token/storage permission invariants (POSIX-only, AUTH-07 gate)', () =>
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('every write path lands 0600 and the storage dir is 0700', () => {
-    if (!isPosix) {
-      return;
-    }
+  it.skipIf(!isPosix)('every write path lands 0600 and the storage dir is 0700', () => {
     expect(fs.statSync(service.getStorageDir()).mode & 0o777).toBe(0o700);
 
     service.writeData(filePrefix, testId, testData);
@@ -63,10 +60,7 @@ describe('token/storage permission invariants (POSIX-only, AUTH-07 gate)', () =>
     expect(fs.statSync(service.getFilePath(filePrefix, durableId)).mode & 0o777).toBe(0o600);
   });
 
-  it('fails closed when writeData hits a chmod failure on a permissive file', () => {
-    if (!isPosix) {
-      return;
-    }
+  it.skipIf(!isPosix)('fails closed when writeData hits a chmod failure on a permissive file', () => {
     const filePath = service.getFilePath(filePrefix, testId);
     fs.writeFileSync(filePath, JSON.stringify({ ...testData, value: 'old-secret' }), { mode: 0o644 });
 
@@ -90,23 +84,40 @@ describe('token/storage permission invariants (POSIX-only, AUTH-07 gate)', () =>
     expect(() => new FileStorageService(tempDir)).toThrow(/EACCES/);
   });
 
-  it('read-side strictModes: readData refuses a group/other-readable credential file', () => {
-    if (!isPosix) {
-      return;
-    }
-    service.writeData(filePrefix, testId, testData);
-    const filePath = service.getFilePath(filePrefix, testId);
-    fs.chmodSync(filePath, 0o644);
+  describe('read-side strictModes (POSIX-only)', () => {
+    it.skipIf(!isPosix)('self-heals a legacy 0644 credential file to 0600 on read', () => {
+      service.writeData(filePrefix, testId, testData);
+      const filePath = service.getFilePath(filePrefix, testId);
+      fs.chmodSync(filePath, 0o644);
 
-    expect(() => service.readData<TestData>(filePrefix, testId)).toThrow(InsecureFilePermissionsError);
-    expect(() => service.readData<TestData>(filePrefix, testId)).toThrow(/too open/);
-  });
+      expect(service.readData<TestData>(filePrefix, testId)).toEqual(testData);
+      expect(fs.statSync(filePath).mode & 0o777).toBe(0o600);
+    });
 
-  it('read-side strictModes: readData accepts an owner-only file', () => {
-    if (!isPosix) {
-      return;
-    }
-    service.writeData(filePrefix, testId, testData);
-    expect(service.readData<TestData>(filePrefix, testId)).toEqual(testData);
+    it.skipIf(!isPosix)('fails closed when the self-heal chmod is denied (EPERM)', () => {
+      service.writeData(filePrefix, testId, testData);
+      const filePath = service.getFilePath(filePrefix, testId);
+      fs.chmodSync(filePath, 0o644);
+
+      vi.spyOn(fs, 'fchmodSync').mockImplementation(() => {
+        throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+      });
+
+      expect(() => service.readData<TestData>(filePrefix, testId)).toThrow(InsecureFilePermissionsError);
+      expect(fs.statSync(filePath).mode & 0o777).toBe(0o644);
+    });
+
+    it.skipIf(!isPosix)('self-heals a group/other-readable storage directory on read', () => {
+      service.writeData(filePrefix, testId, testData);
+      fs.chmodSync(service.getStorageDir(), 0o755);
+
+      expect(service.readData<TestData>(filePrefix, testId)).toEqual(testData);
+      expect(fs.statSync(service.getStorageDir()).mode & 0o777).toBe(0o700);
+    });
+
+    it.skipIf(!isPosix)('readData accepts an owner-only file', () => {
+      service.writeData(filePrefix, testId, testData);
+      expect(service.readData<TestData>(filePrefix, testId)).toEqual(testData);
+    });
   });
 });

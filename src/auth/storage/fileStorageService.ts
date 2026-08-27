@@ -464,18 +464,47 @@ export class FileStorageService {
   }
 
   /**
-   * Read-side strictModes check (OpenSSH sshkey_perm_ok semantic): on POSIX
-   * platforms a data file readable/writable by group or others is untrusted
-   * and must fail closed instead of being consumed. Windows ACLs do not map
-   * to fs.stat modes, so the check is skipped there.
+   * Read-side strictModes (OpenSSH sshkey_perm_ok semantic) on an already-open
+   * fd, so the permission check cannot be swapped out between stat and read
+   * (no TOCTOU). Legacy files from before the AUTH-07 fix self-heal: a
+   * group/other-open file is chmod'ed to 0o600 in place; only when that heal
+   * fails do we refuse to consume the credential. Windows ACLs do not map to
+   * fs.stat modes, so the check is skipped there.
    */
-  private assertOwnerOnlyFilePermissions(filePath: string): void {
+  private enforceOwnerOnlyFilePermissions(fd: number, filePath: string): void {
     if (process.platform === 'win32') {
       return;
     }
-    const mode = fs.statSync(filePath).mode;
-    if ((mode & 0o077) !== 0) {
+    const mode = fs.fstatSync(fd).mode;
+    if ((mode & 0o077) === 0) {
+      return;
+    }
+    try {
+      fs.fchmodSync(fd, 0o600);
+      logger.warn(`Self-healed insecure 0${(mode & 0o777).toString(8)} permissions to 0600 on ${path.basename(path.dirname(filePath))} data file`);
+    } catch (healError) {
       throw new InsecureFilePermissionsError(filePath, mode);
+    }
+  }
+
+  /**
+   * Directory leg of strictModes: a storage dir writable/readable by group or
+   * others allows filename enumeration and file replacement. The write side
+   * already hardens the dir (chmod 0700 in ensureDirectory); the read side
+   * repels downgrade by checking the same invariant before consuming data.
+   */
+  private assertOwnerOnlyDirPermissions(dirPath: string): void {
+    if (process.platform === 'win32') {
+      return;
+    }
+    const mode = fs.statSync(dirPath).mode;
+    if ((mode & 0o077) !== 0) {
+      try {
+        fs.chmodSync(dirPath, 0o700);
+        logger.warn(`Self-healed insecure storage directory permissions to 0700`);
+      } catch (healError) {
+        throw new InsecureFilePermissionsError(dirPath, mode);
+      }
     }
   }
 
@@ -495,9 +524,18 @@ export class FileStorageService {
         return null;
       }
 
-      this.assertOwnerOnlyFilePermissions(filePath);
+      this.assertOwnerOnlyDirPermissions(this.getStorageDir());
 
-      const data = fs.readFileSync(filePath, 'utf8');
+      // open → fstat → read on one descriptor, closing the TOCTOU gap
+      // between a permission check and a separate open.
+      const fd = fs.openSync(filePath, 'r');
+      let data: string;
+      try {
+        this.enforceOwnerOnlyFilePermissions(fd, filePath);
+        data = fs.readFileSync(fd, 'utf8');
+      } finally {
+        fs.closeSync(fd);
+      }
       const parsed: unknown = JSON.parse(data);
       const parsedData = schema ? schema.parse(parsed) : (parsed as T);
 

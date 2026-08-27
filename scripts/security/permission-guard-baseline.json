@@ -24,7 +24,16 @@
       "fingerprint": "src/auth/storage/fileStorageService.ts#6#openSync",
       "file": "src/auth/storage/fileStorageService.ts",
       "call": "openSync",
-      "line": 703,
+      "line": 531,
+      "reason": "writeFileSync targets fd from openSync(wx, 0o600) — mode inherited at open; this file is the AUTH-07 reference implementation",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/auth/storage/fileStorageService.ts#7#openSync",
+      "file": "src/auth/storage/fileStorageService.ts",
+      "call": "openSync",
+      "line": 741,
       "reason": "writeFileSync targets fd from openSync(wx, 0o600) — mode inherited at open; this file is the AUTH-07 reference implementation",
       "enteredAt": "2026-08-27",
       "ticket": "08-lowseverity-hardening"
@@ -44,6 +53,42 @@
       "call": "copyFileSync",
       "line": 415,
       "reason": "writes consolidated config derived from existing user config file — ticket-08",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/commands/cliSetup/setupFiles.ts#1#mkdir",
+      "file": "src/commands/cliSetup/setupFiles.ts",
+      "call": "mkdir",
+      "line": 192,
+      "reason": "writes IDE/cli setup scaffolding config files in user-owned paths — ticket-08",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/commands/cliSetup/setupFiles.ts#2#writeFile",
+      "file": "src/commands/cliSetup/setupFiles.ts",
+      "call": "writeFile",
+      "line": 193,
+      "reason": "writes IDE/cli setup scaffolding config files in user-owned paths — ticket-08",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/commands/cliSetup/setupFiles.ts#3#mkdir",
+      "file": "src/commands/cliSetup/setupFiles.ts",
+      "call": "mkdir",
+      "line": 214,
+      "reason": "writes IDE/cli setup scaffolding config files in user-owned paths — ticket-08",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/commands/cliSetup/setupFiles.ts#4#writeFile",
+      "file": "src/commands/cliSetup/setupFiles.ts",
+      "call": "writeFile",
+      "line": 215,
+      "reason": "writes IDE/cli setup scaffolding config files in user-owned paths — ticket-08",
       "enteredAt": "2026-08-27",
       "ticket": "08-lowseverity-hardening"
     },
@@ -278,6 +323,24 @@
       "call": "writeFileSync",
       "line": 1113,
       "reason": "pre-existing, recorded at ticket-05 gate baseline; triage under 08-lowseverity-hardening",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/preset/manager/presetStorage.ts#1#mkdir",
+      "file": "src/domains/preset/manager/presetStorage.ts",
+      "call": "mkdir",
+      "line": 9,
+      "reason": "preset config cache mirrors user-authored mcp.json (non-secret at authoring time) — async fs.promises path, tightening under ticket-08",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/preset/manager/presetStorage.ts#2#writeFile",
+      "file": "src/domains/preset/manager/presetStorage.ts",
+      "call": "writeFile",
+      "line": 35,
+      "reason": "preset config cache mirrors user-authored mcp.json (non-secret at authoring time) — async fs.promises path, tightening under ticket-08",
       "enteredAt": "2026-08-27",
       "ticket": "08-lowseverity-hardening"
     },

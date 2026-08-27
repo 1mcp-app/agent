@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { access, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { getConfigDir } from '@src/constants.js';
@@ -51,16 +51,18 @@ function profilePath(configDir: string | undefined, serverUrl: string): string {
 }
 
 export async function saveAuthProfile(configDir: string | undefined, profile: AuthProfile): Promise<void> {
+  // Auth profiles carry bearer tokens: dir 0700, file 0600 (POSIX; ignored on win32).
   const dir = profilesDir(configDir);
-  await mkdir(dir, { recursive: true });
+  await mkdir(dir, { recursive: true, mode: 0o700 });
   const filePath = profilePath(configDir, profile.serverUrl);
   const tempPath = `${filePath}.tmp.${process.pid}`;
   const data: AuthProfile = {
     ...profile,
     serverUrl: normalizeServerUrl(profile.serverUrl),
   };
-  await writeFile(tempPath, JSON.stringify(data), 'utf8');
+  await writeFile(tempPath, JSON.stringify(data), { encoding: 'utf8', mode: 0o600 });
   await rename(tempPath, filePath);
+  await chmod(filePath, 0o600);
 }
 
 export async function loadAuthProfile(configDir: string | undefined, serverUrl: string): Promise<AuthProfile | null> {
