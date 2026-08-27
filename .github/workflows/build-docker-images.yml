@@ -249,18 +249,19 @@ jobs:
       - name: Create multi-platform Docker manifests
         env:
           IMAGE: ghcr.io/${{ github.repository }}
+          TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
 
           mapfile -t tags < <(cat docker-metadata/tags/*.txt | sort -u)
           if (( ${#tags[@]} == 0 )); then
-            echo "::error::No Docker tags were produced for ${{ matrix.target }}"
+            echo "::error::No Docker tags were produced for $TARGET"
             exit 1
           fi
 
           mapfile -t digests < <(find docker-metadata/digests -maxdepth 1 -type f -print | sort)
           if (( ${#digests[@]} == 0 )); then
-            echo "::error::No Docker digests were produced for ${{ matrix.target }}"
+            echo "::error::No Docker digests were produced for $TARGET"
             exit 1
           fi
 

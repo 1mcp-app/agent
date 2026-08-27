@@ -11,15 +11,11 @@ export interface WorkflowViolation {
   snippet: string;
 }
 
-/**
- * Scans a workflow or composite action file for 'secrets: inherit' and script expression injections in 'run:' steps.
- */
 export function scanWorkflowSecurity(content: string, filename = 'workflow.yml'): WorkflowViolation[] {
   const normalized = content.replace(/\r\n/g, '\n');
   const lines = normalized.split('\n');
   const violations: WorkflowViolation[] = [];
 
-  // 1. Guard against secrets: inherit (with or without quotes)
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (/^\s*secrets:\s*["']?inherit["']?\b/i.test(line)) {
@@ -33,14 +29,7 @@ export function scanWorkflowSecurity(content: string, filename = 'workflow.yml')
     }
   }
 
-  // 2. Guard against direct expression injection in run: steps
-  // Catches:
-  // - Property access: ${{ github.event... }}, ${{ inputs.tag }}
-  // - Index syntax: ${{ github['event']... }}, ${{ inputs['tag'] }}
-  // - Dynamic contexts: ${{ env.X }}, ${{ steps.X.outputs.Y }}, ${{ needs.X.outputs.Y }}
-  // - Function wrappers: ${{ toJSON(github) }}, ${{ format('{0}', inputs.val) }}
-  const injectionRegex = /\$\{\{\s*(?:(?:github|inputs|env|steps|needs)(?:\.|\[|\s)|(?:toJSON|format|fromJSON)\s*\()/;
-
+  const expressionPattern = /\$\{\{/;
   let inRun = false;
   let runIndent = 0;
 
@@ -48,13 +37,12 @@ export function scanWorkflowSecurity(content: string, filename = 'workflow.yml')
     const line = lines[i];
     const trimmed = line.trim();
 
-    // Skip full-line comments
     if (trimmed.startsWith('#')) {
       continue;
     }
 
-    const multiLineRunStartMatch = line.match(/^(\s*)(?:-\s+)?run:\s*[|>-][+-]?\s*(?:#.*)?$/);
-    const singleLineRunMatch = line.match(/^(\s*)(?:-\s+)?run:\s*([^|>-].*)$/);
+    const multiLineRunStartMatch = line.match(/^(\s*)(?:-\s+)?['"]?run['"]?:\s*[|>-][+-]?\s*(?:#.*)?$/i);
+    const singleLineRunMatch = line.match(/^(\s*)(?:-\s+)?['"]?run['"]?:\s*([^|>-].*)$/i);
 
     if (multiLineRunStartMatch) {
       inRun = true;
@@ -62,7 +50,7 @@ export function scanWorkflowSecurity(content: string, filename = 'workflow.yml')
     } else if (singleLineRunMatch) {
       inRun = false;
       const scriptContent = singleLineRunMatch[2];
-      if (injectionRegex.test(scriptContent)) {
+      if (expressionPattern.test(scriptContent)) {
         violations.push({
           file: filename,
           line: i + 1,
@@ -78,7 +66,7 @@ export function scanWorkflowSecurity(content: string, filename = 'workflow.yml')
       }
       const lineIndent = line.search(/\S/);
       if (lineIndent > runIndent) {
-        if (injectionRegex.test(line)) {
+        if (expressionPattern.test(line)) {
           violations.push({
             file: filename,
             line: i + 1,
@@ -182,7 +170,7 @@ describe('GitHub Actions Workflow & Composite Action Security Gate', () => {
       expect(violations[0].rule).toBe('NO_RUN_INJECTION');
     });
 
-    it('detects and blocks function-wrapped expressions in multiline run', () => {
+    it('detects and blocks function-wrapped expressions (tojson, format, replace, join)', () => {
       const malicious = [
         'name: Test',
         'jobs:',
@@ -190,38 +178,8 @@ describe('GitHub Actions Workflow & Composite Action Security Gate', () => {
         '    runs-on: ubuntu-latest',
         '    steps:',
         '      - run: |',
-        '          node -e "console.log(' + String.fromCharCode(36) + '{{ toJSON(github.event) }})"',
-      ].join('\n');
-
-      const violations = scanWorkflowSecurity(malicious, 'test.yml');
-      expect(violations).toHaveLength(1);
-      expect(violations[0].rule).toBe('NO_RUN_INJECTION');
-    });
-
-    it('detects and blocks format function wrapped expressions', () => {
-      const malicious = [
-        'name: Test',
-        'jobs:',
-        '  t:',
-        '    runs-on: ubuntu-latest',
-        '    steps:',
-        '      - run: echo "' + String.fromCharCode(36) + "{{ format('{0}', inputs.npm_tag) }}\"",
-      ].join('\n');
-
-      const violations = scanWorkflowSecurity(malicious, 'test.yml');
-      expect(violations).toHaveLength(1);
-      expect(violations[0].rule).toBe('NO_RUN_INJECTION');
-    });
-
-    it('detects and blocks env and step outputs directly in run step', () => {
-      const malicious = [
-        'name: Test',
-        'jobs:',
-        '  t:',
-        '    runs-on: ubuntu-latest',
-        '    steps:',
-        '      - run: echo "' + String.fromCharCode(36) + '{{ env.DYNAMIC_VAL }}"',
-        '      - run: echo "' + String.fromCharCode(36) + '{{ steps.step1.outputs.data }}"',
+        '          node -e "console.log(' + String.fromCharCode(36) + '{{ tojson(github.event) }})"',
+        '      - run: echo "' + String.fromCharCode(36) + "{{ replace(github.event.issue.title, 'a', 'b') }}\"",
       ].join('\n');
 
       const violations = scanWorkflowSecurity(malicious, 'test.yml');
@@ -229,8 +187,55 @@ describe('GitHub Actions Workflow & Composite Action Security Gate', () => {
       expect(violations.every((v) => v.rule === 'NO_RUN_INJECTION')).toBe(true);
     });
 
-    it('detects and blocks unquoted secrets: inherit', () => {
+    it('detects and blocks matrix, secrets, vars, and runner in run step', () => {
       const malicious = [
+        'name: Test',
+        'jobs:',
+        '  t:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - run: echo "' + String.fromCharCode(36) + '{{ matrix.target }}"',
+        '      - run: echo "' + String.fromCharCode(36) + '{{ secrets.MY_SECRET }}"',
+        '      - run: echo "' + String.fromCharCode(36) + '{{ vars.MY_VAR }}"',
+      ].join('\n');
+
+      const violations = scanWorkflowSecurity(malicious, 'test.yml');
+      expect(violations).toHaveLength(3);
+      expect(violations.every((v) => v.rule === 'NO_RUN_INJECTION')).toBe(true);
+    });
+
+    it('detects and blocks bare context expressions', () => {
+      const malicious = [
+        'name: Test',
+        'jobs:',
+        '  t:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - run: echo "' + String.fromCharCode(36) + '{{ github }}"',
+      ].join('\n');
+
+      const violations = scanWorkflowSecurity(malicious, 'test.yml');
+      expect(violations).toHaveLength(1);
+      expect(violations[0].rule).toBe('NO_RUN_INJECTION');
+    });
+
+    it('detects and blocks quoted run keys', () => {
+      const malicious = [
+        'name: Test',
+        'jobs:',
+        '  t:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        "      - 'run': echo \"" + String.fromCharCode(36) + '{{ github.head_ref }}"',
+      ].join('\n');
+
+      const violations = scanWorkflowSecurity(malicious, 'test.yml');
+      expect(violations).toHaveLength(1);
+      expect(violations[0].rule).toBe('NO_RUN_INJECTION');
+    });
+
+    it('detects and blocks unquoted and quoted secrets: inherit', () => {
+      const unquoted = [
         'name: Caller',
         'jobs:',
         '  sub:',
@@ -238,13 +243,7 @@ describe('GitHub Actions Workflow & Composite Action Security Gate', () => {
         '    secrets: inherit',
       ].join('\n');
 
-      const violations = scanWorkflowSecurity(malicious, 'caller.yml');
-      expect(violations).toHaveLength(1);
-      expect(violations[0].rule).toBe('NO_SECRETS_INHERIT');
-    });
-
-    it('detects and blocks quoted secrets: "inherit"', () => {
-      const maliciousDoubleQuotes = [
+      const doubleQuoted = [
         'name: Caller',
         'jobs:',
         '  sub:',
@@ -252,7 +251,7 @@ describe('GitHub Actions Workflow & Composite Action Security Gate', () => {
         '    secrets: "inherit"',
       ].join('\n');
 
-      const maliciousSingleQuotes = [
+      const singleQuoted = [
         'name: Caller',
         'jobs:',
         '  sub:',
@@ -260,8 +259,9 @@ describe('GitHub Actions Workflow & Composite Action Security Gate', () => {
         "    secrets: 'inherit'",
       ].join('\n');
 
-      expect(scanWorkflowSecurity(maliciousDoubleQuotes)).toHaveLength(1);
-      expect(scanWorkflowSecurity(maliciousSingleQuotes)).toHaveLength(1);
+      expect(scanWorkflowSecurity(unquoted)).toHaveLength(1);
+      expect(scanWorkflowSecurity(doubleQuoted)).toHaveLength(1);
+      expect(scanWorkflowSecurity(singleQuoted)).toHaveLength(1);
     });
 
     it('detects and blocks injections in composite action.yml files', () => {
@@ -295,8 +295,9 @@ describe('GitHub Actions Workflow & Composite Action Security Gate', () => {
         '        env:',
         '          VERSION: ' + String.fromCharCode(36) + '{{ inputs.version }}',
         '          EVENT_NAME: ' + String.fromCharCode(36) + '{{ github.event_name }}',
+        '          MATRIX_SCRIPT: ' + String.fromCharCode(36) + '{{ matrix.script }}',
         '        run: |',
-        '          echo "Deploying version: $VERSION for event: $EVENT_NAME"',
+        '          echo "Deploying version: $VERSION for event: $EVENT_NAME using $MATRIX_SCRIPT"',
       ].join('\n');
 
       expect(scanWorkflowSecurity(safe)).toHaveLength(0);

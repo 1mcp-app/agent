@@ -76,6 +76,6 @@ describe('test-and-validate workflow', () => {
 
     expect(ciJob).toBeDefined();
     expect(ciJob).toContain('reviewdog/action-actionlint@v1');
-    expect(ciJob).toContain('fail_level: error');
+    expect(ciJob).toMatch(/fail_level:\s*(?:any|error)/);
   });
 });

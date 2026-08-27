@@ -47,7 +47,7 @@ jobs:
       - name: Lint GitHub Actions workflows
         uses: reviewdog/action-actionlint@v1
         with:
-          fail_level: error
+          fail_level: any
           filter_mode: nofilter
 
       - name: Validate static checks
