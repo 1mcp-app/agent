@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
+import YAML from 'yaml';
 
 export interface WorkflowViolation {
   file: string;
@@ -11,101 +12,91 @@ export interface WorkflowViolation {
   snippet: string;
 }
 
+/**
+ * Scans a workflow or composite action file for 'secrets: inherit' and script expression injections in 'run:' steps.
+ * Uses standard YAML AST parsing (supporting anchors, aliases, flow mappings, and block scalars).
+ */
 export function scanWorkflowSecurity(content: string, filename = 'workflow.yml'): WorkflowViolation[] {
-  const normalized = content.replace(/\r\n/g, '\n');
-  const lines = normalized.split('\n');
   const violations: WorkflowViolation[] = [];
+  const expressionPattern = /\$\{\{/;
 
-  // 1. Guard against secrets: inherit (quoted or unquoted)
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (/^\s*secrets:\s*["']?inherit["']?\b/i.test(line)) {
+  const lineCounter = new YAML.LineCounter();
+  let doc: YAML.Document;
+  try {
+    doc = YAML.parseDocument(content, { lineCounter });
+  } catch (e) {
+    violations.push({
+      file: filename,
+      line: 1,
+      rule: 'NO_RUN_INJECTION',
+      message: 'YAML Parse Error: ' + (e instanceof Error ? e.message : String(e)),
+      snippet: content.split('\n')[0] || '',
+    });
+    return violations;
+  }
+
+  if (doc.errors && doc.errors.length > 0) {
+    for (const err of doc.errors) {
       violations.push({
         file: filename,
-        line: i + 1,
-        rule: 'NO_SECRETS_INHERIT',
-        message: "Forbidden 'secrets: inherit' detected. Secrets must be explicitly mapped by name or use OIDC.",
-        snippet: line.trim(),
+        line: err.linePos ? err.linePos[0].line : 1,
+        rule: 'NO_RUN_INJECTION',
+        message: 'YAML Syntax Error: ' + err.message,
+        snippet: err.message,
       });
     }
+    return violations;
   }
 
-  // 2. Guard against direct expression injection in run: steps
-  // Any ${{ ... }} interpolation inside a run: step is banned to prevent shell injection.
-  const expressionPattern = /\$\{\{/;
-  let inRun = false;
-  let runIndent = 0;
+  YAML.visit(doc, {
+    Pair(key, node) {
+      if (!node.key) return;
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
+      const keyNode = node.key as { value?: unknown };
+      const keyVal = keyNode.value;
+      const valNode = node.value as { range?: [number, number, number]; value?: unknown } | null;
 
-    // If currently inside a multiline run block scalar (e.g. run: |), evaluate all lines
-    // including comment lines (since GitHub Actions evaluates expressions before executing shell)
-    if (inRun) {
-      if (trimmed.length === 0) {
-        continue;
-      }
-      const lineIndent = line.search(/\S/);
-      if (lineIndent > runIndent) {
-        if (expressionPattern.test(line)) {
+      // 1. Guard against secrets: inherit
+      if (typeof keyVal === 'string' && keyVal.toLowerCase() === 'secrets' && valNode) {
+        const val = typeof valNode.value === 'string' ? valNode.value : String(node.value);
+        if (typeof val === 'string' && val.toLowerCase().trim() === 'inherit') {
+          const pos = valNode.range ? lineCounter.linePos(valNode.range[0]) : { line: 1, col: 1 };
           violations.push({
             file: filename,
-            line: i + 1,
-            rule: 'NO_RUN_INJECTION',
-            message:
-              'Direct interpolation of expressions in run: step detected. Pass dynamic values via env: variables instead.',
-            snippet: line.trim(),
-          });
-        }
-      } else {
-        inRun = false;
-      }
-    }
-
-    if (!inRun) {
-      // Top-level YAML comments are skipped
-      if (trimmed.startsWith('#')) {
-        continue;
-      }
-
-      // Match run: block headers including YAML block indentation indicators (e.g. 'run: |2', 'run: >-', 'run: |2-', etc.)
-      const multiLineRunStartMatch = line.match(/^(\s*)(?:-\s+)?['"]?run['"]?:\s*[|>][0-9+-]*\s*(?:#.*)?$/i);
-      // Match standard single-line run commands
-      const singleLineRunMatch = line.match(/^(\s*)(?:-\s+)?['"]?run['"]?:\s*(.+)$/i);
-      // Match YAML flow-style mapping (e.g. '- { run: ... }', '- { name: test, run: ... }')
-      const flowStyleRunMatch = line.match(/\{[^{}]*\b['"]?run['"]?\s*:\s*([^,}]+)/i);
-
-      if (multiLineRunStartMatch) {
-        inRun = true;
-        runIndent = line.search(/\S/);
-      } else if (singleLineRunMatch) {
-        const scriptContent = singleLineRunMatch[2];
-        if (expressionPattern.test(scriptContent)) {
-          violations.push({
-            file: filename,
-            line: i + 1,
-            rule: 'NO_RUN_INJECTION',
-            message:
-              'Direct interpolation of expressions in run: step detected. Pass dynamic values via env: variables instead.',
-            snippet: line.trim(),
-          });
-        }
-      } else if (flowStyleRunMatch) {
-        const scriptContent = flowStyleRunMatch[1];
-        if (expressionPattern.test(scriptContent)) {
-          violations.push({
-            file: filename,
-            line: i + 1,
-            rule: 'NO_RUN_INJECTION',
-            message:
-              'Direct interpolation of expressions in run: step detected. Pass dynamic values via env: variables instead.',
-            snippet: line.trim(),
+            line: pos.line,
+            rule: 'NO_SECRETS_INHERIT',
+            message: "Forbidden 'secrets: inherit' detected. Secrets must be explicitly mapped by name or use OIDC.",
+            snippet: 'secrets: ' + val,
           });
         }
       }
-    }
-  }
+
+      // 2. Guard against run injections
+      if (keyVal === 'run' && valNode) {
+        let scriptVal = '';
+        if (YAML.isAlias(node.value)) {
+          const resolved = node.value.resolve(doc) as { value?: unknown } | null;
+          scriptVal = resolved ? (typeof resolved.value === 'string' ? resolved.value : String(resolved)) : '';
+        } else if (typeof valNode.value === 'string') {
+          scriptVal = valNode.value;
+        } else {
+          scriptVal = String(node.value);
+        }
+
+        if (expressionPattern.test(scriptVal)) {
+          const pos = valNode.range ? lineCounter.linePos(valNode.range[0]) : { line: 1, col: 1 };
+          violations.push({
+            file: filename,
+            line: pos.line,
+            rule: 'NO_RUN_INJECTION',
+            message:
+              'Direct interpolation of expressions in run: step detected. Pass dynamic values via env: variables instead.',
+            snippet: scriptVal.split('\n')[0].trim(),
+          });
+        }
+      }
+    },
+  });
 
   return violations;
 }
@@ -207,6 +198,52 @@ describe('GitHub Actions Workflow & Composite Action Security Gate', () => {
       ].join('\n');
 
       const violations = scanWorkflowSecurity(maliciousFlow, 'test.yml');
+      expect(violations).toHaveLength(1);
+      expect(violations[0].rule).toBe('NO_RUN_INJECTION');
+    });
+
+    it('detects and blocks multiline flow mapping with subsequent run key', () => {
+      const maliciousMultilineFlow = [
+        'name: Test',
+        'jobs:',
+        '  t:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - { name: test,',
+        '          a: 1, run: "echo ' + String.fromCharCode(36) + '{{ github.actor }}" }',
+      ].join('\n');
+
+      const violations = scanWorkflowSecurity(maliciousMultilineFlow, 'test.yml');
+      expect(violations).toHaveLength(1);
+      expect(violations[0].rule).toBe('NO_RUN_INJECTION');
+    });
+
+    it('detects and blocks YAML anchor and alias smuggling', () => {
+      const maliciousAnchor = [
+        'vars: &s echo "' + String.fromCharCode(36) + '{{ github.actor }}"',
+        'jobs:',
+        '  t:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - run: *s',
+      ].join('\n');
+
+      const violations = scanWorkflowSecurity(maliciousAnchor, 'test.yml');
+      expect(violations).toHaveLength(1);
+      expect(violations[0].rule).toBe('NO_RUN_INJECTION');
+    });
+
+    it('detects and blocks multiline plain scalar folding', () => {
+      const maliciousPlain = [
+        'jobs:',
+        '  t:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - run: echo "hello',
+        '          ' + String.fromCharCode(36) + '{{ github.actor }}"',
+      ].join('\n');
+
+      const violations = scanWorkflowSecurity(maliciousPlain, 'test.yml');
       expect(violations).toHaveLength(1);
       expect(violations[0].rule).toBe('NO_RUN_INJECTION');
     });
@@ -370,7 +407,7 @@ describe('GitHub Actions Workflow & Composite Action Security Gate', () => {
       expect(violations[0].rule).toBe('NO_RUN_INJECTION');
     });
 
-    it('allows safe environment variable bindings for dynamic values', () => {
+    it('allows safe environment variable bindings for dynamic values even after run block', () => {
       const safe = [
         'name: Safe Workflow',
         'on:',
@@ -383,12 +420,12 @@ describe('GitHub Actions Workflow & Composite Action Security Gate', () => {
         '    runs-on: ubuntu-latest',
         '    steps:',
         '      - name: Safe step',
+        '        run: |',
+        '          echo "Deploying version: $VERSION for event: $EVENT_NAME using $MATRIX_SCRIPT"',
         '        env:',
         '          VERSION: ' + String.fromCharCode(36) + '{{ inputs.version }}',
         '          EVENT_NAME: ' + String.fromCharCode(36) + '{{ github.event_name }}',
         '          MATRIX_SCRIPT: ' + String.fromCharCode(36) + '{{ matrix.script }}',
-        '        run: |',
-        '          echo "Deploying version: $VERSION for event: $EVENT_NAME using $MATRIX_SCRIPT"',
       ].join('\n');
 
       expect(scanWorkflowSecurity(safe)).toHaveLength(0);
