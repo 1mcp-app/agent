@@ -46,6 +46,9 @@ jobs:
 
       - name: Lint GitHub Actions workflows
         uses: reviewdog/action-actionlint@v1
+        with:
+          fail_level: error
+          filter_mode: nofilter
 
       - name: Validate static checks
         run: pnpm ci:static
@@ -83,18 +86,19 @@ jobs:
         run: pnpm build
 
       - name: Test E2E - Shard ${{ matrix.shard }}/${{ env.E2E_SHARD_COUNT }}
+        env:
+          CI: true
+          MATRIX_SHARD: ${{ matrix.shard }}
         run: |
           started_at=$(date +%s)
           set +e
-          pnpm test:e2e:shardable --shard=${{ matrix.shard }}/${{ env.E2E_SHARD_COUNT }} --reporter=minimal
+          pnpm test:e2e:shardable --shard="$MATRIX_SHARD/$E2E_SHARD_COUNT" --reporter=minimal
           test_status=$?
           set -e
           finished_at=$(date +%s)
           duration=$((finished_at - started_at))
-          echo "E2E shard ${{ matrix.shard }}/${{ env.E2E_SHARD_COUNT }} took ${duration}s" >> "$GITHUB_STEP_SUMMARY"
+          echo "E2E shard $MATRIX_SHARD/$E2E_SHARD_COUNT took ${duration}s" >> "$GITHUB_STEP_SUMMARY"
           exit "$test_status"
-        env:
-          CI: true
 
   test-e2e-system:
     runs-on: ubuntu-latest
