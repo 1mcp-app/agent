@@ -155,6 +155,22 @@ describe('GitHub Actions Workflow & Composite Action Security Gate', () => {
       expect(violations[0].rule).toBe('NO_RUN_INJECTION');
     });
 
+    it('detects and blocks container-level sequence alias smuggling (steps: *my_steps)', () => {
+      const containerAlias = [
+        'x: &my_steps',
+        '  - name: step1',
+        '    run: echo "Hello ' + String.fromCharCode(36) + '{{ github.actor }}"',
+        'jobs:',
+        '  t:',
+        '    runs-on: ubuntu-latest',
+        '    steps: *my_steps',
+      ].join('\n');
+
+      const violations = scanWorkflowSecurity(containerAlias, 'test.yml');
+      expect(violations).toHaveLength(1);
+      expect(violations[0].rule).toBe('NO_RUN_INJECTION');
+    });
+
     it('detects and blocks YAML anchor and alias smuggling for secrets: inherit', () => {
       const maliciousSecretsAnchor = [
         's: &s inherit',
@@ -167,6 +183,22 @@ describe('GitHub Actions Workflow & Composite Action Security Gate', () => {
       const violations = scanWorkflowSecurity(maliciousSecretsAnchor, 'test.yml');
       expect(violations).toHaveLength(1);
       expect(violations[0].rule).toBe('NO_SECRETS_INHERIT');
+    });
+
+    it('detects and blocks secrets: inherit in jobs named on, with, or env', () => {
+      const maliciousJobNames = [
+        'jobs:',
+        '  on:',
+        '    uses: ./.github/workflows/reusable.yml',
+        '    secrets: inherit',
+        '  with:',
+        '    uses: ./.github/workflows/reusable.yml',
+        '    secrets: inherit',
+      ].join('\n');
+
+      const violations = scanWorkflowSecurity(maliciousJobNames, 'test.yml');
+      expect(violations).toHaveLength(2);
+      expect(violations.every((v) => v.rule === 'NO_SECRETS_INHERIT')).toBe(true);
     });
 
     it('detects and blocks multiline plain scalar folding', () => {

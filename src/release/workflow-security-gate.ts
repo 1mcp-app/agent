@@ -8,35 +8,37 @@ export interface WorkflowViolation {
   snippet: string;
 }
 
-function getNearestEnclosingPairKey(path: readonly unknown[]): string | null {
-  for (let i = path.length - 1; i >= 0; i--) {
-    const node = path[i];
-    if (YAML.isPair(node) && node.key && typeof (node.key as { value?: unknown }).value === 'string') {
-      return (node.key as { value: string }).value.toLowerCase();
-    }
-  }
-  return null;
-}
-
 /**
  * Scans a GitHub Actions workflow or composite action file for 'secrets: inherit' and script expression injections in 'run:' steps.
- * Uses standard YAML AST/CST parsing (supporting anchors, aliases, flow mappings, and block scalars).
+ * Uses standard YAML structural evaluation (natively resolving all aliases, anchors, flow mappings, and block scalars).
  */
 export function scanWorkflowSecurity(content: string, filename = 'workflow.yml'): WorkflowViolation[] {
   const violations: WorkflowViolation[] = [];
   const expressionPattern = /\$\{\{/;
 
-  const lineCounter = new YAML.LineCounter();
+  const lines = content.replace(/\r\n/g, '\n').split('\n');
+
+  function findLineNumber(snippet: string): number {
+    if (!snippet) return 1;
+    const firstLine = snippet.split('\n')[0].trim();
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].includes(firstLine)) {
+        return i + 1;
+      }
+    }
+    return 1;
+  }
+
   let doc: YAML.Document;
   try {
-    doc = YAML.parseDocument(content, { lineCounter });
+    doc = YAML.parseDocument(content);
   } catch (e) {
     violations.push({
       file: filename,
       line: 1,
       rule: 'NO_RUN_INJECTION',
       message: 'YAML Parse Error: ' + (e instanceof Error ? e.message : String(e)),
-      snippet: content.split('\n')[0] || '',
+      snippet: lines[0] || '',
     });
     return violations;
   }
@@ -54,75 +56,89 @@ export function scanWorkflowSecurity(content: string, filename = 'workflow.yml')
     return violations;
   }
 
-  function resolveNodeValue(node: unknown): string {
-    if (!node) return '';
-    if (YAML.isAlias(node)) {
-      const resolved = node.resolve(doc) as { value?: unknown } | null;
-      if (!resolved) return '';
-      return typeof resolved.value === 'string' ? resolved.value : String(resolved.value ?? resolved);
-    }
-    const valNode = node as { value?: unknown };
-    return typeof valNode.value === 'string' ? valNode.value : String(valNode.value ?? node);
+  let jsObj: Record<string, unknown>;
+  try {
+    jsObj = doc.toJS() as Record<string, unknown>;
+  } catch (e) {
+    violations.push({
+      file: filename,
+      line: 1,
+      rule: 'NO_RUN_INJECTION',
+      message: 'YAML Evaluation Error: ' + (e instanceof Error ? e.message : String(e)),
+      snippet: lines[0] || '',
+    });
+    return violations;
   }
 
-  YAML.visit(doc, {
-    Pair(key, node, path) {
-      if (!node.key) return;
+  if (!jsObj || typeof jsObj !== 'object') {
+    return violations;
+  }
 
-      const keyNode = node.key as { value?: unknown };
-      const keyVal = keyNode.value;
-      const valNode = node.value as { range?: [number, number, number]; value?: unknown } | null;
-      const nearestEnclosingPair = getNearestEnclosingPairKey(path);
+  function checkSteps(steps: unknown[]): void {
+    if (!Array.isArray(steps)) return;
+    for (const step of steps) {
+      if (!step || typeof step !== 'object') continue;
 
-      // 1. Guard against secrets: inherit
-      // Only flag when secrets is inside a caller job (under 'jobs') and NOT under 'on' or 'with'
-      if (typeof keyVal === 'string' && keyVal.toLowerCase() === 'secrets' && valNode) {
-        const isUnderJobs = path.some(
-          (p) => YAML.isPair(p) && ((p.key as { value?: unknown })?.value as string)?.toLowerCase?.() === 'jobs',
-        );
-        const isUnderOnOrWith = path.some((p) => {
-          if (YAML.isPair(p) && p.key && typeof (p.key as { value?: unknown }).value === 'string') {
-            const k = (p.key as { value: string }).value.toLowerCase();
-            return k === 'on' || k === 'with';
-          }
-          return false;
+      const stepRecord = step as Record<string, unknown>;
+
+      // Check run injection
+      if (typeof stepRecord.run === 'string' && expressionPattern.test(stepRecord.run)) {
+        const snippet = stepRecord.run.split('\n')[0].trim();
+        violations.push({
+          file: filename,
+          line: findLineNumber(snippet),
+          rule: 'NO_RUN_INJECTION',
+          message:
+            'Direct interpolation of expressions in run: step detected. Pass dynamic values via env: variables instead.',
+          snippet,
         });
-
-        if (isUnderJobs && !isUnderOnOrWith) {
-          const valStr = resolveNodeValue(valNode);
-          if (valStr.toLowerCase().trim() === 'inherit') {
-            const pos = valNode.range ? lineCounter.linePos(valNode.range[0]) : { line: 1, col: 1 };
-            violations.push({
-              file: filename,
-              line: pos.line,
-              rule: 'NO_SECRETS_INHERIT',
-              message: "Forbidden 'secrets: inherit' detected. Secrets must be explicitly mapped by name or use OIDC.",
-              snippet: 'secrets: ' + valStr,
-            });
-          }
-        }
       }
 
-      // 2. Guard against run injections
-      // Ensure the 'run' key is an execution step command (directly enclosing under 'steps')
-      if (typeof keyVal === 'string' && keyVal.toLowerCase() === 'run' && valNode) {
-        if (nearestEnclosingPair === 'steps') {
-          const scriptVal = resolveNodeValue(valNode);
-          if (expressionPattern.test(scriptVal)) {
-            const pos = valNode.range ? lineCounter.linePos(valNode.range[0]) : { line: 1, col: 1 };
-            violations.push({
-              file: filename,
-              line: pos.line,
-              rule: 'NO_RUN_INJECTION',
-              message:
-                'Direct interpolation of expressions in run: step detected. Pass dynamic values via env: variables instead.',
-              snippet: scriptVal.split('\n')[0].trim(),
-            });
-          }
-        }
+      // Check step-level secrets: inherit
+      if (typeof stepRecord.secrets === 'string' && stepRecord.secrets.toLowerCase().trim() === 'inherit') {
+        violations.push({
+          file: filename,
+          line: findLineNumber('secrets'),
+          rule: 'NO_SECRETS_INHERIT',
+          message: "Forbidden 'secrets: inherit' detected. Secrets must be explicitly mapped by name or use OIDC.",
+          snippet: 'secrets: inherit',
+        });
       }
-    },
-  });
+    }
+  }
+
+  // 1. Check jobs in workflows (caller workflows passing secrets or executing steps)
+  if (jsObj.jobs && typeof jsObj.jobs === 'object') {
+    for (const job of Object.values(jsObj.jobs as Record<string, unknown>)) {
+      if (!job || typeof job !== 'object') continue;
+
+      const jobRecord = job as Record<string, unknown>;
+
+      // Check job-level secrets: inherit
+      if (typeof jobRecord.secrets === 'string' && jobRecord.secrets.toLowerCase().trim() === 'inherit') {
+        violations.push({
+          file: filename,
+          line: findLineNumber('secrets'),
+          rule: 'NO_SECRETS_INHERIT',
+          message: "Forbidden 'secrets: inherit' detected. Secrets must be explicitly mapped by name or use OIDC.",
+          snippet: 'secrets: inherit',
+        });
+      }
+
+      // Check job steps
+      if (Array.isArray(jobRecord.steps)) {
+        checkSteps(jobRecord.steps);
+      }
+    }
+  }
+
+  // 2. Check composite actions (runs.steps)
+  if (jsObj.runs && typeof jsObj.runs === 'object') {
+    const runsRecord = jsObj.runs as Record<string, unknown>;
+    if (Array.isArray(runsRecord.steps)) {
+      checkSteps(runsRecord.steps);
+    }
+  }
 
   return violations;
 }
