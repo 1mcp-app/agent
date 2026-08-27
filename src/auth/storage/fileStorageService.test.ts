@@ -197,6 +197,27 @@ describe('FileStorageService', () => {
       fs.rmSync(customDir, { recursive: true, force: true });
     });
 
+    it('fails closed when existing migration flag hardening encounters capability error', () => {
+      // POSIX-only: Windows ACLs do not map to fs.stat modes
+      if (process.platform === 'win32') return;
+      const customDir = path.join(tmpdir(), `custom-flag-enotsup-test-${Date.now()}`);
+      const sessionsPath = path.join(customDir, 'sessions');
+      fs.mkdirSync(sessionsPath, { recursive: true, mode: 0o700 });
+      const flagPath = path.join(sessionsPath, '.migrated-to-server');
+      fs.writeFileSync(flagPath, JSON.stringify({ migrated: true }), { mode: 0o644 });
+
+      const originalChmodSync = fs.chmodSync;
+      vi.spyOn(fs, 'chmodSync').mockImplementation((pathArg, modeArg) => {
+        if (pathArg === flagPath) {
+          throw Object.assign(new Error('ENOTSUP: operation not supported on socket'), { code: 'ENOTSUP' });
+        }
+        return originalChmodSync(pathArg, modeArg);
+      });
+
+      expect(() => new FileStorageService(customDir, 'server')).toThrow(/ENOTSUP/);
+      fs.rmSync(customDir, { recursive: true, force: true });
+    });
+
     it('fails closed when existing migration flag hardening fails with permission error', () => {
       // POSIX-only: Windows ACLs do not map to fs.stat modes
       if (process.platform === 'win32') return;
@@ -216,6 +237,24 @@ describe('FileStorageService', () => {
 
       expect(() => new FileStorageService(customDir, 'server')).toThrow(/EACCES/);
       fs.rmSync(customDir, { recursive: true, force: true });
+    });
+
+    it('does not unlink pre-existing file if openSync fails with EEXIST', () => {
+      const originalOpenSync = fs.openSync;
+      const preExistingTempPath = path.join(service.getStorageDir(), 'pre-existing.tmp');
+      fs.writeFileSync(preExistingTempPath, 'important pre-existing data');
+
+      vi.spyOn(fs, 'openSync').mockImplementation((targetPath, flags, mode) => {
+        if (typeof targetPath === 'string' && targetPath.endsWith('.tmp')) {
+          throw Object.assign(new Error('EEXIST: file already exists'), { code: 'EEXIST' });
+        }
+        return originalOpenSync(targetPath, flags, mode);
+      });
+
+      expect(() => service.writeData(testPrefix, testId, testData)).toThrow(/EEXIST/);
+      expect(fs.existsSync(preExistingTempPath)).toBe(true);
+      expect(fs.readFileSync(preExistingTempPath, 'utf8')).toBe('important pre-existing data');
+      fs.unlinkSync(preExistingTempPath);
     });
 
     it('hardens legacy data files to 0600 during migration', () => {

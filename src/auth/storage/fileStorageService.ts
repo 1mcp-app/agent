@@ -45,13 +45,20 @@ export class FileStorageService {
 
   /**
    * Hardens file or directory permissions on POSIX systems.
-   * Tolerates filesystems that lack POSIX permission capabilities (e.g. FAT, exFAT, FUSE).
-   * For real permission violations (EACCES, EPERM, EROFS), it fails closed by rethrowing.
+   * Tolerates filesystems that lack POSIX permission capabilities (e.g. FAT, exFAT, FUSE)
+   * only when explicitly allowed (such as during storage directory initialization).
+   * For credentials and migration flags, or real permission violations (EACCES, EPERM, EROFS),
+   * it strictly fails closed by rethrowing.
    */
-  private hardenPermissionsSafely(targetPath: string, mode: number): void {
+  private hardenPermissionsSafely(
+    targetPath: string,
+    mode: number,
+    options: { degradeCapabilityErrors?: boolean } = {},
+  ): void {
     if (process.platform === 'win32') {
       return;
     }
+    const { degradeCapabilityErrors = false } = options;
     try {
       fs.chmodSync(targetPath, mode);
     } catch (error: unknown) {
@@ -59,9 +66,10 @@ export class FileStorageService {
         error instanceof Error && 'code' in error && typeof (error as { code?: unknown }).code === 'string'
           ? String((error as { code: string }).code)
           : '';
-      if (['ENOTSUP', 'EOPNOTSUPP', 'EINVAL', 'ENOSYS'].includes(code)) {
+      if (degradeCapabilityErrors && ['ENOTSUP', 'EOPNOTSUPP', 'EINVAL', 'ENOSYS'].includes(code)) {
+        const loggableTarget = this.getLoggableFileName(path.basename(targetPath));
         logger.warn(
-          `chmod ${mode.toString(8)} unsupported on ${targetPath} (${code}) — filesystem lacks POSIX permission capabilities, degrading safely`,
+          `chmod ${mode.toString(8)} unsupported on ${loggableTarget} (${code}) — filesystem lacks POSIX permission capabilities, degrading safely`,
         );
         return;
       }
@@ -79,7 +87,7 @@ export class FileStorageService {
         logger.info(`Created storage directory: ${this.storageDir}`);
       }
       if (process.platform !== 'win32') {
-        this.hardenPermissionsSafely(this.storageDir, 0o700);
+        this.hardenPermissionsSafely(this.storageDir, 0o700, { degradeCapabilityErrors: true });
       }
     } catch (error) {
       logger.error(`Failed to create storage directory: ${error}`);
@@ -425,10 +433,12 @@ export class FileStorageService {
   ): void {
     const { durable = false } = options;
     let temporaryPath: string | undefined;
+    let created = false;
     try {
       const filePath = this.getFilePath(filePrefix, id);
       temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
       const fileDescriptor = fs.openSync(temporaryPath, 'wx', 0o600);
+      created = true;
       try {
         fs.writeFileSync(fileDescriptor, JSON.stringify(data, null, 2));
         if (durable) {
@@ -444,7 +454,7 @@ export class FileStorageService {
       }
       logger.debug(`Wrote data to ${this.getLoggableFilePath(filePrefix, id)}`);
     } catch (error) {
-      if (temporaryPath) {
+      if (temporaryPath && created) {
         try {
           fs.unlinkSync(temporaryPath);
         } catch {
