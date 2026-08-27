@@ -15,6 +15,25 @@ const StorageLockOwnerSchema = z.object({
 });
 
 /**
+ * Thrown when a credential-bearing file is readable or writable by group/others.
+ * Read-side strictModes (OpenSSH model): refuse to consume, never degrade.
+ */
+export class InsecureFilePermissionsError extends Error {
+  public readonly filePath: string;
+  public readonly actualMode: number;
+
+  constructor(filePath: string, actualMode: number) {
+    super(
+      `Refusing to read ${path.basename(path.dirname(filePath))} data: file permissions ` +
+        `0${(actualMode & 0o777).toString(8)} are too open (group/other bits must be 0)`,
+    );
+    this.name = 'InsecureFilePermissionsError';
+    this.filePath = filePath;
+    this.actualMode = actualMode & 0o777;
+  }
+}
+
+/**
  * Generic file storage service with unified cleanup for all expirable data types.
  *
  * This service provides a common foundation for storing sessions, auth codes,
@@ -445,6 +464,22 @@ export class FileStorageService {
   }
 
   /**
+   * Read-side strictModes check (OpenSSH sshkey_perm_ok semantic): on POSIX
+   * platforms a data file readable/writable by group or others is untrusted
+   * and must fail closed instead of being consumed. Windows ACLs do not map
+   * to fs.stat modes, so the check is skipped there.
+   */
+  private assertOwnerOnlyFilePermissions(filePath: string): void {
+    if (process.platform === 'win32') {
+      return;
+    }
+    const mode = fs.statSync(filePath).mode;
+    if ((mode & 0o077) !== 0) {
+      throw new InsecureFilePermissionsError(filePath, mode);
+    }
+  }
+
+  /**
    * Reads data from a file with the specified prefix and ID
    * Returns null if file doesn't exist or data is expired
    */
@@ -460,6 +495,8 @@ export class FileStorageService {
         return null;
       }
 
+      this.assertOwnerOnlyFilePermissions(filePath);
+
       const data = fs.readFileSync(filePath, 'utf8');
       const parsed: unknown = JSON.parse(data);
       const parsedData = schema ? schema.parse(parsed) : (parsed as T);
@@ -472,6 +509,9 @@ export class FileStorageService {
 
       return parsedData;
     } catch (error) {
+      if (error instanceof InsecureFilePermissionsError) {
+        throw error;
+      }
       logger.error(
         `Failed to read data for ${this.getLoggableId(filePrefix, id)}: ${this.getLoggableError(filePrefix, error)}`,
       );

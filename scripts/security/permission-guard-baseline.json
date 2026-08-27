@@ -1,0 +1,312 @@
+{
+  "schema": 1,
+  "generatedBy": "check-permission-modes.mjs --update",
+  "entries": [
+    {
+      "fingerprint": "src/auth/storage/fileStorageService.ts#2#writeFileSync",
+      "file": "src/auth/storage/fileStorageService.ts",
+      "call": "writeFileSync",
+      "line": 192,
+      "reason": "writeFileSync targets fd from openSync(wx, 0o600) — mode inherited at open; this file is the AUTH-07 reference implementation",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/auth/storage/fileStorageService.ts#5#writeFileSync",
+      "file": "src/auth/storage/fileStorageService.ts",
+      "call": "writeFileSync",
+      "line": 442,
+      "reason": "writeFileSync targets fd from openSync(wx, 0o600) — mode inherited at open; this file is the AUTH-07 reference implementation",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/auth/storage/fileStorageService.ts#6#openSync",
+      "file": "src/auth/storage/fileStorageService.ts",
+      "call": "openSync",
+      "line": 703,
+      "reason": "writeFileSync targets fd from openSync(wx, 0o600) — mode inherited at open; this file is the AUTH-07 reference implementation",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/commands/app/consolidate.ts#1#writeFileSync",
+      "file": "src/commands/app/consolidate.ts",
+      "call": "writeFileSync",
+      "line": 412,
+      "reason": "writes consolidated config derived from existing user config file — ticket-08",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/commands/app/consolidate.ts#2#copyFileSync",
+      "file": "src/commands/app/consolidate.ts",
+      "call": "copyFileSync",
+      "line": 415,
+      "reason": "writes consolidated config derived from existing user config file — ticket-08",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/commands/serve/serveBackground.ts#1#mkdirSync",
+      "file": "src/commands/serve/serveBackground.ts",
+      "call": "mkdirSync",
+      "line": 406,
+      "reason": "log-file append under user-owned config dir; ACL tightening tracked under ticket-08",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/commands/serve/serveBackground.ts#2#mkdirSync",
+      "file": "src/commands/serve/serveBackground.ts",
+      "call": "mkdirSync",
+      "line": 487,
+      "reason": "log-file append under user-owned config dir; ACL tightening tracked under ticket-08",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/commands/serve/serveBackground.ts#3#appendFileSync",
+      "file": "src/commands/serve/serveBackground.ts",
+      "call": "appendFileSync",
+      "line": 499,
+      "reason": "log-file append under user-owned config dir; ACL tightening tracked under ticket-08",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/commands/shared/baseConfigUtils.ts#1#mkdirSync",
+      "file": "src/commands/shared/baseConfigUtils.ts",
+      "call": "mkdirSync",
+      "line": 205,
+      "reason": "writes user-owned mcp.json config (may embed env but guaranteed non-secret at authoring time) — ticket-08",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/commands/shared/baseConfigUtils.ts#2#writeFileSync",
+      "file": "src/commands/shared/baseConfigUtils.ts",
+      "call": "writeFileSync",
+      "line": 209,
+      "reason": "writes user-owned mcp.json config (may embed env but guaranteed non-secret at authoring time) — ticket-08",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/commands/shared/configParsingUtils.ts#1#copyFileSync",
+      "file": "src/commands/shared/configParsingUtils.ts",
+      "call": "copyFileSync",
+      "line": 98,
+      "reason": "pre-existing, recorded at ticket-05 gate baseline; triage under 08-lowseverity-hardening",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/commands/target/target.ts#1#writeFileSync",
+      "file": "src/commands/target/target.ts",
+      "call": "writeFileSync",
+      "line": 268,
+      "reason": "serializes user-authored target config to user-owned path — ticket-08",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/config/configLoader.ts#1#mkdirSync",
+      "file": "src/config/configLoader.ts",
+      "call": "mkdirSync",
+      "line": 161,
+      "reason": "writes DEFAULT_CONFIG scaffold on first run (no secrets); acceptable default-mode — ticket-08",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/config/configLoader.ts#2#writeFileSync",
+      "file": "src/config/configLoader.ts",
+      "call": "writeFileSync",
+      "line": 166,
+      "reason": "writes DEFAULT_CONFIG scaffold on first run (no secrets); acceptable default-mode — ticket-08",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/core/runtime/runtimeIdentityService.ts#1#mkdirSync",
+      "file": "src/core/runtime/runtimeIdentityService.ts",
+      "call": "mkdirSync",
+      "line": 92,
+      "reason": "pre-existing, recorded at ticket-05 gate baseline; triage under 08-lowseverity-hardening",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/core/runtime/runtimeIdentityService.ts#2#writeFileSync",
+      "file": "src/core/runtime/runtimeIdentityService.ts",
+      "call": "writeFileSync",
+      "line": 95,
+      "reason": "pre-existing, recorded at ticket-05 gate baseline; triage under 08-lowseverity-hardening",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/core/server/pidFileManager.ts#1#mkdirSync",
+      "file": "src/core/server/pidFileManager.ts",
+      "call": "mkdirSync",
+      "line": 96,
+      "reason": "pid file content is not secret (PID only); mkdir is ~/.1mcp config dir bootstrap — tracked for 0600 tightening under ticket-08",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/core/server/pidFileManager.ts#2#writeFileSync",
+      "file": "src/core/server/pidFileManager.ts",
+      "call": "writeFileSync",
+      "line": 104,
+      "reason": "pid file content is not secret (PID only); mkdir is ~/.1mcp config dir bootstrap — tracked for 0600 tightening under ticket-08",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/core/server/runtimeScopeOwnership.ts#1#mkdirSync",
+      "file": "src/core/server/runtimeScopeOwnership.ts",
+      "call": "mkdirSync",
+      "line": 124,
+      "reason": "pre-existing, recorded at ticket-05 gate baseline; triage under 08-lowseverity-hardening",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/core/server/runtimeScopeOwnership.ts#2#mkdirSync",
+      "file": "src/core/server/runtimeScopeOwnership.ts",
+      "call": "mkdirSync",
+      "line": 193,
+      "reason": "pre-existing, recorded at ticket-05 gate baseline; triage under 08-lowseverity-hardening",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/admin/adminPresetService.ts#1#copyFileSync",
+      "file": "src/domains/admin/adminPresetService.ts",
+      "call": "copyFileSync",
+      "line": 333,
+      "reason": "pre-existing, recorded at ticket-05 gate baseline; triage under 08-lowseverity-hardening",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/admin/runtimeScopeAdminLock.ts#1#mkdirSync",
+      "file": "src/domains/admin/runtimeScopeAdminLock.ts",
+      "call": "mkdirSync",
+      "line": 58,
+      "reason": "writeFileSync targets fd already opened 0o600 via openSync — mode inherited at open; mkdir prefixed by 0700 candidateDir",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/admin/runtimeScopeAdminLock.ts#3#writeFileSync",
+      "file": "src/domains/admin/runtimeScopeAdminLock.ts",
+      "call": "writeFileSync",
+      "line": 94,
+      "reason": "writeFileSync targets fd already opened 0o600 via openSync — mode inherited at open; mkdir prefixed by 0700 candidateDir",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/backup/backupManager.ts#1#mkdirSync",
+      "file": "src/domains/backup/backupManager.ts",
+      "call": "mkdirSync",
+      "line": 109,
+      "reason": "backup metadata copies config; tightening scheduled under ticket-08 (low-severity hardening)",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/backup/backupManager.ts#2#copyFileSync",
+      "file": "src/domains/backup/backupManager.ts",
+      "call": "copyFileSync",
+      "line": 120,
+      "reason": "backup metadata copies config; tightening scheduled under ticket-08 (low-severity hardening)",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/backup/backupManager.ts#3#writeFileSync",
+      "file": "src/domains/backup/backupManager.ts",
+      "call": "writeFileSync",
+      "line": 138,
+      "reason": "backup metadata copies config; tightening scheduled under ticket-08 (low-severity hardening)",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/backup/backupManager.ts#4#copyFileSync",
+      "file": "src/domains/backup/backupManager.ts",
+      "call": "copyFileSync",
+      "line": 160,
+      "reason": "backup metadata copies config; tightening scheduled under ticket-08 (low-severity hardening)",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/backup/backupManager.ts#5#writeFileSync",
+      "file": "src/domains/backup/backupManager.ts",
+      "call": "writeFileSync",
+      "line": 424,
+      "reason": "backup metadata copies config; tightening scheduled under ticket-08 (low-severity hardening)",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/config-change/configChange.ts#1#copyFileSync",
+      "file": "src/domains/config-change/configChange.ts",
+      "call": "copyFileSync",
+      "line": 1018,
+      "reason": "pre-existing, recorded at ticket-05 gate baseline; triage under 08-lowseverity-hardening",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/config-change/configChange.ts#2#mkdirSync",
+      "file": "src/domains/config-change/configChange.ts",
+      "call": "mkdirSync",
+      "line": 1110,
+      "reason": "pre-existing, recorded at ticket-05 gate baseline; triage under 08-lowseverity-hardening",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/config-change/configChange.ts#3#writeFileSync",
+      "file": "src/domains/config-change/configChange.ts",
+      "call": "writeFileSync",
+      "line": 1113,
+      "reason": "pre-existing, recorded at ticket-05 gate baseline; triage under 08-lowseverity-hardening",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/runtime-targets/runtimeTargetStore.ts#1#mkdirSync",
+      "file": "src/domains/runtime-targets/runtimeTargetStore.ts",
+      "call": "mkdirSync",
+      "line": 1398,
+      "reason": "writeJsonAtomic forwards an optional mode param; callers may omit it — tightening tracked under ticket-08",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/runtime-targets/runtimeTargetStore.ts#3#mkdirSync",
+      "file": "src/domains/runtime-targets/runtimeTargetStore.ts",
+      "call": "mkdirSync",
+      "line": 1844,
+      "reason": "writeJsonAtomic forwards an optional mode param; callers may omit it — tightening tracked under ticket-08",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/runtime-targets/runtimeTargetStore.ts#4#writeFileSync",
+      "file": "src/domains/runtime-targets/runtimeTargetStore.ts",
+      "call": "writeFileSync",
+      "line": 1846,
+      "reason": "writeJsonAtomic forwards an optional mode param; callers may omit it — tightening tracked under ticket-08",
+      "enteredAt": "2026-08-27",
+      "ticket": "08-lowseverity-hardening"
+    }
+  ]
+}
