@@ -171,6 +171,31 @@ describe('GitHub Actions Workflow & Composite Action Security Gate', () => {
       expect(violations[0].rule).toBe('NO_RUN_INJECTION');
     });
 
+    it('detects and blocks YAML merge key <<: *alias smuggling in step and job positions', () => {
+      const mergeStep = [
+        'base_step: &step',
+        '  run: echo "Hello ' + String.fromCharCode(36) + '{{ github.actor }}"',
+        'jobs:',
+        '  t:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - name: merged step',
+        '        <<: *step',
+      ].join('\n');
+
+      const mergeJob = [
+        'base_job: &job_base',
+        '  uses: ./.github/workflows/reusable.yml',
+        '  secrets: inherit',
+        'jobs:',
+        '  t:',
+        '    <<: *job_base',
+      ].join('\n');
+
+      expect(scanWorkflowSecurity(mergeStep, 'test.yml')).toHaveLength(1);
+      expect(scanWorkflowSecurity(mergeJob, 'test.yml')).toHaveLength(1);
+    });
+
     it('detects and blocks YAML anchor and alias smuggling for secrets: inherit', () => {
       const maliciousSecretsAnchor = [
         's: &s inherit',

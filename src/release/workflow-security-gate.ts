@@ -10,7 +10,7 @@ export interface WorkflowViolation {
 
 /**
  * Scans a GitHub Actions workflow or composite action file for 'secrets: inherit' and script expression injections in 'run:' steps.
- * Uses standard YAML structural evaluation (natively resolving all aliases, anchors, flow mappings, and block scalars).
+ * Uses standard YAML structural evaluation with merge key support (natively resolving all aliases, anchors, merge keys, flow mappings, and block scalars).
  */
 export function scanWorkflowSecurity(content: string, filename = 'workflow.yml'): WorkflowViolation[] {
   const violations: WorkflowViolation[] = [];
@@ -18,9 +18,14 @@ export function scanWorkflowSecurity(content: string, filename = 'workflow.yml')
 
   const lines = content.replace(/\r\n/g, '\n').split('\n');
 
-  function findLineNumber(snippet: string): number {
+  function findLineNumber(snippet: string, keyword = ''): number {
     if (!snippet) return 1;
     const firstLine = snippet.split('\n')[0].trim();
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].includes(firstLine) && (!keyword || lines[i].includes(keyword))) {
+        return i + 1;
+      }
+    }
     for (let i = 0; i < lines.length; i++) {
       if (lines[i].includes(firstLine)) {
         return i + 1;
@@ -31,7 +36,7 @@ export function scanWorkflowSecurity(content: string, filename = 'workflow.yml')
 
   let doc: YAML.Document;
   try {
-    doc = YAML.parseDocument(content);
+    doc = YAML.parseDocument(content, { merge: true });
   } catch (e) {
     violations.push({
       file: filename,
@@ -86,7 +91,7 @@ export function scanWorkflowSecurity(content: string, filename = 'workflow.yml')
         const snippet = stepRecord.run.split('\n')[0].trim();
         violations.push({
           file: filename,
-          line: findLineNumber(snippet),
+          line: findLineNumber(snippet, 'run'),
           rule: 'NO_RUN_INJECTION',
           message:
             'Direct interpolation of expressions in run: step detected. Pass dynamic values via env: variables instead.',
@@ -98,7 +103,7 @@ export function scanWorkflowSecurity(content: string, filename = 'workflow.yml')
       if (typeof stepRecord.secrets === 'string' && stepRecord.secrets.toLowerCase().trim() === 'inherit') {
         violations.push({
           file: filename,
-          line: findLineNumber('secrets'),
+          line: findLineNumber('inherit', 'secrets'),
           rule: 'NO_SECRETS_INHERIT',
           message: "Forbidden 'secrets: inherit' detected. Secrets must be explicitly mapped by name or use OIDC.",
           snippet: 'secrets: inherit',
@@ -118,7 +123,7 @@ export function scanWorkflowSecurity(content: string, filename = 'workflow.yml')
       if (typeof jobRecord.secrets === 'string' && jobRecord.secrets.toLowerCase().trim() === 'inherit') {
         violations.push({
           file: filename,
-          line: findLineNumber('secrets'),
+          line: findLineNumber('inherit', 'secrets'),
           rule: 'NO_SECRETS_INHERIT',
           message: "Forbidden 'secrets: inherit' detected. Secrets must be explicitly mapped by name or use OIDC.",
           snippet: 'secrets: inherit',
