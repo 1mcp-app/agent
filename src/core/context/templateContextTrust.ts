@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import type { ContextData } from '@src/types/context.js';
 import { createContextHash } from '@src/utils/context/contextHash.js';
+import { enforceOwnerOnlyFilePermissions, InsecureFilePermissionsError } from '@src/utils/filePermissions.js';
 
 import { z } from 'zod';
 
@@ -146,17 +147,25 @@ export class TemplateContextCapabilityStore {
     if (!stat.isFile() || stat.isSymbolicLink()) {
       throw new TemplateContextCapabilityError(`Template context capability is not a regular file: ${filePath}`);
     }
-    if (process.platform !== 'win32' && (stat.mode & 0o077) !== 0) {
-      throw new TemplateContextCapabilityError(`Template context capability must be owner-only (0600): ${filePath}`);
-    }
 
+    // Read-side strictModes, unified with the other credential stores:
+    // heal-then-consume on one open fd (no TOCTOU); a denied heal fails
+    // closed via InsecureFilePermissionsError instead of silently reading an
+    // exposed capability.
+    const fd = fs.openSync(filePath, 'r');
     let value: unknown;
     try {
-      value = JSON.parse(fs.readFileSync(filePath, 'utf8')) as unknown;
+      enforceOwnerOnlyFilePermissions(fd, filePath);
+      value = JSON.parse(fs.readFileSync(fd, 'utf8'));
     } catch (error) {
+      if (error instanceof InsecureFilePermissionsError) {
+        throw error;
+      }
       throw new TemplateContextCapabilityError(
         `Template context capability is unreadable: ${error instanceof Error ? error.message : String(error)}`,
       );
+    } finally {
+      fs.closeSync(fd);
     }
 
     const parsed = templateContextCapabilitySchema.safeParse(value);

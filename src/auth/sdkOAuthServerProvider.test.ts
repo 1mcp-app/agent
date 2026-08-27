@@ -2,8 +2,11 @@ import fs from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 
+import { ServerError } from '@modelcontextprotocol/sdk/server/auth/errors.js';
 import type { AuthorizationParams } from '@modelcontextprotocol/sdk/server/auth/provider.js';
 import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
+
+import { AUTH_CONFIG } from '@src/constants.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -245,5 +248,40 @@ describe('SDKOAuthProvider', () => {
         "default-src 'none'; form-action 'self'; style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none';",
       );
     });
+
+    it.skipIf(process.platform === 'win32')(
+      'maps a denied permission heal to an OAuth server_error instead of a bare 500',
+      async () => {
+        const client: OAuthClientInformationFull = {
+          client_id: 'perm-client',
+          redirect_uris: ['http://127.0.0.1:3000/callback'],
+          grant_types: ['authorization_code'],
+          response_types: ['code'],
+          token_endpoint_auth_method: 'none',
+        };
+
+        const code = provider.oauthStorage.authCodeRepository.create(
+          client.client_id,
+          'http://127.0.0.1:3000/callback',
+          '',
+          ['tag:context7'],
+          60000,
+          'challenge-123',
+        );
+
+        // Simulate a legacy permissive credential file, then deny the heal.
+        const filePath = provider.oauthStorage.fileStorage.getFilePath(AUTH_CONFIG.SERVER.AUTH_CODE.FILE_PREFIX, code);
+        fs.chmodSync(filePath, 0o644);
+        const fchmodSpy = vi.spyOn(fs, 'fchmodSync').mockImplementation(() => {
+          throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+        });
+
+        try {
+          await expect(provider.challengeForAuthorizationCode(client, code)).rejects.toThrow(ServerError);
+        } finally {
+          fchmodSpy.mockRestore();
+        }
+      },
+    );
   });
 });

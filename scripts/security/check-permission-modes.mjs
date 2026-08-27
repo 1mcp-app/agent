@@ -21,7 +21,8 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))));
 const BASELINE_PATH = path.join(ROOT, 'scripts', 'security', 'permission-guard-baseline.json');
 
-const SYNC_WRITE_PATTERN = /\bfs\.(writeFileSync|appendFileSync|openSync|copyFileSync|createWriteStream|mkdirSync)\s*\(/;
+const SYNC_WRITE_PATTERN =
+  /\bfs\.(writeFileSync|appendFileSync|openSync|copyFileSync|createWriteStream|mkdirSync)\s*\(/;
 const ASYNC_WRITE_PATTERN = /\bfs\.(writeFile|appendFile|mkdir|copyFile|cp)\s*\(/;
 // Destructured async/sensitive identifiers imported from 'node:fs/promises' /
 // `promises as fs` — these escape the fs.-prefix requirement entirely.
@@ -34,7 +35,10 @@ const TEST_FILE = /\.test\.ts$|__tests__|\/test\//;
 function listSourceFiles() {
   const out = spawnSync('git', ['ls-files', 'src/**/*.ts'], { cwd: ROOT, encoding: 'utf8' });
   if (out.status !== 0) throw new Error(`git ls-files failed: ${out.stderr}`);
-  return out.stdout.split('\n').map((l) => l.trim()).filter((l) => l && !TEST_FILE.test(l));
+  return out.stdout
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l && !TEST_FILE.test(l));
 }
 
 function findingFingerprint(file, index, snippet) {
@@ -49,12 +53,24 @@ function scanFile(rel) {
   const findings = [];
   let occurrence = 0;
   lines.forEach((line, i) => {
-    const m = line.match(SYNC_WRITE_PATTERN) || line.match(ASYNC_WRITE_PATTERN) || (hasDestructuredImport && line.match(DESTRUCTURED_WRITE_PATTERN));
+    const m =
+      line.match(SYNC_WRITE_PATTERN) ||
+      line.match(ASYNC_WRITE_PATTERN) ||
+      (hasDestructuredImport && line.match(DESTRUCTURED_WRITE_PATTERN));
     if (!m) return;
     occurrence += 1;
     // Statement window: current line + next 5 lines (multi-line call args)
     const block = lines.slice(i, i + 6).join(' ');
     const call = m[1];
+    if (call === 'openSync') {
+      // Read-only opens carry no mode; only opens that can create a file
+      // (w/a/x/+ flags) are permission-relevant.
+      const openFlags = block.match(/openSync\s*\([^,]+,\s*['"`]([^'"`]+)['"`]/);
+      const flags = openFlags?.[1] ?? '';
+      if (!/[wax+]/.test(flags)) {
+        return;
+      }
+    }
     const isCopy = call === 'copyFileSync' || call === 'copyFile' || call === 'cp';
     if (isCopy) {
       // fs.copy* has no mode parameter; the invariant is a chmod on the
@@ -86,19 +102,55 @@ const baselineMap = new Map(baseline.entries.map((e) => [e.fingerprint, e]));
 function reasonFor(f) {
   // Non-credential writes whose default-mode impact is nil or UCL-gated.
   const byPrefix = [
-    ['src/auth/storage/fileStorageService.ts', 'writeFileSync targets fd from openSync(wx, 0o600) — mode inherited at open; this file is the AUTH-07 reference implementation'],
-    ['src/domains/runtime-targets/runtimeTargetStore.ts', 'writeJsonAtomic forwards an optional mode param; callers may omit it — tightening tracked under ticket-08'],
-    ['src/core/server/pidFileManager.ts', 'pid file content is not secret (PID only); mkdir is ~/.1mcp config dir bootstrap — tracked for 0600 tightening under ticket-08'],
-    ['src/domains/backup/backupManager.ts', 'backup metadata copies config; tightening scheduled under ticket-08 (low-severity hardening)'],
-    ['src/domains/admin/runtimeScopeAdminLock.ts', 'writeFileSync targets fd already opened 0o600 via openSync — mode inherited at open; mkdir prefixed by 0700 candidateDir'],
-    ['src/commands/serve/serveBackground.ts', 'log-file append under user-owned config dir; ACL tightening tracked under ticket-08'],
-    ['src/commands/shared/baseConfigUtils.ts', 'writes user-owned mcp.json config (may embed env but guaranteed non-secret at authoring time) — ticket-08'],
+    [
+      'src/auth/storage/fileStorageService.ts',
+      'writeFileSync targets fd from openSync(wx, 0o600) — mode inherited at open; this file is the AUTH-07 reference implementation',
+    ],
+    [
+      'src/domains/runtime-targets/runtimeTargetStore.ts',
+      'writeJsonAtomic forwards an optional mode param; callers may omit it — tightening tracked under ticket-08',
+    ],
+    [
+      'src/core/server/pidFileManager.ts',
+      'pid file content is not secret (PID only); mkdir is ~/.1mcp config dir bootstrap — tracked for 0600 tightening under ticket-08',
+    ],
+    [
+      'src/domains/backup/backupManager.ts',
+      'backup metadata copies config; tightening scheduled under ticket-08 (low-severity hardening)',
+    ],
+    [
+      'src/domains/admin/runtimeScopeAdminLock.ts',
+      'writeFileSync targets fd already opened 0o600 via openSync — mode inherited at open; mkdir prefixed by 0700 candidateDir',
+    ],
+    [
+      'src/commands/serve/serveBackground.ts',
+      'log-file append under user-owned config dir; ACL tightening tracked under ticket-08',
+    ],
+    [
+      'src/commands/shared/baseConfigUtils.ts',
+      'writes user-owned mcp.json config (may embed env but guaranteed non-secret at authoring time) — ticket-08',
+    ],
     ['src/commands/target/target.ts', 'serializes user-authored target config to user-owned path — ticket-08'],
-    ['src/config/configLoader.ts', 'writes DEFAULT_CONFIG scaffold on first run (no secrets); acceptable default-mode — ticket-08'],
-    ['src/domains/preset/manager/presetStorage.ts', 'preset config cache mirrors user-authored mcp.json (non-secret at authoring time) — async fs.promises path, tightening under ticket-08'],
-    ['src/commands/cliSetup/setupFiles.ts', 'writes IDE/cli setup scaffolding config files in user-owned paths — ticket-08'],
-    ['src/commands/shared/authProfileStore.ts', 'async fs.promises path for bearer-token storage; mkdir has mode 0o700 and rename target chmod 0o600 — listed only if an edge path lingers'],
-    ['src/commands/app/consolidate.ts', 'writes consolidated config derived from existing user config file — ticket-08'],
+    [
+      'src/config/configLoader.ts',
+      'writes DEFAULT_CONFIG scaffold on first run (no secrets); acceptable default-mode — ticket-08',
+    ],
+    [
+      'src/domains/preset/manager/presetStorage.ts',
+      'preset config cache mirrors user-authored mcp.json (non-secret at authoring time) — async fs.promises path, tightening under ticket-08',
+    ],
+    [
+      'src/commands/cliSetup/setupFiles.ts',
+      'writes IDE/cli setup scaffolding config files in user-owned paths — ticket-08',
+    ],
+    [
+      'src/commands/shared/authProfileStore.ts',
+      'async fs.promises path for bearer-token storage; mkdir has mode 0o700 and rename target chmod 0o600 — listed only if an edge path lingers',
+    ],
+    [
+      'src/commands/app/consolidate.ts',
+      'writes consolidated config derived from existing user config file — ticket-08',
+    ],
   ];
   for (const [prefix, reason] of byPrefix) {
     if (f.file.startsWith(prefix)) return `${reason}`;
@@ -106,11 +158,7 @@ function reasonFor(f) {
   return 'pre-existing, recorded at ticket-05 gate baseline; triage under 08-lowseverity-hardening';
 }
 
-const mode = process.argv.includes('--update')
-  ? 'update'
-  : process.argv.includes('--prune')
-    ? 'prune'
-    : 'enforce';
+const mode = process.argv.includes('--update') ? 'update' : process.argv.includes('--prune') ? 'prune' : 'enforce';
 
 if (mode === 'update') {
   const entries = findings.map((f) => ({
@@ -154,7 +202,11 @@ if (newFindings.length > 0) {
   for (const f of newFindings) {
     console.error(`  ${f.file}:${f.line}  fs.${f.call}(...)  [matches no baseline entry]`);
   }
-  console.error('\nFix by adding mode: 0o600 (files) / 0o700 (dirs), or run --update to record an accepted-risk baseline entry with a reason.');
+  console.error(
+    '\nFix by adding mode: 0o600 (files) / 0o700 (dirs), or run --update to record an accepted-risk baseline entry with a reason.',
+  );
   process.exit(1);
 }
-console.log(`permission-mode guard: OK (${findings.length} mode-less calls scanned, all covered by baseline: ${baseline.entries.length} entries)`);
+console.log(
+  `permission-mode guard: OK (${findings.length} mode-less calls scanned, all covered by baseline: ${baseline.entries.length} entries)`,
+);

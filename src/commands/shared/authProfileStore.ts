@@ -1,8 +1,9 @@
-import { createHash } from 'node:crypto';
-import { access, chmod, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { createHash, randomBytes } from 'node:crypto';
+import { access, chmod, mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { getConfigDir } from '@src/constants.js';
+import { InsecureFilePermissionsError, readCredentialFile } from '@src/utils/filePermissions.js';
 
 const AUTH_PROFILES_DIR = 'auth-profiles';
 
@@ -55,26 +56,36 @@ export async function saveAuthProfile(configDir: string | undefined, profile: Au
   const dir = profilesDir(configDir);
   await mkdir(dir, { recursive: true, mode: 0o700 });
   const filePath = profilePath(configDir, profile.serverUrl);
-  const tempPath = `${filePath}.tmp.${process.pid}`;
+  const tempPath = `${filePath}.tmp.${process.pid}.${randomBytes(6).toString('hex')}`;
   const data: AuthProfile = {
     ...profile,
     serverUrl: normalizeServerUrl(profile.serverUrl),
   };
-  await writeFile(tempPath, JSON.stringify(data), { encoding: 'utf8', mode: 0o600 });
-  await rename(tempPath, filePath);
+  try {
+    await writeFile(tempPath, JSON.stringify(data), { encoding: 'utf8', mode: 0o600 });
+    await rename(tempPath, filePath);
+  } catch (error) {
+    await rm(tempPath, { force: true }).catch(() => {});
+    throw error;
+  }
   await chmod(filePath, 0o600);
 }
 
 export async function loadAuthProfile(configDir: string | undefined, serverUrl: string): Promise<AuthProfile | null> {
   try {
     const filePath = profilePath(configDir, serverUrl);
-    const raw = await readFile(filePath, 'utf8');
+    // Read-side strictModes: heal legacy permissive files to 0600, refuse the
+    // credential only when the heal is denied.
+    const raw = await readCredentialFile(filePath, profilesDir(configDir));
     const parsed = JSON.parse(raw) as unknown;
     if (!isAuthProfile(parsed)) {
       return null;
     }
     return parsed;
-  } catch {
+  } catch (error) {
+    if (error instanceof InsecureFilePermissionsError) {
+      throw error;
+    }
     return null;
   }
 }
@@ -99,10 +110,13 @@ export async function listAuthProfiles(configDir?: string): Promise<AuthProfile[
         .filter((file) => file.endsWith('.json'))
         .map(async (file) => {
           try {
-            const raw = await readFile(path.join(dir, file), 'utf8');
+            const raw = await readCredentialFile(path.join(dir, file), dir);
             const parsed = JSON.parse(raw) as unknown;
             return isAuthProfile(parsed) ? parsed : null;
-          } catch {
+          } catch (error) {
+            if (error instanceof InsecureFilePermissionsError) {
+              throw error;
+            }
             return null;
           }
         }),

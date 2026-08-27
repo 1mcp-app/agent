@@ -43,10 +43,12 @@ describe('template context trust', () => {
     }).getOrCreate();
 
     expect(second).toEqual(first);
-    expect(fs.statSync(path.join(storageDir, 'template-context-capability.json')).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') {
+      expect(fs.statSync(path.join(storageDir, 'template-context-capability.json')).mode & 0o777).toBe(0o600);
+    }
   });
 
-  it('fails closed when an existing POSIX capability is readable by other users', () => {
+  it('self-heals an owner-open POSIX capability on read instead of consuming it exposed', () => {
     if (process.platform === 'win32') {
       return;
     }
@@ -56,9 +58,12 @@ describe('template context trust', () => {
       createSecret: () => Buffer.alloc(32, 7),
     });
     store.getOrCreate();
-    fs.chmodSync(path.join(storageDir, 'template-context-capability.json'), 0o644);
+    const filePath = path.join(storageDir, 'template-context-capability.json');
+    fs.chmodSync(filePath, 0o644);
 
-    expect(() => store.read()).toThrow(/owner-only/);
+    const capability = store.read();
+    expect(capability?.runtimeScopeId).toBe('scope-a');
+    expect(fs.statSync(filePath).mode & 0o777).toBe(0o600);
   });
 
   it('rejects capability JSON with undeclared properties', () => {

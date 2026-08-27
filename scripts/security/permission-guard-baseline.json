@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generatedBy": "check-permission-modes.mjs --update",
+  "generatedBy": "check-permission-modes.mjs --prune",
   "entries": [
     {
       "fingerprint": "src/auth/storage/fileStorageService.ts#2#writeFileSync",
@@ -16,24 +16,6 @@
       "file": "src/auth/storage/fileStorageService.ts",
       "call": "writeFileSync",
       "line": 442,
-      "reason": "writeFileSync targets fd from openSync(wx, 0o600) — mode inherited at open; this file is the AUTH-07 reference implementation",
-      "enteredAt": "2026-08-27",
-      "ticket": "08-lowseverity-hardening"
-    },
-    {
-      "fingerprint": "src/auth/storage/fileStorageService.ts#6#openSync",
-      "file": "src/auth/storage/fileStorageService.ts",
-      "call": "openSync",
-      "line": 531,
-      "reason": "writeFileSync targets fd from openSync(wx, 0o600) — mode inherited at open; this file is the AUTH-07 reference implementation",
-      "enteredAt": "2026-08-27",
-      "ticket": "08-lowseverity-hardening"
-    },
-    {
-      "fingerprint": "src/auth/storage/fileStorageService.ts#7#openSync",
-      "file": "src/auth/storage/fileStorageService.ts",
-      "call": "openSync",
-      "line": 741,
       "reason": "writeFileSync targets fd from openSync(wx, 0o600) — mode inherited at open; this file is the AUTH-07 reference implementation",
       "enteredAt": "2026-08-27",
       "ticket": "08-lowseverity-hardening"

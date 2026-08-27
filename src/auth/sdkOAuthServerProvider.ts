@@ -5,6 +5,7 @@ import {
   InvalidGrantError,
   InvalidScopeError,
   InvalidTargetError,
+  ServerError,
 } from '@modelcontextprotocol/sdk/server/auth/errors.js';
 import type { AuthorizationParams, OAuthServerProvider } from '@modelcontextprotocol/sdk/server/auth/provider.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
@@ -19,6 +20,7 @@ import { AUTH_CONFIG } from '@src/constants.js';
 import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import logger from '@src/logger/logger.js';
+import { InsecureFilePermissionsError } from '@src/utils/filePermissions.js';
 import { escapeHtml } from '@src/utils/validation/sanitization.js';
 import {
   auditScopeOperation,
@@ -36,6 +38,22 @@ const OAUTH_CONSENT_PAGE_CSP_SUFFIX =
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 /**
+ * Reads from a credential repository, mapping a denied permission heal to an
+ * actionable OAuth server_error instead of a bare 500.
+ */
+function readCredential<T>(read: () => T): T {
+  try {
+    return read();
+  } catch (error) {
+    if (error instanceof InsecureFilePermissionsError) {
+      logger.error(`OAuth store refused insecure credential file: ${error.message}`);
+      throw new ServerError(`Credential storage is not owner-only and could not be repaired: ${error.message}`);
+    }
+    throw error;
+  }
+}
+
+/**
  * File-based OAuth clients store implementation using the new repository architecture
  */
 class FileBasedClientsStore implements OAuthRegisteredClientsStore {
@@ -51,7 +69,7 @@ class FileBasedClientsStore implements OAuthRegisteredClientsStore {
 
   getClient(clientId: string): OAuthClientInformationFull | undefined {
     const clientKey = this.getClientKey(clientId);
-    const clientData = this.oauthStorage.clientDataRepository.get(clientKey);
+    const clientData = readCredential(() => this.oauthStorage.clientDataRepository.get(clientKey));
 
     if (!clientData) {
       return undefined;
@@ -338,7 +356,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
   async challengeForAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string): Promise<string> {
     logger.debug('Challenge for authorization code', { clientId: client.client_id });
 
-    const codeData = this.oauthStorage.authCodeRepository.get(authorizationCode);
+    const codeData = readCredential(() => this.oauthStorage.authCodeRepository.get(authorizationCode));
     if (!codeData || codeData.clientId !== client.client_id) {
       throw new InvalidGrantError('Invalid authorization code');
     }
@@ -365,7 +383,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
     });
 
     return this.oauthStorage.fileStorage.withExclusiveLock('auth-code-exchange', async () => {
-      const codeData = this.oauthStorage.authCodeRepository.get(authorizationCode);
+      const codeData = readCredential(() => this.oauthStorage.authCodeRepository.get(authorizationCode));
       if (!codeData) {
         throw new InvalidGrantError('Invalid or expired authorization code');
       }
@@ -516,7 +534,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
 
     // Get session data
     const sessionId = AUTH_CONFIG.SERVER.SESSION.ID_PREFIX + tokenId;
-    const sessionData = this.oauthStorage.sessionRepository.get(sessionId);
+    const sessionData = readCredential(() => this.oauthStorage.sessionRepository.get(sessionId));
 
     if (!sessionData) {
       throw new Error('Invalid or expired access token');
@@ -564,7 +582,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
       : token;
 
     const sessionId = AUTH_CONFIG.SERVER.SESSION.ID_PREFIX + tokenId;
-    const session = this.oauthStorage.sessionRepository.get(sessionId);
+    const session = readCredential(() => this.oauthStorage.sessionRepository.get(sessionId));
     const success = session?.clientId === client.client_id && this.oauthStorage.sessionRepository.delete(sessionId);
 
     if (success) {
