@@ -16,6 +16,7 @@ export function scanWorkflowSecurity(content: string, filename = 'workflow.yml')
   const lines = normalized.split('\n');
   const violations: WorkflowViolation[] = [];
 
+  // 1. Guard against secrets: inherit (quoted or unquoted)
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (/^\s*secrets:\s*["']?inherit["']?\b/i.test(line)) {
@@ -29,6 +30,8 @@ export function scanWorkflowSecurity(content: string, filename = 'workflow.yml')
     }
   }
 
+  // 2. Guard against direct expression injection in run: steps
+  // Any ${{ ... }} interpolation inside a run: step is banned to prevent shell injection.
   const expressionPattern = /\$\{\{/;
   let inRun = false;
   let runIndent = 0;
@@ -37,11 +40,14 @@ export function scanWorkflowSecurity(content: string, filename = 'workflow.yml')
     const line = lines[i];
     const trimmed = line.trim();
 
+    // Skip full-line comments
     if (trimmed.startsWith('#')) {
       continue;
     }
 
-    const multiLineRunStartMatch = line.match(/^(\s*)(?:-\s+)?['"]?run['"]?:\s*[|>-][+-]?\s*(?:#.*)?$/i);
+    // Match run: block headers including YAML block indentation indicators (e.g. 'run: |2', 'run: >-', 'run: |2-', etc.)
+    const multiLineRunStartMatch = line.match(/^(\s*)(?:-\s+)?['"]?run['"]?:\s*[|>][0-9+-]*\s*(?:#.*)?$/i);
+    // Match single-line run commands
     const singleLineRunMatch = line.match(/^(\s*)(?:-\s+)?['"]?run['"]?:\s*([^|>-].*)$/i);
 
     if (multiLineRunStartMatch) {
@@ -183,6 +189,24 @@ describe('GitHub Actions Workflow & Composite Action Security Gate', () => {
       ].join('\n');
 
       const violations = scanWorkflowSecurity(malicious, 'test.yml');
+      expect(violations).toHaveLength(2);
+      expect(violations.every((v) => v.rule === 'NO_RUN_INJECTION')).toBe(true);
+    });
+
+    it('detects and blocks explicit YAML block indentation indicators (e.g. run: |2 or run: >2-)', () => {
+      const maliciousIndentIndicator = [
+        'name: Test',
+        'jobs:',
+        '  t:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - run: |2',
+        '          echo "' + String.fromCharCode(36) + '{{ matrix.target }}"',
+        '      - run: >2-',
+        '          echo "' + String.fromCharCode(36) + '{{ github.actor }}"',
+      ].join('\n');
+
+      const violations = scanWorkflowSecurity(maliciousIndentIndicator, 'test.yml');
       expect(violations).toHaveLength(2);
       expect(violations.every((v) => v.rule === 'NO_RUN_INJECTION')).toBe(true);
     });

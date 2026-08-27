@@ -45,7 +45,7 @@ jobs:
         uses: ./.github/actions/setup-node-pnpm
 
       - name: Lint GitHub Actions workflows
-        uses: reviewdog/action-actionlint@v1
+        uses: reviewdog/action-actionlint@db5820ecc974b6697b01fa24dfb45508a892b11b # v1.65.2
         with:
           fail_level: any
           filter_mode: nofilter

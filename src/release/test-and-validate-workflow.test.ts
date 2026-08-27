@@ -75,7 +75,7 @@ describe('test-and-validate workflow', () => {
     const ciJob = workflow.match(/\n\s{2}ci:\n(?<body>(?:\s{4}.*\n)+)/)?.groups?.body;
 
     expect(ciJob).toBeDefined();
-    expect(ciJob).toContain('reviewdog/action-actionlint@v1');
+    expect(ciJob).toMatch(/uses:\s*reviewdog\/action-actionlint/);
     expect(ciJob).toMatch(/fail_level:\s*(?:any|error)/);
   });
 });

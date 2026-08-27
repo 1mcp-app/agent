@@ -7,7 +7,7 @@ on:
       - main
     paths:
       - 'docs/**'
-      - '.github/workflows/deploy-docs.yml'
+      - '.github/workflows/deploy-documentation.yml'
       - 'package.json'
     tags:
       - 'v*'
