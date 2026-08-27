@@ -241,20 +241,24 @@ describe('FileStorageService', () => {
 
     it('does not unlink pre-existing file if openSync fails with EEXIST', () => {
       const originalOpenSync = fs.openSync;
-      const preExistingTempPath = path.join(service.getStorageDir(), 'pre-existing.tmp');
-      fs.writeFileSync(preExistingTempPath, 'important pre-existing data');
+      let capturedTempPath: string | undefined;
 
       vi.spyOn(fs, 'openSync').mockImplementation((targetPath, flags, mode) => {
         if (typeof targetPath === 'string' && targetPath.endsWith('.tmp')) {
+          capturedTempPath = targetPath;
+          fs.writeFileSync(targetPath, 'important pre-existing data');
           throw Object.assign(new Error('EEXIST: file already exists'), { code: 'EEXIST' });
         }
         return originalOpenSync(targetPath, flags, mode);
       });
 
       expect(() => service.writeData(testPrefix, testId, testData)).toThrow(/EEXIST/);
-      expect(fs.existsSync(preExistingTempPath)).toBe(true);
-      expect(fs.readFileSync(preExistingTempPath, 'utf8')).toBe('important pre-existing data');
-      fs.unlinkSync(preExistingTempPath);
+      expect(capturedTempPath).toBeDefined();
+      expect(fs.existsSync(capturedTempPath!)).toBe(true);
+      expect(fs.readFileSync(capturedTempPath!, 'utf8')).toBe('important pre-existing data');
+      if (capturedTempPath && fs.existsSync(capturedTempPath)) {
+        fs.unlinkSync(capturedTempPath);
+      }
     });
 
     it('hardens legacy data files to 0600 during migration', () => {
