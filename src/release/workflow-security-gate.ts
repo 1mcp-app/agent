@@ -8,6 +8,16 @@ export interface WorkflowViolation {
   snippet: string;
 }
 
+function getNearestEnclosingPairKey(path: readonly unknown[]): string | null {
+  for (let i = path.length - 1; i >= 0; i--) {
+    const node = path[i];
+    if (YAML.isPair(node) && node.key && typeof (node.key as { value?: unknown }).value === 'string') {
+      return (node.key as { value: string }).value.toLowerCase();
+    }
+  }
+  return null;
+}
+
 /**
  * Scans a GitHub Actions workflow or composite action file for 'secrets: inherit' and script expression injections in 'run:' steps.
  * Uses standard YAML AST/CST parsing (supporting anchors, aliases, flow mappings, and block scalars).
@@ -62,34 +72,41 @@ export function scanWorkflowSecurity(content: string, filename = 'workflow.yml')
       const keyNode = node.key as { value?: unknown };
       const keyVal = keyNode.value;
       const valNode = node.value as { range?: [number, number, number]; value?: unknown } | null;
+      const nearestEnclosingPair = getNearestEnclosingPairKey(path);
 
-      // 1. Guard against secrets: inherit (including aliases)
+      // 1. Guard against secrets: inherit
+      // Only flag when secrets is inside a caller job (under 'jobs') and NOT under 'on' or 'with'
       if (typeof keyVal === 'string' && keyVal.toLowerCase() === 'secrets' && valNode) {
-        const valStr = resolveNodeValue(valNode);
-        if (valStr.toLowerCase().trim() === 'inherit') {
-          const pos = valNode.range ? lineCounter.linePos(valNode.range[0]) : { line: 1, col: 1 };
-          violations.push({
-            file: filename,
-            line: pos.line,
-            rule: 'NO_SECRETS_INHERIT',
-            message: "Forbidden 'secrets: inherit' detected. Secrets must be explicitly mapped by name or use OIDC.",
-            snippet: 'secrets: ' + valStr,
-          });
-        }
-      }
-
-      // 2. Guard against run injections
-      // Ensure the 'run' key is an execution step, not an environment variable under 'env:' or parameter under 'with:'
-      if (typeof keyVal === 'string' && keyVal.toLowerCase() === 'run' && valNode) {
-        const isUnderEnvOrWith = path.some((p) => {
+        const isUnderJobs = path.some(
+          (p) => YAML.isPair(p) && ((p.key as { value?: unknown })?.value as string)?.toLowerCase?.() === 'jobs',
+        );
+        const isUnderOnOrWith = path.some((p) => {
           if (YAML.isPair(p) && p.key && typeof (p.key as { value?: unknown }).value === 'string') {
             const k = (p.key as { value: string }).value.toLowerCase();
-            return k === 'env' || k === 'with';
+            return k === 'on' || k === 'with';
           }
           return false;
         });
 
-        if (!isUnderEnvOrWith) {
+        if (isUnderJobs && !isUnderOnOrWith) {
+          const valStr = resolveNodeValue(valNode);
+          if (valStr.toLowerCase().trim() === 'inherit') {
+            const pos = valNode.range ? lineCounter.linePos(valNode.range[0]) : { line: 1, col: 1 };
+            violations.push({
+              file: filename,
+              line: pos.line,
+              rule: 'NO_SECRETS_INHERIT',
+              message: "Forbidden 'secrets: inherit' detected. Secrets must be explicitly mapped by name or use OIDC.",
+              snippet: 'secrets: ' + valStr,
+            });
+          }
+        }
+      }
+
+      // 2. Guard against run injections
+      // Ensure the 'run' key is an execution step command (directly enclosing under 'steps')
+      if (typeof keyVal === 'string' && keyVal.toLowerCase() === 'run' && valNode) {
+        if (nearestEnclosingPair === 'steps') {
           const scriptVal = resolveNodeValue(valNode);
           if (expressionPattern.test(scriptVal)) {
             const pos = valNode.range ? lineCounter.linePos(valNode.range[0]) : { line: 1, col: 1 };

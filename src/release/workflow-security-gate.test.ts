@@ -75,6 +75,24 @@ describe('GitHub Actions Workflow & Composite Action Security Gate', () => {
       expect(violations[0].snippet).toContain('github.event.issue.title');
     });
 
+    it('detects and blocks run injection inside job named env or with', () => {
+      const maliciousJobEnv = [
+        'jobs:',
+        '  env:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - run: echo "' + String.fromCharCode(36) + '{{ github.actor }}"',
+        '  with:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - run: echo "' + String.fromCharCode(36) + '{{ inputs.name }}"',
+      ].join('\n');
+
+      const violations = scanWorkflowSecurity(maliciousJobEnv, 'test.yml');
+      expect(violations).toHaveLength(2);
+      expect(violations.every((v) => v.rule === 'NO_RUN_INJECTION')).toBe(true);
+    });
+
     it('detects and blocks hyphen/dash-prefixed single-line run commands', () => {
       const malicious = [
         'name: Test',
@@ -280,7 +298,7 @@ describe('GitHub Actions Workflow & Composite Action Security Gate', () => {
       expect(violations[0].rule).toBe('NO_RUN_INJECTION');
     });
 
-    it('detects and blocks unquoted and quoted secrets: inherit', () => {
+    it('detects and blocks unquoted and quoted secrets: inherit in caller jobs', () => {
       const unquoted = [
         'name: Caller',
         'jobs:',
@@ -362,6 +380,30 @@ describe('GitHub Actions Workflow & Composite Action Security Gate', () => {
       ].join('\n');
 
       expect(scanWorkflowSecurity(envWithRunVar)).toHaveLength(0);
+    });
+
+    it('allows matrix configuration with run key and with parameter named secrets', () => {
+      const safeMatrixAndWith = [
+        'on:',
+        '  workflow_call:',
+        '    secrets:',
+        '      inherit:',
+        '        description: Secret declaration',
+        'jobs:',
+        '  t:',
+        '    strategy:',
+        '      matrix:',
+        '        include:',
+        '          - run: ' + String.fromCharCode(36) + '{{ needs.a.outputs.x }}',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '        with:',
+        '          secrets: inherit',
+        '      - run: echo "safe"',
+      ].join('\n');
+
+      expect(scanWorkflowSecurity(safeMatrixAndWith)).toHaveLength(0);
     });
   });
 });
