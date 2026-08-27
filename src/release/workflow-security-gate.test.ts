@@ -48,7 +48,7 @@ export function scanWorkflowSecurity(content: string, filename = 'workflow.yml')
     // Match run: block headers including YAML block indentation indicators (e.g. 'run: |2', 'run: >-', 'run: |2-', etc.)
     const multiLineRunStartMatch = line.match(/^(\s*)(?:-\s+)?['"]?run['"]?:\s*[|>][0-9+-]*\s*(?:#.*)?$/i);
     // Match single-line run commands
-    const singleLineRunMatch = line.match(/^(\s*)(?:-\s+)?['"]?run['"]?:\s*([^|>-].*)$/i);
+    const singleLineRunMatch = line.match(/^(\s*)(?:-\s+)?['"]?run['"]?:\s*(.+)$/i);
 
     if (multiLineRunStartMatch) {
       inRun = true;
@@ -159,6 +159,22 @@ describe('GitHub Actions Workflow & Composite Action Security Gate', () => {
       expect(violations).toHaveLength(1);
       expect(violations[0].rule).toBe('NO_RUN_INJECTION');
       expect(violations[0].snippet).toContain('github.event.issue.title');
+    });
+
+    it('detects and blocks hyphen/dash-prefixed single-line run commands', () => {
+      const malicious = [
+        'name: Test',
+        'jobs:',
+        '  t:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - run: -e echo "' + String.fromCharCode(36) + '{{ github.actor }}"',
+        '      - run: --flag "' + String.fromCharCode(36) + '{{ inputs.name }}"',
+      ].join('\n');
+
+      const violations = scanWorkflowSecurity(malicious, 'test.yml');
+      expect(violations).toHaveLength(2);
+      expect(violations.every((v) => v.rule === 'NO_RUN_INJECTION')).toBe(true);
     });
 
     it('detects and blocks index bracket syntax in run', () => {
