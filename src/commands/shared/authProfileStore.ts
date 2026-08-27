@@ -3,6 +3,7 @@ import { access, chmod, mkdir, readdir, rename, rm, writeFile } from 'node:fs/pr
 import path from 'node:path';
 
 import { getConfigDir } from '@src/constants.js';
+import logger from '@src/logger/logger.js';
 import { InsecureFilePermissionsError, readCredentialFile } from '@src/utils/filePermissions.js';
 
 const AUTH_PROFILES_DIR = 'auth-profiles';
@@ -115,7 +116,10 @@ export async function listAuthProfiles(configDir?: string): Promise<AuthProfile[
             return isAuthProfile(parsed) ? parsed : null;
           } catch (error) {
             if (error instanceof InsecureFilePermissionsError) {
-              throw error;
+              // Fail-closed on consume, but do not nuke the whole listing:
+              // skip this profile, keep the healthy ones visible.
+              logger.warn(`Skipping auth profile with unfixable permissions: ${error.message}`);
+              return null;
             }
             return null;
           }

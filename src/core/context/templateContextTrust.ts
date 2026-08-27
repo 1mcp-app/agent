@@ -4,7 +4,11 @@ import path from 'node:path';
 
 import type { ContextData } from '@src/types/context.js';
 import { createContextHash } from '@src/utils/context/contextHash.js';
-import { enforceOwnerOnlyFilePermissions, InsecureFilePermissionsError } from '@src/utils/filePermissions.js';
+import {
+  assertOwnerOnlyDirPermissions,
+  enforceOwnerOnlyFilePermissions,
+  InsecureFilePermissionsError,
+} from '@src/utils/filePermissions.js';
 
 import { z } from 'zod';
 
@@ -149,9 +153,10 @@ export class TemplateContextCapabilityStore {
     }
 
     // Read-side strictModes, unified with the other credential stores:
-    // heal-then-consume on one open fd (no TOCTOU); a denied heal fails
-    // closed via InsecureFilePermissionsError instead of silently reading an
-    // exposed capability.
+    // heal-then-consume on one open fd (no TOCTOU), with the dir leg (0700)
+    // checked first; a denied heal fails closed via InsecureFilePermissionsError
+    // instead of silently reading an exposed capability.
+    assertOwnerOnlyDirPermissions(this.options.storageDir);
     const fd = fs.openSync(filePath, 'r');
     let value: unknown;
     try {

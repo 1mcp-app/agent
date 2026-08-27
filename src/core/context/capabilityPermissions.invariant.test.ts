@@ -48,6 +48,20 @@ describe('capability/storage permission invariants (POSIX-only, AUTH-07 gate)', 
     expect(fs.statSync(filePath).mode & 0o777).toBe(0o600);
   });
 
+  it.skipIf(!isPosix)('self-heals a legacy group/other-readable storage dir to 0700 on read', () => {
+    const store = new TemplateContextCapabilityStore({
+      storageDir,
+      runtimeScopeId: 'scope-invariant',
+      createSecret: () => Buffer.alloc(32, 3),
+    });
+    store.getOrCreate();
+    fs.chmodSync(storageDir, 0o755);
+
+    const capability = store.getOrCreate();
+    expect(capability.runtimeScopeId).toBe('scope-invariant');
+    expect(fs.statSync(storageDir).mode & 0o777).toBe(0o700);
+  });
+
   it.skipIf(!isPosix || isRoot)('fails closed when the capability write itself is denied (EACCES)', () => {
     fs.chmodSync(storageDir, 0o500);
     try {

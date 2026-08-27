@@ -467,7 +467,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
     resource?: URL,
   ): Promise<OAuthTokens> {
     const repository = this.oauthStorage.refreshTokenFamilyRepository;
-    const family = repository.findByToken(refreshToken);
+    const family = readCredential(() => repository.findByToken(refreshToken));
     if (!family || family.clientId !== client.client_id) {
       throw new InvalidGrantError('Invalid refresh token');
     }
@@ -540,8 +540,9 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
       throw new Error('Invalid or expired access token');
     }
 
-    if (sessionData.refreshFamilyId) {
-      const family = this.oauthStorage.refreshTokenFamilyRepository.findById(sessionData.refreshFamilyId);
+    const refreshFamilyId = sessionData.refreshFamilyId;
+    if (refreshFamilyId) {
+      const family = readCredential(() => this.oauthStorage.refreshTokenFamilyRepository.findById(refreshFamilyId));
       if (!family || family.status !== 'active' || !family.accessTokenIds.includes(tokenId)) {
         throw new Error('Invalid or expired access token');
       }
@@ -564,7 +565,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
 
     const token = request.token;
 
-    const refreshFamily = this.oauthStorage.refreshTokenFamilyRepository.findByToken(token);
+    const refreshFamily = readCredential(() => this.oauthStorage.refreshTokenFamilyRepository.findByToken(token));
     if (refreshFamily) {
       const revokedFamily = await this.oauthStorage.refreshTokenFamilyRepository.revokeForClient(
         refreshFamily,
