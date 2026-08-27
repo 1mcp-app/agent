@@ -54,14 +54,26 @@ async function stopChild(child) {
   if (!(await waitForExit(child, 3_000))) throw new Error('CHILD_CLEANUP_TIMEOUT');
 }
 
-async function waitForGatewayReady(child, origin) {
+async function waitForGatewayReady(child, origin, allowUnreadyProductFailure) {
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
     if (child.exitCode !== null || child.signalCode !== null) throw new Error('GATEWAY_EXITED');
     try {
       const response = await fetch(`${origin}/health/ready`, { signal: AbortSignal.timeout(500) });
+      if (response.status === 200) {
+        await response.body?.cancel();
+        return;
+      }
       await response.body?.cancel();
-      if (response.status === 200) return;
+      if (allowUnreadyProductFailure && response.status === 503) {
+        const backend = await fetch(`${origin}/health/mcp/official_conformance`, {
+          signal: AbortSignal.timeout(500),
+        });
+        const status = await backend.json().catch(() => undefined);
+        if (backend.status === 401 && status?.name === 'official_conformance' && status?.state === 'awaiting_oauth') {
+          return;
+        }
+      }
     } catch {
       // Readiness polling is outside the official scenario attempt.
     }
@@ -191,7 +203,7 @@ async function main() {
   );
 
   try {
-    await waitForGatewayReady(gateway, origin);
+    await waitForGatewayReady(gateway, origin, family === 'auth');
     const result = await runFixture(`${origin}/mcp`, home);
     await recordStatus(result.kind);
     process.exitCode = result.exitCode;

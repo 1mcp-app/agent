@@ -203,8 +203,12 @@ const NOT_SCORED_SCENARIOS: Record<OfficialConformanceRevision, Record<OfficialC
   },
 };
 
+export function officialScenarioIds(revision: OfficialConformanceRevision, role: OfficialConformanceRole): string[] {
+  return [...REQUIRED_SCENARIOS[revision][role], ...NOT_SCORED_SCENARIOS[revision][role]];
+}
+
 export function officialClientScenarioIds(revision: OfficialConformanceRevision): string[] {
-  return [...REQUIRED_SCENARIOS[revision].client, ...NOT_SCORED_SCENARIOS[revision].client];
+  return officialScenarioIds(revision, 'client');
 }
 
 const packageMetadataSchema = z.object({
@@ -591,6 +595,11 @@ const NO_OUTPUT_OBSERVATION: SanitizedOfficialCheck = {
   status: 'FAILURE',
   specReferenceIds: [],
 };
+const SCHEMA_INVALID_TARGET_OBSERVATION: SanitizedOfficialCheck = {
+  id: 'official-target-schema-invalid',
+  status: 'FAILURE',
+  specReferenceIds: [],
+};
 const REVIEWED_UNEXPECTED_ERROR_FALLBACK_SCENARIOS: Record<OfficialConformanceRevision, ReadonlySet<string>> = {
   '2025-11-25': new Set(),
   '2026-07-28': new Set(['tasks-capability-negotiation']),
@@ -664,8 +673,8 @@ export async function runOfficialConformance(
     for (const [index, scenarioId] of expectedScenarios.entries()) {
       const scenarioOutputDirectory = join(outputDirectory, String(index));
       await mkdir(scenarioOutputDirectory, { recursive: true });
-      let targetErrorObserved = false;
-      let closeTap: (() => Promise<void>) | undefined;
+      let targetErrorSchemaResult: 'valid' | 'invalid' | undefined;
+      let closeTap: ((waitForErrorEvidence: boolean) => Promise<void>) | undefined;
       let targetArgs: string[];
       if (options.role === 'server') {
         const capture = createSanitizedWireCapture({
@@ -678,22 +687,29 @@ export async function runOfficialConformance(
           contextId: `official-${index}`,
           hop: 'inbound',
         });
-        closeTap = tap.close;
         targetArgs = ['--url', tappedTarget(tap.url, options.url)];
         const captureTargetError = (): void => {
-          targetErrorObserved = capture
+          const retained = capture
             .snapshot()
-            .records.some(
+            .records.find(
               (record) =>
                 record.direction === 'gateway_to_client' &&
                 record.correlation === 'error' &&
-                record.schemaResult === 'valid' &&
+                (record.schemaResult === 'valid' || record.schemaResult === 'invalid') &&
+                record.contentKind === 'json' &&
                 record.envelope.error,
             );
+          if (retained?.schemaResult === 'valid' || retained?.schemaResult === 'invalid') {
+            targetErrorSchemaResult = retained.schemaResult;
+          }
         };
-        closeTap = async () => {
-          await new Promise<void>((resolvePromise) => setImmediate(resolvePromise));
-          captureTargetError();
+        closeTap = async (waitForErrorEvidence) => {
+          const deadline = Date.now() + (waitForErrorEvidence ? 500 : 0);
+          do {
+            captureTargetError();
+            if (targetErrorSchemaResult || !waitForErrorEvidence) break;
+            await new Promise((resolvePromise) => setTimeout(resolvePromise, 10));
+          } while (Date.now() < deadline);
           await tap.close();
         };
       } else {
@@ -718,7 +734,7 @@ export async function runOfficialConformance(
         options.signal,
       );
       try {
-        await closeTap?.();
+        await closeTap?.(processResult.exitCode !== 0);
       } catch {
         result = { classification: 'harness', ...identity, reason: 'cleanup-failure' };
         break;
@@ -735,10 +751,17 @@ export async function runOfficialConformance(
           noOutput &&
           processResult.exitCode !== 0 &&
           options.role === 'server' &&
-          targetErrorObserved &&
+          targetErrorSchemaResult === 'invalid' &&
           REVIEWED_UNEXPECTED_ERROR_FALLBACK_SCENARIOS[options.revision].has(scenarioId)
         ) {
-          scenarios.push({ scenarioId, checks: [{ ...NO_OUTPUT_OBSERVATION }] });
+          scenarios.push({
+            scenarioId,
+            checks: [
+              {
+                ...(targetErrorSchemaResult === 'invalid' ? SCHEMA_INVALID_TARGET_OBSERVATION : NO_OUTPUT_OBSERVATION),
+              },
+            ],
+          });
           continue;
         }
         if (noOutput && processResult.exitCode !== 0) {

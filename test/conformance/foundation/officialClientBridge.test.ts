@@ -133,6 +133,51 @@ describe('official client gateway bridge', () => {
     }
   });
 
+  it.each([
+    [503, 'attempted'],
+    [500, 'harness-defect'],
+  ] as const)('classifies an auth gateway health status %s as %s', async (healthStatus, expectedStatus) => {
+    const scratch = await mkdtemp(join(tmpdir(), 'official-client-bridge-'));
+    const fixture = join(scratch, 'fixture.mjs');
+    const pendingGateway = join(scratch, 'pending-gateway.mjs');
+    await writeFile(
+      fixture,
+      `process.stderr.write('{"classification":"gateway-rejected"}\\n'); process.exitCode = 1;\n`,
+      'utf8',
+    );
+    await writeFile(
+      pendingGateway,
+      `import { createServer } from 'node:http';\n` +
+        `const port = Number(process.argv[process.argv.indexOf('--port') + 1]);\n` +
+        `const healthStatus = ${healthStatus};\n` +
+        `const server = createServer((request, response) => { request.resume(); if (request.url === '/health/ready') response.writeHead(healthStatus).end(); else if (request.url === '/health/mcp/official_conformance' && healthStatus === 503) response.writeHead(401, { 'content-type': 'application/json' }).end(JSON.stringify({ name: 'official_conformance', state: 'awaiting_oauth' })); else response.writeHead(500).end(); if (healthStatus !== 503) setImmediate(() => server.close(() => process.exit(0))); });\n` +
+        `server.listen(port, '127.0.0.1');\n` +
+        `process.once('SIGTERM', () => server.close(() => process.exit(0)));\n`,
+      'utf8',
+    );
+    try {
+      await expect(
+        execFileAsync(process.execPath, [bridge, fixture, pendingGateway, scratch, 'http://localhost:9/mcp'], {
+          env: {
+            ...process.env,
+            MCP_CONFORMANCE_SCENARIO: 'auth/pre-registration',
+            MCP_CONFORMANCE_PROTOCOL_VERSION: '2025-11-25',
+            MCP_CONFORMANCE_CONTEXT: JSON.stringify({
+              client_id: 'pre-registered-client',
+              client_secret: 'pre-registered-secret',
+            }),
+          },
+          timeout: 15_000,
+        }),
+      ).rejects.toMatchObject({ code: 1 });
+      await expect(readFile(join(scratch, 'auth%2Fpre-registration.json'), 'utf8')).resolves.toContain(
+        `"status":"${expectedStatus}"`,
+      );
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
+  });
+
   it('accepts a bracketed IPv6 loopback scenario target', async () => {
     const scratch = await mkdtemp(join(tmpdir(), 'official-client-bridge-'));
     const fixture = join(scratch, 'fixture.mjs');

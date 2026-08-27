@@ -190,8 +190,9 @@ describe('runOfficialConformance', () => {
     });
   });
 
-  it('retains a sanitized product fallback only after a schema-valid target error response', async () => {
+  it('retains only the reviewed schema-invalid target fallback for Tasks capability negotiation', async () => {
     const observedPaths: string[] = [];
+    let schemaValid = false;
     const target = createServer((request, response) => {
       observedPaths.push(request.url ?? '');
       request.resume();
@@ -199,8 +200,7 @@ describe('runOfficialConformance', () => {
         response.writeHead(200, { 'content-type': 'application/json', 'x-private': 'private-header' });
         response.end(
           JSON.stringify({
-            jsonrpc: '2.0',
-            id: 1,
+            ...(schemaValid ? { jsonrpc: '2.0', id: 1 } : {}),
             error: { code: -32601, message: 'private target status text' },
           }),
         );
@@ -222,11 +222,29 @@ describe('runOfficialConformance', () => {
       if (result.classification !== 'product') return;
       expect(result.productVerdict).toBe('pass');
       const fallback = result.scenarios.find((scenario) => scenario.scenarioId === 'tasks-capability-negotiation');
-      expect(fallback?.checks).toEqual([{ id: 'official-runner-no-output', status: 'FAILURE', specReferenceIds: [] }]);
+      expect(fallback?.checks).toEqual([
+        { id: 'official-target-schema-invalid', status: 'FAILURE', specReferenceIds: [] },
+      ]);
       expect(result.scenarios.at(-1)?.checks.length).toBeGreaterThan(0);
       expect(observedPaths[0]).toBe('/target-error-no-output-tasks-capability-negotiation?case=preserved');
       const serialized = JSON.stringify(fallback);
       expect(serialized).not.toMatch(/stdout|stderr|detail|private target|private-header/iu);
+
+      schemaValid = true;
+      await expect(
+        runOfficialConformance({
+          packageRoot: fixturePackageRoot,
+          role: 'server',
+          revision: '2026-07-28',
+          url: `http://127.0.0.1:${address.port}/target-error-no-output-tasks-capability-negotiation?case=valid-error`,
+          temporaryParentDirectory: temporaryParent,
+        }),
+      ).resolves.toEqual({
+        classification: 'process',
+        role: 'server',
+        revision: '2026-07-28',
+        reason: 'nonzero-exit',
+      });
     } finally {
       await new Promise<void>((resolvePromise, reject) =>
         target.close((error) => (error ? reject(error) : resolvePromise())),
