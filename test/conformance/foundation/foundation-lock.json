@@ -54,7 +54,7 @@
     {
       "id": "official-runner",
       "path": "test/conformance/official/officialRunner.ts",
-      "digest": "sha256:f656825ca6a1946113923e28c53507e9cd4ab8c4a288c1da4747e366b9628763"
+      "digest": "sha256:8560010931a42738ac20599b6349fe1dab8d59cafbc56c9429bdf8240af61d32"
     },
     {
       "id": "matrix-runtime",
@@ -69,7 +69,7 @@
     {
       "id": "official-client-bridge",
       "path": "test/conformance/foundation/officialClientBridge.mjs",
-      "digest": "sha256:8724805618cefd79680a437fa34c48a9d2ceea004062544c1013e595785160b8"
+      "digest": "sha256:1de03c81691b44a1ba8f94b37f062fba4e3308de0ecc298529f01fd3ad09c1cb"
     },
     {
       "id": "official-client-scenario-catalog",

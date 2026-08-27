@@ -29,7 +29,7 @@ describe('official client gateway bridge', () => {
     );
     try {
       await expect(
-        execFileAsync(process.execPath, [bridge, fixture, fakeGateway, scratch, 'http://127.0.0.1:9/mcp'], {
+        execFileAsync(process.execPath, [bridge, fixture, fakeGateway, scratch, 'http://localhost:9/mcp'], {
           env: {
             ...process.env,
             MCP_CONFORMANCE_SCENARIO: 'tools_call',
@@ -128,6 +128,31 @@ describe('official client gateway bridge', () => {
         }),
       ).rejects.toMatchObject({ code: 1 });
       await expect(readFile(join(scratch, 'request-metadata.json'), 'utf8')).resolves.toContain('"status":"attempted"');
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
+  });
+
+  it('accepts a bracketed IPv6 loopback scenario target', async () => {
+    const scratch = await mkdtemp(join(tmpdir(), 'official-client-bridge-'));
+    const fixture = join(scratch, 'fixture.mjs');
+    await writeFile(
+      fixture,
+      `process.stderr.write('{"classification":"gateway-rejected"}\\n'); process.exitCode = 1;\n`,
+      'utf8',
+    );
+    try {
+      await expect(
+        execFileAsync(process.execPath, [bridge, fixture, fakeGateway, scratch, 'http://[::1]:9/mcp'], {
+          env: {
+            ...process.env,
+            MCP_CONFORMANCE_SCENARIO: 'tools_call',
+            MCP_CONFORMANCE_PROTOCOL_VERSION: '2025-11-25',
+          },
+          timeout: 15_000,
+        }),
+      ).rejects.toMatchObject({ code: 1 });
+      await expect(readFile(join(scratch, 'tools_call.json'), 'utf8')).resolves.toContain('"status":"attempted"');
     } finally {
       await rm(scratch, { recursive: true, force: true });
     }

@@ -1,4 +1,5 @@
 import { cp, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -136,7 +137,7 @@ describe('runOfficialConformance', () => {
   });
 
   it.each([
-    ['missing-output', 'missing-output'],
+    ['zero-no-output', 'missing-output'],
     ['malformed-output', 'artifact-invalid'],
   ] as const)('classifies %s as a harness failure without outcomes', async (path, reason) => {
     const result = await runOfficialConformance({
@@ -155,12 +156,123 @@ describe('runOfficialConformance', () => {
     });
   });
 
-  it('classifies a nonzero process with no report separately from product failures', async () => {
+  it('continues after a nonzero product scenario and preserves later first-attempt reports', async () => {
+    const result = await runOfficialConformance({
+      packageRoot: fixturePackageRoot,
+      role: 'server',
+      revision: '2026-07-28',
+      url: 'http://127.0.0.1:3050/continue-after-nonzero',
+      temporaryParentDirectory: temporaryParent,
+    });
+
+    expect(result.classification).toBe('product');
+    if (result.classification !== 'product') return;
+    expect(result.productVerdict).toBe('fail');
+    expect(result.scenarios.length).toBeGreaterThan(1);
+    expect(result.scenarios[0].checks.some((check) => check.status === 'FAILURE')).toBe(true);
+    expect(result.scenarios.at(-1)?.checks.length).toBeGreaterThan(0);
+  });
+
+  it('keeps a nonzero scenario with no report and no target traffic as process infrastructure', async () => {
+    const result = await runOfficialConformance({
+      packageRoot: fixturePackageRoot,
+      role: 'server',
+      revision: '2026-07-28',
+      url: 'http://127.0.0.1:3050/nonzero-no-output',
+      temporaryParentDirectory: temporaryParent,
+    });
+
+    expect(result).toEqual({
+      classification: 'process',
+      role: 'server',
+      revision: '2026-07-28',
+      reason: 'nonzero-exit',
+    });
+  });
+
+  it('retains a sanitized product fallback only after a schema-valid target error response', async () => {
+    const observedPaths: string[] = [];
+    const target = createServer((request, response) => {
+      observedPaths.push(request.url ?? '');
+      request.resume();
+      request.once('end', () => {
+        response.writeHead(200, { 'content-type': 'application/json', 'x-private': 'private-header' });
+        response.end(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            error: { code: -32601, message: 'private target status text' },
+          }),
+        );
+      });
+    });
+    await new Promise<void>((resolvePromise) => target.listen(0, '127.0.0.1', resolvePromise));
+    const address = target.address();
+    if (!address || typeof address === 'string') throw new Error('Target did not bind');
+    try {
+      const result = await runOfficialConformance({
+        packageRoot: fixturePackageRoot,
+        role: 'server',
+        revision: '2026-07-28',
+        url: `http://127.0.0.1:${address.port}/target-error-no-output-tasks-capability-negotiation?case=preserved`,
+        temporaryParentDirectory: temporaryParent,
+      });
+
+      expect(result.classification).toBe('product');
+      if (result.classification !== 'product') return;
+      expect(result.productVerdict).toBe('pass');
+      const fallback = result.scenarios.find((scenario) => scenario.scenarioId === 'tasks-capability-negotiation');
+      expect(fallback?.checks).toEqual([{ id: 'official-runner-no-output', status: 'FAILURE', specReferenceIds: [] }]);
+      expect(result.scenarios.at(-1)?.checks.length).toBeGreaterThan(0);
+      expect(observedPaths[0]).toBe('/target-error-no-output-tasks-capability-negotiation?case=preserved');
+      const serialized = JSON.stringify(fallback);
+      expect(serialized).not.toMatch(/stdout|stderr|detail|private target|private-header/iu);
+    } finally {
+      await new Promise<void>((resolvePromise, reject) =>
+        target.close((error) => (error ? reject(error) : resolvePromise())),
+      );
+    }
+  });
+
+  it('keeps an expected tools-call-error response with no report as process infrastructure', async () => {
+    const target = createServer((request, response) => {
+      request.resume();
+      request.once('end', () => {
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32000, message: 'expected' } }));
+      });
+    });
+    await new Promise<void>((resolvePromise) => target.listen(0, '127.0.0.1', resolvePromise));
+    const address = target.address();
+    if (!address || typeof address === 'string') throw new Error('Target did not bind');
+    try {
+      const result = await runOfficialConformance({
+        packageRoot: fixturePackageRoot,
+        role: 'server',
+        revision: '2025-11-25',
+        url: `http://127.0.0.1:${address.port}/target-error-no-output-tools-call-error`,
+        temporaryParentDirectory: temporaryParent,
+      });
+
+      expect(result).toEqual({
+        classification: 'process',
+        role: 'server',
+        revision: '2025-11-25',
+        reason: 'nonzero-exit',
+      });
+    } finally {
+      await new Promise<void>((resolvePromise, reject) =>
+        target.close((error) => (error ? reject(error) : resolvePromise())),
+      );
+    }
+  });
+
+  it('keeps client-role nonzero missing output as process infrastructure', async () => {
     const result = await runOfficialConformance({
       packageRoot: fixturePackageRoot,
       role: 'client',
       revision: '2026-07-28',
-      command: 'process-failure',
+      command: 'nonzero-no-output',
       temporaryParentDirectory: temporaryParent,
     });
 

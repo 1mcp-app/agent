@@ -109,9 +109,16 @@ function runFixture(endpoint, home) {
 
 async function main() {
   if (!fixture || !builtEntryPath || !statusDirectory || !upstreamEndpoint) throw new Error('INVALID_ARGUMENTS');
-  const endpoint = new URL(upstreamEndpoint);
-  if (endpoint.protocol !== 'http:' || endpoint.hostname !== '127.0.0.1') throw new Error('INVALID_ENDPOINT');
   await mkdir(statusDirectory, { recursive: true, mode: 0o700 });
+  const endpoint = new URL(upstreamEndpoint);
+  if (
+    endpoint.protocol !== 'http:' ||
+    endpoint.username ||
+    endpoint.password ||
+    !['127.0.0.1', '::1', '[::1]', 'localhost'].includes(endpoint.hostname)
+  ) {
+    throw new Error('INVALID_ENDPOINT');
+  }
   const family = officialClientScenarioFamily(protocolVersion, scenario);
   if (!family) {
     await recordStatus('fixture-defect');

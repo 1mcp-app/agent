@@ -1,10 +1,16 @@
+import { JSONRPCMessageSchema as ModernJSONRPCMessageSchema } from '@modelcontextprotocol/core';
+
 import { type ChildProcess, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 
+import { JSONRPCMessageSchema as LegacyJSONRPCMessageSchema } from '@modelcontextprotocol/sdk/types.js';
+
 import { z } from 'zod';
+
+import { createSanitizedWireCapture, startHttpWireTap } from '../capture/index.js';
 
 type Environment = Record<string, string | undefined>;
 type KillSignal = Parameters<ChildProcess['kill']>[0];
@@ -554,37 +560,61 @@ function scenarioFromDirectory(
     });
 }
 
-async function parseReports(
+async function parseScenarioReport(
   outputDirectory: string,
   role: OfficialConformanceRole,
-  revision: OfficialConformanceRevision,
-): Promise<SanitizedOfficialScenario[]> {
-  const expectedScenarios = [...REQUIRED_SCENARIOS[revision][role], ...NOT_SCORED_SCENARIOS[revision][role]];
+  scenarioId: string,
+): Promise<SanitizedOfficialScenario> {
   const files = await findCheckFiles(outputDirectory);
   if (files.length === 0) throw new Error('missing');
-  if (files.length !== expectedScenarios.length) throw new Error('invalid');
+  if (files.length !== 1) throw new Error('invalid');
 
-  const reports = new Map<string, SanitizedOfficialCheck[]>();
-  for (const path of files) {
-    if ((await stat(path)).size > 5 * 1024 * 1024) throw new Error('invalid');
-    const scenarioId = scenarioFromDirectory(outputDirectory, path, role, expectedScenarios);
-    if (!scenarioId || reports.has(scenarioId)) throw new Error('invalid');
-    const rawChecks = rawChecksSchema.parse(JSON.parse(await readFile(path, 'utf8')));
-    const checks = rawChecks.flatMap<SanitizedOfficialCheck>((check) => {
-      if (check.status === 'INFO') return [];
-      return [
-        {
-          id: check.id,
-          status: check.status,
-          specReferenceIds: [...new Set(check.specReferences?.map((reference) => reference.id) ?? [])],
-        },
-      ];
-    });
-    reports.set(scenarioId, checks);
-  }
+  const path = files[0];
+  if ((await stat(path)).size > 5 * 1024 * 1024) throw new Error('invalid');
+  if (scenarioFromDirectory(outputDirectory, path, role, [scenarioId]) !== scenarioId) throw new Error('invalid');
+  const rawChecks = rawChecksSchema.parse(JSON.parse(await readFile(path, 'utf8')));
+  const checks = rawChecks.flatMap<SanitizedOfficialCheck>((check) => {
+    if (check.status === 'INFO') return [];
+    return [
+      {
+        id: check.id,
+        status: check.status,
+        specReferenceIds: [...new Set(check.specReferences?.map((reference) => reference.id) ?? [])],
+      },
+    ];
+  });
+  return { scenarioId, checks };
+}
 
-  if (expectedScenarios.some((scenario) => !reports.has(scenario))) throw new Error('invalid');
-  return expectedScenarios.map((scenarioId) => ({ scenarioId, checks: reports.get(scenarioId)! }));
+const NO_OUTPUT_OBSERVATION: SanitizedOfficialCheck = {
+  id: 'official-runner-no-output',
+  status: 'FAILURE',
+  specReferenceIds: [],
+};
+const REVIEWED_UNEXPECTED_ERROR_FALLBACK_SCENARIOS: Record<OfficialConformanceRevision, ReadonlySet<string>> = {
+  '2025-11-25': new Set(),
+  '2026-07-28': new Set(['tasks-capability-negotiation']),
+};
+
+function processFailure(
+  processResult: ProcessResult,
+  identity: { role: OfficialConformanceRole; revision: OfficialConformanceRevision },
+): OfficialConformanceResult | undefined {
+  if (processResult.spawnFailed) return { classification: 'process', ...identity, reason: 'spawn-failure' };
+  if (processResult.timedOut) return { classification: 'process', ...identity, reason: 'timeout' };
+  if (processResult.aborted) return { classification: 'process', ...identity, reason: 'aborted' };
+  if (processResult.signal) return { classification: 'process', ...identity, reason: 'terminated' };
+  return undefined;
+}
+
+function validatorForRevision(revision: OfficialConformanceRevision): (envelope: Record<string, unknown>) => boolean {
+  const schema = revision === '2026-07-28' ? ModernJSONRPCMessageSchema : LegacyJSONRPCMessageSchema;
+  return (envelope) => schema.safeParse(envelope).success;
+}
+
+function tappedTarget(tapOrigin: string, target: string): string {
+  const original = new URL(target);
+  return `${tapOrigin}${original.pathname}${original.search}`;
 }
 
 function countChecks(scenarios: SanitizedOfficialScenario[]): OfficialCheckCounts {
@@ -624,67 +654,132 @@ export async function runOfficialConformance(
     const home = join(workspace, 'home');
     const temporaryDirectory = join(workspace, 'tmp');
     const outputDirectory = join(workspace, 'output');
-    await Promise.all([
-      mkdir(home, { recursive: true }),
-      mkdir(temporaryDirectory, { recursive: true }),
-      mkdir(outputDirectory, { recursive: true }),
-    ]);
+    await Promise.all([mkdir(home, { recursive: true }), mkdir(temporaryDirectory, { recursive: true })]);
 
-    const targetArgs = options.role === 'server' ? ['--url', options.url] : ['--command', options.command];
-    executionStarted = true;
-    const processResult = await executeOnce(
-      resolve(options.packageRoot, 'dist', 'index.js'),
-      [options.role, ...targetArgs, '--requirements', options.revision, '--output-dir', outputDirectory],
-      sanitizedEnvironment(home, temporaryDirectory),
-      timeoutMs,
-      options.signal,
-    );
-
-    if (processResult.spawnFailed) result = { classification: 'process', ...identity, reason: 'spawn-failure' };
-    else if (processResult.timedOut) result = { classification: 'process', ...identity, reason: 'timeout' };
-    else if (processResult.aborted) result = { classification: 'process', ...identity, reason: 'aborted' };
-    else if (processResult.signal) result = { classification: 'process', ...identity, reason: 'terminated' };
-    else {
-      let scenarios: SanitizedOfficialScenario[] | undefined;
+    const expectedScenarios = [
+      ...REQUIRED_SCENARIOS[options.revision][options.role],
+      ...NOT_SCORED_SCENARIOS[options.revision][options.role],
+    ];
+    const scenarios: SanitizedOfficialScenario[] = [];
+    for (const [index, scenarioId] of expectedScenarios.entries()) {
+      const scenarioOutputDirectory = join(outputDirectory, String(index));
+      await mkdir(scenarioOutputDirectory, { recursive: true });
+      let targetErrorObserved = false;
+      let closeTap: (() => Promise<void>) | undefined;
+      let targetArgs: string[];
+      if (options.role === 'server') {
+        const capture = createSanitizedWireCapture({
+          contexts: [{ id: `official-${index}`, negotiatedRevision: options.revision }],
+          validateEnvelope: validatorForRevision(options.revision),
+        });
+        const tap = await startHttpWireTap({
+          target: options.url,
+          capture,
+          contextId: `official-${index}`,
+          hop: 'inbound',
+        });
+        closeTap = tap.close;
+        targetArgs = ['--url', tappedTarget(tap.url, options.url)];
+        const captureTargetError = (): void => {
+          targetErrorObserved = capture
+            .snapshot()
+            .records.some(
+              (record) =>
+                record.direction === 'gateway_to_client' &&
+                record.correlation === 'error' &&
+                record.schemaResult === 'valid' &&
+                record.envelope.error,
+            );
+        };
+        closeTap = async () => {
+          await new Promise<void>((resolvePromise) => setImmediate(resolvePromise));
+          captureTargetError();
+          await tap.close();
+        };
+      } else {
+        targetArgs = ['--command', options.command];
+      }
+      executionStarted = true;
+      const processResult = await executeOnce(
+        resolve(options.packageRoot, 'dist', 'index.js'),
+        [
+          options.role,
+          ...targetArgs,
+          '--scenario',
+          scenarioId,
+          '--spec-version',
+          options.revision,
+          '--force',
+          '--output-dir',
+          scenarioOutputDirectory,
+        ],
+        sanitizedEnvironment(home, temporaryDirectory),
+        timeoutMs,
+        options.signal,
+      );
       try {
-        scenarios = await parseReports(outputDirectory, options.role, options.revision);
+        await closeTap?.();
+      } catch {
+        result = { classification: 'harness', ...identity, reason: 'cleanup-failure' };
+        break;
+      }
+      result = processFailure(processResult, identity);
+      if (result) break;
+
+      let scenario: SanitizedOfficialScenario;
+      try {
+        scenario = await parseScenarioReport(scenarioOutputDirectory, options.role, scenarioId);
       } catch (error) {
         const noOutput = error instanceof Error && error.message === 'missing';
-        result =
-          noOutput && processResult.exitCode !== 0
-            ? { classification: 'process', ...identity, reason: 'nonzero-exit' }
-            : {
-                classification: 'harness',
-                ...identity,
-                reason: noOutput ? 'missing-output' : 'artifact-invalid',
-              };
+        if (
+          noOutput &&
+          processResult.exitCode !== 0 &&
+          options.role === 'server' &&
+          targetErrorObserved &&
+          REVIEWED_UNEXPECTED_ERROR_FALLBACK_SCENARIOS[options.revision].has(scenarioId)
+        ) {
+          scenarios.push({ scenarioId, checks: [{ ...NO_OUTPUT_OBSERVATION }] });
+          continue;
+        }
+        if (noOutput && processResult.exitCode !== 0) {
+          result = { classification: 'process', ...identity, reason: 'nonzero-exit' };
+          break;
+        }
+        result = {
+          classification: 'harness',
+          ...identity,
+          reason: noOutput ? 'missing-output' : 'artifact-invalid',
+        };
+        break;
       }
 
-      if (scenarios) {
-        const scoredScenarios = new Set(REQUIRED_SCENARIOS[options.revision][options.role]);
-        const hasProductFailure = scenarios.some(
-          (scenario) =>
-            scoredScenarios.has(scenario.scenarioId) &&
-            (scenario.checks.length === 0 || scenario.checks.some((check) => check.status !== 'SUCCESS')),
-        );
-        if (processResult.exitCode !== 0 && !hasProductFailure) {
-          result = { classification: 'harness', ...identity, reason: 'exit-inconsistent' };
-        } else {
-          const productVerdict = hasProductFailure ? 'fail' : 'pass';
-          const counts = countChecks(scenarios);
-          try {
-            const artifact = await persistOfficialEvidenceArtifact(options.temporaryParentDirectory, {
-              schemaVersion: 1,
-              ...identity,
-              productVerdict,
-              scenarios,
-              counts,
-            });
-            result = { classification: 'product', ...identity, productVerdict, scenarios, counts, artifact };
-          } catch {
-            result = { classification: 'harness', ...identity, reason: 'artifact-invalid' };
-          }
-        }
+      if (processResult.exitCode !== 0 && scenario.checks.every((check) => check.status === 'SUCCESS')) {
+        result = { classification: 'harness', ...identity, reason: 'exit-inconsistent' };
+        break;
+      }
+      scenarios.push(scenario);
+    }
+
+    if (!result) {
+      const scoredScenarios = new Set(REQUIRED_SCENARIOS[options.revision][options.role]);
+      const hasProductFailure = scenarios.some(
+        (scenario) =>
+          scoredScenarios.has(scenario.scenarioId) &&
+          (scenario.checks.length === 0 || scenario.checks.some((check) => check.status !== 'SUCCESS')),
+      );
+      const productVerdict = hasProductFailure ? 'fail' : 'pass';
+      const counts = countChecks(scenarios);
+      try {
+        const artifact = await persistOfficialEvidenceArtifact(options.temporaryParentDirectory, {
+          schemaVersion: 1,
+          ...identity,
+          productVerdict,
+          scenarios,
+          counts,
+        });
+        result = { classification: 'product', ...identity, productVerdict, scenarios, counts, artifact };
+      } catch {
+        result = { classification: 'harness', ...identity, reason: 'artifact-invalid' };
       }
     }
   } catch {
