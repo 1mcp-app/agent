@@ -70,4 +70,11 @@ describe('test-and-validate workflow', () => {
     expect(packageJson.scripts['test:e2e:shardable']).toContain('--exclude "**/serve-background.test.ts"');
     expect(packageJson.scripts['test:e2e:system']).toContain('test/e2e/commands/serve-background.test.ts');
   });
+  it('runs actionlint in CI to gate against workflow syntax and injection regressions', () => {
+    const workflow = readRepoFile('.github/workflows/test-and-validate.yml');
+    const ciJob = workflow.match(/\n\s{2}ci:\n(?<body>(?:\s{4}.*\n)+)/)?.groups?.body;
+
+    expect(ciJob).toBeDefined();
+    expect(ciJob).toContain('reviewdog/action-actionlint@v1');
+  });
 });

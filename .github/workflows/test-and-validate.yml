@@ -44,6 +44,9 @@ jobs:
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node-pnpm
 
+      - name: Lint GitHub Actions workflows
+        uses: reviewdog/action-actionlint@v1
+
       - name: Validate static checks
         run: pnpm ci:static
 
