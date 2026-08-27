@@ -48,6 +48,14 @@ export const FROZEN_REQUIREMENT_DIGESTS = {
   '2026-07-28': 'sha256:ae2f4f6210fd729e2e318edd5bbfa31a43cee0bc608e48052fa26dbf1d939b57',
 } as const;
 
+export const MCP_2026_SPECIFICATION_SOURCE = {
+  schemaVersion: 1,
+  repository: 'https://github.com/modelcontextprotocol/modelcontextprotocol',
+  tag: '2026-07-28',
+  commit: '5f5440bb26a62e2cf3440b92da5a667efa03b267',
+  tree: '8957e31e8ecd6fd7f52df82d44b3827cb44cecb1',
+} as const;
+
 const GO_MODULE = {
   name: 'github.com/modelcontextprotocol/go-sdk',
   version: 'v1.7.0',
@@ -79,6 +87,7 @@ export interface ConformanceIntegrityOptions {
     manifestSpecifiers?: Readonly<Record<string, string>>;
   };
   requirements: Readonly<Record<RequirementRevision, string>>;
+  specificationSourcePath?: string;
   go: { goModPath: string; goSumPath: string; vendorPath: string };
   python: { pyprojectPath: string; uvLockPath: string };
 }
@@ -99,6 +108,7 @@ export type IntegrityIssueCode =
   | 'pnpm-lock-version-mismatch'
   | 'pnpm-lock-integrity-mismatch'
   | 'requirement-digest-mismatch'
+  | 'specification-source-mismatch'
   | 'go-module-version-mismatch'
   | 'go-module-sum-mismatch'
   | 'go-vendor-version-mismatch'
@@ -121,6 +131,7 @@ export interface IntegrityReport {
     packages: readonly { name: string; version: string; integrity: string; manifestDigest: `sha256:${string}` }[];
   };
   requirements: readonly { revision: RequirementRevision; digest: `sha256:${string}` }[];
+  specification: typeof MCP_2026_SPECIFICATION_SOURCE & { metadataDigest: `sha256:${string}` };
   go: {
     version: string;
     sum: string;
@@ -354,6 +365,20 @@ export function verifyConformanceIntegrity(options: ConformanceIntegrityOptions)
     return { revision, digest };
   });
 
+  const specificationSourcePath =
+    options.specificationSourcePath ??
+    path.join(options.sourceRoot, 'test/conformance/integrity/mcp-2026-07-28-spec-source.json');
+  let specificationMetadataDigest: `sha256:${string}` = sha256('unavailable');
+  try {
+    const source = readJson(specificationSourcePath);
+    specificationMetadataDigest = digestFile(specificationSourcePath);
+    if (JSON.stringify(canonicalize(source)) !== JSON.stringify(canonicalize(MCP_2026_SPECIFICATION_SOURCE))) {
+      addIssue('specification-source-mismatch', '2026-07-28');
+    }
+  } catch {
+    addIssue('specification-source-mismatch', '2026-07-28');
+  }
+
   let goModDigest: string | null = null;
   let goSumDigest: string | null = null;
   let vendorDigest: string | null = null;
@@ -421,6 +446,7 @@ export function verifyConformanceIntegrity(options: ConformanceIntegrityOptions)
     artifacts,
     npm: { packageManifestDigest, pnpmLockDigest, packages: npmPackages },
     requirements,
+    specification: { ...MCP_2026_SPECIFICATION_SOURCE, metadataDigest: specificationMetadataDigest },
     go: {
       version: GO_MODULE.version,
       sum: GO_MODULE.sum,

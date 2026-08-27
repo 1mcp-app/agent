@@ -110,6 +110,47 @@ describe('matrix runtime execution', () => {
     }
   });
 
+  it('rejects a probe whose observed revision differs from the matrix expectation', async () => {
+    const scratch = await mkdtemp(join(tmpdir(), 'matrix-revision-case-'));
+    const fakeEntry = join(scratch, 'fake-entry.mjs');
+    const attemptFile = join(scratch, 'attempts.txt');
+    await copyFile(fakeProcessSource, fakeEntry);
+
+    try {
+      const result = await executeMatrixAssignment({
+        assignmentId: 'case-negotiated-revision-mismatch',
+        inboundProbe: {
+          command: process.execPath,
+          args: [fakeEntry, 'mismatched-revision-probe', attemptFile, '{{gatewayEndpoint}}'],
+        },
+        upstreamPeer: {
+          command: process.execPath,
+          args: [fakeEntry, 'unused-stdio-peer'],
+          readiness: { kind: 'runtime-owned' },
+        },
+        upstreamTransport: { type: 'stdio' },
+        eras: { inbound: 'legacy', upstream: 'legacy' },
+        revisions: { inbound: '2025-11-25', upstream: '2025-11-25' },
+        captureContexts: {
+          inbound: { id: 'revision-inbound', negotiatedRevision: '2025-11-25' },
+          upstream: { id: 'revision-upstream', negotiatedRevision: '2025-11-25' },
+        },
+        builtEntryPath: fakeEntry,
+        timeouts: { startupMs: 2_000, probeMs: 2_000, shutdownMs: 1_000 },
+      });
+
+      expect(result).toEqual({
+        kind: 'infrastructure',
+        defect: 'harness',
+        reason: 'wire_evidence_invalid',
+        assignmentId: 'case-negotiated-revision-mismatch',
+      });
+      expect(await readFile(attemptFile, 'utf8')).toBe('1');
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
+  });
+
   it('observes both hops through the actual 1MCP gateway and Go upstream fixture', async () => {
     const builtEntryPath = join(repositoryRoot, 'build/index.js');
     const scratch = await mkdtemp(join(tmpdir(), 'matrix-go-case-'));

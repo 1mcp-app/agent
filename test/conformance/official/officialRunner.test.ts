@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   OFFICIAL_REQUIREMENT_DIGESTS,
+  readOfficialEvidenceArtifact,
   runOfficialConformance,
   verifyOfficialConformancePackage,
 } from './officialRunner.js';
@@ -86,8 +87,36 @@ describe('runOfficialConformance', () => {
       status: 'SUCCESS',
       specReferenceIds: ['MCP-Lifecycle'],
     });
+    const artifact = await readOfficialEvidenceArtifact(temporaryParent, result.artifact);
+    expect(artifact).toMatchObject({
+      role: 'server',
+      revision: '2025-11-25',
+      productVerdict: 'pass',
+      digest: result.artifact.digest,
+    });
     expect(JSON.stringify(result)).not.toMatch(/secret|stdout|stderr|Users|timestamp|description|errorMessage|details/);
-    expect(await readdir(temporaryParent)).toEqual(['package']);
+    expect(await readdir(temporaryParent)).toEqual(['official-evidence', 'package']);
+  });
+
+  it('rejects a retained official artifact after its sanitized contents are changed', async () => {
+    const result = await runOfficialConformance({
+      packageRoot: fixturePackageRoot,
+      role: 'server',
+      revision: '2025-11-25',
+      url: 'http://127.0.0.1:3050/mcp',
+      temporaryParentDirectory: temporaryParent,
+    });
+    expect(result.classification).toBe('product');
+    if (result.classification !== 'product') return;
+
+    const artifactPath = join(temporaryParent, result.artifact.artifactId);
+    const artifact = JSON.parse(await readFile(artifactPath, 'utf8')) as Record<string, unknown>;
+    artifact.productVerdict = 'fail';
+    await writeFile(artifactPath, `${JSON.stringify(artifact)}\n`);
+
+    await expect(readOfficialEvidenceArtifact(temporaryParent, result.artifact)).rejects.toThrow(
+      'Official evidence artifact digest mismatch',
+    );
   });
 
   it('preserves first-attempt warnings as a red client product verdict', async () => {

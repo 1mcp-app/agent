@@ -9,11 +9,19 @@ import { createServer as createHttpServer } from 'node:http';
 
 import { TOOL_NAME, TOOL_RESULT_SENTINEL } from '../constants.mjs';
 
-export function createV2Server() {
+const legacyProtocolVersions = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07'];
+
+export function createV2Server(protocolEra) {
+  const supportedProtocolVersions =
+    protocolEra === 'modern'
+      ? ['2026-07-28']
+      : protocolEra === 'legacy'
+        ? legacyProtocolVersions
+        : ['2026-07-28', ...legacyProtocolVersions];
   const server = new McpServer(
     { name: '1mcp-conformance-v2', version: '2.0.0' },
     {
-      supportedProtocolVersions: ['2026-07-28', '2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07'],
+      supportedProtocolVersions,
     },
   );
   server.registerTool(TOOL_NAME, { description: 'Acknowledges a synthetic conformance request.' }, async () => ({
@@ -22,8 +30,10 @@ export function createV2Server() {
   return server;
 }
 
-export async function serveV2Stdio() {
-  const handle = serveStdio(() => createV2Server());
+export async function serveV2Stdio(protocolEra) {
+  const handle = serveStdio(() => createV2Server(protocolEra), {
+    legacy: protocolEra === 'modern' ? 'reject' : 'serve',
+  });
   return () => handle.close();
 }
 
@@ -35,7 +45,7 @@ function failHttp(res) {
   res.end('{"error":"fixture_transport_error"}');
 }
 
-export async function serveV2Http(transportName) {
+export async function serveV2Http(transportName, protocolEra) {
   const closeables = new Set();
   const sessions = new Map();
   let requestHandler;
@@ -43,7 +53,7 @@ export async function serveV2Http(transportName) {
   if (transportName === 'streamable-http') {
     const validateHost = localhostHostValidation();
     const validateOrigin = localhostOriginValidation();
-    const handler = createMcpHandler(() => createV2Server());
+    const handler = createMcpHandler(() => createV2Server(protocolEra));
     const nodeHandler = toNodeHandler(handler);
     closeables.add(handler);
     requestHandler = async (req, res) => {
@@ -58,7 +68,7 @@ export async function serveV2Http(transportName) {
     requestHandler = async (req, res) => {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       if (req.method === 'GET' && url.pathname === '/sse') {
-        const server = createV2Server();
+        const server = createV2Server(protocolEra);
         const transport = new SSEServerTransport('/message', res);
         sessions.set(transport.sessionId, transport);
         closeables.add(server);

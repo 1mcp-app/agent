@@ -72,4 +72,29 @@ describe('stdio wire tap', () => {
       }),
     ).rejects.toThrow('Stdio wire tap spawn failure');
   });
+
+  it('force-kills a child that ignores stdin closure and SIGTERM', async () => {
+    const capture = createSanitizedWireCapture({
+      contexts: [{ id: 'case-stubborn', negotiatedRevision: '2025-11-25' }],
+      validateEnvelope: () => true,
+    });
+    const childScript = [
+      "process.on('SIGTERM', () => undefined);",
+      'process.stdin.resume();',
+      'process.stdout.write(\'{"jsonrpc":"2.0","id":1,"result":{}}\\n\');',
+      'setInterval(() => undefined, 1_000);',
+    ].join('\n');
+    const tap = await startStdioWireTap({
+      command: process.execPath,
+      args: ['--input-type=module', '-e', childScript],
+      env: process.env,
+      capture,
+      contextId: 'case-stubborn',
+    });
+    await once(tap.stdout, 'data');
+
+    const startedAt = Date.now();
+    await expect(tap.close()).resolves.toEqual({ exitKind: 'signal', stderr: 'absent' });
+    expect(Date.now() - startedAt).toBeLessThan(3_000);
+  });
 });

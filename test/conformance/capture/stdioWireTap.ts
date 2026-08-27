@@ -4,6 +4,7 @@ import { PassThrough, type Readable, type Writable } from 'node:stream';
 import type { SanitizedWireCapture, WireDirection } from './sanitizedWireEvidence.js';
 
 const LINE_INSPECTION_LIMIT = 1_048_576;
+const SHUTDOWN_PHASE_TIMEOUT_MS = 500;
 
 export interface StdioWireTapStatus {
   exitKind: 'zero' | 'nonzero' | 'signal';
@@ -15,6 +16,23 @@ export interface StdioWireTap {
   stdout: Readable;
   closed: Promise<StdioWireTapStatus>;
   close(): Promise<StdioWireTapStatus>;
+}
+
+async function waitForExit(
+  closed: Promise<StdioWireTapStatus>,
+  timeoutMs: number,
+): Promise<StdioWireTapStatus | undefined> {
+  let timeout: number | undefined;
+  try {
+    return await Promise.race([
+      closed,
+      new Promise<undefined>((resolve) => {
+        timeout = setTimeout(resolve, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 class SanitizingLineObserver {
@@ -119,19 +137,30 @@ export async function startStdioWireTap(options: {
     child.once('error', () => reject(new Error('Stdio wire tap spawn failure')));
   });
 
+  let closePromise: Promise<StdioWireTapStatus> | undefined;
+
   return {
     stdin: input,
     stdout: output,
     closed,
     async close() {
-      if (!input.destroyed && !input.writableEnded) input.end();
-      const timeout = setTimeout(() => child.kill(), 500);
-      timeout.unref();
-      try {
-        return await closed;
-      } finally {
-        clearTimeout(timeout);
-      }
+      closePromise ??= (async () => {
+        if (!input.destroyed && !input.writableEnded) input.end();
+
+        const graceful = await waitForExit(closed, SHUTDOWN_PHASE_TIMEOUT_MS);
+        if (graceful) return graceful;
+
+        child.kill('SIGTERM');
+        const terminated = await waitForExit(closed, SHUTDOWN_PHASE_TIMEOUT_MS);
+        if (terminated) return terminated;
+
+        child.kill('SIGKILL');
+        const killed = await waitForExit(closed, SHUTDOWN_PHASE_TIMEOUT_MS);
+        if (killed) return killed;
+
+        throw new Error('Stdio wire tap shutdown failure');
+      })();
+      return closePromise;
     },
   };
 }

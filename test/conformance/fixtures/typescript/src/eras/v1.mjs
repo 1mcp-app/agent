@@ -11,6 +11,22 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 
 import { TOOL_NAME, TOOL_RESULT_SENTINEL } from '../constants.mjs';
 
+class ConformanceClient extends Client {
+  #negotiatedProtocolVersion;
+
+  async request(request, resultSchema, options) {
+    const result = await super.request(request, resultSchema, options);
+    if (request.method === 'initialize' && typeof result?.protocolVersion === 'string') {
+      this.#negotiatedProtocolVersion = result.protocolVersion;
+    }
+    return result;
+  }
+
+  getNegotiatedProtocolVersion() {
+    return this.#negotiatedProtocolVersion;
+  }
+}
+
 export function createV1Server() {
   const server = new McpServer({ name: '1mcp-conformance-v1', version: '1.0.0' });
   server.registerTool(TOOL_NAME, { description: 'Acknowledges a synthetic conformance request.' }, async () => ({
@@ -112,5 +128,5 @@ export function createV1ClientTransport(transportName, options) {
 }
 
 export function createV1Client() {
-  return new Client({ name: '1mcp-conformance-client-v1', version: '1.0.0' });
+  return new ConformanceClient({ name: '1mcp-conformance-client-v1', version: '1.0.0' });
 }

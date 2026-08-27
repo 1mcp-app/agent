@@ -41,7 +41,22 @@ async function runOfficialClient(endpoint, scenario, protocolVersion, context = 
   return { code, stdout: stdout.join(''), stderr: stderr.join('') };
 }
 
-async function startConformanceMock(protocolVersion) {
+async function startConformanceMock(protocolVersion, options = {}) {
+  if (typeof options === 'string') options = { tools: [{ name: options, inputSchema: { type: 'object' } }] };
+  const tools = options.tools ?? [
+    {
+      name: 'add_numbers',
+      description: 'Add two numbers.',
+      inputSchema: { type: 'object', properties: { a: { type: 'number' }, b: { type: 'number' } } },
+    },
+  ];
+  const resources = options.resources ?? [];
+  const prompts = options.prompts ?? [];
+  const capabilities = {
+    tools: {},
+    ...(resources.length > 0 ? { resources: {} } : {}),
+    ...(prompts.length > 0 ? { prompts: {} } : {}),
+  };
   const requests = [];
   let rejectedModernProbe = false;
   const server = createServer((req, res) => {
@@ -75,7 +90,7 @@ async function startConformanceMock(protocolVersion) {
       if (message.method === 'initialize') {
         result = {
           protocolVersion,
-          capabilities: { tools: {} },
+          capabilities,
           serverInfo: { name: 'conformance-mock', version: '1.0.0' },
         };
       } else if (message.method === 'server/discover') {
@@ -84,24 +99,38 @@ async function startConformanceMock(protocolVersion) {
           ttlMs: 0,
           cacheScope: 'private',
           supportedVersions: ['2026-07-28'],
-          capabilities: { tools: {} },
+          capabilities,
           serverInfo: { name: 'conformance-mock', version: '1.0.0' },
         };
       } else if (message.method === 'tools/list') {
         result = {
           ...(protocolVersion === '2026-07-28' ? { resultType: 'complete', ttlMs: 0, cacheScope: 'private' } : {}),
-          tools: [
-            {
-              name: 'add_numbers',
-              description: 'Add two numbers.',
-              inputSchema: { type: 'object', properties: { a: { type: 'number' }, b: { type: 'number' } } },
-            },
-          ],
+          tools,
         };
       } else if (message.method === 'tools/call') {
         result = {
           ...(protocolVersion === '2026-07-28' ? { resultType: 'complete' } : {}),
           content: [{ type: 'text', text: 'synthetic-result' }],
+        };
+      } else if (message.method === 'resources/list') {
+        result = {
+          ...(protocolVersion === '2026-07-28' ? { resultType: 'complete', ttlMs: 0, cacheScope: 'private' } : {}),
+          resources,
+        };
+      } else if (message.method === 'resources/read') {
+        result = {
+          ...(protocolVersion === '2026-07-28' ? { resultType: 'complete', ttlMs: 0, cacheScope: 'private' } : {}),
+          contents: [],
+        };
+      } else if (message.method === 'prompts/list') {
+        result = {
+          ...(protocolVersion === '2026-07-28' ? { resultType: 'complete', ttlMs: 0, cacheScope: 'private' } : {}),
+          prompts,
+        };
+      } else if (message.method === 'prompts/get') {
+        result = {
+          ...(protocolVersion === '2026-07-28' ? { resultType: 'complete' } : {}),
+          messages: [],
         };
       }
       res.statusCode = message.method?.startsWith('notifications/') ? 202 : 200;
@@ -120,6 +149,152 @@ async function startConformanceMock(protocolVersion) {
     close: () => new Promise((resolve) => server.close(resolve)),
   };
 }
+
+test('official tools_call resolves an aggregated gateway tool name', async (t) => {
+  const mock = await startConformanceMock('2025-11-25', 'official_conformance_1mcp_add_numbers');
+  t.after(() => mock.close());
+  const result = await runOfficialClient(mock.endpoint, 'tools_call', '2025-11-25');
+
+  assert.equal(result.code, 0, result.stderr);
+  const call = mock.requests.find(({ message }) => message.method === 'tools/call');
+  assert.equal(call?.message.params.name, 'official_conformance_1mcp_add_numbers');
+});
+
+test('official auth dispatch triggers the gateway upstream client', async (t) => {
+  const mock = await startConformanceMock('2026-07-28', { tools: [] });
+  t.after(() => mock.close());
+  const result = await runOfficialClient(mock.endpoint, 'auth/metadata-default', '2026-07-28');
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(
+    mock.requests.some(({ message }) => message.method === 'tools/list'),
+    true,
+  );
+});
+
+test('official HTTP header dispatch executes standard and context-provided operations', async (t) => {
+  const standard = await startConformanceMock('2026-07-28', {
+    tools: [{ name: 'test_headers', inputSchema: { type: 'object' } }],
+    resources: [{ uri: 'file:///header-test', name: 'header-test' }],
+    prompts: [{ name: 'test_prompt' }],
+  });
+  t.after(() => standard.close());
+  const standardResult = await runOfficialClient(standard.endpoint, 'http-standard-headers', '2026-07-28');
+  assert.equal(standardResult.code, 0, standardResult.stderr);
+  for (const method of [
+    'tools/list',
+    'tools/call',
+    'resources/list',
+    'resources/read',
+    'prompts/list',
+    'prompts/get',
+  ]) {
+    assert.equal(
+      standard.requests.some(({ message }) => message.method === method),
+      true,
+      method,
+    );
+  }
+
+  const custom = await startConformanceMock('2026-07-28', {
+    tools: [
+      { name: 'test_custom_headers', inputSchema: { type: 'object' } },
+      { name: 'test_custom_headers_null', inputSchema: { type: 'object' } },
+    ],
+  });
+  t.after(() => custom.close());
+  const toolCalls = [
+    { name: 'test_custom_headers', arguments: { region: 'us-west1' } },
+    { name: 'test_custom_headers_null', arguments: { verbose: null } },
+  ];
+  const customResult = await runOfficialClient(custom.endpoint, 'http-custom-headers', '2026-07-28', { toolCalls });
+  assert.equal(customResult.code, 0, customResult.stderr);
+  assert.deepEqual(
+    custom.requests
+      .filter(({ message }) => message.method === 'tools/call')
+      .map(({ message }) => ({ name: message.params.name, arguments: message.params.arguments })),
+    toolCalls,
+  );
+
+  const invalid = await startConformanceMock('2026-07-28', {
+    tools: [
+      { name: 'valid_tool', inputSchema: { type: 'object' } },
+      { name: 'invalid_empty_header', inputSchema: { type: 'object' } },
+    ],
+  });
+  t.after(() => invalid.close());
+  const invalidResult = await runOfficialClient(invalid.endpoint, 'http-invalid-tool-headers', '2026-07-28');
+  assert.equal(invalidResult.code, 0, invalidResult.stderr);
+  assert.deepEqual(
+    invalid.requests.filter(({ message }) => message.method === 'tools/call').map(({ message }) => message.params.name),
+    ['valid_tool'],
+  );
+});
+
+test('official schema dispatch preserves and echoes the advertised input schema', async (t) => {
+  const inputSchema = {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    $defs: { value: { type: 'string' } },
+    type: 'object',
+  };
+  const mock = await startConformanceMock('2026-07-28', {
+    tools: [
+      { name: 'json_schema_2020_12_tool', inputSchema },
+      { name: 'json_schema_echo', inputSchema: { type: 'object' } },
+    ],
+  });
+  t.after(() => mock.close());
+  const result = await runOfficialClient(mock.endpoint, 'json-schema-2020-12-preservation', '2026-07-28');
+
+  assert.equal(result.code, 0, result.stderr);
+  const call = mock.requests.find(({ message }) => message.method === 'tools/call');
+  assert.deepEqual(call?.message.params.arguments.schema, inputSchema);
+});
+
+test('official request-state and legacy extension dispatch call every advertised tool', async (t) => {
+  const requestStateTools = [
+    'test_mrtr_echo_state',
+    'test_mrtr_no_state',
+    'test_mrtr_unrelated',
+    'test_mrtr_no_result_type',
+  ];
+  const modern = await startConformanceMock('2026-07-28', {
+    tools: requestStateTools.map((name) => ({ name, inputSchema: { type: 'object' } })),
+  });
+  t.after(() => modern.close());
+  const modernResult = await runOfficialClient(modern.endpoint, 'sep-2322-client-request-state', '2026-07-28');
+  assert.equal(modernResult.code, 0, modernResult.stderr);
+  assert.deepEqual(
+    modern.requests.filter(({ message }) => message.method === 'tools/call').map(({ message }) => message.params.name),
+    requestStateTools,
+  );
+
+  const legacy = await startConformanceMock('2025-11-25', {
+    tools: [{ name: 'test_client_elicitation_defaults', inputSchema: { type: 'object' } }],
+  });
+  t.after(() => legacy.close());
+  const legacyResult = await runOfficialClient(legacy.endpoint, 'elicitation-sep1034-client-defaults', '2025-11-25');
+  assert.equal(legacyResult.code, 0, legacyResult.stderr);
+  assert.equal(
+    legacy.requests.some(
+      ({ message }) => message.method === 'tools/call' && message.params.name === 'test_client_elicitation_defaults',
+    ),
+    true,
+  );
+
+  const retry = await startConformanceMock('2025-11-25', {
+    tools: [{ name: 'test_reconnection', inputSchema: { type: 'object' } }],
+  });
+  t.after(() => retry.close());
+  const retryResult = await runOfficialClient(retry.endpoint, 'sse-retry', '2025-11-25');
+  assert.equal(retryResult.code, 0, retryResult.stderr);
+  assert.equal(
+    retry.requests.some(
+      ({ message }) => message.method === 'tools/call' && message.params.name === 'test_reconnection',
+    ),
+    true,
+  );
+});
 
 async function startHttpServer(sdkEra, transport = 'streamable-http') {
   const child = spawn(process.execPath, [fixture, 'server', '--sdk-era', sdkEra, '--transport', transport], {
@@ -239,6 +414,32 @@ test('official conformance mode rejects non-loopback endpoints without echoing t
   assert.deepEqual(JSON.parse(result.stderr), { kind: 'error', code: 'INVALID_ARGUMENTS' });
   assert.equal(result.stderr.includes(endpoint), false);
 });
+
+for (const sdkEra of ['v1', 'v2']) {
+  test(`${sdkEra} runtime output reports the revision returned by the initialize response`, async (t) => {
+    const mock = await startConformanceMock('2024-11-05');
+    t.after(() => mock.close());
+
+    const { output } = await runFixture([
+      'probe',
+      '--sdk-era',
+      sdkEra,
+      '--protocol-era',
+      'legacy',
+      '--transport',
+      'streamable-http',
+      '--endpoint',
+      mock.endpoint,
+      '--runtime-output',
+    ]);
+
+    assert.equal(output.negotiatedRevision, '2024-11-05');
+    assert.equal(
+      mock.requests.find(({ message }) => message.method === 'initialize')?.message.params.protocolVersion,
+      '2025-11-25',
+    );
+  });
+}
 
 for (const scenario of [
   { client: 'v1', server: 'v1', protocol: 'legacy' },

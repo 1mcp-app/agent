@@ -5,7 +5,12 @@ import path from 'node:path';
 
 import { createRequire } from 'node:module';
 
-import { ACCEPTED_NPM_PINS, hashConformancePath, verifyConformanceIntegrity } from './index.js';
+import {
+  ACCEPTED_NPM_PINS,
+  hashConformancePath,
+  MCP_2026_SPECIFICATION_SOURCE,
+  verifyConformanceIntegrity,
+} from './index.js';
 
 const require = createRequire(import.meta.url);
 const temporaryRoots = new Set<string>();
@@ -93,6 +98,11 @@ function createFixture(prefix = 'integrity-repo-') {
       readFileSync(path.join(REQUIREMENTS_ROOT, '2026-07-28.yaml')),
     ),
   } as const;
+  const specificationSourcePath = write(
+    root,
+    'test/conformance/integrity/mcp-2026-07-28-spec-source.json',
+    `${JSON.stringify(MCP_2026_SPECIFICATION_SOURCE, null, 2)}\n`,
+  );
 
   const goModPath = write(
     root,
@@ -134,6 +144,7 @@ function createFixture(prefix = 'integrity-repo-') {
       ],
       npm: { packageManifestPath, pnpmLockPath, parseYaml: JSON.parse, installedPackages },
       requirements,
+      specificationSourcePath,
       go: { goModPath, goSumPath, vendorPath: goVendorPath },
       python: { pyprojectPath, uvLockPath },
     },
@@ -248,6 +259,18 @@ describe('verifyConformanceIntegrity', () => {
     expect(verifyConformanceIntegrity(tree.options).issues).toContainEqual({
       code: 'artifact-digest-mismatch',
       subject: 'go-vendor',
+    });
+  });
+
+  it('rejects a changed MCP 2026 specification tag source identity', () => {
+    const specification = createFixture('integrity-specification-');
+    mutateJson(specification.options.specificationSourcePath, (value) => {
+      value.commit = '0'.repeat(40);
+    });
+
+    expect(verifyConformanceIntegrity(specification.options).issues).toContainEqual({
+      code: 'specification-source-mismatch',
+      subject: '2026-07-28',
     });
   });
 

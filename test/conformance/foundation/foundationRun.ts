@@ -1,6 +1,7 @@
 import { type ChildProcess, execFile, execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -15,7 +16,11 @@ import {
 } from '../baseline/baseline.js';
 import { SanitizedWireEvidenceFileSchema, writeEvidence } from '../capture/index.js';
 import { verifyConformanceIntegrity } from '../integrity/index.js';
-import { type OfficialConformanceResult, runOfficialConformance } from '../official/officialRunner.js';
+import {
+  type OfficialConformanceResult,
+  readOfficialEvidenceArtifact,
+  runOfficialConformance,
+} from '../official/officialRunner.js';
 import {
   executeMatrixAssignment,
   type MatrixAssignmentDescriptor,
@@ -37,34 +42,26 @@ const streamableProfile = {
   },
 } as const;
 const PROFILE_TEST_REGISTRY: Record<string, readonly { path: string; needle: string }[]> = {
-  'fixture.typescript.retained-sse': [
+  'transport.gateway.inbound-http-sse-retained': [
+    { path: 'test/conformance/transports/profileProofs.test.ts', needle: "it('proves retained inbound HTTP+SSE" },
+  ],
+  'transport.gateway.direct-serve-stdio': [
+    { path: 'test/conformance/transports/profileProofs.test.ts', needle: "it('proves direct serve stdio" },
+  ],
+  'transport.gateway.proxy-stdio': [
+    { path: 'test/conformance/transports/profileProofs.test.ts', needle: "it('proves proxy stdio" },
+  ],
+  'transport.gateway.upstream-sse-retained': [
+    { path: 'test/conformance/transports/profileProofs.test.ts', needle: "it('proves retained upstream SSE" },
+  ],
+  'transport.gateway.upstream-stdio-modern': [
     {
-      path: 'test/conformance/fixtures/typescript/test/fixture.test.mjs',
-      needle: 'retained SSE fixture completes a legacy MCP probe',
+      path: 'test/conformance/transports/profileProofs.test.ts',
+      needle: "it('records product-red evidence for modern upstream stdio",
     },
   ],
-  'transport.stdio-protocol': [
-    { path: 'test/e2e/stdio/stdio-protocol.test.ts', needle: "describe('Stdio Transport MCP Protocol E2E'" },
-  ],
-  'fixture.typescript.v2-stdio': [
-    {
-      path: 'test/conformance/fixtures/typescript/test/fixture.test.mjs',
-      needle: 'stdio fixture owns its subprocess and completes the MCP probe',
-    },
-  ],
-  'fixture.polyglot-and-typescript.legacy-stdio': [
-    {
-      path: 'test/conformance/fixtures/typescript/test/fixture.test.mjs',
-      needle: 'stdio fixture owns its subprocess and completes the MCP probe',
-    },
-    {
-      path: 'test/conformance/fixtures/go/main_test.go',
-      needle: 'func TestStdioProbeExercisesProtocolWithoutPayloadOutput',
-    },
-    {
-      path: 'test/conformance/fixtures/python/test_driver.py',
-      needle: 'def test_stdio_probe_exercises_protocol_without_payload_output',
-    },
+  'transport.gateway.upstream-stdio-legacy': [
+    { path: 'test/conformance/transports/profileProofs.test.ts', needle: "it('proves legacy upstream stdio" },
   ],
 };
 export const REQUIRED_TRANSPORT_PROFILES = [
@@ -112,6 +109,8 @@ const profileProofFileSchema = z
           artifactId: z.string().regex(/^profile-evidence\/[a-z0-9][a-z0-9.-]+\.json$/u),
           evidenceDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
           attempt: z.literal(1),
+          status: z.enum(['passed', 'product-failed']),
+          downstreamIssue: z.literal(478).optional(),
         })
         .strict(),
     ),
@@ -124,11 +123,73 @@ const profileEvidenceSchema = z
     profile: z.enum(REQUIRED_TRANSPORT_PROFILES),
     testId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._/-]+$/u),
     attempt: z.literal(1),
-    status: z.literal('passed'),
+    status: z.enum(['passed', 'product-failed']),
+    downstreamIssue: z.literal(478).optional(),
     checks: z.array(z.string().regex(/^[a-z0-9][a-z0-9-]+$/u)).min(1),
+    gateway: z
+      .object({
+        entrypoint: z.literal('build/index.js'),
+        command: z.enum(['serve', 'proxy']),
+        inboundTransport: z.enum(['http-sse', 'stdio', 'streamable-http']),
+        bridgeTransport: z.literal('streamable-http').optional(),
+      })
+      .strict(),
+    upstream: z
+      .object({
+        transport: z.enum(['sse', 'stdio']),
+        sdkEra: z.enum(['v1', 'v2']),
+        protocolEra: z.enum(['legacy', 'modern']),
+      })
+      .strict(),
+    probe: z.discriminatedUnion('outcome', [
+      z
+        .object({
+          outcome: z.literal('completed'),
+          fixtureId: z.literal('typescript-v1'),
+          transport: z.enum(['sse', 'stdio', 'streamable-http']),
+          initialized: z.literal(true),
+          ping: z.literal(true),
+          negotiatedRevision: z.literal('2025-11-25'),
+          operations: z.tuple([
+            z.literal('initialize'),
+            z.literal('ping'),
+            z.literal('tools/list'),
+            z.literal('tools/call'),
+          ]),
+          toolsCount: z.number().int().positive(),
+          callError: z.literal(false),
+        })
+        .strict(),
+      z
+        .object({
+          outcome: z.literal('product-failed'),
+          fixtureId: z.literal('typescript-v1'),
+          transport: z.enum(['stdio', 'streamable-http']),
+          initialized: z.literal(false),
+          ping: z.literal(false),
+          negotiatedRevision: z.literal('not-negotiated'),
+          operations: z.tuple([z.literal('initialize')]),
+          classification: z.enum(['initialize-timeout', 'upstream-revision-mismatch']),
+        })
+        .strict(),
+    ]),
     digest: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
   })
-  .strict();
+  .strict()
+  .superRefine((evidence, context) => {
+    if (
+      (evidence.status === 'passed' && evidence.probe.outcome !== 'completed') ||
+      (evidence.status === 'product-failed' && evidence.probe.outcome !== 'product-failed') ||
+      (evidence.status === 'product-failed' && evidence.downstreamIssue !== 478) ||
+      (evidence.status === 'passed' && evidence.downstreamIssue !== undefined) ||
+      (evidence.probe.outcome === 'product-failed' &&
+        ((evidence.probe.classification === 'initialize-timeout' && evidence.probe.transport !== 'stdio') ||
+          (evidence.probe.classification === 'upstream-revision-mismatch' &&
+            evidence.probe.transport !== 'streamable-http')))
+    ) {
+      context.addIssue({ code: 'custom', message: 'profile evidence status does not match the observed outcome' });
+    }
+  });
 
 const legacyRevisionEvidenceSchema = z
   .object({
@@ -334,7 +395,10 @@ async function verifyProfileProofs(
         recordedDigest !== computedDigest ||
         proof.evidenceDigest !== computedDigest ||
         proof.profile !== evidence.profile ||
-        proof.testId !== evidence.testId
+        proof.testId !== evidence.testId ||
+        proof.attempt !== evidence.attempt ||
+        proof.status !== evidence.status ||
+        proof.downstreamIssue !== evidence.downstreamIssue
       ) {
         return false;
       }
@@ -350,19 +414,125 @@ async function verifyProfileProofs(
   }
 }
 
-function stopChild(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
-  return new Promise((resolvePromise) => {
+async function waitForChildExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
+  if (child.exitCode !== null || child.signalCode !== null) return true;
+  return await new Promise((resolvePromise) => {
     const timeout = setTimeout(() => {
-      child.kill('SIGKILL');
-      resolvePromise();
-    }, 3_000);
-    child.once('exit', () => {
+      child.removeListener('exit', exited);
+      resolvePromise(false);
+    }, timeoutMs);
+    const exited = (): void => {
       clearTimeout(timeout);
-      resolvePromise();
-    });
-    child.kill('SIGTERM');
+      resolvePromise(true);
+    };
+    child.once('exit', exited);
   });
+}
+
+export async function stopChild(child: ChildProcess, graceMs = 3_000): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  child.kill('SIGTERM');
+  if (await waitForChildExit(child, graceMs)) return;
+  child.kill('SIGKILL');
+  if (!(await waitForChildExit(child, graceMs))) throw new Error('child-cleanup-timeout');
+}
+
+async function reserveLoopbackPort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolvePromise, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolvePromise);
+  });
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('port-reservation-failed');
+  await new Promise<void>((resolvePromise, reject) =>
+    server.close((error) => (error ? reject(error) : resolvePromise())),
+  );
+  return address.port;
+}
+
+async function waitForGatewayReady(child: ChildProcess, origin: string): Promise<void> {
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null || child.signalCode !== null) throw new Error('gateway-exited');
+    try {
+      const response = await fetch(`${origin}/health/ready`, { signal: AbortSignal.timeout(500) });
+      await response.body?.cancel();
+      if (response.status === 200) return;
+    } catch {
+      // Readiness polling is not a conformance attempt.
+    }
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 25));
+  }
+  throw new Error('gateway-readiness-timeout');
+}
+
+async function startOfficialGateway(
+  root: string,
+  outputDirectory: string,
+  upstreamEndpoint: string,
+): Promise<{ endpoint: string; close(): Promise<void> }> {
+  const scratch = await mkdtemp(join(outputDirectory, 'official-gateway-'));
+  const runtimeScope = join(scratch, 'runtime-scope');
+  const home = join(scratch, 'home');
+  await Promise.all([mkdir(runtimeScope), mkdir(home)]);
+  await writeFile(
+    join(runtimeScope, 'mcp.json'),
+    `${JSON.stringify({
+      mcpServers: { official_conformance: { type: 'streamableHttp', url: upstreamEndpoint } },
+    })}\n`,
+    { encoding: 'utf8', mode: 0o600 },
+  );
+  const port = await reserveLoopbackPort();
+  const origin = `http://127.0.0.1:${port}`;
+  const child = spawn(
+    process.execPath,
+    [
+      join(root, 'build/index.js'),
+      'serve',
+      '--transport',
+      'http',
+      '--host',
+      '127.0.0.1',
+      '--port',
+      String(port),
+      '--config-dir',
+      runtimeScope,
+      '--async-max-retries',
+      '0',
+      '--no-async-background-retry',
+    ],
+    {
+      cwd: runtimeScope,
+      env: {
+        PATH: process.env.PATH,
+        HOME: home,
+        NODE_ENV: 'test',
+        ONE_MCP_CONFIG_DIR: runtimeScope,
+        ONE_MCP_LOG_LEVEL: 'error',
+        ONE_MCP_ENABLE_AUTH: 'false',
+        NO_PROXY: '127.0.0.1,localhost,::1',
+      },
+      stdio: ['ignore', 'ignore', 'ignore'],
+    },
+  );
+  try {
+    await waitForGatewayReady(child, origin);
+  } catch (error) {
+    try {
+      await stopChild(child);
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
+    throw error;
+  }
+  return {
+    endpoint: `${origin}/mcp`,
+    close: async () => {
+      await stopChild(child);
+      await rm(scratch, { recursive: true, force: true });
+    },
+  };
 }
 
 async function startTypescriptServer(
@@ -484,35 +654,104 @@ function shellArgument(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
+const officialClientBridgeStatusSchema = z
+  .object({
+    scenario: z.string().min(1),
+    status: z.enum(['attempted', 'fixture-defect', 'harness-defect']),
+  })
+  .strict();
+
+export async function classifyOfficialClientResult(
+  result: OfficialConformanceResult,
+  statusDirectory: string,
+): Promise<OfficialConformanceResult> {
+  if (result.classification !== 'product') return result;
+  try {
+    let fixtureDefect = false;
+    for (const scenario of result.scenarios) {
+      const status = officialClientBridgeStatusSchema.parse(
+        JSON.parse(await readFile(join(statusDirectory, `${encodeURIComponent(scenario.scenarioId)}.json`), 'utf8')),
+      );
+      if (status.scenario !== scenario.scenarioId) {
+        return { classification: 'harness', role: result.role, revision: result.revision, reason: 'artifact-invalid' };
+      }
+      if (status.status === 'harness-defect') {
+        return { classification: 'harness', role: result.role, revision: result.revision, reason: 'artifact-invalid' };
+      }
+      fixtureDefect ||= status.status === 'fixture-defect';
+    }
+    return fixtureDefect
+      ? { classification: 'fixture', role: result.role, revision: result.revision, reason: 'invalid-target' }
+      : result;
+  } catch {
+    return { classification: 'harness', role: result.role, revision: result.revision, reason: 'artifact-invalid' };
+  }
+}
+
 async function runOfficialPeers(root: string, outputDirectory: string): Promise<OfficialConformanceResult[]> {
   const packageRoot = dirname(packageManifestPath(root, '@modelcontextprotocol/conformance'));
   const fixture = join(root, 'test/conformance/fixtures/typescript/src/fixture.mjs');
-  const command = `${shellArgument(process.execPath)} ${shellArgument(fixture)}`;
+  const bridge = join(root, 'test/conformance/foundation/officialClientBridge.mjs');
+  const builtEntryPath = join(root, 'build/index.js');
   const results: OfficialConformanceResult[] = [];
   for (const revision of ['2025-11-25', '2026-07-28'] as const) {
-    results.push(
-      await runOfficialConformance({
-        packageRoot,
-        role: 'client',
-        revision,
-        command,
-        temporaryParentDirectory: outputDirectory,
-      }),
-    );
-    const server = await startTypescriptServer(root, revision === '2026-07-28' ? 'modern' : 'legacy', outputDirectory);
+    const statusDirectory = await mkdtemp(join(outputDirectory, `official-client-${revision}-`));
+    const command = [process.execPath, bridge, fixture, builtEntryPath, statusDirectory].map(shellArgument).join(' ');
+    let clientResult = await runOfficialConformance({
+      packageRoot,
+      role: 'client',
+      revision,
+      command,
+      temporaryParentDirectory: outputDirectory,
+    });
+    clientResult = await classifyOfficialClientResult(clientResult, statusDirectory);
     try {
-      results.push(
-        await runOfficialConformance({
+      await rm(statusDirectory, { recursive: true, force: true });
+    } catch {
+      clientResult = { classification: 'harness', role: 'client', revision, reason: 'cleanup-failure' };
+    }
+    results.push(clientResult);
+
+    let server: Awaited<ReturnType<typeof startTypescriptServer>> | undefined;
+    let gateway: Awaited<ReturnType<typeof startOfficialGateway>> | undefined;
+    let serverResult: OfficialConformanceResult = {
+      classification: 'fixture',
+      role: 'server',
+      revision,
+      reason: 'invalid-target',
+    };
+    try {
+      server = await startTypescriptServer(root, revision === '2026-07-28' ? 'modern' : 'legacy', outputDirectory);
+    } catch {
+      // The default result identifies a server fixture that failed before it became a valid target.
+    }
+    if (server) {
+      try {
+        gateway = await startOfficialGateway(root, outputDirectory, server.endpoint);
+        serverResult = await runOfficialConformance({
           packageRoot,
           role: 'server',
           revision,
-          url: server.endpoint,
+          url: gateway.endpoint,
           temporaryParentDirectory: outputDirectory,
-        }),
-      );
-    } finally {
-      await server.close();
+        });
+      } catch {
+        serverResult = { classification: 'process', role: 'server', revision, reason: 'spawn-failure' };
+      }
     }
+    let cleanupFailed = false;
+    for (const close of [gateway?.close, server?.close]) {
+      if (!close) continue;
+      try {
+        await close();
+      } catch {
+        cleanupFailed = true;
+      }
+    }
+    if (cleanupFailed) {
+      serverResult = { classification: 'harness', role: 'server', revision, reason: 'cleanup-failure' };
+    }
+    results.push(serverResult);
   }
   return results;
 }
@@ -748,6 +987,17 @@ async function validateEvidenceBundle(
     }))
   ) {
     throw new Error('profile-evidence-mismatch');
+  }
+  for (const run of baseline.officialRuns) {
+    if (run.classification !== 'product') continue;
+    const artifact = await readOfficialEvidenceArtifact(outputDirectory, run.artifact);
+    if (
+      artifact.role !== run.role ||
+      artifact.revision !== run.revision ||
+      artifact.productVerdict !== run.productVerdict
+    ) {
+      throw new Error('official-evidence-mismatch');
+    }
   }
   for (const run of baseline.matrixRuns) {
     if (run.classification !== 'product') continue;

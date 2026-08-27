@@ -10,6 +10,7 @@ import { request as httpsRequest } from 'node:https';
 import type { SanitizedWireCapture, WireDirection, WireHop } from './sanitizedWireEvidence.js';
 
 const INSPECTION_LIMIT = 1_048_576;
+const CREDENTIAL_HEADERS = new Set(['authorization', 'cookie', 'proxy-authorization']);
 
 export interface HttpWireTap {
   url: string;
@@ -22,6 +23,24 @@ function normalizedHeaders(headers: IncomingHttpHeaders): Record<string, string 
     normalized[name] = typeof value === 'number' ? String(value) : value;
   }
   return normalized;
+}
+
+function forwardedHeaders(headers: IncomingHttpHeaders, host: string): IncomingHttpHeaders {
+  return Object.fromEntries([
+    ...Object.entries(headers).filter(([name]) => !CREDENTIAL_HEADERS.has(name.toLowerCase())),
+    ['host', host],
+  ]);
+}
+
+function isLoopbackTarget(target: URL): boolean {
+  return (
+    !target.username &&
+    !target.password &&
+    (target.hostname === '127.0.0.1' ||
+      target.hostname === '::1' ||
+      target.hostname === '[::1]' ||
+      target.hostname === 'localhost')
+  );
 }
 
 function isInspectable(headers: IncomingHttpHeaders): boolean {
@@ -74,7 +93,9 @@ export async function startHttpWireTap(options: {
   let target: URL;
   try {
     target = new URL(options.target);
-    if (target.protocol !== 'http:' && target.protocol !== 'https:') throw new Error('unsupported');
+    if ((target.protocol !== 'http:' && target.protocol !== 'https:') || !isLoopbackTarget(target)) {
+      throw new Error('unsupported');
+    }
   } catch {
     throw new Error('Invalid wire tap target');
   }
@@ -82,6 +103,19 @@ export async function startHttpWireTap(options: {
   const sockets = new Set<import('node:net').Socket>();
 
   const server: Server = createServer((incoming, outgoing) => {
+    let destination: URL;
+    try {
+      destination = new URL(incoming.url ?? '/', target);
+      if (destination.origin !== target.origin || destination.username || destination.password) {
+        throw new Error('cross-origin');
+      }
+    } catch {
+      incoming.resume();
+      outgoing.writeHead(400, { 'content-type': 'text/plain' });
+      outgoing.end('wire tap destination rejected');
+      return;
+    }
+
     inspectStream(incoming, options.capture, {
       contextId: options.contextId,
       hop: options.hop,
@@ -89,13 +123,12 @@ export async function startHttpWireTap(options: {
       headers: incoming.headers,
     });
 
-    const destination = new URL(incoming.url ?? '/', target);
     const makeRequest = destination.protocol === 'https:' ? httpsRequest : httpRequest;
     const upstream = makeRequest(
       destination,
       {
         method: incoming.method,
-        headers: { ...incoming.headers, host: destination.host },
+        headers: forwardedHeaders(incoming.headers, destination.host),
       },
       (response) => {
         inspectStream(response, options.capture, {

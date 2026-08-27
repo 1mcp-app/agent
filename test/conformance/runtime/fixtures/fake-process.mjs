@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 
 const mode = process.argv[2];
 
-if (mode === 'invalid-probe' || mode === 'crash-probe') {
+if (mode === 'invalid-probe' || mode === 'crash-probe' || mode === 'mismatched-revision-probe') {
   const attemptFile = process.argv[3];
   let attempts = 0;
   try {
@@ -14,6 +14,21 @@ if (mode === 'invalid-probe' || mode === 'crash-probe') {
   await writeFile(attemptFile, String(attempts + 1));
   if (mode === 'invalid-probe') {
     process.stdout.write(`{"unexpected":"${process.argv[4]}"}\n`);
+    process.exit(0);
+  }
+  if (mode === 'mismatched-revision-probe') {
+    process.stdout.write(
+      `${JSON.stringify({
+        fixtureId: 'mismatched-revision',
+        transport: 'streamable-http',
+        initialized: true,
+        ping: true,
+        negotiatedRevision: '2024-11-05',
+        operations: ['initialize', 'ping', 'tools/list', 'tools/call'],
+        toolsCount: 1,
+        callError: false,
+      })}\n`,
+    );
     process.exit(0);
   }
   process.exit(1);

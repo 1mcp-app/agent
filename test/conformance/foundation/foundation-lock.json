@@ -4,7 +4,7 @@
     {
       "id": "command-runner",
       "path": "scripts/run-conformance.mjs",
-      "digest": "sha256:c7b86f0a8c1e4189e28b7029c52d43a9f940ebded0c1fc851f689a554ac822b4"
+      "digest": "sha256:d93a975edd8445d0859d2ee0f9cae599ca4036155595bf9d23503b10a3a6d201"
     },
     {
       "id": "vitest-conformance",
@@ -14,12 +14,17 @@
     {
       "id": "vitest-transports",
       "path": "vitest.conformance-transports.config.ts",
-      "digest": "sha256:e0ed788fe38e2a6db4c65f8f1b6019f3c0c70ac248d5e6e1ad72f1cdcbb0ee2b"
+      "digest": "sha256:a47e325459fcfe43a404aa7fa5f41a564705c0991513bfb5239acf31e4cf8022"
     },
     {
       "id": "baseline",
       "path": "test/conformance/baseline/baseline.ts",
-      "digest": "sha256:d405d9ad4997d979a3958c8acfeb551380546260290db0838d1756a3217e79f7"
+      "digest": "sha256:3bdfebcd453239db84499cd0e74cdf524877454a8b5e9d9676f1b8b03f740d2c"
+    },
+    {
+      "id": "traceability-inventory",
+      "path": "test/conformance/baseline/traceabilityInventory.ts",
+      "digest": "sha256:a0c00ab1091aa44969de8e769cdfccece1b9f84972470bc152e27d0a2e3cf8a9"
     },
     {
       "id": "capture-schema",
@@ -29,22 +34,27 @@
     {
       "id": "capture-http",
       "path": "test/conformance/capture/httpWireTap.ts",
-      "digest": "sha256:30c257fd7524e81269ea6053606ad39d448ba6829ba73b51d003118331cebc30"
+      "digest": "sha256:0f29292c75a9413a037889d5e6dcda7cfc1628d8c12e42ede023f8099b9845ae"
     },
     {
       "id": "capture-stdio",
       "path": "test/conformance/capture/stdioWireTap.ts",
-      "digest": "sha256:30be9bf841f2672cd09a967d442288a4370cf006dcaddafb876e33d808bdacc9"
+      "digest": "sha256:9237fd27eab14453fe72776b496b0349ad18379953b1f88dd27b96b024f65104"
     },
     {
       "id": "integrity-verifier",
       "path": "test/conformance/integrity/index.ts",
-      "digest": "sha256:c6eb9c2e3794ee352fcc7cb9f8aa7badf4c71fcde628604f59daa4d6c7520478"
+      "digest": "sha256:bc9f54572ba840f214ceac1c17e7bb1b6c6c6515a348d4f474c33999f304727c"
+    },
+    {
+      "id": "mcp-2026-specification-source",
+      "path": "test/conformance/integrity/mcp-2026-07-28-spec-source.json",
+      "digest": "sha256:63f5777aab52f45580c18d8d6666420f6cb630dd41c6be1eec1bd8e7ed95635b"
     },
     {
       "id": "official-runner",
       "path": "test/conformance/official/officialRunner.ts",
-      "digest": "sha256:1b164d8de5896e6f64b3a3394784a6753802728ca4597dfb73dd04fd31147290"
+      "digest": "sha256:f656825ca6a1946113923e28c53507e9cd4ab8c4a288c1da4747e366b9628763"
     },
     {
       "id": "matrix-runtime",
@@ -54,7 +64,17 @@
     {
       "id": "foundation-run",
       "path": "test/conformance/foundation/foundationRun.ts",
-      "digest": "sha256:e57397cef3ab5b991d21c684843701037d348e9aab957d3e44cc3266ee50407d"
+      "digest": "sha256:574c41c570e3c4fd27bb84791316e912ebd1ff8e16d6a9c57a4f99169e10cc53"
+    },
+    {
+      "id": "official-client-bridge",
+      "path": "test/conformance/foundation/officialClientBridge.mjs",
+      "digest": "sha256:8724805618cefd79680a437fa34c48a9d2ceea004062544c1013e595785160b8"
+    },
+    {
+      "id": "official-client-scenario-catalog",
+      "path": "test/conformance/foundation/officialClientScenarioCatalog.mjs",
+      "digest": "sha256:0a364a17c48b08c7d2941150496d86c8c02398c9fcda66c4f3836e3aeadcd71d"
     },
     {
       "id": "typescript-manifest",
@@ -74,7 +94,7 @@
     {
       "id": "typescript-driver",
       "path": "test/conformance/fixtures/typescript/src/fixture.mjs",
-      "digest": "sha256:c5b9547b1fa45c02f64d7ee1625c11838e38e64a67a989233f1d10b367b005c7"
+      "digest": "sha256:0db198d3fca4550cb921cab85391ee502d5b87b20f748fa066dea713cdac2de2"
     },
     {
       "id": "typescript-self-check",
@@ -84,12 +104,12 @@
     {
       "id": "typescript-v1",
       "path": "test/conformance/fixtures/typescript/src/eras/v1.mjs",
-      "digest": "sha256:f6a8f9b420e77436242f12ad5b85680356ccfb5ddaaa257b3ec3cd96c89199ac"
+      "digest": "sha256:cb807d63daff16ab686e84a493bbb140e2110eca8d768e500733b11174af5d34"
     },
     {
       "id": "typescript-v2",
       "path": "test/conformance/fixtures/typescript/src/eras/v2.mjs",
-      "digest": "sha256:e63744f35e6381910ad6354e5d8534c930bff5be17f21a28391d927de936c72d"
+      "digest": "sha256:aed6fcc9181085b3f43305f2b12d520c9c4c59dc445a39bc9f12a1eec0de5eb1"
     },
     {
       "id": "go-driver",
@@ -104,7 +124,7 @@
     {
       "id": "ci-lane",
       "path": ".github/workflows/test-and-validate.yml",
-      "digest": "sha256:e41ca320a5c7bf52409896765851257633d85f8d468c0671758af1f0c0ba79b5"
+      "digest": "sha256:b12125af51955602405639895025e095ec3e2a83b273e1c2c5ad91c1162c4cb6"
     }
   ]
 }

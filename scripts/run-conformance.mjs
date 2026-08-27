@@ -1,6 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -79,36 +78,6 @@ const transportStatus = run(process.execPath, [
   ...forwarded,
 ]);
 if (transportStatus !== 0) process.exit(transportStatus);
-
-const profileEvidenceDirectory = path.join(outputDirectory, 'profile-evidence');
-mkdirSync(profileEvidenceDirectory, { recursive: true, mode: 0o700 });
-const profileProofs = [
-  ['inbound-http-sse-retained', 'fixture.typescript.retained-sse', ['typescript-fixtures']],
-  ['direct-serve-stdio', 'transport.stdio-protocol', ['focused-stdio-transport']],
-  ['proxy-stdio', 'transport.stdio-protocol', ['focused-stdio-transport']],
-  ['upstream-sse-retained', 'fixture.typescript.retained-sse', ['typescript-fixtures']],
-  ['upstream-stdio-modern', 'fixture.typescript.v2-stdio', ['typescript-fixtures']],
-  [
-    'upstream-stdio-legacy',
-    'fixture.polyglot-and-typescript.legacy-stdio',
-    ['typescript-fixtures', 'go-fixtures', 'python-fixtures'],
-  ],
-].map(([profile, testId, checks]) => {
-  const evidence = { schemaVersion: 1, profile, testId, attempt: 1, status: 'passed', checks };
-  const evidenceDigest = `sha256:${createHash('sha256').update(JSON.stringify(evidence)).digest('hex')}`;
-  const artifactId = `profile-evidence/${profile}.json`;
-  writeFileSync(
-    path.join(outputDirectory, artifactId),
-    `${JSON.stringify({ ...evidence, digest: evidenceDigest }, null, 2)}\n`,
-    { encoding: 'utf8', mode: 0o600 },
-  );
-  return { profile, testId, artifactId, attempt: 1, evidenceDigest };
-});
-writeFileSync(
-  path.join(outputDirectory, 'profile-proofs.json'),
-  `${JSON.stringify({ schemaVersion: 1, profileProofs }, null, 2)}\n`,
-  { encoding: 'utf8', mode: 0o600 },
-);
 
 const conformanceStatus = run(process.execPath, [
   vitest,

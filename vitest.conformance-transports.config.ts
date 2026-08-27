@@ -5,9 +5,9 @@ export default defineConfig({
   plugins: [tsconfigPaths()],
   test: {
     environment: 'node',
-    include: ['test/e2e/stdio/stdio-protocol.test.ts'],
+    include: ['test/conformance/transports/profileProofs.test.ts'],
     globals: true,
-    testTimeout: 60_000,
+    testTimeout: 90_000,
     hookTimeout: 30_000,
     teardownTimeout: 15_000,
     retry: 0,

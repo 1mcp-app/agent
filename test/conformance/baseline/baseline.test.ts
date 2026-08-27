@@ -1,4 +1,5 @@
 import { buildConformanceBaseline, conformanceExitCode, validateConformanceBaseline } from './baseline.js';
+import { acceptedContractTraceabilityErrors } from './traceabilityInventory.js';
 
 const requiredProfiles = [
   'inbound-streamable-http-modern',
@@ -34,11 +35,17 @@ function official(role: 'client' | 'server', revision: '2025-11-25' | '2026-07-2
       SKIPPED: 0,
       total: 1,
     },
+    artifact: {
+      artifactId: `official-evidence/${role}.${revision}.json`,
+      digest: `sha256:${'6'.repeat(64)}` as const,
+    },
   };
 }
 
 const cells = ['modern-modern', 'modern-legacy', 'legacy-modern', 'legacy-legacy'] as const;
 const variants = ['typescript-baseline', 'alternate-inbound', 'alternate-upstream'] as const;
+const matrixProfiles = requiredProfiles.filter((profile) => profile.includes('streamable-http'));
+const focusedProfiles = requiredProfiles.filter((profile) => !matrixProfiles.includes(profile));
 
 function matrixPlan() {
   let profile = 0;
@@ -47,7 +54,7 @@ function matrixPlan() {
       id: `${cellId}.${variantKind}`,
       cellId,
       variantKind,
-      profiles: profile < requiredProfiles.length ? [requiredProfiles[profile++]!] : [requiredProfiles[0]],
+      profiles: [matrixProfiles[profile++ % matrixProfiles.length]!],
       peerIds: ['typescript-v1-1.30.0', 'typescript-v2-2.0.0'],
     })),
   );
@@ -107,12 +114,21 @@ function input() {
     officialRuns,
     matrixPlan: plan,
     matrixRuns: matrixRuns(plan),
-    profileProofs: [] as Array<{
+    profileProofs: focusedProfiles.map((profile) => ({
+      profile,
+      testId: `transport.gateway.${profile}`,
+      artifactId: `profile-evidence/${profile}.json`,
+      evidenceDigest: `sha256:${'3'.repeat(64)}` as const,
+      attempt: 1 as const,
+      status: 'passed' as const,
+    })) as Array<{
       profile: (typeof requiredProfiles)[number];
       testId: string;
       artifactId: string;
       evidenceDigest: `sha256:${string}`;
       attempt: 1;
+      status: 'passed' | 'product-failed';
+      downstreamIssue?: 478;
     }>,
     legacyRevisionProofs: ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07'].map((revision) => ({
       revision: revision as '2025-11-25' | '2025-06-18' | '2025-03-26' | '2024-11-05' | '2024-10-07',
@@ -187,6 +203,7 @@ describe('Conformance Baseline aggregation', () => {
           artifactId: 'profile.direct-serve-stdio.json',
           evidenceDigest: `sha256:${'3'.repeat(64)}`,
           attempt: 1,
+          status: 'passed',
         }),
     ],
   ])('marks infrastructure red for %s', (_name, mutate) => {
@@ -209,7 +226,37 @@ describe('Conformance Baseline aggregation', () => {
     expect(() => validateConformanceBaseline(baseline)).toThrow();
   });
 
-  it('produces a green gate only from observed green official and matrix runs', () => {
+  it('rejects missing accepted-contract mappings and stale registered test IDs independently', () => {
+    const traceability = buildConformanceBaseline(input()).traceability;
+    const withoutContract = traceability.filter(
+      (trace) => trace.requirementId !== '1mcp.contract.exact-source-integrity',
+    );
+    expect(acceptedContractTraceabilityErrors(withoutContract)).toEqual(['accepted-contract-mapping-invalid']);
+
+    const stale = structuredClone(traceability);
+    const exactSource = stale.find((trace) => trace.requirementId === '1mcp.contract.exact-source-integrity');
+    if (!exactSource) throw new Error('Expected exact-source contract trace');
+    exactSource.testIds = ['integrity.renamed-test'];
+    expect(acceptedContractTraceabilityErrors(stale)).toEqual(['accepted-contract-test-id-stale']);
+    expect(acceptedContractTraceabilityErrors(traceability, '/nonexistent-conformance-source')).toEqual([
+      'accepted-contract-test-id-stale',
+    ]);
+  });
+
+  it('keeps gate mode red for a required transport profile product failure linked to issue 478', () => {
+    const value = input();
+    const proxyProof = value.profileProofs.find((proof) => proof.profile === 'proxy-stdio');
+    if (!proxyProof) throw new Error('Expected proxy profile proof');
+    proxyProof.status = 'product-failed';
+    Object.assign(proxyProof, { downstreamIssue: 478 as const });
+
+    const baseline = buildConformanceBaseline(value);
+    expect(baseline.infrastructureVerdict).toBe('green');
+    expect(baseline.productVerdict).toBe('red');
+    expect(conformanceExitCode('gate', baseline)).toBe(1);
+  });
+
+  it('produces a green gate only from observed green official, matrix, and profile runs', () => {
     const value = input();
     value.officialRuns = [
       official('client', '2025-11-25'),

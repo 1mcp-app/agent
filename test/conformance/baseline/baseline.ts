@@ -2,6 +2,11 @@ import { createHash } from 'node:crypto';
 
 import { z } from 'zod';
 
+import {
+  ACCEPTED_CONTRACT_TRACEABILITY_INVENTORY,
+  acceptedContractTraceabilityErrors,
+} from './traceabilityInventory.js';
+
 const sha256Schema = z.string().regex(/^sha256:[a-f0-9]{64}$/u);
 const sourceShaSchema = z.string().regex(/^[a-f0-9]{40}$/u);
 const safeIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9$._/-]{0,255}$/u);
@@ -44,6 +49,12 @@ const officialProductRunSchema = z
         WARNING: z.number().int().nonnegative(),
         SKIPPED: z.number().int().nonnegative(),
         total: z.number().int().positive(),
+      })
+      .strict(),
+    artifact: z
+      .object({
+        artifactId: safeIdSchema,
+        digest: sha256Schema,
       })
       .strict(),
   })
@@ -145,8 +156,18 @@ const profileProofSchema = z
     artifactId: safeIdSchema,
     evidenceDigest: sha256Schema,
     attempt: z.literal(1),
+    status: z.enum(['passed', 'product-failed']),
+    downstreamIssue: z.literal(478).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((proof, context) => {
+    if (
+      (proof.status === 'product-failed' && proof.downstreamIssue !== 478) ||
+      (proof.status === 'passed' && proof.downstreamIssue !== undefined)
+    ) {
+      context.addIssue({ code: 'custom', message: 'profile result must link product failures to issue 478' });
+    }
+  });
 
 const legacyRevisionProofSchema = z
   .object({
@@ -349,7 +370,7 @@ function buildTraceability(input: z.infer<typeof baselineInputSchema>): z.infer<
                   (check) => `official.${run.role}.${run.revision}.${scenario.scenarioId}.${check.id}`,
                 )
               : [`official.${run.role}.${run.revision}.${scenario.scenarioId}.no-checks-observed`],
-          evidenceArtifactIds: [`official.${run.role}.${run.revision}.${scenario.scenarioId}`],
+          evidenceArtifactIds: [run.artifact.artifactId],
         },
       ];
     });
@@ -403,14 +424,8 @@ function buildTraceability(input: z.infer<typeof baselineInputSchema>): z.infer<
     sourceDigest: input.integrity.digest,
     fixtureDigest: proof.evidenceDigest,
   }));
-  const acceptedContracts = [
-    ['baseline-gate-semantics', 'baseline.verdict-modes'],
-    ['exact-source-integrity', 'integrity.exact-source'],
-    ['two-hop-sanitization', 'capture.adversarial-corpus'],
-    ['first-attempt-no-retry', 'baseline.first-attempt'],
-    ['four-era-matrix', 'matrix.assignment-completeness'],
-  ].map(([id, testId]) => ({
-    requirementId: `1mcp.contract.${id}`,
+  const acceptedContracts = ACCEPTED_CONTRACT_TRACEABILITY_INVENTORY.map((entry) => ({
+    requirementId: entry.requirementId,
     sourceRevision: '1mcp-accepted-contracts' as const,
     strength: 'accepted-contract' as const,
     applicability: { status: 'required' as const },
@@ -418,8 +433,8 @@ function buildTraceability(input: z.infer<typeof baselineInputSchema>): z.infer<
     matrixCellIds: input.matrixPlan.map((assignment) => assignment.cellId),
     peerIds: [...new Set(input.matrixPlan.flatMap((assignment) => assignment.peerIds))],
     transportProfiles: input.requiredProfiles,
-    testIds: [testId],
-    evidenceArtifactIds: ['conformance-baseline', 'conformance-integrity'],
+    testIds: [...entry.testIds],
+    evidenceArtifactIds: [...entry.evidenceArtifactIds],
     sourceDigest: input.integrity.digest,
     fixtureDigest: input.integrity.digest,
   }));
@@ -461,11 +476,13 @@ export function buildConformanceBaseline(rawInput: ConformanceBaselineInput): Co
   const parsed = baselineInputSchema.safeParse(rawInput);
   if (!parsed.success) return invalidBaseline(rawInput, 'baseline-input-invalid');
 
-  const errors = infrastructureErrors(parsed.data);
+  const traceability = buildTraceability(parsed.data);
+  const errors = [...infrastructureErrors(parsed.data), ...acceptedContractTraceabilityErrors(traceability)];
   const infrastructureVerdict = errors.length === 0 ? 'green' : 'red';
   const productRed =
     parsed.data.officialRuns.some((run) => run.classification === 'product' && run.productVerdict === 'fail') ||
-    parsed.data.matrixRuns.some((run) => run.classification === 'product' && run.productVerdict === 'fail');
+    parsed.data.matrixRuns.some((run) => run.classification === 'product' && run.productVerdict === 'fail') ||
+    parsed.data.profileProofs.some((proof) => proof.status === 'product-failed');
   return finalize({
     schemaVersion: 1,
     mode: parsed.data.mode,
@@ -482,7 +499,7 @@ export function buildConformanceBaseline(rawInput: ConformanceBaselineInput): Co
     profileProofs: parsed.data.profileProofs,
     legacyRevisionProofs: parsed.data.legacyRevisionProofs,
     requiredProfiles: parsed.data.requiredProfiles,
-    traceability: buildTraceability(parsed.data),
+    traceability,
   });
 }
 
@@ -507,6 +524,8 @@ export function validateConformanceBaseline(input: unknown): ConformanceBaseline
   ) {
     throw new Error('Conformance baseline traceability mismatch');
   }
+  const inventoryErrors = acceptedContractTraceabilityErrors(baseline.traceability);
+  if (inventoryErrors.length > 0) throw new Error(`Conformance traceability inventory mismatch: ${inventoryErrors[0]}`);
   return baseline;
 }
 

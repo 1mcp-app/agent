@@ -151,4 +151,93 @@ describe('HTTP wire tap', () => {
     expect(JSON.stringify(errorSpy.mock.calls)).not.toContain('AlphaSecret');
     errorSpy.mockRestore();
   });
+
+  it('rejects non-loopback targets', async () => {
+    const capture = createSanitizedWireCapture({
+      contexts: [{ id: 'case-target', negotiatedRevision: '2025-11-25' }],
+      validateEnvelope: () => true,
+    });
+
+    await expect(
+      startHttpWireTap({
+        target: 'https://example.com/private',
+        capture,
+        contextId: 'case-target',
+        hop: 'inbound',
+      }),
+    ).rejects.toThrow('Invalid wire tap target');
+  });
+
+  it('rejects cross-origin destinations and strips credential headers', async () => {
+    const receivedHeaders: Array<Record<string, string | string[] | undefined>> = [];
+    const peer = createServer((req, res) => {
+      receivedHeaders.push(req.headers);
+      req.resume();
+      req.once('end', () => res.writeHead(204).end());
+    });
+    await new Promise<void>((resolve) => peer.listen(0, '127.0.0.1', resolve));
+    closeTasks.push(
+      () => new Promise<void>((resolve, reject) => peer.close((error) => (error ? reject(error) : resolve()))),
+    );
+    const peerAddress = peer.address();
+    if (!peerAddress || typeof peerAddress === 'string') throw new Error('Test peer did not bind');
+
+    let crossOriginRequests = 0;
+    const crossOrigin = createServer((req, res) => {
+      crossOriginRequests += 1;
+      req.resume();
+      res.writeHead(204).end();
+    });
+    await new Promise<void>((resolve) => crossOrigin.listen(0, '127.0.0.1', resolve));
+    closeTasks.push(
+      () => new Promise<void>((resolve, reject) => crossOrigin.close((error) => (error ? reject(error) : resolve()))),
+    );
+    const crossOriginAddress = crossOrigin.address();
+    if (!crossOriginAddress || typeof crossOriginAddress === 'string')
+      throw new Error('Cross-origin peer did not bind');
+
+    const capture = createSanitizedWireCapture({
+      contexts: [{ id: 'case-routing', negotiatedRevision: '2025-11-25' }],
+      validateEnvelope: () => true,
+    });
+    const tap = await startHttpWireTap({
+      target: `http://127.0.0.1:${peerAddress.port}`,
+      capture,
+      contextId: 'case-routing',
+      hop: 'inbound',
+    });
+    closeTasks.push(tap.close);
+
+    const allowed = await fetch(`${tap.url}/mcp`, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer private-token',
+        cookie: 'session=private-cookie',
+        'proxy-authorization': 'Basic private-proxy-token',
+      },
+    });
+    expect(allowed.status).toBe(204);
+    expect(receivedHeaders).toHaveLength(1);
+    expect(receivedHeaders[0]).not.toHaveProperty('authorization');
+    expect(receivedHeaders[0]).not.toHaveProperty('cookie');
+    expect(receivedHeaders[0]).not.toHaveProperty('proxy-authorization');
+
+    const rejectedStatus = await new Promise<number>((resolve, reject) => {
+      const client = request(
+        tap.url,
+        {
+          method: 'POST',
+          path: `http://127.0.0.1:${crossOriginAddress.port}/steal`,
+        },
+        (response) => {
+          response.resume();
+          response.once('end', () => resolve(response.statusCode ?? 0));
+        },
+      );
+      client.once('error', reject);
+      client.end();
+    });
+    expect(rejectedStatus).toBe(400);
+    expect(crossOriginRequests).toBe(0);
+  });
 });

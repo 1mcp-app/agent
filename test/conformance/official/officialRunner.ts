@@ -1,6 +1,6 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 
@@ -197,6 +197,10 @@ const NOT_SCORED_SCENARIOS: Record<OfficialConformanceRevision, Record<OfficialC
   },
 };
 
+export function officialClientScenarioIds(revision: OfficialConformanceRevision): string[] {
+  return [...REQUIRED_SCENARIOS[revision].client, ...NOT_SCORED_SCENARIOS[revision].client];
+}
+
 const packageMetadataSchema = z.object({
   name: z.literal(OFFICIAL_CONFORMANCE_PACKAGE.name),
   version: z.literal(OFFICIAL_CONFORMANCE_PACKAGE.version),
@@ -215,6 +219,43 @@ const rawCheckSchema = z.object({
     .optional(),
 });
 const rawChecksSchema = z.array(rawCheckSchema).max(10_000);
+const officialEvidenceArtifactPayloadSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    role: z.enum(['client', 'server']),
+    revision: z.enum(['2025-11-25', '2026-07-28']),
+    productVerdict: z.enum(['pass', 'fail']),
+    scenarios: z.array(
+      z
+        .object({
+          scenarioId: safeIdSchema,
+          checks: z.array(
+            z
+              .object({
+                id: safeIdSchema,
+                status: z.enum(['SUCCESS', 'FAILURE', 'WARNING', 'SKIPPED']),
+                specReferenceIds: z.array(safeIdSchema),
+              })
+              .strict(),
+          ),
+        })
+        .strict(),
+    ),
+    counts: z
+      .object({
+        SUCCESS: z.number().int().nonnegative(),
+        FAILURE: z.number().int().nonnegative(),
+        WARNING: z.number().int().nonnegative(),
+        SKIPPED: z.number().int().nonnegative(),
+        total: z.number().int().nonnegative(),
+      })
+      .strict(),
+  })
+  .strict();
+
+export const OfficialEvidenceArtifactSchema = officialEvidenceArtifactPayloadSchema
+  .extend({ digest: z.string().regex(/^sha256:[a-f0-9]{64}$/u) })
+  .strict();
 
 export interface VerifiedOfficialConformancePackage {
   name: typeof OFFICIAL_CONFORMANCE_PACKAGE.name;
@@ -261,6 +302,7 @@ export type OfficialConformanceResult =
       productVerdict: 'pass' | 'fail';
       scenarios: SanitizedOfficialScenario[];
       counts: OfficialCheckCounts;
+      artifact: { artifactId: string; digest: `sha256:${string}` };
     }
   | {
       classification: 'fixture';
@@ -286,7 +328,7 @@ interface CommonRunOptions {
   revision: OfficialConformanceRevision;
   timeoutMs?: number;
   signal?: AbortSignal;
-  temporaryParentDirectory?: string;
+  temporaryParentDirectory: string;
 }
 
 export type OfficialConformanceRunOptions = CommonRunOptions &
@@ -302,6 +344,47 @@ interface ProcessResult {
 
 function sha256(value: Buffer): string {
   return createHash('sha256').update(value).digest('hex');
+}
+
+function officialArtifactDigest(payload: z.infer<typeof officialEvidenceArtifactPayloadSchema>): `sha256:${string}` {
+  return `sha256:${sha256(Buffer.from(JSON.stringify(payload)))}`;
+}
+
+export async function readOfficialEvidenceArtifact(
+  root: string,
+  reference: { artifactId: string; digest: string },
+): Promise<z.infer<typeof OfficialEvidenceArtifactSchema>> {
+  if (!/^official-evidence\/(client|server)\.(2025-11-25|2026-07-28)\.json$/u.test(reference.artifactId)) {
+    throw new Error('Official evidence artifact reference invalid');
+  }
+  const artifact = OfficialEvidenceArtifactSchema.parse(
+    JSON.parse(await readFile(resolve(root, reference.artifactId), 'utf8')),
+  );
+  const { digest, ...payload } = artifact;
+  if (digest !== reference.digest || digest !== officialArtifactDigest(payload)) {
+    throw new Error('Official evidence artifact digest mismatch');
+  }
+  return artifact;
+}
+
+async function persistOfficialEvidenceArtifact(
+  root: string,
+  payload: z.infer<typeof officialEvidenceArtifactPayloadSchema>,
+): Promise<{ artifactId: string; digest: `sha256:${string}` }> {
+  const validated = officialEvidenceArtifactPayloadSchema.parse(payload);
+  const artifactId = `official-evidence/${validated.role}.${validated.revision}.json`;
+  const reference = { artifactId, digest: officialArtifactDigest(validated) } as const;
+  await mkdir(resolve(root, 'official-evidence'), { recursive: true, mode: 0o700 });
+  await writeFile(
+    resolve(root, artifactId),
+    `${JSON.stringify({ ...validated, digest: reference.digest }, null, 2)}\n`,
+    {
+      encoding: 'utf8',
+      mode: 0o600,
+    },
+  );
+  await readOfficialEvidenceArtifact(root, reference);
+  return reference;
 }
 
 async function ensureFileWithin(packageRoot: string, path: string): Promise<void> {
@@ -584,16 +667,24 @@ export async function runOfficialConformance(
             scoredScenarios.has(scenario.scenarioId) &&
             (scenario.checks.length === 0 || scenario.checks.some((check) => check.status !== 'SUCCESS')),
         );
-        result =
-          processResult.exitCode !== 0 && !hasProductFailure
-            ? { classification: 'harness', ...identity, reason: 'exit-inconsistent' }
-            : {
-                classification: 'product',
-                ...identity,
-                productVerdict: hasProductFailure ? 'fail' : 'pass',
-                scenarios,
-                counts: countChecks(scenarios),
-              };
+        if (processResult.exitCode !== 0 && !hasProductFailure) {
+          result = { classification: 'harness', ...identity, reason: 'exit-inconsistent' };
+        } else {
+          const productVerdict = hasProductFailure ? 'fail' : 'pass';
+          const counts = countChecks(scenarios);
+          try {
+            const artifact = await persistOfficialEvidenceArtifact(options.temporaryParentDirectory, {
+              schemaVersion: 1,
+              ...identity,
+              productVerdict,
+              scenarios,
+              counts,
+            });
+            result = { classification: 'product', ...identity, productVerdict, scenarios, counts, artifact };
+          } catch {
+            result = { classification: 'harness', ...identity, reason: 'artifact-invalid' };
+          }
+        }
       }
     }
   } catch {
