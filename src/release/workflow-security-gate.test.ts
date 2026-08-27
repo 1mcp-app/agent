@@ -2,104 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
-import YAML from 'yaml';
 
-export interface WorkflowViolation {
-  file: string;
-  line: number;
-  rule: 'NO_SECRETS_INHERIT' | 'NO_RUN_INJECTION';
-  message: string;
-  snippet: string;
-}
-
-/**
- * Scans a workflow or composite action file for 'secrets: inherit' and script expression injections in 'run:' steps.
- * Uses standard YAML AST parsing (supporting anchors, aliases, flow mappings, and block scalars).
- */
-export function scanWorkflowSecurity(content: string, filename = 'workflow.yml'): WorkflowViolation[] {
-  const violations: WorkflowViolation[] = [];
-  const expressionPattern = /\$\{\{/;
-
-  const lineCounter = new YAML.LineCounter();
-  let doc: YAML.Document;
-  try {
-    doc = YAML.parseDocument(content, { lineCounter });
-  } catch (e) {
-    violations.push({
-      file: filename,
-      line: 1,
-      rule: 'NO_RUN_INJECTION',
-      message: 'YAML Parse Error: ' + (e instanceof Error ? e.message : String(e)),
-      snippet: content.split('\n')[0] || '',
-    });
-    return violations;
-  }
-
-  if (doc.errors && doc.errors.length > 0) {
-    for (const err of doc.errors) {
-      violations.push({
-        file: filename,
-        line: err.linePos ? err.linePos[0].line : 1,
-        rule: 'NO_RUN_INJECTION',
-        message: 'YAML Syntax Error: ' + err.message,
-        snippet: err.message,
-      });
-    }
-    return violations;
-  }
-
-  YAML.visit(doc, {
-    Pair(key, node) {
-      if (!node.key) return;
-
-      const keyNode = node.key as { value?: unknown };
-      const keyVal = keyNode.value;
-      const valNode = node.value as { range?: [number, number, number]; value?: unknown } | null;
-
-      // 1. Guard against secrets: inherit
-      if (typeof keyVal === 'string' && keyVal.toLowerCase() === 'secrets' && valNode) {
-        const val = typeof valNode.value === 'string' ? valNode.value : String(node.value);
-        if (typeof val === 'string' && val.toLowerCase().trim() === 'inherit') {
-          const pos = valNode.range ? lineCounter.linePos(valNode.range[0]) : { line: 1, col: 1 };
-          violations.push({
-            file: filename,
-            line: pos.line,
-            rule: 'NO_SECRETS_INHERIT',
-            message: "Forbidden 'secrets: inherit' detected. Secrets must be explicitly mapped by name or use OIDC.",
-            snippet: 'secrets: ' + val,
-          });
-        }
-      }
-
-      // 2. Guard against run injections
-      if (keyVal === 'run' && valNode) {
-        let scriptVal = '';
-        if (YAML.isAlias(node.value)) {
-          const resolved = node.value.resolve(doc) as { value?: unknown } | null;
-          scriptVal = resolved ? (typeof resolved.value === 'string' ? resolved.value : String(resolved)) : '';
-        } else if (typeof valNode.value === 'string') {
-          scriptVal = valNode.value;
-        } else {
-          scriptVal = String(node.value);
-        }
-
-        if (expressionPattern.test(scriptVal)) {
-          const pos = valNode.range ? lineCounter.linePos(valNode.range[0]) : { line: 1, col: 1 };
-          violations.push({
-            file: filename,
-            line: pos.line,
-            rule: 'NO_RUN_INJECTION',
-            message:
-              'Direct interpolation of expressions in run: step detected. Pass dynamic values via env: variables instead.',
-            snippet: scriptVal.split('\n')[0].trim(),
-          });
-        }
-      }
-    },
-  });
-
-  return violations;
-}
+import { scanWorkflowSecurity } from './workflow-security-gate.js';
 
 function findYamlFiles(dir: string): string[] {
   if (!fs.existsSync(dir)) return [];
@@ -218,7 +122,7 @@ describe('GitHub Actions Workflow & Composite Action Security Gate', () => {
       expect(violations[0].rule).toBe('NO_RUN_INJECTION');
     });
 
-    it('detects and blocks YAML anchor and alias smuggling', () => {
+    it('detects and blocks YAML anchor and alias smuggling for run command', () => {
       const maliciousAnchor = [
         'vars: &s echo "' + String.fromCharCode(36) + '{{ github.actor }}"',
         'jobs:',
@@ -231,6 +135,20 @@ describe('GitHub Actions Workflow & Composite Action Security Gate', () => {
       const violations = scanWorkflowSecurity(maliciousAnchor, 'test.yml');
       expect(violations).toHaveLength(1);
       expect(violations[0].rule).toBe('NO_RUN_INJECTION');
+    });
+
+    it('detects and blocks YAML anchor and alias smuggling for secrets: inherit', () => {
+      const maliciousSecretsAnchor = [
+        's: &s inherit',
+        'jobs:',
+        '  t:',
+        '    uses: ./.github/workflows/reusable.yml',
+        '    secrets: *s',
+      ].join('\n');
+
+      const violations = scanWorkflowSecurity(maliciousSecretsAnchor, 'test.yml');
+      expect(violations).toHaveLength(1);
+      expect(violations[0].rule).toBe('NO_SECRETS_INHERIT');
     });
 
     it('detects and blocks multiline plain scalar folding', () => {
@@ -429,6 +347,21 @@ describe('GitHub Actions Workflow & Composite Action Security Gate', () => {
       ].join('\n');
 
       expect(scanWorkflowSecurity(safe)).toHaveLength(0);
+    });
+
+    it('allows environment variable named run in env: mapping without false positive', () => {
+      const envWithRunVar = [
+        'jobs:',
+        '  t:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - name: Safe step',
+        '        env:',
+        '          run: ' + String.fromCharCode(36) + '{{ github.actor }}',
+        '        run: echo "$run"',
+      ].join('\n');
+
+      expect(scanWorkflowSecurity(envWithRunVar)).toHaveLength(0);
     });
   });
 });
