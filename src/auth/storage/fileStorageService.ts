@@ -673,6 +673,9 @@ export class FileStorageService {
         return [];
       }
 
+      // Directory leg (I5): enumerating reveals which credential IDs exist —
+      // assert/heal the dir before readdir, same as cleanupExpiredData.
+      assertOwnerOnlyDirPermissions(this.storageDir);
       const files = fs.readdirSync(this.storageDir);
       return files.filter((file) => {
         if (!file.endsWith('.json')) {

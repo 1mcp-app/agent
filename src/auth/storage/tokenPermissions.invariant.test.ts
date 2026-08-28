@@ -139,6 +139,20 @@ describe('token/storage permission invariants (POSIX-only, AUTH-07 gate)', () =>
       expect(fs.existsSync(filePath)).toBe(true);
     });
 
+    it.skipIf(!isPosix)('degrades instead of refusing when the filesystem cannot chmod (ENOTSUP)', () => {
+      service.writeData(filePrefix, testId, testData);
+      const filePath = service.getFilePath(filePrefix, testId);
+      fs.chmodSync(filePath, 0o644);
+
+      vi.spyOn(fs, 'fchmodSync').mockImplementation(() => {
+        throw Object.assign(new Error('ENOTSUP: operation not supported'), { code: 'ENOTSUP' });
+      });
+
+      // Non-POSIX volume simulation: warn-and-consume, never refuse.
+      expect(service.readData<TestData>(filePrefix, testId)).toEqual(testData);
+      expect(fs.statSync(filePath).mode & 0o777).toBe(0o644);
+    });
+
     it.skipIf(!isPosix)('self-heals a group/other-readable storage directory on read', () => {
       service.writeData(filePrefix, testId, testData);
       fs.chmodSync(service.getStorageDir(), 0o755);

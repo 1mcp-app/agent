@@ -33,6 +33,26 @@ function logFileHealed(filePath: string, mode: number): void {
 }
 
 /**
+ * Filesystems that cannot represent POSIX modes (FAT/exFAT/FUSE/CIFS volumes)
+ * report fictitious modes and reject chmod with capability errors. Degrade
+ * with a warn there (same policy as upstream hardenPermissionsSafely) so the
+ * OAuth stack keeps working on such volumes; real denials (EACCES/EPERM)
+ * still fail closed.
+ */
+const CAPABILITY_ERROR_CODES = new Set(['ENOTSUP', 'EOPNOTSUPP', 'EINVAL', 'ENOSYS']);
+
+function isCapabilityError(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && CAPABILITY_ERROR_CODES.has(code);
+}
+
+function logHealDegraded(filePath: string, code: string): void {
+  logger.warn(
+    `chmod unsupported on ${path.basename(path.dirname(filePath))} volume (${code}) — filesystem lacks POSIX modes, degrading`,
+  );
+}
+
+/**
  * Read-side strictModes (OpenSSH sshkey_perm_ok semantic) on an already-open
  * fd, so the permission check cannot be swapped out between stat and read
  * (no TOCTOU). Legacy files from before the AUTH-07 fix self-heal: a
@@ -51,7 +71,11 @@ export function enforceOwnerOnlyFilePermissions(fd: number, filePath: string): v
   try {
     fs.fchmodSync(fd, 0o600);
     logFileHealed(filePath, mode);
-  } catch {
+  } catch (error) {
+    if (isCapabilityError(error)) {
+      logHealDegraded(filePath, String((error as { code?: unknown }).code));
+      return;
+    }
     throw new InsecureFilePermissionsError(filePath, mode);
   }
 }
@@ -73,7 +97,11 @@ export function assertOwnerOnlyDirPermissions(dirPath: string): void {
   try {
     fs.chmodSync(dirPath, 0o700);
     logger.warn('Self-healed insecure storage directory permissions to 0700');
-  } catch {
+  } catch (error) {
+    if (isCapabilityError(error)) {
+      logHealDegraded(dirPath, String((error as { code?: unknown }).code));
+      return;
+    }
     throw new InsecureFilePermissionsError(dirPath, mode);
   }
 }
@@ -90,7 +118,11 @@ export async function assertOwnerOnlyDirPermissionsAsync(dirPath: string): Promi
   try {
     await chmod(dirPath, 0o700);
     logger.warn('Self-healed insecure storage directory permissions to 0700');
-  } catch {
+  } catch (error) {
+    if (isCapabilityError(error)) {
+      logHealDegraded(dirPath, String((error as { code?: unknown }).code));
+      return;
+    }
     throw new InsecureFilePermissionsError(dirPath, mode);
   }
 }
@@ -111,8 +143,12 @@ export async function readCredentialFile(filePath: string, storageDir: string): 
         try {
           await handle.chmod(0o600);
           logFileHealed(filePath, mode);
-        } catch {
-          throw new InsecureFilePermissionsError(filePath, mode);
+        } catch (error) {
+          if (isCapabilityError(error)) {
+            logHealDegraded(filePath, String((error as { code?: unknown }).code));
+          } else {
+            throw new InsecureFilePermissionsError(filePath, mode);
+          }
         }
       }
     }
