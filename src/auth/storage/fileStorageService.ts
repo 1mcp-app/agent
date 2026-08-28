@@ -616,6 +616,15 @@ export class FileStorageService {
               logger.debug(`Cleaned up expired file: ${this.getLoggableFileName(file)}`);
             }
           } catch (error) {
+            if (error instanceof InsecureFilePermissionsError) {
+              // Fail-closed means "do not consume", never "destroy the
+              // credential" — unlink needs only dir write access, so a heal
+              // denial must NOT turn into deletion (NFS root-squash etc.).
+              logger.warn(
+                `Skipping file with insecure permissions (heal denied): ${this.getLoggableFileName(file)}`,
+              );
+              continue;
+            }
             // Remove corrupted files
             logger.warn(
               `Removing corrupted file ${this.getLoggableFileName(file)}: ${this.getLoggableErrorForFileName(file, error)}`,

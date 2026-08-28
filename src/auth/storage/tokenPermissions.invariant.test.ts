@@ -107,6 +107,21 @@ describe('token/storage permission invariants (POSIX-only, AUTH-07 gate)', () =>
       expect(fs.statSync(filePath).mode & 0o777).toBe(0o644);
     });
 
+    it.skipIf(!isPosix)('cleanup preserves a file whose self-heal chmod is denied (fail-closed, never destroy)', () => {
+      service.writeData(filePrefix, testId, testData);
+      const filePath = service.getFilePath(filePrefix, testId);
+      fs.chmodSync(filePath, 0o644);
+
+      vi.spyOn(fs, 'fchmodSync').mockImplementation(() => {
+        throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+      });
+
+      const cleaned = service.cleanupExpiredData();
+      expect(cleaned).toBe(0);
+      expect(fs.existsSync(filePath)).toBe(true);
+      expect(fs.statSync(filePath).mode & 0o777).toBe(0o644);
+    });
+
     it.skipIf(!isPosix)('self-heals a group/other-readable storage directory on read', () => {
       service.writeData(filePrefix, testId, testData);
       fs.chmodSync(service.getStorageDir(), 0o755);
