@@ -44,6 +44,40 @@ export class FileStorageService {
   }
 
   /**
+   * Hardens file or directory permissions on POSIX systems.
+   * Tolerates filesystems that lack POSIX permission capabilities (e.g. FAT, exFAT, FUSE)
+   * only when explicitly allowed (such as during storage directory initialization).
+   * For credentials and migration flags, or real permission violations (EACCES, EPERM, EROFS),
+   * it strictly fails closed by rethrowing.
+   */
+  private hardenPermissionsSafely(
+    targetPath: string,
+    mode: number,
+    options: { degradeCapabilityErrors?: boolean } = {},
+  ): void {
+    if (process.platform === 'win32') {
+      return;
+    }
+    const { degradeCapabilityErrors = false } = options;
+    try {
+      fs.chmodSync(targetPath, mode);
+    } catch (error: unknown) {
+      const code =
+        error instanceof Error && 'code' in error && typeof (error as { code?: unknown }).code === 'string'
+          ? String((error as { code: string }).code)
+          : '';
+      if (degradeCapabilityErrors && ['ENOTSUP', 'EOPNOTSUPP', 'EINVAL', 'ENOSYS'].includes(code)) {
+        const loggableTarget = this.getLoggableFileName(path.basename(targetPath));
+        logger.warn(
+          `chmod ${mode.toString(8)} unsupported on ${loggableTarget} (${code}) — filesystem lacks POSIX permission capabilities, degrading safely`,
+        );
+        return;
+      }
+      throw error;
+    }
+  }
+
+  /**
    * Ensures the storage directory exists
    */
   private ensureDirectory(): void {
@@ -53,7 +87,7 @@ export class FileStorageService {
         logger.info(`Created storage directory: ${this.storageDir}`);
       }
       if (process.platform !== 'win32') {
-        fs.chmodSync(this.storageDir, 0o700);
+        this.hardenPermissionsSafely(this.storageDir, 0o700, { degradeCapabilityErrors: true });
       }
     } catch (error) {
       logger.error(`Failed to create storage directory: ${error}`);
@@ -111,9 +145,10 @@ export class FileStorageService {
     if (fs.existsSync(migrationFlagPath)) {
       if (process.platform !== 'win32') {
         try {
-          fs.chmodSync(migrationFlagPath, 0o600);
+          this.hardenPermissionsSafely(migrationFlagPath, 0o600);
         } catch (error) {
-          logger.warn(`Failed to harden migration flag permissions: ${error}`);
+          logger.error(`Failed to harden migration flag permissions: ${error}`);
+          throw error;
         }
       }
       logger.debug(`Migration from ${sourceDir} to ${currentSubDir} already completed`);
@@ -139,11 +174,11 @@ export class FileStorageService {
 
         try {
           if (process.platform !== 'win32') {
-            fs.chmodSync(oldPath, 0o600);
+            this.hardenPermissionsSafely(oldPath, 0o600);
           }
           fs.renameSync(oldPath, newPath);
           if (process.platform !== 'win32') {
-            fs.chmodSync(newPath, 0o600);
+            this.hardenPermissionsSafely(newPath, 0o600);
           }
           migrationCount++;
           logger.info(`Migrated ${this.getLoggableFileName(file)} from ${sourceDir} to ${this.storageDir}`);
@@ -180,15 +215,12 @@ export class FileStorageService {
         { mode: 0o600 },
       );
       if (process.platform !== 'win32') {
-        try {
-          fs.chmodSync(migrationFlagPath, 0o600);
-        } catch (error) {
-          logger.warn(`Failed to harden migration flag permissions: ${error}`);
-        }
+        this.hardenPermissionsSafely(migrationFlagPath, 0o600);
       }
       logger.debug(`Created migration flag: .migrated-to-${targetSubDir} in ${sourceDir}`);
     } catch (error) {
-      logger.warn(`Failed to create migration flag: ${error}`);
+      logger.error(`Failed to create migration flag: ${error}`);
+      throw error;
     }
   }
 
@@ -389,48 +421,40 @@ export class FileStorageService {
   }
 
   /**
-   * Writes data to a file with the specified prefix and ID
+   * Internal unified atomic write primitive:
+   * Uses O_CREAT | O_EXCL with mode 0o600 for safe temporary file creation,
+   * writes data, optionally fsyncs, and atomically renames to the destination path.
    */
-  writeData<T extends ExpirableData>(filePrefix: string, id: string, data: T): void {
-    try {
-      const filePath = this.getFilePath(filePrefix, id);
-      if (process.platform !== 'win32' && fs.existsSync(filePath)) {
-        fs.chmodSync(filePath, 0o600);
-      }
-      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), { mode: 0o600 });
-      if (process.platform !== 'win32') {
-        fs.chmodSync(filePath, 0o600);
-      }
-      logger.debug(`Wrote data to ${this.getLoggableFilePath(filePrefix, id)}`);
-    } catch (error) {
-      logger.error(
-        `Failed to write data for ${this.getLoggableId(filePrefix, id)}: ${this.getLoggableError(filePrefix, error)}`,
-      );
-      throw error;
-    }
-  }
-
-  /**
-   * Atomically replaces a record and flushes it before returning.
-   */
-  writeDataDurable<T extends ExpirableData>(filePrefix: string, id: string, data: T): void {
+  private writeDataAtomic<T extends ExpirableData>(
+    filePrefix: string,
+    id: string,
+    data: T,
+    options: { durable?: boolean } = {},
+  ): void {
+    const { durable = false } = options;
     let temporaryPath: string | undefined;
+    let created = false;
     try {
       const filePath = this.getFilePath(filePrefix, id);
       temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
       const fileDescriptor = fs.openSync(temporaryPath, 'wx', 0o600);
+      created = true;
       try {
         fs.writeFileSync(fileDescriptor, JSON.stringify(data, null, 2));
-        fs.fsyncSync(fileDescriptor);
+        if (durable) {
+          fs.fsyncSync(fileDescriptor);
+        }
       } finally {
         fs.closeSync(fileDescriptor);
       }
       fs.renameSync(temporaryPath, filePath);
       temporaryPath = undefined;
-      this.flushStorageDirectory();
+      if (durable) {
+        this.flushStorageDirectory();
+      }
       logger.debug(`Wrote data to ${this.getLoggableFilePath(filePrefix, id)}`);
     } catch (error) {
-      if (temporaryPath) {
+      if (temporaryPath && created) {
         try {
           fs.unlinkSync(temporaryPath);
         } catch {
@@ -442,6 +466,20 @@ export class FileStorageService {
       );
       throw error;
     }
+  }
+
+  /**
+   * Writes data to a file with the specified prefix and ID
+   */
+  writeData<T extends ExpirableData>(filePrefix: string, id: string, data: T): void {
+    this.writeDataAtomic(filePrefix, id, data, { durable: false });
+  }
+
+  /**
+   * Atomically replaces a record and flushes it before returning.
+   */
+  writeDataDurable<T extends ExpirableData>(filePrefix: string, id: string, data: T): void {
+    this.writeDataAtomic(filePrefix, id, data, { durable: true });
   }
 
   /**
