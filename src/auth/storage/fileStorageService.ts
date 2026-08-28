@@ -597,7 +597,16 @@ export class FileStorageService {
         if (file.endsWith(AUTH_CONFIG.SERVER.STORAGE.FILE_EXTENSION)) {
           const filePath = path.join(this.storageDir, file);
           try {
-            const data = fs.readFileSync(filePath, 'utf8');
+            // Read through the same strictModes gate as readData: heal a
+            // group/other-open legacy file before consuming its bytes.
+            const fd = fs.openSync(filePath, 'r');
+            let data: string;
+            try {
+              enforceOwnerOnlyFilePermissions(fd, filePath);
+              data = fs.readFileSync(fd, 'utf8');
+            } finally {
+              fs.closeSync(fd);
+            }
             const parsedData = JSON.parse(data) as { expires?: number };
 
             // Check if expired (all our data types have expires field)

@@ -100,6 +100,7 @@ const baseline = loadBaseline();
 const baselineMap = new Map(baseline.entries.map((e) => [e.fingerprint, e]));
 
 function reasonFor(f) {
+  const templateReason = 'pre-existing, recorded at ticket-05 gate baseline; triage under 08-lowseverity-hardening';
   // Non-credential writes whose default-mode impact is nil or UCL-gated.
   const byPrefix = [
     [
@@ -151,12 +152,38 @@ function reasonFor(f) {
       'src/commands/app/consolidate.ts',
       'writes consolidated config derived from existing user config file — ticket-08',
     ],
+    [
+      'src/commands/shared/configParsingUtils.ts',
+      'audited (ticket-05 R5): copyFileSync mirrors the user-owned mcp.json it just read — bytes already visible at source mode; backup tightens under ticket-08',
+    ],
+    [
+      'src/core/runtime/runtimeIdentityService.ts',
+      'audited (ticket-05 R5): runtime identity (scope id only, no credentials) written via temp+rename into user config dir; acceptable, 0600 tightening under ticket-08',
+    ],
+    [
+      'src/core/server/runtimeScopeOwnership.ts',
+      'audited (ticket-05 R5): ownership claim/stop-lock records are non-secret markers written via candidate-dir swap; mkdir of the user-owned config dir — 0700 tightening under ticket-08',
+    ],
+    [
+      'src/domains/admin/adminPresetService.ts',
+      'audited (ticket-05 R5): admin backup of preset config the caller just read — derived-from-source bytes in user-owned path; tightening under ticket-08',
+    ],
+    [
+      'src/domains/config-change/configChange.ts',
+      'audited (ticket-05 R5): backups mirroring the existing user-owned config file and scaffold writes of user-authored mcp.json; source bytes already user-visible — ticket-08',
+    ],
   ];
   for (const [prefix, reason] of byPrefix) {
     if (f.file.startsWith(prefix)) return `${reason}`;
   }
-  return 'pre-existing, recorded at ticket-05 gate baseline; triage under 08-lowseverity-hardening';
+  return templateReason;
 }
+
+// Audit leg (detect-secrets model): enforce mode rejects baseline entries whose
+// reason is just the --update template, so accepted-risk entries must carry a
+// hand-written justification. --update records candidates; a human edits the
+// reason before the gate goes green.
+const TEMPLATE_REASON_RE = /^pre-existing, recorded at ticket-05 gate baseline/;
 
 const mode = process.argv.includes('--update') ? 'update' : process.argv.includes('--prune') ? 'prune' : 'enforce';
 
@@ -190,6 +217,15 @@ if (mode === 'prune') {
 }
 
 // enforce
+const templateReasonEntries = baseline.entries.filter((e) => TEMPLATE_REASON_RE.test(e.reason || ''));
+if (templateReasonEntries.length > 0) {
+  console.error('\nFAIL: baseline entries still carry the --update template reason (audit required):');
+  for (const e of templateReasonEntries) {
+    console.error(`  ${e.fingerprint}  ${e.file}:${e.line}`);
+  }
+  console.error('\nEdit permission-guard-baseline.json and replace each with a hand-written justification.');
+  process.exit(1);
+}
 const newFindings = findings.filter((f) => !baselineMap.has(f.fingerprint));
 for (const e of stale) {
   console.warn(`[stale-baseline] ${e.fingerprint} no longer matches any finding — run --prune`);

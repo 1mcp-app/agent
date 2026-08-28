@@ -1,23 +1,23 @@
 {
   "schema": 1,
-  "generatedBy": "check-permission-modes.mjs --prune",
+  "generatedBy": "check-permission-modes.mjs --update",
   "entries": [
     {
       "fingerprint": "src/auth/storage/fileStorageService.ts#2#writeFileSync",
       "file": "src/auth/storage/fileStorageService.ts",
       "call": "writeFileSync",
-      "line": 192,
+      "line": 182,
       "reason": "writeFileSync targets fd from openSync(wx, 0o600) — mode inherited at open; this file is the AUTH-07 reference implementation",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
       "fingerprint": "src/auth/storage/fileStorageService.ts#5#writeFileSync",
       "file": "src/auth/storage/fileStorageService.ts",
       "call": "writeFileSync",
-      "line": 442,
+      "line": 432,
       "reason": "writeFileSync targets fd from openSync(wx, 0o600) — mode inherited at open; this file is the AUTH-07 reference implementation",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -26,7 +26,7 @@
       "call": "writeFileSync",
       "line": 412,
       "reason": "writes consolidated config derived from existing user config file — ticket-08",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -35,7 +35,7 @@
       "call": "copyFileSync",
       "line": 415,
       "reason": "writes consolidated config derived from existing user config file — ticket-08",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -44,7 +44,7 @@
       "call": "mkdir",
       "line": 192,
       "reason": "writes IDE/cli setup scaffolding config files in user-owned paths — ticket-08",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -53,7 +53,7 @@
       "call": "writeFile",
       "line": 193,
       "reason": "writes IDE/cli setup scaffolding config files in user-owned paths — ticket-08",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -62,7 +62,7 @@
       "call": "mkdir",
       "line": 214,
       "reason": "writes IDE/cli setup scaffolding config files in user-owned paths — ticket-08",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -71,7 +71,7 @@
       "call": "writeFile",
       "line": 215,
       "reason": "writes IDE/cli setup scaffolding config files in user-owned paths — ticket-08",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -80,7 +80,7 @@
       "call": "mkdirSync",
       "line": 406,
       "reason": "log-file append under user-owned config dir; ACL tightening tracked under ticket-08",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -89,7 +89,7 @@
       "call": "mkdirSync",
       "line": 487,
       "reason": "log-file append under user-owned config dir; ACL tightening tracked under ticket-08",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -98,7 +98,7 @@
       "call": "appendFileSync",
       "line": 499,
       "reason": "log-file append under user-owned config dir; ACL tightening tracked under ticket-08",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -107,7 +107,7 @@
       "call": "mkdirSync",
       "line": 205,
       "reason": "writes user-owned mcp.json config (may embed env but guaranteed non-secret at authoring time) — ticket-08",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -116,7 +116,7 @@
       "call": "writeFileSync",
       "line": 209,
       "reason": "writes user-owned mcp.json config (may embed env but guaranteed non-secret at authoring time) — ticket-08",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -124,8 +124,8 @@
       "file": "src/commands/shared/configParsingUtils.ts",
       "call": "copyFileSync",
       "line": 98,
-      "reason": "pre-existing, recorded at ticket-05 gate baseline; triage under 08-lowseverity-hardening",
-      "enteredAt": "2026-08-27",
+      "reason": "audited (ticket-05 R5): copyFileSync mirrors the user-owned mcp.json it just read — bytes already visible at source mode; backup tightens under ticket-08",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -134,7 +134,7 @@
       "call": "writeFileSync",
       "line": 268,
       "reason": "serializes user-authored target config to user-owned path — ticket-08",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -143,7 +143,7 @@
       "call": "mkdirSync",
       "line": 161,
       "reason": "writes DEFAULT_CONFIG scaffold on first run (no secrets); acceptable default-mode — ticket-08",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -152,7 +152,7 @@
       "call": "writeFileSync",
       "line": 166,
       "reason": "writes DEFAULT_CONFIG scaffold on first run (no secrets); acceptable default-mode — ticket-08",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -160,8 +160,8 @@
       "file": "src/core/runtime/runtimeIdentityService.ts",
       "call": "mkdirSync",
       "line": 92,
-      "reason": "pre-existing, recorded at ticket-05 gate baseline; triage under 08-lowseverity-hardening",
-      "enteredAt": "2026-08-27",
+      "reason": "audited (ticket-05 R5): runtime identity (scope id only, no credentials) written via temp+rename into user config dir; acceptable, 0600 tightening under ticket-08",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -169,8 +169,8 @@
       "file": "src/core/runtime/runtimeIdentityService.ts",
       "call": "writeFileSync",
       "line": 95,
-      "reason": "pre-existing, recorded at ticket-05 gate baseline; triage under 08-lowseverity-hardening",
-      "enteredAt": "2026-08-27",
+      "reason": "audited (ticket-05 R5): runtime identity (scope id only, no credentials) written via temp+rename into user config dir; acceptable, 0600 tightening under ticket-08",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -179,7 +179,7 @@
       "call": "mkdirSync",
       "line": 96,
       "reason": "pid file content is not secret (PID only); mkdir is ~/.1mcp config dir bootstrap — tracked for 0600 tightening under ticket-08",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -188,7 +188,7 @@
       "call": "writeFileSync",
       "line": 104,
       "reason": "pid file content is not secret (PID only); mkdir is ~/.1mcp config dir bootstrap — tracked for 0600 tightening under ticket-08",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -196,8 +196,8 @@
       "file": "src/core/server/runtimeScopeOwnership.ts",
       "call": "mkdirSync",
       "line": 124,
-      "reason": "pre-existing, recorded at ticket-05 gate baseline; triage under 08-lowseverity-hardening",
-      "enteredAt": "2026-08-27",
+      "reason": "audited (ticket-05 R5): ownership claim/stop-lock records are non-secret markers written via candidate-dir swap; mkdir of the user-owned config dir — 0700 tightening under ticket-08",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -205,8 +205,8 @@
       "file": "src/core/server/runtimeScopeOwnership.ts",
       "call": "mkdirSync",
       "line": 193,
-      "reason": "pre-existing, recorded at ticket-05 gate baseline; triage under 08-lowseverity-hardening",
-      "enteredAt": "2026-08-27",
+      "reason": "audited (ticket-05 R5): ownership claim/stop-lock records are non-secret markers written via candidate-dir swap; mkdir of the user-owned config dir — 0700 tightening under ticket-08",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -214,8 +214,8 @@
       "file": "src/domains/admin/adminPresetService.ts",
       "call": "copyFileSync",
       "line": 333,
-      "reason": "pre-existing, recorded at ticket-05 gate baseline; triage under 08-lowseverity-hardening",
-      "enteredAt": "2026-08-27",
+      "reason": "audited (ticket-05 R5): admin backup of preset config the caller just read — derived-from-source bytes in user-owned path; tightening under ticket-08",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -224,7 +224,7 @@
       "call": "mkdirSync",
       "line": 58,
       "reason": "writeFileSync targets fd already opened 0o600 via openSync — mode inherited at open; mkdir prefixed by 0700 candidateDir",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -233,7 +233,7 @@
       "call": "writeFileSync",
       "line": 94,
       "reason": "writeFileSync targets fd already opened 0o600 via openSync — mode inherited at open; mkdir prefixed by 0700 candidateDir",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -242,7 +242,7 @@
       "call": "mkdirSync",
       "line": 109,
       "reason": "backup metadata copies config; tightening scheduled under ticket-08 (low-severity hardening)",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -251,7 +251,7 @@
       "call": "copyFileSync",
       "line": 120,
       "reason": "backup metadata copies config; tightening scheduled under ticket-08 (low-severity hardening)",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -260,7 +260,7 @@
       "call": "writeFileSync",
       "line": 138,
       "reason": "backup metadata copies config; tightening scheduled under ticket-08 (low-severity hardening)",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -269,7 +269,7 @@
       "call": "copyFileSync",
       "line": 160,
       "reason": "backup metadata copies config; tightening scheduled under ticket-08 (low-severity hardening)",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -278,7 +278,7 @@
       "call": "writeFileSync",
       "line": 424,
       "reason": "backup metadata copies config; tightening scheduled under ticket-08 (low-severity hardening)",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -286,8 +286,8 @@
       "file": "src/domains/config-change/configChange.ts",
       "call": "copyFileSync",
       "line": 1018,
-      "reason": "pre-existing, recorded at ticket-05 gate baseline; triage under 08-lowseverity-hardening",
-      "enteredAt": "2026-08-27",
+      "reason": "audited (ticket-05 R5): backups mirroring the existing user-owned config file and scaffold writes of user-authored mcp.json; source bytes already user-visible — ticket-08",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -295,8 +295,8 @@
       "file": "src/domains/config-change/configChange.ts",
       "call": "mkdirSync",
       "line": 1110,
-      "reason": "pre-existing, recorded at ticket-05 gate baseline; triage under 08-lowseverity-hardening",
-      "enteredAt": "2026-08-27",
+      "reason": "audited (ticket-05 R5): backups mirroring the existing user-owned config file and scaffold writes of user-authored mcp.json; source bytes already user-visible — ticket-08",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -304,8 +304,8 @@
       "file": "src/domains/config-change/configChange.ts",
       "call": "writeFileSync",
       "line": 1113,
-      "reason": "pre-existing, recorded at ticket-05 gate baseline; triage under 08-lowseverity-hardening",
-      "enteredAt": "2026-08-27",
+      "reason": "audited (ticket-05 R5): backups mirroring the existing user-owned config file and scaffold writes of user-authored mcp.json; source bytes already user-visible — ticket-08",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -314,7 +314,7 @@
       "call": "mkdir",
       "line": 9,
       "reason": "preset config cache mirrors user-authored mcp.json (non-secret at authoring time) — async fs.promises path, tightening under ticket-08",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -323,7 +323,7 @@
       "call": "writeFile",
       "line": 35,
       "reason": "preset config cache mirrors user-authored mcp.json (non-secret at authoring time) — async fs.promises path, tightening under ticket-08",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -332,7 +332,7 @@
       "call": "mkdirSync",
       "line": 1398,
       "reason": "writeJsonAtomic forwards an optional mode param; callers may omit it — tightening tracked under ticket-08",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -341,7 +341,7 @@
       "call": "mkdirSync",
       "line": 1844,
       "reason": "writeJsonAtomic forwards an optional mode param; callers may omit it — tightening tracked under ticket-08",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     },
     {
@@ -350,7 +350,7 @@
       "call": "writeFileSync",
       "line": 1846,
       "reason": "writeJsonAtomic forwards an optional mode param; callers may omit it — tightening tracked under ticket-08",
-      "enteredAt": "2026-08-27",
+      "enteredAt": "2026-08-28",
       "ticket": "08-lowseverity-hardening"
     }
   ]
