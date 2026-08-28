@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
+import YAML from 'yaml';
 
 const BROWSER_TEST_SUFFIX = '.browser.e2e.test.ts';
 const PLAYWRIGHT_IMPORT = /(?:from\s+|require\(\s*|import\(\s*)['"](?:@playwright\/test|playwright(?:-core)?)['"]/;
@@ -71,12 +72,17 @@ describe('test-and-validate workflow', () => {
     expect(packageJson.scripts['test:e2e:system']).toContain('test/e2e/commands/serve-background.test.ts');
   });
   it('runs actionlint in CI to gate against workflow syntax and injection regressions', () => {
-    const workflow = readRepoFile('.github/workflows/test-and-validate.yml');
-    const ciJob = workflow.match(/\n\s{2}ci:\n(?<body>(?:\s{4}.*\n)+)/)?.groups?.body;
+    const workflow = YAML.parse(readRepoFile('.github/workflows/test-and-validate.yml')) as {
+      jobs?: { ci?: { steps?: { uses?: string; with?: Record<string, string> }[] } };
+    };
+    const steps = workflow?.jobs?.ci?.steps;
 
-    expect(ciJob).toBeDefined();
-    expect(ciJob).toContain('reviewdog/action-actionlint@a5524e1c19e62881d79c1f1b9b6f09f16356e281');
-    expect(ciJob).toContain('fail_level: any');
-    expect(ciJob).toContain('filter_mode: nofilter');
+    expect(steps).toBeDefined();
+    const actionlint = steps?.find((step) => step.uses?.startsWith('reviewdog/action-actionlint@'));
+
+    expect(actionlint).toBeDefined();
+    expect(actionlint?.uses).toMatch(/^reviewdog\/action-actionlint@[0-9a-f]{40}$/);
+    expect(actionlint?.with?.fail_level).toBe('any');
+    expect(actionlint?.with?.filter_mode).toBe('nofilter');
   });
 });
