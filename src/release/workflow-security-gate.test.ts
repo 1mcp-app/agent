@@ -435,6 +435,27 @@ describe('GitHub Actions Workflow & Composite Action Security Gate', () => {
       expect(scanWorkflowSecurity(safe)).toHaveLength(0);
     });
 
+    it('accurately attributes violation line when preceded by env.run variable', () => {
+      const maliciousWithEnvRun = [
+        'name: Test',
+        'jobs:',
+        '  t:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - name: Step with env run',
+        '        env:',
+        '          run: safe_value',
+        '        run: echo "safe"',
+        '      - name: Violating step',
+        '        run: echo "Hello ' + String.fromCharCode(36) + '{{ github.actor }}"',
+      ].join('\n');
+
+      const violations = scanWorkflowSecurity(maliciousWithEnvRun, 'test.yml');
+      expect(violations).toHaveLength(1);
+      expect(violations[0].rule).toBe('NO_RUN_INJECTION');
+      expect(violations[0].line).toBe(11);
+    });
+
     it('allows environment variable named run in env: mapping without false positive', () => {
       const envWithRunVar = [
         'jobs:',

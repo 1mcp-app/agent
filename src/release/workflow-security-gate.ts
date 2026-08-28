@@ -17,8 +17,40 @@ export interface WorkflowViolation {
 }
 
 /**
+ * Recursively resolves a YAML node or alias to its underlying string value.
+ *
+ * @param node - The AST node or alias to resolve.
+ * @param doc - The parsed YAML document.
+ * @returns The resolved string representation.
+ */
+function resolveStringValue(node: unknown, doc: YAML.Document): string {
+  if (!node) return '';
+  if (YAML.isScalar(node)) return String(node.value ?? '');
+  if (YAML.isAlias(node)) {
+    const resolved = node.resolve(doc);
+    return resolveStringValue(resolved, doc);
+  }
+  return '';
+}
+
+/**
+ * Checks whether an AST scalar node represents a YAML merge key (<<:).
+ *
+ * @param keyNode - The AST node of the pair key.
+ * @returns True if the key represents a merge key.
+ */
+function isMergeKey(keyNode: unknown): boolean {
+  if (!keyNode) return false;
+  const scalar = keyNode as { source?: string; value?: unknown };
+  if (scalar.source === '<<') return true;
+  if (typeof scalar.value === 'symbol' && String(scalar.value).includes('<<')) return true;
+  if (String(scalar.value) === '<<') return true;
+  return false;
+}
+
+/**
  * Scans a GitHub Actions workflow or composite action file for 'secrets: inherit' and script expression injections in 'run:' steps.
- * Uses standard YAML structural evaluation with merge key support (natively resolving all aliases, anchors, merge keys, flow mappings, and block scalars).
+ * Uses path-aware AST traversal and CST node range tracking for accurate diagnostic line attribution.
  *
  * @param content - The raw YAML string content of the workflow or action file.
  * @param filename - Optional filename or relative path for reporting diagnostic violations.
@@ -27,8 +59,6 @@ export interface WorkflowViolation {
 export function scanWorkflowSecurity(content: string, filename = 'workflow.yml'): WorkflowViolation[] {
   const violations: WorkflowViolation[] = [];
   const expressionPattern = /\$\{\{/;
-
-  const lines = content.replace(/\r\n/g, '\n').split('\n');
   const lineCounter = new YAML.LineCounter();
 
   let doc: YAML.Document;
@@ -40,7 +70,7 @@ export function scanWorkflowSecurity(content: string, filename = 'workflow.yml')
       line: 1,
       rule: 'NO_RUN_INJECTION',
       message: 'YAML Parse Error: ' + (e instanceof Error ? e.message : String(e)),
-      snippet: lines[0] || '',
+      snippet: '',
     });
     return violations;
   }
@@ -58,94 +88,58 @@ export function scanWorkflowSecurity(content: string, filename = 'workflow.yml')
     return violations;
   }
 
-  let jsObj: Record<string, unknown>;
-  try {
-    jsObj = doc.toJS() as Record<string, unknown>;
-  } catch (e) {
-    violations.push({
-      file: filename,
-      line: 1,
-      rule: 'NO_RUN_INJECTION',
-      message: 'YAML Evaluation Error: ' + (e instanceof Error ? e.message : String(e)),
-      snippet: lines[0] || '',
-    });
-    return violations;
-  }
-
-  if (!jsObj || typeof jsObj !== 'object') {
-    return violations;
-  }
-
-  // Collect AST line locations for run: and secrets: pairs from CST ranges
-  const runLines: number[] = [];
-  const secretsLines: number[] = [];
-
-  YAML.visit(doc, {
-    Pair(_, pair) {
-      if (!YAML.isNode(pair.key) || !pair.key.range) return;
-      const keyVal = (pair.key as { value?: unknown }).value;
-      if (keyVal === 'run') {
-        const line = lineCounter.linePos(pair.key.range[0]).line;
-        runLines.push(line);
-      } else if (keyVal === 'secrets') {
-        const line = lineCounter.linePos(pair.key.range[0]).line;
-        secretsLines.push(line);
+  /**
+   * Inspects a step mapping node for run: expression injections and secrets: inherit violations.
+   *
+   * @param stepMap - The YAML mapping node for an individual step.
+   * @param fallbackLine - Fallback line number if CST range is unavailable.
+   * @param isMerged - Whether the step properties originated from a merged key.
+   */
+  function checkStepMap(stepMap: unknown, fallbackLine = 1, isMerged = false): void {
+    if (!YAML.isMap(stepMap)) {
+      if (YAML.isAlias(stepMap)) {
+        const resolved = stepMap.resolve(doc);
+        if (YAML.isMap(resolved)) checkStepMap(resolved, fallbackLine, isMerged);
       }
-    },
-  });
-
-  let runLineIdx = 0;
-  let secretsLineIdx = 0;
-
-  /**
-   * Retrieves the accurate AST line number for the next encountered run: step.
-   *
-   * @param snippet - The snippet of code to look up as fallback.
-   * @returns The line number in the source file.
-   */
-  function getNextRunLine(snippet: string): number {
-    if (runLineIdx < runLines.length) {
-      return runLines[runLineIdx++];
+      return;
     }
-    const firstLine = snippet.split('\n')[0].trim();
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes(firstLine)) return i + 1;
-    }
-    return 1;
-  }
 
-  /**
-   * Retrieves the accurate AST line number for the next encountered secrets: step or job.
-   *
-   * @returns The line number in the source file.
-   */
-  function getNextSecretsLine(): number {
-    if (secretsLineIdx < secretsLines.length) {
-      return secretsLines[secretsLineIdx++];
-    }
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes('secrets') && lines[i].includes('inherit')) return i + 1;
-    }
-    return 1;
-  }
+    for (const pair of stepMap.items) {
+      if (!YAML.isPair(pair)) continue;
 
-  /**
-   * Evaluates an array of step objects for script injections and unsafe secrets inheritance.
-   *
-   * @param steps - The array of step definitions from a job or composite action.
-   */
-  function checkSteps(steps: unknown[]): void {
-    if (!Array.isArray(steps)) return;
-    for (const step of steps) {
-      if (!step || typeof step !== 'object') continue;
+      // Handle step-level merge keys (<<:)
+      if (isMergeKey(pair.key)) {
+        const mergeLine =
+          pair.key && YAML.isNode(pair.key) && pair.key.range
+            ? lineCounter.linePos(pair.key.range[0]).line
+            : fallbackLine;
+        if (YAML.isAlias(pair.value)) {
+          const resolved = pair.value.resolve(doc);
+          if (YAML.isMap(resolved)) checkStepMap(resolved, mergeLine, true);
+        } else if (YAML.isSeq(pair.value)) {
+          for (const it of pair.value.items) {
+            if (YAML.isAlias(it)) {
+              const res = it.resolve(doc);
+              if (YAML.isMap(res)) checkStepMap(res, mergeLine, true);
+            } else if (YAML.isMap(it)) {
+              checkStepMap(it, mergeLine, true);
+            }
+          }
+        }
+        continue;
+      }
 
-      const stepRecord = step as Record<string, unknown>;
+      if (!YAML.isScalar(pair.key)) continue;
+      const key = String(pair.key.value);
 
-      // Check run injection
-      if (typeof stepRecord.run === 'string') {
-        const snippet = stepRecord.run.split('\n')[0].trim();
-        const line = getNextRunLine(snippet);
-        if (expressionPattern.test(stepRecord.run)) {
+      if (key === 'run') {
+        const strVal = resolveStringValue(pair.value, doc);
+        if (expressionPattern.test(strVal)) {
+          const line =
+            !isMerged && YAML.isNode(pair.key) && pair.key.range
+              ? lineCounter.linePos(pair.key.range[0]).line
+              : fallbackLine;
+          const snippet = strVal.split('\n')[0].trim();
           violations.push({
             file: filename,
             line,
@@ -155,12 +149,13 @@ export function scanWorkflowSecurity(content: string, filename = 'workflow.yml')
             snippet,
           });
         }
-      }
-
-      // Check step-level secrets: inherit
-      if (typeof stepRecord.secrets === 'string') {
-        const line = getNextSecretsLine();
-        if (stepRecord.secrets.toLowerCase().trim() === 'inherit') {
+      } else if (key === 'secrets') {
+        const strVal = resolveStringValue(pair.value, doc);
+        if (strVal.toLowerCase().trim() === 'inherit') {
+          const line =
+            !isMerged && YAML.isNode(pair.key) && pair.key.range
+              ? lineCounter.linePos(pair.key.range[0]).line
+              : fallbackLine;
           violations.push({
             file: filename,
             line,
@@ -173,39 +168,104 @@ export function scanWorkflowSecurity(content: string, filename = 'workflow.yml')
     }
   }
 
-  // 1. Check jobs in workflows (caller workflows passing secrets or executing steps)
-  if (jsObj.jobs && typeof jsObj.jobs === 'object') {
-    for (const job of Object.values(jsObj.jobs as Record<string, unknown>)) {
-      if (!job || typeof job !== 'object') continue;
-
-      const jobRecord = job as Record<string, unknown>;
-
-      // Check job-level secrets: inherit
-      if (typeof jobRecord.secrets === 'string') {
-        const line = getNextSecretsLine();
-        if (jobRecord.secrets.toLowerCase().trim() === 'inherit') {
-          violations.push({
-            file: filename,
-            line,
-            rule: 'NO_SECRETS_INHERIT',
-            message: "Forbidden 'secrets: inherit' detected. Secrets must be explicitly mapped by name or use OIDC.",
-            snippet: 'secrets: inherit',
-          });
-        }
+  /**
+   * Inspects a steps sequence node across all contained steps.
+   *
+   * @param stepsSeq - The YAML sequence node containing step mappings.
+   */
+  function checkStepsSeq(stepsSeq: unknown): void {
+    if (!YAML.isSeq(stepsSeq)) {
+      if (YAML.isAlias(stepsSeq)) {
+        const resolved = stepsSeq.resolve(doc);
+        if (YAML.isSeq(resolved)) checkStepsSeq(resolved);
       }
-
-      // Check job steps
-      if (Array.isArray(jobRecord.steps)) {
-        checkSteps(jobRecord.steps);
+      return;
+    }
+    for (const item of stepsSeq.items) {
+      if (YAML.isMap(item) && item.range) {
+        const stepLine = lineCounter.linePos(item.range[0]).line;
+        checkStepMap(item, stepLine, false);
+      } else {
+        checkStepMap(item, 1, false);
       }
     }
   }
 
-  // 2. Check composite actions (runs.steps)
-  if (jsObj.runs && typeof jsObj.runs === 'object') {
-    const runsRecord = jsObj.runs as Record<string, unknown>;
-    if (Array.isArray(runsRecord.steps)) {
-      checkSteps(runsRecord.steps);
+  // Traverse top-level mapping (jobs / runs)
+  if (YAML.isMap(doc.contents)) {
+    for (const rootPair of doc.contents.items) {
+      if (!YAML.isPair(rootPair) || !YAML.isScalar(rootPair.key)) continue;
+      const rootKey = String(rootPair.key.value);
+
+      if (rootKey === 'jobs' && YAML.isMap(rootPair.value)) {
+        for (const jobPair of rootPair.value.items) {
+          if (!YAML.isPair(jobPair)) continue;
+          let jobVal = jobPair.value;
+          if (YAML.isAlias(jobVal)) jobVal = jobVal.resolve(doc);
+          if (!YAML.isMap(jobVal)) continue;
+
+          for (const jobProp of jobVal.items) {
+            if (!YAML.isPair(jobProp)) continue;
+
+            // Handle job-level merge keys
+            if (isMergeKey(jobProp.key)) {
+              const mergeLine =
+                jobProp.key && YAML.isNode(jobProp.key) && jobProp.key.range
+                  ? lineCounter.linePos(jobProp.key.range[0]).line
+                  : 1;
+              if (YAML.isAlias(jobProp.value)) {
+                const resolved = jobProp.value.resolve(doc);
+                if (YAML.isMap(resolved)) {
+                  for (const mProp of resolved.items) {
+                    if (YAML.isPair(mProp) && YAML.isScalar(mProp.key) && String(mProp.key.value) === 'secrets') {
+                      const strVal = resolveStringValue(mProp.value, doc);
+                      if (strVal.toLowerCase().trim() === 'inherit') {
+                        violations.push({
+                          file: filename,
+                          line: mergeLine,
+                          rule: 'NO_SECRETS_INHERIT',
+                          message:
+                            "Forbidden 'secrets: inherit' detected. Secrets must be explicitly mapped by name or use OIDC.",
+                          snippet: 'secrets: inherit',
+                        });
+                      }
+                    }
+                  }
+                }
+              }
+              continue;
+            }
+
+            if (!YAML.isScalar(jobProp.key)) continue;
+            const propKey = String(jobProp.key.value);
+
+            if (propKey === 'secrets') {
+              const strVal = resolveStringValue(jobProp.value, doc);
+              if (strVal.toLowerCase().trim() === 'inherit') {
+                const line =
+                  YAML.isNode(jobProp.key) && jobProp.key.range ? lineCounter.linePos(jobProp.key.range[0]).line : 1;
+                violations.push({
+                  file: filename,
+                  line,
+                  rule: 'NO_SECRETS_INHERIT',
+                  message:
+                    "Forbidden 'secrets: inherit' detected. Secrets must be explicitly mapped by name or use OIDC.",
+                  snippet: 'secrets: inherit',
+                });
+              }
+            } else if (propKey === 'steps') {
+              checkStepsSeq(jobProp.value);
+            }
+          }
+        }
+      } else if (rootKey === 'runs' && YAML.isMap(rootPair.value)) {
+        for (const runProp of rootPair.value.items) {
+          if (!YAML.isPair(runProp) || !YAML.isScalar(runProp.key)) continue;
+          if (String(runProp.key.value) === 'steps') {
+            checkStepsSeq(runProp.value);
+          }
+        }
+      }
     }
   }
 

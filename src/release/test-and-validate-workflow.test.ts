@@ -94,6 +94,7 @@ describe('test-and-validate workflow', () => {
 
     expect(actionlint).toBeDefined();
     expect(actionlint?.uses).toMatch(/^reviewdog\/action-actionlint@[0-9a-f]{40}$/);
+    expect(actionlint?.uses).toBe('reviewdog/action-actionlint@a5524e1c19e62881d79c1f1b9b6f09f16356e281');
     expect(actionlint?.with?.fail_level).toBe('any');
     expect(actionlint?.with?.filter_mode).toBe('nofilter');
   });
