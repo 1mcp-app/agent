@@ -6,24 +6,36 @@ import logger from '@src/logger/logger.js';
 
 /**
  * Thrown when a credential-bearing file or directory is readable/writable by
- * group/others and the self-heal chmod was denied. Read-side strictModes
+ * group/others and the self-heal chmod was denied, or when the credential is
+ * owned by a different uid than the running process. Read-side strictModes
  * (OpenSSH model): heal-then-consume, fail closed when the heal is rejected.
  * The message redacts the absolute path to a single directory name so logs
- * can be shared without leaking user layouts.
+ * can be shared without leaking user layouts; the public fields carry the
+ * same redaction so structured-log serialization cannot leak paths either.
  */
 export class InsecureFilePermissionsError extends Error {
   public readonly filePath: string;
   public readonly actualMode: number;
 
-  constructor(filePath: string, actualMode: number) {
+  constructor(filePath: string, actualMode: number, reason?: string) {
     super(
-      `Refusing to read ${path.basename(path.dirname(filePath))} data: file permissions ` +
-        `0${(actualMode & 0o777).toString(8)} are too open (group/other bits must be 0)`,
+      reason ??
+        `Refusing to read ${path.basename(path.dirname(filePath))} data: file permissions ` +
+          `0${(actualMode & 0o777).toString(8)} are too open (group/other bits must be 0)`,
     );
     this.name = 'InsecureFilePermissionsError';
-    this.filePath = filePath;
+    this.filePath = path.basename(path.dirname(filePath));
     this.actualMode = actualMode & 0o777;
   }
+}
+
+/** Refuse credentials not owned by the current process uid (OpenSSH foreign-owner rule). */
+function foreignOwnershipError(filePath: string, mode: number): InsecureFilePermissionsError {
+  return new InsecureFilePermissionsError(
+    filePath,
+    mode,
+    `Refusing to read ${path.basename(path.dirname(filePath))} data: file is owned by a different user`,
+  );
 }
 
 function logFileHealed(filePath: string, mode: number): void {
@@ -64,7 +76,11 @@ export function enforceOwnerOnlyFilePermissions(fd: number, filePath: string): v
   if (process.platform === 'win32') {
     return;
   }
-  const mode = fs.fstatSync(fd).mode;
+  const st = fs.fstatSync(fd);
+  if (process.geteuid && st.uid !== process.geteuid()) {
+    throw foreignOwnershipError(filePath, st.mode);
+  }
+  const mode = st.mode;
   if ((mode & 0o077) === 0) {
     return;
   }
@@ -90,7 +106,11 @@ export function assertOwnerOnlyDirPermissions(dirPath: string): void {
   if (process.platform === 'win32') {
     return;
   }
-  const mode = fs.statSync(dirPath).mode;
+  const st = fs.statSync(dirPath);
+  if (process.geteuid && st.uid !== process.geteuid()) {
+    throw foreignOwnershipError(dirPath, st.mode);
+  }
+  const mode = st.mode;
   if ((mode & 0o077) === 0) {
     return;
   }
@@ -111,7 +131,11 @@ export async function assertOwnerOnlyDirPermissionsAsync(dirPath: string): Promi
   if (process.platform === 'win32') {
     return;
   }
-  const mode = (await stat(dirPath)).mode;
+  const st = await stat(dirPath);
+  if (process.geteuid && st.uid !== process.geteuid()) {
+    throw foreignOwnershipError(dirPath, st.mode);
+  }
+  const mode = st.mode;
   if ((mode & 0o077) === 0) {
     return;
   }
@@ -138,7 +162,11 @@ export async function readCredentialFile(filePath: string, storageDir: string): 
   const handle = await open(filePath, 'r');
   try {
     if (process.platform !== 'win32') {
-      const mode = (await handle.stat()).mode;
+      const st = await handle.stat();
+      if (process.geteuid && st.uid !== process.geteuid()) {
+        throw foreignOwnershipError(filePath, st.mode);
+      }
+      const mode = st.mode;
       if ((mode & 0o077) !== 0) {
         try {
           await handle.chmod(0o600);

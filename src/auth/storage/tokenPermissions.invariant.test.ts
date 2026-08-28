@@ -153,6 +153,21 @@ describe('token/storage permission invariants (POSIX-only, AUTH-07 gate)', () =>
       expect(fs.statSync(filePath).mode & 0o777).toBe(0o644);
     });
 
+    it.skipIf(!isPosix)('refuses a credential owned by a different uid (foreign-owner rule)', () => {
+      service.writeData(filePrefix, testId, testData); // lands 0600, but fstat reports foreign uid
+      const filePath = service.getFilePath(filePrefix, testId);
+
+      const realFstat = fs.fstatSync;
+      vi.spyOn(fs, 'fstatSync').mockImplementation(((fd: number, ...rest: unknown[]) => {
+        const st = (realFstat as (...args: unknown[]) => fs.Stats)(fd, ...rest);
+        // Spoof: as-if the fd is owned by someone else.
+        return Object.assign(Object.create(Object.getPrototypeOf(st)), st, { uid: (st.uid ?? 0) + 1 });
+      }) as typeof fs.fstatSync);
+
+      expect(() => service.readData<TestData>(filePrefix, testId)).toThrow(InsecureFilePermissionsError);
+      expect(fs.statSync(filePath).mode & 0o777).toBe(0o600);
+    });
+
     it.skipIf(!isPosix)('self-heals a group/other-readable storage directory on read', () => {
       service.writeData(filePrefix, testId, testData);
       fs.chmodSync(service.getStorageDir(), 0o755);
