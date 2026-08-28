@@ -435,6 +435,24 @@ describe('GitHub Actions Workflow & Composite Action Security Gate', () => {
       expect(scanWorkflowSecurity(safe)).toHaveLength(0);
     });
 
+    it('detects violations when jobs mapping is defined via root alias', () => {
+      const maliciousJobsAlias = [
+        'all_jobs: &aj',
+        '  build:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - name: violating step in jobs alias',
+        '        run: echo "Hello ' + String.fromCharCode(36) + '{{ github.actor }}"',
+        '',
+        'jobs: *aj',
+      ].join('\n');
+
+      const violations = scanWorkflowSecurity(maliciousJobsAlias, 'jobs-alias.yml');
+      expect(violations).toHaveLength(1);
+      expect(violations[0].rule).toBe('NO_RUN_INJECTION');
+      expect(violations[0].line).toBe(6);
+    });
+
     it('accurately attributes violation line when preceded by env.run variable', () => {
       const maliciousWithEnvRun = [
         'name: Test',

@@ -197,72 +197,82 @@ export function scanWorkflowSecurity(content: string, filename = 'workflow.yml')
       if (!YAML.isPair(rootPair) || !YAML.isScalar(rootPair.key)) continue;
       const rootKey = String(rootPair.key.value);
 
-      if (rootKey === 'jobs' && YAML.isMap(rootPair.value)) {
-        for (const jobPair of rootPair.value.items) {
-          if (!YAML.isPair(jobPair)) continue;
-          let jobVal = jobPair.value;
-          if (YAML.isAlias(jobVal)) jobVal = jobVal.resolve(doc);
-          if (!YAML.isMap(jobVal)) continue;
+      if (rootKey === 'jobs') {
+        let jobsVal = rootPair.value;
+        if (YAML.isAlias(jobsVal)) jobsVal = jobsVal.resolve(doc);
 
-          for (const jobProp of jobVal.items) {
-            if (!YAML.isPair(jobProp)) continue;
+        if (YAML.isMap(jobsVal)) {
+          for (const jobPair of jobsVal.items) {
+            if (!YAML.isPair(jobPair)) continue;
+            let jobVal = jobPair.value;
+            if (YAML.isAlias(jobVal)) jobVal = jobVal.resolve(doc);
+            if (!YAML.isMap(jobVal)) continue;
 
-            // Handle job-level merge keys
-            if (isMergeKey(jobProp.key)) {
-              const mergeLine =
-                jobProp.key && YAML.isNode(jobProp.key) && jobProp.key.range
-                  ? lineCounter.linePos(jobProp.key.range[0]).line
-                  : 1;
-              if (YAML.isAlias(jobProp.value)) {
-                const resolved = jobProp.value.resolve(doc);
-                if (YAML.isMap(resolved)) {
-                  for (const mProp of resolved.items) {
-                    if (YAML.isPair(mProp) && YAML.isScalar(mProp.key) && String(mProp.key.value) === 'secrets') {
-                      const strVal = resolveStringValue(mProp.value, doc);
-                      if (strVal.toLowerCase().trim() === 'inherit') {
-                        violations.push({
-                          file: filename,
-                          line: mergeLine,
-                          rule: 'NO_SECRETS_INHERIT',
-                          message:
-                            "Forbidden 'secrets: inherit' detected. Secrets must be explicitly mapped by name or use OIDC.",
-                          snippet: 'secrets: inherit',
-                        });
+            for (const jobProp of jobVal.items) {
+              if (!YAML.isPair(jobProp)) continue;
+
+              // Handle job-level merge keys
+              if (isMergeKey(jobProp.key)) {
+                const mergeLine =
+                  jobProp.key && YAML.isNode(jobProp.key) && jobProp.key.range
+                    ? lineCounter.linePos(jobProp.key.range[0]).line
+                    : 1;
+                if (YAML.isAlias(jobProp.value)) {
+                  const resolved = jobProp.value.resolve(doc);
+                  if (YAML.isMap(resolved)) {
+                    for (const mProp of resolved.items) {
+                      if (YAML.isPair(mProp) && YAML.isScalar(mProp.key) && String(mProp.key.value) === 'secrets') {
+                        const strVal = resolveStringValue(mProp.value, doc);
+                        if (strVal.toLowerCase().trim() === 'inherit') {
+                          violations.push({
+                            file: filename,
+                            line: mergeLine,
+                            rule: 'NO_SECRETS_INHERIT',
+                            message:
+                              "Forbidden 'secrets: inherit' detected. Secrets must be explicitly mapped by name or use OIDC.",
+                            snippet: 'secrets: inherit',
+                          });
+                        }
                       }
                     }
                   }
                 }
+                continue;
               }
-              continue;
-            }
 
-            if (!YAML.isScalar(jobProp.key)) continue;
-            const propKey = String(jobProp.key.value);
+              if (!YAML.isScalar(jobProp.key)) continue;
+              const propKey = String(jobProp.key.value);
 
-            if (propKey === 'secrets') {
-              const strVal = resolveStringValue(jobProp.value, doc);
-              if (strVal.toLowerCase().trim() === 'inherit') {
-                const line =
-                  YAML.isNode(jobProp.key) && jobProp.key.range ? lineCounter.linePos(jobProp.key.range[0]).line : 1;
-                violations.push({
-                  file: filename,
-                  line,
-                  rule: 'NO_SECRETS_INHERIT',
-                  message:
-                    "Forbidden 'secrets: inherit' detected. Secrets must be explicitly mapped by name or use OIDC.",
-                  snippet: 'secrets: inherit',
-                });
+              if (propKey === 'secrets') {
+                const strVal = resolveStringValue(jobProp.value, doc);
+                if (strVal.toLowerCase().trim() === 'inherit') {
+                  const line =
+                    YAML.isNode(jobProp.key) && jobProp.key.range ? lineCounter.linePos(jobProp.key.range[0]).line : 1;
+                  violations.push({
+                    file: filename,
+                    line,
+                    rule: 'NO_SECRETS_INHERIT',
+                    message:
+                      "Forbidden 'secrets: inherit' detected. Secrets must be explicitly mapped by name or use OIDC.",
+                    snippet: 'secrets: inherit',
+                  });
+                }
+              } else if (propKey === 'steps') {
+                checkStepsSeq(jobProp.value);
               }
-            } else if (propKey === 'steps') {
-              checkStepsSeq(jobProp.value);
             }
           }
         }
-      } else if (rootKey === 'runs' && YAML.isMap(rootPair.value)) {
-        for (const runProp of rootPair.value.items) {
-          if (!YAML.isPair(runProp) || !YAML.isScalar(runProp.key)) continue;
-          if (String(runProp.key.value) === 'steps') {
-            checkStepsSeq(runProp.value);
+      } else if (rootKey === 'runs') {
+        let runsVal = rootPair.value;
+        if (YAML.isAlias(runsVal)) runsVal = runsVal.resolve(doc);
+
+        if (YAML.isMap(runsVal)) {
+          for (const runProp of runsVal.items) {
+            if (!YAML.isPair(runProp) || !YAML.isScalar(runProp.key)) continue;
+            if (String(runProp.key.value) === 'steps') {
+              checkStepsSeq(runProp.value);
+            }
           }
         }
       }
