@@ -5,6 +5,12 @@ import { describe, expect, it } from 'vitest';
 
 import { scanWorkflowSecurity } from './workflow-security-gate.js';
 
+/**
+ * Recursively searches a directory for YAML workflow and action definition files.
+ *
+ * @param dir - The directory path to search.
+ * @returns An array of absolute file paths matching .yml or .yaml extensions.
+ */
 function findYamlFiles(dir: string): string[] {
   if (!fs.existsSync(dir)) return [];
   const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -20,6 +26,11 @@ function findYamlFiles(dir: string): string[] {
   return files;
 }
 
+/**
+ * Discovers and reads all repository workflow and action YAML files.
+ *
+ * @returns An array of file descriptor objects containing basename, relative path, and content.
+ */
 function getWorkflowAndActionFiles(): { name: string; relativePath: string; content: string }[] {
   const root = process.cwd();
   const workflowsDir = path.join(root, '.github', 'workflows');

@@ -1,16 +1,28 @@
 import YAML from 'yaml';
 
+/**
+ * Represents a security policy violation found in a GitHub Actions workflow or action file.
+ */
 export interface WorkflowViolation {
+  /** The path or filename of the workflow being scanned. */
   file: string;
+  /** The 1-indexed line number in the source file where the violation occurred. */
   line: number;
+  /** The security rule identifier that was violated. */
   rule: 'NO_SECRETS_INHERIT' | 'NO_RUN_INJECTION';
+  /** A human-readable description of the violation and remediation guidance. */
   message: string;
+  /** A code snippet illustrating the violating line or construct. */
   snippet: string;
 }
 
 /**
  * Scans a GitHub Actions workflow or composite action file for 'secrets: inherit' and script expression injections in 'run:' steps.
  * Uses standard YAML structural evaluation with merge key support (natively resolving all aliases, anchors, merge keys, flow mappings, and block scalars).
+ *
+ * @param content - The raw YAML string content of the workflow or action file.
+ * @param filename - Optional filename or relative path for reporting diagnostic violations.
+ * @returns An array of detected workflow security violations.
  */
 export function scanWorkflowSecurity(content: string, filename = 'workflow.yml'): WorkflowViolation[] {
   const violations: WorkflowViolation[] = [];
@@ -18,22 +30,6 @@ export function scanWorkflowSecurity(content: string, filename = 'workflow.yml')
 
   const lines = content.replace(/\r\n/g, '\n').split('\n');
   const lineCounter = new YAML.LineCounter();
-
-  function findLineNumber(snippet: string, keyword = ''): number {
-    if (!snippet) return 1;
-    const firstLine = snippet.split('\n')[0].trim();
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes(firstLine) && (!keyword || lines[i].includes(keyword))) {
-        return i + 1;
-      }
-    }
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes(firstLine)) {
-        return i + 1;
-      }
-    }
-    return 1;
-  }
 
   let doc: YAML.Document;
   try {
@@ -80,6 +76,64 @@ export function scanWorkflowSecurity(content: string, filename = 'workflow.yml')
     return violations;
   }
 
+  // Collect AST line locations for run: and secrets: pairs from CST ranges
+  const runLines: number[] = [];
+  const secretsLines: number[] = [];
+
+  YAML.visit(doc, {
+    Pair(_, pair) {
+      if (!YAML.isNode(pair.key) || !pair.key.range) return;
+      const keyVal = (pair.key as { value?: unknown }).value;
+      if (keyVal === 'run') {
+        const line = lineCounter.linePos(pair.key.range[0]).line;
+        runLines.push(line);
+      } else if (keyVal === 'secrets') {
+        const line = lineCounter.linePos(pair.key.range[0]).line;
+        secretsLines.push(line);
+      }
+    },
+  });
+
+  let runLineIdx = 0;
+  let secretsLineIdx = 0;
+
+  /**
+   * Retrieves the accurate AST line number for the next encountered run: step.
+   *
+   * @param snippet - The snippet of code to look up as fallback.
+   * @returns The line number in the source file.
+   */
+  function getNextRunLine(snippet: string): number {
+    if (runLineIdx < runLines.length) {
+      return runLines[runLineIdx++];
+    }
+    const firstLine = snippet.split('\n')[0].trim();
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].includes(firstLine)) return i + 1;
+    }
+    return 1;
+  }
+
+  /**
+   * Retrieves the accurate AST line number for the next encountered secrets: step or job.
+   *
+   * @returns The line number in the source file.
+   */
+  function getNextSecretsLine(): number {
+    if (secretsLineIdx < secretsLines.length) {
+      return secretsLines[secretsLineIdx++];
+    }
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].includes('secrets') && lines[i].includes('inherit')) return i + 1;
+    }
+    return 1;
+  }
+
+  /**
+   * Evaluates an array of step objects for script injections and unsafe secrets inheritance.
+   *
+   * @param steps - The array of step definitions from a job or composite action.
+   */
   function checkSteps(steps: unknown[]): void {
     if (!Array.isArray(steps)) return;
     for (const step of steps) {
@@ -88,27 +142,33 @@ export function scanWorkflowSecurity(content: string, filename = 'workflow.yml')
       const stepRecord = step as Record<string, unknown>;
 
       // Check run injection
-      if (typeof stepRecord.run === 'string' && expressionPattern.test(stepRecord.run)) {
+      if (typeof stepRecord.run === 'string') {
         const snippet = stepRecord.run.split('\n')[0].trim();
-        violations.push({
-          file: filename,
-          line: findLineNumber(snippet, 'run'),
-          rule: 'NO_RUN_INJECTION',
-          message:
-            'Direct interpolation of expressions in run: step detected. Pass dynamic values via env: variables instead.',
-          snippet,
-        });
+        const line = getNextRunLine(snippet);
+        if (expressionPattern.test(stepRecord.run)) {
+          violations.push({
+            file: filename,
+            line,
+            rule: 'NO_RUN_INJECTION',
+            message:
+              'Direct interpolation of expressions in run: step detected. Pass dynamic values via env: variables instead.',
+            snippet,
+          });
+        }
       }
 
       // Check step-level secrets: inherit
-      if (typeof stepRecord.secrets === 'string' && stepRecord.secrets.toLowerCase().trim() === 'inherit') {
-        violations.push({
-          file: filename,
-          line: findLineNumber('inherit', 'secrets'),
-          rule: 'NO_SECRETS_INHERIT',
-          message: "Forbidden 'secrets: inherit' detected. Secrets must be explicitly mapped by name or use OIDC.",
-          snippet: 'secrets: inherit',
-        });
+      if (typeof stepRecord.secrets === 'string') {
+        const line = getNextSecretsLine();
+        if (stepRecord.secrets.toLowerCase().trim() === 'inherit') {
+          violations.push({
+            file: filename,
+            line,
+            rule: 'NO_SECRETS_INHERIT',
+            message: "Forbidden 'secrets: inherit' detected. Secrets must be explicitly mapped by name or use OIDC.",
+            snippet: 'secrets: inherit',
+          });
+        }
       }
     }
   }
@@ -121,14 +181,17 @@ export function scanWorkflowSecurity(content: string, filename = 'workflow.yml')
       const jobRecord = job as Record<string, unknown>;
 
       // Check job-level secrets: inherit
-      if (typeof jobRecord.secrets === 'string' && jobRecord.secrets.toLowerCase().trim() === 'inherit') {
-        violations.push({
-          file: filename,
-          line: findLineNumber('inherit', 'secrets'),
-          rule: 'NO_SECRETS_INHERIT',
-          message: "Forbidden 'secrets: inherit' detected. Secrets must be explicitly mapped by name or use OIDC.",
-          snippet: 'secrets: inherit',
-        });
+      if (typeof jobRecord.secrets === 'string') {
+        const line = getNextSecretsLine();
+        if (jobRecord.secrets.toLowerCase().trim() === 'inherit') {
+          violations.push({
+            file: filename,
+            line,
+            rule: 'NO_SECRETS_INHERIT',
+            message: "Forbidden 'secrets: inherit' detected. Secrets must be explicitly mapped by name or use OIDC.",
+            snippet: 'secrets: inherit',
+          });
+        }
       }
 
       // Check job steps

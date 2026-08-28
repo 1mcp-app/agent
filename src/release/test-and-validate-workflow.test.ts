@@ -7,10 +7,22 @@ import YAML from 'yaml';
 const BROWSER_TEST_SUFFIX = '.browser.e2e.test.ts';
 const PLAYWRIGHT_IMPORT = /(?:from\s+|require\(\s*|import\(\s*)['"](?:@playwright\/test|playwright(?:-core)?)['"]/;
 
+/**
+ * Reads a file relative to the repository root directory.
+ *
+ * @param relativePath - Relative path from workspace root.
+ * @returns File content as a UTF-8 string.
+ */
 function readRepoFile(relativePath: string): string {
   return fs.readFileSync(path.join(process.cwd(), relativePath), 'utf8');
 }
 
+/**
+ * Recursively locates all test files within a given directory.
+ *
+ * @param directory - Root directory to begin search.
+ * @returns Array of absolute paths to .test.ts files.
+ */
 function findTestFiles(directory: string): string[] {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const entryPath = path.join(directory, entry.name);
