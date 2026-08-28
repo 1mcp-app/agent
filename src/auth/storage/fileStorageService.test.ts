@@ -4,6 +4,7 @@ import path from 'path';
 
 import { ExpirableData } from '@src/auth/sessionTypes.js';
 import { AUTH_CONFIG } from '@src/constants.js';
+import logger from '@src/logger/logger.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -703,6 +704,59 @@ describe('FileStorageService', () => {
 
       noSubdirService.shutdown();
       fs.rmSync(baseDir, { recursive: true, force: true });
+    });
+  });
+
+  describe('CWE-532 log redaction — isValidId internal path', () => {
+    it('redacts sensitive ID in thrown Error message when extractUuidPart encounters a mismatched prefix', () => {
+      const sensitiveId = `${AUTH_CONFIG.SERVER.AUTH_CODE.ID_PREFIX}sensitive-secret-token-value`;
+      const wrongPrefix = AUTH_CONFIG.SERVER.SESSION.ID_PREFIX;
+
+      // Exercise the real, unmocked extractUuidPart implementation
+      const extractFn = (
+        service as unknown as { extractUuidPart: (id: string, prefix: string) => string }
+      ).extractUuidPart.bind(service);
+
+      expect(() => extractFn(sensitiveId, wrongPrefix)).toThrow();
+      try {
+        extractFn(sensitiveId, wrongPrefix);
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        expect(errMsg).toContain('[REDACTED]');
+        expect(errMsg).not.toContain('sensitive-secret-token-value');
+        expect(errMsg).not.toContain(sensitiveId);
+      }
+    });
+
+    it('does not log plaintext auth-code ID or error metadata when isValidId encounters an extractUuidPart failure', () => {
+      vi.mocked(logger.debug).mockClear();
+
+      const sensitiveId = `${AUTH_CONFIG.SERVER.AUTH_CODE.ID_PREFIX}sensitive-secret-token-value`;
+      const extractSpy = vi
+        .spyOn(service as unknown as { extractUuidPart: (id: string, prefix: string) => string }, 'extractUuidPart')
+        .mockImplementationOnce(() => {
+          throw new Error(`malformed UUID with sensitive payload: ${sensitiveId}`);
+        });
+
+      const result = service.readData(AUTH_CONFIG.SERVER.AUTH_CODE.FILE_PREFIX, sensitiveId);
+      expect(result).toBeNull();
+      extractSpy.mockRestore();
+
+      expect(vi.mocked(logger.debug)).toHaveBeenCalled();
+      const calls = vi.mocked(logger.debug).mock.calls as unknown as Array<[unknown, unknown?]>;
+      for (const [message, meta] of calls) {
+        const messageStr = String(message);
+        expect(messageStr).toContain('[REDACTED]');
+        expect(messageStr).not.toContain('sensitive-secret-token-value');
+        expect(messageStr).not.toContain(sensitiveId);
+
+        if (meta && typeof meta === 'object' && 'error' in meta) {
+          const errorValue = String((meta as { error: unknown }).error);
+          expect(errorValue).toContain('[REDACTED]');
+          expect(errorValue).not.toContain('sensitive-secret-token-value');
+          expect(errorValue).not.toContain(sensitiveId);
+        }
+      }
     });
   });
 });

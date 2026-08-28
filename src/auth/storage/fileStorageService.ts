@@ -100,7 +100,8 @@ export class FileStorageService {
    */
   private extractUuidPart(id: string, prefix: string): string {
     if (!id.startsWith(prefix)) {
-      throw new Error(`Invalid ID prefix: expected ${prefix}, got ${id}`);
+      const loggableId = this.isSensitivePrefix(prefix) || this.isSensitivePrefix(id) ? '[REDACTED]' : id;
+      throw new Error(`Invalid ID prefix: expected ${prefix}, got ${loggableId}`);
     }
     return id.substring(prefix.length);
   }
@@ -307,7 +308,10 @@ export class FileStorageService {
           const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
           return uuidRegex.test(uuidPart);
         } catch (error) {
-          logger.debug(`extractUuidPart failed for id=${id}, prefix=${prefix}`, { error });
+          const isSensitive = this.isSensitivePrefix(prefix) || this.isSensitivePrefix(id);
+          const loggableId = isSensitive ? '[REDACTED]' : id;
+          const loggableError = isSensitive ? this.getLoggableError(prefix, error) : error;
+          logger.debug(`extractUuidPart failed for id=${loggableId}, prefix=${prefix}`, { error: loggableError });
           return false;
         }
       }
@@ -344,7 +348,9 @@ export class FileStorageService {
   private static getSensitivePrefixes(): readonly string[] {
     return [
       AUTH_CONFIG?.SERVER?.AUTH_CODE?.FILE_PREFIX ?? 'auth_code_',
+      AUTH_CONFIG?.SERVER?.AUTH_CODE?.ID_PREFIX ?? 'code-',
       AUTH_CONFIG?.SERVER?.AUTH_REQUEST?.FILE_PREFIX ?? 'auth_request_',
+      AUTH_CONFIG?.SERVER?.AUTH_REQUEST?.ID_PREFIX ?? 'req-',
     ];
   }
 
