@@ -54,6 +54,23 @@ function readCredential<T>(read: () => T): T {
 }
 
 /**
+ * Async twin of readCredential for promise-returning repository calls —
+ * a rejected promise must be remapped too, otherwise a denied heal still
+ * surfaces as an unhandled internal error.
+ */
+async function readCredentialAsync<T>(read: () => Promise<T>): Promise<T> {
+  try {
+    return await read();
+  } catch (error) {
+    if (error instanceof InsecureFilePermissionsError) {
+      logger.error(`OAuth store refused insecure credential file: ${error.message}`);
+      throw new ServerError(`Credential storage is not owner-only and could not be repaired: ${error.message}`);
+    }
+    throw error;
+  }
+}
+
+/**
  * File-based OAuth clients store implementation using the new repository architecture
  */
 class FileBasedClientsStore implements OAuthRegisteredClientsStore {
@@ -483,15 +500,17 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
 
     const tokenId = randomUUID();
     const ttlMs = this.configManager.get('auth').oauthTokenTtlMs;
-    const rotation = await repository.consume(refreshToken, client.client_id, tokenId, (familyId) =>
-      this.oauthStorage.sessionRepository.createRefreshFamilyAccessSession({
-        tokenId,
-        clientId: client.client_id,
-        resource: family.resource,
-        scopes: requestedScopes,
-        ttlMs,
-        familyId,
-      }),
+    const rotation = await readCredentialAsync(() =>
+      repository.consume(refreshToken, client.client_id, tokenId, (familyId) =>
+        this.oauthStorage.sessionRepository.createRefreshFamilyAccessSession({
+          tokenId,
+          clientId: client.client_id,
+          resource: family.resource,
+          scopes: requestedScopes,
+          ttlMs,
+          familyId,
+        }),
+      ),
     );
     if (rotation.status === 'replay') {
       this.revokeFamilyAccessTokens(rotation.family.accessTokenIds);

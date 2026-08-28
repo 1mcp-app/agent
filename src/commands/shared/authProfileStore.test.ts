@@ -155,34 +155,59 @@ describe('authProfileStore', () => {
     });
 
     it.skipIf(!isPosix)(
-      'listAuthProfiles skips a file whose heal is denied instead of hiding healthy profiles',
+      'listAuthProfiles skips only the file whose heal is denied, keeping healthy ones visible',
       async () => {
         await saveAuthProfile(tmpDir, { serverUrl: 'http://localhost:3050', token: 'tok1', savedAt: 1000 });
         await saveAuthProfile(tmpDir, { serverUrl: 'http://localhost:3051', token: 'tok2', savedAt: 2000 });
 
-        // Deny the heal on every read: Any file with open mode bits set then
-        // rejects handle.chmod. Force all files permissive first.
         const { chmod, open, readdir } = await import('node:fs/promises');
         const dir = join(tmpDir, 'auth-profiles');
-        for (const f of await readdir(dir)) {
-          await chmod(join(dir, f), 0o644);
-        }
-        const probe = await open(join(dir, (await readdir(dir))[0]), 'r');
-        const proto = Object.getPrototypeOf(probe) as { chmod: (mode: number) => Promise<void> };
+        const files = (await readdir(dir)).sort();
+        const deniedPath = join(dir, files[files.length - 1]);
+
+        // Only the denied file is permissive; handle.chmod rejects only when
+        // the opened file still carries group/other bits (i.e. only for the
+        // one file that needs a heal).
+        await chmod(deniedPath, 0o644);
+        const probe = await open(deniedPath, 'r');
+        const proto = Object.getPrototypeOf(probe) as {
+          chmod: (mode: number) => Promise<void>;
+          fd: number;
+        };
         await probe.close();
-        const spy = vi
-          .spyOn(proto, 'chmod')
-          .mockRejectedValue(Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' }));
+        const deniedP = deniedPath;
+        const fchmodSpy = vi.spyOn(proto, 'chmod').mockImplementation(async function (
+          this: { fd: number },
+          mode: number,
+        ) {
+          const fsSync = await import('node:fs');
+          const st = fsSync.fstatSync(this.fd);
+          // fstatSync has no path on Windows; on POSIX /proc/self/fd works.
+          let fdPath = '';
+          try {
+            fdPath = fsSync.readlinkSync(`/proc/self/fd/${this.fd}`);
+          } catch {
+            // Not all POSIX platforms expose /proc/self/fd; fall back to
+            // rejecting only heals whose target still has 0644 on this fd
+            // (the only file we weakened).
+            if ((st.mode & 0o777) !== 0o644) {
+              return;
+            }
+            throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+          }
+          if (fdPath === deniedP) {
+            throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+          }
+          return fsSync.fchmodSync(this.fd, mode);
+        });
 
         try {
-          // Every file fails its heal → every file is skipped with a warn, so
-          // the list is empty but the call does not throw and does not
-          // silently misreport success.
           const profiles = await listAuthProfiles(tmpDir);
-          expect(profiles).toEqual([]);
-          expect(spy).toHaveBeenCalled();
+          expect(profiles).toHaveLength(1);
+          expect(profiles[0].token).toBe('tok1');
+          expect(fchmodSpy).toHaveBeenCalled();
         } finally {
-          spy.mockRestore();
+          fchmodSpy.mockRestore();
         }
       },
     );

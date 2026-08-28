@@ -283,5 +283,39 @@ describe('SDKOAuthProvider', () => {
         }
       },
     );
+    it.skipIf(process.platform === 'win32')(
+      'exchangeRefreshToken maps a denied permission heal to an OAuth server_error',
+      async () => {
+        const client: OAuthClientInformationFull = {
+          client_id: 'perm-client-refresh',
+          redirect_uris: ['http://127.0.0.1:3000/callback'],
+          grant_types: ['authorization_code', 'refresh_token'],
+          response_types: ['code'],
+          token_endpoint_auth_method: 'none',
+        };
+
+        const { refreshToken } = await provider.oauthStorage.refreshTokenFamilyRepository.create(
+          client.client_id,
+          ['tag:context7'],
+          'mcp://resource',
+          'access-1',
+          () => {},
+        );
+
+        // Loosen the family storage dir so the strictModes dir leg trips,
+        // then deny the heal.
+        const dir = provider.oauthStorage.fileStorage.getStorageDir();
+        fs.chmodSync(dir, 0o755);
+        const denySpy = vi.spyOn(fs, 'chmodSync').mockImplementation(() => {
+          throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+        });
+
+        try {
+          await expect(provider.exchangeRefreshToken(client, refreshToken)).rejects.toThrow(ServerError);
+        } finally {
+          denySpy.mockRestore();
+        }
+      },
+    );
   });
 });

@@ -8,6 +8,8 @@ import logger from '@src/logger/logger.js';
  * Thrown when a credential-bearing file or directory is readable/writable by
  * group/others and the self-heal chmod was denied. Read-side strictModes
  * (OpenSSH model): heal-then-consume, fail closed when the heal is rejected.
+ * The message redacts the absolute path to a single directory name so logs
+ * can be shared without leaking user layouts.
  */
 export class InsecureFilePermissionsError extends Error {
   public readonly filePath: string;
