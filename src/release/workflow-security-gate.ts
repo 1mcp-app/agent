@@ -17,6 +17,7 @@ export function scanWorkflowSecurity(content: string, filename = 'workflow.yml')
   const expressionPattern = /\$\{\{/;
 
   const lines = content.replace(/\r\n/g, '\n').split('\n');
+  const lineCounter = new YAML.LineCounter();
 
   function findLineNumber(snippet: string, keyword = ''): number {
     if (!snippet) return 1;
@@ -36,7 +37,7 @@ export function scanWorkflowSecurity(content: string, filename = 'workflow.yml')
 
   let doc: YAML.Document;
   try {
-    doc = YAML.parseDocument(content, { merge: true });
+    doc = YAML.parseDocument(content, { merge: true, lineCounter });
   } catch (e) {
     violations.push({
       file: filename,
