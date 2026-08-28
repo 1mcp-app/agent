@@ -122,6 +122,23 @@ describe('token/storage permission invariants (POSIX-only, AUTH-07 gate)', () =>
       expect(fs.statSync(filePath).mode & 0o777).toBe(0o644);
     });
 
+    it.skipIf(!isPosix)('cleanup preserves a file it cannot open at all (fail-closed, never destroy)', () => {
+      service.writeData(filePrefix, testId, testData);
+      const filePath = service.getFilePath(filePrefix, testId);
+
+      const realOpen = fs.openSync;
+      vi.spyOn(fs, 'openSync').mockImplementation(((p: unknown, ...rest: unknown[]) => {
+        if (p === filePath) {
+          throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+        }
+        return (realOpen as (...args: unknown[]) => number)(p as string, ...rest);
+      }) as typeof fs.openSync);
+
+      const cleaned = service.cleanupExpiredData();
+      expect(cleaned).toBe(0);
+      expect(fs.existsSync(filePath)).toBe(true);
+    });
+
     it.skipIf(!isPosix)('self-heals a group/other-readable storage directory on read', () => {
       service.writeData(filePrefix, testId, testData);
       fs.chmodSync(service.getStorageDir(), 0o755);
