@@ -109,17 +109,24 @@ describe('Streamable HTTP Session Restoration E2E', () => {
         .writeToFile();
       serverUrl = `http://localhost:${serverPort}/mcp`;
 
-      await processManager.startProcess('1mcp-server', {
-        command: 'node',
-        args: [join(__dirname, '../../..', 'build/index.js'), 'serve', '--config', configPath, '--port', String(serverPort)],
-        env: {
-          ONE_MCP_CONFIG_DIR: tempConfigDir,
-          ONE_MCP_LOG_LEVEL: 'error',
-          ONE_MCP_ENABLE_AUTH: 'false',
-        },
-      });
-
       try {
+        await processManager.startProcess('1mcp-server', {
+          command: 'node',
+          args: [
+            join(__dirname, '../../..', 'build/index.js'),
+            'serve',
+            '--config',
+            configPath,
+            '--port',
+            String(serverPort),
+          ],
+          env: {
+            ONE_MCP_CONFIG_DIR: tempConfigDir,
+            ONE_MCP_LOG_LEVEL: 'error',
+            ONE_MCP_ENABLE_AUTH: 'false',
+          },
+        });
+
         await waitForServerReady(`${serverUrl.replace('/mcp', '')}/health/ready`);
         return;
       } catch (error) {
