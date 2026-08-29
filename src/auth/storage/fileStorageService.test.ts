@@ -85,11 +85,13 @@ describe('FileStorageService', () => {
     it('writeData self-heals a permissive storage directory before writing credential files', () => {
       // POSIX-only: Windows ACLs do not map to fs.stat modes
       if (process.platform === 'win32') return;
-      fs.chmodSync(tempDir, 0o775);
+      // The write side gates the actual storage dir (baseDir/sessions), not baseDir itself.
+      const sessionsDir = path.join(tempDir, 'sessions');
+      fs.chmodSync(sessionsDir, 0o775);
 
       service.writeData(testPrefix, testId, testData);
 
-      expect(fs.statSync(tempDir).mode & 0o777).toBe(0o700);
+      expect(fs.statSync(sessionsDir).mode & 0o777).toBe(0o700);
       expect(service.readData<TestData>(testPrefix, testId)).toEqual(testData);
     });
 
