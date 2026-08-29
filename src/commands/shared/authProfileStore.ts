@@ -4,7 +4,12 @@ import path from 'node:path';
 
 import { getConfigDir } from '@src/constants.js';
 import logger from '@src/logger/logger.js';
-import { InsecureFilePermissionsError, readCredentialFile } from '@src/utils/filePermissions.js';
+import {
+  assertOwnerOnlyDirPermissionsAsync,
+  CAPABILITY_ERROR_CODES,
+  InsecureFilePermissionsError,
+  readCredentialFile,
+} from '@src/utils/filePermissions.js';
 
 const AUTH_PROFILES_DIR = 'auth-profiles';
 
@@ -56,6 +61,9 @@ export async function saveAuthProfile(configDir: string | undefined, profile: Au
   // Auth profiles carry bearer tokens: dir 0700, file 0600 (POSIX; ignored on win32).
   const dir = profilesDir(configDir);
   await mkdir(dir, { recursive: true, mode: 0o700 });
+  // Write-side directory gate: mkdir mode does not tighten a pre-existing permissive dir,
+  // so heal-or-fail-closed before the profile lands in it (same policy as the read side).
+  await assertOwnerOnlyDirPermissionsAsync(dir);
   const filePath = profilePath(configDir, profile.serverUrl);
   const tempPath = `${filePath}.tmp.${process.pid}.${randomBytes(6).toString('hex')}`;
   const data: AuthProfile = {
@@ -69,7 +77,20 @@ export async function saveAuthProfile(configDir: string | undefined, profile: Au
     await rm(tempPath, { force: true }).catch(() => {});
     throw error;
   }
-  await chmod(filePath, 0o600);
+  // Post-rename chmod: tolerate volumes without POSIX modes (exFAT/CIFS/some FUSE)
+  // with the same capability-error degradation policy as the read side in
+  // filePermissions.ts, so a successful save is not reported as failed there;
+  // real denials (EACCES/EPERM) still throw.
+  try {
+    await chmod(filePath, 0o600);
+  } catch (error) {
+    const code = (error as { code?: unknown } | null)?.code;
+    if (typeof code === 'string' && CAPABILITY_ERROR_CODES.has(code)) {
+      logger.warn(`chmod unsupported on auth-profiles volume (${code}); profile saved without mode hardening`);
+    } else {
+      throw error;
+    }
+  }
 }
 
 export async function loadAuthProfile(configDir: string | undefined, serverUrl: string): Promise<AuthProfile | null> {

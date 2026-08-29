@@ -109,6 +109,10 @@ export class TemplateContextCapabilityStore {
     }
 
     fs.mkdirSync(this.options.storageDir, { recursive: true, mode: 0o700 });
+    // mkdir mode does not tighten a pre-existing permissive directory, so gate
+    // the directory before writing the capability secret (same fail-closed
+    // policy as the read side below).
+    assertOwnerOnlyDirPermissions(this.options.storageDir);
     if (!this.options.runtimeScopeId) {
       throw new TemplateContextCapabilityError('runtimeScopeId is required to create a template context capability');
     }

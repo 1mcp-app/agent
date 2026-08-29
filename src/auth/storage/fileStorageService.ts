@@ -458,6 +458,9 @@ export class FileStorageService {
     let temporaryPath: string | undefined;
     let created = false;
     try {
+      // Write-side directory gate (heal-then-consume, same policy as read/listFile/cleanup):
+      // a pre-existing permissive storage dir is tightened to 0700 before the temp file lands in it.
+      assertOwnerOnlyDirPermissions(this.getStorageDir());
       const filePath = this.getFilePath(filePrefix, id);
       temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
       const fileDescriptor = fs.openSync(temporaryPath, 'wx', 0o600);

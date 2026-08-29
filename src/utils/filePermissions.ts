@@ -51,7 +51,7 @@ function logFileHealed(filePath: string, mode: number): void {
  * OAuth stack keeps working on such volumes; real denials (EACCES/EPERM)
  * still fail closed.
  */
-const CAPABILITY_ERROR_CODES = new Set(['ENOTSUP', 'EOPNOTSUPP', 'EINVAL', 'ENOSYS']);
+export const CAPABILITY_ERROR_CODES = new Set(['ENOTSUP', 'EOPNOTSUPP', 'EINVAL', 'ENOSYS']);
 
 function isCapabilityError(error: unknown): boolean {
   const code = (error as { code?: unknown } | null)?.code;

@@ -66,6 +66,23 @@ describe('template context trust', () => {
     expect(fs.statSync(filePath).mode & 0o777).toBe(0o600);
   });
 
+  it('self-heals a pre-existing permissive storage directory before creating a capability', () => {
+    if (process.platform === 'win32') {
+      return;
+    }
+    fs.chmodSync(storageDir, 0o775);
+
+    const capability = new TemplateContextCapabilityStore({
+      storageDir,
+      runtimeScopeId: 'scope-a',
+      createSecret: () => Buffer.alloc(32, 7),
+    }).getOrCreate();
+
+    expect(capability.runtimeScopeId).toBe('scope-a');
+    expect(fs.statSync(storageDir).mode & 0o777).toBe(0o700);
+    expect(fs.statSync(path.join(storageDir, 'template-context-capability.json')).mode & 0o777).toBe(0o600);
+  });
+
   it('rejects capability JSON with undeclared properties', () => {
     const filePath = path.join(storageDir, 'template-context-capability.json');
     fs.writeFileSync(

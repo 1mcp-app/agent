@@ -111,6 +111,19 @@ describe('authProfileStore', () => {
     expect(profiles).toEqual([]);
   });
 
+  it('saveAuthProfile self-heals a pre-existing permissive auth-profiles directory', async () => {
+    const isPosix = process.platform !== 'win32';
+    if (!isPosix) return;
+    const fs = await import('node:fs/promises');
+    const profilesDir = join(tmpDir, 'auth-profiles');
+    await fs.mkdir(profilesDir, { recursive: true });
+    await fs.chmod(profilesDir, 0o775);
+
+    await saveAuthProfile(tmpDir, { serverUrl: 'http://localhost:3050', token: 'tok', savedAt: 1000 });
+
+    expect((await fs.stat(profilesDir)).mode & 0o777).toBe(0o700);
+  });
+
   describe('read-side strictModes (POSIX-only)', () => {
     const isPosix = process.platform !== 'win32';
 

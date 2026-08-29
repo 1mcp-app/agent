@@ -47,7 +47,7 @@ function readCredential<T>(read: () => T): T {
   } catch (error) {
     if (error instanceof InsecureFilePermissionsError) {
       logger.error(`OAuth store refused insecure credential file: ${error.message}`);
-      throw new ServerError(`Credential storage is not owner-only and could not be repaired: ${error.message}`);
+      throw new ServerError('Credential storage is not owner-only and could not be repaired');
     }
     throw error;
   }
@@ -64,7 +64,7 @@ async function readCredentialAsync<T>(read: () => Promise<T>): Promise<T> {
   } catch (error) {
     if (error instanceof InsecureFilePermissionsError) {
       logger.error(`OAuth store refused insecure credential file: ${error.message}`);
-      throw new ServerError(`Credential storage is not owner-only and could not be repaired: ${error.message}`);
+      throw new ServerError('Credential storage is not owner-only and could not be repaired');
     }
     throw error;
   }

@@ -82,6 +82,17 @@ describe('FileStorageService', () => {
       createdAt: Date.now(),
     };
 
+    it('writeData self-heals a permissive storage directory before writing credential files', () => {
+      // POSIX-only: Windows ACLs do not map to fs.stat modes
+      if (process.platform === 'win32') return;
+      fs.chmodSync(tempDir, 0o775);
+
+      service.writeData(testPrefix, testId, testData);
+
+      expect(fs.statSync(tempDir).mode & 0o777).toBe(0o700);
+      expect(service.readData<TestData>(testPrefix, testId)).toEqual(testData);
+    });
+
     it('should write and read data correctly', () => {
       service.writeData(testPrefix, testId, testData);
       const retrieved = service.readData<TestData>(testPrefix, testId);

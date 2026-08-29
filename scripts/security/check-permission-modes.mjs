@@ -12,6 +12,13 @@
  *   node scripts/security/check-permission-modes.mjs            # enforce (CI)
  *   node scripts/security/check-permission-modes.mjs --update   # regenerate baseline
  *   node scripts/security/check-permission-modes.mjs --prune    # drop stale baseline entries
+ *
+ * Known cost of the strict fingerprint model: fingerprints are
+ * `file#occurrence#call` where `occurrence` is the ordinal of the write call in
+ * that file, so inserting/removing any guarded call above an existing one shifts
+ * later fingerprints — reviewed entries then resurface as "new findings" and CI
+ * goes red until `--update` re-records them with a human-reviewed reason. That
+ * re-review is intentional (detect-secrets audit leg), not a broken gate.
  */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -78,7 +85,12 @@ function scanFile(rel) {
       const after = lines.slice(i, i + 9).join(' ');
       if (CHMOD_PATTERN.test(after)) return;
     } else if (MODE_PATTERN.test(block)) {
-      return;
+      // A mode argument suppresses the finding only when it is owner-only:
+      // 0o644/0o666/0o777 (group/other bits set) silence nothing.
+      const modeLiteral = block.match(/(?:mode\s*:\s*|,\s*)0o([0-7]{3})\b/);
+      if (modeLiteral && (parseInt(modeLiteral[1], 8) & 0o077) === 0) {
+        return;
+      }
     }
     findings.push({
       file: rel,
@@ -100,85 +112,16 @@ const baseline = loadBaseline();
 const baselineMap = new Map(baseline.entries.map((e) => [e.fingerprint, e]));
 
 function reasonFor(f) {
-  const templateReason = 'pre-existing, recorded at ticket-05 gate baseline; triage under 08-lowseverity-hardening';
-  // Non-credential writes whose default-mode impact is nil or UCL-gated.
-  const byPrefix = [
-    [
-      'src/auth/storage/fileStorageService.ts',
-      'writeFileSync targets fd from openSync(wx, 0o600) — mode inherited at open; this file is the AUTH-07 reference implementation',
-    ],
-    [
-      'src/domains/runtime-targets/runtimeTargetStore.ts',
-      'writeJsonAtomic forwards an optional mode param; callers may omit it — tightening tracked under ticket-08',
-    ],
-    [
-      'src/core/server/pidFileManager.ts',
-      'pid file content is not secret (PID only); mkdir is ~/.1mcp config dir bootstrap — tracked for 0600 tightening under ticket-08',
-    ],
-    [
-      'src/domains/backup/backupManager.ts',
-      'backup metadata copies config; tightening scheduled under ticket-08 (low-severity hardening)',
-    ],
-    [
-      'src/domains/admin/runtimeScopeAdminLock.ts',
-      'writeFileSync targets fd already opened 0o600 via openSync — mode inherited at open; mkdir prefixed by 0700 candidateDir',
-    ],
-    [
-      'src/commands/serve/serveBackground.ts',
-      'log-file append under user-owned config dir; ACL tightening tracked under ticket-08',
-    ],
-    [
-      'src/commands/shared/baseConfigUtils.ts',
-      'writes user-owned mcp.json config (may embed env but guaranteed non-secret at authoring time) — ticket-08',
-    ],
-    ['src/commands/target/target.ts', 'serializes user-authored target config to user-owned path — ticket-08'],
-    [
-      'src/config/configLoader.ts',
-      'writes DEFAULT_CONFIG scaffold on first run (no secrets); acceptable default-mode — ticket-08',
-    ],
-    [
-      'src/domains/preset/manager/presetStorage.ts',
-      'preset config cache mirrors user-authored mcp.json (non-secret at authoring time) — async fs.promises path, tightening under ticket-08',
-    ],
-    [
-      'src/commands/cliSetup/setupFiles.ts',
-      'writes IDE/cli setup scaffolding config files in user-owned paths — ticket-08',
-    ],
-    [
-      'src/commands/shared/authProfileStore.ts',
-      'async fs.promises path for bearer-token storage; mkdir has mode 0o700 and rename target chmod 0o600 — listed only if an edge path lingers',
-    ],
-    [
-      'src/commands/app/consolidate.ts',
-      'writes consolidated config derived from existing user config file — ticket-08',
-    ],
-    [
-      'src/commands/shared/configParsingUtils.ts',
-      'audited (ticket-05 R5): copyFileSync mirrors the user-owned mcp.json it just read — bytes already visible at source mode; backup tightens under ticket-08',
-    ],
-    [
-      'src/core/runtime/runtimeIdentityService.ts',
-      'audited (ticket-05 R5): runtime identity (scope id only, no credentials) written via temp+rename into user config dir; acceptable, 0600 tightening under ticket-08',
-    ],
-    [
-      'src/core/server/runtimeScopeOwnership.ts',
-      'audited (ticket-05 R5): ownership claim/stop-lock records are non-secret markers written via candidate-dir swap; mkdir of the user-owned config dir — 0700 tightening under ticket-08',
-    ],
-    [
-      'src/domains/admin/adminPresetService.ts',
-      'audited (ticket-05 R5): admin backup of preset config the caller just read — derived-from-source bytes in user-owned path; tightening under ticket-08',
-    ],
-    [
-      'src/domains/config-change/configChange.ts',
-      'audited (ticket-05 R5): backups mirroring the existing user-owned config file and scaffold writes of user-authored mcp.json; source bytes already user-visible — ticket-08',
-    ],
-  ];
-  for (const [prefix, reason] of byPrefix) {
-    if (f.file.startsWith(prefix)) return `${reason}`;
+  // Accepted-risk reasons may only be inherited by an exact fingerprint match
+  // against a previously reviewed baseline entry. Anything else (new findings,
+  // moved lines, new call sites in previously listed files) gets the template
+  // reason so it cannot silently inherit an unrelated justification at --update.
+  const reviewed = baselineMap.get(f.fingerprint);
+  if (reviewed && typeof reviewed.reason === 'string' && reviewed.reason.length > 0) {
+    return reviewed.reason;
   }
-  return templateReason;
+  return 'pre-existing, recorded at ticket-05 gate baseline; triage under 08-lowseverity-hardening';
 }
-
 // Audit leg (detect-secrets model): enforce mode rejects baseline entries whose
 // reason is just the --update template, so accepted-risk entries must carry a
 // hand-written justification. --update records candidates; a human edits the
