@@ -1,0 +1,21 @@
+# Normalize all detected-text files to LF in the repository; leave the
+# working-tree representation to platform defaults.
+* text=auto
+
+# POSIX interpreters fail hard on CRLF shebangs - force LF everywhere.
+*.sh text eol=lf
+
+# Windows-native scripts stay CRLF in the working tree (storage remains LF).
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary assets must never be line-ending processed.
+*.png binary
+*.ico binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.zip binary
+*.gz binary
+*.tar binary
