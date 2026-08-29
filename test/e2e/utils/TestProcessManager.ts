@@ -96,12 +96,13 @@ export class TestProcessManager extends EventEmitter {
 
       process.kill(signal);
 
-      // Force kill after 5 seconds
+      // Force kill after 5 seconds. process.killed only means the signal was
+      // delivered, so poll exit state; a hung graceful shutdown still gets SIGKILL.
       setTimeout(() => {
-        if (!process.killed) {
+        if (process.exitCode === null && process.signalCode === null) {
           process.kill('SIGKILL');
         }
-      }, 5000);
+      }, 5000).unref();
     });
   }
 
