@@ -60,20 +60,31 @@ describe('token/storage permission invariants (POSIX-only, AUTH-07 gate)', () =>
     expect(fs.statSync(service.getFilePath(filePrefix, durableId)).mode & 0o777).toBe(0o600);
   });
 
-  it.skipIf(!isPosix)('fails closed when writeData hits a chmod failure on a permissive file', () => {
+  it.skipIf(!isPosix)(
+    'fails closed when the atomic rename is denied, preserving the old file (no temp residue)',
+    () => {
+      const filePath = service.getFilePath(filePrefix, testId);
+      fs.writeFileSync(filePath, JSON.stringify({ ...testData, value: 'old-secret' }), { mode: 0o644 });
+
+      vi.spyOn(fs, 'renameSync').mockImplementation(() => {
+        throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+      });
+
+      expect(() => service.writeData(filePrefix, testId, { ...testData, value: 'new-secret' })).toThrow(/EPERM/);
+      expect(JSON.parse(fs.readFileSync(filePath, 'utf8')).value).toBe('old-secret');
+      const residue = fs.readdirSync(tempDir).filter((name) => name.endsWith('.tmp'));
+      expect(residue).toEqual([]);
+    },
+  );
+
+  it.skipIf(!isPosix)('atomic overwrite of a permissive legacy file lands 0600 (no chmod window)', () => {
     const filePath = service.getFilePath(filePrefix, testId);
     fs.writeFileSync(filePath, JSON.stringify({ ...testData, value: 'old-secret' }), { mode: 0o644 });
 
-    const originalChmodSync = fs.chmodSync;
-    vi.spyOn(fs, 'chmodSync').mockImplementation((pathArg, modeArg) => {
-      if (pathArg === filePath) {
-        throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
-      }
-      return originalChmodSync(pathArg, modeArg);
-    });
+    service.writeData(filePrefix, testId, { ...testData, value: 'new-secret' });
 
-    expect(() => service.writeData(filePrefix, testId, { ...testData, value: 'new-secret' })).toThrow(/EPERM/);
-    expect(JSON.parse(fs.readFileSync(filePath, 'utf8')).value).toBe('old-secret');
+    expect(JSON.parse(fs.readFileSync(filePath, 'utf8')).value).toBe('new-secret');
+    expect(fs.statSync(filePath).mode & 0o777).toBe(0o600);
   });
 
   it('fails closed when storage directory creation is denied (EACCES)', () => {
