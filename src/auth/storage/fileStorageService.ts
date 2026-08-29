@@ -183,19 +183,20 @@ export class FileStorageService {
         const newPath = path.join(this.storageDir, file);
 
         try {
-          // CWE-59: chmodSync/renameSync follow symlinks — a planted link in the
-          // legacy dir would chmod its target and move the link into storage.
-          if (fs.lstatSync(oldPath).isSymbolicLink()) {
-            hasFailures = true;
-            logger.warn(`Skipping migration of symlinked credential ${this.getLoggableFileName(file)}`);
-            continue;
-          }
           if (process.platform !== 'win32') {
-            this.hardenPermissionsSafely(oldPath, 0o600);
-          }
-          fs.renameSync(oldPath, newPath);
-          if (process.platform !== 'win32') {
-            this.hardenPermissionsSafely(newPath, 0o600);
+            // CWE-59 TOCTOU: O_NOFOLLOW rejects symlinks at open time and the
+            // fd pins the inode across chmod and rename, so a replaced path
+            // cannot redirect either operation (a bare lstat check is racy).
+            const fd = fs.openSync(oldPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+            try {
+              fs.fchmodSync(fd, 0o600);
+              fs.renameSync(oldPath, newPath);
+              fs.fchmodSync(fd, 0o600);
+            } finally {
+              fs.closeSync(fd);
+            }
+          } else {
+            fs.renameSync(oldPath, newPath);
           }
           migrationCount++;
           logger.info(`Migrated ${this.getLoggableFileName(file)} from ${sourceDir} to ${this.storageDir}`);
