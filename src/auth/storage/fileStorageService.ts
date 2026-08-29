@@ -183,6 +183,13 @@ export class FileStorageService {
         const newPath = path.join(this.storageDir, file);
 
         try {
+          // CWE-59: chmodSync/renameSync follow symlinks — a planted link in the
+          // legacy dir would chmod its target and move the link into storage.
+          if (fs.lstatSync(oldPath).isSymbolicLink()) {
+            hasFailures = true;
+            logger.warn(`Skipping migration of symlinked credential ${this.getLoggableFileName(file)}`);
+            continue;
+          }
           if (process.platform !== 'win32') {
             this.hardenPermissionsSafely(oldPath, 0o600);
           }
