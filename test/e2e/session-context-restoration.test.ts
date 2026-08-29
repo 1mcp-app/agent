@@ -115,7 +115,10 @@ describe('Session Restoration with _meta Field E2E Tests', () => {
         return;
       } catch (error) {
         lastError = error;
-        console.log(`Launch attempt ${attempt} failed readiness probe, retrying on a fresh port`);
+        const info = processManager.getProcess('1mcp-server');
+        console.error(
+          `Launch attempt ${attempt} failed readiness probe (exitCode=${String(info?.process.exitCode)}, signalCode=${String(info?.process.signalCode)})\nChild output tail:\n${processManager.getOutputTail('1mcp-server')}`,
+        );
         await processManager.stopProcess('1mcp-server');
       }
     }
