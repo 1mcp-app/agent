@@ -171,9 +171,10 @@ jobs:
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Run no-retry conformance baseline and focused transports
-        run: GITHUB_SHA="${{ steps.conformance-source.outputs.sha }}" pnpm test:conformance -- --reporter=minimal
+        run: pnpm test:conformance -- --reporter=minimal
         env:
           CI: true
+          GITHUB_SHA: ${{ steps.conformance-source.outputs.sha }}
 
       - name: Upload exact-source conformance evidence
         if: success()
