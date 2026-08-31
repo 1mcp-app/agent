@@ -140,12 +140,6 @@ jobs:
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node-pnpm
 
-      - name: Setup Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: '1.25.0'
-          cache-dependency-path: test/conformance/fixtures/go/go.sum
-
       - name: Setup Python
         uses: actions/setup-python@v6
         with:

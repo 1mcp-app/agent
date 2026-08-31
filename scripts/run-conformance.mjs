@@ -48,7 +48,6 @@ const environment = {
   ONE_MCP_CONFORMANCE_OUTPUT_DIR: outputDirectory,
   ONE_MCP_RUN_CONFORMANCE_INTEGRATION: 'true',
   UV_CACHE_DIR: path.join(outputDirectory, 'uv-cache'),
-  GOCACHE: path.join(outputDirectory, 'go-cache'),
 };
 mkdirSync(environment.TMPDIR, { recursive: true, mode: 0o700 });
 
@@ -60,7 +59,6 @@ function run(command, commandArgs, cwd = root) {
 
 const fixtureChecks = [
   ['pnpm', ['check'], path.join(root, 'test', 'conformance', 'fixtures', 'typescript')],
-  ['go', ['test', '-mod=vendor', './...'], path.join(root, 'test', 'conformance', 'fixtures', 'go')],
   ['uv', ['run', '--frozen', 'pytest', '-q'], path.join(root, 'test', 'conformance', 'fixtures', 'python')],
 ];
 

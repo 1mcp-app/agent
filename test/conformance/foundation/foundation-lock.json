@@ -4,7 +4,7 @@
     {
       "id": "command-runner",
       "path": "scripts/run-conformance.mjs",
-      "digest": "sha256:d93a975edd8445d0859d2ee0f9cae599ca4036155595bf9d23503b10a3a6d201"
+      "digest": "sha256:f82980f8ce501940eb6384b38a518b3f5c18a759367cb71edf63c1fdb54a051a"
     },
     {
       "id": "vitest-conformance",
@@ -44,7 +44,7 @@
     {
       "id": "integrity-verifier",
       "path": "test/conformance/integrity/index.ts",
-      "digest": "sha256:bc9f54572ba840f214ceac1c17e7bb1b6c6c6515a348d4f474c33999f304727c"
+      "digest": "sha256:a62f9c7df01ed16cccac5eef1798cdbd701f4e599f3da822d000547b94365327"
     },
     {
       "id": "mcp-2026-specification-source",
@@ -64,7 +64,7 @@
     {
       "id": "foundation-run",
       "path": "test/conformance/foundation/foundationRun.ts",
-      "digest": "sha256:574c41c570e3c4fd27bb84791316e912ebd1ff8e16d6a9c57a4f99169e10cc53"
+      "digest": "sha256:4d30628cf4d35225ac769233e3bbc5e6e639b82e100f000494decc30d89b4751"
     },
     {
       "id": "official-client-bridge",
@@ -112,11 +112,6 @@
       "digest": "sha256:aed6fcc9181085b3f43305f2b12d520c9c4c59dc445a39bc9f12a1eec0de5eb1"
     },
     {
-      "id": "go-driver",
-      "path": "test/conformance/fixtures/go/main.go",
-      "digest": "sha256:c3df8ac6228010641bf719ceac593b4dcaeb0e61d46f831a6f303644723319bc"
-    },
-    {
       "id": "python-driver",
       "path": "test/conformance/fixtures/python/driver.py",
       "digest": "sha256:6c32c426600acd2023eb08beb069b8e72fa1f32625f4667f138d489dd0a4131e"
@@ -124,7 +119,7 @@
     {
       "id": "ci-lane",
       "path": ".github/workflows/test-and-validate.yml",
-      "digest": "sha256:9a6df89920c8c2f640e47b3c96a0207cdba232c67e4ecc822b3b8b00cf68ba42"
+      "digest": "sha256:17c9f407dff2c15469db743dfcb312f366320e559148a4cec8ef6615f173cbfd"
     }
   ]
 }

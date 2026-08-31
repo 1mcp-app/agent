@@ -1,9 +1,7 @@
-import { execFile } from 'node:child_process';
 import { copyFile, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
 
 import { describe, expect, it } from 'vitest';
 
@@ -13,7 +11,6 @@ import {
   validateMatrixAssignments,
 } from './matrixRuntime.js';
 
-const execFileAsync = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(here, '../../..');
 const fakeProcessSource = join(here, 'fixtures/fake-process.mjs');
@@ -151,37 +148,33 @@ describe('matrix runtime execution', () => {
     }
   });
 
-  it('observes both hops through the actual 1MCP gateway and Go upstream fixture', async () => {
+  it('observes both hops through the actual 1MCP gateway and Python upstream fixture', async () => {
     const builtEntryPath = join(repositoryRoot, 'build/index.js');
-    const scratch = await mkdtemp(join(tmpdir(), 'matrix-go-case-'));
-    const fixtureBinary = join(scratch, 'go-fixture');
+    const scratch = await mkdtemp(join(tmpdir(), 'matrix-python-case-'));
+    const fixtureRoot = join(repositoryRoot, 'test/conformance/fixtures/python');
+    const python = join(fixtureRoot, '.venv/bin/python');
+    const driver = join(fixtureRoot, 'driver.py');
     const canaryName = 'MATRIX_SECRET_CANARY';
     const canaryValue = 'AlphaNumericGatewaySecret473';
     process.env[canaryName] = canaryValue;
     try {
-      await execFileAsync('go', ['build', '-mod=vendor', '-o', fixtureBinary, '.'], {
-        cwd: join(repositoryRoot, 'test/conformance/fixtures/go'),
-        env: { ...process.env, GOCACHE: join(scratch, 'go-cache') },
-        timeout: 60_000,
-      });
-
       const result = await executeMatrixAssignment({
-        assignmentId: 'case-go-http-through-gateway',
+        assignmentId: 'case-python-http-through-gateway',
         inboundProbe: {
           command: process.execPath,
           args: [actualProbe, '{{gatewayEndpoint}}'],
         },
         upstreamPeer: {
-          command: fixtureBinary,
-          args: ['server', '--transport', 'streamable-http'],
-          readiness: { kind: 'stdout-json', fixtureId: 'go-sdk' },
+          command: python,
+          args: [driver, 'server', '--transport', 'streamable-http', '--protocol-era', 'legacy'],
+          readiness: { kind: 'stdout-json', fixtureId: 'python-sdk' },
         },
         upstreamTransport: { type: 'streamableHttp' },
         eras: { inbound: 'legacy', upstream: 'legacy' },
         revisions: { inbound: '2025-11-25', upstream: '2025-11-25' },
         captureContexts: {
-          inbound: { id: 'go-inbound', negotiatedRevision: '2025-11-25' },
-          upstream: { id: 'go-upstream', negotiatedRevision: '2025-11-25' },
+          inbound: { id: 'python-inbound', negotiatedRevision: '2025-11-25' },
+          upstream: { id: 'python-upstream', negotiatedRevision: '2025-11-25' },
         },
         builtEntryPath,
         timeouts: { startupMs: 20_000, probeMs: 20_000, shutdownMs: 3_000 },

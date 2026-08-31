@@ -10,7 +10,6 @@ The caller supplies repository-relative locations for:
 - every artifact plus its previously recorded SHA-256 digest;
 - the root package manifest, installed package manifests, and `pnpm-lock.yaml`;
 - both frozen official requirement YAML files;
-- the Go `go.mod`, `go.sum`, and vendor tree; and
 - the Python `pyproject.toml` and `uv.lock`.
 
 `pnpm-lock.yaml` must be parsed with a structured YAML parser supplied as

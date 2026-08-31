@@ -56,11 +56,6 @@ export const MCP_2026_SPECIFICATION_SOURCE = {
   tree: '8957e31e8ecd6fd7f52df82d44b3827cb44cecb1',
 } as const;
 
-const GO_MODULE = {
-  name: 'github.com/modelcontextprotocol/go-sdk',
-  version: 'v1.7.0',
-  sum: 'h1:yqjY2dsbKAC0LSuWZVBMrHgiG8ukXv6NRo0JiALay44=',
-} as const;
 const PYTHON_PACKAGE = {
   name: 'mcp',
   version: '2.0.0',
@@ -88,7 +83,6 @@ export interface ConformanceIntegrityOptions {
   };
   requirements: Readonly<Record<RequirementRevision, string>>;
   specificationSourcePath?: string;
-  go: { goModPath: string; goSumPath: string; vendorPath: string };
   python: { pyprojectPath: string; uvLockPath: string };
 }
 
@@ -109,9 +103,6 @@ export type IntegrityIssueCode =
   | 'pnpm-lock-integrity-mismatch'
   | 'requirement-digest-mismatch'
   | 'specification-source-mismatch'
-  | 'go-module-version-mismatch'
-  | 'go-module-sum-mismatch'
-  | 'go-vendor-version-mismatch'
   | 'python-version-mismatch'
   | 'python-wheel-hash-mismatch';
 
@@ -132,13 +123,6 @@ export interface IntegrityReport {
   };
   requirements: readonly { revision: RequirementRevision; digest: `sha256:${string}` }[];
   specification: typeof MCP_2026_SPECIFICATION_SOURCE & { metadataDigest: `sha256:${string}` };
-  go: {
-    version: string;
-    sum: string;
-    goModDigest: string | null;
-    goSumDigest: string | null;
-    vendorDigest: string | null;
-  };
   python: { version: string; wheelHash: string; pyprojectDigest: string | null; lockDigest: string | null };
   issues: readonly IntegrityIssue[];
   digest: `sha256:${string}`;
@@ -232,13 +216,6 @@ function lockImporterEntry(lock: Record<string, unknown>, name: string): Record<
 
 function digestFile(inputPath: string): `sha256:${string}` {
   return sha256(readFileSync(inputPath));
-}
-
-function hasTokenPair(source: string, first: string, second: string): boolean {
-  return source.split('\n').some((line) => {
-    const tokens = line.split('//', 1)[0].trim().split(/\s+/u);
-    return tokens.some((token, index) => token === first && tokens[index + 1] === second);
-  });
 }
 
 function readGitState(root: string): { sha: string; trackedDirty: boolean; untrackedDirty: boolean } {
@@ -379,38 +356,6 @@ export function verifyConformanceIntegrity(options: ConformanceIntegrityOptions)
     addIssue('specification-source-mismatch', '2026-07-28');
   }
 
-  let goModDigest: string | null = null;
-  let goSumDigest: string | null = null;
-  let vendorDigest: string | null = null;
-  try {
-    const goMod = readFileSync(options.go.goModPath, 'utf8');
-    goModDigest = digestFile(options.go.goModPath);
-    if (!hasTokenPair(goMod, GO_MODULE.name, GO_MODULE.version)) {
-      addIssue('go-module-version-mismatch', GO_MODULE.name);
-    }
-  } catch {
-    addIssue('go-module-version-mismatch', GO_MODULE.name);
-  }
-  try {
-    const goSum = readFileSync(options.go.goSumPath, 'utf8');
-    goSumDigest = digestFile(options.go.goSumPath);
-    if (!goSum.split('\n').some((line) => line.trim() === `${GO_MODULE.name} ${GO_MODULE.version} ${GO_MODULE.sum}`)) {
-      addIssue('go-module-sum-mismatch', GO_MODULE.name);
-    }
-  } catch {
-    addIssue('go-module-sum-mismatch', GO_MODULE.name);
-  }
-  try {
-    const vendor = hashConformancePath(options.go.vendorPath);
-    vendorDigest = vendor.digest;
-    const modules = readFileSync(path.join(options.go.vendorPath, 'modules.txt'), 'utf8');
-    if (!hasTokenPair(modules, GO_MODULE.name, GO_MODULE.version)) {
-      addIssue('go-vendor-version-mismatch', GO_MODULE.name);
-    }
-  } catch {
-    addIssue('go-vendor-version-mismatch', GO_MODULE.name);
-  }
-
   let pyprojectDigest: string | null = null;
   let pythonLockDigest: string | null = null;
   try {
@@ -447,13 +392,6 @@ export function verifyConformanceIntegrity(options: ConformanceIntegrityOptions)
     npm: { packageManifestDigest, pnpmLockDigest, packages: npmPackages },
     requirements,
     specification: { ...MCP_2026_SPECIFICATION_SOURCE, metadataDigest: specificationMetadataDigest },
-    go: {
-      version: GO_MODULE.version,
-      sum: GO_MODULE.sum,
-      goModDigest,
-      goSumDigest,
-      vendorDigest,
-    },
     python: {
       version: PYTHON_PACKAGE.version,
       wheelHash: PYTHON_PACKAGE.wheelHash,

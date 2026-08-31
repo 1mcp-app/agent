@@ -1,9 +1,8 @@
-import { type ChildProcess, execFile, execFileSync, spawn } from 'node:child_process';
+import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
-import { promisify } from 'node:util';
 
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
@@ -29,7 +28,6 @@ import {
   validateMatrixAssignments,
 } from '../runtime/index.js';
 
-const execFileAsync = promisify(execFile);
 const revisionByEra = { modern: '2026-07-28', legacy: '2025-11-25' } as const;
 const streamableProfile = {
   inbound: {
@@ -226,7 +224,7 @@ const frozenRequirementFileSchema = z
 
 type Era = keyof typeof revisionByEra;
 type Variant = 'typescript-baseline' | 'alternate-inbound' | 'alternate-upstream';
-type Language = 'typescript' | 'go' | 'python';
+type Language = 'typescript' | 'python';
 
 interface FoundationRunOptions {
   root: string;
@@ -256,7 +254,7 @@ function matrixPlan(): MatrixPlanEntry[] {
   const variants: Variant[] = ['typescript-baseline', 'alternate-inbound', 'alternate-upstream'];
   return cells.flatMap(([inboundEra, upstreamEra]) =>
     variants.map((variant) => {
-      const alternate: Language = inboundEra === 'modern' || upstreamEra === 'modern' ? 'python' : 'go';
+      const alternate: Language = 'python';
       const inboundLanguage = variant === 'alternate-inbound' ? alternate : 'typescript';
       const upstreamLanguage = variant === 'alternate-upstream' ? alternate : 'typescript';
       const assignmentId = `${inboundEra}-${upstreamEra}.${variant}`;
@@ -316,11 +314,6 @@ async function integrityReport(root: string, expectedSourceSha: string) {
     requirements: {
       '2025-11-25': join(packageRoot, 'requirements', '2025-11-25.yaml'),
       '2026-07-28': join(packageRoot, 'requirements', '2026-07-28.yaml'),
-    },
-    go: {
-      goModPath: join(root, 'test/conformance/fixtures/go/go.mod'),
-      goSumPath: join(root, 'test/conformance/fixtures/go/go.sum'),
-      vendorPath: join(root, 'test/conformance/fixtures/go/vendor'),
     },
     python: {
       pyprojectPath: join(root, 'test/conformance/fixtures/python/pyproject.toml'),
@@ -785,29 +778,6 @@ function typescriptPeer(root: string, era: Era, role: 'inbound' | 'upstream'): P
       };
 }
 
-function goPeer(binary: string, era: Era, role: 'inbound' | 'upstream'): PeerCommand {
-  return role === 'upstream'
-    ? {
-        fixtureId: 'go-sdk',
-        command: binary,
-        args: ['server', '--transport', 'streamable-http', '--protocol-era', era],
-      }
-    : {
-        fixtureId: 'go-sdk',
-        command: binary,
-        args: [
-          'probe',
-          '--transport',
-          'streamable-http',
-          '--protocol-era',
-          era,
-          '--endpoint',
-          '{{gatewayEndpoint}}',
-          '--aggregated',
-        ],
-      };
-}
-
 function pythonPeer(root: string, era: Era, role: 'inbound' | 'upstream'): PeerCommand {
   const fixtureRoot = join(root, 'test/conformance/fixtures/python');
   const python = join(fixtureRoot, '.venv', 'bin', 'python');
@@ -835,25 +805,14 @@ function pythonPeer(root: string, era: Era, role: 'inbound' | 'upstream'): PeerC
       };
 }
 
-async function buildGoFixture(root: string, outputDirectory: string): Promise<string> {
-  const binary = join(outputDirectory, 'go-fixture');
-  await execFileAsync('go', ['build', '-mod=vendor', '-o', binary, '.'], {
-    cwd: join(root, 'test/conformance/fixtures/go'),
-    env: { PATH: process.env.PATH, HOME: join(outputDirectory, 'home'), GOCACHE: join(outputDirectory, 'go-build') },
-    timeout: 90_000,
-  });
-  return binary;
-}
-
-function peer(root: string, goBinary: string, language: Language, era: Era, role: 'inbound' | 'upstream'): PeerCommand {
+function peer(root: string, language: Language, era: Era, role: 'inbound' | 'upstream'): PeerCommand {
   if (language === 'typescript') return typescriptPeer(root, era, role);
-  if (language === 'go') return goPeer(goBinary, era, role);
   return pythonPeer(root, era, role);
 }
 
 function peerIdentity(language: Language, era: Era): string {
   if (language === 'typescript') return era === 'modern' ? 'typescript-v2-2.0.0' : 'typescript-v1-1.30.0';
-  return language === 'go' ? 'go-sdk-1.7.0' : 'python-sdk-2.0.0';
+  return 'python-sdk-2.0.0';
 }
 
 async function runMatrix(
@@ -865,12 +824,11 @@ async function runMatrix(
 }> {
   const entries = matrixPlan();
   const plan = validateMatrixAssignments(entries.map((entry) => entry.descriptor));
-  const goBinary = await buildGoFixture(root, outputDirectory);
   const results: MatrixExecutionResult[] = [];
   for (const entry of entries) {
     const { descriptor } = entry;
-    const inbound = peer(root, goBinary, entry.inboundLanguage, descriptor.inboundEra, 'inbound');
-    const upstream = peer(root, goBinary, entry.upstreamLanguage, descriptor.upstreamEra, 'upstream');
+    const inbound = peer(root, entry.inboundLanguage, descriptor.inboundEra, 'inbound');
+    const upstream = peer(root, entry.upstreamLanguage, descriptor.upstreamEra, 'upstream');
     const options: MatrixExecutionOptions = {
       assignmentId: descriptor.assignmentId,
       inboundProbe: { command: inbound.command, args: inbound.args },

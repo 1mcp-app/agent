@@ -104,20 +104,6 @@ function createFixture(prefix = 'integrity-repo-') {
     `${JSON.stringify(MCP_2026_SPECIFICATION_SOURCE, null, 2)}\n`,
   );
 
-  const goModPath = write(
-    root,
-    'fixtures/go/go.mod',
-    'module example.invalid/conformance\n\ngo 1.25.0\n\nrequire github.com/modelcontextprotocol/go-sdk v1.7.0\n',
-  );
-  const goSumPath = write(
-    root,
-    'fixtures/go/go.sum',
-    'github.com/modelcontextprotocol/go-sdk v1.7.0 h1:yqjY2dsbKAC0LSuWZVBMrHgiG8ukXv6NRo0JiALay44=\n',
-  );
-  const goVendorPath = path.join(root, 'fixtures/go/vendor');
-  write(root, 'fixtures/go/vendor/modules.txt', '# github.com/modelcontextprotocol/go-sdk v1.7.0\n');
-  write(root, 'fixtures/go/vendor/github.com/modelcontextprotocol/go-sdk/LICENSE', 'synthetic fixture\n');
-
   const pyprojectPath = write(
     root,
     'fixtures/python/pyproject.toml',
@@ -138,14 +124,10 @@ function createFixture(prefix = 'integrity-repo-') {
     options: {
       sourceRoot: root,
       expectedSourceSha,
-      artifacts: [
-        { id: 'go-vendor', path: goVendorPath, expectedDigest: hashConformancePath(goVendorPath).digest },
-        { id: 'python-lock', path: uvLockPath, expectedDigest: hashConformancePath(uvLockPath).digest },
-      ],
+      artifacts: [{ id: 'python-lock', path: uvLockPath, expectedDigest: hashConformancePath(uvLockPath).digest }],
       npm: { packageManifestPath, pnpmLockPath, parseYaml: JSON.parse, installedPackages },
       requirements,
       specificationSourcePath,
-      go: { goModPath, goSumPath, vendorPath: goVendorPath },
       python: { pyprojectPath, uvLockPath },
     },
   };
@@ -197,7 +179,7 @@ describe('verifyConformanceIntegrity', () => {
 
   it('rejects tracked and untracked source dirtiness without retaining filenames', () => {
     const tracked = createFixture('integrity-tracked-');
-    writeFileSync(tracked.options.go.goModPath, 'changed\n');
+    writeFileSync(tracked.options.python.pyprojectPath, 'changed\n');
     const trackedReport = verifyConformanceIntegrity(tracked.options);
     expect(trackedReport.issues).toContainEqual({ code: 'source-dirty-tracked', subject: 'source' });
 
@@ -254,11 +236,11 @@ describe('verifyConformanceIntegrity', () => {
       subject: '2026-07-28',
     });
 
-    const tree = createFixture('integrity-tree-');
-    write(tree.options.go.vendorPath, 'new-file.txt', 'tampered\n');
-    expect(verifyConformanceIntegrity(tree.options).issues).toContainEqual({
+    const artifact = createFixture('integrity-artifact-');
+    writeFileSync(artifact.options.python.uvLockPath, 'tampered\n');
+    expect(verifyConformanceIntegrity(artifact.options).issues).toContainEqual({
       code: 'artifact-digest-mismatch',
-      subject: 'go-vendor',
+      subject: 'python-lock',
     });
   });
 
@@ -274,34 +256,7 @@ describe('verifyConformanceIntegrity', () => {
     });
   });
 
-  it('rejects Go module/sum/vendor and Python version/wheel mutations', () => {
-    const goVersion = createFixture('integrity-go-version-');
-    writeFileSync(
-      goVersion.options.go.goModPath,
-      'module example.invalid/conformance\n\ngo 1.25.0\n\nrequire github.com/modelcontextprotocol/go-sdk v1.7.1\n',
-    );
-    expect(verifyConformanceIntegrity(goVersion.options).issues).toContainEqual({
-      code: 'go-module-version-mismatch',
-      subject: 'github.com/modelcontextprotocol/go-sdk',
-    });
-
-    const goSum = createFixture('integrity-go-sum-');
-    writeFileSync(goSum.options.go.goSumPath, 'github.com/modelcontextprotocol/go-sdk v1.7.0 h1:tampered=\n');
-    expect(verifyConformanceIntegrity(goSum.options).issues).toContainEqual({
-      code: 'go-module-sum-mismatch',
-      subject: 'github.com/modelcontextprotocol/go-sdk',
-    });
-
-    const goVendor = createFixture('integrity-go-vendor-');
-    writeFileSync(
-      path.join(goVendor.options.go.vendorPath, 'modules.txt'),
-      '# github.com/modelcontextprotocol/go-sdk v1.7.1\n',
-    );
-    expect(verifyConformanceIntegrity(goVendor.options).issues).toContainEqual({
-      code: 'go-vendor-version-mismatch',
-      subject: 'github.com/modelcontextprotocol/go-sdk',
-    });
-
+  it('rejects Python version and wheel mutations', () => {
     const pythonVersion = createFixture('integrity-python-version-');
     writeFileSync(
       pythonVersion.options.python.pyprojectPath,
