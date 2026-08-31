@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check src/*.mjs src/eras/*.mjs test/*.mjs && pnpm test",
+    "check": "for file in src/*.mjs src/eras/*.mjs test/*.mjs; do node --check \"$file\" || exit 1; done && pnpm test",
     "test": "node --test test/*.test.mjs",
     "self-check": "node src/fixture.mjs --self-check"
   },

@@ -55,7 +55,7 @@ describe('retained revision fixture cleanup', () => {
     );
     await once(child.stdout!, 'data');
 
-    await stopChild(child, 25);
+    await stopChild(child, 250);
 
     expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
     expect(child.signalCode).toBe('SIGKILL');

@@ -184,7 +184,7 @@ def parser() -> argparse.ArgumentParser:
     subcommands = cli.add_subparsers(dest="command", parser_class=FixtureArgumentParser)
     server_command = subcommands.add_parser("server", add_help=False)
     server_command.add_argument("--transport", choices=("stdio", "streamable-http"), default="stdio")
-    server_command.add_argument("--protocol-era", choices=("legacy", "modern"), default="legacy")
+    server_command.add_argument("--protocol-era", choices=("legacy", "modern"))
     probe_command = subcommands.add_parser("probe", add_help=False)
     probe_command.add_argument("--transport", choices=("stdio", "streamable-http"), required=True)
     probe_command.add_argument("--endpoint")
@@ -200,9 +200,11 @@ def run(argv: Sequence[str]) -> None:
         self_check()
     elif arguments.command == "server":
         if arguments.transport == "stdio":
+            if arguments.protocol_era is not None:
+                raise FixtureError("unsupported-profile")
             server.run("stdio")
         else:
-            asyncio.run(serve_streamable_http(arguments.protocol_era))
+            asyncio.run(serve_streamable_http(arguments.protocol_era or "legacy"))
     elif arguments.command == "probe":
         asyncio.run(
             probe(

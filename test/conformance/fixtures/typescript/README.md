@@ -57,7 +57,7 @@ The fixture also accepts the official conformance startup form:
 node src/fixture.mjs <server-url>
 ```
 
-It reads `MCP_CONFORMANCE_SCENARIO`, `MCP_CONFORMANCE_CONTEXT`, and `MCP_CONFORMANCE_PROTOCOL_VERSION` without emitting their values. Supported scenarios are `initialize`, `tools_call`, and `request-metadata`. An unsupported scenario or protocol profile exits `2` with a fixed structural classification. HTTP endpoints must resolve literally to `127.0.0.1`, `::1`, or `localhost` over plain HTTP.
+It reads `MCP_CONFORMANCE_SCENARIO`, `MCP_CONFORMANCE_CONTEXT`, and `MCP_CONFORMANCE_PROTOCOL_VERSION` without emitting their values. Supported scenario families are `initialize`, `tools`, `elicitation`, `sse-retry`, `custom-headers`, `invalid-headers`, `standard-headers`, `request-state`, and `schema`. An unsupported scenario or protocol profile exits `2` with a fixed structural classification. HTTP endpoints must resolve literally to `127.0.0.1`, `::1`, or `localhost` over plain HTTP.
 
 ## Modern protocol limitation
 

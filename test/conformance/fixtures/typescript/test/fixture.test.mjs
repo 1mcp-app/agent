@@ -311,9 +311,10 @@ async function startHttpServer(sdkEra, transport = 'streamable-http') {
     { kind: 'ready', sdkEra, transport, host: '127.0.0.1' },
   );
   assert.equal(Number.isInteger(ready.port) && ready.port > 0, true);
+  assert.equal(ready.endpoint, `http://127.0.0.1:${ready.port}/${transport === 'sse' ? 'sse' : 'mcp'}`);
   return {
     child,
-    endpoint: `http://127.0.0.1:${ready.port}/${transport === 'sse' ? 'sse' : 'mcp'}`,
+    endpoint: ready.endpoint,
     errors,
   };
 }

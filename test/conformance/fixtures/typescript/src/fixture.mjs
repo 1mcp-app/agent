@@ -76,7 +76,7 @@ async function runServer(values) {
       transport,
       host: '127.0.0.1',
       port: close.port,
-      endpoint: `http://127.0.0.1:${close.port}/mcp`,
+      endpoint: `http://127.0.0.1:${close.port}/${transport === 'sse' ? 'sse' : 'mcp'}`,
     });
   }
 }
@@ -253,11 +253,11 @@ async function runOfficialConformanceClient(endpoint) {
     } else if (family === 'standard-headers') {
       await attempt(() => callTool('test_headers'));
       const resources = await attempt(() => client.listResources());
-      if (resources?.resources[0]) {
+      if (resources?.resources?.[0]) {
         await attempt(() => client.readResource({ uri: resources.resources[0].uri }));
       }
       const prompts = await attempt(() => client.listPrompts());
-      if (prompts?.prompts[0]) {
+      if (prompts?.prompts?.[0]) {
         await attempt(() => client.getPrompt({ name: prompts.prompts[0].name }));
       }
     } else if (family === 'request-state') {
@@ -273,7 +273,8 @@ async function runOfficialConformanceClient(endpoint) {
       const focal = listed?.tools.find(
         (tool) => tool.name === 'json_schema_2020_12_tool' || tool.name.endsWith('_1mcp_json_schema_2020_12_tool'),
       );
-      await attempt(() => callTool('json_schema_echo', { schema: focal?.inputSchema }));
+      if (!focal) throw new Error('SCHEMA_TOOL_NOT_FOUND');
+      await attempt(() => callTool('json_schema_echo', { schema: focal.inputSchema }));
     }
     if (errors.length > 0) throw errors[0];
   } finally {

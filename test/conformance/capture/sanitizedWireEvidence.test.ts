@@ -128,6 +128,27 @@ describe('Sanitized Wire Evidence', () => {
     expect(capture.snapshot().records[0]).toMatchObject({ bodySize: 'empty', schemaResult: 'not_applicable' });
   });
 
+  it('classifies a dropped oversized inspection buffer as an infrastructure error', () => {
+    const capture = createSanitizedWireCapture({
+      contexts: [{ id: 'case-truncated', negotiatedRevision: '2025-11-25' }],
+      validateEnvelope: () => true,
+    });
+    capture.observe({
+      contextId: 'case-truncated',
+      hop: 'upstream',
+      direction: 'peer_to_gateway',
+      headers: { 'content-type': 'application/json' },
+      body: Buffer.alloc(0),
+      bodyByteLength: 1_048_577,
+      truncated: true,
+    });
+
+    expect(capture.snapshot().records[0]).toMatchObject({
+      bodySize: 'oversize',
+      schemaResult: 'infrastructure_error',
+    });
+  });
+
   it('produces stable canonical digests and rejects tampered or open-schema artifacts', () => {
     const makeEvidence = () => {
       const capture = createSanitizedWireCapture({

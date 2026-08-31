@@ -424,20 +424,23 @@ function buildTraceability(input: z.infer<typeof baselineInputSchema>): z.infer<
     sourceDigest: input.integrity.digest,
     fixtureDigest: proof.evidenceDigest,
   }));
-  const acceptedContracts = ACCEPTED_CONTRACT_TRACEABILITY_INVENTORY.map((entry) => ({
-    requirementId: entry.requirementId,
-    sourceRevision: '1mcp-accepted-contracts' as const,
-    strength: 'accepted-contract' as const,
-    applicability: { status: 'required' as const },
-    deliveryStage: 'foundation' as const,
-    matrixCellIds: input.matrixPlan.map((assignment) => assignment.cellId),
-    peerIds: [...new Set(input.matrixPlan.flatMap((assignment) => assignment.peerIds))],
-    transportProfiles: input.requiredProfiles,
-    testIds: [...entry.testIds],
-    evidenceArtifactIds: [...entry.evidenceArtifactIds],
-    sourceDigest: input.integrity.digest,
-    fixtureDigest: input.integrity.digest,
-  }));
+  const acceptedContracts =
+    input.matrixPlan.length === 0
+      ? []
+      : ACCEPTED_CONTRACT_TRACEABILITY_INVENTORY.map((entry) => ({
+          requirementId: entry.requirementId,
+          sourceRevision: '1mcp-accepted-contracts' as const,
+          strength: 'accepted-contract' as const,
+          applicability: { status: 'required' as const },
+          deliveryStage: 'foundation' as const,
+          matrixCellIds: input.matrixPlan.map((assignment) => assignment.cellId),
+          peerIds: [...new Set(input.matrixPlan.flatMap((assignment) => assignment.peerIds))],
+          transportProfiles: input.requiredProfiles,
+          testIds: [...entry.testIds],
+          evidenceArtifactIds: [...entry.evidenceArtifactIds],
+          sourceDigest: input.integrity.digest,
+          fixtureDigest: input.integrity.digest,
+        }));
   return [...official, ...matrix, ...profiles, ...legacyRevisions, ...acceptedContracts];
 }
 

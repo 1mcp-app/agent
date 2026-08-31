@@ -3,7 +3,6 @@ import { JSONRPCMessageSchema as ModernJSONRPCMessageSchema } from '@modelcontex
 import { type ChildProcess, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 
 import { JSONRPCMessageSchema as LegacyJSONRPCMessageSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -659,7 +658,7 @@ export async function runOfficialConformance(
   let executionStarted = false;
   let result: OfficialConformanceResult | undefined;
   try {
-    workspace = await mkdtemp(join(options.temporaryParentDirectory ?? tmpdir(), '1mcp-official-conformance-'));
+    workspace = await mkdtemp(join(options.temporaryParentDirectory, '1mcp-official-conformance-'));
     const home = join(workspace, 'home');
     const temporaryDirectory = join(workspace, 'tmp');
     const outputDirectory = join(workspace, 'output');

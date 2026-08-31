@@ -19,7 +19,7 @@
     {
       "id": "baseline",
       "path": "test/conformance/baseline/baseline.ts",
-      "digest": "sha256:3bdfebcd453239db84499cd0e74cdf524877454a8b5e9d9676f1b8b03f740d2c"
+      "digest": "sha256:ac76fd1b24cf3a330071d07b9083bd1f6756e93b29df91f8edb7d4889059f96a"
     },
     {
       "id": "traceability-inventory",
@@ -29,17 +29,17 @@
     {
       "id": "capture-schema",
       "path": "test/conformance/capture/sanitizedWireEvidence.ts",
-      "digest": "sha256:44f6967b0e42f4dd599c61318a3a44575c21f9eff1149f657f103db0189c7830"
+      "digest": "sha256:3b62f8251d3b1f04f9aa3d4f2e92346b8689f22955ca585767e7cb544af6906c"
     },
     {
       "id": "capture-http",
       "path": "test/conformance/capture/httpWireTap.ts",
-      "digest": "sha256:b3b6e5116ff7ccf986eae41ad782d7ef2943c5395ef2a70b781cdbc8464e6d30"
+      "digest": "sha256:144130b15ecc7e783c36fb0b6a2d23fdc9a501119bd9f7e2d344d2db3cb09639"
     },
     {
       "id": "capture-stdio",
       "path": "test/conformance/capture/stdioWireTap.ts",
-      "digest": "sha256:9237fd27eab14453fe72776b496b0349ad18379953b1f88dd27b96b024f65104"
+      "digest": "sha256:0960769ab2373098a0f88bde10adcaf5f994cc0704b7d1b9a9b75811f20210e0"
     },
     {
       "id": "integrity-verifier",
@@ -54,17 +54,17 @@
     {
       "id": "official-runner",
       "path": "test/conformance/official/officialRunner.ts",
-      "digest": "sha256:c1c60e3e1a771c0f21302b393f5e3d8319d09f248f92f89e5ac8b7d87734498f"
+      "digest": "sha256:3802159429f41e9420017e4a6c0360245a778da1712d238f33a7ed938acc83b8"
     },
     {
       "id": "matrix-runtime",
       "path": "test/conformance/runtime/matrixRuntime.ts",
-      "digest": "sha256:4f08ff52c11c6dc183ffff79ee4d1383aff22bf4500fc0d9593dad01dc12e2de"
+      "digest": "sha256:b0fce2bb1cd376dc8c50fa21006229b52bed7df741ed32d3bc741428caf8fa59"
     },
     {
       "id": "foundation-run",
       "path": "test/conformance/foundation/foundationRun.ts",
-      "digest": "sha256:4d30628cf4d35225ac769233e3bbc5e6e639b82e100f000494decc30d89b4751"
+      "digest": "sha256:85a8fad8cbd2d2c30a43b25bec3352114e8edf04e320367f991a0304635247b2"
     },
     {
       "id": "official-client-bridge",
@@ -79,7 +79,7 @@
     {
       "id": "typescript-manifest",
       "path": "test/conformance/fixtures/typescript/package.json",
-      "digest": "sha256:a2582a4cac94ebb0b59db82a804337d04ea03877e9341a627fbaed57424adc70"
+      "digest": "sha256:e84f48602f90d87412f4f286317e80ea8308ade917d01f874a7e5ee6ffbf5ff4"
     },
     {
       "id": "typescript-lock",
@@ -94,12 +94,12 @@
     {
       "id": "typescript-driver",
       "path": "test/conformance/fixtures/typescript/src/fixture.mjs",
-      "digest": "sha256:0db198d3fca4550cb921cab85391ee502d5b87b20f748fa066dea713cdac2de2"
+      "digest": "sha256:91874a9fcddf36fa4c9c9947a616c914f414327d14df37172d22c931632dcfb1"
     },
     {
       "id": "typescript-self-check",
       "path": "test/conformance/fixtures/typescript/src/self-check.mjs",
-      "digest": "sha256:89e28c40b9d28ebfd787e1ed9d9bd419fea301ebc541f33f0b8a144969637bb7"
+      "digest": "sha256:951f36fbdc2fbbe1d983b43f2d5f4ef0856a73e93c5df12f15d21187954f26c5"
     },
     {
       "id": "typescript-v1",
@@ -114,7 +114,7 @@
     {
       "id": "python-driver",
       "path": "test/conformance/fixtures/python/driver.py",
-      "digest": "sha256:6c32c426600acd2023eb08beb069b8e72fa1f32625f4667f138d489dd0a4131e"
+      "digest": "sha256:20a719c1bf89ddce4268b59c89fb81ee15331acd6c12c242782df39b157af48a"
     },
     {
       "id": "ci-lane",

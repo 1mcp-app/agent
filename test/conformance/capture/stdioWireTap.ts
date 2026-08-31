@@ -38,6 +38,7 @@ async function waitForExit(
 class SanitizingLineObserver {
   private chunks: Buffer[] | null = [];
   private length = 0;
+  private truncated = false;
 
   constructor(
     private readonly capture: SanitizedWireCapture,
@@ -71,6 +72,7 @@ class SanitizingLineObserver {
     if (this.chunks) {
       for (const chunk of this.chunks) chunk.fill(0);
       this.chunks = null;
+      this.truncated = true;
     }
   }
 
@@ -83,6 +85,7 @@ class SanitizingLineObserver {
       headers: {},
       body,
       bodyByteLength: this.length,
+      truncated: this.truncated,
     });
     body.fill(0);
     if (this.chunks) {
@@ -90,6 +93,7 @@ class SanitizingLineObserver {
     }
     this.chunks = [];
     this.length = 0;
+    this.truncated = false;
   }
 }
 

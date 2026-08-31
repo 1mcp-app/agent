@@ -177,6 +177,22 @@ describe('Conformance Baseline aggregation', () => {
     ).toMatchObject({ applicability: { status: 'excluded', reason: 'pending' } });
   });
 
+  it('persists an infrastructure-red baseline when execution stops before matrix planning', () => {
+    const value = input();
+    value.integrity.ok = false;
+    value.requirementCatalog = [];
+    value.officialRuns = [];
+    value.matrixPlan = [];
+    value.matrixRuns = [];
+    value.profileProofs = [];
+    value.legacyRevisionProofs = [];
+
+    const baseline = buildConformanceBaseline(value);
+    expect(baseline).toMatchObject({ infrastructureVerdict: 'red', productVerdict: 'not-evaluated' });
+    expect(baseline.traceability).toEqual([]);
+    expect(baseline.infrastructureErrorCodes).toContain('integrity-failed');
+  });
+
   it.each([
     ['dirty source', (value: ReturnType<typeof input>) => void (value.integrity.source.clean = false)],
     ['integrity mismatch', (value: ReturnType<typeof input>) => void (value.integrity.ok = false)],

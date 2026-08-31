@@ -58,7 +58,7 @@ export async function selfCheck() {
     hasFunctions(v2ClientStdio, ['StdioClientTransport']),
     hasFunctions(v2Server, ['createMcpHandler', 'McpServer']),
     hasFunctions(v2ServerStdio, ['serveStdio']),
-    hasFunctions(v2Node, ['NodeStreamableHTTPServerTransport', 'toNodeHandler']),
+    hasFunctions(v2Node, ['localhostHostValidation', 'localhostOriginValidation', 'toNodeHandler']),
     hasFunctions(v2Legacy, ['SSEServerTransport']),
   ].every(Boolean);
   const versionsValid = Object.entries(PACKAGE_PINS).every(([name, version]) => packages[name] === version);

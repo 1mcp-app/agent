@@ -152,6 +152,43 @@ describe('HTTP wire tap', () => {
     errorSpy.mockRestore();
   });
 
+  it('classifies an oversized dropped request buffer as an infrastructure error', async () => {
+    const peer = createServer((req, res) => {
+      req.resume();
+      req.once('end', () => res.writeHead(204).end());
+    });
+    await new Promise<void>((resolve) => peer.listen(0, '127.0.0.1', resolve));
+    closeTasks.push(
+      () => new Promise<void>((resolve, reject) => peer.close((error) => (error ? reject(error) : resolve()))),
+    );
+    const peerAddress = peer.address();
+    if (!peerAddress || typeof peerAddress === 'string') throw new Error('Test peer did not bind');
+
+    const capture = createSanitizedWireCapture({
+      contexts: [{ id: 'case-oversized-http', negotiatedRevision: '2025-11-25' }],
+      validateEnvelope: () => true,
+    });
+    const tap = await startHttpWireTap({
+      target: `http://127.0.0.1:${peerAddress.port}`,
+      capture,
+      contextId: 'case-oversized-http',
+      hop: 'upstream',
+    });
+    closeTasks.push(tap.close);
+
+    const response = await fetch(tap.url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', padding: 'x'.repeat(1_048_576) }),
+    });
+    expect(response.status).toBe(204);
+    expect(capture.snapshot().records[0]).toMatchObject({
+      direction: 'gateway_to_peer',
+      bodySize: 'oversize',
+      schemaResult: 'infrastructure_error',
+    });
+  });
+
   it('rejects non-loopback targets', async () => {
     const capture = createSanitizedWireCapture({
       contexts: [{ id: 'case-target', negotiatedRevision: '2025-11-25' }],

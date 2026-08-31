@@ -5,6 +5,7 @@ from pathlib import Path
 
 
 DRIVER = Path(__file__).with_name("driver.py")
+DRIVER_TIMEOUT_SECONDS = 30
 
 
 def run_driver(*args: str) -> dict[str, object]:
@@ -13,6 +14,7 @@ def run_driver(*args: str) -> dict[str, object]:
         check=True,
         capture_output=True,
         text=True,
+        timeout=DRIVER_TIMEOUT_SECONDS,
     )
     return json.loads(completed.stdout)
 
@@ -31,7 +33,7 @@ def test_self_check_uses_imported_sdk_version() -> None:
 
 def test_stdio_probe_exercises_protocol_without_payload_output() -> None:
     command = json.dumps(
-        [sys.executable, str(DRIVER), "server", "--transport", "stdio", "--protocol-era", "legacy"]
+        [sys.executable, str(DRIVER), "server", "--transport", "stdio"]
     )
     completed = subprocess.run(
         [
@@ -48,6 +50,7 @@ def test_stdio_probe_exercises_protocol_without_payload_output() -> None:
         check=True,
         capture_output=True,
         text=True,
+        timeout=DRIVER_TIMEOUT_SECONDS,
     )
     assert "synthetic-private-argument" not in completed.stdout
     assert "synthetic-private-result" not in completed.stdout
@@ -67,7 +70,7 @@ def test_stdio_probe_exercises_protocol_without_payload_output() -> None:
 
 def test_modern_stdio_probe_reports_removed_operations() -> None:
     command = json.dumps(
-        [sys.executable, str(DRIVER), "server", "--transport", "stdio", "--protocol-era", "modern"]
+        [sys.executable, str(DRIVER), "server", "--transport", "stdio"]
     )
     facts = run_driver(
         "probe",
@@ -95,6 +98,15 @@ def test_modern_stdio_probe_reports_removed_operations() -> None:
             {"operation": "ping", "reason": "not-in-2026-07-28"},
         ],
     }
+
+
+def stop_server(server: subprocess.Popen[str]) -> None:
+    server.terminate()
+    try:
+        server.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        server.kill()
+        server.wait(timeout=5)
 
 
 def test_streamable_http_probe_and_owned_teardown() -> None:
@@ -140,8 +152,7 @@ def test_streamable_http_probe_and_owned_teardown() -> None:
             "transport": "streamable-http",
         }
     finally:
-        server.terminate()
-        server.wait(timeout=5)
+        stop_server(server)
 
 
 def test_modern_streamable_http_probe_reports_removed_operations() -> None:
@@ -192,8 +203,19 @@ def test_modern_streamable_http_probe_reports_removed_operations() -> None:
             ],
         }
     finally:
-        server.terminate()
-        server.wait(timeout=5)
+        stop_server(server)
+
+
+def test_stdio_server_rejects_protocol_era() -> None:
+    completed = subprocess.run(
+        [sys.executable, str(DRIVER), "server", "--transport", "stdio", "--protocol-era", "legacy"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=DRIVER_TIMEOUT_SECONDS,
+    )
+    assert completed.returncode == 1
+    assert json.loads(completed.stdout) == {"errorCode": "unsupported-profile", "fixtureId": "python-sdk"}
 
 
 def test_invalid_probe_output_is_structural() -> None:
@@ -203,6 +225,7 @@ def test_invalid_probe_output_is_structural() -> None:
         check=False,
         capture_output=True,
         text=True,
+        timeout=DRIVER_TIMEOUT_SECONDS,
     )
     assert completed.returncode == 1
     assert secret not in completed.stdout

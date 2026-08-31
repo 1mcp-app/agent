@@ -73,6 +73,37 @@ describe('stdio wire tap', () => {
     ).rejects.toThrow('Stdio wire tap spawn failure');
   });
 
+  it('classifies an oversized dropped line buffer as an infrastructure error', async () => {
+    const capture = createSanitizedWireCapture({
+      contexts: [{ id: 'case-oversized-stdio', negotiatedRevision: '2025-11-25' }],
+      validateEnvelope: () => true,
+    });
+    const childScript = [
+      "import readline from 'node:readline';",
+      'const lines = readline.createInterface({ input: process.stdin });',
+      'lines.on(\'line\', () => process.stdout.write(\'{"jsonrpc":"2.0","id":1,"result":{}}\\n\'));',
+    ].join('\n');
+    const tap = await startStdioWireTap({
+      command: process.execPath,
+      args: ['--input-type=module', '-e', childScript],
+      env: process.env,
+      capture,
+      contextId: 'case-oversized-stdio',
+    });
+
+    tap.stdout.resume();
+    tap.stdin.end(
+      `${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', padding: 'x'.repeat(1_048_576) })}\n`,
+    );
+    await tap.closed;
+
+    expect(capture.snapshot().records[0]).toMatchObject({
+      direction: 'gateway_to_peer',
+      bodySize: 'oversize',
+      schemaResult: 'infrastructure_error',
+    });
+  });
+
   it('force-kills a child that ignores stdin closure and SIGTERM', async () => {
     const capture = createSanitizedWireCapture({
       contexts: [{ id: 'case-stubborn', negotiatedRevision: '2025-11-25' }],

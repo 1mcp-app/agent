@@ -6,7 +6,7 @@ Commands:
 
 ```bash
 uv run --frozen --no-dev python driver.py --self-check
-uv run --frozen --no-dev python driver.py server --transport stdio --protocol-era legacy
+uv run --frozen --no-dev python driver.py server --transport stdio
 uv run --frozen --no-dev python driver.py server --transport streamable-http --protocol-era modern
 uv run --frozen --no-dev python driver.py probe --transport stdio --protocol-era legacy --command-json '["python","driver.py","server","--transport","stdio","--protocol-era","legacy"]'
 uv run --frozen --no-dev python driver.py probe --transport streamable-http --protocol-era modern --endpoint http://127.0.0.1:PORT/mcp

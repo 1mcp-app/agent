@@ -419,8 +419,8 @@ async function waitForGatewayReady(child: ManagedChild, origin: string, timeoutM
     if (child.hasExited()) throw new RuntimeFault('process', 'gateway_process_failed');
     try {
       const response = await fetch(`${origin}/health/ready`, { signal: AbortSignal.timeout(500) });
-      if (response.status === 200) return;
       await response.body?.cancel();
+      if (response.status === 200) return;
     } catch {
       // Readiness polling is not a conformance attempt.
     }

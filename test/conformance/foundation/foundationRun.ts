@@ -1005,9 +1005,9 @@ export async function runFoundationConformance(options: FoundationRunOptions): P
     encoding: 'utf8',
     mode: 0o600,
   });
-  const proofs = profileProofFileSchema.safeParse(
-    JSON.parse(await readFile(join(outputDirectory, 'profile-proofs.json'), 'utf8')),
-  );
+  const proofs = await readFile(join(outputDirectory, 'profile-proofs.json'), 'utf8')
+    .then((content) => profileProofFileSchema.safeParse(JSON.parse(content)))
+    .catch(() => ({ success: false as const }));
   const proofsValid = proofs.success && (await verifyProfileProofs(root, outputDirectory, proofs.data));
 
   if (!integrity.ok || !proofsValid) {

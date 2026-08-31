@@ -61,6 +61,7 @@ function inspectStream(
   facts: { contextId: string; hop: WireHop; direction: WireDirection; headers: IncomingHttpHeaders },
 ): void {
   let length = 0;
+  let truncated = false;
   let chunks: Buffer[] | null = isInspectable(facts.headers) ? [] : null;
   stream.on('data', (chunk: Buffer | string) => {
     const bytes = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
@@ -68,6 +69,7 @@ function inspectStream(
     if (chunks && length <= INSPECTION_LIMIT) {
       chunks.push(Buffer.from(bytes));
     } else if (length > INSPECTION_LIMIT) {
+      truncated = true;
       chunks = null;
     }
   });
@@ -78,6 +80,7 @@ function inspectStream(
       headers: normalizedHeaders(facts.headers),
       body,
       bodyByteLength: length,
+      truncated,
     });
     body.fill(0);
     chunks = null;

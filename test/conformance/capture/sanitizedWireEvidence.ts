@@ -124,6 +124,7 @@ export interface RawWireObservation {
   headers: Record<string, string | string[] | undefined>;
   body: Uint8Array;
   bodyByteLength?: number;
+  truncated?: boolean;
 }
 
 export type EnvelopeValidator = (envelope: Record<string, unknown>) => boolean;
@@ -296,11 +297,14 @@ export function createSanitizedWireCapture(options: {
       if (!route.success) throw new Error('Invalid wire observation routing');
 
       const kind = contentKind(observation.headers);
-      const envelope = kind === 'json' || kind === 'absent' ? parseEnvelope(observation.body) : null;
+      const envelope =
+        !observation.truncated && (kind === 'json' || kind === 'absent') ? parseEnvelope(observation.body) : null;
       let schemaResult: z.infer<typeof SchemaResultSchema> = 'not_applicable';
       const retainedBodyBytes = observation.bodyByteLength ?? observation.body.byteLength;
       if ((kind === 'json' || kind === 'absent') && retainedBodyBytes > 0) {
-        if (!envelope) {
+        if (observation.truncated) {
+          schemaResult = 'infrastructure_error';
+        } else if (!envelope) {
           schemaResult = 'invalid';
         } else {
           try {
