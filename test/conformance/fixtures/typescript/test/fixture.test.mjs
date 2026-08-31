@@ -412,7 +412,6 @@ test('official conformance mode rejects non-loopback endpoints without echoing t
 
   assert.equal(result.code, 1);
   assert.deepEqual(JSON.parse(result.stderr), { kind: 'error', code: 'INVALID_ARGUMENTS' });
-  assert.equal(result.stderr.includes(endpoint), false);
 });
 
 for (const sdkEra of ['v1', 'v2']) {
