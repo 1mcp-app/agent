@@ -43,6 +43,12 @@ function isLoopbackTarget(target: URL): boolean {
   );
 }
 
+function trustedLoopbackHostname(target: URL): '127.0.0.1' | '::1' | 'localhost' {
+  if (target.hostname === '127.0.0.1') return '127.0.0.1';
+  if (target.hostname === 'localhost') return 'localhost';
+  return '::1';
+}
+
 function isInspectable(headers: IncomingHttpHeaders): boolean {
   const contentType = headers['content-type'];
   const value = Array.isArray(contentType) ? contentType.join(',') : contentType;
@@ -99,6 +105,8 @@ export async function startHttpWireTap(options: {
   } catch {
     throw new Error('Invalid wire tap target');
   }
+  const requestHostname = trustedLoopbackHostname(target);
+  const requestPort = target.port ? Number(target.port) : undefined;
   const direction = directions(options.hop);
   const sockets = new Set<import('node:net').Socket>();
 
@@ -125,8 +133,10 @@ export async function startHttpWireTap(options: {
 
     const makeRequest = destination.protocol === 'https:' ? httpsRequest : httpRequest;
     const upstream = makeRequest(
-      destination,
       {
+        hostname: requestHostname,
+        port: requestPort,
+        path: `${destination.pathname}${destination.search}`,
         method: incoming.method,
         headers: forwardedHeaders(incoming.headers, destination.host),
       },

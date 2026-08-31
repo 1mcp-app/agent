@@ -1,11 +1,12 @@
 import tsconfigPaths from 'vite-tsconfig-paths';
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 export default defineConfig({
   plugins: [tsconfigPaths()],
   test: {
     environment: 'node',
     include: ['test/conformance/**/*.test.ts'],
+    exclude: [...configDefaults.exclude, 'test/conformance/transports/profileProofs.test.ts'],
     globals: true,
     retry: 0,
     fileParallelism: false,

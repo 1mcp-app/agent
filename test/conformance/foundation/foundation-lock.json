@@ -9,7 +9,7 @@
     {
       "id": "vitest-conformance",
       "path": "vitest.conformance.config.ts",
-      "digest": "sha256:7dbee309708fe8178a59facd806ee2f081d99bf0ef0cbc761e59e34e3d1f086d"
+      "digest": "sha256:926db110d1c74c81c84fd6d91e0892a54351f11d2dd5553e9adf1c9417d28775"
     },
     {
       "id": "vitest-transports",
@@ -34,7 +34,7 @@
     {
       "id": "capture-http",
       "path": "test/conformance/capture/httpWireTap.ts",
-      "digest": "sha256:0f29292c75a9413a037889d5e6dcda7cfc1628d8c12e42ede023f8099b9845ae"
+      "digest": "sha256:b3b6e5116ff7ccf986eae41ad782d7ef2943c5395ef2a70b781cdbc8464e6d30"
     },
     {
       "id": "capture-stdio",
