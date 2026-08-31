@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.0] - 2026-08-31
+
+### 🚀 Features
+- Configure runtime operational policies by @xizhibei in [#507](https://github.com/1mcp-app/agent/pull/507)
+- Manage Template Server lifecycle by @xizhibei in [#506](https://github.com/1mcp-app/agent/pull/506)
+- Delete configured server targets safely by @xizhibei in [#494](https://github.com/1mcp-app/agent/pull/494)
+- Manage Template Server definitions by @xizhibei in [#493](https://github.com/1mcp-app/agent/pull/493)
+
+### 🐛 Bug Fixes
+- Sanitize sensitive error metadata and IDs in extractUuidPart and isValidId (CWE-532) by @Xxx91n in [#513](https://github.com/1mcp-app/agent/pull/513)
+- Unify atomic write primitive, fail-closed migration flags, and capability-degrade directory permissions by @Xxx91n in [#509](https://github.com/1mcp-app/agent/pull/509)
+- Write token files with 0600 and storage dir with 0700 permissions by @Xxx91n in [#492](https://github.com/1mcp-app/agent/pull/492)
+- Escape control characters in secureLogger (CWE-117 log forging) by @Xxx91n in [#497](https://github.com/1mcp-app/agent/pull/497)
+- Warn on fail-open config when auth is disabled but scope validation is enabled by @Xxx91n in [#496](https://github.com/1mcp-app/agent/pull/496)
+- Make authorization code redemption atomic and drop plaintext code logs by @Xxx91n in [#470](https://github.com/1mcp-app/agent/pull/470)
+
+### ⚙️ Miscellaneous Tasks
+- Add .gitattributes for cross-platform line-ending normalization by @Xxx91n in [#511](https://github.com/1mcp-app/agent/pull/511)
+
+
 ## [0.36.0] - 2026-08-23
 
 ### 🚀 Features
@@ -1119,6 +1139,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * @xizhibei made their first contribution in [#1](https://github.com/1mcp-app/agent/pull/1)
 * @dependabot[bot] made their first contribution
 
+[0.37.0]: https://github.com/1mcp-app/agent/compare/v0.36.0..v0.37.0
 [0.36.0]: https://github.com/1mcp-app/agent/compare/v0.35.0..v0.36.0
 [0.35.0]: https://github.com/1mcp-app/agent/compare/v0.34.4..v0.35.0
 [0.34.4]: https://github.com/1mcp-app/agent/compare/v0.34.3..v0.34.4
