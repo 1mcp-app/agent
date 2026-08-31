@@ -122,6 +122,49 @@ describe('apiRoutes /api/tool-invocations', () => {
     expect(serverManager.getClient).not.toHaveBeenCalled();
   });
 
+  it('rate limits tool invocations before authorization', async () => {
+    const serverManager = {
+      getLazyLoadingOrchestrator: vi.fn(() => undefined),
+      getClient: vi.fn(() => undefined),
+      getClients: vi.fn(() => new Map()),
+    };
+    const authorizationAttempts = vi.fn((_req: Request, _res: Response, next: () => void) => next());
+    const app = express();
+    app.use(express.json());
+    app.use(
+      '/api/v1',
+      createApiRoutes(serverManager as never, authorizationAttempts, { windowMs: 60_000, max: 1 }),
+    );
+
+    const firstResponse = await request(app).post('/api/v1/tool-invocations').send({ tool: 'server/tool' });
+    const secondResponse = await request(app).post('/api/v1/tool-invocations').send({ tool: 'server/tool' });
+
+    expect(firstResponse.status).toBe(503);
+    expect(secondResponse.status).toBe(429);
+    expect(authorizationAttempts).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows tool invocation bursts above the OAuth rate limit by default', async () => {
+    const serverManager = {
+      getLazyLoadingOrchestrator: vi.fn(() => undefined),
+      getClient: vi.fn(() => undefined),
+      getClients: vi.fn(() => new Map()),
+    };
+    const authorizationAttempts = vi.fn((_req: Request, _res: Response, next: () => void) => next());
+    const app = express();
+    app.use(express.json());
+    app.use('/api/v1', createApiRoutes(serverManager as never, authorizationAttempts));
+
+    const responses = await Promise.all(
+      Array.from({ length: 101 }, () =>
+        request(app).post('/api/v1/tool-invocations').send({ tool: 'server/tool' }),
+      ),
+    );
+
+    expect(responses.every((response) => response.status === 503)).toBe(true);
+    expect(authorizationAttempts).toHaveBeenCalledTimes(101);
+  });
+
   it('returns 400 when tool field is missing', async () => {
     const serverManager = { getLazyLoadingOrchestrator: vi.fn(() => undefined) };
     const handler = createToolInvocationsHandler(serverManager as never);
