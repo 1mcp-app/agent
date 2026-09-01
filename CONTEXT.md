@@ -116,6 +116,9 @@ _Avoid_: valid context, parsed context, authenticated client context
 The random owner-only secret held by one local **Runtime Scope** and used by first-party local **Client Surfaces** to sign template-context proofs. It is not PID metadata, an OAuth credential, or a remote-client secret.
 _Avoid_: API key, auth token, context header
 
+**Heal-Then-Consume**:
+The credential-permission policy for legacy insecure files: tighten owner-only permissions in place and consume, failing closed only when the heal is denied or the file is foreign-owned. It is a deliberate deviation from refuse-always, chosen for upgrade compatibility (ADR 0016).
+_Avoid_: refuse-always, auto-fix, silent chmod
 **Template Context Proof**:
 A detached HMAC proof binding a readable **Request Context** hash to one Runtime Scope identity and canonical **Request Session**. It authorizes template rendering but does not authorize general session access.
 _Avoid_: context token, session token, encoded context

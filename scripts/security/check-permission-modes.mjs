@@ -54,7 +54,12 @@ function findingFingerprint(file, index, snippet) {
 
 function scanFile(rel) {
   const abs = path.join(ROOT, rel);
-  const content = fs.readFileSync(abs, 'utf8');
+  return scanContent(rel, fs.readFileSync(abs, 'utf8'));
+}
+
+// Test seam: scan raw content under a synthetic relative path without touching
+// the real repository tree or the baseline on disk.
+function scanContent(rel, content) {
   const lines = content.split('\n');
   const hasDestructuredImport = DESTRUCTURED_IMPORTS.test(content);
   const findings = [];
@@ -107,85 +112,93 @@ function loadBaseline() {
   return JSON.parse(fs.readFileSync(BASELINE_PATH, 'utf8'));
 }
 
-const findings = listSourceFiles().flatMap(scanFile);
-const baseline = loadBaseline();
-const baselineMap = new Map(baseline.entries.map((e) => [e.fingerprint, e]));
+function main() {
+  const findings = listSourceFiles().flatMap(scanFile);
+  const baseline = loadBaseline();
+  const baselineMap = new Map(baseline.entries.map((e) => [e.fingerprint, e]));
 
-function reasonFor(f) {
-  // Accepted-risk reasons may only be inherited by an exact fingerprint match
-  // against a previously reviewed baseline entry. Anything else (new findings,
-  // moved lines, new call sites in previously listed files) gets the template
-  // reason so it cannot silently inherit an unrelated justification at --update.
-  const reviewed = baselineMap.get(f.fingerprint);
-  if (reviewed && typeof reviewed.reason === 'string' && reviewed.reason.length > 0) {
-    return reviewed.reason;
+  function reasonFor(f) {
+    // Accepted-risk reasons may only be inherited by an exact fingerprint match
+    // against a previously reviewed baseline entry. Anything else (new findings,
+    // moved lines, new call sites in previously listed files) gets the template
+    // reason so it cannot silently inherit an unrelated justification at --update.
+    const reviewed = baselineMap.get(f.fingerprint);
+    if (reviewed && typeof reviewed.reason === 'string' && reviewed.reason.length > 0) {
+      return reviewed.reason;
+    }
+    return 'pre-existing, recorded at ticket-05 gate baseline; triage under 08-lowseverity-hardening';
   }
-  return 'pre-existing, recorded at ticket-05 gate baseline; triage under 08-lowseverity-hardening';
-}
-// Audit leg (detect-secrets model): enforce mode rejects baseline entries whose
-// reason is just the --update template, so accepted-risk entries must carry a
-// hand-written justification. --update records candidates; a human edits the
-// reason before the gate goes green.
-const TEMPLATE_REASON_RE = /^pre-existing, recorded at ticket-05 gate baseline/;
+  // Audit leg (detect-secrets model): enforce mode rejects baseline entries whose
+  // reason is just the --update template, so accepted-risk entries must carry a
+  // hand-written justification. --update records candidates; a human edits the
+  // reason before the gate goes green.
+  const TEMPLATE_REASON_RE = /^pre-existing, recorded at ticket-05 gate baseline/;
 
-const mode = process.argv.includes('--update') ? 'update' : process.argv.includes('--prune') ? 'prune' : 'enforce';
+  const mode = process.argv.includes('--update') ? 'update' : process.argv.includes('--prune') ? 'prune' : 'enforce';
 
-if (mode === 'update') {
-  const entries = findings.map((f) => ({
-    fingerprint: f.fingerprint,
-    file: f.file,
-    call: f.call,
-    line: f.line,
-    reason: reasonFor(f),
-    enteredAt: new Date().toISOString().slice(0, 10),
-    ticket: '08-lowseverity-hardening',
-  }));
-  fs.writeFileSync(
-    BASELINE_PATH,
-    `${JSON.stringify({ schema: 1, generatedBy: 'check-permission-modes.mjs --update', entries }, null, 2)}\n`,
-  );
-  console.log(`baseline updated: ${entries.length} entries`);
-  process.exit(0);
-}
-
-const stale = baseline.entries.filter((e) => !findings.some((f) => f.fingerprint === e.fingerprint));
-if (mode === 'prune') {
-  const kept = baseline.entries.filter((e) => findings.some((f) => f.fingerprint === e.fingerprint));
-  fs.writeFileSync(
-    BASELINE_PATH,
-    `${JSON.stringify({ schema: 1, generatedBy: 'check-permission-modes.mjs --prune', entries: kept }, null, 2)}\n`,
-  );
-  console.log(`baseline pruned: removed ${stale.length} stale entries, kept ${kept.length}`);
-  process.exit(0);
-}
-
-// enforce
-const templateReasonEntries = baseline.entries.filter((e) => TEMPLATE_REASON_RE.test(e.reason || ''));
-if (templateReasonEntries.length > 0) {
-  console.error('\nFAIL: baseline entries still carry the --update template reason (audit required):');
-  for (const e of templateReasonEntries) {
-    console.error(`  ${e.fingerprint}  ${e.file}:${e.line}`);
+  if (mode === 'update') {
+    const entries = findings.map((f) => ({
+      fingerprint: f.fingerprint,
+      file: f.file,
+      call: f.call,
+      line: f.line,
+      reason: reasonFor(f),
+      enteredAt: new Date().toISOString().slice(0, 10),
+      ticket: '08-lowseverity-hardening',
+    }));
+    fs.writeFileSync(
+      BASELINE_PATH,
+      `${JSON.stringify({ schema: 1, generatedBy: 'check-permission-modes.mjs --update', entries }, null, 2)}\n`,
+    );
+    console.log(`baseline updated: ${entries.length} entries`);
+    process.exit(0);
   }
-  console.error('\nEdit permission-guard-baseline.json and replace each with a hand-written justification.');
-  process.exit(1);
-}
-const newFindings = findings.filter((f) => !baselineMap.has(f.fingerprint));
-for (const e of stale) {
-  console.warn(`[stale-baseline] ${e.fingerprint} no longer matches any finding — run --prune`);
-}
-if (stale.length > 0) {
-  console.warn('note: stale baseline entries are warnings only; they do not fail the gate');
-}
-if (newFindings.length > 0) {
-  console.error('\nFAIL: new fs write calls without an explicit permission mode:');
-  for (const f of newFindings) {
-    console.error(`  ${f.file}:${f.line}  fs.${f.call}(...)  [matches no baseline entry]`);
+
+  const stale = baseline.entries.filter((e) => !findings.some((f) => f.fingerprint === e.fingerprint));
+  if (mode === 'prune') {
+    const kept = baseline.entries.filter((e) => findings.some((f) => f.fingerprint === e.fingerprint));
+    fs.writeFileSync(
+      BASELINE_PATH,
+      `${JSON.stringify({ schema: 1, generatedBy: 'check-permission-modes.mjs --prune', entries: kept }, null, 2)}\n`,
+    );
+    console.log(`baseline pruned: removed ${stale.length} stale entries, kept ${kept.length}`);
+    process.exit(0);
   }
-  console.error(
-    '\nFix by adding mode: 0o600 (files) / 0o700 (dirs), or run --update to record an accepted-risk baseline entry with a reason.',
+
+  // enforce
+  const templateReasonEntries = baseline.entries.filter((e) => TEMPLATE_REASON_RE.test(e.reason || ''));
+  if (templateReasonEntries.length > 0) {
+    console.error('\nFAIL: baseline entries still carry the --update template reason (audit required):');
+    for (const e of templateReasonEntries) {
+      console.error(`  ${e.fingerprint}  ${e.file}:${e.line}`);
+    }
+    console.error('\nEdit permission-guard-baseline.json and replace each with a hand-written justification.');
+    process.exit(1);
+  }
+  const newFindings = findings.filter((f) => !baselineMap.has(f.fingerprint));
+  for (const e of stale) {
+    console.warn(`[stale-baseline] ${e.fingerprint} no longer matches any finding — run --prune`);
+  }
+  if (stale.length > 0) {
+    console.warn('note: stale baseline entries are warnings only; they do not fail the gate');
+  }
+  if (newFindings.length > 0) {
+    console.error('\nFAIL: new fs write calls without an explicit permission mode:');
+    for (const f of newFindings) {
+      console.error(`  ${f.file}:${f.line}  fs.${f.call}(...)  [matches no baseline entry]`);
+    }
+    console.error(
+      '\nFix by adding mode: 0o600 (files) / 0o700 (dirs), or run --update to record an accepted-risk baseline entry with a reason.',
+    );
+    process.exit(1);
+  }
+  console.log(
+    `permission-mode guard: OK (${findings.length} mode-less calls scanned, all covered by baseline: ${baseline.entries.length} entries)`,
   );
-  process.exit(1);
 }
-console.log(
-  `permission-mode guard: OK (${findings.length} mode-less calls scanned, all covered by baseline: ${baseline.entries.length} entries)`,
-);
+
+export { scanContent, scanFile, findingFingerprint };
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main();
+}

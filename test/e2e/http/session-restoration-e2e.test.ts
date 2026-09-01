@@ -92,14 +92,20 @@ describe('Streamable HTTP Session Restoration E2E', () => {
   });
 
   /**
-   * Launch the server and probe /health/ready. getAvailablePort releases its
-   * probe socket before the child binds, so a competing process can steal the
-   * port in between; retry the full launch once on a fresh port.
+   * Launch the server and probe /health/ready.
+   * - Default (no port): getAvailablePort releases its probe socket before the
+   *   child binds, so a competing process can steal the port in between; retry
+   *   the full launch on a fresh port.
+   * - With `port` (restart): bind the same port again and retry on the SAME
+   *   port with backoff. stopProcess awaits the child's exit event, so the only
+   *   leftover is the kernel's socket-teardown window; switching ports would
+   *   silently change the runtime-scope identity the restart assertions depend on.
    */
-  async function startServer(): Promise<void> {
+  async function startServer(options: { port?: number } = {}): Promise<void> {
+    const maxAttempts = options.port === undefined ? 2 : 3;
     let lastError: unknown;
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      serverPort = await getAvailablePort();
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      serverPort = options.port ?? (await getAvailablePort());
       const fixturesPath = join(__dirname, '../fixtures');
       const builder = new ConfigBuilder();
       configBuilders.push(builder);
@@ -136,6 +142,9 @@ describe('Streamable HTTP Session Restoration E2E', () => {
           `Launch attempt ${attempt} failed readiness probe (exitCode=${String(info?.process.exitCode)}, signalCode=${String(info?.process.signalCode)})\nChild output tail:\n${processManager.getOutputTail('1mcp-server')}`,
         );
         await processManager.stopProcess('1mcp-server');
+        if (options.port !== undefined && attempt < maxAttempts) {
+          await new Promise((resolve) => setTimeout(resolve, 100 * 2 ** (attempt - 1)));
+        }
       }
     }
     throw lastError;
@@ -155,12 +164,14 @@ describe('Streamable HTTP Session Restoration E2E', () => {
     it('should handle multiple server restarts', async () => {
       // Start server first time
       await startServer();
+      const firstPort = serverPort;
 
       // Stop server
       await processManager.stopProcess('1mcp-server');
 
       // Start server again on the same port (restart scenario)
-      await startServer();
+      await startServer({ port: firstPort });
+      expect(serverPort).toBe(firstPort);
 
       // Verify health endpoint still works
       const healthResponse = await fetch(`${serverUrl.replace('/mcp', '')}/health`);

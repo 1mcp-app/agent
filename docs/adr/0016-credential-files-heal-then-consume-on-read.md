@@ -1,0 +1,15 @@
+---
+status: accepted
+---
+
+# ADR 0016: Credential Files Heal-Then-Consume on Read
+
+Credentials persisted by 1MCP — OAuth tokens, sessions, authorization codes, client registrations, auth profiles, template-context capabilities — are written with explicit owner-only modes (files `0600`, directories `0700`) and never with values derived from the process umask (AUTH-07). On POSIX, every credential read passes a permission gate on a single open file descriptor (`fstat` → heal → read), and storage directories pass an owner-only gate before both reads and writes.
+
+Reads follow heal-then-consume rather than OpenSSH's refuse-always: a legacy file left group/other-readable by an older 1MCP version is tightened to `0600` in place and then consumed, because the alternative — refusing valid credentials after upgrade — would strand live installations over files 1MCP itself created. The gate still fails closed, throwing `InsecureFilePermissionsError`, when the heal is denied (`EACCES`/`EPERM`), when the file or directory is owned by another uid (a real attacker marker, not our own legacy artifact), and when the path is a symlink rung pinned at open time (`O_NOFOLLOW`, so the fd pins the inode across heal and rename — no TOCTOU window).
+
+Filesystems that cannot represent POSIX modes (exFAT, CIFS, some FUSE mounts) reject `chmod` with capability errors (`ENOTSUP`, `EOPNOTSUPP`, `EINVAL`, `ENOSYS` — the shared `CAPABILITY_ERROR_CODES` set). On those the hardening step degrades to a warning on both the read and write side, so users on such volumes keep a working client; genuine access denials always fail closed. This is an availability concession for volumes where the control cannot exist at all, not a weakening of the POSIX path.
+
+The threat model is explicit: POSIX modes protect credentials from _other users_ of the machine. They do not protect against code running as the same uid, against root, or against an attacker who can already read the user's home directory — those cases are outside the design boundary. A CI guard (`scripts/security/check-permission-modes.mjs`) scans `src/**` for mode-less writes; pre-existing findings live in a baseline whose entries must carry a hand-written justification (a bare template reason is rejected), and a baseline reason is inherited by a finding only when its `file#occurrence#call` fingerprint matches the reviewed entry exactly — anything new, moved, or merely in a previously listed file resurfaces as a new finding requiring review. Only owner-only mode values (`mode & 0o077 === 0`) suppress a finding; a permissive value like `0644` silences nothing.
+
+Considered and rejected: refuse-always on insecure files (breaks upgrades from versions that wrote looser files); refusing on capability-error volumes (breaks FAT-style mounts outright); trusting `mkdir mode` to harden pre-existing directories (`mkdir` is a no-op on an existing permissive path, so the gates exist); directory heals treated as failures (rejected — a loosened storage directory is recoverable state, and the heal-then-consume policy applies uniformly to directories and files).
