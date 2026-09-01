@@ -1,11 +1,12 @@
-import type {
-  LegacyConnectionId,
-  LegacyRequestId,
-  LegacySdkAdapter,
-  LegacySdkEvent,
-  LegacySdkNotification,
-  LegacySdkRequest,
-  LegacySdkResponse,
+import {
+  createLegacyTimeoutMs,
+  type LegacyConnectionId,
+  type LegacyRequestId,
+  type LegacySdkAdapter,
+  type LegacySdkEvent,
+  type LegacySdkNotification,
+  type LegacySdkRequest,
+  type LegacySdkResponse,
 } from './legacySdkAdapter.js';
 import { OneMcpProtocolError } from './oneMcpProtocolError.js';
 
@@ -21,7 +22,12 @@ describe('LegacySdkAdapter contract', () => {
   it('supports pull-based inbound events and explicit responses with local values', async () => {
     const connectionId = 'legacy-connection' as LegacyConnectionId;
     const requestId = 'legacy-request' as LegacyRequestId;
-    const request: LegacySdkRequest = { id: requestId, method: 'tools/list', params: { cursor: null } };
+    const request: LegacySdkRequest = {
+      id: requestId,
+      method: 'tools/list',
+      params: { cursor: null },
+      timeoutMs: createLegacyTimeoutMs(3_000),
+    };
     const notification: LegacySdkNotification = { method: 'notifications/initialized' };
     const events: LegacySdkEvent[] = [
       { type: 'request', request },
@@ -34,6 +40,7 @@ describe('LegacySdkAdapter contract', () => {
     ];
     let nextEventIndex = 0;
     const adapter: LegacySdkAdapter = {
+      cancel: vi.fn(async () => undefined),
       close: vi.fn(async () => undefined),
       connectionId,
       nextEvent: vi.fn(async () => events[nextEventIndex++] as LegacySdkEvent),
@@ -61,6 +68,7 @@ describe('LegacySdkAdapter contract', () => {
     }
 
     await expect(adapter.request(request)).resolves.toEqual({ tools: [] });
+    await adapter.cancel(requestId);
     await adapter.notify(notification);
     await adapter.close();
 
@@ -69,7 +77,18 @@ describe('LegacySdkAdapter contract', () => {
     expect(adapter.respond).toHaveBeenNthCalledWith(1, responses[0]);
     expect(adapter.respond).toHaveBeenNthCalledWith(2, responses[1]);
     expect(adapter.request).toHaveBeenCalledWith(request);
+    expect(adapter.cancel).toHaveBeenCalledWith(requestId);
     expect(adapter.notify).toHaveBeenCalledWith(notification);
     expect(adapter.close).toHaveBeenCalledOnce();
+    expect(JSON.parse(JSON.stringify(request))).toEqual({
+      id: 'legacy-request',
+      method: 'tools/list',
+      params: { cursor: null },
+      timeoutMs: 3_000,
+    });
+  });
+
+  it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])('rejects invalid timeout %s', (timeoutMs) => {
+    expect(() => createLegacyTimeoutMs(timeoutMs)).toThrow('finite positive integer');
   });
 });
