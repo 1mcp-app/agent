@@ -45,16 +45,17 @@ jobs:
         uses: ./.github/actions/setup-node-pnpm
 
       - name: Run actionlint
+        env:
+          ACTIONLINT_VERSION: 1.7.7
+          ACTIONLINT_SHA256: 023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757
         run: |
           set -euo pipefail
-          VERSION="1.7.7"
-          BINARY="actionlint_${VERSION}_linux_amd64.tar.gz"
+          BINARY="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
           curl -fsSL --connect-timeout 15 --retry 3 \
-            -o "${BINARY}" "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/${BINARY}"
-          curl -fsSL --connect-timeout 15 --retry 3 \
-            -o checksums.txt "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/actionlint_${VERSION}_checksums.txt"
-          grep "${BINARY}" checksums.txt | sha256sum -c -
+            -o "${BINARY}" "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${BINARY}"
+          printf '%s  %s\n' "${ACTIONLINT_SHA256}" "${BINARY}" | sha256sum -c -
           tar xzf "${BINARY}" actionlint
+          command -v shellcheck >/dev/null || { echo "::error::shellcheck not found on runner"; exit 1; }
           echo "$PWD" >> "$GITHUB_PATH"
           ./actionlint -color
 

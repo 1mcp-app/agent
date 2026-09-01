@@ -34,6 +34,41 @@ function findTestFiles(directory: string): string[] {
   });
 }
 
+/**
+ * Collects all GitHub workflow and composite action YAML files in the repository.
+ *
+ * @returns Array of relative paths to CI YAML files.
+ */
+function getCiYamlFiles(): string[] {
+  const files: string[] = [];
+
+  const workflowsDir = path.join(process.cwd(), '.github', 'workflows');
+  if (fs.existsSync(workflowsDir)) {
+    for (const file of fs.readdirSync(workflowsDir)) {
+      if (file.endsWith('.yml') || file.endsWith('.yaml')) {
+        files.push(path.join('.github', 'workflows', file));
+      }
+    }
+  }
+
+  const actionsDir = path.join(process.cwd(), '.github', 'actions');
+  if (fs.existsSync(actionsDir)) {
+    const scanActions = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          scanActions(full);
+        } else if (entry.name === 'action.yml' || entry.name === 'action.yaml') {
+          files.push(path.relative(process.cwd(), full));
+        }
+      }
+    };
+    scanActions(actionsDir);
+  }
+
+  return files;
+}
+
 describe('test-and-validate workflow', () => {
   it('runs E2E independently and keeps test suites isolated', () => {
     const workflow = readRepoFile('.github/workflows/test-and-validate.yml');
@@ -83,9 +118,18 @@ describe('test-and-validate workflow', () => {
     expect(packageJson.scripts['test:e2e:shardable']).toContain('--exclude "**/serve-background.test.ts"');
     expect(packageJson.scripts['test:e2e:system']).toContain('test/e2e/commands/serve-background.test.ts');
   });
-  it('installs and runs actionlint binary with shellcheck in CI pipeline', () => {
+
+  it('installs and runs actionlint binary with pinned SHA-256 digest and shellcheck in CI pipeline', () => {
     const workflow = YAML.parse(readRepoFile('.github/workflows/test-and-validate.yml')) as {
-      jobs?: { ci?: { steps?: { name?: string; run?: string }[] } };
+      jobs?: {
+        ci?: {
+          steps?: {
+            name?: string;
+            env?: Record<string, string>;
+            run?: string;
+          }[];
+        };
+      };
     };
     const steps = workflow?.jobs?.ci?.steps;
 
@@ -93,13 +137,15 @@ describe('test-and-validate workflow', () => {
 
     const runActionlintStep = steps?.find((s) => s.name === 'Run actionlint');
     expect(runActionlintStep).toBeDefined();
-    expect(runActionlintStep?.run).toContain('actionlint_${VERSION}_checksums.txt');
+    expect(runActionlintStep?.env?.ACTIONLINT_VERSION).toBe('1.7.7');
+    expect(runActionlintStep?.env?.ACTIONLINT_SHA256).toMatch(/^[a-f0-9]{64}$/);
     expect(runActionlintStep?.run).toContain('sha256sum -c -');
+    expect(runActionlintStep?.run).toContain('command -v shellcheck');
     expect(runActionlintStep?.run).toContain('echo "$PWD" >> "$GITHUB_PATH"');
     expect(runActionlintStep?.run).toContain('./actionlint -color');
   });
 
-  it('validates security gate fixtures define targeted policy test cases', () => {
+  it('validates security policy invariants across all workflows and composite actions', () => {
     const fixturesDir = path.join(process.cwd(), 'test', 'fixtures', 'ci-security');
     const injectFixture = fs.readFileSync(path.join(fixturesDir, 'inject-expression.yml'), 'utf8');
     const unquotedFixture = fs.readFileSync(path.join(fixturesDir, 'unquoted-var.yml'), 'utf8');
@@ -111,14 +157,43 @@ describe('test-and-validate workflow', () => {
     expect(secretsFixture).toMatch(/secrets:\s*inherit/);
     expect(permsFixture).toMatch(/permissions:\s*write-all/);
 
-    const workflowFiles = fs
-      .readdirSync(path.join(process.cwd(), '.github', 'workflows'))
-      .filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'));
+    const ciFiles = getCiYamlFiles();
+    expect(ciFiles.length).toBeGreaterThan(0);
 
-    for (const wfFile of workflowFiles) {
-      const content = readRepoFile(`.github/workflows/${wfFile}`);
-      expect(content).not.toMatch(/secrets:\s*inherit/);
+    for (const relFile of ciFiles) {
+      const content = readRepoFile(relFile);
+      const parsed = YAML.parse(content) as {
+        permissions?: string | Record<string, string>;
+        jobs?: Record<
+          string,
+          { permissions?: string | Record<string, string>; secrets?: string; steps?: { run?: string }[] }
+        >;
+        runs?: { steps?: { run?: string }[] };
+      };
+
+      // Ensure write-all permissions are not used
+      expect(parsed?.permissions, `${relFile}: top-level permissions must not be write-all`).not.toBe('write-all');
       expect(content).not.toMatch(/permissions:\s*write-all/);
+
+      // Ensure secrets: inherit is not used
+      expect(content).not.toMatch(/secrets:\s*inherit/);
+
+      // Collect all step run blocks and ensure github.event.* expressions are not directly interpolated
+      const steps: { run?: string }[] = [...(parsed?.runs?.steps ?? [])];
+      for (const job of Object.values(parsed?.jobs ?? {})) {
+        if (job?.steps) {
+          steps.push(...job.steps);
+        }
+      }
+
+      for (const step of steps) {
+        if (typeof step?.run === 'string') {
+          expect(
+            step.run,
+            `${relFile}: run step must not interpolate direct untrusted github.event context`,
+          ).not.toMatch(/\$\{\{\s*github\.event/);
+        }
+      }
     }
   });
 });
