@@ -1,6 +1,6 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
-import { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { Tool } from '@src/sdk/contracts/index.js';
 
 import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
 

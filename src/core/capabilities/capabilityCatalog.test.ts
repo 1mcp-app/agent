@@ -1,10 +1,9 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-
 import type { TemplateHashProvider } from '@src/core/server/connectionResolver.js';
+import { executeWithPostAuthOAuthRecovery } from '@src/core/client/postAuthOAuthRecovery.js';
 import { ClientStatus, type OutboundConnections } from '@src/core/types/client.js';
-import { OneMcpProtocolError } from '@src/sdk/contracts/index.js';
+import { OneMcpProtocolError, type Tool } from '@src/sdk/contracts/index.js';
 
 import { CapabilityCatalog } from './capabilityCatalog.js';
 import { capabilityVisibilityFromServerNames, createCapabilityVisibility } from './capabilityVisibility.js';
@@ -43,19 +42,22 @@ describe('CapabilityCatalog', () => {
       callTool: vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] }),
     };
 
-    const connection = (name: string) =>
-      createMockOutboundConnection({
+    const connection = (name: string) => {
+      let outbound: ReturnType<typeof createMockOutboundConnection>;
+      outbound = createMockOutboundConnection({
         name,
         adapter: {
           request: vi.fn(async ({ method, params }) => {
             if (method === 'tools/call') {
               const callTool = mockClient.callTool as unknown as (input: unknown) => Promise<never>;
-              return callTool(params);
+              return executeWithPostAuthOAuthRecovery(name, outbound, () => callTool(params));
             }
             return {};
           }),
         },
       });
+      return outbound;
+    };
     outboundConnections = new Map([
       ['filesystem', connection('filesystem')],
       ['template-server:rendered123', connection('template-server')],

@@ -1,4 +1,4 @@
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { toProtocolTool } from '@src/sdk/contracts/index.js';
 
 import { describe, expect, it } from 'vitest';
 
@@ -9,7 +9,7 @@ import {
   parseInspectTarget,
 } from './inspectUtils.js';
 
-const toolSchemaResponse = {
+const toolSchemaResponse = toProtocolTool({
   name: 'runner_1mcp_echo_args',
   description: 'Echo message payloads for testing.',
   inputSchema: {
@@ -35,9 +35,8 @@ const toolSchemaResponse = {
       echoed: { type: 'string' },
     },
   },
-  annotations: undefined,
   examples: [{ message: 'hello' }],
-} as unknown as Tool;
+});
 
 describe('inspectUtils', () => {
   it('parses bare server names and server/tool references', () => {

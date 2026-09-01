@@ -1,4 +1,4 @@
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from '@src/sdk/contracts/index.js';
 
 import { ClientStatus, type OutboundConnection, type OutboundConnections } from '@src/core/types/index.js';
 

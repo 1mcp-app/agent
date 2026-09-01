@@ -18,9 +18,20 @@ import { McpLoadingManager } from './core/loading/mcpLoadingManager.js';
 import { ServerManager } from './core/server/serverManager.js';
 import { PresetManager } from './domains/preset/manager/presetManager.js';
 import { PresetNotificationService } from './domains/preset/services/presetNotificationService.js';
+import { toJsonValue, type JsonObject } from './sdk/contracts/index.js';
 import { createTransports } from './transport/transportFactory.js';
 
 type AuthProviderTransport = ReturnType<typeof createTransports>[string];
+
+function toJsonObject(value: unknown, label: string): JsonObject {
+  const normalized = toJsonValue(value);
+  if (normalized === null || Array.isArray(normalized) || typeof normalized !== 'object') {
+    throw new TypeError(`${label} must be a JSON object`);
+  }
+  return normalized;
+}
+
+const SERVER_CAPABILITIES_RECORD = toJsonObject(MCP_SERVER_CAPABILITIES, 'Server capabilities');
 
 /**
  * Result of server setup including both sync and async components
@@ -131,7 +142,7 @@ async function setupServerAsync(
   // Create server manager with empty clients initially
   const serverManager = ServerManager.getOrCreateInstance(
     { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
-    { capabilities: MCP_SERVER_CAPABILITIES },
+    { capabilities: SERVER_CAPABILITIES_RECORD },
     clients,
     transports,
   );
@@ -216,7 +227,7 @@ async function setupServerSync(
   // Create server manager with connected clients
   const serverManager = ServerManager.getOrCreateInstance(
     { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
-    { capabilities: MCP_SERVER_CAPABILITIES },
+    { capabilities: SERVER_CAPABILITIES_RECORD },
     clients,
     transports,
   );

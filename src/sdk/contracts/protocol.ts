@@ -240,19 +240,145 @@ function toProtocolJsonObject(value: unknown, label: string): JsonObject {
   return normalized;
 }
 
+function isJsonObject(value: JsonValue | undefined): value is JsonObject {
+  return value !== undefined && value !== null && !Array.isArray(value) && typeof value === 'object';
+}
+
+function isOptionalString(value: JsonValue | undefined): value is string | undefined {
+  return value === undefined || typeof value === 'string';
+}
+
+function isOptionalBoolean(value: JsonValue | undefined): value is boolean | undefined {
+  return value === undefined || typeof value === 'boolean';
+}
+
+function isStringArray(value: JsonValue | undefined): value is string[] | undefined {
+  return value === undefined || (Array.isArray(value) && value.every((item) => typeof item === 'string'));
+}
+
+function isProtocolMetadata(value: JsonObject): value is JsonObject & ProtocolMetadata {
+  return (
+    typeof value.name === 'string' &&
+    isOptionalString(value.title) &&
+    (value.icons === undefined ||
+      (Array.isArray(value.icons) &&
+        value.icons.every(
+          (icon) =>
+            isJsonObject(icon) &&
+            typeof icon.src === 'string' &&
+            isOptionalString(icon.mimeType) &&
+            isStringArray(icon.sizes) &&
+            (icon.theme === undefined || icon.theme === 'light' || icon.theme === 'dark'),
+        )))
+  );
+}
+
+function isJsonSchemaObject(value: JsonValue | undefined): value is JsonSchemaObject {
+  return (
+    isJsonObject(value) &&
+    value.type === 'object' &&
+    isOptionalString(value.$schema) &&
+    (value.properties === undefined ||
+      (isJsonObject(value.properties) && Object.values(value.properties).every(isJsonObject))) &&
+    isStringArray(value.required)
+  );
+}
+
+function isAnnotations(value: JsonValue | undefined): value is JsonObject & Annotations {
+  return (
+    isJsonObject(value) &&
+    (value.audience === undefined ||
+      (Array.isArray(value.audience) &&
+        value.audience.every((audience) => audience === 'user' || audience === 'assistant'))) &&
+    (value.priority === undefined || typeof value.priority === 'number') &&
+    isOptionalString(value.lastModified)
+  );
+}
+
+function isTool(value: JsonObject): value is JsonObject & Tool {
+  const annotations = value.annotations;
+  const execution = value.execution;
+  return (
+    isProtocolMetadata(value) &&
+    isOptionalString(value.description) &&
+    isJsonSchemaObject(value.inputSchema) &&
+    (value.outputSchema === undefined || isJsonSchemaObject(value.outputSchema)) &&
+    (execution === undefined ||
+      (isJsonObject(execution) &&
+        (execution.taskSupport === undefined ||
+          execution.taskSupport === 'forbidden' ||
+          execution.taskSupport === 'optional' ||
+          execution.taskSupport === 'required'))) &&
+    (annotations === undefined ||
+      (isJsonObject(annotations) &&
+        isOptionalString(annotations.title) &&
+        isOptionalBoolean(annotations.readOnlyHint) &&
+        isOptionalBoolean(annotations.destructiveHint) &&
+        isOptionalBoolean(annotations.idempotentHint) &&
+        isOptionalBoolean(annotations.openWorldHint))) &&
+    (value._meta === undefined || isJsonObject(value._meta))
+  );
+}
+
+function isResource(value: JsonObject): value is JsonObject & Resource {
+  return (
+    isProtocolMetadata(value) &&
+    typeof value.uri === 'string' &&
+    isOptionalString(value.description) &&
+    isOptionalString(value.mimeType) &&
+    (value.annotations === undefined || isAnnotations(value.annotations)) &&
+    (value.size === undefined || typeof value.size === 'number') &&
+    (value._meta === undefined || isJsonObject(value._meta))
+  );
+}
+
+function isPromptArgument(value: JsonValue): value is JsonObject & PromptArgument {
+  return (
+    isJsonObject(value) &&
+    isProtocolMetadata(value) &&
+    isOptionalString(value.description) &&
+    isOptionalBoolean(value.required)
+  );
+}
+
+function isPrompt(value: JsonObject): value is JsonObject & Prompt {
+  return (
+    isProtocolMetadata(value) &&
+    isOptionalString(value.description) &&
+    (value.arguments === undefined ||
+      (Array.isArray(value.arguments) && value.arguments.every(isPromptArgument))) &&
+    (value._meta === undefined || isJsonObject(value._meta))
+  );
+}
+
+function isRequestId(value: JsonValue | undefined): value is RequestId {
+  return typeof value === 'string' || typeof value === 'number';
+}
+
+function isJSONRPCMessage(value: JsonObject): value is JsonObject & JSONRPCMessage {
+  if (value.jsonrpc !== '2.0') return false;
+
+  if (typeof value.method === 'string') {
+    const hasValidParams = value.params === undefined || isJsonObject(value.params);
+    return hasValidParams && (value.id === undefined || isRequestId(value.id));
+  }
+
+  if (isRequestId(value.id) && isJsonObject(value.result)) return true;
+
+  if (!isJsonObject(value.error)) return false;
+  return (
+    (value.id === undefined || isRequestId(value.id)) &&
+    typeof value.error.code === 'number' &&
+    typeof value.error.message === 'string'
+  );
+}
+
 export function toProtocolTool(value: unknown): Tool {
   const normalized = toProtocolJsonObject(value, 'Tool');
-  const inputSchema = normalized.inputSchema;
-  if (
-    typeof normalized.name !== 'string' ||
-    inputSchema === null ||
-    Array.isArray(inputSchema) ||
-    typeof inputSchema !== 'object' ||
-    inputSchema.type !== 'object'
-  ) {
+  if (!isTool(normalized)) {
     throw new TypeError('Tool must have a name and object input schema');
   }
-  return normalized as Tool;
+  return normalized;
 }
 
 export function toProtocolTools(values: readonly unknown[]): Tool[] {
@@ -261,10 +387,10 @@ export function toProtocolTools(values: readonly unknown[]): Tool[] {
 
 export function toProtocolResource(value: unknown): Resource {
   const normalized = toProtocolJsonObject(value, 'Resource');
-  if (typeof normalized.name !== 'string' || typeof normalized.uri !== 'string') {
+  if (!isResource(normalized)) {
     throw new TypeError('Resource must have a name and URI');
   }
-  return normalized as Resource;
+  return normalized;
 }
 
 export function toProtocolResources(values: readonly unknown[]): Resource[] {
@@ -273,10 +399,10 @@ export function toProtocolResources(values: readonly unknown[]): Resource[] {
 
 export function toProtocolPrompt(value: unknown): Prompt {
   const normalized = toProtocolJsonObject(value, 'Prompt');
-  if (typeof normalized.name !== 'string') {
+  if (!isPrompt(normalized)) {
     throw new TypeError('Prompt must have a name');
   }
-  return normalized as Prompt;
+  return normalized;
 }
 
 export function toProtocolPrompts(values: readonly unknown[]): Prompt[] {
@@ -285,10 +411,10 @@ export function toProtocolPrompts(values: readonly unknown[]): Prompt[] {
 
 export function toProtocolJSONRPCMessage(value: unknown): JSONRPCMessage {
   const normalized = toProtocolJsonObject(value, 'JSON-RPC message');
-  if (normalized.jsonrpc !== '2.0') {
+  if (!isJSONRPCMessage(normalized)) {
     throw new TypeError('JSON-RPC message must use version 2.0');
   }
-  return normalized as JSONRPCMessage;
+  return normalized;
 }
 
 /** Matches HTTP-like errors without importing or depending on an SDK error class identity. */

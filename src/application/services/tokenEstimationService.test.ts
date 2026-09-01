@@ -1,4 +1,4 @@
-import type { Prompt, Resource, Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Prompt, Resource, Tool } from '@src/sdk/contracts/index.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 

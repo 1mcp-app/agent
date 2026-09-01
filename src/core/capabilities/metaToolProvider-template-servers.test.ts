@@ -7,7 +7,7 @@
  */
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
-import { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { Tool } from '@src/sdk/contracts/index.js';
 
 import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { ClientStatus, OutboundConnections } from '@src/core/types/client.js';

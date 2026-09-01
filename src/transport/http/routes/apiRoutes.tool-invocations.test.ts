@@ -1,5 +1,6 @@
-import { StreamableHTTPClientTransport, StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { createMockLegacySdkAdapter, createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
+import { OneMcpProtocolError, toJsonValue, toProtocolTool, type JsonValue } from '@src/sdk/contracts/index.js';
 
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { ClientStatus, type OutboundConnections } from '@src/core/types/index.js';
@@ -83,6 +84,15 @@ function createMockResponse(): MockResponse {
   } as unknown as MockResponse;
 
   return response;
+}
+
+function createToolCallAdapter(callTool: (params: JsonValue | undefined) => Promise<unknown>) {
+  return createMockLegacySdkAdapter({
+    request: vi.fn(async ({ method, params }) => {
+      if (method !== 'tools/call') return {};
+      return toJsonValue(await callTool(params));
+    }),
+  });
 }
 
 async function invokeInspectRoute(handler: RequestHandler, req: Partial<Request>, res: Response): Promise<void> {
@@ -197,14 +207,15 @@ describe('apiRoutes /api/tool-invocations', () => {
   });
 
   it('returns a safe upstream error message for direct invocation failures', async () => {
+    const callTool = vi.fn().mockRejectedValue({ detail: 'boom' });
+    const connection = createMockOutboundConnection({
+      name: 'server',
+      adapter: createToolCallAdapter(callTool),
+    });
     const serverManager = {
       getLazyLoadingOrchestrator: vi.fn(() => undefined),
       getClients: vi.fn(() => new Map()),
-      getClient: vi.fn(() => ({
-        client: {
-          callTool: vi.fn().mockRejectedValue({ detail: 'boom' }),
-        },
-      })),
+      getClient: vi.fn(() => connection),
     };
     const handler = createToolInvocationsHandler(serverManager as never);
     const res = createMockResponse();
@@ -218,23 +229,29 @@ describe('apiRoutes /api/tool-invocations', () => {
 
   it('recovers OAuth for a non-lazy HTTP direct tool invocation', async () => {
     const oauthProvider = { invalidateCredentials: vi.fn().mockResolvedValue(undefined) };
-    const transport = {
-      _url: new URL('https://example.com/mcp'),
-      oauthProvider,
+    const transport = { oauthProvider, close: vi.fn().mockResolvedValue(undefined) };
+    const unauthorized = new OneMcpProtocolError(401, 'Server returned 401 after successful authentication');
+    const client = {
+      callTool: vi.fn().mockRejectedValue(unauthorized),
       close: vi.fn().mockResolvedValue(undefined),
-    } as any;
-    Object.setPrototypeOf(transport, StreamableHTTPClientTransport.prototype);
-    const unauthorized = new StreamableHTTPError(401, 'Server returned 401 after successful authentication');
-    const connection = {
-      name: 'server',
-      status: ClientStatus.Connected,
       transport,
-      client: {
-        callTool: vi.fn().mockRejectedValue(unauthorized),
-        close: vi.fn().mockResolvedValue(undefined),
-        transport,
-      },
-    } as any;
+    };
+    let connection: ReturnType<typeof createMockOutboundConnection> & {
+      client: typeof client;
+      transport: typeof transport;
+    };
+    const adapter = createToolCallAdapter(async (params) => {
+      try {
+        return await client.callTool(params);
+      } catch (error) {
+        connection.status = ClientStatus.AwaitingOAuth;
+        await oauthProvider.invalidateCredentials('tokens');
+        await client.close();
+        connection.transport = { ...transport };
+        throw error;
+      }
+    });
+    connection = Object.assign(createMockOutboundConnection({ name: 'server', adapter }), { client, transport });
     const connections = new Map([['server', connection]]) as OutboundConnections;
     const serverManager = {
       getLazyLoadingOrchestrator: vi.fn(() => undefined),
@@ -331,6 +348,7 @@ describe('apiRoutes /api/tool-invocations', () => {
         'server',
         {
           name: 'server',
+          adapter: createToolCallAdapter(callTool),
           transport: {} as never,
           client: { callTool } as never,
           status: ClientStatus.Connected,
@@ -390,6 +408,7 @@ describe('apiRoutes /api/tool-invocations', () => {
         'serena:abc123',
         {
           name: 'serena',
+          adapter: createToolCallAdapter(callTool),
           transport: { tags: ['serena'] } as never,
           client: { callTool } as never,
           status: ClientStatus.Connected,
@@ -433,6 +452,7 @@ describe('apiRoutes /api/tool-invocations', () => {
         'serena:first',
         {
           name: 'serena',
+          adapter: createToolCallAdapter(firstCallTool),
           transport: { tags: ['serena'] } as never,
           client: { callTool: firstCallTool } as never,
           status: ClientStatus.Connected,
@@ -442,6 +462,7 @@ describe('apiRoutes /api/tool-invocations', () => {
         'serena:second',
         {
           name: 'serena',
+          adapter: createToolCallAdapter(secondCallTool),
           transport: { tags: ['serena'] } as never,
           client: { callTool: secondCallTool } as never,
           status: ClientStatus.Connected,
@@ -450,7 +471,9 @@ describe('apiRoutes /api/tool-invocations', () => {
     ]) as unknown as OutboundConnections;
     const lazyOrchestrator = {
       getToolRegistry: vi.fn(() =>
-        ToolRegistry.fromToolsMap(new Map([['serena', [{ name: 'list_memories', inputSchema: {} } as Tool]]])),
+        ToolRegistry.fromToolsMap(
+          new Map([['serena', [toProtocolTool({ name: 'list_memories', inputSchema: { type: 'object' } })]]]),
+        ),
       ),
       getSchemaCache: vi.fn(() => ({
         getIfCached: () => null,

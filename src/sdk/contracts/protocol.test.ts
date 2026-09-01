@@ -2,6 +2,10 @@ import { toJsonValue, type JsonObject } from './jsonValue.js';
 import {
   ErrorCode,
   hasHttpErrorCode,
+  toProtocolJSONRPCMessage,
+  toProtocolPrompt,
+  toProtocolResource,
+  toProtocolTool,
   type CallToolResult,
   type ClientCapabilities,
   type JSONRPCMessage,
@@ -71,5 +75,11 @@ describe('plain protocol contracts', () => {
       oauthClient,
     ];
     expect(payloads.map((payload) => toJsonValue(payload))).toEqual(payloads);
+    expect(toProtocolTool(tool)).toEqual(tool);
+    expect(toProtocolResource(resource)).toEqual(resource);
+    expect(toProtocolPrompt(prompt)).toEqual(prompt);
+    expect(toProtocolJSONRPCMessage(message)).toEqual(message);
+    expect(() => toProtocolTool({ ...tool, description: 1 })).toThrow(TypeError);
+    expect(() => toProtocolJSONRPCMessage({ jsonrpc: '2.0', id: 1 })).toThrow(TypeError);
   });
 });
