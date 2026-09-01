@@ -1,6 +1,6 @@
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
-import type { AuthProviderTransport } from '@src/core/types/index.js';
+import type { AuthProviderTransport } from './legacyTransport.js';
 
 export interface ConnectedClient {
   readonly client: Client;

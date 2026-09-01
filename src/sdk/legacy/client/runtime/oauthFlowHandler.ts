@@ -3,12 +3,17 @@ import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 import { MCP_CLIENT_CAPABILITIES, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@src/constants.js';
-import { AuthProviderTransport, ClientStatus, OutboundConnection } from '@src/core/types/index.js';
+import { ClientStatus } from '@src/core/types/index.js';
 import { CustomJsonSchemaValidator } from '@src/core/validation/CustomJsonSchemaValidator.js';
 import logger from '@src/logger/logger.js';
 import { getConnectionTimeout } from '@src/utils/core/timeoutUtils.js';
 
 import { OAuthRequiredError } from './types.js';
+import {
+  createLegacyOutboundConnection,
+  type LegacyOutboundConnection,
+} from './legacyOutboundConnection.js';
+import type { AuthProviderTransport } from './legacyTransport.js';
 
 const DEBOUNCED_NOTIFICATION_METHODS = [
   'notifications/tools/list_changed',
@@ -49,18 +54,18 @@ export class OAuthFlowHandler {
     transport: AuthProviderTransport,
     _client: Client,
     error: OAuthRequiredError,
-  ): OutboundConnection {
+  ): LegacyOutboundConnection {
     logger.info(`OAuth authorization required for ${name}`);
     const authorizationUrl = this.extractAuthorizationUrl(transport);
 
-    return {
+    return createLegacyOutboundConnection({
       name,
       transport,
       client: error.client,
       status: ClientStatus.AwaitingOAuth,
       authorizationUrl,
       oauthStartTime: new Date(),
-    };
+    });
   }
 
   public async completeOAuthAndReconnect(
@@ -68,8 +73,8 @@ export class OAuthFlowHandler {
     oldTransport: AuthProviderTransport,
     newTransport: AuthProviderTransport,
     authorizationCode: string,
-    existingConnection: OutboundConnection,
-  ): Promise<OutboundConnection> {
+    existingConnection: LegacyOutboundConnection,
+  ): Promise<LegacyOutboundConnection> {
     if (!(oldTransport instanceof StreamableHTTPClientTransport) && !(oldTransport instanceof SSEClientTransport)) {
       throw new Error(`Transport for ${name} does not support OAuth (requires HTTP or SSE transport)`);
     }
@@ -86,7 +91,7 @@ export class OAuthFlowHandler {
 
       const capabilities = newClient.getServerCapabilities();
 
-      const updatedInfo: OutboundConnection = {
+      const updatedInfo = createLegacyOutboundConnection({
         name,
         transport: newTransport,
         client: newClient,
@@ -94,8 +99,7 @@ export class OAuthFlowHandler {
         lastConnected: new Date(),
         capabilities,
         instructions: existingConnection.instructions,
-        lastError: undefined,
-      };
+      });
 
       logger.info(`OAuth reconnection completed successfully for ${name}`);
       return updatedInfo;

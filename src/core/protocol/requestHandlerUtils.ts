@@ -5,12 +5,13 @@ import { SchemaCache } from '@src/core/capabilities/schemaCache.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { byCapabilities } from '@src/core/filtering/clientFiltering.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
+import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { createConnectionResolver } from '@src/core/server/connectionResolver.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, InboundConnection, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import type { MCPServerParams } from '@src/core/types/transport.js';
 import logger from '@src/logger/logger.js';
-import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
+import type { ListToolsResult } from '@src/sdk/legacy/types.js';
 
 export function getRequestSession(inboundConn: InboundConnection): string | undefined {
   return inboundConn.context?.sessionId;
@@ -20,7 +21,7 @@ export async function createCapabilityCatalogFromConnections(
   connections: OutboundConnections,
   getServerConfigs: () => Record<string, MCPServerParams> = getConfiguredServerTargets,
 ): Promise<CapabilityCatalog> {
-  const toolsByServer = new Map<string, Awaited<ReturnType<OutboundConnection['client']['listTools']>>['tools']>();
+  const toolsByServer = new Map<string, ListToolsResult['tools']>();
   const tagsByServer = new Map<string, string[]>();
 
   await Promise.all(
@@ -28,17 +29,13 @@ export async function createCapabilityCatalogFromConnections(
       if (connection.status !== ClientStatus.Connected) return;
       const serverName = connection.name || (connectionKey.includes(':') ? connectionKey.split(':')[0] : connectionKey);
       try {
-        const result = await connection.client.listTools(undefined, {
-          timeout: getRequestTimeout(connection.transport),
+        const result = await requestLegacyAdapter<ListToolsResult>(connection.adapter, 'tools/list', undefined, {
+          timeoutMs: connection.requestTimeoutMs,
         });
         toolsByServer.set(serverName, result.tools ?? []);
         tagsByServer.set(
           serverName,
-          Array.isArray((connection.transport as { tags?: unknown }).tags)
-            ? ((connection.transport as { tags?: unknown }).tags as unknown[]).filter(
-                (tag): tag is string => typeof tag === 'string',
-              )
-            : [],
+          connection.tags,
         );
       } catch (error) {
         logger.warn(`Failed to list tools from ${serverName}`, { error: String(error) });

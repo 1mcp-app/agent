@@ -45,12 +45,10 @@ function collectCapabilities(clients: OutboundConnections): ServerCapabilities {
 
   for (const [name, clientInfo] of clients.entries()) {
     try {
-      const serverCapabilities = clientInfo.client.getServerCapabilities() || {};
+      const serverCapabilities = (clientInfo.capabilities as ServerCapabilities | undefined) || {};
       logger.debug(`Capabilities from ${name}: ${JSON.stringify(serverCapabilities)}`);
 
       // Store capabilities per client
-      clientInfo.capabilities = serverCapabilities;
-
       // Aggregate capabilities with conflict handling
       capabilities.resources = mergeCapabilities(
         capabilities.resources,

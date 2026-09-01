@@ -23,7 +23,7 @@ export function filterClientsByTags(clients: OutboundConnections, tags?: string[
   const normalizedFilterTags = tags.map((tag) => normalizeTag(tag));
 
   for (const [name, clientInfo] of clients.entries()) {
-    const clientTags = clientInfo.transport.tags || [];
+    const clientTags = clientInfo.tags;
     // Normalize client tags for comparison
     const normalizedClientTags = clientTags.map((tag) => normalizeTag(tag));
     const hasMatchingTags = normalizedClientTags.some((clientTag) => normalizedFilterTags.includes(clientTag));
@@ -179,7 +179,7 @@ export function byTags(tags?: string[]): ClientFilter {
     const normalizedFilterTags = tags.map((tag) => normalizeTag(tag));
 
     return Array.from(clients.entries()).reduce((filtered, [name, clientInfo]) => {
-      const clientTags = clientInfo.transport.tags || [];
+      const clientTags = clientInfo.tags;
       // Normalize client tags for comparison
       const normalizedClientTags = clientTags.map((tag) => normalizeTag(tag));
       const hasMatchingTags = normalizedClientTags.some((clientTag) => normalizedFilterTags.includes(clientTag));
@@ -216,7 +216,7 @@ export function byTagExpression(expression: TagExpression): ClientFilter {
     }));
 
     return Array.from(clients.entries()).reduce((filtered, [name, clientInfo]) => {
-      const clientTags = clientInfo.transport.tags || [];
+      const clientTags = clientInfo.tags;
       const matches = TagQueryParser.evaluate(expression, clientTags);
 
       debugIf(() => ({

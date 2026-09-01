@@ -1,7 +1,7 @@
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
-import { AuthProviderTransport } from '@src/core/types/index.js';
+import type { AuthProviderTransport } from './legacyTransport.js';
 
 import type { RecreateHttpTransportOptions } from './recreateHttpTransportOptions.js';
 import type { TransportRecreationState } from './transportRecreationState.js';

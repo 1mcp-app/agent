@@ -22,7 +22,7 @@ export interface McpServerHealth {
   name: string;
   status: ClientStatus;
   healthy: boolean;
-  lastConnected?: Date;
+  lastConnected?: string | Date;
   lastError?: string;
   tags?: string[];
 }
@@ -356,7 +356,7 @@ export class HealthService {
           healthy: isHealthy,
           lastConnected: clientInfo.lastConnected,
           lastError: clientInfo.lastError?.message,
-          tags: clientInfo.transport.tags,
+          tags: clientInfo.tags,
         });
       }
 

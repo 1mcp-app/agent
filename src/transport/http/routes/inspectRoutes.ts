@@ -1,9 +1,8 @@
-import type { Tool } from '@src/sdk/legacy/types.js';
-
 import { ConfigManager } from '@src/config/configManager.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { CapabilityAggregator } from '@src/core/capabilities/capabilityAggregator.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
+import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { LoadingState, type ServerLoadingInfo } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
@@ -16,6 +15,7 @@ import {
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { applyEffectiveToolDescription } from '@src/core/server/toolDescriptionOverrides.js';
 import logger from '@src/logger/logger.js';
+import type { JsonObject } from '@src/sdk/contracts/index.js';
 
 import { Request, RequestHandler, Response } from 'express';
 
@@ -48,6 +48,7 @@ export {
 export type { InspectServerPayload, InspectServersPayload, InspectToolPayload, ServerSummary, ToolSummary };
 
 type FilteredConnections = ReturnType<typeof FilteringService.getFilteredConnections>;
+type Tool = JsonObject & { name: string; inputSchema: JsonObject & { type: 'object' }; description?: string };
 
 interface DirectListToolsResult {
   tools?: Tool[];
@@ -66,14 +67,10 @@ async function listDirectServerTools(
   connection: NonNullable<FilteredConnections extends Map<unknown, infer TValue> ? TValue : never>,
   options: { limit: number; cursor?: string },
 ): Promise<DirectListToolsResult> {
-  const client = connection.client as {
-    listTools(args?: { limit?: number; cursor?: string }): Promise<DirectListToolsResult>;
-  };
-
-  return client.listTools({
+  return requestLegacyAdapter<DirectListToolsResult>(connection.adapter, 'tools/list', {
     limit: options.limit,
     cursor: options.cursor,
-  });
+  }, { timeoutMs: connection.requestTimeoutMs });
 }
 
 function getServerConfigs() {
@@ -190,9 +187,10 @@ export async function buildServerSummaries(
   } else {
     await Promise.all(
       Array.from(summaryConnections.entries()).map(async ([name, connection]) => {
-        if (!connection.client) return;
         try {
-          const result = await connection.client.listTools();
+          const result = await requestLegacyAdapter<{ tools: Tool[] }>(connection.adapter, 'tools/list', undefined, {
+            timeoutMs: connection.requestTimeoutMs,
+          });
           const cleanName = name.includes(':') ? name.split(':')[0] : name;
           const visibleTools = filterDisabledTools(result.tools ?? [], serverConfigs, cleanName);
           toolCountByServer[cleanName] = Math.max(toolCountByServer[cleanName] ?? 0, visibleTools.length);
@@ -377,7 +375,7 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
           return;
         }
 
-        let found: import('@src/sdk/legacy/types.js').Tool | undefined;
+        let found: Tool | undefined;
 
         if (capabilityAggregator) {
           found = capabilityAggregator
@@ -387,9 +385,11 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
 
         if (!found) {
           const connection = sessionConnection ?? filteredConnection;
-          if (connection?.client) {
+          if (connection) {
             try {
-              const result = await connection.client.listTools();
+              const result = await requestLegacyAdapter<{ tools: Tool[] }>(connection.adapter, 'tools/list', undefined, {
+                timeoutMs: connection.requestTimeoutMs,
+              });
               found = filterDisabledTools(result.tools ?? [], serverConfigs, serverName).find(
                 (t) => t.name === qualifiedName || t.name === toolName,
               );
@@ -485,7 +485,7 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       let toolsResult: { tools: ToolSummary[]; totalTools: number; hasMore: boolean; nextCursor?: string };
 
       if (toolRegistry) {
-        if (connection?.client) {
+        if (connection) {
           try {
             const directResult = await listDirectServerTools(connection, { limit, cursor: cursorParam });
             toolsResult = buildDirectToolsResult(serverName, directResult, serverConfigs);

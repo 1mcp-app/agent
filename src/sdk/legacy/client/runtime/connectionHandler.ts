@@ -6,12 +6,12 @@ import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
 import { CONNECTION_RETRY, MCP_SERVER_NAME } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
-import { AuthProviderTransport } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { ClientConnectionError, NonRetryableClientConnectionError } from '@src/utils/core/errorTypes.js';
 import { getConnectionTimeout } from '@src/utils/core/timeoutUtils.js';
 
 import type { ConnectedClient } from './connectedClient.js';
+import type { AuthProviderTransport } from './legacyTransport.js';
 import { OAuthRequiredError } from './types.js';
 
 const RETRYABLE_OAUTH_ERROR_CODES = new Set(['server_error', 'temporarily_unavailable', 'too_many_requests']);
