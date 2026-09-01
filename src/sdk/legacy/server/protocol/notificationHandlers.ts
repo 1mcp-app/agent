@@ -10,6 +10,7 @@ import { registerCapabilityPaginationNotifications } from '@src/core/capabilitie
 import { ClientStatus, InboundConnection, OutboundConnections, ServerStatus } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
+import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
 
 /**
  * Sets up client-to-server notification handlers
@@ -35,13 +36,13 @@ export function setupClientToServerNotifications(
       withErrorHandling(async (notification) => {
         logger.info(`Received notification in client: ${name} ${JSON.stringify(notification)}`);
 
-        if (inboundConn.status !== ServerStatus.Connected || !inboundConn.server.transport) {
+        if (inboundConn.status !== ServerStatus.Connected || !getLegacyInboundServer(inboundConn).transport) {
           logger.warn(`Server transport not connected. Dropping notification from ${name}`);
           return;
         }
 
         try {
-          await inboundConn.server.notification({
+          await getLegacyInboundServer(inboundConn).notification({
             method: notification.method,
             params: {
               ...notification.params,
@@ -65,7 +66,7 @@ export function setupClientToServerNotifications(
           logger.info(`Received notification in client: ${name} ${JSON.stringify(notification)}`);
 
           // Check if client is connected before attempting to send
-          if (inboundConn.status !== ServerStatus.Connected || !inboundConn.server.transport) {
+          if (inboundConn.status !== ServerStatus.Connected || !getLegacyInboundServer(inboundConn).transport) {
             logger.warn(`Server transport not connected. Dropping notification from ${name}`);
             return;
           }
@@ -80,7 +81,7 @@ export function setupClientToServerNotifications(
                 server: name,
               },
             };
-            await inboundConn.server.notification(forwardedNotification);
+            await getLegacyInboundServer(inboundConn).notification(forwardedNotification);
           } catch (error) {
             if (error instanceof Error && error.message.includes('Not connected')) {
               logger.warn(`Server transport not connected. Dropping notification from ${name}`);
@@ -117,7 +118,7 @@ export function setupServerToClientNotifications(
 
   for (const [name, outboundConn] of outboundConns.entries()) {
     serverNotificationSchemas.forEach((schema) => {
-      inboundConn.server.setNotificationHandler(
+      getLegacyInboundServer(inboundConn).setNotificationHandler(
         schema,
         withErrorHandling(async (notification) => {
           logger.info(`Received notification in server: ${name} ${JSON.stringify(notification)}`);

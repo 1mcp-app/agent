@@ -4,7 +4,6 @@ import { ErrorCode } from '@src/sdk/legacy/types.js';
 import { MESSAGES_ENDPOINT, SSE_ENDPOINT } from '@src/constants.js';
 import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
-import { ServerStatus } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 import { LoggingSSEServerTransport } from '@src/transport/http/loggingSseTransport.js';
 import {
@@ -86,11 +85,7 @@ export function setupSseRoutes(
       transport.onerror = (error) => {
         clearInterval(heartbeatInterval);
         logger.error(`SSE transport error for session ${transport.sessionId}:`, error);
-        const server = serverManager.getServer(transport.sessionId);
-        if (server) {
-          server.status = ServerStatus.Error;
-          server.lastError = error instanceof Error ? error : new Error(String(error));
-        }
+        serverManager.recordInboundConnectionError(transport.sessionId, error);
       };
     } catch (error) {
       logger.error('SSE connection error:', error);

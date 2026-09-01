@@ -1,6 +1,8 @@
 import { Server } from '@src/sdk/legacy/server/index.js';
 import { Transport } from '@src/sdk/legacy/shared/transport.js';
 
+import type { LegacyConnectionId } from '@src/sdk/contracts/legacySdkAdapter.js';
+import { toJsonValue } from '@src/sdk/contracts/jsonValue.js';
 import { setupCapabilities } from '@src/core/capabilities/capabilityManager.js';
 import { unregisterCapabilityPaginationForwarder } from '@src/core/capabilities/capabilityPagination.js';
 import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
@@ -15,11 +17,43 @@ import { enhanceServerWithLogging } from '@src/logger/mcpLoggingEnhancer.js';
 import type { ContextData } from '@src/types/context.js';
 import { executeOperation } from '@src/utils/core/operationExecution.js';
 
+import {
+  type LegacyInboundConnection,
+  requireLegacyInboundConnection,
+  toInboundConnectionError,
+} from './legacyInboundConnection.js';
+import {
+  getLegacyServerTransportHandle,
+  isLegacyServerConnected,
+  LegacySdkServerAdapter,
+} from './legacySdkServerAdapter.js';
+
+function snapshotInboundConfig(
+  opts: InboundConnectionConfig,
+  context: NonNullable<InboundConnectionConfig['context']>,
+): InboundConnectionConfig {
+  return toJsonValue({
+    ...(opts.tags !== undefined ? { tags: opts.tags } : {}),
+    ...(opts.tagExpression !== undefined ? { tagExpression: opts.tagExpression } : {}),
+    ...(opts.tagQuery !== undefined ? { tagQuery: opts.tagQuery } : {}),
+    ...(opts.tagFilterMode !== undefined ? { tagFilterMode: opts.tagFilterMode } : {}),
+    ...(opts.enablePagination !== undefined ? { enablePagination: opts.enablePagination } : {}),
+    ...(opts.presetName !== undefined ? { presetName: opts.presetName } : {}),
+    ...(opts.contextProof !== undefined ? { contextProof: opts.contextProof } : {}),
+    ...(opts.customTemplate !== undefined ? { customTemplate: opts.customTemplate } : {}),
+    ...(opts.title !== undefined ? { title: opts.title } : {}),
+    ...(opts.toolPattern !== undefined ? { toolPattern: opts.toolPattern } : {}),
+    ...(opts.examples !== undefined ? { examples: opts.examples } : {}),
+    ...(opts.templateSizeLimit !== undefined ? { templateSizeLimit: opts.templateSizeLimit } : {}),
+    context,
+  }) as unknown as InboundConnectionConfig;
+}
+
 /**
  * Manages transport connection lifecycle and inbound connections
  */
 export class ConnectionManager {
-  private inboundConns: Map<string, InboundConnection> = new Map();
+  private inboundConns: Map<string, LegacyInboundConnection> = new Map();
   private connectionSemaphore: Map<string, Promise<void>> = new Map();
   private disconnectingIds: Set<string> = new Set();
   private lazyLoadingOrchestrator?: LazyLoadingOrchestrator;
@@ -92,18 +126,18 @@ export class ConnectionManager {
       return;
     }
 
-    const server = this.inboundConns.get(sessionId);
-    if (server) {
+    const connection = this.inboundConns.get(sessionId);
+    if (connection) {
       this.disconnectingIds.add(sessionId);
 
       try {
         // Update status to Disconnected
-        server.status = ServerStatus.Disconnected;
+        connection.status = ServerStatus.Disconnected;
 
         // Only close the transport if explicitly requested
-        if (forceClose && server.server.transport) {
+        if (forceClose) {
           try {
-            server.server.transport.close();
+            await connection.adapter.close();
           } catch (error) {
             logger.error(`Error closing transport for session ${sessionId}:`, error);
           }
@@ -112,7 +146,7 @@ export class ConnectionManager {
         // Untrack client from preset notification service
         const notificationService = PresetNotificationService.getInstance();
         notificationService.untrackClient(sessionId);
-        unregisterCapabilityPaginationForwarder(this.outboundConns, server);
+        unregisterCapabilityPaginationForwarder(this.outboundConns, connection);
         debugIf(() => ({ message: 'Untracked client from preset notifications', meta: { sessionId } }));
 
         this.inboundConns.delete(sessionId);
@@ -127,7 +161,8 @@ export class ConnectionManager {
    * Get transport by session ID
    */
   public getTransport(sessionId: string): Transport | undefined {
-    return this.inboundConns.get(sessionId)?.server.transport;
+    const connection = this.inboundConns.get(sessionId);
+    return connection ? getLegacyServerTransportHandle(connection.adapter) : undefined;
   }
 
   /**
@@ -135,10 +170,9 @@ export class ConnectionManager {
    */
   public getTransports(): Map<string, Transport> {
     const transports = new Map<string, Transport>();
-    for (const [id, server] of this.inboundConns.entries()) {
-      if (server.server.transport) {
-        transports.set(id, server.server.transport);
-      }
+    for (const [id, connection] of this.inboundConns.entries()) {
+      const transport = getLegacyServerTransportHandle(connection.adapter);
+      if (transport) transports.set(id, transport);
     }
     return transports;
   }
@@ -154,7 +188,7 @@ export class ConnectionManager {
    * Get all inbound connections
    */
   public getInboundConnections(): Map<string, InboundConnection> {
-    return this.inboundConns;
+    return new Map(this.inboundConns);
   }
 
   /**
@@ -164,20 +198,28 @@ export class ConnectionManager {
     return this.inboundConns.size;
   }
 
+  public recordConnectionError(sessionId: string, error: unknown): void {
+    const connection = this.inboundConns.get(sessionId);
+    if (!connection) return;
+    connection.status = ServerStatus.Error;
+    connection.lastError = toInboundConnectionError(error);
+  }
+
   /**
    * Execute a server operation with error handling
    */
   public async executeServerOperation<T>(
     inboundConn: InboundConnection,
-    operation: (inboundConn: InboundConnection) => Promise<T>,
+    operation: (inboundConn: LegacyInboundConnection) => Promise<T>,
     options: OperationOptions = {},
   ): Promise<T> {
     // Check connection status before executing operation
-    if (inboundConn.status !== ServerStatus.Connected || !inboundConn.server.transport) {
+    const legacyConnection = requireLegacyInboundConnection(inboundConn);
+    if (legacyConnection.status !== ServerStatus.Connected || !isLegacyServerConnected(legacyConnection.adapter)) {
       throw new Error(`Cannot execute operation: server status is ${inboundConn.status}`);
     }
 
-    return executeOperation(() => operation(inboundConn), 'server', options);
+    return executeOperation(() => operation(legacyConnection), 'server', options);
   }
 
   /**
@@ -204,7 +246,7 @@ export class ConnectionManager {
       const connection = this.inboundConns.get(sessionId);
       if (connection) {
         connection.status = ServerStatus.Error;
-        connection.lastError = error instanceof Error ? error : new Error(String(error));
+        connection.lastError = toInboundConnectionError(error);
       }
 
       logger.error(`Failed to connect transport for session ${sessionId}:`, error);
@@ -242,12 +284,15 @@ export class ConnectionManager {
       sessionId: opts.context?.sessionId || context?.sessionId || sessionId,
     };
 
-    const serverInfo: InboundConnection = {
-      server,
+    const connectionId = sessionId as LegacyConnectionId;
+    const adapter = new LegacySdkServerAdapter(connectionId, server, transport);
+    const configSnapshot = snapshotInboundConfig(opts, mergedContext);
+    const serverInfo: LegacyInboundConnection = {
+      connectionId,
+      adapter,
       status: ServerStatus.Connecting,
-      connectedAt: new Date(),
-      ...opts,
-      context: mergedContext,
+      connectedAt: new Date().toISOString(),
+      ...configSnapshot,
     };
 
     // Enhance server with logging middleware
@@ -260,11 +305,11 @@ export class ConnectionManager {
     this.inboundConns.set(sessionId, serverInfo);
 
     // Connect the transport to the new server instance
-    await server.connect(transport);
+    await adapter.start();
 
     // Update status to Connected after successful connection
     serverInfo.status = ServerStatus.Connected;
-    serverInfo.lastConnected = new Date();
+    serverInfo.lastConnected = new Date().toISOString();
 
     // Register client with preset notification service if preset is used
     if (opts.presetName) {
@@ -280,7 +325,7 @@ export class ConnectionManager {
   private async registerClientForPresets(
     sessionId: string,
     presetName: string,
-    serverInfo: InboundConnection,
+    serverInfo: LegacyInboundConnection,
   ): Promise<void> {
     const notificationService = PresetNotificationService.getInstance();
     const clientConnection: ClientConnection = {
@@ -288,8 +333,8 @@ export class ConnectionManager {
       presetName,
       sendNotification: async (method: string, params?: Record<string, unknown>) => {
         try {
-          if (serverInfo.status === ServerStatus.Connected && serverInfo.server.transport) {
-            await serverInfo.server.notification({ method, params: params || {} });
+          if (serverInfo.status === ServerStatus.Connected && isLegacyServerConnected(serverInfo.adapter)) {
+            await serverInfo.adapter.notify({ method, params: toJsonValue(params || {}) });
             debugIf(() => ({ message: 'Sent notification to client', meta: { sessionId, method } }));
           } else {
             logger.warn('Cannot send notification to disconnected client', { sessionId, method });
@@ -303,7 +348,7 @@ export class ConnectionManager {
           throw error;
         }
       },
-      isConnected: () => serverInfo.status === ServerStatus.Connected && !!serverInfo.server.transport,
+      isConnected: () => serverInfo.status === ServerStatus.Connected && isLegacyServerConnected(serverInfo.adapter),
     };
 
     notificationService.trackClient(clientConnection, presetName);

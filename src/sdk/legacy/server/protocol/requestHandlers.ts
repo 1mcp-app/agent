@@ -15,6 +15,7 @@ import { ClientStatus, InboundConnection, OutboundConnections } from '@src/core/
 import logger, { setLogLevel } from '@src/logger/logger.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
+import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
 
 import { registerCompletionHandlers, registerPromptHandlers } from './promptRequestHandlers.js';
 import {
@@ -52,7 +53,7 @@ function registerServerRequestHandlers(outboundConns: OutboundConnections, inbou
       PingRequestSchema,
       withErrorHandling(async () => {
         return ServerManager.current.executeServerOperation(inboundConn, (inboundConn: InboundConnection) =>
-          inboundConn.server.ping(),
+          getLegacyInboundServer(inboundConn).ping(),
         );
       }, 'Error pinging'),
     );
@@ -63,7 +64,7 @@ function registerServerRequestHandlers(outboundConns: OutboundConnections, inbou
         CreateMessageRequestSchema,
         withErrorHandling(async (request: CreateMessageRequest) => {
           return ServerManager.current.executeServerOperation(inboundConn, (inboundConn: InboundConnection) =>
-            inboundConn.server.createMessage(request.params, {
+            getLegacyInboundServer(inboundConn).createMessage(request.params, {
               timeout: getRequestTimeout(outboundConn.transport),
             }),
           );
@@ -77,7 +78,7 @@ function registerServerRequestHandlers(outboundConns: OutboundConnections, inbou
         ElicitRequestSchema,
         withErrorHandling(async (request: ElicitRequest) => {
           return ServerManager.current.executeServerOperation(inboundConn, (inboundConn: InboundConnection) =>
-            inboundConn.server.elicitInput(request.params, {
+            getLegacyInboundServer(inboundConn).elicitInput(request.params, {
               timeout: getRequestTimeout(outboundConn.transport),
             }),
           );
@@ -91,7 +92,7 @@ function registerServerRequestHandlers(outboundConns: OutboundConnections, inbou
         ListRootsRequestSchema,
         withErrorHandling(async (request: ListRootsRequest) => {
           return ServerManager.current.executeServerOperation(inboundConn, (inboundConn: InboundConnection) =>
-            inboundConn.server.listRoots(request.params, {
+            getLegacyInboundServer(inboundConn).listRoots(request.params, {
               timeout: getRequestTimeout(outboundConn.transport),
             }),
           );
@@ -115,13 +116,13 @@ export function registerRequestHandlers(
   lazyLoadingOrchestrator?: LazyLoadingOrchestrator,
 ): void {
   // Register logging level handler
-  inboundConn.server.setRequestHandler(SetLevelRequestSchema, async (request) => {
+  getLegacyInboundServer(inboundConn).setRequestHandler(SetLevelRequestSchema, async (request) => {
     setLogLevel(request.params.level);
     return {};
   });
 
   // Register ping handler
-  inboundConn.server.setRequestHandler(
+  getLegacyInboundServer(inboundConn).setRequestHandler(
     PingRequestSchema,
     withErrorHandling(async () => {
       // Health check all connected upstream clients

@@ -338,6 +338,10 @@ export class ServerManager {
     return this.connectionManager.getInboundConnections();
   }
 
+  public recordInboundConnectionError(sessionId: string, error: unknown): void {
+    this.connectionManager.recordConnectionError(sessionId, error);
+  }
+
   public getTemplateServerManager(): TemplateServerManager {
     return this.templateServerManager;
   }
@@ -404,10 +408,10 @@ export class ServerManager {
       'notifications/prompts/list_changed',
     ] as const;
     for (const inbound of this.connectionManager.getInboundConnections().values()) {
-      if (!inbound.server.transport) continue;
+      if (inbound.status !== 'connected') continue;
       for (const method of notifications) {
         try {
-          await inbound.server.notification({ method, params: {} });
+          await inbound.adapter.notify({ method, params: {} });
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           logger.warn(`Failed to send ${method} to an inbound client: ${message}`);

@@ -52,10 +52,14 @@ describe('CapabilityManager', () => {
 
     // Setup mock server info
     mockServerInfo = {
-      server: {
-        setRequestHandler: vi.fn(),
-        setNotificationHandler: vi.fn(),
-      } as any,
+      connectionId: 'test-inbound' as InboundConnection['connectionId'],
+      adapter: {
+        connectionId: 'test-inbound' as InboundConnection['connectionId'],
+        state: 'running',
+        start: vi.fn(),
+        notify: vi.fn(),
+        close: vi.fn(),
+      },
       status: ServerStatus.Connected,
       tags: [],
       enablePagination: false,

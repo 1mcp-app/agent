@@ -13,6 +13,7 @@ import {
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { InboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
+import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
 import { buildUri, parseUri } from '@src/utils/core/parsing.js';
 import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
 
@@ -27,7 +28,7 @@ export function registerResourceHandlers(outboundConns: OutboundConnections, inb
   const sessionId = getRequestSession(inboundConn);
   const catalog = createProtocolCapabilityCatalog(outboundConns);
 
-  inboundConn.server.setRequestHandler(
+  getLegacyInboundServer(inboundConn).setRequestHandler(
     ListResourcesRequestSchema,
     withErrorHandling(async (request: ListResourcesRequest) => {
       const visibility = resolveCapabilityVisibility(outboundConns, inboundConn, sessionId, 'resources');
@@ -59,7 +60,7 @@ export function registerResourceHandlers(outboundConns: OutboundConnections, inb
     }, 'Error listing resources'),
   );
 
-  inboundConn.server.setRequestHandler(
+  getLegacyInboundServer(inboundConn).setRequestHandler(
     ListResourceTemplatesRequestSchema,
     withErrorHandling(async (request: ListResourceTemplatesRequest) => {
       const visibility = resolveCapabilityVisibility(outboundConns, inboundConn, sessionId, 'resources');
@@ -91,7 +92,7 @@ export function registerResourceHandlers(outboundConns: OutboundConnections, inb
     }, 'Error listing resource templates'),
   );
 
-  inboundConn.server.setRequestHandler(
+  getLegacyInboundServer(inboundConn).setRequestHandler(
     SubscribeRequestSchema,
     withErrorHandling(async (request) => {
       const { clientName, resourceName } = parseUri(request.params.uri, MCP_URI_SEPARATOR);
@@ -108,7 +109,7 @@ export function registerResourceHandlers(outboundConns: OutboundConnections, inb
     }, 'Error subscribing to resource'),
   );
 
-  inboundConn.server.setRequestHandler(
+  getLegacyInboundServer(inboundConn).setRequestHandler(
     UnsubscribeRequestSchema,
     withErrorHandling(async (request) => {
       const { clientName, resourceName } = parseUri(request.params.uri, MCP_URI_SEPARATOR);
@@ -125,7 +126,7 @@ export function registerResourceHandlers(outboundConns: OutboundConnections, inb
     }, 'Error unsubscribing from resource'),
   );
 
-  inboundConn.server.setRequestHandler(
+  getLegacyInboundServer(inboundConn).setRequestHandler(
     ReadResourceRequestSchema,
     withErrorHandling(async (request) => {
       const { clientName, resourceName } = parseUri(request.params.uri, MCP_URI_SEPARATOR);

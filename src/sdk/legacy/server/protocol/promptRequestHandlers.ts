@@ -10,6 +10,7 @@ import {
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { InboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
+import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
 import { buildUri, parseUri } from '@src/utils/core/parsing.js';
 import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
 
@@ -24,7 +25,7 @@ export function registerPromptHandlers(outboundConns: OutboundConnections, inbou
   const sessionId = getRequestSession(inboundConn);
   const catalog = createProtocolCapabilityCatalog(outboundConns);
 
-  inboundConn.server.setRequestHandler(
+  getLegacyInboundServer(inboundConn).setRequestHandler(
     ListPromptsRequestSchema,
     withErrorHandling(async (request: ListPromptsRequest) => {
       const visibility = resolveCapabilityVisibility(outboundConns, inboundConn, sessionId, 'prompts');
@@ -56,7 +57,7 @@ export function registerPromptHandlers(outboundConns: OutboundConnections, inbou
     }, 'Error listing prompts'),
   );
 
-  inboundConn.server.setRequestHandler(
+  getLegacyInboundServer(inboundConn).setRequestHandler(
     GetPromptRequestSchema,
     withErrorHandling(async (request) => {
       const { clientName, resourceName: promptName } = parseUri(request.params.name, MCP_URI_SEPARATOR);
@@ -77,7 +78,7 @@ export function registerPromptHandlers(outboundConns: OutboundConnections, inbou
 export function registerCompletionHandlers(outboundConns: OutboundConnections, inboundConn: InboundConnection): void {
   const sessionId = getRequestSession(inboundConn);
 
-  inboundConn.server.setRequestHandler(
+  getLegacyInboundServer(inboundConn).setRequestHandler(
     CompleteRequestSchema,
     withErrorHandling(async (request: CompleteRequest) => {
       const { ref } = request.params;

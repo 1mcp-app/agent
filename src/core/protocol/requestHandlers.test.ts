@@ -170,7 +170,7 @@ describe('Request Handlers', () => {
       server: mockServer,
       tags: ['test'],
       enablePagination: true,
-    } as InboundConnection;
+    } as unknown as InboundConnection;
   });
 
   describe('registerRequestHandlers', () => {
@@ -1123,9 +1123,10 @@ describe('Request Handlers', () => {
       registerRequestHandlers(testOutboundConns, mockInboundWithSession);
 
       // Verify handlers were registered
-      expect(mockInboundWithSession.server.setRequestHandler).toHaveBeenCalled();
+      const server = (mockInboundWithSession as unknown as { server: typeof mockServer }).server;
+      expect(server.setRequestHandler).toHaveBeenCalled();
       // Should register multiple handlers
-      expect((mockInboundWithSession.server.setRequestHandler as any).mock.calls.length).toBeGreaterThan(5);
+      expect((server.setRequestHandler as any).mock.calls.length).toBeGreaterThan(5);
     });
 
     it('should register handlers for inbound connection without session context', () => {

@@ -7,7 +7,7 @@ import { AUTH_CONFIG } from '@src/constants.js';
 import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
 import type { TemplateContextProof } from '@src/core/context/templateContextTrust.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
-import { InboundConnectionConfig, ServerStatus } from '@src/core/types/index.js';
+import { InboundConnectionConfig } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 import { RestorableStreamableHTTPServerTransport } from '@src/transport/http/restorableStreamableTransport.js';
 import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
@@ -446,11 +446,7 @@ export class StreamableSessionLifecycle {
 
     transport.onerror = (error) => {
       logger.error(`Streamable HTTP transport error for session ${sessionId}:`, error);
-      const server = this.serverManager.getServer(sessionId);
-      if (server) {
-        server.status = ServerStatus.Error;
-        server.lastError = error instanceof Error ? error : new Error(String(error));
-      }
+      this.serverManager.recordInboundConnectionError(sessionId, error);
     };
   }
 

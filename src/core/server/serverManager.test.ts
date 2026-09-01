@@ -808,7 +808,6 @@ describe('ServerManager', () => {
     it('should return server info for existing session', () => {
       const serverInfo = serverManager.getServer(sessionId);
       expect(serverInfo).toBeDefined();
-      expect(serverInfo?.server).toBe(mockServer);
       expect(serverInfo?.tags).toEqual(tags);
     });
 

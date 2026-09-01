@@ -21,6 +21,7 @@ import { InboundConnection, OutboundConnections } from '@src/core/types/index.js
 import type { MCPServerParams } from '@src/core/types/transport.js';
 import logger, { infoIf } from '@src/logger/logger.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
+import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
 import { buildUri, parseUri } from '@src/utils/core/parsing.js';
 import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
 
@@ -42,7 +43,7 @@ export function registerToolHandlers(
   const getServerConfigs = (): Record<string, MCPServerParams> => getConfiguredServerTargets();
   const catalog = createProtocolCapabilityCatalog(outboundConns, getServerConfigs);
 
-  inboundConn.server.setRequestHandler(
+  getLegacyInboundServer(inboundConn).setRequestHandler(
     ListToolsRequestSchema,
     withErrorHandling(async (request: ListToolsRequest) => {
       if (lazyLoadingEnabled && lazyLoadingOrchestrator) {
@@ -152,7 +153,7 @@ export function registerToolHandlers(
     }, 'Error listing tools'),
   );
 
-  inboundConn.server.setRequestHandler(
+  getLegacyInboundServer(inboundConn).setRequestHandler(
     CallToolRequestSchema,
     withErrorHandling(async (request) => {
       const toolName = request.params.name;

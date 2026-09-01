@@ -110,7 +110,15 @@ export const createMockOutboundConnection = (overrides?: Partial<OutboundConnect
  * Factory for creating mock inbound connections
  */
 export const createMockInboundConnection = (overrides?: Partial<InboundConnection>): InboundConnection => ({
-  server: createMockServer() as Server,
+  connectionId: 'mock-inbound' as InboundConnection['connectionId'],
+  adapter: {
+    connectionId: 'mock-inbound' as InboundConnection['connectionId'],
+    state: 'running',
+    start: vi.fn(),
+    notify: vi.fn(),
+    close: vi.fn(),
+    server: createMockServer() as Server,
+  } as InboundConnection['adapter'],
   status: ServerStatus.Connected,
   tags: ['test'],
   enablePagination: false,

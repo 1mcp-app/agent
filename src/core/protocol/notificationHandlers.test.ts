@@ -57,7 +57,7 @@ describe('Notification Handlers', () => {
         send: vi.fn(),
         close: vi.fn(),
       },
-    } as InboundConnection;
+    } as unknown as InboundConnection;
 
     // Create mock clients collection
     mockOutboundConns = new Map();
