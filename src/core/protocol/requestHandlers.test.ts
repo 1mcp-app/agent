@@ -1,6 +1,7 @@
 import {
   createMockLegacyInboundConnection,
   createMockLegacyOutboundConnection,
+  createMockServer,
   createMockTransport,
 } from '@test/unit-utils/MockFactories.js';
 
@@ -470,19 +471,19 @@ describe('Request Handlers', () => {
     });
 
     it('should work with minimal server configuration', () => {
-      const minimalServer = {
-        server: {
-          setRequestHandler: vi.fn(),
-        },
+      const server = createMockServer() as Server;
+      const setRequestHandler = vi.mocked(server.setRequestHandler);
+      const minimalServer = createMockLegacyInboundConnection({
+        server,
         tags: undefined,
         enablePagination: undefined,
-      } as any;
+      });
 
       expect(() => {
         registerRequestHandlers(mockOutboundConns, minimalServer);
       }).not.toThrow();
 
-      expect(minimalServer.server.setRequestHandler).toHaveBeenCalled();
+      expect(setRequestHandler).toHaveBeenCalled();
     });
   });
 
@@ -1014,6 +1015,7 @@ describe('Request Handlers', () => {
     let mockStaticClient: any;
     let mockTemplateClientA: any;
     let mockTemplateClientB: any;
+    let sessionSetRequestHandler: ReturnType<typeof vi.fn>;
 
     beforeEach(() => {
       // Reset mocks
@@ -1057,36 +1059,37 @@ describe('Request Handlers', () => {
       );
 
       // Inbound connection with session context
-      mockInboundWithSession = {
-        server: { setRequestHandler: vi.fn() },
+      const sessionServer = createMockServer() as Server;
+      sessionSetRequestHandler = vi.mocked(sessionServer.setRequestHandler);
+      mockInboundWithSession = createMockLegacyInboundConnection({
+        server: sessionServer,
         context: { sessionId: 'session-a' },
         enablePagination: true,
-        status: ClientStatus.Connected,
-      } as any;
+      });
     });
 
     it('should register handlers with session context', () => {
       registerRequestHandlers(testOutboundConns, mockInboundWithSession);
 
       // Verify handlers were registered
-      const server = (mockInboundWithSession as unknown as { server: typeof mockServer }).server;
-      expect(server.setRequestHandler).toHaveBeenCalled();
+      expect(sessionSetRequestHandler).toHaveBeenCalled();
       // Should register multiple handlers
-      expect((server.setRequestHandler as any).mock.calls.length).toBeGreaterThan(5);
+      expect(sessionSetRequestHandler.mock.calls.length).toBeGreaterThan(5);
     });
 
     it('should register handlers for inbound connection without session context', () => {
-      const mockInboundNoSession = {
-        server: { setRequestHandler: vi.fn() },
+      const noSessionServer = createMockServer() as Server;
+      const noSessionSetRequestHandler = vi.mocked(noSessionServer.setRequestHandler);
+      const mockInboundNoSession = createMockLegacyInboundConnection({
+        server: noSessionServer,
         context: undefined,
         enablePagination: true,
-        status: ClientStatus.Connected,
-      } as any;
+      });
 
       registerRequestHandlers(testOutboundConns, mockInboundNoSession);
 
-      expect(mockInboundNoSession.server.setRequestHandler).toHaveBeenCalled();
-      expect((mockInboundNoSession.server.setRequestHandler as any).mock.calls.length).toBeGreaterThan(5);
+      expect(noSessionSetRequestHandler).toHaveBeenCalled();
+      expect(noSessionSetRequestHandler.mock.calls.length).toBeGreaterThan(5);
     });
 
     it('should handle multiple template instances with same name but different sessions', () => {

@@ -735,12 +735,15 @@ describe('ClientManager (Integration)', () => {
         send: vi.fn(),
         close: vi.fn().mockResolvedValue(undefined),
       } as Transport;
-      clientManager.getClients().set(outboundKey, {
-        name: 'template',
-        client: mockClient,
-        transport,
-        status: ClientStatus.Connected,
-      } as never);
+      clientManager.getClients().set(
+        outboundKey,
+        createMockLegacyOutboundConnection({
+          name: 'template',
+          client: mockClient as Client,
+          transport: transport as AuthProviderTransport,
+          status: ClientStatus.Connected,
+        }),
+      );
       const aggregator = { setInstructions: vi.fn(), removeServer: vi.fn() };
       clientManager.setInstructionAggregator(aggregator as never);
 

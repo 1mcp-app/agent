@@ -34,13 +34,6 @@ export function requireLegacyInboundConnection(connection: InboundConnection): L
   return connection as LegacyInboundConnection;
 }
 
-/** Resolve the contained SDK server, retaining the old-path unit-test mock seam. */
 export function getLegacyInboundServer(connection: InboundConnection): Server {
-  if (connection.adapter instanceof LegacySdkServerAdapter) return getLegacyServerHandle(connection.adapter);
-
-  const adapterServer = (connection.adapter as unknown as { server?: Server } | undefined)?.server;
-  if (adapterServer) return adapterServer;
-  const compatibilityServer = (connection as unknown as { server?: Server }).server;
-  if (compatibilityServer) return compatibilityServer;
-  throw new TypeError('Inbound connection is not owned by the legacy SDK server adapter');
+  return getLegacyServerHandle(requireLegacyInboundConnection(connection).adapter);
 }

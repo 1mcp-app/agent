@@ -84,14 +84,10 @@ export function createLegacyOutboundConnection(
 }
 
 export function getLegacyClient(connection: LegacyOutboundConnection): Client {
-  const compatibilityClient = (connection as unknown as { client?: Client }).client;
-  if (compatibilityClient) return compatibilityClient;
   return getLegacySdkClient(connection.adapter);
 }
 
 export function getLegacyTransport(connection: LegacyOutboundConnection): AuthProviderTransport {
-  const compatibilityTransport = (connection as unknown as { transport?: AuthProviderTransport }).transport;
-  if (compatibilityTransport) return compatibilityTransport;
   return getLegacySdkTransport(connection.adapter);
 }
 
