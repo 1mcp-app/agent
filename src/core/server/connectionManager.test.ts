@@ -365,7 +365,11 @@ describe('ConnectionManager', () => {
 
       const server = connectionManager.getServer(sessionId);
       expect(server?.status).toBe(ServerStatus.Error);
-      expect(server?.lastError).toEqual({ name: 'Error', message: 'Connection failed' });
+      expect(server?.lastError).toEqual({
+        name: 'OneMcpProtocolError',
+        message: 'Connection failed',
+        code: -32_603,
+      });
     });
   });
 
