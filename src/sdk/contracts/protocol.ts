@@ -1,7 +1,4 @@
-import type { JsonObject } from './jsonValue.js';
-
-/** Open protocol extension bags are normalized before shared code relies on their contents. */
-export type ProtocolObject = JsonObject | Record<string, unknown>;
+import { toJsonValue, type JsonObject, type JsonValue } from './jsonValue.js';
 
 /** Stable JSON-RPC and transport error codes used by 1MCP. */
 export enum ErrorCode {
@@ -14,6 +11,8 @@ export enum ErrorCode {
   InternalError = -32603,
   UrlElicitationRequired = -32042,
 }
+
+export type ProtocolObject = JsonObject;
 
 export interface Icon {
   src: string;
@@ -34,10 +33,10 @@ export interface ProtocolMetadata {
   icons?: Icon[];
 }
 
-export type JsonSchemaObject = Record<string, unknown> & {
+export type JsonSchemaObject = JsonObject & {
   $schema?: string;
   type: 'object';
-  properties?: Record<string, object>;
+  properties?: Record<string, JsonObject>;
   required?: string[];
 };
 
@@ -49,48 +48,48 @@ export interface ToolAnnotations {
   openWorldHint?: boolean;
 }
 
-export interface Tool extends ProtocolMetadata {
+export type Tool = ProtocolMetadata & {
   description?: string;
   inputSchema: JsonSchemaObject;
   outputSchema?: JsonSchemaObject;
   execution?: { taskSupport?: 'forbidden' | 'optional' | 'required' };
   annotations?: ToolAnnotations;
-  _meta?: ProtocolObject;
-}
+  _meta?: JsonObject;
+};
 
-export interface PromptArgument extends ProtocolMetadata {
+export type PromptArgument = ProtocolMetadata & {
   description?: string;
   required?: boolean;
-}
+};
 
-export interface Prompt extends ProtocolMetadata {
+export type Prompt = ProtocolMetadata & {
   description?: string;
   arguments?: PromptArgument[];
-  _meta?: ProtocolObject;
-}
+  _meta?: JsonObject;
+};
 
-export interface Resource extends ProtocolMetadata {
+export type Resource = ProtocolMetadata & {
   uri: string;
   description?: string;
   mimeType?: string;
   annotations?: Annotations;
   size?: number;
-  _meta?: ProtocolObject;
-}
+  _meta?: JsonObject;
+};
 
-export interface ResourceTemplate extends ProtocolMetadata {
+export type ResourceTemplate = ProtocolMetadata & {
   uriTemplate: string;
   description?: string;
   mimeType?: string;
   annotations?: Annotations;
-  _meta?: ProtocolObject;
-}
+  _meta?: JsonObject;
+};
 
 export interface TextContent {
   type: 'text';
   text: string;
   annotations?: Annotations;
-  _meta?: ProtocolObject;
+  _meta?: JsonObject;
 }
 
 export interface ImageContent {
@@ -98,7 +97,7 @@ export interface ImageContent {
   data: string;
   mimeType: string;
   annotations?: Annotations;
-  _meta?: ProtocolObject;
+  _meta?: JsonObject;
 }
 
 export interface AudioContent {
@@ -106,114 +105,103 @@ export interface AudioContent {
   data: string;
   mimeType: string;
   annotations?: Annotations;
-  _meta?: ProtocolObject;
+  _meta?: JsonObject;
 }
 
-export interface ResourceLink extends Resource {
-  type: 'resource_link';
-}
+export type ResourceLink = Resource & { type: 'resource_link' };
 
 export interface TextResourceContents {
   uri: string;
   mimeType?: string;
   text: string;
-  _meta?: ProtocolObject;
+  _meta?: JsonObject;
 }
 
 export interface BlobResourceContents {
   uri: string;
   mimeType?: string;
   blob: string;
-  _meta?: ProtocolObject;
+  _meta?: JsonObject;
 }
 
 export interface EmbeddedResource {
   type: 'resource';
   resource: TextResourceContents | BlobResourceContents;
   annotations?: Annotations;
-  _meta?: ProtocolObject;
+  _meta?: JsonObject;
 }
 
 export type ContentBlock = TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource;
 
 export interface CallToolResult {
   content: ContentBlock[];
-  structuredContent?: ProtocolObject;
+  structuredContent?: JsonObject;
   isError?: boolean;
-  _meta?: ProtocolObject;
+  _meta?: JsonObject;
 }
 
 export interface ListToolsResult {
   tools: Tool[];
   nextCursor?: string;
-  _meta?: ProtocolObject;
+  _meta?: JsonObject;
 }
-
 export interface ListResourcesResult {
   resources: Resource[];
   nextCursor?: string;
-  _meta?: ProtocolObject;
+  _meta?: JsonObject;
 }
-
 export interface ListPromptsResult {
   prompts: Prompt[];
   nextCursor?: string;
-  _meta?: ProtocolObject;
+  _meta?: JsonObject;
+}
+
+interface ListChangedCapability {
+  listChanged?: boolean;
 }
 
 export interface ClientCapabilities {
-  [key: string]: unknown;
-  experimental?: Record<string, ProtocolObject>;
-  roots?: { listChanged?: boolean };
-  sampling?: { context?: ProtocolObject; tools?: ProtocolObject };
-  elicitation?: { form?: ProtocolObject; url?: ProtocolObject };
-  tasks?: ProtocolObject;
-  extensions?: Record<string, ProtocolObject>;
+  experimental?: Record<string, JsonObject>;
+  roots?: ListChangedCapability;
+  sampling?: { context?: JsonObject; tools?: JsonObject };
+  elicitation?: { form?: JsonObject; url?: JsonObject };
+  tasks?: JsonObject;
+  extensions?: Record<string, JsonObject>;
 }
 
 export interface ServerCapabilities {
-  [key: string]: unknown;
-  experimental?: Record<string, ProtocolObject>;
-  logging?: ProtocolObject;
-  completions?: ProtocolObject;
-  prompts?: { listChanged?: boolean };
-  resources?: { subscribe?: boolean; listChanged?: boolean };
-  tools?: { listChanged?: boolean };
-  tasks?: ProtocolObject;
-  extensions?: Record<string, ProtocolObject>;
+  experimental?: Record<string, JsonObject>;
+  logging?: JsonObject;
+  completions?: JsonObject;
+  prompts?: ListChangedCapability;
+  resources?: ListChangedCapability & { subscribe?: boolean };
+  tools?: ListChangedCapability;
+  tasks?: JsonObject;
+  extensions?: Record<string, JsonObject>;
 }
 
 export type RequestId = string | number;
-
 export interface JSONRPCRequest {
   jsonrpc: '2.0';
   id: RequestId;
   method: string;
-  params?: ProtocolObject;
+  params?: JsonObject;
 }
-
 export interface JSONRPCNotification {
   jsonrpc: '2.0';
   method: string;
-  params?: ProtocolObject;
+  params?: JsonObject;
 }
-
 export interface JSONRPCResultResponse {
   jsonrpc: '2.0';
   id: RequestId;
-  result: ProtocolObject;
+  result: JsonObject;
 }
-
 export interface JSONRPCErrorResponse {
   jsonrpc: '2.0';
   id?: RequestId;
-  error: {
-    code: number;
-    message: string;
-    data?: unknown;
-  };
+  error: { code: number; message: string; data?: JsonValue };
 }
-
 export type JSONRPCMessage = JSONRPCRequest | JSONRPCNotification | JSONRPCResultResponse | JSONRPCErrorResponse;
 
 export interface OAuthClientMetadata {
@@ -229,7 +217,7 @@ export interface OAuthClientMetadata {
   tos_uri?: string;
   policy_uri?: string;
   jwks_uri?: string;
-  jwks?: unknown;
+  jwks?: JsonValue;
   software_id?: string;
   software_version?: string;
   software_statement?: string;
@@ -242,7 +230,66 @@ export interface OAuthClientInformation {
   client_secret_expires_at?: number;
 }
 
-export interface OAuthClientInformationFull extends OAuthClientMetadata, OAuthClientInformation {}
+export type OAuthClientInformationFull = OAuthClientMetadata & OAuthClientInformation;
+
+function toProtocolJsonObject(value: unknown, label: string): JsonObject {
+  const normalized = toJsonValue(value);
+  if (normalized === null || Array.isArray(normalized) || typeof normalized !== 'object') {
+    throw new TypeError(`${label} must be a JSON object`);
+  }
+  return normalized;
+}
+
+export function toProtocolTool(value: unknown): Tool {
+  const normalized = toProtocolJsonObject(value, 'Tool');
+  const inputSchema = normalized.inputSchema;
+  if (
+    typeof normalized.name !== 'string' ||
+    inputSchema === null ||
+    Array.isArray(inputSchema) ||
+    typeof inputSchema !== 'object' ||
+    inputSchema.type !== 'object'
+  ) {
+    throw new TypeError('Tool must have a name and object input schema');
+  }
+  return normalized as Tool;
+}
+
+export function toProtocolTools(values: readonly unknown[]): Tool[] {
+  return values.map(toProtocolTool);
+}
+
+export function toProtocolResource(value: unknown): Resource {
+  const normalized = toProtocolJsonObject(value, 'Resource');
+  if (typeof normalized.name !== 'string' || typeof normalized.uri !== 'string') {
+    throw new TypeError('Resource must have a name and URI');
+  }
+  return normalized as Resource;
+}
+
+export function toProtocolResources(values: readonly unknown[]): Resource[] {
+  return values.map(toProtocolResource);
+}
+
+export function toProtocolPrompt(value: unknown): Prompt {
+  const normalized = toProtocolJsonObject(value, 'Prompt');
+  if (typeof normalized.name !== 'string') {
+    throw new TypeError('Prompt must have a name');
+  }
+  return normalized as Prompt;
+}
+
+export function toProtocolPrompts(values: readonly unknown[]): Prompt[] {
+  return values.map(toProtocolPrompt);
+}
+
+export function toProtocolJSONRPCMessage(value: unknown): JSONRPCMessage {
+  const normalized = toProtocolJsonObject(value, 'JSON-RPC message');
+  if (normalized.jsonrpc !== '2.0') {
+    throw new TypeError('JSON-RPC message must use version 2.0');
+  }
+  return normalized as JSONRPCMessage;
+}
 
 /** Matches HTTP-like errors without importing or depending on an SDK error class identity. */
 export function hasHttpErrorCode(error: unknown, code: number): error is { readonly code: number } {

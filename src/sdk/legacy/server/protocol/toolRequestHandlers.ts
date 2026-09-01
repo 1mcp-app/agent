@@ -2,7 +2,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequest,
   ListToolsRequestSchema,
-  type Tool,
+  type Tool as LegacyTool,
 } from '@src/sdk/legacy/types.js';
 
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
@@ -19,6 +19,7 @@ import { applyEffectiveToolDescription } from '@src/core/server/toolDescriptionO
 import { InboundConnection } from '@src/core/types/index.js';
 import type { MCPServerParams } from '@src/core/types/transport.js';
 import logger, { infoIf } from '@src/logger/logger.js';
+import { toProtocolTools, type Tool } from '@src/sdk/contracts/index.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
 import {
@@ -113,17 +114,18 @@ export function registerToolHandlers(
         visibility,
         cursor: request.params?.cursor,
         list: async (outboundConn, cursor) => {
-          const upstream = await requestLegacyOutbound<{ tools: Tool[]; nextCursor?: string }>(
+          const upstream = await requestLegacyOutbound<{ tools: LegacyTool[]; nextCursor?: string }>(
             outboundConn,
             'tools/list',
             cursor === undefined ? undefined : { cursor },
           );
-          publishConfiguredToolPage(outboundConn, upstream.tools ?? [], cursor, upstream.nextCursor);
+          const tools = toProtocolTools(upstream.tools ?? []);
+          publishConfiguredToolPage(outboundConn, tools, cursor, upstream.nextCursor);
           if (upstream.nextCursor === undefined) {
             publishCompleteConfiguredToolTargetSnapshots(outboundConns);
           }
           return {
-            items: upstream.tools ?? [],
+            items: tools,
             nextCursor: upstream.nextCursor,
           };
         },

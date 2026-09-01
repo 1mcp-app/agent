@@ -1,4 +1,4 @@
-import { hasHttpErrorCode, type CallToolResult, type Tool } from '@src/sdk/contracts/index.js';
+import { hasHttpErrorCode, toJsonValue, toProtocolTools, type CallToolResult, type Tool } from '@src/sdk/contracts/index.js';
 
 import { extractInspectToolInfo, type InspectToolInfo } from '@src/commands/inspect/inspectUtils.js';
 import {
@@ -444,7 +444,7 @@ export async function invokeTool(options: {
         };
       }
 
-      tool = findToolByQualifiedName(toolsResponse.result.tools, options.qualifiedToolName);
+      tool = findToolByQualifiedName(toProtocolTools(toolsResponse.result.tools), options.qualifiedToolName);
       if (!tool) {
         return {
           rawResponse: {
@@ -470,7 +470,7 @@ export async function invokeTool(options: {
         };
       }
 
-      tool = findToolByQualifiedName(toolsResponse.result.tools, options.qualifiedToolName);
+      tool = findToolByQualifiedName(toProtocolTools(toolsResponse.result.tools), options.qualifiedToolName);
       if (!tool) {
         if (options.sessionId) {
           return {
@@ -516,7 +516,7 @@ export async function invokeTool(options: {
 
     const response = await client.callTool(options.qualifiedToolName, resolvedArguments.arguments);
     return {
-      rawResponse: response,
+      rawResponse: toJsonValue(response) as unknown as JsonRpcResponse<CallToolResult>,
       sessionId: client.sessionId,
       retryWithFreshSession: false,
     };

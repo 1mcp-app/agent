@@ -3,27 +3,35 @@ import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import type { OutboundConnection } from '@src/core/types/client.js';
 import type { MCPServerParams } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
+import {
+  toProtocolPrompts,
+  toProtocolResources,
+  toProtocolTools,
+  type Prompt as ProtocolPrompt,
+  type Resource as ProtocolResource,
+  type Tool as ProtocolTool,
+} from '@src/sdk/contracts/index.js';
 import { createTransports } from '@src/transport/transportFactory.js';
 
 export interface ServerCapabilities {
   serverName: string;
   connected: boolean;
-  tools: Tool[];
-  resources: Resource[];
-  prompts: Prompt[];
+  tools: ProtocolTool[];
+  resources: ProtocolResource[];
+  prompts: ProtocolPrompt[];
   error?: string;
 }
 
 interface ToolListResult {
-  tools?: Tool[];
+  tools?: unknown[];
 }
 
 interface ResourceListResult {
-  resources?: Resource[];
+  resources?: unknown[];
 }
 
 interface PromptListResult {
-  prompts?: Prompt[];
+  prompts?: unknown[];
 }
 
 /**
@@ -140,38 +148,38 @@ export class McpConnectionHelper {
     serverName: string,
     connection: OutboundConnection,
   ): Promise<{
-    tools: Tool[];
-    resources: Resource[];
-    prompts: Prompt[];
+    tools: ProtocolTool[];
+    resources: ProtocolResource[];
+    prompts: ProtocolPrompt[];
   }> {
-    const tools: Tool[] = [];
-    const resources: Resource[] = [];
-    const prompts: Prompt[] = [];
+    const tools: ProtocolTool[] = [];
+    const resources: ProtocolResource[] = [];
+    const prompts: ProtocolPrompt[] = [];
 
     try {
-      await this.collectCapabilityItems<ToolListResult, Tool>({
+      await this.collectCapabilityItems<ToolListResult, ProtocolTool>({
         serverName,
         items: tools,
         capabilityName: 'tools',
         timeoutMessage: 'Tools listing timeout',
         list: () => requestLegacyAdapter<ToolListResult>(connection.adapter, 'tools/list'),
-        select: (result) => result?.tools ?? [],
+        select: (result) => toProtocolTools(result?.tools ?? []),
       });
-      await this.collectCapabilityItems<ResourceListResult, Resource>({
+      await this.collectCapabilityItems<ResourceListResult, ProtocolResource>({
         serverName,
         items: resources,
         capabilityName: 'resources',
         timeoutMessage: 'Resources listing timeout',
         list: () => requestLegacyAdapter<ResourceListResult>(connection.adapter, 'resources/list'),
-        select: (result) => result?.resources ?? [],
+        select: (result) => toProtocolResources(result?.resources ?? []),
       });
-      await this.collectCapabilityItems<PromptListResult, Prompt>({
+      await this.collectCapabilityItems<PromptListResult, ProtocolPrompt>({
         serverName,
         items: prompts,
         capabilityName: 'prompts',
         timeoutMessage: 'Prompts listing timeout',
         list: () => requestLegacyAdapter<PromptListResult>(connection.adapter, 'prompts/list'),
-        select: (result) => result?.prompts ?? [],
+        select: (result) => toProtocolPrompts(result?.prompts ?? []),
       });
     } catch (error) {
       logger.warn(`Error getting capabilities from ${serverName}: ${error instanceof Error ? error.message : error}`);
@@ -233,6 +241,3 @@ export class McpConnectionHelper {
     this.connections.clear();
   }
 }
-interface Tool { name: string; inputSchema: Record<string, unknown> & { type: 'object' }; description?: string }
-interface Resource { uri: string; name: string; description?: string; mimeType?: string }
-interface Prompt { name: string; description?: string; arguments?: Array<{ name: string; description?: string }> }

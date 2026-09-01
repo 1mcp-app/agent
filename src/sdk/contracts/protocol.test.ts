@@ -1,4 +1,19 @@
-import { ErrorCode, hasHttpErrorCode } from './protocol.js';
+import { toJsonValue, type JsonObject } from './jsonValue.js';
+import {
+  ErrorCode,
+  hasHttpErrorCode,
+  type CallToolResult,
+  type ClientCapabilities,
+  type JSONRPCMessage,
+  type ListToolsResult,
+  type OAuthClientInformationFull,
+  type Prompt,
+  type PromptArgument,
+  type Resource,
+  type ResourceTemplate,
+  type ServerCapabilities,
+  type Tool,
+} from './protocol.js';
 
 describe('plain protocol contracts', () => {
   it('keeps the stable error code values', () => {
@@ -18,5 +33,43 @@ describe('plain protocol contracts', () => {
     expect(hasHttpErrorCode({ code: 404 }, 404)).toBe(true);
     expect(hasHttpErrorCode({ code: '404' }, 404)).toBe(false);
     expect(hasHttpErrorCode(new Error('not found'), 404)).toBe(false);
+  });
+
+  it('keeps representative protocol payloads JSON-safe', () => {
+    const tool = { name: 'search', inputSchema: { type: 'object', properties: {} } } satisfies Tool;
+    const promptArgument = { name: 'topic', required: true } satisfies PromptArgument;
+    const prompt = { name: 'explain', arguments: [promptArgument] } satisfies Prompt;
+    const resource = { name: 'guide', uri: 'file:///guide.md', mimeType: 'text/markdown' } satisfies Resource;
+    const resourceTemplate = { name: 'guides', uriTemplate: 'file:///{name}.md' } satisfies ResourceTemplate;
+    const callResult = { content: [{ type: 'text', text: 'done' }], structuredContent: { ok: true } } satisfies CallToolResult;
+    const listResult = { tools: [tool], nextCursor: 'next' } satisfies ListToolsResult;
+    const clientCapabilities = { roots: { listChanged: true } } satisfies ClientCapabilities;
+    const serverCapabilities = { tools: { listChanged: true } } satisfies ServerCapabilities;
+    const message = {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: { name: 'search', arguments: { query: 'contracts' } },
+    } satisfies JSONRPCMessage;
+    const oauthClient = {
+      client_id: 'client',
+      redirect_uris: ['https://client.example/callback'],
+      jwks: { keys: [] },
+    } satisfies OAuthClientInformationFull;
+
+    const payloads: JsonObject[] = [
+      tool,
+      promptArgument,
+      prompt,
+      resource,
+      resourceTemplate,
+      callResult,
+      listResult,
+      clientCapabilities,
+      serverCapabilities,
+      message,
+      oauthClient,
+    ];
+    expect(payloads.map((payload) => toJsonValue(payload))).toEqual(payloads);
   });
 });

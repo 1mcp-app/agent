@@ -1,4 +1,4 @@
-import { hasHttpErrorCode, type Tool } from '@src/sdk/contracts/index.js';
+import { hasHttpErrorCode, toProtocolTools, type Tool } from '@src/sdk/contracts/index.js';
 
 import { findToolByQualifiedName } from '@src/commands/run/runUtils.js';
 import { ApiClient } from '@src/commands/shared/apiClient.js';
@@ -365,7 +365,7 @@ export async function inspectTools(options: {
 
       return {
         rawResponse: response,
-        tools: response.result.tools,
+        tools: toProtocolTools(response.result.tools),
         sessionId: client.sessionId,
         instructions: initializeResponse.result.instructions ?? null,
         retryWithFreshSession: false,
@@ -385,7 +385,7 @@ export async function inspectTools(options: {
 
     return {
       rawResponse: response,
-      tools: response.result.tools,
+      tools: toProtocolTools(response.result.tools),
       sessionId: client.sessionId,
       instructions: undefined,
       retryWithFreshSession: false,

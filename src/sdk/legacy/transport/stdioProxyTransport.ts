@@ -6,6 +6,7 @@ import { buildCliContext, generateStreamableSessionId } from '@src/commands/shar
 import { MCP_SERVER_VERSION } from '@src/constants/mcp.js';
 import type { TemplateContextProof } from '@src/core/context/templateContextTrust.js';
 import logger from '@src/logger/logger.js';
+import { toProtocolJSONRPCMessage } from '@src/sdk/contracts/index.js';
 import type { ClientInfo, ContextData } from '@src/types/context.js';
 import { ClientInfoExtractor } from '@src/utils/client/clientInfoExtractor.js';
 
@@ -158,7 +159,7 @@ export class StdioProxyTransport {
       try {
         // Check for initialize request to extract client info
         if (!this.initializeIntercepted) {
-          const clientInfo = ClientInfoExtractor.extractFromInitializeRequest(message);
+          const clientInfo = ClientInfoExtractor.extractFromInitializeRequest(toProtocolJSONRPCMessage(message));
           if (clientInfo) {
             this.clientInfo = clientInfo;
             this.initializeIntercepted = true;
