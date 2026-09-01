@@ -5,7 +5,6 @@ import { MCP_SERVER_CAPABILITIES, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@s
 import { ConfigChangeHandler } from '@src/core/configChangeHandler.js';
 import { getGlobalContextManager } from '@src/core/context/globalContextManager.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
-import { AuthProviderTransport } from '@src/core/types/client.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import type { ContextData } from '@src/types/context.js';
 
@@ -14,15 +13,14 @@ import { InternalCapabilitiesProvider } from './core/capabilities/internalCapabi
 import { LazyLoadingOrchestrator } from './core/capabilities/lazyLoadingOrchestrator.js';
 import { ClientManager } from './core/client/clientManager.js';
 import { InstructionAggregator } from './core/instructions/instructionAggregator.js';
-import {
-  DEFAULT_BACKEND_LOADING_POLICY,
-  type BackendLoadingPolicy,
-} from './core/loading/backendLoadingPolicy.js';
+import { type BackendLoadingPolicy, DEFAULT_BACKEND_LOADING_POLICY } from './core/loading/backendLoadingPolicy.js';
 import { McpLoadingManager } from './core/loading/mcpLoadingManager.js';
 import { ServerManager } from './core/server/serverManager.js';
 import { PresetManager } from './domains/preset/manager/presetManager.js';
 import { PresetNotificationService } from './domains/preset/services/presetNotificationService.js';
 import { createTransports } from './transport/transportFactory.js';
+
+type AuthProviderTransport = ReturnType<typeof createTransports>[string];
 
 /**
  * Result of server setup including both sync and async components

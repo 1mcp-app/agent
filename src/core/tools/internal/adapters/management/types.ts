@@ -1,7 +1,6 @@
 /**
  * Management server types
  */
-import type { BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
 import { MCPServerParams } from '@src/core/types/index.js';
 import type { RuntimeBackendRestartResult } from '@src/domains/admin/adminBackendRestartService.js';
 
@@ -72,17 +71,33 @@ export interface ServerStatusInfo {
     healthStatus?: string;
     lastChecked?: string;
     errors?: string[];
-    supervision?: Omit<BackendSupervisionSnapshot, 'lastError'> & { lastError: string | null };
+    supervision?: OperationalSupervision;
     instances?: Array<{
       instanceId: string;
       status: string;
-      supervision?: Omit<BackendSupervisionSnapshot, 'lastError'> & { lastError: string | null };
+      supervision?: OperationalSupervision;
     }>;
   }>;
   totalServers: number;
   enabledServers: number;
   disabledServers: number;
   unhealthyServers: number;
+}
+
+export interface OperationalSupervision {
+  backendId: string;
+  state: 'connected' | 'restarting' | 'crash-loop' | 'stopped';
+  attempt: number;
+  limit: number | null;
+  nextRetryAt: Date | string | null;
+  lastExit: {
+    code: number | null;
+    signal: string | null;
+    pid: number | null;
+    at: Date | string;
+  } | null;
+  lastError: string | null;
+  currentPid: number | null;
 }
 
 /**

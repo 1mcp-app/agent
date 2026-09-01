@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
 
 import { ConfigManager } from '@src/config/configManager.js';
+import { createRenderableOutboundConnection } from '@src/core/client/renderableOutboundConnection.js';
 import type { TrustedTemplateContext } from '@src/core/context/templateContextTrust.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { createConnectionResolver } from '@src/core/server/connectionResolver.js';
 import { prepareRequestContext } from '@src/core/server/requestContextPreparation.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
-import { ClientStatus, type OutboundConnection, type OutboundConnections } from '@src/core/types/index.js';
+import { ClientStatus, type OutboundConnections } from '@src/core/types/index.js';
 import type { InboundConnectionConfig } from '@src/core/types/server.js';
 import type { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import { TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
@@ -75,7 +76,10 @@ export function createAdminInstructionPreviewRuntime(
         const previewConnections: OutboundConnections = new Map(filtered);
         for (const [name, config] of Object.entries(declared.staticServers)) {
           if (previewConnections.has(name) || !matchesFilter(config.tags, filterConfig)) continue;
-          previewConnections.set(name, asRenderableConnection(name, config.tags));
+          previewConnections.set(
+            name,
+            createRenderableOutboundConnection(name, config.tags, ClientStatus.Disconnected),
+          );
         }
         return {
           surface: input.surface === 'initialization' ? 'initialize' : 'cli',
@@ -119,15 +123,6 @@ export function createAdminInstructionPreviewRuntime(
       }
     }
   };
-}
-
-function asRenderableConnection(name: string, tags: string[] | undefined): OutboundConnection {
-  return {
-    name,
-    status: ClientStatus.Disconnected,
-    transport: { tags: tags ?? [] },
-    client: {},
-  } as OutboundConnection;
 }
 
 function matchesFilter(tags: string[] | undefined, filterConfig: InboundConnectionConfig): boolean {

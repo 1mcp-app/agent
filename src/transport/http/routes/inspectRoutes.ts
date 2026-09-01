@@ -47,7 +47,7 @@ export {
 export type { InspectServerPayload, InspectServersPayload, InspectToolPayload, ServerSummary, ToolSummary };
 
 type FilteredConnections = ReturnType<typeof FilteringService.getFilteredConnections>;
-type Tool = Parameters<typeof filterDisabledTools>[0][number];
+type Tool = Parameters<typeof summarizeDirectServerTool>[1];
 
 interface DirectListToolsResult {
   tools?: Tool[];
@@ -388,9 +388,14 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
           const connection = sessionConnection ?? filteredConnection;
           if (connection) {
             try {
-              const result = await requestLegacyAdapter<{ tools: Tool[] }>(connection.adapter, 'tools/list', undefined, {
-                timeoutMs: connection.requestTimeoutMs,
-              });
+              const result = await requestLegacyAdapter<{ tools: Tool[] }>(
+                connection.adapter,
+                'tools/list',
+                undefined,
+                {
+                  timeoutMs: connection.requestTimeoutMs,
+                },
+              );
               found = filterDisabledTools(result.tools ?? [], serverConfigs, serverName).find(
                 (t) => t.name === qualifiedName || t.name === toolName,
               );
@@ -405,7 +410,11 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
           return;
         }
 
-        const effectiveTool = applyEffectiveToolDescription(found, serverConfigs[serverName], serverName) as unknown as {
+        const effectiveTool = applyEffectiveToolDescription(
+          found,
+          serverConfigs[serverName],
+          serverName,
+        ) as unknown as {
           description?: unknown;
           inputSchema?: unknown;
           outputSchema?: unknown;

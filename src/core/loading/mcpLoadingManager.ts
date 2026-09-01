@@ -2,7 +2,7 @@ import { EventEmitter } from 'events';
 
 import { sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
-import { AuthProviderTransport, MCPServerParams, OutboundConnections } from '@src/core/types/index.js';
+import { MCPServerParams, OutboundConnections } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { createTransports } from '@src/transport/transportFactory.js';
 import { NonRetryableClientConnectionError } from '@src/utils/core/errorTypes.js';
@@ -17,6 +17,8 @@ import {
   ServerLoadingInfo,
 } from './loadingStateTracker.js';
 import { ParallelExecutor } from './parallelExecutor.js';
+
+type AuthProviderTransport = ReturnType<typeof createTransports>[string];
 
 /**
  * Result of loading a specific server

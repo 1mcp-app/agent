@@ -1,12 +1,5 @@
-import { Transport } from '@src/sdk/legacy/shared/transport.js';
-import type { AuthProviderTransport } from '@src/sdk/legacy/client/runtime/legacyTransport.js';
-import {
-  createLegacyOutboundConnection,
-  getLegacyClient,
-} from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
-
-import { getRuntimeScopeEnvironment, sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
 import { isOperatorDisabledTemplateDefinition } from '@src/config/configuredServerTargets.js';
+import { getRuntimeScopeEnvironment, sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
 import { createRuntimeTargetFingerprint } from '@src/config/runtimeTargetFingerprint.js';
 import { registerCapabilityPaginationNotifications } from '@src/core/capabilities/capabilityPagination.js';
 import {
@@ -41,6 +34,12 @@ import { ClientStatus } from '@src/core/types/client.js';
 import { MCPServerParams } from '@src/core/types/index.js';
 import type { InboundConnectionConfig } from '@src/core/types/server.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+import {
+  createLegacyOutboundConnection,
+  getLegacyClient,
+} from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
+import type { AuthProviderTransport } from '@src/sdk/legacy/client/runtime/legacyTransport.js';
+import { Transport } from '@src/sdk/legacy/shared/transport.js';
 import type { ContextData } from '@src/types/context.js';
 
 /**
@@ -203,12 +202,12 @@ export class TemplateServerManager {
         outboundConns.set(
           outboundKey,
           createLegacyOutboundConnection({
-          name: templateName, // Keep clean name for tool namespacing (serena_1mcp_*)
-          transport: instance.transport as AuthProviderTransport,
-          client: instance.client,
-          status: ClientStatus.Connected, // Template servers should be connected
-          capabilities: instance.client.getServerCapabilities?.(),
-          instructions,
+            name: templateName, // Keep clean name for tool namespacing (serena_1mcp_*)
+            transport: instance.transport as AuthProviderTransport,
+            client: instance.client,
+            status: ClientStatus.Connected, // Template servers should be connected
+            capabilities: instance.client.getServerCapabilities?.(),
+            instructions,
           }),
         );
         registerCapabilityPaginationNotifications(outboundConns, outboundConns.get(outboundKey)!);

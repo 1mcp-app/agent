@@ -1,4 +1,5 @@
 import { ConfigManager } from '@src/config/configManager.js';
+import { createRenderableOutboundConnection } from '@src/core/client/renderableOutboundConnection.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import {
   type ConfiguredServerInstructionTarget,
@@ -9,7 +10,7 @@ import type { InstructionRenderMetadata } from '@src/core/instructions/instructi
 import { instructionsRenderResponseSchema } from '@src/core/instructions/instructionsDistribution.js';
 import { createConnectionResolver } from '@src/core/server/connectionResolver.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
-import { ClientStatus, type OutboundConnection, type OutboundConnections } from '@src/core/types/index.js';
+import { ClientStatus, type OutboundConnections } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 
 import type { Request, RequestHandler, Response } from 'express';
@@ -95,7 +96,10 @@ export function createInstructionsHandler(serverManager: ServerManager): Request
           target.source === 'mcpTemplates'
             ? declaredServers.templateServers[summary.server]
             : declaredServers.staticServers[summary.server];
-        connections.set(summary.server, asRenderableConnection(summary.server, declaredConfig?.tags));
+        connections.set(
+          summary.server,
+          createRenderableOutboundConnection(summary.server, declaredConfig?.tags, ClientStatus.Connected),
+        );
       }
 
       const rendered = activeAggregator.renderInstructions('cli', filterConfig, connections, metadata);
@@ -117,15 +121,6 @@ export function createInstructionsHandler(serverManager: ServerManager): Request
       res.status(500).json({ error: 'Internal server error' });
     }
   };
-}
-
-function asRenderableConnection(name: string, tags: string[] | undefined): OutboundConnection {
-  return {
-    name,
-    status: ClientStatus.Connected,
-    transport: { tags: tags ?? [] },
-    client: {},
-  } as OutboundConnection;
 }
 
 function inferTarget(

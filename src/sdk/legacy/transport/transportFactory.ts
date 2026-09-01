@@ -1,30 +1,30 @@
 import type { EventEmitter } from 'node:events';
 import path from 'path';
 
+import { OAuthClientConfig, SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
+import { processEnvironment, substituteEnvVars } from '@src/config/envProcessor.js';
+import { getRuntimeScopeEnvironment, sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
+import { AUTH_CONFIG, MCP_SERVER_VERSION } from '@src/constants.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { MCPServerParams, transportConfigSchema } from '@src/core/types/index.js';
+import { createBackendLogProjection } from '@src/domains/backend-logs/backendLogProjection.js';
+import { getBackendLogBroker } from '@src/domains/backend-logs/backendLogRuntime.js';
+import { staticBackendLogSource } from '@src/domains/backend-logs/backendLogSource.js';
+import type { BackendLogSource } from '@src/domains/backend-logs/backendLogTypes.js';
+import logger, { debugIf } from '@src/logger/logger.js';
 import { SSEClientTransport, SSEClientTransportOptions } from '@src/sdk/legacy/client/sse.js';
 import { StdioClientTransport, StdioServerParameters } from '@src/sdk/legacy/client/stdio.js';
 import {
   StreamableHTTPClientTransport,
   StreamableHTTPClientTransportOptions,
 } from '@src/sdk/legacy/client/streamableHttp.js';
-
-import { OAuthClientConfig, SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
-import { processEnvironment, substituteEnvVars } from '@src/config/envProcessor.js';
-import { getRuntimeScopeEnvironment, sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
-import { AUTH_CONFIG, MCP_SERVER_VERSION } from '@src/constants.js';
-import { AgentConfigManager } from '@src/core/server/agentConfig.js';
-import { AuthProviderTransport, MCPServerParams, transportConfigSchema } from '@src/core/types/index.js';
-import { createBackendLogProjection } from '@src/domains/backend-logs/backendLogProjection.js';
-import { getBackendLogBroker } from '@src/domains/backend-logs/backendLogRuntime.js';
-import { staticBackendLogSource } from '@src/domains/backend-logs/backendLogSource.js';
-import type { BackendLogSource } from '@src/domains/backend-logs/backendLogTypes.js';
-import logger, { debugIf } from '@src/logger/logger.js';
 import { HandlebarsTemplateRenderer } from '@src/template/handlebarsTemplateRenderer.js';
+import { ManagedStdioStderr } from '@src/transport/managedStdioStderr.js';
 import type { ContextData } from '@src/types/context.js';
 
 import { z, ZodError } from 'zod';
 
-import { ManagedStdioStderr } from '@src/transport/managedStdioStderr.js';
+import type { AuthProviderTransport } from '../client/runtime/legacyTransport.js';
 
 type ValidatedTransport = z.infer<typeof transportConfigSchema>;
 
