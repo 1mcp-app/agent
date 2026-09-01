@@ -253,18 +253,37 @@ describe('CapabilityAggregator', () => {
         .mockRejectedValue(unauthorized);
       const listResources = vi.fn().mockResolvedValueOnce({ resources: [] }).mockRejectedValue(unauthorized);
       const listPrompts = vi.fn().mockResolvedValueOnce({ prompts: [] }).mockRejectedValue(unauthorized);
-      const close = vi.fn().mockResolvedValue(undefined);
       const mockClient = {
         listTools,
         listResources,
         listPrompts,
-        close,
         getServerCapabilities: vi.fn().mockReturnValue({ resources: true, prompts: true }),
       } as any;
 
-      mockConnections.set('oauth-server', connectionFromClient('oauth-server', mockClient));
+      const close = vi.fn().mockResolvedValue(undefined);
+      const connection = connectionFromClient('oauth-server', mockClient);
+      const adapterRequest = vi.mocked(connection.adapter.request);
+      let recovery: Promise<void> | undefined;
+      adapterRequest.mockImplementation(async (request) => {
+        try {
+          if (request.method === 'tools/list') return (await listTools()) as never;
+          if (request.method === 'resources/list') return (await listResources()) as never;
+          if (request.method === 'prompts/list') return (await listPrompts()) as never;
+          return {};
+        } catch (error) {
+          if (error === unauthorized) {
+            recovery ??= (async () => {
+              connection.status = ClientStatus.AwaitingOAuth;
+              connection.lastError = { name: unauthorized.name, message: unauthorized.message };
+              await close();
+            })();
+            await recovery;
+          }
+          throw error;
+        }
+      });
+      mockConnections.set('oauth-server', connection);
 
-      const connection = mockConnections.get('oauth-server')!;
       await aggregator.updateCapabilities();
       expect(readConfiguredToolSnapshot(connection)?.map((tool) => tool.name)).toEqual(['test-tool']);
 

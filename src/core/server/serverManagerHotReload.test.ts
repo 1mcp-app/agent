@@ -1,4 +1,4 @@
-import { createMockInboundConnection } from '@test/unit-utils/MockFactories.js';
+import { createMockInboundConnection, createMockLegacyOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
 import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
@@ -114,6 +114,9 @@ vi.mock('./adapters/ServerRegistry.js', () => ({
 describe('ServerManager hot-reload lifecycle facade', () => {
   const serverConfig = { name: '1mcp-test', version: '0.0.0' };
   const serverCapabilities = { capabilities: {} };
+
+  const createOutboundConnection = (name: string, transport: AuthProviderTransport, status: ClientStatus) =>
+    createMockLegacyOutboundConnection({ name, transport, status });
   let outboundConns: Map<string, unknown>;
   let transports: Record<string, AuthProviderTransport>;
   let serverManager: ServerManager;
@@ -145,11 +148,7 @@ describe('ServerManager hot-reload lifecycle facade', () => {
     const transport = { close: vi.fn() } as unknown as AuthProviderTransport;
 
     vi.mocked(McpLoadingManager.current.loadServer).mockImplementationOnce(async () => {
-      outboundConns.set('hot-server', {
-        name: 'hot-server',
-        transport,
-        status: ClientStatus.Connected,
-      });
+      outboundConns.set('hot-server', createOutboundConnection('hot-server', transport, ClientStatus.Connected));
       transports['hot-server'] = transport;
     });
 
@@ -171,11 +170,7 @@ describe('ServerManager hot-reload lifecycle facade', () => {
     };
     const transport = { close: vi.fn() } as unknown as AuthProviderTransport;
 
-    outboundConns.set('boot-server', {
-      name: 'boot-server',
-      transport,
-      status: ClientStatus.Connected,
-    });
+    outboundConns.set('boot-server', createOutboundConnection('boot-server', transport, ClientStatus.Connected));
 
     serverManager.recordMcpServerReady('boot-server', config);
 
@@ -194,21 +189,12 @@ describe('ServerManager hot-reload lifecycle facade', () => {
     const failedTransport = { close: vi.fn() } as unknown as AuthProviderTransport;
     const oauthTransport = { close: vi.fn() } as unknown as AuthProviderTransport;
 
-    outboundConns.set('ready-server', {
-      name: 'ready-server',
-      transport: readyTransport,
-      status: ClientStatus.Connected,
-    });
-    outboundConns.set('failed-server', {
-      name: 'failed-server',
-      transport: failedTransport,
-      status: ClientStatus.Error,
-    });
-    outboundConns.set('oauth-server', {
-      name: 'oauth-server',
-      transport: oauthTransport,
-      status: ClientStatus.AwaitingOAuth,
-    });
+    outboundConns.set('ready-server', createOutboundConnection('ready-server', readyTransport, ClientStatus.Connected));
+    outboundConns.set('failed-server', createOutboundConnection('failed-server', failedTransport, ClientStatus.Error));
+    outboundConns.set(
+      'oauth-server',
+      createOutboundConnection('oauth-server', oauthTransport, ClientStatus.AwaitingOAuth),
+    );
 
     serverManager.syncMcpServerLifecycleFromConnectedClients({
       'ready-server': readyConfig,
@@ -236,11 +222,7 @@ describe('ServerManager hot-reload lifecycle facade', () => {
       getServerState: vi.fn(() => ({ state: LoadingState.Failed })),
     } as never);
     vi.mocked(McpLoadingManager.current.loadServer).mockImplementationOnce(async () => {
-      outboundConns.set('failed-server', {
-        name: 'failed-server',
-        transport,
-        status: ClientStatus.Error,
-      });
+      outboundConns.set('failed-server', createOutboundConnection('failed-server', transport, ClientStatus.Error));
       transports['failed-server'] = transport;
     });
 
@@ -261,11 +243,10 @@ describe('ServerManager hot-reload lifecycle facade', () => {
       getServerState: vi.fn(() => ({ state: LoadingState.AwaitingOAuth })),
     } as never);
     vi.mocked(McpLoadingManager.current.loadServer).mockImplementationOnce(async () => {
-      outboundConns.set('oauth-server', {
-        name: 'oauth-server',
-        transport,
-        status: ClientStatus.AwaitingOAuth,
-      });
+      outboundConns.set(
+        'oauth-server',
+        createOutboundConnection('oauth-server', transport, ClientStatus.AwaitingOAuth),
+      );
       transports['oauth-server'] = transport;
     });
 
@@ -283,11 +264,7 @@ describe('ServerManager hot-reload lifecycle facade', () => {
     const transport = { close: vi.fn() } as unknown as AuthProviderTransport;
 
     vi.mocked(McpLoadingManager.current.loadServer).mockImplementationOnce(async () => {
-      outboundConns.set('hot-server', {
-        name: 'hot-server',
-        transport,
-        status: ClientStatus.Connected,
-      });
+      outboundConns.set('hot-server', createOutboundConnection('hot-server', transport, ClientStatus.Connected));
       transports['hot-server'] = transport;
     });
 
