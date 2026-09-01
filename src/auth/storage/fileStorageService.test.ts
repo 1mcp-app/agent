@@ -4,6 +4,7 @@ import path from 'path';
 
 import { ExpirableData } from '@src/auth/sessionTypes.js';
 import { AUTH_CONFIG } from '@src/constants.js';
+import logger from '@src/logger/logger.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -151,19 +152,19 @@ describe('FileStorageService', () => {
       fs.rmSync(customDir, { recursive: true, force: true });
     });
 
-    it('does not write replacement secret if chmod fails on pre-existing permissive file', () => {
+    it('does not write replacement secret if write fails on pre-existing file', () => {
       // POSIX-only: Windows ACLs do not map to fs.stat modes
       if (process.platform === 'win32') return;
       const filePath = service.getFilePath(testPrefix, testId);
       fs.writeFileSync(filePath, JSON.stringify({ ...testData, value: 'old-secret' }), { mode: 0o644 });
       fs.chmodSync(filePath, 0o644);
 
-      const originalChmodSync = fs.chmodSync;
-      vi.spyOn(fs, 'chmodSync').mockImplementation((pathArg, modeArg) => {
-        if (pathArg === filePath) {
+      const originalRenameSync = fs.renameSync;
+      vi.spyOn(fs, 'renameSync').mockImplementation((oldPath, newPath) => {
+        if (newPath === filePath) {
           throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
         }
-        return originalChmodSync(pathArg, modeArg);
+        return originalRenameSync(oldPath, newPath);
       });
 
       expect(() =>
@@ -175,6 +176,90 @@ describe('FileStorageService', () => {
 
       const contentOnDisk = JSON.parse(fs.readFileSync(filePath, 'utf8'));
       expect(contentOnDisk.value).toBe('old-secret');
+    });
+
+    it('tolerates filesystems without POSIX permission support in ensureDirectory', () => {
+      // POSIX-only: Windows ACLs do not map to fs.stat modes
+      if (process.platform === 'win32') return;
+      const customDir = path.join(tmpdir(), `custom-perm-degrade-${Date.now()}`);
+      const sessionsPath = path.join(customDir, 'sessions');
+
+      const originalChmodSync = fs.chmodSync;
+      vi.spyOn(fs, 'chmodSync').mockImplementation((pathArg, modeArg) => {
+        if (pathArg === sessionsPath) {
+          throw Object.assign(new Error('ENOTSUP: operation not supported on socket'), { code: 'ENOTSUP' });
+        }
+        return originalChmodSync(pathArg, modeArg);
+      });
+
+      const customService = new FileStorageService(customDir);
+      expect(customService.getStorageDir()).toBe(sessionsPath);
+      customService.shutdown();
+      fs.rmSync(customDir, { recursive: true, force: true });
+    });
+
+    it('fails closed when existing migration flag hardening encounters capability error', () => {
+      // POSIX-only: Windows ACLs do not map to fs.stat modes
+      if (process.platform === 'win32') return;
+      const customDir = path.join(tmpdir(), `custom-flag-enotsup-test-${Date.now()}`);
+      const sessionsPath = path.join(customDir, 'sessions');
+      fs.mkdirSync(sessionsPath, { recursive: true, mode: 0o700 });
+      const flagPath = path.join(sessionsPath, '.migrated-to-server');
+      fs.writeFileSync(flagPath, JSON.stringify({ migrated: true }), { mode: 0o644 });
+
+      const originalChmodSync = fs.chmodSync;
+      vi.spyOn(fs, 'chmodSync').mockImplementation((pathArg, modeArg) => {
+        if (pathArg === flagPath) {
+          throw Object.assign(new Error('ENOTSUP: operation not supported on socket'), { code: 'ENOTSUP' });
+        }
+        return originalChmodSync(pathArg, modeArg);
+      });
+
+      expect(() => new FileStorageService(customDir, 'server')).toThrow(/ENOTSUP/);
+      fs.rmSync(customDir, { recursive: true, force: true });
+    });
+
+    it('fails closed when existing migration flag hardening fails with permission error', () => {
+      // POSIX-only: Windows ACLs do not map to fs.stat modes
+      if (process.platform === 'win32') return;
+      const customDir = path.join(tmpdir(), `custom-flag-fail-test-${Date.now()}`);
+      const sessionsPath = path.join(customDir, 'sessions');
+      fs.mkdirSync(sessionsPath, { recursive: true, mode: 0o700 });
+      const flagPath = path.join(sessionsPath, '.migrated-to-server');
+      fs.writeFileSync(flagPath, JSON.stringify({ migrated: true }), { mode: 0o644 });
+
+      const originalChmodSync = fs.chmodSync;
+      vi.spyOn(fs, 'chmodSync').mockImplementation((pathArg, modeArg) => {
+        if (pathArg === flagPath) {
+          throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+        }
+        return originalChmodSync(pathArg, modeArg);
+      });
+
+      expect(() => new FileStorageService(customDir, 'server')).toThrow(/EACCES/);
+      fs.rmSync(customDir, { recursive: true, force: true });
+    });
+
+    it('does not unlink pre-existing file if openSync fails with EEXIST', () => {
+      const originalOpenSync = fs.openSync;
+      let capturedTempPath: string | undefined;
+
+      vi.spyOn(fs, 'openSync').mockImplementation((targetPath, flags, mode) => {
+        if (typeof targetPath === 'string' && targetPath.endsWith('.tmp')) {
+          capturedTempPath = targetPath;
+          fs.writeFileSync(targetPath, 'important pre-existing data');
+          throw Object.assign(new Error('EEXIST: file already exists'), { code: 'EEXIST' });
+        }
+        return originalOpenSync(targetPath, flags, mode);
+      });
+
+      expect(() => service.writeData(testPrefix, testId, testData)).toThrow(/EEXIST/);
+      expect(capturedTempPath).toBeDefined();
+      expect(fs.existsSync(capturedTempPath!)).toBe(true);
+      expect(fs.readFileSync(capturedTempPath!, 'utf8')).toBe('important pre-existing data');
+      if (capturedTempPath && fs.existsSync(capturedTempPath)) {
+        fs.unlinkSync(capturedTempPath);
+      }
     });
 
     it('hardens legacy data files to 0600 during migration', () => {
@@ -229,14 +314,16 @@ describe('FileStorageService', () => {
     it('preserves the previous record when a replacement write fails after truncation', () => {
       service.writeData(testPrefix, testId, testData);
       const targetPath = service.getFilePath(testPrefix, testId);
-      const originalWriteFileSync = fs.writeFileSync;
-      vi.spyOn(fs, 'writeFileSync').mockImplementation((file, data, options) => {
-        originalWriteFileSync(file, '', options);
-        throw new Error(`simulated crash while writing ${String(file)}`);
+      const originalRenameSync = fs.renameSync;
+      vi.spyOn(fs, 'renameSync').mockImplementation((oldPath, newPath) => {
+        if (newPath === targetPath) {
+          throw new Error(`simulated crash while renaming ${String(newPath)}`);
+        }
+        return originalRenameSync(oldPath, newPath);
       });
 
       expect(() =>
-        service.writeDataDurable(testPrefix, testId, {
+        service.writeData(testPrefix, testId, {
           ...testData,
           value: 'replacement value',
         }),
@@ -617,6 +704,59 @@ describe('FileStorageService', () => {
 
       noSubdirService.shutdown();
       fs.rmSync(baseDir, { recursive: true, force: true });
+    });
+  });
+
+  describe('CWE-532 log redaction — isValidId internal path', () => {
+    it('redacts sensitive ID in thrown Error message when extractUuidPart encounters a mismatched prefix', () => {
+      const sensitiveId = `${AUTH_CONFIG.SERVER.AUTH_CODE.ID_PREFIX}sensitive-secret-token-value`;
+      const wrongPrefix = AUTH_CONFIG.SERVER.SESSION.ID_PREFIX;
+
+      // Exercise the real, unmocked extractUuidPart implementation
+      const extractFn = (
+        service as unknown as { extractUuidPart: (id: string, prefix: string) => string }
+      ).extractUuidPart.bind(service);
+
+      expect(() => extractFn(sensitiveId, wrongPrefix)).toThrow();
+      try {
+        extractFn(sensitiveId, wrongPrefix);
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        expect(errMsg).toContain('[REDACTED]');
+        expect(errMsg).not.toContain('sensitive-secret-token-value');
+        expect(errMsg).not.toContain(sensitiveId);
+      }
+    });
+
+    it('does not log plaintext auth-code ID or error metadata when isValidId encounters an extractUuidPart failure', () => {
+      vi.mocked(logger.debug).mockClear();
+
+      const sensitiveId = `${AUTH_CONFIG.SERVER.AUTH_CODE.ID_PREFIX}sensitive-secret-token-value`;
+      const extractSpy = vi
+        .spyOn(service as unknown as { extractUuidPart: (id: string, prefix: string) => string }, 'extractUuidPart')
+        .mockImplementationOnce(() => {
+          throw new Error(`malformed UUID with sensitive payload: ${sensitiveId}`);
+        });
+
+      const result = service.readData(AUTH_CONFIG.SERVER.AUTH_CODE.FILE_PREFIX, sensitiveId);
+      expect(result).toBeNull();
+      extractSpy.mockRestore();
+
+      expect(vi.mocked(logger.debug)).toHaveBeenCalled();
+      const calls = vi.mocked(logger.debug).mock.calls as unknown as Array<[unknown, unknown?]>;
+      for (const [message, meta] of calls) {
+        const messageStr = String(message);
+        expect(messageStr).toContain('[REDACTED]');
+        expect(messageStr).not.toContain('sensitive-secret-token-value');
+        expect(messageStr).not.toContain(sensitiveId);
+
+        if (meta && typeof meta === 'object' && 'error' in meta) {
+          const errorValue = String((meta as { error: unknown }).error);
+          expect(errorValue).toContain('[REDACTED]');
+          expect(errorValue).not.toContain('sensitive-secret-token-value');
+          expect(errorValue).not.toContain(sensitiveId);
+        }
+      }
     });
   });
 });
