@@ -71,7 +71,7 @@
     "check:sdk-boundary": "node scripts/check-sdk-boundary.mjs",
     "check:sdk-topology": "node scripts/check-sdk-topology.mjs",
     "test:sdk-boundary": "node --test test/sdk-boundary/*.test.mjs",
-    "ci:static": "concurrently --kill-others-on-fail --names lint,typecheck,build,sdk-boundary,sdk-topology,sdk-policy-tests \"pnpm lint\" \"pnpm typecheck\" \"pnpm build\" \"pnpm check:sdk-boundary\" \"pnpm check:sdk-topology\" \"pnpm test:sdk-boundary\"",
+    "ci:static": "concurrently --kill-others-on-fail --names lint,typecheck,build,sdk-boundary,sdk-topology,sdk-policy-tests \"pnpm lint\" \"pnpm typecheck\" \"pnpm build\" \"pnpm check:sdk-boundary\" \"pnpm check:sdk-topology\" \"node --test test/sdk-boundary/*.test.mjs\"",
     "typecheck": "tsc --noEmit --project tsconfig.test.json",
     "test": "pnpm test:unit && pnpm test:admin",
     "test:unit": "vitest run",
