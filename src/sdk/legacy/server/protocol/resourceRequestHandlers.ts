@@ -15,12 +15,10 @@ import { InboundConnection } from '@src/core/types/index.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
 import {
-  getLegacyClient,
-  getLegacyTransport,
+  requestLegacyOutbound,
   type LegacyOutboundConnections,
 } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import { buildUri, parseUri } from '@src/utils/core/parsing.js';
-import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
 
 import {
   createProtocolCapabilityCatalog,
@@ -45,9 +43,10 @@ export function registerResourceHandlers(
         visibility,
         cursor: request.params?.cursor,
         list: async (outboundConn, cursor, serverName) => {
-          const upstream = await getLegacyClient(outboundConn).listResources(
-            { cursor },
-            { timeout: getRequestTimeout(getLegacyTransport(outboundConn)) },
+          const upstream = await requestLegacyOutbound<{ resources: Resource[]; nextCursor?: string }>(
+            outboundConn,
+            'resources/list',
+            cursor === undefined ? undefined : { cursor },
           );
           return {
             items: (upstream.resources ?? []).map((resource) => ({
@@ -77,10 +76,10 @@ export function registerResourceHandlers(
         visibility,
         cursor: request.params?.cursor,
         list: async (outboundConn, cursor, serverName) => {
-          const upstream = await getLegacyClient(outboundConn).listResourceTemplates(
-            { cursor },
-            { timeout: getRequestTimeout(getLegacyTransport(outboundConn)) },
-          );
+          const upstream = await requestLegacyOutbound<{
+            resourceTemplates: ResourceTemplate[];
+            nextCursor?: string;
+          }>(outboundConn, 'resources/templates/list', cursor === undefined ? undefined : { cursor });
           return {
             items: (upstream.resourceTemplates ?? []).map((template) => ({
               ...template,
@@ -108,12 +107,7 @@ export function registerResourceHandlers(
       if (!outboundConn) {
         throw new Error(`Unknown client: ${clientName}`);
       }
-      return getLegacyClient(outboundConn).subscribeResource(
-        { ...request.params, uri: resourceName },
-        {
-          timeout: getRequestTimeout(getLegacyTransport(outboundConn)),
-        },
-      );
+      return requestLegacyOutbound(outboundConn, 'resources/subscribe', { ...request.params, uri: resourceName });
     }, 'Error subscribing to resource'),
   );
 
@@ -125,12 +119,7 @@ export function registerResourceHandlers(
       if (!outboundConn) {
         throw new Error(`Unknown client: ${clientName}`);
       }
-      return getLegacyClient(outboundConn).unsubscribeResource(
-        { ...request.params, uri: resourceName },
-        {
-          timeout: getRequestTimeout(getLegacyTransport(outboundConn)),
-        },
-      );
+      return requestLegacyOutbound(outboundConn, 'resources/unsubscribe', { ...request.params, uri: resourceName });
     }, 'Error unsubscribing from resource'),
   );
 
@@ -142,11 +131,10 @@ export function registerResourceHandlers(
       if (!outboundConn) {
         throw new Error(`Unknown client: ${clientName}`);
       }
-      const resource = await getLegacyClient(outboundConn).readResource(
+      const resource = await requestLegacyOutbound<{ contents: Array<Record<string, unknown>> }>(
+        outboundConn,
+        'resources/read',
         { ...request.params, uri: resourceName },
-        {
-          timeout: getRequestTimeout(getLegacyTransport(outboundConn)),
-        },
       );
 
       return {

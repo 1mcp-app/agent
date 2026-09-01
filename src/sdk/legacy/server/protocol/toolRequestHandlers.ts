@@ -1,6 +1,5 @@
 import {
   CallToolRequestSchema,
-  CallToolResultSchema,
   ListToolsRequest,
   ListToolsRequestSchema,
   type Tool,
@@ -23,12 +22,10 @@ import logger, { infoIf } from '@src/logger/logger.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
 import {
-  getLegacyClient,
-  getLegacyTransport,
+  requestLegacyOutbound,
   type LegacyOutboundConnections,
 } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import { buildUri, parseUri } from '@src/utils/core/parsing.js';
-import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
 
 import {
   createProtocolCapabilityCatalog,
@@ -116,9 +113,10 @@ export function registerToolHandlers(
         visibility,
         cursor: request.params?.cursor,
         list: async (outboundConn, cursor) => {
-          const upstream = await getLegacyClient(outboundConn).listTools(
-            { cursor },
-            { timeout: getRequestTimeout(getLegacyTransport(outboundConn)) },
+          const upstream = await requestLegacyOutbound<{ tools: Tool[]; nextCursor?: string }>(
+            outboundConn,
+            'tools/list',
+            cursor === undefined ? undefined : { cursor },
           );
           publishConfiguredToolPage(outboundConn, upstream.tools ?? [], cursor, upstream.nextCursor);
           if (upstream.nextCursor === undefined) {
@@ -215,9 +213,7 @@ export function registerToolHandlers(
         });
       }
       return executeWithPostAuthOAuthRecovery(clientName, outboundConn, () =>
-        getLegacyClient(outboundConn).callTool({ ...request.params, name: extractedToolName }, CallToolResultSchema, {
-          timeout: getRequestTimeout(getLegacyTransport(outboundConn)),
-        }),
+        requestLegacyOutbound(outboundConn, 'tools/call', { ...request.params, name: extractedToolName }),
       );
     }, 'Error calling tool'),
   );

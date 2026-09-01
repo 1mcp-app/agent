@@ -12,12 +12,10 @@ import { InboundConnection } from '@src/core/types/index.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
 import {
-  getLegacyClient,
-  getLegacyTransport,
+  requestLegacyOutbound,
   type LegacyOutboundConnections,
 } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import { buildUri, parseUri } from '@src/utils/core/parsing.js';
-import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
 
 import {
   createProtocolCapabilityCatalog,
@@ -39,9 +37,10 @@ export function registerPromptHandlers(outboundConns: LegacyOutboundConnections,
         visibility,
         cursor: request.params?.cursor,
         list: async (outboundConn, cursor, serverName) => {
-          const upstream = await getLegacyClient(outboundConn).listPrompts(
-            { cursor },
-            { timeout: getRequestTimeout(getLegacyTransport(outboundConn)) },
+          const upstream = await requestLegacyOutbound<{ prompts: Prompt[]; nextCursor?: string }>(
+            outboundConn,
+            'prompts/list',
+            cursor === undefined ? undefined : { cursor },
           );
           return {
             items: (upstream.prompts ?? []).map((prompt) => ({
@@ -70,12 +69,7 @@ export function registerPromptHandlers(outboundConns: LegacyOutboundConnections,
       if (!outboundConn) {
         throw new Error(`Unknown client: ${clientName}`);
       }
-      return getLegacyClient(outboundConn).getPrompt(
-        { ...request.params, name: promptName },
-        {
-          timeout: getRequestTimeout(getLegacyTransport(outboundConn)),
-        },
-      );
+      return requestLegacyOutbound(outboundConn, 'prompts/get', { ...request.params, name: promptName });
     }, 'Error getting prompt'),
   );
 }
@@ -109,12 +103,7 @@ export function registerCompletionHandlers(
       if (!outboundConn) {
         throw new Error(`Unknown client: ${clientName}`);
       }
-      return getLegacyClient(outboundConn).complete(
-        { ...request.params, ref: updatedRef },
-        {
-          timeout: getRequestTimeout(getLegacyTransport(outboundConn)),
-        },
-      );
+      return requestLegacyOutbound(outboundConn, 'completion/complete', { ...request.params, ref: updatedRef });
     }, 'Error handling completion'),
   );
 }

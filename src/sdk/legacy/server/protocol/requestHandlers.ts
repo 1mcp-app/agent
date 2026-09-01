@@ -19,6 +19,7 @@ import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInb
 import {
   getLegacyClient,
   getLegacyTransport,
+  requestLegacyOutbound,
   type LegacyOutboundConnections,
 } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 
@@ -132,9 +133,9 @@ export function registerRequestHandlers(
     withErrorHandling(async () => {
       // Health check all connected upstream clients
       const healthCheckPromises = Array.from(outboundConns.entries()).map(async ([clientName, outboundConn]) => {
-        if (outboundConn.status === ClientStatus.Connected && getLegacyClient(outboundConn).transport) {
+        if (outboundConn.status === ClientStatus.Connected) {
           try {
-            await getLegacyClient(outboundConn).ping();
+            await requestLegacyOutbound(outboundConn, 'ping');
             logger.info(`Health check successful for client: ${clientName}`);
           } catch (error) {
             logger.warn(`Health check failed for client ${clientName}: ${error}`);

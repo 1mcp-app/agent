@@ -7,6 +7,12 @@ import {
   type OutboundConnection,
   type OutboundConnections,
 } from '@src/core/types/index.js';
+import {
+  createLegacyOutboundConnection,
+  getLegacyTransport,
+  requestLegacyOutbound,
+  setLegacyTransport,
+} from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -113,7 +119,24 @@ describe('Request Handlers', () => {
       subscribeResource: vi.fn(),
       unsubscribeResource: vi.fn(),
       setRequestHandler: vi.fn(),
+      setNotificationHandler: vi.fn(),
     };
+    mockClient1.request = vi.fn(({ method, params }) => {
+      const operations: Record<string, (...args: any[]) => unknown> = {
+        'tools/list': mockClient1.listTools,
+        'tools/call': mockClient1.callTool,
+        'resources/list': mockClient1.listResources,
+        'resources/templates/list': mockClient1.listResourceTemplates,
+        'resources/read': mockClient1.readResource,
+        'resources/subscribe': mockClient1.subscribeResource,
+        'resources/unsubscribe': mockClient1.unsubscribeResource,
+        'prompts/list': mockClient1.listPrompts,
+        'prompts/get': mockClient1.getPrompt,
+        'completion/complete': mockClient1.complete,
+        ping: mockClient1.ping,
+      };
+      return operations[method]?.(params);
+    });
 
     mockClient2 = {
       ping: vi.fn(),
@@ -128,7 +151,24 @@ describe('Request Handlers', () => {
       subscribeResource: vi.fn(),
       unsubscribeResource: vi.fn(),
       setRequestHandler: vi.fn(),
+      setNotificationHandler: vi.fn(),
     };
+    mockClient2.request = vi.fn(({ method, params }) => {
+      const operations: Record<string, (...args: any[]) => unknown> = {
+        'tools/list': mockClient2.listTools,
+        'tools/call': mockClient2.callTool,
+        'resources/list': mockClient2.listResources,
+        'resources/templates/list': mockClient2.listResourceTemplates,
+        'resources/read': mockClient2.readResource,
+        'resources/subscribe': mockClient2.subscribeResource,
+        'resources/unsubscribe': mockClient2.unsubscribeResource,
+        'prompts/list': mockClient2.listPrompts,
+        'prompts/get': mockClient2.getPrompt,
+        'completion/complete': mockClient2.complete,
+        ping: mockClient2.ping,
+      };
+      return operations[method]?.(params);
+    });
 
     // Create mock server
     mockServer = {
@@ -141,7 +181,7 @@ describe('Request Handlers', () => {
 
     // Create mock clients collection
     mockOutboundConns = new Map();
-    mockOutboundConns.set('client1', {
+    mockOutboundConns.set('client1', createLegacyOutboundConnection({
       name: 'client1',
       status: ClientStatus.Connected,
       client: mockClient1,
@@ -150,10 +190,10 @@ describe('Request Handlers', () => {
         start: vi.fn(),
         send: vi.fn(),
         close: vi.fn(),
-      },
-    } as OutboundConnection);
+      } as any,
+    }));
 
-    mockOutboundConns.set('client2', {
+    mockOutboundConns.set('client2', createLegacyOutboundConnection({
       name: 'client2',
       status: ClientStatus.Connected,
       client: mockClient2,
@@ -162,8 +202,8 @@ describe('Request Handlers', () => {
         start: vi.fn(),
         send: vi.fn(),
         close: vi.fn(),
-      },
-    } as OutboundConnection);
+      } as any,
+    }));
 
     // Create mock server info
     mockInboundConn = {
@@ -216,7 +256,7 @@ describe('Request Handlers', () => {
       mockClient1.close = vi.fn().mockResolvedValue(undefined);
       mockClient1.transport = transport;
       const connection = mockOutboundConns.get('client1')!;
-      connection.transport = transport;
+      setLegacyTransport(connection, transport);
       mockParseUri.mockReturnValue({ clientName: 'client1', resourceName: 'tool' });
 
       registerRequestHandlers(mockOutboundConns, mockInboundConn);
@@ -224,11 +264,15 @@ describe('Request Handlers', () => {
         ([schema]: [unknown]) => schema === CallToolRequestSchema,
       )?.[1];
 
-      await expect(handler({ params: { name: 'client1_tool', arguments: {} } })).rejects.toBe(unauthorized);
+      await expect(handler({ params: { name: 'client1_tool', arguments: {} } })).rejects.toMatchObject({
+        name: 'OneMcpProtocolError',
+        code: 401,
+        message: unauthorized.message,
+      });
       expect(connection.status).toBe(ClientStatus.AwaitingOAuth);
       expect(oauthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
       expect(mockClient1.close).toHaveBeenCalledOnce();
-      expect(connection.transport).not.toBe(transport);
+      expect(getLegacyTransport(connection)).not.toBe(transport);
     });
 
     it('should handle clients with different statuses', () => {
@@ -285,7 +329,7 @@ describe('Request Handlers', () => {
         const healthCheckPromises = Array.from(clients.entries()).map(async ([_clientName, clientInfo]) => {
           if (clientInfo.status === ClientStatus.Connected) {
             try {
-              await clientInfo.client.ping();
+              await requestLegacyOutbound(clientInfo, 'ping');
             } catch (_error) {
               // Silent failure - just log internally without console output
             }
@@ -368,46 +412,32 @@ describe('Request Handlers', () => {
 
     it('should handle clients with different statuses', async () => {
       const mixedClients: OutboundConnections = new Map();
-      mixedClients.set('connected', {
-        name: 'connected',
-        status: ClientStatus.Connected,
-        client: { ping: vi.fn().mockResolvedValue({}) },
-        transport: {
-          timeout: 5000,
-          start: vi.fn(),
-          send: vi.fn(),
-          close: vi.fn(),
-        },
-      } as unknown as OutboundConnection);
-      mixedClients.set('disconnected', {
-        name: 'disconnected',
-        status: ClientStatus.Disconnected,
-        client: { ping: vi.fn() },
-        transport: {
-          timeout: 5000,
-          start: vi.fn(),
-          send: vi.fn(),
-          close: vi.fn(),
-        },
-      } as unknown as OutboundConnection);
-      mixedClients.set('error', {
-        name: 'error',
-        status: ClientStatus.Error,
-        client: { ping: vi.fn() },
-        transport: {
-          timeout: 5000,
-          start: vi.fn(),
-          send: vi.fn(),
-          close: vi.fn(),
-        },
-      } as unknown as OutboundConnection);
+      const connectedPing = vi.fn().mockResolvedValue({});
+      const disconnectedPing = vi.fn();
+      const errorPing = vi.fn();
+      const createPingConnection = (name: string, status: ClientStatus, ping: ReturnType<typeof vi.fn>) => {
+        const client = {
+          ping,
+          request: vi.fn(({ method }) => (method === 'ping' ? ping() : undefined)),
+          setNotificationHandler: vi.fn(),
+        };
+        return createLegacyOutboundConnection({
+          name,
+          status,
+          client: client as any,
+          transport: { timeout: 5000, close: vi.fn() } as any,
+        });
+      };
+      mixedClients.set('connected', createPingConnection('connected', ClientStatus.Connected, connectedPing));
+      mixedClients.set('disconnected', createPingConnection('disconnected', ClientStatus.Disconnected, disconnectedPing));
+      mixedClients.set('error', createPingConnection('error', ClientStatus.Error, errorPing));
 
       const pingHandler = createPingHandler(mixedClients);
       await pingHandler();
 
-      expect(mixedClients.get('connected')!.client.ping).toHaveBeenCalledTimes(1);
-      expect(mixedClients.get('disconnected')!.client.ping).not.toHaveBeenCalled();
-      expect(mixedClients.get('error')!.client.ping).not.toHaveBeenCalled();
+      expect(connectedPing).toHaveBeenCalledTimes(1);
+      expect(disconnectedPing).not.toHaveBeenCalled();
+      expect(errorPing).not.toHaveBeenCalled();
     });
   });
 

@@ -1,6 +1,7 @@
 import type { Client } from '@src/sdk/legacy/client/index.js';
 
 import type { BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
+import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import type { ClientStatus, OutboundConnection, OutboundErrorSnapshot } from '@src/core/types/client.js';
 import { type JsonObject, toJsonValue } from '@src/sdk/contracts/index.js';
 
@@ -100,4 +101,18 @@ export function setLegacyTransport(
   connection.tags = [...(transport.tags ?? [])];
   connection.requestTimeoutMs = transport.requestTimeout ?? transport.timeout;
   connection.requiresOAuth = Boolean(transport.oauthProvider);
+}
+
+export function requestLegacyOutbound<T>(
+  connection: LegacyOutboundConnection,
+  method: string,
+  params?: unknown,
+): Promise<T> {
+  const transport = getLegacyTransport(connection);
+  return requestLegacyAdapter<T>(
+    connection.adapter,
+    method,
+    params === undefined ? undefined : toJsonValue(params),
+    { timeoutMs: connection.requestTimeoutMs ?? transport.requestTimeout ?? transport.timeout },
+  );
 }
