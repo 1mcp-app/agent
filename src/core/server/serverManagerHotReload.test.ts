@@ -1,6 +1,9 @@
+import { createMockInboundConnection } from '@test/unit-utils/MockFactories.js';
+
 import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
-import { AuthProviderTransport, ClientStatus, MCPServerParams } from '@src/core/types/index.js';
+import { ClientStatus, MCPServerParams } from '@src/core/types/index.js';
+import type { AuthProviderTransport } from '@src/sdk/legacy/client/runtime/legacyTransport.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -340,13 +343,16 @@ describe('ServerManager hot-reload lifecycle facade', () => {
   it('recreates only affected template instances for connected sessions after Runtime Scope env changes', async () => {
     const context = { sessionId: 'session-1', project: { path: '/project' } };
     const notification = vi.fn().mockResolvedValue(undefined);
-    const inbound = { context, tags: ['runtime'], server: { transport: {}, notification } };
+    const inbound = createMockInboundConnection({ context, tags: ['runtime'], adapter: { notify: notification } });
     mockState.inboundConnections.set('session-1', inbound);
-    mockState.inboundConnections.set('session-2', {
-      context: { sessionId: 'session-2', project: { path: '/literal' } },
-      tags: ['runtime'],
-      server: { transport: {}, notification: vi.fn() },
-    });
+    mockState.inboundConnections.set(
+      'session-2',
+      createMockInboundConnection({
+        context: { sessionId: 'session-2', project: { path: '/literal' } },
+        tags: ['runtime'],
+        adapter: { notify: vi.fn() },
+      }),
+    );
     mockState.retireTemplatesForRuntimeEnvironment.mockResolvedValueOnce([
       { sessionId: 'session-1', templateName: 'affected', lifecycle: 'ephemeral' },
     ]);

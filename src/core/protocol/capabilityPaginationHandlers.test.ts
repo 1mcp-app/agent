@@ -1,4 +1,8 @@
-import { createMockClient, createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+import {
+  createMockClient,
+  createMockLegacyOutboundConnection,
+  createMockTransport,
+} from '@test/unit-utils/MockFactories.js';
 
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import {
@@ -61,14 +65,14 @@ describe('capability pagination protocol handlers', () => {
     mockGetTransportConfig.mockReturnValue({});
   });
 
-  function connection(name: string, client: Partial<Client>): OutboundConnection {
-    const outbound = createMockOutboundConnection({
+  function connection(name: string, client: Partial<Client>, tags: string[] = []): OutboundConnection {
+    const outbound = createMockLegacyOutboundConnection({
       name,
       status: ClientStatus.Connected,
       capabilities: { resources: {}, prompts: {}, tools: {} },
       client: createMockClient(client) as Client,
+      transport: { ...createMockTransport(), timeout: 5000, tags },
     });
-    outbound.transport.timeout = 5000;
     return outbound;
   }
 
@@ -524,9 +528,7 @@ describe('capability pagination protocol handlers', () => {
       resources: [{ uri: 'alpha-1', name: 'alpha-1' }],
       nextCursor: 'alpha-next',
     });
-    const connections = new Map([
-      ['alpha', { ...connection('alpha', { listResources }), transport: { timeout: 5000, tags: ['safe'] } }],
-    ]) as OutboundConnections;
+    const connections = new Map([['alpha', connection('alpha', { listResources }, ['safe'])]]) as OutboundConnections;
     const inbound = {
       enablePagination: true,
       tagFilterMode: 'simple-or',

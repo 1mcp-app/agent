@@ -4,6 +4,7 @@ import { ClientManager } from '@src/core/client/clientManager.js';
 import { ClientInstancePool } from '@src/core/server/clientInstancePool.js';
 import { ClientStatus } from '@src/core/types/client.js';
 import type { MCPServerParams } from '@src/core/types/transport.js';
+import { getLegacyClient, getLegacyTransport } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import { createTransports } from '@src/transport/transportFactory.js';
 import type { ContextData } from '@src/types/context.js';
 
@@ -45,7 +46,7 @@ describe('backend stdio supervision with real child processes', () => {
     const transports = createTransports({ worker: supervisedConfig() });
     await manager.createClients(transports);
     const initial = manager.getClient('worker');
-    const initialPid = pidOf(initial.transport);
+    const initialPid = pidOf(getLegacyTransport(initial));
 
     process.kill(initialPid, 'SIGTERM');
 
@@ -53,11 +54,11 @@ describe('backend stdio supervision with real child processes', () => {
       () => {
         const replacement = manager.getClient('worker');
         expect(replacement.status).toBe(ClientStatus.Connected);
-        expect(pidOf(replacement.transport)).not.toBe(initialPid);
+        expect(pidOf(getLegacyTransport(replacement))).not.toBe(initialPid);
       },
       { timeout: 5_000, interval: 20 },
     );
-    const tools = await manager.getClient('worker').client.listTools();
+    const tools = await getLegacyClient(manager.getClient('worker')).listTools();
     expect(tools.tools.map((tool) => tool.name)).toContain('echo_args');
   });
 

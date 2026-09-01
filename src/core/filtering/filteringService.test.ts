@@ -1,5 +1,7 @@
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
 import { ClientStatus } from '@src/core/types/client.js';
-import type { InboundConnectionConfig, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
+import type { InboundConnectionConfig, OutboundConnections } from '@src/core/types/index.js';
 import { TagExpression } from '@src/domains/preset/parsers/tagQueryParser.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -24,43 +26,43 @@ describe('FilteringService', () => {
     mockConnections = new Map([
       [
         'web-server',
-        {
+        createMockOutboundConnection({
           name: 'web-server',
-          transport: { tags: ['web', 'frontend'], timeout: 5000 },
-          client: {} as any,
+          tags: ['web', 'frontend'],
+          requestTimeoutMs: 5000,
           status: ClientStatus.Connected,
           capabilities: { resources: {} },
-        } as OutboundConnection,
+        }),
       ],
       [
         'database-server',
-        {
+        createMockOutboundConnection({
           name: 'database-server',
-          transport: { tags: ['database', 'backend'], timeout: 5000 },
-          client: {} as any,
+          tags: ['database', 'backend'],
+          requestTimeoutMs: 5000,
           status: ClientStatus.Connected,
           capabilities: { tools: {} },
-        } as OutboundConnection,
+        }),
       ],
       [
         'api-server',
-        {
+        createMockOutboundConnection({
           name: 'api-server',
-          transport: { tags: ['api', 'backend'], timeout: 5000 },
-          client: {} as any,
+          tags: ['api', 'backend'],
+          requestTimeoutMs: 5000,
           status: ClientStatus.Connected,
           capabilities: { prompts: {} },
-        } as OutboundConnection,
+        }),
       ],
       [
         'disconnected-server',
-        {
+        createMockOutboundConnection({
           name: 'disconnected-server',
-          transport: { tags: ['disconnected'], timeout: 5000 },
-          client: {} as any,
+          tags: ['disconnected'],
+          requestTimeoutMs: 5000,
           status: ClientStatus.Disconnected,
           capabilities: {},
-        } as OutboundConnection,
+        }),
       ],
     ]);
   });

@@ -1,3 +1,5 @@
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
@@ -52,17 +54,14 @@ describe('MetaToolProvider', () => {
     outboundConnections = new Map([
       [
         'filesystem',
-        {
+        createMockOutboundConnection({
           name: 'filesystem',
-          client: mockClient,
           status: ClientStatus.Connected,
-          transport: {
-            tags: ['fs', 'file'],
-          },
-          lastConnected: new Date(),
-        },
+          tags: ['fs', 'file'],
+          adapter: { request: vi.fn(async ({ params }) => mockClient.callTool(params)) },
+        }),
       ],
-    ]) as OutboundConnections;
+    ]);
 
     provider = new MetaToolProvider(() => toolRegistry, schemaCache, outboundConnections);
   });
@@ -440,19 +439,12 @@ describe('MetaToolProvider', () => {
       const disconnectedConnections = new Map([
         [
           'filesystem',
-          {
+          createMockOutboundConnection({
             name: 'filesystem',
-            client: null,
             status: ClientStatus.Disconnected,
-            transport: {
-              tags: [],
-              start: async () => {},
-              send: async () => ({}),
-              close: async () => {},
-            },
-          },
+          }),
         ],
-      ]) as any as OutboundConnections;
+      ]);
 
       const disconnectedProvider = new MetaToolProvider(() => toolRegistry, schemaCache, disconnectedConnections);
 
@@ -646,33 +638,19 @@ describe('MetaToolProvider', () => {
       const sessionScopedConnections = new Map<string, any>([
         [
           'filesystem:session-a',
-          {
+          createMockOutboundConnection({
             name: 'filesystem',
-            client: { callTool: vi.fn() },
             status: ClientStatus.Connected,
-            transport: {
-              tags: ['fs'],
-              start: vi.fn(),
-              send: vi.fn(),
-              close: vi.fn(),
-            } as any,
-            lastConnected: new Date(),
-          },
+            tags: ['fs'],
+          }),
         ],
         [
           'filesystem:session-b',
-          {
+          createMockOutboundConnection({
             name: 'filesystem',
-            client: { callTool: vi.fn() },
             status: ClientStatus.Connected,
-            transport: {
-              tags: ['fs'],
-              start: vi.fn(),
-              send: vi.fn(),
-              close: vi.fn(),
-            } as any,
-            lastConnected: new Date(),
-          },
+            tags: ['fs'],
+          }),
         ],
       ]) as OutboundConnections;
 
@@ -898,40 +876,29 @@ describe('MetaToolProvider', () => {
       multiServerConnections = new Map([
         [
           'filesystem',
-          {
+          createMockOutboundConnection({
             name: 'filesystem',
-            client: { callTool: vi.fn() } as any,
             status: ClientStatus.Connected,
-            transport: {
-              tags: ['fs', 'file'],
-              start: vi.fn(),
-              send: vi.fn(),
-              close: vi.fn(),
-            } as any,
-            lastConnected: new Date(),
-          },
+            tags: ['fs', 'file'],
+          }),
         ],
         [
           'search',
-          {
+          createMockOutboundConnection({
             name: 'search',
-            client: { callTool: vi.fn() },
             status: ClientStatus.Connected,
-            transport: { tags: ['search', 'text'] },
-            lastConnected: new Date(),
-          },
+            tags: ['search', 'text'],
+          }),
         ],
         [
           'database',
-          {
+          createMockOutboundConnection({
             name: 'database',
-            client: { callTool: vi.fn() },
             status: ClientStatus.Connected,
-            transport: { tags: ['db', 'sql'] },
-            lastConnected: new Date(),
-          },
+            tags: ['db', 'sql'],
+          }),
         ],
-      ]) as OutboundConnections;
+      ]);
 
       multiServerProvider = new MetaToolProvider(() => multiServerRegistry, schemaCache, multiServerConnections);
     });
@@ -1068,15 +1035,15 @@ describe('MetaToolProvider', () => {
       // Set Server Candidate Set to only search
       multiServerProvider.setCapabilityVisibility(visibility('search'));
 
-      const searchClient = multiServerConnections.get('search')?.client;
-      const filesystemClient = multiServerConnections.get('filesystem')?.client;
+      const searchAdapter = multiServerConnections.get('search')?.adapter;
+      const filesystemAdapter = multiServerConnections.get('filesystem')?.adapter;
 
-      if (!searchClient || !filesystemClient) {
-        throw new Error('Clients not found');
+      if (!searchAdapter || !filesystemAdapter) {
+        throw new Error('Adapters not found');
       }
 
       // Mock successful response
-      (searchClient.callTool as any).mockResolvedValue({
+      vi.mocked(searchAdapter.request).mockResolvedValue({
         content: [{ type: 'text', text: 'Search results' }],
       });
 
@@ -1091,10 +1058,12 @@ describe('MetaToolProvider', () => {
       if ('result' in allowedResult && 'server' in allowedResult) {
         expect(allowedResult.server).toBe('search');
         expect(allowedResult.tool).toBe('search');
-        expect(searchClient.callTool).toHaveBeenCalledWith({
-          name: 'search',
-          arguments: { query: 'test' },
-        });
+        expect(searchAdapter.request).toHaveBeenCalledWith(
+          expect.objectContaining({
+            method: 'tools/call',
+            params: { name: 'search', arguments: { query: 'test' } },
+          }),
+        );
       } else {
         throw new Error('Expected CallToolResult');
       }
@@ -1115,7 +1084,7 @@ describe('MetaToolProvider', () => {
       }
 
       // Verify filesystem client was never called
-      expect(filesystemClient.callTool).not.toHaveBeenCalled();
+      expect(filesystemAdapter.request).not.toHaveBeenCalled();
     });
 
     it('should return not_found error for filtered servers', async () => {

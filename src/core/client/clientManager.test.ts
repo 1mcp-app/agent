@@ -1,3 +1,5 @@
+import { createMockLegacyOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -5,8 +7,10 @@ import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import { activateRuntimeScopeEnvironment } from '@src/config/runtimeScopeEnv.js';
 import { CONNECTION_RETRY, MCP_SERVER_NAME } from '@src/constants.js';
-import { AuthProviderTransport, ClientStatus } from '@src/core/types/index.js';
+import { ClientStatus } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
+import { getLegacyClient, getLegacyTransport } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
+import type { AuthProviderTransport } from '@src/sdk/legacy/client/runtime/legacyTransport.js';
 
 import { afterEach, beforeEach, describe, expect, it, MockInstance, vi } from 'vitest';
 
@@ -49,6 +53,12 @@ describe('ClientManager (Integration)', () => {
   let mockClient: Partial<Client>;
   let mockTransports: Record<string, Transport>;
 
+  const withLegacyNotifications = <T extends object>(client: T): T & Pick<Client, 'setNotificationHandler'> => {
+    const candidate = client as T & Partial<Pick<Client, 'setNotificationHandler'>>;
+    candidate.setNotificationHandler ??= vi.fn();
+    return candidate as T & Pick<Client, 'setNotificationHandler'>;
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
@@ -76,7 +86,7 @@ describe('ClientManager (Integration)', () => {
     };
 
     (Client as unknown as MockInstance).mockImplementation(function () {
-      return mockClient;
+      return withLegacyNotifications(mockClient);
     });
   });
 
@@ -331,7 +341,7 @@ describe('ClientManager (Integration)', () => {
 
       expect(connectWithRetry.mock.calls[1][1]).toBe(recreatedTransport);
       expect(clientManager.getTransport('http-server')).toBe(recreatedTransport);
-      expect(clientManager.getClient('http-server').transport).toBe(recreatedTransport);
+      expect(getLegacyTransport(clientManager.getClient('http-server'))).toBe(recreatedTransport);
     });
   });
 
@@ -364,7 +374,7 @@ describe('ClientManager (Integration)', () => {
       await clientManager.createSingleClient('session-loss-client', originalTransport);
       expect(clientManager.getTransport('session-loss-client')).toBe(originalTransport);
 
-      const registeredClient = clientManager.getClient('session-loss-client').client;
+      const registeredClient = getLegacyClient(clientManager.getClient('session-loss-client'));
       registeredClient.onerror?.(
         new Error(
           'Streamable HTTP error: Error POSTing to endpoint: ' +
@@ -400,7 +410,7 @@ describe('ClientManager (Integration)', () => {
       const recreateForSessionLoss = vi.spyOn((clientManager as any).transportRecreator, 'recreateForSessionLoss');
 
       await clientManager.createSingleClient('sse-session-loss-client', originalTransport);
-      const registeredClient = clientManager.getClient('sse-session-loss-client').client;
+      const registeredClient = getLegacyClient(clientManager.getClient('sse-session-loss-client'));
       registeredClient.onerror?.(new Error("Error POSTing to endpoint (HTTP 404): Could not find session ID 'abc'"));
 
       await vi.waitFor(() => {
@@ -431,7 +441,7 @@ describe('ClientManager (Integration)', () => {
       const recreateForSessionLoss = vi.spyOn((clientManager as any).transportRecreator, 'recreateForSessionLoss');
 
       await clientManager.createSingleClient('unrelated-error-client', originalTransport);
-      const registeredClient = clientManager.getClient('unrelated-error-client').client;
+      const registeredClient = getLegacyClient(clientManager.getClient('unrelated-error-client'));
       registeredClient.onerror?.(new Error('ECONNRESET'));
 
       await Promise.resolve();
@@ -459,7 +469,7 @@ describe('ClientManager (Integration)', () => {
       });
 
       await clientManager.createSingleClient('stdio-client', stdioTransport);
-      const registeredClient = clientManager.getClient('stdio-client').client;
+      const registeredClient = getLegacyClient(clientManager.getClient('stdio-client'));
 
       expect(() => registeredClient.onerror?.(new Error('Session not found'))).not.toThrow();
 
@@ -494,7 +504,7 @@ describe('ClientManager (Integration)', () => {
         .mockReturnValue(freshTransport);
 
       await clientManager.createSingleClient('dup-session-loss-client', originalTransport);
-      const registeredClient = clientManager.getClient('dup-session-loss-client').client;
+      const registeredClient = getLegacyClient(clientManager.getClient('dup-session-loss-client'));
 
       // Hold the recovery connection attempt open so a second onerror firing
       // for the same dead client lands while the first recovery is in flight.
@@ -546,22 +556,22 @@ describe('ClientManager (Integration)', () => {
       };
       (Client as unknown as MockInstance)
         .mockImplementationOnce(function () {
-          return erroredClient;
+          return withLegacyNotifications(erroredClient);
         })
         .mockImplementationOnce(function () {
-          return recoveredClient;
+          return withLegacyNotifications(recoveredClient);
         });
 
       vi.spyOn((clientManager as any).transportRecreator, 'recreateForSessionLoss').mockReturnValue(freshTransport);
 
       await clientManager.createSingleClient('cleanup-client', originalTransport);
-      expect(clientManager.getClient('cleanup-client').client).toBe(erroredClient);
+      expect(getLegacyClient(clientManager.getClient('cleanup-client'))).toBe(erroredClient);
 
-      const registeredClient = clientManager.getClient('cleanup-client').client;
+      const registeredClient = getLegacyClient(clientManager.getClient('cleanup-client'));
       registeredClient.onerror?.(new Error('Session not found'));
 
       await vi.waitFor(() => {
-        expect(clientManager.getClient('cleanup-client').client).toBe(recoveredClient);
+        expect(getLegacyClient(clientManager.getClient('cleanup-client'))).toBe(recoveredClient);
       });
 
       await vi.waitFor(() => {
@@ -662,22 +672,25 @@ describe('ClientManager (Integration)', () => {
       };
 
       (Client as unknown as MockInstance).mockImplementation(function () {
-        return mockNewClient;
+        return withLegacyNotifications(mockNewClient);
       });
 
       const clients = clientManager.getClients();
-      clients.set('oauth-server', {
-        name: 'oauth-server',
-        transport: mockHttpTransport,
-        client: mockOldClient,
-        status: ClientStatus.AwaitingOAuth,
-      });
+      clients.set(
+        'oauth-server',
+        createMockLegacyOutboundConnection({
+          name: 'oauth-server',
+          transport: mockHttpTransport,
+          client: mockOldClient,
+          status: ClientStatus.AwaitingOAuth,
+        }),
+      );
 
       await clientManager.completeOAuthAndReconnect('oauth-server', 'auth-code-123');
 
       const updatedClient = clients.get('oauth-server');
       expect(updatedClient?.status).toBe(ClientStatus.Connected);
-      expect(updatedClient?.client).toBe(mockNewClient);
+      expect(updatedClient && getLegacyClient(updatedClient)).toBe(mockNewClient);
     });
   });
 
@@ -869,10 +882,10 @@ describe('ClientManager (Integration)', () => {
       } as Partial<Client>;
       (Client as unknown as MockInstance)
         .mockImplementationOnce(function () {
-          return initialClient;
+          return withLegacyNotifications(initialClient);
         })
         .mockImplementationOnce(function () {
-          return replacementClient;
+          return withLegacyNotifications(replacementClient);
         });
       const replacementTransport = {
         start: vi.fn(),
@@ -897,7 +910,7 @@ describe('ClientManager (Integration)', () => {
       });
 
       await clientManager.createSingleClient('supervised', supervisedTransport);
-      clientManager.getClient('supervised').client.onclose?.();
+      getLegacyClient(clientManager.getClient('supervised')).onclose?.();
       await vi.advanceTimersByTimeAsync(25);
 
       const snapshot = clientManager.getBackendSupervision('supervised')!;
@@ -920,7 +933,7 @@ describe('ClientManager (Integration)', () => {
         close: vi.fn().mockResolvedValue(undefined),
       } as Partial<Client>;
       (Client as unknown as MockInstance).mockImplementationOnce(function () {
-        return initialClient;
+        return withLegacyNotifications(initialClient);
       });
       const replacementTransport = {
         start: vi.fn(),
@@ -944,7 +957,7 @@ describe('ClientManager (Integration)', () => {
       vi.spyOn((clientManager as any).clientFactory, 'createClient').mockImplementationOnce(() => {
         throw new Error('client construction failed');
       });
-      clientManager.getClient('supervised').client.onclose?.();
+      getLegacyClient(clientManager.getClient('supervised')).onclose?.();
       await vi.advanceTimersByTimeAsync(25);
 
       expect(replacementTransport.close).toHaveBeenCalledOnce();
@@ -986,10 +999,10 @@ describe('ClientManager (Integration)', () => {
       } as Partial<Client>;
       (Client as unknown as MockInstance)
         .mockImplementationOnce(function () {
-          return initialClient;
+          return withLegacyNotifications(initialClient);
         })
         .mockImplementationOnce(function () {
-          return replacementClient;
+          return withLegacyNotifications(replacementClient);
         });
 
       const replacementTransport = {
@@ -1018,7 +1031,7 @@ describe('ClientManager (Integration)', () => {
 
       expect(connection.supervision).toMatchObject({ state: 'connected', attempt: 0, currentPid: 111 });
 
-      connection.client.onclose?.();
+      getLegacyClient(connection).onclose?.();
 
       expect(clientManager.getClient('supervised')).toMatchObject({
         status: ClientStatus.Restarting,
@@ -1031,9 +1044,10 @@ describe('ClientManager (Integration)', () => {
 
       expect(recreate).toHaveBeenCalledTimes(1);
       expect(replacementClient.connect).toHaveBeenCalledTimes(1);
-      expect(clientManager.getClient('supervised')).toMatchObject({
-        client: replacementClient,
-        transport: replacementTransport,
+      const recoveredConnection = clientManager.getClient('supervised');
+      expect(getLegacyClient(recoveredConnection)).toBe(replacementClient);
+      expect(getLegacyTransport(recoveredConnection)).toBe(replacementTransport);
+      expect(recoveredConnection).toMatchObject({
         status: ClientStatus.Connected,
         supervision: { state: 'connected', attempt: 1, currentPid: 222 },
       });
@@ -1053,10 +1067,10 @@ describe('ClientManager (Integration)', () => {
       } as Partial<Client>;
       (Client as unknown as MockInstance)
         .mockImplementationOnce(function () {
-          return initialClient;
+          return withLegacyNotifications(initialClient);
         })
         .mockImplementationOnce(function () {
-          return replacementClient;
+          return withLegacyNotifications(replacementClient);
         });
 
       const replacementTransport = {
@@ -1083,7 +1097,7 @@ describe('ClientManager (Integration)', () => {
 
       expect(initialClient.close).toHaveBeenCalledTimes(1);
       expect(result).toMatchObject({ state: 'connected', attempt: 0, currentPid: 333 });
-      expect(clientManager.getClient('supervised').client).toBe(replacementClient);
+      expect(getLegacyClient(clientManager.getClient('supervised'))).toBe(replacementClient);
     });
 
     it('stops scheduled recovery and closes supervised clients during shutdown', async () => {
@@ -1094,7 +1108,7 @@ describe('ClientManager (Integration)', () => {
         close: vi.fn().mockResolvedValue(undefined),
       } as Partial<Client>;
       (Client as unknown as MockInstance).mockImplementationOnce(function () {
-        return initialClient;
+        return withLegacyNotifications(initialClient);
       });
 
       const recreate = vi.fn();
@@ -1111,7 +1125,7 @@ describe('ClientManager (Integration)', () => {
       } as unknown as AuthProviderTransport;
 
       await clientManager.createSingleClient('supervised', supervisedTransport);
-      clientManager.getClient('supervised').client.onclose?.();
+      getLegacyClient(clientManager.getClient('supervised')).onclose?.();
       expect(clientManager.getBackendSupervision('supervised')?.state).toBe('restarting');
 
       await clientManager.shutdown();
@@ -1148,10 +1162,10 @@ describe('ClientManager (Integration)', () => {
       } as Partial<Client>;
       (Client as unknown as MockInstance)
         .mockImplementationOnce(function () {
-          return initialClient;
+          return withLegacyNotifications(initialClient);
         })
         .mockImplementationOnce(function () {
-          return replacementClient;
+          return withLegacyNotifications(replacementClient);
         });
 
       const replacementTransport = {
@@ -1174,7 +1188,7 @@ describe('ClientManager (Integration)', () => {
       replacementTransport.stdioSupervision = supervisedTransport.stdioSupervision;
 
       await clientManager.createSingleClient('supervised', supervisedTransport);
-      clientManager.getClient('supervised').client.onclose?.();
+      getLegacyClient(clientManager.getClient('supervised')).onclose?.();
       vi.advanceTimersByTime(25);
       await vi.waitFor(() => expect(replacementClient.connect).toHaveBeenCalledTimes(1));
 
@@ -1211,7 +1225,7 @@ describe('ClientManager (Integration)', () => {
         close: vi.fn().mockResolvedValue(undefined),
       } as Partial<Client>;
       (Client as unknown as MockInstance).mockImplementationOnce(function () {
-        return lateClient;
+        return withLegacyNotifications(lateClient);
       });
 
       const bulkTransport = {

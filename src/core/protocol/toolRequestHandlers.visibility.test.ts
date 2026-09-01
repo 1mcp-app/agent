@@ -1,3 +1,5 @@
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
 import type { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
 import { ClientStatus, type InboundConnection, type OutboundConnections } from '@src/core/types/index.js';
 
@@ -25,35 +27,35 @@ describe('registerToolHandlers capability visibility', () => {
         setRequestHandler: vi.fn((_schema, handler) => handlers.push(handler)),
       },
     } as unknown as InboundConnection;
-    const connections = new Map([
+    const connections: OutboundConnections = new Map([
       [
         'ready',
-        {
+        createMockOutboundConnection({
           name: 'ready',
           status: ClientStatus.Connected,
           capabilities: { tools: {} },
-          transport: { tags: ['safe'] },
-        },
+          tags: ['safe'],
+        }),
       ],
       [
         'late',
-        {
+        createMockOutboundConnection({
           name: 'late',
           status: ClientStatus.Restarting,
           capabilities: { tools: {} },
-          transport: { tags: ['safe'] },
-        },
+          tags: ['safe'],
+        }),
       ],
       [
         'excluded',
-        {
+        createMockOutboundConnection({
           name: 'excluded',
           status: ClientStatus.Connected,
           capabilities: { tools: {} },
-          transport: { tags: ['private'] },
-        },
+          tags: ['private'],
+        }),
       ],
-    ]) as OutboundConnections;
+    ]);
     const callMetaTool = vi.fn().mockResolvedValue({ tools: [] });
     const orchestrator = {
       isEnabled: () => true,

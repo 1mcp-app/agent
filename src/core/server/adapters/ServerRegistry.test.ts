@@ -1,3 +1,5 @@
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
 import type { TemplateServerManager } from '@src/core/server/templateServerManager.js';
 import { ClientStatus, OutboundConnection, OutboundConnections } from '@src/core/types/client.js';
 import { MCPServerParams } from '@src/core/types/index.js';
@@ -14,12 +16,8 @@ describe('ServerRegistry', () => {
   let mockTemplateManager: TemplateServerManager;
   let registry: ServerRegistry;
 
-  const createMockConnection = (name: string, status: ClientStatus = ClientStatus.Connected): OutboundConnection => ({
-    name,
-    transport: {} as any,
-    client: {} as any,
-    status,
-  });
+  const createMockConnection = (name: string, status: ClientStatus = ClientStatus.Connected): OutboundConnection =>
+    createMockOutboundConnection({ name, status });
 
   const createServerConfig = (): MCPServerParams => ({
     command: 'node',
