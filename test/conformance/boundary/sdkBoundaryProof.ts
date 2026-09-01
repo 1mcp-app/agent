@@ -8,6 +8,7 @@ import { McpError, CallToolRequestSchema as V1CallToolRequestSchema } from '@mod
 
 import { z } from 'zod';
 
+import { buildSdkTopology, topologyDifferences } from '../../../scripts/sdk-boundary/topology.mjs';
 import {
   InvalidJsonValueError,
   isJsonValue,
@@ -26,6 +27,7 @@ const CHECK_IDS = [
   'sdk-boundary.v1-error-converted',
   'sdk-boundary.foreign-prototypes-removed',
   'sdk-boundary.output-is-json',
+  'sdk-boundary.topology-matches-snapshot',
 ] as const;
 
 const digestSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/u);
@@ -102,12 +104,10 @@ function payloadDigest(payload: z.infer<typeof sdkBoundaryProofPayloadSchema>): 
   return digest(JSON.stringify(canonicalize(payload)));
 }
 
-async function packageVersion(root: string, packageName: string): Promise<string> {
-  const manifest = z
-    .object({ name: z.literal(packageName), version: z.string() })
-    .passthrough()
-    .parse(JSON.parse(await readFile(join(root, 'node_modules', ...packageName.split('/'), 'package.json'), 'utf8')));
-  return manifest.version;
+function resolvedVersion(topology: Awaited<ReturnType<typeof buildSdkTopology>>, packageName: string): string {
+  const resolved = topology.rootPackages[packageName]?.resolved;
+  if (typeof resolved !== 'string') throw new Error(`SDK topology is missing ${packageName}`);
+  return resolved.split('(')[0]!;
 }
 
 function status(value: boolean): 'passed' | 'failed' {
@@ -150,6 +150,10 @@ export async function generateSdkBoundaryProof(root: string, outputDirectory: st
         throw error;
       }
     };
+    const snapshot = JSON.parse(
+      await readFile(join(root, 'test/sdk-boundary/sdk-topology.snapshot.json'), 'utf8'),
+    ) as unknown;
+    const actualTopology = await buildSdkTopology(root);
     const checks = [
       { id: CHECK_IDS[0], status: status(v1Json !== undefined && isJsonValue(v1Json)) },
       { id: CHECK_IDS[1], status: status(v2Json !== undefined && isJsonValue(v2Json)) },
@@ -186,18 +190,18 @@ export async function generateSdkBoundaryProof(root: string, outputDirectory: st
             isJsonValue(convertedError.toJSON()),
         ),
       },
+      { id: CHECK_IDS[8], status: status(topologyDifferences(snapshot, actualTopology).length === 0) },
     ];
-    const topology = await readFile(join(root, 'test/sdk-boundary/sdk-topology.snapshot.json'), 'utf8');
     const payload = sdkBoundaryProofPayloadSchema.parse({
       schemaVersion: 1,
       attempt: 1,
       classification: 'product',
       productVerdict: checks.every((check) => check.status === 'passed') ? 'pass' : 'fail',
       packageIdentities: [
-        { name: '@modelcontextprotocol/core', version: await packageVersion(root, '@modelcontextprotocol/core') },
-        { name: '@modelcontextprotocol/sdk', version: await packageVersion(root, '@modelcontextprotocol/sdk') },
+        { name: '@modelcontextprotocol/core', version: resolvedVersion(actualTopology, '@modelcontextprotocol/core') },
+        { name: '@modelcontextprotocol/sdk', version: resolvedVersion(actualTopology, '@modelcontextprotocol/sdk') },
       ],
-      topologyDigest: digest(topology),
+      topologyDigest: digest(JSON.stringify(canonicalize(actualTopology))),
       checks,
     });
     const evidenceDigest = payloadDigest(payload);
