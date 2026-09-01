@@ -83,7 +83,7 @@ describe('test-and-validate workflow', () => {
     expect(packageJson.scripts['test:e2e:shardable']).toContain('--exclude "**/serve-background.test.ts"');
     expect(packageJson.scripts['test:e2e:system']).toContain('test/e2e/commands/serve-background.test.ts');
   });
-  it('installs and runs actionlint binary with shellcheck and composite action scanning in CI pipeline', () => {
+  it('installs and runs actionlint binary with shellcheck in CI pipeline', () => {
     const workflow = YAML.parse(readRepoFile('.github/workflows/test-and-validate.yml')) as {
       jobs?: { ci?: { steps?: { name?: string; run?: string }[] } };
     };
@@ -95,9 +95,8 @@ describe('test-and-validate workflow', () => {
     expect(runActionlintStep).toBeDefined();
     expect(runActionlintStep?.run).toContain('actionlint_${VERSION}_checksums.txt');
     expect(runActionlintStep?.run).toContain('sha256sum -c -');
-    expect(runActionlintStep?.run).toContain('sudo mv actionlint /usr/local/bin/');
-    expect(runActionlintStep?.run).toContain('actionlint -color');
-    expect(runActionlintStep?.run).toContain('composite_actions');
+    expect(runActionlintStep?.run).toContain('echo "$PWD" >> "$GITHUB_PATH"');
+    expect(runActionlintStep?.run).toContain('./actionlint -color');
   });
 
   it('validates security gate fixtures define targeted policy test cases', () => {

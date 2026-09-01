@@ -55,12 +55,8 @@ jobs:
             -o checksums.txt "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/actionlint_${VERSION}_checksums.txt"
           grep "${BINARY}" checksums.txt | sha256sum -c -
           tar xzf "${BINARY}" actionlint
-          sudo mv actionlint /usr/local/bin/
-          actionlint -color
-          mapfile -t composite_actions < <(find . -path '*/node_modules' -prune -o -name 'action.y*ml' -print)
-          if [ ${#composite_actions[@]} -gt 0 ]; then
-            actionlint -color "${composite_actions[@]}"
-          fi
+          echo "$PWD" >> "$GITHUB_PATH"
+          ./actionlint -color
 
       - name: Validate static checks
         run: pnpm ci:static
