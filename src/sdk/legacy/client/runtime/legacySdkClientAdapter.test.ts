@@ -5,7 +5,11 @@ import { McpError } from '@src/sdk/legacy/types.js';
 import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
 import { createLegacyTimeoutMs, OneMcpProtocolError } from '@src/sdk/contracts/index.js';
 
-import { bindLegacySdkConnection, LegacySdkClientAdapter } from './legacySdkClientAdapter.js';
+import {
+  bindLegacySdkConnection,
+  getLegacySdkTransport,
+  LegacySdkClientAdapter,
+} from './legacySdkClientAdapter.js';
 import type { AuthProviderTransport } from './legacyTransport.js';
 
 function createClient(): Client {
@@ -78,9 +82,8 @@ describe('LegacySdkClientAdapter', () => {
     expect(observedSignal?.aborted).toBe(true);
   });
 
-  it('recovers a terminal post-authentication 401 and retries once', async () => {
+  it('transitions a terminal post-authentication 401 to AwaitingOAuth without reconnecting', async () => {
     const staleClient = createClient();
-    const freshClient = createClient();
     const invalidateCredentials = vi.fn().mockResolvedValue(undefined);
     const staleTransport = {
       ...createTransport(),
@@ -95,15 +98,8 @@ describe('LegacySdkClientAdapter', () => {
     const unauthorized = new StreamableHTTPError(401, 'Server returned 401 after successful authentication');
     vi.spyOn(staleClient, 'request').mockRejectedValue(unauthorized);
     vi.spyOn(staleClient, 'close').mockResolvedValue(undefined);
-    vi.spyOn(freshClient, 'connect').mockResolvedValue(undefined);
-    vi.spyOn(freshClient, 'request').mockResolvedValue({ tools: [] } as never);
-    vi.spyOn(freshClient, 'getServerCapabilities').mockReturnValue({ tools: {} });
-    vi.spyOn(freshClient, 'getInstructions').mockReturnValue('fresh instructions');
     const recreateHttpTransport = vi.fn().mockReturnValue(freshTransport);
-    const adapter = new LegacySdkClientAdapter(staleClient, staleTransport, {
-      createClient: () => freshClient,
-      recreateHttpTransport,
-    });
+    const adapter = new LegacySdkClientAdapter(staleClient, staleTransport, { recreateHttpTransport });
     const connection: OutboundConnection = {
       name: 'oauth-server',
       adapter,
@@ -115,20 +111,51 @@ describe('LegacySdkClientAdapter', () => {
     };
     bindLegacySdkConnection(adapter, connection);
 
-    await expect(adapter.request({ id: 'request-5' as never, method: 'tools/list' })).resolves.toEqual({ tools: [] });
+    await expect(adapter.request({ id: 'request-5' as never, method: 'tools/list' })).rejects.toEqual(
+      expect.objectContaining({ code: 401, message: expect.stringContaining('Server returned 401') }),
+    );
 
     expect(invalidateCredentials).toHaveBeenCalledWith('tokens');
     expect(staleClient.close).toHaveBeenCalledOnce();
     expect(recreateHttpTransport).toHaveBeenCalledWith(staleTransport, 'oauth-server');
-    expect(freshClient.connect).toHaveBeenCalledWith(freshTransport, undefined);
-    expect(freshClient.request).toHaveBeenCalledOnce();
+    expect(getLegacySdkTransport(adapter)).toBe(freshTransport);
+    expect(staleClient.request).toHaveBeenCalledOnce();
     expect(connection).toMatchObject({
-      status: ClientStatus.Connected,
+      status: ClientStatus.AwaitingOAuth,
       tags: ['new'],
       authorizationUrl: undefined,
       oauthStartTime: undefined,
-      instructions: 'fresh instructions',
+      lastError: { message: expect.stringContaining('Server returned 401') },
     });
+  });
+
+  it('coalesces concurrent terminal 401 recovery', async () => {
+    const client = createClient();
+    const invalidateCredentials = vi.fn().mockResolvedValue(undefined);
+    const transport = { ...createTransport(), oauthProvider: { invalidateCredentials } };
+    const freshTransport = createTransport();
+    const unauthorized = new StreamableHTTPError(401, 'Server returned 401 after successful authentication');
+    vi.spyOn(client, 'request').mockRejectedValue(unauthorized);
+    vi.spyOn(client, 'close').mockResolvedValue(undefined);
+    const recreateHttpTransport = vi.fn().mockReturnValue(freshTransport);
+    const adapter = new LegacySdkClientAdapter(client, transport, { recreateHttpTransport });
+    const connection: OutboundConnection = {
+      name: 'oauth-server',
+      adapter,
+      status: ClientStatus.Connected,
+      tags: [],
+      requiresOAuth: true,
+    };
+    bindLegacySdkConnection(adapter, connection);
+
+    await Promise.allSettled([
+      adapter.request({ id: 'request-6a' as never, method: 'tools/list' }),
+      adapter.request({ id: 'request-6b' as never, method: 'tools/list' }),
+    ]);
+
+    expect(invalidateCredentials).toHaveBeenCalledOnce();
+    expect(client.close).toHaveBeenCalledOnce();
+    expect(recreateHttpTransport).toHaveBeenCalledOnce();
   });
 
   it('converts a non-terminal HTTP failure without attempting recovery', async () => {
@@ -140,7 +167,7 @@ describe('LegacySdkClientAdapter', () => {
     const recreateHttpTransport = vi.fn();
     const adapter = new LegacySdkClientAdapter(client, transport, { recreateHttpTransport });
 
-    await expect(adapter.request({ id: 'request-6' as never, method: 'tools/list' })).rejects.toBeInstanceOf(
+    await expect(adapter.request({ id: 'request-7' as never, method: 'tools/list' })).rejects.toBeInstanceOf(
       OneMcpProtocolError,
     );
     expect(invalidateCredentials).not.toHaveBeenCalled();

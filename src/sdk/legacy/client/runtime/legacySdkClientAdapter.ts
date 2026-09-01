@@ -23,9 +23,10 @@ import {
   toJsonValue,
 } from '@src/sdk/contracts/index.js';
 import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
+import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
+import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import logger from '@src/logger/logger.js';
 
-import { ClientFactory } from './clientFactory.js';
 import type { AuthProviderTransport } from './legacyTransport.js';
 import { TransportRecreator } from './transportRecreator.js';
 
@@ -33,7 +34,6 @@ const INTERNAL_ERROR = -32_603;
 const POST_AUTH_UNAUTHORIZED_MESSAGE = 'Server returned 401 after successful authentication';
 
 export interface LegacySdkClientAdapterOptions {
-  readonly createClient?: () => Client;
   readonly recreateHttpTransport?: (transport: AuthProviderTransport, serverName?: string) => AuthProviderTransport;
 }
 
@@ -42,6 +42,7 @@ interface LegacyHandles {
   transport: AuthProviderTransport;
   connection?: OutboundConnection;
   recovery?: Promise<void>;
+  recoveredClient?: Client;
 }
 
 const legacyHandles = new WeakMap<LegacySdkClientAdapter, LegacyHandles>();
@@ -66,6 +67,16 @@ function snapshotError(error: unknown): { name: string; message: string } {
   return error instanceof Error ? { name: error.name, message: error.message } : { name: 'Error', message: String(error) };
 }
 
+function publishAwaitingOAuth(serverName: string, error: StreamableHTTPError): void {
+  try {
+    const tracker = McpLoadingManager.current.getStateTracker();
+    tracker.registerServer(serverName);
+    tracker.updateServerState(serverName, LoadingState.AwaitingOAuth, { error });
+  } catch (trackerError) {
+    logger.warn(`Failed to publish OAuth recovery state for ${serverName}`, { error: String(trackerError) });
+  }
+}
+
 /** Concrete boundary around one legacy v1 SDK Client. */
 export class LegacySdkClientAdapter implements LegacySdkAdapter {
   readonly connectionId = randomUUID() as LegacyConnectionId;
@@ -73,14 +84,11 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
   private readonly controllers = new Map<LegacyRequestId, AbortController>();
   private readonly events: LegacySdkEvent[] = [];
   private readonly waiters: Array<(event: LegacySdkEvent) => void> = [];
-  private readonly createClient: () => Client;
   private readonly recreateHttpTransport: NonNullable<LegacySdkClientAdapterOptions['recreateHttpTransport']>;
 
   constructor(client: Client, transport: AuthProviderTransport, options: LegacySdkClientAdapterOptions = {}) {
     legacyHandles.set(this, { client, transport });
-    const clientFactory = new ClientFactory();
     const transportRecreator = new TransportRecreator();
-    this.createClient = options.createClient ?? (() => clientFactory.createClient());
     this.recreateHttpTransport =
       options.recreateHttpTransport ?? ((current, serverName) => transportRecreator.recreateHttpTransport(current, serverName));
     this.registerListChangedNotifications();
@@ -112,7 +120,7 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
     this.controllers.set(request.id, controller);
     try {
       if (this.lifecycleState === 'idle') await this.start();
-      const result = await this.requestWithRecovery(request, controller, false);
+      const result = await this.requestWithRecovery(request, controller);
       return toJsonValue(result);
     } catch (error) {
       throw toProtocolError(error);
@@ -124,7 +132,6 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
   private async requestWithRecovery(
     request: LegacySdkRequest,
     controller: AbortController,
-    recovered: boolean,
   ): Promise<unknown> {
     const requestClient = this.handles.client;
     try {
@@ -134,21 +141,19 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
         { signal: controller.signal, ...(request.timeoutMs === undefined ? {} : { timeout: request.timeoutMs }) },
       );
     } catch (error) {
-      if (!recovered && isPostAuthUnauthorized(error)) {
-        if (this.handles.client === requestClient) {
-          await this.recoverPostAuthUnauthorized(error);
-        }
-        return this.requestWithRecovery(request, controller, true);
+      if (isPostAuthUnauthorized(error)) {
+        await this.recoverPostAuthUnauthorized(requestClient, error);
       }
       throw error;
     }
   }
 
-  private async recoverPostAuthUnauthorized(error: StreamableHTTPError): Promise<void> {
+  private async recoverPostAuthUnauthorized(client: Client, error: StreamableHTTPError): Promise<void> {
     const handles = this.handles;
+    if (handles.recoveredClient === client) return;
     if (handles.recovery) return handles.recovery;
 
-    const recovery = this.performPostAuthRecovery(error);
+    const recovery = this.performPostAuthRecovery(client, error);
     handles.recovery = recovery;
     try {
       await recovery;
@@ -157,10 +162,18 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
     }
   }
 
-  private async performPostAuthRecovery(error: StreamableHTTPError): Promise<void> {
+  private async performPostAuthRecovery(staleClient: Client, error: StreamableHTTPError): Promise<void> {
     const handles = this.handles;
-    const { client: staleClient, transport: staleTransport, connection } = handles;
+    const { transport: staleTransport, connection } = handles;
     const serverName = connection?.name;
+
+    if (connection) {
+      connection.status = ClientStatus.AwaitingOAuth;
+      connection.authorizationUrl = undefined;
+      connection.oauthStartTime = undefined;
+      connection.lastError = snapshotError(error);
+      publishAwaitingOAuth(connection.name, error);
+    }
 
     try {
       await staleTransport.oauthProvider?.invalidateCredentials('tokens');
@@ -173,53 +186,21 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
     staleClient.onclose = undefined;
     try {
       await staleClient.close();
-    } catch {
-      await staleTransport.close().catch(() => undefined);
+    } catch (closeError) {
+      logger.warn(`Failed to close unauthorized client ${serverName ?? 'legacy backend'}`, {
+        error: String(closeError),
+      });
     }
 
     const freshTransport = this.recreateHttpTransport(staleTransport, serverName);
-    const freshClient = this.createClient();
-    try {
-      const timeout = freshTransport.connectionTimeout ?? freshTransport.timeout;
-      await freshClient.connect(freshTransport, timeout ? { timeout } : undefined);
-      handles.client = freshClient;
-      handles.transport = freshTransport;
-      this.registerListChangedNotifications();
-      if (connection) this.publishConnectedSnapshot(connection, freshTransport, freshClient);
-    } catch (recoveryError) {
-      handles.client = freshClient;
-      handles.transport = freshTransport;
-      if (connection) {
-        connection.status = ClientStatus.AwaitingOAuth;
-        connection.tags = [...(freshTransport.tags ?? [])];
-        connection.requestTimeoutMs = freshTransport.requestTimeout ?? freshTransport.timeout;
-        connection.requiresOAuth = Boolean(freshTransport.oauthProvider);
-        connection.authorizationUrl = freshTransport.oauthProvider?.getAuthorizationUrl?.();
-        connection.oauthStartTime = new Date().toISOString();
-        connection.lastError = snapshotError(error);
-      }
-      throw recoveryError;
+    handles.transport = freshTransport;
+    handles.recoveredClient = staleClient;
+    if (connection) {
+      connection.tags = [...(freshTransport.tags ?? [])];
+      connection.requestTimeoutMs = freshTransport.requestTimeout ?? freshTransport.timeout;
+      connection.requiresOAuth = Boolean(freshTransport.oauthProvider);
     }
-  }
-
-  private publishConnectedSnapshot(
-    connection: OutboundConnection,
-    transport: AuthProviderTransport,
-    client: Client,
-  ): void {
-    connection.status = ClientStatus.Connected;
-    connection.tags = [...(transport.tags ?? [])];
-    connection.requestTimeoutMs = transport.requestTimeout ?? transport.timeout;
-    connection.requiresOAuth = Boolean(transport.oauthProvider);
-    connection.authorizationUrl = undefined;
-    connection.oauthStartTime = undefined;
-    connection.lastError = undefined;
-    connection.lastConnected = new Date().toISOString();
-    const capabilities = toJsonValue(client.getServerCapabilities?.() ?? {});
-    if (capabilities && !Array.isArray(capabilities) && typeof capabilities === 'object') {
-      connection.capabilities = capabilities;
-    }
-    connection.instructions = client.getInstructions?.();
+    logger.warn(`OAuth reauthorization required for ${serverName ?? 'legacy backend'} after authenticated request returned 401`);
   }
 
   async cancel(requestId: LegacyRequestId): Promise<void> {

@@ -257,11 +257,6 @@ describe('Request Handlers', () => {
         timeout: 5000,
       } as any;
       Object.setPrototypeOf(freshTransport, StreamableHTTPClientTransport.prototype);
-      const freshClient = {
-        connect: vi.fn().mockRejectedValue(new Error('reauthorization pending')),
-        close: vi.fn().mockResolvedValue(undefined),
-        setNotificationHandler: vi.fn(),
-      } as any;
       const recreateHttpTransport = vi.fn().mockReturnValue(freshTransport);
       const unauthorized = new StreamableHTTPError(401, 'Server returned 401 after successful authentication');
       mockClient1.callTool.mockRejectedValue(unauthorized);
@@ -273,7 +268,6 @@ describe('Request Handlers', () => {
         transport: staleTransport,
         status: ClientStatus.Connected,
         adapterOptions: {
-          createClient: () => freshClient,
           recreateHttpTransport,
         },
       });
@@ -287,8 +281,8 @@ describe('Request Handlers', () => {
 
       await expect(handler({ params: { name: 'client1_tool', arguments: {} } })).rejects.toMatchObject({
         name: 'OneMcpProtocolError',
-        code: -32_603,
-        message: 'reauthorization pending',
+        code: 401,
+        message: unauthorized.message,
       });
       expect(connection.status).toBe(ClientStatus.AwaitingOAuth);
       expect(oauthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
