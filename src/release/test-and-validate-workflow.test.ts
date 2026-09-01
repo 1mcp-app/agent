@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -133,6 +134,34 @@ export function checkSecurityPolicies(relFile: string, yamlContent: string): Pol
   return violations;
 }
 
+/**
+ * Runs ShellCheck against a bash script snippet to detect shell quoting/expansion violations (e.g., SC2086).
+ *
+ * @param script - Shell script content string.
+ * @returns Object indicating availability and detected violations.
+ */
+export function checkShellScript(script: string): { available: boolean; issues: string[] } {
+  try {
+    const proc = spawnSync('shellcheck', ['-s', 'bash', '-'], {
+      input: script,
+      encoding: 'utf8',
+    });
+    if (proc.error) {
+      return { available: false, issues: [] };
+    }
+    const output = `${proc.stdout ?? ''}\n${proc.stderr ?? ''}`;
+    return {
+      available: true,
+      issues: output
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean),
+    };
+  } catch {
+    return { available: false, issues: [] };
+  }
+}
+
 describe('test-and-validate workflow', () => {
   it('runs E2E independently and keeps test suites isolated', () => {
     const workflow = readRepoFile('.github/workflows/test-and-validate.yml');
@@ -220,12 +249,13 @@ describe('test-and-validate workflow', () => {
     }
   });
 
-  it('exercises security policy validator against adversarial negative fixtures', () => {
+  it('exercises structural policy validator against adversarial negative fixtures', () => {
     const injectFixture = readRepoFile(path.join('test', 'fixtures', 'ci-security', 'inject-expression.yml'));
-    const unquotedFixture = readRepoFile(path.join('test', 'fixtures', 'ci-security', 'unquoted-var.yml'));
     const secretsFixture = readRepoFile(path.join('test', 'fixtures', 'ci-security', 'secrets-inherit.yml'));
     const permsFixture = readRepoFile(path.join('test', 'fixtures', 'ci-security', 'excessive-permissions.yml'));
+    const unquotedFixture = readRepoFile(path.join('test', 'fixtures', 'ci-security', 'unquoted-var.yml'));
 
+    // Structural policy validator must catch expressions, secrets: inherit, and excessive permissions
     const injectViolations = checkSecurityPolicies('inject-expression.yml', injectFixture);
     expect(injectViolations.some((v) => v.rule === 'inline-expression-interpolation')).toBe(true);
 
@@ -235,6 +265,25 @@ describe('test-and-validate workflow', () => {
     const permsViolations = checkSecurityPolicies('excessive-permissions.yml', permsFixture);
     expect(permsViolations.some((v) => v.rule === 'write-all-permissions')).toBe(true);
 
-    expect(unquotedFixture).toMatch(/run:\s*pnpm \$BUILD_SCRIPT/);
+    // unquoted-var.yml has no YAML structure violations (shell quoting is verified by shellcheck)
+    expect(checkSecurityPolicies('unquoted-var.yml', unquotedFixture)).toEqual([]);
+  });
+
+  it('exercises ShellCheck SC2086 detection for unquoted shell variable fixture', () => {
+    const unquotedFixture = readRepoFile(path.join('test', 'fixtures', 'ci-security', 'unquoted-var.yml'));
+    const parsed = YAML.parse(unquotedFixture) as {
+      jobs?: Record<string, { steps?: { run?: string }[] }>;
+    };
+    const steps = Object.values(parsed?.jobs ?? {}).flatMap((j) => j.steps ?? []);
+    const runScript = steps.find((s) => s.run?.includes('$BUILD_SCRIPT'))?.run ?? '';
+
+    expect(runScript).toMatch(/pnpm \$BUILD_SCRIPT/);
+
+    const check = checkShellScript(runScript);
+    if (check.available) {
+      expect(check.issues.some((issue) => issue.includes('SC2086'))).toBe(true);
+    } else if (process.env.CI === 'true') {
+      throw new Error('shellcheck binary was expected in CI environment but not found');
+    }
   });
 });
