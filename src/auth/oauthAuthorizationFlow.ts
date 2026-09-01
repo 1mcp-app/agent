@@ -156,9 +156,9 @@ export interface BackendOAuthDashboardService {
   name: string;
   status: string;
   authorizationUrl?: string;
-  oauthStartTime?: Date;
+  oauthStartTime?: string;
   lastError?: string;
-  lastConnected?: Date;
+  lastConnected?: string;
   requiresOAuth: boolean;
 }
 

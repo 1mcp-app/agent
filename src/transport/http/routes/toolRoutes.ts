@@ -16,7 +16,6 @@ import { getDisabledToolError } from '@src/core/server/disabledTools.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
 import logger from '@src/logger/logger.js';
-import type { JsonObject } from '@src/sdk/contracts/index.js';
 import { CONTEXT_HEADERS } from '@src/transport/http/utils/contextExtractor.js';
 
 import { Request, RequestHandler, Response } from 'express';
@@ -28,7 +27,7 @@ import {
   resolveConnectionByServerName,
 } from './inspectRoutes.js';
 
-type Tool = JsonObject & { name: string; inputSchema: JsonObject & { type: 'object' }; description?: string };
+type Tool = Parameters<typeof ToolRegistry.fromToolsWithServer>[0][number]['tool'];
 
 function getServerConfigs() {
   return getConfiguredServerTargets();

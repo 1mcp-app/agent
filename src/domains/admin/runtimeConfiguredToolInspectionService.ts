@@ -7,7 +7,6 @@ import {
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, type MCPServerParams, type OutboundConnection } from '@src/core/types/index.js';
 import { isConfiguredServerTargetDisabled } from '@src/domains/config-change/configChange.js';
-import type { JsonObject } from '@src/sdk/contracts/index.js';
 
 import {
   type ConfiguredToolInspectionOutcome,
@@ -18,7 +17,7 @@ import {
 
 const INSPECTION_PAGE_TIMEOUT_BUDGET = 4;
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
-type Tool = JsonObject & { name: string; inputSchema: JsonObject; description?: string };
+type Tool = Parameters<typeof publishCompleteConfiguredToolInspection>[0]['instances'][number]['tools'][number];
 
 interface InspectionCandidate {
   instanceId: string;

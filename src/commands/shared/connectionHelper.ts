@@ -3,7 +3,6 @@ import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import type { OutboundConnection } from '@src/core/types/client.js';
 import type { MCPServerParams } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
-import type { JsonObject } from '@src/sdk/contracts/index.js';
 import { createTransports } from '@src/transport/transportFactory.js';
 
 export interface ServerCapabilities {
@@ -234,6 +233,6 @@ export class McpConnectionHelper {
     this.connections.clear();
   }
 }
-type Tool = JsonObject & { name: string; inputSchema: JsonObject; description?: string };
-type Resource = JsonObject & { uri: string; name?: string };
-type Prompt = JsonObject & { name: string; description?: string };
+interface Tool { name: string; inputSchema: Record<string, unknown> & { type: 'object' }; description?: string }
+interface Resource { uri: string; name: string; description?: string; mimeType?: string }
+interface Prompt { name: string; description?: string; arguments?: Array<{ name: string; description?: string }> }

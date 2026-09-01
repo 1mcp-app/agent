@@ -119,7 +119,7 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
     }
   }
 
-  private registerNotification(schema: typeof ToolListChangedNotificationSchema): void {
+  private registerNotification(schema: unknown): void {
     this.handles.client.setNotificationHandler(schema as never, async (notification: { method: string; params?: unknown }) => {
       this.publish({
         type: 'notification',

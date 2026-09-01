@@ -15,7 +15,6 @@ import {
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { applyEffectiveToolDescription } from '@src/core/server/toolDescriptionOverrides.js';
 import logger from '@src/logger/logger.js';
-import type { JsonObject } from '@src/sdk/contracts/index.js';
 
 import { Request, RequestHandler, Response } from 'express';
 
@@ -48,7 +47,7 @@ export {
 export type { InspectServerPayload, InspectServersPayload, InspectToolPayload, ServerSummary, ToolSummary };
 
 type FilteredConnections = ReturnType<typeof FilteringService.getFilteredConnections>;
-type Tool = JsonObject & { name: string; inputSchema: JsonObject & { type: 'object' }; description?: string };
+type Tool = Parameters<typeof filterDisabledTools>[0][number];
 
 interface DirectListToolsResult {
   tools?: Tool[];
@@ -67,10 +66,12 @@ async function listDirectServerTools(
   connection: NonNullable<FilteredConnections extends Map<unknown, infer TValue> ? TValue : never>,
   options: { limit: number; cursor?: string },
 ): Promise<DirectListToolsResult> {
-  return requestLegacyAdapter<DirectListToolsResult>(connection.adapter, 'tools/list', {
-    limit: options.limit,
-    cursor: options.cursor,
-  }, { timeoutMs: connection.requestTimeoutMs });
+  return requestLegacyAdapter<DirectListToolsResult>(
+    connection.adapter,
+    'tools/list',
+    { limit: options.limit, ...(options.cursor === undefined ? {} : { cursor: options.cursor }) },
+    { timeoutMs: connection.requestTimeoutMs },
+  );
 }
 
 function getServerConfigs() {
@@ -404,13 +405,17 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
           return;
         }
 
-        const effectiveTool = applyEffectiveToolDescription(found, serverConfigs[serverName], serverName);
+        const effectiveTool = applyEffectiveToolDescription(found, serverConfigs[serverName], serverName) as unknown as {
+          description?: unknown;
+          inputSchema?: unknown;
+          outputSchema?: unknown;
+        };
         const payload: InspectToolPayload = {
           kind: 'tool',
           server: serverName,
           tool: toolName,
           qualifiedName: found.name === qualifiedName ? qualifiedName : qualifyToolName(serverName, found.name),
-          description: effectiveTool.description,
+          description: typeof effectiveTool.description === 'string' ? effectiveTool.description : undefined,
           inputSchema: (effectiveTool.inputSchema as Record<string, unknown>) ?? {},
           outputSchema: effectiveTool.outputSchema as Record<string, unknown> | undefined,
         };
