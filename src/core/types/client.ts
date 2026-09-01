@@ -19,7 +19,7 @@ export enum ClientStatus {
 }
 
 /** Capability names exposed by downstream servers. */
-export type ServerCapability = 'experimental' | 'logging' | 'prompts' | 'resources' | 'tools';
+export type ServerCapability = 'completions' | 'experimental' | 'logging' | 'prompts' | 'resources' | 'tools';
 
 export interface OutboundErrorSnapshot {
   readonly name: string;

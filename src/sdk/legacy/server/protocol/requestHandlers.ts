@@ -11,11 +11,16 @@ import {
 
 import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
-import { ClientStatus, InboundConnection, OutboundConnections } from '@src/core/types/index.js';
+import { ClientStatus, InboundConnection } from '@src/core/types/index.js';
 import logger, { setLogLevel } from '@src/logger/logger.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
 import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
+import {
+  getLegacyClient,
+  getLegacyTransport,
+  type LegacyOutboundConnections,
+} from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 
 import { registerCompletionHandlers, registerPromptHandlers } from './promptRequestHandlers.js';
 import {
@@ -44,12 +49,12 @@ type ExtendedServerCapabilities = Record<string, unknown>;
  * @param outboundConns Record of client instances
  * @param serverInfo The MCP server instance
  */
-function registerServerRequestHandlers(outboundConns: OutboundConnections, inboundConn: InboundConnection): void {
+function registerServerRequestHandlers(outboundConns: LegacyOutboundConnections, inboundConn: InboundConnection): void {
   Array.from(outboundConns.entries()).forEach(([_, outboundConn]) => {
     const capabilities = outboundConn.capabilities as ExtendedServerCapabilities | undefined;
 
     // Ping is always supported
-    outboundConn.client.setRequestHandler(
+    getLegacyClient(outboundConn).setRequestHandler(
       PingRequestSchema,
       withErrorHandling(async () => {
         return ServerManager.current.executeServerOperation(inboundConn, (inboundConn: InboundConnection) =>
@@ -60,12 +65,12 @@ function registerServerRequestHandlers(outboundConns: OutboundConnections, inbou
 
     // Only register CreateMessage handler if server supports sampling capability
     if (capabilities?.sampling) {
-      outboundConn.client.setRequestHandler(
+      getLegacyClient(outboundConn).setRequestHandler(
         CreateMessageRequestSchema,
         withErrorHandling(async (request: CreateMessageRequest) => {
           return ServerManager.current.executeServerOperation(inboundConn, (inboundConn: InboundConnection) =>
             getLegacyInboundServer(inboundConn).createMessage(request.params, {
-              timeout: getRequestTimeout(outboundConn.transport),
+              timeout: getRequestTimeout(getLegacyTransport(outboundConn)),
             }),
           );
         }, 'Error creating message'),
@@ -74,12 +79,12 @@ function registerServerRequestHandlers(outboundConns: OutboundConnections, inbou
 
     // Only register ElicitRequest handler if server supports elicitation capability
     if (capabilities?.elicitation) {
-      outboundConn.client.setRequestHandler(
+      getLegacyClient(outboundConn).setRequestHandler(
         ElicitRequestSchema,
         withErrorHandling(async (request: ElicitRequest) => {
           return ServerManager.current.executeServerOperation(inboundConn, (inboundConn: InboundConnection) =>
             getLegacyInboundServer(inboundConn).elicitInput(request.params, {
-              timeout: getRequestTimeout(outboundConn.transport),
+              timeout: getRequestTimeout(getLegacyTransport(outboundConn)),
             }),
           );
         }, 'Error eliciting input'),
@@ -88,12 +93,12 @@ function registerServerRequestHandlers(outboundConns: OutboundConnections, inbou
 
     // Only register ListRoots handler if server supports roots capability
     if (capabilities?.roots) {
-      outboundConn.client.setRequestHandler(
+      getLegacyClient(outboundConn).setRequestHandler(
         ListRootsRequestSchema,
         withErrorHandling(async (request: ListRootsRequest) => {
           return ServerManager.current.executeServerOperation(inboundConn, (inboundConn: InboundConnection) =>
             getLegacyInboundServer(inboundConn).listRoots(request.params, {
-              timeout: getRequestTimeout(outboundConn.transport),
+              timeout: getRequestTimeout(getLegacyTransport(outboundConn)),
             }),
           );
         }, 'Error listing roots'),
@@ -111,7 +116,7 @@ function registerServerRequestHandlers(outboundConns: OutboundConnections, inbou
  */
 
 export function registerRequestHandlers(
-  outboundConns: OutboundConnections,
+  outboundConns: LegacyOutboundConnections,
   inboundConn: InboundConnection,
   lazyLoadingOrchestrator?: LazyLoadingOrchestrator,
 ): void {
@@ -127,9 +132,9 @@ export function registerRequestHandlers(
     withErrorHandling(async () => {
       // Health check all connected upstream clients
       const healthCheckPromises = Array.from(outboundConns.entries()).map(async ([clientName, outboundConn]) => {
-        if (outboundConn.status === ClientStatus.Connected && outboundConn.client.transport) {
+        if (outboundConn.status === ClientStatus.Connected && getLegacyClient(outboundConn).transport) {
           try {
-            await outboundConn.client.ping();
+            await getLegacyClient(outboundConn).ping();
             logger.info(`Health check successful for client: ${clientName}`);
           } catch (error) {
             logger.warn(`Health check failed for client ${clientName}: ${error}`);

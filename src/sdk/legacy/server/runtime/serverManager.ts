@@ -1,4 +1,6 @@
 import { Transport } from '@src/sdk/legacy/shared/transport.js';
+import type { AuthProviderTransport } from '@src/sdk/legacy/client/runtime/legacyTransport.js';
+import { getLegacyTransport } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 
 import { ConfigManager } from '@src/config/configManager.js';
 import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
@@ -15,7 +17,6 @@ import { TemplateConfigurationManager } from '@src/core/server/templateConfigura
 import { TemplateServerManager } from '@src/core/server/templateServerManager.js';
 import { ClientStatus } from '@src/core/types/index.js';
 import type {
-  AuthProviderTransport,
   InboundConnection,
   InboundConnectionConfig,
   MCPServerParams,
@@ -527,7 +528,7 @@ export class ServerManager {
   private getConnectedMcpTransport(serverName: string): AuthProviderTransport | undefined {
     const connection = this.outboundConns.get(serverName);
     if (connection?.status === ClientStatus.Connected) {
-      return connection.transport;
+      return getLegacyTransport(connection);
     }
 
     return undefined;

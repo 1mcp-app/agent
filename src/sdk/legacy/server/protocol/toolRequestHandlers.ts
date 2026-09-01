@@ -17,11 +17,16 @@ import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrche
 import { executeWithPostAuthOAuthRecovery } from '@src/core/client/postAuthOAuthRecovery.js';
 import { getDisabledToolError } from '@src/core/server/disabledTools.js';
 import { applyEffectiveToolDescription } from '@src/core/server/toolDescriptionOverrides.js';
-import { InboundConnection, OutboundConnections } from '@src/core/types/index.js';
+import { InboundConnection } from '@src/core/types/index.js';
 import type { MCPServerParams } from '@src/core/types/transport.js';
 import logger, { infoIf } from '@src/logger/logger.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
+import {
+  getLegacyClient,
+  getLegacyTransport,
+  type LegacyOutboundConnections,
+} from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import { buildUri, parseUri } from '@src/utils/core/parsing.js';
 import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
 
@@ -34,7 +39,7 @@ import {
 } from '@src/core/protocol/requestHandlerUtils.js';
 
 export function registerToolHandlers(
-  outboundConns: OutboundConnections,
+  outboundConns: LegacyOutboundConnections,
   inboundConn: InboundConnection,
   lazyLoadingOrchestrator?: LazyLoadingOrchestrator,
 ): void {
@@ -111,9 +116,9 @@ export function registerToolHandlers(
         visibility,
         cursor: request.params?.cursor,
         list: async (outboundConn, cursor) => {
-          const upstream = await outboundConn.client.listTools(
+          const upstream = await getLegacyClient(outboundConn).listTools(
             { cursor },
-            { timeout: getRequestTimeout(outboundConn.transport) },
+            { timeout: getRequestTimeout(getLegacyTransport(outboundConn)) },
           );
           publishConfiguredToolPage(outboundConn, upstream.tools ?? [], cursor, upstream.nextCursor);
           if (upstream.nextCursor === undefined) {
@@ -210,8 +215,8 @@ export function registerToolHandlers(
         });
       }
       return executeWithPostAuthOAuthRecovery(clientName, outboundConn, () =>
-        outboundConn.client.callTool({ ...request.params, name: extractedToolName }, CallToolResultSchema, {
-          timeout: getRequestTimeout(outboundConn.transport),
+        getLegacyClient(outboundConn).callTool({ ...request.params, name: extractedToolName }, CallToolResultSchema, {
+          timeout: getRequestTimeout(getLegacyTransport(outboundConn)),
         }),
       );
     }, 'Error calling tool'),

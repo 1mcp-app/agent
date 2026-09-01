@@ -7,10 +7,14 @@ import {
 } from '@src/sdk/legacy/types.js';
 
 import { registerCapabilityPaginationNotifications } from '@src/core/capabilities/capabilityPagination.js';
-import { ClientStatus, InboundConnection, OutboundConnections, ServerStatus } from '@src/core/types/index.js';
+import { ClientStatus, InboundConnection, ServerStatus } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
+import {
+  getLegacyClient,
+  type LegacyOutboundConnections,
+} from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 
 /**
  * Sets up client-to-server notification handlers
@@ -18,7 +22,7 @@ import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInb
  * @param serverInfo The MCP server instance
  */
 export function setupClientToServerNotifications(
-  outboundConns: OutboundConnections,
+  outboundConns: LegacyOutboundConnections,
   inboundConn: InboundConnection,
 ): void {
   const clientNotificationSchemas = [
@@ -60,7 +64,7 @@ export function setupClientToServerNotifications(
     );
 
     clientNotificationSchemas.forEach((schema) => {
-      outboundConn.client.setNotificationHandler(
+      getLegacyClient(outboundConn).setNotificationHandler(
         schema,
         withErrorHandling(async (notification) => {
           logger.info(`Received notification in client: ${name} ${JSON.stringify(notification)}`);
@@ -101,7 +105,7 @@ export function setupClientToServerNotifications(
  * @param serverInfo The MCP server instance
  */
 export function setupServerToClientNotifications(
-  outboundConns: OutboundConnections,
+  outboundConns: LegacyOutboundConnections,
   inboundConn: InboundConnection,
 ): void {
   // NOTE: InitializedNotificationSchema is intentionally excluded here.
@@ -122,7 +126,7 @@ export function setupServerToClientNotifications(
         schema,
         withErrorHandling(async (notification) => {
           logger.info(`Received notification in server: ${name} ${JSON.stringify(notification)}`);
-          if (outboundConn.status !== ClientStatus.Connected || !outboundConn.client.transport) {
+          if (outboundConn.status !== ClientStatus.Connected || !getLegacyClient(outboundConn).transport) {
             logger.warn(`Client ${name} is not connected. Notification not sent.`);
             return;
           }
@@ -137,7 +141,7 @@ export function setupServerToClientNotifications(
                 client: name,
               },
             };
-            await outboundConn.client.notification(forwardedNotification);
+            await getLegacyClient(outboundConn).notification(forwardedNotification);
           } catch (error) {
             if (error instanceof Error && error.message.includes('Not connected')) {
               logger.warn(`Client ${name} transport not connected. Dropping notification.`);

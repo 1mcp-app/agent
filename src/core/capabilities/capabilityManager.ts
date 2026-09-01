@@ -1,5 +1,3 @@
-import { ServerCapabilities } from '@src/sdk/legacy/types.js';
-
 import {
   setupClientToServerNotifications,
   setupServerToClientNotifications,
@@ -9,6 +7,14 @@ import { InboundConnection, OutboundConnections } from '@src/core/types/index.js
 import logger from '@src/logger/logger.js';
 
 import { LazyLoadingOrchestrator } from './lazyLoadingOrchestrator.js';
+
+interface ServerCapabilitiesSnapshot {
+  resources?: Record<string, unknown>;
+  tools?: Record<string, unknown>;
+  prompts?: Record<string, unknown>;
+  experimental?: Record<string, unknown>;
+  logging?: Record<string, unknown>;
+}
 
 /**
  * Collects capabilities from all clients and registers them with the server
@@ -40,12 +46,12 @@ export async function setupCapabilities(
  * @param clients Record of client instances
  * @returns The combined server capabilities
  */
-function collectCapabilities(clients: OutboundConnections): ServerCapabilities {
-  const capabilities: ServerCapabilities = {};
+function collectCapabilities(clients: OutboundConnections): ServerCapabilitiesSnapshot {
+  const capabilities: ServerCapabilitiesSnapshot = {};
 
   for (const [name, clientInfo] of clients.entries()) {
     try {
-      const serverCapabilities = (clientInfo.capabilities as ServerCapabilities | undefined) || {};
+      const serverCapabilities = (clientInfo.capabilities as ServerCapabilitiesSnapshot | undefined) || {};
       logger.debug(`Capabilities from ${name}: ${JSON.stringify(serverCapabilities)}`);
 
       // Store capabilities per client

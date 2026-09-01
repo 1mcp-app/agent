@@ -8,9 +8,14 @@ import {
 } from '@src/sdk/legacy/types.js';
 
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
-import { InboundConnection, OutboundConnections } from '@src/core/types/index.js';
+import { InboundConnection } from '@src/core/types/index.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
+import {
+  getLegacyClient,
+  getLegacyTransport,
+  type LegacyOutboundConnections,
+} from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import { buildUri, parseUri } from '@src/utils/core/parsing.js';
 import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
 
@@ -21,7 +26,7 @@ import {
   resolveOutboundConnection,
 } from '@src/core/protocol/requestHandlerUtils.js';
 
-export function registerPromptHandlers(outboundConns: OutboundConnections, inboundConn: InboundConnection): void {
+export function registerPromptHandlers(outboundConns: LegacyOutboundConnections, inboundConn: InboundConnection): void {
   const sessionId = getRequestSession(inboundConn);
   const catalog = createProtocolCapabilityCatalog(outboundConns);
 
@@ -34,9 +39,9 @@ export function registerPromptHandlers(outboundConns: OutboundConnections, inbou
         visibility,
         cursor: request.params?.cursor,
         list: async (outboundConn, cursor, serverName) => {
-          const upstream = await outboundConn.client.listPrompts(
+          const upstream = await getLegacyClient(outboundConn).listPrompts(
             { cursor },
-            { timeout: getRequestTimeout(outboundConn.transport) },
+            { timeout: getRequestTimeout(getLegacyTransport(outboundConn)) },
           );
           return {
             items: (upstream.prompts ?? []).map((prompt) => ({
@@ -65,17 +70,20 @@ export function registerPromptHandlers(outboundConns: OutboundConnections, inbou
       if (!outboundConn) {
         throw new Error(`Unknown client: ${clientName}`);
       }
-      return outboundConn.client.getPrompt(
+      return getLegacyClient(outboundConn).getPrompt(
         { ...request.params, name: promptName },
         {
-          timeout: getRequestTimeout(outboundConn.transport),
+          timeout: getRequestTimeout(getLegacyTransport(outboundConn)),
         },
       );
     }, 'Error getting prompt'),
   );
 }
 
-export function registerCompletionHandlers(outboundConns: OutboundConnections, inboundConn: InboundConnection): void {
+export function registerCompletionHandlers(
+  outboundConns: LegacyOutboundConnections,
+  inboundConn: InboundConnection,
+): void {
   const sessionId = getRequestSession(inboundConn);
 
   getLegacyInboundServer(inboundConn).setRequestHandler(
@@ -101,10 +109,10 @@ export function registerCompletionHandlers(outboundConns: OutboundConnections, i
       if (!outboundConn) {
         throw new Error(`Unknown client: ${clientName}`);
       }
-      return outboundConn.client.complete(
+      return getLegacyClient(outboundConn).complete(
         { ...request.params, ref: updatedRef },
         {
-          timeout: getRequestTimeout(outboundConn.transport),
+          timeout: getRequestTimeout(getLegacyTransport(outboundConn)),
         },
       );
     }, 'Error handling completion'),

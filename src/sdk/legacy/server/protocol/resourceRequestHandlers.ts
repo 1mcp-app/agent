@@ -11,9 +11,14 @@ import {
 } from '@src/sdk/legacy/types.js';
 
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
-import { InboundConnection, OutboundConnections } from '@src/core/types/index.js';
+import { InboundConnection } from '@src/core/types/index.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
+import {
+  getLegacyClient,
+  getLegacyTransport,
+  type LegacyOutboundConnections,
+} from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import { buildUri, parseUri } from '@src/utils/core/parsing.js';
 import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
 
@@ -24,7 +29,10 @@ import {
   resolveOutboundConnection,
 } from '@src/core/protocol/requestHandlerUtils.js';
 
-export function registerResourceHandlers(outboundConns: OutboundConnections, inboundConn: InboundConnection): void {
+export function registerResourceHandlers(
+  outboundConns: LegacyOutboundConnections,
+  inboundConn: InboundConnection,
+): void {
   const sessionId = getRequestSession(inboundConn);
   const catalog = createProtocolCapabilityCatalog(outboundConns);
 
@@ -37,9 +45,9 @@ export function registerResourceHandlers(outboundConns: OutboundConnections, inb
         visibility,
         cursor: request.params?.cursor,
         list: async (outboundConn, cursor, serverName) => {
-          const upstream = await outboundConn.client.listResources(
+          const upstream = await getLegacyClient(outboundConn).listResources(
             { cursor },
-            { timeout: getRequestTimeout(outboundConn.transport) },
+            { timeout: getRequestTimeout(getLegacyTransport(outboundConn)) },
           );
           return {
             items: (upstream.resources ?? []).map((resource) => ({
@@ -69,9 +77,9 @@ export function registerResourceHandlers(outboundConns: OutboundConnections, inb
         visibility,
         cursor: request.params?.cursor,
         list: async (outboundConn, cursor, serverName) => {
-          const upstream = await outboundConn.client.listResourceTemplates(
+          const upstream = await getLegacyClient(outboundConn).listResourceTemplates(
             { cursor },
-            { timeout: getRequestTimeout(outboundConn.transport) },
+            { timeout: getRequestTimeout(getLegacyTransport(outboundConn)) },
           );
           return {
             items: (upstream.resourceTemplates ?? []).map((template) => ({
@@ -100,10 +108,10 @@ export function registerResourceHandlers(outboundConns: OutboundConnections, inb
       if (!outboundConn) {
         throw new Error(`Unknown client: ${clientName}`);
       }
-      return outboundConn.client.subscribeResource(
+      return getLegacyClient(outboundConn).subscribeResource(
         { ...request.params, uri: resourceName },
         {
-          timeout: getRequestTimeout(outboundConn.transport),
+          timeout: getRequestTimeout(getLegacyTransport(outboundConn)),
         },
       );
     }, 'Error subscribing to resource'),
@@ -117,10 +125,10 @@ export function registerResourceHandlers(outboundConns: OutboundConnections, inb
       if (!outboundConn) {
         throw new Error(`Unknown client: ${clientName}`);
       }
-      return outboundConn.client.unsubscribeResource(
+      return getLegacyClient(outboundConn).unsubscribeResource(
         { ...request.params, uri: resourceName },
         {
-          timeout: getRequestTimeout(outboundConn.transport),
+          timeout: getRequestTimeout(getLegacyTransport(outboundConn)),
         },
       );
     }, 'Error unsubscribing from resource'),
@@ -134,10 +142,10 @@ export function registerResourceHandlers(outboundConns: OutboundConnections, inb
       if (!outboundConn) {
         throw new Error(`Unknown client: ${clientName}`);
       }
-      const resource = await outboundConn.client.readResource(
+      const resource = await getLegacyClient(outboundConn).readResource(
         { ...request.params, uri: resourceName },
         {
-          timeout: getRequestTimeout(outboundConn.transport),
+          timeout: getRequestTimeout(getLegacyTransport(outboundConn)),
         },
       );
 

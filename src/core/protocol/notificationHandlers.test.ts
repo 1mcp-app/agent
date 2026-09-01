@@ -64,6 +64,9 @@ describe('Notification Handlers', () => {
     mockOutboundConns.set('test-client', {
       name: 'test-client',
       status: ClientStatus.Connected,
+      adapter: {
+        nextEvent: vi.fn(() => new Promise(() => undefined)),
+      },
       client: mockClient,
       transport: {
         timeout: 5000,

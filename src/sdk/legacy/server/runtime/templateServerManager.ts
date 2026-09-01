@@ -1,4 +1,9 @@
 import { Transport } from '@src/sdk/legacy/shared/transport.js';
+import type { AuthProviderTransport } from '@src/sdk/legacy/client/runtime/legacyTransport.js';
+import {
+  createLegacyOutboundConnection,
+  getLegacyClient,
+} from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 
 import { getRuntimeScopeEnvironment, sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
 import { isOperatorDisabledTemplateDefinition } from '@src/config/configuredServerTargets.js';
@@ -31,7 +36,7 @@ import {
   cleanupTemplateServersForSession,
   type EphemeralTemplateClient,
 } from '@src/core/server/templateServerCleanup.js';
-import type { AuthProviderTransport, OutboundConnection, OutboundConnections } from '@src/core/types/client.js';
+import type { OutboundConnection, OutboundConnections } from '@src/core/types/client.js';
 import { ClientStatus } from '@src/core/types/client.js';
 import { MCPServerParams } from '@src/core/types/index.js';
 import type { InboundConnectionConfig } from '@src/core/types/server.js';
@@ -195,14 +200,17 @@ export class TemplateServerManager {
         instance.outboundKeys.add(outboundKey);
 
         const instructions = instance.client.getInstructions();
-        outboundConns.set(outboundKey, {
+        outboundConns.set(
+          outboundKey,
+          createLegacyOutboundConnection({
           name: templateName, // Keep clean name for tool namespacing (serena_1mcp_*)
           transport: instance.transport as AuthProviderTransport,
           client: instance.client,
           status: ClientStatus.Connected, // Template servers should be connected
-          capabilities: undefined, // Will be populated by setupCapabilities
+          capabilities: instance.client.getServerCapabilities?.(),
           instructions,
-        });
+          }),
+        );
         registerCapabilityPaginationNotifications(outboundConns, outboundConns.get(outboundKey)!);
         if (instance.supervision) {
           this.publishTemplateSupervision(instance, instance.supervision);
@@ -241,7 +249,7 @@ export class TemplateServerManager {
         this.templateSessionMap.set(templateName, sessionId);
 
         // Add to transports map as well using instance ID
-        transports[instance.id] = instance.transport;
+        transports[instance.id] = instance.transport as Transport;
 
         // Enhanced client-template tracking
         this.clientTemplateTracker.addClientTemplate(sessionId, templateName, instance.id, {
@@ -472,29 +480,31 @@ export class TemplateServerManager {
     for (const outboundKey of instance.outboundKeys) {
       const connection = this.outboundConns?.get(outboundKey);
       if (connection) {
-        connection.supervision = snapshot;
-        connection.client = instance.client;
-        connection.transport = instance.transport;
-        if (snapshot.state === 'connected') {
-          connection.status = ClientStatus.Connected;
-          connection.capabilities = instance.client.getServerCapabilities?.();
-          connection.instructions = instance.client.getInstructions?.();
-        } else {
-          connection.status =
-            snapshot.state === 'crash-loop'
-              ? ClientStatus.CrashLoop
-              : snapshot.state === 'stopped'
-                ? ClientStatus.Disconnected
-                : ClientStatus.Restarting;
-          connection.capabilities = undefined;
-          connection.instructions = undefined;
-        }
+        const connected = snapshot.state === 'connected';
+        const status = connected
+          ? ClientStatus.Connected
+          : snapshot.state === 'crash-loop'
+            ? ClientStatus.CrashLoop
+            : snapshot.state === 'stopped'
+              ? ClientStatus.Disconnected
+              : ClientStatus.Restarting;
+        const replacement = createLegacyOutboundConnection({
+          name: connection.name,
+          client: instance.client,
+          transport: instance.transport as AuthProviderTransport,
+          status,
+          capabilities: connected ? instance.client.getServerCapabilities?.() : undefined,
+          instructions: connected ? instance.client.getInstructions?.() : undefined,
+          supervision: snapshot,
+        });
+        this.outboundConns?.set(outboundKey, replacement);
+        registerCapabilityPaginationNotifications(this.outboundConns!, replacement);
       }
       ClientManager.current?.publishBackendSupervisionState(outboundKey, snapshot);
     }
     this.refreshTemplateInstructions(instance.templateName);
     if (this.transports) {
-      this.transports[instance.id] = instance.transport;
+      this.transports[instance.id] = instance.transport as Transport;
     }
   }
 
@@ -652,7 +662,7 @@ export class TemplateServerManager {
       this.ephemeralClients.get(clientId)?.delete(instance.templateName);
     }
     for (const [outboundKey, connection] of this.outboundConns ?? []) {
-      if (connection.client === instance.client) this.outboundConns?.delete(outboundKey);
+      if (getLegacyClient(connection) === instance.client) this.outboundConns?.delete(outboundKey);
     }
     if (this.transports) delete this.transports[instance.id];
     await this.clientInstancePool.removeInstance(instance.instanceKey);
@@ -686,7 +696,7 @@ export class TemplateServerManager {
       }
       this.clientTemplateTracker.cleanupInstance(templateName, instance.id);
       for (const [outboundKey, connection] of this.outboundConns ?? []) {
-        if (connection.client === instance.client) {
+        if (getLegacyClient(connection) === instance.client) {
           this.outboundConns?.delete(outboundKey);
         }
       }

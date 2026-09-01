@@ -1,10 +1,12 @@
 import { Transport } from '@src/sdk/legacy/shared/transport.js';
+import type { AuthProviderTransport } from '@src/sdk/legacy/client/runtime/legacyTransport.js';
+import { getLegacyTransport } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 
 import { sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
 import { getGlobalContextManager } from '@src/core/context/globalContextManager.js';
 import type { OutboundConnections } from '@src/core/types/client.js';
-import { AuthProviderTransport, MCPServerParams } from '@src/core/types/index.js';
+import { MCPServerParams } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { createTransports, createTransportsWithContext, inferTransportType } from '@src/transport/transportFactory.js';
 
@@ -223,9 +225,10 @@ export class MCPServerLifecycleManager {
 
       // Update outbound connections metadata
       const outboundConn = outboundConns.get(serverName);
-      if (outboundConn && outboundConn.transport && 'tags' in outboundConn.transport) {
+      if (outboundConn) {
         // Update tags in the outbound connection
-        outboundConn.transport.tags = newConfig.tags;
+        getLegacyTransport(outboundConn).tags = newConfig.tags;
+        outboundConn.tags = [...(newConfig.tags ?? [])];
       }
 
       debugIf(() => ({
@@ -255,7 +258,7 @@ export class MCPServerLifecycleManager {
       const transports = currentContext
         ? await createTransportsWithContext({ [serverName]: config }, currentContext)
         : createTransports({ [serverName]: config });
-      const transport = transports[serverName];
+      const transport = transports[serverName] as AuthProviderTransport | undefined;
 
       if (!transport) {
         throw new Error(`Failed to create transport for server ${serverName}`);

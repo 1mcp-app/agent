@@ -70,5 +70,3 @@ export interface InboundConnection extends InboundConnectionConfig {
   readonly lastConnected?: string;
   readonly connectedAt?: string;
 }
-
-export type ServerCapability = 'completions' | 'experimental' | 'logging' | 'prompts' | 'resources' | 'tools';
