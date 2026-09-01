@@ -72,7 +72,8 @@ describe('token/storage permission invariants (POSIX-only, AUTH-07 gate)', () =>
 
       expect(() => service.writeData(filePrefix, testId, { ...testData, value: 'new-secret' })).toThrow(/EPERM/);
       expect(JSON.parse(fs.readFileSync(filePath, 'utf8')).value).toBe('old-secret');
-      const residue = fs.readdirSync(tempDir).filter((name) => name.endsWith('.tmp'));
+      // Temp files are written into the storage dir (tempDir/sessions), not tempDir itself.
+      const residue = fs.readdirSync(path.join(tempDir, 'sessions')).filter((name) => name.endsWith('.tmp'));
       expect(residue).toEqual([]);
     },
   );
