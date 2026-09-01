@@ -11,7 +11,7 @@ import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, InboundConnection, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import type { MCPServerParams } from '@src/core/types/transport.js';
 import logger from '@src/logger/logger.js';
-import type { ListToolsResult } from '@src/sdk/legacy/types.js';
+import type { ListToolsResult } from '@src/sdk/contracts/index.js';
 
 export function getRequestSession(inboundConn: InboundConnection): string | undefined {
   return inboundConn.context?.sessionId;

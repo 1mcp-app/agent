@@ -1,4 +1,4 @@
-import type { Prompt, PromptArgument, Resource, Tool } from '@src/sdk/legacy/types.js';
+import type { Prompt, PromptArgument, Resource, Tool } from '@src/sdk/contracts/index.js';
 
 import logger from '@src/logger/logger.js';
 

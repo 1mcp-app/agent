@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 
-import { Tool } from '@src/sdk/legacy/types.js';
+import type { Tool } from '@src/sdk/contracts/index.js';
 
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';

@@ -1,5 +1,4 @@
-import { StreamableHTTPError } from '@src/sdk/legacy/client/streamableHttp.js';
-import type { Tool } from '@src/sdk/legacy/types.js';
+import { hasHttpErrorCode, type Tool } from '@src/sdk/contracts/index.js';
 
 import { findToolByQualifiedName } from '@src/commands/run/runUtils.js';
 import { ApiClient } from '@src/commands/shared/apiClient.js';
@@ -392,7 +391,7 @@ export async function inspectTools(options: {
       retryWithFreshSession: false,
     };
   } catch (error) {
-    if (error instanceof StreamableHTTPError && error.code === 404 && options.sessionId) {
+    if (hasHttpErrorCode(error, 404) && options.sessionId) {
       return {
         rawResponse: {
           jsonrpc: '2.0',

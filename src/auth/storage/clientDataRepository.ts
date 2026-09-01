@@ -1,4 +1,4 @@
-import { OAuthClientInformationFull } from '@src/sdk/legacy/shared/auth.js';
+import type { OAuthClientInformationFull } from '@src/sdk/contracts/index.js';
 
 import { ClientData } from '@src/auth/sessionTypes.js';
 import { AUTH_CONFIG } from '@src/constants.js';

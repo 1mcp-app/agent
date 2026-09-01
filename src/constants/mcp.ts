@@ -1,7 +1,7 @@
 /**
  * Model Context Protocol (MCP) constants
  */
-import { ClientCapabilities, ServerCapabilities } from '@src/sdk/legacy/types.js';
+import type { ClientCapabilities, ServerCapabilities } from '@src/sdk/contracts/index.js';
 
 // MCP constants
 export const MCP_CONFIG_FILE = 'mcp.json';

@@ -1,4 +1,4 @@
-import { ServerCapabilities } from '@src/sdk/legacy/types.js';
+import type { ServerCapabilities } from '@src/sdk/contracts/index.js';
 
 import { OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import { TagExpression, TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';

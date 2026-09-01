@@ -4,9 +4,14 @@ import path from 'node:path';
 import ts from 'typescript';
 
 const LEGACY_PACKAGE = '@modelcontextprotocol/sdk';
+const LEGACY_ISLAND_ALIAS = '@src/sdk/legacy';
 
 function isLegacySdkSpecifier(specifier) {
   return specifier === LEGACY_PACKAGE || specifier.startsWith(`${LEGACY_PACKAGE}/`);
+}
+
+function isLegacyIslandSpecifier(specifier) {
+  return specifier === LEGACY_ISLAND_ALIAS || specifier.startsWith(`${LEGACY_ISLAND_ALIAS}/`);
 }
 
 function isTestSource(relativePath) {
@@ -21,12 +26,24 @@ function stringLiteralText(node) {
   return node && ts.isStringLiteralLike(node) ? node.text : undefined;
 }
 
+function isPureCompatibilityShim(sourceFile) {
+  return (
+    sourceFile.statements.length > 0 &&
+    sourceFile.statements.every(
+      (statement) =>
+        ts.isExportDeclaration(statement) && isLegacyIslandSpecifier(stringLiteralText(statement.moduleSpecifier)),
+    )
+  );
+}
+
 export function findLegacySdkImports(sourceText, filePath) {
   const sourceFile = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const violations = [];
+  const compatibilityShim = isPureCompatibilityShim(sourceFile);
 
   function add(node, kind, specifier) {
-    if (!isLegacySdkSpecifier(specifier)) return;
+    if (!isLegacySdkSpecifier(specifier) && !isLegacyIslandSpecifier(specifier)) return;
+    if (compatibilityShim && isLegacyIslandSpecifier(specifier)) return;
     const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
     violations.push({ file: filePath, line: position.line + 1, column: position.character + 1, kind, specifier });
   }
@@ -46,7 +63,10 @@ export function findLegacySdkImports(sourceText, filePath) {
       const specifier = stringLiteralText(node.arguments[0]);
       if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
         add(node, 'dynamic import', specifier);
-      } else if (specifier !== undefined && isLegacySdkSpecifier(specifier)) {
+      } else if (
+        specifier !== undefined &&
+        (isLegacySdkSpecifier(specifier) || isLegacyIslandSpecifier(specifier))
+      ) {
         const kind =
           ts.isIdentifier(node.expression) && node.expression.text === 'require'
             ? 'commonjs require'
@@ -87,8 +107,12 @@ export async function checkSdkImportBoundary(root) {
 export function formatImportViolations(violations) {
   return violations
     .map(
-      ({ file, line, column, kind, specifier }) =>
-        `${file}:${line}:${column} ${kind} '${specifier}' must move under src/sdk/legacy/ or use the v2 packages`,
+      ({ file, line, column, kind, specifier }) => {
+        const resolution = isLegacyIslandSpecifier(specifier)
+          ? 'must be replaced with a 1MCP-owned contract or isolated behind a pure export-only compatibility shim'
+          : 'must move under src/sdk/legacy/ or use the v2 packages';
+        return `${file}:${line}:${column} ${kind} '${specifier}' ${resolution}`;
+      },
     )
     .join('\n');
 }

@@ -1,4 +1,4 @@
-import { ErrorCode } from '@src/sdk/legacy/types.js';
+import { ErrorCode } from '@src/sdk/contracts/index.js';
 
 import { resolveFilterSelection } from '@src/core/filtering/filterSelection.js';
 import { PresetManager } from '@src/domains/preset/manager/presetManager.js';

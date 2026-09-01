@@ -87,6 +87,54 @@ test('ignores v2 package imports', () => {
   assert.deepEqual(findLegacySdkImports(source, 'src/application/example.ts'), []);
 });
 
+test('rejects shared imports from the internal legacy island', () => {
+  const source = "import type { Tool } from '@src/sdk/legacy/types.js';\n";
+  const violations = findLegacySdkImports(source, 'src/application/example.ts');
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].kind, 'type-only import');
+});
+
+test('rejects dynamic imports from the internal legacy island', () => {
+  const source = "const legacy = await import('@src/sdk/legacy/client/index.js');\n";
+  const violations = findLegacySdkImports(source, 'src/application/example.ts');
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].kind, 'dynamic import');
+});
+
+test('rejects runtime loaders for the internal legacy island', () => {
+  const cases = [
+    ["const legacy = require('@src/sdk/legacy/types.js');", 'commonjs require'],
+    [
+      "const legacyRequire = createRequire(import.meta.url); legacyRequire('@src/sdk/legacy/types.js');",
+      'runtime loader call',
+    ],
+  ];
+
+  for (const [source, kind] of cases) {
+    const violations = findLegacySdkImports(source, 'src/application/example.ts');
+    assert.equal(violations.length, 1, source);
+    assert.equal(violations[0].kind, kind, source);
+  }
+});
+
+test('allows pure compatibility shims for the internal legacy island', () => {
+  const source = [
+    "export * from '@src/sdk/legacy/server/runtime/serverManager.js';",
+    "export type { ConnectedClient } from '@src/sdk/legacy/client/runtime/connectedClient.js';",
+  ].join('\n');
+  assert.deepEqual(findLegacySdkImports(source, 'src/core/server/serverManager.ts'), []);
+});
+
+test('rejects compatibility shims that contain executable code', () => {
+  const source = [
+    "export * from '@src/sdk/legacy/server/runtime/serverManager.js';",
+    'initializeRuntime();',
+  ].join('\n');
+  const violations = findLegacySdkImports(source, 'src/core/server/serverManager.ts');
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].kind, 'export-from');
+});
+
 test('topology diffs name the exact expected and actual values', () => {
   const differences = topologyDifferences({ root: { zod: '4.4.3' } }, { root: { zod: '4.5.0' } });
   assert.deepEqual(differences, [{ path: '$.root.zod', expected: '4.4.3', actual: '4.5.0' }]);

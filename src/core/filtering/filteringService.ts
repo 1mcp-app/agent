@@ -1,4 +1,4 @@
-import { ServerCapabilities } from '@src/sdk/legacy/types.js';
+import type { ServerCapabilities } from '@src/sdk/contracts/index.js';
 
 import { ClientStatus } from '@src/core/types/client.js';
 import { InboundConnectionConfig, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';

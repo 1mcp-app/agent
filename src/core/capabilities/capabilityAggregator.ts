@@ -7,7 +7,7 @@ import {
   Prompt,
   Resource,
   Tool,
-} from '@src/sdk/legacy/types.js';
+} from '@src/sdk/contracts/index.js';
 
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import {

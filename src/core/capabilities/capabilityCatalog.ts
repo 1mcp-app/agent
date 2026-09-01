@@ -1,4 +1,4 @@
-import type { Tool } from '@src/sdk/legacy/types.js';
+import type { Tool } from '@src/sdk/contracts/index.js';
 
 import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { ConnectionResolver, type TemplateHashProvider } from '@src/core/server/connectionResolver.js';

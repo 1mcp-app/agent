@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 
-import { ErrorCode } from '@src/sdk/legacy/types.js';
+import { ErrorCode } from '@src/sdk/contracts/index.js';
 
 import type { OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import { MCPError } from '@src/utils/core/errorTypes.js';

@@ -4,7 +4,7 @@
  * This module contains factory functions for creating discovery-related internal MCP tools
  * including search and registry management tools.
  */
-import { Tool } from '@src/sdk/legacy/types.js';
+import type { Tool } from '@src/sdk/contracts/index.js';
 
 import {
   McpInfoOutputSchema,

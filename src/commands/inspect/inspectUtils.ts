@@ -1,6 +1,6 @@
 import { encode } from '@toon-format/toon';
 
-import type { Tool } from '@src/sdk/legacy/types.js';
+import type { Tool } from '@src/sdk/contracts/index.js';
 
 import type { ParsedToolReference } from '@src/commands/run/runUtils.js';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
