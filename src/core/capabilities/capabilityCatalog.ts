@@ -1,6 +1,5 @@
 import type { Tool } from '@src/sdk/legacy/types.js';
 
-import { executeWithPostAuthOAuthRecovery } from '@src/core/client/postAuthOAuthRecovery.js';
 import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { ConnectionResolver, type TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { getDisabledToolError, isToolDisabled } from '@src/core/server/disabledTools.js';
@@ -300,12 +299,10 @@ export class CapabilityCatalog {
     }
 
     try {
-      const result = await executeWithPostAuthOAuthRecovery(route.server, connection, () =>
-        requestLegacyAdapter(connection.adapter, 'tools/call', {
-          name: route.toolName,
-          arguments: args.args as never,
-        }),
-      );
+      const result = await requestLegacyAdapter(connection.adapter, 'tools/call', {
+        name: route.toolName,
+        arguments: args.args as never,
+      });
       return { result, server: route.server, tool: route.toolName, route, refresh };
     } catch (error) {
       logger.error(`Tool invocation failed: ${route.server}:${route.toolName}`, { error });

@@ -7,7 +7,6 @@ import {
 } from '@src/core/capabilities/capabilityVisibility.js';
 import { ToolInvokeOutput, ToolListOutput } from '@src/core/capabilities/schemas/metaToolSchemas.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
-import { executeWithPostAuthOAuthRecovery } from '@src/core/client/postAuthOAuthRecovery.js';
 import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { type ServerAdapter, ServerType } from '@src/core/server/adapters/types.js';
@@ -291,12 +290,10 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           return;
         }
         try {
-          const upstreamResult = await executeWithPostAuthOAuthRecovery(target.serverName, connection, () =>
-            requestLegacyAdapter(connection.adapter, 'tools/call', {
-              name: target.toolName,
-              arguments: toolArgs as never,
-            }),
-          );
+          const upstreamResult = await requestLegacyAdapter(connection.adapter, 'tools/call', {
+            name: target.toolName,
+            arguments: toolArgs as never,
+          });
           res.json({ result: upstreamResult, server: target.serverName, tool: target.toolName });
         } catch (error) {
           logger.error('Direct tool invocation error:', error);

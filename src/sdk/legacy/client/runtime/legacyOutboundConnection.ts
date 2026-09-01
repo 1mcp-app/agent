@@ -5,6 +5,7 @@ import type { ClientStatus, OutboundConnection, OutboundErrorSnapshot } from '@s
 import { type JsonObject, toJsonValue } from '@src/sdk/contracts/index.js';
 
 import {
+  bindLegacySdkConnection,
   getLegacySdkClient,
   getLegacySdkTransport,
   LegacySdkClientAdapter,
@@ -60,7 +61,7 @@ export function createLegacyOutboundConnection(
   options: CreateLegacyOutboundConnectionOptions,
 ): LegacyOutboundConnection {
   const adapter = new LegacySdkClientAdapter(options.client, options.transport);
-  return {
+  const connection: LegacyOutboundConnection = {
     name: options.name,
     adapter,
     status: options.status,
@@ -75,6 +76,8 @@ export function createLegacyOutboundConnection(
     ...(options.oauthStartTime === undefined ? {} : { oauthStartTime: options.oauthStartTime.toISOString() }),
     ...(options.supervision === undefined ? {} : { supervision: snapshotSupervision(options.supervision) }),
   };
+  bindLegacySdkConnection(adapter, connection);
+  return connection;
 }
 
 export function getLegacyClient(connection: LegacyOutboundConnection): Client {

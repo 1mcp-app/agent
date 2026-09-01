@@ -17,7 +17,6 @@ import {
   publishConfiguredToolSnapshot,
 } from '@src/core/capabilities/configuredToolSnapshot.js';
 import { InternalCapabilitiesProvider } from '@src/core/capabilities/internalCapabilitiesProvider.js';
-import { executeWithPostAuthOAuthRecovery } from '@src/core/client/postAuthOAuthRecovery.js';
 import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { filterDisabledTools } from '@src/core/server/disabledTools.js';
 import { applyEffectiveToolDescription } from '@src/core/server/toolDescriptionOverrides.js';
@@ -264,14 +263,12 @@ export class CapabilityAggregator extends EventEmitter {
    */
   private async safeListTools(serverName: string, connection: OutboundConnection): Promise<ListToolsResult> {
     try {
-      return await executeWithPostAuthOAuthRecovery(serverName, connection, () =>
-        collectConfiguredToolPages((cursor) =>
-          requestLegacyAdapter<ListToolsResult>(
-            connection.adapter,
-            'tools/list',
-            cursor === undefined ? undefined : { cursor },
-            { timeoutMs: connection.requestTimeoutMs },
-          ),
+      return await collectConfiguredToolPages((cursor) =>
+        requestLegacyAdapter<ListToolsResult>(
+          connection.adapter,
+          'tools/list',
+          cursor === undefined ? undefined : { cursor },
+          { timeoutMs: connection.requestTimeoutMs },
         ),
       );
     } catch (error) {
@@ -285,11 +282,9 @@ export class CapabilityAggregator extends EventEmitter {
    */
   private async safeListResources(serverName: string, connection: OutboundConnection): Promise<ListResourcesResult> {
     try {
-      return await executeWithPostAuthOAuthRecovery(serverName, connection, () =>
-        requestLegacyAdapter<ListResourcesResult>(connection.adapter, 'resources/list', undefined, {
-          timeoutMs: connection.requestTimeoutMs,
-        }),
-      );
+      return await requestLegacyAdapter<ListResourcesResult>(connection.adapter, 'resources/list', undefined, {
+        timeoutMs: connection.requestTimeoutMs,
+      });
     } catch (error) {
       logger.warn(`Failed to list resources from ${serverName}`, { error: String(error) });
       return { resources: [] };
@@ -301,11 +296,9 @@ export class CapabilityAggregator extends EventEmitter {
    */
   private async safeListPrompts(serverName: string, connection: OutboundConnection): Promise<ListPromptsResult> {
     try {
-      return await executeWithPostAuthOAuthRecovery(serverName, connection, () =>
-        requestLegacyAdapter<ListPromptsResult>(connection.adapter, 'prompts/list', undefined, {
-          timeoutMs: connection.requestTimeoutMs,
-        }),
-      );
+      return await requestLegacyAdapter<ListPromptsResult>(connection.adapter, 'prompts/list', undefined, {
+        timeoutMs: connection.requestTimeoutMs,
+      });
     } catch (error) {
       logger.warn(`Failed to list prompts from ${serverName}`, { error: String(error) });
       return { prompts: [] };

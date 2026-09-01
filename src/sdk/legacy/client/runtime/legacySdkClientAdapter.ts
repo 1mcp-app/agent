@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { Client } from '@src/sdk/legacy/client/index.js';
+import { StreamableHTTPError } from '@src/sdk/legacy/client/streamableHttp.js';
 import {
   PromptListChangedNotificationSchema,
   ResourceListChangedNotificationSchema,
@@ -21,11 +22,29 @@ import {
   OneMcpProtocolError,
   toJsonValue,
 } from '@src/sdk/contracts/index.js';
+import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
+import logger from '@src/logger/logger.js';
 
+import { ClientFactory } from './clientFactory.js';
 import type { AuthProviderTransport } from './legacyTransport.js';
+import { TransportRecreator } from './transportRecreator.js';
 
 const INTERNAL_ERROR = -32_603;
-const legacyHandles = new WeakMap<LegacySdkClientAdapter, { client: Client; transport: AuthProviderTransport }>();
+const POST_AUTH_UNAUTHORIZED_MESSAGE = 'Server returned 401 after successful authentication';
+
+interface LegacySdkClientAdapterOptions {
+  readonly createClient?: () => Client;
+  readonly recreateHttpTransport?: (transport: AuthProviderTransport, serverName?: string) => AuthProviderTransport;
+}
+
+interface LegacyHandles {
+  client: Client;
+  transport: AuthProviderTransport;
+  connection?: OutboundConnection;
+  recovery?: Promise<void>;
+}
+
+const legacyHandles = new WeakMap<LegacySdkClientAdapter, LegacyHandles>();
 
 function toProtocolError(error: unknown): OneMcpProtocolError {
   try {
@@ -35,6 +54,18 @@ function toProtocolError(error: unknown): OneMcpProtocolError {
   }
 }
 
+function isPostAuthUnauthorized(error: unknown): error is StreamableHTTPError {
+  return (
+    error instanceof StreamableHTTPError &&
+    error.code === 401 &&
+    error.message.includes(POST_AUTH_UNAUTHORIZED_MESSAGE)
+  );
+}
+
+function snapshotError(error: unknown): { name: string; message: string } {
+  return error instanceof Error ? { name: error.name, message: error.message } : { name: 'Error', message: String(error) };
+}
+
 /** Concrete boundary around one legacy v1 SDK Client. */
 export class LegacySdkClientAdapter implements LegacySdkAdapter {
   readonly connectionId = randomUUID() as LegacyConnectionId;
@@ -42,12 +73,17 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
   private readonly controllers = new Map<LegacyRequestId, AbortController>();
   private readonly events: LegacySdkEvent[] = [];
   private readonly waiters: Array<(event: LegacySdkEvent) => void> = [];
+  private readonly createClient: () => Client;
+  private readonly recreateHttpTransport: NonNullable<LegacySdkClientAdapterOptions['recreateHttpTransport']>;
 
-  constructor(client: Client, transport: AuthProviderTransport) {
+  constructor(client: Client, transport: AuthProviderTransport, options: LegacySdkClientAdapterOptions = {}) {
     legacyHandles.set(this, { client, transport });
-    this.registerNotification(ToolListChangedNotificationSchema);
-    this.registerNotification(ResourceListChangedNotificationSchema);
-    this.registerNotification(PromptListChangedNotificationSchema);
+    const clientFactory = new ClientFactory();
+    const transportRecreator = new TransportRecreator();
+    this.createClient = options.createClient ?? (() => clientFactory.createClient());
+    this.recreateHttpTransport =
+      options.recreateHttpTransport ?? ((current, serverName) => transportRecreator.recreateHttpTransport(current, serverName));
+    this.registerListChangedNotifications();
   }
 
   get state(): LegacySdkLifecycleState {
@@ -76,17 +112,114 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
     this.controllers.set(request.id, controller);
     try {
       if (this.lifecycleState === 'idle') await this.start();
-      const result = await this.handles.client.request(
-        { method: request.method, ...(request.params === undefined ? {} : { params: request.params }) } as never,
-        ResultSchema,
-        { signal: controller.signal, ...(request.timeoutMs === undefined ? {} : { timeout: request.timeoutMs }) },
-      );
+      const result = await this.requestWithRecovery(request, controller, false);
       return toJsonValue(result);
     } catch (error) {
       throw toProtocolError(error);
     } finally {
       this.controllers.delete(request.id);
     }
+  }
+
+  private async requestWithRecovery(
+    request: LegacySdkRequest,
+    controller: AbortController,
+    recovered: boolean,
+  ): Promise<unknown> {
+    const requestClient = this.handles.client;
+    try {
+      return await requestClient.request(
+        { method: request.method, ...(request.params === undefined ? {} : { params: request.params }) } as never,
+        ResultSchema,
+        { signal: controller.signal, ...(request.timeoutMs === undefined ? {} : { timeout: request.timeoutMs }) },
+      );
+    } catch (error) {
+      if (!recovered && isPostAuthUnauthorized(error)) {
+        if (this.handles.client === requestClient) {
+          await this.recoverPostAuthUnauthorized(error);
+        }
+        return this.requestWithRecovery(request, controller, true);
+      }
+      throw error;
+    }
+  }
+
+  private async recoverPostAuthUnauthorized(error: StreamableHTTPError): Promise<void> {
+    const handles = this.handles;
+    if (handles.recovery) return handles.recovery;
+
+    const recovery = this.performPostAuthRecovery(error);
+    handles.recovery = recovery;
+    try {
+      await recovery;
+    } finally {
+      handles.recovery = undefined;
+    }
+  }
+
+  private async performPostAuthRecovery(error: StreamableHTTPError): Promise<void> {
+    const handles = this.handles;
+    const { client: staleClient, transport: staleTransport, connection } = handles;
+    const serverName = connection?.name;
+
+    try {
+      await staleTransport.oauthProvider?.invalidateCredentials('tokens');
+    } catch (invalidationError) {
+      logger.warn(`Failed to invalidate OAuth credentials for ${serverName ?? 'legacy backend'}`, {
+        error: String(invalidationError),
+      });
+    }
+
+    staleClient.onclose = undefined;
+    try {
+      await staleClient.close();
+    } catch {
+      await staleTransport.close().catch(() => undefined);
+    }
+
+    const freshTransport = this.recreateHttpTransport(staleTransport, serverName);
+    const freshClient = this.createClient();
+    try {
+      const timeout = freshTransport.connectionTimeout ?? freshTransport.timeout;
+      await freshClient.connect(freshTransport, timeout ? { timeout } : undefined);
+      handles.client = freshClient;
+      handles.transport = freshTransport;
+      this.registerListChangedNotifications();
+      if (connection) this.publishConnectedSnapshot(connection, freshTransport, freshClient);
+    } catch (recoveryError) {
+      handles.client = freshClient;
+      handles.transport = freshTransport;
+      if (connection) {
+        connection.status = ClientStatus.AwaitingOAuth;
+        connection.tags = [...(freshTransport.tags ?? [])];
+        connection.requestTimeoutMs = freshTransport.requestTimeout ?? freshTransport.timeout;
+        connection.requiresOAuth = Boolean(freshTransport.oauthProvider);
+        connection.authorizationUrl = freshTransport.oauthProvider?.getAuthorizationUrl?.();
+        connection.oauthStartTime = new Date().toISOString();
+        connection.lastError = snapshotError(error);
+      }
+      throw recoveryError;
+    }
+  }
+
+  private publishConnectedSnapshot(
+    connection: OutboundConnection,
+    transport: AuthProviderTransport,
+    client: Client,
+  ): void {
+    connection.status = ClientStatus.Connected;
+    connection.tags = [...(transport.tags ?? [])];
+    connection.requestTimeoutMs = transport.requestTimeout ?? transport.timeout;
+    connection.requiresOAuth = Boolean(transport.oauthProvider);
+    connection.authorizationUrl = undefined;
+    connection.oauthStartTime = undefined;
+    connection.lastError = undefined;
+    connection.lastConnected = new Date().toISOString();
+    const capabilities = toJsonValue(client.getServerCapabilities?.() ?? {});
+    if (capabilities && !Array.isArray(capabilities) && typeof capabilities === 'object') {
+      connection.capabilities = capabilities;
+    }
+    connection.instructions = client.getInstructions?.();
   }
 
   async cancel(requestId: LegacyRequestId): Promise<void> {
@@ -131,6 +264,12 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
     });
   }
 
+  private registerListChangedNotifications(): void {
+    this.registerNotification(ToolListChangedNotificationSchema);
+    this.registerNotification(ResourceListChangedNotificationSchema);
+    this.registerNotification(PromptListChangedNotificationSchema);
+  }
+
   private publish(event: LegacySdkEvent): void {
     const waiter = this.waiters.shift();
     if (waiter) waiter(event);
@@ -158,4 +297,10 @@ export function setLegacySdkTransport(adapter: LegacySdkAdapter, transport: Auth
   const handles = adapter instanceof LegacySdkClientAdapter ? legacyHandles.get(adapter) : undefined;
   if (!handles) throw new TypeError('Connection is not backed by the legacy v1 client adapter');
   handles.transport = transport;
+}
+
+export function bindLegacySdkConnection(adapter: LegacySdkAdapter, connection: OutboundConnection): void {
+  const handles = adapter instanceof LegacySdkClientAdapter ? legacyHandles.get(adapter) : undefined;
+  if (!handles) throw new TypeError('Connection is not backed by the legacy v1 client adapter');
+  handles.connection = connection;
 }
