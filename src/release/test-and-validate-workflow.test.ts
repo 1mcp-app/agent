@@ -11,7 +11,7 @@ const PLAYWRIGHT_IMPORT = /(?:from\s+|require\(\s*|import\(\s*)['"](?:@playwrigh
  * Reads a file relative to the repository root directory.
  *
  * @param relativePath - Relative path from workspace root.
- * @returns File content as a UTF-8 string.
+ * @returns File content as a UTF-8 string with normalized line endings.
  */
 function readRepoFile(relativePath: string): string {
   return fs.readFileSync(path.join(process.cwd(), relativePath), 'utf8').replace(/\r\n/g, '\n');
@@ -36,37 +36,101 @@ function findTestFiles(directory: string): string[] {
 
 /**
  * Collects all GitHub workflow and composite action YAML files in the repository.
+ * Scans repository-wide for all action.yml / action.yaml while skipping dependency/build folders.
  *
  * @returns Array of relative paths to CI YAML files.
  */
 function getCiYamlFiles(): string[] {
   const files: string[] = [];
+  const root = process.cwd();
+  const ignoredDirs = new Set(['node_modules', '.git', '.tmp', '.tmp-test', 'build', 'coverage', '.worktrees']);
 
-  const workflowsDir = path.join(process.cwd(), '.github', 'workflows');
-  if (fs.existsSync(workflowsDir)) {
-    for (const file of fs.readdirSync(workflowsDir)) {
-      if (file.endsWith('.yml') || file.endsWith('.yaml')) {
-        files.push(path.join('.github', 'workflows', file));
+  const scanDir = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (ignoredDirs.has(entry.name)) {
+        continue;
       }
+
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        scanDir(full);
+      } else {
+        const rel = path.relative(root, full).split(path.sep).join('/');
+        if (
+          (rel.startsWith('.github/workflows/') && (entry.name.endsWith('.yml') || entry.name.endsWith('.yaml'))) ||
+          entry.name === 'action.yml' ||
+          entry.name === 'action.yaml'
+        ) {
+          files.push(rel);
+        }
+      }
+    }
+  };
+
+  scanDir(root);
+  return [...new Set(files)].sort();
+}
+
+export interface PolicyViolation {
+  file: string;
+  rule: 'write-all-permissions' | 'secrets-inherit' | 'inline-expression-interpolation';
+  detail: string;
+}
+
+/**
+ * Evaluates a workflow or action YAML string against structural CI security policy invariants.
+ *
+ * @param relFile - Path identifier for the YAML file.
+ * @param yamlContent - Content string of the YAML file.
+ * @returns Array of detected policy violations.
+ */
+export function checkSecurityPolicies(relFile: string, yamlContent: string): PolicyViolation[] {
+  const violations: PolicyViolation[] = [];
+  const parsed = YAML.parse(yamlContent) as {
+    permissions?: string | Record<string, string>;
+    jobs?: Record<
+      string,
+      { permissions?: string | Record<string, string>; secrets?: string; steps?: { run?: string }[] }
+    >;
+    runs?: { steps?: { run?: string }[] };
+  };
+
+  if (parsed?.permissions === 'write-all' || yamlContent.includes('permissions: write-all')) {
+    violations.push({ file: relFile, rule: 'write-all-permissions', detail: 'permissions: write-all is forbidden' });
+  }
+
+  if (yamlContent.includes('secrets: inherit')) {
+    violations.push({ file: relFile, rule: 'secrets-inherit', detail: 'secrets: inherit is forbidden' });
+  }
+
+  const steps: { run?: string }[] = [...(parsed?.runs?.steps ?? [])];
+  for (const job of Object.values(parsed?.jobs ?? {})) {
+    if (job?.secrets === 'inherit') {
+      violations.push({ file: relFile, rule: 'secrets-inherit', detail: 'job-level secrets: inherit is forbidden' });
+    }
+    if (job?.permissions === 'write-all') {
+      violations.push({
+        file: relFile,
+        rule: 'write-all-permissions',
+        detail: 'job-level permissions: write-all is forbidden',
+      });
+    }
+    if (job?.steps) {
+      steps.push(...job.steps);
     }
   }
 
-  const actionsDir = path.join(process.cwd(), '.github', 'actions');
-  if (fs.existsSync(actionsDir)) {
-    const scanActions = (dir: string) => {
-      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory()) {
-          scanActions(full);
-        } else if (entry.name === 'action.yml' || entry.name === 'action.yaml') {
-          files.push(path.relative(process.cwd(), full));
-        }
-      }
-    };
-    scanActions(actionsDir);
+  for (const step of steps) {
+    if (typeof step?.run === 'string' && /\$\{\{/.test(step.run)) {
+      violations.push({
+        file: relFile,
+        rule: 'inline-expression-interpolation',
+        detail: `run step interpolates direct expression: ${step.run.trim()}`,
+      });
+    }
   }
 
-  return files;
+  return violations;
 }
 
 describe('test-and-validate workflow', () => {
@@ -145,55 +209,32 @@ describe('test-and-validate workflow', () => {
     expect(runActionlintStep?.run).toContain('./actionlint -color');
   });
 
-  it('validates security policy invariants across all workflows and composite actions', () => {
-    const fixturesDir = path.join(process.cwd(), 'test', 'fixtures', 'ci-security');
-    const injectFixture = fs.readFileSync(path.join(fixturesDir, 'inject-expression.yml'), 'utf8');
-    const unquotedFixture = fs.readFileSync(path.join(fixturesDir, 'unquoted-var.yml'), 'utf8');
-    const secretsFixture = fs.readFileSync(path.join(fixturesDir, 'secrets-inherit.yml'), 'utf8');
-    const permsFixture = fs.readFileSync(path.join(fixturesDir, 'excessive-permissions.yml'), 'utf8');
-
-    expect(injectFixture).toMatch(/\$\{\{\s*github\.event\.issue\.title\s*\}\}/);
-    expect(unquotedFixture).toMatch(/run:\s*pnpm \$BUILD_SCRIPT/);
-    expect(secretsFixture).toMatch(/secrets:\s*inherit/);
-    expect(permsFixture).toMatch(/permissions:\s*write-all/);
-
+  it('enforces security policy invariants across all repository workflows and composite actions', () => {
     const ciFiles = getCiYamlFiles();
     expect(ciFiles.length).toBeGreaterThan(0);
 
     for (const relFile of ciFiles) {
       const content = readRepoFile(relFile);
-      const parsed = YAML.parse(content) as {
-        permissions?: string | Record<string, string>;
-        jobs?: Record<
-          string,
-          { permissions?: string | Record<string, string>; secrets?: string; steps?: { run?: string }[] }
-        >;
-        runs?: { steps?: { run?: string }[] };
-      };
-
-      // Ensure write-all permissions are not used
-      expect(parsed?.permissions, `${relFile}: top-level permissions must not be write-all`).not.toBe('write-all');
-      expect(content).not.toMatch(/permissions:\s*write-all/);
-
-      // Ensure secrets: inherit is not used
-      expect(content).not.toMatch(/secrets:\s*inherit/);
-
-      // Collect all step run blocks and ensure github.event.* expressions are not directly interpolated
-      const steps: { run?: string }[] = [...(parsed?.runs?.steps ?? [])];
-      for (const job of Object.values(parsed?.jobs ?? {})) {
-        if (job?.steps) {
-          steps.push(...job.steps);
-        }
-      }
-
-      for (const step of steps) {
-        if (typeof step?.run === 'string') {
-          expect(
-            step.run,
-            `${relFile}: run step must not interpolate direct untrusted github.event context`,
-          ).not.toMatch(/\$\{\{\s*github\.event/);
-        }
-      }
+      const violations = checkSecurityPolicies(relFile, content);
+      expect(violations, `${relFile} must have zero security policy violations`).toEqual([]);
     }
+  });
+
+  it('exercises security policy validator against adversarial negative fixtures', () => {
+    const injectFixture = readRepoFile(path.join('test', 'fixtures', 'ci-security', 'inject-expression.yml'));
+    const unquotedFixture = readRepoFile(path.join('test', 'fixtures', 'ci-security', 'unquoted-var.yml'));
+    const secretsFixture = readRepoFile(path.join('test', 'fixtures', 'ci-security', 'secrets-inherit.yml'));
+    const permsFixture = readRepoFile(path.join('test', 'fixtures', 'ci-security', 'excessive-permissions.yml'));
+
+    const injectViolations = checkSecurityPolicies('inject-expression.yml', injectFixture);
+    expect(injectViolations.some((v) => v.rule === 'inline-expression-interpolation')).toBe(true);
+
+    const secretsViolations = checkSecurityPolicies('secrets-inherit.yml', secretsFixture);
+    expect(secretsViolations.some((v) => v.rule === 'secrets-inherit')).toBe(true);
+
+    const permsViolations = checkSecurityPolicies('excessive-permissions.yml', permsFixture);
+    expect(permsViolations.some((v) => v.rule === 'write-all-permissions')).toBe(true);
+
+    expect(unquotedFixture).toMatch(/run:\s*pnpm \$BUILD_SCRIPT/);
   });
 });
