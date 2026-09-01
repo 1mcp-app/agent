@@ -18,7 +18,7 @@ function isAllowedPath(relativePath) {
 }
 
 function stringLiteralText(node) {
-  return ts.isStringLiteralLike(node) ? node.text : undefined;
+  return node && ts.isStringLiteralLike(node) ? node.text : undefined;
 }
 
 export function findLegacySdkImports(sourceText, filePath) {
@@ -42,8 +42,17 @@ export function findLegacySdkImports(sourceText, filePath) {
       add(node, node.isTypeOnly ? 'type-only export' : 'export-from', stringLiteralText(node.moduleSpecifier));
     } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
       add(node, 'import-equals', stringLiteralText(node.moduleReference.expression));
-    } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
-      add(node, 'dynamic import', stringLiteralText(node.arguments[0]));
+    } else if (ts.isCallExpression(node)) {
+      const specifier = stringLiteralText(node.arguments[0]);
+      if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+        add(node, 'dynamic import', specifier);
+      } else if (specifier !== undefined && isLegacySdkSpecifier(specifier)) {
+        const kind =
+          ts.isIdentifier(node.expression) && node.expression.text === 'require'
+            ? 'commonjs require'
+            : 'runtime loader call';
+        add(node, kind, specifier);
+      }
     } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) {
       add(node, 'import type expression', stringLiteralText(node.argument.literal));
     }
@@ -59,7 +68,7 @@ async function sourceFiles(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const entryPath = path.join(directory, entry.name);
     if (entry.isDirectory()) files.push(...(await sourceFiles(entryPath)));
-    else if (/\.tsx?$/u.test(entry.name)) files.push(entryPath);
+    else if (/\.(?:[cm]?ts|tsx)$/u.test(entry.name)) files.push(entryPath);
   }
   return files;
 }

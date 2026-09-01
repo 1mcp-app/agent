@@ -39,6 +39,11 @@ test('detects every supported monolithic v1 import form outside the legacy islan
     ["export { Server } from '@modelcontextprotocol/sdk/server/index.js';", 'export-from'],
     ["export type { Tool } from '@modelcontextprotocol/sdk/types.js';", 'type-only export'],
     ["const sdk = await import('@modelcontextprotocol/sdk/client/index.js');", 'dynamic import'],
+    ["const sdk = require('@modelcontextprotocol/sdk/client/index.js');", 'commonjs require'],
+    [
+      "const legacyRequire = createRequire(import.meta.url); legacyRequire('@modelcontextprotocol/sdk/types.js');",
+      'runtime loader call',
+    ],
     ["type Tool = import('@modelcontextprotocol/sdk/types.js').Tool;", 'import type expression'],
   ];
 
@@ -46,6 +51,33 @@ test('detects every supported monolithic v1 import form outside the legacy islan
     const violations = findLegacySdkImports(source, 'src/application/example.ts');
     assert.equal(violations.length, 1, source);
     assert.equal(violations[0].kind, kind, source);
+  }
+});
+
+test('scans TypeScript module variants used by the production build', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), '1mcp-sdk-boundary-modules-'));
+  try {
+    await mkdir(path.join(root, 'src'), { recursive: true });
+    await writeFile(
+      path.join(root, 'src', 'violation.cts'),
+      "require('@modelcontextprotocol/sdk/client/index.js');\n",
+    );
+    await writeFile(
+      path.join(root, 'src', 'violation.mts'),
+      "import type { Tool } from '@modelcontextprotocol/sdk/types.js';\n",
+    );
+
+    const violations = await checkSdkImportBoundary(root);
+    assert.equal(violations.length, 2);
+    assert.deepEqual(
+      violations.map(({ file, kind }) => ({ file, kind })),
+      [
+        { file: 'src/violation.cts', kind: 'commonjs require' },
+        { file: 'src/violation.mts', kind: 'type-only import' },
+      ],
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });
 
