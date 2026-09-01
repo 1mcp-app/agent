@@ -82,8 +82,16 @@ describe('LegacySdkClientAdapter', () => {
     const staleClient = createClient();
     const freshClient = createClient();
     const invalidateCredentials = vi.fn().mockResolvedValue(undefined);
-    const staleTransport = { ...createTransport(), oauthProvider: { invalidateCredentials }, tags: ['old'] };
-    const freshTransport = { ...createTransport(), oauthProvider: staleTransport.oauthProvider, tags: ['new'] };
+    const staleTransport = {
+      ...createTransport(),
+      oauthProvider: { invalidateCredentials },
+      tags: ['old'],
+    } as AuthProviderTransport;
+    const freshTransport = {
+      ...createTransport(),
+      oauthProvider: staleTransport.oauthProvider,
+      tags: ['new'],
+    } as AuthProviderTransport;
     const unauthorized = new StreamableHTTPError(401, 'Server returned 401 after successful authentication');
     vi.spyOn(staleClient, 'request').mockRejectedValue(unauthorized);
     vi.spyOn(staleClient, 'close').mockResolvedValue(undefined);
@@ -126,7 +134,7 @@ describe('LegacySdkClientAdapter', () => {
   it('converts a non-terminal HTTP failure without attempting recovery', async () => {
     const client = createClient();
     const invalidateCredentials = vi.fn();
-    const transport = { ...createTransport(), oauthProvider: { invalidateCredentials } };
+    const transport = { ...createTransport(), oauthProvider: { invalidateCredentials } } as AuthProviderTransport;
     vi.spyOn(client, 'request').mockRejectedValue(new StreamableHTTPError(403, 'Forbidden'));
     vi.spyOn(client, 'close').mockResolvedValue(undefined);
     const recreateHttpTransport = vi.fn();

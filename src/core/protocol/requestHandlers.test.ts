@@ -11,7 +11,6 @@ import {
   createLegacyOutboundConnection,
   getLegacyTransport,
   requestLegacyOutbound,
-  setLegacyTransport,
 } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -244,19 +243,41 @@ describe('Request Handlers', () => {
 
     it('recovers OAuth for a direct MCP tool call', async () => {
       const oauthProvider = { invalidateCredentials: vi.fn().mockResolvedValue(undefined) };
-      const transport = {
+      const staleTransport = {
         _url: new URL('https://example.com/mcp'),
         oauthProvider,
         close: vi.fn().mockResolvedValue(undefined),
         timeout: 5000,
       } as any;
-      Object.setPrototypeOf(transport, StreamableHTTPClientTransport.prototype);
+      Object.setPrototypeOf(staleTransport, StreamableHTTPClientTransport.prototype);
+      const freshTransport = {
+        _url: new URL('https://example.com/mcp'),
+        oauthProvider,
+        close: vi.fn().mockResolvedValue(undefined),
+        timeout: 5000,
+      } as any;
+      Object.setPrototypeOf(freshTransport, StreamableHTTPClientTransport.prototype);
+      const freshClient = {
+        connect: vi.fn().mockRejectedValue(new Error('reauthorization pending')),
+        close: vi.fn().mockResolvedValue(undefined),
+        setNotificationHandler: vi.fn(),
+      } as any;
+      const recreateHttpTransport = vi.fn().mockReturnValue(freshTransport);
       const unauthorized = new StreamableHTTPError(401, 'Server returned 401 after successful authentication');
       mockClient1.callTool.mockRejectedValue(unauthorized);
       mockClient1.close = vi.fn().mockResolvedValue(undefined);
-      mockClient1.transport = transport;
-      const connection = mockOutboundConns.get('client1')!;
-      setLegacyTransport(connection, transport);
+      mockClient1.transport = staleTransport;
+      const connection = createLegacyOutboundConnection({
+        name: 'client1',
+        client: mockClient1,
+        transport: staleTransport,
+        status: ClientStatus.Connected,
+        adapterOptions: {
+          createClient: () => freshClient,
+          recreateHttpTransport,
+        },
+      });
+      mockOutboundConns.set('client1', connection);
       mockParseUri.mockReturnValue({ clientName: 'client1', resourceName: 'tool' });
 
       registerRequestHandlers(mockOutboundConns, mockInboundConn);
@@ -266,13 +287,14 @@ describe('Request Handlers', () => {
 
       await expect(handler({ params: { name: 'client1_tool', arguments: {} } })).rejects.toMatchObject({
         name: 'OneMcpProtocolError',
-        code: 401,
-        message: unauthorized.message,
+        code: -32_603,
+        message: 'reauthorization pending',
       });
       expect(connection.status).toBe(ClientStatus.AwaitingOAuth);
       expect(oauthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
       expect(mockClient1.close).toHaveBeenCalledOnce();
-      expect(getLegacyTransport(connection)).not.toBe(transport);
+      expect(recreateHttpTransport).toHaveBeenCalledWith(staleTransport, 'client1');
+      expect(getLegacyTransport(connection)).toBe(freshTransport);
     });
 
     it('should handle clients with different statuses', () => {
@@ -415,10 +437,10 @@ describe('Request Handlers', () => {
       const connectedPing = vi.fn().mockResolvedValue({});
       const disconnectedPing = vi.fn();
       const errorPing = vi.fn();
-      const createPingConnection = (name: string, status: ClientStatus, ping: ReturnType<typeof vi.fn>) => {
+      const createPingConnection = (name: string, status: ClientStatus, ping: () => unknown) => {
         const client = {
           ping,
-          request: vi.fn(({ method }) => (method === 'ping' ? ping() : undefined)),
+          request: vi.fn(({ method }: { method: string }) => (method === 'ping' ? ping() : undefined)),
           setNotificationHandler: vi.fn(),
         };
         return createLegacyOutboundConnection({

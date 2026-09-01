@@ -10,6 +10,7 @@ import {
   getLegacySdkClient,
   getLegacySdkTransport,
   LegacySdkClientAdapter,
+  type LegacySdkClientAdapterOptions,
   setLegacySdkTransport,
 } from './legacySdkClientAdapter.js';
 import type { AuthProviderTransport } from './legacyTransport.js';
@@ -31,6 +32,7 @@ interface CreateLegacyOutboundConnectionOptions {
   readonly authorizationUrl?: string;
   readonly oauthStartTime?: Date;
   readonly supervision?: BackendSupervisionSnapshot;
+  readonly adapterOptions?: LegacySdkClientAdapterOptions;
 }
 
 export function snapshotError(error: unknown): OutboundErrorSnapshot {
@@ -61,7 +63,7 @@ function snapshotCapabilities(capabilities: unknown): JsonObject {
 export function createLegacyOutboundConnection(
   options: CreateLegacyOutboundConnectionOptions,
 ): LegacyOutboundConnection {
-  const adapter = new LegacySdkClientAdapter(options.client, options.transport);
+  const adapter = new LegacySdkClientAdapter(options.client, options.transport, options.adapterOptions);
   const connection: LegacyOutboundConnection = {
     name: options.name,
     adapter,

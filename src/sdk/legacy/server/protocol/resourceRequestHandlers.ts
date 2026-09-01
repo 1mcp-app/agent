@@ -131,7 +131,7 @@ export function registerResourceHandlers(
       if (!outboundConn) {
         throw new Error(`Unknown client: ${clientName}`);
       }
-      const resource = await requestLegacyOutbound<{ contents: Array<Record<string, unknown>> }>(
+      const resource = await requestLegacyOutbound<{ contents: Array<{ uri: string; [key: string]: unknown }> }>(
         outboundConn,
         'resources/read',
         { ...request.params, uri: resourceName },

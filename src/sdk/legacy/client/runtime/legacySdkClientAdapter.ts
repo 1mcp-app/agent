@@ -32,7 +32,7 @@ import { TransportRecreator } from './transportRecreator.js';
 const INTERNAL_ERROR = -32_603;
 const POST_AUTH_UNAUTHORIZED_MESSAGE = 'Server returned 401 after successful authentication';
 
-interface LegacySdkClientAdapterOptions {
+export interface LegacySdkClientAdapterOptions {
   readonly createClient?: () => Client;
   readonly recreateHttpTransport?: (transport: AuthProviderTransport, serverName?: string) => AuthProviderTransport;
 }
