@@ -13,7 +13,10 @@ describe('SDK boundary accepted-contract proof', () => {
   async function createTopologyRoot(): Promise<string> {
     const root = await mkdtemp(join(tmpdir(), 'sdk-boundary-topology-'));
     fixtureRoots.push(root);
-    await mkdir(join(root, 'test/sdk-boundary'), { recursive: true });
+    await Promise.all([
+      mkdir(join(root, 'test/sdk-boundary'), { recursive: true }),
+      mkdir(join(root, 'src/application'), { recursive: true }),
+    ]);
     await Promise.all([
       copyFile(join(process.cwd(), 'package.json'), join(root, 'package.json')),
       copyFile(join(process.cwd(), 'pnpm-lock.yaml'), join(root, 'pnpm-lock.yaml')),
@@ -59,6 +62,14 @@ describe('SDK boundary accepted-contract proof', () => {
       'schemaVersion',
       'topologyDigest',
     ]);
+    expect(artifact.checks).toEqual(
+      expect.arrayContaining([
+        { id: 'sdk-boundary.source-import-policy', status: 'passed' },
+        { id: 'sdk-boundary.production-adapter-detaches-result', status: 'passed' },
+        { id: 'sdk-boundary.production-adapter-converts-error', status: 'passed' },
+        { id: 'sdk-boundary.production-adapter-rejects-non-json', status: 'passed' },
+      ]),
+    );
     expect(JSON.stringify(artifact)).not.toContain('boundary-proof');
     expect(await readSdkBoundaryProof(outputDirectory, reference)).toEqual(reference);
   });
@@ -117,6 +128,22 @@ describe('SDK boundary accepted-contract proof', () => {
     };
     expect(artifact.checks).toContainEqual({ id: 'sdk-boundary.topology-matches-snapshot', status: 'failed' });
     await expect(readSdkBoundaryProof(outputDirectory, reference)).resolves.toEqual(reference);
+  });
+
+  it('records a production source-boundary violation as product-failed evidence', async () => {
+    const root = await createTopologyRoot();
+    await writeFile(
+      join(root, 'src/application/violation.ts'),
+      "import type { Tool } from '@src/sdk/legacy/types.js';\n",
+    );
+
+    const reference = await generateSdkBoundaryProof(root, outputDirectory);
+    expect(reference).toMatchObject({ classification: 'product', productVerdict: 'fail' });
+    if (reference.classification !== 'product') throw new Error('Expected product proof');
+    const artifact = JSON.parse(await readFile(join(outputDirectory, reference.artifactId), 'utf8')) as {
+      checks: { id: string; status: string }[];
+    };
+    expect(artifact.checks).toContainEqual({ id: 'sdk-boundary.source-import-policy', status: 'failed' });
   });
 
   it.each([

@@ -134,9 +134,10 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
     controller: AbortController,
   ): Promise<unknown> {
     const requestClient = this.handles.client;
+    const params = request.params === undefined ? undefined : toJsonValue(request.params);
     try {
       return await requestClient.request(
-        { method: request.method, ...(request.params === undefined ? {} : { params: request.params }) } as never,
+        { method: request.method, ...(params === undefined ? {} : { params }) } as never,
         ResultSchema,
         { signal: controller.signal, ...(request.timeoutMs === undefined ? {} : { timeout: request.timeoutMs }) },
       );
@@ -209,9 +210,10 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
 
   async notify(notification: LegacySdkNotification): Promise<void> {
     try {
+      const params = notification.params === undefined ? undefined : toJsonValue(notification.params);
       await this.handles.client.notification({
         method: notification.method,
-        ...(notification.params === undefined ? {} : { params: notification.params }),
+        ...(params === undefined ? {} : { params }),
       } as never);
     } catch (error) {
       throw toProtocolError(error);

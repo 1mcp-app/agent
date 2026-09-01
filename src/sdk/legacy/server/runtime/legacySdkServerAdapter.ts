@@ -6,6 +6,7 @@ import type {
   LegacySdkLifecycleState,
   LegacySdkNotification,
 } from '@src/sdk/contracts/legacySdkAdapter.js';
+import { OneMcpProtocolError } from '@src/sdk/contracts/oneMcpProtocolError.js';
 import { toJsonValue, type JsonObject } from '@src/sdk/contracts/jsonValue.js';
 import type { InboundConnectionAdapter } from '@src/core/types/server.js';
 
@@ -15,6 +16,14 @@ interface LegacyServerHandles {
 }
 
 const serverHandles = new WeakMap<LegacySdkServerAdapter, LegacyServerHandles>();
+
+function toProtocolError(error: unknown): OneMcpProtocolError {
+  try {
+    return OneMcpProtocolError.fromUnknown(error);
+  } catch {
+    return new OneMcpProtocolError(-32_603, error instanceof Error ? error.message : String(error));
+  }
+}
 
 /** Owns the live v1 SDK server and transport inside the legacy runtime island. */
 export class LegacySdkServerAdapter implements InboundConnectionAdapter {
@@ -41,7 +50,7 @@ export class LegacySdkServerAdapter implements InboundConnectionAdapter {
       this.lifecycleState = 'running';
     } catch (error) {
       this.lifecycleState = 'stopped';
-      throw error;
+      throw toProtocolError(error);
     }
   }
 
@@ -50,7 +59,11 @@ export class LegacySdkServerAdapter implements InboundConnectionAdapter {
     if (params !== undefined && (params === null || Array.isArray(params) || typeof params !== 'object')) {
       throw new TypeError('Legacy server notification params must be a JSON object');
     }
-    await getHandles(this).server.notification({ method: notification.method, params: params as JsonObject | undefined });
+    try {
+      await getHandles(this).server.notification({ method: notification.method, params: params as JsonObject | undefined });
+    } catch (error) {
+      throw toProtocolError(error);
+    }
   }
 
   public async close(): Promise<void> {
@@ -58,6 +71,8 @@ export class LegacySdkServerAdapter implements InboundConnectionAdapter {
     this.lifecycleState = 'stopping';
     try {
       await getHandles(this).transport.close();
+    } catch (error) {
+      throw toProtocolError(error);
     } finally {
       this.lifecycleState = 'stopped';
     }

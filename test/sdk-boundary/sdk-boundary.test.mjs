@@ -117,6 +117,45 @@ test('rejects runtime loaders for the internal legacy island', () => {
   }
 });
 
+test('rejects relative imports into the internal legacy island', () => {
+  const cases = [
+    ["import type { Tool } from '../sdk/legacy/types.js';", 'type-only import'],
+    ["const legacy = require('../sdk/legacy/types.js');", 'commonjs require'],
+    ["const legacy = await import('../sdk/legacy/client/index.js');", 'dynamic import'],
+  ];
+
+  for (const [source, kind] of cases) {
+    const violations = findLegacySdkImports(source, 'src/application/example.ts');
+    assert.equal(violations.length, 1, source);
+    assert.equal(violations[0].kind, kind, source);
+  }
+});
+
+test('rejects computed production module loaders', () => {
+  const cases = [
+    [
+      "const specifier = '@src/sdk/legacy/types.js'; require(specifier);",
+      'commonjs require',
+    ],
+    [
+      "const specifier = '@src/sdk/legacy/client/index.js'; import(specifier);",
+      'dynamic import',
+    ],
+    ["import(resolveRuntimeModule());", 'computed dynamic import'],
+  ];
+
+  for (const [source, kind] of cases) {
+    const violations = findLegacySdkImports(source, 'src/application/example.ts');
+    assert.equal(violations.length, 1, source);
+    assert.equal(violations[0].kind, kind, source);
+  }
+});
+
+test('allows relative pure compatibility shims into the internal legacy island', () => {
+  const source = "export * from '../../sdk/legacy/server/runtime/serverManager.js';\n";
+  assert.deepEqual(findLegacySdkImports(source, 'src/core/server/serverManager.ts'), []);
+});
+
 test('allows pure compatibility shims for the internal legacy island', () => {
   const source = [
     "export * from '@src/sdk/legacy/server/runtime/serverManager.js';",

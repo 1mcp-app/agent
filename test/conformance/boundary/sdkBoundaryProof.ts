@@ -1,4 +1,5 @@
 import { CallToolRequestSchema as V2CallToolRequestSchema } from '@modelcontextprotocol/core';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -8,7 +9,9 @@ import { McpError, CallToolRequestSchema as V1CallToolRequestSchema } from '@mod
 
 import { z } from 'zod';
 
+import { checkSdkImportBoundary } from '../../../scripts/sdk-boundary/import-policy.mjs';
 import { buildSdkTopology, topologyDifferences } from '../../../scripts/sdk-boundary/topology.mjs';
+import type { LegacyRequestId } from '../../../src/sdk/contracts/legacySdkAdapter.js';
 import {
   InvalidJsonValueError,
   isJsonValue,
@@ -16,6 +19,8 @@ import {
   toJsonValue,
 } from '../../../src/sdk/contracts/jsonValue.js';
 import { OneMcpProtocolError } from '../../../src/sdk/contracts/oneMcpProtocolError.js';
+import { LegacySdkClientAdapter } from '../../../src/sdk/legacy/client/runtime/legacySdkClientAdapter.js';
+import type { AuthProviderTransport } from '../../../src/sdk/legacy/client/runtime/legacyTransport.js';
 
 const ARTIFACT_ID = 'boundary/sdk-boundary-proof.json';
 const CHECK_IDS = [
@@ -28,6 +33,10 @@ const CHECK_IDS = [
   'sdk-boundary.foreign-prototypes-removed',
   'sdk-boundary.output-is-json',
   'sdk-boundary.topology-matches-snapshot',
+  'sdk-boundary.source-import-policy',
+  'sdk-boundary.production-adapter-detaches-result',
+  'sdk-boundary.production-adapter-converts-error',
+  'sdk-boundary.production-adapter-rejects-non-json',
 ] as const;
 
 const digestSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/u);
@@ -114,6 +123,70 @@ function status(value: boolean): 'passed' | 'failed' {
   return value ? 'passed' : 'failed';
 }
 
+async function productionAdapterChecks(): Promise<{
+  detachedResult: boolean;
+  convertedError: boolean;
+  rejectedNonJson: boolean;
+}> {
+  const client = new Client({ name: 'sdk-boundary-proof', version: '1.0.0' }, { capabilities: {} });
+  const transport: AuthProviderTransport = {
+    start: async () => undefined,
+    send: async () => undefined,
+    close: async () => undefined,
+  };
+  const adapter = new LegacySdkClientAdapter(client, transport);
+  const sourceResult = { tools: [{ name: 'proof', inputSchema: { type: 'object' } }] };
+  let invocationCount = 0;
+  Object.defineProperty(client, 'request', {
+    configurable: true,
+    value: async () => {
+      invocationCount += 1;
+      return sourceResult;
+    },
+  });
+  const result = await adapter.request({ id: 'proof-success' as LegacyRequestId, method: 'tools/list' });
+  const detachedResult =
+    result !== sourceResult &&
+    isJsonValue(result) &&
+    JSON.stringify(result) === JSON.stringify(sourceResult);
+
+  const foreign = new McpError(-32_602, 'Invalid params', { proof: true });
+  Object.defineProperty(client, 'request', {
+    configurable: true,
+    value: async () => {
+      invocationCount += 1;
+      throw foreign;
+    },
+  });
+  let convertedError = false;
+  try {
+    await adapter.request({ id: 'proof-error' as LegacyRequestId, method: 'tools/list' });
+  } catch (error) {
+    convertedError =
+      error instanceof OneMcpProtocolError &&
+      !(error instanceof McpError) &&
+      error.code === -32_602 &&
+      isJsonValue(error.toJSON());
+  }
+
+  const beforeRejectedCall = invocationCount;
+  let rejectedNonJson = false;
+  try {
+    await adapter.request({
+      id: 'proof-reject' as LegacyRequestId,
+      method: 'tools/list',
+      params: V1CallToolRequestSchema as never,
+    });
+  } catch (error) {
+    rejectedNonJson =
+      error instanceof OneMcpProtocolError &&
+      error.message.includes('Invalid JSON value') &&
+      invocationCount === beforeRejectedCall;
+  }
+
+  return { detachedResult, convertedError, rejectedNonJson };
+}
+
 export async function generateSdkBoundaryProof(root: string, outputDirectory: string): Promise<SdkBoundaryProofResult> {
   try {
     const request = { method: 'tools/call', params: { name: 'boundary-proof', arguments: { accepted: true } } };
@@ -154,6 +227,8 @@ export async function generateSdkBoundaryProof(root: string, outputDirectory: st
       await readFile(join(root, 'test/sdk-boundary/sdk-topology.snapshot.json'), 'utf8'),
     ) as unknown;
     const actualTopology = await buildSdkTopology(root);
+    const adapterChecks = await productionAdapterChecks();
+    const importPolicyClean = (await checkSdkImportBoundary(root)).length === 0;
     const checks = [
       { id: CHECK_IDS[0], status: status(v1Json !== undefined && isJsonValue(v1Json)) },
       { id: CHECK_IDS[1], status: status(v2Json !== undefined && isJsonValue(v2Json)) },
@@ -191,6 +266,10 @@ export async function generateSdkBoundaryProof(root: string, outputDirectory: st
         ),
       },
       { id: CHECK_IDS[8], status: status(topologyDifferences(snapshot, actualTopology).length === 0) },
+      { id: CHECK_IDS[9], status: status(importPolicyClean) },
+      { id: CHECK_IDS[10], status: status(adapterChecks.detachedResult) },
+      { id: CHECK_IDS[11], status: status(adapterChecks.convertedError) },
+      { id: CHECK_IDS[12], status: status(adapterChecks.rejectedNonJson) },
     ];
     const payload = sdkBoundaryProofPayloadSchema.parse({
       schemaVersion: 1,

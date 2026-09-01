@@ -69,7 +69,37 @@
     {
       "id": "sdk-boundary-proof",
       "path": "test/conformance/boundary/sdkBoundaryProof.ts",
-      "digest": "sha256:ae283ec2603cd5335002ded911acadc1cd184259607c89e456c5f185c174f071"
+      "digest": "sha256:a4d53b00bfb3891cde60a7f75db5254abcdd8e52a873f64125af01ba4092c7ac"
+    },
+    {
+      "id": "sdk-import-policy",
+      "path": "scripts/sdk-boundary/import-policy.mjs",
+      "digest": "sha256:3746936aa8bc58a69f74b2ddc383c2ecf453d1014604a92781d384e6982a1d0a"
+    },
+    {
+      "id": "sdk-json-contract",
+      "path": "src/sdk/contracts/jsonValue.ts",
+      "digest": "sha256:b4038c808922d91c43458100acb5fa6dda0ee6eec32606f40671b81f7f2f7436"
+    },
+    {
+      "id": "sdk-error-contract",
+      "path": "src/sdk/contracts/oneMcpProtocolError.ts",
+      "digest": "sha256:96da52b9293b1ca0831fe609e2c54b61e2b4f58e6e49273105a12f9fecf48f50"
+    },
+    {
+      "id": "sdk-protocol-contract",
+      "path": "src/sdk/contracts/protocol.ts",
+      "digest": "sha256:06af5a19dc9207d4f127bde80fc4e563cee12b3693d0a85198e4407430016926"
+    },
+    {
+      "id": "legacy-client-adapter",
+      "path": "src/sdk/legacy/client/runtime/legacySdkClientAdapter.ts",
+      "digest": "sha256:882f9279c9a55e31b4ed16768c0e8eabecb4b5e63fa1dd702ac78407ea11b6d3"
+    },
+    {
+      "id": "legacy-server-adapter",
+      "path": "src/sdk/legacy/server/runtime/legacySdkServerAdapter.ts",
+      "digest": "sha256:6df1e151fde18f079c97460d8b22ee04a2e31fc9df52be723ef21dbbce0fceaf"
     },
     {
       "id": "sdk-topology-runtime",

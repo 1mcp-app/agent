@@ -1,6 +1,6 @@
 import { Client } from '@src/sdk/legacy/client/index.js';
 import { StreamableHTTPError } from '@src/sdk/legacy/client/streamableHttp.js';
-import { McpError } from '@src/sdk/legacy/types.js';
+import { CallToolRequestSchema, McpError } from '@src/sdk/legacy/types.js';
 
 import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
 import { createLegacyTimeoutMs, OneMcpProtocolError } from '@src/sdk/contracts/index.js';
@@ -181,5 +181,43 @@ describe('LegacySdkClientAdapter', () => {
     expect(invalidateCredentials).not.toHaveBeenCalled();
     expect(recreateHttpTransport).not.toHaveBeenCalled();
     expect(client.close).not.toHaveBeenCalled();
+  });
+
+  it('clones request and notification params before the SDK receives them', async () => {
+    const client = createClient();
+    const request = vi.spyOn(client, 'request').mockResolvedValue({ ok: true } as never);
+    const notification = vi.spyOn(client, 'notification').mockResolvedValue(undefined);
+    const adapter = new LegacySdkClientAdapter(client, createTransport());
+    const params = { nested: { value: 'original' } };
+
+    await adapter.request({ id: 'request-8' as never, method: 'tools/list', params });
+    await adapter.notify({ method: 'notifications/initialized', params });
+    params.nested.value = 'changed';
+
+    expect(request).toHaveBeenCalledWith(
+      { method: 'tools/list', params: { nested: { value: 'original' } } },
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(notification).toHaveBeenCalledWith({
+      method: 'notifications/initialized',
+      params: { nested: { value: 'original' } },
+    });
+  });
+
+  it('rejects schema objects before invoking the SDK client', async () => {
+    const client = createClient();
+    const request = vi.spyOn(client, 'request');
+    const notification = vi.spyOn(client, 'notification');
+    const adapter = new LegacySdkClientAdapter(client, createTransport());
+
+    await expect(
+      adapter.request({ id: 'request-9' as never, method: 'tools/list', params: CallToolRequestSchema as never }),
+    ).rejects.toThrow('only Object.prototype and null-prototype objects are supported');
+    await expect(
+      adapter.notify({ method: 'notifications/test', params: CallToolRequestSchema as never }),
+    ).rejects.toThrow('only Object.prototype and null-prototype objects are supported');
+    expect(request).not.toHaveBeenCalled();
+    expect(notification).not.toHaveBeenCalled();
   });
 });

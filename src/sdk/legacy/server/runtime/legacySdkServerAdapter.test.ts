@@ -1,7 +1,9 @@
 import type { Server } from '@src/sdk/legacy/server/index.js';
 import type { Transport } from '@src/sdk/legacy/shared/transport.js';
+import { McpError } from '@src/sdk/legacy/types.js';
 
 import type { LegacyConnectionId } from '@src/sdk/contracts/legacySdkAdapter.js';
+import { OneMcpProtocolError } from '@src/sdk/contracts/oneMcpProtocolError.js';
 
 import { describe, expect, it, vi } from 'vitest';
 
@@ -58,5 +60,27 @@ describe('LegacySdkServerAdapter', () => {
     await expect(adapter.notify({ method: 'notifications/test', params: null })).rejects.toThrow(
       'Legacy server notification params must be a JSON object',
     );
+  });
+
+  it.each(['start', 'notify', 'close'] as const)('converts foreign %s failures', async (operation) => {
+    const { adapter, server, transport } = createAdapter();
+    const foreign = new McpError(-32_603, `${operation} failed`, { operation });
+    if (operation === 'start') vi.mocked(server.connect).mockRejectedValueOnce(foreign);
+    if (operation === 'notify') vi.mocked(server.notification).mockRejectedValueOnce(foreign);
+    if (operation === 'close') vi.mocked(transport.close).mockRejectedValueOnce(foreign);
+
+    const pending =
+      operation === 'start'
+        ? adapter.start()
+        : operation === 'notify'
+          ? adapter.notify({ method: 'notifications/test' })
+          : adapter.close();
+
+    await expect(pending).rejects.toMatchObject({
+      code: -32_603,
+      data: { operation },
+    });
+    await expect(pending).rejects.toBeInstanceOf(OneMcpProtocolError);
+    await expect(pending).rejects.not.toBe(foreign);
   });
 });

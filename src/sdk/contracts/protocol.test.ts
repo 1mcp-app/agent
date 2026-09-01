@@ -82,4 +82,13 @@ describe('plain protocol contracts', () => {
     expect(() => toProtocolTool({ ...tool, description: 1 })).toThrow(TypeError);
     expect(() => toProtocolJSONRPCMessage({ jsonrpc: '2.0', id: 1 })).toThrow(TypeError);
   });
+
+  it.each([
+    { jsonrpc: '2.0', id: 1.5, method: 'ping' },
+    { jsonrpc: '2.0', id: 1, method: 'ping', result: {} },
+    { jsonrpc: '2.0', id: 1, result: {}, error: { code: -32_603, message: 'ambiguous' } },
+    { jsonrpc: '2.0', id: 1, error: { code: -32_603.5, message: 'fractional' } },
+  ])('rejects ambiguous or fractional JSON-RPC shapes', (message) => {
+    expect(() => toProtocolJSONRPCMessage(message)).toThrow(TypeError);
+  });
 });

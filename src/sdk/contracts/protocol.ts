@@ -352,7 +352,7 @@ function isPrompt(value: JsonObject): value is JsonObject & Prompt {
 }
 
 function isRequestId(value: JsonValue | undefined): value is RequestId {
-  return typeof value === 'string' || typeof value === 'number';
+  return typeof value === 'string' || (typeof value === 'number' && Number.isInteger(value));
 }
 
 function isJSONRPCMessage(value: JsonObject): value is JsonObject & JSONRPCMessage {
@@ -360,16 +360,26 @@ function isJSONRPCMessage(value: JsonObject): value is JsonObject & JSONRPCMessa
 
   if (typeof value.method === 'string') {
     const hasValidParams = value.params === undefined || isJsonObject(value.params);
-    return hasValidParams && (value.id === undefined || isRequestId(value.id));
+    return (
+      hasValidParams &&
+      (value.id === undefined || isRequestId(value.id)) &&
+      value.result === undefined &&
+      value.error === undefined
+    );
   }
 
-  if (isRequestId(value.id) && isJsonObject(value.result)) return true;
+  if (isRequestId(value.id) && isJsonObject(value.result)) {
+    return value.error === undefined && value.method === undefined;
+  }
 
   if (!isJsonObject(value.error)) return false;
   return (
     (value.id === undefined || isRequestId(value.id)) &&
     typeof value.error.code === 'number' &&
-    typeof value.error.message === 'string'
+    Number.isInteger(value.error.code) &&
+    typeof value.error.message === 'string' &&
+    value.method === undefined &&
+    value.result === undefined
   );
 }
 

@@ -7,11 +7,15 @@ const LEGACY_PACKAGE = '@modelcontextprotocol/sdk';
 const LEGACY_ISLAND_ALIAS = '@src/sdk/legacy';
 
 function isLegacySdkSpecifier(specifier) {
-  return specifier === LEGACY_PACKAGE || specifier.startsWith(`${LEGACY_PACKAGE}/`);
+  return typeof specifier === 'string' &&
+    (specifier === LEGACY_PACKAGE || specifier.startsWith(`${LEGACY_PACKAGE}/`));
 }
 
-function isLegacyIslandSpecifier(specifier) {
-  return specifier === LEGACY_ISLAND_ALIAS || specifier.startsWith(`${LEGACY_ISLAND_ALIAS}/`);
+function isLegacyIslandSpecifier(specifier, filePath = '') {
+  if (specifier === LEGACY_ISLAND_ALIAS || specifier.startsWith(`${LEGACY_ISLAND_ALIAS}/`)) return true;
+  if (!specifier?.startsWith('.')) return false;
+  const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(filePath), specifier));
+  return resolved === 'src/sdk/legacy' || resolved.startsWith('src/sdk/legacy/');
 }
 
 function isTestSource(relativePath) {
@@ -31,7 +35,8 @@ function isPureCompatibilityShim(sourceFile) {
     sourceFile.statements.length > 0 &&
     sourceFile.statements.every(
       (statement) =>
-        ts.isExportDeclaration(statement) && isLegacyIslandSpecifier(stringLiteralText(statement.moduleSpecifier)),
+        ts.isExportDeclaration(statement) &&
+        isLegacyIslandSpecifier(stringLiteralText(statement.moduleSpecifier), sourceFile.fileName),
     )
   );
 }
@@ -40,12 +45,49 @@ export function findLegacySdkImports(sourceText, filePath) {
   const sourceFile = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const violations = [];
   const compatibilityShim = isPureCompatibilityShim(sourceFile);
+  const literalBindings = new Map();
+  const runtimeLoaderNames = new Set(['require']);
+
+  function collectBindings(node) {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
+      const literal = stringLiteralText(node.initializer);
+      if (literal !== undefined) literalBindings.set(node.name.text, literal);
+      if (
+        node.initializer &&
+        ts.isCallExpression(node.initializer) &&
+        ts.isIdentifier(node.initializer.expression) &&
+        node.initializer.expression.text === 'createRequire'
+      ) {
+        runtimeLoaderNames.add(node.name.text);
+      }
+    }
+    ts.forEachChild(node, collectBindings);
+  }
+
+  collectBindings(sourceFile);
+
+  function resolvedString(node) {
+    if (!node) return undefined;
+    const literal = stringLiteralText(node);
+    return literal ?? (ts.isIdentifier(node) ? literalBindings.get(node.text) : undefined);
+  }
 
   function add(node, kind, specifier) {
-    if (!isLegacySdkSpecifier(specifier) && !isLegacyIslandSpecifier(specifier)) return;
-    if (compatibilityShim && isLegacyIslandSpecifier(specifier)) return;
+    if (!isLegacySdkSpecifier(specifier) && !isLegacyIslandSpecifier(specifier, filePath)) return;
+    if (compatibilityShim && isLegacyIslandSpecifier(specifier, filePath)) return;
     const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
     violations.push({ file: filePath, line: position.line + 1, column: position.character + 1, kind, specifier });
+  }
+
+  function addComputed(node, kind) {
+    const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+    violations.push({
+      file: filePath,
+      line: position.line + 1,
+      column: position.character + 1,
+      kind,
+      specifier: '<computed>',
+    });
   }
 
   function visit(node) {
@@ -60,12 +102,16 @@ export function findLegacySdkImports(sourceText, filePath) {
     } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
       add(node, 'import-equals', stringLiteralText(node.moduleReference.expression));
     } else if (ts.isCallExpression(node)) {
-      const specifier = stringLiteralText(node.arguments[0]);
+      const specifier = resolvedString(node.arguments[0]);
       if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
-        add(node, 'dynamic import', specifier);
+        if (specifier === undefined) addComputed(node, 'computed dynamic import');
+        else add(node, 'dynamic import', specifier);
+      } else if (ts.isIdentifier(node.expression) && runtimeLoaderNames.has(node.expression.text)) {
+        if (specifier === undefined) addComputed(node, 'computed runtime loader call');
+        else add(node, node.expression.text === 'require' ? 'commonjs require' : 'runtime loader call', specifier);
       } else if (
         specifier !== undefined &&
-        (isLegacySdkSpecifier(specifier) || isLegacyIslandSpecifier(specifier))
+        (isLegacySdkSpecifier(specifier) || isLegacyIslandSpecifier(specifier, filePath))
       ) {
         const kind =
           ts.isIdentifier(node.expression) && node.expression.text === 'require'
@@ -108,7 +154,7 @@ export function formatImportViolations(violations) {
   return violations
     .map(
       ({ file, line, column, kind, specifier }) => {
-        const resolution = isLegacyIslandSpecifier(specifier)
+        const resolution = isLegacyIslandSpecifier(specifier, file)
           ? 'must be replaced with a 1MCP-owned contract or isolated behind a pure export-only compatibility shim'
           : 'must move under src/sdk/legacy/ or use the v2 packages';
         return `${file}:${line}:${column} ${kind} '${specifier}' ${resolution}`;
