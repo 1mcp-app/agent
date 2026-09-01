@@ -117,11 +117,16 @@ export const FILE_PREFIX_MAPPING = {
   TRANSPORT: ['streamable_session_'],
 } as const;
 
-// Rate limiting configuration for OAuth endpoints
+// Rate limiting configuration for public HTTP endpoints
 export const RATE_LIMIT_CONFIG = {
   OAUTH: {
     WINDOW_MS: 15 * 60 * 1000, // 15 minutes
     MAX: 100, // max requests per window per IP
     MESSAGE: { error: 'Too many requests, please try again later.' },
+  },
+  TOOL_INVOCATIONS: {
+    WINDOW_MS: 15 * 60 * 1000, // 15 minutes
+    MAX: 10_000, // high-volume agent traffic, while still bounding floods per IP
+    MESSAGE: { error: 'Too many tool invocation requests, please try again later.' },
   },
 };
