@@ -19,12 +19,12 @@
     {
       "id": "baseline",
       "path": "test/conformance/baseline/baseline.ts",
-      "digest": "sha256:ac76fd1b24cf3a330071d07b9083bd1f6756e93b29df91f8edb7d4889059f96a"
+      "digest": "sha256:53fbdcd2009572255a495160af4e2321266f864ebbd151982795028afaa449cc"
     },
     {
       "id": "traceability-inventory",
       "path": "test/conformance/baseline/traceabilityInventory.ts",
-      "digest": "sha256:a0c00ab1091aa44969de8e769cdfccece1b9f84972470bc152e27d0a2e3cf8a9"
+      "digest": "sha256:aff81e1e85912bcb37feec628d85dad66239d36436b4ab83d84bb88187d16a7a"
     },
     {
       "id": "capture-schema",
@@ -64,7 +64,12 @@
     {
       "id": "foundation-run",
       "path": "test/conformance/foundation/foundationRun.ts",
-      "digest": "sha256:85a8fad8cbd2d2c30a43b25bec3352114e8edf04e320367f991a0304635247b2"
+      "digest": "sha256:35e5ceb2204e7dbc52c0958fa818ea441f812e86cb5a659b2a86087383897f32"
+    },
+    {
+      "id": "sdk-boundary-proof",
+      "path": "test/conformance/boundary/sdkBoundaryProof.ts",
+      "digest": "sha256:e7598ddff7ea30a7c3569bccff60000d4eea1cc3e19593c05726c01449f0c168"
     },
     {
       "id": "official-client-bridge",
@@ -119,7 +124,7 @@
     {
       "id": "ci-lane",
       "path": ".github/workflows/test-and-validate.yml",
-      "digest": "sha256:17c9f407dff2c15469db743dfcb312f366320e559148a4cec8ef6615f173cbfd"
+      "digest": "sha256:29b45579185f94720f365be8826ceec2a6a61d75af77aca78743929d99a31eba"
     }
   ]
 }
