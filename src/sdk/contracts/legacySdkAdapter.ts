@@ -27,17 +27,52 @@ export interface LegacySdkFailure {
   readonly requestId?: LegacyRequestId;
 }
 
-export interface LegacySdkAdapterEvents {
-  onNotification(notification: LegacySdkNotification): void | Promise<void>;
-  onFailure(failure: LegacySdkFailure): void | Promise<void>;
-  onClose(): void | Promise<void>;
+export interface LegacySdkRequestEvent {
+  readonly type: 'request';
+  readonly request: LegacySdkRequest;
 }
+
+export interface LegacySdkNotificationEvent {
+  readonly type: 'notification';
+  readonly notification: LegacySdkNotification;
+}
+
+export interface LegacySdkFailureEvent {
+  readonly type: 'failure';
+  readonly failure: LegacySdkFailure;
+}
+
+export interface LegacySdkClosedEvent {
+  readonly type: 'closed';
+}
+
+export type LegacySdkEvent =
+  | LegacySdkRequestEvent
+  | LegacySdkNotificationEvent
+  | LegacySdkFailureEvent
+  | LegacySdkClosedEvent;
+
+export interface LegacySdkSuccessResponse {
+  readonly type: 'success';
+  readonly requestId: LegacyRequestId;
+  readonly result: JsonValue;
+}
+
+export interface LegacySdkErrorResponse {
+  readonly type: 'error';
+  readonly requestId: LegacyRequestId;
+  readonly error: OneMcpProtocolError;
+}
+
+export type LegacySdkResponse = LegacySdkSuccessResponse | LegacySdkErrorResponse;
 
 /** SDK-free interface implemented inside the complete current-runtime legacy island. */
 export interface LegacySdkAdapter {
   readonly connectionId: LegacyConnectionId;
   readonly state: LegacySdkLifecycleState;
-  start(events: LegacySdkAdapterEvents): Promise<void>;
+  start(): Promise<void>;
+  nextEvent(): Promise<LegacySdkEvent>;
+  respond(response: LegacySdkResponse): Promise<void>;
   request(request: LegacySdkRequest): Promise<JsonValue>;
   notify(notification: LegacySdkNotification): Promise<void>;
   close(): Promise<void>;
