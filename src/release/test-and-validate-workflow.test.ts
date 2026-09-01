@@ -83,19 +83,49 @@ describe('test-and-validate workflow', () => {
     expect(packageJson.scripts['test:e2e:shardable']).toContain('--exclude "**/serve-background.test.ts"');
     expect(packageJson.scripts['test:e2e:system']).toContain('test/e2e/commands/serve-background.test.ts');
   });
-  it('runs actionlint in CI to gate against workflow syntax and injection regressions', () => {
+  it('installs and runs actionlint binary with shellcheck in CI pipeline', () => {
     const workflow = YAML.parse(readRepoFile('.github/workflows/test-and-validate.yml')) as {
-      jobs?: { ci?: { steps?: { uses?: string; with?: Record<string, string> }[] } };
+      jobs?: { ci?: { steps?: { name?: string; run?: string }[] } };
     };
     const steps = workflow?.jobs?.ci?.steps;
 
     expect(steps).toBeDefined();
-    const actionlint = steps?.find((step) => step.uses?.startsWith('reviewdog/action-actionlint@'));
 
-    expect(actionlint).toBeDefined();
-    expect(actionlint?.uses).toMatch(/^reviewdog\/action-actionlint@[0-9a-f]{40}$/);
-    expect(actionlint?.uses).toBe('reviewdog/action-actionlint@a5524e1c19e62881d79c1f1b9b6f09f16356e281');
-    expect(actionlint?.with?.fail_level).toBe('any');
-    expect(actionlint?.with?.filter_mode).toBe('nofilter');
+    const shellcheckStep = steps?.find((s) => s.name === 'Install shellcheck');
+    expect(shellcheckStep).toBeDefined();
+    expect(shellcheckStep?.run).toContain('sudo apt-get install -y shellcheck');
+
+    const installActionlintStep = steps?.find((s) => s.name === 'Install actionlint');
+    expect(installActionlintStep).toBeDefined();
+    expect(installActionlintStep?.run).toContain('actionlint');
+    expect(installActionlintStep?.run).toContain('sha256sum -c -');
+    expect(installActionlintStep?.run).toContain('sudo mv actionlint /usr/local/bin/');
+
+    const runActionlintStep = steps?.find((s) => s.name === 'Run actionlint');
+    expect(runActionlintStep).toBeDefined();
+    expect(runActionlintStep?.run).toContain('actionlint -color');
+  });
+
+  it('validates security gate fixtures define targeted policy test cases', () => {
+    const fixturesDir = path.join(process.cwd(), 'test', 'fixtures', 'ci-security');
+    const injectFixture = fs.readFileSync(path.join(fixturesDir, 'inject-expression.yml'), 'utf8');
+    const unquotedFixture = fs.readFileSync(path.join(fixturesDir, 'unquoted-var.yml'), 'utf8');
+    const secretsFixture = fs.readFileSync(path.join(fixturesDir, 'secrets-inherit.yml'), 'utf8');
+    const permsFixture = fs.readFileSync(path.join(fixturesDir, 'excessive-permissions.yml'), 'utf8');
+
+    expect(injectFixture).toMatch(/\$\{\{\s*github\.event\.issue\.title\s*\}\}/);
+    expect(unquotedFixture).toMatch(/run:\s*pnpm \$BUILD_SCRIPT/);
+    expect(secretsFixture).toMatch(/secrets:\s*inherit/);
+    expect(permsFixture).toMatch(/permissions:\s*write-all/);
+
+    const workflowFiles = fs
+      .readdirSync(path.join(process.cwd(), '.github', 'workflows'))
+      .filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'));
+
+    for (const wfFile of workflowFiles) {
+      const content = readRepoFile(`.github/workflows/${wfFile}`);
+      expect(content).not.toMatch(/secrets:\s*inherit/);
+      expect(content).not.toMatch(/permissions:\s*write-all/);
+    }
   });
 });

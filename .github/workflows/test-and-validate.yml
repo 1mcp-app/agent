@@ -44,11 +44,22 @@ jobs:
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node-pnpm
 
-      - name: Lint GitHub Actions workflows
-        uses: reviewdog/action-actionlint@a5524e1c19e62881d79c1f1b9b6f09f16356e281 # v1.65.2
-        with:
-          fail_level: any
-          filter_mode: nofilter
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+
+      - name: Install actionlint
+        run: |
+          set -euo pipefail
+          VERSION="1.7.7"
+          BINARY="actionlint_${VERSION}_linux_amd64.tar.gz"
+          curl -sLO "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/${BINARY}"
+          curl -sLO "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/checksum.txt"
+          grep "${BINARY}" checksum.txt | sha256sum -c -
+          tar xzf "${BINARY}" actionlint
+          sudo mv actionlint /usr/local/bin/
+
+      - name: Run actionlint
+        run: actionlint -color
 
       - name: Validate static checks
         run: pnpm ci:static

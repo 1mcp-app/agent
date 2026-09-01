@@ -1,0 +1,14 @@
+name: Malicious Expression Injection Fixture
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  inject-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Untrusted Input In Run Step
+        run: |
+          echo "Title: ${{ github.event.issue.title }}"
