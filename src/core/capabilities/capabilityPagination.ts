@@ -5,7 +5,7 @@ import {
   PromptListChangedNotificationSchema,
   ResourceListChangedNotificationSchema,
   ToolListChangedNotificationSchema,
-} from '@modelcontextprotocol/sdk/types.js';
+} from '@src/sdk/legacy/types.js';
 
 import type { OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import { MCPError } from '@src/utils/core/errorTypes.js';

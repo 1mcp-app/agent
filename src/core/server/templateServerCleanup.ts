@@ -1,4 +1,4 @@
-import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+import type { Transport } from '@src/sdk/legacy/shared/transport.js';
 
 import type { ClientTemplateTracker } from '@src/core/filtering/index.js';
 import type { ClientInstancePool } from '@src/core/server/clientInstancePool.js';

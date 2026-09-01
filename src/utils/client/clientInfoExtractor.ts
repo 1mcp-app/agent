@@ -1,4 +1,4 @@
-import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
+import { JSONRPCMessage } from '@src/sdk/legacy/types.js';
 
 import type { ClientInfo } from '@src/types/context.js';
 

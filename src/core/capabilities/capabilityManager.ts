@@ -1,4 +1,4 @@
-import { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
+import { ServerCapabilities } from '@src/sdk/legacy/types.js';
 
 import {
   setupClientToServerNotifications,

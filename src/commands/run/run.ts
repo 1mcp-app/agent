@@ -1,5 +1,5 @@
-import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { type CallToolResult, type Tool } from '@modelcontextprotocol/sdk/types.js';
+import { StreamableHTTPError } from '@src/sdk/legacy/client/streamableHttp.js';
+import { type CallToolResult, type Tool } from '@src/sdk/legacy/types.js';
 
 import { extractInspectToolInfo, type InspectToolInfo } from '@src/commands/inspect/inspectUtils.js';
 import {

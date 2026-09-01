@@ -1,5 +1,5 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
+import { Client } from '@src/sdk/legacy/client/index.js';
+import { ServerCapabilities } from '@src/sdk/legacy/types.js';
 
 import { SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
 import type { BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';

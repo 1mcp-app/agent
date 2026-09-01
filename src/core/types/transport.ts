@@ -1,7 +1,7 @@
 import { IOType } from 'node:child_process';
 import { Stream } from 'node:stream';
 
-import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+import { Transport } from '@src/sdk/legacy/shared/transport.js';
 
 import { z } from 'zod';
 

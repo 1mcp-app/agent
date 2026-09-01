@@ -1,5 +1,5 @@
-import { DEFAULT_REQUEST_TIMEOUT_MSEC } from '@modelcontextprotocol/sdk/shared/protocol.js';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { DEFAULT_REQUEST_TIMEOUT_MSEC } from '@src/sdk/legacy/shared/protocol.js';
+import type { Tool } from '@src/sdk/legacy/types.js';
 
 import {
   collectConfiguredToolPages,

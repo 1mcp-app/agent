@@ -1,5 +1,5 @@
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
+import { Server } from '@src/sdk/legacy/server/index.js';
+import { ServerCapabilities } from '@src/sdk/legacy/types.js';
 
 import type { TemplateContextProof } from '@src/core/context/templateContextTrust.js';
 import { TemplateConfig } from '@src/core/instructions/templateTypes.js';

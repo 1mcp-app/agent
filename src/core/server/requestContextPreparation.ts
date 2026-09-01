@@ -1,4 +1,4 @@
-import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+import type { Transport } from '@src/sdk/legacy/shared/transport.js';
 
 import { isOperatorDisabledTemplateDefinition } from '@src/config/configuredServerTargets.js';
 import type { TrustedTemplateContext } from '@src/core/context/templateContextTrust.js';

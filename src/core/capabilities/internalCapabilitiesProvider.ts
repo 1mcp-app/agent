@@ -6,7 +6,7 @@
  */
 import { EventEmitter } from 'events';
 
-import { Prompt, Resource, Tool } from '@modelcontextprotocol/sdk/types.js';
+import { Prompt, Resource, Tool } from '@src/sdk/legacy/types.js';
 
 import type { CapabilityVisibility } from '@src/core/capabilities/capabilityVisibility.js';
 import {

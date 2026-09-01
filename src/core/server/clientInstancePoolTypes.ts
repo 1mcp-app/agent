@@ -1,4 +1,4 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { Client } from '@src/sdk/legacy/client/index.js';
 
 import type { BackendStdioSupervisor, BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
 import { AuthProviderTransport } from '@src/core/types/index.js';

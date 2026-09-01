@@ -1,4 +1,4 @@
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from '@src/sdk/legacy/types.js';
 
 import { ConfigManager } from '@src/config/configManager.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
@@ -377,7 +377,7 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
           return;
         }
 
-        let found: import('@modelcontextprotocol/sdk/types.js').Tool | undefined;
+        let found: import('@src/sdk/legacy/types.js').Tool | undefined;
 
         if (capabilityAggregator) {
           found = capabilityAggregator

@@ -1,4 +1,4 @@
-import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { StreamableHTTPError } from '@src/sdk/legacy/client/streamableHttp.js';
 
 import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';

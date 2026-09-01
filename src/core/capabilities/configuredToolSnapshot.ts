@@ -1,4 +1,4 @@
-import type { ListToolsResult, Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { ListToolsResult, Tool } from '@src/sdk/legacy/types.js';
 
 import { ClientStatus, type OutboundConnection, type OutboundConnections } from '@src/core/types/index.js';
 

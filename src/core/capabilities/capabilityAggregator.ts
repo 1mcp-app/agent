@@ -7,7 +7,7 @@ import {
   Prompt,
   Resource,
   Tool,
-} from '@modelcontextprotocol/sdk/types.js';
+} from '@src/sdk/legacy/types.js';
 
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import {

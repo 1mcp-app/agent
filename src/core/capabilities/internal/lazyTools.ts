@@ -1,4 +1,4 @@
-import { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { Tool } from '@src/sdk/legacy/types.js';
 
 import { zodToInputSchema, zodToOutputSchema } from '@src/utils/schemaUtils.js';
 

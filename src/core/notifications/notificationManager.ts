@@ -4,7 +4,7 @@ import {
   PromptListChangedNotification,
   ResourceListChangedNotification,
   ToolListChangedNotification,
-} from '@modelcontextprotocol/sdk/types.js';
+} from '@src/sdk/legacy/types.js';
 
 import { CapabilityChanges } from '@src/core/capabilities/capabilityAggregator.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';

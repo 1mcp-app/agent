@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from '@src/sdk/legacy/types.js';
 
 import { TokenEstimationService } from '@src/application/services/tokenEstimationService.js';
 import {

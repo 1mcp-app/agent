@@ -1,4 +1,4 @@
-import type { Prompt, Resource, Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Prompt, Resource, Tool } from '@src/sdk/legacy/types.js';
 
 import { ClientManager } from '@src/core/client/clientManager.js';
 import type { OutboundConnection } from '@src/core/types/client.js';

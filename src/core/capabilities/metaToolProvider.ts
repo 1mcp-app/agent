@@ -1,4 +1,4 @@
-import { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { Tool } from '@src/sdk/legacy/types.js';
 
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { TemplateHashProvider } from '@src/core/server/connectionResolver.js';

@@ -1,5 +1,5 @@
-import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { StreamableHTTPError } from '@src/sdk/legacy/client/streamableHttp.js';
+import type { Tool } from '@src/sdk/legacy/types.js';
 
 import { findToolByQualifiedName } from '@src/commands/run/runUtils.js';
 import { ApiClient } from '@src/commands/shared/apiClient.js';
