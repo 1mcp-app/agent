@@ -1,3 +1,5 @@
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
 import { formatInstructionsOutput } from '@src/commands/instructions/instructionsUtils.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import { ClientStatus } from '@src/core/types/index.js';
@@ -373,10 +375,12 @@ function makeServerManager(
 }
 
 function makeConnection(name: string, tags: string[] = []) {
-  return {
+  return createMockOutboundConnection({
     name,
     status: ClientStatus.Connected,
-    transport: { tags },
-    client: {},
-  };
+    tags,
+    adapter: {
+      request: vi.fn().mockResolvedValue({ tools: [] }),
+    },
+  });
 }
