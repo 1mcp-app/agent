@@ -8,9 +8,24 @@ importers:
 
   .:
     dependencies:
+      '@modelcontextprotocol/client':
+        specifier: 2.0.0
+        version: 2.0.0
+      '@modelcontextprotocol/core':
+        specifier: 2.0.0
+        version: 2.0.0
+      '@modelcontextprotocol/node':
+        specifier: 2.0.0
+        version: 2.0.0(@modelcontextprotocol/server@2.0.0)(hono@4.12.34)
       '@modelcontextprotocol/sdk':
-        specifier: ^1.25.1
+        specifier: 1.30.0
         version: 1.30.0(zod@4.4.3)
+      '@modelcontextprotocol/server':
+        specifier: 2.0.0
+        version: 2.0.0
+      '@modelcontextprotocol/server-legacy':
+        specifier: 2.0.0
+        version: 2.0.0(express@5.2.1)
       '@toon-format/toon':
         specifier: ^4.1.0
         version: 4.1.0
@@ -84,7 +99,7 @@ importers:
         specifier: ^22.0.0
         version: 22.0.0
       zod:
-        specifier: ^4.1.8
+        specifier: 4.4.3
         version: 4.4.3
     devDependencies:
       '@braintree/sanitize-url':
@@ -99,24 +114,9 @@ importers:
       '@mantine/hooks':
         specifier: 8.3.14
         version: 8.3.14(react@18.3.1)
-      '@modelcontextprotocol/client':
-        specifier: 2.0.0
-        version: 2.0.0
       '@modelcontextprotocol/conformance':
         specifier: 0.2.0-alpha.11
         version: 0.2.0-alpha.11
-      '@modelcontextprotocol/core':
-        specifier: 2.0.0
-        version: 2.0.0
-      '@modelcontextprotocol/node':
-        specifier: 2.0.0
-        version: 2.0.0(@modelcontextprotocol/server@2.0.0)(hono@4.12.34)
-      '@modelcontextprotocol/server':
-        specifier: 2.0.0
-        version: 2.0.0
-      '@modelcontextprotocol/server-legacy':
-        specifier: 2.0.0
-        version: 2.0.0(express@5.2.1)
       '@testing-library/jest-dom':
         specifier: ^7.0.0
         version: 7.0.0(@testing-library/dom@10.4.1)
