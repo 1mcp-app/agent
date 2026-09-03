@@ -44,6 +44,13 @@ export const ACCEPTED_CONTRACT_TRACEABILITY_INVENTORY = [
     testNeedle: "it('generates a digest-checked proof with actual v1 and v2 SDK objects'",
     evidenceArtifactIds: ['conformance-baseline', 'boundary/sdk-boundary-proof.json'],
   },
+  {
+    requirementId: '1mcp.contract.gateway-era-adapter-boundary',
+    testIds: ['gateway.four-cell-read-only-dispatch'],
+    testPath: 'test/e2e/gateway-era-skeleton.test.ts',
+    testNeedle: "it.each(ERA_CELLS)('dispatches tools/list through the %s-%s gateway era cell'",
+    evidenceArtifactIds: ['conformance-baseline'],
+  },
 ] as const;
 
 interface AcceptedContractTrace {
