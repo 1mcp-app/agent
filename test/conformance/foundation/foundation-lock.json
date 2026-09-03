@@ -24,7 +24,7 @@
     {
       "id": "traceability-inventory",
       "path": "test/conformance/baseline/traceabilityInventory.ts",
-      "digest": "sha256:aff81e1e85912bcb37feec628d85dad66239d36436b4ab83d84bb88187d16a7a"
+      "digest": "sha256:83a60b23d8b3b9f911b31787987f274af82ec082a1e432262558671c6b58c01b"
     },
     {
       "id": "capture-schema",
