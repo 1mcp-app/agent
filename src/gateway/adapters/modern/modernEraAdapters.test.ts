@@ -9,17 +9,28 @@ const MODERN_REVISION = '2026-07-28';
 function outbound(overrides: Partial<ConstructorParameters<typeof ModernOutboundEraAdapter>[0]> = {}) {
   return new ModernOutboundEraAdapter({
     revision: MODERN_REVISION,
+    now: () => 1_000,
     request: async () => ({ tools: [] }),
     cancel: async () => undefined,
     ...overrides,
   });
 }
 
-function inbound(frames: unknown[]) {
+function inbound(
+  frames: unknown[],
+  requestContext: ConstructorParameters<typeof ModernInboundEraAdapter>[0]['requestContext'] = async () => ({
+    requestId: 'gateway-request-1',
+    targetConnectionId: 'trusted-server',
+    authority: { connectionIds: ['trusted-server'], provenance: ['trusted-context'] },
+    outbound: { era: 'legacy', revision: '2025-11-25' },
+    deadlineUnixMs: 2_000_000_000_000,
+  }),
+) {
   const responses: ImmutableJsonValue[] = [];
   const adapter = new ModernInboundEraAdapter({
     revision: MODERN_REVISION,
     receive: async () => frames.shift(),
+    requestContext,
     respond: async (response) => {
       responses.push(response);
     },
@@ -49,6 +60,13 @@ describe('modern era adapter pins', () => {
           new ModernInboundEraAdapter({
             revision: '2025-11-25',
             receive: async () => undefined,
+            requestContext: async () => ({
+              requestId: 'unused',
+              targetConnectionId: 'unused',
+              authority: { connectionIds: ['unused'], provenance: [] },
+              outbound: { era: 'legacy', revision: '2025-11-25' },
+              deadlineUnixMs: 1,
+            }),
             respond: async () => undefined,
           });
         } else {
@@ -75,17 +93,18 @@ describe('modern era adapter pins', () => {
 });
 
 describe('ModernInboundEraAdapter', () => {
-  it('detaches and freezes a request while preserving absolute deadline and independent outbound pin', async () => {
+  it('uses trusted gateway context and ignores authority, pin, id, and deadline fields on the wire frame', async () => {
     const params = { cursor: { page: 2 } };
     const frame = {
       type: 'request',
-      requestId: 'request-1',
+      correlationId: 'wire-1',
       operation: 'tools/list',
-      targetConnectionId: 'server-a',
       params,
-      authority: { connectionIds: ['server-a'], provenance: ['modern-fixture'] },
-      outbound: { era: 'legacy', revision: '2025-11-25' },
-      deadlineUnixMs: 2_000_000_000_000,
+      requestId: 'attacker-request',
+      targetConnectionId: 'attacker-server',
+      authority: { connectionIds: ['attacker-server'], provenance: ['attacker'] },
+      outbound: { era: 'modern', revision: MODERN_REVISION },
+      deadlineUnixMs: 9_999_999_999_999,
     };
     const { adapter } = inbound([frame]);
 
@@ -95,10 +114,12 @@ describe('ModernInboundEraAdapter', () => {
     expect(event).toMatchObject({
       type: 'request',
       request: {
-        requestId: 'request-1',
+        requestId: 'gateway-request-1',
+        targetConnectionId: 'trusted-server',
         params: { cursor: { page: 2 } },
         inbound: { era: 'modern', revision: MODERN_REVISION },
         outbound: { era: 'legacy', revision: '2025-11-25' },
+        authority: { connectionIds: ['trusted-server'], provenance: ['trusted-context'] },
         deadlineUnixMs: 2_000_000_000_000,
       },
     });
@@ -110,9 +131,13 @@ describe('ModernInboundEraAdapter', () => {
   });
 
   it('preserves cancellation ids and closes when the callback is exhausted', async () => {
-    const { adapter } = inbound([{ type: 'cancel', requestId: 'request-to-cancel' }]);
+    const { adapter } = inbound([
+      { type: 'request', correlationId: 'wire-cancel', operation: 'tools/list' },
+      { type: 'cancel', correlationId: 'wire-cancel' },
+    ]);
 
-    await expect(adapter.nextEvent()).resolves.toEqual({ type: 'cancel', requestId: 'request-to-cancel' });
+    await expect(adapter.nextEvent()).resolves.toMatchObject({ type: 'request' });
+    await expect(adapter.nextEvent()).resolves.toEqual({ type: 'cancel', requestId: 'gateway-request-1' });
     await expect(adapter.nextEvent()).resolves.toEqual({ type: 'closed' });
   });
 
@@ -137,13 +162,14 @@ describe('ModernInboundEraAdapter', () => {
   });
 
   it('sends only detached, frozen response values', async () => {
-    const { adapter, responses } = inbound([]);
+    const { adapter, responses } = inbound([{ type: 'request', correlationId: 'wire-2', operation: 'tools/list' }]);
     const result = { tools: [{ name: 'one' }] };
 
-    await adapter.respond({ type: 'success', requestId: 'request-2', result });
+    await adapter.nextEvent();
+    await adapter.respond({ type: 'success', requestId: 'gateway-request-1', result });
     result.tools[0].name = 'mutated';
 
-    expect(responses).toEqual([{ type: 'success', requestId: 'request-2', result: { tools: [{ name: 'one' }] } }]);
+    expect(responses).toEqual([{ type: 'success', correlationId: 'wire-2', result: { tools: [{ name: 'one' }] } }]);
     expect(Object.isFrozen(responses[0])).toBe(true);
     expect(Object.isFrozen((responses[0] as { result: { tools: object[] } }).result.tools[0])).toBe(true);
   });
@@ -183,13 +209,81 @@ describe('ModernOutboundEraAdapter', () => {
   });
 
   it('forwards the exact cancellation id', async () => {
+    let resolveRequest!: (value: unknown) => void;
+    const pending = new Promise<unknown>((resolve) => {
+      resolveRequest = resolve;
+    });
     const cancel = vi.fn(async () => undefined);
-    const adapter = outbound({ cancel });
+    const adapter = outbound({ request: async () => pending, cancel });
+    const request = adapter.request({
+      requestId: 'request-4',
+      operation: 'tools/list',
+      authority: { connectionIds: ['server-a'], provenance: [] },
+      deadlineUnixMs: 2_000,
+    });
 
     await adapter.cancel('request-4');
+    await adapter.cancel('request-4');
+    await adapter.cancel('unknown-request');
 
     expect(cancel).toHaveBeenCalledOnce();
     expect(cancel).toHaveBeenCalledWith('request-4');
+
+    resolveRequest({ tools: [] });
+    await request;
+    await adapter.cancel('request-4');
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it('rejects an expired deadline at the final callback boundary', async () => {
+    const request = vi.fn(async () => ({ tools: [] }));
+    const now = vi.fn(() => 5_000);
+    const adapter = outbound({ request, now });
+
+    await expect(
+      adapter.request({
+        requestId: 'expired-request',
+        operation: 'tools/list',
+        authority: { connectionIds: ['server-a'], provenance: [] },
+        deadlineUnixMs: 5_000,
+      }),
+    ).rejects.toEqual({
+      kind: 'deadline-exceeded',
+      code: 'gateway_deadline_exceeded',
+      message: 'The gateway request deadline has expired',
+    });
+    expect(now).toHaveBeenCalledOnce();
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('rejects concurrent duplicate request ids and permits reuse after completion', async () => {
+    let resolveFirst!: (value: unknown) => void;
+    const first = new Promise<unknown>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const request = vi
+      .fn()
+      .mockImplementationOnce(async () => first)
+      .mockResolvedValue({ tools: [] });
+    const adapter = outbound({ request });
+    const gatewayRequest = {
+      requestId: 'duplicate-request',
+      operation: 'tools/list' as const,
+      authority: { connectionIds: ['server-a'], provenance: [] },
+      deadlineUnixMs: 2_000,
+    };
+
+    const active = adapter.request(gatewayRequest);
+    await expect(adapter.request(gatewayRequest)).rejects.toMatchObject({
+      kind: 'invalid-request',
+      code: 'modern_outbound_duplicate_request',
+    });
+    expect(request).toHaveBeenCalledOnce();
+
+    resolveFirst({ tools: [] });
+    await active;
+    await expect(adapter.request(gatewayRequest)).resolves.toEqual({ tools: [] });
+    expect(request).toHaveBeenCalledTimes(2);
   });
 
   it('converts foreign callback errors into frozen plain gateway failures', async () => {

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   createEffectiveRequestAuthority,
+  createGatewayFailure,
   createGatewayRequestEnvelope,
   type ImmutableJsonValue,
   type ProtocolEraPin,
@@ -114,7 +115,11 @@ describe('GatewayDispatcher', () => {
   it('preserves a validated plain failure raised at the outbound boundary', async () => {
     const fixture = adapter(Object.freeze({ era: 'legacy', revision: '2025-11-25' }));
     fixture.port.request = async () => {
-      throw { kind: 'deadline-exceeded', code: 'gateway_deadline_exceeded', message: 'expired at edge' };
+      throw createGatewayFailure({
+        kind: 'deadline-exceeded',
+        code: 'gateway_deadline_exceeded',
+        message: 'expired at edge',
+      });
     };
     const dispatcher = new GatewayDispatcher({ resolveOutbound: () => fixture.port, now: () => 1_000 });
 
@@ -126,5 +131,44 @@ describe('GatewayDispatcher', () => {
         message: 'expired at edge',
       },
     });
+  });
+
+  it('does not trust foreign failure kinds or accessors', async () => {
+    const fixture = adapter(Object.freeze({ era: 'legacy', revision: '2025-11-25' }));
+    fixture.port.request = async () => {
+      const foreign = { kind: 'authorization', code: 'foreign' };
+      Object.defineProperty(foreign, 'message', { get: () => Promise.reject(new Error('getter ran')) });
+      throw foreign;
+    };
+    const dispatcher = new GatewayDispatcher({ resolveOutbound: () => fixture.port, now: () => 1_000 });
+
+    await expect(dispatcher.dispatch(request(fixture.port.pin))).resolves.toEqual({
+      ok: false,
+      failure: { kind: 'transport', code: 'foreign', message: 'Unknown gateway failure' },
+    });
+  });
+
+  it('rejects concurrent duplicate ids without replacing cancellation ownership', async () => {
+    const first = adapter(Object.freeze({ era: 'legacy', revision: '2025-11-25' }));
+    const second = adapter(Object.freeze({ era: 'modern', revision: '2026-07-28' }));
+    const dispatcher = new GatewayDispatcher({
+      resolveOutbound: (connectionId) => (connectionId === 'backend' ? first.port : second.port),
+      now: () => 1_000,
+    });
+    const pending = dispatcher.dispatch(request(first.port.pin, { params: 'pending' }));
+    await vi.waitFor(() => expect(first.requests).toHaveLength(1));
+
+    await expect(
+      dispatcher.dispatch(
+        request(second.port.pin, {
+          targetConnectionId: 'other',
+          authority: createEffectiveRequestAuthority({ connectionIds: ['other'] }),
+        }),
+      ),
+    ).resolves.toMatchObject({ ok: false, failure: { code: 'gateway_request_already_active' } });
+    await expect(dispatcher.cancel('request-1')).resolves.toBe(true);
+    await pending;
+    expect(first.cancellations).toEqual(['request-1']);
+    expect(second.requests).toHaveLength(0);
   });
 });

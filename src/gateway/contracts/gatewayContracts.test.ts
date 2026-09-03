@@ -89,4 +89,33 @@ describe('gateway contracts', () => {
     expect(envelope.inbound.revision).toBe('2026-07-28');
     expect(JSON.parse(JSON.stringify(envelope))).toEqual(envelope);
   });
+
+  it('allowlists envelope and pin fields instead of retaining hidden state', () => {
+    const symbol = Symbol('hidden');
+    const input = {
+      requestId: 'request-1',
+      operation: 'tools/list' as const,
+      targetConnectionId: 'backend',
+      authority: createEffectiveRequestAuthority({ connectionIds: ['backend'] }),
+      inbound: { era: 'legacy' as const, revision: '2025-11-25', session: new Error('hidden') },
+      outbound: { era: 'modern' as const, revision: '2026-07-28', callback: () => undefined },
+      deadlineUnixMs: 10_000,
+      session: new Error('hidden'),
+      [symbol]: new Error('hidden'),
+    };
+
+    const envelope = createGatewayRequestEnvelope(input);
+    expect(Reflect.ownKeys(envelope)).toEqual([
+      'requestId',
+      'operation',
+      'targetConnectionId',
+      'authority',
+      'inbound',
+      'outbound',
+      'deadlineUnixMs',
+    ]);
+    expect(Reflect.ownKeys(envelope.inbound)).toEqual(['era', 'revision']);
+    expect(Reflect.ownKeys(envelope.outbound)).toEqual(['era', 'revision']);
+    expect(JSON.parse(JSON.stringify(envelope))).toEqual(envelope);
+  });
 });

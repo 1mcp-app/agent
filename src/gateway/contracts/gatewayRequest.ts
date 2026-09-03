@@ -1,6 +1,6 @@
 import { createEffectiveRequestAuthority, type EffectiveRequestAuthority } from './effectiveRequestAuthority.js';
 import { type ImmutableJsonValue, toImmutableJsonValue } from './immutableJson.js';
-import type { ProtocolEraPin } from './protocolEra.js';
+import { classifyProtocolEra, type ProtocolEraPin } from './protocolEra.js';
 
 export type GatewayOperation = 'tools/list';
 
@@ -22,12 +22,19 @@ export function createGatewayRequestEnvelope(input: GatewayRequestEnvelope): Gat
   if (!Number.isSafeInteger(input.deadlineUnixMs) || input.deadlineUnixMs <= 0) {
     throw new TypeError('Gateway deadline must be a positive Unix millisecond timestamp');
   }
+  const inbound = classifyProtocolEra({ syntax: input.inbound.era, revision: input.inbound.revision });
+  const outbound = classifyProtocolEra({ syntax: input.outbound.era, revision: input.outbound.revision });
+  if (!inbound.ok) throw inbound.failure;
+  if (!outbound.ok) throw outbound.failure;
   return Object.freeze({
-    ...input,
-    authority: createEffectiveRequestAuthority(input.authority),
-    inbound: Object.freeze({ ...input.inbound }),
-    outbound: Object.freeze({ ...input.outbound }),
+    requestId: input.requestId,
+    operation: input.operation,
+    targetConnectionId: input.targetConnectionId,
     ...(input.params === undefined ? {} : { params: toImmutableJsonValue(input.params) }),
+    authority: createEffectiveRequestAuthority(input.authority),
+    inbound: inbound.value,
+    outbound: outbound.value,
+    deadlineUnixMs: input.deadlineUnixMs,
   });
 }
 

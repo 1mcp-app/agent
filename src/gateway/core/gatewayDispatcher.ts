@@ -30,6 +30,15 @@ export class GatewayDispatcher {
   }
 
   async dispatch(request: GatewayRequestEnvelope): Promise<GatewayResult<ImmutableJsonValue>> {
+    if (this.active.has(request.requestId)) {
+      return gatewayFailure(
+        createGatewayFailure({
+          kind: 'invalid-request',
+          code: 'gateway_request_already_active',
+          message: 'The gateway request id is already active',
+        }),
+      );
+    }
     if (!authorityAllows(request.authority, request.targetConnectionId)) {
       return gatewayFailure(
         createGatewayFailure({
@@ -82,7 +91,7 @@ export class GatewayDispatcher {
     } catch (error) {
       return gatewayFailure(gatewayFailureFromUnknown(error, 'transport'));
     } finally {
-      this.active.delete(request.requestId);
+      if (this.active.get(request.requestId) === outbound) this.active.delete(request.requestId);
     }
   }
 

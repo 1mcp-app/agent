@@ -71,6 +71,7 @@ function createOutbound(era: ProtocolEra, observed: unknown[]): OutboundEraAdapt
   }
   return new ModernOutboundEraAdapter({
     revision: revisionByEra.modern,
+    now: () => 1_000,
     async request(frame) {
       observed.push(frame);
       return { tools: [{ name: 'fixture-tool', inputSchema: { type: 'object' } }] };
@@ -82,13 +83,9 @@ function createOutbound(era: ProtocolEra, observed: unknown[]): OutboundEraAdapt
 function frame(request: GatewayRequestEnvelope): ImmutableJsonValue {
   return toImmutableJsonValue({
     type: 'request',
-    requestId: request.requestId,
+    correlationId: `wire-${request.requestId}`,
     operation: request.operation,
-    targetConnectionId: request.targetConnectionId,
     ...(request.params === undefined ? {} : { params: request.params }),
-    authority: request.authority,
-    outbound: request.outbound,
-    deadlineUnixMs: request.deadlineUnixMs,
   });
 }
 
@@ -118,6 +115,16 @@ function createInbound(era: ProtocolEra, request: GatewayRequestEnvelope, respon
       if (delivered) return undefined;
       delivered = true;
       return frame(request);
+    },
+    async requestContext(correlationId) {
+      expect(correlationId).toBe(`wire-${request.requestId}`);
+      return {
+        requestId: request.requestId,
+        targetConnectionId: request.targetConnectionId,
+        authority: request.authority,
+        outbound: request.outbound,
+        deadlineUnixMs: request.deadlineUnixMs,
+      };
     },
     async respond(response) {
       responses.push(response);
@@ -168,6 +175,22 @@ describe('gateway era skeleton', () => {
     expect(event.request.inbound).toEqual(pin(inboundEra));
     expect(event.request.outbound).toEqual(pin(outboundEra));
     expect(observed).toHaveLength(1);
+    if (outboundEra === 'legacy') {
+      expect(observed[0]).toMatchObject({
+        id: request.requestId,
+        method: 'tools/list',
+        params: { cursor: 'fixture' },
+        timeoutMs: 1_000,
+      });
+    } else {
+      expect(observed[0]).toMatchObject({
+        requestId: request.requestId,
+        operation: 'tools/list',
+        params: { cursor: 'fixture' },
+        authority: { connectionIds: ['fixture-backend'], provenance: ['gateway-era-skeleton'] },
+        deadlineUnixMs: 2_000,
+      });
+    }
     expect(responses).toHaveLength(1);
     expect(JSON.parse(JSON.stringify(responses[0]))).toEqual(responses[0]);
   });

@@ -1,6 +1,4 @@
 import {
-  classifyProtocolEra,
-  createEffectiveRequestAuthority,
   createGatewayCancellation,
   createGatewayFailure,
   createGatewayRequestEnvelope,
@@ -16,6 +14,10 @@ import { requireModernPin } from './modernPin.js';
 export interface ModernInboundAdapterCallbacks {
   /** Returns one decoded modern frame, or undefined once the fixture/transport closes. */
   readonly receive: () => Promise<unknown>;
+  /** Derives gateway-owned context without trusting fields on the decoded wire frame. */
+  readonly requestContext: (
+    correlationId: string,
+  ) => ModernInboundRequestContext | Promise<ModernInboundRequestContext>;
   /** Receives a detached, recursively frozen JSON response frame. */
   readonly respond: (response: ImmutableJsonValue) => Promise<void>;
   readonly close?: () => Promise<void>;
@@ -23,6 +25,14 @@ export interface ModernInboundAdapterCallbacks {
 
 export interface ModernInboundEraAdapterOptions extends ModernInboundAdapterCallbacks {
   readonly revision: unknown;
+}
+
+export interface ModernInboundRequestContext {
+  readonly requestId: string;
+  readonly targetConnectionId: string;
+  readonly authority: EffectiveRequestAuthority;
+  readonly outbound: ProtocolEraPin;
+  readonly deadlineUnixMs: number;
 }
 
 function invalidModernRequest(): InboundGatewayEvent {
@@ -46,40 +56,19 @@ function requiredString(record: { readonly [key: string]: ImmutableJsonValue }, 
   return value;
 }
 
-function stringArray(value: ImmutableJsonValue | undefined): readonly string[] {
-  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
-    throw new TypeError('authority fields must be string arrays');
-  }
-  return value as readonly string[];
-}
-
-function parseAuthority(value: ImmutableJsonValue | undefined): EffectiveRequestAuthority {
-  if (!value || !isRecord(value)) throw new TypeError('authority must be an object');
-  return createEffectiveRequestAuthority({
-    connectionIds: stringArray(value.connectionIds),
-    provenance: value.provenance === undefined ? [] : stringArray(value.provenance),
-  });
-}
-
-function parseOutboundPin(value: ImmutableJsonValue | undefined): ProtocolEraPin {
-  if (!value || !isRecord(value)) throw new TypeError('outbound pin must be an object');
-  const era = value.era;
-  if (era !== 'legacy' && era !== 'modern') throw new TypeError('outbound era is invalid');
-  const classified = classifyProtocolEra({ syntax: era, revision: value.revision });
-  if (!classified.ok) throw classified.failure;
-  return classified.value;
-}
-
 /** Modern-only inbound shell. It is intentionally unattached to a serving route. */
 export class ModernInboundEraAdapter implements InboundEraAdapter {
   readonly role = 'inbound' as const;
   readonly pin: ProtocolEraPin;
   readonly #callbacks: ModernInboundAdapterCallbacks;
+  readonly #correlationByRequestId = new Map<string, string>();
+  readonly #requestIdByCorrelation = new Map<string, string>();
 
   constructor(options: ModernInboundEraAdapterOptions) {
     this.pin = requireModernPin(options.revision);
     this.#callbacks = Object.freeze({
       receive: options.receive,
+      requestContext: options.requestContext,
       respond: options.respond,
       ...(options.close === undefined ? {} : { close: options.close }),
     });
@@ -104,24 +93,48 @@ export class ModernInboundEraAdapter implements InboundEraAdapter {
     }
     if (!isRecord(frame)) return invalidModernRequest();
 
-    try {
-      if (frame.type === 'cancel') {
-        return createGatewayCancellation(requiredString(frame, 'requestId'));
+    if (frame.type === 'cancel') {
+      try {
+        const requestId = this.#requestIdByCorrelation.get(requiredString(frame, 'correlationId'));
+        return requestId === undefined ? invalidModernRequest() : createGatewayCancellation(requestId);
+      } catch {
+        return invalidModernRequest();
       }
-      if (frame.type !== 'request') return invalidModernRequest();
+    }
+    if (frame.type !== 'request') return invalidModernRequest();
 
-      const deadlineUnixMs = frame.deadlineUnixMs;
-      if (typeof deadlineUnixMs !== 'number') throw new TypeError('deadlineUnixMs must be a number');
+    let correlationId: string;
+    let operation: string;
+    try {
+      correlationId = requiredString(frame, 'correlationId');
+      operation = requiredString(frame, 'operation');
+    } catch {
+      return invalidModernRequest();
+    }
+
+    let context: ModernInboundRequestContext;
+    try {
+      context = await this.#callbacks.requestContext(correlationId);
+    } catch (error) {
+      return Object.freeze({ type: 'failure', failure: gatewayFailureFromUnknown(error, 'transport') });
+    }
+
+    try {
       const request = createGatewayRequestEnvelope({
-        requestId: requiredString(frame, 'requestId'),
-        operation: requiredString(frame, 'operation') as 'tools/list',
-        targetConnectionId: requiredString(frame, 'targetConnectionId'),
+        requestId: context.requestId,
+        operation: operation as 'tools/list',
+        targetConnectionId: context.targetConnectionId,
         ...(frame.params === undefined ? {} : { params: frame.params }),
-        authority: parseAuthority(frame.authority),
+        authority: context.authority,
         inbound: this.pin,
-        outbound: parseOutboundPin(frame.outbound),
-        deadlineUnixMs,
+        outbound: context.outbound,
+        deadlineUnixMs: context.deadlineUnixMs,
       });
+      if (this.#correlationByRequestId.has(request.requestId) || this.#requestIdByCorrelation.has(correlationId)) {
+        return invalidModernRequest();
+      }
+      this.#correlationByRequestId.set(request.requestId, correlationId);
+      this.#requestIdByCorrelation.set(correlationId, request.requestId);
       return Object.freeze({ type: 'request', request });
     } catch {
       return invalidModernRequest();
@@ -129,22 +142,33 @@ export class ModernInboundEraAdapter implements InboundEraAdapter {
   }
 
   async respond(response: InboundGatewayResponse): Promise<void> {
+    const correlationId = this.#correlationByRequestId.get(response.requestId);
+    if (correlationId === undefined) {
+      throw createGatewayFailure({
+        kind: 'invalid-request',
+        code: 'modern_response_unknown_request',
+        message: 'The modern response does not match an active request',
+      });
+    }
     const frame =
       response.type === 'success'
         ? toImmutableJsonValue({
             type: 'success',
-            requestId: response.requestId,
+            correlationId,
             result: response.result,
           })
         : toImmutableJsonValue({
             type: 'failure',
-            requestId: response.requestId,
+            correlationId,
             failure: response.failure,
           });
     try {
       await this.#callbacks.respond(frame);
     } catch (error) {
       throw gatewayFailureFromUnknown(error, 'transport');
+    } finally {
+      this.#correlationByRequestId.delete(response.requestId);
+      this.#requestIdByCorrelation.delete(correlationId);
     }
   }
 

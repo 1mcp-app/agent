@@ -1,6 +1,6 @@
 import {
   createEffectiveRequestAuthority,
-  createGatewayCancellation,
+  createGatewayFailure,
   gatewayFailureFromUnknown,
   type ImmutableJsonValue,
   type ProtocolEraPin,
@@ -19,6 +19,7 @@ export interface ModernOutboundAdapterCallbacks {
 
 export interface ModernOutboundEraAdapterOptions extends ModernOutboundAdapterCallbacks {
   readonly revision: unknown;
+  readonly now?: () => number;
 }
 
 /** Modern-only outbound shell. It is intentionally unattached to a backend factory. */
@@ -26,6 +27,9 @@ export class ModernOutboundEraAdapter implements OutboundEraAdapter {
   readonly role = 'outbound' as const;
   readonly pin: ProtocolEraPin;
   readonly #callbacks: ModernOutboundAdapterCallbacks;
+  readonly #now: () => number;
+  readonly #activeRequestIds = new Set<string>();
+  readonly #cancelledRequestIds = new Set<string>();
 
   constructor(options: ModernOutboundEraAdapterOptions) {
     this.pin = requireModernPin(options.revision);
@@ -34,6 +38,7 @@ export class ModernOutboundEraAdapter implements OutboundEraAdapter {
       cancel: options.cancel,
       ...(options.close === undefined ? {} : { close: options.close }),
     });
+    this.#now = options.now ?? Date.now;
     Object.freeze(this);
   }
 
@@ -45,17 +50,37 @@ export class ModernOutboundEraAdapter implements OutboundEraAdapter {
       authority: createEffectiveRequestAuthority(request.authority),
       deadlineUnixMs: request.deadlineUnixMs,
     });
+    if (this.#activeRequestIds.has(request.requestId)) {
+      throw createGatewayFailure({
+        kind: 'invalid-request',
+        code: 'modern_outbound_duplicate_request',
+        message: 'The modern outbound request id is already active',
+      });
+    }
+    if (request.deadlineUnixMs <= this.#now()) {
+      throw createGatewayFailure({
+        kind: 'deadline-exceeded',
+        code: 'gateway_deadline_exceeded',
+        message: 'The gateway request deadline has expired',
+      });
+    }
+
+    this.#activeRequestIds.add(request.requestId);
     try {
       return toImmutableJsonValue(await this.#callbacks.request(frame));
     } catch (error) {
       throw gatewayFailureFromUnknown(error, 'transport');
+    } finally {
+      this.#activeRequestIds.delete(request.requestId);
+      this.#cancelledRequestIds.delete(request.requestId);
     }
   }
 
   async cancel(requestId: string): Promise<void> {
-    const cancellation = createGatewayCancellation(requestId);
+    if (!this.#activeRequestIds.has(requestId) || this.#cancelledRequestIds.has(requestId)) return;
+    this.#cancelledRequestIds.add(requestId);
     try {
-      await this.#callbacks.cancel(cancellation.requestId);
+      await this.#callbacks.cancel(requestId);
     } catch (error) {
       throw gatewayFailureFromUnknown(error, 'transport');
     }
