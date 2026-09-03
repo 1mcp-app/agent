@@ -87,4 +87,44 @@ describe('GatewaySession', () => {
     expect(cancel).toHaveBeenCalledOnce();
     expect(cancel).toHaveBeenCalledWith('request-close');
   });
+
+  it('cancels a pending request when reading the inbound stream fails', async () => {
+    let resolveRequest!: (value: { tools: never[] }) => void;
+    const cancel = vi.fn(async () => resolveRequest({ tools: [] }));
+    const outbound: OutboundEraAdapter = {
+      role: 'outbound',
+      pin: Object.freeze({ era: 'legacy', revision: '2025-11-25' }),
+      request: async () => new Promise((resolve) => (resolveRequest = resolve)),
+      cancel,
+      async close() {},
+    };
+    const request = createGatewayRequestEnvelope({
+      requestId: 'request-read-failure',
+      operation: 'tools/list',
+      targetConnectionId: 'backend',
+      authority: createEffectiveRequestAuthority({ connectionIds: ['backend'] }),
+      inbound: Object.freeze({ era: 'legacy', revision: '2025-11-25' }),
+      outbound: outbound.pin,
+      deadlineUnixMs: 2_000,
+    });
+    let delivered = false;
+    const inbound: InboundEraAdapter = {
+      role: 'inbound',
+      pin: request.inbound,
+      async nextEvent() {
+        if (!delivered) {
+          delivered = true;
+          return Object.freeze({ type: 'request' as const, request });
+        }
+        throw new Error('inbound read failed');
+      },
+      async respond() {},
+      async close() {},
+    };
+
+    await expect(
+      new GatewaySession(new GatewayDispatcher({ resolveOutbound: () => outbound, now: () => 1_000 })).run(inbound),
+    ).rejects.toMatchObject({ kind: 'transport', message: 'inbound read failed' });
+    expect(cancel).toHaveBeenCalledWith('request-read-failure');
+  });
 });

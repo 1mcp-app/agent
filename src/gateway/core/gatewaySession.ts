@@ -16,7 +16,13 @@ export class GatewaySession {
 
   async run(inbound: InboundEraAdapter): Promise<void> {
     while (true) {
-      const event = await inbound.nextEvent();
+      let event: Awaited<ReturnType<InboundEraAdapter['nextEvent']>>;
+      try {
+        event = await inbound.nextEvent();
+      } catch (error) {
+        await this.cancelAndDrain();
+        throw gatewayFailureFromUnknown(error, 'transport');
+      }
       switch (event.type) {
         case 'request': {
           let task: Promise<void>;
@@ -32,15 +38,18 @@ export class GatewaySession {
           await this.dispatcher.cancel(event.requestId);
           break;
         case 'failure':
-          await this.cancelActive();
-          await this.drain();
+          await this.cancelAndDrain();
           throw event.failure;
         case 'closed':
-          await this.cancelActive();
-          await this.drain();
+          await this.cancelAndDrain();
           return;
       }
     }
+  }
+
+  private async cancelAndDrain(): Promise<void> {
+    await this.cancelActive();
+    await this.drain();
   }
 
   private async cancelActive(): Promise<void> {
