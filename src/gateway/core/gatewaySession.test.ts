@@ -48,4 +48,43 @@ describe('GatewaySession', () => {
     expect(cancel).toHaveBeenCalledWith('request-1');
     expect(respond).toHaveBeenCalledWith({ type: 'success', requestId: 'request-1', result: { tools: [] } });
   });
+
+  it('cancels a pending request before draining an inbound close', async () => {
+    let resolveRequest!: (value: { tools: never[] }) => void;
+    const cancel = vi.fn(async () => resolveRequest({ tools: [] }));
+    const outbound: OutboundEraAdapter = {
+      role: 'outbound',
+      pin: Object.freeze({ era: 'legacy', revision: '2025-11-25' }),
+      request: async () => new Promise((resolve) => (resolveRequest = resolve)),
+      cancel,
+      async close() {},
+    };
+    const request = createGatewayRequestEnvelope({
+      requestId: 'request-close',
+      operation: 'tools/list',
+      targetConnectionId: 'backend',
+      authority: createEffectiveRequestAuthority({ connectionIds: ['backend'] }),
+      inbound: Object.freeze({ era: 'modern', revision: '2026-07-28' }),
+      outbound: outbound.pin,
+      deadlineUnixMs: 2_000,
+    });
+    const events: InboundGatewayEvent[] = [
+      Object.freeze({ type: 'request', request }),
+      Object.freeze({ type: 'closed' }),
+    ];
+    const inbound: InboundEraAdapter = {
+      role: 'inbound',
+      pin: request.inbound,
+      async nextEvent() {
+        return events.shift()!;
+      },
+      async respond() {},
+      async close() {},
+    };
+
+    await new GatewaySession(new GatewayDispatcher({ resolveOutbound: () => outbound, now: () => 1_000 })).run(inbound);
+
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(cancel).toHaveBeenCalledWith('request-close');
+  });
 });

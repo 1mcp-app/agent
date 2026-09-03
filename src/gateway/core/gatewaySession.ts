@@ -10,7 +10,7 @@ function responseFor(requestId: string, result: GatewayResult<ImmutableJsonValue
 
 /** Connects inbound request/cancellation events to one gateway dispatcher. */
 export class GatewaySession {
-  private readonly active = new Set<Promise<void>>();
+  private readonly active = new Map<Promise<void>, string>();
 
   constructor(private readonly dispatcher: GatewayDispatcher) {}
 
@@ -24,7 +24,7 @@ export class GatewaySession {
             .dispatch(event.request)
             .then((result) => inbound.respond(responseFor(event.request.requestId, result)))
             .finally(() => this.active.delete(task));
-          this.active.add(task);
+          this.active.set(task, event.request.requestId);
           void task.catch(() => undefined);
           break;
         }
@@ -32,17 +32,23 @@ export class GatewaySession {
           await this.dispatcher.cancel(event.requestId);
           break;
         case 'failure':
+          await this.cancelActive();
           await this.drain();
           throw event.failure;
         case 'closed':
+          await this.cancelActive();
           await this.drain();
           return;
       }
     }
   }
 
+  private async cancelActive(): Promise<void> {
+    await Promise.all([...new Set(this.active.values())].map((requestId) => this.dispatcher.cancel(requestId)));
+  }
+
   private async drain(): Promise<void> {
-    const results = await Promise.allSettled(this.active);
+    const results = await Promise.allSettled(this.active.keys());
     const rejected = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
     if (rejected) throw gatewayFailureFromUnknown(rejected.reason, 'transport');
   }
