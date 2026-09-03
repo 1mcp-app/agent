@@ -12,7 +12,6 @@ import {
   LegacyOutboundEraAdapter,
   ModernInboundEraAdapter,
   ModernOutboundEraAdapter,
-  type OutboundEraAdapter,
   type ProtocolEra,
   type ProtocolEraPin,
   toImmutableJsonValue,
