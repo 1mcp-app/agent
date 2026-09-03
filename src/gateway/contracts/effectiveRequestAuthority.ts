@@ -3,11 +3,16 @@ export interface EffectiveRequestAuthority {
   readonly provenance: readonly string[];
 }
 
-function canonicalStrings(values: readonly string[], name: string): readonly string[] {
-  if (values.some((value) => typeof value !== 'string' || value.length === 0)) {
-    throw new TypeError(`${name} must contain non-empty strings`);
+function canonicalStrings(values: unknown, name: string): readonly string[] {
+  if (!Array.isArray(values)) throw new TypeError(`${name} must contain non-empty strings`);
+  const strings: string[] = [];
+  for (const value of values as unknown[]) {
+    if (typeof value !== 'string' || value.length === 0) {
+      throw new TypeError(`${name} must contain non-empty strings`);
+    }
+    strings.push(value);
   }
-  return Object.freeze([...new Set(values)].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)));
+  return Object.freeze([...new Set(strings)].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)));
 }
 
 export function createEffectiveRequestAuthority(input: {

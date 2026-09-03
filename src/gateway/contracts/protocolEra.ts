@@ -24,6 +24,15 @@ export interface ProtocolEraEvidence {
 }
 
 export function classifyProtocolEra(evidence: ProtocolEraEvidence): GatewayResult<ProtocolEraPin> {
+  if (evidence.syntax !== 'legacy' && evidence.syntax !== 'modern') {
+    return gatewayFailure(
+      createGatewayFailure({
+        kind: 'protocol',
+        code: 'protocol_evidence_invalid',
+        message: 'Protocol era evidence is malformed',
+      }),
+    );
+  }
   if (evidence.syntax === 'modern') {
     if (evidence.revision !== MODERN_PROTOCOL_REVISION) {
       return gatewayFailure(

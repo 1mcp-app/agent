@@ -16,7 +16,14 @@ export interface GatewayRequestEnvelope {
 }
 
 export function createGatewayRequestEnvelope(input: GatewayRequestEnvelope): GatewayRequestEnvelope {
-  if (!input.requestId || !input.targetConnectionId) throw new TypeError('Gateway request identifiers are required');
+  if (
+    typeof input.requestId !== 'string' ||
+    !input.requestId ||
+    typeof input.targetConnectionId !== 'string' ||
+    !input.targetConnectionId
+  ) {
+    throw new TypeError('Gateway request identifiers are required');
+  }
   if (input.operation !== 'tools/list')
     throw new TypeError(`Unsupported gateway operation: ${String(input.operation)}`);
   if (!Number.isSafeInteger(input.deadlineUnixMs) || input.deadlineUnixMs <= 0) {

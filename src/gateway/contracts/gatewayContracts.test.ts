@@ -36,6 +36,10 @@ describe('gateway contracts', () => {
       ok: false,
       failure: expect.objectContaining({ code: 'modern_protocol_invalid', data: { observedEra: 'modern' } }),
     });
+    expect(classifyProtocolEra({ syntax: 'unknown' as 'legacy', revision: '2025-11-25' })).toMatchObject({
+      ok: false,
+      failure: { code: 'protocol_evidence_invalid' },
+    });
   });
 
   it('pins inbound and outbound eras independently and rejects later conflicts', () => {
@@ -117,5 +121,19 @@ describe('gateway contracts', () => {
     expect(Reflect.ownKeys(envelope.inbound)).toEqual(['era', 'revision']);
     expect(Reflect.ownKeys(envelope.outbound)).toEqual(['era', 'revision']);
     expect(JSON.parse(JSON.stringify(envelope))).toEqual(envelope);
+  });
+
+  it('validates scalar contract fields at runtime', () => {
+    expect(() =>
+      createGatewayRequestEnvelope({
+        requestId: 1 as unknown as string,
+        operation: 'tools/list',
+        targetConnectionId: 'backend',
+        authority: createEffectiveRequestAuthority({ connectionIds: ['backend'] }),
+        inbound: { era: 'legacy', revision: '2025-11-25' },
+        outbound: { era: 'legacy', revision: '2025-11-25' },
+        deadlineUnixMs: 10_000,
+      }),
+    ).toThrow('Gateway request identifiers are required');
   });
 });

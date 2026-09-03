@@ -27,7 +27,10 @@ export function createGatewayFailure(input: {
   message: string;
   data?: unknown;
 }): GatewayFailure {
-  if (!input.code || !input.message) throw new TypeError('Gateway failure code and message are required');
+  if (!GATEWAY_FAILURE_KINDS.includes(input.kind)) throw new TypeError('Gateway failure kind is invalid');
+  if (typeof input.code !== 'string' || !input.code || typeof input.message !== 'string' || !input.message) {
+    throw new TypeError('Gateway failure code and message are required');
+  }
   const failure: GatewayFailure = Object.freeze({
     kind: input.kind,
     code: input.code,
