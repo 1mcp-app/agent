@@ -9,7 +9,7 @@
     {
       "id": "vitest-conformance",
       "path": "vitest.conformance.config.ts",
-      "digest": "sha256:926db110d1c74c81c84fd6d91e0892a54351f11d2dd5553e9adf1c9417d28775"
+      "digest": "sha256:80b215f56542501bb156485692875c54977c1083c901b90f153469fb8907a6ee"
     },
     {
       "id": "vitest-transports",
@@ -24,7 +24,7 @@
     {
       "id": "traceability-inventory",
       "path": "test/conformance/baseline/traceabilityInventory.ts",
-      "digest": "sha256:83a60b23d8b3b9f911b31787987f274af82ec082a1e432262558671c6b58c01b"
+      "digest": "sha256:86746643181cc478fac32d866401a9a16dc2457a031e093afa34db01600bb5f2"
     },
     {
       "id": "capture-schema",

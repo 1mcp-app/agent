@@ -5,7 +5,11 @@ export default defineConfig({
   plugins: [tsconfigPaths()],
   test: {
     environment: 'node',
-    include: ['test/conformance/**/*.test.ts'],
+    include: [
+      'test/conformance/**/*.test.ts',
+      'src/gateway/contracts/gatewayContracts.test.ts',
+      'test/e2e/gateway-era-skeleton.test.ts',
+    ],
     exclude: [...configDefaults.exclude, 'test/conformance/transports/profileProofs.test.ts'],
     globals: true,
     retry: 0,

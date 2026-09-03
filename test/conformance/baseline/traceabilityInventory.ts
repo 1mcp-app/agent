@@ -65,6 +65,13 @@ export const ACCEPTED_CONTRACT_TRACEABILITY_INVENTORY = [
     testNeedle: "it.each(ERA_CELLS)('dispatches tools/list through the %s-%s gateway era cell'",
     evidenceArtifactIds: ['conformance-baseline'],
   },
+  {
+    requirementId: '1mcp.contract.gateway-cancellation-propagation',
+    testIds: ['gateway.four-cell-cancellation'],
+    testPath: 'test/e2e/gateway-era-skeleton.test.ts',
+    testNeedle: "it.each(ERA_CELLS)('propagates cancellation through the %s-%s gateway era cell'",
+    evidenceArtifactIds: ['conformance-baseline'],
+  },
 ] as const;
 
 interface AcceptedContractTrace {

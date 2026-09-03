@@ -3,6 +3,7 @@ import {
   createGatewayRequestEnvelope,
   GatewayDispatcher,
   type GatewayRequestEnvelope,
+  GatewaySession,
   type ImmutableJsonValue,
   type InboundEraAdapter,
   type InboundGatewayEvent,
@@ -44,7 +45,16 @@ function pin(era: ProtocolEra): ProtocolEraPin {
   return Object.freeze({ era, revision: revisionByEra[era] });
 }
 
-function legacySdkAdapter(observed: LegacySdkRequest[]): LegacySdkAdapter {
+const toolList = { tools: [{ name: 'fixture-tool', inputSchema: { type: 'object' } }] };
+
+function isPending(params: unknown): boolean {
+  if (typeof params !== 'object' || params === null) return false;
+  if ('pending' in params && params.pending === true) return true;
+  return 'params' in params && isPending(params.params);
+}
+
+function legacySdkAdapter(observed: LegacySdkRequest[], cancellations: string[]): LegacySdkAdapter {
+  let resolvePending: ((value: typeof toolList) => void) | undefined;
   return {
     connectionId: 'legacy-fixture' as LegacyConnectionId,
     state: 'running',
@@ -55,29 +65,45 @@ function legacySdkAdapter(observed: LegacySdkRequest[]): LegacySdkAdapter {
     async respond(_response: LegacySdkResponse) {},
     async request(request) {
       observed.push(request);
-      return { tools: [{ name: 'fixture-tool', inputSchema: { type: 'object' } }] };
+      if (isPending(request.params)) return new Promise((resolve) => (resolvePending = resolve));
+      return toolList;
     },
-    async cancel(_requestId: LegacyRequestId) {},
+    async cancel(requestId: LegacyRequestId) {
+      cancellations.push(requestId);
+      resolvePending?.(toolList);
+    },
     async notify(_notification: LegacySdkNotification) {},
     async close() {},
   };
 }
 
-function createOutbound(era: ProtocolEra, observed: unknown[]): OutboundEraAdapter {
+function createOutbound(era: ProtocolEra, observed: unknown[]) {
+  const cancellations: string[] = [];
   if (era === 'legacy') {
-    return new LegacyOutboundEraAdapter(legacySdkAdapter(observed as LegacySdkRequest[]), pin(era), {
-      now: () => 1_000,
-    });
+    return {
+      adapter: new LegacyOutboundEraAdapter(legacySdkAdapter(observed as LegacySdkRequest[], cancellations), pin(era), {
+        now: () => 1_000,
+      }),
+      cancellations,
+    };
   }
-  return new ModernOutboundEraAdapter({
-    revision: revisionByEra.modern,
-    now: () => 1_000,
-    async request(frame) {
-      observed.push(frame);
-      return { tools: [{ name: 'fixture-tool', inputSchema: { type: 'object' } }] };
-    },
-    async cancel() {},
-  });
+  let resolvePending: ((value: typeof toolList) => void) | undefined;
+  return {
+    adapter: new ModernOutboundEraAdapter({
+      revision: revisionByEra.modern,
+      now: () => 1_000,
+      async request(frame) {
+        observed.push(frame);
+        if (isPending(frame)) return new Promise((resolve) => (resolvePending = resolve));
+        return toolList;
+      },
+      async cancel(requestId) {
+        cancellations.push(requestId);
+        resolvePending?.(toolList);
+      },
+    }),
+    cancellations,
+  };
 }
 
 function frame(request: GatewayRequestEnvelope): ImmutableJsonValue {
@@ -89,15 +115,22 @@ function frame(request: GatewayRequestEnvelope): ImmutableJsonValue {
   });
 }
 
-function createInbound(era: ProtocolEra, request: GatewayRequestEnvelope, responses: unknown[]): InboundEraAdapter {
+function createInbound(
+  era: ProtocolEra,
+  request: GatewayRequestEnvelope,
+  responses: unknown[],
+  cancellation = false,
+): InboundEraAdapter {
   if (era === 'legacy') {
-    let delivered = false;
+    const events: InboundGatewayEvent[] = [
+      Object.freeze({ type: 'request', request }),
+      ...(cancellation ? [Object.freeze({ type: 'cancel' as const, requestId: request.requestId })] : []),
+      Object.freeze({ type: 'closed' }),
+    ];
     return new LegacyInboundEraAdapter(
       {
         async nextEvent(): Promise<InboundGatewayEvent> {
-          if (delivered) return Object.freeze({ type: 'closed' });
-          delivered = true;
-          return Object.freeze({ type: 'request', request });
+          return events.shift()!;
         },
         async respond(response) {
           responses.push(response);
@@ -108,13 +141,15 @@ function createInbound(era: ProtocolEra, request: GatewayRequestEnvelope, respon
     );
   }
 
-  let delivered = false;
+  const frames: unknown[] = [
+    frame(request),
+    ...(cancellation ? [{ type: 'cancel', correlationId: `wire-${request.requestId}` }] : []),
+    undefined,
+  ];
   return new ModernInboundEraAdapter({
     revision: revisionByEra.modern,
     async receive() {
-      if (delivered) return undefined;
-      delivered = true;
-      return frame(request);
+      return frames.shift();
     },
     async requestContext(correlationId) {
       expect(correlationId).toBe(`wire-${request.requestId}`);
@@ -160,7 +195,7 @@ describe('gateway era skeleton', () => {
     });
     const inbound = createInbound(inboundEra, request, responses);
     const outbound = createOutbound(outboundEra, observed);
-    const dispatcher = new GatewayDispatcher({ resolveOutbound: () => outbound, now: () => 1_000 });
+    const dispatcher = new GatewayDispatcher({ resolveOutbound: () => outbound.adapter, now: () => 1_000 });
 
     const event = await inbound.nextEvent();
     expect(event.type).toBe('request');
@@ -193,5 +228,31 @@ describe('gateway era skeleton', () => {
     }
     expect(responses).toHaveLength(1);
     expect(JSON.parse(JSON.stringify(responses[0]))).toEqual(responses[0]);
+  });
+
+  it.each(ERA_CELLS)('propagates cancellation through the %s-%s gateway era cell', async (inboundEra, outboundEra) => {
+    const observed: unknown[] = [];
+    const responses: unknown[] = [];
+    const request = createGatewayRequestEnvelope({
+      requestId: `cancel-${inboundEra}-${outboundEra}`,
+      operation: 'tools/list',
+      targetConnectionId: 'fixture-backend',
+      params: { pending: true },
+      authority: createEffectiveRequestAuthority({ connectionIds: ['fixture-backend'] }),
+      inbound: pin(inboundEra),
+      outbound: pin(outboundEra),
+      deadlineUnixMs: 2_000,
+    });
+    const inbound = createInbound(inboundEra, request, responses, true);
+    const outbound = createOutbound(outboundEra, observed);
+    const session = new GatewaySession(
+      new GatewayDispatcher({ resolveOutbound: () => outbound.adapter, now: () => 1_000 }),
+    );
+
+    await session.run(inbound);
+
+    expect(outbound.cancellations).toEqual([request.requestId]);
+    expect(observed).toHaveLength(1);
+    expect(responses).toHaveLength(1);
   });
 });

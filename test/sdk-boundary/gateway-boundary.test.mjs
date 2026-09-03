@@ -18,6 +18,10 @@ function relativePath(path) {
   return relative(root, path).split(sep).join('/');
 }
 
+function isTestSource(path) {
+  return /(?:^|\/)[^/]+\.(?:test|e2e\.test)\.tsx?$/u.test(relativePath(path));
+}
+
 function importSpecifiers(path) {
   return importSpecifiersForSource(readFileSync(path, 'utf8'), path);
 }
@@ -26,10 +30,11 @@ function importSpecifiersForSource(sourceText, path) {
   const source = ts.createSourceFile(path, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const specifiers = [];
   function add(node) {
-    if (node && ts.isStringLiteralLike(node)) specifiers.push(node.text);
+    specifiers.push(node && ts.isStringLiteralLike(node) ? node.text : '<computed>');
   }
   function visit(node) {
-    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) add(node.moduleSpecifier);
+    if (ts.isImportDeclaration(node)) add(node.moduleSpecifier);
+    else if (ts.isExportDeclaration(node) && node.moduleSpecifier) add(node.moduleSpecifier);
     else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
       add(node.moduleReference.expression);
     } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) add(node.argument.literal);
@@ -70,9 +75,10 @@ test('shared gateway layers remain independent of protocol SDK implementations',
 test('gateway adapters remain disconnected from production entry points', () => {
   const violations = filesBelow(join(root, 'src'))
     .filter((path) => !path.includes('/src/gateway/'))
+    .filter((path) => !isTestSource(path))
     .flatMap((path) =>
       importSpecifiers(path)
-        .filter((specifier) => resolvesInside(specifier, path, 'gateway'))
+        .filter((specifier) => specifier === '<computed>' || resolvesInside(specifier, path, 'gateway'))
         .map((specifier) => `${relativePath(path)} -> ${specifier}`),
     );
 
@@ -91,5 +97,9 @@ test('policy resolves relative legacy imports and gateway barrel imports', () =>
       sharedFile,
     ),
     ['../../sdk/legacy/types.js', '@src/gateway/index.js'],
+  );
+  assert.deepEqual(
+    importSpecifiersForSource("const target = '@src/gateway/index.js'; import(target);", productionFile),
+    ['<computed>'],
   );
 });
