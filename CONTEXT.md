@@ -316,8 +316,28 @@ _Avoid_: temp copy, old config file
 The domain workflow that turns installation input into an installable static **Configured Server Target** and structured installation facts. It does not create **Template Server** definitions.
 _Avoid_: install command, installation adapter, registry install
 
+**Conformance Harness**:
+The deterministic evidence system that exercises the **Aggregated Runtime** across supported protocol eras, peer roles, and transport profiles without changing production behavior.
+_Avoid_: E2E suite, release test script
+
+**Conformance Baseline**:
+An exact-source result from the **Conformance Harness** that records current supported and unsupported behavior. A failing baseline is evidence, not an exception or waiver.
+_Avoid_: expected-failure list, known-failure waiver
+
+**Requirement Traceability Manifest**:
+The machine-validated mapping from applicable MCP requirements and accepted 1MCP contracts to test identities, fixture roles, transport profiles, delivery stages, and evidence artifacts.
+_Avoid_: coverage list, test plan
+
+**Sanitized Wire Evidence**:
+Synthetic-loopback evidence for both gateway hops that retains allowlisted protocol facts after source-side secret redaction and excludes live credentials and user configuration.
+_Avoid_: raw wire dump, traffic log
+
 ## Relationships
 
+- A **Conformance Harness** produces a **Conformance Baseline** for one exact source revision.
+- A **Requirement Traceability Manifest** binds requirements and accepted contracts to **Conformance Harness** evidence.
+- A **Conformance Baseline** may remain red while unsupported production behavior is implemented; the later release verdict requires the applicable baseline to be green.
+- **Sanitized Wire Evidence** proves both gateway hops without becoming a source of live credentials or user configuration.
 - An **Aggregated Runtime** exposes one or more **Client Surfaces**.
 - The **Admin Console** is a **Client Surface** served same-origin by the **Aggregated Runtime**.
 - The **Admin Console** authorizes its requests with an **Admin Session**, not an OAuth client token.

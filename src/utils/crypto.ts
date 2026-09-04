@@ -1,10 +1,16 @@
-import { createHash as cryptoCreateHash } from 'crypto';
+import { randomBytes, scryptSync } from 'crypto';
+
+const runtimeHashSalt = randomBytes(32);
 
 /**
- * Creates a SHA-256 hash of the given string
+ * Creates a process-local password-hard hash of the given string.
+ *
+ * Callers use this for runtime identity and cache comparison, which can include
+ * rendered credentials. A keyed digest keeps those values resistant to offline
+ * guessing while remaining deterministic for the lifetime of the process.
  */
 export function createHash(data: string): string {
-  return cryptoCreateHash('sha256').update(data).digest('hex');
+  return scryptSync(data, runtimeHashSalt, 32).toString('hex');
 }
 
 /**

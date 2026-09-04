@@ -1,0 +1,13 @@
+[project]
+name = "one-mcp-conformance-python-fixture"
+version = "0.0.0"
+requires-python = ">=3.12"
+dependencies = ["mcp==2.0.0"]
+
+[dependency-groups]
+dev = ["pytest==8.4.2"]
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true
