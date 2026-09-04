@@ -4,9 +4,8 @@
  * These tests measure token usage, startup time, tool invocation latency,
  * cache hit rates, and request coalescing effectiveness.
  */
-import { Tool } from '@modelcontextprotocol/sdk/types.js';
-
 import { OutboundConnections } from '@src/core/types/index.js';
+import { Tool } from '@src/sdk/contracts/index.js';
 
 import { beforeEach, describe, expect, it } from 'vitest';
 

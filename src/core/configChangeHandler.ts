@@ -327,11 +327,7 @@ export class ConfigChangeHandler {
       const connection = outboundConns.get(serverName);
 
       if (connection) {
-        // Update transport metadata if supported
-        if (connection.transport && 'tags' in connection.transport) {
-          // Update tags on transport if it supports it
-          connection.transport.tags = config.tags;
-        }
+        connection.tags = [...(config.tags ?? [])];
 
         debugIf(() => ({
           message: `Updated outbound connection metadata for server ${serverName}`,

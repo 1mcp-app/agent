@@ -1,6 +1,3 @@
-import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-
 import { findToolByQualifiedName } from '@src/commands/run/runUtils.js';
 import { ApiClient } from '@src/commands/shared/apiClient.js';
 import {
@@ -19,6 +16,7 @@ import {
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { API_INSPECT_ENDPOINT } from '@src/constants/api.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
+import { hasHttpErrorCode, type Tool, toProtocolTools } from '@src/sdk/contracts/index.js';
 import type { ContextData } from '@src/types/context.js';
 
 import {
@@ -366,7 +364,7 @@ export async function inspectTools(options: {
 
       return {
         rawResponse: response,
-        tools: response.result.tools,
+        tools: toProtocolTools(response.result.tools),
         sessionId: client.sessionId,
         instructions: initializeResponse.result.instructions ?? null,
         retryWithFreshSession: false,
@@ -386,13 +384,13 @@ export async function inspectTools(options: {
 
     return {
       rawResponse: response,
-      tools: response.result.tools,
+      tools: toProtocolTools(response.result.tools),
       sessionId: client.sessionId,
       instructions: undefined,
       retryWithFreshSession: false,
     };
   } catch (error) {
-    if (error instanceof StreamableHTTPError && error.code === 404 && options.sessionId) {
+    if (hasHttpErrorCode(error, 404) && options.sessionId) {
       return {
         rawResponse: {
           jsonrpc: '2.0',

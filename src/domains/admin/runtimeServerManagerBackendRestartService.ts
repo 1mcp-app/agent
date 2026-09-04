@@ -51,7 +51,7 @@ export class RuntimeServerManagerBackendRestartService implements RuntimeBackend
     }
 
     const connection = this.options.serverManager.getClient(input.targetName);
-    if (connection?.transport.stdioSupervision) {
+    if (connection?.supervision) {
       await ClientManager.current.restartBackend(input.targetName);
     } else {
       await this.options.serverManager.loadMcpServer(input.targetName, target.serverConfig);

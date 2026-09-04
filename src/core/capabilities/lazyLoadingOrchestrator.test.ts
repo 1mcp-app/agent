@@ -1,9 +1,7 @@
-import { createMockClient, createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
-import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { Tool } from '@modelcontextprotocol/sdk/types.js';
-
-import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
+import { type OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
+import { Tool } from '@src/sdk/contracts/index.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -17,6 +15,26 @@ describe('LazyLoadingOrchestrator', () => {
   let mockAgentConfig: any;
   let mockClient: any;
 
+  const connectionFromClient = (
+    name: string,
+    client: any,
+    overrides: Partial<OutboundConnection> = {},
+  ): OutboundConnection =>
+    createMockOutboundConnection({
+      name,
+      tags: [],
+      capabilities: client.getServerCapabilities?.() ?? {},
+      adapter: {
+        request: vi.fn(async ({ method, params, timeoutMs }) => {
+          if (method === 'tools/list') return client.listTools(params, { timeout: timeoutMs });
+          if (method === 'tools/call') return client.callTool(params);
+          return {};
+        }),
+        ...(client.close ? { close: client.close } : {}),
+      },
+      ...overrides,
+    });
+
   beforeEach(() => {
     // Create mock client
     mockClient = {
@@ -28,38 +46,8 @@ describe('LazyLoadingOrchestrator', () => {
 
     // Create outbound connections map
     mockOutboundConnections = new Map([
-      [
-        'filesystem',
-        {
-          name: 'filesystem',
-          client: mockClient,
-          status: ClientStatus.Connected,
-          transport: {
-            tags: ['fs', 'file'],
-            start: async () => {},
-            send: async () => undefined,
-            close: async () => {},
-          },
-          capabilities: {},
-          lastConnected: new Date(),
-        },
-      ],
-      [
-        'database',
-        {
-          name: 'database',
-          client: mockClient,
-          status: ClientStatus.Connected,
-          transport: {
-            tags: ['db', 'sql'],
-            start: async () => {},
-            send: async () => undefined,
-            close: async () => {},
-          },
-          capabilities: {},
-          lastConnected: new Date(),
-        },
-      ],
+      ['filesystem', connectionFromClient('filesystem', mockClient, { tags: ['fs', 'file'] })],
+      ['database', connectionFromClient('database', mockClient, { tags: ['db', 'sql'] })],
     ]) as OutboundConnections;
 
     // Mock AgentConfigManager with default lazy loading config
@@ -172,39 +160,26 @@ describe('LazyLoadingOrchestrator', () => {
     it('should apply the effective backend request timeout while constructing the lazy registry', async () => {
       mockOutboundConnections.delete('database');
       const connection = mockOutboundConnections.get('filesystem')!;
-      connection.transport.requestTimeout = 240_000;
-      connection.transport.timeout = 5_000;
+      connection.requestTimeoutMs = 240_000;
       orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
 
       await orchestrator.initialize();
 
-      expect(mockClient.listTools).toHaveBeenCalledTimes(1);
-      for (const call of mockClient.listTools.mock.calls) {
-        expect(call).toEqual([undefined, { timeout: 240_000 }]);
-      }
+      const adapterRequest = vi.mocked(connection.adapter.request);
+      expect(adapterRequest).toHaveBeenCalledTimes(2);
+      expect(adapterRequest.mock.calls).toEqual([
+        [expect.objectContaining({ method: 'tools/list', timeoutMs: 240_000 })],
+        [expect.objectContaining({ method: 'tools/list', timeoutMs: 240_000 })],
+      ]);
     });
 
     it('should keep healthy lazy registry entries and recover a timed-out backend on refresh', async () => {
-      const slowListTools = vi
-        .fn()
-        .mockRejectedValueOnce(new Error('Request timed out'))
-        .mockResolvedValueOnce({
-          tools: [{ name: 'recovered', description: 'Recovered', inputSchema: { type: 'object' } }],
-        });
+      const slowListTools = vi.fn().mockRejectedValue(new Error('Request timed out'));
       const healthyListTools = vi.fn().mockResolvedValue({
         tools: [{ name: 'healthy', description: 'Healthy', inputSchema: { type: 'object' } }],
       });
-      const createConnection = (name: string, listTools: Client['listTools']) =>
-        createMockOutboundConnection({
-          name,
-          client: createMockClient({ listTools, getServerCapabilities: vi.fn().mockReturnValue({}) }) as Client,
-          transport: {
-            requestTimeout: 50,
-            start: async () => {},
-            send: async () => undefined,
-            close: async () => {},
-          },
-        });
+      const createConnection = (name: string, listTools: (...args: unknown[]) => Promise<unknown>) =>
+        connectionFromClient(name, { listTools, getServerCapabilities: () => ({}) }, { requestTimeoutMs: 50 });
       const connections: OutboundConnections = new Map([
         ['slow', createConnection('slow', slowListTools)],
         ['healthy', createConnection('healthy', healthyListTools)],
@@ -214,9 +189,12 @@ describe('LazyLoadingOrchestrator', () => {
       await orchestrator.initialize();
       expect(orchestrator.getToolRegistry().size()).toBe(1);
 
+      slowListTools.mockResolvedValue({
+        tools: [{ name: 'recovered', description: 'Recovered', inputSchema: { type: 'object' } }],
+      });
       await orchestrator.refreshCapabilities();
       expect(orchestrator.getToolRegistry().size()).toBe(2);
-      expect(slowListTools).toHaveBeenCalledTimes(2);
+      expect(slowListTools.mock.calls.length).toBeGreaterThanOrEqual(3);
     });
 
     it('keeps the last complete target snapshot but clears a failed connection snapshot', async () => {
@@ -228,7 +206,9 @@ describe('LazyLoadingOrchestrator', () => {
       expect(readConfiguredToolSnapshot(connection)?.map((tool) => tool.name)).toContain('read_file');
       expect(readLastConfiguredToolSnapshot('filesystem').map((tool) => tool.name)).toContain('read_file');
 
-      mockClient.listTools.mockRejectedValueOnce(new Error('discovery failed'));
+      mockClient.listTools
+        .mockRejectedValueOnce(new Error('discovery failed'))
+        .mockRejectedValueOnce(new Error('discovery failed'));
       await orchestrator.refreshCapabilities();
 
       expect(readConfiguredToolSnapshot(connection)).toBeUndefined();
@@ -563,7 +543,7 @@ describe('LazyLoadingOrchestrator', () => {
     });
 
     it('should apply the effective backend request timeout when loading a tool schema', async () => {
-      mockOutboundConnections.get('filesystem')!.transport.requestTimeout = 180_000;
+      mockOutboundConnections.get('filesystem')!.requestTimeoutMs = 180_000;
       mockClient.listTools.mockClear();
 
       const result = await orchestrator.callMetaTool('tool_schema', {
@@ -1187,18 +1167,10 @@ describe('LazyLoadingOrchestrator', () => {
     });
 
     it('discovers and invokes a late-ready server after its capability snapshot refresh', async () => {
-      mockOutboundConnections.set('late-ready', {
-        name: 'late-ready',
-        client: mockClient,
-        status: ClientStatus.Connected,
-        transport: {
-          tags: ['fs'],
-          start: async () => {},
-          send: async () => undefined,
-          close: async () => {},
-        },
-        capabilities: { tools: {} },
-      } as any);
+      mockOutboundConnections.set(
+        'late-ready',
+        connectionFromClient('late-ready', mockClient, { tags: ['fs'], capabilities: { tools: {} } }),
+      );
 
       await orchestrator.refreshCapabilities();
       const visibility = capabilityVisibilityFromServerNames(['late-ready']);
@@ -1401,39 +1373,9 @@ describe('LazyLoadingOrchestrator', () => {
 
       // Create connections with special server names
       const specialMockOutboundConnections = new Map([
-        [
-          'filesystem',
-          {
-            name: 'filesystem',
-            client: mockClient,
-            status: ClientStatus.Connected,
-            transport: { tags: [], start: async () => {}, send: async () => undefined, close: async () => {} },
-            capabilities: {},
-            lastConnected: new Date(),
-          },
-        ],
-        [
-          'data[base]',
-          {
-            name: 'data[base]',
-            client: mockClient,
-            status: ClientStatus.Connected,
-            transport: { tags: [], start: async () => {}, send: async () => undefined, close: async () => {} },
-            capabilities: {},
-            lastConnected: new Date(),
-          },
-        ],
-        [
-          'test+server',
-          {
-            name: 'test+server',
-            client: mockClient,
-            status: ClientStatus.Connected,
-            transport: { tags: [], start: async () => {}, send: async () => undefined, close: async () => {} },
-            capabilities: {},
-            lastConnected: new Date(),
-          },
-        ],
+        ['filesystem', connectionFromClient('filesystem', mockClient)],
+        ['data[base]', connectionFromClient('data[base]', mockClient)],
+        ['test+server', connectionFromClient('test+server', mockClient)],
       ]) as OutboundConnections;
 
       orchestrator = new LazyLoadingOrchestrator(specialMockOutboundConnections, mockAgentConfig);
@@ -1463,39 +1405,9 @@ describe('LazyLoadingOrchestrator', () => {
 
       // Create connections to test wildcard matching
       const wildcardMockOutboundConnections = new Map([
-        [
-          'filesystem-1',
-          {
-            name: 'filesystem-1',
-            client: mockClient,
-            status: ClientStatus.Connected,
-            transport: { tags: [], start: async () => {}, send: async () => undefined, close: async () => {} },
-            capabilities: {},
-            lastConnected: new Date(),
-          },
-        ],
-        [
-          'filesystem-2',
-          {
-            name: 'filesystem-2',
-            client: mockClient,
-            status: ClientStatus.Connected,
-            transport: { tags: [], start: async () => {}, send: async () => undefined, close: async () => {} },
-            capabilities: {},
-            lastConnected: new Date(),
-          },
-        ],
-        [
-          'database',
-          {
-            name: 'database',
-            client: mockClient,
-            status: ClientStatus.Connected,
-            transport: { tags: [], start: async () => {}, send: async () => undefined, close: async () => {} },
-            capabilities: {},
-            lastConnected: new Date(),
-          },
-        ],
+        ['filesystem-1', connectionFromClient('filesystem-1', mockClient)],
+        ['filesystem-2', connectionFromClient('filesystem-2', mockClient)],
+        ['database', connectionFromClient('database', mockClient)],
       ]) as OutboundConnections;
 
       orchestrator = new LazyLoadingOrchestrator(wildcardMockOutboundConnections, mockAgentConfig);

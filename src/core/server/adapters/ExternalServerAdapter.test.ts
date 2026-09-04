@@ -1,3 +1,5 @@
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
 import { ClientStatus, OutboundConnection, OutboundConnections } from '@src/core/types/client.js';
 import { MCPServerParams } from '@src/core/types/index.js';
 
@@ -10,12 +12,8 @@ describe('ExternalServerAdapter', () => {
   let outboundConns: OutboundConnections;
   let serverConfig: MCPServerParams;
 
-  const createMockConnection = (name: string, status: ClientStatus = ClientStatus.Connected): OutboundConnection => ({
-    name,
-    transport: {} as any,
-    client: {} as any,
-    status,
-  });
+  const createMockConnection = (name: string, status: ClientStatus = ClientStatus.Connected): OutboundConnection =>
+    createMockOutboundConnection({ name, status });
 
   beforeEach(() => {
     outboundConns = new Map();

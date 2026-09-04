@@ -1,0 +1,587 @@
+import fs from 'fs';
+import path from 'path';
+
+import { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
+import { FileStorageService } from '@src/auth/storage/fileStorageService.js';
+import { getAllServerTargets, resolveServerTarget } from '@src/commands/shared/baseConfigUtils.js';
+import ConfigContext from '@src/config/configContext.js';
+import ConfigManager from '@src/config/configManager.js';
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { getGlobalConfigDir, MCP_SERVER_VERSION, RATE_LIMIT_CONFIG, STORAGE_SUBDIRS } from '@src/constants.js';
+import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
+import type { TrustedTemplateContext } from '@src/core/context/templateContextTrust.js';
+import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
+import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { ServerManager } from '@src/core/server/serverManager.js';
+import type { ConfiguredServerConfigDocument } from '@src/domains/admin/adminConfiguredServerService.js';
+import { createAdminConnectivityChecker } from '@src/domains/admin/adminConnectivityChecker.js';
+import { createAdminDomain } from '@src/domains/admin/adminDomain.js';
+import { createAdminInstructionPreviewRuntime } from '@src/domains/admin/adminInstructionPreviewRuntime.js';
+import { RuntimeConfiguredToolInspectionService } from '@src/domains/admin/runtimeConfiguredToolInspectionService.js';
+import {
+  type AdminMutationAvailability,
+  type RuntimeScopeAdminLockHandle,
+  tryAcquireRuntimeScopeAdminLock,
+} from '@src/domains/admin/runtimeScopeAdminLock.js';
+import { RuntimeServerManagerBackendRestartService } from '@src/domains/admin/runtimeServerManagerBackendRestartService.js';
+import { getBackendLogBroker } from '@src/domains/backend-logs/backendLogRuntime.js';
+import { createConfigChangeService } from '@src/domains/config-change/configChange.js';
+import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
+import logger from '@src/logger/logger.js';
+import { mcpAuthRouter } from '@src/sdk/legacy/server/auth/router.js';
+import errorHandler from '@src/transport/http/middlewares/errorHandler.js';
+import { httpRequestLogger } from '@src/transport/http/middlewares/httpRequestLogger.js';
+import { createMcpAvailabilityMiddleware } from '@src/transport/http/middlewares/mcpAvailabilityMiddleware.js';
+import { createScopeAuthMiddleware } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
+import { setupSecurityMiddleware } from '@src/transport/http/middlewares/securityMiddleware.js';
+import { createAdminRoutes } from '@src/transport/http/routes/adminRoutes.js';
+import {
+  createApiRoutes,
+  createCliTokenRoute,
+  rejectBrowserOriginRequests,
+} from '@src/transport/http/routes/apiRoutes.js';
+import createHealthRoutes from '@src/transport/http/routes/healthRoutes.js';
+import createOAuthRoutes, {
+  createBackendOAuthAuthorizationFlow,
+  createBackendOAuthDashboardProvider,
+} from '@src/transport/http/routes/oauthRoutes.js';
+import { createRuntimeIdentityRoutes } from '@src/transport/http/routes/runtimeIdentityRoutes.js';
+import { setupSseRoutes } from '@src/transport/http/routes/sseRoutes.js';
+import { setupStreamableHttpRoutes } from '@src/transport/http/routes/streamableHttpRoutes.js';
+import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
+
+import bodyParser from 'body-parser';
+import cors from 'cors';
+import express from 'express';
+import { z } from 'zod';
+
+// Interface compatible with both v7 and v8 of express-rate-limit
+interface CompatibleRateLimitOptions {
+  windowMs?: number;
+  max?: number;
+  message?: string | { error: string };
+  standardHeaders?: boolean;
+  legacyHeaders?: boolean;
+  handler?: (req: express.Request, res: express.Response) => void;
+}
+
+const RequestHeaderSchema = z
+  .object({
+    host: z.union([z.string(), z.array(z.string())]).optional(),
+    origin: z.union([z.string(), z.array(z.string())]).optional(),
+  })
+  .passthrough();
+
+function isLoopbackOrigin(origin: string | undefined): boolean {
+  if (!origin) {
+    return false;
+  }
+
+  try {
+    const { hostname, protocol } = new URL(origin);
+    const normalizedHost = hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname;
+    const hostParts = normalizedHost.split('.');
+    const isIPv4Loopback =
+      hostParts.length === 4 &&
+      hostParts[0] === '127' &&
+      hostParts.every((part) => /^\d+$/.test(part) && Number(part) <= 255);
+
+    return (
+      (protocol === 'http:' || protocol === 'https:') &&
+      (normalizedHost === 'localhost' || normalizedHost === '::1' || isIPv4Loopback)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function readConfiguredServerConfigDocument(getConfigPath: () => string): ConfiguredServerConfigDocument | null {
+  const configPath = getConfigPath();
+  if (!fs.existsSync(configPath)) {
+    return null;
+  }
+  return JSON.parse(fs.readFileSync(configPath, 'utf8')) as ConfiguredServerConfigDocument;
+}
+
+function normalizeHostHeader(host: string | string[] | undefined): string | undefined {
+  if (!host) {
+    return undefined;
+  }
+
+  if (Array.isArray(host)) {
+    return undefined;
+  }
+
+  const normalizedHost = host.toLowerCase();
+
+  if (normalizedHost.startsWith('[')) {
+    const end = normalizedHost.indexOf(']');
+    if (end <= 0) {
+      return undefined;
+    }
+
+    const remainder = normalizedHost.slice(end + 1);
+    if (remainder && !/^:\d+$/.test(remainder)) {
+      return undefined;
+    }
+
+    return normalizedHost.slice(1, end);
+  }
+
+  const colonCount = (normalizedHost.match(/:/g) || []).length;
+  if (colonCount === 0) {
+    return normalizedHost;
+  }
+  if (colonCount === 1) {
+    return normalizedHost.split(':')[0];
+  }
+
+  return normalizedHost;
+}
+
+function isLoopbackHostname(hostname: string | undefined): boolean {
+  if (!hostname) {
+    return false;
+  }
+
+  const normalizedHost = hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname;
+  const hostParts = normalizedHost.split('.');
+  const isIPv4Loopback =
+    hostParts.length === 4 &&
+    hostParts[0] === '127' &&
+    hostParts.every((part) => /^\d+$/.test(part) && Number(part) <= 255);
+
+  return normalizedHost === 'localhost' || normalizedHost === '::1' || isIPv4Loopback;
+}
+
+function isWildcardHostname(hostname: string | undefined): boolean {
+  return hostname === '0.0.0.0' || hostname === '::';
+}
+
+function getUrlHostname(url: string | undefined): string | undefined {
+  if (!url) {
+    return undefined;
+  }
+
+  try {
+    return normalizeHostHeader(new URL(url).hostname);
+  } catch {
+    return undefined;
+  }
+}
+
+function isHostAllowed(
+  requestHost: string | undefined,
+  externalHostname: string | undefined,
+  boundHostname: string | undefined,
+): boolean {
+  if (externalHostname && requestHost === externalHostname) {
+    return true;
+  }
+
+  if (
+    isLoopbackHostname(requestHost) &&
+    (isLoopbackHostname(externalHostname) || isLoopbackHostname(boundHostname) || isWildcardHostname(boundHostname))
+  ) {
+    return true;
+  }
+
+  return !externalHostname && Boolean(boundHostname) && requestHost === boundHostname;
+}
+
+function createLoopbackRequestGuard(configManager: AgentConfigManager): express.RequestHandler {
+  return (req, res, next) => {
+    const headers = RequestHeaderSchema.safeParse(req.headers);
+    if (!headers.success) {
+      res.status(403).json({ error: 'Forbidden host header' });
+      return;
+    }
+
+    const externalHostname = getUrlHostname(configManager.get('externalUrl'));
+    const boundHostname = normalizeHostHeader(configManager.get('host'));
+    const requestHost = normalizeHostHeader(headers.data.host);
+
+    if (!isHostAllowed(requestHost, externalHostname, boundHostname)) {
+      res.status(403).json({ error: 'Forbidden host header' });
+      return;
+    }
+
+    const origin = headers.data.origin;
+    if (isLoopbackHostname(requestHost) && origin && (Array.isArray(origin) || !isLoopbackOrigin(origin))) {
+      res.status(403).json({ error: 'Forbidden origin header' });
+      return;
+    }
+
+    next();
+  };
+}
+
+/**
+ * ExpressServer orchestrates the HTTP/SSE transport layer for the MCP server.
+ *
+ * This class manages the Express application, authentication, and route setup.
+ * It provides both HTTP and SSE transport options with optional OAuth 2.1 authentication.
+ *
+ * @example
+ * ```typescript
+ * const serverManager = await setupServer();
+ * const expressServer = new ExpressServer(serverManager);
+ * expressServer.start(3050, 'localhost');
+ * ```
+ */
+export class ExpressServer {
+  private app: express.Application;
+  private serverManager: ServerManager;
+  private loadingManager?: McpLoadingManager;
+  private asyncOrchestrator?: AsyncLoadingOrchestrator;
+  private oauthProvider: SDKOAuthServerProvider;
+  private configManager: AgentConfigManager;
+  private customTemplate?: string;
+  private streamableSessionRepository: StreamableSessionRepository;
+  private runtimeIdentityService: RuntimeIdentityService;
+  private adminLock?: RuntimeScopeAdminLockHandle;
+
+  /**
+   * Creates a new ExpressServer instance.
+   *
+   * Initializes the Express application, sets up middleware, authentication,
+   * and configures all routes for MCP transport and OAuth endpoints.
+   *
+   * @param serverManager - The server manager instance for handling MCP operations
+   * @param loadingManager - Optional loading manager for async MCP server initialization
+   * @param asyncOrchestrator - Optional async loading orchestrator for listChanged notifications
+   * @param customTemplate - Optional custom template for instructions
+   */
+  constructor(
+    serverManager: ServerManager,
+    loadingManager?: McpLoadingManager,
+    asyncOrchestrator?: AsyncLoadingOrchestrator,
+    customTemplate?: string,
+  ) {
+    this.app = express();
+
+    this.serverManager = serverManager;
+    this.loadingManager = loadingManager;
+    this.asyncOrchestrator = asyncOrchestrator;
+    this.customTemplate = customTemplate;
+    this.configManager = AgentConfigManager.getInstance();
+    this.runtimeIdentityService = new RuntimeIdentityService({
+      storageDir:
+        this.configManager.get('runtimeScopeStoragePath') ?? this.configManager.get('auth').sessionStoragePath,
+    });
+
+    // Configure trust proxy setting before any middleware
+    this.app.set('trust proxy', this.configManager.get('trustProxy'));
+
+    // Initialize OAuth provider with custom session storage path if configured
+    const sessionStoragePath = this.configManager.get('auth').sessionStoragePath;
+    this.oauthProvider = new SDKOAuthServerProvider(
+      sessionStoragePath,
+      this.runtimeIdentityService.getRuntimeScopeId(),
+    );
+
+    // Initialize streamable session repository with 'transport' subdirectory
+    const fileStorageService = new FileStorageService(sessionStoragePath, STORAGE_SUBDIRS.TRANSPORT);
+    this.streamableSessionRepository = new StreamableSessionRepository(fileStorageService);
+
+    this.setupMiddleware();
+    try {
+      this.setupRoutes();
+    } catch (error) {
+      this.adminLock?.release();
+      this.adminLock = undefined;
+      throw error;
+    }
+  }
+
+  /**
+   * Sets up Express middleware including CORS, body parsing, and error handling.
+   *
+   * Configures the basic middleware stack required for the MCP server:
+   * - Enhanced security middleware (conditional based on feature flag)
+   * - HTTP request logging for all requests
+   * - Context extraction middleware for template processing
+   * - CORS for cross-origin requests
+   * - JSON body parsing
+   * - Global error handling
+   */
+  private setupMiddleware(): void {
+    // Conditionally apply enhanced security middleware (must be first if enabled)
+    if (this.configManager.get('features').enhancedSecurity) {
+      this.app.use(...setupSecurityMiddleware());
+    }
+
+    // Add HTTP request logging middleware (early in the stack for complete coverage)
+    this.app.use(httpRequestLogger);
+    this.app.use(createLoopbackRequestGuard(this.configManager));
+
+    this.app.use(
+      cors({
+        origin: (origin, callback) => {
+          callback(null, isLoopbackOrigin(origin) ? origin : false);
+        },
+      }),
+    );
+    this.app.use(bodyParser.json());
+    this.app.use(bodyParser.urlencoded({ extended: true }));
+
+    // Add error handling middleware
+    this.app.use(errorHandler);
+  }
+
+  /**
+   * Sets up all application routes including OAuth and MCP transport endpoints.
+   *
+   * Configures the following route groups:
+   * - OAuth 2.1 endpoints (always available, auth can be disabled)
+   * - Streamable HTTP transport routes with authentication middleware
+   * - SSE transport routes with authentication middleware
+   *
+   * Logs the authentication status for debugging purposes.
+   */
+  private setupRoutes(): void {
+    const getRuntimeIdentity = () =>
+      this.runtimeIdentityService.getRuntimeIdentity({
+        externalUrl: this.configManager.getUrl(),
+        runtimeVersion: MCP_SERVER_VERSION,
+      });
+
+    this.app.use(
+      '/.well-known/1mcp',
+      createRuntimeIdentityRoutes({
+        getRuntimeIdentity,
+      }),
+    );
+
+    // Setup OAuth routes using SDK's mcpAuthRouter
+    const issuerUrl = new URL(this.configManager.getUrl());
+
+    const rateLimitConfig: CompatibleRateLimitOptions = {
+      windowMs: this.configManager.get('rateLimit').windowMs,
+      max: this.configManager.get('rateLimit').max,
+      message: RATE_LIMIT_CONFIG.OAUTH.MESSAGE,
+      standardHeaders: true,
+      legacyHeaders: false,
+    };
+
+    // Get available scopes from MCP config
+    const mcpConfigManager = McpConfigManager.getInstance();
+    const availableTags = mcpConfigManager.getAvailableTags();
+
+    // Convert tags to supported scopes
+    const scopesSupported = availableTags.map((tag: string) => `tag:${tag}`);
+
+    const authRouter = mcpAuthRouter({
+      provider: this.oauthProvider,
+      issuerUrl,
+      baseUrl: issuerUrl,
+      scopesSupported,
+      resourceName: '1MCP Agent - Universal MCP Server Proxy',
+      authorizationOptions: {
+        rateLimit: rateLimitConfig,
+      },
+      tokenOptions: {
+        rateLimit: rateLimitConfig,
+      },
+      revocationOptions: {
+        rateLimit: rateLimitConfig,
+      },
+      clientRegistrationOptions: {
+        rateLimit: rateLimitConfig,
+      },
+    });
+    this.app.use(authRouter);
+
+    // Setup OAuth management routes (no auth required)
+    const oauthFlow = createBackendOAuthAuthorizationFlow(this.oauthProvider, this.loadingManager);
+    this.app.use('/oauth', createOAuthRoutes(this.oauthProvider, this.loadingManager, oauthFlow));
+    const getOAuthDashboard = createBackendOAuthDashboardProvider(this.oauthProvider, this.loadingManager, oauthFlow);
+
+    // Setup health check routes (no auth required for monitoring)
+    this.app.use('/health', createHealthRoutes(this.loadingManager, this.configManager.get('health')?.rateLimit));
+
+    const adminStorageDir =
+      this.configManager.get('runtimeScopeStoragePath') ??
+      this.configManager.get('auth').sessionStoragePath ??
+      getGlobalConfigDir();
+    const runtimeIdentity = getRuntimeIdentity();
+    const adminConfig = this.configManager.get('admin');
+    const adminEnabled = adminConfig?.enabled ?? true;
+    const adminMutationAvailability = this.acquireAdminMutationAvailability(
+      adminEnabled,
+      runtimeIdentity.runtimeScopeId,
+      adminStorageDir,
+    );
+    const adminConfigPath = ConfigContext.getInstance().getResolvedConfigPath();
+    const getConfigPath = () => adminConfigPath;
+    const configuredToolInspectionService = new RuntimeConfiguredToolInspectionService(this.serverManager);
+    const adminDomain = createAdminDomain({
+      runtimeScopeId: runtimeIdentity.runtimeScopeId,
+      storageDir: adminStorageDir,
+      sessionTtlMs: this.configManager.get('auth').sessionTtlMinutes * 60 * 1000,
+      auditRetentionMs: adminConfig?.audit?.retentionMs,
+      mutationAvailability: adminMutationAvailability,
+      configChangeService: createConfigChangeService({
+        getConfigPath,
+        reloadConfig: async () => {
+          const runtimeConfigManager = ConfigManager.getInstance(adminConfigPath);
+          if (!runtimeConfigManager.isReloadEnabled()) {
+            throw new Error('Configuration hot-reload is disabled');
+          }
+          await runtimeConfigManager.reloadConfig();
+        },
+      }),
+      getConfigPath,
+      readConfigDocument: () => readConfiguredServerConfigDocument(getConfigPath),
+      readToolInventory: (input) => configuredToolInspectionService.read(input),
+      refreshToolInventory: (input) => configuredToolInspectionService.refresh(input),
+      getTemplateActiveInstanceCount: (templateName) =>
+        this.serverManager.getTemplateServerManager().getTemplateActiveInstanceCount(templateName),
+      getTemplateActiveInstanceIdentities: (templateName) =>
+        this.serverManager.getTemplateServerManager().getTemplateActiveInstanceIdentities(templateName),
+      observeTemplateDefinitionRetirement: (templateName, instanceIdentities) =>
+        this.serverManager
+          .getTemplateServerManager()
+          .observeTemplateDefinitionRetirement(templateName, instanceIdentities),
+      checkConnectivity: createAdminConnectivityChecker(),
+      presetManager: PresetManager.getInstance(path.dirname(adminConfigPath)),
+      previewInstructions: createAdminInstructionPreviewRuntime(
+        this.serverManager,
+        PresetManager.getInstance(path.dirname(adminConfigPath)),
+        (context) => {
+          const trustMode = this.configManager.get('templateContext')?.trust ?? 'verified';
+          if (trustMode === 'disabled') return undefined;
+          // Authenticated Admin Console operators are authoritative for preview-only context.
+          return context as TrustedTemplateContext;
+        },
+      ),
+      getLegacyInitialization: () => this.customTemplate,
+      getInstructionRenderFailures: () => this.serverManager.getInstructionAggregator()?.getRenderFailures() ?? {},
+      readServerTargets: getAllServerTargets,
+      runtimeBackendRestartService: new RuntimeServerManagerBackendRestartService({
+        serverManager: this.serverManager,
+        resolveTarget: resolveServerTarget,
+      }),
+      oauthFlow,
+    });
+    const adminRoutes = createAdminRoutes({
+      adminEnabled,
+      adminService: adminDomain.adminService,
+      configuredServerService: adminDomain.configuredServerService,
+      instructionTemplateService: adminDomain.instructionTemplateService,
+      presetService: adminDomain.presetService,
+      backendRestartService: adminDomain.backendRestartService,
+      oauthService: adminDomain.oauthService,
+      adminMutationAvailability,
+      getRuntimeIdentity,
+      getOAuthDashboard,
+      getBackendLogBroker,
+      rateLimit: adminConfig?.rateLimit,
+    });
+    if (adminRoutes) {
+      this.app.use('/admin', adminRoutes);
+      this.app.get('/', (_req, res) => {
+        res.redirect(302, '/admin');
+      });
+    }
+
+    // CLI token endpoint (localhost-only, no auth middleware).
+    // Reject browser-origin requests so a web page cannot silently obtain a full-scope token.
+    this.app.post('/api/auth/cli-token', rejectBrowserOriginRequests, createCliTokenRoute(this.oauthProvider));
+
+    // Setup API routes (CLI-oriented fast endpoints, auth via scopeAuthMiddleware)
+    const scopeAuthMiddleware = createScopeAuthMiddleware(this.oauthProvider);
+    const apiRouter = createApiRoutes(this.serverManager, scopeAuthMiddleware);
+    this.app.use('/api/v1', apiRouter);
+
+    // Setup MCP transport routes (auth is handled per-route via scopeAuthMiddleware)
+    const router = express.Router();
+
+    const availabilityMiddleware = createMcpAvailabilityMiddleware(this.loadingManager, {
+      allowPartialAvailability: true,
+      includeOAuthServers: false,
+    });
+
+    setupStreamableHttpRoutes(
+      router,
+      this.serverManager,
+      this.streamableSessionRepository,
+      scopeAuthMiddleware,
+      availabilityMiddleware,
+      this.asyncOrchestrator,
+      this.customTemplate,
+    );
+    setupSseRoutes(
+      router,
+      this.serverManager,
+      scopeAuthMiddleware,
+      availabilityMiddleware,
+      this.asyncOrchestrator,
+      this.customTemplate,
+    );
+    this.app.use(router);
+
+    // Log authentication status
+    if (this.configManager.get('features').auth) {
+      logger.info('Authentication enabled - OAuth 2.1 endpoints available via SDK');
+    } else {
+      logger.info('Authentication disabled - all endpoints accessible without auth');
+    }
+  }
+
+  /**
+   * Starts the Express server on the specified port and host.
+   *
+   * Binds the Express application to the network interface and logs
+   * the server status including authentication configuration.
+   *
+   * @param port - The port number to listen on
+   * @param host - The host address to bind to
+   */
+  public start(): void {
+    const { port, host } = this.configManager.getConfig();
+    this.app.listen(port, host, () => {
+      const authStatus = this.configManager.get('features').auth ? 'with authentication' : 'without authentication';
+      logger.info(`Server is running on port ${port} with HTTP/SSE and Streamable HTTP transport ${authStatus}`);
+      logger.info(`📋 OAuth Management Dashboard: ${this.configManager.getUrl()}/oauth`);
+    });
+  }
+
+  /**
+   * Performs graceful shutdown of the Express server.
+   *
+   * Cleans up resources including:
+   * - Authentication manager shutdown
+   * - Session cleanup
+   * - Timer cleanup
+   * - Streamable session repository flush
+   */
+  public shutdown(): void {
+    this.adminLock?.release();
+    this.adminLock = undefined;
+    this.oauthProvider.shutdown();
+    this.streamableSessionRepository.stopPeriodicFlush();
+  }
+
+  private acquireAdminMutationAvailability(
+    adminEnabled: boolean,
+    runtimeScopeId: string,
+    storageDir: string,
+  ): AdminMutationAvailability {
+    if (!adminEnabled) {
+      return {
+        available: false,
+        reason: 'mutation_service_unavailable',
+      };
+    }
+
+    const lock = tryAcquireRuntimeScopeAdminLock({ runtimeScopeId, storageDir });
+    if (!lock.available) {
+      return lock;
+    }
+
+    this.adminLock = lock;
+    return { available: true };
+  }
+}

@@ -44,7 +44,14 @@ describe('NotificationManager', () => {
     };
 
     mockInboundConnection = {
-      server: mockServer,
+      connectionId: 'test-inbound' as InboundConnection['connectionId'],
+      adapter: {
+        connectionId: 'test-inbound' as InboundConnection['connectionId'],
+        state: 'running',
+        start: vi.fn(),
+        notify: mockServer.notification,
+        close: vi.fn(),
+      },
       status: ServerStatus.Connected,
     };
 
@@ -196,7 +203,8 @@ describe('NotificationManager', () => {
     });
 
     it('should handle server connection failures gracefully', () => {
-      mockInboundConnection.status = ServerStatus.Disconnected;
+      mockInboundConnection = { ...mockInboundConnection, status: ServerStatus.Disconnected };
+      notificationManager = new NotificationManager(mockInboundConnection);
 
       const changes: CapabilityChanges = {
         hasChanges: true,

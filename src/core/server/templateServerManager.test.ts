@@ -1,6 +1,7 @@
 import { activateRuntimeScopeEnvironment } from '@src/config/runtimeScopeEnv.js';
 import { createRuntimeTargetFingerprint } from '@src/config/runtimeTargetFingerprint.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
+import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { TemplateFilteringService } from '@src/core/filtering/index.js';
 import type { BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
 import { ClientStatus } from '@src/core/types/client.js';
@@ -821,9 +822,10 @@ describe('TemplateServerManager', () => {
     function createInstance(sessionId: string, instructions: string, pid: number) {
       const client = {
         close: vi.fn().mockResolvedValue(undefined),
+        request: vi.fn().mockResolvedValue({ content: [{ type: 'text', text: `from-${pid}` }] }),
+        setNotificationHandler: vi.fn(),
         getInstructions: vi.fn(() => instructions),
         getServerCapabilities: vi.fn(() => ({ tools: {} })),
-        callTool: vi.fn().mockResolvedValue({ content: [{ type: 'text', text: `from-${pid}` }] }),
       };
       return {
         id: `${sessionId}-instance`,
@@ -887,9 +889,10 @@ describe('TemplateServerManager', () => {
 
       const replacementClient = {
         close: vi.fn().mockResolvedValue(undefined),
+        request: vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'recovered invocation' }] }),
+        setNotificationHandler: vi.fn(),
         getInstructions: vi.fn(() => 'recovered instructions'),
         getServerCapabilities: vi.fn(() => ({ tools: { listChanged: true } })),
-        callTool: vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'recovered invocation' }] }),
       };
       instance.client = replacementClient as any;
       instance.transport = { close: vi.fn().mockResolvedValue(undefined), pid: 202 } as any;
@@ -897,16 +900,21 @@ describe('TemplateServerManager', () => {
 
       const recoveredRoute = outboundConns.get(outboundKey);
       expect(recoveredRoute).toMatchObject({
-        client: replacementClient,
-        transport: instance.transport,
         status: ClientStatus.Connected,
         supervision: { state: 'connected', currentPid: 202 },
         capabilities: { tools: { listChanged: true } },
         instructions: 'recovered instructions',
       });
-      await expect(recoveredRoute.client.callTool({ name: 'echo', arguments: {} })).resolves.toEqual({
+      await expect(
+        requestLegacyAdapter(recoveredRoute.adapter, 'tools/call', { name: 'echo', arguments: {} }),
+      ).resolves.toEqual({
         content: [{ type: 'text', text: 'recovered invocation' }],
       });
+      expect(replacementClient.request).toHaveBeenCalledWith(
+        { method: 'tools/call', params: { name: 'echo', arguments: {} } },
+        expect.anything(),
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
       expect(instance.clientIds).toEqual(new Set(['client-a']));
       expect(instance.outboundKeys).toEqual(new Set([outboundKey]));
     });

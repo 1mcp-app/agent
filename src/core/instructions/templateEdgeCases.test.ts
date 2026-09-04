@@ -1,3 +1,5 @@
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
 import type { InboundConnectionConfig, OutboundConnections } from '@src/core/types/index.js';
 import { TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
 
@@ -7,12 +9,7 @@ import { InstructionAggregator } from './instructionAggregator.js';
 
 // Helper function to create test connections
 function createTestConnection(name: string, tags: string[] = []) {
-  return {
-    name,
-    transport: { tags, timeout: 5000 },
-    client: {} as any,
-    status: 'connected' as any,
-  } as any;
+  return createMockOutboundConnection({ name, tags, requestTimeoutMs: 5000 });
 }
 
 describe('InstructionAggregator - Edge Cases and Mixed States', () => {

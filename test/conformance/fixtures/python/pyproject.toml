@@ -5,7 +5,7 @@ requires-python = ">=3.12"
 dependencies = ["mcp==2.0.0"]
 
 [dependency-groups]
-dev = ["pytest==8.4.2"]
+dev = ["pytest==9.0.3"]
 
 [[tool.uv.index]]
 name = "pypi"

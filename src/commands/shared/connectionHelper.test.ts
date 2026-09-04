@@ -1,3 +1,5 @@
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
 import type { OutboundConnection } from '@src/core/types/client.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,9 +10,7 @@ const mockCreateClients = vi.fn();
 const mockListTools = vi.fn();
 const mockListResources = vi.fn();
 const mockListPrompts = vi.fn();
-const mockClientClose = vi.fn();
-const mockTransportClose = vi.fn();
-const mockOauthProviderShutdown = vi.fn();
+const mockAdapterClose = vi.fn();
 
 vi.mock('@src/core/client/clientManager.js', () => ({
   ClientManager: {
@@ -36,22 +36,19 @@ vi.mock('@src/logger/logger.js', () => ({
 }));
 
 function createConnection(): OutboundConnection {
-  return {
+  return createMockOutboundConnection({
     name: 'mock-server',
-    transport: {
-      close: mockTransportClose,
-      oauthProvider: {
-        shutdown: mockOauthProviderShutdown,
-      },
-    } as unknown as OutboundConnection['transport'],
-    client: {
-      listTools: mockListTools,
-      listResources: mockListResources,
-      listPrompts: mockListPrompts,
-      close: mockClientClose,
-    } as unknown as OutboundConnection['client'],
+    adapter: {
+      request: vi.fn(async ({ method }) => {
+        if (method === 'tools/list') return mockListTools();
+        if (method === 'resources/list') return mockListResources();
+        if (method === 'prompts/list') return mockListPrompts();
+        return {};
+      }),
+      close: mockAdapterClose,
+    },
     status: 'connected' as OutboundConnection['status'],
-  };
+  });
 }
 
 describe('McpConnectionHelper', () => {
@@ -64,9 +61,7 @@ describe('McpConnectionHelper', () => {
     });
     mockListResources.mockResolvedValue({ resources: [] });
     mockListPrompts.mockResolvedValue({ prompts: [] });
-    mockClientClose.mockResolvedValue(undefined);
-    mockTransportClose.mockResolvedValue(undefined);
-    mockOauthProviderShutdown.mockReturnValue(undefined);
+    mockAdapterClose.mockResolvedValue(undefined);
 
     mockCreateClients.mockImplementation(async () => {
       const connections = new Map<string, OutboundConnection>();
@@ -113,13 +108,11 @@ describe('McpConnectionHelper', () => {
     const pendingBeforeCleanup = vi.getTimerCount();
     await helper.cleanup();
 
-    expect(mockClientClose).toHaveBeenCalledTimes(1);
-    expect(mockTransportClose).toHaveBeenCalledTimes(1);
-    expect(mockOauthProviderShutdown).toHaveBeenCalledTimes(1);
+    expect(mockAdapterClose).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(pendingBeforeCleanup);
   });
 
-  it('attempts both client and transport cleanup in order', async () => {
+  it('closes the connection adapter during cleanup', async () => {
     const helper = new McpConnectionHelper();
 
     await helper.connectToServers({
@@ -131,16 +124,13 @@ describe('McpConnectionHelper', () => {
 
     await helper.cleanup();
 
-    expect(mockClientClose.mock.invocationCallOrder[0]).toBeLessThan(mockTransportClose.mock.invocationCallOrder[0]);
-    expect(mockTransportClose.mock.invocationCallOrder[0]).toBeLessThan(
-      mockOauthProviderShutdown.mock.invocationCallOrder[0],
-    );
+    expect(mockAdapterClose).toHaveBeenCalledOnce();
   });
 
-  it('still closes transport when client close rejects', async () => {
+  it('resolves cleanup when adapter close rejects', async () => {
     const helper = new McpConnectionHelper();
 
-    mockClientClose.mockRejectedValueOnce(new Error('client close failed'));
+    mockAdapterClose.mockRejectedValueOnce(new Error('adapter close failed'));
 
     await helper.connectToServers({
       'mock-server': {
@@ -151,9 +141,7 @@ describe('McpConnectionHelper', () => {
 
     await expect(helper.cleanup()).resolves.toBeUndefined();
 
-    expect(mockClientClose).toHaveBeenCalledTimes(1);
-    expect(mockTransportClose).toHaveBeenCalledTimes(1);
-    expect(mockOauthProviderShutdown).toHaveBeenCalledTimes(1);
+    expect(mockAdapterClose).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -170,26 +158,6 @@ describe('McpConnectionHelper', () => {
     await helper.cleanup();
     await helper.cleanup();
 
-    expect(mockClientClose).toHaveBeenCalledTimes(1);
-    expect(mockTransportClose).toHaveBeenCalledTimes(1);
-    expect(mockOauthProviderShutdown).toHaveBeenCalledTimes(1);
-  });
-
-  it('still shuts down the OAuth provider when transport close rejects', async () => {
-    const helper = new McpConnectionHelper();
-
-    mockTransportClose.mockRejectedValueOnce(new Error('transport close failed'));
-
-    await helper.connectToServers({
-      'mock-server': {
-        type: 'stdio',
-        command: 'echo',
-      },
-    });
-
-    await expect(helper.cleanup()).resolves.toBeUndefined();
-
-    expect(mockTransportClose).toHaveBeenCalledTimes(1);
-    expect(mockOauthProviderShutdown).toHaveBeenCalledTimes(1);
+    expect(mockAdapterClose).toHaveBeenCalledTimes(1);
   });
 });

@@ -6,8 +6,6 @@
  */
 import { EventEmitter } from 'events';
 
-import { Prompt, Resource, Tool } from '@modelcontextprotocol/sdk/types.js';
-
 import type { CapabilityVisibility } from '@src/core/capabilities/capabilityVisibility.js';
 import {
   createInfoTool,
@@ -71,6 +69,7 @@ import {
   McpUpdateToolSchema,
 } from '@src/core/tools/internal/schemas/index.js';
 import logger from '@src/logger/logger.js';
+import type { Prompt, Resource, Tool } from '@src/sdk/contracts/index.js';
 
 import { z } from 'zod';
 

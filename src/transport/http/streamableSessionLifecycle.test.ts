@@ -1,4 +1,4 @@
-import { InboundConnectionConfig, ServerStatus } from '@src/core/types/index.js';
+import { InboundConnectionConfig } from '@src/core/types/index.js';
 import {
   StreamableSessionLifecycle,
   StreamableSessionMissingReason,
@@ -47,6 +47,7 @@ describe('StreamableSessionLifecycle', () => {
     connectTransport: ReturnType<typeof vi.fn>;
     disconnectTransport: ReturnType<typeof vi.fn>;
     getServer: ReturnType<typeof vi.fn>;
+    recordInboundConnectionError: ReturnType<typeof vi.fn>;
   };
   let sessionRepository: {
     get: ReturnType<typeof vi.fn>;
@@ -64,6 +65,7 @@ describe('StreamableSessionLifecycle', () => {
       connectTransport: vi.fn().mockResolvedValue(undefined),
       disconnectTransport: vi.fn().mockResolvedValue(undefined),
       getServer: vi.fn(),
+      recordInboundConnectionError: vi.fn(),
     };
     sessionRepository = {
       get: vi.fn(),
@@ -337,14 +339,10 @@ describe('StreamableSessionLifecycle', () => {
   });
 
   it('marks the inbound server errored when a streamable transport reports an error', async () => {
-    const server = { status: ServerStatus.Connected, lastError: undefined as Error | undefined };
-    serverManager.getServer.mockReturnValue(server);
-
     const result = await lifecycle.createSession({ tags: [], enablePagination: false }, undefined, 'error-session');
     const error = new Error('transport failed');
     result.transport.onerror?.(error);
 
-    expect(server.status).toBe(ServerStatus.Error);
-    expect(server.lastError).toBe(error);
+    expect(serverManager.recordInboundConnectionError).toHaveBeenCalledWith('error-session', error);
   });
 });

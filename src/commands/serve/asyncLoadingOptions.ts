@@ -1,7 +1,4 @@
-import {
-  DEFAULT_BACKEND_LOADING_POLICY,
-  type BackendLoadingPolicy,
-} from '@src/core/loading/backendLoadingPolicy.js';
+import { type BackendLoadingPolicy, DEFAULT_BACKEND_LOADING_POLICY } from '@src/core/loading/backendLoadingPolicy.js';
 
 export interface AsyncLoadingCliOptions {
   'enable-async-loading'?: boolean;

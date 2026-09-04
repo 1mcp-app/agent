@@ -1,9 +1,8 @@
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-
 import { ConfigManager } from '@src/config/configManager.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { CapabilityAggregator } from '@src/core/capabilities/capabilityAggregator.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
+import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { LoadingState, type ServerLoadingInfo } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
@@ -48,6 +47,7 @@ export {
 export type { InspectServerPayload, InspectServersPayload, InspectToolPayload, ServerSummary, ToolSummary };
 
 type FilteredConnections = ReturnType<typeof FilteringService.getFilteredConnections>;
+type Tool = Parameters<typeof summarizeDirectServerTool>[1];
 
 interface DirectListToolsResult {
   tools?: Tool[];
@@ -66,14 +66,12 @@ async function listDirectServerTools(
   connection: NonNullable<FilteredConnections extends Map<unknown, infer TValue> ? TValue : never>,
   options: { limit: number; cursor?: string },
 ): Promise<DirectListToolsResult> {
-  const client = connection.client as {
-    listTools(args?: { limit?: number; cursor?: string }): Promise<DirectListToolsResult>;
-  };
-
-  return client.listTools({
-    limit: options.limit,
-    cursor: options.cursor,
-  });
+  return requestLegacyAdapter<DirectListToolsResult>(
+    connection.adapter,
+    'tools/list',
+    { limit: options.limit, ...(options.cursor === undefined ? {} : { cursor: options.cursor }) },
+    { timeoutMs: connection.requestTimeoutMs },
+  );
 }
 
 function getServerConfigs() {
@@ -190,9 +188,10 @@ export async function buildServerSummaries(
   } else {
     await Promise.all(
       Array.from(summaryConnections.entries()).map(async ([name, connection]) => {
-        if (!connection.client) return;
         try {
-          const result = await connection.client.listTools();
+          const result = await requestLegacyAdapter<{ tools: Tool[] }>(connection.adapter, 'tools/list', undefined, {
+            timeoutMs: connection.requestTimeoutMs,
+          });
           const cleanName = name.includes(':') ? name.split(':')[0] : name;
           const visibleTools = filterDisabledTools(result.tools ?? [], serverConfigs, cleanName);
           toolCountByServer[cleanName] = Math.max(toolCountByServer[cleanName] ?? 0, visibleTools.length);
@@ -377,7 +376,7 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
           return;
         }
 
-        let found: import('@modelcontextprotocol/sdk/types.js').Tool | undefined;
+        let found: Tool | undefined;
 
         if (capabilityAggregator) {
           found = capabilityAggregator
@@ -387,9 +386,16 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
 
         if (!found) {
           const connection = sessionConnection ?? filteredConnection;
-          if (connection?.client) {
+          if (connection) {
             try {
-              const result = await connection.client.listTools();
+              const result = await requestLegacyAdapter<{ tools: Tool[] }>(
+                connection.adapter,
+                'tools/list',
+                undefined,
+                {
+                  timeoutMs: connection.requestTimeoutMs,
+                },
+              );
               found = filterDisabledTools(result.tools ?? [], serverConfigs, serverName).find(
                 (t) => t.name === qualifiedName || t.name === toolName,
               );
@@ -404,13 +410,21 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
           return;
         }
 
-        const effectiveTool = applyEffectiveToolDescription(found, serverConfigs[serverName], serverName);
+        const effectiveTool = applyEffectiveToolDescription(
+          found,
+          serverConfigs[serverName],
+          serverName,
+        ) as unknown as {
+          description?: unknown;
+          inputSchema?: unknown;
+          outputSchema?: unknown;
+        };
         const payload: InspectToolPayload = {
           kind: 'tool',
           server: serverName,
           tool: toolName,
           qualifiedName: found.name === qualifiedName ? qualifiedName : qualifyToolName(serverName, found.name),
-          description: effectiveTool.description,
+          description: typeof effectiveTool.description === 'string' ? effectiveTool.description : undefined,
           inputSchema: (effectiveTool.inputSchema as Record<string, unknown>) ?? {},
           outputSchema: effectiveTool.outputSchema as Record<string, unknown> | undefined,
         };
@@ -485,7 +499,7 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       let toolsResult: { tools: ToolSummary[]; totalTools: number; hasMore: boolean; nextCursor?: string };
 
       if (toolRegistry) {
-        if (connection?.client) {
+        if (connection) {
           try {
             const directResult = await listDirectServerTools(connection, { limit, cursor: cursorParam });
             toolsResult = buildDirectToolsResult(serverName, directResult, serverConfigs);

@@ -1,8 +1,9 @@
-import { StreamableHTTPClientTransport, StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
+import { executeWithPostAuthOAuthRecovery } from '@src/core/client/postAuthOAuthRecovery.js';
 import type { TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { ClientStatus, type OutboundConnections } from '@src/core/types/client.js';
+import { OneMcpProtocolError, type Tool } from '@src/sdk/contracts/index.js';
 
 import { CapabilityCatalog } from './capabilityCatalog.js';
 import { capabilityVisibilityFromServerNames, createCapabilityVisibility } from './capabilityVisibility.js';
@@ -41,25 +42,25 @@ describe('CapabilityCatalog', () => {
       callTool: vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] }),
     };
 
+    const connection = (name: string) => {
+      let outbound: ReturnType<typeof createMockOutboundConnection>;
+      outbound = createMockOutboundConnection({
+        name,
+        adapter: {
+          request: vi.fn(async ({ method, params }) => {
+            if (method === 'tools/call') {
+              const callTool = mockClient.callTool as unknown as (input: unknown) => Promise<never>;
+              return executeWithPostAuthOAuthRecovery(name, outbound, () => callTool(params));
+            }
+            return {};
+          }),
+        },
+      });
+      return outbound;
+    };
     outboundConnections = new Map([
-      [
-        'filesystem',
-        {
-          name: 'filesystem',
-          client: mockClient as any,
-          status: ClientStatus.Connected,
-          transport: {} as any,
-        },
-      ],
-      [
-        'template-server:rendered123',
-        {
-          name: 'template-server',
-          client: mockClient as any,
-          status: ClientStatus.Connected,
-          transport: {} as any,
-        },
-      ],
+      ['filesystem', connection('filesystem')],
+      ['template-server:rendered123', connection('template-server')],
     ]);
   });
 
@@ -213,18 +214,8 @@ describe('CapabilityCatalog', () => {
   });
 
   it('recovers OAuth when a lazy direct tool invocation gets a terminal post-authentication 401', async () => {
-    const oauthProvider = { invalidateCredentials: vi.fn().mockResolvedValue(undefined) };
-    const transport = {
-      _url: new URL('https://example.com/mcp'),
-      oauthProvider,
-      close: vi.fn().mockResolvedValue(undefined),
-    } as any;
-    Object.setPrototypeOf(transport, StreamableHTTPClientTransport.prototype);
-    const unauthorized = new StreamableHTTPError(401, 'Server returned 401 after successful authentication');
+    const unauthorized = new OneMcpProtocolError(401, 'Server returned 401 after successful authentication');
     const connection = outboundConnections.get('filesystem')!;
-    connection.transport = transport;
-    (connection.client as any).transport = transport;
-    (connection.client as any).close = vi.fn().mockResolvedValue(undefined);
     mockClient.callTool.mockRejectedValue(unauthorized);
 
     const result = await createCatalog().invokeVisibleTool({
@@ -235,9 +226,8 @@ describe('CapabilityCatalog', () => {
 
     expect(result.error?.type).toBe('upstream');
     expect(connection.status).toBe(ClientStatus.AwaitingOAuth);
-    expect(oauthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
-    expect(connection.client.close).toHaveBeenCalledOnce();
-    expect(connection.transport).not.toBe(transport);
+    expect(connection.lastError).toEqual({ name: 'OneMcpProtocolError', message: unauthorized.message });
+    expect(connection.adapter.close).toHaveBeenCalledOnce();
   });
 
   it('does not fall back to another template instance when a request session has no mapping', async () => {

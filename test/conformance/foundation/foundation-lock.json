@@ -9,7 +9,7 @@
     {
       "id": "vitest-conformance",
       "path": "vitest.conformance.config.ts",
-      "digest": "sha256:926db110d1c74c81c84fd6d91e0892a54351f11d2dd5553e9adf1c9417d28775"
+      "digest": "sha256:80b215f56542501bb156485692875c54977c1083c901b90f153469fb8907a6ee"
     },
     {
       "id": "vitest-transports",
@@ -19,12 +19,12 @@
     {
       "id": "baseline",
       "path": "test/conformance/baseline/baseline.ts",
-      "digest": "sha256:ac76fd1b24cf3a330071d07b9083bd1f6756e93b29df91f8edb7d4889059f96a"
+      "digest": "sha256:53fbdcd2009572255a495160af4e2321266f864ebbd151982795028afaa449cc"
     },
     {
       "id": "traceability-inventory",
       "path": "test/conformance/baseline/traceabilityInventory.ts",
-      "digest": "sha256:a0c00ab1091aa44969de8e769cdfccece1b9f84972470bc152e27d0a2e3cf8a9"
+      "digest": "sha256:86746643181cc478fac32d866401a9a16dc2457a031e093afa34db01600bb5f2"
     },
     {
       "id": "capture-schema",
@@ -64,7 +64,47 @@
     {
       "id": "foundation-run",
       "path": "test/conformance/foundation/foundationRun.ts",
-      "digest": "sha256:85a8fad8cbd2d2c30a43b25bec3352114e8edf04e320367f991a0304635247b2"
+      "digest": "sha256:35e5ceb2204e7dbc52c0958fa818ea441f812e86cb5a659b2a86087383897f32"
+    },
+    {
+      "id": "sdk-boundary-proof",
+      "path": "test/conformance/boundary/sdkBoundaryProof.ts",
+      "digest": "sha256:a4d53b00bfb3891cde60a7f75db5254abcdd8e52a873f64125af01ba4092c7ac"
+    },
+    {
+      "id": "sdk-import-policy",
+      "path": "scripts/sdk-boundary/import-policy.mjs",
+      "digest": "sha256:3746936aa8bc58a69f74b2ddc383c2ecf453d1014604a92781d384e6982a1d0a"
+    },
+    {
+      "id": "sdk-json-contract",
+      "path": "src/sdk/contracts/jsonValue.ts",
+      "digest": "sha256:b4038c808922d91c43458100acb5fa6dda0ee6eec32606f40671b81f7f2f7436"
+    },
+    {
+      "id": "sdk-error-contract",
+      "path": "src/sdk/contracts/oneMcpProtocolError.ts",
+      "digest": "sha256:96da52b9293b1ca0831fe609e2c54b61e2b4f58e6e49273105a12f9fecf48f50"
+    },
+    {
+      "id": "sdk-protocol-contract",
+      "path": "src/sdk/contracts/protocol.ts",
+      "digest": "sha256:06af5a19dc9207d4f127bde80fc4e563cee12b3693d0a85198e4407430016926"
+    },
+    {
+      "id": "legacy-client-adapter",
+      "path": "src/sdk/legacy/client/runtime/legacySdkClientAdapter.ts",
+      "digest": "sha256:882f9279c9a55e31b4ed16768c0e8eabecb4b5e63fa1dd702ac78407ea11b6d3"
+    },
+    {
+      "id": "legacy-server-adapter",
+      "path": "src/sdk/legacy/server/runtime/legacySdkServerAdapter.ts",
+      "digest": "sha256:6df1e151fde18f079c97460d8b22ee04a2e31fc9df52be723ef21dbbce0fceaf"
+    },
+    {
+      "id": "sdk-topology-runtime",
+      "path": "scripts/sdk-boundary/topology.mjs",
+      "digest": "sha256:721394871a3deb534dc9126d764a701c9d61e5399ffefc80667119905f83a980"
     },
     {
       "id": "official-client-bridge",
@@ -119,7 +159,7 @@
     {
       "id": "ci-lane",
       "path": ".github/workflows/test-and-validate.yml",
-      "digest": "sha256:c7fbce30d5d205ac4f6acd05142038920e1f73e2ea30fd7f82adbd01a4daf777"
+      "digest": "sha256:231d4693779cc405638c80768a72fbf9957b0981678117757c3cb09a03a67ed6"
     }
   ]
 }

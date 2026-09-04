@@ -1792,17 +1792,24 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
     }
     const warnings = [
       ...(expressionReplacement.occurs
-        ? ['The context-rendered disabled expression will be replaced with literal true without evaluating Request Context.']
+        ? [
+            'The context-rendered disabled expression will be replaced with literal true without evaluating Request Context.',
+          ]
         : []),
       ...(input.enabled
-        ? ['Re-enable restores eligibility only; instances and Request Sessions are created lazily by future matching requests.']
+        ? [
+            'Re-enable restores eligibility only; instances and Request Sessions are created lazily by future matching requests.',
+          ]
         : activeInstanceCount > 0
-          ? [`Successful reload retires ${activeInstanceCount} active Template Server instance${activeInstanceCount === 1 ? '' : 's'} and removes their Request Session memberships.`]
+          ? [
+              `Successful reload retires ${activeInstanceCount} active Template Server instance${activeInstanceCount === 1 ? '' : 's'} and removes their Request Session memberships.`,
+            ]
           : []),
     ];
     const runtimeImpact = {
       activeInstanceCount,
-      retirement: !input.enabled && configChange.changed ? ('after_successful_reload' as const) : ('not_required' as const),
+      retirement:
+        !input.enabled && configChange.changed ? ('after_successful_reload' as const) : ('not_required' as const),
       recreation: 'lazy_future_match_only' as const,
     };
     const previewFingerprint = `lifecycle_preview_${createHash('sha256')
@@ -2389,9 +2396,7 @@ function sanitizeConfiguredServerMutationResult(
       warnings: configChange.retentionCleanup.warnings.map(() => 'A recovery backup retention cleanup failed.'),
     },
     reload:
-      configChange.reload.status === 'failed'
-        ? { status: 'failed', error: reloadFailureMessage }
-        : configChange.reload,
+      configChange.reload.status === 'failed' ? { status: 'failed', error: reloadFailureMessage } : configChange.reload,
     warnings: configChange.warnings.map(() => 'A recovery backup retention cleanup failed.'),
   };
 }

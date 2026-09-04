@@ -177,7 +177,9 @@ const configuredServerDeleteApplySchema = z
   })
   .strict();
 const configuredServerLifecyclePreviewSchema = z.object({ enabled: z.boolean() }).strict();
-const configuredServerLifecycleApplySchema = configuredServerDeleteApplySchema.extend({ enabled: z.boolean() }).strict();
+const configuredServerLifecycleApplySchema = configuredServerDeleteApplySchema
+  .extend({ enabled: z.boolean() })
+  .strict();
 type AdminOperationFailure = Extract<AdminOperationResult, { ok: false }>;
 interface CliAdminEnvelope {
   ok: boolean;

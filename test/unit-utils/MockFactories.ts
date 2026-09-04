@@ -15,6 +15,10 @@ import type { InspectServerSummary } from '@src/commands/shared/inspectApiSchema
 import type { CliSessionCache } from '@src/commands/shared/serveClient.js';
 import type { ResolvableServeTargetOptions } from '@src/commands/shared/serveTargetResolver.js';
 import type { BackendLogEntry, BackendLogSource } from '@src/domains/backend-logs/backendLogTypes.js';
+import type { LegacyConnectionId, LegacySdkAdapter } from '@src/sdk/contracts/index.js';
+import { createLegacyOutboundConnection } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
+import type { AuthProviderTransport } from '@src/sdk/legacy/client/runtime/legacyTransport.js';
+import { LegacySdkServerAdapter } from '@src/sdk/legacy/server/runtime/legacySdkServerAdapter.js';
 
 import { vi } from 'vitest';
 
@@ -94,28 +98,124 @@ export const createMockOutboundConnections = (
   return map;
 };
 
+export type MockOutboundConnectionOverrides = Omit<Partial<OutboundConnection>, 'adapter'> & {
+  adapter?: Partial<LegacySdkAdapter>;
+};
+
 /**
- * Factory for creating a mock outbound connection
+ * Factory for the SDK-free adapter contract used by shared-code tests.
  */
-export const createMockOutboundConnection = (overrides?: Partial<OutboundConnection>): OutboundConnection => ({
-  name: 'test-server',
-  transport: createMockTransport(),
-  client: createMockClient() as Client,
-  status: ClientStatus.Connected,
-  lastConnected: new Date(),
+export const createMockLegacySdkAdapter = (overrides: Partial<LegacySdkAdapter> = {}): LegacySdkAdapter => ({
+  connectionId: 'mock-legacy-connection' as LegacyConnectionId,
+  state: 'running',
+  start: vi.fn().mockResolvedValue(undefined),
+  nextEvent: vi.fn().mockResolvedValue({ type: 'closed' }),
+  respond: vi.fn().mockResolvedValue(undefined),
+  request: vi.fn().mockResolvedValue({}),
+  cancel: vi.fn().mockResolvedValue(undefined),
+  notify: vi.fn().mockResolvedValue(undefined),
+  close: vi.fn().mockResolvedValue(undefined),
   ...overrides,
 });
 
 /**
+ * Factory for creating a mock outbound connection
+ */
+export const createMockOutboundConnection = (overrides: MockOutboundConnectionOverrides = {}): OutboundConnection => {
+  const { adapter, ...snapshotOverrides } = overrides;
+  return {
+    name: 'test-server',
+    adapter: createMockLegacySdkAdapter(adapter),
+    tags: [],
+    requiresOAuth: false,
+    status: ClientStatus.Connected,
+    lastConnected: new Date(0).toISOString(),
+    ...snapshotOverrides,
+  };
+};
+
+/**
  * Factory for creating mock inbound connections
  */
-export const createMockInboundConnection = (overrides?: Partial<InboundConnection>): InboundConnection => ({
-  server: createMockServer() as Server,
-  status: ServerStatus.Connected,
-  tags: ['test'],
-  enablePagination: false,
-  ...overrides,
-});
+export type MockInboundConnectionOverrides = Omit<Partial<InboundConnection>, 'adapter'> & {
+  adapter?: Partial<InboundConnection['adapter']>;
+};
+
+export const createMockInboundConnection = (overrides: MockInboundConnectionOverrides = {}): InboundConnection => {
+  const { adapter, ...snapshotOverrides } = overrides;
+  return {
+    connectionId: 'mock-inbound' as InboundConnection['connectionId'],
+    adapter: createMockLegacySdkAdapter({
+      connectionId: 'mock-inbound' as InboundConnection['connectionId'],
+      ...adapter,
+    }),
+    status: ServerStatus.Connected,
+    tags: ['test'],
+    enablePagination: false,
+    ...snapshotOverrides,
+  };
+};
+
+/** Build a connection backed by hidden v1 client and transport handles for legacy-island tests. */
+export const createMockLegacyOutboundConnection = (
+  overrides: Omit<Partial<OutboundConnection>, 'adapter' | 'supervision'> & {
+    client?: Client;
+    transport?: AuthProviderTransport;
+  } = {},
+): OutboundConnection => {
+  const {
+    client = createMockClient() as Client,
+    transport = createMockTransport() as AuthProviderTransport,
+    name = 'test-server',
+    status = ClientStatus.Connected,
+    lastError,
+    lastConnected,
+    capabilities,
+    instructions,
+    authorizationUrl,
+    oauthStartTime,
+  } = overrides;
+  const mutableClient = client as unknown as Record<string, unknown>;
+  if (typeof mutableClient.setNotificationHandler !== 'function') {
+    mutableClient.setNotificationHandler = vi.fn();
+  }
+  if (typeof mutableClient.close !== 'function') {
+    mutableClient.close = vi.fn().mockResolvedValue(undefined);
+  }
+  return createLegacyOutboundConnection({
+    name,
+    client,
+    transport,
+    status,
+    ...(lastError ? { lastError } : {}),
+    ...(lastConnected ? { lastConnected: new Date(lastConnected) } : {}),
+    ...(capabilities ? { capabilities } : {}),
+    ...(instructions === undefined ? {} : { instructions }),
+    ...(authorizationUrl === undefined ? {} : { authorizationUrl }),
+    ...(oauthStartTime ? { oauthStartTime: new Date(oauthStartTime) } : {}),
+  });
+};
+
+/** Build an inbound snapshot backed by hidden v1 server and transport handles. */
+export const createMockLegacyInboundConnection = (
+  overrides: Omit<Partial<InboundConnection>, 'adapter'> & {
+    server?: Server;
+    transport?: Transport;
+  } = {},
+): InboundConnection => {
+  const { server: serverOverride, transport: transportOverride, ...snapshotOverrides } = overrides;
+  const connectionId = snapshotOverrides.connectionId ?? ('mock-legacy-inbound' as LegacyConnectionId);
+  const server = serverOverride ?? (createMockServer() as Server);
+  const transport = transportOverride ?? createMockTransport();
+  return {
+    connectionId,
+    adapter: new LegacySdkServerAdapter(connectionId, server, transport),
+    status: ServerStatus.Connected,
+    tags: ['test'],
+    enablePagination: false,
+    ...snapshotOverrides,
+  };
+};
 
 /**
  * Factory for creating mock client session data

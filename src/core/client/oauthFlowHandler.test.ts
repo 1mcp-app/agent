@@ -1,3 +1,5 @@
+import { createMockLegacyOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -6,6 +8,7 @@ import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@src/constants.js';
 import { MCP_CLIENT_CAPABILITIES } from '@src/constants.js';
 import { ClientStatus, OutboundConnection } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
+import { getLegacyClient, getLegacyTransport } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 
 import { afterEach, beforeEach, describe, expect, it, MockInstance, vi } from 'vitest';
 
@@ -57,6 +60,7 @@ describe('OAuthFlowHandler', () => {
       connect: vi.fn(),
       getServerCapabilities: vi.fn(),
       getInstructions: vi.fn(),
+      setNotificationHandler: vi.fn(),
     };
 
     mockTransport = {
@@ -127,7 +131,7 @@ describe('OAuthFlowHandler', () => {
 
   describe('handleOAuthRequired', () => {
     it('should create awaiting OAuth connection info', () => {
-      const mockClientForOAuth = {} as Client;
+      const mockClientForOAuth = { setNotificationHandler: vi.fn() } as unknown as Client;
       const error = new OAuthRequiredError('test-server', mockClientForOAuth);
 
       const connectionInfo = oauthFlowHandler.handleOAuthRequired(
@@ -138,15 +142,15 @@ describe('OAuthFlowHandler', () => {
       );
 
       expect(connectionInfo.name).toBe('test-server');
-      expect(connectionInfo.transport).toBe(mockTransport);
-      expect(connectionInfo.client).toBe(mockClientForOAuth);
+      expect(getLegacyTransport(connectionInfo)).toBe(mockTransport);
+      expect(getLegacyClient(connectionInfo)).toBe(mockClientForOAuth);
       expect(connectionInfo.status).toBe(ClientStatus.AwaitingOAuth);
       expect(connectionInfo.authorizationUrl).toBe('https://example.com/oauth/authorize');
-      expect(connectionInfo.oauthStartTime).toBeInstanceOf(Date);
+      expect(connectionInfo.oauthStartTime).toBe(new Date(connectionInfo.oauthStartTime!).toISOString());
     });
 
     it('should include authorization URL in connection info', () => {
-      const mockClientForOAuth = {} as Client;
+      const mockClientForOAuth = { setNotificationHandler: vi.fn() } as unknown as Client;
       const error = new OAuthRequiredError('test-server', mockClientForOAuth);
 
       const connectionInfo = oauthFlowHandler.handleOAuthRequired(
@@ -161,13 +165,17 @@ describe('OAuthFlowHandler', () => {
   });
 
   describe('completeOAuthAndReconnect', () => {
-    const existingConnection: OutboundConnection = {
-      name: 'test-server',
-      transport: mockTransport as any,
-      client: {} as Client,
-      status: ClientStatus.AwaitingOAuth,
-      instructions: 'test instructions',
-    };
+    let existingConnection: OutboundConnection;
+
+    beforeEach(() => {
+      existingConnection = createMockLegacyOutboundConnection({
+        name: 'test-server',
+        transport: mockTransport as any,
+        client: {} as Client,
+        status: ClientStatus.AwaitingOAuth,
+        instructions: 'test instructions',
+      });
+    });
 
     it('should complete OAuth and reconnect successfully', async () => {
       (mockClient.connect as unknown as MockInstance).mockResolvedValue(undefined);
@@ -191,8 +199,8 @@ describe('OAuthFlowHandler', () => {
 
       expect(result.name).toBe('test-server');
       expect(result.status).toBe(ClientStatus.Connected);
-      expect(result.transport).toBe(mockTransport);
-      expect(result.client).toBe(mockClient);
+      expect(getLegacyTransport(result)).toBe(mockTransport);
+      expect(getLegacyClient(result)).toBe(mockClient);
       expect(result.capabilities).toEqual({ tools: {}, resources: {} });
       expect(result.instructions).toBe('test instructions');
       expect(result.lastError).toBeUndefined();
@@ -285,7 +293,7 @@ describe('OAuthFlowHandler', () => {
     it('should clear lastError on successful reconnection', async () => {
       const connectionWithError: OutboundConnection = {
         ...existingConnection,
-        lastError: new Error('Previous error'),
+        lastError: { name: 'Error', message: 'Previous error' },
       };
 
       (mockClient.connect as unknown as MockInstance).mockResolvedValue(undefined);
@@ -305,12 +313,12 @@ describe('OAuthFlowHandler', () => {
 
   describe('client creation for OAuth', () => {
     it('should create client with proper configuration', async () => {
-      const existingConnection: OutboundConnection = {
+      const existingConnection = createMockLegacyOutboundConnection({
         name: 'test-server',
         transport: mockTransport as any,
         client: {} as Client,
         status: ClientStatus.AwaitingOAuth,
-      };
+      });
 
       (mockClient.connect as unknown as MockInstance).mockResolvedValue(undefined);
       (mockClient.getServerCapabilities as unknown as MockInstance).mockReturnValue({});
@@ -337,12 +345,12 @@ describe('OAuthFlowHandler', () => {
     });
 
     it('should configure debounced notification methods', async () => {
-      const existingConnection: OutboundConnection = {
+      const existingConnection = createMockLegacyOutboundConnection({
         name: 'test-server',
         transport: mockTransport as any,
         client: {} as Client,
         status: ClientStatus.AwaitingOAuth,
-      };
+      });
 
       (mockClient.connect as unknown as MockInstance).mockResolvedValue(undefined);
       (mockClient.getServerCapabilities as unknown as MockInstance).mockReturnValue({});

@@ -404,8 +404,8 @@ function serializeInternalSupervision(
         state: 'connected' | 'restarting' | 'crash-loop' | 'stopped';
         attempt: number;
         limit: number | null;
-        nextRetryAt: Date | null;
-        lastExit: { code: number | null; signal: string | null; pid: number | null; at: Date } | null;
+        nextRetryAt: Date | string | null;
+        lastExit: { code: number | null; signal: string | null; pid: number | null; at: Date | string } | null;
         lastError: string | null;
         currentPid: number | null;
       }
@@ -414,8 +414,19 @@ function serializeInternalSupervision(
   if (!supervision) return undefined;
   return {
     ...supervision,
-    nextRetryAt: supervision.nextRetryAt?.toISOString() ?? null,
-    lastExit: supervision.lastExit ? { ...supervision.lastExit, at: supervision.lastExit.at.toISOString() } : null,
+    nextRetryAt:
+      typeof supervision.nextRetryAt === 'string'
+        ? supervision.nextRetryAt
+        : (supervision.nextRetryAt?.toISOString() ?? null),
+    lastExit: supervision.lastExit
+      ? {
+          ...supervision.lastExit,
+          at:
+            typeof supervision.lastExit.at === 'string'
+              ? supervision.lastExit.at
+              : supervision.lastExit.at.toISOString(),
+        }
+      : null,
   };
 }
 

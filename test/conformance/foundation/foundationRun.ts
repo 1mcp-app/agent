@@ -13,6 +13,7 @@ import {
   type ConformanceBaselineInput,
   validateConformanceBaseline,
 } from '../baseline/baseline.js';
+import { generateSdkBoundaryProof, readSdkBoundaryProof } from '../boundary/sdkBoundaryProof.js';
 import { SanitizedWireEvidenceFileSchema, writeEvidence } from '../capture/index.js';
 import { verifyConformanceIntegrity } from '../integrity/index.js';
 import {
@@ -309,7 +310,7 @@ async function integrityReport(root: string, expectedSourceSha: string) {
           '@modelcontextprotocol/server-legacy',
         ].map((name) => [name, packageManifestPath(root, name)]),
       ),
-      manifestSpecifiers: { '@modelcontextprotocol/sdk': '^1.25.1' },
+      manifestSpecifiers: { '@modelcontextprotocol/sdk': '1.30.0' },
     },
     requirements: {
       '2025-11-25': join(packageRoot, 'requirements', '2025-11-25.yaml'),
@@ -946,6 +947,12 @@ async function validateEvidenceBundle(
   ) {
     throw new Error('profile-evidence-mismatch');
   }
+  if (baseline.sdkBoundaryProof.classification === 'product') {
+    const proof = await readSdkBoundaryProof(outputDirectory, baseline.sdkBoundaryProof);
+    if (proof.classification !== 'product' || proof.productVerdict !== baseline.sdkBoundaryProof.productVerdict) {
+      throw new Error('sdk-boundary-evidence-mismatch');
+    }
+  }
   for (const run of baseline.officialRuns) {
     if (run.classification !== 'product') continue;
     const artifact = await readOfficialEvidenceArtifact(outputDirectory, run.artifact);
@@ -1005,12 +1012,17 @@ export async function runFoundationConformance(options: FoundationRunOptions): P
     encoding: 'utf8',
     mode: 0o600,
   });
+  const generatedSdkBoundaryProof = await generateSdkBoundaryProof(root, outputDirectory);
+  const sdkBoundaryProof =
+    generatedSdkBoundaryProof.classification === 'product'
+      ? await readSdkBoundaryProof(outputDirectory, generatedSdkBoundaryProof)
+      : generatedSdkBoundaryProof;
   const proofs = await readFile(join(outputDirectory, 'profile-proofs.json'), 'utf8')
     .then((content) => profileProofFileSchema.safeParse(JSON.parse(content)))
     .catch(() => ({ success: false as const }));
   const proofsValid = proofs.success && (await verifyProfileProofs(root, outputDirectory, proofs.data));
 
-  if (!integrity.ok || !proofsValid) {
+  if (!integrity.ok || !proofsValid || sdkBoundaryProof.classification !== 'product') {
     const baseline = buildConformanceBaseline({
       mode: options.mode,
       sourceSha,
@@ -1025,6 +1037,7 @@ export async function runFoundationConformance(options: FoundationRunOptions): P
       matrixRuns: [],
       profileProofs: [],
       legacyRevisionProofs: [],
+      sdkBoundaryProof,
       requiredProfiles: [...REQUIRED_TRANSPORT_PROFILES],
     });
     await persistBaseline(root, outputDirectory, baseline);
@@ -1059,6 +1072,7 @@ export async function runFoundationConformance(options: FoundationRunOptions): P
     matrixRuns: normalizedMatrixRuns(matrix.plan, matrix.results),
     profileProofs: proofs.data.profileProofs,
     legacyRevisionProofs,
+    sdkBoundaryProof,
     requiredProfiles: [...REQUIRED_TRANSPORT_PROFILES],
   };
   await writeFile(join(outputDirectory, 'observed-inputs.json'), `${JSON.stringify(observedInput, null, 2)}\n`, {

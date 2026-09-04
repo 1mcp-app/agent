@@ -1,0 +1,205 @@
+{
+  "schemaVersion": 1,
+  "lockfileVersion": "9.0",
+  "packageManager": "pnpm@10.33.0",
+  "rootPackages": {
+    "@modelcontextprotocol/client": {
+      "placement": "dependencies",
+      "manifestPlacements": [
+        "dependencies"
+      ],
+      "lockPlacements": [
+        "dependencies"
+      ],
+      "manifestSpecifier": "2.0.0",
+      "lockSpecifier": "2.0.0",
+      "resolved": "2.0.0"
+    },
+    "@modelcontextprotocol/conformance": {
+      "placement": "devDependencies",
+      "manifestPlacements": [
+        "devDependencies"
+      ],
+      "lockPlacements": [
+        "devDependencies"
+      ],
+      "manifestSpecifier": "0.2.0-alpha.11",
+      "lockSpecifier": "0.2.0-alpha.11",
+      "resolved": "0.2.0-alpha.11"
+    },
+    "@modelcontextprotocol/core": {
+      "placement": "dependencies",
+      "manifestPlacements": [
+        "dependencies"
+      ],
+      "lockPlacements": [
+        "dependencies"
+      ],
+      "manifestSpecifier": "2.0.0",
+      "lockSpecifier": "2.0.0",
+      "resolved": "2.0.0"
+    },
+    "@modelcontextprotocol/node": {
+      "placement": "dependencies",
+      "manifestPlacements": [
+        "dependencies"
+      ],
+      "lockPlacements": [
+        "dependencies"
+      ],
+      "manifestSpecifier": "2.0.0",
+      "lockSpecifier": "2.0.0",
+      "resolved": "2.0.0(@modelcontextprotocol/server@2.0.0)(hono@4.12.34)"
+    },
+    "@modelcontextprotocol/sdk": {
+      "placement": "dependencies",
+      "manifestPlacements": [
+        "dependencies"
+      ],
+      "lockPlacements": [
+        "dependencies"
+      ],
+      "manifestSpecifier": "1.30.0",
+      "lockSpecifier": "1.30.0",
+      "resolved": "1.30.0(zod@4.4.3)"
+    },
+    "@modelcontextprotocol/server": {
+      "placement": "dependencies",
+      "manifestPlacements": [
+        "dependencies"
+      ],
+      "lockPlacements": [
+        "dependencies"
+      ],
+      "manifestSpecifier": "2.0.0",
+      "lockSpecifier": "2.0.0",
+      "resolved": "2.0.0"
+    },
+    "@modelcontextprotocol/server-legacy": {
+      "placement": "dependencies",
+      "manifestPlacements": [
+        "dependencies"
+      ],
+      "lockPlacements": [
+        "dependencies"
+      ],
+      "manifestSpecifier": "2.0.0",
+      "lockSpecifier": "2.0.0",
+      "resolved": "2.0.0(express@5.2.1)"
+    },
+    "zod": {
+      "placement": "dependencies",
+      "manifestPlacements": [
+        "dependencies"
+      ],
+      "lockPlacements": [
+        "dependencies"
+      ],
+      "manifestSpecifier": "4.4.3",
+      "lockSpecifier": "4.4.3",
+      "resolved": "4.4.3"
+    }
+  },
+  "packages": {
+    "@modelcontextprotocol/client@2.0.0": {
+      "package": "@modelcontextprotocol/client",
+      "version": "2.0.0",
+      "integrity": "sha512-8f1OghQ2rjzIOfqgUCP+8GiUWqRs89njoWLNqAe8kWmDePv3s1fZXseej+QXemssEuuOvLLmLO/kqM3IQHtISw=="
+    },
+    "@modelcontextprotocol/conformance@0.2.0-alpha.11": {
+      "package": "@modelcontextprotocol/conformance",
+      "version": "0.2.0-alpha.11",
+      "integrity": "sha512-imPK9tx5gQsL6ZKQq4MrsyDYfSaIwpRmX6+ogjbeAXs9LGvxkBxWcY7KcS7TvwaBk/ZiVWl6b/naF4q83UwDRA=="
+    },
+    "@modelcontextprotocol/core@2.0.0": {
+      "package": "@modelcontextprotocol/core",
+      "version": "2.0.0",
+      "integrity": "sha512-pJCEwGG7Lfr/+PQp9ZTwKXNeO5wzbfKL7H3MYpCorM4oFBoQrdjnBgEoqG+RjhsvS1FKrDbKux+M1HhlnGWqcA=="
+    },
+    "@modelcontextprotocol/node@2.0.0": {
+      "package": "@modelcontextprotocol/node",
+      "version": "2.0.0",
+      "integrity": "sha512-Y4hAC2XdGDUdDOCbLDOCA4+aL3NUldjsOWlDL/YwpAxrPhRm1xHd7lZ+mLacvZ9t3PaH28wgNoaLQGrIk1P2pg=="
+    },
+    "@modelcontextprotocol/sdk@1.30.0": {
+      "package": "@modelcontextprotocol/sdk",
+      "version": "1.30.0",
+      "integrity": "sha512-xKd8OIzlqNzcqcNumGAa6g+PW2kjD5vrpcKOnfldAUPP3j7lnqMPwlTXQm8gF+UwH72z0lqaRbjr9hqGz0eITA=="
+    },
+    "@modelcontextprotocol/server-legacy@2.0.0": {
+      "package": "@modelcontextprotocol/server-legacy",
+      "version": "2.0.0",
+      "integrity": "sha512-LnffC1BSqFMHtMQxEz92lqDpHWma+ErV3ghdHDgdkCyYzVcCYKcUT5loq4kflty+Bf9C9qjJqbnphyBWyCqo8Q=="
+    },
+    "@modelcontextprotocol/server@2.0.0": {
+      "package": "@modelcontextprotocol/server",
+      "version": "2.0.0",
+      "integrity": "sha512-YhHWdHfpFMQfd0prsEnxKeS3Qz3ytIGmsS0sth4KDjnacIT7hxk6hXHkJ9KysxlkvTM+WZAtQbbcUhdoP4Hvtw=="
+    },
+    "zod@4.4.3": {
+      "package": "zod",
+      "version": "4.4.3",
+      "integrity": "sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ=="
+    }
+  },
+  "instances": {
+    "@modelcontextprotocol/client@2.0.0": {
+      "package": "@modelcontextprotocol/client",
+      "version": "2.0.0",
+      "dependencies": {
+        "@modelcontextprotocol/core": "2.0.0",
+        "zod": "4.4.3"
+      }
+    },
+    "@modelcontextprotocol/conformance@0.2.0-alpha.11": {
+      "package": "@modelcontextprotocol/conformance",
+      "version": "0.2.0-alpha.11",
+      "dependencies": {
+        "@modelcontextprotocol/sdk": "1.30.0(zod@4.4.3)",
+        "zod": "4.4.3"
+      }
+    },
+    "@modelcontextprotocol/core@2.0.0": {
+      "package": "@modelcontextprotocol/core",
+      "version": "2.0.0",
+      "dependencies": {
+        "zod": "4.4.3"
+      }
+    },
+    "@modelcontextprotocol/node@2.0.0(@modelcontextprotocol/server@2.0.0)(hono@4.12.34)": {
+      "package": "@modelcontextprotocol/node",
+      "version": "2.0.0",
+      "dependencies": {
+        "@modelcontextprotocol/server": "2.0.0"
+      }
+    },
+    "@modelcontextprotocol/sdk@1.30.0(zod@4.4.3)": {
+      "package": "@modelcontextprotocol/sdk",
+      "version": "1.30.0",
+      "dependencies": {
+        "zod": "4.4.3"
+      }
+    },
+    "@modelcontextprotocol/server-legacy@2.0.0(express@5.2.1)": {
+      "package": "@modelcontextprotocol/server-legacy",
+      "version": "2.0.0",
+      "dependencies": {
+        "@modelcontextprotocol/core": "2.0.0",
+        "zod": "4.4.3"
+      }
+    },
+    "@modelcontextprotocol/server@2.0.0": {
+      "package": "@modelcontextprotocol/server",
+      "version": "2.0.0",
+      "dependencies": {
+        "@modelcontextprotocol/core": "2.0.0",
+        "zod": "4.4.3"
+      }
+    },
+    "zod@4.4.3": {
+      "package": "zod",
+      "version": "4.4.3",
+      "dependencies": {}
+    }
+  }
+}

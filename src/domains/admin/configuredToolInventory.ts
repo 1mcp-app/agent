@@ -1,7 +1,5 @@
 import { createHash } from 'node:crypto';
 
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-
 import { TokenEstimationService } from '@src/application/services/tokenEstimationService.js';
 import {
   publishCompleteConfiguredToolInspection,
@@ -20,6 +18,7 @@ import {
   type OutboundConnections,
 } from '@src/core/types/index.js';
 import { isConfiguredServerTargetDisabled } from '@src/domains/config-change/configChange.js';
+import type { Tool } from '@src/sdk/contracts/index.js';
 
 export type ConfiguredToolTargetSource = 'mcpServers' | 'mcpTemplates';
 

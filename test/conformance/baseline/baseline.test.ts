@@ -139,6 +139,13 @@ function input() {
       evidenceDigest: `sha256:${'5'.repeat(64)}`,
       attempt: 1 as const,
     })),
+    sdkBoundaryProof: {
+      classification: 'product' as const,
+      productVerdict: 'pass' as const,
+      artifactId: 'boundary/sdk-boundary-proof.json' as const,
+      evidenceDigest: `sha256:${'7'.repeat(64)}` as const,
+      attempt: 1 as const,
+    },
     requiredProfiles: [...requiredProfiles],
   };
 }
@@ -186,11 +193,48 @@ describe('Conformance Baseline aggregation', () => {
     value.matrixRuns = [];
     value.profileProofs = [];
     value.legacyRevisionProofs = [];
+    value.sdkBoundaryProof = { classification: 'harness', reason: 'proof-missing', attempt: 1 } as never;
 
     const baseline = buildConformanceBaseline(value);
     expect(baseline).toMatchObject({ infrastructureVerdict: 'red', productVerdict: 'not-evaluated' });
     expect(baseline.traceability).toEqual([]);
     expect(baseline.infrastructureErrorCodes).toContain('integrity-failed');
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['malformed', { classification: 'product', productVerdict: 'pass' }],
+    ['validator failure', { classification: 'harness', reason: 'proof-malformed', attempt: 1 }],
+  ])('marks a %s SDK boundary proof as infrastructure red', (_name, proof) => {
+    const value = input();
+    value.sdkBoundaryProof = proof as never;
+
+    const baseline = buildConformanceBaseline(value);
+    expect(baseline.infrastructureVerdict).toBe('red');
+    expect(baseline.productVerdict).toBe('not-evaluated');
+  });
+
+  it('independently classifies a failed SDK boundary contract as product red', () => {
+    const value = input();
+    value.officialRuns = value.officialRuns.map((run) => official(run.role, run.revision));
+    value.matrixRuns = matrixRuns(value.matrixPlan, true);
+    value.profileProofs = value.profileProofs.map((proof) => ({ ...proof, status: 'passed' as const }));
+    value.sdkBoundaryProof = { ...value.sdkBoundaryProof, productVerdict: 'fail' } as never;
+
+    const baseline = buildConformanceBaseline(value);
+    expect(baseline.infrastructureVerdict).toBe('green');
+    expect(baseline.productVerdict).toBe('red');
+    expect(baseline.infrastructureErrorCodes).toEqual([]);
+  });
+
+  it('keeps a passing SDK boundary contract green when all product evidence passes', () => {
+    const value = input();
+    value.officialRuns = value.officialRuns.map((run) => official(run.role, run.revision));
+    value.matrixRuns = matrixRuns(value.matrixPlan, true);
+    value.profileProofs = value.profileProofs.map((proof) => ({ ...proof, status: 'passed' as const }));
+
+    const baseline = buildConformanceBaseline(value);
+    expect(baseline).toMatchObject({ infrastructureVerdict: 'green', productVerdict: 'green' });
   });
 
   it.each([

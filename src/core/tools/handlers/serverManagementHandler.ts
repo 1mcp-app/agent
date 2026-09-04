@@ -29,6 +29,7 @@ import {
   McpUninstallToolArgs,
   McpUpdateToolArgs,
 } from '@src/core/tools/internal/schemas/index.js';
+import type { OutboundSupervisionSnapshot } from '@src/core/types/client.js';
 import { MCPServerParams } from '@src/core/types/transport.js';
 import type { RuntimeBackendRestartResult } from '@src/domains/admin/adminBackendRestartService.js';
 import { RuntimeServerManagerBackendRestartService } from '@src/domains/admin/runtimeServerManagerBackendRestartService.js';
@@ -78,12 +79,17 @@ function hasHandlebarsTemplates(config: MCPServerParams): boolean {
 /**
  * Enhanced server information interface for mcp_list
  */
+type SupervisionSnapshot = BackendSupervisionSnapshot | OutboundSupervisionSnapshot;
+type OperationalSupervision<T extends SupervisionSnapshot> = Omit<T, 'lastError'> & { lastError: string | null };
+type BackendOperationalSupervision = OperationalSupervision<BackendSupervisionSnapshot>;
+type OutboundOperationalSupervision = OperationalSupervision<OutboundSupervisionSnapshot>;
+
 interface EnhancedServerInfo extends Omit<MCPServerParams, 'env'> {
   name: string;
   status:
     'enabled' | 'disabled' | 'connected' | 'disconnected' | 'error' | 'awaiting_oauth' | 'restarting' | 'crash-loop';
   configured: boolean;
-  supervision?: Omit<BackendSupervisionSnapshot, 'lastError'> & { lastError: string | null };
+  supervision?: BackendOperationalSupervision | OutboundOperationalSupervision;
   env?: Record<string, string>;
   capabilities?: {
     tools: string;
@@ -100,10 +106,12 @@ interface EnhancedServerInfo extends Omit<MCPServerParams, 'env'> {
 interface TemplateInstanceStatus {
   instanceId: string;
   status: string;
-  supervision?: EnhancedServerInfo['supervision'];
+  supervision?: BackendOperationalSupervision;
 }
 
-function operationalSupervision(snapshot: BackendSupervisionSnapshot | undefined): EnhancedServerInfo['supervision'] {
+function operationalSupervision<T extends SupervisionSnapshot>(
+  snapshot: T | undefined,
+): OperationalSupervision<T> | undefined {
   return snapshot ? { ...snapshot, lastError: snapshot.lastError?.message ?? null } : undefined;
 }
 
@@ -388,7 +396,7 @@ export async function handleMcpList(args: McpListToolArgs) {
         try {
           baseInfo.health = {
             connected: connection?.status === 'connected',
-            lastConnected: connection?.lastConnected?.toISOString() || null,
+            lastConnected: connection?.lastConnected ?? null,
             responseTime: null, // We don't track response time in OutboundConnection
           };
         } catch {

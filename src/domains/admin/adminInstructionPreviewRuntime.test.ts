@@ -1,8 +1,4 @@
-import {
-  createMockOutboundConnection,
-  createMockOutboundConnections,
-  createMockTransport,
-} from '@test/unit-utils/MockFactories.js';
+import { createMockOutboundConnection, createMockOutboundConnections } from '@test/unit-utils/MockFactories.js';
 
 import { ConfigManager } from '@src/config/configManager.js';
 import {
@@ -36,10 +32,7 @@ describe('createAdminInstructionPreviewRuntime', () => {
     );
     const aggregator = new InstructionAggregator();
     serverManager.setInstructionAggregator(aggregator);
-    clients.set(
-      'contextual:other-session',
-      createMockOutboundConnection({ name: 'contextual', transport: { ...createMockTransport(), tags: ['docs'] } }),
-    );
+    clients.set('contextual:other-session', createMockOutboundConnection({ name: 'contextual', tags: ['docs'] }));
     aggregator.setInstructions(
       { source: 'mcpTemplates', name: 'contextual' },
       'Other session instructions',
@@ -67,7 +60,7 @@ describe('createAdminInstructionPreviewRuntime', () => {
         outboundKey,
         createMockOutboundConnection({
           name: 'contextual',
-          transport: { ...createMockTransport(), tags: ['docs'] },
+          tags: ['docs'],
         }),
       );
       aggregator.setInstructions(
@@ -322,12 +315,11 @@ function fixture() {
   const clients = new Map([
     [
       'alpha',
-      {
+      createMockOutboundConnection({
         name: 'alpha',
         status: ClientStatus.Connected,
-        transport: { tags: ['docs'] },
-        client: {},
-      },
+        tags: ['docs'],
+      }),
     ],
   ]);
   const transports = {};
