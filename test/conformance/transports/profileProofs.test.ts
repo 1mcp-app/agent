@@ -607,10 +607,10 @@ describe('gateway-executed transport profile proofs', () => {
     );
   });
 
-  it('records product-red evidence for modern upstream stdio through the built gateway', async () => {
+  it('proves modern upstream stdio with MCP traffic through the built gateway', async () => {
     const workspace = await createWorkspace('upstream-stdio-modern', stdioUpstream('v2', 'modern'));
-    const gateway = await startGateway(workspace.configPath, workspace.home, true);
-    const probe = await probeHttpGateway(gateway.endpoint, workspace.home, 'upstream-revision-mismatch');
+    const gateway = await startGateway(workspace.configPath, workspace.home);
+    const probe = await probeHttpGateway(gateway.endpoint, workspace.home);
     expect(probe.transport).toBe('streamable-http');
     await emitProfileProof(
       'upstream-stdio-modern',

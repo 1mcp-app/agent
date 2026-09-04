@@ -23,6 +23,7 @@ import {
 } from '@src/sdk/contracts/index.js';
 
 import type { AuthProviderTransport } from './legacyTransport.js';
+import { stripInboundRequestMeta } from './outboundRequestParams.js';
 
 const LIST_CHANGED_METHODS = [
   'notifications/tools/list_changed',
@@ -105,7 +106,10 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
   }
 
   async request(request: LegacySdkRequest): Promise<JsonValue> {
-    if (request.method !== 'tools/list' && request.method !== 'tools/call') return this.requestDirect(request);
+    const params = stripInboundRequestMeta(request.params);
+    if (request.method !== 'tools/list' && request.method !== 'tools/call') {
+      return this.requestDirect({ ...request, params });
+    }
     this.gatewayRequests.add(request.id);
     try {
       const timeoutMs = request.timeoutMs ?? createLegacyTimeoutMs(60_000);
@@ -113,7 +117,7 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
         await this.outbound.request({
           requestId: request.id,
           operation: request.method,
-          ...(request.params === undefined ? {} : { params: toImmutableJsonValue(request.params) }),
+          ...(params === undefined ? {} : { params: toImmutableJsonValue(params) }),
           authority: createEffectiveRequestAuthority({
             connectionIds: [this.connectionId],
             provenance: ['configured-backend'],

@@ -13,6 +13,7 @@ import type { Client } from '@src/sdk/legacy/client/index.js';
 
 import { LegacySdkClientAdapter, type LegacySdkClientAdapterOptions } from './legacySdkClientAdapter.js';
 import type { AuthProviderTransport } from './legacyTransport.js';
+import { stripInboundRequestMeta } from './outboundRequestParams.js';
 
 /** Routes the gateway-supported legacy slice through the legacy era adapter. */
 export class LegacyGatewayClientAdapter extends LegacySdkClientAdapter {
@@ -42,7 +43,10 @@ export class LegacyGatewayClientAdapter extends LegacySdkClientAdapter {
   }
 
   override async request(request: LegacySdkRequest): Promise<JsonValue> {
-    if (request.method !== 'tools/list' && request.method !== 'tools/call') return super.request(request);
+    const params = stripInboundRequestMeta(request.params);
+    if (request.method !== 'tools/list' && request.method !== 'tools/call') {
+      return super.request({ ...request, params });
+    }
     this.gatewayRequests.add(request.id);
     try {
       const timeoutMs = request.timeoutMs ?? createLegacyTimeoutMs(60_000);
@@ -50,7 +54,7 @@ export class LegacyGatewayClientAdapter extends LegacySdkClientAdapter {
         await this.outbound.request({
           requestId: request.id,
           operation: request.method,
-          ...(request.params === undefined ? {} : { params: toImmutableJsonValue(request.params) }),
+          ...(params === undefined ? {} : { params: toImmutableJsonValue(params) }),
           authority: createEffectiveRequestAuthority({
             connectionIds: [this.connectionId],
             provenance: ['configured-backend'],

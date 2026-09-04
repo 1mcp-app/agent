@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import errorHandler from '../middlewares/errorHandler.js';
 import { bindDisconnectAbort, type ModernHttpRequestPolicy, setupModernHttpRoutes } from './modernHttpRoutes.js';
+import { setupStreamableHttpRoutes } from './streamableHttpRoutes.js';
 
 const { createBridge } = vi.hoisted(() => ({ createBridge: vi.fn() }));
 
@@ -267,7 +268,7 @@ describe('modern HTTP admission', () => {
       jsonrpc: '2.0',
       id: 2,
       method: 'tools/list',
-      params: { _meta: modernMeta },
+      params: { cursor: 'next-page', _meta: modernMeta },
     });
 
     expect(response.status).toBe(200);
@@ -279,6 +280,9 @@ describe('modern HTTP admission', () => {
     });
     expect(response.headers['mcp-session-id']).toBeUndefined();
     expect(outbound.request).toHaveBeenCalledTimes(1);
+    expect(outbound.request).toHaveBeenCalledWith(
+      expect.objectContaining({ operation: 'tools/list', params: { cursor: 'next-page' } }),
+    );
     expect(close).toHaveBeenCalledTimes(1);
   });
 
@@ -345,6 +349,9 @@ describe('modern HTTP admission', () => {
       content: [{ type: 'text', text: 'ok' }],
     });
     expect(outbound.request).toHaveBeenCalledTimes(1);
+    expect(outbound.request).toHaveBeenCalledWith(
+      expect.objectContaining({ operation: 'tools/call', params: { name: 'echo', arguments: {} } }),
+    );
 
     const mismatch = await modernPost(app(), {
       ...body,
@@ -377,8 +384,56 @@ describe('modern HTTP admission', () => {
     expect(response.headers['content-type']).toContain('text/event-stream');
     expect(response.text).toContain('event: message');
     expect(response.text).toContain('"supportedVersions":["2026-07-28"]');
-    expect((await request(app()).get('/mcp').set('MCP-Protocol-Version', '2026-07-28')).status).toBe(404);
+    const unsupportedGet = await request(app()).get('/mcp').set('MCP-Protocol-Version', '2026-07-28');
+    expect(unsupportedGet.status).toBe(405);
+    expect(unsupportedGet.body).toEqual({
+      jsonrpc: '2.0',
+      id: null,
+      error: { code: -32000, message: 'Method not allowed.' },
+    });
   });
+
+  it.each(['get', 'delete'] as const)(
+    'owns modern %s before real legacy streamable routes and never touches the legacy session',
+    async (method) => {
+      const instance = express();
+      instance.use(express.json());
+      instance.use(errorHandler);
+      const router = express.Router();
+      const pass = (_req: express.Request, _res: express.Response, next: express.NextFunction) => next();
+      setupModernHttpRoutes(router, {} as never, [pass], createBridge, loopbackPolicy);
+      const legacyLifecycle = {
+        resolveExistingSession: vi.fn(),
+        completeExplicitDelete: vi.fn(),
+      };
+      setupStreamableHttpRoutes(
+        router,
+        {} as never,
+        {} as never,
+        pass,
+        undefined,
+        undefined,
+        undefined,
+        legacyLifecycle as never,
+      );
+      instance.use(router);
+
+      const response = await request(instance)
+        [method]('/mcp')
+        .set('MCP-Protocol-Version', '2026-07-28')
+        .set('Mcp-Session-Id', 'legacy-session-that-must-not-be-used');
+
+      expect(response.status).toBe(405);
+      expect(response.body).toEqual({
+        jsonrpc: '2.0',
+        id: null,
+        error: { code: -32000, message: 'Method not allowed.' },
+      });
+      expect(legacyLifecycle.resolveExistingSession).not.toHaveBeenCalled();
+      expect(legacyLifecycle.completeExplicitDelete).not.toHaveBeenCalled();
+      expect(createBridge).not.toHaveBeenCalled();
+    },
+  );
 
   it('cancels and closes a long-running request when the response socket closes', async () => {
     let settleRequest!: (value: object) => void;

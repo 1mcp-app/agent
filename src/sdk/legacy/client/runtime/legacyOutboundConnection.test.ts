@@ -23,9 +23,20 @@ describe('requestLegacyOutbound', () => {
       status: ClientStatus.Connected,
     });
 
-    await requestLegacyOutbound(connection, 'tools/call', { name: 'echo', arguments: { value: 'hi' } });
-    await requestLegacyOutbound(connection, 'resources/read', { uri: 'file:///tmp/example' });
-    await requestLegacyOutbound(connection, 'prompts/get', { name: 'review', arguments: { strict: 'true' } });
+    await requestLegacyOutbound(connection, 'tools/call', {
+      name: 'echo',
+      arguments: { value: 'hi' },
+      _meta: { context: { secret: 'inbound-only' }, contextProof: { signature: 'do-not-forward' } },
+    });
+    await requestLegacyOutbound(connection, 'resources/read', {
+      uri: 'file:///tmp/example',
+      _meta: { context: { secret: 'resource-secret' } },
+    });
+    await requestLegacyOutbound(connection, 'prompts/get', {
+      name: 'review',
+      arguments: { strict: 'true' },
+      _meta: { contextProof: { signature: 'prompt-proof' } },
+    });
 
     expect(request).toHaveBeenNthCalledWith(
       1,

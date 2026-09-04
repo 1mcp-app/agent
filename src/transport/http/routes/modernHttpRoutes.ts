@@ -63,6 +63,19 @@ function isFrameRecord(value: ImmutableJsonValue): value is { readonly [key: str
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+function stripInboundRequestMeta(params: unknown): unknown {
+  if (
+    params === null ||
+    typeof params !== 'object' ||
+    Array.isArray(params) ||
+    !Object.prototype.hasOwnProperty.call(params, '_meta')
+  ) {
+    return params;
+  }
+  const { _meta: _untrustedMeta, ...businessParams } = params as Record<string, unknown>;
+  return businessParams;
+}
+
 function webRequest(req: Request, signal?: AbortSignal): globalThis.Request {
   const headers = new Headers();
   for (const [name, value] of Object.entries(req.headers)) {
@@ -130,7 +143,7 @@ async function dispatchGateway(
         receive: async () => {
           if (!delivered) {
             delivered = true;
-            return { type: 'request', correlationId, operation: method, params };
+            return { type: 'request', correlationId, operation: method, params: stripInboundRequestMeta(params) };
           }
           const state = await settled;
           if (state === 'cancel' && !cancellationDelivered) {
@@ -209,6 +222,31 @@ export function setupModernHttpRoutes(
   requestPolicy: ModernHttpRequestPolicy,
   requestTimeoutMs = DEFAULT_MODERN_REQUEST_TIMEOUT_MS,
 ): void {
+  const rejectUnsupportedTransportMethod = async (req: Request, res: Response): Promise<void> => {
+    const request = webRequest(req);
+    const rejected =
+      (!requestPolicy.allowsHost(req.get('host')) ? hostHeaderValidationResponse(request, []) : undefined) ??
+      (!requestPolicy.allowsOrigin(req.get('origin'), req.get('host'))
+        ? originValidationResponse(request, [])
+        : undefined);
+    if (rejected) {
+      await writeWebResponse(rejected, res);
+      return;
+    }
+
+    const handler = createMcpHandler(
+      () => new Server({ name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION }, { capabilities: { tools: {} } }),
+      { legacy: 'reject' },
+    );
+    try {
+      await writeWebResponse(await handler.fetch(request), res);
+    } finally {
+      await handler.close();
+    }
+  };
+
+  router.get(STREAMABLE_HTTP_ENDPOINT, modernAdmission, ...middlewares, rejectUnsupportedTransportMethod);
+  router.delete(STREAMABLE_HTTP_ENDPOINT, modernAdmission, ...middlewares, rejectUnsupportedTransportMethod);
   router.post(STREAMABLE_HTTP_ENDPOINT, modernAdmission, ...middlewares, async (req: Request, res: Response) => {
     const disconnect = bindDisconnectAbort(req, res);
     try {
