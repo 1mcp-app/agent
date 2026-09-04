@@ -26,3 +26,8 @@
 .github/workflows/*.yml text eol=lf
 test/conformance/** text eol=lf
 scripts/run-conformance.mjs text eol=lf
+
+# The permission guard's ESM scanner is executed by vitest's vite-8 module
+# runner, which fails to parse CRLF .mjs files ("SyntaxError: Invalid or
+# unexpected token"); pin LF so local guard runs never break on Windows.
+scripts/security/** text eol=lf
