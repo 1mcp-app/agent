@@ -52,6 +52,12 @@ describe('real outbound era negotiation', () => {
     await expect(requestLegacyOutbound<{ tools: unknown[] }>(connection, 'tools/list')).resolves.toMatchObject({
       tools: [expect.objectContaining({ name: 'fixture.acknowledge' })],
     });
+    await expect(
+      requestLegacyOutbound(connection, 'tools/call', {
+        name: 'fixture.acknowledge',
+        arguments: { value: 'modern' },
+      }),
+    ).resolves.toMatchObject({ content: [expect.objectContaining({ type: 'text' })] });
     await connection.adapter.close();
   });
 
@@ -77,6 +83,12 @@ describe('real outbound era negotiation', () => {
     await expect(requestLegacyOutbound<{ tools: unknown[] }>(connection, 'tools/list')).resolves.toMatchObject({
       tools: [expect.objectContaining({ name: 'fixture.acknowledge' })],
     });
+    await expect(
+      requestLegacyOutbound(connection, 'tools/call', {
+        name: 'fixture.acknowledge',
+        arguments: { value: 'legacy' },
+      }),
+    ).resolves.toMatchObject({ content: [expect.objectContaining({ type: 'text' })] });
     await connection.adapter.close();
   });
 });

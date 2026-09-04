@@ -69,7 +69,7 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
             request: async (frame) => {
               const request = frame as {
                 readonly requestId: string;
-                readonly operation: 'tools/list';
+                readonly operation: 'tools/list' | 'tools/call';
                 readonly params?: JsonValue;
                 readonly deadlineUnixMs: number;
               };
@@ -105,14 +105,14 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
   }
 
   async request(request: LegacySdkRequest): Promise<JsonValue> {
-    if (request.method !== 'tools/list') return this.requestDirect(request);
+    if (request.method !== 'tools/list' && request.method !== 'tools/call') return this.requestDirect(request);
     this.gatewayRequests.add(request.id);
     try {
       const timeoutMs = request.timeoutMs ?? createLegacyTimeoutMs(60_000);
       return toJsonValue(
         await this.outbound.request({
           requestId: request.id,
-          operation: 'tools/list',
+          operation: request.method,
           ...(request.params === undefined ? {} : { params: toImmutableJsonValue(request.params) }),
           authority: createEffectiveRequestAuthority({
             connectionIds: [this.connectionId],

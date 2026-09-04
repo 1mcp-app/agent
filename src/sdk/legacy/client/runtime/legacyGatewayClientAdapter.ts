@@ -42,14 +42,14 @@ export class LegacyGatewayClientAdapter extends LegacySdkClientAdapter {
   }
 
   override async request(request: LegacySdkRequest): Promise<JsonValue> {
-    if (request.method !== 'tools/list') return super.request(request);
+    if (request.method !== 'tools/list' && request.method !== 'tools/call') return super.request(request);
     this.gatewayRequests.add(request.id);
     try {
       const timeoutMs = request.timeoutMs ?? createLegacyTimeoutMs(60_000);
       return toJsonValue(
         await this.outbound.request({
           requestId: request.id,
-          operation: 'tools/list',
+          operation: request.method,
           ...(request.params === undefined ? {} : { params: toImmutableJsonValue(request.params) }),
           authority: createEffectiveRequestAuthority({
             connectionIds: [this.connectionId],
