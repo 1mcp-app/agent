@@ -1,4 +1,13 @@
+import {
+  createMockLegacyInboundConnection,
+  createMockLegacyOutboundConnection,
+  createMockServer,
+  createMockTransport,
+} from '@test/unit-utils/MockFactories.js';
+
+import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport, StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 import {
@@ -7,6 +16,12 @@ import {
   type OutboundConnection,
   type OutboundConnections,
 } from '@src/core/types/index.js';
+import {
+  createLegacyOutboundConnection,
+  getLegacyClient,
+  getLegacyTransport,
+  requestLegacyOutbound,
+} from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -91,6 +106,19 @@ describe('Request Handlers', () => {
   let mockServer: any;
   let registerRequestHandlers: any;
 
+  const connection = (
+    name: string,
+    client: unknown,
+    status: ClientStatus = ClientStatus.Connected,
+    tags: string[] = [],
+  ): OutboundConnection =>
+    createMockLegacyOutboundConnection({
+      name,
+      client: client as Client,
+      transport: { ...createMockTransport(), timeout: 5000, tags },
+      status,
+    });
+
   beforeEach(async () => {
     vi.clearAllMocks();
     mockGetFilteredConnections.mockImplementation((connections) => connections);
@@ -113,7 +141,24 @@ describe('Request Handlers', () => {
       subscribeResource: vi.fn(),
       unsubscribeResource: vi.fn(),
       setRequestHandler: vi.fn(),
+      setNotificationHandler: vi.fn(),
     };
+    mockClient1.request = vi.fn(({ method, params }) => {
+      const operations: Record<string, (...args: any[]) => unknown> = {
+        'tools/list': mockClient1.listTools,
+        'tools/call': mockClient1.callTool,
+        'resources/list': mockClient1.listResources,
+        'resources/templates/list': mockClient1.listResourceTemplates,
+        'resources/read': mockClient1.readResource,
+        'resources/subscribe': mockClient1.subscribeResource,
+        'resources/unsubscribe': mockClient1.unsubscribeResource,
+        'prompts/list': mockClient1.listPrompts,
+        'prompts/get': mockClient1.getPrompt,
+        'completion/complete': mockClient1.complete,
+        ping: mockClient1.ping,
+      };
+      return operations[method]?.(params);
+    });
 
     mockClient2 = {
       ping: vi.fn(),
@@ -128,7 +173,24 @@ describe('Request Handlers', () => {
       subscribeResource: vi.fn(),
       unsubscribeResource: vi.fn(),
       setRequestHandler: vi.fn(),
+      setNotificationHandler: vi.fn(),
     };
+    mockClient2.request = vi.fn(({ method, params }) => {
+      const operations: Record<string, (...args: any[]) => unknown> = {
+        'tools/list': mockClient2.listTools,
+        'tools/call': mockClient2.callTool,
+        'resources/list': mockClient2.listResources,
+        'resources/templates/list': mockClient2.listResourceTemplates,
+        'resources/read': mockClient2.readResource,
+        'resources/subscribe': mockClient2.subscribeResource,
+        'resources/unsubscribe': mockClient2.unsubscribeResource,
+        'prompts/list': mockClient2.listPrompts,
+        'prompts/get': mockClient2.getPrompt,
+        'completion/complete': mockClient2.complete,
+        ping: mockClient2.ping,
+      };
+      return operations[method]?.(params);
+    });
 
     // Create mock server
     mockServer = {
@@ -141,36 +203,16 @@ describe('Request Handlers', () => {
 
     // Create mock clients collection
     mockOutboundConns = new Map();
-    mockOutboundConns.set('client1', {
-      name: 'client1',
-      status: ClientStatus.Connected,
-      client: mockClient1,
-      transport: {
-        timeout: 5000,
-        start: vi.fn(),
-        send: vi.fn(),
-        close: vi.fn(),
-      },
-    } as OutboundConnection);
+    mockOutboundConns.set('client1', connection('client1', mockClient1));
 
-    mockOutboundConns.set('client2', {
-      name: 'client2',
-      status: ClientStatus.Connected,
-      client: mockClient2,
-      transport: {
-        timeout: 5000,
-        start: vi.fn(),
-        send: vi.fn(),
-        close: vi.fn(),
-      },
-    } as OutboundConnection);
+    mockOutboundConns.set('client2', connection('client2', mockClient2));
 
     // Create mock server info
-    mockInboundConn = {
-      server: mockServer,
+    mockInboundConn = createMockLegacyInboundConnection({
+      server: mockServer as Server,
       tags: ['test'],
       enablePagination: true,
-    } as InboundConnection;
+    });
   });
 
   describe('registerRequestHandlers', () => {
@@ -204,19 +246,35 @@ describe('Request Handlers', () => {
 
     it('recovers OAuth for a direct MCP tool call', async () => {
       const oauthProvider = { invalidateCredentials: vi.fn().mockResolvedValue(undefined) };
-      const transport = {
+      const staleTransport = {
         _url: new URL('https://example.com/mcp'),
         oauthProvider,
         close: vi.fn().mockResolvedValue(undefined),
         timeout: 5000,
       } as any;
-      Object.setPrototypeOf(transport, StreamableHTTPClientTransport.prototype);
+      Object.setPrototypeOf(staleTransport, StreamableHTTPClientTransport.prototype);
+      const freshTransport = {
+        _url: new URL('https://example.com/mcp'),
+        oauthProvider,
+        close: vi.fn().mockResolvedValue(undefined),
+        timeout: 5000,
+      } as any;
+      Object.setPrototypeOf(freshTransport, StreamableHTTPClientTransport.prototype);
+      const recreateHttpTransport = vi.fn().mockReturnValue(freshTransport);
       const unauthorized = new StreamableHTTPError(401, 'Server returned 401 after successful authentication');
       mockClient1.callTool.mockRejectedValue(unauthorized);
       mockClient1.close = vi.fn().mockResolvedValue(undefined);
-      mockClient1.transport = transport;
-      const connection = mockOutboundConns.get('client1')!;
-      connection.transport = transport;
+      mockClient1.transport = staleTransport;
+      const connection = createLegacyOutboundConnection({
+        name: 'client1',
+        client: mockClient1,
+        transport: staleTransport,
+        status: ClientStatus.Connected,
+        adapterOptions: {
+          recreateHttpTransport,
+        },
+      });
+      mockOutboundConns.set('client1', connection);
       mockParseUri.mockReturnValue({ clientName: 'client1', resourceName: 'tool' });
 
       registerRequestHandlers(mockOutboundConns, mockInboundConn);
@@ -224,28 +282,21 @@ describe('Request Handlers', () => {
         ([schema]: [unknown]) => schema === CallToolRequestSchema,
       )?.[1];
 
-      await expect(handler({ params: { name: 'client1_tool', arguments: {} } })).rejects.toBe(unauthorized);
+      await expect(handler({ params: { name: 'client1_tool', arguments: {} } })).rejects.toMatchObject({
+        name: 'OneMcpProtocolError',
+        code: 401,
+        message: unauthorized.message,
+      });
       expect(connection.status).toBe(ClientStatus.AwaitingOAuth);
-      expect(oauthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
       expect(mockClient1.close).toHaveBeenCalledOnce();
-      expect(connection.transport).not.toBe(transport);
+      expect(recreateHttpTransport).toHaveBeenCalledWith(staleTransport, 'client1');
+      expect(getLegacyTransport(connection)).toBe(freshTransport);
     });
 
     it('should handle clients with different statuses', () => {
       // Add clients with different statuses
-      mockOutboundConns.set('disconnected', {
-        name: 'disconnected',
-        status: ClientStatus.Disconnected,
-        client: { setRequestHandler: vi.fn() },
-        transport: { timeout: 5000 },
-      } as any);
-
-      mockOutboundConns.set('error', {
-        name: 'error',
-        status: ClientStatus.Error,
-        client: { setRequestHandler: vi.fn() },
-        transport: { timeout: 5000 },
-      } as any);
+      mockOutboundConns.set('disconnected', connection('disconnected', { setRequestHandler: vi.fn() }, ClientStatus.Disconnected));
+      mockOutboundConns.set('error', connection('error', { setRequestHandler: vi.fn() }, ClientStatus.Error));
 
       expect(() => {
         registerRequestHandlers(mockOutboundConns, mockInboundConn);
@@ -285,7 +336,7 @@ describe('Request Handlers', () => {
         const healthCheckPromises = Array.from(clients.entries()).map(async ([_clientName, clientInfo]) => {
           if (clientInfo.status === ClientStatus.Connected) {
             try {
-              await clientInfo.client.ping();
+              await requestLegacyOutbound(clientInfo, 'ping');
             } catch (_error) {
               // Silent failure - just log internally without console output
             }
@@ -314,17 +365,7 @@ describe('Request Handlers', () => {
 
     it('should skip disconnected clients', async () => {
       // Add a disconnected client
-      mockOutboundConns.set('client3', {
-        name: 'client3',
-        status: ClientStatus.Disconnected,
-        client: { ping: vi.fn() },
-        transport: {
-          timeout: 5000,
-          start: vi.fn(),
-          send: vi.fn(),
-          close: vi.fn(),
-        },
-      } as unknown as OutboundConnection);
+      mockOutboundConns.set('client3', connection('client3', { ping: vi.fn() }, ClientStatus.Disconnected));
 
       mockClient1.ping.mockResolvedValue({});
       mockClient2.ping.mockResolvedValue({});
@@ -333,7 +374,7 @@ describe('Request Handlers', () => {
       await pingHandler();
 
       // Client3 is disconnected, so its ping should not be called
-      expect(mockOutboundConns.get('client3')!.client.ping).not.toHaveBeenCalled();
+      expect(getLegacyClient(mockOutboundConns.get('client3')!).ping).not.toHaveBeenCalled();
     });
 
     it('should handle client ping failures gracefully', async () => {
@@ -368,46 +409,32 @@ describe('Request Handlers', () => {
 
     it('should handle clients with different statuses', async () => {
       const mixedClients: OutboundConnections = new Map();
-      mixedClients.set('connected', {
-        name: 'connected',
-        status: ClientStatus.Connected,
-        client: { ping: vi.fn().mockResolvedValue({}) },
-        transport: {
-          timeout: 5000,
-          start: vi.fn(),
-          send: vi.fn(),
-          close: vi.fn(),
-        },
-      } as unknown as OutboundConnection);
-      mixedClients.set('disconnected', {
-        name: 'disconnected',
-        status: ClientStatus.Disconnected,
-        client: { ping: vi.fn() },
-        transport: {
-          timeout: 5000,
-          start: vi.fn(),
-          send: vi.fn(),
-          close: vi.fn(),
-        },
-      } as unknown as OutboundConnection);
-      mixedClients.set('error', {
-        name: 'error',
-        status: ClientStatus.Error,
-        client: { ping: vi.fn() },
-        transport: {
-          timeout: 5000,
-          start: vi.fn(),
-          send: vi.fn(),
-          close: vi.fn(),
-        },
-      } as unknown as OutboundConnection);
+      const connectedPing = vi.fn().mockResolvedValue({});
+      const disconnectedPing = vi.fn();
+      const errorPing = vi.fn();
+      const createPingConnection = (name: string, status: ClientStatus, ping: () => unknown) => {
+        const client = {
+          ping,
+          request: vi.fn(({ method }: { method: string }) => (method === 'ping' ? ping() : undefined)),
+          setNotificationHandler: vi.fn(),
+        };
+        return createLegacyOutboundConnection({
+          name,
+          status,
+          client: client as any,
+          transport: { timeout: 5000, close: vi.fn() } as any,
+        });
+      };
+      mixedClients.set('connected', createPingConnection('connected', ClientStatus.Connected, connectedPing));
+      mixedClients.set('disconnected', createPingConnection('disconnected', ClientStatus.Disconnected, disconnectedPing));
+      mixedClients.set('error', createPingConnection('error', ClientStatus.Error, errorPing));
 
       const pingHandler = createPingHandler(mixedClients);
       await pingHandler();
 
-      expect(mixedClients.get('connected')!.client.ping).toHaveBeenCalledTimes(1);
-      expect(mixedClients.get('disconnected')!.client.ping).not.toHaveBeenCalled();
-      expect(mixedClients.get('error')!.client.ping).not.toHaveBeenCalled();
+      expect(connectedPing).toHaveBeenCalledTimes(1);
+      expect(disconnectedPing).not.toHaveBeenCalled();
+      expect(errorPing).not.toHaveBeenCalled();
     });
   });
 
@@ -429,12 +456,14 @@ describe('Request Handlers', () => {
 
     it('should handle missing transport timeout gracefully', () => {
       const clientsWithoutTimeout: OutboundConnections = new Map();
-      clientsWithoutTimeout.set('client1', {
-        name: 'client1',
-        status: ClientStatus.Connected,
-        client: { setRequestHandler: vi.fn() },
-        transport: {}, // No timeout property
-      } as any);
+      clientsWithoutTimeout.set(
+        'client1',
+        createMockLegacyOutboundConnection({
+          name: 'client1',
+          client: { request: vi.fn(), setRequestHandler: vi.fn() } as any,
+          transport: createMockTransport() as any,
+        }),
+      );
 
       expect(() => {
         registerRequestHandlers(clientsWithoutTimeout, mockInboundConn);
@@ -442,19 +471,19 @@ describe('Request Handlers', () => {
     });
 
     it('should work with minimal server configuration', () => {
-      const minimalServer = {
-        server: {
-          setRequestHandler: vi.fn(),
-        },
+      const server = createMockServer() as Server;
+      const setRequestHandler = vi.mocked(server.setRequestHandler);
+      const minimalServer = createMockLegacyInboundConnection({
+        server,
         tags: undefined,
         enablePagination: undefined,
-      } as any;
+      });
 
       expect(() => {
         registerRequestHandlers(mockOutboundConns, minimalServer);
       }).not.toThrow();
 
-      expect(minimalServer.server.setRequestHandler).toHaveBeenCalled();
+      expect(setRequestHandler).toHaveBeenCalled();
     });
   });
 
@@ -487,7 +516,7 @@ describe('Request Handlers', () => {
           inboundConn?.tagFilterMode === 'simple-or' && inboundConn.tags?.length
             ? new Map(
                 Array.from(outboundConns.entries()).filter(([, conn]) =>
-                  conn.transport.tags?.some((tag) => inboundConn.tags?.includes(tag)),
+                  conn.tags?.some((tag) => inboundConn.tags?.includes(tag)),
                 ),
               )
             : outboundConns;
@@ -598,28 +627,19 @@ describe('Request Handlers', () => {
         testOutboundConns = new Map();
 
         // Static server (no session suffix)
-        testOutboundConns.set('static-server', {
-          name: 'static-server',
-          status: ClientStatus.Connected,
-          client: mockStaticClient,
-          transport: { timeout: 5000 },
-        } as OutboundConnection);
+        testOutboundConns.set('static-server', connection('static-server', mockStaticClient, ClientStatus.Connected));
 
         // Template server for session A
-        testOutboundConns.set('template-server:session-a', {
-          name: 'template-server',
-          status: ClientStatus.Connected,
-          client: mockTemplateClientA,
-          transport: { timeout: 5000 },
-        } as OutboundConnection);
+        testOutboundConns.set(
+          'template-server:session-a',
+          connection('template-server', mockTemplateClientA, ClientStatus.Connected),
+        );
 
         // Template server for session B (same template, different session)
-        testOutboundConns.set('template-server:session-b', {
-          name: 'template-server',
-          status: ClientStatus.Connected,
-          client: mockTemplateClientB,
-          transport: { timeout: 5000 },
-        } as OutboundConnection);
+        testOutboundConns.set(
+          'template-server:session-b',
+          connection('template-server', mockTemplateClientB, ClientStatus.Connected),
+        );
       });
 
       it('should resolve template server by name and session ID', () => {
@@ -627,16 +647,16 @@ describe('Request Handlers', () => {
 
         expect(result).toBeDefined();
         expect(result?.name).toBe('template-server');
-        expect(result?.client).toBe(mockTemplateClientA);
+        expect(result && getLegacyClient(result)).toBe(mockTemplateClientA);
       });
 
       it('should resolve different sessions for same template name', () => {
         const resultA = resolveConnection('template-server', 'session-a', testOutboundConns);
         const resultB = resolveConnection('template-server', 'session-b', testOutboundConns);
 
-        expect(resultA?.client).toBe(mockTemplateClientA);
-        expect(resultB?.client).toBe(mockTemplateClientB);
-        expect(resultA?.client).not.toBe(resultB?.client);
+        expect(resultA && getLegacyClient(resultA)).toBe(mockTemplateClientA);
+        expect(resultB && getLegacyClient(resultB)).toBe(mockTemplateClientB);
+        expect(resultA && getLegacyClient(resultA)).not.toBe(resultB && getLegacyClient(resultB));
       });
 
       it('should resolve static server by name only', () => {
@@ -644,7 +664,7 @@ describe('Request Handlers', () => {
 
         expect(result).toBeDefined();
         expect(result?.name).toBe('static-server');
-        expect(result?.client).toBe(mockStaticClient);
+        expect(result && getLegacyClient(result)).toBe(mockStaticClient);
       });
 
       it('should fall back to static server when session-scoped lookup fails', () => {
@@ -652,7 +672,7 @@ describe('Request Handlers', () => {
 
         expect(result).toBeDefined();
         expect(result?.name).toBe('static-server');
-        expect(result?.client).toBe(mockStaticClient);
+        expect(result && getLegacyClient(result)).toBe(mockStaticClient);
       });
 
       it('should return undefined for unknown server', () => {
@@ -674,12 +694,10 @@ describe('Request Handlers', () => {
       });
 
       it('should apply inbound tag filters to direct resolution', () => {
-        testOutboundConns.set('hidden-server', {
-          name: 'hidden-server',
-          status: ClientStatus.Connected,
-          client: { callTool: vi.fn() },
-          transport: { timeout: 5000, tags: ['hidden'] },
-        } as unknown as OutboundConnection);
+        testOutboundConns.set(
+          'hidden-server',
+          connection('hidden-server', { callTool: vi.fn() }, undefined, ['hidden']),
+        );
 
         const result = resolveConnection('hidden-server', undefined, testOutboundConns, {
           tagFilterMode: 'simple-or',
@@ -708,42 +726,17 @@ describe('Request Handlers', () => {
         testOutboundConns = new Map();
 
         // Static servers (no : in key)
-        testOutboundConns.set('static-1', {
-          name: 'static-1',
-          status: ClientStatus.Connected,
-          client: mockStaticServer1,
-          transport: { timeout: 5000 },
-        } as OutboundConnection);
+        testOutboundConns.set('static-1', connection('static-1', mockStaticServer1, ClientStatus.Connected));
 
-        testOutboundConns.set('static-2', {
-          name: 'static-2',
-          status: ClientStatus.Connected,
-          client: mockStaticServer2,
-          transport: { timeout: 5000 },
-        } as OutboundConnection);
+        testOutboundConns.set('static-2', connection('static-2', mockStaticServer2, ClientStatus.Connected));
 
         // Template servers for session A
-        testOutboundConns.set('template-x:session-a', {
-          name: 'template-x',
-          status: ClientStatus.Connected,
-          client: mockTemplateA,
-          transport: { timeout: 5000 },
-        } as OutboundConnection);
+        testOutboundConns.set('template-x:session-a', connection('template-x', mockTemplateA, ClientStatus.Connected));
 
-        testOutboundConns.set('template-y:session-a', {
-          name: 'template-y',
-          status: ClientStatus.Connected,
-          client: mockTemplateC,
-          transport: { timeout: 5000 },
-        } as OutboundConnection);
+        testOutboundConns.set('template-y:session-a', connection('template-y', mockTemplateC, ClientStatus.Connected));
 
         // Template servers for session B
-        testOutboundConns.set('template-x:session-b', {
-          name: 'template-x',
-          status: ClientStatus.Connected,
-          client: mockTemplateB,
-          transport: { timeout: 5000 },
-        } as OutboundConnection);
+        testOutboundConns.set('template-x:session-b', connection('template-x', mockTemplateB, ClientStatus.Connected));
       });
 
       it('should include all static servers and session-matching templates', () => {
@@ -799,12 +792,7 @@ describe('Request Handlers', () => {
 
       it('should handle connections with only static servers', () => {
         const staticOnly: OutboundConnections = new Map();
-        staticOnly.set('static-1', {
-          name: 'static-1',
-          status: ClientStatus.Connected,
-          client: mockStaticServer1,
-          transport: { timeout: 5000 },
-        } as OutboundConnection);
+        staticOnly.set('static-1', connection('static-1', mockStaticServer1, ClientStatus.Connected));
 
         const filtered = filterForSession(staticOnly, 'session-a');
 
@@ -814,12 +802,7 @@ describe('Request Handlers', () => {
 
       it('should handle connections with only template servers', () => {
         const templateOnly: OutboundConnections = new Map();
-        templateOnly.set('template-x:session-a', {
-          name: 'template-x',
-          status: ClientStatus.Connected,
-          client: mockTemplateA,
-          transport: { timeout: 5000 },
-        } as OutboundConnection);
+        templateOnly.set('template-x:session-a', connection('template-x', mockTemplateA, ClientStatus.Connected));
 
         const filtered = filterForSession(templateOnly, 'session-a');
 
@@ -829,12 +812,7 @@ describe('Request Handlers', () => {
 
       it('should return empty map for template-only connections with non-matching session', () => {
         const templateOnly: OutboundConnections = new Map();
-        templateOnly.set('template-x:session-a', {
-          name: 'template-x',
-          status: ClientStatus.Connected,
-          client: mockTemplateA,
-          transport: { timeout: 5000 },
-        } as OutboundConnection);
+        templateOnly.set('template-x:session-a', connection('template-x', mockTemplateA, ClientStatus.Connected));
 
         const filtered = filterForSession(templateOnly, 'session-b');
 
@@ -858,36 +836,25 @@ describe('Request Handlers', () => {
         testOutboundConns = new Map();
 
         // Static server (no session suffix)
-        testOutboundConns.set('static-server', {
-          name: 'static-server',
-          status: ClientStatus.Connected,
-          client: mockStaticClient,
-          transport: { timeout: 5000 },
-        } as OutboundConnection);
+        testOutboundConns.set('static-server', connection('static-server', mockStaticClient, ClientStatus.Connected));
 
         // Shareable template server with rendered hash (key format: templateName:renderedHash)
-        testOutboundConns.set('shareable-template:abc123', {
-          name: 'shareable-template',
-          status: ClientStatus.Connected,
-          client: mockShareableClient,
-          transport: { timeout: 5000 },
-        } as OutboundConnection);
+        testOutboundConns.set(
+          'shareable-template:abc123',
+          connection('shareable-template', mockShareableClient, ClientStatus.Connected),
+        );
 
         // Shareable template server with different rendered hash (different context)
-        testOutboundConns.set('shareable-template:def456', {
-          name: 'shareable-template',
-          status: ClientStatus.Connected,
-          client: mockShareableClient2,
-          transport: { timeout: 5000 },
-        } as OutboundConnection);
+        testOutboundConns.set(
+          'shareable-template:def456',
+          connection('shareable-template', mockShareableClient2, ClientStatus.Connected),
+        );
 
         // Per-client template server (key format: templateName:sessionId)
-        testOutboundConns.set('per-client-template:session-a', {
-          name: 'per-client-template',
-          status: ClientStatus.Connected,
-          client: mockPerClientClient,
-          transport: { timeout: 5000 },
-        } as OutboundConnection);
+        testOutboundConns.set(
+          'per-client-template:session-a',
+          connection('per-client-template', mockPerClientClient, ClientStatus.Connected),
+        );
 
         // Mock the template server manager
         mockGetRenderedHashForSession.mockImplementation((sessionId: string, templateName: string) => {
@@ -907,7 +874,7 @@ describe('Request Handlers', () => {
 
         expect(result).toBeDefined();
         expect(result?.name).toBe('shareable-template');
-        expect(result?.client).toBe(mockShareableClient);
+        expect(result && getLegacyClient(result)).toBe(mockShareableClient);
         expect(mockGetRenderedHashForSession).toHaveBeenCalledWith('session-a', 'shareable-template');
       });
 
@@ -915,9 +882,9 @@ describe('Request Handlers', () => {
         const resultA = resolveConnection('shareable-template', 'session-a', testOutboundConns);
         const resultB = resolveConnection('shareable-template', 'session-b', testOutboundConns);
 
-        expect(resultA?.client).toBe(mockShareableClient); // abc123 hash
-        expect(resultB?.client).toBe(mockShareableClient2); // def456 hash
-        expect(resultA?.client).not.toBe(resultB?.client);
+        expect(resultA && getLegacyClient(resultA)).toBe(mockShareableClient); // abc123 hash
+        expect(resultB && getLegacyClient(resultB)).toBe(mockShareableClient2); // def456 hash
+        expect(resultA && getLegacyClient(resultA)).not.toBe(resultB && getLegacyClient(resultB));
       });
 
       it('should resolve per-client template server by session ID', () => {
@@ -927,7 +894,7 @@ describe('Request Handlers', () => {
 
         expect(result).toBeDefined();
         expect(result?.name).toBe('per-client-template');
-        expect(result?.client).toBe(mockPerClientClient);
+        expect(result && getLegacyClient(result)).toBe(mockPerClientClient);
       });
 
       it('should fall back to static server when no rendered hash or session key found', () => {
@@ -935,7 +902,7 @@ describe('Request Handlers', () => {
 
         expect(result).toBeDefined();
         expect(result?.name).toBe('static-server');
-        expect(result?.client).toBe(mockStaticClient);
+        expect(result && getLegacyClient(result)).toBe(mockStaticClient);
       });
 
       it('should return undefined for unknown server', () => {
@@ -960,35 +927,24 @@ describe('Request Handlers', () => {
         testOutboundConns = new Map();
 
         // Static servers (no : in key)
-        testOutboundConns.set('static-server', {
-          name: 'static-server',
-          status: ClientStatus.Connected,
-          client: mockStaticClient,
-          transport: { timeout: 5000 },
-        } as OutboundConnection);
+        testOutboundConns.set('static-server', connection('static-server', mockStaticClient, ClientStatus.Connected));
 
         // Shareable template servers (key format: templateName:renderedHash)
-        testOutboundConns.set('shareable-template:abc123', {
-          name: 'shareable-template',
-          status: ClientStatus.Connected,
-          client: mockShareableClientA,
-          transport: { timeout: 5000 },
-        } as OutboundConnection);
+        testOutboundConns.set(
+          'shareable-template:abc123',
+          connection('shareable-template', mockShareableClientA, ClientStatus.Connected),
+        );
 
-        testOutboundConns.set('shareable-template:def456', {
-          name: 'shareable-template',
-          status: ClientStatus.Connected,
-          client: mockShareableClientB,
-          transport: { timeout: 5000 },
-        } as OutboundConnection);
+        testOutboundConns.set(
+          'shareable-template:def456',
+          connection('shareable-template', mockShareableClientB, ClientStatus.Connected),
+        );
 
         // Per-client template server (key format: templateName:sessionId)
-        testOutboundConns.set('per-client-template:session-a', {
-          name: 'per-client-template',
-          status: ClientStatus.Connected,
-          client: mockPerClientClient,
-          transport: { timeout: 5000 },
-        } as OutboundConnection);
+        testOutboundConns.set(
+          'per-client-template:session-a',
+          connection('per-client-template', mockPerClientClient, ClientStatus.Connected),
+        );
 
         // Mock the template server manager
         const sessionAHashes = new Map([['shareable-template', 'abc123']]);
@@ -1059,6 +1015,7 @@ describe('Request Handlers', () => {
     let mockStaticClient: any;
     let mockTemplateClientA: any;
     let mockTemplateClientB: any;
+    let sessionSetRequestHandler: ReturnType<typeof vi.fn>;
 
     beforeEach(() => {
       // Reset mocks
@@ -1088,58 +1045,51 @@ describe('Request Handlers', () => {
       testOutboundConns = new Map();
 
       // Static server
-      testOutboundConns.set('static-server', {
-        name: 'static-server',
-        status: ClientStatus.Connected,
-        client: mockStaticClient,
-        transport: { timeout: 5000 },
-      } as OutboundConnection);
+      testOutboundConns.set('static-server', connection('static-server', mockStaticClient, ClientStatus.Connected));
 
       // Template servers for different sessions
-      testOutboundConns.set('my-template:session-a', {
-        name: 'my-template',
-        status: ClientStatus.Connected,
-        client: mockTemplateClientA,
-        transport: { timeout: 5000 },
-      } as OutboundConnection);
+      testOutboundConns.set(
+        'my-template:session-a',
+        connection('my-template', mockTemplateClientA, ClientStatus.Connected),
+      );
 
-      testOutboundConns.set('my-template:session-b', {
-        name: 'my-template',
-        status: ClientStatus.Connected,
-        client: mockTemplateClientB,
-        transport: { timeout: 5000 },
-      } as OutboundConnection);
+      testOutboundConns.set(
+        'my-template:session-b',
+        connection('my-template', mockTemplateClientB, ClientStatus.Connected),
+      );
 
       // Inbound connection with session context
-      mockInboundWithSession = {
-        server: { setRequestHandler: vi.fn() },
+      const sessionServer = createMockServer() as Server;
+      sessionSetRequestHandler = vi.mocked(sessionServer.setRequestHandler);
+      mockInboundWithSession = createMockLegacyInboundConnection({
+        server: sessionServer,
         context: { sessionId: 'session-a' },
         enablePagination: true,
-        status: ClientStatus.Connected,
-      } as any;
+      });
     });
 
     it('should register handlers with session context', () => {
       registerRequestHandlers(testOutboundConns, mockInboundWithSession);
 
       // Verify handlers were registered
-      expect(mockInboundWithSession.server.setRequestHandler).toHaveBeenCalled();
+      expect(sessionSetRequestHandler).toHaveBeenCalled();
       // Should register multiple handlers
-      expect((mockInboundWithSession.server.setRequestHandler as any).mock.calls.length).toBeGreaterThan(5);
+      expect(sessionSetRequestHandler.mock.calls.length).toBeGreaterThan(5);
     });
 
     it('should register handlers for inbound connection without session context', () => {
-      const mockInboundNoSession = {
-        server: { setRequestHandler: vi.fn() },
+      const noSessionServer = createMockServer() as Server;
+      const noSessionSetRequestHandler = vi.mocked(noSessionServer.setRequestHandler);
+      const mockInboundNoSession = createMockLegacyInboundConnection({
+        server: noSessionServer,
         context: undefined,
         enablePagination: true,
-        status: ClientStatus.Connected,
-      } as any;
+      });
 
       registerRequestHandlers(testOutboundConns, mockInboundNoSession);
 
-      expect(mockInboundNoSession.server.setRequestHandler).toHaveBeenCalled();
-      expect((mockInboundNoSession.server.setRequestHandler as any).mock.calls.length).toBeGreaterThan(5);
+      expect(noSessionSetRequestHandler).toHaveBeenCalled();
+      expect(noSessionSetRequestHandler.mock.calls.length).toBeGreaterThan(5);
     });
 
     it('should handle multiple template instances with same name but different sessions', () => {

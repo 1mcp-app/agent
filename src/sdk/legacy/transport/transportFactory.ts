@@ -1,0 +1,465 @@
+import type { EventEmitter } from 'node:events';
+import path from 'path';
+
+import { OAuthClientConfig, SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
+import { processEnvironment, substituteEnvVars } from '@src/config/envProcessor.js';
+import { getRuntimeScopeEnvironment, sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
+import { AUTH_CONFIG, MCP_SERVER_VERSION } from '@src/constants.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { MCPServerParams, transportConfigSchema } from '@src/core/types/index.js';
+import { createBackendLogProjection } from '@src/domains/backend-logs/backendLogProjection.js';
+import { getBackendLogBroker } from '@src/domains/backend-logs/backendLogRuntime.js';
+import { staticBackendLogSource } from '@src/domains/backend-logs/backendLogSource.js';
+import type { BackendLogSource } from '@src/domains/backend-logs/backendLogTypes.js';
+import logger, { debugIf } from '@src/logger/logger.js';
+import { SSEClientTransport, SSEClientTransportOptions } from '@src/sdk/legacy/client/sse.js';
+import { StdioClientTransport, StdioServerParameters } from '@src/sdk/legacy/client/stdio.js';
+import {
+  StreamableHTTPClientTransport,
+  StreamableHTTPClientTransportOptions,
+} from '@src/sdk/legacy/client/streamableHttp.js';
+import { HandlebarsTemplateRenderer } from '@src/template/handlebarsTemplateRenderer.js';
+import { ManagedStdioStderr } from '@src/transport/managedStdioStderr.js';
+import type { ContextData } from '@src/types/context.js';
+
+import { z, ZodError } from 'zod';
+
+import type { AuthProviderTransport } from '../client/runtime/legacyTransport.js';
+
+type ValidatedTransport = z.infer<typeof transportConfigSchema>;
+
+export interface TransportCreationOptions {
+  readonly backendLogSources?: Readonly<Record<string, BackendLogSource>>;
+}
+
+/**
+ * Infers transport type from configuration parameters
+ */
+export function inferTransportType(params: MCPServerParams, name: string): MCPServerParams {
+  const inferredParams = { ...params };
+
+  if (inferredParams.type) {
+    return inferredParams;
+  }
+
+  logger.warn(`Transport type is missing for ${name}, inferring type...`);
+
+  if (inferredParams.command) {
+    inferredParams.type = 'stdio';
+    logger.info(`Inferred transport type for ${name} as stdio`);
+  } else if (inferredParams.url) {
+    if (inferredParams.url.endsWith('mcp')) {
+      inferredParams.type = 'http';
+      logger.info(`Inferred transport type for ${name} as http/streamableHttp`);
+    } else {
+      inferredParams.type = 'sse';
+      logger.info(`Inferred transport type for ${name} as sse`);
+    }
+  }
+
+  return inferredParams;
+}
+
+/**
+ * Creates OAuth provider for HTTP-based transports
+ */
+function createOAuthProvider(name: string, validatedTransport: ValidatedTransport): SDKOAuthClientProvider {
+  const configManager = AgentConfigManager.getInstance();
+
+  const oauthConfig: OAuthClientConfig = {
+    autoRegister: true,
+    redirectUrl: `${configManager.getUrl()}${AUTH_CONFIG.CLIENT.OAUTH.DEFAULT_CALLBACK_PATH}/${name}`,
+    ...validatedTransport.oauth,
+  };
+
+  // Derive client session storage path from server session storage path
+  // This ensures config-dir isolation applies to client sessions as well
+  let clientSessionPath: string | undefined;
+  const serverSessionPath = configManager.get('auth').sessionStoragePath;
+  if (serverSessionPath) {
+    // If server uses custom session path, derive client path from the same parent
+    // e.g., if server uses '.tmp-test/sessions', client uses '.tmp-test/clientSessions'
+    const parentDir = path.dirname(serverSessionPath);
+    clientSessionPath = path.join(parentDir, 'clientSessions');
+  }
+
+  logger.info(`Creating OAuth client provider for transport: ${name}`);
+  return new SDKOAuthClientProvider(name, oauthConfig, clientSessionPath);
+}
+
+function substituteStringRecord(
+  values: Record<string, string> | undefined,
+  env: Record<string, string | undefined> = process.env,
+): Record<string, string> | undefined {
+  if (!values) {
+    return undefined;
+  }
+
+  const substituted: Record<string, string> = {};
+  for (const [key, value] of Object.entries(values)) {
+    substituted[key] = substituteEnvVars(value, env);
+  }
+  return substituted;
+}
+
+function withTransportEnvSubstitution(validatedTransport: ValidatedTransport): ValidatedTransport {
+  if (!AgentConfigManager.getInstance().isEnvSubstitutionEnabled()) {
+    return validatedTransport;
+  }
+
+  const referenceEnvironment = { ...getRuntimeScopeEnvironment(), ...process.env };
+  let oauth = validatedTransport.oauth;
+  if (oauth) {
+    oauth = { ...oauth };
+    if (oauth.clientId) {
+      oauth.clientId = substituteEnvVars(oauth.clientId, referenceEnvironment);
+    }
+    if (oauth.clientSecret) {
+      oauth.clientSecret = substituteEnvVars(oauth.clientSecret, referenceEnvironment);
+    }
+    if (oauth.redirectUrl) {
+      oauth.redirectUrl = substituteEnvVars(oauth.redirectUrl, referenceEnvironment);
+    }
+    if (oauth.scopes) {
+      oauth.scopes = oauth.scopes.map((scope) => substituteEnvVars(scope, referenceEnvironment));
+    }
+  }
+
+  return {
+    ...validatedTransport,
+    url: validatedTransport.url
+      ? substituteEnvVars(validatedTransport.url, referenceEnvironment)
+      : validatedTransport.url,
+    headers: substituteStringRecord(validatedTransport.headers, referenceEnvironment),
+    oauth,
+  };
+}
+
+/**
+ * Creates SSE transport with OAuth provider
+ */
+function createSSETransport(name: string, validatedTransport: ValidatedTransport): AuthProviderTransport {
+  validatedTransport = withTransportEnvSubstitution(validatedTransport);
+
+  if (!validatedTransport.url) {
+    throw new Error(`URL is required for SSE transport: ${name}`);
+  }
+
+  const sseOptions: SSEClientTransportOptions = {
+    requestInit: {
+      headers: validatedTransport.headers,
+    },
+  };
+
+  const oauthProvider = createOAuthProvider(name, validatedTransport);
+  sseOptions.authProvider = oauthProvider;
+
+  const transport = new SSEClientTransport(new URL(validatedTransport.url), sseOptions) as AuthProviderTransport;
+  transport.oauthProvider = oauthProvider;
+
+  return transport;
+}
+
+/**
+ * Creates HTTP transport with OAuth provider
+ */
+function createHTTPTransport(name: string, validatedTransport: ValidatedTransport): AuthProviderTransport {
+  validatedTransport = withTransportEnvSubstitution(validatedTransport);
+
+  if (!validatedTransport.url) {
+    throw new Error(`URL is required for HTTP transport: ${name}`);
+  }
+
+  const httpOptions: StreamableHTTPClientTransportOptions = {
+    requestInit: {
+      headers: {
+        ...validatedTransport.headers,
+        'User-Agent': `1MCP/${MCP_SERVER_VERSION}`,
+      },
+    },
+  };
+
+  const oauthProvider = createOAuthProvider(name, validatedTransport);
+  httpOptions.authProvider = oauthProvider;
+
+  const transport = new StreamableHTTPClientTransport(
+    new URL(validatedTransport.url),
+    httpOptions,
+  ) as AuthProviderTransport;
+  transport.oauthProvider = oauthProvider;
+
+  return transport;
+}
+
+/**
+ * Creates stdio transport with enhanced environment processing and optional restart capability
+ */
+function createStdioTransport(
+  name: string,
+  validatedTransport: ValidatedTransport,
+  backendLogSource = staticBackendLogSource(name),
+): AuthProviderTransport {
+  if (!validatedTransport.command) {
+    throw new Error(`Command is required for stdio transport: ${name}`);
+  }
+
+  const substituteEnv = AgentConfigManager.getInstance().isEnvSubstitutionEnabled();
+
+  // Process environment variables with new features
+  const envResult = processEnvironment({
+    inheritParentEnv: validatedTransport.inheritParentEnv,
+    envFilter: validatedTransport.envFilter,
+    env: validatedTransport.env,
+    substituteEnv,
+    runtimeEnv: getRuntimeScopeEnvironment(),
+  });
+  const referenceEnvironment =
+    validatedTransport.envFilter && validatedTransport.envFilter.length > 0
+      ? envResult.processedEnv
+      : { ...getRuntimeScopeEnvironment(), ...process.env, ...envResult.processedEnv };
+
+  debugIf(() => ({
+    message: `Environment processing for ${name}:`,
+    meta: {
+      totalVariables: Object.keys(envResult.processedEnv).length,
+      sdkDefaults: envResult.sources.sdkDefaults.length,
+      inherited: envResult.sources.inherited.length,
+      custom: envResult.sources.custom.length,
+      filtered: envResult.sources.filtered.length,
+    },
+  }));
+
+  const command = substituteEnv
+    ? substituteEnvVars(validatedTransport.command, referenceEnvironment)
+    : validatedTransport.command;
+  const args = substituteEnv
+    ? validatedTransport.args?.map((arg) => substituteEnvVars(arg, referenceEnvironment))
+    : validatedTransport.args;
+  const cwd =
+    substituteEnv && validatedTransport.cwd
+      ? substituteEnvVars(validatedTransport.cwd, referenceEnvironment)
+      : validatedTransport.cwd;
+
+  const shouldManageStderr = isManagedStderr(validatedTransport.stderr);
+  const broker = getBackendLogBroker();
+  const source = {
+    ...backendLogSource,
+    capture: shouldManageStderr ? ('managed' as const) : ('not-captured' as const),
+    lifecycle: 'active' as const,
+  };
+  broker.registerSource(source);
+  const managedStderr = shouldManageStderr
+    ? new ManagedStdioStderr(name, { emit: createBackendLogProjection({ broker, source }) })
+    : undefined;
+
+  // Create SDK-compatible parameters with processed environment
+  const stdioParams: StdioServerParameters = {
+    command,
+    args,
+    stderr: validatedTransport.stderr ?? 'pipe',
+    cwd,
+    env: envResult.processedEnv,
+  };
+
+  // The Aggregated Runtime owns restart policy above the raw transport so every
+  // replacement completes a fresh MCP initialization before becoming routable.
+  debugIf(`Creating stdio transport for: ${name}`);
+  const transport = new StdioClientTransport(stdioParams);
+  let lastExit: ReturnType<NonNullable<AuthProviderTransport['stdioSupervision']>['getLastExit']> = null;
+  const startTransport = transport.start.bind(transport);
+  transport.start = async (): Promise<void> => {
+    await startTransport();
+    const child = (transport as unknown as { _process?: EventEmitter & { pid?: number } })._process;
+    const pid = child?.pid ?? transport.pid;
+    child?.prependOnceListener('exit', (code: number | null, signal: string | null) => {
+      lastExit = { code, signal, pid, at: new Date() };
+    });
+  };
+  managedStderr?.attach(transport.stderr);
+  if (managedStderr || source.kind === 'template') {
+    const closeTransport = transport.close.bind(transport);
+    transport.close = async (): Promise<void> => {
+      try {
+        await closeTransport();
+      } finally {
+        await managedStderr?.close();
+        broker.updateSource(source.id, { lifecycle: 'ended' });
+      }
+    };
+  }
+  const authTransport = transport as AuthProviderTransport;
+  if (validatedTransport.restartOnExit) {
+    logger.info(`Enabling runtime-owned stdio supervision for: ${name}`);
+    authTransport.stdioSupervision = {
+      policy: {
+        restartOnExit: true,
+        maxRestarts: validatedTransport.maxRestarts,
+        restartDelay: validatedTransport.restartDelay,
+      },
+      recreate: () => createStdioTransport(name, validatedTransport, source),
+      getLastExit: () => lastExit,
+    };
+  }
+  return authTransport;
+}
+
+/**
+ * Creates a single transport instance
+ */
+function createSingleTransport(
+  name: string,
+  validatedTransport: ValidatedTransport,
+  backendLogSource?: BackendLogSource,
+): AuthProviderTransport {
+  switch (validatedTransport.type) {
+    case 'sse':
+      if (!validatedTransport.url) throw new Error(`URL is required for SSE transport: ${name}`);
+      return createResolvedTransportSafely(() => createSSETransport(name, validatedTransport));
+    case 'http':
+    case 'streamableHttp':
+      if (!validatedTransport.url) throw new Error(`URL is required for HTTP transport: ${name}`);
+      return createResolvedTransportSafely(() => createHTTPTransport(name, validatedTransport));
+    case 'stdio':
+      if (!validatedTransport.command) throw new Error(`Command is required for stdio transport: ${name}`);
+      return createResolvedTransportSafely(() => createStdioTransport(name, validatedTransport, backendLogSource));
+    default:
+      throw new Error(`Invalid transport type: ${validatedTransport.type}`);
+  }
+}
+
+function createResolvedTransportSafely(create: () => AuthProviderTransport): AuthProviderTransport {
+  try {
+    return create();
+  } catch (error) {
+    throw sanitizeRuntimeScopeError(error);
+  }
+}
+
+/**
+ * Assigns transport properties and adds to collection
+ */
+function assignTransport(
+  transports: Record<string, AuthProviderTransport>,
+  name: string,
+  transport: AuthProviderTransport,
+  validatedTransport: ValidatedTransport,
+): void {
+  transport.connectionTimeout = validatedTransport.connectionTimeout;
+  transport.requestTimeout = validatedTransport.requestTimeout;
+  transport.timeout = validatedTransport.timeout; // Keep for backward compatibility
+  transport.tags = validatedTransport.tags;
+  transports[name] = transport;
+}
+
+/**
+ * Creates transport instances from configuration
+ * @param config - Configuration object with server parameters
+ * @returns Record of transport instances
+ */
+export function createTransports(
+  config: Record<string, MCPServerParams>,
+  options: TransportCreationOptions = {},
+): Record<string, AuthProviderTransport> {
+  const transports: Record<string, AuthProviderTransport> = {};
+
+  for (const [name, params] of Object.entries(config)) {
+    registerConfiguredStdioSource(name, params, options);
+    if (params.disabled) {
+      debugIf(`Skipping disabled transport: ${name}`);
+      continue;
+    }
+
+    try {
+      const inferredParams = inferTransportType(params, name);
+      const validatedTransport = transportConfigSchema.parse(inferredParams);
+      const transport = createSingleTransport(name, validatedTransport, options.backendLogSources?.[name]);
+
+      assignTransport(transports, name, transport, validatedTransport);
+      debugIf(`Created transport: ${name}`);
+    } catch (error) {
+      if (error instanceof ZodError) {
+        logger.error(`Invalid transport configuration for ${name}:`, error.issues);
+      } else {
+        logger.error(`Error creating transport ${name}:`, error);
+      }
+      throw error;
+    }
+  }
+
+  return transports;
+}
+
+/**
+ * Creates transport instances from configuration with context-aware template processing
+ * @param config - Configuration object with server parameters
+ * @param context - Context data for template processing
+ * @returns Record of transport instances
+ */
+export async function createTransportsWithContext(
+  config: Record<string, MCPServerParams>,
+  context?: ContextData,
+  options: TransportCreationOptions = {},
+): Promise<Record<string, AuthProviderTransport>> {
+  const transports: Record<string, AuthProviderTransport> = {};
+
+  // Create template renderer if context is provided
+  const templateRenderer = context ? new HandlebarsTemplateRenderer() : null;
+
+  for (const [name, params] of Object.entries(config)) {
+    registerConfiguredStdioSource(name, params, options);
+    if (params.disabled) {
+      debugIf(`Skipping disabled transport: ${name}`);
+      continue;
+    }
+
+    try {
+      let processedParams = inferTransportType(params, name);
+
+      // Process templates if context is provided
+      if (templateRenderer && context) {
+        debugIf(() => ({
+          message: 'Processing templates for server',
+          meta: { serverName: name },
+        }));
+
+        processedParams = templateRenderer.renderTemplate(processedParams, context);
+
+        debugIf(() => ({
+          message: 'Templates processed successfully',
+          meta: { serverName: name },
+        }));
+      }
+
+      const validatedTransport = transportConfigSchema.parse(processedParams);
+      const transport = createSingleTransport(name, validatedTransport, options.backendLogSources?.[name]);
+
+      assignTransport(transports, name, transport, validatedTransport);
+      debugIf(`Created transport: ${name}`);
+    } catch (error) {
+      if (error instanceof ZodError) {
+        logger.error(`Invalid transport configuration for ${name}:`, error.issues);
+      } else {
+        logger.error(`Error creating transport ${name}:`, error);
+      }
+      throw error;
+    }
+  }
+
+  return transports;
+}
+
+function registerConfiguredStdioSource(name: string, params: MCPServerParams, options: TransportCreationOptions): void {
+  const transportType = params.type ?? (params.command ? 'stdio' : undefined);
+  if (transportType !== 'stdio') return;
+  const managed = isManagedStderr(params.stderr);
+  const source = options.backendLogSources?.[name] ?? staticBackendLogSource(name);
+  getBackendLogBroker().registerSource({
+    ...source,
+    capture: managed ? 'managed' : 'not-captured',
+    lifecycle: params.disabled ? 'ended' : source.lifecycle,
+  });
+}
+
+function isManagedStderr(stderr: MCPServerParams['stderr']): boolean {
+  return stderr === undefined || stderr === 'pipe' || stderr === 'overlapped';
+}

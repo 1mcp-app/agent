@@ -5,7 +5,6 @@ import { MCP_SERVER_CAPABILITIES, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@s
 import { ConfigChangeHandler } from '@src/core/configChangeHandler.js';
 import { getGlobalContextManager } from '@src/core/context/globalContextManager.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
-import { AuthProviderTransport } from '@src/core/types/client.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import type { ContextData } from '@src/types/context.js';
 
@@ -14,15 +13,25 @@ import { InternalCapabilitiesProvider } from './core/capabilities/internalCapabi
 import { LazyLoadingOrchestrator } from './core/capabilities/lazyLoadingOrchestrator.js';
 import { ClientManager } from './core/client/clientManager.js';
 import { InstructionAggregator } from './core/instructions/instructionAggregator.js';
-import {
-  DEFAULT_BACKEND_LOADING_POLICY,
-  type BackendLoadingPolicy,
-} from './core/loading/backendLoadingPolicy.js';
+import { type BackendLoadingPolicy, DEFAULT_BACKEND_LOADING_POLICY } from './core/loading/backendLoadingPolicy.js';
 import { McpLoadingManager } from './core/loading/mcpLoadingManager.js';
 import { ServerManager } from './core/server/serverManager.js';
 import { PresetManager } from './domains/preset/manager/presetManager.js';
 import { PresetNotificationService } from './domains/preset/services/presetNotificationService.js';
+import { toJsonValue, type JsonObject } from './sdk/contracts/index.js';
 import { createTransports } from './transport/transportFactory.js';
+
+type AuthProviderTransport = ReturnType<typeof createTransports>[string];
+
+function toJsonObject(value: unknown, label: string): JsonObject {
+  const normalized = toJsonValue(value);
+  if (normalized === null || Array.isArray(normalized) || typeof normalized !== 'object') {
+    throw new TypeError(`${label} must be a JSON object`);
+  }
+  return normalized;
+}
+
+const SERVER_CAPABILITIES_RECORD = toJsonObject(MCP_SERVER_CAPABILITIES, 'Server capabilities');
 
 /**
  * Result of server setup including both sync and async components
@@ -133,7 +142,7 @@ async function setupServerAsync(
   // Create server manager with empty clients initially
   const serverManager = ServerManager.getOrCreateInstance(
     { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
-    { capabilities: MCP_SERVER_CAPABILITIES },
+    { capabilities: SERVER_CAPABILITIES_RECORD },
     clients,
     transports,
   );
@@ -218,7 +227,7 @@ async function setupServerSync(
   // Create server manager with connected clients
   const serverManager = ServerManager.getOrCreateInstance(
     { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
-    { capabilities: MCP_SERVER_CAPABILITIES },
+    { capabilities: SERVER_CAPABILITIES_RECORD },
     clients,
     transports,
   );

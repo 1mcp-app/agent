@@ -37,6 +37,13 @@ export const ACCEPTED_CONTRACT_TRACEABILITY_INVENTORY = [
     testNeedle: "it('accepts exactly one assignment for every era cell and variant'",
     evidenceArtifactIds: ['conformance-baseline', 'conformance-integrity'],
   },
+  {
+    requirementId: '1mcp.contract.sdk-boundary-proof',
+    testIds: ['boundary.sdk-contract-proof'],
+    testPath: 'test/conformance/boundary/sdkBoundaryProof.test.ts',
+    testNeedle: "it('generates a digest-checked proof with actual v1 and v2 SDK objects'",
+    evidenceArtifactIds: ['conformance-baseline', 'boundary/sdk-boundary-proof.json'],
+  },
 ] as const;
 
 interface AcceptedContractTrace {

@@ -1,4 +1,4 @@
-import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
+import { ErrorCode } from '@src/sdk/contracts/index.js';
 
 export class MCPError extends Error {
   code: number;

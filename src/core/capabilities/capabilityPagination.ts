@@ -1,11 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 
-import {
-  ErrorCode,
-  PromptListChangedNotificationSchema,
-  ResourceListChangedNotificationSchema,
-  ToolListChangedNotificationSchema,
-} from '@modelcontextprotocol/sdk/types.js';
+import { ErrorCode } from '@src/sdk/contracts/index.js';
 
 import type { OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import { MCPError } from '@src/utils/core/errorTypes.js';
@@ -55,6 +50,7 @@ interface RuntimePaginationState {
 interface CapabilityNotificationState {
   connections: Set<OutboundConnections>;
   forwarders: Map<object, (notification: { method: string; params?: Record<string, unknown> }) => Promise<void>>;
+  pumping: boolean;
 }
 
 const runtimeStates = new WeakMap<OutboundConnections, RuntimePaginationState>();
@@ -98,10 +94,10 @@ export function registerCapabilityPaginationNotifications(
   forwardingKey?: object,
   forward?: (notification: { method: string; params?: Record<string, unknown> }) => Promise<void>,
 ): void {
-  let state = notificationStates.get(connection.client);
+  let state = notificationStates.get(connection.adapter);
   if (!state) {
-    state = { connections: new Set(), forwarders: new Map() };
-    notificationStates.set(connection.client, state);
+    state = { connections: new Set(), forwarders: new Map(), pumping: false };
+    notificationStates.set(connection.adapter, state);
   }
   if (!state.connections.has(connections)) {
     state.connections.add(connections);
@@ -111,40 +107,49 @@ export function registerCapabilityPaginationNotifications(
   }
   if (forwardingKey && forward) state.forwarders.set(forwardingKey, forward);
 
-  const setNotificationHandler = connection.client.setNotificationHandler?.bind(connection.client);
-  if (!setNotificationHandler) return;
-  const forwardNotification = async (notification: {
-    method: string;
-    params?: Record<string, unknown>;
-  }): Promise<void> => {
-    await Promise.all(Array.from(state!.forwarders.values(), (handler) => handler(notification)));
-  };
-  setNotificationHandler(ToolListChangedNotificationSchema, async (notification) => {
-    clearConfiguredToolSnapshot(connection);
-    for (const registeredConnections of state!.connections) {
-      advanceCapabilityPaginationGeneration(registeredConnections, 'tools');
+  if (!state.pumping) {
+    state.pumping = true;
+    void pumpCapabilityNotifications(connection, state);
+  }
+}
+
+async function pumpCapabilityNotifications(
+  connection: OutboundConnection,
+  state: CapabilityNotificationState,
+): Promise<void> {
+  while (true) {
+    const event = await connection.adapter.nextEvent();
+    if (event.type === 'closed') return;
+    if (event.type !== 'notification') continue;
+
+    if (event.notification.method === 'notifications/tools/list_changed') {
+      clearConfiguredToolSnapshot(connection);
+      for (const connections of state.connections) advanceCapabilityPaginationGeneration(connections, 'tools');
+    } else if (event.notification.method === 'notifications/resources/list_changed') {
+      for (const connections of state.connections) {
+        advanceCapabilityPaginationGeneration(connections, 'resources');
+        advanceCapabilityPaginationGeneration(connections, 'resourceTemplates');
+      }
+    } else if (event.notification.method === 'notifications/prompts/list_changed') {
+      for (const connections of state.connections) advanceCapabilityPaginationGeneration(connections, 'prompts');
+    } else {
+      continue;
     }
-    await forwardNotification(notification);
-  });
-  setNotificationHandler(ResourceListChangedNotificationSchema, async (notification) => {
-    for (const registeredConnections of state!.connections) {
-      advanceCapabilityPaginationGeneration(registeredConnections, 'resources');
-      advanceCapabilityPaginationGeneration(registeredConnections, 'resourceTemplates');
-    }
-    await forwardNotification(notification);
-  });
-  setNotificationHandler(PromptListChangedNotificationSchema, async (notification) => {
-    for (const registeredConnections of state!.connections) {
-      advanceCapabilityPaginationGeneration(registeredConnections, 'prompts');
-    }
-    await forwardNotification(notification);
-  });
+
+    const notification = {
+      method: event.notification.method,
+      ...(event.notification.params && typeof event.notification.params === 'object' && !Array.isArray(event.notification.params)
+        ? { params: event.notification.params as Record<string, unknown> }
+        : {}),
+    };
+    await Promise.all(Array.from(state.forwarders.values(), (handler) => handler(notification)));
+  }
 }
 
 /** Remove one inbound notification forwarder from every connected provider. */
 export function unregisterCapabilityPaginationForwarder(connections: OutboundConnections, forwardingKey: object): void {
   for (const connection of connections.values()) {
-    notificationStates.get(connection.client)?.forwarders.delete(forwardingKey);
+    notificationStates.get(connection.adapter)?.forwarders.delete(forwardingKey);
   }
 }
 
@@ -184,12 +189,10 @@ function observeGeneration(connections: OutboundConnections, kind: CapabilityKin
         id,
         name: connection.name,
         status: connection.status,
-        clientId: getClientId(connection.client),
+        clientId: getClientId(connection.adapter),
         supervision: connection.supervision,
         capabilities: connection.capabilities?.[kind === 'resourceTemplates' ? 'resources' : kind],
-        tags: Array.isArray((connection.transport as { tags?: unknown }).tags)
-          ? (connection.transport as { tags: unknown[] }).tags
-          : [],
+        tags: connection.tags,
       }))
       .sort((left, right) => compareCodePoints(left.id, right.id)),
     extraSignature,

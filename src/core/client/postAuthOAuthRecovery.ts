@@ -1,23 +1,17 @@
-import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-
 import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { ClientStatus, type OutboundConnection } from '@src/core/types/index.js';
+import { OneMcpProtocolError } from '@src/sdk/contracts/index.js';
 import logger from '@src/logger/logger.js';
-
-import { TransportRecreator } from './transportRecreator.js';
 
 const POST_AUTH_UNAUTHORIZED_MESSAGE = 'Server returned 401 after successful authentication';
 const recoveries = new WeakMap<OutboundConnection, Promise<void>>();
-const transportRecreator = new TransportRecreator();
 
-export function isPostAuthUnauthorized(error: unknown): error is StreamableHTTPError {
-  return (
-    error instanceof StreamableHTTPError && error.code === 401 && error.message.includes(POST_AUTH_UNAUTHORIZED_MESSAGE)
-  );
+export function isPostAuthUnauthorized(error: unknown): error is OneMcpProtocolError {
+  return error instanceof OneMcpProtocolError && error.code === 401 && error.message.includes(POST_AUTH_UNAUTHORIZED_MESSAGE);
 }
 
-function publishAwaitingOAuth(serverName: string, error: StreamableHTTPError): void {
+function publishAwaitingOAuth(serverName: string, error: OneMcpProtocolError): void {
   try {
     const tracker = McpLoadingManager.current.getStateTracker();
     tracker.registerServer(serverName);
@@ -50,23 +44,12 @@ export async function recoverPostAuthUnauthorized(
     connection.status = ClientStatus.AwaitingOAuth;
     connection.authorizationUrl = undefined;
     connection.oauthStartTime = undefined;
-    connection.lastError = error;
+    connection.lastError = { name: error.name, message: error.message };
     publishAwaitingOAuth(serverName, error);
 
-    try {
-      await connection.transport.oauthProvider?.invalidateCredentials('tokens');
-    } catch (invalidationError) {
-      logger.warn(`Failed to invalidate OAuth credentials for ${serverName}`, {
-        error: String(invalidationError),
-      });
-    }
-
-    connection.client.onclose = undefined;
-    await connection.client.close().catch((closeError) => {
+    await connection.adapter.close().catch((closeError) => {
       logger.warn(`Failed to close unauthorized client ${serverName}`, { error: String(closeError) });
     });
-
-    connection.transport = transportRecreator.recreateHttpTransport(connection.transport, serverName);
 
     logger.warn(`OAuth reauthorization required for ${serverName} after authenticated request returned 401`);
   })();

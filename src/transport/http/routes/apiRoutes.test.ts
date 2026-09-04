@@ -1,5 +1,7 @@
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
 import { type ServerAdapter, ServerStatus, ServerType } from '@src/core/server/adapters/types.js';
-import { ClientStatus, type OutboundConnections } from '@src/core/types/index.js';
+import type { OutboundConnections } from '@src/core/types/index.js';
 
 import type { Request, RequestHandler, Response } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -88,6 +90,13 @@ describe('apiRoutes inspect', () => {
   let inspectHandler: RequestHandler;
   let outboundConnections: OutboundConnections;
 
+  const connection = (name: string, tags: string[], tools: unknown[] = []) =>
+    createMockOutboundConnection({
+      name,
+      tags,
+      adapter: { request: vi.fn().mockResolvedValue({ tools }) },
+    });
+
   const makeAdapter = (name: string, tags: string[], status = ServerStatus.Connected): ServerAdapter => ({
     name,
     type: ServerType.External,
@@ -132,53 +141,28 @@ describe('apiRoutes inspect', () => {
     outboundConnections = new Map([
       [
         'context7',
-        {
-          name: 'context7',
-          transport: { tags: ['context7'] } as never,
-          client: {
-            listTools: vi.fn().mockResolvedValue({
-              tools: [
-                {
-                  name: 'context7_1mcp_query-docs',
-                  description: 'Query docs',
-                  inputSchema: {
-                    type: 'object',
-                    properties: {
-                      libraryId: { type: 'string' },
-                      query: { type: 'string' },
-                    },
-                    required: ['libraryId', 'query'],
-                  },
+        connection(
+          'context7',
+          ['context7'],
+          [
+            {
+              name: 'context7_1mcp_query-docs',
+              description: 'Query docs',
+              inputSchema: {
+                type: 'object',
+                properties: {
+                  libraryId: { type: 'string' },
+                  query: { type: 'string' },
                 },
-              ],
-            }),
-          } as never,
-          status: ClientStatus.Connected,
-        },
+                required: ['libraryId', 'query'],
+              },
+            },
+          ],
+        ),
       ],
-      [
-        'filesystem',
-        {
-          name: 'filesystem',
-          transport: { tags: ['filesystem'] } as never,
-          client: {
-            listTools: vi.fn().mockResolvedValue({ tools: [] }),
-          } as never,
-          status: ClientStatus.Connected,
-        },
-      ],
-      [
-        'hidden',
-        {
-          name: 'hidden',
-          transport: { tags: ['hidden'] } as never,
-          client: {
-            listTools: vi.fn().mockResolvedValue({ tools: [] }),
-          } as never,
-          status: ClientStatus.Connected,
-        },
-      ],
-    ]) as unknown as OutboundConnections;
+      ['filesystem', connection('filesystem', ['filesystem'])],
+      ['hidden', connection('hidden', ['hidden'])],
+    ]);
 
     const adapters = new Map<string, ServerAdapter>([
       ['context7', makeAdapter('context7', ['context7'])],
@@ -279,19 +263,17 @@ describe('apiRoutes inspect', () => {
       },
       errors: [],
     });
-    outboundConnections.set('serena:template-hash', {
-      name: 'serena',
-      transport: { tags: ['serena'] } as never,
-      client: {
-        listTools: vi.fn().mockResolvedValue({
-          tools: [
-            { name: 'find_symbol', description: 'Find symbol', inputSchema: { type: 'object' } },
-            { name: 'list_memories', description: 'List memories', inputSchema: { type: 'object' } },
-          ],
-        }),
-      } as never,
-      status: ClientStatus.Connected,
-    } as never);
+    outboundConnections.set(
+      'serena:template-hash',
+      connection(
+        'serena',
+        ['serena'],
+        [
+          { name: 'find_symbol', description: 'Find symbol', inputSchema: { type: 'object' } },
+          { name: 'list_memories', description: 'List memories', inputSchema: { type: 'object' } },
+        ],
+      ),
+    );
 
     const req = { query: { target: 'serena' } };
     const res = createMockResponse();
@@ -392,11 +374,11 @@ describe('apiRoutes inspect', () => {
 
   it('does not expose tools from filtered-out servers via inspect fallback paths', async () => {
     const hiddenConnection = outboundConnections.get('hidden');
-    if (!hiddenConnection?.client) {
+    if (!hiddenConnection) {
       throw new Error('Hidden connection not found');
     }
 
-    hiddenConnection.client.listTools = vi.fn().mockResolvedValue({
+    vi.mocked(hiddenConnection.adapter.request).mockResolvedValue({
       tools: [
         {
           name: 'hidden_1mcp_secret',
@@ -442,23 +424,22 @@ describe('apiRoutes inspect', () => {
 
   it('preserves pagination metadata when inspecting a server through direct listTools', async () => {
     const pagedConnections = new Map(outboundConnections) as OutboundConnections;
-    pagedConnections.set('context7', {
-      ...pagedConnections.get('context7')!,
-      client: {
-        listTools: vi.fn().mockResolvedValue({
-          tools: [
-            {
-              name: 'query-docs',
-              description: 'Query docs',
-              inputSchema: { type: 'object', properties: {} },
-            },
-          ],
-          totalCount: 3,
-          hasMore: true,
-          nextCursor: 'cursor-2',
-        }),
-      } as never,
+    const pagedRequest = vi.fn().mockResolvedValue({
+      tools: [
+        {
+          name: 'query-docs',
+          description: 'Query docs',
+          inputSchema: { type: 'object', properties: {} },
+        },
+      ],
+      totalCount: 3,
+      hasMore: true,
+      nextCursor: 'cursor-2',
     });
+    pagedConnections.set(
+      'context7',
+      createMockOutboundConnection({ ...pagedConnections.get('context7')!, adapter: { request: pagedRequest } }),
+    );
 
     const serverRegistry = {
       getServerNames: vi.fn(() => ['context7', 'filesystem', 'hidden']),
@@ -501,10 +482,9 @@ describe('apiRoutes inspect', () => {
       hasMore: true,
       nextCursor: 'cursor-2',
     });
-    expect(pagedConnections.get('context7')?.client?.listTools as ReturnType<typeof vi.fn>).toHaveBeenCalledWith({
-      limit: 1,
-      cursor: 'cursor-1',
-    });
+    expect(pagedRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ method: 'tools/list', params: { limit: 1, cursor: 'cursor-1' } }),
+    );
   });
 
   it('includes per-server instructions in inspect listings when the aggregator has them', async () => {

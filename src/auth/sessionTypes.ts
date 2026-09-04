@@ -1,5 +1,5 @@
 // Shared session types for server and client session managers
-import { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
+import type { OAuthClientInformationFull } from '@src/sdk/contracts/index.js';
 
 import type { TemplateContextProof } from '@src/core/context/templateContextTrust.js';
 import { ContextNamespace, EnvironmentContext, UserContext } from '@src/types/context.js';

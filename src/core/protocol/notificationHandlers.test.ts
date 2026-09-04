@@ -1,4 +1,9 @@
 import {
+  createMockLegacyInboundConnection,
+  createMockLegacyOutboundConnection,
+} from '@test/unit-utils/MockFactories.js';
+
+import {
   CancelledNotificationSchema,
   InitializedNotificationSchema,
   LoggingMessageNotificationSchema,
@@ -8,7 +13,6 @@ import {
 import {
   ClientStatus,
   type InboundConnection,
-  type OutboundConnection,
   type OutboundConnections,
   ServerStatus,
 } from '@src/core/types/index.js';
@@ -48,30 +52,32 @@ describe('Notification Handlers', () => {
     };
 
     // Create mock server info
-    mockInboundConn = {
+    mockInboundConn = createMockLegacyInboundConnection({
       server: mockServer,
       status: ServerStatus.Connected,
       transport: {
-        timeout: 5000,
         start: vi.fn(),
         send: vi.fn(),
         close: vi.fn(),
       },
-    } as InboundConnection;
+    });
 
     // Create mock clients collection
     mockOutboundConns = new Map();
-    mockOutboundConns.set('test-client', {
-      name: 'test-client',
-      status: ClientStatus.Connected,
-      client: mockClient,
-      transport: {
-        timeout: 5000,
-        start: vi.fn(),
-        send: vi.fn(),
-        close: vi.fn(),
-      },
-    } as OutboundConnection);
+    mockOutboundConns.set(
+      'test-client',
+      createMockLegacyOutboundConnection({
+        name: 'test-client',
+        status: ClientStatus.Connected,
+        client: mockClient,
+        transport: {
+          timeout: 5000,
+          start: vi.fn(),
+          send: vi.fn(),
+          close: vi.fn(),
+        },
+      }),
+    );
   });
 
   describe('setupClientToServerNotifications', () => {

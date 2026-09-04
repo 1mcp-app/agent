@@ -1,15 +1,15 @@
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { toProtocolTool, type Tool } from '@src/sdk/contracts/index.js';
 
 import { describe, expect, it } from 'vitest';
 
 import { formatToolCallOutput, parseToolReference, resolveToolArguments, RunCommandInputError } from './runUtils.js';
 
 function createTool(inputSchema: Record<string, unknown>): Tool {
-  return {
+  return toProtocolTool({
     name: 'summarizer_1mcp_summarize',
     description: 'Summarize text',
-    inputSchema: inputSchema as Tool['inputSchema'],
-  };
+    inputSchema,
+  });
 }
 
 describe('parseToolReference', () => {

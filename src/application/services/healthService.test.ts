@@ -105,16 +105,16 @@ describe('HealthService', () => {
           'server1',
           {
             status: ClientStatus.Connected,
-            lastConnected: new Date(),
-            transport: { tags: ['test'] },
+            lastConnected: new Date().toISOString(),
+            tags: ['test'],
           },
         ],
         [
           'server2',
           {
             status: ClientStatus.Connected,
-            lastConnected: new Date(),
-            transport: { tags: ['network'] },
+            lastConnected: new Date().toISOString(),
+            tags: ['network'],
           },
         ],
       ]);
@@ -150,24 +150,24 @@ describe('HealthService', () => {
           'server1',
           {
             status: ClientStatus.Connected,
-            lastConnected: new Date(),
-            transport: { tags: ['test'] },
+            lastConnected: new Date().toISOString(),
+            tags: ['test'],
           },
         ],
         [
           'server2',
           {
             status: ClientStatus.Error,
-            lastError: new Error('Connection failed'),
-            transport: { tags: ['network'] },
+            lastError: { name: 'Error', message: 'Connection failed' },
+            tags: ['network'],
           },
         ],
         [
           'server3',
           {
             status: ClientStatus.Connected,
-            lastConnected: new Date(),
-            transport: { tags: ['filesystem'] },
+            lastConnected: new Date().toISOString(),
+            tags: ['filesystem'],
           },
         ],
       ]);
@@ -203,23 +203,23 @@ describe('HealthService', () => {
           'server1',
           {
             status: ClientStatus.Error,
-            lastError: new Error('Connection failed'),
-            transport: { tags: ['test'] },
+            lastError: { name: 'Error', message: 'Connection failed' },
+            tags: ['test'],
           },
         ],
         [
           'server2',
           {
             status: ClientStatus.Disconnected,
-            transport: { tags: ['network'] },
+            tags: ['network'],
           },
         ],
         [
           'server3',
           {
             status: ClientStatus.Connected,
-            lastConnected: new Date(),
-            transport: { tags: ['filesystem'] },
+            lastConnected: new Date().toISOString(),
+            tags: ['filesystem'],
           },
         ],
       ]);
@@ -332,9 +332,9 @@ describe('HealthService', () => {
           'server1',
           {
             status: ClientStatus.Error,
-            lastError: new Error('Authentication failed'),
-            lastConnected: new Date('2025-01-01'),
-            transport: { tags: ['test'] },
+            lastError: { name: 'Error', message: 'Authentication failed' },
+            lastConnected: new Date('2025-01-01').toISOString(),
+            tags: ['test'],
           },
         ],
       ]);
@@ -352,7 +352,7 @@ describe('HealthService', () => {
         name: 'server1',
         status: ClientStatus.Error,
         healthy: false,
-        lastConnected: new Date('2025-01-01'),
+        lastConnected: new Date('2025-01-01').toISOString(),
         lastError: 'Authentication failed',
         tags: ['test'],
       });
@@ -474,9 +474,12 @@ describe('HealthService', () => {
           'test-server',
           {
             status: ClientStatus.Connected,
-            lastConnected: new Date(),
-            lastError: new Error('Connection failed with credentials user:password@localhost:5432/database'),
-            transport: { tags: ['test'] },
+            lastConnected: new Date().toISOString(),
+            lastError: {
+              name: 'Error',
+              message: 'Connection failed with credentials user:password@localhost:5432/database',
+            },
+            tags: ['test'],
           },
         ],
       ]);
@@ -558,8 +561,8 @@ describe('HealthService', () => {
           'web-server',
           {
             status: ClientStatus.Error,
-            lastError: new Error('Failed to connect to https://api.example.com/v1/endpoint'),
-            transport: { tags: ['web'] },
+            lastError: { name: 'Error', message: 'Failed to connect to https://api.example.com/v1/endpoint' },
+            tags: ['web'],
           },
         ],
       ]);
@@ -583,8 +586,8 @@ describe('HealthService', () => {
           'file-server',
           {
             status: ClientStatus.Error,
-            lastError: new Error('Cannot read config file /etc/app/config.json'),
-            transport: { tags: ['file'] },
+            lastError: { name: 'Error', message: 'Cannot read config file /etc/app/config.json' },
+            tags: ['file'],
           },
         ],
       ]);

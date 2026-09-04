@@ -1,3 +1,5 @@
+import { createMockInboundConnection } from '@test/unit-utils/MockFactories.js';
+
 import logger from '@src/logger/logger.js';
 
 import { describe, expect, it, vi } from 'vitest';
@@ -29,8 +31,8 @@ describe('ServerManager backend supervision notifications', () => {
     manager.connectionManager = {
       getInboundConnections: () =>
         new Map([
-          ['disconnected', { server: { transport: {}, notification: failingNotification } }],
-          ['healthy', { server: { transport: {}, notification: healthyNotification } }],
+          ['disconnected', createMockInboundConnection({ adapter: { notify: failingNotification } })],
+          ['healthy', createMockInboundConnection({ adapter: { notify: healthyNotification } })],
         ]),
     };
 

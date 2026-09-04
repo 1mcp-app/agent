@@ -1,10 +1,4 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
-
-import { SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
-import type { BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
-
-import { EnhancedTransport } from './transport.js';
+import type { JsonObject, LegacySdkAdapter } from '@src/sdk/contracts/index.js';
 
 /**
  * Enum representing possible client connection states
@@ -24,11 +18,28 @@ export enum ClientStatus {
   CrashLoop = 'crash-loop',
 }
 
-/**
- * Transport that includes an OAuth provider
- */
-export interface AuthProviderTransport extends EnhancedTransport {
-  oauthProvider?: SDKOAuthClientProvider;
+/** Capability names exposed by downstream servers. */
+export type ServerCapability = 'completions' | 'experimental' | 'logging' | 'prompts' | 'resources' | 'tools';
+
+export interface OutboundErrorSnapshot {
+  readonly name: string;
+  readonly message: string;
+}
+
+export interface OutboundSupervisionSnapshot {
+  readonly backendId: string;
+  readonly state: 'connected' | 'restarting' | 'crash-loop' | 'stopped';
+  readonly attempt: number;
+  readonly limit: number | null;
+  readonly nextRetryAt: string | null;
+  readonly lastExit: {
+    readonly code: number | null;
+    readonly signal: string | null;
+    readonly pid: number | null;
+    readonly at: string;
+  } | null;
+  readonly lastError: OutboundErrorSnapshot | null;
+  readonly currentPid: number | null;
 }
 
 /**
@@ -36,20 +47,22 @@ export interface AuthProviderTransport extends EnhancedTransport {
  */
 export interface OutboundConnection {
   readonly name: string;
-  transport: AuthProviderTransport;
-  client: Client;
-  lastError?: Error;
-  lastConnected?: Date;
+  readonly adapter: LegacySdkAdapter;
+  tags: string[];
+  requestTimeoutMs?: number;
+  lastError?: OutboundErrorSnapshot;
+  lastConnected?: string;
   status: ClientStatus;
-  capabilities?: ServerCapabilities;
+  capabilities?: JsonObject;
   /** Instructions provided by the server during initialization */
   instructions?: string;
   /** OAuth authorization URL for user to complete authentication */
   authorizationUrl?: string;
   /** When OAuth authorization was initiated */
-  oauthStartTime?: Date;
+  oauthStartTime?: string;
+  requiresOAuth: boolean;
   /** Runtime-owned stdio supervision facts, when enabled for this backend. */
-  supervision?: BackendSupervisionSnapshot;
+  supervision?: OutboundSupervisionSnapshot;
 }
 
 /**

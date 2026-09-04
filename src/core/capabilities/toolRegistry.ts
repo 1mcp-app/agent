@@ -1,4 +1,4 @@
-import { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from '@src/sdk/contracts/index.js';
 
 import logger, { debugIf, errorIf } from '@src/logger/logger.js';
 

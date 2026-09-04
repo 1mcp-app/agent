@@ -4,7 +4,7 @@
  * This module contains factory functions for creating installation-related internal MCP tools
  * including install, uninstall, and update operations.
  */
-import { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from '@src/sdk/contracts/index.js';
 
 import {
   McpInstallOutputSchema,

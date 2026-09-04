@@ -55,14 +55,14 @@ describe('AsyncLoadingOrchestrator', () => {
     };
 
     mockInboundConnection = {
-      server: {
-        notification: vi.fn(),
-        transport: {
-          start: vi.fn(),
-          send: vi.fn(),
-          close: vi.fn(),
-        },
-      } as any,
+      connectionId: 'test-inbound' as InboundConnection['connectionId'],
+      adapter: {
+        connectionId: 'test-inbound' as InboundConnection['connectionId'],
+        state: 'running',
+        start: vi.fn(),
+        notify: vi.fn(),
+        close: vi.fn(),
+      },
       status: ServerStatus.Connected,
     };
 

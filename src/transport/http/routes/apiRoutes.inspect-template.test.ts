@@ -1,5 +1,7 @@
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
 import { type ServerAdapter, ServerStatus, ServerType } from '@src/core/server/adapters/types.js';
-import { ClientStatus, type OutboundConnections } from '@src/core/types/index.js';
+import type { OutboundConnections } from '@src/core/types/index.js';
 
 import type { Request, RequestHandler, Response } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -90,6 +92,13 @@ describe('apiRoutes inspect', () => {
   let inspectHandler: RequestHandler;
   let outboundConnections: OutboundConnections;
 
+  const connection = (name: string, tags: string[], tools: unknown[] = []) =>
+    createMockOutboundConnection({
+      name,
+      tags,
+      adapter: { request: vi.fn().mockResolvedValue({ tools }) },
+    });
+
   const makeAdapter = (name: string, tags: string[], status = ServerStatus.Connected): ServerAdapter => ({
     name,
     type: ServerType.External,
@@ -136,53 +145,28 @@ describe('apiRoutes inspect', () => {
     outboundConnections = new Map([
       [
         'context7',
-        {
-          name: 'context7',
-          transport: { tags: ['context7'] } as never,
-          client: {
-            listTools: vi.fn().mockResolvedValue({
-              tools: [
-                {
-                  name: 'context7_1mcp_query-docs',
-                  description: 'Query docs',
-                  inputSchema: {
-                    type: 'object',
-                    properties: {
-                      libraryId: { type: 'string' },
-                      query: { type: 'string' },
-                    },
-                    required: ['libraryId', 'query'],
-                  },
+        connection(
+          'context7',
+          ['context7'],
+          [
+            {
+              name: 'context7_1mcp_query-docs',
+              description: 'Query docs',
+              inputSchema: {
+                type: 'object',
+                properties: {
+                  libraryId: { type: 'string' },
+                  query: { type: 'string' },
                 },
-              ],
-            }),
-          } as never,
-          status: ClientStatus.Connected,
-        },
+                required: ['libraryId', 'query'],
+              },
+            },
+          ],
+        ),
       ],
-      [
-        'filesystem',
-        {
-          name: 'filesystem',
-          transport: { tags: ['filesystem'] } as never,
-          client: {
-            listTools: vi.fn().mockResolvedValue({ tools: [] }),
-          } as never,
-          status: ClientStatus.Connected,
-        },
-      ],
-      [
-        'hidden',
-        {
-          name: 'hidden',
-          transport: { tags: ['hidden'] } as never,
-          client: {
-            listTools: vi.fn().mockResolvedValue({ tools: [] }),
-          } as never,
-          status: ClientStatus.Connected,
-        },
-      ],
-    ]) as unknown as OutboundConnections;
+      ['filesystem', connection('filesystem', ['filesystem'])],
+      ['hidden', connection('hidden', ['hidden'])],
+    ]);
 
     const adapters = new Map<string, ServerAdapter>([
       ['context7', makeAdapter('context7', ['context7'])],
@@ -278,30 +262,25 @@ describe('apiRoutes inspect', () => {
       ...outboundConnections.entries(),
       [
         'serena:template-hash',
-        {
-          name: 'serena',
-          transport: { tags: ['serena'] } as never,
-          client: {
-            listTools: vi.fn().mockResolvedValue({
-              tools: [
-                {
-                  name: 'find_symbol',
-                  description: 'Find symbol',
-                  inputSchema: {
-                    type: 'object',
-                    properties: {
-                      name_path_pattern: { type: 'string' },
-                    },
-                    required: ['name_path_pattern'],
-                  },
+        connection(
+          'serena',
+          ['serena'],
+          [
+            {
+              name: 'find_symbol',
+              description: 'Find symbol',
+              inputSchema: {
+                type: 'object',
+                properties: {
+                  name_path_pattern: { type: 'string' },
                 },
-              ],
-            }),
-          } as never,
-          status: ClientStatus.Connected,
-        },
+                required: ['name_path_pattern'],
+              },
+            },
+          ],
+        ),
       ],
-    ]) as unknown as OutboundConnections;
+    ]);
 
     const createTemplateBasedServers = vi.fn();
     const getRenderedHashForSession = vi.fn(() => undefined);

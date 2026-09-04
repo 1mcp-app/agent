@@ -4,7 +4,7 @@
  * This module contains factory functions for creating management-related internal MCP tools
  * including enable/disable, list, status, edit, and reload operations.
  */
-import { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from '@src/sdk/contracts/index.js';
 
 import {
   McpDisableOutputSchema,

@@ -1,5 +1,3 @@
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { CapabilityCatalog } from '@src/core/capabilities/capabilityCatalog.js';
 import {
@@ -9,7 +7,7 @@ import {
 } from '@src/core/capabilities/capabilityVisibility.js';
 import { ToolInvokeOutput, ToolListOutput } from '@src/core/capabilities/schemas/metaToolSchemas.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
-import { executeWithPostAuthOAuthRecovery } from '@src/core/client/postAuthOAuthRecovery.js';
+import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { type ServerAdapter, ServerType } from '@src/core/server/adapters/types.js';
 import { createConnectionResolver, type TemplateHashProvider } from '@src/core/server/connectionResolver.js';
@@ -27,6 +25,8 @@ import {
   parseTarget,
   resolveConnectionByServerName,
 } from './inspectRoutes.js';
+
+type Tool = Parameters<typeof ToolRegistry.fromToolsWithServer>[0][number]['tool'];
 
 function getServerConfigs() {
   return getConfiguredServerTargets();
@@ -99,11 +99,10 @@ async function createFallbackCapabilityCatalog(
     try {
       const logicalServerName =
         conn.name || (connectionKey.includes(':') ? connectionKey.split(':')[0] : connectionKey);
-      const result = await conn.client.listTools();
-      const transportTags = (conn.transport as { tags?: unknown } | undefined)?.tags;
-      const tags = Array.isArray(transportTags)
-        ? transportTags.filter((tag): tag is string => typeof tag === 'string')
-        : [];
+      const result = await requestLegacyAdapter<{ tools: Tool[] }>(conn.adapter, 'tools/list', undefined, {
+        timeoutMs: conn.requestTimeoutMs,
+      });
+      const tags = conn.tags;
       registryTools.push(
         ...(result.tools ?? []).map((tool) => ({ tool, server: logicalServerName, connectionKey, tags })),
       );
@@ -286,17 +285,15 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           (allowGenericFallback ? resolveConnectionByServerName(filteredConnections, target.serverName) : undefined) ??
           (allowGenericFallback ? serverManager.getClient(target.serverName) : undefined)) as
           OutboundConnection | undefined;
-        if (!connection || !connection.client) {
+        if (!connection || connection.status !== ClientStatus.Connected) {
           res.status(503).json({ error: `Server not connected: ${target.serverName}` });
           return;
         }
         try {
-          const upstreamResult = await executeWithPostAuthOAuthRecovery(target.serverName, connection, () =>
-            connection.client.callTool({
-              name: target.toolName,
-              arguments: toolArgs,
-            }),
-          );
+          const upstreamResult = await requestLegacyAdapter(connection.adapter, 'tools/call', {
+            name: target.toolName,
+            arguments: toolArgs as never,
+          });
           res.json({ result: upstreamResult, server: target.serverName, tool: target.toolName });
         } catch (error) {
           logger.error('Direct tool invocation error:', error);

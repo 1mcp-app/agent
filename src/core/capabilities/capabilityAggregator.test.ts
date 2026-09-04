@@ -1,10 +1,9 @@
-import { createMockClient, createMockOutboundConnection, createMockTransport } from '@test/unit-utils/MockFactories.js';
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
-import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport, StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { Prompt, Resource, Tool } from '@modelcontextprotocol/sdk/types.js';
 
-import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
+import { ClientStatus, type OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
+import { OneMcpProtocolError } from '@src/sdk/contracts/index.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -49,6 +48,34 @@ describe('CapabilityAggregator', () => {
   const mockResource: Resource = { uri: 'test://resource', name: 'Test Resource' };
   const mockPrompt: Prompt = { name: 'test-prompt', description: 'A test prompt' };
 
+  type CapabilityClient = {
+    listTools: () => Promise<unknown>;
+    listResources?: () => Promise<unknown>;
+    listPrompts?: () => Promise<unknown>;
+    close?: () => Promise<void>;
+    getServerCapabilities?: () => Record<string, unknown>;
+  };
+
+  const connectionFromClient = (
+    name: string,
+    client: CapabilityClient,
+    overrides: Partial<OutboundConnection> = {},
+  ): OutboundConnection =>
+    createMockOutboundConnection({
+      name,
+      capabilities: (client.getServerCapabilities?.() ?? {}) as OutboundConnection['capabilities'],
+      adapter: {
+        request: vi.fn(async ({ method }) => {
+          if (method === 'tools/list') return (await client.listTools()) as never;
+          if (method === 'resources/list') return ((await client.listResources?.()) ?? { resources: [] }) as never;
+          if (method === 'prompts/list') return ((await client.listPrompts?.()) ?? { prompts: [] }) as never;
+          return {};
+        }),
+        ...(client.close ? { close: client.close } : {}),
+      },
+      ...overrides,
+    });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockConnections = new Map();
@@ -75,35 +102,27 @@ describe('CapabilityAggregator', () => {
       const listTools = vi.fn().mockResolvedValue({ tools: [mockTool] });
       const listResources = vi.fn().mockResolvedValue({ resources: [mockResource] });
       const listPrompts = vi.fn().mockResolvedValue({ prompts: [mockPrompt] });
-      const mockClient = createMockClient({
+      const mockClient = {
         listTools,
         listResources,
         listPrompts,
         getServerCapabilities: vi.fn().mockReturnValue({ resources: true, prompts: true }),
-      }) as Client;
-      Object.defineProperty(mockClient, 'transport', { value: createMockTransport() });
+      };
 
       mockConnections.set(
         'slow-server',
-        createMockOutboundConnection({
-          name: 'slow-server',
-          client: mockClient,
-          transport: {
-            requestTimeout: 300_000,
-            timeout: 5_000,
-            start: vi.fn(),
-            send: vi.fn(),
-            close: vi.fn(),
-          },
-        }),
+        connectionFromClient('slow-server', mockClient, { requestTimeoutMs: 300_000 }),
       );
 
       await aggregator.updateCapabilities();
 
-      const requestOptions = { timeout: 300_000 };
-      expect(listTools).toHaveBeenCalledWith(undefined, requestOptions);
-      expect(listResources).toHaveBeenCalledWith(undefined, requestOptions);
-      expect(listPrompts).toHaveBeenCalledWith(undefined, requestOptions);
+      const adapterRequest = vi.mocked(mockConnections.get('slow-server')!.adapter.request);
+      expect(adapterRequest).toHaveBeenCalledTimes(3);
+      expect(adapterRequest.mock.calls.map(([request]) => [request.method, request.timeoutMs])).toEqual([
+        ['tools/list', 300_000],
+        ['resources/list', 300_000],
+        ['prompts/list', 300_000],
+      ]);
     });
 
     it('should preserve partial capabilities after a timeout and recover on a later refresh', async () => {
@@ -115,22 +134,12 @@ describe('CapabilityAggregator', () => {
         .mockResolvedValueOnce({ tools: [recoveredTool] })
         .mockRejectedValueOnce(new Error('Request timed out again'));
 
-      const createConnection = (name: string, listTools: Client['listTools']) => {
-        const client = createMockClient({
+      const createConnection = (name: string, listTools: () => Promise<unknown>) => {
+        const client = {
           listTools,
           getServerCapabilities: vi.fn().mockReturnValue({}),
-        }) as Client;
-        Object.defineProperty(client, 'transport', { value: createMockTransport() });
-        return createMockOutboundConnection({
-          name,
-          client,
-          transport: {
-            requestTimeout: 50,
-            start: vi.fn(),
-            send: vi.fn(),
-            close: vi.fn(),
-          },
-        });
+        };
+        return connectionFromClient(name, client, { requestTimeoutMs: 50 });
       };
 
       mockConnections.set('slow-server', createConnection('slow-server', slowListTools));
@@ -173,19 +182,7 @@ describe('CapabilityAggregator', () => {
         },
       } as any;
 
-      mockConnections.set('test-server', {
-        name: 'test-server',
-        client: mockClient,
-        status: ClientStatus.Connected,
-        transport: {
-          start: vi.fn(),
-          send: vi.fn(),
-          close: vi.fn(),
-          onerror: vi.fn(),
-          onclose: vi.fn(),
-        },
-        lastConnected: new Date(),
-      });
+      mockConnections.set('test-server', connectionFromClient('test-server', mockClient));
 
       const changes = await aggregator.updateCapabilities();
 
@@ -207,12 +204,7 @@ describe('CapabilityAggregator', () => {
         getServerCapabilities: vi.fn().mockReturnValue({ tools: true }),
         transport: { start: vi.fn(), send: vi.fn(), close: vi.fn() },
       } as any;
-      mockConnections.set('test-server', {
-        name: 'test-server',
-        client: mockClient,
-        status: ClientStatus.Connected,
-        transport: { start: vi.fn(), send: vi.fn(), close: vi.fn() },
-      } as any);
+      mockConnections.set('test-server', connectionFromClient('test-server', mockClient));
 
       await aggregator.updateCapabilities();
       mockGetTransportConfig.mockReturnValue({
@@ -242,19 +234,7 @@ describe('CapabilityAggregator', () => {
         },
       } as any;
 
-      mockConnections.set('failing-server', {
-        name: 'failing-server',
-        client: mockClient,
-        status: ClientStatus.Connected,
-        transport: {
-          start: vi.fn(),
-          send: vi.fn(),
-          close: vi.fn(),
-          onerror: vi.fn(),
-          onclose: vi.fn(),
-        },
-        lastConnected: new Date(),
-      });
+      mockConnections.set('failing-server', connectionFromClient('failing-server', mockClient));
 
       const changes = await aggregator.updateCapabilities();
 
@@ -266,54 +246,52 @@ describe('CapabilityAggregator', () => {
     });
 
     it('should stop capability polling after a terminal post-authentication 401', async () => {
-      const oauthProvider = {
-        invalidateCredentials: vi.fn().mockResolvedValue(undefined),
-      };
-      const transport = {
-        _url: new URL('https://example.com/mcp'),
-        oauthProvider,
-        close: vi.fn().mockResolvedValue(undefined),
-      } as any;
-      Object.setPrototypeOf(transport, StreamableHTTPClientTransport.prototype);
-
-      const unauthorized = new StreamableHTTPError(401, 'Server returned 401 after successful authentication');
+      const unauthorized = new OneMcpProtocolError(401, 'Server returned 401 after successful authentication');
       const listTools = vi
         .fn()
         .mockResolvedValueOnce({ tools: [mockTool] })
         .mockRejectedValue(unauthorized);
       const listResources = vi.fn().mockResolvedValueOnce({ resources: [] }).mockRejectedValue(unauthorized);
       const listPrompts = vi.fn().mockResolvedValueOnce({ prompts: [] }).mockRejectedValue(unauthorized);
-      const close = vi.fn().mockResolvedValue(undefined);
       const mockClient = {
         listTools,
         listResources,
         listPrompts,
-        close,
         getServerCapabilities: vi.fn().mockReturnValue({ resources: true, prompts: true }),
-        transport,
       } as any;
 
-      mockConnections.set('oauth-server', {
-        name: 'oauth-server',
-        client: mockClient,
-        status: ClientStatus.Connected,
-        transport,
-        lastConnected: new Date(),
+      const close = vi.fn().mockResolvedValue(undefined);
+      const connection = connectionFromClient('oauth-server', mockClient);
+      const adapterRequest = vi.mocked(connection.adapter.request);
+      let recovery: Promise<void> | undefined;
+      adapterRequest.mockImplementation(async (request) => {
+        try {
+          if (request.method === 'tools/list') return (await listTools()) as never;
+          if (request.method === 'resources/list') return (await listResources()) as never;
+          if (request.method === 'prompts/list') return (await listPrompts()) as never;
+          return {};
+        } catch (error) {
+          if (error === unauthorized) {
+            recovery ??= (async () => {
+              connection.status = ClientStatus.AwaitingOAuth;
+              connection.lastError = { name: unauthorized.name, message: unauthorized.message };
+              await close();
+            })();
+            await recovery;
+          }
+          throw error;
+        }
       });
+      mockConnections.set('oauth-server', connection);
 
-      const connection = mockConnections.get('oauth-server')!;
       await aggregator.updateCapabilities();
       expect(readConfiguredToolSnapshot(connection)?.map((tool) => tool.name)).toEqual(['test-tool']);
 
       const first = await aggregator.updateCapabilities();
 
-      expect(oauthProvider.invalidateCredentials).toHaveBeenCalledTimes(1);
-      expect(oauthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
       expect(close).toHaveBeenCalledTimes(1);
       expect(connection.status).toBe(ClientStatus.AwaitingOAuth);
-      expect(connection.transport).not.toBe(transport);
-      expect(connection.transport.oauthProvider).toBe(oauthProvider);
-      expect((connection.transport as any)._hasCompletedAuthFlow).toBe(false);
+      expect(connection.lastError).toEqual({ name: 'OneMcpProtocolError', message: unauthorized.message });
       expect(first.current.readyServers).not.toContain('oauth-server');
       expect(readConfiguredToolSnapshot(connection)).toBeUndefined();
       expect(readLastConfiguredToolSnapshot('oauth-server').map((tool) => tool.name)).toEqual(['test-tool']);
@@ -322,7 +300,6 @@ describe('CapabilityAggregator', () => {
       expect(listTools).toHaveBeenCalledTimes(2);
       expect(listResources).toHaveBeenCalledTimes(2);
       expect(listPrompts).toHaveBeenCalledTimes(2);
-      expect(oauthProvider.invalidateCredentials).toHaveBeenCalledTimes(1);
     });
 
     it('should deduplicate tools with same name', async () => {
@@ -360,33 +337,9 @@ describe('CapabilityAggregator', () => {
         },
       } as any;
 
-      mockConnections.set('server1', {
-        name: 'server1',
-        client: mockClient1,
-        status: ClientStatus.Connected,
-        transport: {
-          start: vi.fn(),
-          send: vi.fn(),
-          close: vi.fn(),
-          onerror: vi.fn(),
-          onclose: vi.fn(),
-        },
-        lastConnected: new Date(),
-      });
+      mockConnections.set('server1', connectionFromClient('server1', mockClient1));
 
-      mockConnections.set('server2', {
-        name: 'server2',
-        client: mockClient2,
-        status: ClientStatus.Connected,
-        transport: {
-          start: vi.fn(),
-          send: vi.fn(),
-          close: vi.fn(),
-          onerror: vi.fn(),
-          onclose: vi.fn(),
-        },
-        lastConnected: new Date(),
-      });
+      mockConnections.set('server2', connectionFromClient('server2', mockClient2));
 
       const changes = await aggregator.updateCapabilities();
 
@@ -416,19 +369,7 @@ describe('CapabilityAggregator', () => {
         },
       } as any;
 
-      mockConnections.set('template-server:rendered-hash', {
-        name: 'template-server',
-        client: mockClient,
-        status: ClientStatus.Connected,
-        transport: {
-          start: vi.fn(),
-          send: vi.fn(),
-          close: vi.fn(),
-          onerror: vi.fn(),
-          onclose: vi.fn(),
-        },
-        lastConnected: new Date(),
-      });
+      mockConnections.set('template-server:rendered-hash', connectionFromClient('template-server', mockClient));
 
       const changes = await aggregator.updateCapabilities();
 
@@ -451,19 +392,7 @@ describe('CapabilityAggregator', () => {
         },
       } as any;
 
-      mockConnections.set('test-server', {
-        name: 'test-server',
-        client: mockClient,
-        status: ClientStatus.Connected,
-        transport: {
-          start: vi.fn(),
-          send: vi.fn(),
-          close: vi.fn(),
-          onerror: vi.fn(),
-          onclose: vi.fn(),
-        },
-        lastConnected: new Date(),
-      });
+      mockConnections.set('test-server', connectionFromClient('test-server', mockClient));
 
       await aggregator.updateCapabilities();
 

@@ -1,8 +1,10 @@
-import { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
-import { AuthProviderTransport, OutboundConnections } from '@src/core/types/index.js';
+import { ServerCapabilities } from '@src/sdk/contracts/index.js';
 
-import { describe, expect, it, vi } from 'vitest';
+import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
+
+import { describe, expect, it } from 'vitest';
 
 import {
   byCapabilities,
@@ -13,57 +15,60 @@ import {
 } from './clientFiltering.js';
 
 describe('Client Filtering Utils', () => {
-  const createMockTransport = (tags?: string[]): AuthProviderTransport => ({
-    start: vi.fn(),
-    send: vi.fn(),
-    close: vi.fn(),
-    tags,
-  });
-
   const mockClients: OutboundConnections = new Map();
-  mockClients.set('client1', {
-    name: 'client1',
-    capabilities: {
-      resources: {},
-      tools: {},
-    },
-    transport: createMockTransport(['tag1', 'tag2']),
-    client: {} as any,
-    status: 'connected' as any,
-  });
-  mockClients.set('client2', {
-    name: 'client2',
-    capabilities: {
-      resources: {},
-    },
-    transport: createMockTransport(['tag1']),
-    client: {} as any,
-    status: 'connected' as any,
-  });
-  mockClients.set('client3', {
-    name: 'client3',
-    capabilities: {
-      tools: {},
-    },
-    transport: createMockTransport(['tag3']),
-    client: {} as any,
-    status: 'connected' as any,
-  });
-  mockClients.set('clientNoCapabilities', {
-    name: 'clientNoCapabilities',
-    transport: createMockTransport(['tag1']),
-    client: {} as any,
-    status: 'connected' as any,
-  });
-  mockClients.set('clientNoTags', {
-    name: 'clientNoTags',
-    capabilities: {
-      resources: {},
-    },
-    transport: createMockTransport(),
-    client: {} as any,
-    status: 'connected' as any,
-  });
+  mockClients.set(
+    'client1',
+    createMockOutboundConnection({
+      name: 'client1',
+      capabilities: {
+        resources: {},
+        tools: {},
+      },
+      tags: ['tag1', 'tag2'],
+      status: ClientStatus.Connected,
+    }),
+  );
+  mockClients.set(
+    'client2',
+    createMockOutboundConnection({
+      name: 'client2',
+      capabilities: {
+        resources: {},
+      },
+      tags: ['tag1'],
+      status: ClientStatus.Connected,
+    }),
+  );
+  mockClients.set(
+    'client3',
+    createMockOutboundConnection({
+      name: 'client3',
+      capabilities: {
+        tools: {},
+      },
+      tags: ['tag3'],
+      status: ClientStatus.Connected,
+    }),
+  );
+  mockClients.set(
+    'clientNoCapabilities',
+    createMockOutboundConnection({
+      name: 'clientNoCapabilities',
+      tags: ['tag1'],
+      status: ClientStatus.Connected,
+    }),
+  );
+  mockClients.set(
+    'clientNoTags',
+    createMockOutboundConnection({
+      name: 'clientNoTags',
+      capabilities: {
+        resources: {},
+      },
+      tags: [],
+      status: ClientStatus.Connected,
+    }),
+  );
 
   describe('filterClientsByCapabilities', () => {
     it('should filter clients by single capability', () => {
@@ -145,12 +150,13 @@ describe('Client Filtering Utils', () => {
     it('should handle undefined capabilities safely', () => {
       const filter = byCapabilities({ resources: {} });
       const testClients = new Map(mockClients);
-      testClients.set('unsafeClient', {
-        name: 'unsafeClient',
-        transport: createMockTransport(),
-        client: {} as any,
-        status: 'connected' as any,
-      });
+      testClients.set(
+        'unsafeClient',
+        createMockOutboundConnection({
+          name: 'unsafeClient',
+          status: ClientStatus.Connected,
+        }),
+      );
       const filtered = filter(testClients);
       expect(filtered.has('unsafeClient')).toBe(false);
     });
@@ -205,16 +211,18 @@ describe('Client Filtering Utils', () => {
 
     it('should handle edge case with no tools capability', () => {
       const clientsWithoutTools = new Map();
-      clientsWithoutTools.set('client1', {
-        name: 'client1',
-        capabilities: {
-          resources: {},
-          // No tools capability
-        },
-        transport: createMockTransport(['tag1']),
-        client: {} as any,
-        status: 'connected' as any,
-      });
+      clientsWithoutTools.set(
+        'client1',
+        createMockOutboundConnection({
+          name: 'client1',
+          capabilities: {
+            resources: {},
+            // No tools capability
+          },
+          tags: ['tag1'],
+          status: ClientStatus.Connected,
+        }),
+      );
 
       const filteredClients = filterClients(byCapabilities({ tools: {} }), byTags(['tag1']))(clientsWithoutTools);
 

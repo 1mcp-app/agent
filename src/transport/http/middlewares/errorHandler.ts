@@ -1,4 +1,4 @@
-import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
+import { ErrorCode } from '@src/sdk/contracts/index.js';
 
 import logger from '@src/logger/logger.js';
 

@@ -1,14 +1,10 @@
 import { EventEmitter } from 'events';
 
-import {
-  PromptListChangedNotification,
-  ResourceListChangedNotification,
-  ToolListChangedNotification,
-} from '@modelcontextprotocol/sdk/types.js';
+import type { LegacySdkNotification } from '@src/sdk/contracts/legacySdkAdapter.js';
 
 import { CapabilityChanges } from '@src/core/capabilities/capabilityAggregator.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
-import { InboundConnection, ServerStatus } from '@src/core/types/index.js';
+import { InboundConnection, InboundConnectionError, ServerStatus } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
 /**
@@ -39,7 +35,7 @@ interface PendingNotifications {
   toolsChanged: boolean;
   resourcesChanged: boolean;
   promptsChanged: boolean;
-  timestamp: Date;
+  timestampMs: number;
 }
 
 /**
@@ -47,7 +43,7 @@ interface PendingNotifications {
  */
 export interface NotificationManagerEvents {
   'notification-sent': (type: 'tools' | 'resources' | 'prompts', clientCount: number) => void;
-  'notification-failed': (type: 'tools' | 'resources' | 'prompts', error: Error) => void;
+  'notification-failed': (type: 'tools' | 'resources' | 'prompts', error: InboundConnectionError) => void;
   'batch-sent': (notifications: string[], clientCount: number) => void;
 }
 
@@ -122,7 +118,7 @@ export class NotificationManager extends EventEmitter {
         toolsChanged: false,
         resourcesChanged: false,
         promptsChanged: false,
-        timestamp: new Date(),
+        timestampMs: Date.now(),
       };
     }
 
@@ -233,29 +229,33 @@ export class NotificationManager extends EventEmitter {
    */
   private sendNotification(
     type: 'tools' | 'resources' | 'prompts',
-    notification: ToolListChangedNotification | ResourceListChangedNotification | PromptListChangedNotification,
+    notification: LegacySdkNotification,
   ): void {
     try {
       // Check if server is connected
-      if (this.inboundConn.status !== ServerStatus.Connected || !this.inboundConn.server.transport) {
+      if (this.inboundConn.status !== ServerStatus.Connected) {
         logger.warn(`Cannot send ${type} listChanged notification - server not connected`);
         return;
       }
 
-      // Send notification
-      this.inboundConn.server.notification(notification);
+      const delivery = this.inboundConn.adapter.notify(notification);
+      void Promise.resolve(delivery).catch((error: unknown) => this.handleNotificationFailure(type, error));
 
       debugIf(() => ({ message: `Sent ${type} listChanged notification to client`, meta: { type } }));
       this.emit('notification-sent', type, this.getClientCount());
     } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      logger.error(`Failed to send ${type} listChanged notification: ${err.message}`);
-      this.emit('notification-failed', type, err);
+      this.handleNotificationFailure(type, error);
+    }
+  }
 
-      // If connection is broken, log a warning
-      if (err.message.includes('Not connected')) {
-        logger.warn('Client connection lost during notification sending');
-      }
+  private handleNotificationFailure(type: 'tools' | 'resources' | 'prompts', error: unknown): void {
+    const failure: InboundConnectionError =
+      error instanceof Error ? { name: error.name, message: error.message } : { name: 'Error', message: String(error) };
+    logger.error(`Failed to send ${type} listChanged notification: ${failure.message}`);
+    this.emit('notification-failed', type, failure);
+
+    if (failure.message.includes('Not connected')) {
+      logger.warn('Client connection lost during notification sending');
     }
   }
 

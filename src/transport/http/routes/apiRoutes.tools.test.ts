@@ -1,3 +1,5 @@
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 
 import type { Request, RequestHandler, Response } from 'express';
@@ -86,6 +88,20 @@ async function invokeInspectRoute(handler: RequestHandler, req: Partial<Request>
   await handler(req as Request, res, () => undefined);
 }
 
+function connectionWithTools(
+  name: string,
+  tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>,
+  tags: string[] = [],
+) {
+  return createMockOutboundConnection({
+    name,
+    tags,
+    adapter: {
+      request: vi.fn().mockResolvedValue({ tools }),
+    },
+  });
+}
+
 describe('apiRoutes /api/tools', () => {
   const scopeAuthMiddleware: RequestHandler = (_req, res, next) => {
     res.locals.validatedTags = [];
@@ -121,18 +137,11 @@ describe('apiRoutes /api/tools', () => {
           new Map([
             [
               'alpha',
-              {
-                status: 'connected',
-                client: {
-                  listTools: vi.fn().mockResolvedValue({
-                    tools: [
-                      { name: 'alpha_one', description: 'First', inputSchema: {} },
-                      { name: 'alpha_two', description: 'Second', inputSchema: {} },
-                      { name: 'alpha_three', description: 'Third', inputSchema: {} },
-                    ],
-                  }),
-                },
-              },
+              connectionWithTools('alpha', [
+                { name: 'alpha_one', description: 'First', inputSchema: {} },
+                { name: 'alpha_two', description: 'Second', inputSchema: {} },
+                { name: 'alpha_three', description: 'Third', inputSchema: {} },
+              ]),
             ],
           ]),
       ),
@@ -198,29 +207,19 @@ describe('apiRoutes /api/tools', () => {
           new Map([
             [
               'instance-one',
-              {
-                name: 'template',
-                status: 'connected',
-                transport: { tags: ['session-one'] },
-                client: {
-                  listTools: vi.fn().mockResolvedValue({
-                    tools: [{ name: 'first_tool', description: 'First instance', inputSchema: {} }],
-                  }),
-                },
-              },
+              connectionWithTools(
+                'template',
+                [{ name: 'first_tool', description: 'First instance', inputSchema: {} }],
+                ['session-one'],
+              ),
             ],
             [
               'instance-two',
-              {
-                name: 'template',
-                status: 'connected',
-                transport: { tags: ['session-two'] },
-                client: {
-                  listTools: vi.fn().mockResolvedValue({
-                    tools: [{ name: 'second_tool', description: 'Second instance', inputSchema: {} }],
-                  }),
-                },
-              },
+              connectionWithTools(
+                'template',
+                [{ name: 'second_tool', description: 'Second instance', inputSchema: {} }],
+                ['session-two'],
+              ),
             ],
           ]),
       ),
@@ -247,26 +246,9 @@ describe('apiRoutes /api/tools', () => {
           new Map([
             [
               'alpha',
-              {
-                status: 'connected',
-                client: {
-                  listTools: vi.fn().mockResolvedValue({
-                    tools: [{ name: 'alpha_tool', description: 'Alpha tool', inputSchema: {} }],
-                  }),
-                },
-              },
+              connectionWithTools('alpha', [{ name: 'alpha_tool', description: 'Alpha tool', inputSchema: {} }]),
             ],
-            [
-              'beta',
-              {
-                status: 'connected',
-                client: {
-                  listTools: vi.fn().mockResolvedValue({
-                    tools: [{ name: 'beta_tool', description: 'Beta tool', inputSchema: {} }],
-                  }),
-                },
-              },
-            ],
+            ['beta', connectionWithTools('beta', [{ name: 'beta_tool', description: 'Beta tool', inputSchema: {} }])],
           ]),
       ),
     };
@@ -302,17 +284,10 @@ describe('apiRoutes /api/tools', () => {
           new Map([
             [
               'alpha',
-              {
-                status: 'connected',
-                client: {
-                  listTools: vi.fn().mockResolvedValue({
-                    tools: [
-                      { name: 'alpha_one', description: 'First', inputSchema: {} },
-                      { name: 'alpha_two', description: 'Second', inputSchema: {} },
-                    ],
-                  }),
-                },
-              },
+              connectionWithTools('alpha', [
+                { name: 'alpha_one', description: 'First', inputSchema: {} },
+                { name: 'alpha_two', description: 'Second', inputSchema: {} },
+              ]),
             ],
           ]),
       ),

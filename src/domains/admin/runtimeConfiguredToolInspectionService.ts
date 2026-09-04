@@ -1,6 +1,4 @@
-import { DEFAULT_REQUEST_TIMEOUT_MSEC } from '@modelcontextprotocol/sdk/shared/protocol.js';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-
+import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import {
   collectConfiguredToolPages,
   publishCompleteConfiguredToolInspection,
@@ -9,7 +7,6 @@ import {
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, type MCPServerParams, type OutboundConnection } from '@src/core/types/index.js';
 import { isConfiguredServerTargetDisabled } from '@src/domains/config-change/configChange.js';
-import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
 
 import {
   type ConfiguredToolInspectionOutcome,
@@ -19,6 +16,8 @@ import {
 } from './configuredToolInventory.js';
 
 const INSPECTION_PAGE_TIMEOUT_BUDGET = 4;
+const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
+type Tool = Parameters<typeof publishCompleteConfiguredToolInspection>[0]['instances'][number]['tools'][number];
 
 interface InspectionCandidate {
   instanceId: string;
@@ -221,8 +220,8 @@ export class RuntimeConfiguredToolInspectionService {
   }
 
   private async inspectCandidate(candidate: InspectionCandidate): Promise<Tool[]> {
-    const requestTimeout = getRequestTimeout(candidate.connection.transport);
-    const totalTimeout = (requestTimeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC) * INSPECTION_PAGE_TIMEOUT_BUDGET;
+    const requestTimeout = candidate.connection.requestTimeoutMs;
+    const totalTimeout = (requestTimeout ?? DEFAULT_REQUEST_TIMEOUT_MS) * INSPECTION_PAGE_TIMEOUT_BUDGET;
     const controller = new AbortController();
     const deadline = setTimeout(() => {
       controller.abort(new Error(`Tool inspection exceeded the ${totalTimeout}ms deadline`));
@@ -231,10 +230,12 @@ export class RuntimeConfiguredToolInspectionService {
     try {
       return (
         await collectConfiguredToolPages((cursor) =>
-          candidate.connection.client.listTools(cursor === undefined ? undefined : { cursor }, {
-            timeout: requestTimeout,
-            signal: controller.signal,
-          }),
+          requestLegacyAdapter<{ tools: Tool[]; nextCursor?: string }>(
+            candidate.connection.adapter,
+            'tools/list',
+            cursor === undefined ? undefined : { cursor },
+            { timeoutMs: requestTimeout, signal: controller.signal },
+          ),
         )
       ).tools;
     } finally {
@@ -269,7 +270,6 @@ export class RuntimeConfiguredToolInspectionService {
           (connection): connection is OutboundConnection =>
             connection !== undefined &&
             connection.name === targetName &&
-            connection.client === instance.client &&
             connection.status === ClientStatus.Connected,
         );
       const uniqueConnections = Array.from(new Set(instanceConnections));

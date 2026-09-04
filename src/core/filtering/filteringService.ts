@@ -1,4 +1,4 @@
-import { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
+import type { ServerCapabilities } from '@src/sdk/contracts/index.js';
 
 import { ClientStatus } from '@src/core/types/client.js';
 import { InboundConnectionConfig, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
@@ -116,7 +116,7 @@ export class FilteringService {
       const normalizedFilterTags = tags.map((tag) => normalizeTag(tag));
 
       return Array.from(connections.entries()).reduce((filtered, [name, connection]) => {
-        const clientTags = connection.transport.tags || [];
+        const clientTags = connection.tags;
         // Normalize client tags for comparison
         const normalizedClientTags = clientTags.map((tag) => normalizeTag(tag));
         const hasMatchingTags = normalizedClientTags.some((clientTag) => normalizedFilterTags.includes(clientTag));
@@ -153,7 +153,7 @@ export class FilteringService {
       }));
 
       return Array.from(connections.entries()).reduce((filtered, [name, connection]) => {
-        const clientTags = connection.transport.tags || [];
+        const clientTags = connection.tags;
         const matches = TagQueryParser.evaluate(expression, clientTags);
 
         debugIf(() => ({
@@ -188,7 +188,7 @@ export class FilteringService {
         if (connection.status !== ClientStatus.Connected) {
           continue;
         }
-        const clientTags = connection.transport.tags || [];
+        const clientTags = connection.tags;
 
         try {
           if (TagQueryEvaluator.evaluate(query, clientTags)) {

@@ -1,4 +1,4 @@
-import { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { Tool } from '@src/sdk/contracts/index.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 

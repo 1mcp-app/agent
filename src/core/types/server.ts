@@ -1,5 +1,4 @@
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
+import type { LegacyConnectionId, LegacySdkAdapter } from '@src/sdk/contracts/legacySdkAdapter.js';
 
 import type { TemplateContextProof } from '@src/core/context/templateContextTrust.js';
 import { TemplateConfig } from '@src/core/instructions/templateTypes.js';
@@ -19,6 +18,17 @@ export enum ServerStatus {
   Disconnected = 'disconnected',
   /** Server encountered an error */
   Error = 'error',
+}
+
+export type InboundConnectionAdapter = Pick<
+  LegacySdkAdapter,
+  'connectionId' | 'state' | 'start' | 'notify' | 'close'
+>;
+
+export interface InboundConnectionError {
+  readonly name: string;
+  readonly message: string;
+  readonly code?: string | number;
 }
 
 export interface InboundConnectionConfig extends TemplateConfig {
@@ -50,14 +60,13 @@ export interface InboundConnectionConfig extends TemplateConfig {
 }
 
 /**
- * Inbound connection information including server instance and configuration
+ * SDK-free inbound connection snapshot and its opaque legacy adapter.
  */
 export interface InboundConnection extends InboundConnectionConfig {
-  readonly server: Server;
-  status: ServerStatus;
-  lastError?: Error;
-  lastConnected?: Date;
-  connectedAt?: Date;
+  readonly connectionId: LegacyConnectionId;
+  readonly adapter: InboundConnectionAdapter;
+  readonly status: ServerStatus;
+  readonly lastError?: InboundConnectionError;
+  readonly lastConnected?: string;
+  readonly connectedAt?: string;
 }
-
-export type ServerCapability = keyof ServerCapabilities;

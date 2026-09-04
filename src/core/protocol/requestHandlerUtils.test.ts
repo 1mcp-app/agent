@@ -1,6 +1,4 @@
-import { createMockClient, createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
-
-import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
 import { ClientStatus, type InboundConnection, type OutboundConnections } from '@src/core/types/index.js';
 
@@ -21,23 +19,23 @@ describe('createCapabilityCatalogFromConnections', () => {
     const recoveredTool = { name: 'recovered', inputSchema: { type: 'object' as const } };
     const healthyTool = { name: 'healthy', inputSchema: { type: 'object' as const } };
     const slowListTools = vi
-      .fn<Client['listTools']>()
+      .fn()
       .mockRejectedValueOnce(new Error('Request timed out'))
       .mockResolvedValueOnce({ tools: [recoveredTool] });
-    const healthyListTools = vi.fn<Client['listTools']>().mockResolvedValue({ tools: [healthyTool] });
+    const healthyListTools = vi.fn().mockResolvedValue({ tools: [healthyTool] });
     const connections: OutboundConnections = new Map([
       [
         'slow',
         createMockOutboundConnection({
           name: 'slow',
-          client: createMockClient({ listTools: slowListTools }) as Client,
+          adapter: { request: slowListTools },
         }),
       ],
       [
         'healthy',
         createMockOutboundConnection({
           name: 'healthy',
-          client: createMockClient({ listTools: healthyListTools }) as Client,
+          adapter: { request: healthyListTools },
         }),
       ],
     ]);
@@ -55,12 +53,17 @@ describe('createCapabilityCatalogFromConnections', () => {
 
 describe('resolveLazyCapabilityVisibility', () => {
   it('derives a public server name when the connection name is empty', () => {
-    const connections = new Map([
+    const connections: OutboundConnections = new Map([
       [
         'unnamed:session-1',
-        { name: '', status: ClientStatus.Connected, capabilities: { tools: {} }, transport: { tags: ['safe'] } },
+        createMockOutboundConnection({
+          name: '',
+          status: ClientStatus.Connected,
+          capabilities: { tools: {} },
+          tags: ['safe'],
+        }),
       ],
-    ]) as OutboundConnections;
+    ]);
     const inbound = { tags: ['safe'], tagFilterMode: 'simple-or' } as InboundConnection;
 
     const visibility = resolveLazyCapabilityVisibility(connections, inbound, 'session-1');
@@ -69,47 +72,62 @@ describe('resolveLazyCapabilityVisibility', () => {
   });
 
   it('re-evaluates template scope, tags, connection state, and tool capability for each request', () => {
-    const connections = new Map([
+    const connections: OutboundConnections = new Map([
       [
         'visible',
-        { name: 'visible', status: ClientStatus.Connected, capabilities: { tools: {} }, transport: { tags: ['safe'] } },
+        createMockOutboundConnection({
+          name: 'visible',
+          status: ClientStatus.Connected,
+          capabilities: { tools: {} },
+          tags: ['safe'],
+        }),
       ],
       [
         'hidden',
-        {
+        createMockOutboundConnection({
           name: 'hidden',
           status: ClientStatus.Connected,
           capabilities: { tools: {} },
-          transport: { tags: ['private'] },
-        },
+          tags: ['private'],
+        }),
       ],
       [
         'late',
-        { name: 'late', status: ClientStatus.Restarting, capabilities: { tools: {} }, transport: { tags: ['safe'] } },
+        createMockOutboundConnection({
+          name: 'late',
+          status: ClientStatus.Restarting,
+          capabilities: { tools: {} },
+          tags: ['safe'],
+        }),
       ],
       [
         'not-a-tool',
-        { name: 'not-a-tool', status: ClientStatus.Connected, capabilities: {}, transport: { tags: ['safe'] } },
+        createMockOutboundConnection({
+          name: 'not-a-tool',
+          status: ClientStatus.Connected,
+          capabilities: {},
+          tags: ['safe'],
+        }),
       ],
       [
         'template:other-session',
-        {
+        createMockOutboundConnection({
           name: 'template',
           status: ClientStatus.Connected,
           capabilities: { tools: {} },
-          transport: { tags: ['safe'] },
-        },
+          tags: ['safe'],
+        }),
       ],
       [
         'template:session-1',
-        {
+        createMockOutboundConnection({
           name: 'template',
           status: ClientStatus.Connected,
           capabilities: { tools: {} },
-          transport: { tags: ['safe'] },
-        },
+          tags: ['safe'],
+        }),
       ],
-    ]) as OutboundConnections;
+    ]);
     const inbound = { tags: ['safe'], tagFilterMode: 'simple-or' } as InboundConnection;
 
     const initialVisibility = resolveLazyCapabilityVisibility(connections, inbound, 'session-1');

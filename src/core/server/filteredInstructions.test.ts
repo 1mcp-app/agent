@@ -1,3 +1,5 @@
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import { ClientStatus } from '@src/core/types/client.js';
 import type { InboundConnectionConfig, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
@@ -25,43 +27,43 @@ describe('InstructionAggregator - Filtered Instructions', () => {
     mockOutboundConnections = new Map([
       [
         'web-server',
-        {
+        createMockOutboundConnection({
           name: 'web-server',
-          transport: { tags: ['web', 'frontend'], timeout: 5000 },
-          client: {} as any,
+          tags: ['web', 'frontend'],
+          requestTimeoutMs: 5000,
           status: ClientStatus.Connected,
           instructions: 'Web server instructions for frontend development',
-        } as OutboundConnection,
+        }),
       ],
       [
         'database-server',
-        {
+        createMockOutboundConnection({
           name: 'database-server',
-          transport: { tags: ['database', 'backend'], timeout: 5000 },
-          client: {} as any,
+          tags: ['database', 'backend'],
+          requestTimeoutMs: 5000,
           status: ClientStatus.Connected,
           instructions: 'Database server instructions for data management',
-        } as OutboundConnection,
+        }),
       ],
       [
         'api-server',
-        {
+        createMockOutboundConnection({
           name: 'api-server',
-          transport: { tags: ['api', 'backend'], timeout: 5000 },
-          client: {} as any,
+          tags: ['api', 'backend'],
+          requestTimeoutMs: 5000,
           status: ClientStatus.Connected,
           instructions: 'API server instructions for backend services',
-        } as OutboundConnection,
+        }),
       ],
       [
         'dev-tools',
-        {
+        createMockOutboundConnection({
           name: 'dev-tools',
-          transport: { tags: ['development', 'tools'], timeout: 5000 },
-          client: {} as any,
+          tags: ['development', 'tools'],
+          requestTimeoutMs: 5000,
           status: ClientStatus.Connected,
           instructions: 'Development tools instructions',
-        } as OutboundConnection,
+        }),
       ],
     ]);
 
@@ -270,13 +272,16 @@ describe('InstructionAggregator - Filtered Instructions', () => {
     it('should handle servers without instructions gracefully', () => {
       // Add a server without instructions
       const connectionsWithoutInstructions = new Map(mockOutboundConnections);
-      connectionsWithoutInstructions.set('empty-server', {
-        name: 'empty-server',
-        transport: { tags: ['empty'], timeout: 5000 },
-        client: {} as any,
-        status: ClientStatus.Connected,
-        instructions: undefined,
-      } as OutboundConnection);
+      connectionsWithoutInstructions.set(
+        'empty-server',
+        createMockOutboundConnection({
+          name: 'empty-server',
+          tags: ['empty'],
+          requestTimeoutMs: 5000,
+          status: ClientStatus.Connected,
+          instructions: undefined,
+        }),
+      );
 
       const config: InboundConnectionConfig = {
         tagFilterMode: 'simple-or',
@@ -295,13 +300,16 @@ describe('InstructionAggregator - Filtered Instructions', () => {
     it('should exclude disconnected servers from filtering', () => {
       // Create a copy with one disconnected server
       const connectionsWithDisconnected = new Map(mockOutboundConnections);
-      connectionsWithDisconnected.set('disconnected-server', {
-        name: 'disconnected-server',
-        transport: { tags: ['web'], timeout: 5000 },
-        client: {} as any,
-        status: ClientStatus.Disconnected,
-        instructions: 'Disconnected server instructions',
-      } as OutboundConnection);
+      connectionsWithDisconnected.set(
+        'disconnected-server',
+        createMockOutboundConnection({
+          name: 'disconnected-server',
+          tags: ['web'],
+          requestTimeoutMs: 5000,
+          status: ClientStatus.Disconnected,
+          instructions: 'Disconnected server instructions',
+        }),
+      );
 
       const config: InboundConnectionConfig = {
         tagFilterMode: 'simple-or',

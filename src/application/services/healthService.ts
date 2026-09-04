@@ -3,7 +3,7 @@ import { MCP_SERVER_VERSION } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import type { BackendSupervisionSnapshot, BackendSupervisionState } from '@src/core/server/backendStdioSupervisor.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
-import { ClientStatus } from '@src/core/types/index.js';
+import { ClientStatus, type OutboundSupervisionSnapshot } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 
 /**
@@ -22,7 +22,7 @@ export interface McpServerHealth {
   name: string;
   status: ClientStatus;
   healthy: boolean;
-  lastConnected?: Date;
+  lastConnected?: string | Date;
   lastError?: string;
   tags?: string[];
 }
@@ -82,17 +82,17 @@ interface BasicBackendSupervisionSnapshot {
   state: BackendSupervisionState;
   attempt: number;
   limit: number | null;
-  nextRetryAt: Date | null;
+  nextRetryAt: Date | string | null;
   lastExit: {
     code: number | null;
     signal: string | null;
-    at: Date;
+    at: Date | string;
   } | null;
   lastError: string | null;
 }
 
 interface FullBackendSupervisionSnapshot extends BasicBackendSupervisionSnapshot {
-  lastExit: (NonNullable<BackendSupervisionSnapshot['lastExit']> & { pid: number | null }) | null;
+  lastExit: (NonNullable<BasicBackendSupervisionSnapshot['lastExit']> & { pid: number | null }) | null;
   currentPid: number | null;
 }
 
@@ -153,7 +153,9 @@ export class HealthService {
   /**
    * Apply the configured health disclosure level to backend supervision facts.
    */
-  public serializeBackendSupervision(snapshots: Record<string, BackendSupervisionSnapshot>): BackendSupervisionHealth {
+  public serializeBackendSupervision(
+    snapshots: Record<string, BackendSupervisionSnapshot | OutboundSupervisionSnapshot>,
+  ): BackendSupervisionHealth {
     const detailLevel = this.agentConfig.get('health').detailLevel;
 
     if (detailLevel === 'minimal') {
@@ -356,7 +358,7 @@ export class HealthService {
           healthy: isHealthy,
           lastConnected: clientInfo.lastConnected,
           lastError: clientInfo.lastError?.message,
-          tags: clientInfo.transport.tags,
+          tags: clientInfo.tags,
         });
       }
 

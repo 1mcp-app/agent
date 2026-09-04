@@ -1,4 +1,6 @@
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
+import type { Tool } from '@src/sdk/contracts/index.js';
 
 import {
   publishConfiguredToolSnapshot,
@@ -20,26 +22,41 @@ function tool(name: string): Tool {
 }
 
 function connection(name: string, listTools: ReturnType<typeof vi.fn>): OutboundConnection {
-  return {
+  let outbound: OutboundConnection;
+  let rejectPending: ((reason: Error) => void) | undefined;
+  outbound = createMockOutboundConnection({
     name,
     status: ClientStatus.Connected,
-    client: { listTools },
-    transport: {},
-  } as unknown as OutboundConnection;
+    adapter: {
+      request: vi.fn(
+        ({ params }) =>
+          new Promise<never>((resolve, reject) => {
+            rejectPending = reject;
+            const invoke = listTools as unknown as (params: unknown, options: unknown) => Promise<unknown>;
+            Promise.resolve(invoke(params, {})).then((value) => resolve(value as never), reject);
+          }),
+      ),
+      cancel: vi.fn(async () => {
+        const timeout = (outbound.requestTimeoutMs ?? 60_000) * 4;
+        rejectPending?.(new Error(`Tool inspection exceeded the ${timeout}ms deadline`));
+      }),
+    },
+  });
+  return outbound;
 }
 
 function templateInstance(
   id: string,
   name: string,
   outboundKeys: string[],
-  outbound: OutboundConnection,
+  _outbound: OutboundConnection,
 ): PooledClientInstance {
   return {
     id,
     instanceKey: `${name}:${id}`,
     templateName: name,
-    client: outbound.client,
-    transport: outbound.transport,
+    client: {} as PooledClientInstance['client'],
+    transport: {} as PooledClientInstance['transport'],
     renderedHash: id,
     runtimeFingerprint: id,
     processedConfig: config,
@@ -108,7 +125,7 @@ describe('RuntimeConfiguredToolInspectionService', () => {
           }),
       );
       const outbound = connection('deadline', listTools);
-      outbound.transport.requestTimeout = 25;
+      outbound.requestTimeoutMs = 25;
       const refresh = runtime(new Map([['deadline', outbound]])).refresh({
         targetName: 'deadline',
         source: 'mcpServers',
@@ -269,8 +286,8 @@ describe('RuntimeConfiguredToolInspectionService', () => {
     expect(inventory.inspection).toMatchObject({ status: 'unavailable', reason: 'snapshot_unavailable' });
     expect(inventory.freshness).toBe('unavailable');
     expect(inventory.rows.some((row) => row.observedInSomeInstances)).toBe(false);
-    expect(first.client.listTools).not.toHaveBeenCalled();
-    expect(second.client.listTools).not.toHaveBeenCalled();
+    expect(first.adapter.request).not.toHaveBeenCalled();
+    expect(second.adapter.request).not.toHaveBeenCalled();
   });
 
   it('publishes nothing when one active template instance fails', async () => {
@@ -340,9 +357,9 @@ describe('RuntimeConfiguredToolInspectionService', () => {
         templateInstance('second', 'reordered-template', ['reordered-template:second'], second),
       ],
     };
-    first.client.listTools = vi.fn(async () => {
+    vi.mocked(first.adapter.request).mockImplementation(async () => {
       instances['reordered-template'].reverse();
-      return { tools: [tool('first')] };
+      return { tools: [tool('first')] } as never;
     });
     const service = runtime(
       new Map([

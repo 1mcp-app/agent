@@ -1,3 +1,5 @@
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
 import type { Request, RequestHandler, Response } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -116,6 +118,12 @@ describe('apiRoutes /api/tool-invocations', () => {
 
     const createTemplateBasedServers = vi.fn();
     const registerTemplate = vi.fn();
+    const connection = createMockOutboundConnection({
+      name: 'serena',
+      adapter: {
+        request: vi.fn(async ({ params }) => callTool(params)),
+      },
+    });
     const serverManager = {
       getLazyLoadingOrchestrator: vi.fn(() => undefined),
       getClients: vi.fn(() => new Map()),
@@ -128,7 +136,7 @@ describe('apiRoutes /api/tool-invocations', () => {
       getServerRegistry: vi.fn(() => ({
         has: vi.fn(() => false),
         registerTemplate,
-        resolveConnection: vi.fn(() => ({ client: { callTool } })),
+        resolveConnection: vi.fn(() => connection),
       })),
     };
     const handler = createToolInvocationsHandler(serverManager as never);

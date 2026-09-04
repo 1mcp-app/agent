@@ -1,8 +1,6 @@
 import { IOType } from 'node:child_process';
 import { Stream } from 'node:stream';
 
-import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-
 import { z } from 'zod';
 
 const ENVIRONMENT_REFERENCE_PATTERN = /\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*/u;
@@ -20,7 +18,7 @@ const transportUrlSchema = z.union([
  *
  * When both specific and deprecated timeouts are set, specific timeouts take precedence.
  */
-export interface EnhancedTransport extends Transport {
+export interface EnhancedTransport {
   /**
    * Timeout for establishing initial connection (in milliseconds)
    * Used when calling client.connect(transport, {timeout})
@@ -48,21 +46,6 @@ export interface EnhancedTransport extends Transport {
 
   tags?: string[];
 
-  /** Runtime-owned policy and factory for a supervised stdio backend. */
-  stdioSupervision?: {
-    readonly policy: {
-      readonly restartOnExit: true;
-      readonly maxRestarts?: number;
-      readonly restartDelay?: number;
-    };
-    readonly recreate: () => EnhancedTransport;
-    readonly getLastExit: () => {
-      code: number | null;
-      signal: string | null;
-      pid: number | null;
-      at: Date;
-    } | null;
-  };
 }
 
 /**

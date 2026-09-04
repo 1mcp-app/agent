@@ -7,7 +7,7 @@ import {
   Prompt,
   Resource,
   Tool,
-} from '@modelcontextprotocol/sdk/types.js';
+} from '@src/sdk/contracts/index.js';
 
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import {
@@ -17,13 +17,11 @@ import {
   publishConfiguredToolSnapshot,
 } from '@src/core/capabilities/configuredToolSnapshot.js';
 import { InternalCapabilitiesProvider } from '@src/core/capabilities/internalCapabilitiesProvider.js';
-import { executeWithPostAuthOAuthRecovery } from '@src/core/client/postAuthOAuthRecovery.js';
+import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { filterDisabledTools } from '@src/core/server/disabledTools.js';
 import { applyEffectiveToolDescription } from '@src/core/server/toolDescriptionOverrides.js';
 import { ClientStatus, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
-import type { EnhancedTransport } from '@src/core/types/transport.js';
 import logger, { debugIf } from '@src/logger/logger.js';
-import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
 
 /**
  * Represents a snapshot of aggregated capabilities from all ready servers
@@ -174,7 +172,7 @@ export class CapabilityAggregator extends EventEmitter {
 
     // Add tools from external MCP servers
     for (const [serverName, connection] of this.outboundConns.entries()) {
-      if (connection.status !== ClientStatus.Connected || !connection.client.transport) {
+      if (connection.status !== ClientStatus.Connected) {
         continue;
       }
 
@@ -182,7 +180,7 @@ export class CapabilityAggregator extends EventEmitter {
         readyServers.push(serverName);
 
         // Get server capabilities to check what's supported
-        const serverCapabilities = connection.client.getServerCapabilities() || {};
+        const serverCapabilities = connection.capabilities ?? {};
 
         // Build promises array based on actual capabilities
         const promises: Promise<unknown>[] = [this.safeListTools(serverName, connection)];
@@ -265,11 +263,12 @@ export class CapabilityAggregator extends EventEmitter {
    */
   private async safeListTools(serverName: string, connection: OutboundConnection): Promise<ListToolsResult> {
     try {
-      return await executeWithPostAuthOAuthRecovery(serverName, connection, () =>
-        collectConfiguredToolPages((cursor) =>
-          connection.client.listTools(cursor === undefined ? undefined : { cursor }, {
-            timeout: getRequestTimeout(connection.transport as EnhancedTransport),
-          }),
+      return await collectConfiguredToolPages((cursor) =>
+        requestLegacyAdapter<ListToolsResult>(
+          connection.adapter,
+          'tools/list',
+          cursor === undefined ? undefined : { cursor },
+          { timeoutMs: connection.requestTimeoutMs },
         ),
       );
     } catch (error) {
@@ -283,11 +282,9 @@ export class CapabilityAggregator extends EventEmitter {
    */
   private async safeListResources(serverName: string, connection: OutboundConnection): Promise<ListResourcesResult> {
     try {
-      return await executeWithPostAuthOAuthRecovery(serverName, connection, () =>
-        connection.client.listResources(undefined, {
-          timeout: getRequestTimeout(connection.transport as EnhancedTransport),
-        }),
-      );
+      return await requestLegacyAdapter<ListResourcesResult>(connection.adapter, 'resources/list', undefined, {
+        timeoutMs: connection.requestTimeoutMs,
+      });
     } catch (error) {
       logger.warn(`Failed to list resources from ${serverName}`, { error: String(error) });
       return { resources: [] };
@@ -299,11 +296,9 @@ export class CapabilityAggregator extends EventEmitter {
    */
   private async safeListPrompts(serverName: string, connection: OutboundConnection): Promise<ListPromptsResult> {
     try {
-      return await executeWithPostAuthOAuthRecovery(serverName, connection, () =>
-        connection.client.listPrompts(undefined, {
-          timeout: getRequestTimeout(connection.transport as EnhancedTransport),
-        }),
-      );
+      return await requestLegacyAdapter<ListPromptsResult>(connection.adapter, 'prompts/list', undefined, {
+        timeoutMs: connection.requestTimeoutMs,
+      });
     } catch (error) {
       logger.warn(`Failed to list prompts from ${serverName}`, { error: String(error) });
       return { prompts: [] };

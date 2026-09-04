@@ -1,3 +1,5 @@
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
 import { ClientStatus } from '@src/core/types/client.js';
 import type { InboundConnectionConfig, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 
@@ -25,33 +27,33 @@ describe('InstructionAggregator - Template Engine', () => {
     mockOutboundConnections = new Map([
       [
         'web-server',
-        {
+        createMockOutboundConnection({
           name: 'web-server',
-          transport: { tags: ['web', 'frontend'], timeout: 5000 },
-          client: {} as any,
+          tags: ['web', 'frontend'],
+          requestTimeoutMs: 5000,
           status: ClientStatus.Connected,
           instructions: 'Web server instructions for frontend development',
-        } as OutboundConnection,
+        }),
       ],
       [
         'api-server',
-        {
+        createMockOutboundConnection({
           name: 'api-server',
-          transport: { tags: ['api', 'backend'], timeout: 5000 },
-          client: {} as any,
+          tags: ['api', 'backend'],
+          requestTimeoutMs: 5000,
           status: ClientStatus.Connected,
           instructions: 'API server instructions for backend services',
-        } as OutboundConnection,
+        }),
       ],
       [
         'database-server',
-        {
+        createMockOutboundConnection({
           name: 'database-server',
-          transport: { tags: ['database', 'backend'], timeout: 5000 },
-          client: {} as any,
+          tags: ['database', 'backend'],
+          requestTimeoutMs: 5000,
           status: ClientStatus.Connected,
           instructions: 'Database server instructions for data management',
-        } as OutboundConnection,
+        }),
       ],
     ]);
 

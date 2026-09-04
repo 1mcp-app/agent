@@ -1,4 +1,4 @@
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from '@src/sdk/contracts/index.js';
 
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import type { MCPServerParams } from '@src/core/types/index.js';

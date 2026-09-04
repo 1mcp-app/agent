@@ -1,4 +1,9 @@
-import { createMockClient, createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+import {
+  createMockClient,
+  createMockLegacyInboundConnection,
+  createMockLegacyOutboundConnection,
+  createMockTransport,
+} from '@test/unit-utils/MockFactories.js';
 
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import {
@@ -15,7 +20,7 @@ import {
   unregisterCapabilityPaginationForwarder,
 } from '@src/core/capabilities/capabilityPagination.js';
 import type { OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
-import { ClientStatus, ServerStatus } from '@src/core/types/index.js';
+import { ClientStatus } from '@src/core/types/index.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -61,25 +66,48 @@ describe('capability pagination protocol handlers', () => {
     mockGetTransportConfig.mockReturnValue({});
   });
 
-  function connection(name: string, client: Partial<Client>): OutboundConnection {
-    const outbound = createMockOutboundConnection({
+  function connection(name: string, client: Partial<Client>, tags: string[] = []): OutboundConnection {
+    const request = vi.fn(
+      async (
+        request: { method: string; params?: Record<string, unknown> },
+        _schema: unknown,
+        options: Record<string, unknown>,
+      ) => {
+        const method = (
+          request.method === 'resources/list'
+            ? client.listResources
+            : request.method === 'resources/templates/list'
+              ? client.listResourceTemplates
+              : request.method === 'prompts/list'
+                ? client.listPrompts
+                : request.method === 'tools/list'
+                  ? client.listTools
+                  : undefined
+        ) as ((params: Record<string, unknown>, options: Record<string, unknown>) => Promise<unknown>) | undefined;
+        if (!method) throw new Error(`Unexpected adapter request: ${request.method}`);
+        return method(request.params ?? {}, options);
+      },
+    );
+    const outbound = createMockLegacyOutboundConnection({
       name,
       status: ClientStatus.Connected,
       capabilities: { resources: {}, prompts: {}, tools: {} },
-      client: createMockClient(client) as Client,
+      client: createMockClient({ ...client, request } as never) as Client,
+      transport: { ...createMockTransport(), timeout: 5000, tags },
     });
-    outbound.transport.timeout = 5000;
     return outbound;
   }
 
   function registerResources(connections: OutboundConnections) {
-    registerResourceHandlers(connections, {
-      enablePagination: true,
-      status: ServerStatus.Connected,
-      server: {
-        setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)),
-      },
-    } as never);
+    registerResourceHandlers(
+      connections,
+      createMockLegacyInboundConnection({
+        enablePagination: true,
+        server: {
+          setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)),
+        } as never,
+      }),
+    );
 
     const handler = handlers.get(ListResourcesRequestSchema);
     if (!handler) throw new Error('resources/list handler was not registered');
@@ -150,13 +178,15 @@ describe('capability pagination protocol handlers', () => {
       ['zeta-key', connection('zeta', { listPrompts: zetaList })],
       ['alpha-key', connection('alpha', { listPrompts: alphaList })],
     ]);
-    registerPromptHandlers(connections, {
-      enablePagination: true,
-      status: ServerStatus.Connected,
-      server: {
-        setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)),
-      },
-    } as never);
+    registerPromptHandlers(
+      connections,
+      createMockLegacyInboundConnection({
+        enablePagination: true,
+        server: {
+          setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)),
+        } as never,
+      }),
+    );
     const handler = handlers.get(ListPromptsRequestSchema);
     if (!handler) throw new Error('prompts/list handler was not registered');
 
@@ -183,13 +213,15 @@ describe('capability pagination protocol handlers', () => {
       ['zeta-key', connection('zeta', { listTools: zetaList })],
       ['alpha-key', connection('alpha', { listTools: alphaList })],
     ]);
-    registerToolHandlers(connections, {
-      enablePagination: true,
-      status: ServerStatus.Connected,
-      server: {
-        setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)),
-      },
-    } as never);
+    registerToolHandlers(
+      connections,
+      createMockLegacyInboundConnection({
+        enablePagination: true,
+        server: {
+          setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)),
+        } as never,
+      }),
+    );
     const handler = handlers.get(ListToolsRequestSchema);
     if (!handler) throw new Error('tools/list handler was not registered');
 
@@ -222,11 +254,13 @@ describe('capability pagination protocol handlers', () => {
       })
       .mockResolvedValueOnce({ tools: [] });
     const connections = new Map([['alpha', connection('alpha', { listTools })]]) as OutboundConnections;
-    registerToolHandlers(connections, {
-      enablePagination: true,
-      status: ServerStatus.Connected,
-      server: { setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)) },
-    } as never);
+    registerToolHandlers(
+      connections,
+      createMockLegacyInboundConnection({
+        enablePagination: true,
+        server: { setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)) } as never,
+      }),
+    );
     const handler = handlers.get(ListToolsRequestSchema);
     if (!handler) throw new Error('tools/list handler was not registered');
     const first = (await handler({ params: {} })) as { nextCursor?: string };
@@ -263,11 +297,13 @@ describe('capability pagination protocol handlers', () => {
     const listResources = vi.fn().mockResolvedValue({ resources: [{ uri: 'alpha-resource', name: 'alpha-resource' }] });
     const connections = new Map([['alpha', connection('alpha', { listTools, listResources })]]) as OutboundConnections;
 
-    registerToolHandlers(connections, {
-      enablePagination: true,
-      status: ServerStatus.Connected,
-      server: { setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)) },
-    } as never);
+    registerToolHandlers(
+      connections,
+      createMockLegacyInboundConnection({
+        enablePagination: true,
+        server: { setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)) } as never,
+      }),
+    );
     const toolsHandler = handlers.get(ListToolsRequestSchema);
     if (!toolsHandler) throw new Error('tools/list handler was not registered');
     const toolsPage = (await toolsHandler({ params: {} })) as { nextCursor?: string };
@@ -356,11 +392,13 @@ describe('capability pagination protocol handlers', () => {
       ['zeta', connection('zeta', { listResources: zetaList })],
       ['alpha', connection('alpha', { listResources: alphaList })],
     ]) as OutboundConnections;
-    registerResourceHandlers(connections, {
-      enablePagination: false,
-      status: ServerStatus.Connected,
-      server: { setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)) },
-    } as never);
+    registerResourceHandlers(
+      connections,
+      createMockLegacyInboundConnection({
+        enablePagination: false,
+        server: { setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)) } as never,
+      }),
+    );
     const handler = handlers.get(ListResourcesRequestSchema);
     if (!handler) throw new Error('resources/list handler was not registered');
 
@@ -387,11 +425,13 @@ describe('capability pagination protocol handlers', () => {
       nextCursor: 'repeated-cursor',
     });
     const connections = new Map([['alpha', connection('alpha', { listResources })]]) as OutboundConnections;
-    registerResourceHandlers(connections, {
-      enablePagination: false,
-      status: ServerStatus.Connected,
-      server: { setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)) },
-    } as never);
+    registerResourceHandlers(
+      connections,
+      createMockLegacyInboundConnection({
+        enablePagination: false,
+        server: { setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)) } as never,
+      }),
+    );
     const handler = handlers.get(ListResourcesRequestSchema);
     if (!handler) throw new Error('resources/list handler was not registered');
 
@@ -420,11 +460,13 @@ describe('capability pagination protocol handlers', () => {
       };
     });
     const connections = new Map([['alpha', connection('alpha', { listResources })]]) as OutboundConnections;
-    registerResourceHandlers(connections, {
-      enablePagination: false,
-      status: ServerStatus.Connected,
-      server: { setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)) },
-    } as never);
+    registerResourceHandlers(
+      connections,
+      createMockLegacyInboundConnection({
+        enablePagination: false,
+        server: { setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)) } as never,
+      }),
+    );
     const handler = handlers.get(ListResourcesRequestSchema);
     if (!handler) throw new Error('resources/list handler was not registered');
 
@@ -455,15 +497,14 @@ describe('capability pagination protocol handlers', () => {
     });
     const connections = new Map([['alpha', outbound]]) as OutboundConnections;
     const inboundNotification = vi.fn().mockResolvedValue(undefined);
-    const inbound = {
+    const inbound = createMockLegacyInboundConnection({
       enablePagination: true,
-      status: ServerStatus.Connected,
       server: {
         transport: {},
         notification: inboundNotification,
         setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)),
-      },
-    } as never;
+      } as never,
+    });
     registerResourceHandlers(connections, inbound);
     registerCapabilityPaginationNotifications(connections, outbound);
     setupClientToServerNotifications(connections, inbound);
@@ -500,11 +541,10 @@ describe('capability pagination protocol handlers', () => {
     } as never;
     registerToolHandlers(
       connections,
-      {
+      createMockLegacyInboundConnection({
         enablePagination: true,
-        status: ServerStatus.Connected,
-        server: { setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)) },
-      } as never,
+        server: { setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)) } as never,
+      }),
       lazyLoadingOrchestrator,
     );
     const handler = handlers.get(ListToolsRequestSchema);
@@ -524,16 +564,13 @@ describe('capability pagination protocol handlers', () => {
       resources: [{ uri: 'alpha-1', name: 'alpha-1' }],
       nextCursor: 'alpha-next',
     });
-    const connections = new Map([
-      ['alpha', { ...connection('alpha', { listResources }), transport: { timeout: 5000, tags: ['safe'] } }],
-    ]) as OutboundConnections;
-    const inbound = {
+    const connections = new Map([['alpha', connection('alpha', { listResources }, ['safe'])]]) as OutboundConnections;
+    const inbound = createMockLegacyInboundConnection({
       enablePagination: true,
       tagFilterMode: 'simple-or',
       tags: ['safe'],
-      status: ServerStatus.Connected,
-      server: { setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)) },
-    } as never;
+      server: { setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)) } as never,
+    });
     registerResourceHandlers(connections, inbound);
     const handler = handlers.get(ListResourcesRequestSchema);
     if (!handler) throw new Error('resources/list handler was not registered');

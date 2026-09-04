@@ -1,30 +1,37 @@
-import type { Prompt, Resource, Tool } from '@modelcontextprotocol/sdk/types.js';
-
 import { ClientManager } from '@src/core/client/clientManager.js';
+import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import type { OutboundConnection } from '@src/core/types/client.js';
 import type { MCPServerParams } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
+import {
+  toProtocolPrompts,
+  toProtocolResources,
+  toProtocolTools,
+  type Prompt as ProtocolPrompt,
+  type Resource as ProtocolResource,
+  type Tool as ProtocolTool,
+} from '@src/sdk/contracts/index.js';
 import { createTransports } from '@src/transport/transportFactory.js';
 
 export interface ServerCapabilities {
   serverName: string;
   connected: boolean;
-  tools: Tool[];
-  resources: Resource[];
-  prompts: Prompt[];
+  tools: ProtocolTool[];
+  resources: ProtocolResource[];
+  prompts: ProtocolPrompt[];
   error?: string;
 }
 
 interface ToolListResult {
-  tools?: Tool[];
+  tools?: unknown[];
 }
 
 interface ResourceListResult {
-  resources?: Resource[];
+  resources?: unknown[];
 }
 
 interface PromptListResult {
-  prompts?: Prompt[];
+  prompts?: unknown[];
 }
 
 /**
@@ -67,7 +74,7 @@ export class McpConnectionHelper {
     }
 
     // Create transports from server configurations
-    const transports = createTransports(servers);
+    const transports = createTransports(servers) as unknown as Parameters<ClientManager['createClients']>[0];
     logger.debug(`Created ${Object.keys(transports).length} transports`);
 
     const results: ServerCapabilities[] = [];
@@ -141,38 +148,38 @@ export class McpConnectionHelper {
     serverName: string,
     connection: OutboundConnection,
   ): Promise<{
-    tools: Tool[];
-    resources: Resource[];
-    prompts: Prompt[];
+    tools: ProtocolTool[];
+    resources: ProtocolResource[];
+    prompts: ProtocolPrompt[];
   }> {
-    const tools: Tool[] = [];
-    const resources: Resource[] = [];
-    const prompts: Prompt[] = [];
+    const tools: ProtocolTool[] = [];
+    const resources: ProtocolResource[] = [];
+    const prompts: ProtocolPrompt[] = [];
 
     try {
-      await this.collectCapabilityItems<ToolListResult, Tool>({
+      await this.collectCapabilityItems<ToolListResult, ProtocolTool>({
         serverName,
         items: tools,
         capabilityName: 'tools',
         timeoutMessage: 'Tools listing timeout',
-        list: () => connection.client.listTools({}),
-        select: (result) => result?.tools ?? [],
+        list: () => requestLegacyAdapter<ToolListResult>(connection.adapter, 'tools/list'),
+        select: (result) => toProtocolTools(result?.tools ?? []),
       });
-      await this.collectCapabilityItems<ResourceListResult, Resource>({
+      await this.collectCapabilityItems<ResourceListResult, ProtocolResource>({
         serverName,
         items: resources,
         capabilityName: 'resources',
         timeoutMessage: 'Resources listing timeout',
-        list: () => connection.client.listResources({}),
-        select: (result) => result?.resources ?? [],
+        list: () => requestLegacyAdapter<ResourceListResult>(connection.adapter, 'resources/list'),
+        select: (result) => toProtocolResources(result?.resources ?? []),
       });
-      await this.collectCapabilityItems<PromptListResult, Prompt>({
+      await this.collectCapabilityItems<PromptListResult, ProtocolPrompt>({
         serverName,
         items: prompts,
         capabilityName: 'prompts',
         timeoutMessage: 'Prompts listing timeout',
-        list: () => connection.client.listPrompts({}),
-        select: (result) => result?.prompts ?? [],
+        list: () => requestLegacyAdapter<PromptListResult>(connection.adapter, 'prompts/list'),
+        select: (result) => toProtocolPrompts(result?.prompts ?? []),
       });
     } catch (error) {
       logger.warn(`Error getting capabilities from ${serverName}: ${error instanceof Error ? error.message : error}`);
@@ -218,30 +225,9 @@ export class McpConnectionHelper {
     for (const [serverName, connection] of this.connections) {
       const cleanupPromise = (async () => {
         try {
-          if (connection.client && typeof connection.client.close === 'function') {
-            await this.withTimeout(Promise.resolve(connection.client.close()), 3000, 'Client close timeout');
-          }
+          await this.withTimeout(connection.adapter.close(), 3000, 'Client close timeout');
         } catch (error) {
           logger.warn(`Error closing client for ${serverName}: ${error instanceof Error ? error.message : error}`);
-        }
-
-        try {
-          if (connection.transport && typeof connection.transport.close === 'function') {
-            await this.withTimeout(Promise.resolve(connection.transport.close()), 3000, 'Transport close timeout');
-          }
-        } catch (error) {
-          logger.warn(`Error closing transport for ${serverName}: ${error instanceof Error ? error.message : error}`);
-        }
-
-        try {
-          const oauthProvider = connection.transport?.oauthProvider;
-          if (oauthProvider && typeof oauthProvider.shutdown === 'function') {
-            oauthProvider.shutdown();
-          }
-        } catch (error) {
-          logger.warn(
-            `Error shutting down OAuth provider for ${serverName}: ${error instanceof Error ? error.message : error}`,
-          );
         }
 
         logger.debug(`Closed connection to ${serverName}`);

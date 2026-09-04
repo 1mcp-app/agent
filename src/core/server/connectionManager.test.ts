@@ -140,6 +140,24 @@ describe('ConnectionManager', () => {
       expect(server?.context?.sessionId).toBe('context-session-id');
     });
 
+    it('publishes a detached plain configuration snapshot', async () => {
+      const tags = ['initial'];
+      const context = { sessionId: 'snapshot-session' } as ContextData;
+
+      await connectionManager.connectTransport(mockTransport, 'snapshot-session', { tags }, context);
+      tags.push('mutated');
+      context.sessionId = 'mutated-session';
+
+      const connection = connectionManager.getServer('snapshot-session');
+      expect(connection?.tags).toEqual(['initial']);
+      expect(connection?.context?.sessionId).toBe('snapshot-session');
+      expect(JSON.parse(JSON.stringify(connection))).toMatchObject({
+        status: ServerStatus.Connected,
+        tags: ['initial'],
+        context: { sessionId: 'snapshot-session' },
+      });
+    });
+
     it('should merge context parameter with existing opts.context', async () => {
       const sessionId = 'test-session-456';
       const context: ContextData = {
@@ -278,7 +296,7 @@ describe('ConnectionManager', () => {
       const server = connectionManager.getServer(sessionId);
       expect(server).toBeDefined();
       expect(server?.status).toBe(ServerStatus.Connected);
-      expect(server?.connectedAt).toBeInstanceOf(Date);
+      expect(Number.isNaN(Date.parse(server!.connectedAt!))).toBe(false);
     });
 
     it('should set lastConnected timestamp after successful connection', async () => {
@@ -294,9 +312,9 @@ describe('ConnectionManager', () => {
       const afterConnect = new Date();
 
       const server = connectionManager.getServer(sessionId);
-      expect(server?.lastConnected).toBeInstanceOf(Date);
-      expect(server!.lastConnected!.getTime()).toBeGreaterThanOrEqual(beforeConnect.getTime());
-      expect(server!.lastConnected!.getTime()).toBeLessThanOrEqual(afterConnect.getTime());
+      expect(Number.isNaN(Date.parse(server!.lastConnected!))).toBe(false);
+      expect(Date.parse(server!.lastConnected!)).toBeGreaterThanOrEqual(beforeConnect.getTime());
+      expect(Date.parse(server!.lastConnected!)).toBeLessThanOrEqual(afterConnect.getTime());
     });
 
     it('should prevent duplicate connections for the same session', async () => {
@@ -347,7 +365,11 @@ describe('ConnectionManager', () => {
 
       const server = connectionManager.getServer(sessionId);
       expect(server?.status).toBe(ServerStatus.Error);
-      expect(server?.lastError).toBeInstanceOf(Error);
+      expect(server?.lastError).toEqual({
+        name: 'OneMcpProtocolError',
+        message: 'Connection failed',
+        code: -32_603,
+      });
     });
   });
 
