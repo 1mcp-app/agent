@@ -17,6 +17,10 @@ import {
 } from '@src/sdk/legacy/types.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 
+function formatNotificationError(error: unknown): string {
+  return error instanceof Error ? `Error: ${error.message}` : String(error);
+}
+
 /**
  * Sets up client-to-server notification handlers
  * @param clients Record of client instances
@@ -58,7 +62,7 @@ export function setupClientToServerNotifications(
           if (error instanceof Error && error.message.includes('Not connected')) {
             logger.warn(`Server transport not connected. Dropping notification from ${name}`);
           } else {
-            logger.error(`Failed to send notification from ${name}: ${error}`);
+            logger.error(`Failed to send notification from ${name}: ${formatNotificationError(error)}`);
           }
         }
       }, `Error handling client notification from ${name}`),
@@ -92,7 +96,7 @@ export function setupClientToServerNotifications(
             if (error instanceof Error && error.message.includes('Not connected')) {
               logger.warn(`Server transport not connected. Dropping notification from ${name}`);
             } else {
-              logger.error(`Failed to send notification from ${name}: ${error}`);
+              logger.error(`Failed to send notification from ${name}: ${formatNotificationError(error)}`);
             }
           }
         }, `Error handling client notification from ${name}`),
@@ -151,7 +155,7 @@ export function setupServerToClientNotifications(
             if (error instanceof Error && error.message.includes('Not connected')) {
               logger.warn(`Client ${name} transport not connected. Dropping notification.`);
             } else {
-              logger.error(`Failed to send notification to ${name}: ${error}`);
+              logger.error(`Failed to send notification to ${name}: ${formatNotificationError(error)}`);
             }
           }
         }, `Error handling server notification to ${name}`),
