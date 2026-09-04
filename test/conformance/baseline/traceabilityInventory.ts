@@ -44,6 +44,34 @@ export const ACCEPTED_CONTRACT_TRACEABILITY_INVENTORY = [
     testNeedle: "it('generates a digest-checked proof with actual v1 and v2 SDK objects'",
     evidenceArtifactIds: ['conformance-baseline', 'boundary/sdk-boundary-proof.json'],
   },
+  {
+    requirementId: '1mcp.contract.gateway-envelope-boundary',
+    testIds: ['gateway.immutable-envelope'],
+    testPath: 'src/gateway/contracts/gatewayContracts.test.ts',
+    testNeedle: "it('allowlists envelope and pin fields instead of retaining hidden state'",
+    evidenceArtifactIds: ['conformance-baseline'],
+  },
+  {
+    requirementId: '1mcp.contract.gateway-era-pinning',
+    testIds: ['gateway.independent-era-pins'],
+    testPath: 'src/gateway/contracts/gatewayContracts.test.ts',
+    testNeedle: "it('pins inbound and outbound eras independently and rejects later conflicts'",
+    evidenceArtifactIds: ['conformance-baseline'],
+  },
+  {
+    requirementId: '1mcp.contract.gateway-four-cell-skeleton',
+    testIds: ['gateway.four-cell-read-only-dispatch'],
+    testPath: 'test/e2e/gateway-era-skeleton.test.ts',
+    testNeedle: "it.each(ERA_CELLS)('dispatches tools/list through the %s-%s gateway era cell'",
+    evidenceArtifactIds: ['conformance-baseline'],
+  },
+  {
+    requirementId: '1mcp.contract.gateway-cancellation-propagation',
+    testIds: ['gateway.four-cell-cancellation'],
+    testPath: 'test/e2e/gateway-era-skeleton.test.ts',
+    testNeedle: "it.each(ERA_CELLS)('propagates cancellation through the %s-%s gateway era cell'",
+    evidenceArtifactIds: ['conformance-baseline'],
+  },
 ] as const;
 
 interface AcceptedContractTrace {
