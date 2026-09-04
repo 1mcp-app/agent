@@ -111,7 +111,7 @@ export class ModernInboundEraAdapter implements InboundEraAdapter {
     } catch {
       return invalidModernRequest();
     }
-    if (operation !== 'tools/list') return invalidModernRequest();
+    if (operation !== 'tools/list' && operation !== 'tools/call') return invalidModernRequest();
 
     let context: ModernInboundRequestContext;
     try {

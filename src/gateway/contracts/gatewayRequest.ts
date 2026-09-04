@@ -2,7 +2,7 @@ import { createEffectiveRequestAuthority, type EffectiveRequestAuthority } from 
 import { type ImmutableJsonValue, toImmutableJsonValue } from './immutableJson.js';
 import { classifyProtocolEra, type ProtocolEraPin } from './protocolEra.js';
 
-export type GatewayOperation = 'tools/list';
+export type GatewayOperation = 'tools/list' | 'tools/call';
 
 export interface GatewayRequestEnvelope {
   readonly requestId: string;
@@ -24,7 +24,7 @@ export function createGatewayRequestEnvelope(input: GatewayRequestEnvelope): Gat
   ) {
     throw new TypeError('Gateway request identifiers are required');
   }
-  if (input.operation !== 'tools/list')
+  if (input.operation !== 'tools/list' && input.operation !== 'tools/call')
     throw new TypeError(`Unsupported gateway operation: ${String(input.operation)}`);
   if (!Number.isSafeInteger(input.deadlineUnixMs) || input.deadlineUnixMs <= 0) {
     throw new TypeError('Gateway deadline must be a positive Unix millisecond timestamp');
