@@ -56,7 +56,7 @@ const PROFILE_TEST_REGISTRY: Record<string, readonly { path: string; needle: str
   'transport.gateway.upstream-stdio-modern': [
     {
       path: 'test/conformance/transports/profileProofs.test.ts',
-      needle: "it('records product-red evidence for modern upstream stdio",
+      needle: "it('proves modern upstream stdio with MCP traffic through the built gateway'",
     },
   ],
   'transport.gateway.upstream-stdio-legacy': [

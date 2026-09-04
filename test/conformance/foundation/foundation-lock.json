@@ -64,7 +64,7 @@
     {
       "id": "foundation-run",
       "path": "test/conformance/foundation/foundationRun.ts",
-      "digest": "sha256:35e5ceb2204e7dbc52c0958fa818ea441f812e86cb5a659b2a86087383897f32"
+      "digest": "sha256:46ba6fc8972cfc512d9c1ce5d8288f62f0220aa5929d925e0ddc639591beea8e"
     },
     {
       "id": "sdk-boundary-proof",
