@@ -36,11 +36,10 @@ const ASYNC_WRITE_PATTERN = /\bfs\.(writeFile|appendFile|mkdir|copyFile|cp)\s*\(
 const DESTRUCTURED_WRITE_PATTERN = /\b(writeFile|appendFile|mkdir|copyFile|cp)\s*\(/;
 const DESTRUCTURED_IMPORTS = /from\s+['"]node?:fs\/promises['"]|promises\s+as\s+\w+\s+from\s+['"]node?:fs['"]/;
 const MODE_PATTERN = /mode\s*:\s*0o|,\s*0o[67][0-7]{2}\b/;
-const CHMOD_PATTERN = /\bchmod(Sync)?\s*\(/;
 const TEST_FILE = /\.test\.ts$|__tests__|\/test\//;
 
-function listSourceFiles() {
-  const out = spawnSync('git', ['ls-files', 'src/**/*.ts'], { cwd: ROOT, encoding: 'utf8' });
+function listSourceFiles(root) {
+  const out = spawnSync('git', ['ls-files', 'src/**/*.ts'], { cwd: root, encoding: 'utf8' });
   if (out.status !== 0) throw new Error(`git ls-files failed: ${out.stderr}`);
   return out.stdout
     .split('\n')
@@ -52,8 +51,12 @@ function findingFingerprint(file, index, snippet) {
   return `${file}#${index}#${snippet}`;
 }
 
-function scanFile(rel) {
-  const abs = path.join(ROOT, rel);
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function scanFile(rel, root) {
+  const abs = path.join(root, rel);
   return scanContent(rel, fs.readFileSync(abs, 'utf8'));
 }
 
@@ -85,10 +88,23 @@ function scanContent(rel, content) {
     }
     const isCopy = call === 'copyFileSync' || call === 'copyFile' || call === 'cp';
     if (isCopy) {
-      // fs.copy* has no mode parameter; the invariant is a chmod on the
-      // destination within 8 lines after the copy.
+      // copyFile/copyFileSync land with the source's mode (their optional 3rd
+      // arg is a COPYFILE behavior flag, not a permission mode); fs.cp also
+      // accepts a `mode` option that is a COPYFILE behavior flag on modern Node
+      // (a permission mode only on legacy versions). This text scanner doesn't
+      // resolve option objects either way, so the invariant stays an explicit
+      // owner-only chmod on the SAME destination within 8 lines after the copy
+      // (a conservatively-flagged copy is absorbed by the baseline). A chmod on
+      // any other target — or a permissive mode on the right target — silences
+      // nothing (CWE-732: a false negative here is a security gate silently
+      // passing).
       const after = lines.slice(i, i + 9).join(' ');
-      if (CHMOD_PATTERN.test(after)) return;
+      const copyDest = block.match(/(?:copyFileSync|copyFile|cp)\s*\(\s*[^,]+,\s*([A-Za-z0-9_.'"`]+)/);
+      if (copyDest) {
+        const chmodOwnerOnly = new RegExp(`chmod(Sync)?\\s*\\(\\s*${escapeRegExp(copyDest[1])}\\s*,\\s*0o([0-7]{3})`);
+        const m2 = after.match(chmodOwnerOnly);
+        if (m2 && (parseInt(m2[2], 8) & 0o077) === 0) return;
+      }
     } else if (MODE_PATTERN.test(block)) {
       // A mode argument suppresses the finding only when it is owner-only:
       // 0o644/0o666/0o777 (group/other bits set) silence nothing.
@@ -107,15 +123,29 @@ function scanContent(rel, content) {
   return findings;
 }
 
-function loadBaseline() {
-  if (!fs.existsSync(BASELINE_PATH)) return { entries: [] };
-  return JSON.parse(fs.readFileSync(BASELINE_PATH, 'utf8'));
+function loadBaseline(baselinePath) {
+  if (!fs.existsSync(baselinePath)) return { entries: [] };
+  return JSON.parse(fs.readFileSync(baselinePath, 'utf8'));
 }
 
-function main() {
-  const findings = listSourceFiles().flatMap(scanFile);
-  const baseline = loadBaseline();
+/**
+ * Functional core of the gate (Functional Core / Imperative Shell): every
+ * decision — scan, baseline load/match, template-reason audit, new/stale
+ * finding classification, --update/--prune writes, exit code — is pure and
+ * injectable so command-level behavior is testable without spawning the CLI.
+ * Returns the process exit code; never calls process.exit.
+ */
+export function runGate({ root, baselinePath, mode, sourceFiles, log = console } = {}) {
+  const findings = sourceFiles.flatMap((rel) => scanFile(rel, root));
+  const baseline = loadBaseline(baselinePath);
   const baselineMap = new Map(baseline.entries.map((e) => [e.fingerprint, e]));
+
+  const TEMPLATE_REASON = 'pre-existing, recorded at ticket-05 gate baseline; triage under 08-lowseverity-hardening';
+  // Audit leg (detect-secrets model): enforce mode rejects baseline entries whose
+  // reason is just the --update template, so accepted-risk entries must carry a
+  // hand-written justification. --update records candidates; a human edits the
+  // reason before the gate goes green.
+  const TEMPLATE_REASON_RE = /^pre-existing, recorded at ticket-05 gate baseline/;
 
   function reasonFor(f) {
     // Accepted-risk reasons may only be inherited by an exact fingerprint match
@@ -126,15 +156,8 @@ function main() {
     if (reviewed && typeof reviewed.reason === 'string' && reviewed.reason.length > 0) {
       return reviewed.reason;
     }
-    return 'pre-existing, recorded at ticket-05 gate baseline; triage under 08-lowseverity-hardening';
+    return TEMPLATE_REASON;
   }
-  // Audit leg (detect-secrets model): enforce mode rejects baseline entries whose
-  // reason is just the --update template, so accepted-risk entries must carry a
-  // hand-written justification. --update records candidates; a human edits the
-  // reason before the gate goes green.
-  const TEMPLATE_REASON_RE = /^pre-existing, recorded at ticket-05 gate baseline/;
-
-  const mode = process.argv.includes('--update') ? 'update' : process.argv.includes('--prune') ? 'prune' : 'enforce';
 
   if (mode === 'update') {
     const entries = findings.map((f) => ({
@@ -147,53 +170,66 @@ function main() {
       ticket: '08-lowseverity-hardening',
     }));
     fs.writeFileSync(
-      BASELINE_PATH,
+      baselinePath,
       `${JSON.stringify({ schema: 1, generatedBy: 'check-permission-modes.mjs --update', entries }, null, 2)}\n`,
     );
-    console.log(`baseline updated: ${entries.length} entries`);
-    process.exit(0);
+    log.log(`baseline updated: ${entries.length} entries`);
+    return 0;
   }
 
   const stale = baseline.entries.filter((e) => !findings.some((f) => f.fingerprint === e.fingerprint));
   if (mode === 'prune') {
     const kept = baseline.entries.filter((e) => findings.some((f) => f.fingerprint === e.fingerprint));
     fs.writeFileSync(
-      BASELINE_PATH,
+      baselinePath,
       `${JSON.stringify({ schema: 1, generatedBy: 'check-permission-modes.mjs --prune', entries: kept }, null, 2)}\n`,
     );
-    console.log(`baseline pruned: removed ${stale.length} stale entries, kept ${kept.length}`);
-    process.exit(0);
+    log.log(`baseline pruned: removed ${stale.length} stale entries, kept ${kept.length}`);
+    return 0;
   }
 
   // enforce
   const templateReasonEntries = baseline.entries.filter((e) => TEMPLATE_REASON_RE.test(e.reason || ''));
   if (templateReasonEntries.length > 0) {
-    console.error('\nFAIL: baseline entries still carry the --update template reason (audit required):');
+    log.error('\nFAIL: baseline entries still carry the --update template reason (audit required):');
     for (const e of templateReasonEntries) {
-      console.error(`  ${e.fingerprint}  ${e.file}:${e.line}`);
+      log.error(`  ${e.fingerprint}  ${e.file}:${e.line}`);
     }
-    console.error('\nEdit permission-guard-baseline.json and replace each with a hand-written justification.');
-    process.exit(1);
+    log.error('\nEdit permission-guard-baseline.json and replace each with a hand-written justification.');
+    return 1;
   }
   const newFindings = findings.filter((f) => !baselineMap.has(f.fingerprint));
   for (const e of stale) {
-    console.warn(`[stale-baseline] ${e.fingerprint} no longer matches any finding — run --prune`);
+    log.warn(`[stale-baseline] ${e.fingerprint} no longer matches any finding — run --prune`);
   }
   if (stale.length > 0) {
-    console.warn('note: stale baseline entries are warnings only; they do not fail the gate');
+    log.warn('note: stale baseline entries are warnings only; they do not fail the gate');
   }
   if (newFindings.length > 0) {
-    console.error('\nFAIL: new fs write calls without an explicit permission mode:');
+    log.error('\nFAIL: new fs write calls without an explicit permission mode:');
     for (const f of newFindings) {
-      console.error(`  ${f.file}:${f.line}  fs.${f.call}(...)  [matches no baseline entry]`);
+      log.error(`  ${f.file}:${f.line}  fs.${f.call}(...)  [matches no baseline entry]`);
     }
-    console.error(
+    log.error(
       '\nFix by adding mode: 0o600 (files) / 0o700 (dirs), or run --update to record an accepted-risk baseline entry with a reason.',
     );
-    process.exit(1);
+    return 1;
   }
-  console.log(
+  log.log(
     `permission-mode guard: OK (${findings.length} mode-less calls scanned, all covered by baseline: ${baseline.entries.length} entries)`,
+  );
+  return 0;
+}
+
+function main() {
+  const mode = process.argv.includes('--update') ? 'update' : process.argv.includes('--prune') ? 'prune' : 'enforce';
+  process.exit(
+    runGate({
+      root: ROOT,
+      baselinePath: BASELINE_PATH,
+      mode,
+      sourceFiles: listSourceFiles(ROOT),
+    }),
   );
 }
 

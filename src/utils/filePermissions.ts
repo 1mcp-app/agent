@@ -152,6 +152,48 @@ export async function assertOwnerOnlyDirPermissionsAsync(dirPath: string): Promi
 }
 
 /**
+ * Read-side open flags: O_NOFOLLOW rejects a symlink planted in the storage
+ * dir at open time (open fails with ELOOP), so the heal (fchmod/chmod) cannot
+ * be redirected onto an unrelated same-uid file the operator owns. libuv does
+ * not implement O_NOFOLLOW on Windows (the constant is undefined there), so we
+ * fall back to plain O_RDONLY — matching the win32 passthrough everywhere else
+ * in this module.
+ */
+export function credentialReadFlags(): number {
+  return process.platform === 'win32' ? fs.constants.O_RDONLY : fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW;
+}
+
+/** True when the open was refused because the path is a symlink (or a non-file rung): ELOOP/ENOTDIR. */
+export function isSymlinkRefusalError(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === 'ELOOP' || code === 'ENOTDIR';
+}
+
+function symlinkRefusalError(filePath: string): InsecureFilePermissionsError {
+  return new InsecureFilePermissionsError(
+    filePath,
+    0,
+    `Refusing to read ${path.basename(path.dirname(filePath))} data: path is a symlink or not a regular file`,
+  );
+}
+
+/**
+ * Open a credential file for reading, mapping a symlink refusal (O_NOFOLLOW →
+ * ELOOP) onto InsecureFilePermissionsError so callers fail closed and
+ * observably instead of treating an attacker-planted symlink as "missing".
+ */
+export function openCredentialReadSync(filePath: string): number {
+  try {
+    return fs.openSync(filePath, credentialReadFlags());
+  } catch (error) {
+    if (isSymlinkRefusalError(error)) {
+      throw symlinkRefusalError(filePath);
+    }
+    throw error;
+  }
+}
+
+/**
  * Read a credential file with full read-side strictModes on one open handle:
  * dir 0700 check, open → stat → heal (handle.chmod) → read, no TOCTOU window.
  * Heal-then-consume: legacy group/other-open files are healed to 0600; only a
@@ -159,7 +201,12 @@ export async function assertOwnerOnlyDirPermissionsAsync(dirPath: string): Promi
  */
 export async function readCredentialFile(filePath: string, storageDir: string): Promise<string> {
   await assertOwnerOnlyDirPermissionsAsync(storageDir);
-  const handle = await open(filePath, 'r');
+  const handle = await open(filePath, credentialReadFlags()).catch((error: unknown) => {
+    if (isSymlinkRefusalError(error)) {
+      throw symlinkRefusalError(filePath);
+    }
+    throw error;
+  });
   try {
     if (process.platform !== 'win32') {
       const st = await handle.stat();

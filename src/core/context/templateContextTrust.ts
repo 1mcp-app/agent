@@ -6,6 +6,7 @@ import type { ContextData } from '@src/types/context.js';
 import { createContextHash } from '@src/utils/context/contextHash.js';
 import {
   assertOwnerOnlyDirPermissions,
+  credentialReadFlags,
   enforceOwnerOnlyFilePermissions,
   InsecureFilePermissionsError,
 } from '@src/utils/filePermissions.js';
@@ -161,7 +162,10 @@ export class TemplateContextCapabilityStore {
     // checked first; a denied heal fails closed via InsecureFilePermissionsError
     // instead of silently reading an exposed capability.
     assertOwnerOnlyDirPermissions(this.options.storageDir);
-    const fd = fs.openSync(filePath, 'r');
+    // O_NOFOLLOW (via credentialReadFlags) closes the lstat→open symlink race:
+    // the lstat above rejects a symlink up front, and the open re-checks it
+    // atomically instead of trusting a racy pre-check.
+    const fd = fs.openSync(filePath, credentialReadFlags());
     let value: unknown;
     try {
       enforceOwnerOnlyFilePermissions(fd, filePath);

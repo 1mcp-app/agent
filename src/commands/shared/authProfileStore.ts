@@ -126,6 +126,11 @@ export async function deleteAuthProfile(configDir: string | undefined, serverUrl
 export async function listAuthProfiles(configDir?: string): Promise<AuthProfile[]> {
   const dir = profilesDir(configDir);
   try {
+    // Directory gate before enumeration: listing reveals which credential IDs
+    // exist, so heal/assert the dir 0700 first (same invariant as readData and
+    // cleanupExpiredData). A denied heal throws InsecureFilePermissionsError,
+    // caught below to return [] — fail-closed, no enumeration.
+    await assertOwnerOnlyDirPermissionsAsync(dir);
     const files = await readdir(dir);
     const results = await Promise.all(
       files

@@ -2,6 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { InsecureFilePermissionsError } from '@src/utils/filePermissions.js';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -155,6 +157,37 @@ describe('authProfileStore', () => {
       const loaded = await loadAuthProfile(tmpDir, 'http://localhost:3050');
       expect(loaded?.token).toBe('tok');
       expect((await stat(dir)).mode & 0o777).toBe(0o700);
+    });
+
+    it.skipIf(!isPosix)(
+      'listAuthProfiles heals a permissive dir before enumerating (empty dir, no per-file reads)',
+      async () => {
+        // No profiles saved: an empty but permissive dir would never be healed if
+        // the gate only ran inside per-file reads. Gate-before-readdir must heal it.
+        const dir = join(tmpDir, 'auth-profiles');
+        const { chmod, mkdir, stat } = await import('node:fs/promises');
+        await mkdir(dir, { recursive: true, mode: 0o700 });
+        await chmod(dir, 0o775);
+
+        const profiles = await listAuthProfiles(tmpDir);
+        expect(profiles).toHaveLength(0);
+        expect((await stat(dir)).mode & 0o777).toBe(0o700);
+      },
+    );
+
+    it.skipIf(!isPosix)('loadAuthProfile refuses a symlinked profile instead of silently returning null', async () => {
+      const filePath = await profileFileUrl('http://localhost:3050');
+      const { rm, symlink, writeFile } = await import('node:fs/promises');
+      const victim = join(tmpDir, `auth-profile-victim-${Date.now()}.json`);
+      await writeFile(victim, JSON.stringify({ serverUrl: 'http://localhost:3050', token: 'victim', savedAt: 1 }));
+      await rm(filePath);
+      await symlink(victim, filePath);
+
+      // Observable fail-closed: ELOOP is mapped to InsecureFilePermissionsError,
+      // not silently swallowed as "no profile".
+      await expect(loadAuthProfile(tmpDir, 'http://localhost:3050')).rejects.toThrow(InsecureFilePermissionsError);
+
+      await rm(victim, { force: true });
     });
 
     it.skipIf(!isPosix)('listAuthProfiles stays available while healing every file', async () => {

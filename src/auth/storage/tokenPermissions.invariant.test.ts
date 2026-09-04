@@ -106,6 +106,22 @@ describe('token/storage permission invariants (POSIX-only, AUTH-07 gate)', () =>
       expect(fs.statSync(filePath).mode & 0o777).toBe(0o600);
     });
 
+    it.skipIf(!isPosix)('refuses to follow a symlink to a same-uid file on read (O_NOFOLLOW, CWE-59)', () => {
+      const filePath = service.getFilePath(filePrefix, testId);
+      const victimPath = path.join(tmpdir(), `perm-invariant-victim-${Date.now()}.json`);
+      fs.writeFileSync(victimPath, JSON.stringify({ ...testData, value: 'victim-secret' }), { mode: 0o644 });
+      fs.symlinkSync(victimPath, filePath);
+
+      // Fail closed, observably: the symlink is refused at open and mapped to
+      // InsecureFilePermissionsError — never consumed, never treated as "missing".
+      expect(() => service.readData<TestData>(filePrefix, testId)).toThrow(InsecureFilePermissionsError);
+      // The target was not chmod-mutated through the link (still 0644).
+      expect(fs.lstatSync(victimPath).mode & 0o777).toBe(0o644);
+
+      fs.unlinkSync(filePath);
+      fs.unlinkSync(victimPath);
+    });
+
     it.skipIf(!isPosix)('fails closed when the self-heal chmod is denied (EPERM)', () => {
       service.writeData(filePrefix, testId, testData);
       const filePath = service.getFilePath(filePrefix, testId);

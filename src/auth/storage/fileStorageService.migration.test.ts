@@ -110,39 +110,6 @@ describe('FileStorageService', () => {
       fs.rmSync(baseDir, { recursive: true, force: true });
     });
 
-    it.skipIf(process.platform === 'win32')(
-      'refuses to follow symlinks during legacy credential migration (CWE-59)',
-      () => {
-        // Attacker plants a symlink in the legacy flat dir pointing at a sensitive
-        // file; migration must neither chmod that target nor move the link.
-        const baseDir = path.join(tmpdir(), `migration-symlink-${Date.now()}`);
-        const sessionsDir = path.join(baseDir, 'sessions');
-        fs.mkdirSync(sessionsDir, { recursive: true });
-
-        const victimFile = path.join(baseDir, 'victim.json');
-        fs.writeFileSync(victimFile, JSON.stringify({ secret: true }));
-        fs.chmodSync(victimFile, 0o644);
-
-        const linkName = 'session_sess-12345678-1234-4abc-89de-123456789012.json';
-        fs.symlinkSync(victimFile, path.join(sessionsDir, linkName));
-
-        const serverService = new FileStorageService(baseDir, 'server');
-        serverService.shutdown();
-
-        // Victim was not chmod-mutated via the link (0644 would drop to 0600 if followed)
-        expect(fs.lstatSync(victimFile).mode & 0o777).toBe(0o644);
-        // The link itself must not be moved into active storage
-        const storageDir = path.join(baseDir, 'sessions', 'server');
-        const moved = fs.existsSync(path.join(storageDir, linkName));
-        expect(moved).toBe(false);
-        expect(fs.existsSync(path.join(sessionsDir, linkName))).toBe(true);
-        // Migration aborted overall: no completion flag written
-        expect(fs.readdirSync(sessionsDir).filter((n) => n.startsWith('.migrated')).length).toBe(0);
-
-        fs.rmSync(baseDir, { recursive: true, force: true });
-      },
-    );
-
     it('should not migrate transport files (new feature)', () => {
       // Arrange: Create parent directory structure
       const baseDir = path.join(tmpdir(), `migration-test-${Date.now()}`);

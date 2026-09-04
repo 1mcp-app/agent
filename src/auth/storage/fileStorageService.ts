@@ -7,8 +7,10 @@ import { AUTH_CONFIG, FILE_PREFIX_MAPPING, getGlobalConfigDir, STORAGE_SUBDIRS }
 import logger from '@src/logger/logger.js';
 import {
   assertOwnerOnlyDirPermissions,
+  credentialReadFlags,
   enforceOwnerOnlyFilePermissions,
   InsecureFilePermissionsError,
+  openCredentialReadSync,
 } from '@src/utils/filePermissions.js';
 
 import { z, type ZodType } from 'zod';
@@ -184,19 +186,11 @@ export class FileStorageService {
 
         try {
           if (process.platform !== 'win32') {
-            // CWE-59 TOCTOU: O_NOFOLLOW rejects symlinks at open time and the
-            // fd pins the inode across chmod and rename, so a replaced path
-            // cannot redirect either operation (a bare lstat check is racy).
-            const fd = fs.openSync(oldPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
-            try {
-              fs.fchmodSync(fd, 0o600);
-              fs.renameSync(oldPath, newPath);
-              fs.fchmodSync(fd, 0o600);
-            } finally {
-              fs.closeSync(fd);
-            }
-          } else {
-            fs.renameSync(oldPath, newPath);
+            this.hardenPermissionsSafely(oldPath, 0o600);
+          }
+          fs.renameSync(oldPath, newPath);
+          if (process.platform !== 'win32') {
+            this.hardenPermissionsSafely(newPath, 0o600);
           }
           migrationCount++;
           logger.info(`Migrated ${this.getLoggableFileName(file)} from ${sourceDir} to ${this.storageDir}`);
@@ -527,8 +521,10 @@ export class FileStorageService {
       assertOwnerOnlyDirPermissions(this.getStorageDir());
 
       // open → fstat → read on one descriptor, closing the TOCTOU gap
-      // between a permission check and a separate open.
-      const fd = fs.openSync(filePath, 'r');
+      // between a permission check and a separate open. O_NOFOLLOW rejects a
+      // planted symlink at open time and maps it to InsecureFilePermissionsError
+      // (observable fail-closed) instead of a silent "credential missing".
+      const fd = openCredentialReadSync(filePath);
       let data: string;
       try {
         enforceOwnerOnlyFilePermissions(fd, filePath);
@@ -658,7 +654,7 @@ export class FileStorageService {
           try {
             // Read through the same strictModes gate as readData: heal a
             // group/other-open legacy file before consuming its bytes.
-            const fd = fs.openSync(filePath, 'r');
+            const fd = fs.openSync(filePath, credentialReadFlags());
             try {
               enforceOwnerOnlyFilePermissions(fd, filePath);
               data = fs.readFileSync(fd, 'utf8');

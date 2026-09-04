@@ -308,9 +308,9 @@ describe('FileStorageService', () => {
       fs.writeFileSync(legacyFilePath, JSON.stringify(testData), { mode: 0o644 });
       fs.chmodSync(legacyFilePath, 0o644);
 
-      // Migration now hardens via O_NOFOLLOW open + fchmodSync on the fd
-      // (race-safe), so simulate the denial at fchmodSync.
-      vi.spyOn(fs, 'fchmodSync').mockImplementation(() => {
+      // Migration hardens via hardenPermissionsSafely (chmodSync); simulate the
+      // denial at chmodSync so no migration flag is written.
+      vi.spyOn(fs, 'chmodSync').mockImplementation(() => {
         throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
       });
 
