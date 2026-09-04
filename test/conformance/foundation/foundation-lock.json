@@ -4,7 +4,7 @@
     {
       "id": "command-runner",
       "path": "scripts/run-conformance.mjs",
-      "digest": "sha256:f82980f8ce501940eb6384b38a518b3f5c18a759367cb71edf63c1fdb54a051a"
+      "digest": "sha256:e669967584a90a691170fd72fe367d5bfd52270b836b757a38a46117c4630f80"
     },
     {
       "id": "vitest-conformance",
