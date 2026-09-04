@@ -163,7 +163,7 @@ export function checkSecurityPolicies(relFile: string, yamlContent: string): Pol
       }
 
       // In composite actions, validate Bash/sh run steps against unquoted variable expansions
-      if (isCompositeAction && (step.shell === 'bash' || step.shell === 'sh')) {
+      if (isCompositeAction && typeof step.shell === 'string' && /^(?:bash|sh)(?:\s|$)/.test(step.shell.trim())) {
         const shellCheck = checkShellScript(step.run);
         if (shellCheck.available) {
           for (const issue of shellCheck.issues) {
