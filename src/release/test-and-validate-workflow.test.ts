@@ -79,6 +79,46 @@ export interface PolicyViolation {
 }
 
 /**
+ * Detects whether a GitHub Actions shell command template executes a Bash or Sh shell.
+ *
+ * Handles standard keywords ('bash', 'sh'), absolute paths ('/bin/bash', '/usr/bin/bash', '/bin/sh'),
+ * environment wrappers ('/usr/bin/env bash'), and custom parameter templates (e.g. '/bin/bash -eo pipefail {0}').
+ *
+ * @param shellTemplate - The shell property declared on the step.
+ * @returns True if the target shell executable is bash or sh.
+ */
+export function isBashOrShShell(shellTemplate?: string): boolean {
+  if (!shellTemplate || typeof shellTemplate !== 'string') {
+    return false;
+  }
+  const trimmed = shellTemplate.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  let rawExe = '';
+  if (trimmed.startsWith('"')) {
+    const endQuote = trimmed.indexOf('"', 1);
+    rawExe = endQuote !== -1 ? trimmed.slice(1, endQuote) : trimmed.slice(1);
+  } else if (trimmed.startsWith("'")) {
+    const endQuote = trimmed.indexOf("'", 1);
+    rawExe = endQuote !== -1 ? trimmed.slice(1, endQuote) : trimmed.slice(1);
+  } else {
+    rawExe = trimmed.split(/\s+/)[0];
+  }
+
+  let baseExe = path
+    .basename(rawExe.replace(/\\/g, '/'))
+    .toLowerCase()
+    .replace(/\.exe$/, '');
+  if (baseExe === 'env') {
+    const afterEnv = trimmed.replace(/^[^\s]+\s+/, '').trim();
+    return isBashOrShShell(afterEnv);
+  }
+  return baseExe === 'bash' || baseExe === 'sh';
+}
+
+/**
  * Runs ShellCheck against a bash script snippet to detect shell quoting/expansion violations (e.g., SC2086).
  *
  * @param script - Shell script content string.
@@ -163,7 +203,7 @@ export function checkSecurityPolicies(relFile: string, yamlContent: string): Pol
       }
 
       // In composite actions, validate Bash/sh run steps against unquoted variable expansions
-      if (isCompositeAction && typeof step.shell === 'string' && /^(?:bash|sh)(?:\s|$)/.test(step.shell.trim())) {
+      if (isCompositeAction && isBashOrShShell(step.shell)) {
         const shellCheck = checkShellScript(step.run);
         if (shellCheck.available) {
           for (const issue of shellCheck.issues) {
@@ -176,42 +216,12 @@ export function checkSecurityPolicies(relFile: string, yamlContent: string): Pol
             }
           }
         } else {
-          // Static fallback analysis for bare unquoted $VAR in composite action commands
-          const lines = step.run.split('\n');
-          let inHeredoc = false;
-          let heredocDelim = '';
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (inHeredoc) {
-              if (trimmed === heredocDelim) inHeredoc = false;
-              continue;
-            }
-            if (trimmed.startsWith('#')) continue;
-            const heredocMatch = trimmed.match(/<<-?\s*['"]?([A-Za-z0-9_]+)['"]?/);
-            if (heredocMatch && !trimmed.endsWith(heredocMatch[1])) {
-              inHeredoc = true;
-              heredocDelim = heredocMatch[1];
-            }
-            if (/^(\w+=\S+|\w+=\$\w+|export\s+\w+=|local\s+\w+=)/.test(trimmed)) continue;
-            if (/\[\[.*=~.*\$\$?[A-Za-z_].*\]\]/.test(trimmed)) continue;
-
-            const unquotedArgMatch = /(?:^|\s)(?!\$[0-9])(\$(?:[A-Za-z_][A-Za-z0-9_]*|\{[A-Za-z_][A-Za-z0-9_]*\}))/g;
-            let m;
-            while ((m = unquotedArgMatch.exec(trimmed)) !== null) {
-              const idx = m.index;
-              const before = trimmed.slice(0, idx);
-              const doubleQuotesBefore = (before.match(/"/g) || []).length;
-              const singleQuotesBefore = (before.match(/'/g) || []).length;
-              if (doubleQuotesBefore % 2 === 0 && singleQuotesBefore % 2 === 0) {
-                violations.push({
-                  file: relFile,
-                  rule: 'unquoted-shell-variable',
-                  detail: `composite action step has unquoted variable: ${m[1]} in '${trimmed}'`,
-                });
-                break;
-              }
-            }
-          }
+          // Fail closed when ShellCheck is unavailable
+          violations.push({
+            file: relFile,
+            rule: 'unquoted-shell-variable',
+            detail: 'ShellCheck binary is required to analyze composite action shell steps but was not found in PATH',
+          });
         }
       }
     }
@@ -329,6 +339,15 @@ describe('test-and-validate workflow', () => {
     // Composite action with unquoted shell variable must be caught by composite quoting policy
     const compositeViolations = checkSecurityPolicies('action.yml', compositeFixture);
     expect(compositeViolations.some((v) => v.rule === 'unquoted-shell-variable')).toBe(true);
+    expect(compositeViolations.some((v) => v.detail.includes('SC2086'))).toBe(true);
+
+    // Composite action with custom absolute-path shell template (/bin/bash -eo pipefail {0}) must be caught
+    const compositeAbsoluteFixture = readRepoFile(
+      path.join('test', 'fixtures', 'ci-security', 'unquoted-composite-absolute-shell.yml'),
+    );
+    const compositeAbsoluteViolations = checkSecurityPolicies('action.yml', compositeAbsoluteFixture);
+    expect(compositeAbsoluteViolations.some((v) => v.rule === 'unquoted-shell-variable')).toBe(true);
+    expect(compositeAbsoluteViolations.some((v) => v.detail.includes('SC2086'))).toBe(true);
 
     // Workflow without direct expression interpolation passes structural check
     expect(checkSecurityPolicies('unquoted-var.yml', unquotedFixture)).toEqual([]);
@@ -345,10 +364,26 @@ describe('test-and-validate workflow', () => {
     expect(runScript).toMatch(/pnpm \$BUILD_SCRIPT/);
 
     const check = checkShellScript(runScript);
-    if (check.available) {
-      expect(check.issues.some((issue) => issue.includes('SC2086'))).toBe(true);
-    } else if (process.env.CI === 'true') {
-      throw new Error('shellcheck binary was expected in CI environment but not found');
-    }
+    expect(check.available, 'shellcheck binary must be installed and available').toBe(true);
+    expect(check.issues.some((issue) => issue.includes('SC2086'))).toBe(true);
+  });
+  it('correctly recognizes bash/sh executables across custom shell templates', () => {
+    expect(isBashOrShShell('bash')).toBe(true);
+    expect(isBashOrShShell('sh')).toBe(true);
+    expect(isBashOrShShell('/bin/bash')).toBe(true);
+    expect(isBashOrShShell('/usr/bin/bash')).toBe(true);
+    expect(isBashOrShShell('/bin/sh')).toBe(true);
+    expect(isBashOrShShell('/bin/bash -eo pipefail {0}')).toBe(true);
+    expect(isBashOrShShell('/usr/bin/bash -e {0}')).toBe(true);
+    expect(isBashOrShShell('/usr/bin/env bash')).toBe(true);
+    expect(isBashOrShShell('/usr/bin/env sh -e {0}')).toBe(true);
+    expect(isBashOrShShell('"C:\\\\Program Files\\\\Git\\\\bin\\\\bash.exe" -eo pipefail {0}')).toBe(true);
+
+    expect(isBashOrShShell('python {0}')).toBe(false);
+    expect(isBashOrShShell('powershell')).toBe(false);
+    expect(isBashOrShShell('pwsh')).toBe(false);
+    expect(isBashOrShShell('cmd')).toBe(false);
+    expect(isBashOrShShell(undefined)).toBe(false);
+    expect(isBashOrShShell('')).toBe(false);
   });
 });
