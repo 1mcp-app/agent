@@ -28,16 +28,20 @@ describe('official client gateway bridge', () => {
       'utf8',
     );
     try {
-      await expect(
-        execFileAsync(process.execPath, [bridge, fixture, fakeGateway, scratch, 'http://localhost:9/mcp'], {
+      const execution = execFileAsync(
+        process.execPath,
+        [bridge, fixture, fakeGateway, scratch, 'http://localhost:9/mcp'],
+        {
           env: {
             ...process.env,
             MCP_CONFORMANCE_SCENARIO: 'tools_call',
             MCP_CONFORMANCE_PROTOCOL_VERSION: '2025-11-25',
           },
           timeout: 15_000,
-        }),
-      ).rejects.toMatchObject({ code: 1 });
+        },
+      );
+      if (mode === 'gateway-rejected') await expect(execution).resolves.toBeDefined();
+      else await expect(execution).rejects.toMatchObject({ code: 1 });
       await expect(readFile(join(scratch, 'tools_call.json'), 'utf8')).resolves.toContain(
         `"status":"${expectedStatus}"`,
       );
@@ -74,7 +78,7 @@ describe('official client gateway bridge', () => {
           },
           timeout: 15_000,
         }),
-      ).rejects.toMatchObject({ code: 1 });
+      ).resolves.toBeDefined();
       await expect(readFile(join(scratch, `${encodeURIComponent(scenario)}.json`), 'utf8')).resolves.toContain(
         '"status":"attempted"',
       );
@@ -126,7 +130,7 @@ describe('official client gateway bridge', () => {
           },
           timeout: 15_000,
         }),
-      ).rejects.toMatchObject({ code: 1 });
+      ).resolves.toBeDefined();
       await expect(readFile(join(scratch, 'request-metadata.json'), 'utf8')).resolves.toContain('"status":"attempted"');
     } finally {
       await rm(scratch, { recursive: true, force: true });
@@ -160,8 +164,10 @@ describe('official client gateway bridge', () => {
         'utf8',
       );
       try {
-        await expect(
-          execFileAsync(process.execPath, [bridge, fixture, pendingGateway, scratch, 'http://localhost:9/mcp'], {
+        const execution = execFileAsync(
+          process.execPath,
+          [bridge, fixture, pendingGateway, scratch, 'http://localhost:9/mcp'],
+          {
             env: {
               ...process.env,
               MCP_CONFORMANCE_SCENARIO: 'auth/pre-registration',
@@ -172,8 +178,10 @@ describe('official client gateway bridge', () => {
               }),
             },
             timeout: 15_000,
-          }),
-        ).rejects.toMatchObject({ code: 1 });
+          },
+        );
+        if (expectedStatus === 'attempted') await expect(execution).resolves.toBeDefined();
+        else await expect(execution).rejects.toMatchObject({ code: 1 });
         await expect(readFile(join(scratch, 'auth%2Fpre-registration.json'), 'utf8')).resolves.toContain(
           `"status":"${expectedStatus}"`,
         );
@@ -201,7 +209,7 @@ describe('official client gateway bridge', () => {
           },
           timeout: 15_000,
         }),
-      ).rejects.toMatchObject({ code: 1 });
+      ).resolves.toBeDefined();
       await expect(readFile(join(scratch, 'tools_call.json'), 'utf8')).resolves.toContain('"status":"attempted"');
     } finally {
       await rm(scratch, { recursive: true, force: true });

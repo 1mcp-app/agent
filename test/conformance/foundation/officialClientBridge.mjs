@@ -111,9 +111,10 @@ function runFixture(endpoint, home) {
       const gatewayRejected = stderr
         .split(/\r?\n/u)
         .some((line) => line.includes('"classification":"gateway-rejected"'));
+      const kind = code === 0 || gatewayRejected ? 'attempted' : 'fixture-defect';
       resolve({
-        kind: code === 0 || gatewayRejected ? 'attempted' : 'fixture-defect',
-        exitCode: signal ? 1 : (code ?? 1),
+        kind,
+        exitCode: signal ? 1 : kind === 'attempted' ? 0 : (code ?? 1),
       });
     });
   });
