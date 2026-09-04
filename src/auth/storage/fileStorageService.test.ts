@@ -308,15 +308,26 @@ describe('FileStorageService', () => {
       fs.writeFileSync(legacyFilePath, JSON.stringify(testData), { mode: 0o644 });
       fs.chmodSync(legacyFilePath, 0o644);
 
-      // Migration hardens via hardenPermissionsSafely (chmodSync); simulate the
-      // denial at chmodSync so no migration flag is written.
-      vi.spyOn(fs, 'chmodSync').mockImplementation(() => {
-        throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+      // Migration hardens via hardenPermissionsSafely (chmodSync). Scope the
+      // denial to the legacy file's own chmod — the constructor also chmods the
+      // storage dir in ensureDirectory(), and a blanket mock would abort
+      // construction before migration ever runs, masking what this test asserts.
+      const originalChmodSync = fs.chmodSync;
+      let migrationChmodAttempted = false;
+      vi.spyOn(fs, 'chmodSync').mockImplementation((targetPath, mode) => {
+        if (targetPath === legacyFilePath) {
+          migrationChmodAttempted = true;
+          throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+        }
+        return originalChmodSync(targetPath, mode);
       });
 
       const serverService = new FileStorageService(customDir, 'server');
       const flagPath = path.join(sessionsDir, '.migrated-to-server');
       expect(fs.existsSync(flagPath)).toBe(false);
+      // Defense-in-depth: the failure path must have been exercised, not skipped
+      // by a mock that never fires (e.g. a future re-scoping of the migration).
+      expect(migrationChmodAttempted).toBe(true);
 
       serverService.shutdown();
       fs.rmSync(customDir, { recursive: true, force: true });
