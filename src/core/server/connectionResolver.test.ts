@@ -1,3 +1,5 @@
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
 import { ClientStatus, OutboundConnection, OutboundConnections } from '@src/core/types/client.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -9,12 +11,8 @@ describe('ConnectionResolver', () => {
   let mockTemplateHashProvider: TemplateHashProvider;
 
   // Helper to create a mock OutboundConnection
-  const createMockConnection = (name: string): OutboundConnection => ({
-    name,
-    transport: {} as any,
-    client: {} as any,
-    status: ClientStatus.Connected,
-  });
+  const createMockConnection = (name: string): OutboundConnection =>
+    createMockOutboundConnection({ name, status: ClientStatus.Connected });
 
   beforeEach(() => {
     outboundConns = new Map();

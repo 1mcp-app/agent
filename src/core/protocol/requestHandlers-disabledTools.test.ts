@@ -1,3 +1,10 @@
+import {
+  createMockClient,
+  createMockLegacyInboundConnection,
+  createMockLegacyOutboundConnection,
+} from '@test/unit-utils/MockFactories.js';
+
+import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 import type { OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
@@ -87,19 +94,24 @@ describe('requestHandlers disabled tools enforcement', () => {
       setRequestHandler: vi.fn(),
     };
 
+    const request = vi.fn(async ({ method, params }: { method: string; params?: Record<string, unknown> }) => {
+      if (method === 'tools/list') {
+        return (mockClient.listTools as (params: Record<string, unknown>) => Promise<unknown>)(params ?? {});
+      }
+      if (method === 'tools/call') {
+        return (mockClient.callTool as (params: Record<string, unknown>) => Promise<unknown>)(params ?? {});
+      }
+      throw new Error(`Unexpected adapter request: ${method}`);
+    });
+
     outboundConnections = new Map<string, OutboundConnection>([
       [
         'filesystem',
-        {
+        createMockLegacyOutboundConnection({
           name: 'filesystem',
           status: ClientStatus.Connected,
-          client: {
-            ...mockClient,
-          },
-          transport: {
-            timeout: 5000,
-          },
-        } as unknown as OutboundConnection,
+          client: createMockClient({ ...mockClient, request } as never) as Client,
+        }),
       ],
     ]);
   });
@@ -115,6 +127,13 @@ describe('requestHandlers disabled tools enforcement', () => {
     return registration[1];
   }
 
+  function inboundConnection() {
+    return createMockLegacyInboundConnection({
+      enablePagination: true,
+      server: mockServer as never,
+    });
+  }
+
   it('filters disabled tools from non-lazy listTools responses', async () => {
     mockGetTransportConfig.mockReturnValue({
       filesystem: {
@@ -124,10 +143,7 @@ describe('requestHandlers disabled tools enforcement', () => {
       },
     });
 
-    registerRequestHandlers(outboundConnections, {
-      server: mockServer,
-      enablePagination: true,
-    } as any);
+    registerRequestHandlers(outboundConnections, inboundConnection());
 
     const handler = getRegisteredHandler(ListToolsRequestSchema);
     const result = await handler({ params: {} });
@@ -146,10 +162,7 @@ describe('requestHandlers disabled tools enforcement', () => {
       },
     });
 
-    registerRequestHandlers(outboundConnections, {
-      server: mockServer,
-      enablePagination: true,
-    } as any);
+    registerRequestHandlers(outboundConnections, inboundConnection());
 
     const handler = getRegisteredHandler(ListToolsRequestSchema);
     const result = await handler({ params: {} });
@@ -175,10 +188,7 @@ describe('requestHandlers disabled tools enforcement', () => {
       },
     });
 
-    registerRequestHandlers(outboundConnections, {
-      server: mockServer,
-      enablePagination: true,
-    } as any);
+    registerRequestHandlers(outboundConnections, inboundConnection());
 
     const handler = getRegisteredHandler(ListToolsRequestSchema);
     const firstResult = await handler({ params: {} });
@@ -205,10 +215,7 @@ describe('requestHandlers disabled tools enforcement', () => {
       resourceName: 'write_file',
     });
 
-    registerRequestHandlers(outboundConnections, {
-      server: mockServer,
-      enablePagination: true,
-    } as any);
+    registerRequestHandlers(outboundConnections, inboundConnection());
 
     const handler = getRegisteredHandler(CallToolRequestSchema);
     const result = await handler({
@@ -242,10 +249,7 @@ describe('requestHandlers disabled tools enforcement', () => {
       resourceName: 'write_file',
     });
 
-    registerRequestHandlers(outboundConnections, {
-      server: mockServer,
-      enablePagination: true,
-    } as any);
+    registerRequestHandlers(outboundConnections, inboundConnection());
 
     const handler = getRegisteredHandler(CallToolRequestSchema);
     const firstResult = await handler({

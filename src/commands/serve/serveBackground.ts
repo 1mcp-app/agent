@@ -29,9 +29,9 @@ import logger from '@src/logger/logger.js';
 import { resolveLoggingConfig } from '@src/logger/loggingConfig.js';
 import { normalizedArgv } from '@src/utils/cli/normalizedArgv.js';
 
+import type { AsyncLoadingCliOptions } from './asyncLoadingOptions.js';
 import { resolveServeConfigPaths } from './runtimeScope.js';
 import type { ServeOptions } from './serve.js';
-import type { AsyncLoadingCliOptions } from './asyncLoadingOptions.js';
 
 /**
  * `serve --background`: start a detached persistent supervisor for the selected

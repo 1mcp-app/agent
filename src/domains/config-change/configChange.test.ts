@@ -140,7 +140,6 @@ describe('Config Change', () => {
       mcpServers: { renamed: { ...original, url: 'https://new.example.com/mcp' } },
     });
     expect(reload).toHaveBeenCalledTimes(1);
-
   });
 
   it('edits a Template Server definition without creating per-instance state', async () => {
@@ -517,7 +516,6 @@ describe('Config Change', () => {
     expect(results.map((result) => result.status).sort()).toEqual(['changed', 'destination_conflict']);
     expect(['first', 'second']).toContain((await readConfig()).mcpServers.custom.command);
     expect(reload).toHaveBeenCalledTimes(1);
-
   });
 
   it('creates a backup before replacing a static configured target when requested', async () => {

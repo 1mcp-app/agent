@@ -181,6 +181,25 @@ const legacyRevisionProofSchema = z
   })
   .strict();
 
+const sdkBoundaryProofSchema = z.discriminatedUnion('classification', [
+  z
+    .object({
+      classification: z.literal('product'),
+      productVerdict: z.enum(['pass', 'fail']),
+      artifactId: z.literal('boundary/sdk-boundary-proof.json'),
+      evidenceDigest: sha256Schema,
+      attempt: z.literal(1),
+    })
+    .strict(),
+  z
+    .object({
+      classification: z.enum(['fixture', 'harness']),
+      reason: z.enum(['fixture-crash', 'proof-missing', 'proof-malformed', 'proof-digest-mismatch']),
+      attempt: z.literal(1),
+    })
+    .strict(),
+]);
+
 const traceSchema = z
   .object({
     requirementId: safeIdSchema,
@@ -213,6 +232,7 @@ const baselineInputSchema = z
     matrixRuns: z.array(matrixRunSchema),
     profileProofs: z.array(profileProofSchema),
     legacyRevisionProofs: z.array(legacyRevisionProofSchema),
+    sdkBoundaryProof: sdkBoundaryProofSchema,
     requiredProfiles: z.array(profileSchema),
   })
   .strict();
@@ -233,6 +253,7 @@ const baselinePayloadSchema = z
     matrixRuns: z.array(matrixRunSchema),
     profileProofs: z.array(profileProofSchema),
     legacyRevisionProofs: z.array(legacyRevisionProofSchema),
+    sdkBoundaryProof: sdkBoundaryProofSchema,
     requiredProfiles: z.array(profileSchema),
     traceability: z.array(traceSchema),
   })
@@ -350,6 +371,7 @@ function infrastructureErrors(input: z.infer<typeof baselineInputSchema>): strin
   ) {
     errors.push('legacy-revision-proof-set-invalid');
   }
+  if (input.sdkBoundaryProof.classification !== 'product') errors.push('sdk-boundary-proof-infrastructure-failed');
   return [...new Set(errors)];
 }
 
@@ -470,6 +492,7 @@ function invalidBaseline(raw: unknown, code: string): ConformanceBaseline {
     matrixRuns: [],
     profileProofs: [],
     legacyRevisionProofs: [],
+    sdkBoundaryProof: { classification: 'harness', reason: 'proof-malformed', attempt: 1 },
     requiredProfiles: [],
     traceability: [],
   });
@@ -486,6 +509,8 @@ export function buildConformanceBaseline(rawInput: ConformanceBaselineInput): Co
     parsed.data.officialRuns.some((run) => run.classification === 'product' && run.productVerdict === 'fail') ||
     parsed.data.matrixRuns.some((run) => run.classification === 'product' && run.productVerdict === 'fail') ||
     parsed.data.profileProofs.some((proof) => proof.status === 'product-failed');
+  const sdkBoundaryRed =
+    parsed.data.sdkBoundaryProof.classification === 'product' && parsed.data.sdkBoundaryProof.productVerdict === 'fail';
   return finalize({
     schemaVersion: 1,
     mode: parsed.data.mode,
@@ -493,7 +518,7 @@ export function buildConformanceBaseline(rawInput: ConformanceBaselineInput): Co
     attempt: 1,
     integrityDigest: parsed.data.integrity.digest,
     infrastructureVerdict,
-    productVerdict: infrastructureVerdict === 'red' ? 'not-evaluated' : productRed ? 'red' : 'green',
+    productVerdict: infrastructureVerdict === 'red' ? 'not-evaluated' : productRed || sdkBoundaryRed ? 'red' : 'green',
     infrastructureErrorCodes: errors,
     requirementCatalog: parsed.data.requirementCatalog,
     officialRuns: parsed.data.officialRuns,
@@ -501,6 +526,7 @@ export function buildConformanceBaseline(rawInput: ConformanceBaselineInput): Co
     matrixRuns: parsed.data.matrixRuns,
     profileProofs: parsed.data.profileProofs,
     legacyRevisionProofs: parsed.data.legacyRevisionProofs,
+    sdkBoundaryProof: parsed.data.sdkBoundaryProof,
     requiredProfiles: parsed.data.requiredProfiles,
     traceability,
   });
@@ -520,6 +546,7 @@ export function validateConformanceBaseline(input: unknown): ConformanceBaseline
     matrixRuns: baseline.matrixRuns,
     profileProofs: baseline.profileProofs,
     legacyRevisionProofs: baseline.legacyRevisionProofs,
+    sdkBoundaryProof: baseline.sdkBoundaryProof,
     requiredProfiles: baseline.requiredProfiles,
   });
   if (

@@ -192,29 +192,21 @@ describe('OAuth Authorization Flow', () => {
     const clientInfo: {
       status: string;
       authorizationUrl?: string;
-      oauthStartTime?: Date;
-      transport: {
-        oauthProvider: {
-          getAuthorizationUrl: ReturnType<typeof vi.fn>;
-        };
-      };
+      oauthStartTime?: string;
     } = {
       status: 'disconnected',
-      transport: {
-        oauthProvider: {
-          getAuthorizationUrl: vi.fn().mockReturnValue('https://provider.example/generated'),
-        },
-      },
     };
-    const connect = vi
-      .fn()
-      .mockRejectedValue(Object.assign(new Error('OAuth required'), { name: 'OAuthRequiredError' }));
+    const initiateOAuth = vi.fn(async () => {
+      clientInfo.status = 'awaiting_oauth';
+      clientInfo.authorizationUrl = 'https://provider.example/generated';
+      clientInfo.oauthStartTime = new Date().toISOString();
+    });
     const { flow } = createFlow({
       serverRuntime: {
         getClient: vi.fn().mockReturnValue(clientInfo),
       },
       clientRuntime: {
-        createClientInstance: vi.fn().mockReturnValue({ connect }),
+        initiateOAuth,
       },
     });
 
@@ -225,30 +217,27 @@ describe('OAuth Authorization Flow', () => {
       redirectUrl: 'https://provider.example/generated',
     });
     expect(clientInfo.status).toBe('awaiting_oauth');
-    expect(clientInfo.oauthStartTime).toBeInstanceOf(Date);
-    expect(connect).toHaveBeenCalledWith(clientInfo.transport);
+    expect(clientInfo.oauthStartTime).toBe(new Date(clientInfo.oauthStartTime!).toISOString());
+    expect(initiateOAuth).toHaveBeenCalledWith('github');
   });
 
   it('should clear backend OAuth state before restart', async () => {
     const clientInfo = {
       status: 'error',
       authorizationUrl: 'https://provider.example/old',
-      oauthStartTime: new Date('2026-05-01T00:00:00Z'),
-      transport: {
-        oauthProvider: {
-          getAuthorizationUrl: vi.fn().mockReturnValue('https://provider.example/new'),
-        },
-      },
+      oauthStartTime: '2026-05-01T00:00:00.000Z',
     };
-    const connect = vi
-      .fn()
-      .mockRejectedValue(Object.assign(new Error('OAuth required'), { name: 'OAuthRequiredError' }));
+    const initiateOAuth = vi.fn(async () => {
+      clientInfo.status = 'awaiting_oauth';
+      clientInfo.authorizationUrl = 'https://provider.example/new';
+      clientInfo.oauthStartTime = new Date().toISOString();
+    });
     const { flow } = createFlow({
       serverRuntime: {
         getClient: vi.fn().mockReturnValue(clientInfo),
       },
       clientRuntime: {
-        createClientInstance: vi.fn().mockReturnValue({ connect }),
+        initiateOAuth,
       },
     });
 
@@ -343,32 +332,30 @@ describe('OAuth Authorization Flow', () => {
   });
 
   it('should build backend OAuth dashboard facts from runtime clients', () => {
-    const lastConnected = new Date('2026-05-27T05:00:00Z');
+    const lastConnected = '2026-05-27T05:00:00.000Z';
     const getClients = vi.fn().mockReturnValue(
       new Map([
         [
           'plain-connected',
           {
             status: 'connected',
-            transport: {},
             lastConnected,
+            requiresOAuth: false,
           },
         ],
         [
           'oauth-connected',
           {
             status: 'connected',
-            transport: {
-              oauthProvider: {},
-            },
-            lastError: new Error('token expired'),
+            requiresOAuth: true,
+            lastError: { message: 'token expired' },
           },
         ],
         [
           'awaiting-oauth',
           {
             status: 'awaiting_oauth',
-            transport: {},
+            requiresOAuth: true,
           },
         ],
       ]),
@@ -388,17 +375,27 @@ describe('OAuth Authorization Flow', () => {
           name: 'plain-connected',
           status: 'connected',
           lastConnected,
+          authorizationUrl: undefined,
+          oauthStartTime: undefined,
+          lastError: undefined,
           requiresOAuth: false,
         },
         {
           name: 'oauth-connected',
           status: 'connected',
           lastError: 'token expired',
+          authorizationUrl: undefined,
+          oauthStartTime: undefined,
+          lastConnected: undefined,
           requiresOAuth: true,
         },
         {
           name: 'awaiting-oauth',
           status: 'awaiting_oauth',
+          authorizationUrl: undefined,
+          oauthStartTime: undefined,
+          lastError: undefined,
+          lastConnected: undefined,
           requiresOAuth: true,
         },
       ],

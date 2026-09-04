@@ -208,7 +208,7 @@ function getOAuthFlow(
       getClients: () => ServerManager.current.getClients(),
     },
     clientRuntime: {
-      createClientInstance: () => ClientManager.getOrCreateInstance().createClientInstance(),
+      initiateOAuth: (serverName) => ClientManager.getOrCreateInstance().initiateOAuth(serverName),
       completeOAuthAndReconnect: (serverName, authorizationCode) =>
         ClientManager.getOrCreateInstance().completeOAuthAndReconnect(serverName, authorizationCode),
     },

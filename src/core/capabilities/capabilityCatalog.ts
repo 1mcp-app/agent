@@ -1,6 +1,4 @@
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-
-import { executeWithPostAuthOAuthRecovery } from '@src/core/client/postAuthOAuthRecovery.js';
+import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { ConnectionResolver, type TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { getDisabledToolError, isToolDisabled } from '@src/core/server/disabledTools.js';
 import { applyEffectiveToolDescription } from '@src/core/server/toolDescriptionOverrides.js';
@@ -11,6 +9,7 @@ import {
   type OutboundConnections,
 } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
+import type { Tool } from '@src/sdk/contracts/index.js';
 
 import {
   type CapabilityKind,
@@ -284,7 +283,7 @@ export class CapabilityCatalog {
 
     const { route } = access;
     const connection = this.deps.outboundConnections.get(route.connectionKey);
-    if (!connection?.client) {
+    if (!connection || connection.status !== ClientStatus.Connected) {
       return {
         result: {},
         server: route.server,
@@ -299,12 +298,10 @@ export class CapabilityCatalog {
     }
 
     try {
-      const result = await executeWithPostAuthOAuthRecovery(route.server, connection, () =>
-        connection.client.callTool({
-          name: route.toolName,
-          arguments: args.args as Record<string, unknown>,
-        }),
-      );
+      const result = await requestLegacyAdapter(connection.adapter, 'tools/call', {
+        name: route.toolName,
+        arguments: args.args as never,
+      });
       return { result, server: route.server, tool: route.toolName, route, refresh };
     } catch (error) {
       logger.error(`Tool invocation failed: ${route.server}:${route.toolName}`, { error });

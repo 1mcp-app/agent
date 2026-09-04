@@ -1,7 +1,8 @@
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
-import type { AuthProviderTransport } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
+import { getLegacyClient } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
+import type { AuthProviderTransport } from '@src/sdk/legacy/client/runtime/legacyTransport.js';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -65,7 +66,7 @@ describe('ClientManager late responses', () => {
       'slow-server': clientTransport as AuthProviderTransport,
     });
 
-    await expect(connections.get('slow-server')!.client.listTools(undefined, { timeout: 1 })).rejects.toThrow(
+    await expect(getLegacyClient(connections.get('slow-server')!).listTools(undefined, { timeout: 1 })).rejects.toThrow(
       'Request timed out',
     );
 

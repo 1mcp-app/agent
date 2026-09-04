@@ -1,9 +1,8 @@
 import { encode } from '@toon-format/toon';
 
-import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
-
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { CustomJsonSchemaValidator } from '@src/core/validation/CustomJsonSchemaValidator.js';
+import type { CallToolResult, Tool } from '@src/sdk/contracts/index.js';
 import { buildUri } from '@src/utils/core/parsing.js';
 import { isPlainObject } from '@src/utils/typeGuards.js';
 

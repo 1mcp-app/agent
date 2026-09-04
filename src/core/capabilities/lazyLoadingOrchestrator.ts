@@ -1,15 +1,14 @@
 import { EventEmitter } from 'events';
 
-import { Tool } from '@modelcontextprotocol/sdk/types.js';
-
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
+import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ConnectionResolver, TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { filterDisabledTools } from '@src/core/server/disabledTools.js';
 import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
 import logger, { debugIf, errorIf } from '@src/logger/logger.js';
-import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
+import type { Tool } from '@src/sdk/contracts/index.js';
 
 import { AsyncLoadingOrchestrator } from './asyncLoadingOrchestrator.js';
 import { AsyncLoadingOrchestratorEvent } from './asyncLoadingOrchestratorEvent.js';
@@ -172,16 +171,19 @@ export class LazyLoadingOrchestrator extends EventEmitter {
     const serverConfigs = getConfiguredServerTargets();
 
     for (const [serverName, connection] of this.outboundConnections.entries()) {
-      if (!connection.client || connection.status !== ClientStatus.Connected) {
+      if (connection.status !== ClientStatus.Connected) {
         continue;
       }
 
       try {
         // Get tools directly from this server's client
         const toolsResult = await collectConfiguredToolPages((cursor) =>
-          connection.client.listTools(cursor === undefined ? undefined : { cursor }, {
-            timeout: getRequestTimeout(connection.transport),
-          }),
+          requestLegacyAdapter<{ tools: Tool[]; nextCursor?: string }>(
+            connection.adapter,
+            'tools/list',
+            cursor === undefined ? undefined : { cursor },
+            { timeoutMs: connection.requestTimeoutMs },
+          ),
         );
         publishConfiguredToolSnapshot(connection, toolsResult.tools ?? []);
         const effectiveServerName = connection.name || serverName;
@@ -192,7 +194,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
           // Map keys for template servers include hash suffix (e.g., "template-server:abc123")
           // but connection.name is the clean name (e.g., "template-server")
           // This ensures tool registry uses consistent server names
-          const tags = connection.transport.tags || [];
+          const tags = connection.tags;
           registryTools.push(
             ...serverTools.map((tool) => ({
               tool,
@@ -296,14 +298,17 @@ export class LazyLoadingOrchestrator extends EventEmitter {
   private async loadSchemaFromServer(server: string, toolName: string): Promise<Tool> {
     // Use ConnectionResolver to find the connection (handles template servers with hash-suffixed keys)
     const result = this.connectionResolver.findByServerName(server);
-    if (!result || !result.connection.client) {
+    if (!result || result.connection.status !== ClientStatus.Connected) {
       throw new Error(`Server not connected: ${server}`);
     }
 
     // Get the tool from server's listTools
-    const toolsResult = await result.connection.client.listTools(undefined, {
-      timeout: getRequestTimeout(result.connection.transport),
-    });
+    const toolsResult = await requestLegacyAdapter<{ tools: Tool[] }>(
+      result.connection.adapter,
+      'tools/list',
+      undefined,
+      { timeoutMs: result.connection.requestTimeoutMs },
+    );
     const tool = toolsResult.tools.find((t) => t.name === toolName);
 
     if (!tool) {

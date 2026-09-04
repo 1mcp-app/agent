@@ -1,3 +1,5 @@
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
 import { ClientStatus } from '@src/core/types/client.js';
 import type { InboundConnectionConfig, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import { TagExpression } from '@src/domains/preset/parsers/tagQueryParser.js';
@@ -25,43 +27,43 @@ describe('InstructionAggregator - Template Variables', () => {
     mockOutboundConnections = new Map([
       [
         'web-server',
-        {
+        createMockOutboundConnection({
           name: 'web-server',
-          transport: { tags: ['web', 'frontend'], timeout: 5000 },
-          client: {} as any,
+          tags: ['web', 'frontend'],
+          requestTimeoutMs: 5000,
           status: ClientStatus.Connected,
           instructions: 'Web server instructions',
-        } as OutboundConnection,
+        }),
       ],
       [
         'api-server',
-        {
+        createMockOutboundConnection({
           name: 'api-server',
-          transport: { tags: ['api', 'backend'], timeout: 5000 },
-          client: {} as any,
+          tags: ['api', 'backend'],
+          requestTimeoutMs: 5000,
           status: ClientStatus.Connected,
           instructions: 'API server instructions',
-        } as OutboundConnection,
+        }),
       ],
       [
         'database-server',
-        {
+        createMockOutboundConnection({
           name: 'database-server',
-          transport: { tags: ['database', 'backend'], timeout: 5000 },
-          client: {} as any,
+          tags: ['database', 'backend'],
+          requestTimeoutMs: 5000,
           status: ClientStatus.Connected,
           instructions: 'Database server instructions',
-        } as OutboundConnection,
+        }),
       ],
       [
         'no-instructions-server',
-        {
+        createMockOutboundConnection({
           name: 'no-instructions-server',
-          transport: { tags: ['empty'], timeout: 5000 },
-          client: {} as any,
+          tags: ['empty'],
+          requestTimeoutMs: 5000,
           status: ClientStatus.Connected,
           instructions: undefined,
-        } as OutboundConnection,
+        }),
       ],
     ]);
 
@@ -370,13 +372,16 @@ describe('InstructionAggregator - Template Variables', () => {
 
     it('should handle connections with empty instructions', () => {
       const connectionsWithEmpty = new Map(mockOutboundConnections);
-      connectionsWithEmpty.set('empty-server', {
-        name: 'empty-server',
-        transport: { tags: ['test'], timeout: 5000 },
-        client: {} as any,
-        status: ClientStatus.Connected,
-        instructions: '',
-      } as OutboundConnection);
+      connectionsWithEmpty.set(
+        'empty-server',
+        createMockOutboundConnection({
+          name: 'empty-server',
+          tags: ['test'],
+          requestTimeoutMs: 5000,
+          status: ClientStatus.Connected,
+          instructions: '',
+        }),
+      );
 
       const template = '{{serverCount}}';
       const config: InboundConnectionConfig = {

@@ -1,7 +1,6 @@
-import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
-
 import { OperationOptions } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
+import { ErrorCode } from '@src/sdk/contracts/index.js';
 
 import { MCPError } from './errorTypes.js';
 

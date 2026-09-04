@@ -1,5 +1,7 @@
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
 import { ClientStatus } from '@src/core/types/client.js';
-import type { InboundConnectionConfig, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
+import type { InboundConnectionConfig, OutboundConnections } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -29,23 +31,23 @@ describe('InstructionAggregator - Template Fallback Behavior', () => {
     mockOutboundConnections = new Map([
       [
         'server1',
-        {
+        createMockOutboundConnection({
           name: 'server1',
-          transport: { tags: ['test'], timeout: 5000 },
-          client: {} as any,
+          tags: ['test'],
+          requestTimeoutMs: 5000,
           status: ClientStatus.Connected,
           instructions: 'Server 1 test instructions',
-        } as OutboundConnection,
+        }),
       ],
       [
         'server2',
-        {
+        createMockOutboundConnection({
           name: 'server2',
-          transport: { tags: ['test'], timeout: 5000 },
-          client: {} as any,
+          tags: ['test'],
+          requestTimeoutMs: 5000,
           status: ClientStatus.Connected,
           instructions: 'Server 2 test instructions',
-        } as OutboundConnection,
+        }),
       ],
     ]);
 

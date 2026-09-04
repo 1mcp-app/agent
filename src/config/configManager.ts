@@ -1,8 +1,8 @@
 import { EventEmitter } from 'events';
 
+import { isOperatorDisabledTemplateDefinition } from '@src/config/configuredServerTargets.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { mergeGlobalAndServerConfig } from '@src/config/mcpConfigMerge.js';
-import { isOperatorDisabledTemplateDefinition } from '@src/config/configuredServerTargets.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import {
   ApplicationConfig,

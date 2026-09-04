@@ -17,6 +17,7 @@ describe.runIf(runIntegration)('exact-source conformance foundation', () => {
       expect(baseline.attempt).toBe(1);
       expect(baseline.officialRuns).toHaveLength(4);
       expect(baseline.matrixRuns).toHaveLength(12);
+      expect(baseline.sdkBoundaryProof).toMatchObject({ classification: 'product', productVerdict: 'pass' });
       expect(conformanceExitCode(mode, baseline)).toBe(0);
     },
     20 * 60_000,

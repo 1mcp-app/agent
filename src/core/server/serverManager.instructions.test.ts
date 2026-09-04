@@ -1,3 +1,5 @@
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import { ClientStatus, type OutboundConnections } from '@src/core/types/client.js';
@@ -33,12 +35,10 @@ describe('ServerManager instruction initialization', () => {
     const outboundConnections: OutboundConnections = new Map([
       [
         'upstream',
-        {
+        createMockOutboundConnection({
           name: 'upstream',
           status: ClientStatus.Connected,
-          transport: {} as any,
-          client: {} as any,
-        },
+        }),
       ],
     ]);
     manager = ServerManager.getOrCreateInstance(

@@ -1,6 +1,33 @@
-import { getDefaultEnvironment } from '@modelcontextprotocol/sdk/client/stdio.js';
-
 import logger, { debugIf } from '@src/logger/logger.js';
+
+const DEFAULT_INHERITED_ENV_VARS =
+  process.platform === 'win32'
+    ? [
+        'APPDATA',
+        'HOMEDRIVE',
+        'HOMEPATH',
+        'LOCALAPPDATA',
+        'PATH',
+        'PROCESSOR_ARCHITECTURE',
+        'SYSTEMDRIVE',
+        'SYSTEMROOT',
+        'TEMP',
+        'USERNAME',
+        'USERPROFILE',
+        'PROGRAMFILES',
+      ]
+    : ['HOME', 'LOGNAME', 'PATH', 'SHELL', 'TERM', 'USER'];
+
+function getDefaultEnvironment(): Record<string, string> {
+  const environment: Record<string, string> = {};
+  for (const key of DEFAULT_INHERITED_ENV_VARS) {
+    const value = process.env[key];
+    if (value !== undefined && !value.startsWith('()')) {
+      environment[key] = value;
+    }
+  }
+  return environment;
+}
 
 /**
  * Configuration for environment processing

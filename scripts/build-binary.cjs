@@ -14,6 +14,7 @@ const PLATFORM_CONFIGS = {
     steps: [
       'node -e "require(\'fs\').copyFileSync(process.execPath, \'1mcp\')"',
       'codesign --remove-signature 1mcp',
+      'chmod u+w 1mcp',
       'npx postject 1mcp NODE_SEA_BLOB sea-prep.blob --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 --macho-segment-name NODE_SEA',
       'codesign --sign - --entitlements entitlements.plist 1mcp',
       'chmod +x 1mcp'
@@ -24,6 +25,7 @@ const PLATFORM_CONFIGS = {
     steps: [
       'node -e "require(\'fs\').copyFileSync(process.execPath, \'1mcp\')"',
       'codesign --remove-signature 1mcp',
+      'chmod u+w 1mcp',
       'npx postject 1mcp NODE_SEA_BLOB sea-prep.blob --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 --macho-segment-name NODE_SEA',
       'codesign --sign - --entitlements entitlements.plist 1mcp',
       'chmod +x 1mcp'

@@ -1,8 +1,7 @@
-import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
-
 import { resolveFilterSelection } from '@src/core/filtering/filterSelection.js';
 import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import logger from '@src/logger/logger.js';
+import { ErrorCode } from '@src/sdk/contracts/index.js';
 import { sendBadRequest } from '@src/transport/http/utils/httpErrorHandler.js';
 
 import { NextFunction, Request, Response } from 'express';

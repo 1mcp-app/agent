@@ -5,10 +5,11 @@
  * tool_invoke and tool_schema fail with template servers due to server name
  * mismatch between clean names (in registry) and hash-suffixed keys (in connections).
  */
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
+import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { ClientStatus, OutboundConnections } from '@src/core/types/client.js';
+import { Tool } from '@src/sdk/contracts/index.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -22,6 +23,25 @@ describe('MetaToolProvider - Template Server Support', () => {
   let schemaCache: SchemaCache;
   let outboundConnections: OutboundConnections;
   let toolRegistry: ToolRegistry;
+
+  type MockClient = {
+    callTool: (params: unknown) => Promise<unknown>;
+    listTools: () => Promise<{ tools: Tool[] }>;
+  };
+
+  const connectionFromClient = (name: string, client: MockClient) =>
+    createMockOutboundConnection({
+      name,
+      status: ClientStatus.Connected,
+      capabilities: { tools: {} },
+      adapter: {
+        request: vi.fn(async ({ method, params }) => {
+          if (method === 'tools/list') return (await client.listTools()) as never;
+          if (method === 'tools/call') return (await client.callTool(params)) as never;
+          return {};
+        }),
+      },
+    });
 
   beforeEach(() => {
     // Create schema cache
@@ -49,17 +69,11 @@ describe('MetaToolProvider - Template Server Support', () => {
           },
         ],
       }),
-    } as unknown as Client;
+    };
 
     // Template server with hash-suffixed key (shareable template)
     // Key format: "template-server:abc123" (clean name + rendered hash)
-    outboundConnections.set('template-server:abc123', {
-      name: 'template-server', // Clean name without hash
-      client: mockClient,
-      status: ClientStatus.Connected,
-      capabilities: { tools: {} },
-      transport: 'stdio' as any,
-    });
+    outboundConnections.set('template-server:abc123', connectionFromClient('template-server', mockClient));
 
     // Static server without hash (for comparison)
     const mockStaticClient = {
@@ -80,15 +94,9 @@ describe('MetaToolProvider - Template Server Support', () => {
           },
         ],
       }),
-    } as unknown as Client;
+    };
 
-    outboundConnections.set('static-server', {
-      name: 'static-server',
-      client: mockStaticClient,
-      status: ClientStatus.Connected,
-      capabilities: { tools: {} },
-      transport: 'stdio' as any,
-    });
+    outboundConnections.set('static-server', connectionFromClient('static-server', mockStaticClient));
 
     // Create tool registry with CLEAN server names (no hash suffixes)
     // This simulates how ToolRegistry stores tools from template servers
@@ -133,7 +141,7 @@ describe('MetaToolProvider - Template Server Support', () => {
         if (!conn) {
           throw new Error(`Server not found: ${server}`);
         }
-        const result = await conn.client.listTools();
+        const result = await requestLegacyAdapter<{ tools: Tool[] }>(conn.adapter, 'tools/list');
         const tool = result.tools.find((t) => t.name === toolName);
         if (!tool) {
           throw new Error(`Tool not found: ${toolName}`);
@@ -208,34 +216,16 @@ describe('MetaToolProvider - Template Server Support', () => {
           tools: [{ name: 'tool_a', description: 'session A', inputSchema: { type: 'object', title: 'A' } }],
         }),
         callTool: vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'A' }] }),
-      } as unknown as Client;
+      };
       const sessionBClient = {
         listTools: vi.fn().mockResolvedValue({
           tools: [{ name: 'tool_b', description: 'session B', inputSchema: { type: 'object', title: 'B' } }],
         }),
         callTool: vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'B' }] }),
-      } as unknown as Client;
+      };
       const connections: OutboundConnections = new Map([
-        [
-          'template-server:session-a',
-          {
-            name: 'template-server',
-            client: sessionAClient,
-            status: ClientStatus.Connected,
-            capabilities: { tools: {} },
-            transport: 'stdio' as any,
-          },
-        ],
-        [
-          'template-server:session-b',
-          {
-            name: 'template-server',
-            client: sessionBClient,
-            status: ClientStatus.Connected,
-            capabilities: { tools: {} },
-            transport: 'stdio' as any,
-          },
-        ],
+        ['template-server:session-a', connectionFromClient('template-server', sessionAClient)],
+        ['template-server:session-b', connectionFromClient('template-server', sessionBClient)],
       ]);
       const registry = ToolRegistry.fromToolsWithServer([
         {
@@ -254,7 +244,10 @@ describe('MetaToolProvider - Template Server Support', () => {
         schemaCache,
         connections,
         async (connectionKey, toolName) => {
-          const result = await connections.get(connectionKey)!.client.listTools();
+          const result = await requestLegacyAdapter<{ tools: Tool[] }>(
+            connections.get(connectionKey)!.adapter,
+            'tools/list',
+          );
           return result.tools.find((tool) => tool.name === toolName)!;
         },
       );
@@ -386,7 +379,7 @@ describe('MetaToolProvider - Template Server Support', () => {
             },
           ],
         }),
-      } as unknown as Client;
+      };
 
       const globalClient = {
         callTool: vi.fn().mockResolvedValue({
@@ -401,29 +394,11 @@ describe('MetaToolProvider - Template Server Support', () => {
             },
           ],
         }),
-      } as unknown as Client;
+      };
 
       const multiConnections: OutboundConnections = new Map([
-        [
-          'template-server:session-123',
-          {
-            name: 'template-server',
-            client: sessionScopedClient,
-            status: ClientStatus.Connected,
-            capabilities: { tools: {} },
-            transport: 'stdio' as any,
-          },
-        ],
-        [
-          'template-server:abc123',
-          {
-            name: 'template-server',
-            client: globalClient,
-            status: ClientStatus.Connected,
-            capabilities: { tools: {} },
-            transport: 'stdio' as any,
-          },
-        ],
+        ['template-server:session-123', connectionFromClient('template-server', sessionScopedClient)],
+        ['template-server:abc123', connectionFromClient('template-server', globalClient)],
       ]);
 
       const sessionAwareProvider = new MetaToolProvider(

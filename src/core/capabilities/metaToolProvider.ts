@@ -1,9 +1,8 @@
-import { Tool } from '@modelcontextprotocol/sdk/types.js';
-
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { OutboundConnections } from '@src/core/types/index.js';
 import logger, { errorIf } from '@src/logger/logger.js';
+import type { Tool } from '@src/sdk/contracts/index.js';
 import { zodToInputSchema, zodToOutputSchema } from '@src/utils/schemaUtils.js';
 
 import { CapabilityCatalog } from './capabilityCatalog.js';
@@ -294,7 +293,7 @@ export class MetaToolProvider {
       }
 
       return {
-        schema: result.schema as Tool,
+        schema: result.schema as unknown as Record<string, unknown>,
         fromCache: result.fromCache,
       };
     } catch (error) {

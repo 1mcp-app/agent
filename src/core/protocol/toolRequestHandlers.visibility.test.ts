@@ -1,5 +1,7 @@
+import { createMockLegacyInboundConnection, createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
 import type { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
-import { ClientStatus, type InboundConnection, type OutboundConnections } from '@src/core/types/index.js';
+import { ClientStatus, type OutboundConnections } from '@src/core/types/index.js';
 
 import { describe, expect, it, vi } from 'vitest';
 
@@ -17,43 +19,43 @@ describe('registerToolHandlers capability visibility', () => {
   it('re-resolves the Server Candidate Set for each meta-tool request', async () => {
     type CapturedHandler = (request: { params: { name: string; arguments: unknown } }) => Promise<unknown>;
     const handlers: CapturedHandler[] = [];
-    const inbound = {
+    const inbound = createMockLegacyInboundConnection({
       context: { sessionId: 'session-1' },
       tags: ['safe'],
       tagFilterMode: 'simple-or',
       server: {
         setRequestHandler: vi.fn((_schema, handler) => handlers.push(handler)),
-      },
-    } as unknown as InboundConnection;
-    const connections = new Map([
+      } as never,
+    });
+    const connections: OutboundConnections = new Map([
       [
         'ready',
-        {
+        createMockOutboundConnection({
           name: 'ready',
           status: ClientStatus.Connected,
           capabilities: { tools: {} },
-          transport: { tags: ['safe'] },
-        },
+          tags: ['safe'],
+        }),
       ],
       [
         'late',
-        {
+        createMockOutboundConnection({
           name: 'late',
           status: ClientStatus.Restarting,
           capabilities: { tools: {} },
-          transport: { tags: ['safe'] },
-        },
+          tags: ['safe'],
+        }),
       ],
       [
         'excluded',
-        {
+        createMockOutboundConnection({
           name: 'excluded',
           status: ClientStatus.Connected,
           capabilities: { tools: {} },
-          transport: { tags: ['private'] },
-        },
+          tags: ['private'],
+        }),
       ],
-    ]) as OutboundConnections;
+    ]);
     const callMetaTool = vi.fn().mockResolvedValue({ tools: [] });
     const orchestrator = {
       isEnabled: () => true,

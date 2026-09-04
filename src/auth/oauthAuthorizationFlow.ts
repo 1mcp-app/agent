@@ -1,6 +1,6 @@
 import { AUTH_CONFIG } from '@src/constants.js';
-import { AuthProviderTransport } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
+import type { LegacySdkAdapter } from '@src/sdk/contracts/index.js';
 import { tagsToScopes, validateScopes } from '@src/utils/validation/scopeValidation.js';
 
 export type OAuthConsentAction = 'approve' | 'deny';
@@ -46,11 +46,12 @@ export interface OAuthAuthorizationFlowStorageService {
 
 export interface OAuthBackendClientInfoForFlow {
   status: string;
-  transport: Pick<AuthProviderTransport, 'oauthProvider'> & Partial<AuthProviderTransport>;
+  adapter: LegacySdkAdapter;
+  requiresOAuth: boolean;
   authorizationUrl?: string;
-  oauthStartTime?: Date;
-  lastError?: Error;
-  lastConnected?: Date;
+  oauthStartTime?: string;
+  lastError?: { message: string };
+  lastConnected?: string;
 }
 
 export interface OAuthBackendServerRuntime {
@@ -59,9 +60,7 @@ export interface OAuthBackendServerRuntime {
 }
 
 export interface OAuthBackendClientRuntime {
-  createClientInstance(): {
-    connect(transport: OAuthBackendClientInfoForFlow['transport']): Promise<void>;
-  };
+  initiateOAuth(serverName: string): Promise<void>;
   completeOAuthAndReconnect(serverName: string, authorizationCode: string): Promise<void>;
 }
 
@@ -157,9 +156,9 @@ export interface BackendOAuthDashboardService {
   name: string;
   status: string;
   authorizationUrl?: string;
-  oauthStartTime?: Date;
+  oauthStartTime?: string;
   lastError?: string;
-  lastConnected?: Date;
+  lastConnected?: string;
   requiresOAuth: boolean;
 }
 
@@ -468,18 +467,7 @@ async function initiateBackendOAuth(
     };
   }
 
-  try {
-    const newClient = dependencies.clientRuntime.createClientInstance();
-    await newClient.connect(clientInfo.transport);
-  } catch (error) {
-    if (!isOAuthRequiredError(error)) {
-      throw error;
-    }
-
-    clientInfo.status = 'awaiting_oauth';
-    clientInfo.oauthStartTime = new Date();
-    clientInfo.authorizationUrl = clientInfo.transport.oauthProvider?.getAuthorizationUrl?.();
-  }
+  await dependencies.clientRuntime.initiateOAuth(serverName);
 
   if (!clientInfo.authorizationUrl) {
     return {
@@ -494,13 +482,9 @@ async function initiateBackendOAuth(
   };
 }
 
-function isOAuthRequiredError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'OAuthRequiredError';
-}
-
 function requiresBackendOAuth(clientInfo: OAuthBackendClientInfoForFlow): boolean {
   return Boolean(
-    clientInfo.transport.oauthProvider ||
+    clientInfo.requiresOAuth ||
     clientInfo.authorizationUrl ||
     clientInfo.oauthStartTime ||
     clientInfo.status === 'awaiting_oauth',

@@ -1,19 +1,19 @@
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
 import { publishConfiguredToolSnapshot } from '@src/core/capabilities/configuredToolSnapshot.js';
 import { ClientStatus, type OutboundConnection, type OutboundConnections } from '@src/core/types/index.js';
+import type { Tool } from '@src/sdk/contracts/index.js';
 
 import { describe, expect, it, vi } from 'vitest';
 
 import { createConfiguredToolInventory } from './configuredToolInventory.js';
 
 function connection(name: string, tools: Tool[]): OutboundConnection {
-  const outbound = {
+  const outbound = createMockOutboundConnection({
     name,
     status: ClientStatus.Connected,
-    client: { listTools: vi.fn(async () => ({ tools })) },
-    transport: {},
-  } as unknown as OutboundConnection;
+    adapter: { request: vi.fn(async () => ({ tools }) as never) },
+  });
   publishConfiguredToolSnapshot(outbound, tools);
   return outbound;
 }
@@ -77,7 +77,7 @@ describe('Configured Tool Inventory', () => {
       },
     ]);
     expect(inventory.rows.find((row) => row.name === 'read_file')?.approximateTokens).toBeGreaterThan(0);
-    expect(connections.get('filesystem')?.client.listTools).not.toHaveBeenCalled();
+    expect(connections.get('filesystem')?.adapter.request).not.toHaveBeenCalled();
 
     connections.clear();
     const disabledInventory = await createConfiguredToolInventory({
@@ -226,12 +226,11 @@ describe('Configured Tool Inventory', () => {
       { name: 'search', description: 'Search', inputSchema: { type: 'object' } },
     ]);
     const listTools = vi.fn();
-    const unknown = {
+    const unknown = createMockOutboundConnection({
       name: 'partial-project',
       status: ClientStatus.Connected,
-      client: { listTools },
-      transport: {},
-    } as unknown as OutboundConnection;
+      adapter: { request: listTools },
+    });
     const inventory = await createConfiguredToolInventory({
       targetName: 'partial-project',
       source: 'mcpTemplates',

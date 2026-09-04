@@ -1,6 +1,5 @@
-import { Tool } from '@modelcontextprotocol/sdk/types.js';
-
 import logger, { debugIf } from '@src/logger/logger.js';
+import type { Tool } from '@src/sdk/contracts/index.js';
 
 /**
  * Statistics for schema cache operations

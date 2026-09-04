@@ -1,9 +1,8 @@
 import { encode } from '@toon-format/toon';
 
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-
 import type { ParsedToolReference } from '@src/commands/run/runUtils.js';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
+import type { Tool } from '@src/sdk/contracts/index.js';
 import { buildUri, parseUri } from '@src/utils/core/parsing.js';
 import { isPlainObject } from '@src/utils/typeGuards.js';
 

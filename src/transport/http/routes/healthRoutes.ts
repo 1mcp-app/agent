@@ -7,7 +7,7 @@ import {
 import { ClientManager } from '@src/core/client/clientManager.js';
 import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
-import type { BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
+import type { OutboundSupervisionSnapshot } from '@src/core/types/client.js';
 import logger from '@src/logger/logger.js';
 
 import { Request, RequestHandler, Response, Router } from 'express';
@@ -36,7 +36,7 @@ export function createHealthRoutes(
 ): Router {
   const router: Router = Router();
   const healthService = HealthService.getInstance();
-  const getBackendSupervision = (): Record<string, BackendSupervisionSnapshot> => {
+  const getBackendSupervision = (): Record<string, OutboundSupervisionSnapshot> => {
     const connections = ClientManager.current?.getClients?.();
     if (!connections) return {};
     return Object.fromEntries(

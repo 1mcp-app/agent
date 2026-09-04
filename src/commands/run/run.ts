@@ -1,6 +1,3 @@
-import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { type CallToolResult, type Tool } from '@modelcontextprotocol/sdk/types.js';
-
 import { extractInspectToolInfo, type InspectToolInfo } from '@src/commands/inspect/inspectUtils.js';
 import {
   findToolByQualifiedName,
@@ -34,6 +31,13 @@ import {
 import { API_INSPECT_ENDPOINT, API_TOOL_INVOCATIONS_ENDPOINT } from '@src/constants/api.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
+import {
+  type CallToolResult,
+  hasHttpErrorCode,
+  toJsonValue,
+  type Tool,
+  toProtocolTools,
+} from '@src/sdk/contracts/index.js';
 import type { ContextData } from '@src/types/context.js';
 
 export interface RunCommandOptions extends GlobalOptions {
@@ -445,7 +449,7 @@ export async function invokeTool(options: {
         };
       }
 
-      tool = findToolByQualifiedName(toolsResponse.result.tools, options.qualifiedToolName);
+      tool = findToolByQualifiedName(toProtocolTools(toolsResponse.result.tools), options.qualifiedToolName);
       if (!tool) {
         return {
           rawResponse: {
@@ -471,7 +475,7 @@ export async function invokeTool(options: {
         };
       }
 
-      tool = findToolByQualifiedName(toolsResponse.result.tools, options.qualifiedToolName);
+      tool = findToolByQualifiedName(toProtocolTools(toolsResponse.result.tools), options.qualifiedToolName);
       if (!tool) {
         if (options.sessionId) {
           return {
@@ -517,12 +521,12 @@ export async function invokeTool(options: {
 
     const response = await client.callTool(options.qualifiedToolName, resolvedArguments.arguments);
     return {
-      rawResponse: response,
+      rawResponse: toJsonValue(response) as unknown as JsonRpcResponse<CallToolResult>,
       sessionId: client.sessionId,
       retryWithFreshSession: false,
     };
   } catch (error) {
-    if (error instanceof StreamableHTTPError && error.code === 404 && options.sessionId) {
+    if (hasHttpErrorCode(error, 404) && options.sessionId) {
       return {
         rawResponse: {
           jsonrpc: '2.0',
