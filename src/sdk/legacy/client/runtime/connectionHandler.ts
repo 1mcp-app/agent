@@ -1,3 +1,11 @@
+import {
+  UnauthorizedError as ModernUnauthorizedError,
+  ProtocolError,
+  SdkError,
+  SdkErrorCode,
+  UnsupportedProtocolVersionError,
+} from '@modelcontextprotocol/client';
+
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { OAuthError } from '@modelcontextprotocol/sdk/server/auth/errors.js';
@@ -12,11 +20,17 @@ import { getConnectionTimeout } from '@src/utils/core/timeoutUtils.js';
 
 import type { ConnectedClient } from './connectedClient.js';
 import type { AuthProviderTransport } from './legacyTransport.js';
+import { isModernSdkClient, type OutboundSdkClient } from './sdkClient.js';
 import { OAuthRequiredError } from './types.js';
 
 const RETRYABLE_OAUTH_ERROR_CODES = new Set(['server_error', 'temporarily_unavailable', 'too_many_requests']);
 const RETRYABLE_OAUTH_HTTP_STATUSES = new Set([408, 429]);
 const INVALID_OAUTH_HTTP_RESPONSE = /^HTTP (?<statusCode>\d{3}): Invalid OAuth error response:/;
+const TERMINAL_MODERN_CONNECT_ERRORS = new Set<SdkErrorCode>([
+  SdkErrorCode.EraNegotiationFailed,
+  SdkErrorCode.ClientHttpForbidden,
+  SdkErrorCode.ClientHttpUnexpectedContent,
+]);
 
 function isNonRetryableOAuthError(error: unknown): error is OAuthError {
   if (!(error instanceof OAuthError)) return false;
@@ -32,15 +46,17 @@ function isNonRetryableOAuthError(error: unknown): error is OAuthError {
 
 export class ConnectionHandler {
   public async connectWithRetry(
-    client: Client,
+    client: OutboundSdkClient,
     transport: Transport,
     name: string,
     abortSignal?: AbortSignal,
     recreateTransport?: (transport: AuthProviderTransport) => AuthProviderTransport,
+    createClient?: (transport: AuthProviderTransport) => OutboundSdkClient,
   ): Promise<ConnectedClient> {
     let retryDelay = CONNECTION_RETRY.INITIAL_DELAY_MS;
     let currentClient = client;
     let currentTransport = transport;
+    let ownsReplacementCandidate = false;
 
     for (let i = 0; i < CONNECTION_RETRY.MAX_ATTEMPTS; i++) {
       try {
@@ -50,7 +66,11 @@ export class ConnectionHandler {
 
         const authTransport = currentTransport as AuthProviderTransport;
         const timeout = getConnectionTimeout(authTransport);
-        await currentClient.connect(currentTransport, timeout ? { timeout } : undefined);
+        if (isModernSdkClient(currentClient)) {
+          await currentClient.connect(currentTransport as never, timeout ? { timeout } : undefined);
+        } else {
+          await currentClient.connect(currentTransport, timeout ? { timeout } : undefined);
+        }
 
         const sv = await currentClient.getServerVersion();
         if (sv?.name === MCP_SERVER_NAME) {
@@ -60,41 +80,62 @@ export class ConnectionHandler {
         logger.info(`Successfully connected to ${name} with server ${sv?.name} version ${sv?.version}`);
         return { client: currentClient, transport: currentTransport as AuthProviderTransport };
       } catch (error) {
-        if (error instanceof UnauthorizedError) {
+        if (
+          error instanceof UnauthorizedError ||
+          error instanceof ModernUnauthorizedError ||
+          (error instanceof SdkError && error.code === SdkErrorCode.ClientHttpAuthentication)
+        ) {
           const configManager = AgentConfigManager.getInstance();
           logger.info(`OAuth authorization required for ${name}. Visit ${configManager.getUrl()}/oauth to authorize`);
-          throw new OAuthRequiredError(name, currentClient);
+          throw new OAuthRequiredError(name, currentClient, currentTransport as AuthProviderTransport);
         }
 
         const nonRetryableOAuthError = isNonRetryableOAuthError(error);
         const safeError = sanitizeRuntimeScopeError(error);
         logger.error(`Failed to connect to ${name}: ${safeError.message}`);
 
-        if (nonRetryableOAuthError) {
+        if (
+          nonRetryableOAuthError ||
+          error instanceof ProtocolError ||
+          error instanceof UnsupportedProtocolVersionError ||
+          (error instanceof SdkError && TERMINAL_MODERN_CONNECT_ERRORS.has(error.code))
+        ) {
+          if (ownsReplacementCandidate) {
+            await this.disposeFailedCandidate(currentClient, currentTransport as AuthProviderTransport);
+          }
           throw new NonRetryableClientConnectionError(name, safeError);
         }
 
         if (i >= CONNECTION_RETRY.MAX_ATTEMPTS - 1) {
+          if (ownsReplacementCandidate) {
+            await this.disposeFailedCandidate(currentClient, currentTransport as AuthProviderTransport);
+          }
           throw new ClientConnectionError(name, safeError);
         }
 
         logger.info(`Retrying in ${retryDelay}ms...`);
 
-        try {
-          await currentTransport.close();
-        } catch (closeError) {
-          const safeCloseError = sanitizeRuntimeScopeError(closeError);
-          debugIf(() => ({ message: `Error closing transport during retry: ${safeCloseError}` }));
+        if (ownsReplacementCandidate) {
+          await this.disposeFailedCandidate(currentClient, currentTransport as AuthProviderTransport);
+        } else {
+          try {
+            await currentTransport.close();
+          } catch (closeError) {
+            const safeCloseError = sanitizeRuntimeScopeError(closeError);
+            debugIf(() => ({ message: `Error closing transport during retry: ${safeCloseError}` }));
+          }
         }
 
         await this.createCancellableDelay(retryDelay, abortSignal);
         retryDelay *= 2;
 
-        currentClient = new Client({ name: '1mcp-client', version: '1.0.0' }, { capabilities: {} });
-
         if (recreateTransport) {
           currentTransport = recreateTransport(currentTransport as AuthProviderTransport);
         }
+        currentClient = createClient
+          ? createClient(currentTransport as AuthProviderTransport)
+          : new Client({ name: '1mcp-client', version: '1.0.0' }, { capabilities: {} });
+        ownsReplacementCandidate = true;
       }
     }
 
@@ -121,5 +162,16 @@ export class ConnectionHandler {
         abortSignal.addEventListener('abort', abortHandler, { once: true });
       }
     });
+  }
+
+  private async disposeFailedCandidate(client: OutboundSdkClient, transport: AuthProviderTransport): Promise<void> {
+    client.onclose = undefined;
+    const outcomes = await Promise.allSettled([client.close(), transport.close()]);
+    for (const outcome of outcomes) {
+      if (outcome.status === 'rejected') {
+        const safeError = sanitizeRuntimeScopeError(outcome.reason);
+        debugIf(() => ({ message: `Error closing failed retry candidate: ${safeError}` }));
+      }
+    }
   }
 }

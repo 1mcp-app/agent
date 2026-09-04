@@ -162,6 +162,8 @@ describe('ClientManager (Integration)', () => {
       await vi.runAllTimersAsync();
 
       expect(clientManager.getClients().size).toBe(1);
+      const superseded = clientManager.getClients().get('test-client')!;
+      const closeSuperseded = vi.spyOn(superseded.adapter, 'close');
 
       // Create new clients
       const newTransports: Record<string, Transport> = {
@@ -180,6 +182,52 @@ describe('ClientManager (Integration)', () => {
       expect(clients.size).toBe(1);
       expect(clients.has('test-client')).toBe(false);
       expect(clients.has('new-client')).toBe(true);
+      expect(closeSuperseded).toHaveBeenCalledOnce();
+    });
+
+    it('keeps the old healthy client routable while its replacement connects', async () => {
+      (mockClient.connect as unknown as MockInstance).mockResolvedValueOnce(undefined);
+      (mockClient.getServerVersion as unknown as MockInstance).mockResolvedValue({ name: 'upstream', version: '1' });
+      await clientManager.createClients(mockTransports as Record<string, AuthProviderTransport>);
+      const existing = clientManager.getClient('test-client');
+      let finishReplacement!: () => void;
+      (mockClient.connect as unknown as MockInstance).mockImplementationOnce(
+        () => new Promise<void>((resolve) => (finishReplacement = resolve)),
+      );
+
+      const replacing = clientManager.createClients({
+        'test-client': { ...mockTransport, close: vi.fn() } as AuthProviderTransport,
+      });
+      await vi.waitFor(() => expect(finishReplacement).toBeTypeOf('function'));
+
+      expect(clientManager.getClient('test-client')).toBe(existing);
+      expect(existing.status).toBe(ClientStatus.Connected);
+
+      finishReplacement();
+      await replacing;
+      expect(clientManager.getClient('test-client')).not.toBe(existing);
+    });
+
+    it('retains the old healthy client when bulk replacement fails', async () => {
+      (mockClient.connect as unknown as MockInstance).mockResolvedValueOnce(undefined);
+      (mockClient.getServerVersion as unknown as MockInstance).mockResolvedValue({ name: 'upstream', version: '1' });
+      await clientManager.createClients(mockTransports as Record<string, AuthProviderTransport>);
+      const existing = clientManager.getClient('test-client');
+      const closeExisting = vi.spyOn(existing.adapter, 'close');
+      const failedTransport = {
+        ...mockTransport,
+        close: vi.fn().mockResolvedValue(undefined),
+      } as AuthProviderTransport;
+      (mockClient.connect as unknown as MockInstance).mockRejectedValue(new Error('replacement failed'));
+
+      const replacing = clientManager.createClients({ 'test-client': failedTransport });
+      await vi.runAllTimersAsync();
+      await replacing;
+
+      expect(clientManager.getClient('test-client')).toBe(existing);
+      expect(existing.status).toBe(ClientStatus.Connected);
+      expect(closeExisting).not.toHaveBeenCalled();
+      expect(failedTransport.close).toHaveBeenCalled();
     });
 
     it('should handle connection failure with error status', async () => {
@@ -313,6 +361,35 @@ describe('ClientManager (Integration)', () => {
       // Should only have one client created
       const clients = clientManager.getClients();
       expect(clients.size).toBe(1);
+    });
+
+    it('publishes a replacement before releasing the superseded connection', async () => {
+      const createClient = () =>
+        withLegacyNotifications({
+          connect: vi.fn().mockResolvedValue(undefined),
+          getServerVersion: vi.fn().mockResolvedValue({ name: 'upstream', version: '1.0.0' }),
+          getServerCapabilities: vi.fn().mockReturnValue({ tools: {} }),
+          getInstructions: vi.fn(),
+          close: vi.fn().mockResolvedValue(undefined),
+        });
+      const firstClient = createClient();
+      const replacementClient = createClient();
+      (Client as unknown as MockInstance)
+        .mockImplementationOnce(function () {
+          return firstClient;
+        })
+        .mockImplementationOnce(function () {
+          return replacementClient;
+        });
+
+      await clientManager.createSingleClient('replaceable', mockTransport as AuthProviderTransport);
+      firstClient.close.mockImplementationOnce(async () => {
+        expect(getLegacyClient(clientManager.getClient('replaceable'))).toBe(replacementClient);
+      });
+      await clientManager.createSingleClient('replaceable', mockTransport as AuthProviderTransport);
+
+      expect(firstClient.close).toHaveBeenCalledOnce();
+      expect(getLegacyClient(clientManager.getClient('replaceable'))).toBe(replacementClient);
     });
 
     it('recreates a failed HTTP transport before a new top-level connection attempt', async () => {

@@ -1,4 +1,5 @@
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { PROTOCOL_VERSION_META_KEY, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+
 import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -19,12 +20,14 @@ vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
   }),
 }));
 
-vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
+vi.mock('@modelcontextprotocol/client', () => ({
+  PROTOCOL_VERSION_META_KEY: 'io.modelcontextprotocol/protocolVersion',
   StreamableHTTPClientTransport: vi.fn(function () {
     return {
       start: vi.fn().mockResolvedValue(undefined),
       close: vi.fn().mockResolvedValue(undefined),
       send: vi.fn().mockResolvedValue(undefined),
+      setProtocolVersion: vi.fn(),
       onmessage: undefined,
       onerror: undefined,
       onclose: undefined,
@@ -136,6 +139,19 @@ describe('StdioProxyTransport', () => {
       expect(proxy['stdioTransport'].onclose).toBeDefined();
       expect(proxy['httpTransport'].onclose).toBeDefined();
     });
+
+    it('closes a started HTTP hop when the stdio hop fails to start', async () => {
+      proxy = new StdioProxyTransport({ serverUrl: 'http://localhost:3050/mcp' });
+      vi.mocked(proxy['stdioTransport'].start).mockRejectedValueOnce(new Error('stdio unavailable'));
+
+      await expect(proxy.start()).rejects.toThrow('stdio unavailable');
+      await proxy.close();
+
+      expect(proxy['httpTransport'].close).toHaveBeenCalledOnce();
+      expect(proxy['stdioTransport'].close).toHaveBeenCalledOnce();
+      expect(proxy['httpTransport'].onmessage).toBeUndefined();
+      expect(proxy['stdioTransport'].onmessage).toBeUndefined();
+    });
   });
 
   describe('message forwarding', () => {
@@ -150,7 +166,7 @@ describe('StdioProxyTransport', () => {
         jsonrpc: '2.0',
         method: 'initialize',
         id: 1,
-        params: {},
+        params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'test', version: '1' } },
       };
 
       // Simulate STDIO message
@@ -181,6 +197,124 @@ describe('StdioProxyTransport', () => {
       });
 
       expect(proxy['httpTransport'].send).toHaveBeenCalledWith(expectedMessage);
+    });
+
+    it('preserves modern discovery evidence while adding proxy context', async () => {
+      proxy = new StdioProxyTransport({ serverUrl: 'http://localhost:3050/mcp' });
+      await proxy.start();
+
+      await proxy['stdioTransport'].onmessage!({
+        jsonrpc: '2.0',
+        method: 'server/discover',
+        id: 7,
+        params: {
+          _meta: {
+            [PROTOCOL_VERSION_META_KEY]: '2026-07-28',
+            'io.modelcontextprotocol/client-info': { name: 'modern-client', version: '2.0.0' },
+            'io.modelcontextprotocol/client-capabilities': {},
+          },
+        },
+      } as never);
+
+      expect(proxy['httpTransport'].send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: 'server/discover',
+          params: expect.objectContaining({
+            _meta: expect.objectContaining({
+              [PROTOCOL_VERSION_META_KEY]: '2026-07-28',
+              context: expect.any(Object),
+            }),
+          }),
+        }),
+      );
+      expect(proxy['downstreamPin']).toEqual({ era: 'modern', revision: '2026-07-28' });
+    });
+
+    it('pins legacy initialize and rejects a later modern frame', async () => {
+      proxy = new StdioProxyTransport({ serverUrl: 'http://localhost:3050/mcp' });
+      await proxy.start();
+      await proxy['stdioTransport'].onmessage!({
+        jsonrpc: '2.0',
+        method: 'initialize',
+        id: 1,
+        params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'legacy', version: '1' } },
+      });
+      await proxy['stdioTransport'].onmessage!({
+        jsonrpc: '2.0',
+        method: 'server/discover',
+        id: 2,
+        params: { _meta: { [PROTOCOL_VERSION_META_KEY]: '2026-07-28' } },
+      } as never);
+
+      expect(proxy['downstreamPin']).toEqual({ era: 'legacy', revision: '2025-11-25' });
+      expect(proxy['httpTransport'].send).toHaveBeenCalledTimes(1);
+      expect(proxy['stdioTransport'].send).toHaveBeenCalledWith({
+        jsonrpc: '2.0',
+        id: 2,
+        error: {
+          code: -32_600,
+          message: 'Proxy protocol negotiation failed',
+          data: { code: 'proxy_protocol_era_conflict' },
+        },
+      });
+      expect(proxy['httpTransport'].close).toHaveBeenCalledOnce();
+      expect(proxy['stdioTransport'].close).toHaveBeenCalledOnce();
+    });
+
+    it('rejects malformed first-frame evidence without pinning or fallback', async () => {
+      proxy = new StdioProxyTransport({ serverUrl: 'http://localhost:3050/mcp' });
+      await proxy.start();
+
+      await proxy['stdioTransport'].onmessage!({
+        jsonrpc: '2.0',
+        method: 'initialize',
+        id: 1,
+        params: { protocolVersion: 'future', capabilities: {}, clientInfo: { name: 'bad', version: '1' } },
+      });
+
+      expect(proxy['downstreamPin']).toBeUndefined();
+      expect(proxy['httpTransport'].send).not.toHaveBeenCalled();
+      expect(proxy['stdioTransport'].send).toHaveBeenCalledWith({
+        jsonrpc: '2.0',
+        id: 1,
+        error: {
+          code: -32_600,
+          message: 'Proxy protocol negotiation failed',
+          data: { code: 'legacy_protocol_invalid' },
+        },
+      });
+      expect(proxy['httpTransport'].close).toHaveBeenCalledOnce();
+      expect(proxy['stdioTransport'].close).toHaveBeenCalledOnce();
+    });
+
+    it('keeps authentication errors classification-neutral', async () => {
+      proxy = new StdioProxyTransport({ serverUrl: 'http://localhost:3050/mcp' });
+      await proxy.start();
+      const response = { jsonrpc: '2.0', id: 1, error: { code: -32_000, message: 'Unauthorized' } } as const;
+
+      await proxy['httpTransport'].onmessage!(response);
+
+      expect(proxy['downstreamPin']).toBeUndefined();
+      expect(proxy['stdioTransport'].send).toHaveBeenCalledWith(response);
+    });
+
+    it('applies the negotiated legacy revision after initialize succeeds', async () => {
+      proxy = new StdioProxyTransport({ serverUrl: 'http://localhost:3050/mcp' });
+      await proxy.start();
+      await proxy['stdioTransport'].onmessage!({
+        jsonrpc: '2.0',
+        method: 'initialize',
+        id: 11,
+        params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'legacy', version: '1' } },
+      });
+      await proxy['httpTransport'].onmessage!({
+        jsonrpc: '2.0',
+        id: 11,
+        result: { protocolVersion: '2025-06-18', capabilities: {}, serverInfo: { name: 'server', version: '1' } },
+      });
+
+      expect(proxy['httpTransport'].setProtocolVersion).toHaveBeenCalledWith('2025-06-18');
+      expect(proxy['downstreamPin']).toEqual({ era: 'legacy', revision: '2025-06-18' });
     });
 
     it('should sign the context after adding downstream client identity', async () => {

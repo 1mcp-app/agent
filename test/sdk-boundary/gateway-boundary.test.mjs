@@ -72,7 +72,7 @@ test('shared gateway layers remain independent of protocol SDK implementations',
   assert.deepEqual(violations, []);
 });
 
-test('gateway adapters remain disconnected from production entry points', () => {
+test('gateway production attachment is confined to the outbound client adapter', () => {
   const violations = filesBelow(join(root, 'src'))
     .filter((path) => !path.includes('/src/gateway/'))
     .filter((path) => !isTestSource(path))
@@ -82,7 +82,17 @@ test('gateway adapters remain disconnected from production entry points', () => 
         .map((specifier) => `${relativePath(path)} -> ${specifier}`),
     );
 
-  assert.deepEqual(violations, []);
+  assert.deepEqual(violations, [
+    'src/sdk/legacy/client/runtime/legacyGatewayClientAdapter.ts -> @src/gateway/adapters/legacy/legacyOutboundEraAdapter.js',
+    'src/sdk/legacy/client/runtime/legacyGatewayClientAdapter.ts -> @src/gateway/contracts/effectiveRequestAuthority.js',
+    'src/sdk/legacy/client/runtime/legacyGatewayClientAdapter.ts -> @src/gateway/contracts/immutableJson.js',
+    'src/sdk/legacy/client/runtime/modernSdkClientAdapter.ts -> @src/gateway/adapters/legacy/legacyOutboundEraAdapter.js',
+    'src/sdk/legacy/client/runtime/modernSdkClientAdapter.ts -> @src/gateway/adapters/modern/modernOutboundEraAdapter.js',
+    'src/sdk/legacy/client/runtime/modernSdkClientAdapter.ts -> @src/gateway/contracts/effectiveRequestAuthority.js',
+    'src/sdk/legacy/client/runtime/modernSdkClientAdapter.ts -> @src/gateway/contracts/immutableJson.js',
+    'src/sdk/legacy/client/runtime/modernSdkClientAdapter.ts -> @src/gateway/ports/outboundEraAdapter.js',
+    'src/sdk/legacy/transport/stdioProxyTransport.ts -> @src/gateway/contracts/index.js',
+  ]);
 });
 
 test('policy resolves relative legacy imports and gateway barrel imports', () => {

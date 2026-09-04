@@ -1,3 +1,8 @@
+import {
+  SSEClientTransport as ModernSSEClientTransport,
+  StreamableHTTPClientTransport as ModernStreamableHTTPClientTransport,
+} from '@modelcontextprotocol/client';
+
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
@@ -7,6 +12,9 @@ import type { TransportRecreationState } from './transportRecreationState.js';
 
 export class TransportRecreator {
   public recreateForRetry(transport: AuthProviderTransport, serverName?: string): AuthProviderTransport {
+    if (transport.recreate) {
+      return transport.recreate();
+    }
     if (this.isHttpTransport(transport)) {
       return this.recreateHttpTransport(transport, serverName);
     }
@@ -20,6 +28,9 @@ export class TransportRecreator {
    * this never carries the old session ID forward.
    */
   public recreateForSessionLoss(transport: AuthProviderTransport, serverName?: string): AuthProviderTransport {
+    if (transport.recreate) {
+      return transport.recreate({ preserveSessionId: false });
+    }
     return this.recreateHttpTransport(transport, serverName, { preserveSessionId: false });
   }
 
@@ -31,6 +42,10 @@ export class TransportRecreator {
     if (!this.isHttpTransport(transport)) {
       const name = serverName ? `Transport for ${serverName}` : 'Transport';
       throw new Error(`${name} does not support OAuth (requires HTTP or SSE transport)`);
+    }
+
+    if (transport.recreate) {
+      return transport.recreate(options);
     }
 
     const preserveSessionId = options?.preserveSessionId ?? true;
@@ -59,11 +74,17 @@ export class TransportRecreator {
     newTransport.requestTimeout = authTransport.requestTimeout;
     newTransport.timeout = authTransport.timeout;
     newTransport.tags = authTransport.tags;
+    newTransport.outboundProtocolVersion = authTransport.outboundProtocolVersion;
 
     return newTransport;
   }
 
   private isHttpTransport(transport: AuthProviderTransport): boolean {
-    return transport instanceof StreamableHTTPClientTransport || transport instanceof SSEClientTransport;
+    return (
+      transport instanceof StreamableHTTPClientTransport ||
+      transport instanceof SSEClientTransport ||
+      transport instanceof ModernStreamableHTTPClientTransport ||
+      transport instanceof ModernSSEClientTransport
+    );
   }
 }

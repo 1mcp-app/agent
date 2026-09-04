@@ -1,8 +1,7 @@
-import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
-
 import type { AuthProviderTransport } from './legacyTransport.js';
+import type { OutboundSdkClient } from './sdkClient.js';
 
 export interface ConnectedClient {
-  readonly client: Client;
+  readonly client: OutboundSdkClient;
   readonly transport: AuthProviderTransport;
 }

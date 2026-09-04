@@ -206,6 +206,44 @@ describe('OAuthFlowHandler', () => {
       expect(result.lastError).toBeUndefined();
     });
 
+    it('recreates from durable OAuth state only after the callback exchange', async () => {
+      const order: string[] = [];
+      const prebuiltTransport = {
+        close: vi.fn(async () => {
+          order.push('discard-prebuilt');
+        }),
+      } as unknown as StreamableHTTPClientTransport;
+      const authenticatedTransport = {
+        close: vi.fn(),
+      } as unknown as StreamableHTTPClientTransport;
+      (mockTransport.finishAuth as unknown as MockInstance).mockImplementationOnce(async () => {
+        order.push('finish-auth');
+      });
+      const recreate = vi.fn(() => {
+        order.push('recreate');
+        return authenticatedTransport;
+      });
+      (mockTransport as StreamableHTTPClientTransport & { recreate: () => StreamableHTTPClientTransport }).recreate =
+        recreate;
+      (mockClient.connect as unknown as MockInstance).mockImplementationOnce(async (transport) => {
+        order.push('connect');
+        expect(transport).toBe(authenticatedTransport);
+      });
+      (mockClient.getServerCapabilities as unknown as MockInstance).mockReturnValue({ tools: {} });
+
+      const result = await oauthFlowHandler.completeOAuthAndReconnect(
+        'test-server',
+        mockTransport as never,
+        prebuiltTransport as never,
+        'auth-code-123',
+        existingConnection,
+      );
+
+      expect(order).toEqual(['finish-auth', 'discard-prebuilt', 'recreate', 'connect']);
+      expect(getLegacyTransport(result)).toBe(authenticatedTransport);
+      expect(recreate).toHaveBeenCalledOnce();
+    });
+
     it('should handle SSE transport', async () => {
       const mockSseTransport = {
         _url: new URL('https://example.com/sse'),
