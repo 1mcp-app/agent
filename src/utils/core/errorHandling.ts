@@ -1,6 +1,5 @@
-import { ErrorCode } from '@src/sdk/contracts/index.js';
-
 import logger from '@src/logger/logger.js';
+import { ErrorCode } from '@src/sdk/contracts/index.js';
 
 import { MCPError, MCPErrorType } from './errorTypes.js';
 

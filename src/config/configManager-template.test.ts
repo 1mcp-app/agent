@@ -238,11 +238,9 @@ describe('ConfigManager Template Integration', () => {
         }),
       );
       await initializeConfigManager();
-      const render = vi
-        .spyOn(HandlebarsTemplateRenderer.prototype, 'renderTemplate')
-        .mockImplementation(() => {
-          throw new Error('render failed');
-        });
+      const render = vi.spyOn(HandlebarsTemplateRenderer.prototype, 'renderTemplate').mockImplementation(() => {
+        throw new Error('render failed');
+      });
 
       try {
         const result = await configManager.loadConfigWithTemplates(mockContext);

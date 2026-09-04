@@ -8,12 +8,7 @@ import {
   setupServerToClientNotifications,
 } from '@src/core/protocol/notificationHandlers.js';
 import { registerRequestHandlers } from '@src/core/protocol/requestHandlers.js';
-import {
-  InboundConnection,
-  OutboundConnection,
-  OutboundConnections,
-  ServerStatus,
-} from '@src/core/types/index.js';
+import { InboundConnection, OutboundConnection, OutboundConnections, ServerStatus } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 
 import { beforeEach, describe, expect, it, MockInstance, vi } from 'vitest';

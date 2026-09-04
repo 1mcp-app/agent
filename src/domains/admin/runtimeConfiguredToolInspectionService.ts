@@ -1,9 +1,9 @@
-import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import {
   collectConfiguredToolPages,
   publishCompleteConfiguredToolInspection,
   readConfiguredToolSnapshot,
 } from '@src/core/capabilities/configuredToolSnapshot.js';
+import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, type MCPServerParams, type OutboundConnection } from '@src/core/types/index.js';
 import { isConfiguredServerTargetDisabled } from '@src/domains/config-change/configChange.js';
@@ -268,9 +268,7 @@ export class RuntimeConfiguredToolInspectionService {
         .map((key) => connections.get(key))
         .filter(
           (connection): connection is OutboundConnection =>
-            connection !== undefined &&
-            connection.name === targetName &&
-            connection.status === ClientStatus.Connected,
+            connection !== undefined && connection.name === targetName && connection.status === ClientStatus.Connected,
         );
       const uniqueConnections = Array.from(new Set(instanceConnections));
       if (instance.status !== 'active' || uniqueConnections.length === 0) {

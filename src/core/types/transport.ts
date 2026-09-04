@@ -45,7 +45,6 @@ export interface EnhancedTransport {
   timeout?: number;
 
   tags?: string[];
-
 }
 
 /**

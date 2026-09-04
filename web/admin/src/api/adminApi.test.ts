@@ -123,7 +123,9 @@ describe('admin API client', () => {
     const api = createAdminApi({
       fetch: async (input, init) => {
         calls.push({ input, init });
-        return jsonResponse(String(input).endsWith('/lifecycle-preview') ? lifecyclePreviewEnvelope() : lifecycleApplyEnvelope());
+        return jsonResponse(
+          String(input).endsWith('/lifecycle-preview') ? lifecyclePreviewEnvelope() : lifecycleApplyEnvelope(),
+        );
       },
     });
     const target = { type: 'configured_server' as const, source: 'mcpTemplates' as const, id: 'shared/name' };
@@ -160,26 +162,26 @@ describe('admin API client', () => {
     ]);
   });
 
-  it.each([
-    ['preview', '/lifecycle-preview'] as const,
-    ['apply', '/lifecycle'] as const,
-  ])('rejects malformed successful Template lifecycle %s envelopes', async (kind) => {
-    const api = createAdminApi({ fetch: async () => jsonResponse({ ok: true }) });
-    const target = { type: 'configured_server' as const, source: 'mcpTemplates' as const, id: 'worker' };
+  it.each([['preview', '/lifecycle-preview'] as const, ['apply', '/lifecycle'] as const])(
+    'rejects malformed successful Template lifecycle %s envelopes',
+    async (kind) => {
+      const api = createAdminApi({ fetch: async () => jsonResponse({ ok: true }) });
+      const target = { type: 'configured_server' as const, source: 'mcpTemplates' as const, id: 'worker' };
 
-    const operation =
-      kind === 'preview'
-        ? api.previewConfiguredServerLifecycle({ target, enabled: false, csrfToken: 'csrf_1' })
-        : api.applyConfiguredServerLifecycle({
-            target,
-            enabled: false,
-            csrfToken: 'csrf_1',
-            idempotencyKey: 'disable-worker',
-            previewFingerprint: 'lifecycle_preview_1',
-          });
+      const operation =
+        kind === 'preview'
+          ? api.previewConfiguredServerLifecycle({ target, enabled: false, csrfToken: 'csrf_1' })
+          : api.applyConfiguredServerLifecycle({
+              target,
+              enabled: false,
+              csrfToken: 'csrf_1',
+              idempotencyKey: 'disable-worker',
+              previewFingerprint: 'lifecycle_preview_1',
+            });
 
-    await expect(operation).rejects.toThrow();
-  });
+      await expect(operation).rejects.toThrow();
+    },
+  );
 
   it('manages instruction-template drafts through explicit lifecycle routes', async () => {
     const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];

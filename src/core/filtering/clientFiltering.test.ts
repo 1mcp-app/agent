@@ -1,8 +1,7 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
-import { ServerCapabilities } from '@src/sdk/contracts/index.js';
-
 import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
+import { ServerCapabilities } from '@src/sdk/contracts/index.js';
 
 import { describe, expect, it } from 'vitest';
 

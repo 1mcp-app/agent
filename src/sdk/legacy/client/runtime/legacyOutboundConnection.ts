@@ -1,9 +1,8 @@
-import type { Client } from '@src/sdk/legacy/client/index.js';
-
-import type { BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
 import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
+import type { BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
 import type { ClientStatus, OutboundConnection, OutboundErrorSnapshot } from '@src/core/types/client.js';
 import { type JsonObject, toJsonValue } from '@src/sdk/contracts/index.js';
+import type { Client } from '@src/sdk/legacy/client/index.js';
 
 import {
   bindLegacySdkConnection,
@@ -36,7 +35,9 @@ interface CreateLegacyOutboundConnectionOptions {
 }
 
 export function snapshotError(error: unknown): OutboundErrorSnapshot {
-  return error instanceof Error ? { name: error.name, message: error.message } : { name: 'Error', message: String(error) };
+  return error instanceof Error
+    ? { name: error.name, message: error.message }
+    : { name: 'Error', message: String(error) };
 }
 
 export function snapshotSupervision(snapshot: BackendSupervisionSnapshot) {
@@ -91,10 +92,7 @@ export function getLegacyTransport(connection: LegacyOutboundConnection): AuthPr
   return getLegacySdkTransport(connection.adapter);
 }
 
-export function setLegacyTransport(
-  connection: LegacyOutboundConnection,
-  transport: AuthProviderTransport,
-): void {
+export function setLegacyTransport(connection: LegacyOutboundConnection, transport: AuthProviderTransport): void {
   setLegacySdkTransport(connection.adapter, transport);
   connection.tags = [...(transport.tags ?? [])];
   connection.requestTimeoutMs = transport.requestTimeout ?? transport.timeout;
@@ -107,10 +105,7 @@ export function requestLegacyOutbound<T>(
   params?: unknown,
 ): Promise<T> {
   const transport = getLegacyTransport(connection);
-  return requestLegacyAdapter<T>(
-    connection.adapter,
-    method,
-    params === undefined ? undefined : toJsonValue(params),
-    { timeoutMs: connection.requestTimeoutMs ?? transport.requestTimeout ?? transport.timeout },
-  );
+  return requestLegacyAdapter<T>(connection.adapter, method, params === undefined ? undefined : toJsonValue(params), {
+    timeoutMs: connection.requestTimeoutMs ?? transport.requestTimeout ?? transport.timeout,
+  });
 }

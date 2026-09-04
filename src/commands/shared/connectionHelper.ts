@@ -4,12 +4,12 @@ import type { OutboundConnection } from '@src/core/types/client.js';
 import type { MCPServerParams } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 import {
-  toProtocolPrompts,
-  toProtocolResources,
-  toProtocolTools,
   type Prompt as ProtocolPrompt,
   type Resource as ProtocolResource,
   type Tool as ProtocolTool,
+  toProtocolPrompts,
+  toProtocolResources,
+  toProtocolTools,
 } from '@src/sdk/contracts/index.js';
 import { createTransports } from '@src/transport/transportFactory.js';
 

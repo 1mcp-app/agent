@@ -3,9 +3,9 @@ import { CapabilityCatalog } from '@src/core/capabilities/capabilityCatalog.js';
 import { type CapabilityVisibility, createCapabilityVisibility } from '@src/core/capabilities/capabilityVisibility.js';
 import { SchemaCache } from '@src/core/capabilities/schemaCache.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
+import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { byCapabilities } from '@src/core/filtering/clientFiltering.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
-import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { createConnectionResolver } from '@src/core/server/connectionResolver.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, InboundConnection, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
@@ -33,10 +33,7 @@ export async function createCapabilityCatalogFromConnections(
           timeoutMs: connection.requestTimeoutMs,
         });
         toolsByServer.set(serverName, result.tools ?? []);
-        tagsByServer.set(
-          serverName,
-          connection.tags,
-        );
+        tagsByServer.set(serverName, connection.tags);
       } catch (error) {
         logger.warn(`Failed to list tools from ${serverName}`, { error: String(error) });
       }

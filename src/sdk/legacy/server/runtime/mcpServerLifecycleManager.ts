@@ -1,13 +1,12 @@
-import { Transport } from '@src/sdk/legacy/shared/transport.js';
-import type { AuthProviderTransport } from '@src/sdk/legacy/client/runtime/legacyTransport.js';
-import { getLegacyTransport } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
-
 import { sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
 import { getGlobalContextManager } from '@src/core/context/globalContextManager.js';
 import type { OutboundConnections } from '@src/core/types/client.js';
 import { MCPServerParams } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+import { getLegacyTransport } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
+import type { AuthProviderTransport } from '@src/sdk/legacy/client/runtime/legacyTransport.js';
+import { Transport } from '@src/sdk/legacy/shared/transport.js';
 import { createTransports, createTransportsWithContext, inferTransportType } from '@src/transport/transportFactory.js';
 
 /**

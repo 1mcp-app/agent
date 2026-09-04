@@ -1,9 +1,8 @@
-import type { LegacyConnectionId, LegacySdkAdapter } from '@src/sdk/contracts/legacySdkAdapter.js';
-
 import type { TemplateContextProof } from '@src/core/context/templateContextTrust.js';
 import { TemplateConfig } from '@src/core/instructions/templateTypes.js';
 import { TagExpression } from '@src/domains/preset/parsers/tagQueryParser.js';
 import { TagQuery } from '@src/domains/preset/types/presetTypes.js';
+import type { LegacyConnectionId, LegacySdkAdapter } from '@src/sdk/contracts/legacySdkAdapter.js';
 import { ContextNamespace, EnvironmentContext, UserContext } from '@src/types/context.js';
 
 /**
@@ -20,10 +19,7 @@ export enum ServerStatus {
   Error = 'error',
 }
 
-export type InboundConnectionAdapter = Pick<
-  LegacySdkAdapter,
-  'connectionId' | 'state' | 'start' | 'notify' | 'close'
->;
+export type InboundConnectionAdapter = Pick<LegacySdkAdapter, 'connectionId' | 'state' | 'start' | 'notify' | 'close'>;
 
 export interface InboundConnectionError {
   readonly name: string;

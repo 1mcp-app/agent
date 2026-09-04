@@ -8,12 +8,9 @@ import { CustomJsonSchemaValidator } from '@src/core/validation/CustomJsonSchema
 import logger from '@src/logger/logger.js';
 import { getConnectionTimeout } from '@src/utils/core/timeoutUtils.js';
 
-import { OAuthRequiredError } from './types.js';
-import {
-  createLegacyOutboundConnection,
-  type LegacyOutboundConnection,
-} from './legacyOutboundConnection.js';
+import { createLegacyOutboundConnection, type LegacyOutboundConnection } from './legacyOutboundConnection.js';
 import type { AuthProviderTransport } from './legacyTransport.js';
+import { OAuthRequiredError } from './types.js';
 
 const DEBOUNCED_NOTIFICATION_METHODS = [
   'notifications/tools/list_changed',

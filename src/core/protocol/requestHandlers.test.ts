@@ -295,7 +295,10 @@ describe('Request Handlers', () => {
 
     it('should handle clients with different statuses', () => {
       // Add clients with different statuses
-      mockOutboundConns.set('disconnected', connection('disconnected', { setRequestHandler: vi.fn() }, ClientStatus.Disconnected));
+      mockOutboundConns.set(
+        'disconnected',
+        connection('disconnected', { setRequestHandler: vi.fn() }, ClientStatus.Disconnected),
+      );
       mockOutboundConns.set('error', connection('error', { setRequestHandler: vi.fn() }, ClientStatus.Error));
 
       expect(() => {
@@ -426,7 +429,10 @@ describe('Request Handlers', () => {
         });
       };
       mixedClients.set('connected', createPingConnection('connected', ClientStatus.Connected, connectedPing));
-      mixedClients.set('disconnected', createPingConnection('disconnected', ClientStatus.Disconnected, disconnectedPing));
+      mixedClients.set(
+        'disconnected',
+        createPingConnection('disconnected', ClientStatus.Disconnected, disconnectedPing),
+      );
       mixedClients.set('error', createPingConnection('error', ClientStatus.Error, errorPing));
 
       const pingHandler = createPingHandler(mixedClients);

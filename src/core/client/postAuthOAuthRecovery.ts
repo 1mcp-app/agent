@@ -1,14 +1,16 @@
 import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { ClientStatus, type OutboundConnection } from '@src/core/types/index.js';
-import { OneMcpProtocolError } from '@src/sdk/contracts/index.js';
 import logger from '@src/logger/logger.js';
+import { OneMcpProtocolError } from '@src/sdk/contracts/index.js';
 
 const POST_AUTH_UNAUTHORIZED_MESSAGE = 'Server returned 401 after successful authentication';
 const recoveries = new WeakMap<OutboundConnection, Promise<void>>();
 
 export function isPostAuthUnauthorized(error: unknown): error is OneMcpProtocolError {
-  return error instanceof OneMcpProtocolError && error.code === 401 && error.message.includes(POST_AUTH_UNAUTHORIZED_MESSAGE);
+  return (
+    error instanceof OneMcpProtocolError && error.code === 401 && error.message.includes(POST_AUTH_UNAUTHORIZED_MESSAGE)
+  );
 }
 
 function publishAwaitingOAuth(serverName: string, error: OneMcpProtocolError): void {

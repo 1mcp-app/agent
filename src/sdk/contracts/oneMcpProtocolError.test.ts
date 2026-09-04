@@ -66,11 +66,14 @@ describe('OneMcpProtocolError', () => {
 
   it.each(['code', 'message'])('rejects accessor-backed foreign %s without invoking it', (property) => {
     const getter = vi.fn(() => (property === 'code' ? -1 : 'foreign'));
-    const foreign = Object.defineProperties({}, {
-      code: { value: -1 },
-      message: { value: 'foreign' },
-      [property]: { configurable: true, get: getter },
-    });
+    const foreign = Object.defineProperties(
+      {},
+      {
+        code: { value: -1 },
+        message: { value: 'foreign' },
+        [property]: { configurable: true, get: getter },
+      },
+    );
 
     expect(() => OneMcpProtocolError.fromUnknown(foreign)).toThrow(`${property} must be a data property`);
     expect(getter).not.toHaveBeenCalled();

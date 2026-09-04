@@ -1,6 +1,5 @@
-import type { Prompt, PromptArgument, Resource, Tool } from '@src/sdk/contracts/index.js';
-
 import logger from '@src/logger/logger.js';
+import type { Prompt, PromptArgument, Resource, Tool } from '@src/sdk/contracts/index.js';
 
 import { encoding_for_model, Tiktoken, type TiktokenModel } from 'tiktoken';
 

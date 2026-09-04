@@ -1,15 +1,10 @@
+import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
+import { createLegacyTimeoutMs, OneMcpProtocolError } from '@src/sdk/contracts/index.js';
 import { Client } from '@src/sdk/legacy/client/index.js';
 import { StreamableHTTPError } from '@src/sdk/legacy/client/streamableHttp.js';
 import { CallToolRequestSchema, McpError } from '@src/sdk/legacy/types.js';
 
-import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
-import { createLegacyTimeoutMs, OneMcpProtocolError } from '@src/sdk/contracts/index.js';
-
-import {
-  bindLegacySdkConnection,
-  getLegacySdkTransport,
-  LegacySdkClientAdapter,
-} from './legacySdkClientAdapter.js';
+import { bindLegacySdkConnection, getLegacySdkTransport, LegacySdkClientAdapter } from './legacySdkClientAdapter.js';
 import type { AuthProviderTransport } from './legacyTransport.js';
 
 function createClient(): Client {
@@ -67,9 +62,9 @@ describe('LegacySdkClientAdapter', () => {
     vi.spyOn(client, 'request').mockRejectedValue(new McpError(-32_601, 'Method not found', { method: 'missing' }));
     const adapter = new LegacySdkClientAdapter(client, createTransport());
 
-    await expect(
-      adapter.request({ id: 'request-2' as never, method: 'missing' }),
-    ).rejects.toEqual(expect.objectContaining({ code: -32_601, message: expect.stringContaining('Method not found') }));
+    await expect(adapter.request({ id: 'request-2' as never, method: 'missing' })).rejects.toEqual(
+      expect.objectContaining({ code: -32_601, message: expect.stringContaining('Method not found') }),
+    );
     await expect(adapter.request({ id: 'request-3' as never, method: 'missing' })).rejects.toBeInstanceOf(
       OneMcpProtocolError,
     );

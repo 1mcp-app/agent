@@ -1,9 +1,8 @@
-import type { Tool } from '@src/sdk/contracts/index.js';
-
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { OutboundConnections } from '@src/core/types/index.js';
 import logger, { errorIf } from '@src/logger/logger.js';
+import type { Tool } from '@src/sdk/contracts/index.js';
 import { zodToInputSchema, zodToOutputSchema } from '@src/utils/schemaUtils.js';
 
 import { CapabilityCatalog } from './capabilityCatalog.js';

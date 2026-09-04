@@ -1,7 +1,7 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
-import type { TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { executeWithPostAuthOAuthRecovery } from '@src/core/client/postAuthOAuthRecovery.js';
+import type { TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { ClientStatus, type OutboundConnections } from '@src/core/types/client.js';
 import { OneMcpProtocolError, type Tool } from '@src/sdk/contracts/index.js';
 

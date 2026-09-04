@@ -3,18 +3,12 @@ import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { StreamableHTTPClientTransport } from '@src/sdk/legacy/client/streamableHttp.js';
-import {
-  type CallToolResult,
-  type JSONRPCMessage,
-  LATEST_PROTOCOL_VERSION,
-  type Tool,
-} from '@src/sdk/legacy/types.js';
-
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@src/constants.js';
 import type { TemplateContextProof } from '@src/core/context/templateContextTrust.js';
 import { resolveFilterSelection } from '@src/core/filtering/filterSelection.js';
 import logger from '@src/logger/logger.js';
+import { StreamableHTTPClientTransport } from '@src/sdk/legacy/client/streamableHttp.js';
+import { type CallToolResult, type JSONRPCMessage, LATEST_PROTOCOL_VERSION, type Tool } from '@src/sdk/legacy/types.js';
 import type { ContextData } from '@src/types/context.js';
 import { createContextHash } from '@src/utils/context/contextHash.js';
 

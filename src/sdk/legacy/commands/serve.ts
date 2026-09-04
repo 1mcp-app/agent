@@ -1,8 +1,14 @@
 import fs from 'fs';
 import path from 'path';
 
-import { StdioServerTransport } from '@src/sdk/legacy/server/stdio.js';
-
+import { resolveAsyncLoadingOptions } from '@src/commands/serve/asyncLoadingOptions.js';
+import { resolveServeConfigPaths } from '@src/commands/serve/runtimeScope.js';
+import {
+  parseCommaSeparatedList,
+  parseInternalToolsList,
+  resolveStdioFilterConfig,
+} from '@src/commands/serve/serveOptions.js';
+import { resolveTemplateContextTrust } from '@src/commands/serve/templateContextTrust.js';
 import { ConfigManager } from '@src/config/configManager.js';
 import { getDefaultInstructionsTemplatePath, HOST, PORT } from '@src/constants.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
@@ -29,14 +35,10 @@ import { GlobalOptions } from '@src/globalOptions.js';
 import { configureGlobalLogger } from '@src/logger/configureGlobalLogger.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { resolveLoggingConfig } from '@src/logger/loggingConfig.js';
+import { StdioServerTransport } from '@src/sdk/legacy/server/stdio.js';
 import { setupServer } from '@src/server.js';
 import { ExpressServer } from '@src/transport/http/server.js';
 import { displayLogo } from '@src/utils/ui/logo.js';
-
-import { resolveAsyncLoadingOptions } from '@src/commands/serve/asyncLoadingOptions.js';
-import { resolveServeConfigPaths } from '@src/commands/serve/runtimeScope.js';
-import { parseCommaSeparatedList, parseInternalToolsList, resolveStdioFilterConfig } from '@src/commands/serve/serveOptions.js';
-import { resolveTemplateContextTrust } from '@src/commands/serve/templateContextTrust.js';
 
 export interface ServeOptions {
   config?: string;

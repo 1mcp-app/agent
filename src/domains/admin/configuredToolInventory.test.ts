@@ -1,9 +1,8 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
-import type { Tool } from '@src/sdk/contracts/index.js';
-
 import { publishConfiguredToolSnapshot } from '@src/core/capabilities/configuredToolSnapshot.js';
 import { ClientStatus, type OutboundConnection, type OutboundConnections } from '@src/core/types/index.js';
+import type { Tool } from '@src/sdk/contracts/index.js';
 
 import { describe, expect, it, vi } from 'vitest';
 

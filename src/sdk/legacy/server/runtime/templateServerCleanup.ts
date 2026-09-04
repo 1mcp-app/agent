@@ -1,9 +1,8 @@
-import type { Transport } from '@src/sdk/legacy/shared/transport.js';
-
 import type { ClientTemplateTracker } from '@src/core/filtering/index.js';
 import type { ClientInstancePool } from '@src/core/server/clientInstancePool.js';
 import type { OutboundConnections } from '@src/core/types/client.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+import type { Transport } from '@src/sdk/legacy/shared/transport.js';
 
 export interface EphemeralTemplateClient {
   templateName: string;

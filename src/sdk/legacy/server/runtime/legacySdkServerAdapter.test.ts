@@ -1,9 +1,8 @@
+import type { LegacyConnectionId } from '@src/sdk/contracts/legacySdkAdapter.js';
+import { OneMcpProtocolError } from '@src/sdk/contracts/oneMcpProtocolError.js';
 import type { Server } from '@src/sdk/legacy/server/index.js';
 import type { Transport } from '@src/sdk/legacy/shared/transport.js';
 import { McpError } from '@src/sdk/legacy/types.js';
-
-import type { LegacyConnectionId } from '@src/sdk/contracts/legacySdkAdapter.js';
-import { OneMcpProtocolError } from '@src/sdk/contracts/oneMcpProtocolError.js';
 
 import { describe, expect, it, vi } from 'vitest';
 

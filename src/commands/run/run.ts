@@ -1,5 +1,3 @@
-import { hasHttpErrorCode, toJsonValue, toProtocolTools, type CallToolResult, type Tool } from '@src/sdk/contracts/index.js';
-
 import { extractInspectToolInfo, type InspectToolInfo } from '@src/commands/inspect/inspectUtils.js';
 import {
   findToolByQualifiedName,
@@ -33,6 +31,13 @@ import {
 import { API_INSPECT_ENDPOINT, API_TOOL_INVOCATIONS_ENDPOINT } from '@src/constants/api.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
+import {
+  type CallToolResult,
+  hasHttpErrorCode,
+  toJsonValue,
+  type Tool,
+  toProtocolTools,
+} from '@src/sdk/contracts/index.js';
 import type { ContextData } from '@src/types/context.js';
 
 export interface RunCommandOptions extends GlobalOptions {

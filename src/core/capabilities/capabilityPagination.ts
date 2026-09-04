@@ -1,8 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 
-import { ErrorCode } from '@src/sdk/contracts/index.js';
-
 import type { OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
+import { ErrorCode } from '@src/sdk/contracts/index.js';
 import { MCPError } from '@src/utils/core/errorTypes.js';
 
 import { clearConfiguredToolSnapshot } from './configuredToolSnapshot.js';
@@ -138,7 +137,9 @@ async function pumpCapabilityNotifications(
 
     const notification = {
       method: event.notification.method,
-      ...(event.notification.params && typeof event.notification.params === 'object' && !Array.isArray(event.notification.params)
+      ...(event.notification.params &&
+      typeof event.notification.params === 'object' &&
+      !Array.isArray(event.notification.params)
         ? { params: event.notification.params as Record<string, unknown> }
         : {}),
     };

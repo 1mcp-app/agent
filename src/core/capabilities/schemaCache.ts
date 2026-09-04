@@ -1,6 +1,5 @@
-import type { Tool } from '@src/sdk/contracts/index.js';
-
 import logger, { debugIf } from '@src/logger/logger.js';
+import type { Tool } from '@src/sdk/contracts/index.js';
 
 /**
  * Statistics for schema cache operations

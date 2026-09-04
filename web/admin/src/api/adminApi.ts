@@ -691,7 +691,12 @@ const configuredServerPreviewConfigChangeSchema = z
       .object({ attempted: z.boolean(), deletedPaths: z.array(z.string()), warnings: z.array(z.string()) })
       .passthrough(),
     reload: z
-      .object({ status: z.string(), error: z.string().optional(), before: z.unknown().optional(), after: z.unknown().optional() })
+      .object({
+        status: z.string(),
+        error: z.string().optional(),
+        before: z.unknown().optional(),
+        after: z.unknown().optional(),
+      })
       .passthrough(),
     warnings: z.array(z.string()).optional(),
     error: z.string().optional(),
@@ -719,9 +724,7 @@ const configuredServerLifecyclePreviewResponseSchema = z
         current: z
           .object({ enabled: z.boolean(), disabledValueKind: z.enum(['absent', 'literal', 'context_expression']) })
           .passthrough(),
-        proposed: z
-          .object({ enabled: z.boolean(), disabledValueKind: z.enum(['absent', 'literal']) })
-          .passthrough(),
+        proposed: z.object({ enabled: z.boolean(), disabledValueKind: z.enum(['absent', 'literal']) }).passthrough(),
         expressionReplacement: z
           .object({ occurs: z.boolean(), replacement: z.enum(['disabled_true', 'enabled_absent']) })
           .passthrough(),

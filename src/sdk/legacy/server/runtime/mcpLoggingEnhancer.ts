@@ -1,11 +1,10 @@
+import logger from '@src/logger/logger.js';
 import { Server } from '@src/sdk/legacy/server/index.js';
 import type { RequestHandlerExtra } from '@src/sdk/legacy/shared/protocol.js';
 import type { ServerNotification, ServerRequest } from '@src/sdk/legacy/types.js';
 
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
-
-import logger from '@src/logger/logger.js';
 
 interface LogContext {
   requestId: string;

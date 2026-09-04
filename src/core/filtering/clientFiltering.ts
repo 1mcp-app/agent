@@ -1,8 +1,7 @@
-import type { ServerCapabilities } from '@src/sdk/contracts/index.js';
-
 import { OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import { TagExpression, TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+import type { ServerCapabilities } from '@src/sdk/contracts/index.js';
 import { normalizeTag } from '@src/utils/validation/sanitization.js';
 
 /**

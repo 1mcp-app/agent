@@ -1,10 +1,3 @@
-import {
-  CallToolRequestSchema,
-  ListToolsRequest,
-  ListToolsRequestSchema,
-  type Tool as LegacyTool,
-} from '@src/sdk/legacy/types.js';
-
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import {
@@ -14,20 +7,6 @@ import {
 import { InternalCapabilitiesProvider } from '@src/core/capabilities/internalCapabilitiesProvider.js';
 import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
 import { executeWithPostAuthOAuthRecovery } from '@src/core/client/postAuthOAuthRecovery.js';
-import { getDisabledToolError } from '@src/core/server/disabledTools.js';
-import { applyEffectiveToolDescription } from '@src/core/server/toolDescriptionOverrides.js';
-import { InboundConnection } from '@src/core/types/index.js';
-import type { MCPServerParams } from '@src/core/types/transport.js';
-import logger, { infoIf } from '@src/logger/logger.js';
-import { toProtocolTools, type Tool } from '@src/sdk/contracts/index.js';
-import { withErrorHandling } from '@src/utils/core/errorHandling.js';
-import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
-import {
-  requestLegacyOutbound,
-  type LegacyOutboundConnections,
-} from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
-import { buildUri, parseUri } from '@src/utils/core/parsing.js';
-
 import {
   createProtocolCapabilityCatalog,
   getRequestSession,
@@ -35,6 +14,25 @@ import {
   resolveLazyCapabilityVisibility,
   resolveOutboundConnection,
 } from '@src/core/protocol/requestHandlerUtils.js';
+import { getDisabledToolError } from '@src/core/server/disabledTools.js';
+import { applyEffectiveToolDescription } from '@src/core/server/toolDescriptionOverrides.js';
+import { InboundConnection } from '@src/core/types/index.js';
+import type { MCPServerParams } from '@src/core/types/transport.js';
+import logger, { infoIf } from '@src/logger/logger.js';
+import { type Tool, toProtocolTools } from '@src/sdk/contracts/index.js';
+import {
+  type LegacyOutboundConnections,
+  requestLegacyOutbound,
+} from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
+import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
+import {
+  CallToolRequestSchema,
+  type Tool as LegacyTool,
+  ListToolsRequest,
+  ListToolsRequestSchema,
+} from '@src/sdk/legacy/types.js';
+import { withErrorHandling } from '@src/utils/core/errorHandling.js';
+import { buildUri, parseUri } from '@src/utils/core/parsing.js';
 
 export function registerToolHandlers(
   outboundConns: LegacyOutboundConnections,

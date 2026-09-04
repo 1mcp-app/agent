@@ -1,14 +1,9 @@
 import { randomUUID } from 'node:crypto';
 
-import type { Client } from '@src/sdk/legacy/client/index.js';
-import { StreamableHTTPError } from '@src/sdk/legacy/client/streamableHttp.js';
-import {
-  PromptListChangedNotificationSchema,
-  ResourceListChangedNotificationSchema,
-  ResultSchema,
-  ToolListChangedNotificationSchema,
-} from '@src/sdk/legacy/types.js';
-
+import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
+import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
+import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
+import logger from '@src/logger/logger.js';
 import {
   type JsonValue,
   type LegacyConnectionId,
@@ -22,10 +17,14 @@ import {
   OneMcpProtocolError,
   toJsonValue,
 } from '@src/sdk/contracts/index.js';
-import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
-import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
-import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
-import logger from '@src/logger/logger.js';
+import type { Client } from '@src/sdk/legacy/client/index.js';
+import { StreamableHTTPError } from '@src/sdk/legacy/client/streamableHttp.js';
+import {
+  PromptListChangedNotificationSchema,
+  ResourceListChangedNotificationSchema,
+  ResultSchema,
+  ToolListChangedNotificationSchema,
+} from '@src/sdk/legacy/types.js';
 
 import type { AuthProviderTransport } from './legacyTransport.js';
 import { TransportRecreator } from './transportRecreator.js';
@@ -57,14 +56,14 @@ function toProtocolError(error: unknown): OneMcpProtocolError {
 
 function isPostAuthUnauthorized(error: unknown): error is StreamableHTTPError {
   return (
-    error instanceof StreamableHTTPError &&
-    error.code === 401 &&
-    error.message.includes(POST_AUTH_UNAUTHORIZED_MESSAGE)
+    error instanceof StreamableHTTPError && error.code === 401 && error.message.includes(POST_AUTH_UNAUTHORIZED_MESSAGE)
   );
 }
 
 function snapshotError(error: unknown): { name: string; message: string } {
-  return error instanceof Error ? { name: error.name, message: error.message } : { name: 'Error', message: String(error) };
+  return error instanceof Error
+    ? { name: error.name, message: error.message }
+    : { name: 'Error', message: String(error) };
 }
 
 function publishAwaitingOAuth(serverName: string, error: StreamableHTTPError): void {
@@ -90,7 +89,8 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
     legacyHandles.set(this, { client, transport });
     const transportRecreator = new TransportRecreator();
     this.recreateHttpTransport =
-      options.recreateHttpTransport ?? ((current, serverName) => transportRecreator.recreateHttpTransport(current, serverName));
+      options.recreateHttpTransport ??
+      ((current, serverName) => transportRecreator.recreateHttpTransport(current, serverName));
     this.registerListChangedNotifications();
   }
 
@@ -129,10 +129,7 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
     }
   }
 
-  private async requestWithRecovery(
-    request: LegacySdkRequest,
-    controller: AbortController,
-  ): Promise<unknown> {
+  private async requestWithRecovery(request: LegacySdkRequest, controller: AbortController): Promise<unknown> {
     const requestClient = this.handles.client;
     const params = request.params === undefined ? undefined : toJsonValue(request.params);
     try {
@@ -201,7 +198,9 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
       connection.requestTimeoutMs = freshTransport.requestTimeout ?? freshTransport.timeout;
       connection.requiresOAuth = Boolean(freshTransport.oauthProvider);
     }
-    logger.warn(`OAuth reauthorization required for ${serverName ?? 'legacy backend'} after authenticated request returned 401`);
+    logger.warn(
+      `OAuth reauthorization required for ${serverName ?? 'legacy backend'} after authenticated request returned 401`,
+    );
   }
 
   async cancel(requestId: LegacyRequestId): Promise<void> {
@@ -236,15 +235,18 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
   }
 
   private registerNotification(schema: unknown): void {
-    this.handles.client.setNotificationHandler(schema as never, async (notification: { method: string; params?: unknown }) => {
-      this.publish({
-        type: 'notification',
-        notification: {
-          method: notification.method,
-          ...(notification.params === undefined ? {} : { params: toJsonValue(notification.params) }),
-        },
-      });
-    });
+    this.handles.client.setNotificationHandler(
+      schema as never,
+      async (notification: { method: string; params?: unknown }) => {
+        this.publish({
+          type: 'notification',
+          notification: {
+            method: notification.method,
+            ...(notification.params === undefined ? {} : { params: toJsonValue(notification.params) }),
+          },
+        });
+      },
+    );
   }
 
   private registerListChangedNotifications(): void {

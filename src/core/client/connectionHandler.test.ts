@@ -11,8 +11,8 @@ import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import { activateRuntimeScopeEnvironment } from '@src/config/runtimeScopeEnv.js';
 import { CONNECTION_RETRY, MCP_SERVER_NAME } from '@src/constants.js';
-import { AuthProviderTransport } from '@src/sdk/legacy/client/runtime/legacyTransport.js';
 import logger from '@src/logger/logger.js';
+import { AuthProviderTransport } from '@src/sdk/legacy/client/runtime/legacyTransport.js';
 
 import { afterEach, beforeEach, describe, expect, it, MockInstance, vi } from 'vitest';
 

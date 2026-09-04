@@ -18,7 +18,7 @@ import { McpLoadingManager } from './core/loading/mcpLoadingManager.js';
 import { ServerManager } from './core/server/serverManager.js';
 import { PresetManager } from './domains/preset/manager/presetManager.js';
 import { PresetNotificationService } from './domains/preset/services/presetNotificationService.js';
-import { toJsonValue, type JsonObject } from './sdk/contracts/index.js';
+import { type JsonObject, toJsonValue } from './sdk/contracts/index.js';
 import { createTransports } from './transport/transportFactory.js';
 
 type AuthProviderTransport = ReturnType<typeof createTransports>[string];

@@ -459,7 +459,12 @@ export function useAdminConsoleSession({
               { label: 'Target', value: preview.preview.qualifiedId },
               { label: 'Active instances', value: String(preview.preview.runtimeImpact.activeInstanceCount) },
               ...(preview.preview.expressionReplacement.occurs
-                ? [{ label: 'Expression replacement', value: 'Context-rendered disabled expression becomes literal true.' }]
+                ? [
+                    {
+                      label: 'Expression replacement',
+                      value: 'Context-rendered disabled expression becomes literal true.',
+                    },
+                  ]
                 : []),
               { label: 'Re-enable behavior', value: 'Future matching requests create instances lazily.' },
             ],
@@ -494,9 +499,7 @@ export function useAdminConsoleSession({
         if (!isCurrentSession(sessionKey)) {
           return;
         }
-        await refreshConsole(
-          lifecycleRecoveryMessage ? 'Lifecycle was persisted, but inventory refresh failed: ' : '',
-        );
+        await refreshConsole(lifecycleRecoveryMessage ? 'Lifecycle was persisted, but inventory refresh failed: ' : '');
         dispatch(
           lifecycleRecoveryMessage
             ? { type: 'mutationFailed', serverId, action, message: lifecycleRecoveryMessage }

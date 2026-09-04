@@ -57,10 +57,7 @@ export interface LegacySdkClosedEvent {
 }
 
 export type LegacySdkEvent =
-  | LegacySdkRequestEvent
-  | LegacySdkNotificationEvent
-  | LegacySdkFailureEvent
-  | LegacySdkClosedEvent;
+  LegacySdkRequestEvent | LegacySdkNotificationEvent | LegacySdkFailureEvent | LegacySdkClosedEvent;
 
 export interface LegacySdkSuccessResponse {
   readonly type: 'success';

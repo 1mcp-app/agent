@@ -10,12 +10,7 @@ import {
   RootsListChangedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 
-import {
-  ClientStatus,
-  type InboundConnection,
-  type OutboundConnections,
-  ServerStatus,
-} from '@src/core/types/index.js';
+import { ClientStatus, type InboundConnection, type OutboundConnections, ServerStatus } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';

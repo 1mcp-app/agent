@@ -5455,7 +5455,10 @@ describe('AdminConfiguredServerService', () => {
       previewFingerprint: preview.result.previewFingerprint,
     });
 
-    expect(preview.result.runtimeImpact).toMatchObject({ activeInstanceCount: 0, recreation: 'lazy_future_match_only' });
+    expect(preview.result.runtimeImpact).toMatchObject({
+      activeInstanceCount: 0,
+      recreation: 'lazy_future_match_only',
+    });
     expect(applied).toMatchObject({ ok: true, result: { outcome: 'enabled', runtimeImpact: { retiredInstances: 0 } } });
     expect(readConfig().mcpTemplates.worker).not.toHaveProperty('disabled');
     expect(observeTemplateDefinitionRetirement).not.toHaveBeenCalled();

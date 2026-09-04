@@ -4,8 +4,6 @@
  * This module contains factory functions for creating discovery-related internal MCP tools
  * including search and registry management tools.
  */
-import type { Tool } from '@src/sdk/contracts/index.js';
-
 import {
   McpInfoOutputSchema,
   McpInfoToolSchema,
@@ -18,6 +16,7 @@ import {
   McpSearchOutputSchema,
   McpSearchToolSchema,
 } from '@src/core/tools/internal/schemas/index.js';
+import type { Tool } from '@src/sdk/contracts/index.js';
 import { zodToInputSchema, zodToOutputSchema } from '@src/utils/schemaUtils.js';
 
 /**

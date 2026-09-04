@@ -1,8 +1,7 @@
-import type { OAuthClientInformationFull } from '@src/sdk/contracts/index.js';
-
 import { ClientData } from '@src/auth/sessionTypes.js';
 import { AUTH_CONFIG } from '@src/constants.js';
 import logger from '@src/logger/logger.js';
+import type { OAuthClientInformationFull } from '@src/sdk/contracts/index.js';
 
 import { FileStorageService } from './fileStorageService.js';
 

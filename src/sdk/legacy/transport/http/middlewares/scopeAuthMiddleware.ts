@@ -1,12 +1,11 @@
-import { requireBearerAuth } from '@src/sdk/legacy/server/auth/middleware/bearerAuth.js';
-import type { AuthInfo as SDKAuthInfo } from '@src/sdk/legacy/server/auth/types.js';
-
 import { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
 import type { FilterSelection } from '@src/core/filtering/filterSelection.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { TagExpression } from '@src/domains/preset/parsers/tagQueryParser.js';
 import { TagQuery } from '@src/domains/preset/types/presetTypes.js';
 import logger from '@src/logger/logger.js';
+import { requireBearerAuth } from '@src/sdk/legacy/server/auth/middleware/bearerAuth.js';
+import type { AuthInfo as SDKAuthInfo } from '@src/sdk/legacy/server/auth/types.js';
 import { auditScopeOperation, hasRequiredScopes, scopesToTags } from '@src/utils/validation/scopeValidation.js';
 
 import { NextFunction, Request, Response } from 'express';

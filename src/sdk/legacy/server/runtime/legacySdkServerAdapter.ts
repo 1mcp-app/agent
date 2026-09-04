@@ -1,14 +1,13 @@
-import type { Server } from '@src/sdk/legacy/server/index.js';
-import type { Transport } from '@src/sdk/legacy/shared/transport.js';
-
+import type { InboundConnectionAdapter } from '@src/core/types/server.js';
+import { type JsonObject, toJsonValue } from '@src/sdk/contracts/jsonValue.js';
 import type {
   LegacyConnectionId,
   LegacySdkLifecycleState,
   LegacySdkNotification,
 } from '@src/sdk/contracts/legacySdkAdapter.js';
 import { OneMcpProtocolError } from '@src/sdk/contracts/oneMcpProtocolError.js';
-import { toJsonValue, type JsonObject } from '@src/sdk/contracts/jsonValue.js';
-import type { InboundConnectionAdapter } from '@src/core/types/server.js';
+import type { Server } from '@src/sdk/legacy/server/index.js';
+import type { Transport } from '@src/sdk/legacy/shared/transport.js';
 
 interface LegacyServerHandles {
   readonly server: Server;
@@ -60,7 +59,10 @@ export class LegacySdkServerAdapter implements InboundConnectionAdapter {
       throw new TypeError('Legacy server notification params must be a JSON object');
     }
     try {
-      await getHandles(this).server.notification({ method: notification.method, params: params as JsonObject | undefined });
+      await getHandles(this).server.notification({
+        method: notification.method,
+        params: params as JsonObject | undefined,
+      });
     } catch (error) {
       throw toProtocolError(error);
     }

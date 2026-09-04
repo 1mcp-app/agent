@@ -4,8 +4,6 @@
  * This module contains factory functions for creating installation-related internal MCP tools
  * including install, uninstall, and update operations.
  */
-import type { Tool } from '@src/sdk/contracts/index.js';
-
 import {
   McpInstallOutputSchema,
   McpInstallToolSchema,
@@ -14,6 +12,7 @@ import {
   McpUpdateOutputSchema,
   McpUpdateToolSchema,
 } from '@src/core/tools/internal/schemas/index.js';
+import type { Tool } from '@src/sdk/contracts/index.js';
 import { zodToInputSchema, zodToOutputSchema } from '@src/utils/schemaUtils.js';
 
 /**

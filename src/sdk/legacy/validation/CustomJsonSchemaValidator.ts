@@ -4,13 +4,12 @@
  * This validator mimics the interface of AjvJsonSchemaValidator to handle complex schemas
  * with internal references like $ref: '#/$defs/Finding' that cause validation errors.
  */
+import logger from '@src/logger/logger.js';
 import type {
   JsonSchemaValidator,
   jsonSchemaValidator,
   JsonSchemaValidatorResult,
 } from '@src/sdk/legacy/validation.js';
-
-import logger from '@src/logger/logger.js';
 
 import type { Ajv as AjvType, AnySchema, ErrorObject } from 'ajv';
 import Ajv from 'ajv';

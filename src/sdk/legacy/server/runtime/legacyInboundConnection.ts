@@ -1,12 +1,14 @@
-import type { LegacyConnectionId } from '@src/sdk/contracts/legacySdkAdapter.js';
 import type { InboundConnection, InboundConnectionError, ServerStatus } from '@src/core/types/server.js';
+import type { LegacyConnectionId } from '@src/sdk/contracts/legacySdkAdapter.js';
 import type { Server } from '@src/sdk/legacy/server/index.js';
 
 import { getLegacyServerHandle, LegacySdkServerAdapter } from './legacySdkServerAdapter.js';
 
 /** Internal connection shape. Never re-export this type through a shared compatibility path. */
-export interface LegacyInboundConnection
-  extends Omit<InboundConnection, 'status' | 'lastError' | 'lastConnected' | 'connectedAt'> {
+export interface LegacyInboundConnection extends Omit<
+  InboundConnection,
+  'status' | 'lastError' | 'lastConnected' | 'connectedAt'
+> {
   readonly connectionId: LegacyConnectionId;
   readonly adapter: LegacySdkServerAdapter;
   status: ServerStatus;

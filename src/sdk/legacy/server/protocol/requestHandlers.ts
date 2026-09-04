@@ -1,3 +1,20 @@
+import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
+import {
+  createCapabilityCatalogFromConnections,
+  filterConnectionsForSession,
+  getRequestSession,
+  resolveOutboundConnection,
+} from '@src/core/protocol/requestHandlerUtils.js';
+import { ServerManager } from '@src/core/server/serverManager.js';
+import { ClientStatus, InboundConnection } from '@src/core/types/index.js';
+import logger, { setLogLevel } from '@src/logger/logger.js';
+import {
+  getLegacyClient,
+  getLegacyTransport,
+  type LegacyOutboundConnections,
+  requestLegacyOutbound,
+} from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
+import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
 import {
   CreateMessageRequest,
   CreateMessageRequestSchema,
@@ -8,28 +25,10 @@ import {
   PingRequestSchema,
   SetLevelRequestSchema,
 } from '@src/sdk/legacy/types.js';
-
-import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
-import { ServerManager } from '@src/core/server/serverManager.js';
-import { ClientStatus, InboundConnection } from '@src/core/types/index.js';
-import logger, { setLogLevel } from '@src/logger/logger.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
-import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
-import {
-  getLegacyClient,
-  getLegacyTransport,
-  requestLegacyOutbound,
-  type LegacyOutboundConnections,
-} from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 
 import { registerCompletionHandlers, registerPromptHandlers } from './promptRequestHandlers.js';
-import {
-  createCapabilityCatalogFromConnections,
-  filterConnectionsForSession,
-  getRequestSession,
-  resolveOutboundConnection,
-} from '@src/core/protocol/requestHandlerUtils.js';
 import { registerResourceHandlers } from './resourceRequestHandlers.js';
 import { registerToolHandlers } from './toolRequestHandlers.js';
 

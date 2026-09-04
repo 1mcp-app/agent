@@ -1,7 +1,5 @@
 import { EventEmitter } from 'node:events';
 
-import { Client } from '@src/sdk/legacy/client/index.js';
-
 import { sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
 import { MCP_SERVER_NAME } from '@src/constants.js';
 import { DEFAULT_MAX_CONCURRENT_LOADS } from '@src/constants/mcp.js';
@@ -9,13 +7,9 @@ import { registerCapabilityPaginationNotifications } from '@src/core/capabilitie
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import { ParallelExecutor } from '@src/core/loading/parallelExecutor.js';
 import { BackendStdioSupervisor, type BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
-import {
-  ClientStatus,
-  OperationOptions,
-  OutboundConnections,
-  ServerCapability,
-} from '@src/core/types/index.js';
+import { ClientStatus, OperationOptions, OutboundConnections, ServerCapability } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+import { Client } from '@src/sdk/legacy/client/index.js';
 import { CapabilityError, ClientConnectionError, ClientNotFoundError } from '@src/utils/core/errorTypes.js';
 import { executeOperation } from '@src/utils/core/operationExecution.js';
 import { getConnectionTimeout } from '@src/utils/core/timeoutUtils.js';
@@ -31,10 +25,10 @@ import {
   type LegacyOutboundConnections,
   snapshotSupervision,
 } from './legacyOutboundConnection.js';
+import type { AuthProviderTransport } from './legacyTransport.js';
 import { OAuthFlowHandler } from './oauthFlowHandler.js';
 import { TransportRecreator } from './transportRecreator.js';
 import { OAuthRequiredError } from './types.js';
-import type { AuthProviderTransport } from './legacyTransport.js';
 
 export { OAuthRequiredError };
 
@@ -366,14 +360,17 @@ export class ClientManager extends EventEmitter {
         transportType: transport.constructor.name,
       });
       const authorizationUrl = this.oauthFlowHandler.extractAuthorizationUrl(transport);
-      this.outboundConns.set(name, createLegacyOutboundConnection({
+      this.outboundConns.set(
         name,
-        transport,
-        client: error.client,
-        status: ClientStatus.AwaitingOAuth,
-        authorizationUrl,
-        oauthStartTime: new Date(),
-      }));
+        createLegacyOutboundConnection({
+          name,
+          transport,
+          client: error.client,
+          status: ClientStatus.AwaitingOAuth,
+          authorizationUrl,
+          oauthStartTime: new Date(),
+        }),
+      );
     } else {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error(`Failed to create client for ${name}: ${errorMessage}`, {
@@ -383,13 +380,16 @@ export class ClientManager extends EventEmitter {
         connectionStatus: this.outboundConns.get(name)?.status,
         stack: error instanceof Error ? error.stack : undefined,
       });
-      this.outboundConns.set(name, createLegacyOutboundConnection({
+      this.outboundConns.set(
         name,
-        transport,
-        client: this.clientFactory.createClient(),
-        status: ClientStatus.Error,
-        lastError: error,
-      }));
+        createLegacyOutboundConnection({
+          name,
+          transport,
+          client: this.clientFactory.createClient(),
+          status: ClientStatus.Error,
+          lastError: error,
+        }),
+      );
     }
   }
 
@@ -480,15 +480,18 @@ export class ClientManager extends EventEmitter {
   private recordConnectedClient(name: string, connected: ConnectedClient): void {
     const supervision = this.backendSupervisors.get(name)?.snapshot();
     this.transports[name] = connected.transport;
-    this.outboundConns.set(name, createLegacyOutboundConnection({
+    this.outboundConns.set(
       name,
-      transport: connected.transport,
-      client: connected.client,
-      status: ClientStatus.Connected,
-      lastConnected: new Date(),
-      capabilities: connected.client.getServerCapabilities?.(),
-      supervision,
-    }));
+      createLegacyOutboundConnection({
+        name,
+        transport: connected.transport,
+        client: connected.client,
+        status: ClientStatus.Connected,
+        lastConnected: new Date(),
+        capabilities: connected.client.getServerCapabilities?.(),
+        supervision,
+      }),
+    );
     logger.info(`Client created for ${name}`);
     this.extractAndCacheInstructions(name, connected.client);
     this.setupConnectionHandlers(name, connected.client);
@@ -509,14 +512,17 @@ export class ClientManager extends EventEmitter {
         transportType: transport.constructor.name,
       });
       const authorizationUrl = this.oauthFlowHandler.extractAuthorizationUrl(transport);
-      this.outboundConns.set(name, createLegacyOutboundConnection({
+      this.outboundConns.set(
         name,
-        transport,
-        client: error.client,
-        status: ClientStatus.AwaitingOAuth,
-        authorizationUrl,
-        oauthStartTime: new Date(),
-      }));
+        createLegacyOutboundConnection({
+          name,
+          transport,
+          client: error.client,
+          status: ClientStatus.AwaitingOAuth,
+          authorizationUrl,
+          oauthStartTime: new Date(),
+        }),
+      );
     } else {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error(`Failed to create client for ${name}: ${errorMessage}`, {
@@ -526,13 +532,16 @@ export class ClientManager extends EventEmitter {
         connectionStatus: this.outboundConns.get(name)?.status,
         stack: error instanceof Error ? error.stack : undefined,
       });
-      this.outboundConns.set(name, createLegacyOutboundConnection({
+      this.outboundConns.set(
         name,
-        transport,
-        client: this.clientFactory.createClient(),
-        status: ClientStatus.Error,
-        lastError: error,
-      }));
+        createLegacyOutboundConnection({
+          name,
+          transport,
+          client: this.clientFactory.createClient(),
+          status: ClientStatus.Error,
+          lastError: error,
+        }),
+      );
     }
   }
 
@@ -572,7 +581,11 @@ export class ClientManager extends EventEmitter {
 
     if (this.isShuttingDown) {
       getLegacyClient(updatedInfo).onclose = undefined;
-      await updatedInfo.adapter.close().catch(() => getLegacyTransport(updatedInfo).close().catch(() => undefined));
+      await updatedInfo.adapter.close().catch(() =>
+        getLegacyTransport(updatedInfo)
+          .close()
+          .catch(() => undefined),
+      );
       throw new Error('ClientManager is shutting down');
     }
 
@@ -726,7 +739,9 @@ export class ClientManager extends EventEmitter {
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
           logger.warn(`Error closing client during shutdown for ${name}: ${errorMessage}`);
-          await getLegacyTransport(connection).close().catch(() => undefined);
+          await getLegacyTransport(connection)
+            .close()
+            .catch(() => undefined);
         }
         this.instructionAggregator?.removeServer({ source: 'mcpServers', name: connection.name }, name);
       }),
@@ -751,7 +766,7 @@ export class ClientManager extends EventEmitter {
       backendId: `static:${name}`,
       policy: metadata.policy,
       initialPid: this.outboundConns.has(name)
-        ? (getLegacyTransport(this.outboundConns.get(name)!) as AuthProviderTransport & { pid?: number }).pid ?? null
+        ? ((getLegacyTransport(this.outboundConns.get(name)!) as AuthProviderTransport & { pid?: number }).pid ?? null)
         : null,
       recover: (signal) => this.recoverSupervisedBackend(name, metadata, signal),
       onStateChange: (snapshot) => this.applyBackendSupervisionState(name, snapshot),

@@ -1,5 +1,3 @@
-import { hasHttpErrorCode, toProtocolTools, type Tool } from '@src/sdk/contracts/index.js';
-
 import { findToolByQualifiedName } from '@src/commands/run/runUtils.js';
 import { ApiClient } from '@src/commands/shared/apiClient.js';
 import {
@@ -18,6 +16,7 @@ import {
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { API_INSPECT_ENDPOINT } from '@src/constants/api.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
+import { hasHttpErrorCode, type Tool, toProtocolTools } from '@src/sdk/contracts/index.js';
 import type { ContextData } from '@src/types/context.js';
 
 import {

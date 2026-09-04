@@ -1,5 +1,3 @@
-import type { Tool } from '@src/sdk/contracts/index.js';
-
 import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { ConnectionResolver, type TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { getDisabledToolError, isToolDisabled } from '@src/core/server/disabledTools.js';
@@ -11,6 +9,7 @@ import {
   type OutboundConnections,
 } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
+import type { Tool } from '@src/sdk/contracts/index.js';
 
 import {
   type CapabilityKind,

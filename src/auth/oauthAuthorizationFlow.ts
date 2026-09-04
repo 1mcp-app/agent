@@ -1,6 +1,6 @@
 import { AUTH_CONFIG } from '@src/constants.js';
-import type { LegacySdkAdapter } from '@src/sdk/contracts/index.js';
 import logger from '@src/logger/logger.js';
+import type { LegacySdkAdapter } from '@src/sdk/contracts/index.js';
 import { tagsToScopes, validateScopes } from '@src/utils/validation/scopeValidation.js';
 
 export type OAuthConsentAction = 'approve' | 'deny';

@@ -1,3 +1,16 @@
+import { MCP_URI_SEPARATOR } from '@src/constants.js';
+import {
+  createProtocolCapabilityCatalog,
+  getRequestSession,
+  resolveCapabilityVisibility,
+  resolveOutboundConnection,
+} from '@src/core/protocol/requestHandlerUtils.js';
+import { InboundConnection } from '@src/core/types/index.js';
+import {
+  type LegacyOutboundConnections,
+  requestLegacyOutbound,
+} from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
+import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
 import {
   CompleteRequest,
   CompleteRequestSchema,
@@ -6,23 +19,8 @@ import {
   ListPromptsRequestSchema,
   type Prompt,
 } from '@src/sdk/legacy/types.js';
-
-import { MCP_URI_SEPARATOR } from '@src/constants.js';
-import { InboundConnection } from '@src/core/types/index.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
-import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
-import {
-  requestLegacyOutbound,
-  type LegacyOutboundConnections,
-} from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import { buildUri, parseUri } from '@src/utils/core/parsing.js';
-
-import {
-  createProtocolCapabilityCatalog,
-  getRequestSession,
-  resolveCapabilityVisibility,
-  resolveOutboundConnection,
-} from '@src/core/protocol/requestHandlerUtils.js';
 
 export function registerPromptHandlers(outboundConns: LegacyOutboundConnections, inboundConn: InboundConnection): void {
   const sessionId = getRequestSession(inboundConn);

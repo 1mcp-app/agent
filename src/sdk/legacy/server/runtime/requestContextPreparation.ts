@@ -1,10 +1,9 @@
-import type { Transport } from '@src/sdk/legacy/shared/transport.js';
-
 import { isOperatorDisabledTemplateDefinition } from '@src/config/configuredServerTargets.js';
 import type { TrustedTemplateContext } from '@src/core/context/templateContextTrust.js';
 import type { OutboundConnections } from '@src/core/types/client.js';
 import type { MCPServerParams } from '@src/core/types/index.js';
 import type { InboundConnectionConfig } from '@src/core/types/server.js';
+import type { Transport } from '@src/sdk/legacy/shared/transport.js';
 import type { ContextData } from '@src/types/context.js';
 import { resolveCanonicalSessionId, withCanonicalSessionId } from '@src/utils/context/sessionIdentity.js';
 

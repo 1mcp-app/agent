@@ -1779,7 +1779,10 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
         targetFingerprint: 'configured_server_fixture',
         previewFingerprint: `lifecycle_preview_${input.targetName}_${input.enabled}`,
         current: { enabled: templateServer.enabled, disabledValueKind: 'context_expression' as const },
-        proposed: { enabled: input.enabled, disabledValueKind: input.enabled ? ('absent' as const) : ('literal' as const) },
+        proposed: {
+          enabled: input.enabled,
+          disabledValueKind: input.enabled ? ('absent' as const) : ('literal' as const),
+        },
         expressionReplacement: {
           occurs: !input.enabled,
           replacement: input.enabled ? ('enabled_absent' as const) : ('disabled_true' as const),
@@ -1799,8 +1802,12 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
           recreation: 'lazy_future_match_only' as const,
         },
         warnings: input.enabled
-          ? ['Re-enable restores eligibility only; instances and Request Sessions are created lazily by future matching requests.']
-          : ['Successful reload retires 1 active Template Server instance and removes its Request Session memberships.'],
+          ? [
+              'Re-enable restores eligibility only; instances and Request Sessions are created lazily by future matching requests.',
+            ]
+          : [
+              'Successful reload retires 1 active Template Server instance and removes its Request Session memberships.',
+            ],
       });
     },
     async applyConfiguredServerLifecycle(input) {

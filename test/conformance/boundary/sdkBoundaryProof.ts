@@ -1,23 +1,23 @@
 import { CallToolRequestSchema as V2CallToolRequestSchema } from '@modelcontextprotocol/core';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { McpError, CallToolRequestSchema as V1CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 import { z } from 'zod';
 
 import { checkSdkImportBoundary } from '../../../scripts/sdk-boundary/import-policy.mjs';
 import { buildSdkTopology, topologyDifferences } from '../../../scripts/sdk-boundary/topology.mjs';
-import type { LegacyRequestId } from '../../../src/sdk/contracts/legacySdkAdapter.js';
 import {
   InvalidJsonValueError,
   isJsonValue,
   type JsonValue,
   toJsonValue,
 } from '../../../src/sdk/contracts/jsonValue.js';
+import type { LegacyRequestId } from '../../../src/sdk/contracts/legacySdkAdapter.js';
 import { OneMcpProtocolError } from '../../../src/sdk/contracts/oneMcpProtocolError.js';
 import { LegacySdkClientAdapter } from '../../../src/sdk/legacy/client/runtime/legacySdkClientAdapter.js';
 import type { AuthProviderTransport } from '../../../src/sdk/legacy/client/runtime/legacyTransport.js';
@@ -146,9 +146,7 @@ async function productionAdapterChecks(): Promise<{
   });
   const result = await adapter.request({ id: 'proof-success' as LegacyRequestId, method: 'tools/list' });
   const detachedResult =
-    result !== sourceResult &&
-    isJsonValue(result) &&
-    JSON.stringify(result) === JSON.stringify(sourceResult);
+    result !== sourceResult && isJsonValue(result) && JSON.stringify(result) === JSON.stringify(sourceResult);
 
   const foreign = new McpError(-32_602, 'Invalid params', { proof: true });
   Object.defineProperty(client, 'request', {

@@ -1,8 +1,7 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
-import { Tool } from '@src/sdk/contracts/index.js';
-
 import { type OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
+import { Tool } from '@src/sdk/contracts/index.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 

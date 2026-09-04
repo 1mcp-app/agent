@@ -1,9 +1,8 @@
 import { createMockLegacySdkAdapter, createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
-import { OneMcpProtocolError, toJsonValue, toProtocolTool, type JsonValue } from '@src/sdk/contracts/index.js';
-
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { ClientStatus, type OutboundConnections } from '@src/core/types/index.js';
+import { type JsonValue, OneMcpProtocolError, toJsonValue, toProtocolTool } from '@src/sdk/contracts/index.js';
 
 import type { Request, RequestHandler, Response } from 'express';
 import express from 'express';
@@ -141,10 +140,7 @@ describe('apiRoutes /api/tool-invocations', () => {
     const authorizationAttempts = vi.fn((_req: Request, _res: Response, next: () => void) => next());
     const app = express();
     app.use(express.json());
-    app.use(
-      '/api/v1',
-      createApiRoutes(serverManager as never, authorizationAttempts, { windowMs: 60_000, max: 1 }),
-    );
+    app.use('/api/v1', createApiRoutes(serverManager as never, authorizationAttempts, { windowMs: 60_000, max: 1 }));
 
     const firstResponse = await request(app).post('/api/v1/tool-invocations').send({ tool: 'server/tool' });
     const secondResponse = await request(app).post('/api/v1/tool-invocations').send({ tool: 'server/tool' });
@@ -166,9 +162,7 @@ describe('apiRoutes /api/tool-invocations', () => {
     app.use('/api/v1', createApiRoutes(serverManager as never, authorizationAttempts));
 
     const responses = await Promise.all(
-      Array.from({ length: 101 }, () =>
-        request(app).post('/api/v1/tool-invocations').send({ tool: 'server/tool' }),
-      ),
+      Array.from({ length: 101 }, () => request(app).post('/api/v1/tool-invocations').send({ tool: 'server/tool' })),
     );
 
     expect(responses.every((response) => response.status === 503)).toBe(true);

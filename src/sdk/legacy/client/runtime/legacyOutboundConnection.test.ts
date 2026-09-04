@@ -1,6 +1,5 @@
-import { Client } from '@src/sdk/legacy/client/index.js';
-
 import { ClientStatus } from '@src/core/types/client.js';
+import { Client } from '@src/sdk/legacy/client/index.js';
 
 import { describe, expect, it, vi } from 'vitest';
 

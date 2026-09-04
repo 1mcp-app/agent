@@ -1,5 +1,4 @@
 import type { Tool } from '@src/sdk/contracts/index.js';
-
 import { zodToInputSchema, zodToOutputSchema } from '@src/utils/schemaUtils.js';
 
 import {

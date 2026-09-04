@@ -1,14 +1,5 @@
 import { EventEmitter } from 'events';
 
-import {
-  ListPromptsResult,
-  ListResourcesResult,
-  ListToolsResult,
-  Prompt,
-  Resource,
-  Tool,
-} from '@src/sdk/contracts/index.js';
-
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import {
   clearConfiguredToolSnapshot,
@@ -22,6 +13,14 @@ import { filterDisabledTools } from '@src/core/server/disabledTools.js';
 import { applyEffectiveToolDescription } from '@src/core/server/toolDescriptionOverrides.js';
 import { ClientStatus, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+import {
+  ListPromptsResult,
+  ListResourcesResult,
+  ListToolsResult,
+  Prompt,
+  Resource,
+  Tool,
+} from '@src/sdk/contracts/index.js';
 
 /**
  * Represents a snapshot of aggregated capabilities from all ready servers

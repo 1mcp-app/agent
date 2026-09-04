@@ -1,9 +1,8 @@
 import { ServerResponse } from 'node:http';
 
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { SSEServerTransport } from '@src/sdk/legacy/server/sse.js';
 import { JSONRPCMessage } from '@src/sdk/legacy/types.js';
-
-import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { logJsonRpc } from '@src/transport/http/utils/unifiedLogger.js';
 
 /**

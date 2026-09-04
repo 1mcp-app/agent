@@ -1,8 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 
-import type { ServeOptions } from '@src/commands/serve/serve.js';
 import type { AsyncLoadingCliOptions } from '@src/commands/serve/asyncLoadingOptions.js';
+import type { ServeOptions } from '@src/commands/serve/serve.js';
 import {
   BACKGROUND_GUARD_FLAG,
   buildBackgroundSupervisorArgs,

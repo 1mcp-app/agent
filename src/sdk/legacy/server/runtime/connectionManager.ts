@@ -1,8 +1,3 @@
-import { Server } from '@src/sdk/legacy/server/index.js';
-import { Transport } from '@src/sdk/legacy/shared/transport.js';
-
-import type { LegacyConnectionId } from '@src/sdk/contracts/legacySdkAdapter.js';
-import { toJsonValue } from '@src/sdk/contracts/jsonValue.js';
 import { setupCapabilities } from '@src/core/capabilities/capabilityManager.js';
 import { unregisterCapabilityPaginationForwarder } from '@src/core/capabilities/capabilityPagination.js';
 import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
@@ -14,6 +9,10 @@ import {
 } from '@src/domains/preset/services/presetNotificationService.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { enhanceServerWithLogging } from '@src/logger/mcpLoggingEnhancer.js';
+import { toJsonValue } from '@src/sdk/contracts/jsonValue.js';
+import type { LegacyConnectionId } from '@src/sdk/contracts/legacySdkAdapter.js';
+import { Server } from '@src/sdk/legacy/server/index.js';
+import { Transport } from '@src/sdk/legacy/shared/transport.js';
 import type { ContextData } from '@src/types/context.js';
 import { executeOperation } from '@src/utils/core/operationExecution.js';
 

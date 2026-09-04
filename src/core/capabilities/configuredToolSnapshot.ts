@@ -1,6 +1,5 @@
-import type { ListToolsResult, Tool } from '@src/sdk/contracts/index.js';
-
 import { ClientStatus, type OutboundConnection, type OutboundConnections } from '@src/core/types/index.js';
+import type { ListToolsResult, Tool } from '@src/sdk/contracts/index.js';
 
 const snapshots = new WeakMap<OutboundConnection, Tool[]>();
 const pendingPages = new WeakMap<

@@ -1,12 +1,11 @@
-import { StreamableHTTPClientTransport } from '@src/sdk/legacy/client/streamableHttp.js';
-import { StdioServerTransport } from '@src/sdk/legacy/server/stdio.js';
-import { JSONRPCMessage } from '@src/sdk/legacy/types.js';
-
 import { buildCliContext, generateStreamableSessionId } from '@src/commands/shared/cliContext.js';
 import { MCP_SERVER_VERSION } from '@src/constants/mcp.js';
 import type { TemplateContextProof } from '@src/core/context/templateContextTrust.js';
 import logger from '@src/logger/logger.js';
 import { toProtocolJSONRPCMessage } from '@src/sdk/contracts/index.js';
+import { StreamableHTTPClientTransport } from '@src/sdk/legacy/client/streamableHttp.js';
+import { StdioServerTransport } from '@src/sdk/legacy/server/stdio.js';
+import { JSONRPCMessage } from '@src/sdk/legacy/types.js';
 import type { ClientInfo, ContextData } from '@src/types/context.js';
 import { ClientInfoExtractor } from '@src/utils/client/clientInfoExtractor.js';
 

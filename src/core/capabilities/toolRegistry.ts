@@ -1,6 +1,5 @@
-import type { Tool } from '@src/sdk/contracts/index.js';
-
 import logger, { debugIf, errorIf } from '@src/logger/logger.js';
+import type { Tool } from '@src/sdk/contracts/index.js';
 
 /**
  * Lightweight tool metadata used for discovery and routing.

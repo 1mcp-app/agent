@@ -224,9 +224,7 @@ describe('server', () => {
 
       const result = await setupServer(undefined, undefined, policy);
 
-      expect(
-        (result.loadingManager as unknown as { config: BackendLoadingPolicy }).config,
-      ).toEqual(policy);
+      expect((result.loadingManager as unknown as { config: BackendLoadingPolicy }).config).toEqual(policy);
     });
   });
 

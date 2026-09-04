@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto';
 
+import { OAuthStorageService } from '@src/auth/storage/oauthStorageService.js';
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { AUTH_CONFIG } from '@src/constants.js';
+import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import logger from '@src/logger/logger.js';
 import type { OAuthRegisteredClientsStore } from '@src/sdk/legacy/server/auth/clients.js';
-import {
-  InvalidGrantError,
-  InvalidScopeError,
-  InvalidTargetError,
-} from '@src/sdk/legacy/server/auth/errors.js';
+import { InvalidGrantError, InvalidScopeError, InvalidTargetError } from '@src/sdk/legacy/server/auth/errors.js';
 import type { AuthorizationParams, OAuthServerProvider } from '@src/sdk/legacy/server/auth/provider.js';
 import type { AuthInfo } from '@src/sdk/legacy/server/auth/types.js';
 import type {
@@ -13,12 +15,6 @@ import type {
   OAuthTokenRevocationRequest,
   OAuthTokens,
 } from '@src/sdk/legacy/shared/auth.js';
-
-import { McpConfigManager } from '@src/config/mcpConfigManager.js';
-import { AUTH_CONFIG } from '@src/constants.js';
-import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
-import { AgentConfigManager } from '@src/core/server/agentConfig.js';
-import logger from '@src/logger/logger.js';
 import { escapeHtml } from '@src/utils/validation/sanitization.js';
 import {
   auditScopeOperation,
@@ -28,8 +24,6 @@ import {
 } from '@src/utils/validation/scopeValidation.js';
 
 import type { Response } from 'express';
-
-import { OAuthStorageService } from '@src/auth/storage/oauthStorageService.js';
 
 const OAUTH_CONSENT_PAGE_CSP_SUFFIX =
   "style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none';";

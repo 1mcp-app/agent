@@ -1,3 +1,11 @@
+import { registerCapabilityPaginationNotifications } from '@src/core/capabilities/capabilityPagination.js';
+import { ClientStatus, InboundConnection, ServerStatus } from '@src/core/types/index.js';
+import logger from '@src/logger/logger.js';
+import {
+  getLegacyClient,
+  type LegacyOutboundConnections,
+} from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
+import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
 import {
   CancelledNotificationSchema,
   LoggingMessageNotificationSchema,
@@ -5,16 +13,7 @@ import {
   ResourceUpdatedNotificationSchema,
   RootsListChangedNotificationSchema,
 } from '@src/sdk/legacy/types.js';
-
-import { registerCapabilityPaginationNotifications } from '@src/core/capabilities/capabilityPagination.js';
-import { ClientStatus, InboundConnection, ServerStatus } from '@src/core/types/index.js';
-import logger from '@src/logger/logger.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
-import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
-import {
-  getLegacyClient,
-  type LegacyOutboundConnections,
-} from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 
 /**
  * Sets up client-to-server notification handlers

@@ -1,11 +1,10 @@
 import { EventEmitter } from 'events';
 
-import type { LegacySdkNotification } from '@src/sdk/contracts/legacySdkAdapter.js';
-
 import { CapabilityChanges } from '@src/core/capabilities/capabilityAggregator.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { InboundConnection, InboundConnectionError, ServerStatus } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+import type { LegacySdkNotification } from '@src/sdk/contracts/legacySdkAdapter.js';
 
 /**
  * Configuration for notification batching and behavior
@@ -227,10 +226,7 @@ export class NotificationManager extends EventEmitter {
   /**
    * Send a notification to the connected client
    */
-  private sendNotification(
-    type: 'tools' | 'resources' | 'prompts',
-    notification: LegacySdkNotification,
-  ): void {
+  private sendNotification(type: 'tools' | 'resources' | 'prompts', notification: LegacySdkNotification): void {
     try {
       // Check if server is connected
       if (this.inboundConn.status !== ServerStatus.Connected) {

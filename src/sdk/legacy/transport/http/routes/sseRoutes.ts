@@ -1,10 +1,9 @@
-import { SSEServerTransport } from '@src/sdk/legacy/server/sse.js';
-import { ErrorCode } from '@src/sdk/legacy/types.js';
-
 import { MESSAGES_ENDPOINT, SSE_ENDPOINT } from '@src/constants.js';
 import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import logger from '@src/logger/logger.js';
+import { SSEServerTransport } from '@src/sdk/legacy/server/sse.js';
+import { ErrorCode } from '@src/sdk/legacy/types.js';
 import { LoggingSSEServerTransport } from '@src/transport/http/loggingSseTransport.js';
 import {
   getPresetName,

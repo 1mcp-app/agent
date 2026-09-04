@@ -1,11 +1,9 @@
 import { Stream } from 'node:stream';
 
+import logger, { debugIf } from '@src/logger/logger.js';
 import { StdioClientTransport, StdioServerParameters } from '@src/sdk/legacy/client/stdio.js';
 import { Transport } from '@src/sdk/legacy/shared/transport.js';
 import { JSONRPCMessage } from '@src/sdk/legacy/types.js';
-
-import logger, { debugIf } from '@src/logger/logger.js';
-
 import { ManagedStdioStderr } from '@src/transport/managedStdioStderr.js';
 
 /**

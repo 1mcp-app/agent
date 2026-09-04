@@ -1,8 +1,6 @@
 import fs from 'fs';
 import path from 'path';
 
-import { mcpAuthRouter } from '@src/sdk/legacy/server/auth/router.js';
-
 import { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
 import { FileStorageService } from '@src/auth/storage/fileStorageService.js';
 import { getAllServerTargets, resolveServerTarget } from '@src/commands/shared/baseConfigUtils.js';
@@ -31,19 +29,18 @@ import { getBackendLogBroker } from '@src/domains/backend-logs/backendLogRuntime
 import { createConfigChangeService } from '@src/domains/config-change/configChange.js';
 import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import logger from '@src/logger/logger.js';
-
-import bodyParser from 'body-parser';
-import cors from 'cors';
-import express from 'express';
-import { z } from 'zod';
-
+import { mcpAuthRouter } from '@src/sdk/legacy/server/auth/router.js';
 import errorHandler from '@src/transport/http/middlewares/errorHandler.js';
 import { httpRequestLogger } from '@src/transport/http/middlewares/httpRequestLogger.js';
 import { createMcpAvailabilityMiddleware } from '@src/transport/http/middlewares/mcpAvailabilityMiddleware.js';
 import { createScopeAuthMiddleware } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
 import { setupSecurityMiddleware } from '@src/transport/http/middlewares/securityMiddleware.js';
 import { createAdminRoutes } from '@src/transport/http/routes/adminRoutes.js';
-import { createApiRoutes, createCliTokenRoute, rejectBrowserOriginRequests } from '@src/transport/http/routes/apiRoutes.js';
+import {
+  createApiRoutes,
+  createCliTokenRoute,
+  rejectBrowserOriginRequests,
+} from '@src/transport/http/routes/apiRoutes.js';
 import createHealthRoutes from '@src/transport/http/routes/healthRoutes.js';
 import createOAuthRoutes, {
   createBackendOAuthAuthorizationFlow,
@@ -53,6 +50,11 @@ import { createRuntimeIdentityRoutes } from '@src/transport/http/routes/runtimeI
 import { setupSseRoutes } from '@src/transport/http/routes/sseRoutes.js';
 import { setupStreamableHttpRoutes } from '@src/transport/http/routes/streamableHttpRoutes.js';
 import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
+
+import bodyParser from 'body-parser';
+import cors from 'cors';
+import express from 'express';
+import { z } from 'zod';
 
 // Interface compatible with both v7 and v8 of express-rate-limit
 interface CompatibleRateLimitOptions {

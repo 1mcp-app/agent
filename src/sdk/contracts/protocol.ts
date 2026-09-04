@@ -1,4 +1,4 @@
-import { toJsonValue, type JsonObject, type JsonValue } from './jsonValue.js';
+import { type JsonObject, type JsonValue, toJsonValue } from './jsonValue.js';
 
 /** Stable JSON-RPC and transport error codes used by 1MCP. */
 export enum ErrorCode {
@@ -345,8 +345,7 @@ function isPrompt(value: JsonObject): value is JsonObject & Prompt {
   return (
     isProtocolMetadata(value) &&
     isOptionalString(value.description) &&
-    (value.arguments === undefined ||
-      (Array.isArray(value.arguments) && value.arguments.every(isPromptArgument))) &&
+    (value.arguments === undefined || (Array.isArray(value.arguments) && value.arguments.every(isPromptArgument))) &&
     (value._meta === undefined || isJsonObject(value._meta))
   );
 }

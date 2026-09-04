@@ -1,4 +1,4 @@
-import { toProtocolTool, type Tool } from '@src/sdk/contracts/index.js';
+import { type Tool, toProtocolTool } from '@src/sdk/contracts/index.js';
 
 import { describe, expect, it } from 'vitest';
 

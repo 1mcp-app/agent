@@ -1,15 +1,14 @@
 import { EventEmitter } from 'events';
 
-import type { Tool } from '@src/sdk/contracts/index.js';
-
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
-import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ConnectionResolver, TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { filterDisabledTools } from '@src/core/server/disabledTools.js';
 import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
 import logger, { debugIf, errorIf } from '@src/logger/logger.js';
+import type { Tool } from '@src/sdk/contracts/index.js';
 
 import { AsyncLoadingOrchestrator } from './asyncLoadingOrchestrator.js';
 import { AsyncLoadingOrchestratorEvent } from './asyncLoadingOrchestratorEvent.js';

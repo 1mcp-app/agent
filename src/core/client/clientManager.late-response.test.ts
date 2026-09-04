@@ -1,8 +1,8 @@
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
-import type { AuthProviderTransport } from '@src/sdk/legacy/client/runtime/legacyTransport.js';
-import { getLegacyClient } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import logger from '@src/logger/logger.js';
+import { getLegacyClient } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
+import type { AuthProviderTransport } from '@src/sdk/legacy/client/runtime/legacyTransport.js';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 

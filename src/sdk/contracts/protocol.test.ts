@@ -1,13 +1,9 @@
-import { toJsonValue, type JsonObject } from './jsonValue.js';
+import { type JsonObject, toJsonValue } from './jsonValue.js';
 import {
-  ErrorCode,
-  hasHttpErrorCode,
-  toProtocolJSONRPCMessage,
-  toProtocolPrompt,
-  toProtocolResource,
-  toProtocolTool,
   type CallToolResult,
   type ClientCapabilities,
+  ErrorCode,
+  hasHttpErrorCode,
   type JSONRPCMessage,
   type ListToolsResult,
   type OAuthClientInformationFull,
@@ -17,6 +13,10 @@ import {
   type ResourceTemplate,
   type ServerCapabilities,
   type Tool,
+  toProtocolJSONRPCMessage,
+  toProtocolPrompt,
+  toProtocolResource,
+  toProtocolTool,
 } from './protocol.js';
 
 describe('plain protocol contracts', () => {
@@ -45,7 +45,10 @@ describe('plain protocol contracts', () => {
     const prompt = { name: 'explain', arguments: [promptArgument] } satisfies Prompt;
     const resource = { name: 'guide', uri: 'file:///guide.md', mimeType: 'text/markdown' } satisfies Resource;
     const resourceTemplate = { name: 'guides', uriTemplate: 'file:///{name}.md' } satisfies ResourceTemplate;
-    const callResult = { content: [{ type: 'text', text: 'done' }], structuredContent: { ok: true } } satisfies CallToolResult;
+    const callResult = {
+      content: [{ type: 'text', text: 'done' }],
+      structuredContent: { ok: true },
+    } satisfies CallToolResult;
     const listResult = { tools: [tool], nextCursor: 'next' } satisfies ListToolsResult;
     const clientCapabilities = { roots: { listChanged: true } } satisfies ClientCapabilities;
     const serverCapabilities = { tools: { listChanged: true } } satisfies ServerCapabilities;

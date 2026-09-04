@@ -1,7 +1,8 @@
 import { JSONRPCMessageSchema as V2JSONRPCMessageSchema } from '@modelcontextprotocol/core';
+
 import { CallToolRequestSchema as V1CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
-import { JSON_VALUE_LIMITS, isJsonValue, toJsonValue, type JsonValue } from './jsonValue.js';
+import { isJsonValue, JSON_VALUE_LIMITS, type JsonValue, toJsonValue } from './jsonValue.js';
 
 function expectInvalid(value: unknown, reason: string, path?: string): void {
   const expected =
@@ -131,7 +132,10 @@ describe('toJsonValue', () => {
   });
 
   it('enforces the documented node limit', () => {
-    expectInvalid(Array.from({ length: JSON_VALUE_LIMITS.maxNodes }, () => null), 'node limit');
+    expectInvalid(
+      Array.from({ length: JSON_VALUE_LIMITS.maxNodes }, () => null),
+      'node limit',
+    );
   });
 
   it('enforces the documented aggregate string limit across keys and values', () => {
