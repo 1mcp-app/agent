@@ -22,6 +22,7 @@ function officialProductResult(): OfficialConformanceResult {
 describe('official client gateway classification', () => {
   it.each([
     ['attempted', 'product'],
+    ['gateway-rejected', 'product'],
     ['fixture-defect', 'fixture'],
     ['harness-defect', 'harness'],
   ] as const)('maps a %s bridge outcome to %s evidence', async (status, classification) => {

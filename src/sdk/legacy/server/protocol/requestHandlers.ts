@@ -9,10 +9,10 @@ import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, InboundConnection } from '@src/core/types/index.js';
 import logger, { setLogLevel } from '@src/logger/logger.js';
 import {
-  getLegacyClient,
   getLegacyTransport,
   type LegacyOutboundConnections,
   requestLegacyOutbound,
+  setOutboundRequestHandler,
 } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
 import {
@@ -54,7 +54,8 @@ function registerServerRequestHandlers(outboundConns: LegacyOutboundConnections,
     const capabilities = outboundConn.capabilities as ExtendedServerCapabilities | undefined;
 
     // Ping is always supported
-    getLegacyClient(outboundConn).setRequestHandler(
+    setOutboundRequestHandler(
+      outboundConn,
       PingRequestSchema,
       withErrorHandling(async () => {
         return ServerManager.current.executeServerOperation(inboundConn, (inboundConn: InboundConnection) =>
@@ -65,7 +66,8 @@ function registerServerRequestHandlers(outboundConns: LegacyOutboundConnections,
 
     // Only register CreateMessage handler if server supports sampling capability
     if (capabilities?.sampling) {
-      getLegacyClient(outboundConn).setRequestHandler(
+      setOutboundRequestHandler(
+        outboundConn,
         CreateMessageRequestSchema,
         withErrorHandling(async (request: CreateMessageRequest) => {
           return ServerManager.current.executeServerOperation(inboundConn, (inboundConn: InboundConnection) =>
@@ -79,7 +81,8 @@ function registerServerRequestHandlers(outboundConns: LegacyOutboundConnections,
 
     // Only register ElicitRequest handler if server supports elicitation capability
     if (capabilities?.elicitation) {
-      getLegacyClient(outboundConn).setRequestHandler(
+      setOutboundRequestHandler(
+        outboundConn,
         ElicitRequestSchema,
         withErrorHandling(async (request: ElicitRequest) => {
           return ServerManager.current.executeServerOperation(inboundConn, (inboundConn: InboundConnection) =>
@@ -93,7 +96,8 @@ function registerServerRequestHandlers(outboundConns: LegacyOutboundConnections,
 
     // Only register ListRoots handler if server supports roots capability
     if (capabilities?.roots) {
-      getLegacyClient(outboundConn).setRequestHandler(
+      setOutboundRequestHandler(
+        outboundConn,
         ListRootsRequestSchema,
         withErrorHandling(async (request: ListRootsRequest) => {
           return ServerManager.current.executeServerOperation(inboundConn, (inboundConn: InboundConnection) =>
@@ -163,5 +167,5 @@ export function registerRequestHandlers(
   registerCompletionHandlers(outboundConns, inboundConn);
 
   // Register server-specific request handlers
-  registerServerRequestHandlers(outboundConns, inboundConn);
+  if (!inboundConn.requestOnly) registerServerRequestHandlers(outboundConns, inboundConn);
 }

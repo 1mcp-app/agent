@@ -18,12 +18,14 @@ vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
   }),
 }));
 
-vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
+vi.mock('@modelcontextprotocol/client', () => ({
+  PROTOCOL_VERSION_META_KEY: 'io.modelcontextprotocol/protocolVersion',
   StreamableHTTPClientTransport: vi.fn(function () {
     return {
       start: vi.fn().mockResolvedValue(undefined),
       close: vi.fn().mockResolvedValue(undefined),
       send: vi.fn().mockResolvedValue(undefined),
+      setProtocolVersion: vi.fn(),
       onmessage: undefined,
       onerror: undefined,
       onclose: undefined,

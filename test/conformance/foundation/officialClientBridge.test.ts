@@ -16,7 +16,8 @@ const fakeGateway = resolve(here, '../runtime/fixtures/fake-process.mjs');
 describe('official client gateway bridge', () => {
   it.each([
     ['fixture-crash', 'fixture-defect'],
-    ['gateway-rejected', 'attempted'],
+    ['gateway-rejected', 'gateway-rejected'],
+    ['fixture-success', 'attempted'],
   ] as const)('records %s client execution as %s', async (mode, expectedStatus) => {
     const scratch = await mkdtemp(join(tmpdir(), 'official-client-bridge-'));
     const fixture = join(scratch, 'fixture.mjs');
@@ -24,20 +25,26 @@ describe('official client gateway bridge', () => {
       fixture,
       mode === 'fixture-crash'
         ? `process.stderr.write('{"code":"FIXTURE_RUNTIME_ERROR"}\\n'); process.exitCode = 1;\n`
-        : `process.stderr.write('{"classification":"gateway-rejected"}\\n'); process.exitCode = 1;\n`,
+        : mode === 'gateway-rejected'
+          ? `import { writeSync } from 'node:fs'; writeSync(2, '{"classification":"gateway-rejected"}\\n'); process.exit(1);\n`
+          : 'process.exitCode = 0;\n',
       'utf8',
     );
     try {
-      await expect(
-        execFileAsync(process.execPath, [bridge, fixture, fakeGateway, scratch, 'http://localhost:9/mcp'], {
+      const execution = execFileAsync(
+        process.execPath,
+        [bridge, fixture, fakeGateway, scratch, 'http://localhost:9/mcp'],
+        {
           env: {
             ...process.env,
             MCP_CONFORMANCE_SCENARIO: 'tools_call',
             MCP_CONFORMANCE_PROTOCOL_VERSION: '2025-11-25',
           },
           timeout: 15_000,
-        }),
-      ).rejects.toMatchObject({ code: 1 });
+        },
+      );
+      if (mode === 'fixture-success') await expect(execution).resolves.toBeDefined();
+      else await expect(execution).rejects.toMatchObject({ code: 1 });
       await expect(readFile(join(scratch, 'tools_call.json'), 'utf8')).resolves.toContain(
         `"status":"${expectedStatus}"`,
       );
@@ -76,7 +83,7 @@ describe('official client gateway bridge', () => {
         }),
       ).rejects.toMatchObject({ code: 1 });
       await expect(readFile(join(scratch, `${encodeURIComponent(scenario)}.json`), 'utf8')).resolves.toContain(
-        '"status":"attempted"',
+        '"status":"gateway-rejected"',
       );
     } finally {
       await rm(scratch, { recursive: true, force: true });
@@ -127,14 +134,16 @@ describe('official client gateway bridge', () => {
           timeout: 15_000,
         }),
       ).rejects.toMatchObject({ code: 1 });
-      await expect(readFile(join(scratch, 'request-metadata.json'), 'utf8')).resolves.toContain('"status":"attempted"');
+      await expect(readFile(join(scratch, 'request-metadata.json'), 'utf8')).resolves.toContain(
+        '"status":"gateway-rejected"',
+      );
     } finally {
       await rm(scratch, { recursive: true, force: true });
     }
   });
 
   it.each([
-    [503, 'awaiting_oauth', 'attempted'],
+    [503, 'awaiting_oauth', 'gateway-rejected'],
     [503, 'loading', 'harness-defect'],
     [500, 'loading', 'harness-defect'],
   ] as const)(
@@ -160,8 +169,10 @@ describe('official client gateway bridge', () => {
         'utf8',
       );
       try {
-        await expect(
-          execFileAsync(process.execPath, [bridge, fixture, pendingGateway, scratch, 'http://localhost:9/mcp'], {
+        const execution = execFileAsync(
+          process.execPath,
+          [bridge, fixture, pendingGateway, scratch, 'http://localhost:9/mcp'],
+          {
             env: {
               ...process.env,
               MCP_CONFORMANCE_SCENARIO: 'auth/pre-registration',
@@ -172,8 +183,9 @@ describe('official client gateway bridge', () => {
               }),
             },
             timeout: 15_000,
-          }),
-        ).rejects.toMatchObject({ code: 1 });
+          },
+        );
+        await expect(execution).rejects.toMatchObject({ code: 1 });
         await expect(readFile(join(scratch, 'auth%2Fpre-registration.json'), 'utf8')).resolves.toContain(
           `"status":"${expectedStatus}"`,
         );
@@ -202,7 +214,9 @@ describe('official client gateway bridge', () => {
           timeout: 15_000,
         }),
       ).rejects.toMatchObject({ code: 1 });
-      await expect(readFile(join(scratch, 'tools_call.json'), 'utf8')).resolves.toContain('"status":"attempted"');
+      await expect(readFile(join(scratch, 'tools_call.json'), 'utf8')).resolves.toContain(
+        '"status":"gateway-rejected"',
+      );
     } finally {
       await rm(scratch, { recursive: true, force: true });
     }

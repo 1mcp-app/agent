@@ -56,7 +56,7 @@ const PROFILE_TEST_REGISTRY: Record<string, readonly { path: string; needle: str
   'transport.gateway.upstream-stdio-modern': [
     {
       path: 'test/conformance/transports/profileProofs.test.ts',
-      needle: "it('records product-red evidence for modern upstream stdio",
+      needle: "it('proves modern upstream stdio with MCP traffic through the built gateway'",
     },
   ],
   'transport.gateway.upstream-stdio-legacy': [
@@ -651,7 +651,7 @@ function shellArgument(value: string): string {
 const officialClientBridgeStatusSchema = z
   .object({
     scenario: z.string().min(1),
-    status: z.enum(['attempted', 'fixture-defect', 'harness-defect']),
+    status: z.enum(['attempted', 'gateway-rejected', 'fixture-defect', 'harness-defect']),
   })
   .strict();
 
@@ -697,6 +697,13 @@ async function runOfficialPeers(root: string, outputDirectory: string): Promise<
       revision,
       command,
       temporaryParentDirectory: outputDirectory,
+      observeClientFailure: async (scenarioId) => {
+        const status = officialClientBridgeStatusSchema.parse(
+          JSON.parse(await readFile(join(statusDirectory, `${encodeURIComponent(scenarioId)}.json`), 'utf8')),
+        );
+        if (status.scenario !== scenarioId) throw new Error('Client scenario status mismatch');
+        return status.status === 'gateway-rejected';
+      },
     });
     clientResult = await classifyOfficialClientResult(clientResult, statusDirectory);
     try {

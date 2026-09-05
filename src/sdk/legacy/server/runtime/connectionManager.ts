@@ -37,6 +37,7 @@ function snapshotInboundConfig(
     ...(opts.tagQuery !== undefined ? { tagQuery: opts.tagQuery } : {}),
     ...(opts.tagFilterMode !== undefined ? { tagFilterMode: opts.tagFilterMode } : {}),
     ...(opts.enablePagination !== undefined ? { enablePagination: opts.enablePagination } : {}),
+    ...(opts.requestOnly !== undefined ? { requestOnly: opts.requestOnly } : {}),
     ...(opts.presetName !== undefined ? { presetName: opts.presetName } : {}),
     ...(opts.contextProof !== undefined ? { contextProof: opts.contextProof } : {}),
     ...(opts.customTemplate !== undefined ? { customTemplate: opts.customTemplate } : {}),

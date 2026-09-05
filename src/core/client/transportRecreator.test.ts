@@ -1,3 +1,8 @@
+import {
+  SSEClientTransport as ModernSSEClientTransport,
+  StreamableHTTPClientTransport as ModernStreamableHTTPClientTransport,
+} from '@modelcontextprotocol/client';
+
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
@@ -15,7 +20,85 @@ describe('TransportRecreator', () => {
     transportRecreator = new TransportRecreator();
   });
 
+  describe('recreateForRetry', () => {
+    it.each([
+      ['legacy', StreamableHTTPClientTransport],
+      ['modern', ModernStreamableHTTPClientTransport],
+    ] as const)(
+      'preserves native HTTP sessions by default and supports explicit fresh-client retries (%s)',
+      (_family, Transport) => {
+        const original = new Transport(new URL('https://example.com/mcp'), {
+          sessionId: 'live-session',
+        }) as AuthProviderTransport;
+
+        expect(transportRecreator.recreateForRetry(original).sessionId).toBe('live-session');
+        const fresh = transportRecreator.recreateForRetry(original, 'upstream', { preserveSessionId: false });
+        expect(fresh).toBeInstanceOf(Transport);
+        expect(fresh.sessionId).toBeUndefined();
+        expect(original.sessionId).toBe('live-session');
+      },
+    );
+  });
+
   describe('recreateHttpTransport', () => {
+    describe('modern v2 transports', () => {
+      it('preserves the Streamable HTTP family and recreation state', () => {
+        const requestInit = { headers: { 'X-Configured': 'true' } };
+        const fetch = vi.fn();
+        const authProvider = { token: vi.fn(async () => 'token') };
+        const original = new ModernStreamableHTTPClientTransport(new URL('https://example.com/mcp'), {
+          requestInit,
+          fetch,
+          authProvider,
+          sessionId: 'modern-session',
+          protocolVersion: '2026-07-28',
+        }) as unknown as AuthProviderTransport;
+        original.oauthProvider = authProvider as never;
+        original.outboundProtocolVersion = '2026-07-28';
+
+        const recreated = transportRecreator.recreateHttpTransport(original);
+
+        expect(recreated).toBeInstanceOf(ModernStreamableHTTPClientTransport);
+        expect(recreated).not.toBeInstanceOf(ModernSSEClientTransport);
+        expect((recreated as any)._requestInit).toBe(requestInit);
+        expect((recreated as any)._fetch).toBe(fetch);
+        expect((recreated as any)._sessionId).toBe('modern-session');
+        expect((recreated as any)._protocolVersion).toBe('2026-07-28');
+        expect(recreated.oauthProvider).toBe(authProvider);
+        expect(recreated.outboundProtocolVersion).toBe('2026-07-28');
+
+        const afterSessionLoss = transportRecreator.recreateForSessionLoss(original);
+        expect(afterSessionLoss).toBeInstanceOf(ModernStreamableHTTPClientTransport);
+        expect((afterSessionLoss as any)._sessionId).toBeUndefined();
+        expect((afterSessionLoss as any)._protocolVersion).toBe('2026-07-28');
+      });
+
+      it('preserves the SSE family and request state', () => {
+        const requestInit = { headers: { 'X-Configured': 'true' } };
+        const eventSourceInit = { headers: { 'X-Stream': 'true' } } as never;
+        const fetch = vi.fn();
+        const authProvider = { token: vi.fn(async () => 'token') };
+        const original = new ModernSSEClientTransport(new URL('https://example.com/sse'), {
+          requestInit,
+          eventSourceInit,
+          fetch,
+          authProvider,
+        }) as unknown as AuthProviderTransport;
+        original.oauthProvider = authProvider as never;
+        original.outboundProtocolVersion = '2026-07-28';
+
+        const recreated = transportRecreator.recreateHttpTransport(original);
+
+        expect(recreated).toBeInstanceOf(ModernSSEClientTransport);
+        expect(recreated).not.toBeInstanceOf(ModernStreamableHTTPClientTransport);
+        expect((recreated as any)._requestInit).toBe(requestInit);
+        expect((recreated as any)._eventSourceInit).toBe(eventSourceInit);
+        expect((recreated as any)._fetch).toBe(fetch);
+        expect(recreated.oauthProvider).toBe(authProvider);
+        expect(recreated.outboundProtocolVersion).toBe('2026-07-28');
+      });
+    });
+
     describe('StreamableHTTPClientTransport', () => {
       it('should recreate StreamableHTTPClientTransport', () => {
         const requestInit = {

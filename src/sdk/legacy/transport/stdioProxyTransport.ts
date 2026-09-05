@@ -1,9 +1,16 @@
+import { PROTOCOL_VERSION_META_KEY, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+
 import { buildCliContext, generateStreamableSessionId } from '@src/commands/shared/cliContext.js';
 import { MCP_SERVER_VERSION } from '@src/constants/mcp.js';
 import type { TemplateContextProof } from '@src/core/context/templateContextTrust.js';
+import {
+  classifyProtocolEra,
+  createGatewayFailure,
+  type GatewayFailure,
+  type ProtocolEraPin,
+} from '@src/gateway/contracts/index.js';
 import logger from '@src/logger/logger.js';
 import { toProtocolJSONRPCMessage } from '@src/sdk/contracts/index.js';
-import { StreamableHTTPClientTransport } from '@src/sdk/legacy/client/streamableHttp.js';
 import { StdioServerTransport } from '@src/sdk/legacy/server/stdio.js';
 import { JSONRPCMessage } from '@src/sdk/legacy/types.js';
 import type { ClientInfo, ContextData } from '@src/types/context.js';
@@ -44,10 +51,15 @@ export class StdioProxyTransport {
   private stdioTransport: StdioServerTransport;
   private httpTransport: StreamableHTTPClientTransport;
   private isConnected = false;
+  private httpStarted = false;
+  private stdioStarted = false;
+  private closePromise?: Promise<void>;
   private context: ContextData;
   private clientInfo: ClientInfo | null = null;
   private initializeIntercepted = false;
   private serverUrl: URL;
+  private downstreamPin?: ProtocolEraPin;
+  private legacyInitializeRequestId?: string | number;
 
   constructor(private options: StdioProxyTransportOptions) {
     // Reset any previous state
@@ -107,17 +119,20 @@ export class StdioProxyTransport {
       this.setupMessageForwarding();
 
       // Start HTTP transport connection
+      this.httpStarted = true;
       await this.httpTransport.start();
-      this.isConnected = true;
 
       logger.info('Connected to 1MCP HTTP server');
 
       // Start STDIO transport
+      this.stdioStarted = true;
       await this.stdioTransport.start();
+      this.isConnected = true;
 
       logger.info('STDIO proxy started successfully');
     } catch (error) {
       logger.error(`Failed to start STDIO proxy: ${error}`);
+      await this.close();
       throw error;
     }
   }
@@ -130,10 +145,12 @@ export class StdioProxyTransport {
     // Forward messages from HTTP server to STDIO client
     this.httpTransport.onmessage = async (message: JSONRPCMessage) => {
       try {
+        this.observeUpstreamFrame(message);
         // Forward to STDIO client
-        await this.stdioTransport.send(message);
+        await this.stdioTransport.send(message as never);
       } catch (error) {
         logger.error(`Error forwarding HTTP message to STDIO: ${error}`);
+        if (this.isProtocolFailure(error)) await this.failProtocolFrame(message, error);
       }
     };
 
@@ -156,6 +173,7 @@ export class StdioProxyTransport {
     // Forward messages from STDIO client to HTTP server
     this.stdioTransport.onmessage = async (message: JSONRPCMessage) => {
       try {
+        this.classifyDownstreamFrame(message);
         // Check for initialize request to extract client info
         if (!this.initializeIntercepted) {
           const clientInfo = ClientInfoExtractor.extractFromInitializeRequest(toProtocolJSONRPCMessage(message));
@@ -181,9 +199,10 @@ export class StdioProxyTransport {
         const enhancedMessage = await this.addContextMeta(message);
 
         // Forward to HTTP server
-        await this.httpTransport.send(enhancedMessage);
+        await this.httpTransport.send(enhancedMessage as never);
       } catch (error) {
         logger.error(`Error forwarding STDIO message to HTTP: ${error}`);
+        if (this.isProtocolFailure(error)) await this.failProtocolFrame(message, error);
       }
     };
 
@@ -200,6 +219,91 @@ export class StdioProxyTransport {
       logger.info('STDIO transport closed');
       await this.close();
     };
+  }
+
+  private classifyDownstreamFrame(message: JSONRPCMessage): void {
+    if (!('method' in message)) return;
+    const params = message.params;
+    const record = typeof params === 'object' && params !== null ? (params as Record<string, unknown>) : undefined;
+    const meta =
+      record && typeof record._meta === 'object' && record._meta !== null
+        ? (record._meta as Record<string, unknown>)
+        : undefined;
+    const modernRevision = meta?.[PROTOCOL_VERSION_META_KEY];
+
+    let evidence: { syntax: 'legacy' | 'modern'; revision: unknown };
+    if (message.method === 'initialize') {
+      evidence = { syntax: 'legacy', revision: record?.protocolVersion };
+      this.legacyInitializeRequestId = 'id' in message ? message.id : undefined;
+    } else if (modernRevision !== undefined) {
+      evidence = { syntax: 'modern', revision: modernRevision };
+    } else if (this.downstreamPin?.era === 'legacy') {
+      return;
+    } else {
+      throw createGatewayFailure({
+        kind: 'protocol',
+        code: 'proxy_protocol_evidence_missing',
+        message: 'The proxy request does not contain valid protocol era evidence',
+      });
+    }
+
+    const classified = classifyProtocolEra(evidence);
+    if (!classified.ok) throw classified.failure;
+    if (
+      this.downstreamPin &&
+      (this.downstreamPin.era !== classified.value.era || this.downstreamPin.revision !== classified.value.revision)
+    ) {
+      throw createGatewayFailure({
+        kind: 'protocol',
+        code: 'proxy_protocol_era_conflict',
+        message: 'The proxy downstream protocol era is already pinned',
+      });
+    }
+    this.downstreamPin ??= classified.value;
+  }
+
+  private observeUpstreamFrame(message: JSONRPCMessage): void {
+    if (this.downstreamPin?.era !== 'legacy' || !('id' in message) || message.id !== this.legacyInitializeRequestId) {
+      return;
+    }
+    if (!('result' in message)) return;
+    const result = message.result;
+    const revision =
+      typeof result === 'object' && result !== null ? (result as Record<string, unknown>).protocolVersion : undefined;
+    const classified = classifyProtocolEra({ syntax: 'legacy', revision });
+    if (!classified.ok) {
+      throw createGatewayFailure({
+        kind: 'protocol',
+        code: 'proxy_legacy_revision_mismatch',
+        message: 'The proxy upstream selected an unsupported legacy protocol revision',
+      });
+    }
+    this.downstreamPin = classified.value;
+    this.httpTransport.setProtocolVersion(classified.value.revision);
+  }
+
+  private isProtocolFailure(error: unknown): error is GatewayFailure {
+    if (typeof error !== 'object' || error === null) return false;
+    const candidate = error as Partial<GatewayFailure>;
+    return candidate.kind === 'protocol' && typeof candidate.code === 'string';
+  }
+
+  private async failProtocolFrame(message: JSONRPCMessage, failure: GatewayFailure): Promise<void> {
+    const id =
+      'id' in message && (typeof message.id === 'string' || typeof message.id === 'number') ? message.id : null;
+    try {
+      await this.stdioTransport.send({
+        jsonrpc: '2.0',
+        id,
+        error: {
+          code: -32_600,
+          message: 'Proxy protocol negotiation failed',
+          data: { code: failure.code },
+        },
+      } as never);
+    } finally {
+      await this.close();
+    }
   }
 
   /**
@@ -309,24 +413,29 @@ export class StdioProxyTransport {
    * Close the proxy transport
    */
   async close(): Promise<void> {
-    if (!this.isConnected) {
-      return;
-    }
+    if (this.closePromise) return this.closePromise;
+    if (!this.httpStarted && !this.stdioStarted && !this.isConnected) return;
 
-    // Set isConnected to false immediately to prevent re-entry
-    // when transport close handlers trigger onclose events
     this.isConnected = false;
+    this.closePromise = (async () => {
+      this.httpTransport.onmessage = undefined;
+      this.httpTransport.onerror = undefined;
+      this.httpTransport.onclose = undefined;
+      this.stdioTransport.onmessage = undefined;
+      this.stdioTransport.onerror = undefined;
+      this.stdioTransport.onclose = undefined;
 
-    try {
-      // Close HTTP transport
-      await this.httpTransport.close();
-
-      // Close STDIO transport
-      await this.stdioTransport.close();
-
+      const closers: Array<Promise<void>> = [];
+      if (this.httpStarted) closers.push(this.httpTransport.close());
+      if (this.stdioStarted) closers.push(this.stdioTransport.close());
+      this.httpStarted = false;
+      this.stdioStarted = false;
+      const outcomes = await Promise.allSettled(closers);
+      for (const outcome of outcomes) {
+        if (outcome.status === 'rejected') logger.error(`Error closing STDIO proxy: ${outcome.reason}`);
+      }
       logger.info('STDIO proxy closed');
-    } catch (error) {
-      logger.error(`Error closing STDIO proxy: ${error}`);
-    }
+    })();
+    return this.closePromise;
   }
 }

@@ -72,14 +72,34 @@ test('shared gateway layers remain independent of protocol SDK implementations',
   assert.deepEqual(violations, []);
 });
 
-test('gateway adapters remain disconnected from production entry points', () => {
+test('gateway production attachment is confined to explicit inbound and outbound adapters', () => {
+  const allowed = new Set([
+    'src/sdk/legacy/client/runtime/legacyGatewayClientAdapter.ts -> @src/gateway/adapters/legacy/legacyOutboundEraAdapter.js',
+    'src/sdk/legacy/client/runtime/legacyGatewayClientAdapter.ts -> @src/gateway/contracts/effectiveRequestAuthority.js',
+    'src/sdk/legacy/client/runtime/legacyGatewayClientAdapter.ts -> @src/gateway/contracts/immutableJson.js',
+    'src/sdk/legacy/client/runtime/modernSdkClientAdapter.ts -> @src/gateway/adapters/legacy/legacyOutboundEraAdapter.js',
+    'src/sdk/legacy/client/runtime/modernSdkClientAdapter.ts -> @src/gateway/adapters/modern/modernOutboundEraAdapter.js',
+    'src/sdk/legacy/client/runtime/modernSdkClientAdapter.ts -> @src/gateway/contracts/effectiveRequestAuthority.js',
+    'src/sdk/legacy/client/runtime/modernSdkClientAdapter.ts -> @src/gateway/contracts/immutableJson.js',
+    'src/sdk/legacy/client/runtime/modernSdkClientAdapter.ts -> @src/gateway/ports/outboundEraAdapter.js',
+    'src/sdk/legacy/transport/http/modernInboundLegacyBridge.ts -> @src/gateway/adapters/legacy/legacyOutboundEraAdapter.js',
+    'src/sdk/legacy/transport/stdioProxyTransport.ts -> @src/gateway/contracts/index.js',
+    'src/transport/http/middlewares/errorHandler.ts -> @src/gateway/contracts/protocolEra.js',
+    'src/transport/http/routes/modernHttpRoutes.ts -> @src/gateway/adapters/modern/modernInboundEraAdapter.js',
+    'src/transport/http/routes/modernHttpRoutes.ts -> @src/gateway/contracts/effectiveRequestAuthority.js',
+    'src/transport/http/routes/modernHttpRoutes.ts -> @src/gateway/contracts/index.js',
+    'src/transport/http/routes/modernHttpRoutes.ts -> @src/gateway/contracts/protocolEra.js',
+    'src/transport/http/routes/modernHttpRoutes.ts -> @src/gateway/core/gatewayDispatcher.js',
+    'src/transport/http/routes/modernHttpRoutes.ts -> @src/gateway/core/gatewaySession.js',
+  ]);
   const violations = filesBelow(join(root, 'src'))
     .filter((path) => !path.includes('/src/gateway/'))
     .filter((path) => !isTestSource(path))
     .flatMap((path) =>
       importSpecifiers(path)
         .filter((specifier) => specifier === '<computed>' || resolvesInside(specifier, path, 'gateway'))
-        .map((specifier) => `${relativePath(path)} -> ${specifier}`),
+        .map((specifier) => `${relativePath(path)} -> ${specifier}`)
+        .filter((edge) => !allowed.has(edge)),
     );
 
   assert.deepEqual(violations, []);

@@ -1,3 +1,7 @@
+import {
+  SSEClientTransport as ModernSSEClientTransport,
+  StreamableHTTPClientTransport as ModernStreamableHTTPClientTransport,
+} from '@modelcontextprotocol/client';
 import { createMockLegacyOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -204,6 +208,142 @@ describe('OAuthFlowHandler', () => {
       expect(result.capabilities).toEqual({ tools: {}, resources: {} });
       expect(result.instructions).toBe('test instructions');
       expect(result.lastError).toBeUndefined();
+    });
+
+    it.each([ModernStreamableHTTPClientTransport, ModernSSEClientTransport])(
+      'passes actual callback parameters to modern %s issuer validation',
+      async (TransportClass) => {
+        Object.setPrototypeOf(mockTransport, TransportClass.prototype);
+        const callback = new URLSearchParams({ code: 'auth-code-123', iss: 'https://issuer.example' });
+
+        await oauthFlowHandler.completeOAuthAndReconnect(
+          'test-server',
+          mockTransport as never,
+          mockTransport as never,
+          callback,
+          existingConnection,
+        );
+
+        expect(mockTransport.finishAuth).toHaveBeenCalledWith(callback);
+      },
+    );
+
+    it.each(
+      [ModernStreamableHTTPClientTransport, ModernSSEClientTransport].flatMap((TransportClass) =>
+        ['https://issuer.example', 'https://other.example', undefined].map((iss) => ({ TransportClass, iss })),
+      ),
+    )('validates issuer $iss before token exchange with $TransportClass.name', async ({ TransportClass, iss }) => {
+      const issuer = 'https://issuer.example';
+      const fetchToken = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ access_token: 'token', token_type: 'Bearer' }), {
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+      const provider = {
+        redirectUrl: 'https://proxy.example/oauth/callback/test-server',
+        clientMetadata: {
+          redirect_uris: ['https://proxy.example/oauth/callback/test-server'],
+          grant_types: ['authorization_code'],
+          response_types: ['code'],
+          token_endpoint_auth_method: 'none',
+        },
+        clientInformation: () => ({ client_id: 'client', issuer, token_endpoint_auth_method: 'none' }),
+        tokens: () => undefined,
+        saveTokens: vi.fn(),
+        redirectToAuthorization: vi.fn(),
+        saveCodeVerifier: vi.fn(),
+        codeVerifier: () => 'verifier',
+        discoveryState: () => ({
+          authorizationServerUrl: issuer,
+          resourceMetadata: { resource: 'https://example.com/mcp' },
+          authorizationServerMetadata: {
+            issuer,
+            authorization_endpoint: issuer + '/authorize',
+            token_endpoint: issuer + '/token',
+            response_types_supported: ['code'],
+            token_endpoint_auth_methods_supported: ['none'],
+            authorization_response_iss_parameter_supported: true,
+          },
+        }),
+      };
+      const transport = new TransportClass(new URL('https://example.com/mcp'), {
+        authProvider: provider,
+        fetch: fetchToken,
+      });
+      const callback = new URLSearchParams({ code: 'auth-code-123' });
+      if (iss !== undefined) callback.set('iss', iss);
+
+      const complete = oauthFlowHandler.completeOAuthAndReconnect(
+        'test-server',
+        transport as never,
+        mockTransport as never,
+        callback,
+        existingConnection,
+      );
+
+      if (iss === issuer) {
+        await expect(complete).resolves.toMatchObject({ status: ClientStatus.Connected });
+        expect(fetchToken).toHaveBeenCalledOnce();
+        expect(provider.saveTokens).toHaveBeenCalledOnce();
+        expect(mockClient.connect).toHaveBeenCalledOnce();
+      } else {
+        await expect(complete).rejects.toMatchObject({ kind: 'authorization_response' });
+        expect(fetchToken).not.toHaveBeenCalled();
+        expect(provider.saveTokens).not.toHaveBeenCalled();
+        expect(mockClient.connect).not.toHaveBeenCalled();
+      }
+    });
+
+    it('keeps the legacy finishAuth code-only contract for callback parameters', async () => {
+      const callback = new URLSearchParams({ code: 'auth-code-123', iss: 'https://issuer.example' });
+
+      await oauthFlowHandler.completeOAuthAndReconnect(
+        'test-server',
+        mockTransport as never,
+        mockTransport as never,
+        callback,
+        existingConnection,
+      );
+
+      expect(mockTransport.finishAuth).toHaveBeenCalledWith('auth-code-123');
+    });
+
+    it('recreates from durable OAuth state only after the callback exchange', async () => {
+      const order: string[] = [];
+      const prebuiltTransport = {
+        close: vi.fn(async () => {
+          order.push('discard-prebuilt');
+        }),
+      } as unknown as StreamableHTTPClientTransport;
+      const authenticatedTransport = {
+        close: vi.fn(),
+      } as unknown as StreamableHTTPClientTransport;
+      (mockTransport.finishAuth as unknown as MockInstance).mockImplementationOnce(async () => {
+        order.push('finish-auth');
+      });
+      const recreate = vi.fn(() => {
+        order.push('recreate');
+        return authenticatedTransport;
+      });
+      (mockTransport as StreamableHTTPClientTransport & { recreate: () => StreamableHTTPClientTransport }).recreate =
+        recreate;
+      (mockClient.connect as unknown as MockInstance).mockImplementationOnce(async (transport) => {
+        order.push('connect');
+        expect(transport).toBe(authenticatedTransport);
+      });
+      (mockClient.getServerCapabilities as unknown as MockInstance).mockReturnValue({ tools: {} });
+
+      const result = await oauthFlowHandler.completeOAuthAndReconnect(
+        'test-server',
+        mockTransport as never,
+        prebuiltTransport as never,
+        'auth-code-123',
+        existingConnection,
+      );
+
+      expect(order).toEqual(['finish-auth', 'discard-prebuilt', 'recreate', 'connect']);
+      expect(getLegacyTransport(result)).toBe(authenticatedTransport);
+      expect(recreate).toHaveBeenCalledExactlyOnceWith({ preserveSessionId: false });
     });
 
     it('should handle SSE transport', async () => {

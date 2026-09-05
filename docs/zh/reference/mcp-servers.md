@@ -137,6 +137,7 @@ npx -y @1mcp/agent --config-dir ./project-config
 - `tags` (字符串数组, 可选): 用于路由和访问控制的标签。预设过滤功能需要此字段才能正常工作。
 - `connectionTimeout` (数字, 可选): 连接超时时间（毫秒）。用于建立初始连接。优先级高于 `timeout`。
 - `requestTimeout` (数字, 可选): 请求超时时间（毫秒）。用于单个 MCP 操作（callTool、readResource 等）。优先级高于 `timeout`。
+- `protocolVersion` (字符串, 可选): 出站协议模式。使用 `legacy` 固定为 2025 版客户端，使用 `2026-07-28` 固定为现代 MCP 且不回退，或使用 `auto` 优先协商现代协议，仅在明确识别上游为旧版协议时回退。省略时等同于 `auto`。
 - `timeout` (数字, 可选): **已弃用** 的回退超时时间（毫秒）。当未设置特定超时时使用。新配置应使用 `connectionTimeout` 和 `requestTimeout`。
 - `disabled`（布尔值或模板字符串，可选）：设为 `true` 可阻止服务器启动；省略或设为 `false` 表示启用服务器。
 - `disabledTools` (字符串数组, 可选): 隐藏此服务器中的指定工具，而不禁用整个服务器。

@@ -1,3 +1,5 @@
+import { Client as ModernClient } from '@modelcontextprotocol/client';
+
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
 import { ClientFactory } from '@src/core/client/clientFactory.js';
@@ -7,6 +9,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // Mock dependencies
 vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
   Client: vi.fn(),
+}));
+
+vi.mock('@modelcontextprotocol/client', () => ({
+  Client: vi.fn().mockImplementation(function () {
+    return { connect: vi.fn(), getServerVersion: vi.fn(), close: vi.fn() };
+  }),
 }));
 
 vi.mock('@src/core/validation/CustomJsonSchemaValidator.js', () => ({
@@ -70,6 +78,31 @@ describe('ClientFactory', () => {
 
       expect(client1).not.toBe(client2);
       expect(Client).toHaveBeenCalledTimes(2);
+    });
+
+    it.each([
+      ['auto', 'auto'],
+      ['2026-07-28', { pin: '2026-07-28' }],
+    ] as const)('creates a v2 client for %s negotiation', (protocolVersion, mode) => {
+      clientFactory.createClient({
+        outboundProtocolVersion: protocolVersion,
+        connectionTimeout: 2_500,
+      } as never);
+
+      expect(ModernClient).toHaveBeenCalledWith(
+        expect.objectContaining({ name: '1mcp-test', version: '1.0.0' }),
+        expect.objectContaining({
+          versionNegotiation: { mode, probe: { timeoutMs: 2_500, maxRetries: 0 } },
+        }),
+      );
+      expect(Client).not.toHaveBeenCalled();
+    });
+
+    it('keeps an explicit legacy pin on the v1 client', () => {
+      clientFactory.createClient({ outboundProtocolVersion: 'legacy' } as never);
+
+      expect(Client).toHaveBeenCalledOnce();
+      expect(ModernClient).not.toHaveBeenCalled();
     });
   });
 

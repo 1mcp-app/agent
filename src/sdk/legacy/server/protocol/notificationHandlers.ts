@@ -1,9 +1,11 @@
 import { registerCapabilityPaginationNotifications } from '@src/core/capabilities/capabilityPagination.js';
 import { ClientStatus, InboundConnection, ServerStatus } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
+import { toJsonValue } from '@src/sdk/contracts/index.js';
 import {
-  getLegacyClient,
+  getLegacyTransport,
   type LegacyOutboundConnections,
+  setOutboundNotificationHandler,
 } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
 import {
@@ -14,6 +16,10 @@ import {
   RootsListChangedNotificationSchema,
 } from '@src/sdk/legacy/types.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
+
+function formatNotificationError(error: unknown): string {
+  return error instanceof Error ? `Error: ${error.message}` : String(error);
+}
 
 /**
  * Sets up client-to-server notification handlers
@@ -56,14 +62,15 @@ export function setupClientToServerNotifications(
           if (error instanceof Error && error.message.includes('Not connected')) {
             logger.warn(`Server transport not connected. Dropping notification from ${name}`);
           } else {
-            logger.error(`Failed to send notification from ${name}: ${error}`);
+            logger.error(`Failed to send notification from ${name}: ${formatNotificationError(error)}`);
           }
         }
       }, `Error handling client notification from ${name}`),
     );
 
     clientNotificationSchemas.forEach((schema) => {
-      getLegacyClient(outboundConn).setNotificationHandler(
+      setOutboundNotificationHandler(
+        outboundConn,
         schema,
         withErrorHandling(async (notification) => {
           logger.info(`Received notification in client: ${name} ${JSON.stringify(notification)}`);
@@ -89,7 +96,7 @@ export function setupClientToServerNotifications(
             if (error instanceof Error && error.message.includes('Not connected')) {
               logger.warn(`Server transport not connected. Dropping notification from ${name}`);
             } else {
-              logger.error(`Failed to send notification from ${name}: ${error}`);
+              logger.error(`Failed to send notification from ${name}: ${formatNotificationError(error)}`);
             }
           }
         }, `Error handling client notification from ${name}`),
@@ -125,7 +132,7 @@ export function setupServerToClientNotifications(
         schema,
         withErrorHandling(async (notification) => {
           logger.info(`Received notification in server: ${name} ${JSON.stringify(notification)}`);
-          if (outboundConn.status !== ClientStatus.Connected || !getLegacyClient(outboundConn).transport) {
+          if (outboundConn.status !== ClientStatus.Connected || !getLegacyTransport(outboundConn)) {
             logger.warn(`Client ${name} is not connected. Notification not sent.`);
             return;
           }
@@ -140,12 +147,15 @@ export function setupServerToClientNotifications(
                 client: name,
               },
             };
-            await getLegacyClient(outboundConn).notification(forwardedNotification);
+            await outboundConn.adapter.notify({
+              method: forwardedNotification.method,
+              params: toJsonValue(forwardedNotification.params),
+            });
           } catch (error) {
             if (error instanceof Error && error.message.includes('Not connected')) {
               logger.warn(`Client ${name} transport not connected. Dropping notification.`);
             } else {
-              logger.error(`Failed to send notification to ${name}: ${error}`);
+              logger.error(`Failed to send notification to ${name}: ${formatNotificationError(error)}`);
             }
           }
         }, `Error handling server notification to ${name}`),

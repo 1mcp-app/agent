@@ -32,8 +32,10 @@ export async function setupCapabilities(
   const capabilities = collectCapabilities(clients);
 
   // Set up notification handlers
-  setupClientToServerNotifications(clients, serverInfo);
-  setupServerToClientNotifications(clients, serverInfo);
+  if (!serverInfo.requestOnly) {
+    setupClientToServerNotifications(clients, serverInfo);
+    setupServerToClientNotifications(clients, serverInfo);
+  }
 
   // Register request handlers based on capabilities
   registerRequestHandlers(clients, serverInfo, lazyLoadingOrchestrator);
