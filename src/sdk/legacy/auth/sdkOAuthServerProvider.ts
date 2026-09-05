@@ -7,7 +7,12 @@ import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import logger from '@src/logger/logger.js';
 import type { OAuthRegisteredClientsStore } from '@src/sdk/legacy/server/auth/clients.js';
-import { InvalidGrantError, InvalidScopeError, InvalidTargetError } from '@src/sdk/legacy/server/auth/errors.js';
+import {
+  InvalidGrantError,
+  InvalidScopeError,
+  InvalidTargetError,
+  ServerError,
+} from '@src/sdk/legacy/server/auth/errors.js';
 import type { AuthorizationParams, OAuthServerProvider } from '@src/sdk/legacy/server/auth/provider.js';
 import type { AuthInfo } from '@src/sdk/legacy/server/auth/types.js';
 import type {
@@ -15,6 +20,7 @@ import type {
   OAuthTokenRevocationRequest,
   OAuthTokens,
 } from '@src/sdk/legacy/shared/auth.js';
+import { InsecureFilePermissionsError } from '@src/utils/filePermissions.js';
 import { escapeHtml } from '@src/utils/validation/sanitization.js';
 import {
   auditScopeOperation,
@@ -28,6 +34,39 @@ import type { Response } from 'express';
 const OAUTH_CONSENT_PAGE_CSP_SUFFIX =
   "style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none';";
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/**
+ * Reads from a credential repository, mapping a denied permission heal to an
+ * actionable OAuth server_error instead of a bare 500.
+ */
+function readCredential<T>(read: () => T): T {
+  try {
+    return read();
+  } catch (error) {
+    if (error instanceof InsecureFilePermissionsError) {
+      logger.error(`OAuth store refused insecure credential file: ${error.message}`);
+      throw new ServerError('Credential storage is not owner-only and could not be repaired');
+    }
+    throw error;
+  }
+}
+
+/**
+ * Async twin of readCredential for promise-returning repository calls —
+ * a rejected promise must be remapped too, otherwise a denied heal still
+ * surfaces as an unhandled internal error.
+ */
+async function readCredentialAsync<T>(read: () => Promise<T>): Promise<T> {
+  try {
+    return await read();
+  } catch (error) {
+    if (error instanceof InsecureFilePermissionsError) {
+      logger.error(`OAuth store refused insecure credential file: ${error.message}`);
+      throw new ServerError('Credential storage is not owner-only and could not be repaired');
+    }
+    throw error;
+  }
+}
 
 /**
  * File-based OAuth clients store implementation using the new repository architecture
@@ -45,7 +84,7 @@ class FileBasedClientsStore implements OAuthRegisteredClientsStore {
 
   getClient(clientId: string): OAuthClientInformationFull | undefined {
     const clientKey = this.getClientKey(clientId);
-    const clientData = this.oauthStorage.clientDataRepository.get(clientKey);
+    const clientData = readCredential(() => this.oauthStorage.clientDataRepository.get(clientKey));
 
     if (!clientData) {
       return undefined;
@@ -332,7 +371,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
   async challengeForAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string): Promise<string> {
     logger.debug('Challenge for authorization code', { clientId: client.client_id });
 
-    const codeData = this.oauthStorage.authCodeRepository.get(authorizationCode);
+    const codeData = readCredential(() => this.oauthStorage.authCodeRepository.get(authorizationCode));
     if (!codeData || codeData.clientId !== client.client_id) {
       throw new InvalidGrantError('Invalid authorization code');
     }
@@ -359,7 +398,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
     });
 
     return this.oauthStorage.fileStorage.withExclusiveLock('auth-code-exchange', async () => {
-      const codeData = this.oauthStorage.authCodeRepository.get(authorizationCode);
+      const codeData = readCredential(() => this.oauthStorage.authCodeRepository.get(authorizationCode));
       if (!codeData) {
         throw new InvalidGrantError('Invalid or expired authorization code');
       }
@@ -443,7 +482,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
     resource?: URL,
   ): Promise<OAuthTokens> {
     const repository = this.oauthStorage.refreshTokenFamilyRepository;
-    const family = repository.findByToken(refreshToken);
+    const family = readCredential(() => repository.findByToken(refreshToken));
     if (!family || family.clientId !== client.client_id) {
       throw new InvalidGrantError('Invalid refresh token');
     }
@@ -459,15 +498,17 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
 
     const tokenId = randomUUID();
     const ttlMs = this.configManager.get('auth').oauthTokenTtlMs;
-    const rotation = await repository.consume(refreshToken, client.client_id, tokenId, (familyId) =>
-      this.oauthStorage.sessionRepository.createRefreshFamilyAccessSession({
-        tokenId,
-        clientId: client.client_id,
-        resource: family.resource,
-        scopes: requestedScopes,
-        ttlMs,
-        familyId,
-      }),
+    const rotation = await readCredentialAsync(() =>
+      repository.consume(refreshToken, client.client_id, tokenId, (familyId) =>
+        this.oauthStorage.sessionRepository.createRefreshFamilyAccessSession({
+          tokenId,
+          clientId: client.client_id,
+          resource: family.resource,
+          scopes: requestedScopes,
+          ttlMs,
+          familyId,
+        }),
+      ),
     );
     if (rotation.status === 'replay') {
       this.revokeFamilyAccessTokens(rotation.family.accessTokenIds);
@@ -510,14 +551,15 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
 
     // Get session data
     const sessionId = AUTH_CONFIG.SERVER.SESSION.ID_PREFIX + tokenId;
-    const sessionData = this.oauthStorage.sessionRepository.get(sessionId);
+    const sessionData = readCredential(() => this.oauthStorage.sessionRepository.get(sessionId));
 
     if (!sessionData) {
       throw new Error('Invalid or expired access token');
     }
 
-    if (sessionData.refreshFamilyId) {
-      const family = this.oauthStorage.refreshTokenFamilyRepository.findById(sessionData.refreshFamilyId);
+    const refreshFamilyId = sessionData.refreshFamilyId;
+    if (refreshFamilyId) {
+      const family = readCredential(() => this.oauthStorage.refreshTokenFamilyRepository.findById(refreshFamilyId));
       if (!family || family.status !== 'active' || !family.accessTokenIds.includes(tokenId)) {
         throw new Error('Invalid or expired access token');
       }
@@ -540,7 +582,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
 
     const token = request.token;
 
-    const refreshFamily = this.oauthStorage.refreshTokenFamilyRepository.findByToken(token);
+    const refreshFamily = readCredential(() => this.oauthStorage.refreshTokenFamilyRepository.findByToken(token));
     if (refreshFamily) {
       const revokedFamily = await this.oauthStorage.refreshTokenFamilyRepository.revokeForClient(
         refreshFamily,
@@ -558,7 +600,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
       : token;
 
     const sessionId = AUTH_CONFIG.SERVER.SESSION.ID_PREFIX + tokenId;
-    const session = this.oauthStorage.sessionRepository.get(sessionId);
+    const session = readCredential(() => this.oauthStorage.sessionRepository.get(sessionId));
     const success = session?.clientId === client.client_id && this.oauthStorage.sessionRepository.delete(sessionId);
 
     if (success) {

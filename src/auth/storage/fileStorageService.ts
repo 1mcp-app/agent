@@ -5,8 +5,19 @@ import path from 'path';
 import { ExpirableData } from '@src/auth/sessionTypes.js';
 import { AUTH_CONFIG, FILE_PREFIX_MAPPING, getGlobalConfigDir, STORAGE_SUBDIRS } from '@src/constants.js';
 import logger from '@src/logger/logger.js';
+import {
+  assertOwnerOnlyDirPermissions,
+  credentialReadFlags,
+  enforceOwnerOnlyFilePermissions,
+  InsecureFilePermissionsError,
+  openCredentialReadSync,
+} from '@src/utils/filePermissions.js';
 
 import { z, type ZodType } from 'zod';
+
+// Re-export so existing importers keep working; the canonical home is
+// src/utils/filePermissions.ts, shared by all credential stores.
+export { InsecureFilePermissionsError };
 
 const StorageLockOwnerSchema = z.object({
   operationId: z.string().min(1),
@@ -441,6 +452,9 @@ export class FileStorageService {
     let temporaryPath: string | undefined;
     let created = false;
     try {
+      // Write-side directory gate (heal-then-consume, same policy as read/listFile/cleanup):
+      // a pre-existing permissive storage dir is tightened to 0700 before the temp file lands in it.
+      assertOwnerOnlyDirPermissions(this.getStorageDir());
       const filePath = this.getFilePath(filePrefix, id);
       temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
       const fileDescriptor = fs.openSync(temporaryPath, 'wx', 0o600);
@@ -504,7 +518,20 @@ export class FileStorageService {
         return null;
       }
 
-      const data = fs.readFileSync(filePath, 'utf8');
+      assertOwnerOnlyDirPermissions(this.getStorageDir());
+
+      // open → fstat → read on one descriptor, closing the TOCTOU gap
+      // between a permission check and a separate open. O_NOFOLLOW rejects a
+      // planted symlink at open time and maps it to InsecureFilePermissionsError
+      // (observable fail-closed) instead of a silent "credential missing".
+      const fd = openCredentialReadSync(filePath);
+      let data: string;
+      try {
+        enforceOwnerOnlyFilePermissions(fd, filePath);
+        data = fs.readFileSync(fd, 'utf8');
+      } finally {
+        fs.closeSync(fd);
+      }
       const parsed: unknown = JSON.parse(data);
       const parsedData = schema ? schema.parse(parsed) : (parsed as T);
 
@@ -516,6 +543,9 @@ export class FileStorageService {
 
       return parsedData;
     } catch (error) {
+      if (error instanceof InsecureFilePermissionsError) {
+        throw error;
+      }
       logger.error(
         `Failed to read data for ${this.getLoggableId(filePrefix, id)}: ${this.getLoggableError(filePrefix, error)}`,
       );
@@ -595,6 +625,9 @@ export class FileStorageService {
    */
   public cleanupExpiredData(): number {
     try {
+      // Directory leg: enumerating the storage dir is also credential access
+      // surface — heal/assert it before readdir, same as readData.
+      assertOwnerOnlyDirPermissions(this.storageDir);
       const files = fs.readdirSync(this.storageDir);
       let cleanedCount = 0;
 
@@ -617,18 +650,43 @@ export class FileStorageService {
 
         if (file.endsWith(AUTH_CONFIG.SERVER.STORAGE.FILE_EXTENSION)) {
           const filePath = path.join(this.storageDir, file);
+          let data: string;
           try {
-            const data = fs.readFileSync(filePath, 'utf8');
+            // Read through the same strictModes gate as readData: heal a
+            // group/other-open legacy file before consuming its bytes.
+            const fd = fs.openSync(filePath, credentialReadFlags());
+            try {
+              enforceOwnerOnlyFilePermissions(fd, filePath);
+              data = fs.readFileSync(fd, 'utf8');
+            } finally {
+              fs.closeSync(fd);
+            }
+          } catch (readError) {
+            // Fail-closed means "do not consume", never "destroy the
+            // credential" — unlink needs only dir write access, so any
+            // open/heal/read failure must NOT turn into deletion.
+            logger.warn(
+              `Skipping unreadable credential file ${this.getLoggableFileName(file)}: ${this.getLoggableErrorForFileName(file, readError)}`,
+            );
+            continue;
+          }
+          try {
+            // Deletion is only legitimate for content we actually consumed:
+            // expired entries, or bytes we read but could not parse.
             const parsedData = JSON.parse(data) as { expires?: number };
-
-            // Check if expired (all our data types have expires field)
             if (parsedData.expires && parsedData.expires < Date.now()) {
-              fs.unlinkSync(filePath);
-              cleanedCount++;
-              logger.debug(`Cleaned up expired file: ${this.getLoggableFileName(file)}`);
+              try {
+                fs.unlinkSync(filePath);
+                cleanedCount++;
+                logger.debug(`Cleaned up expired file: ${this.getLoggableFileName(file)}`);
+              } catch (unlinkError) {
+                logger.warn(
+                  `Failed to remove expired file ${this.getLoggableFileName(file)}: ${this.getLoggableErrorForFileName(file, unlinkError)}`,
+                );
+              }
             }
           } catch (error) {
-            // Remove corrupted files
+            // Remove corrupted files (read succeeded, JSON parse failed)
             logger.warn(
               `Removing corrupted file ${this.getLoggableFileName(file)}: ${this.getLoggableErrorForFileName(file, error)}`,
             );
@@ -666,6 +724,9 @@ export class FileStorageService {
         return [];
       }
 
+      // Directory leg (I5): enumerating reveals which credential IDs exist —
+      // assert/heal the dir before readdir, same as cleanupExpiredData.
+      assertOwnerOnlyDirPermissions(this.storageDir);
       const files = fs.readdirSync(this.storageDir);
       return files.filter((file) => {
         if (!file.endsWith('.json')) {

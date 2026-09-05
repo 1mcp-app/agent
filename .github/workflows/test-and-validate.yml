@@ -47,6 +47,11 @@ jobs:
       - name: Validate static checks
         run: pnpm ci:static
 
+      # AUTH-07 gate: credential-file permission invariants (0600 files / 0700
+      # dirs, fail-closed read+write) as a named, separately inspectable step.
+      - name: Security permission gate (ticket-05)
+        run: pnpm test:security-permissions
+
       - name: Test Unit
         run: pnpm test:unit
 

@@ -1,6 +1,7 @@
 import {
   authorizeTemplateContext,
   type TemplateContextAuthorization,
+  type TemplateContextCapability,
   TemplateContextCapabilityStore,
   type TemplateContextProof,
 } from '@src/core/context/templateContextTrust.js';
@@ -17,6 +18,24 @@ export interface AuthorizeRequestTemplateContextInput {
   source: 'meta' | 'query' | 'persisted';
 }
 
+/**
+ * Read the template-context capability for request authorization. If the
+ * credential store cannot be secured (insecure permissions, heal denied, etc.)
+ * we fail closed: treat the capability as absent so every proof resolves to
+ * `untrusted` instead of letting the request crash with a 500.
+ */
+function readCapabilityFailClosed(storagePath: string): TemplateContextCapability | undefined {
+  try {
+    return new TemplateContextCapabilityStore({
+      storageDir: storagePath,
+      runtimeScopeId: new RuntimeIdentityService({ storageDir: storagePath }).getRuntimeScopeId(),
+    }).getOrCreate();
+  } catch (error) {
+    warnIf(`Template context capability unreadable; denying template context trust: ${error}`);
+    return undefined;
+  }
+}
+
 export function authorizeRequestTemplateContext(
   input: AuthorizeRequestTemplateContextInput,
 ): TemplateContextAuthorization {
@@ -24,13 +43,7 @@ export function authorizeRequestTemplateContext(
   const mode = config.get('templateContext')?.trust ?? 'verified';
   const storagePath = config.get('runtimeScopeStoragePath');
   const sessionTtlMinutes = config.get('auth')?.sessionTtlMinutes ?? 1440;
-  const capability =
-    mode === 'verified' && storagePath
-      ? new TemplateContextCapabilityStore({
-          storageDir: storagePath,
-          runtimeScopeId: new RuntimeIdentityService({ storageDir: storagePath }).getRuntimeScopeId(),
-        }).getOrCreate()
-      : undefined;
+  const capability = mode === 'verified' && storagePath ? readCapabilityFailClosed(storagePath) : undefined;
   const result = authorizeTemplateContext({
     mode,
     context: input.context,

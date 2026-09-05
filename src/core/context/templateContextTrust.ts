@@ -4,6 +4,12 @@ import path from 'node:path';
 
 import type { ContextData } from '@src/types/context.js';
 import { createContextHash } from '@src/utils/context/contextHash.js';
+import {
+  assertOwnerOnlyDirPermissions,
+  credentialReadFlags,
+  enforceOwnerOnlyFilePermissions,
+  InsecureFilePermissionsError,
+} from '@src/utils/filePermissions.js';
 
 import { z } from 'zod';
 
@@ -104,6 +110,10 @@ export class TemplateContextCapabilityStore {
     }
 
     fs.mkdirSync(this.options.storageDir, { recursive: true, mode: 0o700 });
+    // mkdir mode does not tighten a pre-existing permissive directory, so gate
+    // the directory before writing the capability secret (same fail-closed
+    // policy as the read side below).
+    assertOwnerOnlyDirPermissions(this.options.storageDir);
     if (!this.options.runtimeScopeId) {
       throw new TemplateContextCapabilityError('runtimeScopeId is required to create a template context capability');
     }
@@ -146,17 +156,29 @@ export class TemplateContextCapabilityStore {
     if (!stat.isFile() || stat.isSymbolicLink()) {
       throw new TemplateContextCapabilityError(`Template context capability is not a regular file: ${filePath}`);
     }
-    if (process.platform !== 'win32' && (stat.mode & 0o077) !== 0) {
-      throw new TemplateContextCapabilityError(`Template context capability must be owner-only (0600): ${filePath}`);
-    }
 
+    // Read-side strictModes, unified with the other credential stores:
+    // heal-then-consume on one open fd (no TOCTOU), with the dir leg (0700)
+    // checked first; a denied heal fails closed via InsecureFilePermissionsError
+    // instead of silently reading an exposed capability.
+    assertOwnerOnlyDirPermissions(this.options.storageDir);
+    // O_NOFOLLOW (via credentialReadFlags) closes the lstat→open symlink race:
+    // the lstat above rejects a symlink up front, and the open re-checks it
+    // atomically instead of trusting a racy pre-check.
+    const fd = fs.openSync(filePath, credentialReadFlags());
     let value: unknown;
     try {
-      value = JSON.parse(fs.readFileSync(filePath, 'utf8')) as unknown;
+      enforceOwnerOnlyFilePermissions(fd, filePath);
+      value = JSON.parse(fs.readFileSync(fd, 'utf8'));
     } catch (error) {
+      if (error instanceof InsecureFilePermissionsError) {
+        throw error;
+      }
       throw new TemplateContextCapabilityError(
         `Template context capability is unreadable: ${error instanceof Error ? error.message : String(error)}`,
       );
+    } finally {
+      fs.closeSync(fd);
     }
 
     const parsed = templateContextCapabilitySchema.safeParse(value);

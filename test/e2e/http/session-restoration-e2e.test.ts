@@ -11,28 +11,35 @@ import { ConfigBuilder, TestProcessManager } from '@test/e2e/utils/index.js';
 
 import { randomBytes } from 'crypto';
 import { promises as fsPromises } from 'fs';
+import { createServer } from 'net';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 /**
- * Helper function to wait for server to be ready with retry logic
+ * Deadline-based readiness probe against /health/ready (the runtime readiness
+ * gate). Connection-refused is retried fast; only an accepted-but-slow
+ * response consumes the per-attempt request timeout. Every wait is capped by
+ * the remaining deadline so the loop can never overrun deadlineMs.
  */
 async function waitForServerReady(
   healthUrl: string,
-  options: { maxAttempts?: number; retryDelay?: number; requestTimeout?: number } = {},
+  options: { deadlineMs?: number; retryDelay?: number; requestTimeout?: number } = {},
 ): Promise<void> {
-  const { maxAttempts = 50, retryDelay = 300, requestTimeout = 5000 } = options;
+  const { deadlineMs = 30000, retryDelay = 300, requestTimeout = 5000 } = options;
+  const deadline = Date.now() + deadlineMs;
   let attempts = 0;
 
-  while (attempts < maxAttempts) {
+  for (;;) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      break;
+    }
     attempts++;
-    await new Promise((resolve) => setTimeout(resolve, retryDelay));
-
     try {
       const healthResponse = await fetch(healthUrl, {
-        signal: AbortSignal.timeout(requestTimeout),
+        signal: AbortSignal.timeout(Math.min(requestTimeout, remainingMs)),
       });
       if (healthResponse.ok) {
         console.log(`Server ready after ${attempts} attempts`);
@@ -40,42 +47,41 @@ async function waitForServerReady(
       }
       console.log(`Health check attempt ${attempts}: HTTP ${healthResponse.status}`);
     } catch (error) {
-      if (attempts < maxAttempts) {
+      if (attempts % 10 === 0) {
         console.log(`Health check attempt ${attempts} failed: ${(error as Error).message}`);
       }
     }
+    const sleepMs = Math.min(retryDelay, deadline - Date.now());
+    if (sleepMs <= 0) {
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, sleepMs));
   }
 
-  throw new Error(`Server failed to start after ${maxAttempts} attempts`);
+  throw new Error(`Server failed to start within ${deadlineMs}ms (${attempts} attempts)`);
 }
 
 describe('Streamable HTTP Session Restoration E2E', () => {
   let processManager: TestProcessManager;
-  let configBuilder: ConfigBuilder;
-  let configPath: string;
+  let configBuilders: ConfigBuilder[];
   let serverUrl: string;
+  let serverPort: number;
   let tempConfigDir: string;
 
   beforeEach(async () => {
     processManager = new TestProcessManager();
-    configBuilder = new ConfigBuilder();
+    configBuilders = [];
 
     // Create temporary directory for session storage
     tempConfigDir = join(tmpdir(), `session-restore-e2e-${randomBytes(4).toString('hex')}`);
     await fsPromises.mkdir(tempConfigDir, { recursive: true });
-
-    const fixturesPath = join(__dirname, '../fixtures');
-    configPath = configBuilder
-      .enableHttpTransport(3010)
-      .addStdioServer('echo-server', 'node', [join(fixturesPath, 'echo-server.js')], ['test', 'echo'])
-      .writeToFile();
-
-    serverUrl = 'http://localhost:3010/mcp';
   });
 
   afterEach(async () => {
     await processManager.cleanup();
-    configBuilder.cleanup();
+    for (const builder of configBuilders) {
+      builder.cleanup();
+    }
 
     // Clean up temp directory
     try {
@@ -85,20 +91,68 @@ describe('Streamable HTTP Session Restoration E2E', () => {
     }
   });
 
+  /**
+   * Launch the server and probe /health/ready.
+   * - Default (no port): getAvailablePort releases its probe socket before the
+   *   child binds, so a competing process can steal the port in between; retry
+   *   the full launch on a fresh port.
+   * - With `port` (restart): bind the same port again and retry on the SAME
+   *   port with backoff. stopProcess awaits the child's exit event, so the only
+   *   leftover is the kernel's socket-teardown window; switching ports would
+   *   silently change the runtime-scope identity the restart assertions depend on.
+   */
+  async function startServer(options: { port?: number } = {}): Promise<void> {
+    const maxAttempts = options.port === undefined ? 2 : 3;
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      serverPort = options.port ?? (await getAvailablePort());
+      const fixturesPath = join(__dirname, '../fixtures');
+      const builder = new ConfigBuilder();
+      configBuilders.push(builder);
+      const configPath = builder
+        .enableHttpTransport(serverPort)
+        .addStdioServer('echo-server', 'node', [join(fixturesPath, 'echo-server.js')], ['test', 'echo'])
+        .writeToFile();
+      serverUrl = `http://localhost:${serverPort}/mcp`;
+
+      try {
+        await processManager.startProcess('1mcp-server', {
+          command: 'node',
+          args: [
+            join(__dirname, '../../..', 'build/index.js'),
+            'serve',
+            '--config',
+            configPath,
+            '--port',
+            String(serverPort),
+          ],
+          env: {
+            ONE_MCP_CONFIG_DIR: tempConfigDir,
+            ONE_MCP_LOG_LEVEL: 'error',
+            ONE_MCP_ENABLE_AUTH: 'false',
+          },
+        });
+
+        await waitForServerReady(`${serverUrl.replace('/mcp', '')}/health/ready`);
+        return;
+      } catch (error) {
+        lastError = error;
+        const info = processManager.getProcess('1mcp-server');
+        console.error(
+          `Launch attempt ${attempt} failed readiness probe (exitCode=${String(info?.process.exitCode)}, signalCode=${String(info?.process.signalCode)})\nChild output tail:\n${processManager.getOutputTail('1mcp-server')}`,
+        );
+        await processManager.stopProcess('1mcp-server');
+        if (options.port !== undefined && attempt < maxAttempts) {
+          await new Promise((resolve) => setTimeout(resolve, 100 * 2 ** (attempt - 1)));
+        }
+      }
+    }
+    throw lastError;
+  }
+
   describe('Server Startup and Health', () => {
     it('should start server successfully', async () => {
-      await processManager.startProcess('1mcp-server', {
-        command: 'node',
-        args: [join(__dirname, '../../..', 'build/index.js'), 'serve', '--config', configPath, '--port', '3010'],
-        env: {
-          ONE_MCP_CONFIG_DIR: tempConfigDir,
-          ONE_MCP_LOG_LEVEL: 'error',
-          ONE_MCP_ENABLE_AUTH: 'false',
-        },
-      });
-
-      // Wait for server to be ready
-      await waitForServerReady(`${serverUrl.replace('/mcp', '')}/health`);
+      await startServer();
 
       // Verify health endpoint works
       const healthResponse = await fetch(`${serverUrl.replace('/mcp', '')}/health`);
@@ -109,33 +163,15 @@ describe('Streamable HTTP Session Restoration E2E', () => {
 
     it('should handle multiple server restarts', async () => {
       // Start server first time
-      await processManager.startProcess('1mcp-server', {
-        command: 'node',
-        args: [join(__dirname, '../../..', 'build/index.js'), 'serve', '--config', configPath, '--port', '3010'],
-        env: {
-          ONE_MCP_CONFIG_DIR: tempConfigDir,
-          ONE_MCP_LOG_LEVEL: 'error',
-          ONE_MCP_ENABLE_AUTH: 'false',
-        },
-      });
-
-      await waitForServerReady(`${serverUrl.replace('/mcp', '')}/health`);
+      await startServer();
+      const firstPort = serverPort;
 
       // Stop server
       await processManager.stopProcess('1mcp-server');
 
-      // Start server again
-      await processManager.startProcess('1mcp-server', {
-        command: 'node',
-        args: [join(__dirname, '../../..', 'build/index.js'), 'serve', '--config', configPath, '--port', '3010'],
-        env: {
-          ONE_MCP_CONFIG_DIR: tempConfigDir,
-          ONE_MCP_LOG_LEVEL: 'error',
-          ONE_MCP_ENABLE_AUTH: 'false',
-        },
-      });
-
-      await waitForServerReady(`${serverUrl.replace('/mcp', '')}/health`);
+      // Start server again on the same port (restart scenario)
+      await startServer({ port: firstPort });
+      expect(serverPort).toBe(firstPort);
 
       // Verify health endpoint still works
       const healthResponse = await fetch(`${serverUrl.replace('/mcp', '')}/health`);
@@ -147,17 +183,7 @@ describe('Streamable HTTP Session Restoration E2E', () => {
 
   describe('Basic HTTP Request Handling', () => {
     it('should handle POST requests without crashing', async () => {
-      await processManager.startProcess('1mcp-server', {
-        command: 'node',
-        args: [join(__dirname, '../../..', 'build/index.js'), 'serve', '--config', configPath, '--port', '3010'],
-        env: {
-          ONE_MCP_CONFIG_DIR: tempConfigDir,
-          ONE_MCP_LOG_LEVEL: 'error',
-          ONE_MCP_ENABLE_AUTH: 'false',
-        },
-      });
-
-      await waitForServerReady(`${serverUrl.replace('/mcp', '')}/health`);
+      await startServer();
 
       // Make a basic POST request
       const response = await fetch(serverUrl, {
@@ -179,17 +205,7 @@ describe('Streamable HTTP Session Restoration E2E', () => {
     });
 
     it('should handle GET requests without crashing', async () => {
-      await processManager.startProcess('1mcp-server', {
-        command: 'node',
-        args: [join(__dirname, '../../..', 'build/index.js'), 'serve', '--config', configPath, '--port', '3010'],
-        env: {
-          ONE_MCP_CONFIG_DIR: tempConfigDir,
-          ONE_MCP_LOG_LEVEL: 'error',
-          ONE_MCP_ENABLE_AUTH: 'false',
-        },
-      });
-
-      await waitForServerReady(`${serverUrl.replace('/mcp', '')}/health`);
+      await startServer();
 
       // Make a basic GET request
       const response = await fetch(serverUrl, {
@@ -208,17 +224,7 @@ describe('Streamable HTTP Session Restoration E2E', () => {
 
   describe('Session Header Handling', () => {
     it('should include session headers in responses when session exists', async () => {
-      await processManager.startProcess('1mcp-server', {
-        command: 'node',
-        args: [join(__dirname, '../../..', 'build/index.js'), 'serve', '--config', configPath, '--port', '3010'],
-        env: {
-          ONE_MCP_CONFIG_DIR: tempConfigDir,
-          ONE_MCP_LOG_LEVEL: 'error',
-          ONE_MCP_ENABLE_AUTH: 'false',
-        },
-      });
-
-      await waitForServerReady(`${serverUrl.replace('/mcp', '')}/health`);
+      await startServer();
 
       // Make a POST request that should create a session
       const response = await fetch(serverUrl, {
@@ -252,17 +258,7 @@ describe('Streamable HTTP Session Restoration E2E', () => {
     });
 
     it('should handle requests with existing session headers', async () => {
-      await processManager.startProcess('1mcp-server', {
-        command: 'node',
-        args: [join(__dirname, '../../..', 'build/index.js'), 'serve', '--config', configPath, '--port', '3010'],
-        env: {
-          ONE_MCP_CONFIG_DIR: tempConfigDir,
-          ONE_MCP_LOG_LEVEL: 'error',
-          ONE_MCP_ENABLE_AUTH: 'false',
-        },
-      });
-
-      await waitForServerReady(`${serverUrl.replace('/mcp', '')}/health`);
+      await startServer();
 
       // Make a request with a session ID header
       const response = await fetch(serverUrl, {
@@ -288,17 +284,7 @@ describe('Streamable HTTP Session Restoration E2E', () => {
 
   describe('Error Handling', () => {
     it('should handle invalid JSON gracefully', async () => {
-      await processManager.startProcess('1mcp-server', {
-        command: 'node',
-        args: [join(__dirname, '../../..', 'build/index.js'), 'serve', '--config', configPath, '--port', '3010'],
-        env: {
-          ONE_MCP_CONFIG_DIR: tempConfigDir,
-          ONE_MCP_LOG_LEVEL: 'error',
-          ONE_MCP_ENABLE_AUTH: 'false',
-        },
-      });
-
-      await waitForServerReady(`${serverUrl.replace('/mcp', '')}/health`);
+      await startServer();
 
       // Send invalid JSON
       const response = await fetch(serverUrl, {
@@ -316,17 +302,7 @@ describe('Streamable HTTP Session Restoration E2E', () => {
     });
 
     it('should handle requests with invalid session IDs', async () => {
-      await processManager.startProcess('1mcp-server', {
-        command: 'node',
-        args: [join(__dirname, '../../..', 'build/index.js'), 'serve', '--config', configPath, '--port', '3010'],
-        env: {
-          ONE_MCP_CONFIG_DIR: tempConfigDir,
-          ONE_MCP_LOG_LEVEL: 'error',
-          ONE_MCP_ENABLE_AUTH: 'false',
-        },
-      });
-
-      await waitForServerReady(`${serverUrl.replace('/mcp', '')}/health`);
+      await startServer();
 
       // Make request with invalid session ID
       const response = await fetch(serverUrl, {
@@ -350,3 +326,18 @@ describe('Streamable HTTP Session Restoration E2E', () => {
     });
   });
 });
+
+async function getAvailablePort(): Promise<number> {
+  return await new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        reject(new Error('Failed to allocate an available port.'));
+        return;
+      }
+      server.close((error) => (error ? reject(error) : resolve(address.port)));
+    });
+  });
+}
