@@ -54,7 +54,7 @@
     {
       "id": "official-runner",
       "path": "test/conformance/official/officialRunner.ts",
-      "digest": "sha256:3802159429f41e9420017e4a6c0360245a778da1712d238f33a7ed938acc83b8"
+      "digest": "sha256:b0c201189dd7da855b3823bc67c82840e9792bc9179ba514ac7d64e3f13060bd"
     },
     {
       "id": "matrix-runtime",
@@ -64,7 +64,7 @@
     {
       "id": "foundation-run",
       "path": "test/conformance/foundation/foundationRun.ts",
-      "digest": "sha256:46ba6fc8972cfc512d9c1ce5d8288f62f0220aa5929d925e0ddc639591beea8e"
+      "digest": "sha256:97da46479cd6130b0c66a972443db359ca281406fb514290292217cd85313808"
     },
     {
       "id": "sdk-boundary-proof",
@@ -109,7 +109,7 @@
     {
       "id": "official-client-bridge",
       "path": "test/conformance/foundation/officialClientBridge.mjs",
-      "digest": "sha256:dbb5556effe23a0e23449a488b6d95790d98d881899d2b6b4512869e031e578d"
+      "digest": "sha256:610c67f59d81ce64a86c212c1d8d3dd6a0721f844128e2b202557e572b147c95"
     },
     {
       "id": "official-client-scenario-catalog",

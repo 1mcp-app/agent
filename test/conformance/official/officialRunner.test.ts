@@ -62,6 +62,30 @@ describe('verifyOfficialConformancePackage', () => {
 });
 
 describe('runOfficialConformance', () => {
+  it.each([false, true])('retains downstream rejection with explicit evidence %s', async (observed) => {
+    const result = await runOfficialConformance({
+      packageRoot: fixturePackageRoot,
+      role: 'client',
+      revision: '2025-11-25',
+      command: `${process.execPath} downstream-rejected.mjs`,
+      temporaryParentDirectory: temporaryParent,
+      ...(observed ? { observeClientFailure: async (scenarioId: string) => scenarioId === 'initialize' } : {}),
+    });
+    if (!observed) {
+      expect(result).toMatchObject({ classification: 'harness', reason: 'exit-inconsistent' });
+      return;
+    }
+    expect(result).toMatchObject({ classification: 'product', productVerdict: 'fail', counts: { FAILURE: 1 } });
+    if (result.classification !== 'product') return;
+    const artifact = await readOfficialEvidenceArtifact(temporaryParent, result.artifact);
+    expect(artifact.scenarios[0].checks).toContainEqual({
+      id: 'gateway-client-fixture-rejected',
+      status: 'FAILURE',
+      specReferenceIds: [],
+    });
+    expect(result.scenarios.length).toBeGreaterThan(1);
+  });
+
   it('runs a server requirement set once and returns only sanitized structured observations', async () => {
     process.env.OFFICIAL_RUNNER_PARENT_SECRET = 'parent-secret';
 

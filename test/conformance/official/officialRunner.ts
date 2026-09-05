@@ -341,7 +341,16 @@ interface CommonRunOptions {
 }
 
 export type OfficialConformanceRunOptions = CommonRunOptions &
-  ({ role: 'server'; url: string; command?: never } | { role: 'client'; command: string; url?: never });
+  (
+    | { role: 'server'; url: string; command?: never }
+    | {
+        role: 'client';
+        command: string;
+        url?: never;
+        /** Validated downstream fixture evidence, independent of upstream checks. */
+        observeClientFailure?: (scenarioId: string) => Promise<boolean>;
+      }
+  );
 
 interface ProcessResult {
   exitCode: number | null;
@@ -773,6 +782,17 @@ export async function runOfficialConformance(
           reason: noOutput ? 'missing-output' : 'artifact-invalid',
         };
         break;
+      }
+
+      if (options.role === 'client' && options.observeClientFailure) {
+        try {
+          if (await options.observeClientFailure(scenarioId)) {
+            scenario.checks.push({ id: 'gateway-client-fixture-rejected', status: 'FAILURE', specReferenceIds: [] });
+          }
+        } catch {
+          result = { classification: 'harness', ...identity, reason: 'artifact-invalid' };
+          break;
+        }
       }
 
       if (processResult.exitCode !== 0 && scenario.checks.every((check) => check.status === 'SUCCESS')) {
