@@ -1,11 +1,41 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import * as conformanceIntegrity from '../integrity/index.js';
 import { type OfficialConformanceResult } from '../official/officialRunner.js';
-import { classifyOfficialClientResult, stopChild } from './foundationRun.js';
+import { classifyOfficialClientResult, runFoundationConformance, stopChild } from './foundationRun.js';
+
+describe('foundation integrity preflight', () => {
+  it('reports a stale artifact pin before attempting evidence generation', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'conformance-integrity-failure-'));
+    const verify = conformanceIntegrity.verifyConformanceIntegrity;
+    const verifier = vi.spyOn(conformanceIntegrity, 'verifyConformanceIntegrity').mockImplementation((options) =>
+      verify({
+        ...options,
+        artifacts: options.artifacts.map((artifact) =>
+          artifact.id === 'sdk-boundary-proof' ? { ...artifact, expectedDigest: `sha256:${'0'.repeat(64)}` } : artifact,
+        ),
+      }),
+    );
+    try {
+      await expect(
+        runFoundationConformance({ root: process.cwd(), outputDirectory: directory, mode: 'baseline' }),
+      ).rejects.toThrow('artifact-digest-mismatch:sdk-boundary-proof');
+      const report = JSON.parse(await readFile(join(directory, 'conformance-integrity.json'), 'utf8'));
+      expect(report).toMatchObject({
+        ok: false,
+        issues: expect.arrayContaining([{ code: 'artifact-digest-mismatch', subject: 'sdk-boundary-proof' }]),
+      });
+      expect(await readdir(directory)).toEqual(['conformance-integrity.json']);
+    } finally {
+      verifier.mockRestore();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+});
 
 function officialProductResult(): OfficialConformanceResult {
   return {
