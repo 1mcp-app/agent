@@ -319,16 +319,28 @@ describe('StdioProxyTransport', () => {
       expect(proxy['stdioTransport'].close).toHaveBeenCalledOnce();
     });
 
-    it('keeps authentication errors classification-neutral', async () => {
-      proxy = new StdioProxyTransport({ serverUrl: 'http://localhost:3050/mcp' });
-      await proxy.start();
-      const response = { jsonrpc: '2.0', id: 1, error: { code: -32_000, message: 'Unauthorized' } } as const;
+    it.each([false, true])(
+      'keeps authentication errors classification-neutral with a pinned session: %s',
+      async (pinned) => {
+        proxy = new StdioProxyTransport({ serverUrl: 'http://localhost:3050/mcp' });
+        await proxy.start();
+        if (pinned) {
+          await proxy['stdioTransport'].onmessage!({
+            jsonrpc: '2.0',
+            method: 'initialize',
+            id: 1,
+            params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'legacy', version: '1' } },
+          });
+        }
+        const response = { jsonrpc: '2.0', id: 1, error: { code: -32_000, message: 'Unauthorized' } } as const;
 
-      await proxy['httpTransport'].onmessage!(response);
+        await proxy['httpTransport'].onmessage!(response);
 
-      expect(proxy['downstreamPin']).toBeUndefined();
-      expect(proxy['stdioTransport'].send).toHaveBeenCalledWith(response);
-    });
+        expect(proxy['downstreamPin']).toEqual(pinned ? { era: 'legacy', revision: '2025-11-25' } : undefined);
+        expect(proxy['httpTransport'].setProtocolVersion).not.toHaveBeenCalled();
+        expect(proxy['stdioTransport'].send).toHaveBeenCalledWith(response);
+      },
+    );
 
     it('applies the negotiated legacy revision after initialize succeeds', async () => {
       proxy = new StdioProxyTransport({ serverUrl: 'http://localhost:3050/mcp' });
