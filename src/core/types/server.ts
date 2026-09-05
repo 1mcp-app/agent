@@ -33,6 +33,8 @@ export interface InboundConnectionConfig extends TemplateConfig {
   readonly tagQuery?: TagQuery;
   readonly tagFilterMode?: 'simple-or' | 'advanced' | 'preset' | 'none';
   readonly enablePagination?: boolean;
+  /** Stateless bridges must not take ownership of shared upstream callbacks. */
+  readonly requestOnly?: boolean;
   readonly presetName?: string;
   readonly context?: {
     project?: ContextNamespace;

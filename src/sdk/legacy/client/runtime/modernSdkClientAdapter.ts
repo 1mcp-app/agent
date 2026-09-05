@@ -137,9 +137,10 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
 
   async notify(notification: LegacySdkNotification): Promise<void> {
     try {
+      const params = stripInboundRequestMeta(notification.params);
       await this.handles.client.notification({
         method: notification.method as NotificationMethod,
-        ...(notification.params === undefined ? {} : { params: toJsonValue(notification.params) }),
+        ...(params === undefined ? {} : { params: toJsonValue(params) }),
       } as never);
     } catch (error) {
       throw toProtocolError(error);

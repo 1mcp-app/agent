@@ -167,5 +167,5 @@ export function registerRequestHandlers(
   registerCompletionHandlers(outboundConns, inboundConn);
 
   // Register server-specific request handlers
-  registerServerRequestHandlers(outboundConns, inboundConn);
+  if (!inboundConn.requestOnly) registerServerRequestHandlers(outboundConns, inboundConn);
 }

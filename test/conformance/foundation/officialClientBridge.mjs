@@ -114,7 +114,7 @@ function runFixture(endpoint, home) {
       const kind = code === 0 || gatewayRejected ? 'attempted' : 'fixture-defect';
       resolve({
         kind,
-        exitCode: signal ? 1 : kind === 'attempted' ? 0 : (code ?? 1),
+        exitCode: signal ? 1 : (code ?? 1),
       });
     });
   });

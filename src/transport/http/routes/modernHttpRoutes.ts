@@ -121,6 +121,7 @@ async function dispatchGateway(
   createBridge: ModernInboundBridgeFactory,
   deadlineUnixMs: number,
 ): Promise<ImmutableJsonValue> {
+  signal.throwIfAborted();
   const bridge = await createBridge(serverManager, config);
   const dispatcher = new GatewayDispatcher({
     resolveOutbound: (id) => (id === bridge.targetConnectionId ? bridge.outbound : undefined),
@@ -137,6 +138,7 @@ async function dispatchGateway(
   signal.addEventListener('abort', abort, { once: true });
 
   try {
+    signal.throwIfAborted();
     return await new Promise<ImmutableJsonValue>((resolve, reject) => {
       const inbound = new ModernInboundEraAdapter({
         revision: MODERN_PROTOCOL_REVISION,

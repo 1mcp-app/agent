@@ -29,7 +29,7 @@ export async function createModernInboundLegacyBridge(
   const client = new Client({ name: '1mcp-modern-http-bridge', version: '1.0.0' }, { capabilities: {} });
 
   const connecting = [
-    serverManager.connectTransport(serverTransport, connectionId, config),
+    serverManager.connectTransport(serverTransport, connectionId, { ...config, requestOnly: true }),
     client.connect(clientTransport),
   ];
   try {

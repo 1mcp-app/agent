@@ -40,8 +40,7 @@ describe('official client gateway bridge', () => {
           timeout: 15_000,
         },
       );
-      if (mode === 'gateway-rejected') await expect(execution).resolves.toBeDefined();
-      else await expect(execution).rejects.toMatchObject({ code: 1 });
+      await expect(execution).rejects.toMatchObject({ code: 1 });
       await expect(readFile(join(scratch, 'tools_call.json'), 'utf8')).resolves.toContain(
         `"status":"${expectedStatus}"`,
       );
@@ -78,7 +77,7 @@ describe('official client gateway bridge', () => {
           },
           timeout: 15_000,
         }),
-      ).resolves.toBeDefined();
+      ).rejects.toMatchObject({ code: 1 });
       await expect(readFile(join(scratch, `${encodeURIComponent(scenario)}.json`), 'utf8')).resolves.toContain(
         '"status":"attempted"',
       );
@@ -130,7 +129,7 @@ describe('official client gateway bridge', () => {
           },
           timeout: 15_000,
         }),
-      ).resolves.toBeDefined();
+      ).rejects.toMatchObject({ code: 1 });
       await expect(readFile(join(scratch, 'request-metadata.json'), 'utf8')).resolves.toContain('"status":"attempted"');
     } finally {
       await rm(scratch, { recursive: true, force: true });
@@ -180,8 +179,7 @@ describe('official client gateway bridge', () => {
             timeout: 15_000,
           },
         );
-        if (expectedStatus === 'attempted') await expect(execution).resolves.toBeDefined();
-        else await expect(execution).rejects.toMatchObject({ code: 1 });
+        await expect(execution).rejects.toMatchObject({ code: 1 });
         await expect(readFile(join(scratch, 'auth%2Fpre-registration.json'), 'utf8')).resolves.toContain(
           `"status":"${expectedStatus}"`,
         );
@@ -209,7 +207,7 @@ describe('official client gateway bridge', () => {
           },
           timeout: 15_000,
         }),
-      ).resolves.toBeDefined();
+      ).rejects.toMatchObject({ code: 1 });
       await expect(readFile(join(scratch, 'tools_call.json'), 'utf8')).resolves.toContain('"status":"attempted"');
     } finally {
       await rm(scratch, { recursive: true, force: true });

@@ -6,6 +6,29 @@ import type { AuthProviderTransport } from './legacyTransport.js';
 import { ModernSdkClientAdapter } from './modernSdkClientAdapter.js';
 
 describe('ModernSdkClientAdapter', () => {
+  it.each(['notifications/progress', 'notifications/cancelled', 'notifications/roots/list_changed'])(
+    'strips inbound metadata from %s before SDK envelope generation',
+    async (method) => {
+      const client = new Client({ name: 'configured-client', version: '2.0.0' });
+      vi.spyOn(client, 'getProtocolEra').mockReturnValue('modern');
+      vi.spyOn(client, 'getNegotiatedProtocolVersion').mockReturnValue('2026-07-28');
+      const notify = vi.spyOn(client, 'notification').mockResolvedValue(undefined);
+      const adapter = new ModernSdkClientAdapter(client, {} as AuthProviderTransport);
+      await adapter.notify({
+        method,
+        params: {
+          progressToken: 'one',
+          progress: 1,
+          _meta: {
+            'io.modelcontextprotocol/protocolVersion': '2025-11-25',
+            'io.modelcontextprotocol/clientInfo': { name: 'inbound', version: '1' },
+          },
+        },
+      });
+      expect(notify).toHaveBeenCalledWith({ method, params: { progressToken: 'one', progress: 1 } });
+    },
+  );
+
   it.each([
     ['tools/list', { cursor: 'page-2', _meta: { attacker: true } }, { cursor: 'page-2' }],
     [
