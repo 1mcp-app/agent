@@ -1012,6 +1012,10 @@ export async function runFoundationConformance(options: FoundationRunOptions): P
     encoding: 'utf8',
     mode: 0o600,
   });
+  if (!integrity.ok) {
+    const issues = integrity.issues.map(({ code, subject }) => `${code}:${subject}`).join(', ');
+    throw new Error(`Conformance integrity check failed: ${issues}`);
+  }
   const generatedSdkBoundaryProof = await generateSdkBoundaryProof(root, outputDirectory);
   const sdkBoundaryProof =
     generatedSdkBoundaryProof.classification === 'product'
