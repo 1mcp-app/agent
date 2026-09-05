@@ -102,6 +102,7 @@ jobs:
       - name: Build and create SEA binary
         env:
           BUILD_SCRIPT: ${{ matrix.script }}
+        shell: bash
         run: |
           pnpm sea:build
           pnpm "$BUILD_SCRIPT"

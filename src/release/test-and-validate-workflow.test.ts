@@ -460,4 +460,37 @@ describe('test-and-validate workflow', () => {
     const violations = checkSecurityPolicies('action.yml', literalStepAction);
     expect(violations).toEqual([]);
   });
+
+  it('ensures shared SEA build step in build-binaries workflow explicitly specifies bash shell for Windows matrix leg', () => {
+    const workflow = YAML.parse(readRepoFile('.github/workflows/build-binaries.yml')) as {
+      jobs?: {
+        binaries?: {
+          strategy?: {
+            matrix?: {
+              include?: { os?: string; script?: string; platform?: string }[];
+            };
+          };
+          steps?: {
+            name?: string;
+            shell?: string;
+            run?: string;
+          }[];
+        };
+      };
+    };
+
+    const matrixInclude = workflow?.jobs?.binaries?.strategy?.matrix?.include ?? [];
+    const windowsLeg = matrixInclude.find((leg) => leg.os?.includes('windows'));
+    expect(windowsLeg, 'build-binaries matrix must include a Windows runner leg').toBeDefined();
+    expect(windowsLeg?.script).toBe('sea:binary:win');
+
+    const steps = workflow?.jobs?.binaries?.steps ?? [];
+    const seaBuildStep = steps.find((s) => s.name === 'Build and create SEA binary');
+    expect(seaBuildStep, 'SEA binary build step must be defined').toBeDefined();
+    expect(
+      seaBuildStep?.shell,
+      'Shared SEA build step must explicitly set shell: bash so $BUILD_SCRIPT expands in Windows matrix leg',
+    ).toBe('bash');
+    expect(seaBuildStep?.run).toContain('pnpm "$BUILD_SCRIPT"');
+  });
 });
