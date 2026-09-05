@@ -57,7 +57,7 @@ export class OAuthFlowHandler {
     name: string,
     oldTransport: AuthProviderTransport,
     newTransport: AuthProviderTransport,
-    authorizationCode: string,
+    authorizationCode: string | URLSearchParams,
     existingConnection: LegacyOutboundConnection,
   ): Promise<LegacyOutboundConnection> {
     if (
@@ -73,15 +73,24 @@ export class OAuthFlowHandler {
 
     try {
       const configuredOldTransport = oldTransport as AuthProviderTransport;
-      await (oldTransport as AuthProviderTransport & { finishAuth(code: string): Promise<void> }).finishAuth(
-        authorizationCode,
-      );
+      if (
+        oldTransport instanceof ModernStreamableHTTPClientTransport ||
+        oldTransport instanceof ModernSSEClientTransport
+      ) {
+        const callback =
+          typeof authorizationCode === 'string' ? new URLSearchParams({ code: authorizationCode }) : authorizationCode;
+        await oldTransport.finishAuth(callback);
+      } else {
+        const code = typeof authorizationCode === 'string' ? authorizationCode : authorizationCode.get('code');
+        if (!code) throw new Error('Missing authorization code');
+        await oldTransport.finishAuth(code);
+      }
       await oldTransport.close();
 
       let reconnectTransport = newTransport;
       if (configuredOldTransport.recreate) {
         await newTransport.close().catch(() => undefined);
-        reconnectTransport = configuredOldTransport.recreate();
+        reconnectTransport = configuredOldTransport.recreate({ preserveSessionId: false });
       }
       const newClient = this.createClientForOAuth(reconnectTransport);
       const timeout = getConnectionTimeout(reconnectTransport);

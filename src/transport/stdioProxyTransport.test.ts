@@ -287,6 +287,38 @@ describe('StdioProxyTransport', () => {
       expect(proxy['stdioTransport'].close).toHaveBeenCalledOnce();
     });
 
+    it.each([
+      ['notification', {}, null],
+      ['undefined ID', { id: undefined }, null],
+      ['null ID', { id: null }, null],
+      ['boolean ID', { id: false }, null],
+      ['object ID', { id: {} }, null],
+      ['zero ID', { id: 0 }, 0],
+      ['empty string ID', { id: '' }, ''],
+    ])('returns a usable error ID for a protocol-invalid %s', async (_label, fields, expectedId) => {
+      proxy = new StdioProxyTransport({ serverUrl: 'http://localhost:3050/mcp' });
+      await proxy.start();
+
+      await proxy['stdioTransport'].onmessage!({
+        jsonrpc: '2.0',
+        method: 'notifications/initialized',
+        ...fields,
+      } as never);
+
+      expect(proxy['httpTransport'].send).not.toHaveBeenCalled();
+      expect(proxy['stdioTransport'].send).toHaveBeenCalledWith({
+        jsonrpc: '2.0',
+        id: expectedId,
+        error: {
+          code: -32_600,
+          message: 'Proxy protocol negotiation failed',
+          data: { code: 'proxy_protocol_evidence_missing' },
+        },
+      });
+      expect(proxy['httpTransport'].close).toHaveBeenCalledOnce();
+      expect(proxy['stdioTransport'].close).toHaveBeenCalledOnce();
+    });
+
     it('keeps authentication errors classification-neutral', async () => {
       proxy = new StdioProxyTransport({ serverUrl: 'http://localhost:3050/mcp' });
       await proxy.start();

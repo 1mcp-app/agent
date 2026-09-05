@@ -15,6 +15,7 @@ import type { AuthProviderTransport } from '@src/sdk/legacy/client/runtime/legac
 import { afterEach, beforeEach, describe, expect, it, MockInstance, vi } from 'vitest';
 
 import { ClientManager } from './clientManager.js';
+import { OAuthRequiredError } from './types.js';
 
 // Mock dependencies
 vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
@@ -230,6 +231,87 @@ describe('ClientManager (Integration)', () => {
       expect(failedTransport.close).toHaveBeenCalled();
     });
 
+    it.each(['before removal', 'after removal', 'failure after removal'])(
+      'does not retain or republish a removed backend when recovery completes %s',
+      async (timing) => {
+        vi.useRealTimers();
+        const originalTransport = { ...mockTransport, close: vi.fn().mockResolvedValue(undefined) };
+        const freshTransport = { ...originalTransport, close: vi.fn().mockResolvedValue(undefined) };
+        const nextTransport = { ...originalTransport, close: vi.fn().mockResolvedValue(undefined) };
+        await clientManager.createSingleClient('removed', originalTransport);
+        const original = clientManager.getClient('removed');
+        let finishBulk!: () => void;
+        let finishRecovery!: () => void;
+        let failRecovery!: (error: Error) => void;
+        const recoveredClient = withLegacyNotifications({
+          close: vi.fn().mockResolvedValue(undefined),
+          getServerCapabilities: vi.fn(),
+          getInstructions: vi.fn(),
+        });
+        const nextClient = withLegacyNotifications({
+          close: vi.fn().mockResolvedValue(undefined),
+          getServerCapabilities: vi.fn(),
+          getInstructions: vi.fn(),
+        });
+        vi.spyOn((clientManager as any).transportRecreator, 'recreateForSessionLoss').mockReturnValue(freshTransport);
+        vi.spyOn((clientManager as any).connectionHandler, 'connectWithRetry').mockImplementation(
+          async (_client: unknown, transport: unknown, name: unknown) => {
+            if (name === 'next') {
+              await new Promise<void>((resolve) => (finishBulk = resolve));
+              return { client: nextClient, transport };
+            }
+            await new Promise<void>((resolve, reject) => {
+              finishRecovery = resolve;
+              failRecovery = reject;
+            });
+            return { client: recoveredClient, transport };
+          },
+        );
+
+        const bulk = clientManager.createClients({ next: nextTransport });
+        await vi.waitFor(() => expect(finishBulk).toBeTypeOf('function'));
+        getLegacyClient(original).onerror?.(new Error('Session not found'));
+        await vi.waitFor(() => expect(finishRecovery).toBeTypeOf('function'));
+
+        if (timing === 'before removal') {
+          finishRecovery();
+          await vi.waitFor(() => expect(getLegacyClient(clientManager.getClient('removed'))).toBe(recoveredClient));
+        }
+        finishBulk();
+        await bulk;
+        if (timing === 'after removal') finishRecovery();
+        if (timing === 'failure after removal') failRecovery(new Error('recovery failed'));
+        await vi.waitFor(() => expect((clientManager as any).sessionLossRecoveries.size).toBe(0));
+
+        expect(clientManager.getClients().has('removed')).toBe(false);
+        expect(clientManager.getTransport('removed')).toBeUndefined();
+        expect(clientManager.getClients().has('next')).toBe(true);
+        if (timing !== 'failure after removal') expect(recoveredClient.close).toHaveBeenCalled();
+        expect(nextClient.close).not.toHaveBeenCalled();
+      },
+    );
+
+    it('disposes the OAuth retry candidate while retaining a healthy bulk connection', async () => {
+      await clientManager.createClients(mockTransports as Record<string, AuthProviderTransport>);
+      const existing = clientManager.getClient('test-client');
+      const closeExisting = vi.spyOn(existing.adapter, 'close');
+      const firstTransport = { ...mockTransport, close: vi.fn().mockResolvedValue(undefined) };
+      const oauthTransport = { ...firstTransport, close: vi.fn().mockResolvedValue(undefined) };
+      const oauthClient = withLegacyNotifications({ close: vi.fn().mockResolvedValue(undefined) });
+      vi.spyOn((clientManager as any).connectionHandler, 'connectWithRetry').mockRejectedValueOnce(
+        new OAuthRequiredError('test-client', oauthClient as unknown as Client, oauthTransport),
+      );
+
+      await clientManager.createClients({ 'test-client': firstTransport });
+
+      expect(clientManager.getClient('test-client')).toBe(existing);
+      expect(existing.status).toBe(ClientStatus.Connected);
+      expect(closeExisting).not.toHaveBeenCalled();
+      expect(oauthClient.close).toHaveBeenCalledOnce();
+      expect(oauthTransport.close).toHaveBeenCalledOnce();
+      expect(firstTransport.close).toHaveBeenCalledOnce();
+    });
+
     it('should handle connection failure with error status', async () => {
       const error = new Error('Connection failed');
       (mockClient.connect as unknown as MockInstance).mockRejectedValue(error);
@@ -416,9 +498,67 @@ describe('ClientManager (Integration)', () => {
       await expect(clientManager.createSingleClient('http-server', originalTransport)).rejects.toThrow('fetch failed');
       await clientManager.createSingleClient('http-server', originalTransport);
 
+      expect((clientManager as any).transportRecreator.recreateHttpTransport).toHaveBeenCalledWith(
+        originalTransport,
+        'http-server',
+        { preserveSessionId: false },
+      );
       expect(connectWithRetry.mock.calls[1][1]).toBe(recreatedTransport);
       expect(clientManager.getTransport('http-server')).toBe(recreatedTransport);
       expect(getLegacyTransport(clientManager.getClient('http-server'))).toBe(recreatedTransport);
+    });
+  });
+
+  describe('fresh-client transport recreation', () => {
+    it.each(['bulk', 'single'])('clears the session in the %s retry callback', async (mode) => {
+      const recreate = vi
+        .spyOn((clientManager as any).transportRecreator, 'recreateForRetry')
+        .mockReturnValue(mockTransport);
+      vi.spyOn((clientManager as any).connectionHandler, 'connectWithRetry').mockImplementationOnce(
+        async (_client: unknown, transport: unknown, _name: unknown, _signal: unknown, recreateTransport: any) => {
+          recreateTransport(transport);
+          return { client: mockClient, transport };
+        },
+      );
+
+      if (mode === 'bulk') await clientManager.createClients({ backend: mockTransport });
+      else await clientManager.createSingleClient('backend', mockTransport);
+
+      expect(recreate).toHaveBeenCalledExactlyOnceWith(mockTransport, 'backend', { preserveSessionId: false });
+    });
+
+    it('initiates OAuth on a fresh transport and retains the candidate for the callback', async () => {
+      await clientManager.createSingleClient('oauth', mockTransport);
+      const connection = clientManager.getClient('oauth');
+      const oldAdapter = connection.adapter;
+      const candidate = withLegacyNotifications({
+        connect: vi.fn().mockRejectedValue(new Error('OAuth required')),
+        close: vi.fn().mockResolvedValue(undefined),
+      });
+      const freshTransport = {
+        ...mockTransport,
+        oauthProvider: { getAuthorizationUrl: () => 'https://issuer.example/authorize' },
+        close: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AuthProviderTransport;
+      const recreate = vi
+        .spyOn((clientManager as any).transportRecreator, 'recreateHttpTransport')
+        .mockReturnValue(freshTransport);
+      const createClient = vi.spyOn((clientManager as any).clientFactory, 'createClient').mockReturnValue(candidate);
+      const closeOld = vi.spyOn(oldAdapter, 'close');
+
+      await clientManager.initiateOAuth('oauth');
+
+      expect(recreate).toHaveBeenCalledExactlyOnceWith(mockTransport, 'oauth', { preserveSessionId: false });
+      expect(createClient).toHaveBeenCalledWith(freshTransport);
+      expect(candidate.connect).toHaveBeenCalledWith(freshTransport);
+      expect(clientManager.getClient('oauth')).toBe(connection);
+      expect(connection.authorizationUrl).toBe('https://issuer.example/authorize');
+      expect(connection.status).toBe(ClientStatus.AwaitingOAuth);
+      expect(getLegacyClient(connection)).toBe(candidate);
+      expect(getLegacyTransport(connection)).toBe(freshTransport);
+      expect(clientManager.getTransport('oauth')).toBe(freshTransport);
+      expect(closeOld).toHaveBeenCalledOnce();
+      expect(candidate.close).not.toHaveBeenCalled();
     });
   });
 
@@ -726,49 +866,53 @@ describe('ClientManager (Integration)', () => {
   });
 
   describe('completeOAuthAndReconnect integration', () => {
-    it('should complete OAuth flow and reconnect successfully', async () => {
-      const mockHttpTransport = {
-        _url: new URL('https://example.com/mcp'),
-        oauthProvider: {
-          token: 'test-token',
-          getAuthorizationUrl: vi.fn().mockReturnValue('https://example.com/oauth'),
-        },
-        finishAuth: vi.fn().mockResolvedValue(undefined),
-        close: vi.fn().mockResolvedValue(undefined),
-      } as unknown as AuthProviderTransport;
-      Object.setPrototypeOf(mockHttpTransport, StreamableHTTPClientTransport.prototype);
+    it.each(['auth-code-123', new URLSearchParams({ code: 'auth-code-123', iss: 'https://issuer.example' })])(
+      'should complete OAuth flow and reconnect successfully with %s',
+      async (authorizationResponse) => {
+        const mockHttpTransport = {
+          _url: new URL('https://example.com/mcp'),
+          oauthProvider: {
+            token: 'test-token',
+            getAuthorizationUrl: vi.fn().mockReturnValue('https://example.com/oauth'),
+          },
+          finishAuth: vi.fn().mockResolvedValue(undefined),
+          close: vi.fn().mockResolvedValue(undefined),
+        } as unknown as AuthProviderTransport;
+        Object.setPrototypeOf(mockHttpTransport, StreamableHTTPClientTransport.prototype);
 
-      const mockOldClient = {
-        getInstructions: vi.fn().mockReturnValue('old instructions'),
-      } as unknown as Client;
+        const mockOldClient = {
+          getInstructions: vi.fn().mockReturnValue('old instructions'),
+        } as unknown as Client;
 
-      const mockNewClient = {
-        connect: vi.fn().mockResolvedValue(undefined),
-        getServerCapabilities: vi.fn().mockReturnValue({ tools: {} }),
-        getInstructions: vi.fn().mockReturnValue('new instructions'),
-      };
+        const mockNewClient = {
+          connect: vi.fn().mockResolvedValue(undefined),
+          getServerCapabilities: vi.fn().mockReturnValue({ tools: {} }),
+          getInstructions: vi.fn().mockReturnValue('new instructions'),
+        };
 
-      (Client as unknown as MockInstance).mockImplementation(function () {
-        return withLegacyNotifications(mockNewClient);
-      });
+        (Client as unknown as MockInstance).mockImplementation(function () {
+          return withLegacyNotifications(mockNewClient);
+        });
 
-      const clients = clientManager.getClients();
-      clients.set(
-        'oauth-server',
-        createMockLegacyOutboundConnection({
-          name: 'oauth-server',
-          transport: mockHttpTransport,
-          client: mockOldClient,
-          status: ClientStatus.AwaitingOAuth,
-        }),
-      );
+        const clients = clientManager.getClients();
+        clients.set(
+          'oauth-server',
+          createMockLegacyOutboundConnection({
+            name: 'oauth-server',
+            transport: mockHttpTransport,
+            client: mockOldClient,
+            status: ClientStatus.AwaitingOAuth,
+          }),
+        );
 
-      await clientManager.completeOAuthAndReconnect('oauth-server', 'auth-code-123');
+        await clientManager.completeOAuthAndReconnect('oauth-server', authorizationResponse);
+        expect((mockHttpTransport as StreamableHTTPClientTransport).finishAuth).toHaveBeenCalledWith('auth-code-123');
 
-      const updatedClient = clients.get('oauth-server');
-      expect(updatedClient?.status).toBe(ClientStatus.Connected);
-      expect(updatedClient && getLegacyClient(updatedClient)).toBe(mockNewClient);
-    });
+        const updatedClient = clients.get('oauth-server');
+        expect(updatedClient?.status).toBe(ClientStatus.Connected);
+        expect(updatedClient && getLegacyClient(updatedClient)).toBe(mockNewClient);
+      },
+    );
   });
 
   describe('removeClient', () => {

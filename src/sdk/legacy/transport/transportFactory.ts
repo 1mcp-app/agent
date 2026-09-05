@@ -175,7 +175,11 @@ function createSSETransport(name: string, validatedTransport: ValidatedTransport
 /**
  * Creates HTTP transport with OAuth provider
  */
-function createHTTPTransport(name: string, validatedTransport: ValidatedTransport): AuthProviderTransport {
+function createHTTPTransport(
+  name: string,
+  validatedTransport: ValidatedTransport,
+  sessionId?: string,
+): AuthProviderTransport {
   validatedTransport = withTransportEnvSubstitution(validatedTransport);
 
   if (!validatedTransport.url) {
@@ -183,6 +187,7 @@ function createHTTPTransport(name: string, validatedTransport: ValidatedTranspor
   }
 
   const httpOptions: StreamableHTTPClientTransportOptions = {
+    sessionId,
     requestInit: {
       headers: {
         ...validatedTransport.headers,
@@ -326,6 +331,7 @@ function createSingleTransport(
   name: string,
   validatedTransport: ValidatedTransport,
   backendLogSource?: BackendLogSource,
+  sessionId?: string,
 ): AuthProviderTransport {
   switch (validatedTransport.type) {
     case 'sse':
@@ -334,7 +340,7 @@ function createSingleTransport(
     case 'http':
     case 'streamableHttp':
       if (!validatedTransport.url) throw new Error(`URL is required for HTTP transport: ${name}`);
-      return createResolvedTransportSafely(() => createHTTPTransport(name, validatedTransport));
+      return createResolvedTransportSafely(() => createHTTPTransport(name, validatedTransport, sessionId));
     case 'stdio':
       if (!validatedTransport.command) throw new Error(`Command is required for stdio transport: ${name}`);
       return createResolvedTransportSafely(() => createStdioTransport(name, validatedTransport, backendLogSource));
@@ -366,8 +372,9 @@ function assignTransport(
   transport.timeout = validatedTransport.timeout; // Keep for backward compatibility
   transport.tags = validatedTransport.tags;
   transport.outboundProtocolVersion = validatedTransport.protocolVersion ?? 'auto';
-  transport.recreate = () => {
-    const recreated = createSingleTransport(name, validatedTransport, backendLogSource);
+  transport.recreate = (options) => {
+    const sessionId = (options?.preserveSessionId ?? true) ? transport.sessionId : undefined;
+    const recreated = createSingleTransport(name, validatedTransport, backendLogSource, sessionId);
     assignTransport({}, name, recreated, validatedTransport, backendLogSource);
     return recreated;
   };

@@ -23,6 +23,12 @@ const consentBodySchema = z.object({
   scopes: z.union([z.string(), z.array(z.string())]).optional(),
 });
 
+const callbackQuerySchema = z.object({
+  code: z.string().optional(),
+  error: z.string().optional(),
+  iss: z.string().optional(),
+});
+
 /**
  * Creates OAuth routes with the provided OAuth provider
  */
@@ -88,12 +94,11 @@ export function createOAuthRoutes(
    */
   router.get('/callback/:serverName', async (req: Request, res: Response) => {
     const { serverName } = req.params;
-    const { code, error } = req.query;
     try {
+      const callback = callbackQuerySchema.parse(req.query);
       const result = await oauthFlow.completeBackendOAuthCallback({
         serverName,
-        code: code ? String(code) : undefined,
-        error: error ? String(error) : undefined,
+        ...callback,
       });
       if (result.status !== 'completed') {
         logger.error(`OAuth callback failed for ${serverName}:`, result.errorDescription);

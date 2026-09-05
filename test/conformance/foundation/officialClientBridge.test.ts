@@ -26,7 +26,7 @@ describe('official client gateway bridge', () => {
       mode === 'fixture-crash'
         ? `process.stderr.write('{"code":"FIXTURE_RUNTIME_ERROR"}\\n'); process.exitCode = 1;\n`
         : mode === 'gateway-rejected'
-          ? `process.stderr.write('{"classification":"gateway-rejected"}\\n'); process.exitCode = 1;\n`
+          ? `import { writeSync } from 'node:fs'; writeSync(2, '{"classification":"gateway-rejected"}\\n'); process.exit(1);\n`
           : 'process.exitCode = 0;\n',
       'utf8',
     );

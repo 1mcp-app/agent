@@ -9,6 +9,20 @@ function adapterRejecting(error: unknown): LegacySdkAdapter {
 }
 
 describe('requestLegacyAdapter protocol error boundary', () => {
+  it.each([1.5, Number.MAX_SAFE_INTEGER + 1, '9007199254740992', '1.5', '', null, true])(
+    'preserves a rejection with invalid numeric code %s',
+    async (code) => {
+      const failure = { code, message: 'Invalid code' };
+      await expect(requestLegacyAdapter(adapterRejecting(failure), 'tools/list')).rejects.toBe(failure);
+    },
+  );
+
+  it('does not execute an accessor-backed data property', async () => {
+    const data = vi.fn(() => ({ secret: true }));
+    const failure = Object.defineProperty({ code: '-32602', message: 'Invalid params' }, 'data', { get: data });
+    await expect(requestLegacyAdapter(adapterRejecting(failure), 'tools/list')).rejects.toMatchObject({ code: -32602 });
+    expect(data).not.toHaveBeenCalled();
+  });
   it('restores numeric protocol codes from plain gateway failures', async () => {
     const data = { retryAfter: 1 };
 

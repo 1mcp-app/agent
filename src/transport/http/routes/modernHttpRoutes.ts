@@ -82,7 +82,8 @@ function webRequest(req: Request, signal?: AbortSignal): globalThis.Request {
     if (Array.isArray(value)) value.forEach((item) => headers.append(name, item));
     else if (value !== undefined) headers.set(name, value);
   }
-  return new globalThis.Request(`http://${req.get('host') ?? 'localhost'}${req.originalUrl}`, {
+  // Admission checks the original Host header; URL construction must not trust it.
+  return new globalThis.Request(`http://localhost${req.originalUrl}`, {
     method: req.method,
     headers,
     body: req.method === 'POST' ? JSON.stringify(req.body) : undefined,
@@ -206,14 +207,32 @@ export function bindDisconnectAbort(req: Request, res: Response): { controller: 
   };
 }
 
-async function writeWebResponse(response: globalThis.Response, res: Response): Promise<void> {
+export async function writeWebResponse(response: globalThis.Response, res: Response): Promise<void> {
   res.status(response.status);
   response.headers.forEach((value, name) => res.setHeader(name, value));
   if (!response.body) {
     res.end();
     return;
   }
-  await pipeline(Readable.fromWeb(response.body as never), res);
+  const source = Readable.fromWeb(response.body as never);
+  let sourceFailedWhileConnected = false;
+  source.once('error', () => {
+    // pipeline destroys the response for source failures too; retain their origin.
+    sourceFailedWhileConnected = !res.destroyed;
+  });
+  try {
+    await pipeline(source, res);
+  } catch (error) {
+    if (
+      sourceFailedWhileConnected ||
+      !res.destroyed ||
+      !(error instanceof Error) ||
+      !('code' in error) ||
+      error.code !== 'ERR_STREAM_PREMATURE_CLOSE'
+    ) {
+      throw error;
+    }
+  }
 }
 
 export function setupModernHttpRoutes(

@@ -11,12 +11,16 @@ import type { RecreateHttpTransportOptions } from './recreateHttpTransportOption
 import type { TransportRecreationState } from './transportRecreationState.js';
 
 export class TransportRecreator {
-  public recreateForRetry(transport: AuthProviderTransport, serverName?: string): AuthProviderTransport {
+  public recreateForRetry(
+    transport: AuthProviderTransport,
+    serverName?: string,
+    options?: RecreateHttpTransportOptions,
+  ): AuthProviderTransport {
     if (transport.recreate) {
-      return transport.recreate();
+      return transport.recreate(options);
     }
     if (this.isHttpTransport(transport)) {
-      return this.recreateHttpTransport(transport, serverName);
+      return this.recreateHttpTransport(transport, serverName, options);
     }
 
     return transport;

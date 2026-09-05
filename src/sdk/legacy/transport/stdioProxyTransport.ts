@@ -290,11 +290,11 @@ export class StdioProxyTransport {
 
   private async failProtocolFrame(message: JSONRPCMessage, failure: GatewayFailure): Promise<void> {
     const id =
-      'id' in message && (typeof message.id === 'string' || typeof message.id === 'number') ? message.id : undefined;
+      'id' in message && (typeof message.id === 'string' || typeof message.id === 'number') ? message.id : null;
     try {
       await this.stdioTransport.send({
         jsonrpc: '2.0',
-        ...(id === undefined ? {} : { id }),
+        id,
         error: {
           code: -32_600,
           message: 'Proxy protocol negotiation failed',

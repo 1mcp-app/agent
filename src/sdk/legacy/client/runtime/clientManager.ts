@@ -282,7 +282,7 @@ export class ClientManager extends EventEmitter {
    */
   public async createClients(transports: Record<string, AuthProviderTransport>): Promise<OutboundConnections> {
     this.assertActive();
-    const supersededConnections = [...this.outboundConns.entries()];
+    const previousNames = [...this.outboundConns.keys()];
     const nextNames = new Set(Object.keys(transports));
 
     const executor = new ParallelExecutor<[string, AuthProviderTransport], void>();
@@ -301,12 +301,15 @@ export class ClientManager extends EventEmitter {
       await bulkOperation;
     } finally {
       this.bulkConnectionOperations.delete(bulkOperation);
-      for (const [name, connection] of supersededConnections) {
-        if (nextNames.has(name) || this.outboundConns.get(name) !== connection) continue;
-        await this.disposeSupersededConnection(name, connection);
+      for (const name of previousNames) {
+        if (nextNames.has(name)) continue;
+        const connection = this.outboundConns.get(name);
+        // Revoke publication before closing: session recovery may have replaced
+        // the original snapshot, or still be connecting when this name is removed.
         this.outboundConns.delete(name);
         delete this.transports[name];
-        this.instructionAggregator?.removeServer({ source: 'mcpServers', name: connection.name || name }, name);
+        this.instructionAggregator?.removeServer({ source: 'mcpServers', name: connection?.name || name }, name);
+        await this.disposeSupersededConnection(name, connection);
       }
     }
 
@@ -355,7 +358,7 @@ export class ClientManager extends EventEmitter {
         transport,
         name,
         undefined,
-        (t) => this.transportRecreator.recreateForRetry(t, name),
+        (t) => this.transportRecreator.recreateForRetry(t, name, { preserveSessionId: false }),
         (t) => this.clientFactory.createClient(t),
       );
       if (this.isShuttingDown) {
@@ -370,7 +373,14 @@ export class ClientManager extends EventEmitter {
         return;
       }
       if (preserveExisting) {
-        await transport.close().catch(() => undefined);
+        if (error instanceof OAuthRequiredError) {
+          error.client.onclose = undefined;
+          error.client.onerror = undefined;
+          await Promise.allSettled([error.client.close(), (error.transport ?? transport).close()]);
+        }
+        if (!(error instanceof OAuthRequiredError) || (error.transport && error.transport !== transport)) {
+          await transport.close().catch(() => undefined);
+        }
         const safeError = sanitizeRuntimeScopeError(error);
         logger.warn(`Keeping healthy client ${name} after replacement failed: ${safeError.message}`);
         return;
@@ -480,18 +490,23 @@ export class ClientManager extends EventEmitter {
         attemptTransport,
         name,
         abortSignal,
-        (t) => this.transportRecreator.recreateForRetry(t, name),
+        (t) => this.transportRecreator.recreateForRetry(t, name, { preserveSessionId: false }),
         (t) => this.clientFactory.createClient(t),
       );
-      if (this.isShuttingDown) {
+      if (this.isShuttingDown || this.transports[name] !== attemptTransport) {
         await this.disposeConnectedClient(connected);
-        throw new Error('ClientManager is shutting down');
+        throw new Error(
+          this.isShuttingDown ? 'ClientManager is shutting down' : `Client ${name} was removed or replaced`,
+        );
       }
       const superseded = this.outboundConns.get(name);
       this.recordConnectedClient(name, connected);
       await this.disposeSupersededConnection(name, superseded, connected.client);
     } catch (error) {
-      if (this.isShuttingDown) {
+      if (this.isShuttingDown || this.transports[name] !== attemptTransport) {
+        if (error instanceof OAuthRequiredError) {
+          await this.disposeConnectedClient({ client: error.client, transport: error.transport ?? attemptTransport });
+        }
         throw sanitizeRuntimeScopeError(error);
       }
       const safeError = sanitizeRuntimeScopeError(error);
@@ -506,7 +521,7 @@ export class ClientManager extends EventEmitter {
       return requestedTransport;
     }
 
-    return this.transportRecreator.recreateForRetry(requestedTransport, name);
+    return this.transportRecreator.recreateForRetry(requestedTransport, name, { preserveSessionId: false });
   }
 
   private recordConnectedClient(name: string, connected: ConnectedClient): void {
@@ -609,7 +624,10 @@ export class ClientManager extends EventEmitter {
     return Object.keys(this.transports);
   }
 
-  public async completeOAuthAndReconnect(serverName: string, authorizationCode: string): Promise<void> {
+  public async completeOAuthAndReconnect(
+    serverName: string,
+    authorizationCode: string | URLSearchParams,
+  ): Promise<void> {
     this.assertActive();
     const clientInfo = this.outboundConns.get(serverName);
     if (!clientInfo) {
@@ -617,7 +635,9 @@ export class ClientManager extends EventEmitter {
     }
 
     const oldTransport = getLegacyTransport(clientInfo);
-    const newTransport = this.transportRecreator.recreateHttpTransport(oldTransport, serverName);
+    const newTransport = this.transportRecreator.recreateHttpTransport(oldTransport, serverName, {
+      preserveSessionId: false,
+    });
 
     const updatedInfo = await this.oauthFlowHandler.completeOAuthAndReconnect(
       serverName,
@@ -668,18 +688,52 @@ export class ClientManager extends EventEmitter {
   }
 
   public async initiateOAuth(serverName: string): Promise<void> {
+    this.assertActive();
     const connection = this.getClient(serverName);
-    const transport = getLegacyTransport(connection);
-    const client = this.clientFactory.createClientInstance();
+    const superseded = { ...connection };
+    const transport = this.transportRecreator.recreateHttpTransport(getLegacyTransport(connection), serverName, {
+      preserveSessionId: false,
+    });
+    const client = this.clientFactory.createClient(transport);
+    let authorizationUrl: string | undefined;
     try {
-      await client.connect(transport);
+      await client.connect(transport as never);
     } catch (error) {
-      const authorizationUrl = this.oauthFlowHandler.extractAuthorizationUrl(transport);
-      if (!authorizationUrl) throw error;
-      connection.status = ClientStatus.AwaitingOAuth;
-      connection.oauthStartTime = new Date().toISOString();
-      connection.authorizationUrl = authorizationUrl;
+      authorizationUrl = this.oauthFlowHandler.extractAuthorizationUrl(transport);
+      if (!authorizationUrl) {
+        await this.disposeConnectedClient({ client, transport });
+        throw error;
+      }
     }
+
+    if (this.isShuttingDown || this.outboundConns.get(serverName) !== connection) {
+      await this.disposeConnectedClient({ client, transport });
+      throw new Error(`Client ${serverName} was removed or replaced during OAuth initiation`);
+    }
+
+    // The authorization flow retains this snapshot while initiating OAuth.
+    // Keep its identity, but bind the candidate used to generate the callback state.
+    Object.assign(
+      connection,
+      createLegacyOutboundConnection({
+        name: serverName,
+        client,
+        transport,
+        status: authorizationUrl ? ClientStatus.AwaitingOAuth : ClientStatus.Connected,
+        authorizationUrl,
+        oauthStartTime: authorizationUrl ? new Date() : undefined,
+        capabilities: authorizationUrl ? undefined : client.getServerCapabilities(),
+        lastConnected: authorizationUrl ? undefined : new Date(),
+      }),
+    );
+    this.transports[serverName] = transport;
+    if (!authorizationUrl) {
+      connection.authorizationUrl = undefined;
+      connection.oauthStartTime = undefined;
+      this.extractAndCacheInstructions(serverName, client);
+      this.setupConnectionHandlers(serverName, client);
+    }
+    await this.disposeSupersededConnection(serverName, superseded, client);
   }
 
   public createPooledClientInstance(): Client {

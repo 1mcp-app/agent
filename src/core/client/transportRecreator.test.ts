@@ -20,6 +20,26 @@ describe('TransportRecreator', () => {
     transportRecreator = new TransportRecreator();
   });
 
+  describe('recreateForRetry', () => {
+    it.each([
+      ['legacy', StreamableHTTPClientTransport],
+      ['modern', ModernStreamableHTTPClientTransport],
+    ] as const)(
+      'preserves native HTTP sessions by default and supports explicit fresh-client retries (%s)',
+      (_family, Transport) => {
+        const original = new Transport(new URL('https://example.com/mcp'), {
+          sessionId: 'live-session',
+        }) as AuthProviderTransport;
+
+        expect(transportRecreator.recreateForRetry(original).sessionId).toBe('live-session');
+        const fresh = transportRecreator.recreateForRetry(original, 'upstream', { preserveSessionId: false });
+        expect(fresh).toBeInstanceOf(Transport);
+        expect(fresh.sessionId).toBeUndefined();
+        expect(original.sessionId).toBe('live-session');
+      },
+    );
+  });
+
   describe('recreateHttpTransport', () => {
     describe('modern v2 transports', () => {
       it('preserves the Streamable HTTP family and recreation state', () => {

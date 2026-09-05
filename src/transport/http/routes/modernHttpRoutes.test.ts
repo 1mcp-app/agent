@@ -2,13 +2,19 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 
 import { EventEmitter } from 'node:events';
 import type { AddressInfo } from 'node:net';
+import { Writable } from 'node:stream';
 
 import express from 'express';
 import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import errorHandler from '../middlewares/errorHandler.js';
-import { bindDisconnectAbort, type ModernHttpRequestPolicy, setupModernHttpRoutes } from './modernHttpRoutes.js';
+import {
+  bindDisconnectAbort,
+  type ModernHttpRequestPolicy,
+  setupModernHttpRoutes,
+  writeWebResponse,
+} from './modernHttpRoutes.js';
 import { setupStreamableHttpRoutes } from './streamableHttpRoutes.js';
 
 const { createBridge } = vi.hoisted(() => ({ createBridge: vi.fn() }));
@@ -44,6 +50,64 @@ function modernPost(instance: express.Express, body: object) {
 }
 
 describe('modern HTTP admission', () => {
+  it.each(['post', 'get', 'delete'] as const)('rejects malformed Host authorities on %s', async (method) => {
+    const instance = app();
+    const response = await request(instance)
+      [method]('/mcp')
+      .set('Host', 'a b')
+      .set('MCP-Protocol-Version', '2026-07-28')
+      .send(
+        method === 'post'
+          ? { jsonrpc: '2.0', id: 1, method: 'server/discover', params: { _meta: modernMeta } }
+          : undefined,
+      );
+    expect(response.status).toBe(403);
+  });
+
+  it('treats premature stream closure as a completed disconnect', async () => {
+    const sink = Object.assign(
+      new Writable({
+        write(_chunk, _encoding, done) {
+          this.destroy();
+          done();
+        },
+      }),
+      {
+        status: vi.fn(),
+        setHeader: vi.fn(),
+      },
+    );
+    const body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('event'));
+      },
+    });
+    await expect(writeWebResponse(new Response(body), sink as unknown as express.Response)).resolves.toBeUndefined();
+  });
+
+  it.each([undefined, 'ERR_STREAM_PREMATURE_CLOSE'])(
+    'preserves source stream error %s when pipeline destroys the response',
+    async (code) => {
+      const failure = Object.assign(new Error('source stream failed'), { code });
+      const sink = Object.assign(
+        new Writable({
+          write(_chunk, _encoding, done) {
+            done();
+          },
+        }),
+        {
+          status: vi.fn(),
+          setHeader: vi.fn(),
+        },
+      );
+      const body = new ReadableStream({
+        start(controller) {
+          controller.error(failure);
+        },
+      });
+      await expect(writeWebResponse(new Response(body), sink as unknown as express.Response)).rejects.toBe(failure);
+    },
+  );
   beforeEach(() => {
     createBridge.mockReset();
   });
