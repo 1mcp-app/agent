@@ -1,0 +1,15 @@
+name: Unquoted Variable Fixture
+on:
+  push:
+    branches: [main]
+
+jobs:
+  unquoted-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Build with unquoted variable
+        env:
+          BUILD_SCRIPT: build:binaries
+        run: pnpm $BUILD_SCRIPT

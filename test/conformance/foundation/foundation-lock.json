@@ -69,7 +69,7 @@
     {
       "id": "sdk-boundary-proof",
       "path": "test/conformance/boundary/sdkBoundaryProof.ts",
-      "digest": "sha256:a4d53b00bfb3891cde60a7f75db5254abcdd8e52a873f64125af01ba4092c7ac"
+      "digest": "sha256:1df2f3da228cf31423ed6d039d4bf783a31eaffe7b9e65e2940fac87882f00d7"
     },
     {
       "id": "sdk-import-policy",
@@ -89,17 +89,17 @@
     {
       "id": "sdk-protocol-contract",
       "path": "src/sdk/contracts/protocol.ts",
-      "digest": "sha256:06af5a19dc9207d4f127bde80fc4e563cee12b3693d0a85198e4407430016926"
+      "digest": "sha256:5073bd4b917f868ec1bb469eca05762c2bdaa4bdf2f957a89786d93fb6084ef2"
     },
     {
       "id": "legacy-client-adapter",
       "path": "src/sdk/legacy/client/runtime/legacySdkClientAdapter.ts",
-      "digest": "sha256:882f9279c9a55e31b4ed16768c0e8eabecb4b5e63fa1dd702ac78407ea11b6d3"
+      "digest": "sha256:b91cb703565e8c483f58e4333edefdd4e2eadd6b3d818af2ca3e025c0ad58539"
     },
     {
       "id": "legacy-server-adapter",
       "path": "src/sdk/legacy/server/runtime/legacySdkServerAdapter.ts",
-      "digest": "sha256:6df1e151fde18f079c97460d8b22ee04a2e31fc9df52be723ef21dbbce0fceaf"
+      "digest": "sha256:18d79d42f3cea21215aae8f37002f58c83f414b2ccca0d6479240f8e52f9fe1a"
     },
     {
       "id": "sdk-topology-runtime",
@@ -159,7 +159,7 @@
     {
       "id": "ci-lane",
       "path": ".github/workflows/test-and-validate.yml",
-      "digest": "sha256:29b45579185f94720f365be8826ceec2a6a61d75af77aca78743929d99a31eba"
+      "digest": "sha256:231d4693779cc405638c80768a72fbf9957b0981678117757c3cb09a03a67ed6"
     }
   ]
 }

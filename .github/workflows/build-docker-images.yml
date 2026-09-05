@@ -192,12 +192,17 @@ jobs:
           sbom: false
 
       - name: Export Docker build metadata
+        env:
+          META_TAGS: ${{ steps.meta.outputs.tags }}
+          BUILD_DIGEST: ${{ steps.build.outputs.digest }}
+          TARGET: ${{ matrix.target }}
+          PLATFORM_NAME: ${{ matrix.platform_name }}
         run: |
           set -euo pipefail
-          mkdir -p "docker-metadata/${{ matrix.target }}/tags" "docker-metadata/${{ matrix.target }}/digests"
-          printf '%s\n' '${{ steps.meta.outputs.tags }}' > "docker-metadata/${{ matrix.target }}/tags/${{ matrix.platform_name }}.txt"
-          digest="${{ steps.build.outputs.digest }}"
-          touch "docker-metadata/${{ matrix.target }}/digests/${digest#sha256:}"
+          mkdir -p "docker-metadata/$TARGET/tags" "docker-metadata/$TARGET/digests"
+          printf '%s\n' "$META_TAGS" > "docker-metadata/$TARGET/tags/$PLATFORM_NAME.txt"
+          digest="$BUILD_DIGEST"
+          touch "docker-metadata/$TARGET/digests/${digest#sha256:}"
 
       - name: Upload Docker metadata
         uses: actions/upload-artifact@v7
@@ -244,18 +249,19 @@ jobs:
       - name: Create multi-platform Docker manifests
         env:
           IMAGE: ghcr.io/${{ github.repository }}
+          TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
 
           mapfile -t tags < <(cat docker-metadata/tags/*.txt | sort -u)
           if (( ${#tags[@]} == 0 )); then
-            echo "::error::No Docker tags were produced for ${{ matrix.target }}"
+            echo "::error::No Docker tags were produced for $TARGET"
             exit 1
           fi
 
           mapfile -t digests < <(find docker-metadata/digests -maxdepth 1 -type f -print | sort)
           if (( ${#digests[@]} == 0 )); then
-            echo "::error::No Docker digests were produced for ${{ matrix.target }}"
+            echo "::error::No Docker digests were produced for $TARGET"
             exit 1
           fi
 
