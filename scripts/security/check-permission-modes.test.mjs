@@ -128,6 +128,72 @@ describe('check-permission-modes scanContent', () => {
     expect(scan(src)).toHaveLength(1);
   });
 
+  // --- options property order: a trailing spread/computed property may override mode ---
+
+  it('flags a trailing options spread after owner-only mode (reviewer case)', () => {
+    expect(scan("fs.writeFileSync('a', data, { mode: 0o600, ...options });")).toHaveLength(1);
+  });
+
+  it('accepts a spread BEFORE an owner-only mode (the literal wins)', () => {
+    expect(scan("fs.writeFileSync('a', data, { ...options, mode: 0o600 });")).toHaveLength(0);
+  });
+
+  it('flags a trailing spread after a permissive mode (permissive regardless)', () => {
+    expect(scan("fs.writeFileSync('a', data, { mode: 0o644, ...options });")).toHaveLength(1);
+  });
+
+  it('flags a trailing computed property after owner-only mode', () => {
+    expect(scan("fs.writeFileSync('a', data, { mode: 0o600, [key]: value });")).toHaveLength(1);
+  });
+
+  it('accepts a computed property BEFORE an owner-only mode (the literal wins)', () => {
+    expect(scan("fs.writeFileSync('a', data, { [key]: value, mode: 0o600 });")).toHaveLength(0);
+  });
+
+  it('flags a shorthand mode property (unknown value)', () => {
+    expect(scan('fs.writeFileSync(path, data, { mode });')).toHaveLength(1);
+  });
+
+  it('accepts a later owner-only literal overriding an earlier permissive literal', () => {
+    expect(scan("fs.writeFileSync('a', data, { mode: 0o644, mode: 0o600 });")).toHaveLength(0);
+  });
+
+  it('flags a trailing spread in mkdirSync options', () => {
+    expect(scan("fs.mkdirSync('d', { recursive: true, mode: 0o700, ...opts });")).toHaveLength(1);
+  });
+
+  it('flags a trailing getter named mode after an owner-only literal', () => {
+    expect(scan("fs.writeFileSync('a', data, { mode: 0o600, get mode() { return 0o600; } });")).toHaveLength(1);
+  });
+
+  // --- cpSync joins the guarded copy surface ---
+
+  it('flags fs.cpSync without a trailing chmod', () => {
+    const findings = scan('fs.cpSync(src, dest);');
+    expect(findings).toHaveLength(1);
+    expect(findings[0].call).toBe('cpSync');
+  });
+
+  it('accepts fs.cpSync followed by a chmod on the destination', () => {
+    const src = ['fs.cpSync(src, dest);', 'fs.chmodSync(dest, 0o600);'].join('\n');
+    expect(scan(src)).toHaveLength(0);
+  });
+
+  it('flags cpSync followed by a chmod on a different target', () => {
+    const src = ['fs.cpSync(src, dest);', 'fs.chmodSync(other, 0o600);'].join('\n');
+    expect(scan(src)).toHaveLength(1);
+  });
+
+  it('flags cpSync followed by a permissive chmod on the right target', () => {
+    const src = ['fs.cpSync(src, dest);', 'fs.chmodSync(dest, 0o644);'].join('\n');
+    expect(scan(src)).toHaveLength(1);
+  });
+
+  it('accepts cpSync followed by an owner-only 0o700 chmod on the destination', () => {
+    const src = ['fs.cpSync(src, dest);', 'fs.chmodSync(dest, 0o700);'].join('\n');
+    expect(scan(src)).toHaveLength(0);
+  });
+
   it('accepts fs.copyFileSync followed by a chmod on the destination', () => {
     const src = ['fs.copyFileSync(src, dest);', 'fs.chmodSync(dest, 0o600);'].join('\n');
     expect(scan(src)).toHaveLength(0);

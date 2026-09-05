@@ -30,16 +30,20 @@
  * chains resolve transitively); an identifier that merely looks like an fs
  * binding (fs/fsSync/fsPromises/fsAsync) is still guarded conservatively.
  * Only an owner-only literal mode on the guarded call itself suppresses the
- * finding; a mode literal anywhere else in the file is irrelevant. Copy calls
- * (copyFileSync/copyFile/cp) are instead suppressed by a chmodSync/chmod with
- * the SAME destination expression and an owner-only literal mode appearing
- * later in the same file. openSync/open (both callback and promises forms)
- * are suppressed only when PROVABLY read-only: a string-flag literal without
- * a write flag, or the numeric literal O_RDONLY (0); flags that cannot be
- * statically evaluated are treated as writes. Unresolvable mode expressions
- * are treated as missing (conservative; the baseline absorbs reviewed false
- * positives). A file that fails to parse fails the scan (fail-closed): a
- * security gate must not silently skip content it cannot see.
+ * finding; a mode literal anywhere else in the file is irrelevant. Inside an
+ * options object, property order is respected — the last mode-relevant
+ * property decides, so a trailing spread or computed property (or a
+ * non-literal mode value) makes the effective mode unknown and keeps the
+ * finding. Copy calls (copyFileSync/copyFile/cp/cpSync) are instead suppressed
+ * by a chmodSync/chmod with the SAME destination expression and an owner-only
+ * literal mode appearing later in the same file. openSync/open (both callback
+ * and promises forms) are suppressed only when PROVABLY read-only: a
+ * string-flag literal without a write flag, or the numeric literal O_RDONLY
+ * (0); flags that cannot be statically evaluated are treated as writes.
+ * Unresolvable mode expressions are treated as missing (conservative; the
+ * baseline absorbs reviewed false positives). A file that fails to parse
+ * fails the scan (fail-closed): a security gate must not silently skip
+ * content it cannot see.
  *
  * Usage:
  *   node scripts/security/check-permission-modes.mjs            # enforce (CI)
@@ -80,6 +84,7 @@ const FS_WRITE_METHODS = new Set([
   'copyFileSync',
   'createWriteStream',
   'mkdirSync',
+  'cpSync',
   'writeFile',
   'appendFile',
   'mkdir',
@@ -88,7 +93,7 @@ const FS_WRITE_METHODS = new Set([
 ]);
 const PROMISES_WRITE_METHODS = new Set(['writeFile', 'appendFile', 'open', 'mkdir', 'copyFile', 'cp']);
 const CHMOD_METHODS = new Set(['chmodSync', 'chmod']);
-const COPY_METHODS = new Set(['copyFileSync', 'copyFile', 'cp']);
+const COPY_METHODS = new Set(['copyFileSync', 'copyFile', 'cp', 'cpSync']);
 // Conservative fallback for identifiers that look like an fs binding but are
 // not import-resolvable (e.g. fs re-exported through a barrel).
 const FS_LOOKALIKE = /^(fs|fsSync|fsPromises|fsAsync)$/;
@@ -360,10 +365,37 @@ function numericMode(node) {
 function writeCallMode(name, args) {
   const objectMode = (node) => {
     if (!node || !ts.isObjectLiteralExpression(node)) return null;
-    const prop = node.properties.find(
-      (p) => ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === 'mode',
-    );
-    return prop ? numericMode(prop.initializer) : null;
+    // Property-order aware: the LAST mode-relevant property decides the
+    // effective mode. A literal `mode` later in the object overrides earlier
+    // spreads/computed keys, so those are safe; a spread or computed property
+    // AFTER the last literal `mode` (or a `mode` whose value is not a literal)
+    // may override it to anything, so the effective mode is unknown and the
+    // call is flagged — mirroring the conservative rule for unresolvable
+    // modes everywhere else (reviewer case: { mode: 0o600, ...options }).
+    let mode = null;
+    let unresolvedTrailing = false;
+    for (const p of node.properties) {
+      if (
+        ts.isPropertyAssignment(p) &&
+        !ts.isComputedPropertyName(p.name) &&
+        ts.isIdentifier(p.name) &&
+        p.name.text === 'mode'
+      ) {
+        const value = numericMode(p.initializer);
+        mode = value;
+        unresolvedTrailing = value === null;
+      } else if (
+        ts.isSpreadAssignment(p) ||
+        (p.name && ts.isComputedPropertyName(p.name)) ||
+        (p.name && !ts.isComputedPropertyName(p.name) && p.name.text === 'mode')
+      ) {
+        // A getter/method named `mode` also overrides an earlier literal —
+        // duplicate keys resolve to the later element in JS object semantics.
+        if (p.name && !ts.isComputedPropertyName(p.name) && p.name.text === 'mode') mode = null;
+        unresolvedTrailing = true;
+      }
+    }
+    return unresolvedTrailing ? null : mode;
   };
   if (name === 'openSync' || name === 'open') return numericMode(args[2]);
   if (name === 'mkdirSync' || name === 'mkdir') {
