@@ -21,6 +21,7 @@ export interface ProcessInfo {
 
 export class TestProcessManager extends EventEmitter {
   private processes = new Map<string, ProcessInfo>();
+  private outputTails = new Map<string, string[]>();
   private cleanupHandlers: Array<() => Promise<void>> = [];
 
   async startProcess(id: string, config: ProcessConfig): Promise<ProcessInfo> {
@@ -42,6 +43,16 @@ export class TestProcessManager extends EventEmitter {
     };
 
     this.processes.set(id, processInfo);
+      const tail: string[] = this.outputTails.get(id) ?? [];
+      this.outputTails.set(id, tail);
+      childProcess.stdout?.on('data', (data) => {
+        tail.push(String(data));
+        if (tail.length > 40) tail.shift();
+      });
+      childProcess.stderr?.on('data', (data) => {
+        tail.push('stderr: ' + String(data));
+        if (tail.length > 40) tail.shift();
+      });
 
     // Set up event handlers
     childProcess.on('error', (error) => {
@@ -86,6 +97,11 @@ export class TestProcessManager extends EventEmitter {
       return;
     }
 
+    if (processInfo.process.exitCode !== null || processInfo.process.signalCode !== null) {
+      this.processes.delete(id);
+      return;
+    }
+
     return new Promise((resolve) => {
       const { process } = processInfo;
 
@@ -96,12 +112,13 @@ export class TestProcessManager extends EventEmitter {
 
       process.kill(signal);
 
-      // Force kill after 5 seconds
+      // Force kill after 5 seconds. process.killed only means the signal was
+      // delivered, so poll exit state; a hung graceful shutdown still gets SIGKILL.
       setTimeout(() => {
-        if (!process.killed) {
+        if (process.exitCode === null && process.signalCode === null) {
           process.kill('SIGKILL');
         }
-      }, 5000);
+      }, 5000).unref();
     });
   }
 
@@ -111,6 +128,10 @@ export class TestProcessManager extends EventEmitter {
       processInfo.process.kill(signal);
       this.processes.delete(id);
     }
+  }
+
+  getOutputTail(id: string): string {
+    return (this.outputTails.get(id) ?? []).join('');
   }
 
   getProcess(id: string): ProcessInfo | undefined {

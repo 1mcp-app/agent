@@ -82,6 +82,19 @@ describe('FileStorageService', () => {
       createdAt: Date.now(),
     };
 
+    it('writeData self-heals a permissive storage directory before writing credential files', () => {
+      // POSIX-only: Windows ACLs do not map to fs.stat modes
+      if (process.platform === 'win32') return;
+      // The write side gates the actual storage dir (baseDir/sessions), not baseDir itself.
+      const sessionsDir = path.join(tempDir, 'sessions');
+      fs.chmodSync(sessionsDir, 0o775);
+
+      service.writeData(testPrefix, testId, testData);
+
+      expect(fs.statSync(sessionsDir).mode & 0o777).toBe(0o700);
+      expect(service.readData<TestData>(testPrefix, testId)).toEqual(testData);
+    });
+
     it('should write and read data correctly', () => {
       service.writeData(testPrefix, testId, testData);
       const retrieved = service.readData<TestData>(testPrefix, testId);
@@ -295,17 +308,26 @@ describe('FileStorageService', () => {
       fs.writeFileSync(legacyFilePath, JSON.stringify(testData), { mode: 0o644 });
       fs.chmodSync(legacyFilePath, 0o644);
 
+      // Migration hardens via hardenPermissionsSafely (chmodSync). Scope the
+      // denial to the legacy file's own chmod — the constructor also chmods the
+      // storage dir in ensureDirectory(), and a blanket mock would abort
+      // construction before migration ever runs, masking what this test asserts.
       const originalChmodSync = fs.chmodSync;
-      vi.spyOn(fs, 'chmodSync').mockImplementation((pathArg, modeArg) => {
-        if (String(pathArg).includes(legacyFileName)) {
+      let migrationChmodAttempted = false;
+      vi.spyOn(fs, 'chmodSync').mockImplementation((targetPath, mode) => {
+        if (targetPath === legacyFilePath) {
+          migrationChmodAttempted = true;
           throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
         }
-        return originalChmodSync(pathArg, modeArg);
+        return originalChmodSync(targetPath, mode);
       });
 
       const serverService = new FileStorageService(customDir, 'server');
       const flagPath = path.join(sessionsDir, '.migrated-to-server');
       expect(fs.existsSync(flagPath)).toBe(false);
+      // Defense-in-depth: the failure path must have been exercised, not skipped
+      // by a mock that never fires (e.g. a future re-scoping of the migration).
+      expect(migrationChmodAttempted).toBe(true);
 
       serverService.shutdown();
       fs.rmSync(customDir, { recursive: true, force: true });

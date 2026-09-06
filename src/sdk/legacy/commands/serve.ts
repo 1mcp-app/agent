@@ -13,6 +13,7 @@ import { ConfigManager } from '@src/config/configManager.js';
 import { getDefaultInstructionsTemplatePath, HOST, PORT } from '@src/constants.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
 import {
+  TemplateContextCapabilityError,
   TemplateContextCapabilityStore,
   type TemplateContextTrustMode,
 } from '@src/core/context/templateContextTrust.js';
@@ -38,6 +39,7 @@ import { resolveLoggingConfig } from '@src/logger/loggingConfig.js';
 import { StdioServerTransport } from '@src/sdk/legacy/server/stdio.js';
 import { setupServer } from '@src/server.js';
 import { ExpressServer } from '@src/transport/http/server.js';
+import { InsecureFilePermissionsError } from '@src/utils/filePermissions.js';
 import { displayLogo } from '@src/utils/ui/logo.js';
 
 export interface ServeOptions {
@@ -603,7 +605,17 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
 
     if (effectiveTransport !== 'stdio') {
       const runtimeScopeId = new RuntimeIdentityService({ storageDir: runtimeScope }).getRuntimeScopeId();
-      new TemplateContextCapabilityStore({ storageDir: runtimeScope, runtimeScopeId }).getOrCreate();
+      try {
+        new TemplateContextCapabilityStore({ storageDir: runtimeScope, runtimeScopeId }).getOrCreate();
+      } catch (error) {
+        if (error instanceof InsecureFilePermissionsError) {
+          throw new TemplateContextCapabilityError(
+            `Template context capability could not be secured: ${error.message}. ` +
+              'Fix the storage directory/file permissions and restart the server.',
+          );
+        }
+        throw error;
+      }
       if (templateContextTrust === 'legacy') {
         logger.warn(
           'Template context trust is LEGACY: unverified clients may render command, args, cwd, and env templates',

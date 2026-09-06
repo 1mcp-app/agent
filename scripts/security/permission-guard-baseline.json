@@ -1,0 +1,411 @@
+{
+  "schema": 1,
+  "generatedBy": "check-permission-modes.mjs --prune",
+  "entries": [
+    {
+      "fingerprint": "src/auth/storage/fileStorageService.ts#4#writeFileSync",
+      "file": "src/auth/storage/fileStorageService.ts",
+      "call": "writeFileSync",
+      "line": 463,
+      "reason": "writeFileSync targets fd from openSync(wx, 0o600) \u2014 mode inherited at open; this file is the AUTH-07 reference implementation",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/auth/storage/fileStorageService.ts#5#openSync",
+      "file": "src/auth/storage/fileStorageService.ts",
+      "call": "openSync",
+      "line": 657,
+      "reason": "accepted: read path \u2014 flags is credentialReadFlags() (O_RDONLY|O_NOFOLLOW), read-only by construction; the same fd then runs the enforceOwnerOnlyFilePermissions heal gate before any read. The scanner conservatively flags unevaluable flags arguments.",
+      "enteredAt": "2026-09-04",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/commands/app/consolidate.ts#1#writeFileSync",
+      "file": "src/commands/app/consolidate.ts",
+      "call": "writeFileSync",
+      "line": 412,
+      "reason": "writes consolidated config derived from existing user config file \u2014 ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/commands/app/consolidate.ts#2#copyFileSync",
+      "file": "src/commands/app/consolidate.ts",
+      "call": "copyFileSync",
+      "line": 415,
+      "reason": "writes consolidated config derived from existing user config file \u2014 ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/commands/cliSetup/setupFiles.ts#1#mkdir",
+      "file": "src/commands/cliSetup/setupFiles.ts",
+      "call": "mkdir",
+      "line": 192,
+      "reason": "writes IDE/cli setup scaffolding config files in user-owned paths \u2014 ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/commands/cliSetup/setupFiles.ts#2#writeFile",
+      "file": "src/commands/cliSetup/setupFiles.ts",
+      "call": "writeFile",
+      "line": 193,
+      "reason": "writes IDE/cli setup scaffolding config files in user-owned paths \u2014 ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/commands/cliSetup/setupFiles.ts#3#mkdir",
+      "file": "src/commands/cliSetup/setupFiles.ts",
+      "call": "mkdir",
+      "line": 214,
+      "reason": "writes IDE/cli setup scaffolding config files in user-owned paths \u2014 ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/commands/cliSetup/setupFiles.ts#4#writeFile",
+      "file": "src/commands/cliSetup/setupFiles.ts",
+      "call": "writeFile",
+      "line": 215,
+      "reason": "writes IDE/cli setup scaffolding config files in user-owned paths \u2014 ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/commands/serve/serveBackground.ts#1#mkdirSync",
+      "file": "src/commands/serve/serveBackground.ts",
+      "call": "mkdirSync",
+      "line": 406,
+      "reason": "log-file append under user-owned config dir; ACL tightening tracked under ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/commands/serve/serveBackground.ts#2#mkdirSync",
+      "file": "src/commands/serve/serveBackground.ts",
+      "call": "mkdirSync",
+      "line": 487,
+      "reason": "log-file append under user-owned config dir; ACL tightening tracked under ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/commands/serve/serveBackground.ts#3#appendFileSync",
+      "file": "src/commands/serve/serveBackground.ts",
+      "call": "appendFileSync",
+      "line": 499,
+      "reason": "log-file append under user-owned config dir; ACL tightening tracked under ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/commands/shared/baseConfigUtils.ts#1#mkdirSync",
+      "file": "src/commands/shared/baseConfigUtils.ts",
+      "call": "mkdirSync",
+      "line": 205,
+      "reason": "writes user-owned mcp.json config (may embed env but guaranteed non-secret at authoring time) \u2014 ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/commands/shared/baseConfigUtils.ts#2#writeFileSync",
+      "file": "src/commands/shared/baseConfigUtils.ts",
+      "call": "writeFileSync",
+      "line": 209,
+      "reason": "writes user-owned mcp.json config (may embed env but guaranteed non-secret at authoring time) \u2014 ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/commands/shared/configParsingUtils.ts#1#copyFileSync",
+      "file": "src/commands/shared/configParsingUtils.ts",
+      "call": "copyFileSync",
+      "line": 98,
+      "reason": "audited (ticket-05 R5): copyFileSync mirrors the user-owned mcp.json it just read \u2014 bytes already visible at source mode; backup tightens under ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/commands/target/target.ts#1#writeFileSync",
+      "file": "src/commands/target/target.ts",
+      "call": "writeFileSync",
+      "line": 268,
+      "reason": "serializes user-authored target config to user-owned path \u2014 ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/config/configLoader.ts#1#mkdirSync",
+      "file": "src/config/configLoader.ts",
+      "call": "mkdirSync",
+      "line": 161,
+      "reason": "writes DEFAULT_CONFIG scaffold on first run (no secrets); acceptable default-mode \u2014 ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/config/configLoader.ts#2#writeFileSync",
+      "file": "src/config/configLoader.ts",
+      "call": "writeFileSync",
+      "line": 166,
+      "reason": "writes DEFAULT_CONFIG scaffold on first run (no secrets); acceptable default-mode \u2014 ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/core/context/templateContextTrust.ts#3#openSync",
+      "file": "src/core/context/templateContextTrust.ts",
+      "call": "openSync",
+      "line": 168,
+      "reason": "accepted: read path \u2014 flags is credentialReadFlags() (O_RDONLY|O_NOFOLLOW), read-only by construction and hardened via enforceOwnerOnlyFilePermissions before consumption. The scanner conservatively flags unevaluable flags arguments.",
+      "enteredAt": "2026-09-04",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/core/runtime/runtimeIdentityService.ts#1#mkdirSync",
+      "file": "src/core/runtime/runtimeIdentityService.ts",
+      "call": "mkdirSync",
+      "line": 92,
+      "reason": "audited (ticket-05 R5): runtime identity (scope id only, no credentials) written via temp+rename into user config dir; acceptable, 0600 tightening under ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/core/runtime/runtimeIdentityService.ts#2#writeFileSync",
+      "file": "src/core/runtime/runtimeIdentityService.ts",
+      "call": "writeFileSync",
+      "line": 95,
+      "reason": "audited (ticket-05 R5): runtime identity (scope id only, no credentials) written via temp+rename into user config dir; acceptable, 0600 tightening under ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/core/server/backgroundRuntimeSupervisorState.ts#1#mkdirSync",
+      "file": "src/core/server/backgroundRuntimeSupervisorState.ts",
+      "call": "mkdirSync",
+      "line": 88,
+      "reason": "accepted: supervisor state dir created with default umask mode; the state file written immediately after carries an explicit 0o600, no credentials are stored at rest. Upstream-introduced during the ticket-05 merge sync; dir-mode hardening tracked under 08-lowseverity-hardening.",
+      "enteredAt": "2026-09-04",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/core/server/pidFileManager.ts#1#mkdirSync",
+      "file": "src/core/server/pidFileManager.ts",
+      "call": "mkdirSync",
+      "line": 96,
+      "reason": "pid file content is not secret (PID only); mkdir is ~/.1mcp config dir bootstrap \u2014 tracked for 0600 tightening under ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/core/server/pidFileManager.ts#2#writeFileSync",
+      "file": "src/core/server/pidFileManager.ts",
+      "call": "writeFileSync",
+      "line": 104,
+      "reason": "pid file content is not secret (PID only); mkdir is ~/.1mcp config dir bootstrap \u2014 tracked for 0600 tightening under ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/core/server/runtimeScopeOwnership.ts#1#mkdirSync",
+      "file": "src/core/server/runtimeScopeOwnership.ts",
+      "call": "mkdirSync",
+      "line": 124,
+      "reason": "audited (ticket-05 R5): ownership claim/stop-lock records are non-secret markers written via candidate-dir swap; mkdir of the user-owned config dir \u2014 0700 tightening under ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/core/server/runtimeScopeOwnership.ts#2#mkdirSync",
+      "file": "src/core/server/runtimeScopeOwnership.ts",
+      "call": "mkdirSync",
+      "line": 193,
+      "reason": "audited (ticket-05 R5): ownership claim/stop-lock records are non-secret markers written via candidate-dir swap; mkdir of the user-owned config dir \u2014 0700 tightening under ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/admin/adminIdentityService.ts#1#mkdirSync",
+      "file": "src/domains/admin/adminIdentityService.ts",
+      "call": "mkdirSync",
+      "line": 426,
+      "reason": "accepted: admin identity state dir created with default umask mode; every state file written inside carries an explicit 0o600 (temp+rename pattern). Upstream-introduced during the ticket-05 merge sync; dir-mode hardening tracked under 08-lowseverity-hardening.",
+      "enteredAt": "2026-09-04",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/admin/adminOperationService.ts#1#mkdirSync",
+      "file": "src/domains/admin/adminOperationService.ts",
+      "call": "mkdirSync",
+      "line": 963,
+      "reason": "accepted: admin operation journal dir created with default umask mode; the journal itself is opened 0o600 and re-chmodded 0o600 on append. Upstream-introduced during the ticket-05 merge sync; dir-mode hardening tracked under 08-lowseverity-hardening.",
+      "enteredAt": "2026-09-04",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/admin/adminPresetService.ts#1#copyFileSync",
+      "file": "src/domains/admin/adminPresetService.ts",
+      "call": "copyFileSync",
+      "line": 333,
+      "reason": "audited (ticket-05 R5): admin backup of preset config the caller just read \u2014 derived-from-source bytes in user-owned path; tightening under ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/admin/runtimeScopeAdminLock.ts#1#mkdirSync",
+      "file": "src/domains/admin/runtimeScopeAdminLock.ts",
+      "call": "mkdirSync",
+      "line": 58,
+      "reason": "accepted: lock-record directory created without an explicit mode; the lock file itself is opened 'wx' with 0o600 immediately after, so record content is owner-only. Dir-mode hardening tracked under 08-lowseverity-hardening.",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/admin/runtimeScopeAdminLock.ts#3#writeFileSync",
+      "file": "src/domains/admin/runtimeScopeAdminLock.ts",
+      "call": "writeFileSync",
+      "line": 94,
+      "reason": "accepted: writeFileSync targets an fd already opened 'wx' with 0o600 via openSync, so the write inherits owner-only mode at open time.",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/backup/backupManager.ts#1#mkdirSync",
+      "file": "src/domains/backup/backupManager.ts",
+      "call": "mkdirSync",
+      "line": 109,
+      "reason": "backup metadata copies config; tightening scheduled under ticket-08 (low-severity hardening)",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/backup/backupManager.ts#2#copyFileSync",
+      "file": "src/domains/backup/backupManager.ts",
+      "call": "copyFileSync",
+      "line": 120,
+      "reason": "backup metadata copies config; tightening scheduled under ticket-08 (low-severity hardening)",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/backup/backupManager.ts#3#writeFileSync",
+      "file": "src/domains/backup/backupManager.ts",
+      "call": "writeFileSync",
+      "line": 138,
+      "reason": "backup metadata copies config; tightening scheduled under ticket-08 (low-severity hardening)",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/backup/backupManager.ts#4#copyFileSync",
+      "file": "src/domains/backup/backupManager.ts",
+      "call": "copyFileSync",
+      "line": 160,
+      "reason": "backup metadata copies config; tightening scheduled under ticket-08 (low-severity hardening)",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/backup/backupManager.ts#5#writeFileSync",
+      "file": "src/domains/backup/backupManager.ts",
+      "call": "writeFileSync",
+      "line": 424,
+      "reason": "backup metadata copies config; tightening scheduled under ticket-08 (low-severity hardening)",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/config-change/configChange.ts#1#copyFileSync",
+      "file": "src/domains/config-change/configChange.ts",
+      "call": "copyFileSync",
+      "line": 1018,
+      "reason": "audited (ticket-05 R5): backups mirroring the existing user-owned config file and scaffold writes of user-authored mcp.json; source bytes already user-visible \u2014 ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/config-change/configChange.ts#2#mkdirSync",
+      "file": "src/domains/config-change/configChange.ts",
+      "call": "mkdirSync",
+      "line": 1110,
+      "reason": "audited (ticket-05 R5): backups mirroring the existing user-owned config file and scaffold writes of user-authored mcp.json; source bytes already user-visible \u2014 ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/config-change/configChange.ts#3#writeFileSync",
+      "file": "src/domains/config-change/configChange.ts",
+      "call": "writeFileSync",
+      "line": 1113,
+      "reason": "audited (ticket-05 R5): backups mirroring the existing user-owned config file and scaffold writes of user-authored mcp.json; source bytes already user-visible \u2014 ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/preset/manager/presetStorage.ts#1#mkdir",
+      "file": "src/domains/preset/manager/presetStorage.ts",
+      "call": "mkdir",
+      "line": 9,
+      "reason": "preset config cache mirrors user-authored mcp.json (non-secret at authoring time) \u2014 async fs.promises path, tightening under ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/preset/manager/presetStorage.ts#2#writeFile",
+      "file": "src/domains/preset/manager/presetStorage.ts",
+      "call": "writeFile",
+      "line": 35,
+      "reason": "preset config cache mirrors user-authored mcp.json (non-secret at authoring time) \u2014 async fs.promises path, tightening under ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/runtime-targets/runtimeTargetStore.ts#1#mkdirSync",
+      "file": "src/domains/runtime-targets/runtimeTargetStore.ts",
+      "call": "mkdirSync",
+      "line": 1398,
+      "reason": "writeJsonAtomic forwards an optional mode param; callers may omit it \u2014 tightening tracked under ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/runtime-targets/runtimeTargetStore.ts#3#mkdirSync",
+      "file": "src/domains/runtime-targets/runtimeTargetStore.ts",
+      "call": "mkdirSync",
+      "line": 1844,
+      "reason": "writeJsonAtomic forwards an optional mode param; callers may omit it \u2014 tightening tracked under ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/domains/runtime-targets/runtimeTargetStore.ts#4#writeFileSync",
+      "file": "src/domains/runtime-targets/runtimeTargetStore.ts",
+      "call": "writeFileSync",
+      "line": 1846,
+      "reason": "writeJsonAtomic forwards an optional mode param; callers may omit it \u2014 tightening tracked under ticket-08",
+      "enteredAt": "2026-08-29",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/utils/filePermissions.ts#1#openSync",
+      "file": "src/utils/filePermissions.ts",
+      "call": "openSync",
+      "line": 187,
+      "reason": "accepted: openCredentialReadSync read helper \u2014 flags is credentialReadFlags() (O_RDONLY|O_NOFOLLOW), read-only by construction. The scanner conservatively flags unevaluable flags arguments.",
+      "enteredAt": "2026-09-04",
+      "ticket": "08-lowseverity-hardening"
+    },
+    {
+      "fingerprint": "src/utils/filePermissions.ts#2#open",
+      "file": "src/utils/filePermissions.ts",
+      "call": "open",
+      "line": 204,
+      "reason": "accepted: readCredentialFile read helper \u2014 flags is credentialReadFlags() (O_RDONLY|O_NOFOLLOW), read-only by construction; the handle runs the heal gate before any read. The scanner conservatively flags unevaluable flags arguments.",
+      "enteredAt": "2026-09-04",
+      "ticket": "08-lowseverity-hardening"
+    }
+  ]
+}
