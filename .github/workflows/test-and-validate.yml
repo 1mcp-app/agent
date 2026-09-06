@@ -44,6 +44,21 @@ jobs:
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node-pnpm
 
+      - name: Run actionlint
+        env:
+          ACTIONLINT_VERSION: 1.7.7
+          ACTIONLINT_SHA256: 023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757
+        run: |
+          set -euo pipefail
+          BINARY="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL --connect-timeout 15 --retry 3 \
+            -o "${BINARY}" "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${BINARY}"
+          printf '%s  %s\n' "${ACTIONLINT_SHA256}" "${BINARY}" | sha256sum -c -
+          tar xzf "${BINARY}" actionlint
+          command -v shellcheck >/dev/null || { echo "::error::shellcheck not found on runner"; exit 1; }
+          echo "$PWD" >> "$GITHUB_PATH"
+          ./actionlint -color
+
       - name: Validate static checks
         run: pnpm ci:static
 
@@ -80,18 +95,19 @@ jobs:
         run: pnpm build
 
       - name: Test E2E - Shard ${{ matrix.shard }}/${{ env.E2E_SHARD_COUNT }}
+        env:
+          CI: true
+          MATRIX_SHARD: ${{ matrix.shard }}
         run: |
           started_at=$(date +%s)
           set +e
-          pnpm test:e2e:shardable --shard=${{ matrix.shard }}/${{ env.E2E_SHARD_COUNT }} --reporter=minimal
+          pnpm test:e2e:shardable --shard="$MATRIX_SHARD/$E2E_SHARD_COUNT" --reporter=minimal
           test_status=$?
           set -e
           finished_at=$(date +%s)
           duration=$((finished_at - started_at))
-          echo "E2E shard ${{ matrix.shard }}/${{ env.E2E_SHARD_COUNT }} took ${duration}s" >> "$GITHUB_STEP_SUMMARY"
+          echo "E2E shard $MATRIX_SHARD/$E2E_SHARD_COUNT took ${duration}s" >> "$GITHUB_STEP_SUMMARY"
           exit "$test_status"
-        env:
-          CI: true
 
   test-e2e-system:
     runs-on: ubuntu-latest
