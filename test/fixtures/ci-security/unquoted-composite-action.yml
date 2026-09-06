@@ -1,0 +1,8 @@
+name: 'Unquoted Variable Composite Action'
+description: 'Adversarial fixture with unquoted shell variable in composite action'
+runs:
+  using: composite
+  steps:
+    - name: Run unquoted command
+      run: pnpm $BUILD_SCRIPT
+      shell: bash
