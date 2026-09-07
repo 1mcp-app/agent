@@ -1,11 +1,48 @@
+import * as childProcess from 'node:child_process';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { type OfficialConformanceResult } from '../official/officialRunner.js';
-import { classifyOfficialClientResult, stopChild } from './foundationRun.js';
+import { classifyOfficialClientResult, runFoundationConformance, stopChild } from './foundationRun.js';
+
+vi.mock('node:child_process', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:child_process')>()),
+}));
+
+describe('foundation integrity preflight', () => {
+  it('compares artifacts with committed content before attempting evidence generation', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'conformance-integrity-failure-'));
+    const execFileSync = childProcess.execFileSync;
+    const git = vi.spyOn(childProcess, 'execFileSync').mockImplementation((...args) => {
+      if (
+        args[0] === 'git' &&
+        Array.isArray(args[1]) &&
+        args[1][0] === 'show' &&
+        args[1][1] === 'HEAD:test/conformance/boundary/sdkBoundaryProof.ts'
+      ) {
+        return Buffer.from('different committed artifact content');
+      }
+      return execFileSync(...args);
+    });
+    try {
+      await expect(
+        runFoundationConformance({ root: process.cwd(), outputDirectory: directory, mode: 'baseline' }),
+      ).rejects.toThrow('artifact-digest-mismatch:sdk-boundary-proof');
+      const report = JSON.parse(await readFile(join(directory, 'conformance-integrity.json'), 'utf8'));
+      expect(report).toMatchObject({
+        ok: false,
+        issues: expect.arrayContaining([{ code: 'artifact-digest-mismatch', subject: 'sdk-boundary-proof' }]),
+      });
+      expect(await readdir(directory)).toEqual(['conformance-integrity.json']);
+    } finally {
+      git.mockRestore();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+});
 
 function officialProductResult(): OfficialConformanceResult {
   return {

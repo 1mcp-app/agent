@@ -18,12 +18,14 @@ import {
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
 import {
   createTemplateContextProof,
+  type TemplateContextCapability,
   TemplateContextCapabilityStore,
   type TemplateContextProof,
 } from '@src/core/context/templateContextTrust.js';
 import { isProcessAlive, readPidFile } from '@src/core/server/pidFileManager.js';
 import type { RuntimeIdentityWarning } from '@src/domains/runtime-targets/runtimeIdentityVerification.js';
 import { RuntimeTargetStore } from '@src/domains/runtime-targets/runtimeTargetStore.js';
+import logger from '@src/logger/logger.js';
 import type { ContextData } from '@src/types/context.js';
 import { resolveCanonicalSessionId, withCanonicalSessionId } from '@src/utils/context/sessionIdentity.js';
 import { stripMcpSuffix } from '@src/utils/urlUtils.js';
@@ -466,10 +468,20 @@ async function createLocalTemplateContextProof<TOptions extends ResolvableServeT
     return undefined;
   }
 
-  const capability = new TemplateContextCapabilityStore({
-    storageDir: localScope.storagePath,
-    runtimeScopeId: localScope.runtimeScopeId,
-  }).read();
+  // Best-effort read: on POSIX a capability file that only exists in this
+  // project dir is cleaned up on delete, but on Windows an in-use file may
+  // linger — and the PermissionGuard then refuses to read it. Fall back to a
+  // fresh (unproven) attachment instead of crashing the command.
+  let capability: TemplateContextCapability | null | undefined;
+  try {
+    capability = new TemplateContextCapabilityStore({
+      storageDir: localScope.storagePath,
+      runtimeScopeId: localScope.runtimeScopeId,
+    }).read();
+  } catch (error) {
+    logger.warn(`Template context capability unreadable, proceeding without proof: ${error}`);
+    return undefined;
+  }
 
   return capability ? createTemplateContextProof(context, capability) : undefined;
 }

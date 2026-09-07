@@ -1,20 +1,33 @@
 import { StreamableHTTPClientTransport as ModernStreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
+import * as constants from '@src/constants.js';
 import { getLegacyClient, getLegacyTransport } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import { createTransports } from '@src/transport/transportFactory.js';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ClientManager } from './clientManager.js';
 
 describe('OAuth reconnect with real SDK clients', () => {
+  let storageDirectory: string;
+
+  beforeEach(async () => {
+    storageDirectory = await mkdtemp(join(tmpdir(), '1mcp-oauth-test-'));
+    vi.spyOn(constants, 'getGlobalConfigDir').mockReturnValue(storageDirectory);
+  });
+
   afterEach(async () => {
     await ClientManager.shutdownCurrent();
     ClientManager.resetInstance();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    await rm(storageDirectory, { recursive: true, force: true });
   });
 
   it.each(

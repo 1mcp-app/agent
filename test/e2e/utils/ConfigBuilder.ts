@@ -1,5 +1,4 @@
-import { randomBytes } from 'crypto';
-import { mkdirSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { dirname, join } from 'path';
 
@@ -34,6 +33,7 @@ export interface TestConfig {
 export class ConfigBuilder {
   private config: TestConfig = { mcpServers: {}, servers: [] };
   private tempFiles: string[] = [];
+  private tempDirs: string[] = [];
   private disabledServers: Set<string> = new Set();
 
   addServer(server: TestServerConfig): this {
@@ -156,11 +156,23 @@ export class ConfigBuilder {
       }
     });
     this.tempFiles = [];
+    this.tempDirs.forEach((dir) => {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        // Ignore cleanup errors
+      }
+    });
+    this.tempDirs = [];
   }
 
   private generateTempPath(): string {
-    const id = randomBytes(8).toString('hex');
-    return join(tmpdir(), `1mcp-test-config-${id}.json`);
+    // Use a per-builder private directory: serve() derives runtimeScope from
+    // dirname(configPath), and a shared os.tmpdir() scope would trip the
+    // owner-only directory gate (tmpdir is root-owned 1777 on POSIX CI).
+    const dir = mkdtempSync(join(tmpdir(), '1mcp-test-config-'));
+    this.tempDirs.push(dir);
+    return join(dir, 'config.json');
   }
 
   static create(): ConfigBuilder {

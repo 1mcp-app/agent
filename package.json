@@ -72,6 +72,8 @@
     "check:sdk-topology": "node scripts/check-sdk-topology.mjs",
     "test:sdk-boundary": "node --test test/sdk-boundary/*.test.mjs",
     "ci:static": "concurrently --kill-others-on-fail --names lint,typecheck,build,sdk-boundary,sdk-topology,sdk-policy-tests \"pnpm lint\" \"pnpm typecheck\" \"pnpm build\" \"pnpm check:sdk-boundary\" \"pnpm check:sdk-topology\" \"node --test test/sdk-boundary/*.test.mjs\"",
+    "guard:perms": "node scripts/security/check-permission-modes.mjs",
+    "test:security-permissions": "vitest run src/auth/storage/tokenPermissions.invariant.test.ts src/core/context/capabilityPermissions.invariant.test.ts && pnpm guard:perms",
     "typecheck": "tsc --noEmit --project tsconfig.test.json",
     "test": "pnpm test:unit && pnpm test:admin",
     "test:unit": "vitest run",

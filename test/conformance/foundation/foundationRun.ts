@@ -82,20 +82,41 @@ const canonicalOperationsSchema = z.array(
 );
 type TransportProfile = (typeof REQUIRED_TRANSPORT_PROFILES)[number];
 
-const foundationLockSchema = z
-  .object({
-    schemaVersion: z.literal(1),
-    artifacts: z.array(
-      z
-        .object({
-          id: z.string().regex(/^[a-z0-9][a-z0-9._-]*$/u),
-          path: z.string().regex(/^[A-Za-z0-9._/-]+$/u),
-          digest: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
-        })
-        .strict(),
-    ),
-  })
-  .strict();
+// Git is the source of truth for repository-owned artifacts; no duplicated checksum pins.
+const FOUNDATION_ARTIFACTS = [
+  { id: 'command-runner', path: 'scripts/run-conformance.mjs' },
+  { id: 'vitest-conformance', path: 'vitest.conformance.config.ts' },
+  { id: 'vitest-transports', path: 'vitest.conformance-transports.config.ts' },
+  { id: 'baseline', path: 'test/conformance/baseline/baseline.ts' },
+  { id: 'traceability-inventory', path: 'test/conformance/baseline/traceabilityInventory.ts' },
+  { id: 'capture-schema', path: 'test/conformance/capture/sanitizedWireEvidence.ts' },
+  { id: 'capture-http', path: 'test/conformance/capture/httpWireTap.ts' },
+  { id: 'capture-stdio', path: 'test/conformance/capture/stdioWireTap.ts' },
+  { id: 'integrity-verifier', path: 'test/conformance/integrity/index.ts' },
+  { id: 'mcp-2026-specification-source', path: 'test/conformance/integrity/mcp-2026-07-28-spec-source.json' },
+  { id: 'official-runner', path: 'test/conformance/official/officialRunner.ts' },
+  { id: 'matrix-runtime', path: 'test/conformance/runtime/matrixRuntime.ts' },
+  { id: 'foundation-run', path: 'test/conformance/foundation/foundationRun.ts' },
+  { id: 'sdk-boundary-proof', path: 'test/conformance/boundary/sdkBoundaryProof.ts' },
+  { id: 'sdk-import-policy', path: 'scripts/sdk-boundary/import-policy.mjs' },
+  { id: 'sdk-json-contract', path: 'src/sdk/contracts/jsonValue.ts' },
+  { id: 'sdk-error-contract', path: 'src/sdk/contracts/oneMcpProtocolError.ts' },
+  { id: 'sdk-protocol-contract', path: 'src/sdk/contracts/protocol.ts' },
+  { id: 'legacy-client-adapter', path: 'src/sdk/legacy/client/runtime/legacySdkClientAdapter.ts' },
+  { id: 'legacy-server-adapter', path: 'src/sdk/legacy/server/runtime/legacySdkServerAdapter.ts' },
+  { id: 'sdk-topology-runtime', path: 'scripts/sdk-boundary/topology.mjs' },
+  { id: 'official-client-bridge', path: 'test/conformance/foundation/officialClientBridge.mjs' },
+  { id: 'official-client-scenario-catalog', path: 'test/conformance/foundation/officialClientScenarioCatalog.mjs' },
+  { id: 'typescript-manifest', path: 'test/conformance/fixtures/typescript/package.json' },
+  { id: 'typescript-lock', path: 'test/conformance/fixtures/typescript/pnpm-lock.yaml' },
+  { id: 'typescript-constants', path: 'test/conformance/fixtures/typescript/src/constants.mjs' },
+  { id: 'typescript-driver', path: 'test/conformance/fixtures/typescript/src/fixture.mjs' },
+  { id: 'typescript-self-check', path: 'test/conformance/fixtures/typescript/src/self-check.mjs' },
+  { id: 'typescript-v1', path: 'test/conformance/fixtures/typescript/src/eras/v1.mjs' },
+  { id: 'typescript-v2', path: 'test/conformance/fixtures/typescript/src/eras/v2.mjs' },
+  { id: 'python-driver', path: 'test/conformance/fixtures/python/driver.py' },
+  { id: 'ci-lane', path: '.github/workflows/test-and-validate.yml' },
+] as const;
 
 const profileProofFileSchema = z
   .object({
@@ -284,16 +305,16 @@ function packageManifestPath(root: string, packageName: string): string {
 }
 
 async function integrityReport(root: string, expectedSourceSha: string) {
-  const lockPath = join(root, 'test/conformance/foundation/foundation-lock.json');
-  const lock = foundationLockSchema.parse(JSON.parse(await readFile(lockPath, 'utf8')));
   const packageRoot = dirname(packageManifestPath(root, '@modelcontextprotocol/conformance'));
   return verifyConformanceIntegrity({
     sourceRoot: root,
     expectedSourceSha,
-    artifacts: lock.artifacts.map((artifact) => ({
+    artifacts: FOUNDATION_ARTIFACTS.map((artifact) => ({
       id: artifact.id,
       path: join(root, artifact.path),
-      expectedDigest: artifact.digest as `sha256:${string}`,
+      expectedDigest: `sha256:${createHash('sha256')
+        .update(execFileSync('git', ['show', `HEAD:${artifact.path}`], { cwd: root }))
+        .digest('hex')}`,
     })),
     npm: {
       packageManifestPath: join(root, 'package.json'),
@@ -1019,6 +1040,10 @@ export async function runFoundationConformance(options: FoundationRunOptions): P
     encoding: 'utf8',
     mode: 0o600,
   });
+  if (!integrity.ok) {
+    const issues = integrity.issues.map(({ code, subject }) => `${code}:${subject}`).join(', ');
+    throw new Error(`Conformance integrity check failed: ${issues}`);
+  }
   const generatedSdkBoundaryProof = await generateSdkBoundaryProof(root, outputDirectory);
   const sdkBoundaryProof =
     generatedSdkBoundaryProof.classification === 'product'

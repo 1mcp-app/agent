@@ -100,21 +100,28 @@ jobs:
         uses: ./.github/actions/setup-node-pnpm
 
       - name: Build and create SEA binary
+        env:
+          BUILD_SCRIPT: ${{ matrix.script }}
+        shell: bash
         run: |
           pnpm sea:build
-          pnpm ${{ matrix.script }}
+          pnpm "$BUILD_SCRIPT"
 
       - name: Test binary functionality (Unix)
         if: ${{ !startsWith(matrix.platform, 'win32') }}
+        env:
+          PLATFORM: ${{ matrix.platform }}
         run: |
           chmod +x scripts/test-binary-unix.sh
-          ./scripts/test-binary-unix.sh ./1mcp ${{ matrix.platform }}
+          ./scripts/test-binary-unix.sh ./1mcp "$PLATFORM"
         shell: bash
 
       - name: Test binary functionality (Windows)
         if: ${{ startsWith(matrix.platform, 'win32') }}
+        env:
+          PLATFORM: ${{ matrix.platform }}
         run: |
-          .\scripts\test-binary-windows.ps1 -BinaryPath ".\1mcp.exe" -Platform "${{ matrix.platform }}"
+          .\scripts\test-binary-windows.ps1 -BinaryPath ".\1mcp.exe" -Platform "$env:PLATFORM"
         shell: powershell
 
       - name: Rename binary for platform-specific archive

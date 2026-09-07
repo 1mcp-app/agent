@@ -1,0 +1,8 @@
+name: Unquoted Composite Action Absolute Shell
+description: Adversarial test fixture verifying ShellCheck detects unquoted variables under custom absolute-path shell templates
+runs:
+  using: composite
+  steps:
+    - name: Vulnerable step with absolute path shell template
+      shell: /bin/bash -eo pipefail {0}
+      run: pnpm $BUILD_SCRIPT
