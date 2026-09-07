@@ -43,6 +43,10 @@ pnpm sea:build        # Create SEA bundle
 pnpm sea:binary       # Build binary for current platform
 ```
 
+## Verification and completion
+
+Use the repository's existing test framework, fixtures, and required quality gates. Diagnose failed checks and complete unaffected work. Report unresolved gates accurately; do not waive them or claim verification succeeded. "Verify" and "confirm" mean checking evidence unless an instruction explicitly requests human approval.
+
 ## Architecture Overview
 
 1MCP is a unified MCP server that aggregates multiple MCP servers into one endpoint. It acts as a proxy, managing servers as subprocesses and forwarding requests from AI assistants.
