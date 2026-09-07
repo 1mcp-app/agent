@@ -485,6 +485,38 @@ describe('OAuth Routes', () => {
       expect(mockResponse.redirect).toHaveBeenCalledWith('/admin/oauth?success=1');
     });
 
+    it('forwards the callback issuer without normalizing it', async () => {
+      mockRequest.params = { serverName: 'test-server' };
+      mockRequest.query = { code: 'auth-code-123', iss: 'https://issuer.example/' };
+      mockOAuthProvider.oauthFlow.completeBackendOAuthCallback.mockResolvedValue({ status: 'completed' });
+      const router = createOAuthRoutes(mockOAuthProvider);
+      const route = router.stack.find((layer: any) => layer.route?.path === '/callback/:serverName');
+
+      await route?.route?.stack[0].handle(mockRequest, mockResponse);
+
+      expect(mockOAuthProvider.oauthFlow.completeBackendOAuthCallback).toHaveBeenCalledWith({
+        serverName: 'test-server',
+        code: 'auth-code-123',
+        iss: 'https://issuer.example/',
+      });
+    });
+
+    it.each([
+      { code: ['one', 'two'], iss: 'https://issuer.example' },
+      { code: 'auth-code-123', iss: ['https://issuer.example', 'https://other.example'] },
+      { code: 'auth-code-123', iss: { nested: 'https://issuer.example' } },
+    ])('rejects non-scalar callback parameters %j', async (query) => {
+      mockRequest.params = { serverName: 'test-server' };
+      mockRequest.query = query;
+      const router = createOAuthRoutes(mockOAuthProvider);
+      const route = router.stack.find((layer: any) => layer.route?.path === '/callback/:serverName');
+
+      await route?.route?.stack[0].handle(mockRequest, mockResponse);
+
+      expect(mockOAuthProvider.oauthFlow.completeBackendOAuthCallback).not.toHaveBeenCalled();
+      expect(mockResponse.redirect).toHaveBeenCalledWith('/admin/oauth?error=callback_failed');
+    });
+
     it('should delegate loading-ready callback handling to the OAuth flow', async () => {
       mockRequest.params = { serverName: 'test-server' };
       mockRequest.query = { code: 'auth-code-123' };

@@ -1,8 +1,11 @@
+import { z } from 'zod';
+
 import { createEffectiveRequestAuthority, type EffectiveRequestAuthority } from './effectiveRequestAuthority.js';
 import { type ImmutableJsonValue, toImmutableJsonValue } from './immutableJson.js';
 import { classifyProtocolEra, type ProtocolEraPin } from './protocolEra.js';
 
-export type GatewayOperation = 'tools/list';
+export const gatewayOperationSchema = z.enum(['tools/list', 'tools/call']);
+export type GatewayOperation = z.infer<typeof gatewayOperationSchema>;
 
 export interface GatewayRequestEnvelope {
   readonly requestId: string;
@@ -24,8 +27,8 @@ export function createGatewayRequestEnvelope(input: GatewayRequestEnvelope): Gat
   ) {
     throw new TypeError('Gateway request identifiers are required');
   }
-  if (input.operation !== 'tools/list')
-    throw new TypeError(`Unsupported gateway operation: ${String(input.operation)}`);
+  const operation = gatewayOperationSchema.safeParse(input.operation);
+  if (!operation.success) throw new TypeError(`Unsupported gateway operation: ${String(input.operation)}`);
   if (!Number.isSafeInteger(input.deadlineUnixMs) || input.deadlineUnixMs <= 0) {
     throw new TypeError('Gateway deadline must be a positive Unix millisecond timestamp');
   }
@@ -35,7 +38,7 @@ export function createGatewayRequestEnvelope(input: GatewayRequestEnvelope): Gat
   if (!outbound.ok) throw outbound.failure;
   return Object.freeze({
     requestId: input.requestId,
-    operation: input.operation,
+    operation: operation.data,
     targetConnectionId: input.targetConnectionId,
     ...(input.params === undefined ? {} : { params: toImmutableJsonValue(input.params) }),
     authority: createEffectiveRequestAuthority(input.authority),

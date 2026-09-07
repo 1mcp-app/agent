@@ -5,6 +5,7 @@ node_modules/
 .pnpm-store/
 .npm-cache/
 .worktrees/
+/.codegraph/
 build/
 logs/
 *.log

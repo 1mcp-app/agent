@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -104,6 +104,7 @@ async function createWorkspace(name: string, mcpServers: Record<string, unknown>
   const home = join(directory, 'home');
   const configPath = join(directory, 'mcp.json');
   await mkdir(home, { recursive: true, mode: 0o700 });
+  await writeFile(join(directory, '.1mcprc'), '{}\n', { encoding: 'utf8', mode: 0o600 });
   await writeFile(configPath, `${JSON.stringify({ mcpServers }, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
   workspaces.add(directory);
   return { directory, home, configPath };
@@ -336,10 +337,22 @@ class RevisionRecordingTransport implements Transport {
 
 async function runProxyProbe(endpoint: string, configPath: string, home: string): Promise<ProbeObservation> {
   const stderr: string[] = [];
+  const logFile = join(home, 'proxy.log');
   const inner = new StdioClientTransport({
     command: process.execPath,
-    args: [cliEntrypoint, 'proxy', '--url', endpoint, '--config', configPath, '--log-level', 'debug'],
-    cwd: root,
+    args: [
+      cliEntrypoint,
+      'proxy',
+      '--url',
+      endpoint,
+      '--config',
+      configPath,
+      '--log-level',
+      'debug',
+      '--log-file',
+      logFile,
+    ],
+    cwd: dirname(configPath),
     env: stdioEnvironment(home),
     stderr: 'pipe',
   });
@@ -378,18 +391,8 @@ async function runProxyProbe(endpoint: string, configPath: string, home: string)
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    expect(stage, stderr.join('').slice(-4_000)).toBe('connect');
-    expect(message).toMatch(/MCP error -32001: TimeoutError/u);
-    return {
-      outcome: 'product-failed',
-      fixtureId: 'typescript-v1',
-      transport: 'stdio',
-      initialized: false,
-      ping: false,
-      negotiatedRevision: 'not-negotiated',
-      operations: ['initialize'],
-      classification: 'initialize-timeout',
-    };
+    const logs = await readFile(logFile, 'utf8').catch(() => '');
+    throw new Error(`proxy-${stage}-failed: ${message}\n${stderr.join('').slice(-2_000)}\n${logs.slice(-6_000)}`);
   } finally {
     await client.close();
   }
@@ -607,10 +610,10 @@ describe('gateway-executed transport profile proofs', () => {
     );
   });
 
-  it('records product-red evidence for modern upstream stdio through the built gateway', async () => {
+  it('proves modern upstream stdio with MCP traffic through the built gateway', async () => {
     const workspace = await createWorkspace('upstream-stdio-modern', stdioUpstream('v2', 'modern'));
-    const gateway = await startGateway(workspace.configPath, workspace.home, true);
-    const probe = await probeHttpGateway(gateway.endpoint, workspace.home, 'upstream-revision-mismatch');
+    const gateway = await startGateway(workspace.configPath, workspace.home);
+    const probe = await probeHttpGateway(gateway.endpoint, workspace.home);
     expect(probe.transport).toBe('streamable-http');
     await emitProfileProof(
       'upstream-stdio-modern',

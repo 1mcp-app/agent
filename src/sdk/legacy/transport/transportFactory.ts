@@ -1,4 +1,11 @@
+import {
+  SSEClientTransport as ModernSSEClientTransport,
+  StreamableHTTPClientTransport as ModernStreamableHTTPClientTransport,
+} from '@modelcontextprotocol/client';
+import { StdioClientTransport as ModernStdioClientTransport } from '@modelcontextprotocol/client/stdio';
+
 import type { EventEmitter } from 'node:events';
+import type { Readable } from 'node:stream';
 import path from 'path';
 
 import { OAuthClientConfig, SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
@@ -27,6 +34,10 @@ import { z, ZodError } from 'zod';
 import type { AuthProviderTransport } from '../client/runtime/legacyTransport.js';
 
 type ValidatedTransport = z.infer<typeof transportConfigSchema>;
+
+function usesModernClient(validatedTransport: ValidatedTransport): boolean {
+  return (validatedTransport.protocolVersion ?? 'auto') !== 'legacy';
+}
 
 export interface TransportCreationOptions {
   readonly backendLogSources?: Readonly<Record<string, BackendLogSource>>;
@@ -154,7 +165,8 @@ function createSSETransport(name: string, validatedTransport: ValidatedTransport
   const oauthProvider = createOAuthProvider(name, validatedTransport);
   sseOptions.authProvider = oauthProvider;
 
-  const transport = new SSEClientTransport(new URL(validatedTransport.url), sseOptions) as AuthProviderTransport;
+  const Transport = usesModernClient(validatedTransport) ? ModernSSEClientTransport : SSEClientTransport;
+  const transport = new Transport(new URL(validatedTransport.url), sseOptions as never) as AuthProviderTransport;
   transport.oauthProvider = oauthProvider;
 
   return transport;
@@ -163,7 +175,11 @@ function createSSETransport(name: string, validatedTransport: ValidatedTransport
 /**
  * Creates HTTP transport with OAuth provider
  */
-function createHTTPTransport(name: string, validatedTransport: ValidatedTransport): AuthProviderTransport {
+function createHTTPTransport(
+  name: string,
+  validatedTransport: ValidatedTransport,
+  sessionId?: string,
+): AuthProviderTransport {
   validatedTransport = withTransportEnvSubstitution(validatedTransport);
 
   if (!validatedTransport.url) {
@@ -171,6 +187,7 @@ function createHTTPTransport(name: string, validatedTransport: ValidatedTranspor
   }
 
   const httpOptions: StreamableHTTPClientTransportOptions = {
+    sessionId,
     requestInit: {
       headers: {
         ...validatedTransport.headers,
@@ -182,10 +199,10 @@ function createHTTPTransport(name: string, validatedTransport: ValidatedTranspor
   const oauthProvider = createOAuthProvider(name, validatedTransport);
   httpOptions.authProvider = oauthProvider;
 
-  const transport = new StreamableHTTPClientTransport(
-    new URL(validatedTransport.url),
-    httpOptions,
-  ) as AuthProviderTransport;
+  const Transport = usesModernClient(validatedTransport)
+    ? ModernStreamableHTTPClientTransport
+    : StreamableHTTPClientTransport;
+  const transport = new Transport(new URL(validatedTransport.url), httpOptions as never) as AuthProviderTransport;
   transport.oauthProvider = oauthProvider;
 
   return transport;
@@ -264,7 +281,11 @@ function createStdioTransport(
   // The Aggregated Runtime owns restart policy above the raw transport so every
   // replacement completes a fresh MCP initialization before becoming routable.
   debugIf(`Creating stdio transport for: ${name}`);
-  const transport = new StdioClientTransport(stdioParams);
+  const Transport = usesModernClient(validatedTransport) ? ModernStdioClientTransport : StdioClientTransport;
+  const transport = new Transport(stdioParams) as AuthProviderTransport & {
+    readonly stderr: Readable | null;
+    readonly pid: number | null;
+  };
   let lastExit: ReturnType<NonNullable<AuthProviderTransport['stdioSupervision']>['getLastExit']> = null;
   const startTransport = transport.start.bind(transport);
   transport.start = async (): Promise<void> => {
@@ -310,6 +331,7 @@ function createSingleTransport(
   name: string,
   validatedTransport: ValidatedTransport,
   backendLogSource?: BackendLogSource,
+  sessionId?: string,
 ): AuthProviderTransport {
   switch (validatedTransport.type) {
     case 'sse':
@@ -318,7 +340,7 @@ function createSingleTransport(
     case 'http':
     case 'streamableHttp':
       if (!validatedTransport.url) throw new Error(`URL is required for HTTP transport: ${name}`);
-      return createResolvedTransportSafely(() => createHTTPTransport(name, validatedTransport));
+      return createResolvedTransportSafely(() => createHTTPTransport(name, validatedTransport, sessionId));
     case 'stdio':
       if (!validatedTransport.command) throw new Error(`Command is required for stdio transport: ${name}`);
       return createResolvedTransportSafely(() => createStdioTransport(name, validatedTransport, backendLogSource));
@@ -343,11 +365,25 @@ function assignTransport(
   name: string,
   transport: AuthProviderTransport,
   validatedTransport: ValidatedTransport,
+  backendLogSource?: BackendLogSource,
 ): void {
   transport.connectionTimeout = validatedTransport.connectionTimeout;
   transport.requestTimeout = validatedTransport.requestTimeout;
   transport.timeout = validatedTransport.timeout; // Keep for backward compatibility
   transport.tags = validatedTransport.tags;
+  transport.outboundProtocolVersion = validatedTransport.protocolVersion ?? 'auto';
+  transport.recreate = (options) => {
+    const sessionId = (options?.preserveSessionId ?? true) ? transport.sessionId : undefined;
+    const recreated = createSingleTransport(name, validatedTransport, backendLogSource, sessionId);
+    assignTransport({}, name, recreated, validatedTransport, backendLogSource);
+    return recreated;
+  };
+  if (transport.stdioSupervision) {
+    transport.stdioSupervision = {
+      ...transport.stdioSupervision,
+      recreate: () => transport.recreate!(),
+    };
+  }
   transports[name] = transport;
 }
 
@@ -374,7 +410,7 @@ export function createTransports(
       const validatedTransport = transportConfigSchema.parse(inferredParams);
       const transport = createSingleTransport(name, validatedTransport, options.backendLogSources?.[name]);
 
-      assignTransport(transports, name, transport, validatedTransport);
+      assignTransport(transports, name, transport, validatedTransport, options.backendLogSources?.[name]);
       debugIf(`Created transport: ${name}`);
     } catch (error) {
       if (error instanceof ZodError) {
@@ -433,7 +469,7 @@ export async function createTransportsWithContext(
       const validatedTransport = transportConfigSchema.parse(processedParams);
       const transport = createSingleTransport(name, validatedTransport, options.backendLogSources?.[name]);
 
-      assignTransport(transports, name, transport, validatedTransport);
+      assignTransport(transports, name, transport, validatedTransport, options.backendLogSources?.[name]);
       debugIf(`Created transport: ${name}`);
     } catch (error) {
       if (error instanceof ZodError) {

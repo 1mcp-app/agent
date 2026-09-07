@@ -17,6 +17,20 @@ describe('transportConfigSchema stderr', () => {
   });
 });
 
+describe('transportConfigSchema protocol version', () => {
+  it.each(['auto', 'legacy', '2026-07-28'] as const)('accepts %s', (protocolVersion) => {
+    expect(transportConfigSchema.parse({ command: 'node', protocolVersion })).toMatchObject({ protocolVersion });
+  });
+
+  it('preserves omission so runtime negotiation owns the default', () => {
+    expect(transportConfigSchema.parse({ command: 'node' })).not.toHaveProperty('protocolVersion');
+  });
+
+  it('rejects unsupported pins', () => {
+    expect(() => transportConfigSchema.parse({ command: 'node', protocolVersion: '2025-11-25' })).toThrow();
+  });
+});
+
 describe('transportConfigSchema restart policy', () => {
   it('rejects a fractional maxRestarts value', () => {
     expect(() => transportConfigSchema.parse({ type: 'stdio', command: 'node', maxRestarts: 1.5 })).toThrow();

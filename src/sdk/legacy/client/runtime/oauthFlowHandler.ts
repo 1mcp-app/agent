@@ -1,24 +1,23 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import {
+  SSEClientTransport as ModernSSEClientTransport,
+  StreamableHTTPClientTransport as ModernStreamableHTTPClientTransport,
+} from '@modelcontextprotocol/client';
+
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
-import { MCP_CLIENT_CAPABILITIES, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@src/constants.js';
 import { ClientStatus } from '@src/core/types/index.js';
-import { CustomJsonSchemaValidator } from '@src/core/validation/CustomJsonSchemaValidator.js';
 import logger from '@src/logger/logger.js';
 import { getConnectionTimeout } from '@src/utils/core/timeoutUtils.js';
 
+import { ClientFactory } from './clientFactory.js';
 import { createLegacyOutboundConnection, type LegacyOutboundConnection } from './legacyOutboundConnection.js';
 import type { AuthProviderTransport } from './legacyTransport.js';
+import { isModernSdkClient, type OutboundSdkClient } from './sdkClient.js';
 import { OAuthRequiredError } from './types.js';
 
-const DEBOUNCED_NOTIFICATION_METHODS = [
-  'notifications/tools/list_changed',
-  'notifications/resources/list_changed',
-  'notifications/prompts/list_changed',
-] as const;
-
 export class OAuthFlowHandler {
+  private readonly clientFactory = new ClientFactory();
   public extractAuthorizationUrl(transport: AuthProviderTransport): string | undefined {
     try {
       const oauthProvider = transport.oauthProvider;
@@ -31,25 +30,14 @@ export class OAuthFlowHandler {
     return undefined;
   }
 
-  private createClientForOAuth(): Client {
-    const customValidator = new CustomJsonSchemaValidator();
-    return new Client(
-      {
-        name: MCP_SERVER_NAME,
-        version: MCP_SERVER_VERSION,
-      },
-      {
-        capabilities: MCP_CLIENT_CAPABILITIES,
-        jsonSchemaValidator: customValidator,
-        debouncedNotificationMethods: [...DEBOUNCED_NOTIFICATION_METHODS],
-      },
-    );
+  private createClientForOAuth(transport: AuthProviderTransport): OutboundSdkClient {
+    return this.clientFactory.createClient(transport);
   }
 
   public handleOAuthRequired(
     name: string,
     transport: AuthProviderTransport,
-    _client: Client,
+    _client: OutboundSdkClient,
     error: OAuthRequiredError,
   ): LegacyOutboundConnection {
     logger.info(`OAuth authorization required for ${name}`);
@@ -69,28 +57,54 @@ export class OAuthFlowHandler {
     name: string,
     oldTransport: AuthProviderTransport,
     newTransport: AuthProviderTransport,
-    authorizationCode: string,
+    authorizationCode: string | URLSearchParams,
     existingConnection: LegacyOutboundConnection,
   ): Promise<LegacyOutboundConnection> {
-    if (!(oldTransport instanceof StreamableHTTPClientTransport) && !(oldTransport instanceof SSEClientTransport)) {
+    if (
+      !(oldTransport instanceof StreamableHTTPClientTransport) &&
+      !(oldTransport instanceof SSEClientTransport) &&
+      !(oldTransport instanceof ModernStreamableHTTPClientTransport) &&
+      !(oldTransport instanceof ModernSSEClientTransport)
+    ) {
       throw new Error(`Transport for ${name} does not support OAuth (requires HTTP or SSE transport)`);
     }
 
     logger.info(`Completing OAuth and reconnecting ${name}...`);
 
     try {
-      await oldTransport.finishAuth(authorizationCode);
+      const configuredOldTransport = oldTransport as AuthProviderTransport;
+      if (
+        oldTransport instanceof ModernStreamableHTTPClientTransport ||
+        oldTransport instanceof ModernSSEClientTransport
+      ) {
+        const callback =
+          typeof authorizationCode === 'string' ? new URLSearchParams({ code: authorizationCode }) : authorizationCode;
+        await oldTransport.finishAuth(callback);
+      } else {
+        const code = typeof authorizationCode === 'string' ? authorizationCode : authorizationCode.get('code');
+        if (!code) throw new Error('Missing authorization code');
+        await oldTransport.finishAuth(code);
+      }
       await oldTransport.close();
 
-      const newClient = this.createClientForOAuth();
-      const timeout = getConnectionTimeout(newTransport);
-      await newClient.connect(newTransport, timeout ? { timeout } : undefined);
+      let reconnectTransport = newTransport;
+      if (configuredOldTransport.recreate) {
+        await newTransport.close().catch(() => undefined);
+        reconnectTransport = configuredOldTransport.recreate({ preserveSessionId: false });
+      }
+      const newClient = this.createClientForOAuth(reconnectTransport);
+      const timeout = getConnectionTimeout(reconnectTransport);
+      if (isModernSdkClient(newClient)) {
+        await newClient.connect(reconnectTransport as never, timeout ? { timeout } : undefined);
+      } else {
+        await newClient.connect(reconnectTransport, timeout ? { timeout } : undefined);
+      }
 
       const capabilities = newClient.getServerCapabilities();
 
       const updatedInfo = createLegacyOutboundConnection({
         name,
-        transport: newTransport,
+        transport: reconnectTransport,
         client: newClient,
         status: ClientStatus.Connected,
         lastConnected: new Date(),

@@ -2,6 +2,21 @@ import type { MCPServerParams } from '@src/core/types/index.js';
 
 import { vi } from 'vitest';
 
+vi.mock('@modelcontextprotocol/client', () => ({
+  SSEClientTransport: vi.fn().mockImplementation(function () {
+    return { type: 'modern-sse', close: vi.fn() };
+  }),
+  StreamableHTTPClientTransport: vi.fn().mockImplementation(function () {
+    return { type: 'modern-http', close: vi.fn() };
+  }),
+}));
+
+vi.mock('@modelcontextprotocol/client/stdio', () => ({
+  StdioClientTransport: vi.fn().mockImplementation(function () {
+    return { type: 'modern-stdio', start: vi.fn(), close: vi.fn(), stderr: null, pid: null };
+  }),
+}));
+
 vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
   StdioClientTransport: vi.fn().mockImplementation(function () {
     return {

@@ -126,7 +126,7 @@ const checks = [
 if (scenarioIndex === 0) {
   checks.push({
     id: 'official-check',
-    status: role === 'client' ? 'WARNING' : 'SUCCESS',
+    status: role === 'client' && !target.includes('downstream-rejected') ? 'WARNING' : 'SUCCESS',
     specReferences: [{ id: 'SEP-1234' }],
     errorMessage: 'must not escape',
   });

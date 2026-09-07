@@ -94,6 +94,22 @@ describe('gateway contracts', () => {
     expect(JSON.parse(JSON.stringify(envelope))).toEqual(envelope);
   });
 
+  it('accepts direct tools/call while preserving the immutable gateway boundary', () => {
+    const envelope = createGatewayRequestEnvelope({
+      requestId: 'request-call',
+      operation: 'tools/call',
+      targetConnectionId: 'backend',
+      params: { name: 'echo', arguments: { value: 1 } },
+      authority: createEffectiveRequestAuthority({ connectionIds: ['backend'] }),
+      inbound: { era: 'modern', revision: '2026-07-28' },
+      outbound: { era: 'legacy', revision: '2025-11-25' },
+      deadlineUnixMs: 10_000,
+    });
+
+    expect(envelope.operation).toBe('tools/call');
+    expect(Object.isFrozen(envelope.params)).toBe(true);
+  });
+
   it('allowlists envelope and pin fields instead of retaining hidden state', () => {
     const symbol = Symbol('hidden');
     const input = {

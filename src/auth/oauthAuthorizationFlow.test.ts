@@ -273,6 +273,23 @@ describe('OAuth Authorization Flow', () => {
     expect(markReady).toHaveBeenCalledWith('github');
   });
 
+  it('forwards the actual callback issuer with the code', async () => {
+    const completeOAuthAndReconnect = vi.fn().mockResolvedValue(undefined);
+    const { flow } = createFlow({ clientRuntime: { completeOAuthAndReconnect } });
+
+    expect(
+      await flow.completeBackendOAuthCallback({
+        serverName: 'github',
+        code: 'auth-code-123',
+        iss: 'https://issuer.example',
+      }),
+    ).toEqual({ status: 'completed' });
+    expect(completeOAuthAndReconnect).toHaveBeenCalledWith(
+      'github',
+      new URLSearchParams({ code: 'auth-code-123', iss: 'https://issuer.example' }),
+    );
+  });
+
   it('should map backend OAuth callback provider and input errors without reconnecting', async () => {
     const completeOAuthAndReconnect = vi.fn();
     const markReady = vi.fn();

@@ -2,17 +2,24 @@ import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import type { BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
 import type { ClientStatus, OutboundConnection, OutboundErrorSnapshot } from '@src/core/types/client.js';
 import { type JsonObject, toJsonValue } from '@src/sdk/contracts/index.js';
-import type { Client } from '@src/sdk/legacy/client/index.js';
+import type { LegacySdkAdapter } from '@src/sdk/contracts/index.js';
 
+import { LegacyGatewayClientAdapter } from './legacyGatewayClientAdapter.js';
 import {
   bindLegacySdkConnection,
   getLegacySdkClient,
   getLegacySdkTransport,
-  LegacySdkClientAdapter,
   type LegacySdkClientAdapterOptions,
   setLegacySdkTransport,
 } from './legacySdkClientAdapter.js';
 import type { AuthProviderTransport } from './legacyTransport.js';
+import {
+  getModernSdkClient,
+  getModernSdkTransport,
+  ModernSdkClientAdapter,
+  setModernSdkTransport,
+} from './modernSdkClientAdapter.js';
+import { isModernSdkClient, type OutboundSdkClient } from './sdkClient.js';
 
 /** Live legacy values. This type must not be imported outside src/sdk/legacy/**. */
 export type LegacyOutboundConnection = OutboundConnection;
@@ -21,7 +28,7 @@ export type LegacyOutboundConnections = Map<string, LegacyOutboundConnection>;
 
 interface CreateLegacyOutboundConnectionOptions {
   readonly name: string;
-  readonly client: Client;
+  readonly client: OutboundSdkClient;
   readonly transport: AuthProviderTransport;
   readonly status: ClientStatus;
   readonly lastError?: unknown;
@@ -64,7 +71,9 @@ function snapshotCapabilities(capabilities: unknown): JsonObject {
 export function createLegacyOutboundConnection(
   options: CreateLegacyOutboundConnectionOptions,
 ): LegacyOutboundConnection {
-  const adapter = new LegacySdkClientAdapter(options.client, options.transport, options.adapterOptions);
+  const adapter: LegacySdkAdapter = isModernSdkClient(options.client)
+    ? new ModernSdkClientAdapter(options.client, options.transport)
+    : new LegacyGatewayClientAdapter(options.client, options.transport, options.adapterOptions);
   const connection: LegacyOutboundConnection = {
     name: options.name,
     adapter,
@@ -80,23 +89,52 @@ export function createLegacyOutboundConnection(
     ...(options.oauthStartTime === undefined ? {} : { oauthStartTime: options.oauthStartTime.toISOString() }),
     ...(options.supervision === undefined ? {} : { supervision: snapshotSupervision(options.supervision) }),
   };
-  bindLegacySdkConnection(adapter, connection);
+  if (!(adapter instanceof ModernSdkClientAdapter)) bindLegacySdkConnection(adapter, connection);
   return connection;
 }
 
-export function getLegacyClient(connection: LegacyOutboundConnection): Client {
-  return getLegacySdkClient(connection.adapter);
+export function getLegacyClient(connection: LegacyOutboundConnection): OutboundSdkClient {
+  return connection.adapter instanceof ModernSdkClientAdapter
+    ? getModernSdkClient(connection.adapter)
+    : getLegacySdkClient(connection.adapter);
 }
 
 export function getLegacyTransport(connection: LegacyOutboundConnection): AuthProviderTransport {
-  return getLegacySdkTransport(connection.adapter);
+  return connection.adapter instanceof ModernSdkClientAdapter
+    ? getModernSdkTransport(connection.adapter)
+    : getLegacySdkTransport(connection.adapter);
 }
 
 export function setLegacyTransport(connection: LegacyOutboundConnection, transport: AuthProviderTransport): void {
-  setLegacySdkTransport(connection.adapter, transport);
+  if (connection.adapter instanceof ModernSdkClientAdapter) setModernSdkTransport(connection.adapter, transport);
+  else setLegacySdkTransport(connection.adapter, transport);
   connection.tags = [...(transport.tags ?? [])];
   connection.requestTimeoutMs = transport.requestTimeout ?? transport.timeout;
   connection.requiresOAuth = Boolean(transport.oauthProvider);
+}
+
+export function setOutboundRequestHandler(
+  connection: LegacyOutboundConnection,
+  schema: unknown,
+  handler: (request: never) => unknown,
+): void {
+  if (connection.adapter instanceof ModernSdkClientAdapter) {
+    connection.adapter.registerRequestHandler(schema, handler);
+    return;
+  }
+  getLegacySdkClient(connection.adapter).setRequestHandler(schema as never, handler as never);
+}
+
+export function setOutboundNotificationHandler(
+  connection: LegacyOutboundConnection,
+  schema: unknown,
+  handler: (notification: { method: string; params?: Record<string, unknown> }) => unknown,
+): void {
+  if (connection.adapter instanceof ModernSdkClientAdapter) {
+    connection.adapter.registerNotificationHandler(schema, handler);
+    return;
+  }
+  getLegacySdkClient(connection.adapter).setNotificationHandler(schema as never, handler as never);
 }
 
 export function requestLegacyOutbound<T>(

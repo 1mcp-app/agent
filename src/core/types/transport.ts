@@ -258,6 +258,10 @@ export const transportConfigSchema = z.object({
     .enum(['stdio', 'sse', 'http', 'streamableHttp'])
     .optional()
     .describe('Transport type for connecting to the MCP server'),
+  protocolVersion: z
+    .enum(['auto', 'legacy', '2026-07-28'])
+    .optional()
+    .describe('Outbound MCP protocol negotiation mode (defaults to auto when omitted)'),
   disabled: z
     .union([z.boolean(), z.string()])
     .optional()

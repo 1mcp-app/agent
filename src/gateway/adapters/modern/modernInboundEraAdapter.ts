@@ -4,6 +4,7 @@ import {
   createGatewayRequestEnvelope,
   type EffectiveRequestAuthority,
   gatewayFailureFromUnknown,
+  gatewayOperationSchema,
   type ImmutableJsonValue,
   type ProtocolEraPin,
   toImmutableJsonValue,
@@ -111,7 +112,8 @@ export class ModernInboundEraAdapter implements InboundEraAdapter {
     } catch {
       return invalidModernRequest();
     }
-    if (operation !== 'tools/list') return invalidModernRequest();
+    const parsedOperation = gatewayOperationSchema.safeParse(operation);
+    if (!parsedOperation.success) return invalidModernRequest();
 
     let context: ModernInboundRequestContext;
     try {
@@ -123,7 +125,7 @@ export class ModernInboundEraAdapter implements InboundEraAdapter {
     try {
       const request = createGatewayRequestEnvelope({
         requestId: context.requestId,
-        operation,
+        operation: parsedOperation.data,
         targetConnectionId: context.targetConnectionId,
         ...(frame.params === undefined ? {} : { params: frame.params }),
         authority: context.authority,

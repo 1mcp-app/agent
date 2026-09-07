@@ -3,6 +3,11 @@ import './transportFactory.testSetup.js';
 
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import {
+  SSEClientTransport as ModernSSEClientTransport,
+  StreamableHTTPClientTransport as ModernStreamableHTTPClientTransport,
+} from '@modelcontextprotocol/client';
+import { StdioClientTransport as ModernStdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
 import { SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
 import { MCPServerParams } from '@src/core/types/index.js';
@@ -30,6 +35,7 @@ describe('TransportFactory', () => {
         'stdio-server': {
           type: 'stdio',
           command: 'node',
+          protocolVersion: 'legacy',
           args: ['server.js'],
           timeout: 5000,
           tags: ['test'],
@@ -73,6 +79,7 @@ describe('TransportFactory', () => {
         'stdio-server': {
           type: 'stdio',
           command: 'node',
+          protocolVersion: 'legacy',
           ...(stderr ? { stderr } : {}),
         },
       };
@@ -107,6 +114,7 @@ describe('TransportFactory', () => {
         'stdio-server': {
           type: 'stdio',
           command: 'node',
+          protocolVersion: 'legacy',
           stderr,
         },
       };
@@ -403,6 +411,7 @@ describe('TransportFactory', () => {
         'sse-with-headers': {
           type: 'sse',
           url: 'http://localhost:3001/sse',
+          protocolVersion: 'legacy',
           headers: {
             'Custom-Header': 'test-value',
             Authorization: 'Bearer token',
@@ -427,6 +436,34 @@ describe('TransportFactory', () => {
           authProvider: expect.any(Object),
         }),
       );
+    });
+
+    it.each([
+      ['stdio', { command: 'node' }, ModernStdioClientTransport],
+      ['sse', { url: 'http://localhost:3001/sse' }, ModernSSEClientTransport],
+      ['http', { url: 'http://localhost:3002/mcp' }, ModernStreamableHTTPClientTransport],
+    ] as const)('defaults %s backends to auto negotiation', (type, settings, ModernTransport) => {
+      const config = { upstream: { type, ...settings } } as Record<string, MCPServerParams>;
+      (transportConfigSchema.parse as any).mockReturnValueOnce(config.upstream);
+
+      const transport = createTransports(config).upstream;
+
+      expect(ModernTransport).toHaveBeenCalledOnce();
+      expect(transport.outboundProtocolVersion).toBe('auto');
+      expect(transport.recreate).toEqual(expect.any(Function));
+    });
+
+    it.each([
+      ['stdio', { command: 'node' }, StdioClientTransport],
+      ['sse', { url: 'http://localhost:3001/sse' }, SSEClientTransport],
+    ] as const)('keeps %s on the contained client when legacy is pinned', (type, settings, LegacyTransport) => {
+      const config = { upstream: { type, protocolVersion: 'legacy', ...settings } } as Record<string, MCPServerParams>;
+      (transportConfigSchema.parse as any).mockReturnValueOnce(config.upstream);
+
+      const transport = createTransports(config).upstream;
+
+      expect(LegacyTransport).toHaveBeenCalledOnce();
+      expect(transport.outboundProtocolVersion).toBe('legacy');
     });
 
     it('should log transport creation success', () => {

@@ -61,7 +61,7 @@ export interface OAuthBackendServerRuntime {
 
 export interface OAuthBackendClientRuntime {
   initiateOAuth(serverName: string): Promise<void>;
-  completeOAuthAndReconnect(serverName: string, authorizationCode: string): Promise<void>;
+  completeOAuthAndReconnect(serverName: string, authorizationCode: string | URLSearchParams): Promise<void>;
 }
 
 export interface OAuthBackendLoadingRuntime {
@@ -121,6 +121,7 @@ export interface BackendOAuthCallbackInput {
   serverName: string;
   code?: string;
   error?: string;
+  iss?: string;
 }
 
 export type StartBackendOAuthResult =
@@ -345,7 +346,9 @@ export function createOAuthAuthorizationFlow(dependencies: OAuthAuthorizationFlo
       }
 
       try {
-        await dependencies.clientRuntime.completeOAuthAndReconnect(input.serverName, input.code);
+        const authorizationResponse =
+          input.iss === undefined ? input.code : new URLSearchParams({ code: input.code, iss: input.iss });
+        await dependencies.clientRuntime.completeOAuthAndReconnect(input.serverName, authorizationResponse);
         dependencies.loadingRuntime?.markReady(input.serverName);
         return { status: 'completed' };
       } catch (error) {

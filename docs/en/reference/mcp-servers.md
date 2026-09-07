@@ -153,6 +153,7 @@ This is a dictionary of all the backend MCP servers the agent will manage.
 - `tags` (array of strings, optional): Tags for routing and access control. Required for preset filtering to work correctly.
 - `connectionTimeout` (number, optional): Connection timeout in milliseconds. Used when establishing initial connection. Takes precedence over `timeout`.
 - `requestTimeout` (number, optional): Request timeout in milliseconds. Used for individual MCP operations (callTool, readResource, etc.). Takes precedence over `timeout`.
+- `protocolVersion` (string, optional): Outbound protocol mode. Use `legacy` to pin the 2025 client, `2026-07-28` to pin modern MCP without fallback, or `auto` to negotiate modern first and fall back only when the upstream is positively classified as legacy. Omission behaves as `auto`.
 - `timeout` (number, optional): **Deprecated** fallback timeout in milliseconds. Used when specific timeouts are not set. New configurations should use `connectionTimeout` and `requestTimeout`.
 - `disabled` (boolean or template string, optional): Set to `true` to prevent the server from starting. Omit it or set it to `false` to enable the server.
 - `disabledTools` (array of strings, optional): Hide selected tools from this server without disabling the entire server.

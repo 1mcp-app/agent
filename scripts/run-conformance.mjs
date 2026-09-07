@@ -57,6 +57,23 @@ function run(command, commandArgs, cwd = root) {
   return result.status ?? 1;
 }
 
+async function waitForStableCleanSource() {
+  const deadline = Date.now() + 10_000;
+  let consecutiveCleanChecks = 0;
+  while (Date.now() < deadline) {
+    const status = spawnSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], {
+      cwd: root,
+      env: environment,
+      encoding: 'utf8',
+    });
+    if (status.error || status.status !== 0) return false;
+    consecutiveCleanChecks = status.stdout === '' ? consecutiveCleanChecks + 1 : 0;
+    if (consecutiveCleanChecks === 5) return true;
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+  }
+  return false;
+}
+
 const fixtureChecks = [
   ['pnpm', ['check'], path.join(root, 'test', 'conformance', 'fixtures', 'typescript')],
   ['uv', ['run', '--frozen', 'pytest', '-q'], path.join(root, 'test', 'conformance', 'fixtures', 'python')],
@@ -77,14 +94,30 @@ const transportStatus = run(process.execPath, [
 ]);
 if (transportStatus !== 0) process.exit(transportStatus);
 
-const conformanceStatus = run(process.execPath, [
+const conformanceChecksStatus = run(process.execPath, [
   vitest,
   'run',
   '--config',
   'vitest.conformance.config.ts',
+  '--exclude',
+  'test/conformance/foundation/foundation.integration.test.ts',
   ...forwarded,
 ]);
-if (conformanceStatus !== 0) process.exit(conformanceStatus);
+if (conformanceChecksStatus !== 0) process.exit(conformanceChecksStatus);
+
+if (!(await waitForStableCleanSource())) {
+  process.stderr.write('Conformance exact-source stage requires a stable clean worktree.\n');
+  process.exit(1);
+}
+
+const foundationStatus = run(process.execPath, [
+  vitest,
+  'run',
+  '--config',
+  'vitest.conformance.config.ts',
+  'test/conformance/foundation/foundation.integration.test.ts',
+]);
+if (foundationStatus !== 0) process.exit(foundationStatus);
 
 if (!existsSync(path.join(outputDirectory, 'conformance-baseline.json'))) {
   process.stderr.write('Conformance run completed without a finalized baseline artifact.\n');

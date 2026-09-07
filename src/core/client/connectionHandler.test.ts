@@ -1,3 +1,11 @@
+import {
+  UnauthorizedError as ModernUnauthorizedError,
+  ProtocolError,
+  SdkError,
+  SdkErrorCode,
+  UnsupportedProtocolVersionError,
+} from '@modelcontextprotocol/client';
+
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
@@ -229,6 +237,72 @@ describe('ConnectionHandler', () => {
       expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('OAuth authorization required'));
     });
 
+    it('treats v2 authentication failure as terminal rather than era evidence', async () => {
+      (mockClient.connect as unknown as MockInstance).mockRejectedValue(new ModernUnauthorizedError('Unauthorized'));
+      const recreate = vi.fn();
+
+      await expect(
+        connectionHandler.connectWithRetry(mockClient as Client, mockTransport, 'modern-client', undefined, recreate),
+      ).rejects.toThrow(OAuthRequiredError);
+
+      expect(recreate).not.toHaveBeenCalled();
+      expect(mockTransport.close).not.toHaveBeenCalled();
+    });
+
+    it('carries the exact replacement transport when OAuth is required after retry', async () => {
+      (mockClient.connect as unknown as MockInstance).mockRejectedValueOnce(new Error('transient'));
+      const replacementTransport = { close: vi.fn() } as unknown as AuthProviderTransport;
+      const replacementClient = {
+        connect: vi.fn().mockRejectedValue(new UnauthorizedError('OAuth required')),
+      } as unknown as Client;
+      const connecting = connectionHandler.connectWithRetry(
+        mockClient as Client,
+        mockTransport,
+        'oauth-after-retry',
+        undefined,
+        () => replacementTransport,
+        () => replacementClient,
+      );
+      const outcome = connecting.catch((caught: unknown) => caught);
+
+      await vi.advanceTimersByTimeAsync(CONNECTION_RETRY.INITIAL_DELAY_MS);
+      await vi.runAllTimersAsync();
+      const error = await outcome;
+
+      expect(error).toBeInstanceOf(OAuthRequiredError);
+      expect((error as OAuthRequiredError).transport).toBe(replacementTransport);
+      expect((error as OAuthRequiredError).client).toBe(replacementClient);
+    });
+
+    it('does not retry a terminal modern negotiation error', async () => {
+      (mockClient.connect as unknown as MockInstance).mockRejectedValue(
+        new SdkError(SdkErrorCode.EraNegotiationFailed, 'modern protocol response was rejected'),
+      );
+      const recreate = vi.fn();
+
+      await expect(
+        connectionHandler.connectWithRetry(mockClient as Client, mockTransport, 'modern-client', undefined, recreate),
+      ).rejects.toThrow('modern protocol response was rejected');
+
+      expect(recreate).not.toHaveBeenCalled();
+      expect(mockTransport.close).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      new ProtocolError(-32_600, 'recognized modern request error'),
+      new UnsupportedProtocolVersionError({ supported: ['2026-07-28'], requested: 'future' }),
+    ])('does not retry recognized modern protocol error %#', async (protocolError) => {
+      (mockClient.connect as unknown as MockInstance).mockRejectedValue(protocolError);
+      const recreate = vi.fn();
+
+      await expect(
+        connectionHandler.connectWithRetry(mockClient as Client, mockTransport, 'modern-client', undefined, recreate),
+      ).rejects.toThrow();
+
+      expect(recreate).not.toHaveBeenCalled();
+      expect(mockTransport.close).not.toHaveBeenCalled();
+    });
+
     it('should close transport between retries', async () => {
       const mockTransportWithClose = {
         ...mockTransport,
@@ -297,6 +371,70 @@ describe('ConnectionHandler', () => {
 
       expect(recreateTransport).toHaveBeenCalled();
       expect(result.transport).toBe(recreatedHttpTransport);
+    });
+
+    it('recreates the client from the replacement transport negotiation mode', async () => {
+      const originalTransport = {
+        outboundProtocolVersion: 'auto' as const,
+        close: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AuthProviderTransport;
+      const replacementTransport = {
+        outboundProtocolVersion: '2026-07-28' as const,
+        close: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AuthProviderTransport;
+      (mockClient.connect as unknown as MockInstance).mockRejectedValueOnce(new Error('Connection failed'));
+      const replacementClient = {
+        connect: vi.fn().mockResolvedValue(undefined),
+        getServerVersion: vi.fn().mockResolvedValue({ name: 'modern-server', version: '2.0.0' }),
+      } as unknown as Client;
+      const createClient = vi.fn().mockReturnValue(replacementClient);
+
+      const connecting = connectionHandler.connectWithRetry(
+        mockClient as Client,
+        originalTransport,
+        'test-client',
+        undefined,
+        () => replacementTransport,
+        createClient,
+      );
+      await vi.advanceTimersByTimeAsync(CONNECTION_RETRY.INITIAL_DELAY_MS);
+      await vi.runAllTimersAsync();
+
+      const result = await connecting;
+
+      expect(createClient).toHaveBeenCalledWith(replacementTransport);
+      expect(result.client).toBe(replacementClient);
+    });
+
+    it('closes every recreated candidate when retries are exhausted', async () => {
+      (mockClient.connect as unknown as MockInstance).mockRejectedValue(new Error('initial failure'));
+      const candidateTransports = Array.from({ length: CONNECTION_RETRY.MAX_ATTEMPTS - 1 }, () => ({
+        close: vi.fn().mockResolvedValue(undefined),
+      })) as unknown as AuthProviderTransport[];
+      const candidateClients = candidateTransports.map(
+        () =>
+          ({
+            connect: vi.fn().mockRejectedValue(new Error('candidate failure')),
+            close: vi.fn().mockResolvedValue(undefined),
+          }) as unknown as Client,
+      );
+      let candidateIndex = -1;
+      const connecting = connectionHandler.connectWithRetry(
+        mockClient as Client,
+        mockTransport,
+        'exhausted-client',
+        undefined,
+        () => candidateTransports[++candidateIndex],
+        () => candidateClients[candidateIndex],
+      );
+      const outcome = connecting.catch((error: unknown) => error);
+
+      await vi.runAllTimersAsync();
+      const error = await outcome;
+
+      expect(error).toBeInstanceOf(Error);
+      for (const candidate of candidateClients) expect(candidate.close).toHaveBeenCalledOnce();
+      for (const candidate of candidateTransports) expect(candidate.close).toHaveBeenCalledOnce();
     });
 
     it('should recreate SSE transport on retry', async () => {

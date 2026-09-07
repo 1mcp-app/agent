@@ -1,25 +1,32 @@
+import * as childProcess from 'node:child_process';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import * as conformanceIntegrity from '../integrity/index.js';
 import { type OfficialConformanceResult } from '../official/officialRunner.js';
 import { classifyOfficialClientResult, runFoundationConformance, stopChild } from './foundationRun.js';
 
+vi.mock('node:child_process', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:child_process')>()),
+}));
+
 describe('foundation integrity preflight', () => {
-  it('reports a stale artifact pin before attempting evidence generation', async () => {
+  it('compares artifacts with committed content before attempting evidence generation', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'conformance-integrity-failure-'));
-    const verify = conformanceIntegrity.verifyConformanceIntegrity;
-    const verifier = vi.spyOn(conformanceIntegrity, 'verifyConformanceIntegrity').mockImplementation((options) =>
-      verify({
-        ...options,
-        artifacts: options.artifacts.map((artifact) =>
-          artifact.id === 'sdk-boundary-proof' ? { ...artifact, expectedDigest: `sha256:${'0'.repeat(64)}` } : artifact,
-        ),
-      }),
-    );
+    const execFileSync = childProcess.execFileSync;
+    const git = vi.spyOn(childProcess, 'execFileSync').mockImplementation((...args) => {
+      if (
+        args[0] === 'git' &&
+        Array.isArray(args[1]) &&
+        args[1][0] === 'show' &&
+        args[1][1] === 'HEAD:test/conformance/boundary/sdkBoundaryProof.ts'
+      ) {
+        return Buffer.from('different committed artifact content');
+      }
+      return execFileSync(...args);
+    });
     try {
       await expect(
         runFoundationConformance({ root: process.cwd(), outputDirectory: directory, mode: 'baseline' }),
@@ -31,7 +38,7 @@ describe('foundation integrity preflight', () => {
       });
       expect(await readdir(directory)).toEqual(['conformance-integrity.json']);
     } finally {
-      verifier.mockRestore();
+      git.mockRestore();
       await rm(directory, { recursive: true, force: true });
     }
   });
@@ -52,6 +59,7 @@ function officialProductResult(): OfficialConformanceResult {
 describe('official client gateway classification', () => {
   it.each([
     ['attempted', 'product'],
+    ['gateway-rejected', 'product'],
     ['fixture-defect', 'fixture'],
     ['harness-defect', 'harness'],
   ] as const)('maps a %s bridge outcome to %s evidence', async (status, classification) => {

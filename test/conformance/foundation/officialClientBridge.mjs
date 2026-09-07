@@ -107,12 +107,13 @@ function runFixture(endpoint, home) {
       if (stderr.length < 65_536) stderr += String(chunk);
     });
     child.once('error', () => resolve({ kind: 'fixture-defect', exitCode: 1 }));
-    child.once('exit', (code, signal) => {
+    child.once('close', (code, signal) => {
       const gatewayRejected = stderr
         .split(/\r?\n/u)
         .some((line) => line.includes('"classification":"gateway-rejected"'));
+      const kind = code === 0 ? 'attempted' : gatewayRejected ? 'gateway-rejected' : 'fixture-defect';
       resolve({
-        kind: code === 0 || gatewayRejected ? 'attempted' : 'fixture-defect',
+        kind,
         exitCode: signal ? 1 : (code ?? 1),
       });
     });

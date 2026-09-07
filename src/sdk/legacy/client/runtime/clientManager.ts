@@ -9,7 +9,7 @@ import { ParallelExecutor } from '@src/core/loading/parallelExecutor.js';
 import { BackendStdioSupervisor, type BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
 import { ClientStatus, OperationOptions, OutboundConnections, ServerCapability } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
-import { Client } from '@src/sdk/legacy/client/index.js';
+import type { Client } from '@src/sdk/legacy/client/index.js';
 import { CapabilityError, ClientConnectionError, ClientNotFoundError } from '@src/utils/core/errorTypes.js';
 import { executeOperation } from '@src/utils/core/operationExecution.js';
 import { getConnectionTimeout } from '@src/utils/core/timeoutUtils.js';
@@ -27,6 +27,7 @@ import {
 } from './legacyOutboundConnection.js';
 import type { AuthProviderTransport } from './legacyTransport.js';
 import { OAuthFlowHandler } from './oauthFlowHandler.js';
+import type { OutboundSdkClient } from './sdkClient.js';
 import { TransportRecreator } from './transportRecreator.js';
 import { OAuthRequiredError } from './types.js';
 
@@ -113,7 +114,7 @@ export class ClientManager extends EventEmitter {
     this.backendAvailabilityHandler = handler;
   }
 
-  private extractAndCacheInstructions(name: string, client: Client): void {
+  private extractAndCacheInstructions(name: string, client: OutboundSdkClient): void {
     try {
       const instructions = client.getInstructions();
       const connectionInfo = this.outboundConns.get(name);
@@ -151,7 +152,7 @@ export class ClientManager extends EventEmitter {
     }
   }
 
-  private setupConnectionHandlers(name: string, client: Client): void {
+  private setupConnectionHandlers(name: string, client: OutboundSdkClient): void {
     client.onclose = () => {
       if (this.isShuttingDown) {
         return;
@@ -210,7 +211,7 @@ export class ClientManager extends EventEmitter {
    * session ID on every subsequent request and the backend never recovers
    * until the whole 1MCP process is restarted.
    */
-  private recoverFromSessionLoss(name: string, erroredClient: Client): void {
+  private recoverFromSessionLoss(name: string, erroredClient: OutboundSdkClient): void {
     if (this.isShuttingDown) {
       return;
     }
@@ -281,8 +282,8 @@ export class ClientManager extends EventEmitter {
    */
   public async createClients(transports: Record<string, AuthProviderTransport>): Promise<OutboundConnections> {
     this.assertActive();
-    this.transports = transports;
-    this.outboundConns.clear();
+    const previousNames = [...this.outboundConns.keys()];
+    const nextNames = new Set(Object.keys(transports));
 
     const executor = new ParallelExecutor<[string, AuthProviderTransport], void>();
     const serverEntries = Object.entries(transports);
@@ -290,7 +291,7 @@ export class ClientManager extends EventEmitter {
 
     const bulkOperation = executor.execute(
       serverEntries,
-      async ([name, transport]) => this.createClient(name, transport),
+      async ([name, transport]) => this.createClient(name, transport, true),
       {
         maxConcurrent: DEFAULT_MAX_CONCURRENT_LOADS,
       },
@@ -300,6 +301,16 @@ export class ClientManager extends EventEmitter {
       await bulkOperation;
     } finally {
       this.bulkConnectionOperations.delete(bulkOperation);
+      for (const name of previousNames) {
+        if (nextNames.has(name)) continue;
+        const connection = this.outboundConns.get(name);
+        // Revoke publication before closing: session recovery may have replaced
+        // the original snapshot, or still be connecting when this name is removed.
+        this.outboundConns.delete(name);
+        delete this.transports[name];
+        this.instructionAggregator?.removeServer({ source: 'mcpServers', name: connection?.name || name }, name);
+        await this.disposeSupersededConnection(name, connection);
+      }
     }
 
     // Check for failures and log summary
@@ -328,23 +339,50 @@ export class ClientManager extends EventEmitter {
     return this.outboundConns;
   }
 
-  private async createClient(name: string, transport: AuthProviderTransport): Promise<void> {
+  private async createClient(
+    name: string,
+    transport: AuthProviderTransport,
+    preserveHealthyConnection = false,
+  ): Promise<void> {
     logger.info(`Creating client for ${name}`);
     if (this.isShuttingDown) {
       return;
     }
+    const existing = this.outboundConns.get(name);
+    const preserveExisting = preserveHealthyConnection && existing?.status === ClientStatus.Connected;
+    if (!preserveExisting) this.transports[name] = transport;
     try {
-      const client = this.clientFactory.createClient();
-      const connected = await this.connectionHandler.connectWithRetry(client, transport, name, undefined, (t) =>
-        this.transportRecreator.recreateForRetry(t, name),
+      const client = this.clientFactory.createClient(transport);
+      const connected = await this.connectionHandler.connectWithRetry(
+        client,
+        transport,
+        name,
+        undefined,
+        (t) => this.transportRecreator.recreateForRetry(t, name, { preserveSessionId: false }),
+        (t) => this.clientFactory.createClient(t),
       );
       if (this.isShuttingDown) {
         await this.disposeConnectedClient(connected);
         return;
       }
+      const superseded = this.outboundConns.get(name);
       this.recordConnectedClient(name, connected);
+      await this.disposeSupersededConnection(name, superseded, connected.client);
     } catch (error) {
       if (this.isShuttingDown) {
+        return;
+      }
+      if (preserveExisting) {
+        if (error instanceof OAuthRequiredError) {
+          error.client.onclose = undefined;
+          error.client.onerror = undefined;
+          await Promise.allSettled([error.client.close(), (error.transport ?? transport).close()]);
+        }
+        if (!(error instanceof OAuthRequiredError) || (error.transport && error.transport !== transport)) {
+          await transport.close().catch(() => undefined);
+        }
+        const safeError = sanitizeRuntimeScopeError(error);
+        logger.warn(`Keeping healthy client ${name} after replacement failed: ${safeError.message}`);
         return;
       }
       this.handleClientCreationError(name, transport, sanitizeRuntimeScopeError(error));
@@ -353,18 +391,19 @@ export class ClientManager extends EventEmitter {
 
   private handleClientCreationError(name: string, transport: AuthProviderTransport, error: unknown): void {
     if (error instanceof OAuthRequiredError) {
+      const activeTransport = error.transport ?? transport;
       logger.info(`OAuth authorization required for ${name}`, {
         reason: error.message,
-        hasAuthorizationUrl: !!this.oauthFlowHandler.extractAuthorizationUrl(transport),
+        hasAuthorizationUrl: !!this.oauthFlowHandler.extractAuthorizationUrl(activeTransport),
         clientName: name,
-        transportType: transport.constructor.name,
+        transportType: activeTransport.constructor.name,
       });
-      const authorizationUrl = this.oauthFlowHandler.extractAuthorizationUrl(transport);
+      const authorizationUrl = this.oauthFlowHandler.extractAuthorizationUrl(activeTransport);
       this.outboundConns.set(
         name,
         createLegacyOutboundConnection({
           name,
-          transport,
+          transport: activeTransport,
           client: error.client,
           status: ClientStatus.AwaitingOAuth,
           authorizationUrl,
@@ -385,7 +424,7 @@ export class ClientManager extends EventEmitter {
         createLegacyOutboundConnection({
           name,
           transport,
-          client: this.clientFactory.createClient(),
+          client: this.clientFactory.createClient(transport),
           status: ClientStatus.Error,
           lastError: error,
         }),
@@ -445,21 +484,29 @@ export class ClientManager extends EventEmitter {
         throw new Error(`Operation aborted: ${abortSignal.reason || 'Request cancelled'}`);
       }
 
-      const client = this.clientFactory.createClient();
+      const client = this.clientFactory.createClient(attemptTransport);
       const connected = await this.connectionHandler.connectWithRetry(
         client,
         attemptTransport,
         name,
         abortSignal,
-        (t) => this.transportRecreator.recreateForRetry(t, name),
+        (t) => this.transportRecreator.recreateForRetry(t, name, { preserveSessionId: false }),
+        (t) => this.clientFactory.createClient(t),
       );
-      if (this.isShuttingDown) {
+      if (this.isShuttingDown || this.transports[name] !== attemptTransport) {
         await this.disposeConnectedClient(connected);
-        throw new Error('ClientManager is shutting down');
+        throw new Error(
+          this.isShuttingDown ? 'ClientManager is shutting down' : `Client ${name} was removed or replaced`,
+        );
       }
+      const superseded = this.outboundConns.get(name);
       this.recordConnectedClient(name, connected);
+      await this.disposeSupersededConnection(name, superseded, connected.client);
     } catch (error) {
-      if (this.isShuttingDown) {
+      if (this.isShuttingDown || this.transports[name] !== attemptTransport) {
+        if (error instanceof OAuthRequiredError) {
+          await this.disposeConnectedClient({ client: error.client, transport: error.transport ?? attemptTransport });
+        }
         throw sanitizeRuntimeScopeError(error);
       }
       const safeError = sanitizeRuntimeScopeError(error);
@@ -474,7 +521,7 @@ export class ClientManager extends EventEmitter {
       return requestedTransport;
     }
 
-    return this.transportRecreator.recreateForRetry(requestedTransport, name);
+    return this.transportRecreator.recreateForRetry(requestedTransport, name, { preserveSessionId: false });
   }
 
   private recordConnectedClient(name: string, connected: ConnectedClient): void {
@@ -503,20 +550,36 @@ export class ClientManager extends EventEmitter {
     }
   }
 
+  private async disposeSupersededConnection(
+    name: string,
+    superseded: LegacyOutboundConnection | undefined,
+    publishedClient?: OutboundSdkClient,
+  ): Promise<void> {
+    if (!superseded || (publishedClient && getLegacyClient(superseded) === publishedClient)) return;
+    getLegacyClient(superseded).onclose = undefined;
+    try {
+      await superseded.adapter.close();
+    } catch (error) {
+      const safeError = sanitizeRuntimeScopeError(error);
+      logger.warn(`Could not close superseded client ${name}: ${safeError.message}`);
+    }
+  }
+
   private handleSingleClientError(name: string, transport: AuthProviderTransport, error: unknown): void {
     if (error instanceof OAuthRequiredError) {
+      const activeTransport = error.transport ?? transport;
       logger.info(`OAuth authorization required for ${name}`, {
         reason: error.message,
-        hasAuthorizationUrl: !!this.oauthFlowHandler.extractAuthorizationUrl(transport),
+        hasAuthorizationUrl: !!this.oauthFlowHandler.extractAuthorizationUrl(activeTransport),
         clientName: name,
-        transportType: transport.constructor.name,
+        transportType: activeTransport.constructor.name,
       });
-      const authorizationUrl = this.oauthFlowHandler.extractAuthorizationUrl(transport);
+      const authorizationUrl = this.oauthFlowHandler.extractAuthorizationUrl(activeTransport);
       this.outboundConns.set(
         name,
         createLegacyOutboundConnection({
           name,
-          transport,
+          transport: activeTransport,
           client: error.client,
           status: ClientStatus.AwaitingOAuth,
           authorizationUrl,
@@ -537,7 +600,7 @@ export class ClientManager extends EventEmitter {
         createLegacyOutboundConnection({
           name,
           transport,
-          client: this.clientFactory.createClient(),
+          client: this.clientFactory.createClient(transport),
           status: ClientStatus.Error,
           lastError: error,
         }),
@@ -561,7 +624,10 @@ export class ClientManager extends EventEmitter {
     return Object.keys(this.transports);
   }
 
-  public async completeOAuthAndReconnect(serverName: string, authorizationCode: string): Promise<void> {
+  public async completeOAuthAndReconnect(
+    serverName: string,
+    authorizationCode: string | URLSearchParams,
+  ): Promise<void> {
     this.assertActive();
     const clientInfo = this.outboundConns.get(serverName);
     if (!clientInfo) {
@@ -569,7 +635,9 @@ export class ClientManager extends EventEmitter {
     }
 
     const oldTransport = getLegacyTransport(clientInfo);
-    const newTransport = this.transportRecreator.recreateHttpTransport(oldTransport, serverName);
+    const newTransport = this.transportRecreator.recreateHttpTransport(oldTransport, serverName, {
+      preserveSessionId: false,
+    });
 
     const updatedInfo = await this.oauthFlowHandler.completeOAuthAndReconnect(
       serverName,
@@ -590,7 +658,7 @@ export class ClientManager extends EventEmitter {
     }
 
     this.outboundConns.set(serverName, updatedInfo);
-    this.transports[serverName] = newTransport;
+    this.transports[serverName] = getLegacyTransport(updatedInfo);
 
     this.extractAndCacheInstructions(serverName, getLegacyClient(updatedInfo));
     this.setupConnectionHandlers(serverName, getLegacyClient(updatedInfo));
@@ -620,18 +688,52 @@ export class ClientManager extends EventEmitter {
   }
 
   public async initiateOAuth(serverName: string): Promise<void> {
+    this.assertActive();
     const connection = this.getClient(serverName);
-    const transport = getLegacyTransport(connection);
-    const client = this.clientFactory.createClientInstance();
+    const superseded = { ...connection };
+    const transport = this.transportRecreator.recreateHttpTransport(getLegacyTransport(connection), serverName, {
+      preserveSessionId: false,
+    });
+    const client = this.clientFactory.createClient(transport);
+    let authorizationUrl: string | undefined;
     try {
-      await client.connect(transport);
+      await client.connect(transport as never);
     } catch (error) {
-      const authorizationUrl = this.oauthFlowHandler.extractAuthorizationUrl(transport);
-      if (!authorizationUrl) throw error;
-      connection.status = ClientStatus.AwaitingOAuth;
-      connection.oauthStartTime = new Date().toISOString();
-      connection.authorizationUrl = authorizationUrl;
+      authorizationUrl = this.oauthFlowHandler.extractAuthorizationUrl(transport);
+      if (!authorizationUrl) {
+        await this.disposeConnectedClient({ client, transport });
+        throw error;
+      }
     }
+
+    if (this.isShuttingDown || this.outboundConns.get(serverName) !== connection) {
+      await this.disposeConnectedClient({ client, transport });
+      throw new Error(`Client ${serverName} was removed or replaced during OAuth initiation`);
+    }
+
+    // The authorization flow retains this snapshot while initiating OAuth.
+    // Keep its identity, but bind the candidate used to generate the callback state.
+    Object.assign(
+      connection,
+      createLegacyOutboundConnection({
+        name: serverName,
+        client,
+        transport,
+        status: authorizationUrl ? ClientStatus.AwaitingOAuth : ClientStatus.Connected,
+        authorizationUrl,
+        oauthStartTime: authorizationUrl ? new Date() : undefined,
+        capabilities: authorizationUrl ? undefined : client.getServerCapabilities(),
+        lastConnected: authorizationUrl ? undefined : new Date(),
+      }),
+    );
+    this.transports[serverName] = transport;
+    if (!authorizationUrl) {
+      connection.authorizationUrl = undefined;
+      connection.oauthStartTime = undefined;
+      this.extractAndCacheInstructions(serverName, client);
+      this.setupConnectionHandlers(serverName, client);
+    }
+    await this.disposeSupersededConnection(serverName, superseded, client);
   }
 
   public createPooledClientInstance(): Client {
@@ -796,7 +898,7 @@ export class ClientManager extends EventEmitter {
     }
 
     let transport: AuthProviderTransport | undefined;
-    let client: Client | undefined;
+    let client: OutboundSdkClient | undefined;
     const dispose = async (): Promise<void> => {
       if (!client) {
         await transport?.close().catch(() => undefined);
@@ -812,7 +914,7 @@ export class ClientManager extends EventEmitter {
 
     try {
       transport = metadata.recreate() as AuthProviderTransport;
-      client = this.clientFactory.createClient();
+      client = this.clientFactory.createClient(transport);
       const timeout = getConnectionTimeout(transport);
       await client.connect(transport, timeout ? { timeout } : undefined);
       const serverVersion = await client.getServerVersion();

@@ -35,6 +35,7 @@ describe('TransportFactory environment substitution', () => {
     const config: Record<string, MCPServerParams> = {
       scoped: {
         type: 'stdio',
+        protocolVersion: 'legacy',
         command: 'node',
         args: ['server.js', '$RUNTIME_SCOPE_TOKEN'],
         inheritParentEnv: true,
@@ -54,7 +55,7 @@ describe('TransportFactory environment substitution', () => {
     process.env.RUNTIME_SCOPE_PRECEDENCE = 'parent-value';
     activateRuntimeScopeEnvironment({ RUNTIME_SCOPE_PRECEDENCE: 'scope-value' });
     const config: Record<string, MCPServerParams> = {
-      scoped: { type: 'stdio', command: 'node', args: ['$RUNTIME_SCOPE_PRECEDENCE'] },
+      scoped: { type: 'stdio', protocolVersion: 'legacy', command: 'node', args: ['$RUNTIME_SCOPE_PRECEDENCE'] },
     };
     (transportConfigSchema.parse as any).mockReturnValueOnce(config.scoped);
 
@@ -69,6 +70,7 @@ describe('TransportFactory environment substitution', () => {
     const config: Record<string, MCPServerParams> = {
       scoped: {
         type: 'http',
+        protocolVersion: 'legacy',
         url: 'https://$RUNTIME_SCOPE_HTTP.example.com/mcp',
         headers: { Authorization: 'Bearer ${RUNTIME_SCOPE_HTTP}' },
         oauth: {
@@ -164,6 +166,7 @@ describe('TransportFactory environment substitution', () => {
     const config: Record<string, MCPServerParams> = {
       scoped: {
         type: 'sse',
+        protocolVersion: 'legacy',
         url: 'https://$RUNTIME_SCOPE_SSE/events',
         headers: { Authorization: 'Bearer ${RUNTIME_SCOPE_SSE}' },
       },
@@ -184,6 +187,7 @@ describe('TransportFactory environment substitution', () => {
     const config: Record<string, MCPServerParams> = {
       context7: {
         type: 'stdio',
+        protocolVersion: 'legacy',
         command: 'bunx',
         args: ['@upstash/context7-mcp@latest', '--api-key', '$CONTEXT7_API_KEY'],
         inheritParentEnv: true,
@@ -210,6 +214,7 @@ describe('TransportFactory environment substitution', () => {
     const config: Record<string, MCPServerParams> = {
       context7: {
         type: 'stdio',
+        protocolVersion: 'legacy',
         command: 'bunx',
         args: ['@upstash/context7-mcp@latest', '--api-key', '${CONTEXT7_API_KEY}'],
         inheritParentEnv: true,
@@ -238,6 +243,7 @@ describe('TransportFactory environment substitution', () => {
     const config: Record<string, MCPServerParams> = {
       context7: {
         type: 'stdio',
+        protocolVersion: 'legacy',
         command: 'bunx',
         args: ['@upstash/context7-mcp@latest'],
         inheritParentEnv: true,
@@ -268,6 +274,7 @@ describe('TransportFactory environment substitution', () => {
     const config: Record<string, MCPServerParams> = {
       context7: {
         type: 'stdio',
+        protocolVersion: 'legacy',
         command: 'bunx',
         args: ['@upstash/context7-mcp@latest', '--api-key', '${CONTEXT7_API_KEY}'],
         inheritParentEnv: true,

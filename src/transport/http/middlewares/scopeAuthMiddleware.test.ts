@@ -1,7 +1,12 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import * as constants from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 
 import type { NextFunction, Request, Response } from 'express';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AuthInfo, createScopeAuthMiddleware, getAuthInfo, getValidatedTags } from './scopeAuthMiddleware.js';
 
@@ -28,9 +33,21 @@ vi.mock('@src/utils/validation/scopeValidation.js', async () => {
 });
 
 describe('Scope Authentication Middleware Utilities', () => {
+  let storageDirectory: string;
+
+  beforeEach(async () => {
+    storageDirectory = await mkdtemp(join(tmpdir(), '1mcp-oauth-test-'));
+    vi.spyOn(constants, 'getGlobalConfigDir').mockReturnValue(storageDirectory);
+  });
+
   beforeEach(() => {
     // @ts-expect-error - Accessing private singleton for isolated middleware tests
     AgentConfigManager.instance = undefined;
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await rm(storageDirectory, { recursive: true, force: true });
   });
 
   describe('getValidatedTags', () => {

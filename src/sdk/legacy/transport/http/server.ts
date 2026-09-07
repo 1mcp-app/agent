@@ -30,11 +30,13 @@ import { createConfigChangeService } from '@src/domains/config-change/configChan
 import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import logger from '@src/logger/logger.js';
 import { mcpAuthRouter } from '@src/sdk/legacy/server/auth/router.js';
+import { createModernInboundLegacyBridge } from '@src/sdk/legacy/transport/http/modernInboundLegacyBridge.js';
 import errorHandler from '@src/transport/http/middlewares/errorHandler.js';
 import { httpRequestLogger } from '@src/transport/http/middlewares/httpRequestLogger.js';
 import { createMcpAvailabilityMiddleware } from '@src/transport/http/middlewares/mcpAvailabilityMiddleware.js';
 import { createScopeAuthMiddleware } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
 import { setupSecurityMiddleware } from '@src/transport/http/middlewares/securityMiddleware.js';
+import tagsExtractor from '@src/transport/http/middlewares/tagsExtractor.js';
 import { createAdminRoutes } from '@src/transport/http/routes/adminRoutes.js';
 import {
   createApiRoutes,
@@ -42,6 +44,7 @@ import {
   rejectBrowserOriginRequests,
 } from '@src/transport/http/routes/apiRoutes.js';
 import createHealthRoutes from '@src/transport/http/routes/healthRoutes.js';
+import { setupModernHttpRoutes } from '@src/transport/http/routes/modernHttpRoutes.js';
 import createOAuthRoutes, {
   createBackendOAuthAuthorizationFlow,
   createBackendOAuthDashboardProvider,
@@ -171,6 +174,15 @@ function getUrlHostname(url: string | undefined): string | undefined {
   }
 }
 
+function getUrlOrigin(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  try {
+    return new URL(url).origin.toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
 function isHostAllowed(
   requestHost: string | undefined,
   externalHostname: string | undefined,
@@ -214,6 +226,27 @@ function createLoopbackRequestGuard(configManager: AgentConfigManager): express.
     }
 
     next();
+  };
+}
+
+export function createModernHttpRequestPolicy(configManager: AgentConfigManager) {
+  return {
+    allowsHost: (host: string | undefined) => {
+      const externalHostname = getUrlHostname(configManager.get('externalUrl'));
+      const boundHostname = normalizeHostHeader(configManager.get('host'));
+      return isHostAllowed(normalizeHostHeader(host), externalHostname, boundHostname);
+    },
+    allowsOrigin: (origin: string | undefined, host: string | undefined) => {
+      if (!origin) return true;
+      const requestHost = normalizeHostHeader(host);
+      if (isLoopbackHostname(requestHost)) return isLoopbackOrigin(origin);
+      const externalOrigin = getUrlOrigin(configManager.get('externalUrl'));
+      if (externalOrigin) return getUrlOrigin(origin) === externalOrigin;
+      const externalHostname = getUrlHostname(configManager.get('externalUrl'));
+      const boundHostname = normalizeHostHeader(configManager.get('host'));
+      const originHostname = getUrlHostname(origin);
+      return originHostname === (externalHostname ?? boundHostname);
+    },
   };
 }
 
@@ -502,6 +535,14 @@ export class ExpressServer {
       allowPartialAvailability: true,
       includeOAuthServers: false,
     });
+
+    setupModernHttpRoutes(
+      router,
+      this.serverManager,
+      [tagsExtractor, scopeAuthMiddleware, availabilityMiddleware],
+      createModernInboundLegacyBridge,
+      createModernHttpRequestPolicy(this.configManager),
+    );
 
     setupStreamableHttpRoutes(
       router,
