@@ -1,45 +1,27 @@
 import { EventEmitter } from 'events';
 
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
-import {
-  clearConfiguredToolSnapshot,
-  collectConfiguredToolPages,
-  publishCompleteConfiguredToolTargetSnapshots,
-  publishConfiguredToolSnapshot,
-} from '@src/core/capabilities/configuredToolSnapshot.js';
 import { InternalCapabilitiesProvider } from '@src/core/capabilities/internalCapabilitiesProvider.js';
-import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
-import { filterDisabledTools } from '@src/core/server/disabledTools.js';
-import { applyEffectiveToolDescription } from '@src/core/server/toolDescriptionOverrides.js';
-import { ClientStatus, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
-import logger, { debugIf } from '@src/logger/logger.js';
-import {
-  ListPromptsResult,
-  ListResourcesResult,
-  ListToolsResult,
-  Prompt,
-  Resource,
-  Tool,
-} from '@src/sdk/contracts/index.js';
+import type { OutboundConnections } from '@src/core/types/index.js';
+import type { Prompt, Resource, ResourceTemplate, Tool } from '@src/sdk/contracts/index.js';
 
-/**
- * Represents a snapshot of aggregated capabilities from all ready servers
- */
+import { buildCatalogGeneration, type CatalogGeneration } from './catalogGeneration.js';
+import { acquireRuntimeCapabilityCatalog, type RuntimeCapabilitySnapshot } from './runtimeCapabilityCatalog.js';
+
 export interface AggregatedCapabilities {
   readonly tools: Tool[];
   readonly resources: Resource[];
+  readonly resourceTemplates: ResourceTemplate[];
   readonly prompts: Prompt[];
   readonly readyServers: string[];
   readonly timestamp: Date;
 }
 
-/**
- * Represents changes between two capability snapshots
- */
 export interface CapabilityChanges {
   readonly hasChanges: boolean;
   readonly toolsChanged: boolean;
   readonly resourcesChanged: boolean;
+  readonly resourceTemplatesChanged: boolean;
   readonly promptsChanged: boolean;
   readonly addedServers: string[];
   readonly removedServers: string[];
@@ -47,292 +29,98 @@ export interface CapabilityChanges {
   readonly current: AggregatedCapabilities;
 }
 
-/**
- * Events emitted by CapabilityAggregator
- */
 export interface CapabilityAggregatorEvents {
   'capabilities-changed': (changes: CapabilityChanges) => void;
   'server-capabilities-ready': (serverName: string, capabilities: AggregatedCapabilities) => void;
 }
 
-/**
- * Aggregates and tracks capabilities (tools, resources, prompts) from all ready MCP servers.
- * Detects changes when servers come online or go offline and emits events for notification.
- *
- * @example
- * ```typescript
- * const aggregator = new CapabilityAggregator(outboundConnections);
- * aggregator.on('capabilities-changed', (changes) => {
- *   if (changes.toolsChanged) {
- *     // Send ToolListChangedNotification to clients
- *   }
- * });
- *
- * // When server comes online
- * aggregator.updateCapabilities();
- * ```
- */
+/** Publishes the runtime catalog as one aggregate snapshot for discovery and notifications. */
 export class CapabilityAggregator extends EventEmitter {
-  private outboundConns: OutboundConnections;
-  private currentCapabilities: AggregatedCapabilities;
-  private isInitialized: boolean = false;
-  private internalProvider: InternalCapabilitiesProvider;
+  private generation = buildCatalogGeneration(0, []);
+  private snapshot?: RuntimeCapabilitySnapshot;
+  private currentCapabilities: AggregatedCapabilities = {
+    tools: [],
+    resources: [],
+    resourceTemplates: [],
+    prompts: [],
+    readyServers: [],
+    timestamp: new Date(),
+  };
+  private refreshSequence = 0;
 
-  constructor(outboundConnections: OutboundConnections) {
+  constructor(private readonly outboundConns: OutboundConnections) {
     super();
-    this.outboundConns = outboundConnections;
-    this.currentCapabilities = this.createEmptyCapabilities();
-    this.internalProvider = InternalCapabilitiesProvider.getInstance();
     this.setMaxListeners(50);
   }
 
-  /**
-   * Create an empty capabilities snapshot
-   */
-  private createEmptyCapabilities(): AggregatedCapabilities {
-    return {
-      tools: [],
-      resources: [],
-      prompts: [],
-      readyServers: [],
-      timestamp: new Date(),
-    };
-  }
-
-  /**
-   * Get current aggregated capabilities
-   */
   public getCurrentCapabilities(): AggregatedCapabilities {
     return this.currentCapabilities;
   }
 
-  /**
-   * Update capabilities by querying all ready servers
-   * This should be called when server states change
-   */
+  public getCatalogGeneration(): CatalogGeneration {
+    return this.generation;
+  }
+
+  public getCatalogSnapshot(): RuntimeCapabilitySnapshot | undefined {
+    return this.snapshot;
+  }
+
   public async updateCapabilities(): Promise<CapabilityChanges> {
-    const previousCapabilities = this.currentCapabilities;
-    const newCapabilities = await this.aggregateFromReadyServers();
-
-    const changes = this.detectChanges(previousCapabilities, newCapabilities);
-    this.currentCapabilities = newCapabilities;
-
-    if (!this.isInitialized) {
-      this.isInitialized = true;
-      debugIf('CapabilityAggregator initialized with capabilities from ready servers');
-    }
-
-    if (changes.hasChanges) {
-      logger.info(
-        `Capabilities changed: tools=${changes.toolsChanged}, resources=${changes.resourcesChanged}, prompts=${changes.promptsChanged}`,
-      );
-      this.emit('capabilities-changed', changes);
-    }
-
+    const sequence = ++this.refreshSequence;
+    const internal = InternalCapabilitiesProvider.getInstance();
+    await internal.initialize();
+    const snapshot = await acquireRuntimeCapabilityCatalog(this.outboundConns, undefined, {
+      serverConfigs: getConfiguredServerTargets(),
+      internalTools: internal.getAvailableTools(),
+      internalResources: internal.getAvailableResources(),
+      internalPrompts: internal.getAvailablePrompts(),
+    });
+    const [tools, resources, resourceTemplates, prompts] = await Promise.all([
+      snapshot.list<Tool>('tools', { enablePagination: false }),
+      snapshot.list<Resource>('resources', { enablePagination: false }),
+      snapshot.list<ResourceTemplate>('resourceTemplates', { enablePagination: false }),
+      snapshot.list<Prompt>('prompts', { enablePagination: false }),
+    ]);
+    const previous = this.currentCapabilities;
+    if (sequence !== this.refreshSequence) return this.detectChanges(previous, previous);
+    const readyServers = new Set(Array.from(snapshot.connections.keys()));
+    if (snapshot.generation.entries.some((entry) => entry.route.origin === 'internal')) readyServers.add('1mcp');
+    const current = Object.freeze({
+      tools: Object.freeze(tools.items) as unknown as Tool[],
+      resources: Object.freeze(resources.items) as unknown as Resource[],
+      resourceTemplates: Object.freeze(resourceTemplates.items) as unknown as ResourceTemplate[],
+      prompts: Object.freeze(prompts.items) as unknown as Prompt[],
+      readyServers: Object.freeze([...readyServers].sort()) as unknown as string[],
+      timestamp: new Date(),
+    });
+    const changes = this.detectChanges(previous, current);
+    this.generation = snapshot.generation;
+    this.snapshot = snapshot;
+    this.currentCapabilities = current;
+    if (changes.hasChanges) this.emit('capabilities-changed', changes);
     return changes;
   }
 
-  /**
-   * Force refresh capabilities from all servers
-   */
   public async refreshCapabilities(): Promise<AggregatedCapabilities> {
-    const changes = await this.updateCapabilities();
-    return changes.current;
+    return (await this.updateCapabilities()).current;
   }
 
-  /**
-   * Aggregate capabilities from all ready servers
-   */
-  private async aggregateFromReadyServers(): Promise<AggregatedCapabilities> {
-    const readyServers: string[] = [];
-    const allTools: Tool[] = [];
-    const allResources: Resource[] = [];
-    const allPrompts: Prompt[] = [];
-    const serverConfigs = getConfiguredServerTargets();
-
-    // Add 1mcp tools first
-    try {
-      await this.internalProvider.initialize();
-      const internalTools = this.internalProvider.getAvailableTools();
-      const internalResources = this.internalProvider.getAvailableResources();
-      const internalPrompts = this.internalProvider.getAvailablePrompts();
-
-      allTools.push(...internalTools);
-      allResources.push(...internalResources);
-      allPrompts.push(...internalPrompts);
-
-      // Only add 1mcp as a ready server if it provides capabilities
-      if (internalTools.length > 0 || internalResources.length > 0 || internalPrompts.length > 0) {
-        readyServers.push('1mcp');
-      }
-    } catch (error) {
-      logger.warn(`Failed to load 1mcp tools: ${error}`);
-    }
-
-    // Add tools from external MCP servers
-    for (const [serverName, connection] of this.outboundConns.entries()) {
-      if (connection.status !== ClientStatus.Connected) {
-        continue;
-      }
-
-      try {
-        readyServers.push(serverName);
-
-        // Get server capabilities to check what's supported
-        const serverCapabilities = connection.capabilities ?? {};
-
-        // Build promises array based on actual capabilities
-        const promises: Promise<unknown>[] = [this.safeListTools(serverName, connection)];
-
-        if (serverCapabilities.resources) {
-          promises.push(this.safeListResources(serverName, connection));
-        }
-        if (serverCapabilities.prompts) {
-          promises.push(this.safeListPrompts(serverName, connection));
-        }
-
-        // Fetch capabilities in parallel (only those supported)
-        const results = await Promise.allSettled(promises);
-
-        if (connection.status !== ClientStatus.Connected) {
-          clearConfiguredToolSnapshot(connection);
-          readyServers.splice(readyServers.indexOf(serverName), 1);
-          continue;
-        }
-
-        // Process tools (always first in promises array)
-        if (results[0]?.status === 'fulfilled') {
-          const toolsResult = results[0].value as ListToolsResult;
-          if (toolsResult.tools) {
-            publishConfiguredToolSnapshot(connection, toolsResult.tools, toolsResult.nextCursor === undefined);
-            const logicalServerName = connection.name || serverName;
-            allTools.push(
-              ...filterDisabledTools(toolsResult.tools, serverConfigs, logicalServerName).map((tool) =>
-                applyEffectiveToolDescription(tool, serverConfigs[logicalServerName], logicalServerName),
-              ),
-            );
-          }
-        } else {
-          clearConfiguredToolSnapshot(connection);
-        }
-
-        // Process resources (second if available)
-        let resultIndex = 1;
-        if (serverCapabilities.resources) {
-          const resourceResult = results[resultIndex];
-          if (resourceResult && resourceResult.status === 'fulfilled') {
-            const resourcesResult = resourceResult.value as ListResourcesResult;
-            if (resourcesResult.resources) {
-              allResources.push(...resourcesResult.resources);
-            }
-          }
-          // Always increment index when resources capability exists, regardless of fulfillment
-          resultIndex++;
-        }
-
-        // Process prompts (third if available)
-        if (serverCapabilities.prompts) {
-          const promptResult = results[resultIndex];
-          if (promptResult && promptResult.status === 'fulfilled') {
-            const promptsResult = promptResult.value as ListPromptsResult;
-            if (promptsResult.prompts) {
-              allPrompts.push(...promptsResult.prompts);
-            }
-          }
-        }
-      } catch (error) {
-        logger.warn(`Failed to aggregate capabilities from ${serverName}: ${error}`);
-        // Continue with other servers
-      }
-    }
-
-    publishCompleteConfiguredToolTargetSnapshots(this.outboundConns);
-
-    return {
-      tools: this.deduplicateTools(allTools),
-      resources: this.deduplicateResources(allResources),
-      prompts: this.deduplicatePrompts(allPrompts),
-      readyServers: readyServers.sort(),
-      timestamp: new Date(),
-    };
-  }
-
-  /**
-   * Safely list tools from a server
-   */
-  private async safeListTools(serverName: string, connection: OutboundConnection): Promise<ListToolsResult> {
-    try {
-      return await collectConfiguredToolPages((cursor) =>
-        requestLegacyAdapter<ListToolsResult>(
-          connection.adapter,
-          'tools/list',
-          cursor === undefined ? undefined : { cursor },
-          { timeoutMs: connection.requestTimeoutMs },
-        ),
-      );
-    } catch (error) {
-      logger.warn(`Failed to list tools from ${serverName}`, { error: String(error) });
-      throw error;
-    }
-  }
-
-  /**
-   * Safely list resources from a server
-   */
-  private async safeListResources(serverName: string, connection: OutboundConnection): Promise<ListResourcesResult> {
-    try {
-      return await requestLegacyAdapter<ListResourcesResult>(connection.adapter, 'resources/list', undefined, {
-        timeoutMs: connection.requestTimeoutMs,
-      });
-    } catch (error) {
-      logger.warn(`Failed to list resources from ${serverName}`, { error: String(error) });
-      return { resources: [] };
-    }
-  }
-
-  /**
-   * Safely list prompts from a server
-   */
-  private async safeListPrompts(serverName: string, connection: OutboundConnection): Promise<ListPromptsResult> {
-    try {
-      return await requestLegacyAdapter<ListPromptsResult>(connection.adapter, 'prompts/list', undefined, {
-        timeoutMs: connection.requestTimeoutMs,
-      });
-    } catch (error) {
-      logger.warn(`Failed to list prompts from ${serverName}`, { error: String(error) });
-      return { prompts: [] };
-    }
-  }
-
-  /**
-   * Detect changes between two capability snapshots
-   */
   private detectChanges(previous: AggregatedCapabilities, current: AggregatedCapabilities): CapabilityChanges {
-    const toolsChanged = !this.arraysEqual(
-      previous.tools.map((tool) => `${tool.name}\0${tool.description ?? ''}`).sort(),
-      current.tools.map((tool) => `${tool.name}\0${tool.description ?? ''}`).sort(),
-    );
-
-    const resourcesChanged = !this.arraysEqual(
-      previous.resources.map((r) => r.uri).sort(),
-      current.resources.map((r) => r.uri).sort(),
-    );
-
-    const promptsChanged = !this.arraysEqual(
-      previous.prompts.map((p) => p.name).sort(),
-      current.prompts.map((p) => p.name).sort(),
-    );
-
-    const addedServers = current.readyServers.filter((s) => !previous.readyServers.includes(s));
-    const removedServers = previous.readyServers.filter((s) => !current.readyServers.includes(s));
-
-    const hasChanges =
-      toolsChanged || resourcesChanged || promptsChanged || addedServers.length > 0 || removedServers.length > 0;
-
+    const changed = (before: unknown[], after: unknown[]) =>
+      JSON.stringify(before.map((item) => JSON.stringify(item)).sort()) !==
+      JSON.stringify(after.map((item) => JSON.stringify(item)).sort());
+    const toolsChanged = changed(previous.tools, current.tools);
+    const resourceTemplatesChanged = changed(previous.resourceTemplates, current.resourceTemplates);
+    const resourcesChanged = changed(previous.resources, current.resources) || resourceTemplatesChanged;
+    const promptsChanged = changed(previous.prompts, current.prompts);
+    const addedServers = current.readyServers.filter((server) => !previous.readyServers.includes(server));
+    const removedServers = previous.readyServers.filter((server) => !current.readyServers.includes(server));
     return {
-      hasChanges,
+      hasChanges:
+        toolsChanged || resourcesChanged || promptsChanged || addedServers.length > 0 || removedServers.length > 0,
       toolsChanged,
       resourcesChanged,
+      resourceTemplatesChanged,
       promptsChanged,
       addedServers,
       removedServers,
@@ -341,61 +129,6 @@ export class CapabilityAggregator extends EventEmitter {
     };
   }
 
-  /**
-   * Check if two arrays are equal (shallow comparison)
-   */
-  private arraysEqual<T>(a: T[], b: T[]): boolean {
-    return a.length === b.length && a.every((val, index) => val === b[index]);
-  }
-
-  /**
-   * Remove duplicate tools based on name
-   */
-  private deduplicateTools(tools: Tool[]): Tool[] {
-    const seen = new Set<string>();
-    return tools.filter((tool) => {
-      if (seen.has(tool.name)) {
-        debugIf(`Duplicate tool name detected: ${tool.name}`);
-        return false;
-      }
-      seen.add(tool.name);
-      return true;
-    });
-  }
-
-  /**
-   * Remove duplicate resources based on URI
-   */
-  private deduplicateResources(resources: Resource[]): Resource[] {
-    const seen = new Set<string>();
-    return resources.filter((resource) => {
-      if (seen.has(resource.uri)) {
-        debugIf(`Duplicate resource URI detected: ${resource.uri}`);
-        return false;
-      }
-      seen.add(resource.uri);
-      return true;
-    });
-  }
-
-  /**
-   * Remove duplicate prompts based on name
-   */
-  private deduplicatePrompts(prompts: Prompt[]): Prompt[] {
-    const seen = new Set<string>();
-    return prompts.filter((prompt) => {
-      if (seen.has(prompt.name)) {
-        debugIf(`Duplicate prompt name detected: ${prompt.name}`);
-        return false;
-      }
-      seen.add(prompt.name);
-      return true;
-    });
-  }
-
-  /**
-   * Get summary of current capabilities for logging
-   */
   public getCapabilitiesSummary(): string {
     const caps = this.currentCapabilities;
     return `${caps.tools.length} tools, ${caps.resources.length} resources, ${caps.prompts.length} prompts from ${caps.readyServers.length} servers`;

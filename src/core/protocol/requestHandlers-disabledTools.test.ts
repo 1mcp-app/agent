@@ -25,7 +25,7 @@ vi.mock('@src/config/mcpConfigManager.js', () => ({
 
 vi.mock('@src/utils/core/parsing.js', () => ({
   parseUri: mockParseUri,
-  buildUri: vi.fn((serverName: string, toolName: string) => `${serverName}/${toolName}`),
+  buildUri: vi.fn((serverName: string, toolName: string) => `${serverName}_1mcp_${toolName}`),
 }));
 
 vi.mock('@src/utils/core/errorHandling.js', () => ({
@@ -110,6 +110,7 @@ describe('requestHandlers disabled tools enforcement', () => {
         createMockLegacyOutboundConnection({
           name: 'filesystem',
           status: ClientStatus.Connected,
+          capabilities: { tools: {} },
           client: createMockClient({ ...mockClient, request } as never) as Client,
         }),
       ],
@@ -148,7 +149,7 @@ describe('requestHandlers disabled tools enforcement', () => {
     const handler = getRegisteredHandler(ListToolsRequestSchema);
     const result = await handler({ params: {} });
 
-    expect(result.tools.map((tool: { name: string }) => tool.name)).toEqual(['filesystem/read_file']);
+    expect(result.tools.map((tool: { name: string }) => tool.name)).toEqual(['filesystem_1mcp_read_file']);
   });
 
   it('uses effective descriptions in non-lazy listTools responses', async () => {
@@ -167,7 +168,7 @@ describe('requestHandlers disabled tools enforcement', () => {
     const handler = getRegisteredHandler(ListToolsRequestSchema);
     const result = await handler({ params: {} });
 
-    expect(result.tools.find((tool: { name: string }) => tool.name === 'filesystem/read_file')).toMatchObject({
+    expect(result.tools.find((tool: { name: string }) => tool.name === 'filesystem_1mcp_read_file')).toMatchObject({
       description: 'Read a workspace file safely',
       inputSchema: { type: 'object' },
     });
@@ -195,10 +196,10 @@ describe('requestHandlers disabled tools enforcement', () => {
     const secondResult = await handler({ params: {} });
 
     expect(firstResult.tools.map((tool: { name: string }) => tool.name)).toEqual([
-      'filesystem/read_file',
-      'filesystem/write_file',
+      'filesystem_1mcp_read_file',
+      'filesystem_1mcp_write_file',
     ]);
-    expect(secondResult.tools.map((tool: { name: string }) => tool.name)).toEqual(['filesystem/read_file']);
+    expect(secondResult.tools.map((tool: { name: string }) => tool.name)).toEqual(['filesystem_1mcp_read_file']);
   });
 
   it('blocks direct tool invocation for disabled tools', async () => {
@@ -220,7 +221,7 @@ describe('requestHandlers disabled tools enforcement', () => {
     const handler = getRegisteredHandler(CallToolRequestSchema);
     const result = await handler({
       params: {
-        name: 'filesystem/write_file',
+        name: 'filesystem_1mcp_write_file',
         arguments: {},
       },
     });
@@ -254,13 +255,13 @@ describe('requestHandlers disabled tools enforcement', () => {
     const handler = getRegisteredHandler(CallToolRequestSchema);
     const firstResult = await handler({
       params: {
-        name: 'filesystem/write_file',
+        name: 'filesystem_1mcp_write_file',
         arguments: {},
       },
     });
     const secondResult = await handler({
       params: {
-        name: 'filesystem/write_file',
+        name: 'filesystem_1mcp_write_file',
         arguments: {},
       },
     });

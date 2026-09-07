@@ -36,6 +36,18 @@ function createOAuthTransport(
 }
 
 describe('LegacySdkClientAdapter', () => {
+  it('quarantines malformed template syntax before catalog capture', async () => {
+    const client = createClient();
+    const healthy = { name: 'guide', uriTemplate: 'file:///{name}', unknown: [1] };
+    vi.spyOn(client, 'request').mockResolvedValue({
+      resourceTemplates: [healthy, { name: 'broken', uriTemplate: 'file:///{' }],
+    } as never);
+    const adapter = new LegacySdkClientAdapter(client, createTransport());
+    await expect(adapter.request({ id: 'templates' as never, method: 'resources/templates/list' })).resolves.toEqual({
+      resourceTemplates: [healthy, null],
+    });
+  });
+
   it('clones successful v1 SDK results before returning them', async () => {
     const client = createClient();
     const result = { tools: [{ name: 'echo', inputSchema: { type: 'object' } }] };

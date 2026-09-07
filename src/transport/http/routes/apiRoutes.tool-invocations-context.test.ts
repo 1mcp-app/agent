@@ -120,8 +120,13 @@ describe('apiRoutes /api/tool-invocations', () => {
     const registerTemplate = vi.fn();
     const connection = createMockOutboundConnection({
       name: 'serena',
+      capabilities: { tools: {} },
       adapter: {
-        request: vi.fn(async ({ params }) => callTool(params)),
+        request: vi.fn(async ({ method, params }) =>
+          method === 'tools/list'
+            ? { tools: [{ name: 'list_memories', inputSchema: { type: 'object' } }] }
+            : callTool(params),
+        ),
       },
     });
     const serverManager = {

@@ -61,6 +61,9 @@ describe('registerToolHandlers capability visibility', () => {
       isEnabled: () => true,
       isMetaTool: () => true,
       callMetaTool,
+      getCapabilitiesForVisibility: vi.fn().mockResolvedValue({
+        tools: [{ name: 'tool_list', inputSchema: { type: 'object' } }],
+      }),
     } as unknown as LazyLoadingOrchestrator;
 
     registerToolHandlers(connections, inbound, orchestrator);

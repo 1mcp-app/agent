@@ -1,4 +1,6 @@
 import { registerCapabilityPaginationNotifications } from '@src/core/capabilities/capabilityPagination.js';
+import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
+import { getRequestSession, resolveCapabilityVisibility } from '@src/core/protocol/requestHandlerUtils.js';
 import { ClientStatus, InboundConnection, ServerStatus } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 import { toJsonValue } from '@src/sdk/contracts/index.js';
@@ -8,6 +10,7 @@ import {
   setOutboundNotificationHandler,
 } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
+import { projectResourceUri } from '@src/sdk/legacy/shared/resourceTemplateRouting.js';
 import {
   CancelledNotificationSchema,
   LoggingMessageNotificationSchema,
@@ -83,11 +86,24 @@ export function setupClientToServerNotifications(
 
           // Try to send notification, catch connection errors gracefully
           try {
+            let params = notification.params;
+            if (notification.method === 'notifications/resources/updated') {
+              const visibility = resolveCapabilityVisibility(
+                outboundConns,
+                inboundConn,
+                getRequestSession(inboundConn),
+                'resources',
+              );
+              if (!visibility.serverCandidates.has(name) || typeof params?.uri !== 'string') return;
+              const snapshot = await acquireRuntimeCapabilityCatalog(outboundConns, visibility);
+              if (snapshot.connections.get(name) !== outboundConn) return;
+              params = { ...params, uri: projectResourceUri(snapshot, name, params.uri) };
+            }
             // Preserve original message structure and only modify params
             const forwardedNotification = {
               method: notification.method,
               params: {
-                ...notification.params,
+                ...params,
                 server: name,
               },
             };

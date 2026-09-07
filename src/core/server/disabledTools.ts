@@ -103,6 +103,28 @@ export function getDisabledToolError(
   };
 }
 
+/** Match a catalog source identity without interpreting its display-like text. */
+export function isSourceToolDisabled(
+  serverConfigs: Record<string, MCPServerParams>,
+  server: string,
+  upstreamIdentity: string,
+): boolean {
+  const disabled = getDisabledToolsForServer(serverConfigs, server);
+  return disabled.includes(upstreamIdentity) || disabled.includes(`${server}${MCP_URI_SEPARATOR}${upstreamIdentity}`);
+}
+
+export function getDisabledSourceToolError(
+  serverConfigs: Record<string, MCPServerParams>,
+  server: string,
+  upstreamIdentity: string,
+): { type: 'not_found'; message: string } | undefined {
+  if (!isSourceToolDisabled(serverConfigs, server, upstreamIdentity)) return undefined;
+  return {
+    type: 'not_found',
+    message: `Tool is disabled: ${server}:${upstreamIdentity}. Use '1mcp mcp tools enable ${server} ${upstreamIdentity}' to re-enable it.`,
+  };
+}
+
 export function filterDisabledTools<T extends Pick<Tool, 'name'>>(
   tools: T[],
   serverConfigs: Record<string, MCPServerParams>,

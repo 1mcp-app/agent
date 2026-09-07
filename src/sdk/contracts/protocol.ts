@@ -155,6 +155,11 @@ export interface ListPromptsResult {
   nextCursor?: string;
   _meta?: JsonObject;
 }
+export interface ListResourceTemplatesResult {
+  resourceTemplates: ResourceTemplate[];
+  nextCursor?: string;
+  _meta?: JsonObject;
+}
 
 interface ListChangedCapability {
   listChanged?: boolean;
@@ -341,6 +346,17 @@ function isPromptArgument(value: JsonValue): value is JsonObject & PromptArgumen
   );
 }
 
+function isResourceTemplate(value: JsonObject): value is JsonObject & ResourceTemplate {
+  return (
+    isProtocolMetadata(value) &&
+    typeof value.uriTemplate === 'string' &&
+    isOptionalString(value.description) &&
+    isOptionalString(value.mimeType) &&
+    (value.annotations === undefined || isAnnotations(value.annotations)) &&
+    (value._meta === undefined || isJsonObject(value._meta))
+  );
+}
+
 function isPrompt(value: JsonObject): value is JsonObject & Prompt {
   return (
     isProtocolMetadata(value) &&
@@ -404,6 +420,18 @@ export function toProtocolResource(value: unknown): Resource {
 
 export function toProtocolResources(values: readonly unknown[]): Resource[] {
   return values.map(toProtocolResource);
+}
+
+export function toProtocolResourceTemplate(value: unknown): ResourceTemplate {
+  const normalized = toProtocolJsonObject(value, 'ResourceTemplate');
+  if (!isResourceTemplate(normalized)) {
+    throw new TypeError('ResourceTemplate must have a name and URI template');
+  }
+  return normalized;
+}
+
+export function toProtocolResourceTemplates(values: readonly unknown[]): ResourceTemplate[] {
+  return values.map(toProtocolResourceTemplate);
 }
 
 export function toProtocolPrompt(value: unknown): Prompt {

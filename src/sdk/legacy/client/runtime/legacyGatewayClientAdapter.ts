@@ -1,5 +1,6 @@
 import { LegacyOutboundEraAdapter } from '@src/gateway/adapters/legacy/legacyOutboundEraAdapter.js';
 import { createEffectiveRequestAuthority } from '@src/gateway/contracts/effectiveRequestAuthority.js';
+import { gatewayOperationSchema } from '@src/gateway/contracts/gatewayRequest.js';
 import { toImmutableJsonValue } from '@src/gateway/contracts/immutableJson.js';
 import {
   createLegacyTimeoutMs,
@@ -44,7 +45,8 @@ export class LegacyGatewayClientAdapter extends LegacySdkClientAdapter {
 
   override async request(request: LegacySdkRequest): Promise<JsonValue> {
     const params = stripInboundRequestMeta(request.params);
-    if (request.method !== 'tools/list' && request.method !== 'tools/call') {
+    const operation = gatewayOperationSchema.safeParse(request.method);
+    if (!operation.success) {
       return super.request({ ...request, params });
     }
     this.gatewayRequests.add(request.id);
@@ -53,7 +55,7 @@ export class LegacyGatewayClientAdapter extends LegacySdkClientAdapter {
       return toJsonValue(
         await this.outbound.request({
           requestId: request.id,
-          operation: request.method,
+          operation: operation.data,
           ...(params === undefined ? {} : { params: toImmutableJsonValue(params) }),
           authority: createEffectiveRequestAuthority({
             connectionIds: [this.connectionId],

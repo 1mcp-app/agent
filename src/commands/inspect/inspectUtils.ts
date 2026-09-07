@@ -2,8 +2,9 @@ import { encode } from '@toon-format/toon';
 
 import type { ParsedToolReference } from '@src/commands/run/runUtils.js';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
+import { readPublicCapabilityRoute } from '@src/core/capabilities/catalogGeneration.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
-import { buildUri, parseUri } from '@src/utils/core/parsing.js';
+import { buildUri } from '@src/utils/core/parsing.js';
 import { isPlainObject } from '@src/utils/typeGuards.js';
 
 import chalk from 'chalk';
@@ -468,17 +469,9 @@ function getOptionalSchemaObject(value: unknown): Record<string, unknown> | unde
 }
 
 function getServerName(tool: Tool): string {
-  try {
-    return parseUri(tool.name, MCP_URI_SEPARATOR).clientName;
-  } catch {
-    return '';
-  }
+  return readPublicCapabilityRoute(tool)?.server ?? '';
 }
 
 function getToolName(tool: Tool): string {
-  try {
-    return parseUri(tool.name, MCP_URI_SEPARATOR).resourceName;
-  } catch {
-    return tool.name;
-  }
+  return readPublicCapabilityRoute(tool)?.upstreamIdentity ?? tool.name;
 }

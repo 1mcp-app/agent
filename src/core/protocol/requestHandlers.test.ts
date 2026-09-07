@@ -81,7 +81,7 @@ const mockTemplateServerManager = {
 
 vi.mock('@src/utils/core/parsing.js', () => ({
   parseUri: mockParseUri,
-  buildUri: vi.fn((name, resource) => `${name}/${resource}`),
+  buildUri: vi.fn((name, resource) => `${name}_1mcp_${resource}`),
 }));
 
 vi.mock('@src/core/filtering/clientFiltering.js', () => ({
@@ -245,6 +245,12 @@ describe('Request Handlers', () => {
     });
 
     it('recovers OAuth for a direct MCP tool call', async () => {
+      mockByCapabilities.mockImplementation((connections) => connections);
+      mockClient1.request.mockImplementation(async ({ method }: { method: string }) => {
+        if (method === 'tools/list') return { tools: [{ name: 'tool', inputSchema: { type: 'object' } }] };
+        if (method === 'tools/call') return mockClient1.callTool();
+        throw new Error(`Unexpected request: ${method}`);
+      });
       const oauthProvider = { invalidateCredentials: vi.fn().mockResolvedValue(undefined) };
       const staleTransport = {
         _url: new URL('https://example.com/mcp'),
@@ -270,6 +276,7 @@ describe('Request Handlers', () => {
         client: mockClient1,
         transport: staleTransport,
         status: ClientStatus.Connected,
+        capabilities: { tools: {} },
         adapterOptions: {
           recreateHttpTransport,
         },
@@ -282,7 +289,7 @@ describe('Request Handlers', () => {
         ([schema]: [unknown]) => schema === CallToolRequestSchema,
       )?.[1];
 
-      await expect(handler({ params: { name: 'client1_tool', arguments: {} } })).rejects.toMatchObject({
+      await expect(handler({ params: { name: 'client1_1mcp_tool', arguments: {} } })).rejects.toMatchObject({
         name: 'OneMcpProtocolError',
         code: 401,
         message: unauthorized.message,

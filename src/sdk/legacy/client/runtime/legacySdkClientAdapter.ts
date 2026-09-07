@@ -19,6 +19,7 @@ import {
 } from '@src/sdk/contracts/index.js';
 import type { Client } from '@src/sdk/legacy/client/index.js';
 import { StreamableHTTPError } from '@src/sdk/legacy/client/streamableHttp.js';
+import { captureCapabilityListResult } from '@src/sdk/legacy/shared/capabilityListCapture.js';
 import {
   PromptListChangedNotificationSchema,
   ResourceListChangedNotificationSchema,
@@ -121,7 +122,7 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
     try {
       if (this.lifecycleState === 'idle') await this.start();
       const result = await this.requestWithRecovery(request, controller);
-      return toJsonValue(result);
+      return captureCapabilityListResult(request.method, result);
     } catch (error) {
       throw toProtocolError(error);
     } finally {

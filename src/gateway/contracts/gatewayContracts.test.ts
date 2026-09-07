@@ -94,10 +94,18 @@ describe('gateway contracts', () => {
     expect(JSON.parse(JSON.stringify(envelope))).toEqual(envelope);
   });
 
-  it('accepts direct tools/call while preserving the immutable gateway boundary', () => {
+  it.each([
+    'tools/call',
+    'prompts/list',
+    'prompts/get',
+    'resources/list',
+    'resources/templates/list',
+    'resources/read',
+    'completion/complete',
+  ] as const)('accepts %s while preserving the immutable gateway boundary', (operation) => {
     const envelope = createGatewayRequestEnvelope({
       requestId: 'request-call',
-      operation: 'tools/call',
+      operation,
       targetConnectionId: 'backend',
       params: { name: 'echo', arguments: { value: 1 } },
       authority: createEffectiveRequestAuthority({ connectionIds: ['backend'] }),
@@ -106,7 +114,7 @@ describe('gateway contracts', () => {
       deadlineUnixMs: 10_000,
     });
 
-    expect(envelope.operation).toBe('tools/call');
+    expect(envelope.operation).toBe(operation);
     expect(Object.isFrozen(envelope.params)).toBe(true);
   });
 

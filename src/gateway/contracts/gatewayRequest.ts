@@ -4,7 +4,16 @@ import { createEffectiveRequestAuthority, type EffectiveRequestAuthority } from 
 import { type ImmutableJsonValue, toImmutableJsonValue } from './immutableJson.js';
 import { classifyProtocolEra, type ProtocolEraPin } from './protocolEra.js';
 
-export const gatewayOperationSchema = z.enum(['tools/list', 'tools/call']);
+export const gatewayOperationSchema = z.enum([
+  'tools/list',
+  'tools/call',
+  'prompts/list',
+  'prompts/get',
+  'resources/list',
+  'resources/templates/list',
+  'resources/read',
+  'completion/complete',
+]);
 export type GatewayOperation = z.infer<typeof gatewayOperationSchema>;
 
 export interface GatewayRequestEnvelope {

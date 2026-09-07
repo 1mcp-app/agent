@@ -13,7 +13,7 @@ export function createCapabilityNotificationFacts(changes: CapabilityChanges): C
       changed: changes.hasChanges,
       shouldNotifyListChanged: changes.toolsChanged,
     },
-    resourcesChanged: changes.resourcesChanged,
+    resourcesChanged: changes.resourcesChanged || changes.resourceTemplatesChanged,
     promptsChanged: changes.promptsChanged,
   };
 }

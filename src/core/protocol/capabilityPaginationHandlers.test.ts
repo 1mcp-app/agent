@@ -308,6 +308,8 @@ describe('capability pagination protocol handlers', () => {
     if (!toolsHandler) throw new Error('tools/list handler was not registered');
     const toolsPage = (await toolsHandler({ params: {} })) as { nextCursor?: string };
     expect(toolsPage.nextCursor).toBeDefined();
+    // The catalog captures every advertised kind before publishing its first generation.
+    listResources.mockClear();
 
     const resourcesHandler = registerResources(connections);
     await expect(resourcesHandler({ params: { cursor: toolsPage.nextCursor } })).rejects.toMatchObject({
@@ -330,13 +332,14 @@ describe('capability pagination protocol handlers', () => {
     const handler = registerResources(connections);
     const first = (await handler({ params: {} })) as { nextCursor?: string };
 
+    alphaList.mockClear();
     connections.get('zeta')!.status = ClientStatus.Disconnected;
 
     await expect(handler({ params: { cursor: first.nextCursor } })).rejects.toMatchObject({
       code: ErrorCode.InvalidParams,
       data: { reason: 'stale_generation' },
     });
-    expect(alphaList).toHaveBeenCalledTimes(1);
+    expect(alphaList).not.toHaveBeenCalled();
   });
 
   it('continues past failures with sanitized partial metadata through the final page', async () => {
@@ -440,7 +443,8 @@ describe('capability pagination protocol handlers', () => {
       _meta?: Record<string, unknown>;
     };
 
-    expect(result.resources).toHaveLength(2);
+    // Repeated source identities are quarantined instead of silently keeping duplicate routes.
+    expect(result.resources).toHaveLength(0);
     expect(listResources).toHaveBeenCalledTimes(2);
     expect(result._meta).toMatchObject({
       'app.1mcp/capability-pagination': {
@@ -514,6 +518,7 @@ describe('capability pagination protocol handlers', () => {
     const notificationHandler = notificationHandlers.get(ResourceListChangedNotificationSchema);
     if (!listHandler || !notificationHandler) throw new Error('required handlers were not registered');
     const first = (await listHandler({ params: {} })) as { nextCursor?: string };
+    listResources.mockClear();
 
     await notificationHandler({ method: 'notifications/resources/list_changed', params: {} });
 
@@ -521,7 +526,7 @@ describe('capability pagination protocol handlers', () => {
       code: ErrorCode.InvalidParams,
       data: { reason: 'stale_generation' },
     });
-    expect(listResources).toHaveBeenCalledTimes(1);
+    expect(listResources).not.toHaveBeenCalled();
     expect(inboundNotification).toHaveBeenCalledWith({
       method: 'notifications/resources/list_changed',
       params: { server: 'alpha' },
@@ -576,13 +581,14 @@ describe('capability pagination protocol handlers', () => {
     if (!handler) throw new Error('resources/list handler was not registered');
     const first = (await handler({ params: {} })) as { nextCursor?: string };
 
+    listResources.mockClear();
     (inbound as { tags: string[] }).tags = ['safe', 'still-visible'];
 
     await expect(handler({ params: { cursor: first.nextCursor } })).rejects.toMatchObject({
       code: ErrorCode.InvalidParams,
       data: { reason: 'filter_mismatch' },
     });
-    expect(listResources).toHaveBeenCalledTimes(1);
+    expect(listResources).not.toHaveBeenCalled();
   });
 
   it('skips empty final providers without consuming an aggregate page', async () => {

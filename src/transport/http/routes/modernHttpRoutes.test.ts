@@ -7,6 +7,7 @@ import { Writable } from 'node:stream';
 import express from 'express';
 import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 
 import errorHandler from '../middlewares/errorHandler.js';
 import {
@@ -129,10 +130,13 @@ describe('modern HTTP admission', () => {
         ttlMs: 0,
         cacheScope: 'private',
         supportedVersions: ['2026-07-28'],
-        capabilities: { tools: {} },
+        capabilities: { tools: {}, prompts: {}, resources: {}, completions: {} },
       },
     });
     expect(response.headers['mcp-session-id']).toBeUndefined();
+    expect(response.body.result.capabilities.extensions).toBeUndefined();
+    expect(response.body.result.capabilities.resources.subscribe).toBeUndefined();
+    expect(response.body.result.capabilities.resources.listChanged).toBeUndefined();
     expect(createBridge).not.toHaveBeenCalled();
   });
 
@@ -546,16 +550,27 @@ describe('modern HTTP admission', () => {
     }
   });
 
-  it('serves discovery, identity, list, and call to the real pinned v2 client', async () => {
+  it('serves mixed capability kinds and operations to the real pinned v2 client', async () => {
+    const tool = { name: 'echo', title: 'Echo title', inputSchema: { type: 'object' }, 'example.com/data': [1] };
+    const prompt = { name: 'explain', arguments: [{ name: 'topic', required: true }], 'example.com/data': [2] };
+    const resource = { name: 'guide', uri: 'file:///guide', mimeType: 'text/plain', 'example.com/data': [3] };
+    const template = { name: 'guides', uriTemplate: 'file:///{name}', 'example.com/data': [4] };
+    const results: Record<string, unknown> = {
+      'tools/list': { tools: [tool] },
+      'tools/call': { content: [{ type: 'text', text: 'ok' }] },
+      'prompts/list': { prompts: [prompt] },
+      'prompts/get': { messages: [{ role: 'user', content: { type: 'text', text: 'Explain' } }] },
+      'resources/list': { resources: [resource] },
+      'resources/templates/list': { resourceTemplates: [template] },
+      'resources/read': { contents: [{ uri: resource.uri, text: 'Guide' }] },
+      'completion/complete': { completion: { values: ['topic'] } },
+    };
     createBridge.mockImplementation(async () => ({
       targetConnectionId: 'real-client-bridge',
       outbound: {
         role: 'outbound',
         pin: Object.freeze({ era: 'legacy', revision: '2025-11-25' }),
-        request: async ({ operation }: { operation: string }) =>
-          operation === 'tools/list'
-            ? { tools: [{ name: 'echo', description: 'Echo', inputSchema: { type: 'object' } }] }
-            : { content: [{ type: 'text', text: 'ok' }] },
+        request: async ({ operation }: { operation: string }) => results[operation],
         cancel: async () => undefined,
         close: async () => undefined,
       },
@@ -574,7 +589,20 @@ describe('modern HTTP admission', () => {
     try {
       await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`)));
       expect(client.getServerVersion()).toEqual({ name: '1mcp', version: expect.any(String) });
-      expect((await client.listTools()).tools).toEqual([expect.objectContaining({ name: 'echo' })]);
+      for (const method of ['tools/list', 'prompts/list', 'resources/list', 'resources/templates/list']) {
+        // Typed SDK convenience methods strip unknown fields; inspect the wire projection losslessly.
+        expect(await client.request({ method }, z.looseObject({}))).toMatchObject(results[method] as object);
+      }
+      expect(await client.getPrompt({ name: prompt.name, arguments: { topic: 'test' } })).toMatchObject(
+        results['prompts/get'] as object,
+      );
+      expect(await client.readResource({ uri: resource.uri })).toMatchObject(results['resources/read'] as object);
+      expect(
+        await client.complete({
+          ref: { type: 'ref/prompt', name: prompt.name },
+          argument: { name: 'topic', value: 't' },
+        }),
+      ).toMatchObject(results['completion/complete'] as object);
       expect(await client.callTool({ name: 'echo', arguments: {} })).toMatchObject({
         content: [{ type: 'text', text: 'ok' }],
       });

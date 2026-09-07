@@ -4,6 +4,8 @@
  * These tests measure token usage, startup time, tool invocation latency,
  * cache hit rates, and request coalescing effectiveness.
  */
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
 import { OutboundConnections } from '@src/core/types/index.js';
 import { Tool } from '@src/sdk/contracts/index.js';
 
@@ -53,35 +55,25 @@ describe('Lazy Loading Performance Tests', () => {
     mockOutboundConnections = new Map([
       [
         'filesystem',
-        {
+        createMockOutboundConnection({
           name: 'filesystem',
-          client: mockClient,
-          status: 'ready',
-          transport: {
-            tags: ['filesystem', 'local'],
-            get args() {
-              return [];
-            },
+          tags: ['filesystem', 'local'],
+          capabilities: { tools: {} },
+          adapter: {
+            request: vi.fn(async ({ method }) => (method === 'tools/list' ? await mockClient.listTools() : {})),
           },
-          state: 'ready',
-          lastConnected: new Date(),
-        },
+        }),
       ],
       [
         'search',
-        {
+        createMockOutboundConnection({
           name: 'search',
-          client: mockClient,
-          status: 'ready',
-          transport: {
-            tags: ['search', 'web'],
-            get args() {
-              return [];
-            },
+          tags: ['search', 'web'],
+          capabilities: { tools: {} },
+          adapter: {
+            request: vi.fn(async ({ method }) => (method === 'tools/list' ? await mockClient.listTools() : {})),
           },
-          state: 'ready',
-          lastConnected: new Date(),
-        },
+        }),
       ],
     ]) as unknown as OutboundConnections;
 

@@ -1,4 +1,5 @@
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
+import { buildCatalogGeneration, readPublicCapabilityRoute } from '@src/core/capabilities/catalogGeneration.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { LoadingState, type ServerLoadingInfo } from '@src/core/loading/loadingStateTracker.js';
 import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
@@ -155,7 +156,7 @@ export function summarizeToolSchema(tool: Tool): ToolSummary {
       : [];
 
   return {
-    tool: getToolName(tool.name),
+    tool: readPublicCapabilityRoute(tool)?.upstreamIdentity ?? tool.name,
     qualifiedName: tool.name,
     description: tool.description ?? '',
     requiredArgs: required.length,
@@ -164,10 +165,12 @@ export function summarizeToolSchema(tool: Tool): ToolSummary {
 }
 
 export function summarizeDirectServerTool(serverName: string, tool: Tool): ToolSummary {
-  return summarizeToolSchema({
-    ...tool,
-    name: getServerName(tool.name) === serverName ? tool.name : qualifyToolName(serverName, tool.name),
-  });
+  const generation = buildCatalogGeneration(0, [
+    { kind: 'tools', server: serverName, connectionKey: serverName, object: tool },
+  ]);
+  const entry = generation.entries[0];
+  if (!entry) throw new Error('Invalid source tool');
+  return summarizeToolSchema(entry.publicObject as unknown as Tool);
 }
 
 export function resolveConnectionByServerName(

@@ -1,6 +1,7 @@
 import { ConfigManager } from '@src/config/configManager.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { CapabilityAggregator } from '@src/core/capabilities/capabilityAggregator.js';
+import { buildCatalogGeneration, readPublicCapabilityRoute } from '@src/core/capabilities/catalogGeneration.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
@@ -11,9 +12,13 @@ import {
   filterDisabledTools,
   getDisabledToolError,
   getDisabledToolsForServer,
+  isSourceToolDisabled,
 } from '@src/core/server/disabledTools.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
-import { applyEffectiveToolDescription } from '@src/core/server/toolDescriptionOverrides.js';
+import {
+  applyEffectiveToolDescription,
+  applySourceToolDescription,
+} from '@src/core/server/toolDescriptionOverrides.js';
 import logger from '@src/logger/logger.js';
 
 import { Request, RequestHandler, Response } from 'express';
@@ -21,8 +26,6 @@ import { Request, RequestHandler, Response } from 'express';
 import {
   buildFilterConfig,
   deriveServerState,
-  getServerName,
-  getToolName,
   type InspectServerPayload,
   type InspectServersPayload,
   type InspectToolPayload,
@@ -113,9 +116,9 @@ function summarizeRegistryTools(
   serverConfigs: ServerConfigMap,
 ): ToolSummary[] {
   return tools.map((tool) => ({
-    tool: getToolName(tool.name),
-    qualifiedName: tool.name,
-    description: applyEffectiveToolDescription(tool, serverConfigs[serverName], serverName).description,
+    tool: tool.name,
+    qualifiedName: qualifyToolName(serverName, tool.name),
+    description: applySourceToolDescription(tool, serverConfigs[serverName], serverName).description,
     requiredArgs: 0,
     optionalArgs: 0,
   }));
@@ -126,7 +129,7 @@ function buildRegistryToolsResult(
   result: ReturnType<ToolRegistry['listTools']>,
   serverConfigs: ServerConfigMap,
 ): { tools: ToolSummary[]; totalTools: number; hasMore: boolean; nextCursor?: string } {
-  const filteredTools = filterDisabledTools(result.tools, serverConfigs, serverName);
+  const filteredTools = result.tools.filter((tool) => !isSourceToolDisabled(serverConfigs, serverName, tool.name));
   const disabledToolsConfigured = hasDisabledTools(serverConfigs, serverName);
 
   return {
@@ -143,13 +146,22 @@ function buildDirectToolsResult(
   serverConfigs: ServerConfigMap,
 ): { tools: ToolSummary[]; totalTools: number; hasMore: boolean; nextCursor?: string } {
   const rawTools = directResult.tools ?? [];
-  const directTools = filterDisabledTools(rawTools, serverConfigs, serverName);
+  const generation = buildCatalogGeneration(
+    0,
+    rawTools.map((tool) => ({
+      kind: 'tools',
+      server: serverName,
+      connectionKey: serverName,
+      object: applySourceToolDescription(tool, serverConfigs[serverName], serverName),
+    })),
+  );
+  const directTools = generation.entries.filter(
+    (entry) => !isSourceToolDisabled(serverConfigs, serverName, entry.route.upstreamIdentity),
+  );
   const disabledToolsConfigured = hasDisabledTools(serverConfigs, serverName);
 
   return {
-    tools: directTools.map((tool) =>
-      summarizeDirectServerTool(serverName, applyEffectiveToolDescription(tool, serverConfigs[serverName], serverName)),
-    ),
+    tools: directTools.map((entry) => summarizeToolSchema(entry.publicObject as unknown as Tool)),
     totalTools: disabledToolsConfigured ? directTools.length : (directResult.totalCount ?? directTools.length),
     hasMore: disabledToolsConfigured ? false : (directResult.hasMore ?? Boolean(directResult.nextCursor)),
     nextCursor: disabledToolsConfigured ? undefined : directResult.nextCursor,
@@ -181,7 +193,7 @@ export async function buildServerSummaries(
     }
   } else if (capabilityAggregator) {
     for (const tool of capabilityAggregator.getCurrentCapabilities().tools) {
-      const sn = getServerName(tool.name);
+      const sn = readPublicCapabilityRoute(tool)?.server;
       if (sn && !filterDisabledTools([tool], serverConfigs, sn).length) continue;
       if (sn) toolCountByServer[sn] = (toolCountByServer[sn] ?? 0) + 1;
     }
@@ -381,7 +393,7 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
         if (capabilityAggregator) {
           found = capabilityAggregator
             .getCurrentCapabilities()
-            .tools.find((t) => t.name === qualifiedName && getServerName(t.name) === serverName);
+            .tools.find((t) => t.name === qualifiedName && readPublicCapabilityRoute(t)?.server === serverName);
         }
 
         if (!found) {
@@ -396,9 +408,16 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
                   timeoutMs: connection.requestTimeoutMs,
                 },
               );
-              found = filterDisabledTools(result.tools ?? [], serverConfigs, serverName).find(
-                (t) => t.name === qualifiedName || t.name === toolName,
+              const generation = buildCatalogGeneration(
+                0,
+                (result.tools ?? []).map((tool) => ({
+                  kind: 'tools',
+                  server: serverName,
+                  connectionKey: serverName,
+                  object: applySourceToolDescription(tool, serverConfigs[serverName], serverName),
+                })),
               );
+              found = generation.resolve('tools', qualifiedName)?.publicObject as unknown as Tool | undefined;
             } catch (error) {
               logger.warn(`Failed to list tools for server '${serverName}' while resolving tool '${toolName}':`, error);
             }
@@ -513,7 +532,9 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
         }
       } else if (capabilityAggregator) {
         const capTools = filterDisabledTools(
-          capabilityAggregator.getCurrentCapabilities().tools.filter((t) => getServerName(t.name) === serverName),
+          capabilityAggregator
+            .getCurrentCapabilities()
+            .tools.filter((t) => readPublicCapabilityRoute(t)?.server === serverName),
           serverConfigs,
           serverName,
         );

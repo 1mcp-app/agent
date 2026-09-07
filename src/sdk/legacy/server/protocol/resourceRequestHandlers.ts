@@ -1,145 +1,97 @@
-import { MCP_URI_SEPARATOR } from '@src/constants.js';
-import {
-  createProtocolCapabilityCatalog,
-  getRequestSession,
-  resolveCapabilityVisibility,
-  resolveOutboundConnection,
-} from '@src/core/protocol/requestHandlerUtils.js';
+import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
+import { getRequestSession, resolveCapabilityVisibility } from '@src/core/protocol/requestHandlerUtils.js';
 import { InboundConnection } from '@src/core/types/index.js';
 import {
   type LegacyOutboundConnections,
   requestLegacyOutbound,
 } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
+import { projectResourceUri, resolveResourceRoute } from '@src/sdk/legacy/shared/resourceTemplateRouting.js';
 import {
-  ListResourcesRequest,
   ListResourcesRequestSchema,
-  ListResourceTemplatesRequest,
   ListResourceTemplatesRequestSchema,
   ReadResourceRequestSchema,
-  type Resource,
-  type ResourceTemplate,
   SubscribeRequestSchema,
   UnsubscribeRequestSchema,
 } from '@src/sdk/legacy/types.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
-import { buildUri, parseUri } from '@src/utils/core/parsing.js';
 
 export function registerResourceHandlers(
   outboundConns: LegacyOutboundConnections,
   inboundConn: InboundConnection,
 ): void {
-  const sessionId = getRequestSession(inboundConn);
-  const catalog = createProtocolCapabilityCatalog(outboundConns);
-
-  getLegacyInboundServer(inboundConn).setRequestHandler(
+  const acquire = (cursor?: string, kind: 'resources' | 'resourceTemplates' = 'resources') =>
+    acquireRuntimeCapabilityCatalog(
+      outboundConns,
+      resolveCapabilityVisibility(outboundConns, inboundConn, getRequestSession(inboundConn), 'resources'),
+      { continuation: cursor ? { kind, cursor, enablePagination: inboundConn.enablePagination ?? false } : undefined },
+    );
+  const server = getLegacyInboundServer(inboundConn);
+  server.setRequestHandler(
     ListResourcesRequestSchema,
-    withErrorHandling(async (request: ListResourcesRequest) => {
-      const visibility = resolveCapabilityVisibility(outboundConns, inboundConn, sessionId, 'resources');
-      const result = await catalog.listVisibleCapabilityPages<Resource>({
-        kind: 'resources',
-        visibility,
+    withErrorHandling(async (request) => {
+      const snapshot = await acquire(request.params?.cursor);
+      const result = await snapshot.list('resources', {
         cursor: request.params?.cursor,
-        list: async (outboundConn, cursor, serverName) => {
-          const upstream = await requestLegacyOutbound<{ resources: Resource[]; nextCursor?: string }>(
-            outboundConn,
-            'resources/list',
-            cursor === undefined ? undefined : { cursor },
-          );
-          return {
-            items: (upstream.resources ?? []).map((resource) => ({
-              ...resource,
-              uri: buildUri(serverName, resource.uri, MCP_URI_SEPARATOR),
-            })),
-            nextCursor: upstream.nextCursor,
-          };
-        },
         enablePagination: inboundConn.enablePagination ?? false,
       });
-
       return {
         resources: result.items,
-        nextCursor: result.nextCursor,
-        _meta: result._meta,
+        ...(result.nextCursor === undefined ? {} : { nextCursor: result.nextCursor }),
+        ...(result._meta === undefined ? {} : { _meta: result._meta }),
       };
     }, 'Error listing resources'),
   );
-
-  getLegacyInboundServer(inboundConn).setRequestHandler(
+  server.setRequestHandler(
     ListResourceTemplatesRequestSchema,
-    withErrorHandling(async (request: ListResourceTemplatesRequest) => {
-      const visibility = resolveCapabilityVisibility(outboundConns, inboundConn, sessionId, 'resources');
-      const result = await catalog.listVisibleCapabilityPages<ResourceTemplate>({
-        kind: 'resourceTemplates',
-        visibility,
+    withErrorHandling(async (request) => {
+      const snapshot = await acquire(request.params?.cursor, 'resourceTemplates');
+      const result = await snapshot.list('resourceTemplates', {
         cursor: request.params?.cursor,
-        list: async (outboundConn, cursor, serverName) => {
-          const upstream = await requestLegacyOutbound<{
-            resourceTemplates: ResourceTemplate[];
-            nextCursor?: string;
-          }>(outboundConn, 'resources/templates/list', cursor === undefined ? undefined : { cursor });
-          return {
-            items: (upstream.resourceTemplates ?? []).map((template) => ({
-              ...template,
-              uriTemplate: buildUri(serverName, template.uriTemplate, MCP_URI_SEPARATOR),
-            })),
-            nextCursor: upstream.nextCursor,
-          };
-        },
         enablePagination: inboundConn.enablePagination ?? false,
       });
-
       return {
         resourceTemplates: result.items,
-        nextCursor: result.nextCursor,
-        _meta: result._meta,
+        ...(result.nextCursor === undefined ? {} : { nextCursor: result.nextCursor }),
+        ...(result._meta === undefined ? {} : { _meta: result._meta }),
       };
     }, 'Error listing resource templates'),
   );
-
-  getLegacyInboundServer(inboundConn).setRequestHandler(
+  server.setRequestHandler(
     SubscribeRequestSchema,
     withErrorHandling(async (request) => {
-      const { clientName, resourceName } = parseUri(request.params.uri, MCP_URI_SEPARATOR);
-      const outboundConn = resolveOutboundConnection(clientName, sessionId, outboundConns, inboundConn);
-      if (!outboundConn) {
-        throw new Error(`Unknown client: ${clientName}`);
-      }
-      return requestLegacyOutbound(outboundConn, 'resources/subscribe', { ...request.params, uri: resourceName });
+      const route = resolveResourceRoute(await acquire(), request.params.uri);
+      return requestLegacyOutbound(route.connection, 'resources/subscribe', {
+        ...request.params,
+        uri: route.upstreamIdentity,
+      });
     }, 'Error subscribing to resource'),
   );
-
-  getLegacyInboundServer(inboundConn).setRequestHandler(
+  server.setRequestHandler(
     UnsubscribeRequestSchema,
     withErrorHandling(async (request) => {
-      const { clientName, resourceName } = parseUri(request.params.uri, MCP_URI_SEPARATOR);
-      const outboundConn = resolveOutboundConnection(clientName, sessionId, outboundConns, inboundConn);
-      if (!outboundConn) {
-        throw new Error(`Unknown client: ${clientName}`);
-      }
-      return requestLegacyOutbound(outboundConn, 'resources/unsubscribe', { ...request.params, uri: resourceName });
+      const route = resolveResourceRoute(await acquire(), request.params.uri);
+      return requestLegacyOutbound(route.connection, 'resources/unsubscribe', {
+        ...request.params,
+        uri: route.upstreamIdentity,
+      });
     }, 'Error unsubscribing from resource'),
   );
-
-  getLegacyInboundServer(inboundConn).setRequestHandler(
+  server.setRequestHandler(
     ReadResourceRequestSchema,
     withErrorHandling(async (request) => {
-      const { clientName, resourceName } = parseUri(request.params.uri, MCP_URI_SEPARATOR);
-      const outboundConn = resolveOutboundConnection(clientName, sessionId, outboundConns, inboundConn);
-      if (!outboundConn) {
-        throw new Error(`Unknown client: ${clientName}`);
-      }
-      const resource = await requestLegacyOutbound<{ contents: Array<{ uri: string; [key: string]: unknown }> }>(
-        outboundConn,
+      const snapshot = await acquire();
+      const route = resolveResourceRoute(snapshot, request.params.uri);
+      const result = await requestLegacyOutbound<{ contents: Array<{ uri: string; [key: string]: unknown }> }>(
+        route.connection,
         'resources/read',
-        { ...request.params, uri: resourceName },
+        { ...request.params, uri: route.upstreamIdentity },
       );
-
       return {
-        ...resource,
-        contents: resource.contents.map((content) => ({
+        ...result,
+        contents: result.contents.map((content) => ({
           ...content,
-          uri: buildUri(outboundConn.name, content.uri, MCP_URI_SEPARATOR),
+          uri: projectResourceUri(snapshot, route.entry.route.connectionKey, content.uri, route.entry),
         })),
       };
     }, 'Error reading resource'),

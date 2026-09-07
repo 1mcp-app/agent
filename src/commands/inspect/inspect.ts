@@ -13,8 +13,8 @@ import {
   type JsonRpcResponse,
   StreamableServeClient,
 } from '@src/commands/shared/serveClient.js';
-import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { API_INSPECT_ENDPOINT } from '@src/constants/api.js';
+import { readPublicCapabilityRoute } from '@src/core/capabilities/catalogGeneration.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 import { hasHttpErrorCode, type Tool, toProtocolTools } from '@src/sdk/contracts/index.js';
 import type { ContextData } from '@src/types/context.js';
@@ -143,10 +143,7 @@ function stripListInstructions(result: InspectResult): InspectResult {
 }
 
 function hasServerTools(tools: Tool[], serverName: string): boolean {
-  return tools.some((tool) => {
-    const [toolServerName] = tool.name.split(MCP_URI_SEPARATOR);
-    return toolServerName === serverName;
-  });
+  return tools.some((tool) => readPublicCapabilityRoute(tool)?.server === serverName);
 }
 
 export async function getInspectResult(

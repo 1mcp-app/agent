@@ -5,6 +5,7 @@ import {
   createCapabilityVisibility,
   getCapabilityVisibleServerNames,
 } from '@src/core/capabilities/capabilityVisibility.js';
+import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { ToolInvokeOutput, ToolListOutput } from '@src/core/capabilities/schemas/metaToolSchemas.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
@@ -290,8 +291,26 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           return;
         }
         try {
-          const upstreamResult = await requestLegacyAdapter(connection.adapter, 'tools/call', {
-            name: target.toolName,
+          const catalogConnections = Array.from(allConnections.values()).includes(connection)
+            ? allConnections
+            : new Map([[`\0app.1mcp/resolved/${target.serverName}`, connection]]);
+          const snapshot = await acquireRuntimeCapabilityCatalog(
+            catalogConnections,
+            createCapabilityVisibility(
+              Array.from(catalogConnections)
+                .filter(([, candidate]) => candidate === connection)
+                .map(([key]) => [key, target.serverName] as const),
+              requestSessionId,
+            ),
+            { serverConfigs: getServerConfigs() },
+          );
+          const resolved = snapshot.resolve('tools', target.qualifiedName);
+          if (!resolved?.connection) {
+            res.status(404).json({ error: `Tool not found: ${toolRef}` });
+            return;
+          }
+          const upstreamResult = await requestLegacyAdapter(resolved.connection.adapter, 'tools/call', {
+            name: resolved.entry.route.upstreamIdentity,
             arguments: toolArgs as never,
           });
           res.json({ result: upstreamResult, server: target.serverName, tool: target.toolName });

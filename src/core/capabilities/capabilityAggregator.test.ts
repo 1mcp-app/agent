@@ -3,7 +3,7 @@ import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js'
 import { Prompt, Resource, Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { ClientStatus, type OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
-import { OneMcpProtocolError } from '@src/sdk/contracts/index.js';
+import { type JsonValue, OneMcpProtocolError } from '@src/sdk/contracts/index.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -65,9 +65,10 @@ describe('CapabilityAggregator', () => {
       name,
       capabilities: (client.getServerCapabilities?.() ?? {}) as OutboundConnection['capabilities'],
       adapter: {
-        request: vi.fn(async ({ method }) => {
+        request: vi.fn(async ({ method }): Promise<JsonValue> => {
           if (method === 'tools/list') return (await client.listTools()) as never;
           if (method === 'resources/list') return ((await client.listResources?.()) ?? { resources: [] }) as never;
+          if (method === 'resources/templates/list') return { resourceTemplates: [] };
           if (method === 'prompts/list') return ((await client.listPrompts?.()) ?? { prompts: [] }) as never;
           return {};
         }),
@@ -106,7 +107,7 @@ describe('CapabilityAggregator', () => {
         listTools,
         listResources,
         listPrompts,
-        getServerCapabilities: vi.fn().mockReturnValue({ resources: true, prompts: true }),
+        getServerCapabilities: vi.fn().mockReturnValue({ tools: {}, resources: {}, prompts: {} }),
       };
 
       mockConnections.set(
@@ -117,12 +118,15 @@ describe('CapabilityAggregator', () => {
       await aggregator.updateCapabilities();
 
       const adapterRequest = vi.mocked(mockConnections.get('slow-server')!.adapter.request);
-      expect(adapterRequest).toHaveBeenCalledTimes(3);
-      expect(adapterRequest.mock.calls.map(([request]) => [request.method, request.timeoutMs])).toEqual([
-        ['tools/list', 300_000],
-        ['resources/list', 300_000],
-        ['prompts/list', 300_000],
-      ]);
+      expect(adapterRequest).toHaveBeenCalledTimes(4);
+      expect(adapterRequest.mock.calls.map(([request]) => [request.method, request.timeoutMs]).sort()).toEqual(
+        [
+          ['tools/list', 300_000],
+          ['resources/list', 300_000],
+          ['resources/templates/list', 300_000],
+          ['prompts/list', 300_000],
+        ].sort(),
+      );
     });
 
     it('should preserve partial capabilities after a timeout and recover on a later refresh', async () => {
@@ -137,7 +141,7 @@ describe('CapabilityAggregator', () => {
       const createConnection = (name: string, listTools: () => Promise<unknown>) => {
         const client = {
           listTools,
-          getServerCapabilities: vi.fn().mockReturnValue({}),
+          getServerCapabilities: vi.fn().mockReturnValue({ tools: {} }),
         };
         return connectionFromClient(name, client, { requestTimeoutMs: 50 });
       };
@@ -149,10 +153,13 @@ describe('CapabilityAggregator', () => {
       );
 
       const partial = await aggregator.refreshCapabilities();
-      expect(partial.tools.map((tool) => tool.name)).toEqual(['healthy-tool']);
+      expect(partial.tools.map((tool) => tool.name)).toEqual(['healthy-server_1mcp_healthy-tool']);
 
       const recovered = await aggregator.refreshCapabilities();
-      expect(recovered.tools.map((tool) => tool.name).sort()).toEqual(['healthy-tool', 'recovered-tool']);
+      expect(recovered.tools.map((tool) => tool.name).sort()).toEqual([
+        'healthy-server_1mcp_healthy-tool',
+        'slow-server_1mcp_recovered-tool',
+      ]);
 
       await aggregator.refreshCapabilities();
       expect(readLastConfiguredToolSnapshot('slow-server').map((tool) => tool.name)).toEqual(['recovered-tool']);
@@ -174,7 +181,7 @@ describe('CapabilityAggregator', () => {
         listTools: vi.fn().mockResolvedValue({ tools: [mockTool] }),
         listResources: vi.fn().mockResolvedValue({ resources: [mockResource] }),
         listPrompts: vi.fn().mockResolvedValue({ prompts: [mockPrompt] }),
-        getServerCapabilities: vi.fn().mockReturnValue({ resources: true, prompts: true }),
+        getServerCapabilities: vi.fn().mockReturnValue({ tools: {}, resources: {}, prompts: {} }),
         transport: {
           start: vi.fn(),
           send: vi.fn(),
@@ -218,7 +225,9 @@ describe('CapabilityAggregator', () => {
       const changes = await aggregator.updateCapabilities();
 
       expect(changes.toolsChanged).toBe(true);
-      expect(changes.current.tools).toMatchObject([{ name: 'test-tool', description: 'Operator description' }]);
+      expect(changes.current.tools).toMatchObject([
+        { name: 'test-server_1mcp_test-tool', description: 'Operator description' },
+      ]);
     });
 
     it('should handle client method failures gracefully', async () => {
@@ -257,7 +266,7 @@ describe('CapabilityAggregator', () => {
         listTools,
         listResources,
         listPrompts,
-        getServerCapabilities: vi.fn().mockReturnValue({ resources: true, prompts: true }),
+        getServerCapabilities: vi.fn().mockReturnValue({ tools: {}, resources: {}, prompts: {} }),
       } as any;
 
       const close = vi.fn().mockResolvedValue(undefined);
@@ -302,7 +311,7 @@ describe('CapabilityAggregator', () => {
       expect(listPrompts).toHaveBeenCalledTimes(2);
     });
 
-    it('should deduplicate tools with same name', async () => {
+    it('should preserve tools with the same upstream name from distinct servers', async () => {
       const duplicateTool: Tool = {
         name: 'test-tool',
         description: 'Another test tool',
@@ -317,7 +326,7 @@ describe('CapabilityAggregator', () => {
         listTools: vi.fn().mockResolvedValue({ tools: [mockTool] }),
         listResources: vi.fn().mockResolvedValue({ resources: [] }),
         listPrompts: vi.fn().mockResolvedValue({ prompts: [] }),
-        getServerCapabilities: vi.fn().mockReturnValue({ resources: true, prompts: true }),
+        getServerCapabilities: vi.fn().mockReturnValue({ tools: {}, resources: {}, prompts: {} }),
         transport: {
           start: vi.fn(),
           send: vi.fn(),
@@ -329,7 +338,7 @@ describe('CapabilityAggregator', () => {
         listTools: vi.fn().mockResolvedValue({ tools: [duplicateTool] }),
         listResources: vi.fn().mockResolvedValue({ resources: [] }),
         listPrompts: vi.fn().mockResolvedValue({ prompts: [] }),
-        getServerCapabilities: vi.fn().mockReturnValue({ resources: true, prompts: true }),
+        getServerCapabilities: vi.fn().mockReturnValue({ tools: {}, resources: {}, prompts: {} }),
         transport: {
           start: vi.fn(),
           send: vi.fn(),
@@ -343,9 +352,10 @@ describe('CapabilityAggregator', () => {
 
       const changes = await aggregator.updateCapabilities();
 
-      // Should only have one tool despite two servers providing tools with same name
-      expect(changes.current.tools).toHaveLength(1);
-      expect(changes.current.tools[0].name).toBe('test-tool');
+      expect(changes.current.tools.map((tool) => tool.name).sort()).toEqual([
+        'server1_1mcp_test-tool',
+        'server2_1mcp_test-tool',
+      ]);
     });
 
     it('should filter disabled tools by logical server name', async () => {
@@ -361,7 +371,7 @@ describe('CapabilityAggregator', () => {
         listTools: vi.fn().mockResolvedValue({ tools: [mockTool] }),
         listResources: vi.fn().mockResolvedValue({ resources: [] }),
         listPrompts: vi.fn().mockResolvedValue({ prompts: [] }),
-        getServerCapabilities: vi.fn().mockReturnValue({ resources: true, prompts: true }),
+        getServerCapabilities: vi.fn().mockReturnValue({ tools: {}, resources: {}, prompts: {} }),
         transport: {
           start: vi.fn(),
           send: vi.fn(),
@@ -384,7 +394,7 @@ describe('CapabilityAggregator', () => {
         listTools: vi.fn().mockResolvedValue({ tools: [mockTool] }),
         listResources: vi.fn().mockResolvedValue({ resources: [mockResource] }),
         listPrompts: vi.fn().mockResolvedValue({ prompts: [mockPrompt] }),
-        getServerCapabilities: vi.fn().mockReturnValue({ resources: true, prompts: true }),
+        getServerCapabilities: vi.fn().mockReturnValue({ tools: {}, resources: {}, prompts: {} }),
         transport: {
           start: vi.fn(),
           send: vi.fn(),
