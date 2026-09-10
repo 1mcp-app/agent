@@ -1,11 +1,12 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
 import { type OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
-import { Tool } from '@src/sdk/contracts/index.js';
+import { type JsonValue, Tool } from '@src/sdk/contracts/index.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { capabilityVisibilityFromServerNames } from './capabilityVisibility.js';
+import { buildCatalogGeneration } from './catalogGeneration.js';
 import { readConfiguredToolSnapshot, readLastConfiguredToolSnapshot } from './configuredToolSnapshot.js';
 import { LazyLoadingOrchestrator } from './lazyLoadingOrchestrator.js';
 
@@ -25,9 +26,12 @@ describe('LazyLoadingOrchestrator', () => {
       tags: [],
       capabilities: client.getServerCapabilities?.() ?? {},
       adapter: {
-        request: vi.fn(async ({ method, params, timeoutMs }) => {
+        request: vi.fn(async ({ method, params, timeoutMs }): Promise<JsonValue> => {
           if (method === 'tools/list') return client.listTools(params, { timeout: timeoutMs });
           if (method === 'tools/call') return client.callTool(params);
+          if (method === 'resources/list') return { resources: [] };
+          if (method === 'resources/templates/list') return { resourceTemplates: [] };
+          if (method === 'prompts/list') return { prompts: [] };
           return {};
         }),
         ...(client.close ? { close: client.close } : {}),
@@ -40,7 +44,7 @@ describe('LazyLoadingOrchestrator', () => {
     mockClient = {
       listTools: vi.fn(),
       callTool: vi.fn(),
-      getServerCapabilities: vi.fn(),
+      getServerCapabilities: vi.fn().mockReturnValue({ tools: {} }),
       close: vi.fn(),
     };
 
@@ -87,7 +91,7 @@ describe('LazyLoadingOrchestrator', () => {
       ],
     });
 
-    mockClient.getServerCapabilities.mockResolvedValue({
+    mockClient.getServerCapabilities.mockReturnValue({
       tools: {},
       resources: {},
       prompts: {},
@@ -166,9 +170,8 @@ describe('LazyLoadingOrchestrator', () => {
       await orchestrator.initialize();
 
       const adapterRequest = vi.mocked(connection.adapter.request);
-      expect(adapterRequest).toHaveBeenCalledTimes(2);
+      expect(adapterRequest).toHaveBeenCalledTimes(1);
       expect(adapterRequest.mock.calls).toEqual([
-        [expect.objectContaining({ method: 'tools/list', timeoutMs: 240_000 })],
         [expect.objectContaining({ method: 'tools/list', timeoutMs: 240_000 })],
       ]);
     });
@@ -179,7 +182,11 @@ describe('LazyLoadingOrchestrator', () => {
         tools: [{ name: 'healthy', description: 'Healthy', inputSchema: { type: 'object' } }],
       });
       const createConnection = (name: string, listTools: (...args: unknown[]) => Promise<unknown>) =>
-        connectionFromClient(name, { listTools, getServerCapabilities: () => ({}) }, { requestTimeoutMs: 50 });
+        connectionFromClient(
+          name,
+          { listTools, getServerCapabilities: () => ({ tools: {} }) },
+          { requestTimeoutMs: 50 },
+        );
       const connections: OutboundConnections = new Map([
         ['slow', createConnection('slow', slowListTools)],
         ['healthy', createConnection('healthy', healthyListTools)],
@@ -194,7 +201,7 @@ describe('LazyLoadingOrchestrator', () => {
       });
       await orchestrator.refreshCapabilities();
       expect(orchestrator.getToolRegistry().size()).toBe(2);
-      expect(slowListTools.mock.calls.length).toBeGreaterThanOrEqual(3);
+      expect(slowListTools).toHaveBeenCalledTimes(2);
     });
 
     it('keeps the last complete target snapshot but clears a failed connection snapshot', async () => {
@@ -542,7 +549,7 @@ describe('LazyLoadingOrchestrator', () => {
       expect(result).toBeDefined();
     });
 
-    it('should apply the effective backend request timeout when loading a tool schema', async () => {
+    it('should inspect the captured tool schema without another backend list request', async () => {
       mockOutboundConnections.get('filesystem')!.requestTimeoutMs = 180_000;
       mockClient.listTools.mockClear();
 
@@ -552,7 +559,8 @@ describe('LazyLoadingOrchestrator', () => {
       });
 
       expect(result).toBeDefined();
-      expect(mockClient.listTools).toHaveBeenCalledWith(undefined, { timeout: 180_000 });
+      expect(mockClient.listTools).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ schema: { name: 'read_file', inputSchema: { type: 'object' } } });
     });
 
     it('should throw when meta-tool provider not initialized', async () => {
@@ -1118,6 +1126,7 @@ describe('LazyLoadingOrchestrator', () => {
           { name: 'filesystem_1mcp_resource1', uri: 'file://test1', mimeType: 'text/plain' },
           { name: 'database_1mcp_resource2', uri: 'db://test2', mimeType: 'application/json' },
         ],
+        resourceTemplates: [],
         prompts: [
           { name: 'filesystem_1mcp_prompt1', description: 'FS prompt' },
           { name: 'database_1mcp_prompt2', description: 'DB prompt' },
@@ -1127,6 +1136,29 @@ describe('LazyLoadingOrchestrator', () => {
       };
 
       vi.spyOn(orchestrator['capabilityAggregator'], 'getCurrentCapabilities').mockReturnValue(mockCapabilities);
+      vi.spyOn(orchestrator['capabilityAggregator'], 'getCatalogGeneration').mockReturnValue(
+        buildCatalogGeneration(1, [
+          {
+            kind: 'resources',
+            server: 'filesystem',
+            connectionKey: 'filesystem',
+            object: mockCapabilities.resources[0],
+          },
+          { kind: 'resources', server: 'database', connectionKey: 'database', object: mockCapabilities.resources[1] },
+          {
+            kind: 'prompts',
+            server: 'filesystem',
+            connectionKey: 'filesystem',
+            object: { ...mockCapabilities.prompts[0], name: 'prompt1' },
+          },
+          {
+            kind: 'prompts',
+            server: 'database',
+            connectionKey: 'database',
+            object: { ...mockCapabilities.prompts[1], name: 'prompt2' },
+          },
+        ]),
+      );
 
       const filteredCaps = await orchestrator.getCapabilitiesForVisibility(visibility);
 
@@ -1195,6 +1227,7 @@ describe('LazyLoadingOrchestrator', () => {
       const mockCapabilities = {
         tools: [],
         resources: [{ name: 'filesystem_1mcp_resource1', uri: 'file://test1', mimeType: 'text/plain' }],
+        resourceTemplates: [],
         prompts: [{ name: 'filesystem_1mcp_prompt1', description: 'FS prompt' }],
         readyServers: ['filesystem'],
         timestamp: new Date(),
@@ -1247,6 +1280,7 @@ describe('LazyLoadingOrchestrator', () => {
           { name: 'filesystem_1mcp_resource1', uri: 'file://test1', mimeType: 'text/plain' },
           { name: 'database_1mcp_resource2', uri: 'db://test2', mimeType: 'application/json' },
         ],
+        resourceTemplates: [],
         prompts: [],
         readyServers: ['filesystem', 'database'],
         timestamp: new Date(),
@@ -1273,12 +1307,24 @@ describe('LazyLoadingOrchestrator', () => {
           { name: 'server_with_underscores_1mcp_resource2', uri: 'test://2', mimeType: 'text/plain' },
           { name: 'other-server_1mcp_resource3', uri: 'test://3', mimeType: 'text/plain' },
         ],
+        resourceTemplates: [],
         prompts: [],
         readyServers: ['server-with-dashes', 'server_with_underscores', 'other-server'],
         timestamp: new Date(),
       };
 
       vi.spyOn(orchestrator['capabilityAggregator'], 'getCurrentCapabilities').mockReturnValue(mockCapabilities);
+      vi.spyOn(orchestrator['capabilityAggregator'], 'getCatalogGeneration').mockReturnValue(
+        buildCatalogGeneration(
+          1,
+          mockCapabilities.resources.map((object, index) => ({
+            kind: 'resources',
+            server: mockCapabilities.readyServers[index],
+            connectionKey: mockCapabilities.readyServers[index],
+            object,
+          })),
+        ),
+      );
 
       const filteredCaps = await orchestrator.getCapabilitiesForVisibility(visibility);
 

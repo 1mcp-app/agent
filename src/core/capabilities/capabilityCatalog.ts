@@ -1,7 +1,7 @@
 import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { ConnectionResolver, type TemplateHashProvider } from '@src/core/server/connectionResolver.js';
-import { getDisabledToolError, isToolDisabled } from '@src/core/server/disabledTools.js';
-import { applyEffectiveToolDescription } from '@src/core/server/toolDescriptionOverrides.js';
+import { getDisabledSourceToolError, isSourceToolDisabled } from '@src/core/server/disabledTools.js';
+import { applySourceToolDescription } from '@src/core/server/toolDescriptionOverrides.js';
 import {
   ClientStatus,
   type MCPServerParams,
@@ -18,6 +18,7 @@ import {
   walkCapabilityPages,
 } from './capabilityPagination.js';
 import { type CapabilityVisibility, getCapabilityVisibleServerNames } from './capabilityVisibility.js';
+import type { CapabilityRoute as CatalogRoute } from './catalogGeneration.js';
 import { SchemaCache } from './schemaCache.js';
 import type { ListToolsOptions, ListToolsResult as RegistryListToolsResult, ToolMetadata } from './toolRegistry.js';
 import { ToolRegistry } from './toolRegistry.js';
@@ -51,10 +52,8 @@ export interface CapabilityCatalogQueryOptions {
   refreshIntent?: CapabilityRefreshIntent;
 }
 
-export interface CapabilityRoute {
-  server: string;
+export interface CapabilityRoute extends CatalogRoute {
   toolName: string;
-  connectionKey: string;
 }
 
 export interface VisibleTool extends ToolMetadata {}
@@ -152,7 +151,7 @@ export class CapabilityCatalog {
                       item && typeof item === 'object' && 'name' in item && typeof item.name === 'string'
                         ? item.name
                         : undefined;
-                    return name === undefined || !isToolDisabled(serverConfigs, serverName, name);
+                    return name === undefined || !isSourceToolDisabled(serverConfigs, serverName, name);
                   });
                   return mapPage(visibleItems);
                 },
@@ -221,10 +220,25 @@ export class CapabilityCatalog {
     }
 
     const { route } = access;
+    if (access.tool.definition && access.connection) {
+      const cached = this.deps.schemaCache.getIfCached(route.connectionKey, route.toolName);
+      const fromCache = cached !== null && JSON.stringify(cached) === JSON.stringify(access.tool.definition);
+      if (!fromCache) this.deps.schemaCache.set(route.connectionKey, route.toolName, access.tool.definition);
+      return {
+        schema: applySourceToolDescription(
+          access.tool.definition,
+          this.deps.getServerConfigs()[route.server],
+          route.server,
+        ),
+        fromCache,
+        route,
+        refresh,
+      };
+    }
     const cached = this.deps.schemaCache.getIfCached(route.connectionKey, route.toolName);
     if (cached) {
       return {
-        schema: applyEffectiveToolDescription(cached, this.deps.getServerConfigs()[route.server], route.server),
+        schema: applySourceToolDescription(cached, this.deps.getServerConfigs()[route.server], route.server),
         fromCache: true,
         route,
         refresh,
@@ -246,7 +260,7 @@ export class CapabilityCatalog {
     try {
       const tool = await this.deps.schemaCache.getOrLoad(route.connectionKey, route.toolName, this.deps.loadSchema);
       return {
-        schema: applyEffectiveToolDescription(tool, this.deps.getServerConfigs()[route.server], route.server),
+        schema: applySourceToolDescription(tool, this.deps.getServerConfigs()[route.server], route.server),
         fromCache: false,
         route,
         refresh,
@@ -282,8 +296,12 @@ export class CapabilityCatalog {
     }
 
     const { route } = access;
-    const connection = this.deps.outboundConnections.get(route.connectionKey);
-    if (!connection || connection.status !== ClientStatus.Connected) {
+    const connection = access.connection ?? this.deps.outboundConnections.get(route.connectionKey);
+    if (
+      !connection ||
+      connection.status !== ClientStatus.Connected ||
+      this.deps.outboundConnections.get(route.connectionKey) !== connection
+    ) {
       return {
         result: {},
         server: route.server,
@@ -361,6 +379,7 @@ export class CapabilityCatalog {
 
   private visibleToolRegistry(visibility?: CapabilityVisibility): ToolRegistry {
     let registry = this.deps.getToolRegistry();
+    if (registry.isCurrent?.() === false) return ToolRegistry.empty();
     const effectiveVisibility = visibility ?? this.deps.defaultVisibility;
     if (effectiveVisibility !== undefined) {
       const connectedCandidates = new Map(
@@ -379,10 +398,10 @@ export class CapabilityCatalog {
     return ToolRegistry.fromToolsWithServer(
       registry
         .getAllTools()
-        .filter((tool) => !isToolDisabled(serverConfigs, tool.server, tool.name))
+        .filter((tool) => !isSourceToolDisabled(serverConfigs, tool.server, tool.name))
         .map((tool) => ({
-          tool: applyEffectiveToolDescription(
-            {
+          tool: applySourceToolDescription(
+            tool.definition ?? {
               name: tool.name,
               description: tool.description,
               inputSchema: tool.inputSchema ?? { type: 'object' },
@@ -394,15 +413,15 @@ export class CapabilityCatalog {
           connectionKey: tool.connectionKey,
           tags: tool.tags,
         })),
-    );
+    ).withConnections(registry.getConnections(), () => registry.isCurrent());
   }
 
   private resolveVisibleToolAccess(
     args: { server?: string; toolName?: string },
     visibility?: CapabilityVisibility,
   ):
-    | { route: CapabilityRoute; tool: ToolMetadata; error?: never }
-    | { route?: never; tool?: never; error: CapabilityAccessError } {
+    | { route: CapabilityRoute; tool: ToolMetadata; connection?: OutboundConnection; error?: never }
+    | { route?: never; tool?: never; connection?: never; error: CapabilityAccessError } {
     if (!args.server || !args.toolName) {
       return {
         error: {
@@ -426,7 +445,7 @@ export class CapabilityCatalog {
     const tool = visibleRegistry.getTool(args.server, args.toolName);
     if (!tool) {
       const disabledError = this.isServerVisible(args.server, visibility)
-        ? getDisabledToolError(this.deps.getServerConfigs(), args.server, args.toolName)
+        ? getDisabledSourceToolError(this.deps.getServerConfigs(), args.server, args.toolName)
         : undefined;
       return {
         error: disabledError ?? {
@@ -446,7 +465,7 @@ export class CapabilityCatalog {
       };
     }
 
-    return { route, tool };
+    return { route, tool, connection: visibleRegistry.getConnections()?.get(route.connectionKey) };
   }
 
   private isServerVisible(server: string, visibility?: CapabilityVisibility): boolean {
@@ -456,15 +475,26 @@ export class CapabilityCatalog {
 
   private resolveRoute(tool: ToolMetadata, visibility?: CapabilityVisibility): CapabilityRoute | undefined {
     const registryConnectionKey = tool.connectionKey ?? tool.server;
+    const sessionId = visibility?.sessionId ?? this.deps.defaultVisibility?.sessionId;
+    if (
+      sessionId &&
+      registryConnectionKey !== tool.server &&
+      this.connectionResolver.resolveWithKey(tool.server, sessionId)?.key !== registryConnectionKey
+    )
+      return undefined;
     if (this.deps.outboundConnections.has(registryConnectionKey)) {
       return {
+        ...tool.route!,
+        kind: 'tools',
+        origin: 'external',
+        upstreamIdentity: tool.name,
+        publicIdentity: tool.route?.publicIdentity ?? `${tool.server}_1mcp_${tool.name}`,
         server: tool.server,
         toolName: tool.name,
         connectionKey: registryConnectionKey,
       };
     }
 
-    const sessionId = visibility?.sessionId ?? this.deps.defaultVisibility?.sessionId;
     const sessionResult = sessionId ? this.connectionResolver.resolveWithKey(tool.server, sessionId) : undefined;
     const result = sessionResult ?? (!sessionId ? this.connectionResolver.findByServerName(tool.server) : undefined);
     if (!result) {
@@ -472,6 +502,11 @@ export class CapabilityCatalog {
     }
 
     return {
+      ...tool.route!,
+      kind: 'tools',
+      origin: 'external',
+      upstreamIdentity: tool.name,
+      publicIdentity: tool.route?.publicIdentity ?? `${tool.server}_1mcp_${tool.name}`,
       server: tool.server,
       toolName: tool.name,
       connectionKey: result.key,

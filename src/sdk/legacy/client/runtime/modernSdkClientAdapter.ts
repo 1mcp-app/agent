@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { LegacyOutboundEraAdapter } from '@src/gateway/adapters/legacy/legacyOutboundEraAdapter.js';
 import { ModernOutboundEraAdapter } from '@src/gateway/adapters/modern/modernOutboundEraAdapter.js';
 import { createEffectiveRequestAuthority } from '@src/gateway/contracts/effectiveRequestAuthority.js';
+import { type GatewayOperation, gatewayOperationSchema } from '@src/gateway/contracts/gatewayRequest.js';
 import { toImmutableJsonValue } from '@src/gateway/contracts/immutableJson.js';
 import type { OutboundEraAdapter } from '@src/gateway/ports/outboundEraAdapter.js';
 import {
@@ -21,6 +22,9 @@ import {
   OneMcpProtocolError,
   toJsonValue,
 } from '@src/sdk/contracts/index.js';
+import { captureCapabilityListResult } from '@src/sdk/legacy/shared/capabilityListCapture.js';
+
+import { z } from 'zod';
 
 import type { AuthProviderTransport } from './legacyTransport.js';
 import { stripInboundRequestMeta } from './outboundRequestParams.js';
@@ -30,6 +34,10 @@ const LIST_CHANGED_METHODS = [
   'notifications/resources/list_changed',
   'notifications/prompts/list_changed',
 ] as const satisfies readonly NotificationMethod[];
+
+// Catalog capture validates each source object independently, preserving healthy siblings.
+const capabilityListResultSchema = z.looseObject({});
+const capabilityListMethods = new Set(['tools/list', 'prompts/list', 'resources/list', 'resources/templates/list']);
 
 interface ModernHandles {
   readonly client: Client;
@@ -70,7 +78,7 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
             request: async (frame) => {
               const request = frame as {
                 readonly requestId: string;
-                readonly operation: 'tools/list' | 'tools/call';
+                readonly operation: GatewayOperation;
                 readonly params?: JsonValue;
                 readonly deadlineUnixMs: number;
               };
@@ -107,7 +115,8 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
 
   async request(request: LegacySdkRequest): Promise<JsonValue> {
     const params = stripInboundRequestMeta(request.params);
-    if (request.method !== 'tools/list' && request.method !== 'tools/call') {
+    const operation = gatewayOperationSchema.safeParse(request.method);
+    if (!operation.success) {
       return this.requestDirect({ ...request, params });
     }
     this.gatewayRequests.add(request.id);
@@ -116,7 +125,7 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
       return toJsonValue(
         await this.outbound.request({
           requestId: request.id,
-          operation: request.method,
+          operation: operation.data,
           ...(params === undefined ? {} : { params: toImmutableJsonValue(params) }),
           authority: createEffectiveRequestAuthority({
             connectionIds: [this.connectionId],
@@ -173,17 +182,18 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
     const controller = new AbortController();
     this.controllers.set(request.id, controller);
     try {
-      const result = await this.handles.client.request(
-        {
-          method: request.method as RequestMethod,
-          ...(request.params === undefined ? {} : { params: toJsonValue(request.params) }),
-        } as never,
-        {
-          signal: controller.signal,
-          ...(request.timeoutMs === undefined ? {} : { timeout: request.timeoutMs }),
-        },
-      );
-      return toJsonValue(result);
+      const message = {
+        method: request.method as RequestMethod,
+        ...(request.params === undefined ? {} : { params: toJsonValue(request.params) }),
+      };
+      const options = {
+        signal: controller.signal,
+        ...(request.timeoutMs === undefined ? {} : { timeout: request.timeoutMs }),
+      };
+      const result = capabilityListMethods.has(request.method)
+        ? await this.handles.client.request(message as never, capabilityListResultSchema, options)
+        : await this.handles.client.request(message as never, options);
+      return captureCapabilityListResult(request.method, result);
     } catch (error) {
       throw toProtocolError(error);
     } finally {

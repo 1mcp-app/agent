@@ -86,12 +86,12 @@ describe('Internal Tools Integration', () => {
       expect(capabilities.readyServers).toContain('1mcp');
 
       const toolNames = capabilities.tools.map((t) => t.name);
-      expect(toolNames).toContain('mcp_search');
-      expect(toolNames).toContain('mcp_install');
-      expect(toolNames).toContain('mcp_list');
-      expect(toolNames).toContain('mcp_edit');
-      expect(toolNames).toContain('mcp_info');
-      expect(toolNames).toContain('mcp_registry_status');
+      expect(toolNames).toContain('1mcp_1mcp_mcp_search');
+      expect(toolNames).toContain('1mcp_1mcp_mcp_install');
+      expect(toolNames).toContain('1mcp_1mcp_mcp_list');
+      expect(toolNames).toContain('1mcp_1mcp_mcp_edit');
+      expect(toolNames).toContain('1mcp_1mcp_mcp_info');
+      expect(toolNames).toContain('1mcp_1mcp_mcp_registry_status');
       // ... other tools can be checked if needed
     });
 

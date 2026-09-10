@@ -85,9 +85,10 @@ function createMockResponse(): MockResponse {
   return response;
 }
 
-function createToolCallAdapter(callTool: (params: JsonValue | undefined) => Promise<unknown>) {
+function createToolCallAdapter(callTool: (params: JsonValue | undefined) => Promise<unknown>, toolName = 'tool') {
   return createMockLegacySdkAdapter({
     request: vi.fn(async ({ method, params }) => {
+      if (method === 'tools/list') return { tools: [{ name: toolName, inputSchema: { type: 'object' } }] };
       if (method !== 'tools/call') return {};
       return toJsonValue(await callTool(params));
     }),
@@ -204,6 +205,7 @@ describe('apiRoutes /api/tool-invocations', () => {
     const callTool = vi.fn().mockRejectedValue({ detail: 'boom' });
     const connection = createMockOutboundConnection({
       name: 'server',
+      capabilities: { tools: {} },
       adapter: createToolCallAdapter(callTool),
     });
     const serverManager = {
@@ -245,7 +247,10 @@ describe('apiRoutes /api/tool-invocations', () => {
         throw error;
       }
     });
-    connection = Object.assign(createMockOutboundConnection({ name: 'server', adapter }), { client, transport });
+    connection = Object.assign(createMockOutboundConnection({ name: 'server', capabilities: { tools: {} }, adapter }), {
+      client,
+      transport,
+    });
     const connections = new Map([['server', connection]]) as OutboundConnections;
     const serverManager = {
       getLazyLoadingOrchestrator: vi.fn(() => undefined),
@@ -275,10 +280,12 @@ describe('apiRoutes /api/tool-invocations', () => {
     });
 
     const callTool = vi.fn();
+    const adapter = createToolCallAdapter(callTool);
     const serverManager = {
       getLazyLoadingOrchestrator: vi.fn(() => undefined),
       getClients: vi.fn(() => new Map()),
       getClient: vi.fn(() => ({
+        adapter,
         client: { callTool },
       })),
     };
@@ -290,6 +297,7 @@ describe('apiRoutes /api/tool-invocations', () => {
 
     expect(res.statusCode).toBe(404);
     expect(callTool).not.toHaveBeenCalled();
+    expect(adapter.request).not.toHaveBeenCalled();
   });
 
   it('does not reveal disabled tool details for filtered-out direct invocation servers', async () => {
@@ -302,6 +310,7 @@ describe('apiRoutes /api/tool-invocations', () => {
     });
 
     const hiddenCallTool = vi.fn();
+    const hiddenAdapter = createToolCallAdapter(hiddenCallTool);
     const visibleConnections = new Map([
       [
         'visible',
@@ -317,6 +326,7 @@ describe('apiRoutes /api/tool-invocations', () => {
       getLazyLoadingOrchestrator: vi.fn(() => undefined),
       getClients: vi.fn(() => visibleConnections),
       getClient: vi.fn(() => ({
+        adapter: hiddenAdapter,
         client: { callTool: hiddenCallTool },
       })),
     };
@@ -330,9 +340,10 @@ describe('apiRoutes /api/tool-invocations', () => {
     expect(res.statusCode).toBe(404);
     expect(res.body).toEqual({ error: 'Server not found: hidden' });
     expect(hiddenCallTool).not.toHaveBeenCalled();
+    expect(hiddenAdapter.request).not.toHaveBeenCalled();
   });
 
-  it('does not call upstream before direct invocation while checking disabled tool visibility', async () => {
+  it('lists the exact catalog before invoking a visible direct tool once', async () => {
     const callTool = vi.fn().mockResolvedValue({
       content: [{ type: 'text', text: 'done' }],
       isError: false,
@@ -342,6 +353,7 @@ describe('apiRoutes /api/tool-invocations', () => {
         'server',
         {
           name: 'server',
+          capabilities: { tools: {} },
           adapter: createToolCallAdapter(callTool),
           transport: {} as never,
           client: { callTool } as never,
@@ -402,7 +414,8 @@ describe('apiRoutes /api/tool-invocations', () => {
         'serena:abc123',
         {
           name: 'serena',
-          adapter: createToolCallAdapter(callTool),
+          capabilities: { tools: {} },
+          adapter: createToolCallAdapter(callTool, 'list_memories'),
           transport: { tags: ['serena'] } as never,
           client: { callTool } as never,
           status: ClientStatus.Connected,
@@ -446,7 +459,8 @@ describe('apiRoutes /api/tool-invocations', () => {
         'serena:first',
         {
           name: 'serena',
-          adapter: createToolCallAdapter(firstCallTool),
+          capabilities: { tools: {} },
+          adapter: createToolCallAdapter(firstCallTool, 'list_memories'),
           transport: { tags: ['serena'] } as never,
           client: { callTool: firstCallTool } as never,
           status: ClientStatus.Connected,
@@ -456,7 +470,8 @@ describe('apiRoutes /api/tool-invocations', () => {
         'serena:second',
         {
           name: 'serena',
-          adapter: createToolCallAdapter(secondCallTool),
+          capabilities: { tools: {} },
+          adapter: createToolCallAdapter(secondCallTool, 'list_memories'),
           transport: { tags: ['serena'] } as never,
           client: { callTool: secondCallTool } as never,
           status: ClientStatus.Connected,
@@ -465,9 +480,13 @@ describe('apiRoutes /api/tool-invocations', () => {
     ]) as unknown as OutboundConnections;
     const lazyOrchestrator = {
       getToolRegistry: vi.fn(() =>
-        ToolRegistry.fromToolsMap(
-          new Map([['serena', [toProtocolTool({ name: 'list_memories', inputSchema: { type: 'object' } })]]]),
-        ),
+        ToolRegistry.fromToolsWithServer(
+          Array.from(connections.keys(), (connectionKey) => ({
+            server: 'serena',
+            connectionKey,
+            tool: toProtocolTool({ name: 'list_memories', inputSchema: { type: 'object' } }),
+          })),
+        ).withConnections(connections),
       ),
       getSchemaCache: vi.fn(() => ({
         getIfCached: () => null,

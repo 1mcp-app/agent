@@ -30,6 +30,7 @@ describe('NotificationManager', () => {
     resources: Array(resources)
       .fill(null)
       .map((_, i) => ({ uri: `resource${i}`, name: `Resource ${i}` })),
+    resourceTemplates: [],
     prompts: Array(prompts)
       .fill(null)
       .map((_, i) => ({ name: `prompt${i}`, description: `Prompt ${i}` })),
@@ -96,6 +97,7 @@ describe('NotificationManager', () => {
         hasChanges: true,
         toolsChanged: true,
         resourcesChanged: false,
+        resourceTemplatesChanged: false,
         promptsChanged: false,
         addedServers: [],
         removedServers: [],
@@ -118,6 +120,7 @@ describe('NotificationManager', () => {
         hasChanges: true,
         toolsChanged: true,
         resourcesChanged: false,
+        resourceTemplatesChanged: false,
         promptsChanged: false,
         addedServers: [],
         removedServers: [],
@@ -138,6 +141,7 @@ describe('NotificationManager', () => {
         hasChanges: true,
         toolsChanged: true,
         resourcesChanged: true,
+        resourceTemplatesChanged: false,
         promptsChanged: false,
         addedServers: [],
         removedServers: [],
@@ -170,6 +174,7 @@ describe('NotificationManager', () => {
         hasChanges: true,
         toolsChanged: true,
         resourcesChanged: true,
+        resourceTemplatesChanged: false,
         promptsChanged: true,
         addedServers: [],
         removedServers: [],
@@ -210,6 +215,7 @@ describe('NotificationManager', () => {
         hasChanges: true,
         toolsChanged: true,
         resourcesChanged: false,
+        resourceTemplatesChanged: false,
         promptsChanged: false,
         addedServers: [],
         removedServers: [],
@@ -261,6 +267,7 @@ describe('NotificationManager', () => {
         hasChanges: true,
         toolsChanged: true,
         resourcesChanged: false,
+        resourceTemplatesChanged: false,
         promptsChanged: false,
         addedServers: [],
         removedServers: [],

@@ -1,6 +1,7 @@
 import { setupCapabilities } from '@src/core/capabilities/capabilityManager.js';
 import { unregisterCapabilityPaginationForwarder } from '@src/core/capabilities/capabilityPagination.js';
 import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
+import { evictRuntimeCapabilityCatalogSession } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import type { OutboundConnections } from '@src/core/types/client.js';
 import { InboundConnection, InboundConnectionConfig, OperationOptions, ServerStatus } from '@src/core/types/index.js';
 import {
@@ -133,6 +134,7 @@ export class ConnectionManager {
       try {
         // Update status to Disconnected
         connection.status = ServerStatus.Disconnected;
+        evictRuntimeCapabilityCatalogSession(this.outboundConns, connection.context?.sessionId ?? sessionId);
 
         // Only close the transport if explicitly requested
         if (forceClose) {

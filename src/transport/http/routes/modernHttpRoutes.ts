@@ -16,6 +16,7 @@ import { MCP_SERVER_NAME, MCP_SERVER_VERSION, STREAMABLE_HTTP_ENDPOINT } from '@
 import type { ServerManager } from '@src/core/server/serverManager.js';
 import { ModernInboundEraAdapter } from '@src/gateway/adapters/modern/modernInboundEraAdapter.js';
 import { createEffectiveRequestAuthority } from '@src/gateway/contracts/effectiveRequestAuthority.js';
+import { type GatewayOperation, gatewayOperationSchema } from '@src/gateway/contracts/gatewayRequest.js';
 import type { GatewayFailure, ImmutableJsonValue } from '@src/gateway/contracts/index.js';
 import { MODERN_PROTOCOL_REVISION } from '@src/gateway/contracts/protocolEra.js';
 import { GatewayDispatcher } from '@src/gateway/core/gatewayDispatcher.js';
@@ -114,7 +115,7 @@ function gatewayFailureError(failure: GatewayFailure): ProtocolError {
 }
 
 async function dispatchGateway(
-  method: 'tools/list' | 'tools/call',
+  method: GatewayOperation,
   params: unknown,
   signal: AbortSignal,
   serverManager: ServerManager,
@@ -290,34 +291,23 @@ export function setupModernHttpRoutes(
         () => {
           const server = new Server(
             { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
-            { capabilities: { tools: {} } },
+            { capabilities: { tools: {}, prompts: {}, resources: {}, completions: {} } },
           );
-          server.setRequestHandler(
-            'tools/list',
-            async (message, context: ServerContext) =>
-              (await dispatchGateway(
-                'tools/list',
-                message.params,
-                context.mcpReq.signal,
-                serverManager,
-                config,
-                createBridge,
-                Date.now() + requestTimeoutMs,
-              )) as never,
-          );
-          server.setRequestHandler(
-            'tools/call',
-            async (message, context: ServerContext) =>
-              (await dispatchGateway(
-                'tools/call',
-                message.params,
-                context.mcpReq.signal,
-                serverManager,
-                config,
-                createBridge,
-                Date.now() + requestTimeoutMs,
-              )) as never,
-          );
+          for (const operation of gatewayOperationSchema.options) {
+            server.setRequestHandler(
+              operation,
+              async (message, context: ServerContext) =>
+                (await dispatchGateway(
+                  operation,
+                  message.params,
+                  context.mcpReq.signal,
+                  serverManager,
+                  config,
+                  createBridge,
+                  Date.now() + requestTimeoutMs,
+                )) as never,
+            );
+          }
           return server;
         },
         { legacy: 'reject', responseMode },

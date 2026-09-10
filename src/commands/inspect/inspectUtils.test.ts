@@ -1,3 +1,4 @@
+import { buildCatalogGeneration } from '@src/core/capabilities/catalogGeneration.js';
 import { toProtocolTool } from '@src/sdk/contracts/index.js';
 
 import { describe, expect, it } from 'vitest';
@@ -141,20 +142,23 @@ describe('inspectUtils', () => {
   it('formats a server-level tool listing', () => {
     const result = extractInspectServerInfo(
       'runner',
-      [
-        toolSchemaResponse,
-        {
-          name: 'runner_1mcp_summarize',
-          description: 'Summarize text input.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              text: { type: 'string' },
+      buildCatalogGeneration(
+        1,
+        [
+          { ...toolSchemaResponse, name: 'echo_args' },
+          {
+            name: 'summarize',
+            description: 'Summarize text input.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                text: { type: 'string' },
+              },
+              required: ['text'],
             },
-            required: ['text'],
           },
-        },
-      ],
+        ].map((object) => ({ kind: 'tools' as const, server: 'runner', connectionKey: 'runner', object })),
+      ).entries.map((entry) => toProtocolTool(entry.publicObject)),
       true,
       '# Runner Instructions\nInspect tools first.',
     );
@@ -179,6 +183,24 @@ describe('inspectUtils', () => {
     expect(result.instructions).toBeUndefined();
     expect(result.tools).toEqual([]);
     expect(result.fromCache).toBe(true);
+  });
+
+  it('retains separator-containing upstream names from structured public provenance', () => {
+    const tools = buildCatalogGeneration(1, [
+      {
+        kind: 'tools',
+        server: 'runner',
+        connectionKey: 'runner',
+        object: { name: 'runner_1mcp_echo', inputSchema: { type: 'object' } },
+      },
+    ]).entries.map((entry) => toProtocolTool(entry.publicObject));
+
+    expect(extractInspectServerInfo('runner', tools).tools).toMatchObject([
+      {
+        tool: 'runner_1mcp_echo',
+        qualifiedName: 'runner_1mcp_runner_1mcp_echo',
+      },
+    ]);
   });
 
   it('supports tools without optional metadata', () => {

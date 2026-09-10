@@ -7,6 +7,7 @@ import { OneMcpProtocolError, type Tool } from '@src/sdk/contracts/index.js';
 
 import { CapabilityCatalog } from './capabilityCatalog.js';
 import { capabilityVisibilityFromServerNames, createCapabilityVisibility } from './capabilityVisibility.js';
+import { buildCatalogGeneration } from './catalogGeneration.js';
 import { SchemaCache } from './schemaCache.js';
 import { ToolRegistry } from './toolRegistry.js';
 
@@ -25,6 +26,8 @@ describe('CapabilityCatalog', () => {
             name: 'read_file',
             description: 'Read file',
             inputSchema: { type: 'object', properties: { path: { type: 'string' } } },
+            outputSchema: { type: 'object', properties: { content: { type: 'string' } } },
+            annotations: { readOnlyHint: true },
           },
           { name: 'write_file', description: 'Write file', inputSchema: { type: 'object' } },
         ],
@@ -36,7 +39,25 @@ describe('CapabilityCatalog', () => {
       ['template-server', ['project']],
     ]);
 
-    registry = ToolRegistry.fromToolsMap(toolsByServer, tagsByServer);
+    registry = ToolRegistry.fromGeneration(
+      buildCatalogGeneration(
+        1,
+        Array.from(toolsByServer).flatMap(([server, tools]) =>
+          tools.map((object) => ({
+            kind: 'tools',
+            object,
+            server,
+            connectionKey: server === 'template-server' ? 'template-server:rendered123' : server,
+          })),
+        ),
+      ),
+      new Map(
+        Array.from(tagsByServer).map(([server, tags]) => [
+          server === 'template-server' ? 'template-server:rendered123' : server,
+          tags,
+        ]),
+      ),
+    );
     schemaCache = new SchemaCache({ maxEntries: 100 });
     mockClient = {
       callTool: vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] }),
@@ -62,6 +83,7 @@ describe('CapabilityCatalog', () => {
       ['filesystem', connection('filesystem')],
       ['template-server:rendered123', connection('template-server')],
     ]);
+    registry = registry.withConnections(outboundConnections);
   });
 
   function createCatalog(templateHashProvider?: TemplateHashProvider, overrides: Record<string, unknown> = {}) {
@@ -116,9 +138,8 @@ describe('CapabilityCatalog', () => {
       outputSchema: { type: 'object', properties: { content: { type: 'string' } } },
       annotations: { readOnlyHint: true },
     };
-    const catalog = createCatalog(undefined, {
-      loadSchema: vi.fn(async () => upstreamSchema),
-    });
+    const loadSchema = vi.fn(async () => ({ ...upstreamSchema, description: 'Later upstream mutation' }));
+    const catalog = createCatalog(undefined, { loadSchema });
 
     const listed = await catalog.listVisibleTools({});
     const described = await catalog.describeVisibleTool({ server: 'filesystem', toolName: 'read_file' });
@@ -129,6 +150,7 @@ describe('CapabilityCatalog', () => {
       ...upstreamSchema,
       description: 'Read a workspace file safely',
     });
+    expect(loadSchema).not.toHaveBeenCalled();
   });
 
   it('maps external capability items for non-tool kinds', async () => {

@@ -1,5 +1,8 @@
-import logger, { debugIf, errorIf } from '@src/logger/logger.js';
+import type { OutboundConnection } from '@src/core/types/index.js';
+import logger, { errorIf } from '@src/logger/logger.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
+
+import { buildCatalogGeneration, type CapabilityRoute, type CatalogGeneration } from './catalogGeneration.js';
 
 /**
  * Lightweight tool metadata used for discovery and routing.
@@ -11,6 +14,8 @@ export interface ToolMetadata {
   description: string;
   inputSchema?: Tool['inputSchema'];
   tags?: string[];
+  definition?: Tool;
+  route?: CapabilityRoute;
 }
 
 /**
@@ -68,7 +73,11 @@ interface PaginationCursor {
 export class ToolRegistry {
   private tools: ToolMetadata[] = [];
 
-  private constructor(tools: ToolMetadata[]) {
+  private constructor(
+    tools: ToolMetadata[],
+    private readonly connections?: ReadonlyMap<string, OutboundConnection>,
+    private readonly current?: () => boolean,
+  ) {
     this.tools = tools;
   }
 
@@ -80,28 +89,11 @@ export class ToolRegistry {
    * @returns A new ToolRegistry instance
    */
   public static fromToolsMap(toolsByServer: Map<string, Tool[]>, serverTags?: Map<string, string[]>): ToolRegistry {
-    const tools: ToolMetadata[] = [];
-
-    for (const [serverName, serverTools] of toolsByServer.entries()) {
-      const tags = serverTags?.get(serverName) || [];
-
-      for (const tool of serverTools) {
-        tools.push({
-          name: tool.name,
-          server: serverName,
-          description: tool.description || '',
-          inputSchema: tool.inputSchema,
-          tags,
-        });
-      }
-
-      debugIf(() => ({
-        message: `Registered ${serverTools.length} tools from server: ${serverName}`,
-      }));
-    }
-
-    logger.info(`Built tool registry with ${tools.length} tools from ${toolsByServer.size} servers`);
-    return new ToolRegistry(tools);
+    return ToolRegistry.fromToolsWithServer(
+      Array.from(toolsByServer).flatMap(([server, tools]) =>
+        tools.map((tool) => ({ tool, server, tags: serverTags?.get(server) })),
+      ),
+    );
   }
 
   /**
@@ -114,17 +106,66 @@ export class ToolRegistry {
   public static fromToolsWithServer(
     toolsWithServer: Array<{ tool: Tool; server: string; connectionKey?: string; tags?: string[] }>,
   ): ToolRegistry {
-    const tools: ToolMetadata[] = toolsWithServer.map(({ tool, server, connectionKey, tags }) => ({
-      name: tool.name,
-      server,
-      connectionKey: connectionKey ?? server,
-      description: tool.description || '',
-      inputSchema: tool.inputSchema,
-      tags: tags || [],
-    }));
+    const generation = buildCatalogGeneration(
+      0,
+      toolsWithServer.map(({ tool, server, connectionKey }) => ({
+        kind: 'tools',
+        server,
+        connectionKey: connectionKey ?? server,
+        object: tool,
+      })),
+      { allowTemplateInstances: true },
+    );
+    const tags = new Map(toolsWithServer.map((item) => [item.connectionKey ?? item.server, item.tags ?? []]));
+    return ToolRegistry.fromGeneration(generation, tags);
+  }
 
-    logger.info(`Built tool registry with ${tools.length} tools`);
-    return new ToolRegistry(tools);
+  public static fromGeneration(
+    generation: CatalogGeneration,
+    tags: ReadonlyMap<string, readonly string[]> = new Map(),
+    connections?: ReadonlyMap<string, OutboundConnection>,
+    isCurrent?: () => boolean,
+  ): ToolRegistry {
+    if (generation.quarantine.length) {
+      errorIf(() => ({
+        message: 'Capabilities excluded from catalog by quarantine',
+        meta: { quarantine: generation.quarantine },
+      }));
+    }
+    return new ToolRegistry(
+      generation.entries
+        .filter((entry) => entry.route.kind === 'tools' && entry.route.origin === 'external')
+        .map((entry) => {
+          const definition = entry.sourceObject as unknown as Tool;
+          return Object.freeze({
+            name: entry.route.upstreamIdentity,
+            server: entry.route.server,
+            connectionKey: entry.route.connectionKey,
+            description: definition.description ?? '',
+            inputSchema: definition.inputSchema,
+            definition,
+            route: entry.route,
+            tags: Object.freeze([...(tags.get(entry.route.connectionKey) ?? [])]) as unknown as string[],
+          });
+        }),
+      connections,
+      isCurrent,
+    );
+  }
+
+  public getConnections(): ReadonlyMap<string, OutboundConnection> | undefined {
+    return this.connections;
+  }
+
+  public isCurrent(): boolean {
+    return this.current?.() ?? true;
+  }
+
+  public withConnections(
+    connections?: ReadonlyMap<string, OutboundConnection>,
+    isCurrent?: () => boolean,
+  ): ToolRegistry {
+    return new ToolRegistry(this.tools, connections, isCurrent);
   }
 
   /**
@@ -260,14 +301,15 @@ export class ToolRegistry {
    * Check if a tool exists in the registry
    */
   public hasTool(server: string, toolName: string): boolean {
-    return this.tools.some((t) => t.server === server && t.name === toolName);
+    return this.getTool(server, toolName) !== undefined;
   }
 
   /**
    * Get tool metadata without inputSchema
    */
   public getTool(server: string, toolName: string): ToolMetadata | undefined {
-    return this.tools.find((t) => t.server === server && t.name === toolName);
+    const matches = this.tools.filter((t) => t.server === server && t.name === toolName);
+    return matches.length === 1 ? matches[0] : undefined;
   }
 
   /**
@@ -308,7 +350,7 @@ export class ToolRegistry {
    */
   public filterByConnectionKeys(connectionKeys: ReadonlySet<string>): ToolRegistry {
     const filteredTools = this.tools.filter((tool) => connectionKeys.has(tool.connectionKey ?? tool.server));
-    return new ToolRegistry(filteredTools);
+    return new ToolRegistry(filteredTools, this.connections, this.current);
   }
 
   /** Filter by exact connection identity, with clean-name fallback for legacy metadata only. */
@@ -318,7 +360,7 @@ export class ToolRegistry {
     const filteredTools = this.tools.filter((tool) =>
       tool.connectionKey ? connectionKeys.has(tool.connectionKey) : publicServerNames.has(tool.server),
     );
-    return new ToolRegistry(filteredTools);
+    return new ToolRegistry(filteredTools, this.connections, this.current);
   }
 
   /**

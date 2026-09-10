@@ -1,6 +1,10 @@
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
+import { createCapabilityVisibility } from '@src/core/capabilities/capabilityVisibility.js';
+import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { OutboundConnections } from '@src/core/types/client.js';
 import { ServerStatus } from '@src/core/types/server.js';
 import logger from '@src/logger/logger.js';
@@ -86,6 +90,17 @@ describe('ConnectionManager', () => {
   let connectionManager: ConnectionManager;
   let mockTransport: Transport;
   let mockOutboundConns: OutboundConnections;
+
+  it('evicts catalog scopes using the inbound context session identity on disconnect', async () => {
+    await connectionManager.connectTransport(mockTransport, 'transport-id', { context: { sessionId: 'context-id' } });
+    mockOutboundConns.set('backend', createMockOutboundConnection({ capabilities: {} }));
+    const snapshot = await acquireRuntimeCapabilityCatalog(
+      mockOutboundConns,
+      createCapabilityVisibility([['backend', 'backend']], 'context-id'),
+    );
+    await connectionManager.disconnectTransport('transport-id');
+    expect(snapshot.isCurrent()).toBe(false);
+  });
 
   const mockServerConfig = { name: 'test-server', version: '1.0.0' };
   const mockServerCapabilities = { capabilities: { tools: {} } };

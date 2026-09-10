@@ -74,6 +74,10 @@ test('shared gateway layers remain independent of protocol SDK implementations',
 
 test('gateway production attachment is confined to explicit inbound and outbound adapters', () => {
   const allowed = new Set([
+    'src/core/capabilities/catalogGeneration.ts -> @src/gateway/contracts/immutableJson.js',
+    'src/sdk/legacy/client/runtime/legacyGatewayClientAdapter.ts -> @src/gateway/contracts/gatewayRequest.js',
+    'src/sdk/legacy/client/runtime/modernSdkClientAdapter.ts -> @src/gateway/contracts/gatewayRequest.js',
+    'src/transport/http/routes/modernHttpRoutes.ts -> @src/gateway/contracts/gatewayRequest.js',
     'src/sdk/legacy/client/runtime/legacyGatewayClientAdapter.ts -> @src/gateway/adapters/legacy/legacyOutboundEraAdapter.js',
     'src/sdk/legacy/client/runtime/legacyGatewayClientAdapter.ts -> @src/gateway/contracts/effectiveRequestAuthority.js',
     'src/sdk/legacy/client/runtime/legacyGatewayClientAdapter.ts -> @src/gateway/contracts/immutableJson.js',

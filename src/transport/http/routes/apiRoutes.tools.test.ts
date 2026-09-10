@@ -138,9 +138,9 @@ describe('apiRoutes /api/tools', () => {
             [
               'alpha',
               connectionWithTools('alpha', [
-                { name: 'alpha_one', description: 'First', inputSchema: {} },
-                { name: 'alpha_two', description: 'Second', inputSchema: {} },
-                { name: 'alpha_three', description: 'Third', inputSchema: {} },
+                { name: 'alpha_one', description: 'First', inputSchema: { type: 'object' } },
+                { name: 'alpha_two', description: 'Second', inputSchema: { type: 'object' } },
+                { name: 'alpha_three', description: 'Third', inputSchema: { type: 'object' } },
               ]),
             ],
           ]),
@@ -209,7 +209,7 @@ describe('apiRoutes /api/tools', () => {
               'instance-one',
               connectionWithTools(
                 'template',
-                [{ name: 'first_tool', description: 'First instance', inputSchema: {} }],
+                [{ name: 'first_tool', description: 'First instance', inputSchema: { type: 'object' } }],
                 ['session-one'],
               ),
             ],
@@ -217,7 +217,7 @@ describe('apiRoutes /api/tools', () => {
               'instance-two',
               connectionWithTools(
                 'template',
-                [{ name: 'second_tool', description: 'Second instance', inputSchema: {} }],
+                [{ name: 'second_tool', description: 'Second instance', inputSchema: { type: 'object' } }],
                 ['session-two'],
               ),
             ],
@@ -246,9 +246,16 @@ describe('apiRoutes /api/tools', () => {
           new Map([
             [
               'alpha',
-              connectionWithTools('alpha', [{ name: 'alpha_tool', description: 'Alpha tool', inputSchema: {} }]),
+              connectionWithTools('alpha', [
+                { name: 'alpha_tool', description: 'Alpha tool', inputSchema: { type: 'object' } },
+              ]),
             ],
-            ['beta', connectionWithTools('beta', [{ name: 'beta_tool', description: 'Beta tool', inputSchema: {} }])],
+            [
+              'beta',
+              connectionWithTools('beta', [
+                { name: 'beta_tool', description: 'Beta tool', inputSchema: { type: 'object' } },
+              ]),
+            ],
           ]),
       ),
     };
@@ -285,8 +292,8 @@ describe('apiRoutes /api/tools', () => {
             [
               'alpha',
               connectionWithTools('alpha', [
-                { name: 'alpha_one', description: 'First', inputSchema: {} },
-                { name: 'alpha_two', description: 'Second', inputSchema: {} },
+                { name: 'alpha_one', description: 'First', inputSchema: { type: 'object' } },
+                { name: 'alpha_two', description: 'Second', inputSchema: { type: 'object' } },
               ]),
             ],
           ]),

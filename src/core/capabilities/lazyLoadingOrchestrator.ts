@@ -1,11 +1,8 @@
 import { EventEmitter } from 'events';
 
-import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
-import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ConnectionResolver, TemplateHashProvider } from '@src/core/server/connectionResolver.js';
-import { filterDisabledTools } from '@src/core/server/disabledTools.js';
 import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
 import logger, { debugIf, errorIf } from '@src/logger/logger.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
@@ -14,12 +11,6 @@ import { AsyncLoadingOrchestrator } from './asyncLoadingOrchestrator.js';
 import { AsyncLoadingOrchestratorEvent } from './asyncLoadingOrchestratorEvent.js';
 import { AggregatedCapabilities, CapabilityAggregator } from './capabilityAggregator.js';
 import { type CapabilityVisibility, getCapabilityVisibleServerNames } from './capabilityVisibility.js';
-import {
-  clearConfiguredToolSnapshot,
-  collectConfiguredToolPages,
-  publishCompleteConfiguredToolTargetSnapshots,
-  publishConfiguredToolSnapshot,
-} from './configuredToolSnapshot.js';
 import { MetaToolProvider } from './metaToolProvider.js';
 import { SchemaCache, SchemaCacheConfig } from './schemaCache.js';
 import { ToolRegistry } from './toolRegistry.js';
@@ -165,70 +156,13 @@ export class LazyLoadingOrchestrator extends EventEmitter {
    * Build tool registry from aggregated capabilities
    */
   private async buildToolRegistry(): Promise<void> {
-    // Build tools map for registry by fetching tools directly from each connection
-    const registryTools: Array<{ tool: Tool; server: string; connectionKey: string; tags: string[] }> = [];
-    const failedServers: Array<{ server: string; error: string }> = [];
-    const serverConfigs = getConfiguredServerTargets();
-
-    for (const [serverName, connection] of this.outboundConnections.entries()) {
-      if (connection.status !== ClientStatus.Connected) {
-        continue;
-      }
-
-      try {
-        // Get tools directly from this server's client
-        const toolsResult = await collectConfiguredToolPages((cursor) =>
-          requestLegacyAdapter<{ tools: Tool[]; nextCursor?: string }>(
-            connection.adapter,
-            'tools/list',
-            cursor === undefined ? undefined : { cursor },
-            { timeoutMs: connection.requestTimeoutMs },
-          ),
-        );
-        publishConfiguredToolSnapshot(connection, toolsResult.tools ?? []);
-        const effectiveServerName = connection.name || serverName;
-        const serverTools = filterDisabledTools(toolsResult.tools || [], serverConfigs, effectiveServerName);
-
-        if (serverTools.length > 0) {
-          // CRITICAL: Use connection.name instead of map key for server identification
-          // Map keys for template servers include hash suffix (e.g., "template-server:abc123")
-          // but connection.name is the clean name (e.g., "template-server")
-          // This ensures tool registry uses consistent server names
-          const tags = connection.tags;
-          registryTools.push(
-            ...serverTools.map((tool) => ({
-              tool,
-              server: effectiveServerName,
-              connectionKey: serverName,
-              tags,
-            })),
-          );
-        }
-      } catch (error) {
-        clearConfiguredToolSnapshot(connection);
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        errorIf(() => ({
-          message: 'Failed to list tools from server during registry build',
-          meta: { serverName, error: errorMessage },
-        }));
-        failedServers.push({ server: serverName, error: errorMessage });
-      }
-    }
-
-    publishCompleteConfiguredToolTargetSnapshots(this.outboundConnections);
-
-    // Warn if significant failures
-    if (failedServers.length > 0) {
-      const failureRate = failedServers.length / this.outboundConnections.size;
-      if (failureRate > 0.5) {
-        errorIf(() => ({
-          message: `Tool registry built with ${failedServers.length}/${this.outboundConnections.size} server failures`,
-          meta: { failedServers },
-        }));
-      }
-    }
-
-    this.toolRegistry = ToolRegistry.fromToolsWithServer(registryTools);
+    const snapshot = this.capabilityAggregator.getCatalogSnapshot();
+    this.toolRegistry = ToolRegistry.fromGeneration(
+      this.capabilityAggregator.getCatalogGeneration(),
+      new Map(Array.from(snapshot?.connections ?? [], ([key, connection]) => [key, connection.tags])),
+      snapshot?.connections,
+      snapshot?.isCurrent,
+    );
   }
 
   /**
@@ -355,6 +289,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
     return {
       tools: metaTools,
       resources: baseCapabilities.resources,
+      resourceTemplates: baseCapabilities.resourceTemplates,
       prompts: baseCapabilities.prompts,
       readyServers: baseCapabilities.readyServers,
       timestamp: new Date(),
@@ -382,24 +317,20 @@ export class LazyLoadingOrchestrator extends EventEmitter {
     const metaTools = this.metaToolProvider?.getMetaTools() || [];
     const visibleServerNames = getCapabilityVisibleServerNames(visibility);
 
-    // Filter resources to only include those from filtered servers
-    const filteredResources = baseCapabilities.resources.filter((resource) => {
-      const resourceName = resource.name;
-      // Resources are namespaced with server prefix (e.g., "server_1mcp_resource")
-      // Extract server name from resource URI
-      const parts = resourceName.split(MCP_URI_SEPARATOR);
-      const serverName = parts[0];
-      return visibleServerNames.has(serverName);
-    });
-
-    // Filter prompts to only include those from filtered servers
-    const filteredPrompts = baseCapabilities.prompts.filter((prompt) => {
-      const promptName = prompt.name;
-      // Prompts are namespaced with server prefix (e.g., "server_1mcp_prompt")
-      const parts = promptName.split(MCP_URI_SEPARATOR);
-      const serverName = parts[0];
-      return visibleServerNames.has(serverName);
-    });
+    const entries = this.capabilityAggregator
+      .getCatalogGeneration()
+      .entries.filter(
+        (entry) => entry.route.origin === 'internal' || visibility.serverCandidates.has(entry.route.connectionKey),
+      );
+    const filteredResources = entries
+      .filter((entry) => entry.route.kind === 'resources')
+      .map((entry) => entry.publicObject);
+    const filteredPrompts = entries
+      .filter((entry) => entry.route.kind === 'prompts')
+      .map((entry) => entry.publicObject);
+    const filteredTemplates = entries
+      .filter((entry) => entry.route.kind === 'resourceTemplates')
+      .map((entry) => entry.publicObject);
 
     // Filter ready servers
     const filteredReadyServers = baseCapabilities.readyServers.filter((serverName) =>
@@ -408,8 +339,9 @@ export class LazyLoadingOrchestrator extends EventEmitter {
 
     return {
       tools: metaTools,
-      resources: filteredResources,
-      prompts: filteredPrompts,
+      resources: filteredResources as unknown as AggregatedCapabilities['resources'],
+      resourceTemplates: filteredTemplates as unknown as AggregatedCapabilities['resourceTemplates'],
+      prompts: filteredPrompts as unknown as AggregatedCapabilities['prompts'],
       readyServers: filteredReadyServers,
       timestamp: new Date(),
     };

@@ -146,7 +146,7 @@ describe('apiRoutes inspect', () => {
           ['context7'],
           [
             {
-              name: 'context7_1mcp_query-docs',
+              name: 'query-docs',
               description: 'Query docs',
               inputSchema: {
                 type: 'object',

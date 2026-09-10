@@ -43,6 +43,17 @@ export function applyEffectiveToolDescription<T extends Pick<Tool, 'name'> & { d
   return { ...tool, description };
 }
 
+/** Apply configuration to an exact source name, including names containing the routing separator. */
+export function applySourceToolDescription<T extends Pick<Tool, 'name'> & { description?: string }>(
+  tool: T,
+  serverConfig: Pick<MCPServerParams, 'toolDescriptionOverrides'> | undefined,
+  server: string,
+): T {
+  const overrides = getToolDescriptionOverrides(serverConfig);
+  const description = overrides[tool.name] ?? overrides[`${server}${MCP_URI_SEPARATOR}${tool.name}`];
+  return description === undefined || description === tool.description ? tool : { ...tool, description };
+}
+
 export function withToolDescriptionOverride(
   serverConfig: MCPServerParams,
   toolName: string,

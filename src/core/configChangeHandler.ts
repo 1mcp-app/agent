@@ -418,6 +418,7 @@ export class ConfigChangeHandler {
           try {
             const notificationManager = new NotificationManager(inboundConnection);
             notificationManager.handleCapabilityChanges({
+              resourceTemplatesChanged: changes.resourceTemplatesChanged,
               toolsChanged: notificationFacts.refresh.shouldNotifyListChanged,
               resourcesChanged: notificationFacts.resourcesChanged,
               promptsChanged: notificationFacts.promptsChanged,

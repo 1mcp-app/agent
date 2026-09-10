@@ -28,6 +28,7 @@ describe('createCapabilityCatalogFromConnections', () => {
         'slow',
         createMockOutboundConnection({
           name: 'slow',
+          capabilities: { tools: {} },
           adapter: { request: slowListTools },
         }),
       ],
@@ -35,6 +36,7 @@ describe('createCapabilityCatalogFromConnections', () => {
         'healthy',
         createMockOutboundConnection({
           name: 'healthy',
+          capabilities: { tools: {} },
           adapter: { request: healthyListTools },
         }),
       ],
