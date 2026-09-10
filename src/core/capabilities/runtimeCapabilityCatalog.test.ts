@@ -3,7 +3,7 @@ import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js'
 import type { OutboundConnections } from '@src/core/types/index.js';
 
 import { createCapabilityVisibility } from './capabilityVisibility.js';
-import { acquireRuntimeCapabilityCatalog } from './runtimeCapabilityCatalog.js';
+import { acquireRuntimeCapabilityCatalog, evictRuntimeCapabilityCatalogSession } from './runtimeCapabilityCatalog.js';
 
 const tool = (name: string) => ({ name, inputSchema: { type: 'object' } });
 function fixture(
@@ -20,6 +20,84 @@ function fixture(
 }
 
 describe('runtime capability catalog', () => {
+  it('does not reuse the unscoped template registry for a failed request-scoped refresh', async () => {
+    const first = fixture('template');
+    const second = fixture('template');
+    const connections = new Map([
+      ['first', first],
+      ['second', second],
+    ]);
+    const registry = await acquireRuntimeCapabilityCatalog(connections);
+    expect(registry.generation.entries).toHaveLength(2);
+    vi.mocked(first.adapter.request).mockRejectedValue(new Error('unavailable'));
+    vi.mocked(second.adapter.request).mockRejectedValue(new Error('unavailable'));
+    const request = await acquireRuntimeCapabilityCatalog(
+      connections,
+      createCapabilityVisibility([
+        ['first', 'template'],
+        ['second', 'template'],
+      ]),
+    );
+    expect(request).not.toBe(registry);
+    expect(request.generation.entries).toEqual([]);
+  });
+
+  it('evicts every session scope and prevents in-flight work from republishing after teardown', async () => {
+    const connection = fixture();
+    const connections = new Map([['server', connection]]);
+    const visibility = createCapabilityVisibility([['server', 'server']], 'closed');
+    const first = await acquireRuntimeCapabilityCatalog(connections, visibility);
+    const extra = await acquireRuntimeCapabilityCatalog(connections, visibility, { internalResources: [] });
+    const other = await acquireRuntimeCapabilityCatalog(
+      connections,
+      createCapabilityVisibility([['server', 'server']], 'other'),
+    );
+    let finish!: (value: unknown) => void;
+    vi.mocked(connection.adapter.request).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }) as never,
+    );
+    const pending = acquireRuntimeCapabilityCatalog(connections, visibility);
+    evictRuntimeCapabilityCatalogSession(connections, 'closed');
+    const reopened = await acquireRuntimeCapabilityCatalog(connections, visibility);
+    finish({ tools: [tool('obsolete')] });
+    await expect(pending).rejects.toThrow();
+    expect(first.isCurrent()).toBe(false);
+    expect(extra.isCurrent()).toBe(false);
+    expect(other.isCurrent()).toBe(true);
+    await expect(first.list('tools', { enablePagination: true, cursor: 'disposed' })).rejects.toMatchObject({
+      data: { reason: 'stale_generation' },
+    });
+    vi.mocked(connection.adapter.request).mockRejectedValue(new Error('unavailable'));
+    expect(await acquireRuntimeCapabilityCatalog(connections, visibility)).toBe(reopened);
+  });
+
+  it('quarantines public routes shared by two simultaneously visible instances', async () => {
+    const connections = new Map([
+      ['first', fixture('template')],
+      ['second', fixture('template')],
+    ]);
+    const snapshot = await acquireRuntimeCapabilityCatalog(
+      connections,
+      createCapabilityVisibility(
+        [
+          ['first', 'template'],
+          ['second', 'template'],
+        ],
+        'session',
+      ),
+    );
+    expect((await snapshot.list('tools', { enablePagination: false })).items).toEqual([]);
+    expect(snapshot.generation.quarantine).toHaveLength(2);
+    const scoped = await acquireRuntimeCapabilityCatalog(
+      connections,
+      createCapabilityVisibility([['second', 'template']], 'session'),
+    );
+    expect(scoped.resolve('tools', 'template_1mcp_echo')?.connection).toBe(connections.get('second'));
+  });
+
   it('resolves before listing and keeps separator-bearing source names exact', async () => {
     const connection = fixture('a_1mcp_b', () => ({ tools: [tool('c_1mcp_d')] }));
     const snapshot = await acquireRuntimeCapabilityCatalog(new Map([['backend', connection]]));

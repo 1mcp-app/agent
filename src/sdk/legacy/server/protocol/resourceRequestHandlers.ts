@@ -91,7 +91,7 @@ export function registerResourceHandlers(
         ...result,
         contents: result.contents.map((content) => ({
           ...content,
-          uri: projectResourceUri(snapshot, route.entry.route.connectionKey, content.uri, route.entry),
+          uri: projectResourceUri(snapshot, route.entry.route.connectionKey, content.uri),
         })),
       };
     }, 'Error reading resource'),

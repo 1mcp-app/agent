@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CapabilityAggregator } from './capabilityAggregator.js';
 import { readConfiguredToolSnapshot, readLastConfiguredToolSnapshot } from './configuredToolSnapshot.js';
+import { ToolRegistry } from './toolRegistry.js';
 
 // Mock InternalCapabilitiesProvider
 vi.mock('@src/core/capabilities/internalCapabilitiesProvider.js', () => ({
@@ -99,6 +100,66 @@ describe('CapabilityAggregator', () => {
   });
 
   describe('updateCapabilities', () => {
+    it('retains template instances in the shared registry for later session filtering', async () => {
+      for (const key of ['first', 'second'])
+        mockConnections.set(
+          key,
+          connectionFromClient('template', {
+            listTools: vi.fn().mockResolvedValue({ tools: [mockTool] }),
+            getServerCapabilities: () => ({ tools: {} }),
+          }),
+        );
+      await aggregator.updateCapabilities();
+      const registry = ToolRegistry.fromGeneration(aggregator.getCatalogGeneration());
+      expect(registry.size()).toBe(2);
+      expect(
+        registry.filterByConnectionKeys(new Set(['second'])).getTool('template', mockTool.name)?.connectionKey,
+      ).toBe('second');
+    });
+
+    it('retries a backend replacement once before publishing the initial aggregate', async () => {
+      const replacement = connectionFromClient('server', {
+        listTools: vi.fn().mockResolvedValue({ tools: [{ ...mockTool, name: 'replacement' }] }),
+        getServerCapabilities: () => ({ tools: {} }),
+      });
+      mockConnections.set(
+        'server',
+        connectionFromClient('server', {
+          listTools: vi.fn(async () => {
+            mockConnections.set('server', replacement);
+            return { tools: [mockTool] };
+          }),
+          getServerCapabilities: () => ({ tools: {} }),
+        }),
+      );
+      const result = await aggregator.updateCapabilities();
+      expect(result.current.tools.map((tool) => tool.name)).toEqual(['server_1mcp_replacement']);
+      expect(replacement.adapter.request).toHaveBeenCalledTimes(1);
+    });
+
+    it('propagates repeated backend churn without publishing a partial aggregate', async () => {
+      const listTools = vi.fn(async () => {
+        mockConnections.set(
+          'server',
+          connectionFromClient('server', {
+            listTools,
+            getServerCapabilities: () => ({ tools: {} }),
+          }),
+        );
+        return { tools: [mockTool] };
+      });
+      mockConnections.set(
+        'server',
+        connectionFromClient('server', {
+          listTools,
+          getServerCapabilities: () => ({ tools: {} }),
+        }),
+      );
+      await expect(aggregator.updateCapabilities()).rejects.toThrow('backend changed');
+      expect(listTools).toHaveBeenCalledTimes(2);
+      expect(aggregator.getCurrentCapabilities().tools).toEqual([]);
+    });
+
     it('should apply the effective backend request timeout to every capability list call', async () => {
       const listTools = vi.fn().mockResolvedValue({ tools: [mockTool] });
       const listResources = vi.fn().mockResolvedValue({ resources: [mockResource] });

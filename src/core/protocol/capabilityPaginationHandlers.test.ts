@@ -12,7 +12,9 @@ import {
   ListResourcesRequestSchema,
   ListResourceTemplatesRequestSchema,
   ListToolsRequestSchema,
+  ReadResourceRequestSchema,
   ResourceListChangedNotificationSchema,
+  ResourceUpdatedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 
 import {
@@ -20,7 +22,7 @@ import {
   unregisterCapabilityPaginationForwarder,
 } from '@src/core/capabilities/capabilityPagination.js';
 import type { OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
-import { ClientStatus } from '@src/core/types/index.js';
+import { ClientStatus, ServerStatus } from '@src/core/types/index.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -59,7 +61,7 @@ vi.mock('@src/core/server/serverManager.js', () => ({
 }));
 
 describe('capability pagination protocol handlers', () => {
-  let handlers: Map<unknown, (request: { params?: { cursor?: string } }) => Promise<unknown>>;
+  let handlers: Map<unknown, (request: { params?: { cursor?: string; uri?: string } }) => Promise<unknown>>;
 
   beforeEach(() => {
     handlers = new Map();
@@ -82,7 +84,9 @@ describe('capability pagination protocol handlers', () => {
                 ? client.listPrompts
                 : request.method === 'tools/list'
                   ? client.listTools
-                  : undefined
+                  : request.method === 'resources/read'
+                    ? client.readResource
+                    : undefined
         ) as ((params: Record<string, unknown>, options: Record<string, unknown>) => Promise<unknown>) | undefined;
         if (!method) throw new Error(`Unexpected adapter request: ${request.method}`);
         return method(request.params ?? {}, options);
@@ -113,6 +117,47 @@ describe('capability pagination protocol handlers', () => {
     if (!handler) throw new Error('resources/list handler was not registered');
     return handler;
   }
+
+  it('forwards an unlisted resource update and routes the subsequent read back to its origin', async () => {
+    const notificationHandlers = new Map<unknown, (notification: unknown) => Promise<unknown>>();
+    const upstreamUri = 'custom:///unlisted%2f?q=a%20b#x';
+    const readResource = vi.fn().mockResolvedValue({ contents: [{ uri: upstreamUri, text: 'updated' }] });
+    const outbound = connection('origin', {
+      listResources: vi.fn().mockResolvedValue({ resources: [] }),
+      listResourceTemplates: vi.fn().mockResolvedValue({ resourceTemplates: [] }),
+      listTools: vi.fn().mockResolvedValue({ tools: [] }),
+      listPrompts: vi.fn().mockResolvedValue({ prompts: [] }),
+      readResource,
+      setNotificationHandler: vi.fn((schema, handler) => notificationHandlers.set(schema, handler)),
+    });
+    const connections = new Map([['origin', outbound]]);
+    const notify = vi.fn().mockResolvedValue(undefined);
+    const inbound = createMockLegacyInboundConnection({
+      status: ServerStatus.Connected,
+      context: { sessionId: 'resource-session' },
+      server: {
+        transport: createMockTransport(),
+        notification: notify,
+        setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)),
+      } as never,
+    });
+    setupClientToServerNotifications(connections, inbound);
+    registerResourceHandlers(connections, inbound);
+    const notification = notificationHandlers.get(ResourceUpdatedNotificationSchema);
+    if (!notification) throw new Error('No resource update handler');
+    await notification({
+      method: 'notifications/resources/updated',
+      params: { uri: upstreamUri, _meta: { marker: 1 } },
+    });
+    expect(notify).toHaveBeenCalledOnce();
+    const uri = notify.mock.calls[0][0].params.uri;
+    expect(uri).toMatch(/^urn:1mcp:resource:/);
+    expect(notify.mock.calls[0][0].params._meta).toEqual({ marker: 1 });
+    const read = handlers.get(ReadResourceRequestSchema);
+    if (!read) throw new Error('No resource read handler');
+    expect(await read({ params: { uri } })).toMatchObject({ contents: [{ uri, text: 'updated' }] });
+    expect(readResource).toHaveBeenCalledWith({ uri: upstreamUri }, expect.anything());
+  });
 
   it('walks providers in canonical order and preserves opaque upstream cursors', async () => {
     const alphaList = vi

@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { isSourceToolDisabled } from '@src/core/server/disabledTools.js';
@@ -16,6 +16,7 @@ import {
   type CapabilityPage,
   type CapabilityPaginationResult,
   registerCapabilityPaginationNotifications,
+  unregisterCapabilityPaginationConnections,
   walkCapabilityPages,
 } from './capabilityPagination.js';
 import type { CapabilityVisibility } from './capabilityVisibility.js';
@@ -31,6 +32,14 @@ import {
   publishCompleteConfiguredToolTargetSnapshots,
   publishConfiguredToolSnapshot,
 } from './configuredToolSnapshot.js';
+
+/** Only backend replacement is eligible for the aggregate's single collection retry. */
+export class RuntimeCatalogBackendChangedError extends Error {
+  constructor() {
+    super('Capability catalog backend changed; retry the request');
+    this.name = 'RuntimeCatalogBackendChangedError';
+  }
+}
 
 const METHODS: Record<CapabilityKind, string> = {
   tools: 'tools/list',
@@ -68,6 +77,8 @@ export interface RuntimeCapabilitySnapshot {
   readonly generation: CatalogGeneration;
   readonly connections: ReadonlyMap<string, OutboundConnection>;
   isCurrent(): boolean;
+  /** Issue a session-scoped, backend-bound route for a resource absent from discovery. */
+  projectUnlistedResource(connectionKey: string, upstreamIdentity: string): string;
   resolve(
     kind: CapabilityKind,
     publicIdentity: string,
@@ -85,13 +96,35 @@ export interface RuntimeCapabilitySnapshot {
   ): Promise<CapabilityPaginationResult<T>>;
 }
 
+interface RuntimeScope {
+  sessionId?: string;
+  latestStarted: number;
+  snapshot?: RuntimeCapabilitySnapshot;
+  paginationConnections: OutboundConnections;
+  resourceRoutes: Map<
+    string,
+    { entry: CatalogEntry; connection: OutboundConnection; adapter: OutboundConnection['adapter'] }
+  >;
+}
+
 interface RuntimeState {
   nextId: number;
-  latestStarted: Map<string, number>;
-  snapshots: Map<string, RuntimeCapabilitySnapshot>;
-  paginationConnections: Map<string, OutboundConnections>;
+  scopes: Map<string, RuntimeScope>;
 }
 const states = new WeakMap<OutboundConnections, RuntimeState>();
+
+/** Release all visibility variants and in-flight publications owned by a disconnected session. */
+export function evictRuntimeCapabilityCatalogSession(connections: OutboundConnections, sessionId: string): void {
+  const state = states.get(connections);
+  if (!state) return;
+  for (const [key, scope] of state.scopes) {
+    if (scope.sessionId !== sessionId) continue;
+    state.scopes.delete(key);
+    unregisterCapabilityPaginationConnections(scope.paginationConnections);
+    scope.paginationConnections.clear();
+    scope.resourceRoutes.clear();
+  }
+}
 
 /** Acquire all route and projection facts before dispatching any capability operation. */
 export async function acquireRuntimeCapabilityCatalog(
@@ -102,7 +135,7 @@ export async function acquireRuntimeCapabilityCatalog(
   options = { ...options, serverConfigs: structuredClone(options.serverConfigs ?? {}) };
   let state = states.get(connections);
   if (!state) {
-    state = { nextId: 1, latestStarted: new Map(), snapshots: new Map(), paginationConnections: new Map() };
+    state = { nextId: 1, scopes: new Map() };
     states.set(connections, state);
   }
   const captured = new Map(
@@ -113,10 +146,19 @@ export async function acquireRuntimeCapabilityCatalog(
   );
   const capturedAdapters = new Map(Array.from(captured, ([key, connection]) => [key, connection.adapter]));
   const { continuation, ...catalogOptions } = options;
-  const scope = JSON.stringify([Array.from(captured.keys()).sort(), visibility?.sessionId, catalogOptions]);
+  const scope = JSON.stringify([
+    Array.from(captured.keys()).sort(),
+    visibility?.sessionId,
+    catalogOptions,
+    visibility ? Array.from(visibility.serverCandidates).sort(([a], [b]) => a.localeCompare(b)) : null,
+  ]);
   if (continuation) {
-    const scopedPrevious = state.snapshots.get(scope);
-    const previous = scopedPrevious ?? Array.from(state.snapshots.values()).at(-1);
+    const scopedPrevious = state.scopes.get(scope)?.snapshot;
+    const previous =
+      scopedPrevious ??
+      Array.from(state.scopes.values())
+        .reverse()
+        .find((item) => item.snapshot)?.snapshot;
     if (previous) {
       await previous.list(continuation.kind, { ...continuation, visibility, serverConfigs: options.serverConfigs });
       if (!scopedPrevious)
@@ -135,13 +177,27 @@ export async function acquireRuntimeCapabilityCatalog(
     });
     throw new Error('Capability cursor has no captured generation');
   }
-  const started = (state.latestStarted.get(scope) ?? 0) + 1;
-  let paginationConnections = state.paginationConnections.get(scope);
-  if (!paginationConnections) {
-    paginationConnections = new Map(captured);
-    state.paginationConnections.set(scope, paginationConnections);
+  const started = state.nextId++;
+  let currentScope = state.scopes.get(scope);
+  if (!currentScope) {
+    currentScope = {
+      sessionId: visibility?.sessionId,
+      latestStarted: started,
+      paginationConnections: new Map(captured),
+      resourceRoutes: new Map(),
+    };
+    state.scopes.set(scope, currentScope);
   }
-  const observedConnections = paginationConnections;
+  currentScope.latestStarted = started;
+  const scopedState = currentScope;
+  const observedConnections = scopedState.paginationConnections;
+  for (const [identity, route] of scopedState.resourceRoutes) {
+    if (
+      captured.get(route.entry.route.connectionKey) !== route.connection ||
+      route.connection.adapter !== route.adapter
+    )
+      scopedState.resourceRoutes.delete(identity);
+  }
   const observeConnections = () => {
     observedConnections.clear();
     for (const key of captured.keys()) {
@@ -153,8 +209,8 @@ export async function acquireRuntimeCapabilityCatalog(
     }
   };
   const filterSelection = structuredClone(visibility?.filterSelection);
-  state.latestStarted.set(scope, started);
   const isCurrent = () =>
+    state.scopes.get(scope) === scopedState &&
     Array.from(captured).every(
       ([key, connection]) =>
         connections.get(key) === connection &&
@@ -163,7 +219,7 @@ export async function acquireRuntimeCapabilityCatalog(
     );
   const assertCurrent = () => {
     if (!isCurrent()) {
-      throw new Error('Capability catalog backend changed; retry the request');
+      throw new RuntimeCatalogBackendChangedError();
     }
   };
   const sources: CapabilitySource[] = [];
@@ -245,7 +301,7 @@ export async function acquireRuntimeCapabilityCatalog(
   const disconnected = new Set<string>();
   for (const [key, connection] of captured) {
     if (connections.get(key) !== connection || connection.adapter !== capturedAdapters.get(key))
-      throw new Error('Capability catalog backend changed; retry the request');
+      throw new RuntimeCatalogBackendChangedError();
     if (connection.status !== ClientStatus.Connected) {
       disconnected.add(key);
       captured.delete(key);
@@ -263,7 +319,7 @@ export async function acquireRuntimeCapabilityCatalog(
     (left, right) => left.kind.localeCompare(right.kind) || left.connectionKey.localeCompare(right.connectionKey),
   );
   sourcePages.sort((left, right) => left.key.localeCompare(right.key) || left.kind.localeCompare(right.kind));
-  const previous = state.snapshots.get(scope);
+  const previous = state.scopes.get(scope)?.snapshot;
   const sameBackends =
     previous &&
     previous.isCurrent() &&
@@ -278,7 +334,7 @@ export async function acquireRuntimeCapabilityCatalog(
     for (const connection of captured.values()) clearConfiguredToolSnapshot(connection);
     return previous;
   }
-  const generation = buildCatalogGeneration(state.nextId++, sources);
+  const generation = buildCatalogGeneration(started, sources, { allowTemplateInstances: visibility === undefined });
   const keys = new Set(captured.keys());
   for (const source of sources) if (source.origin === 'internal') keys.add(source.connectionKey);
   const accepted = new Map<string, CatalogEntry>();
@@ -313,17 +369,60 @@ export async function acquireRuntimeCapabilityCatalog(
     for (const [cursor, page] of provider.pages) {
       provider.pages.set(cursor, { ...page, items: publicItems(provider.kind, provider.key, page.items) });
     }
-  const signature = (serverConfigs: Record<string, MCPServerParams> | undefined) =>
-    createHash('sha256')
-      .update(JSON.stringify([generation.entries, serverConfigs]))
-      .digest('hex');
+  const entriesJson = JSON.stringify(generation.entries);
+  let lastConfigsJson: string | undefined;
+  let lastSignature: string;
+  const signature = (serverConfigs: Record<string, MCPServerParams> | undefined) => {
+    const configsJson = JSON.stringify(serverConfigs ?? null);
+    if (configsJson !== lastConfigsJson) {
+      lastSignature = createHash('sha256').update(`[${entriesJson},${configsJson}]`).digest('hex');
+      lastConfigsJson = configsJson;
+    }
+    return lastSignature;
+  };
   const snapshot: RuntimeCapabilitySnapshot = Object.freeze({
     generation,
     connections: readonlyConnections(captured),
     isCurrent,
+    projectUnlistedResource(connectionKey: string, upstreamIdentity: string) {
+      assertCurrent();
+      const connection = captured.get(connectionKey);
+      if (!connection) throw new Error('Unknown resource backend');
+      for (const [identity, route] of scopedState.resourceRoutes) {
+        if (
+          route.entry.route.connectionKey === connectionKey &&
+          route.entry.route.upstreamIdentity === upstreamIdentity
+        )
+          return identity;
+      }
+      // This namespace cannot collide with canonical identities, which always contain the MCP separator.
+      const identity = `urn:1mcp:resource:${randomUUID()}`;
+      const server = visibility?.serverCandidates.get(connectionKey) ?? connection.name ?? connectionKey;
+      const entry: CatalogEntry = Object.freeze({
+        route: Object.freeze({
+          kind: 'resources',
+          origin: 'external',
+          server,
+          connectionKey,
+          upstreamIdentity,
+          publicIdentity: identity,
+        }),
+        sourceObject: Object.freeze({ name: upstreamIdentity, uri: upstreamIdentity }),
+        publicObject: Object.freeze({ name: upstreamIdentity, uri: identity }),
+      });
+      scopedState.resourceRoutes.set(identity, { entry, connection, adapter: connection.adapter });
+      return identity;
+    },
     resolve(kind: CapabilityKind, identity: string) {
       assertCurrent();
-      const entry = generation.resolve(kind, identity, keys);
+      const issued = kind === 'resources' ? scopedState.resourceRoutes.get(identity) : undefined;
+      const entry =
+        generation.resolve(kind, identity, keys) ??
+        (issued &&
+        captured.get(issued.entry.route.connectionKey) === issued.connection &&
+        capturedAdapters.get(issued.entry.route.connectionKey) === issued.adapter
+          ? issued.entry
+          : undefined);
       if (
         !entry ||
         (kind === 'tools' &&
@@ -343,6 +442,11 @@ export async function acquireRuntimeCapabilityCatalog(
         serverConfigs?: Record<string, MCPServerParams>;
       },
     ) {
+      if (state.scopes.get(scope) !== scopedState) {
+        throw new MCPError('Invalid capability pagination cursor', ErrorCode.InvalidParams, {
+          reason: 'stale_generation',
+        });
+      }
       if (!listOptions.cursor) assertCurrent();
       observeConnections();
       const currentVisibility = listOptions.visibility ?? visibility;
@@ -396,8 +500,8 @@ export async function acquireRuntimeCapabilityCatalog(
       return result;
     },
   });
-  if (started === state.latestStarted.get(scope)) {
-    state.snapshots.set(scope, snapshot);
+  if (state.scopes.get(scope) === scopedState && started === scopedState.latestStarted) {
+    scopedState.snapshot = snapshot;
     for (const [key, connection] of captured) {
       const provider = sourcePages.find((page) => page.kind === 'tools' && page.key === key);
       if (!provider || provider.error) clearConfiguredToolSnapshot(connection);

@@ -32,28 +32,8 @@ import express from 'express';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
-const capabilities = { tools: {}, prompts: {}, resources: {}, completions: {} };
-const metadata = {
-  title: 'Fixture title',
-  description: 'Fixture description',
-  icons: [{ src: 'https://example.com/icon.png', mimeType: 'image/png' }],
-  _meta: { 'example.com/opaque': { nested: [null, true, 7] } },
-  'example.com/future': { enabled: true },
-};
-const tool = { ...metadata, name: 'echo', inputSchema: { type: 'object' }, outputSchema: { type: 'object' } };
-const prompt = { ...metadata, name: 'explain', arguments: [{ name: 'topic', required: true }] };
-const resource = { ...metadata, name: 'guide', uri: 'file:///guide', mimeType: 'text/plain', size: 5 };
-const template = { ...metadata, name: 'guides', uriTemplate: 'file:///{name}', mimeType: 'text/plain' };
-const results: Record<string, object> = {
-  'tools/list': { tools: [tool] },
-  'prompts/list': { prompts: [prompt] },
-  'resources/list': { resources: [resource] },
-  'resources/templates/list': { resourceTemplates: [{ name: 'malformed', uriTemplate: 'file:///{' }, template] },
-  'tools/call': { content: [{ type: 'text', text: 'ok' }] },
-  'prompts/get': { messages: [{ role: 'user', content: { type: 'text', text: 'Explain' } }] },
-  'resources/read': { contents: [{ uri: resource.uri, text: 'Guide' }] },
-  'completion/complete': { completion: { values: ['topic'] } },
-};
+import { capabilities, prompt, resource, results, template, tool } from './fixtures/capabilityCatalog.js';
+
 const schemas = [
   ListToolsRequestSchema,
   ListPromptsRequestSchema,

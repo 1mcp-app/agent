@@ -1,10 +1,27 @@
+import { errorIf } from '@src/logger/logger.js';
 import { Tool } from '@src/sdk/contracts/index.js';
 
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { buildCatalogGeneration } from './catalogGeneration.js';
 import { ToolMetadata, ToolRegistry } from './toolRegistry.js';
 
+vi.mock('@src/logger/logger.js', () => ({ default: { warn: vi.fn() }, errorIf: vi.fn() }));
+
 describe('ToolRegistry', () => {
+  it('reports quarantine reasons when receiving a prebuilt generation', () => {
+    const generation = buildCatalogGeneration(1, [
+      { kind: 'tools', server: 'server', connectionKey: 'backend', object: { name: 'invalid' } },
+    ]);
+    ToolRegistry.fromGeneration(generation);
+    const diagnostic = vi.mocked(errorIf).mock.calls.at(-1)?.[0];
+    expect(typeof diagnostic).toBe('function');
+    if (typeof diagnostic !== 'function') throw new Error('Expected lazy diagnostic');
+    expect(diagnostic()).toMatchObject({
+      meta: { quarantine: [{ kind: 'tools', server: 'server', connectionKey: 'backend', reason: 'invalid-source' }] },
+    });
+  });
+
   const mockTools: ToolMetadata[] = [
     { name: 'read_file', server: 'filesystem', description: 'Read a file', tags: ['fs', 'file'] },
     { name: 'write_file', server: 'filesystem', description: 'Write a file', tags: ['fs', 'file'] },
@@ -26,6 +43,17 @@ describe('ToolRegistry', () => {
   });
 
   describe('Basic Operations', () => {
+    it('treats duplicate template names as unavailable until scoped to one instance', () => {
+      const tool: Tool = { name: 'echo', inputSchema: { type: 'object' } };
+      const registry = ToolRegistry.fromToolsWithServer([
+        { server: 'template', connectionKey: 'first', tool },
+        { server: 'template', connectionKey: 'second', tool },
+      ]);
+      expect(registry.getTool('template', 'echo')).toBeUndefined();
+      expect(registry.hasTool('template', 'echo')).toBe(false);
+      expect(registry.filterByConnectionKeys(new Set(['second'])).hasTool('template', 'echo')).toBe(true);
+    });
+
     it('should create registry from tools', () => {
       expect(registry.size()).toBe(6);
     });

@@ -1,6 +1,10 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
-import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
+import { createCapabilityVisibility } from '@src/core/capabilities/capabilityVisibility.js';
+import {
+  acquireRuntimeCapabilityCatalog,
+  evictRuntimeCapabilityCatalogSession,
+} from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 
 import { projectResourceUri, resolveResourceRoute } from './resourceTemplateRouting.js';
 
@@ -18,6 +22,47 @@ async function snapshot(templates: unknown[], resources: unknown[] = []) {
 }
 
 describe('catalog resource template routing', () => {
+  it('derives a template namespace from its stored public identity and rejects inconsistent aliases', async () => {
+    const original = await snapshot([{ name: 'r', uriTemplate: 'file:///{id}' }]);
+    const entry = original.generation.entries[0];
+    const custom = {
+      ...original,
+      generation: {
+        ...original.generation,
+        entries: [{ ...entry, route: { ...entry.route, publicIdentity: 'owned-file:///{id}' } }],
+      },
+    };
+    expect(resolveResourceRoute(custom, 'owned-file:///value%2f').upstreamIdentity).toBe('file:///value%2f');
+    expect(projectResourceUri(custom, 'backend', 'file:///value%2f')).toBe('owned-file:///value%2f');
+    custom.generation.entries[0].route.publicIdentity = 'unrelated:///{id}';
+    expect(() => resolveResourceRoute(custom, 'unrelated:///value')).toThrow('Unknown resource');
+  });
+
+  it('retains opaque unlisted routes across refreshes only for their session and original backend', async () => {
+    const connection = createMockOutboundConnection({ name: 'server', capabilities: {} });
+    const connections = new Map([['backend', connection]]);
+    const visibility = createCapabilityVisibility([['backend', 'server']], 'session');
+    const catalog = await acquireRuntimeCapabilityCatalog(connections, visibility);
+    const upstream = 'custom:///unlisted%2f?q=a%20b#x';
+    const identity = projectResourceUri(catalog, 'backend', upstream);
+    expect(identity).toMatch(/^urn:1mcp:resource:/);
+    const refreshed = await acquireRuntimeCapabilityCatalog(connections, visibility);
+    expect(resolveResourceRoute(refreshed, identity).upstreamIdentity).toBe(upstream);
+    expect(projectResourceUri(refreshed, 'backend', upstream)).toBe(identity);
+    const other = await acquireRuntimeCapabilityCatalog(
+      connections,
+      createCapabilityVisibility([['backend', 'server']], 'other'),
+    );
+    expect(() => resolveResourceRoute(other, identity)).toThrow('Unknown resource');
+    evictRuntimeCapabilityCatalogSession(connections, 'session');
+    const reopened = await acquireRuntimeCapabilityCatalog(connections, visibility);
+    expect(() => resolveResourceRoute(reopened, identity)).toThrow('Unknown resource');
+    const newIdentity = projectResourceUri(reopened, 'backend', upstream);
+    Object.assign(connection, { adapter: createMockOutboundConnection().adapter });
+    const replaced = await acquireRuntimeCapabilityCatalog(connections, visibility);
+    expect(() => resolveResourceRoute(replaced, newIdentity)).toThrow('Unknown resource');
+  });
+
   it('matches whole public templates and expands the original URI without parsing the server', async () => {
     const catalog = await snapshot([{ name: 'r', uriTemplate: 'file:///{id}' }]);
     const route = resolveResourceRoute(catalog, 'server_1mcp_part_1mcp_file:///value_1mcp_tail');
@@ -69,8 +114,7 @@ describe('catalog resource template routing', () => {
   it('projects additional read contents using the selected route backend authority', async () => {
     const catalog = await snapshot([], [{ name: 'selected', uri: 'file:///one' }]);
     const route = resolveResourceRoute(catalog, 'server_1mcp_part_1mcp_file:///one');
-    expect(projectResourceUri(catalog, 'backend', 'file:///unlisted%2f?q=a%20b#x', route.entry)).toBe(
-      'server_1mcp_part_1mcp_file:///unlisted%2f?q=a%20b#x',
-    );
+    const projected = projectResourceUri(catalog, route.entry.route.connectionKey, 'file:///unlisted%2f?q=a%20b#x');
+    expect(resolveResourceRoute(catalog, projected).upstreamIdentity).toBe('file:///unlisted%2f?q=a%20b#x');
   });
 });

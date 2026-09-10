@@ -121,11 +121,11 @@ describe('immutable catalog generations', () => {
   });
 
   it('keeps independent template instances but requires one visible exact route', () => {
-    const generation = buildCatalogGeneration(1, [
-      source('tools'),
-      source('tools', { connectionKey: 'files:2' }),
-      source('prompts'),
-    ]);
+    const generation = buildCatalogGeneration(
+      1,
+      [source('tools'), source('tools', { connectionKey: 'files:2' }), source('prompts')],
+      { allowTemplateInstances: true },
+    );
     expect(generation.entries).toHaveLength(3);
     expect(generation.resolve('tools', 'files_1mcp_read')).toBeUndefined();
     expect(generation.resolve('tools', 'files_1mcp_read', new Set(['files:2']))?.route.connectionKey).toBe('files:2');

@@ -145,7 +145,11 @@ function capture(source: CapabilitySource): CatalogEntry {
 }
 
 /** Builds privately, then exposes only frozen records and an exact, closure-owned index. */
-export function buildCatalogGeneration(id: number, sources: readonly CapabilitySource[]): CatalogGeneration {
+export function buildCatalogGeneration(
+  id: number,
+  sources: readonly CapabilitySource[],
+  options: { allowTemplateInstances?: boolean } = {},
+): CatalogGeneration {
   if (!Number.isSafeInteger(id) || id < 0) throw new TypeError('Invalid catalog generation');
   const quarantine: CatalogDiagnostic[] = [];
   const candidates: CatalogEntry[] = [];
@@ -185,7 +189,11 @@ export function buildCatalogGeneration(id: number, sources: readonly CapabilityS
       group.map(({ route }) => JSON.stringify([route.server, route.upstreamIdentity, route.origin])),
     );
     const connections = new Set(group.map(({ route }) => route.connectionKey));
-    if (logicalSources.size > 1 || connections.size !== group.length) {
+    if (
+      (!options.allowTemplateInstances && group.length > 1) ||
+      logicalSources.size > 1 ||
+      connections.size !== group.length
+    ) {
       for (const entry of group) collisions.add(entry);
     }
   }

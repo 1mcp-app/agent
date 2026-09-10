@@ -114,6 +114,7 @@ export class ToolRegistry {
         connectionKey: connectionKey ?? server,
         object: tool,
       })),
+      { allowTemplateInstances: true },
     );
     const tags = new Map(toolsWithServer.map((item) => [item.connectionKey ?? item.server, item.tags ?? []]));
     return ToolRegistry.fromGeneration(generation, tags);
@@ -125,6 +126,12 @@ export class ToolRegistry {
     connections?: ReadonlyMap<string, OutboundConnection>,
     isCurrent?: () => boolean,
   ): ToolRegistry {
+    if (generation.quarantine.length) {
+      errorIf(() => ({
+        message: 'Capabilities excluded from catalog by quarantine',
+        meta: { quarantine: generation.quarantine },
+      }));
+    }
     return new ToolRegistry(
       generation.entries
         .filter((entry) => entry.route.kind === 'tools' && entry.route.origin === 'external')
@@ -294,7 +301,7 @@ export class ToolRegistry {
    * Check if a tool exists in the registry
    */
   public hasTool(server: string, toolName: string): boolean {
-    return this.tools.some((t) => t.server === server && t.name === toolName);
+    return this.getTool(server, toolName) !== undefined;
   }
 
   /**

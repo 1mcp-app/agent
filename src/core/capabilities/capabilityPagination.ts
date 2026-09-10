@@ -54,6 +54,7 @@ interface CapabilityNotificationState {
 
 const runtimeStates = new WeakMap<OutboundConnections, RuntimePaginationState>();
 const notificationStates = new WeakMap<object, CapabilityNotificationState>();
+const registeredAdapters = new WeakMap<OutboundConnections, Set<object>>();
 const clientIds = new WeakMap<object, number>();
 const MAX_DISABLED_PAGINATION_PAGES = 1000;
 let nextClientId = 1;
@@ -100,6 +101,12 @@ export function registerCapabilityPaginationNotifications(
   }
   if (!state.connections.has(connections)) {
     state.connections.add(connections);
+    let adapters = registeredAdapters.get(connections);
+    if (!adapters) {
+      adapters = new Set();
+      registeredAdapters.set(connections, adapters);
+    }
+    adapters.add(connection.adapter);
     for (const kind of ['tools', 'resources', 'resourceTemplates', 'prompts'] as const) {
       advanceCapabilityPaginationGeneration(connections, kind);
     }
@@ -152,6 +159,15 @@ export function unregisterCapabilityPaginationForwarder(connections: OutboundCon
   for (const connection of connections.values()) {
     notificationStates.get(connection.adapter)?.forwarders.delete(forwardingKey);
   }
+}
+
+/** Detach a disposed catalog scope from every adapter it observed, including replaced adapters. */
+export function unregisterCapabilityPaginationConnections(connections: OutboundConnections): void {
+  for (const adapter of registeredAdapters.get(connections) ?? []) {
+    notificationStates.get(adapter)?.connections.delete(connections);
+  }
+  registeredAdapters.delete(connections);
+  runtimeStates.delete(connections);
 }
 
 function stableValue(value: unknown): unknown {

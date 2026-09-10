@@ -6,14 +6,18 @@ import type { OutboundConnections } from '@src/core/types/index.js';
 import type { Prompt, Resource, ResourceTemplate, Tool } from '@src/sdk/contracts/index.js';
 
 import { buildCatalogGeneration, type CatalogGeneration } from './catalogGeneration.js';
-import { acquireRuntimeCapabilityCatalog, type RuntimeCapabilitySnapshot } from './runtimeCapabilityCatalog.js';
+import {
+  acquireRuntimeCapabilityCatalog,
+  type RuntimeCapabilitySnapshot,
+  RuntimeCatalogBackendChangedError,
+} from './runtimeCapabilityCatalog.js';
 
 export interface AggregatedCapabilities {
-  readonly tools: Tool[];
-  readonly resources: Resource[];
-  readonly resourceTemplates: ResourceTemplate[];
-  readonly prompts: Prompt[];
-  readonly readyServers: string[];
+  readonly tools: readonly Tool[];
+  readonly resources: readonly Resource[];
+  readonly resourceTemplates: readonly ResourceTemplate[];
+  readonly prompts: readonly Prompt[];
+  readonly readyServers: readonly string[];
   readonly timestamp: Date;
 }
 
@@ -69,28 +73,35 @@ export class CapabilityAggregator extends EventEmitter {
     const sequence = ++this.refreshSequence;
     const internal = InternalCapabilitiesProvider.getInstance();
     await internal.initialize();
-    const snapshot = await acquireRuntimeCapabilityCatalog(this.outboundConns, undefined, {
-      serverConfigs: getConfiguredServerTargets(),
-      internalTools: internal.getAvailableTools(),
-      internalResources: internal.getAvailableResources(),
-      internalPrompts: internal.getAvailablePrompts(),
+    const collect = async () => {
+      const snapshot = await acquireRuntimeCapabilityCatalog(this.outboundConns, undefined, {
+        serverConfigs: getConfiguredServerTargets(),
+        internalTools: internal.getAvailableTools(),
+        internalResources: internal.getAvailableResources(),
+        internalPrompts: internal.getAvailablePrompts(),
+      });
+      const [tools, resources, resourceTemplates, prompts] = await Promise.all([
+        snapshot.list<Tool>('tools', { enablePagination: false }),
+        snapshot.list<Resource>('resources', { enablePagination: false }),
+        snapshot.list<ResourceTemplate>('resourceTemplates', { enablePagination: false }),
+        snapshot.list<Prompt>('prompts', { enablePagination: false }),
+      ]);
+      return { snapshot, tools, resources, resourceTemplates, prompts };
+    };
+    const { snapshot, tools, resources, resourceTemplates, prompts } = await collect().catch((error: unknown) => {
+      if (!(error instanceof RuntimeCatalogBackendChangedError)) throw error;
+      return collect();
     });
-    const [tools, resources, resourceTemplates, prompts] = await Promise.all([
-      snapshot.list<Tool>('tools', { enablePagination: false }),
-      snapshot.list<Resource>('resources', { enablePagination: false }),
-      snapshot.list<ResourceTemplate>('resourceTemplates', { enablePagination: false }),
-      snapshot.list<Prompt>('prompts', { enablePagination: false }),
-    ]);
     const previous = this.currentCapabilities;
     if (sequence !== this.refreshSequence) return this.detectChanges(previous, previous);
     const readyServers = new Set(Array.from(snapshot.connections.keys()));
     if (snapshot.generation.entries.some((entry) => entry.route.origin === 'internal')) readyServers.add('1mcp');
     const current = Object.freeze({
-      tools: Object.freeze(tools.items) as unknown as Tool[],
-      resources: Object.freeze(resources.items) as unknown as Resource[],
-      resourceTemplates: Object.freeze(resourceTemplates.items) as unknown as ResourceTemplate[],
-      prompts: Object.freeze(prompts.items) as unknown as Prompt[],
-      readyServers: Object.freeze([...readyServers].sort()) as unknown as string[],
+      tools: Object.freeze(tools.items),
+      resources: Object.freeze(resources.items),
+      resourceTemplates: Object.freeze(resourceTemplates.items),
+      prompts: Object.freeze(prompts.items),
+      readyServers: Object.freeze([...readyServers].sort()),
       timestamp: new Date(),
     });
     const changes = this.detectChanges(previous, current);
@@ -106,7 +117,7 @@ export class CapabilityAggregator extends EventEmitter {
   }
 
   private detectChanges(previous: AggregatedCapabilities, current: AggregatedCapabilities): CapabilityChanges {
-    const changed = (before: unknown[], after: unknown[]) =>
+    const changed = (before: readonly unknown[], after: readonly unknown[]) =>
       JSON.stringify(before.map((item) => JSON.stringify(item)).sort()) !==
       JSON.stringify(after.map((item) => JSON.stringify(item)).sort());
     const toolsChanged = changed(previous.tools, current.tools);
