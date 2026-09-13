@@ -8,6 +8,7 @@ import {
 } from '@src/domains/config-change/configChange.js';
 import { createRegistryClient } from '@src/domains/registry/mcpRegistryClient.js';
 import type { RegistryServer } from '@src/domains/registry/types.js';
+import { hasHttpErrorCode } from '@src/sdk/contracts/index.js';
 
 import {
   resolveDirectInstallTarget,
@@ -148,13 +149,17 @@ class DefaultServerInstallationWorkflow implements ServerInstallationWorkflow {
     try {
       registryServer = await this.getRegistryServer(source.registryId, source.version);
     } catch (error) {
-      return {
-        status: 'registry_unavailable',
-        sourceType: 'registry',
-        registryId: source.registryId,
-        warnings: [],
-        error: error instanceof Error ? error.message : String(error),
-      };
+      if (hasHttpErrorCode(error, 404)) {
+        registryServer = null;
+      } else {
+        return {
+          status: 'registry_unavailable',
+          sourceType: 'registry',
+          registryId: source.registryId,
+          warnings: [],
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
     }
 
     if (!registryServer) {

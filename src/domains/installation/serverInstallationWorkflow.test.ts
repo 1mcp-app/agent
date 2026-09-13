@@ -1,4 +1,5 @@
 import type { RegistryServer } from '@src/domains/registry/types.js';
+import { MCPError } from '@src/utils/core/errorTypes.js';
 
 import { describe, expect, it, vi } from 'vitest';
 
@@ -374,6 +375,26 @@ describe('Server Installation Workflow', () => {
       },
     });
   });
+
+  it.each([
+    [404, 'not_found'],
+    [503, 'registry_unavailable'],
+  ] as const)(
+    'classifies registry HTTP %s structurally without applying configuration',
+    async (status, expectedStatus) => {
+      const applyConfigChange = vi.fn();
+      const workflow = createWorkflow({
+        getRegistryServer: vi
+          .fn()
+          .mockRejectedValue(new MCPError(`HTTP ${status}: standard reason`, status, { httpStatus: status })),
+        applyConfigChange,
+      });
+      const result = await workflow.run({ mode: 'apply', source: { type: 'registry', registryId: 'missing-server' } });
+      expect(result.status).toBe(expectedStatus);
+      if (status === 404) expect(result.error).toBe("Server 'missing-server' not found in registry");
+      expect(applyConfigChange).not.toHaveBeenCalled();
+    },
+  );
 
   it('returns registry statuses instead of throwing for not-found and unavailable lookups', async () => {
     const notFoundWorkflow = createWorkflow({
