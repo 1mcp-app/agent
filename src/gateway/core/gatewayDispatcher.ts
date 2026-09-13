@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 import {
   authorityAllows,
   createGatewayFailure,
@@ -18,6 +20,8 @@ export interface GatewayDispatcherDependencies {
   maxActiveRequests?: number;
 }
 
+const maxActiveRequestsSchema = z.number().finite().int().positive().max(Number.MAX_SAFE_INTEGER).default(256);
+
 function pinsEqual(left: ProtocolEraPin, right: ProtocolEraPin): boolean {
   return left.era === right.era && left.revision === right.revision;
 }
@@ -26,9 +30,11 @@ export class GatewayDispatcher {
   private readonly active = new Map<string, OutboundEraAdapter>();
   private readonly dispatched = new WeakSet<GatewayRequestEnvelope>();
   private readonly now: () => number;
+  private readonly maxActiveRequests: number;
 
   constructor(private readonly dependencies: GatewayDispatcherDependencies) {
     this.now = dependencies.now ?? Date.now;
+    this.maxActiveRequests = maxActiveRequestsSchema.parse(dependencies.maxActiveRequests);
   }
 
   async dispatch(request: GatewayRequestEnvelope): Promise<GatewayResult<ImmutableJsonValue>> {
@@ -42,7 +48,7 @@ export class GatewayDispatcher {
       );
     }
     // Completed operation ownership follows the envelope lifetime, not reusable wire request IDs.
-    if (this.active.size >= (this.dependencies.maxActiveRequests ?? 256)) {
+    if (this.active.size >= this.maxActiveRequests) {
       return gatewayFailure(
         createGatewayFailure({
           kind: 'transport',

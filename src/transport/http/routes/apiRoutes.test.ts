@@ -1,5 +1,7 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
+import * as runtimeCatalog from '@src/core/capabilities/runtimeCapabilityCatalog.js';
+import { CapabilityCursorCapacityError } from '@src/core/capabilities/capabilityPagination.js';
 import { type ServerAdapter, ServerStatus, ServerType } from '@src/core/server/adapters/types.js';
 import type { OutboundConnections } from '@src/core/types/index.js';
 
@@ -573,4 +575,19 @@ describe('apiRoutes inspect', () => {
       expect(res.body).toEqual({ error: 'Tool inventory not available for this server' });
     },
   );
+  it('projects internal cursor overload distinctly from unavailable provider inventory', async () => {
+    const acquire = vi
+      .spyOn(runtimeCatalog, 'acquireRuntimeCapabilityCatalog')
+      .mockRejectedValueOnce(new CapabilityCursorCapacityError());
+    try {
+      const req = { query: { target: 'context7' } };
+      const res = createMockResponse();
+      await invokeInspectRoute(scopeAuthMiddleware, req, res);
+      await invokeInspectRoute(inspectHandler, req, res);
+      expect(res.statusCode).toBe(503);
+      expect(res.body).toEqual({ error: 'Capability cursor capacity exceeded', code: 'gateway_overloaded' });
+    } finally {
+      acquire.mockRestore();
+    }
+  });
 });

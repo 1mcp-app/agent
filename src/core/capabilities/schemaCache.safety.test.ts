@@ -7,6 +7,13 @@ import { SchemaCache } from './schemaCache.js';
 const tool: Tool = { name: 'old', inputSchema: { type: 'object' } };
 
 describe('schema cache isolation and invalidation', () => {
+  it.each([NaN, Infinity, 0, -1, 1.5])('rejects invalid cache capacity %s', (maxEntries) => {
+    expect(() => new SchemaCache({ maxEntries })).toThrow();
+  });
+  it.each([NaN, Infinity, -1])('rejects invalid cache TTL %s', (ttlMs) => {
+    expect(() => new SchemaCache({ maxEntries: 1, ttlMs })).toThrow();
+  });
+
   it('separates ambiguous server/tool pairs', () => {
     const cache = new SchemaCache({ maxEntries: 2 });
     cache.set('a:b', 'c', tool);

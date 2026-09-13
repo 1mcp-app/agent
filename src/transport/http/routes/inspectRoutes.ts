@@ -1,6 +1,7 @@
 import { ConfigManager } from '@src/config/configManager.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { CapabilityAggregator } from '@src/core/capabilities/capabilityAggregator.js';
+import { CapabilityCursorCapacityError } from '@src/core/capabilities/capabilityPagination.js';
 import { createCapabilityVisibility } from '@src/core/capabilities/capabilityVisibility.js';
 import { readPublicCapabilityRoute } from '@src/core/capabilities/catalogGeneration.js';
 import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
@@ -465,6 +466,10 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
           _meta: page._meta,
         };
       } catch (error) {
+        if (error instanceof CapabilityCursorCapacityError) {
+          res.status(503).json({ error: error.message, code: 'gateway_overloaded' });
+          return;
+        }
         if (error instanceof MCPError && error.code === ErrorCode.InvalidParams) {
           res.status(400).json({ error: error.message, code: error.code, data: error.data });
           return;

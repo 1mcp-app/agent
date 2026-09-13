@@ -71,7 +71,7 @@ export interface CapabilityCatalogDependencies {
   schemaCache: SchemaCache;
   outboundConnections: OutboundConnections;
   getServerConfigs: () => Record<string, MCPServerParams>;
-  loadSchema?: (server: string, toolName: string) => Promise<Tool>;
+  loadSchema?: (server: string, toolName: string, signal?: AbortSignal) => Promise<Tool>;
   refreshCapabilities?: (input: CapabilityRefreshInput) => Promise<CapabilityRefreshResult | void>;
   defaultVisibility?: CapabilityVisibility;
   templateHashProvider?: TemplateHashProvider;
@@ -326,19 +326,6 @@ export class CapabilityCatalog {
     } catch (error) {
       const failure = gatewayFailureFromUnknown(error, 'transport');
       logger.error('Tool invocation failed', { failure });
-      if (error instanceof Error && error.message.includes('not found')) {
-        return {
-          result: {},
-          server: route.server,
-          tool: route.toolName,
-          route,
-          error: {
-            type: 'not_found',
-            message: `Tool not found: ${route.server}:${route.toolName}`,
-          },
-          refresh,
-        };
-      }
 
       return {
         result: {},
