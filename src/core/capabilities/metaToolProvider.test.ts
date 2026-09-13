@@ -500,7 +500,7 @@ describe('MetaToolProvider', () => {
       expect(result.error).toBeDefined();
       if ('error' in result && result.error) {
         expect(result.error.type).toBe('upstream');
-        expect(result.error.message).toContain('Server Error');
+        expect(result.error.message).toBe('Upstream tool invocation failed');
       }
     });
 
@@ -597,7 +597,7 @@ describe('MetaToolProvider', () => {
       expect(mockSchemaLoader).toHaveBeenCalledWith('filesystem', 'read_file');
       expect('error' in result).toBe(false);
       if ('schema' in result && 'fromCache' in result) {
-        expect(result.schema).toEqual(mockSchema);
+        expect(result.schema).toMatchObject(mockSchema);
         expect(result.fromCache).toBe(false);
       } else {
         throw new Error('Expected DescribeToolResult');
@@ -723,7 +723,7 @@ describe('MetaToolProvider', () => {
       expect('error' in result).toBe(false);
       if ('schema' in result && 'fromCache' in result) {
         expect(result.fromCache).toBe(false);
-        expect(result.schema).toEqual(mockSchema);
+        expect(result.schema).toMatchObject(mockSchema);
       } else {
         throw new Error('Expected DescribeToolResult');
       }
@@ -759,7 +759,7 @@ describe('MetaToolProvider', () => {
       expect(mockSchemaLoader).toHaveBeenCalledTimes(1); // Should not call loader again
       if ('schema' in secondResult && 'fromCache' in secondResult) {
         expect(secondResult.fromCache).toBe(true);
-        expect(secondResult.schema).toEqual(mockSchema);
+        expect(secondResult.schema).toMatchObject(mockSchema);
       } else {
         throw new Error('Expected DescribeToolResult');
       }
@@ -778,8 +778,8 @@ describe('MetaToolProvider', () => {
       expect('error' in result).toBe(true);
       if ('error' in result && result.error) {
         expect(result.error.type).toBe('upstream');
-        expect(result.error.message).toContain('Failed to load schema from server');
-        expect(result.error.message).toContain('Connection timeout');
+        expect(result.error.message).toContain('Failed to load schema from upstream server');
+        expect(result.error.message).not.toContain('Connection timeout');
       } else {
         throw new Error('Expected error in result');
       }

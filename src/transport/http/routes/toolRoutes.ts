@@ -15,6 +15,8 @@ import { createConnectionResolver, type TemplateHashProvider } from '@src/core/s
 import { getDisabledToolError } from '@src/core/server/disabledTools.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
+import { SchemaBoundaryError } from '@src/core/validation/schemaPolicy.js';
+import { schemaInputErrorResult } from '@src/core/validation/toolSchemaBoundary.js';
 import logger from '@src/logger/logger.js';
 import { CONTEXT_HEADERS } from '@src/transport/http/utils/contextExtractor.js';
 
@@ -233,6 +235,10 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
 
 export function createToolInvocationsHandler(serverManager: ServerManager): RequestHandler {
   return async (req: Request, res: Response): Promise<void> => {
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    req.once?.('aborted', abort);
+    res.once?.('close', abort);
     try {
       const requestSessionId = await initializeRequestContextForApi(serverManager, req, res);
       const body = req.body as unknown;
@@ -248,8 +254,11 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
 
       const toolRef = (body as Record<string, unknown>).tool as string;
       const args = (body as Record<string, unknown>).args;
-      const toolArgs =
-        args && typeof args === 'object' && !Array.isArray(args) ? (args as Record<string, unknown>) : {};
+      if (args !== undefined && (args === null || typeof args !== 'object' || Array.isArray(args))) {
+        res.status(400).json({ error: 'Tool arguments must be an object' });
+        return;
+      }
+      const toolArgs = args === undefined ? {} : (args as Record<string, unknown>);
 
       const target = parseTarget(toolRef);
       if (!target || target.kind !== 'tool') {
@@ -302,19 +311,44 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
                 .map(([key]) => [key, target.serverName] as const),
               requestSessionId,
             ),
-            { serverConfigs: getServerConfigs() },
+            { serverConfigs: getServerConfigs(), signal: controller.signal },
           );
           const resolved = snapshot.resolve('tools', target.qualifiedName);
           if (!resolved?.connection) {
             res.status(404).json({ error: `Tool not found: ${toolRef}` });
             return;
           }
-          const upstreamResult = await requestLegacyAdapter(resolved.connection.adapter, 'tools/call', {
-            name: resolved.entry.route.upstreamIdentity,
-            arguments: toolArgs as never,
-          });
+          const adapter = resolved.connection.adapter;
+          const validateOutput = await snapshot.prepareToolCall(target.qualifiedName, toolArgs, controller.signal);
+          if (resolved.connection.adapter !== adapter || !snapshot.isCurrent())
+            throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
+          const disabled = getDisabledToolInvocationError(target.serverName, target.toolName);
+          if (disabled) {
+            res.status(404).json({ error: disabled });
+            return;
+          }
+          const upstreamResult = await requestLegacyAdapter(
+            adapter,
+            'tools/call',
+            {
+              name: resolved.entry.route.upstreamIdentity,
+              arguments: toolArgs as never,
+            },
+            { signal: controller.signal, timeoutMs: resolved.connection.requestTimeoutMs },
+          );
+          await validateOutput(upstreamResult);
           res.json({ result: upstreamResult, server: target.serverName, tool: target.toolName });
         } catch (error) {
+          if (error instanceof SchemaBoundaryError && error.code === 'schema_input_invalid') {
+            res.json({ result: schemaInputErrorResult(), server: target.serverName, tool: target.toolName });
+            return;
+          }
+          if (error instanceof SchemaBoundaryError) {
+            res
+              .status(schemaFailureStatus(error.code, error.phase === 'input' ? 'validation' : 'upstream'))
+              .json({ error: error.code });
+            return;
+          }
           logger.error('Direct tool invocation error:', error);
           const message = error instanceof Error ? error.message : typeof error === 'string' ? error : 'Upstream error';
           res.status(502).json({ error: `Upstream error: ${message}` });
@@ -341,15 +375,17 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
         const catalogResult = await catalog.invokeVisibleTool(
           { server: target.serverName, toolName: target.toolName, args: toolArgs },
           visibility,
+          { signal: controller.signal },
         );
         if (!catalogResult.error) {
           res.json({ result: catalogResult.result, server: catalogResult.server, tool: catalogResult.tool });
           return;
         }
-        if (catalogResult.error.message.includes('Tool is disabled')) {
-          res.status(404).json({ error: catalogResult.error.message });
-          return;
-        }
+        // A rejected output can follow an upstream side effect; never dispatch a fallback.
+        res
+          .status(schemaFailureStatus(catalogResult.error.message, catalogResult.error.type))
+          .json({ error: catalogResult.error.message });
+        return;
       }
 
       const result = (await lazyOrchestrator.callMetaTool(
@@ -360,11 +396,17 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           args: toolArgs,
         },
         visibility,
+        controller.signal,
       )) as ToolInvokeOutput;
 
       if (result.error) {
         let status: number;
-        if (result.error.type === 'validation') {
+        if (
+          result.error.message === 'schema_evaluation_timeout' ||
+          result.error.message === 'schema_evaluation_unavailable'
+        ) {
+          status = schemaFailureStatus(result.error.message, result.error.type);
+        } else if (result.error.type === 'validation') {
           status = 400;
         } else if (result.error.type === 'not_found') {
           status = 404;
@@ -383,6 +425,9 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
     } catch (error) {
       logger.error('API tool-invocations handler error:', error);
       res.status(500).json({ error: 'Internal server error' });
+    } finally {
+      req.off?.('aborted', abort);
+      res.off?.('close', abort);
     }
   };
 }
@@ -400,4 +445,10 @@ async function initializeRequestContextForApi(
 
   const headerSessionId = req.headers?.[CONTEXT_HEADERS.SESSION_ID];
   return Array.isArray(headerSessionId) ? headerSessionId[0] : headerSessionId;
+}
+
+function schemaFailureStatus(code: string, type: string): number {
+  if (code === 'schema_evaluation_timeout') return 504;
+  if (code === 'schema_evaluation_unavailable') return 503;
+  return type === 'validation' ? 400 : type === 'not_found' ? 404 : type === 'upstream' ? 502 : 500;
 }

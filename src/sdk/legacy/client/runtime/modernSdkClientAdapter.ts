@@ -95,6 +95,10 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
         : new LegacyOutboundEraAdapter(direct, { era: 'legacy', revision });
   }
 
+  get protocolRevision(): string {
+    return this.outbound.pin.revision;
+  }
+
   get state(): LegacySdkLifecycleState {
     return this.lifecycleState;
   }

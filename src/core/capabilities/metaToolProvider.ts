@@ -144,6 +144,7 @@ export class MetaToolProvider {
     name: string,
     args: unknown,
     visibility?: CapabilityVisibility,
+    signal?: AbortSignal,
   ): Promise<ListToolsResult | DescribeToolResult | CallToolResult> {
     switch (name) {
       case 'tool_list': {
@@ -160,7 +161,7 @@ export class MetaToolProvider {
             },
           } as ListToolsResult;
         }
-        return this.listAvailableTools(parsed.data, visibility);
+        return this.listAvailableTools(parsed.data, visibility, signal);
       }
       case 'tool_schema': {
         const parsed = ToolSchemaInputSchema.safeParse(args);
@@ -188,7 +189,7 @@ export class MetaToolProvider {
             },
           } as CallToolResult;
         }
-        return this.callTool(parsed.data, visibility);
+        return this.callTool(parsed.data, visibility, signal);
       }
       default:
         return {
@@ -222,9 +223,10 @@ export class MetaToolProvider {
   private async listAvailableTools(
     args: ListAvailableToolsArgs,
     visibility?: CapabilityVisibility,
+    signal?: AbortSignal,
   ): Promise<ListToolsResult> {
     try {
-      const result = await this.capabilityCatalog.listVisibleTools(args, visibility);
+      const result = await this.capabilityCatalog.listVisibleTools(args, visibility, { signal });
 
       // Format tools for response
       const tools = result.tools.map((tool: ToolMetadata) => ({
@@ -328,9 +330,13 @@ export class MetaToolProvider {
   /**
    * Implement tool_invoke
    */
-  private async callTool(args: CallToolArgs, visibility?: CapabilityVisibility): Promise<CallToolResult> {
+  private async callTool(
+    args: CallToolArgs,
+    visibility?: CapabilityVisibility,
+    signal?: AbortSignal,
+  ): Promise<CallToolResult> {
     try {
-      const result = await this.capabilityCatalog.invokeVisibleTool(args, visibility);
+      const result = await this.capabilityCatalog.invokeVisibleTool(args, visibility, { signal });
       if (result.error) {
         return {
           result: {},

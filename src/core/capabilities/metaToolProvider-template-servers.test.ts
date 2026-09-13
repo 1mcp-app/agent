@@ -207,7 +207,7 @@ describe('MetaToolProvider - Template Server Support', () => {
       const result = await sessionAwareProvider.callMetaTool('tool_list', {}, visibility);
 
       expect((result as any).error).toBeUndefined();
-      expect(listVisibleTools).toHaveBeenCalledWith({}, visibility);
+      expect(listVisibleTools).toHaveBeenCalledWith({}, visibility, { signal: undefined });
     });
 
     it('keeps differing per-session tool surfaces, schemas, and invocation routes isolated', async () => {

@@ -36,7 +36,7 @@ export interface ProtocolMetadata {
 export type JsonSchemaObject = JsonObject & {
   $schema?: string;
   type: 'object';
-  properties?: Record<string, JsonObject>;
+  properties?: Record<string, JsonObject | boolean>;
   required?: string[];
 };
 
@@ -51,7 +51,7 @@ export interface ToolAnnotations {
 export type Tool = ProtocolMetadata & {
   description?: string;
   inputSchema: JsonSchemaObject;
-  outputSchema?: JsonSchemaObject;
+  outputSchema?: JsonObject;
   execution?: { taskSupport?: 'forbidden' | 'optional' | 'required' };
   annotations?: ToolAnnotations;
   _meta?: JsonObject;
@@ -135,7 +135,7 @@ export type ContentBlock = TextContent | ImageContent | AudioContent | ResourceL
 
 export interface CallToolResult {
   content: ContentBlock[];
-  structuredContent?: JsonObject;
+  structuredContent?: JsonValue;
   isError?: boolean;
   _meta?: JsonObject;
 }
@@ -284,7 +284,8 @@ function isJsonSchemaObject(value: JsonValue | undefined): value is JsonSchemaOb
     value.type === 'object' &&
     isOptionalString(value.$schema) &&
     (value.properties === undefined ||
-      (isJsonObject(value.properties) && Object.values(value.properties).every(isJsonObject))) &&
+      (isJsonObject(value.properties) &&
+        Object.values(value.properties).every((item) => typeof item === 'boolean' || isJsonObject(item)))) &&
     isStringArray(value.required)
   );
 }
@@ -307,7 +308,7 @@ function isTool(value: JsonObject): value is JsonObject & Tool {
     isProtocolMetadata(value) &&
     isOptionalString(value.description) &&
     isJsonSchemaObject(value.inputSchema) &&
-    (value.outputSchema === undefined || isJsonSchemaObject(value.outputSchema)) &&
+    (value.outputSchema === undefined || isJsonObject(value.outputSchema)) &&
     (execution === undefined ||
       (isJsonObject(execution) &&
         (execution.taskSupport === undefined ||

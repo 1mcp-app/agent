@@ -95,6 +95,10 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
     this.registerListChangedNotifications();
   }
 
+  get protocolRevision(): string | undefined {
+    return this.handles.transport.negotiatedProtocolRevision;
+  }
+
   get state(): LegacySdkLifecycleState {
     return this.lifecycleState;
   }

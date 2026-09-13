@@ -21,6 +21,7 @@ import type {
   OutboundConnections,
 } from '@src/core/types/index.js';
 import { MCPServerConfiguration } from '@src/core/types/transport.js';
+import { shutdownSchemaBoundary } from '@src/core/validation/schemaBoundary.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { getLegacyTransport } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import type { AuthProviderTransport } from '@src/sdk/legacy/client/runtime/legacyTransport.js';
@@ -595,6 +596,7 @@ export class ServerManager {
    * Clean up all resources (for shutdown)
    */
   public async cleanup(): Promise<void> {
+    await shutdownSchemaBoundary();
     // Clean up all connections
     await this.connectionManager.cleanup();
 

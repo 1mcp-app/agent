@@ -35,6 +35,8 @@ export interface InboundConnectionConfig extends TemplateConfig {
   readonly enablePagination?: boolean;
   /** Stateless bridges must not take ownership of shared upstream callbacks. */
   readonly requestOnly?: boolean;
+  /** Trusted private bridge provenance; never populated from client-supplied configuration. */
+  readonly canonicalSchemaProjection?: boolean;
   readonly presetName?: string;
   readonly context?: {
     project?: ContextNamespace;

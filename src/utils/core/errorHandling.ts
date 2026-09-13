@@ -1,3 +1,4 @@
+import { SchemaBoundaryError } from '@src/core/validation/schemaPolicy.js';
 import logger from '@src/logger/logger.js';
 import { ErrorCode } from '@src/sdk/contracts/index.js';
 
@@ -18,6 +19,14 @@ export function withErrorHandling<T, Args extends readonly unknown[]>(
       return await fn(...args);
     } catch (error) {
       logger.error(`${errorMessage}: ${error instanceof Error ? error.message : String(error)}`);
+
+      if (error instanceof SchemaBoundaryError) {
+        throw new MCPError(
+          error.code,
+          error.code === 'schema_input_invalid' ? ErrorCode.InvalidParams : ErrorCode.InternalError,
+          { reason: error.code },
+        );
+      }
 
       // Rethrow MCPErrors as is
       if (error instanceof MCPError) {

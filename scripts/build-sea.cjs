@@ -67,6 +67,20 @@ function buildSEA() {
       { stdio: 'inherit' },
     );
 
+    const schemaWorkerSource = fs
+      .readFileSync('build/core/validation/schemaWorker.js', 'utf8')
+      .replace(
+        /createRequire\(import.meta.url\)\('ajv\/dist\/refs\/json-schema-draft-06.json'\)/,
+        JSON.stringify(require('ajv/dist/refs/json-schema-draft-06.json')),
+      );
+    const schemaWorkerBundle = require('esbuild').buildSync({
+      stdin: { contents: schemaWorkerSource, resolveDir: process.cwd(), loader: 'js' },
+      bundle: true,
+      platform: 'node',
+      format: 'cjs',
+      write: false,
+    }).outputFiles[0].text;
+
     // 4.5. Prepare tiktoken WASM files for inlining
     console.log('📦 Preparing tiktoken WASM files for inlining...');
     const tiktokenPath = require.resolve('tiktoken');
@@ -108,6 +122,9 @@ const __TIKTOKEN_WASM_DATA__ = ${JSON.stringify(wasmData)};
 
 // Inlined version data for SEA compatibility
 const __PACKAGE_VERSION__ = ${JSON.stringify(packageJson.version)};
+
+// Isolated schema worker with its validator dependencies, requiring no source files.
+globalThis.__1MCP_SCHEMA_WORKER_SOURCE__ = ${JSON.stringify(schemaWorkerBundle)};
 
 // Inlined Admin Console assets for SEA compatibility
 globalThis.__1MCP_SEA_ADMIN_CONSOLE_ASSETS__ = ${JSON.stringify(adminConsoleAssets)};

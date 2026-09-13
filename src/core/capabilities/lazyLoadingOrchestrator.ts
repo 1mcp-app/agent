@@ -452,12 +452,17 @@ export class LazyLoadingOrchestrator extends EventEmitter {
    * @param args - Meta-tool arguments
    * @param visibility - Request-scoped Filter Selection and Server Candidate Set
    */
-  public async callMetaTool(name: string, args: unknown, visibility?: CapabilityVisibility): Promise<unknown> {
+  public async callMetaTool(
+    name: string,
+    args: unknown,
+    visibility?: CapabilityVisibility,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
     if (!this.metaToolProvider) {
       throw new Error('Meta-tool provider not initialized');
     }
 
-    return this.metaToolProvider.callMetaTool(name, args, visibility);
+    return this.metaToolProvider.callMetaTool(name, args, visibility, signal);
   }
 
   /**

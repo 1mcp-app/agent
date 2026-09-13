@@ -9,6 +9,13 @@ import {
   type OutboundConnection,
   type OutboundConnections,
 } from '@src/core/types/index.js';
+import { SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
+import {
+  admitToolSchemas,
+  prepareToolValidation,
+  projectToolSchemas,
+  type ToolSchemaContracts,
+} from '@src/core/validation/toolSchemaBoundary.js';
 import { ErrorCode, type Tool } from '@src/sdk/contracts/index.js';
 import { MCPError } from '@src/utils/core/errorTypes.js';
 
@@ -49,6 +56,7 @@ const METHODS: Record<CapabilityKind, string> = {
 };
 
 export interface RuntimeCatalogOptions {
+  signal?: AbortSignal;
   serverConfigs?: Record<string, MCPServerParams>;
   internalTools?: readonly unknown[];
   internalResources?: readonly unknown[];
@@ -75,6 +83,7 @@ interface SourcePages {
 
 export interface RuntimeCapabilitySnapshot {
   readonly generation: CatalogGeneration;
+  prepareToolCall(identity: string, args: unknown, signal?: AbortSignal): Promise<(result: unknown) => Promise<void>>;
   readonly connections: ReadonlyMap<string, OutboundConnection>;
   isCurrent(): boolean;
   /** Issue a session-scoped, backend-bound route for a resource absent from discovery. */
@@ -145,7 +154,7 @@ export async function acquireRuntimeCapabilityCatalog(
     ),
   );
   const capturedAdapters = new Map(Array.from(captured, ([key, connection]) => [key, connection.adapter]));
-  const { continuation, ...catalogOptions } = options;
+  const { continuation, signal, ...catalogOptions } = options;
   const scope = JSON.stringify([
     Array.from(captured.keys()).sort(),
     visibility?.sessionId,
@@ -241,7 +250,7 @@ export async function acquireRuntimeCapabilityCatalog(
                 capturedAdapters.get(key)!,
                 METHODS[kind],
                 cursor === undefined ? undefined : { cursor },
-                { timeoutMs: connection.requestTimeoutMs },
+                { timeoutMs: connection.requestTimeoutMs, signal },
               );
               if (!Array.isArray(result[kind])) throw new Error(`Invalid ${kind} list result`);
               const items = result[kind] as unknown[];
@@ -334,6 +343,32 @@ export async function acquireRuntimeCapabilityCatalog(
     for (const connection of captured.values()) clearConfiguredToolSnapshot(connection);
     return previous;
   }
+  const schemaContracts = new Map<string, ToolSchemaContracts>();
+  for (let index = 0; index < sources.length;) {
+    const source = sources[index];
+    if (source.kind !== 'tools') {
+      index++;
+      continue;
+    }
+    const object = source.object as Record<string, unknown>;
+    const routeKey = JSON.stringify([source.connectionKey, object?.name]);
+    try {
+      schemaContracts.set(
+        routeKey,
+        await admitToolSchemas(object, {
+          routeKey,
+          generation: String(started),
+          sourceRevision: captured.get(source.connectionKey)?.adapter.protocolRevision,
+          signal,
+        }),
+      );
+      index++;
+    } catch (error) {
+      if (!(error instanceof SchemaBoundaryError) || error.retryable) throw error;
+      sources.splice(index, 1);
+    }
+  }
+  assertCurrent();
   const generation = buildCatalogGeneration(started, sources, { allowTemplateInstances: visibility === undefined });
   const keys = new Set(captured.keys());
   for (const source of sources) if (source.origin === 'internal') keys.add(source.connectionKey);
@@ -358,7 +393,10 @@ export async function acquireRuntimeCapabilityCatalog(
         );
         return [
           Object.freeze({
-            ...entry.publicObject,
+            ...projectToolSchemas(
+              entry.publicObject as Record<string, unknown>,
+              schemaContracts.get(JSON.stringify([key, entry.route.upstreamIdentity]))!,
+            ),
             ...(effective.description === undefined ? {} : { description: effective.description }),
           }),
         ];
@@ -382,6 +420,24 @@ export async function acquireRuntimeCapabilityCatalog(
   };
   const snapshot: RuntimeCapabilitySnapshot = Object.freeze({
     generation,
+    async prepareToolCall(identity: string, args: unknown, signal?: AbortSignal) {
+      if (scopedState.snapshot !== snapshot || scopedState.latestStarted !== started)
+        throw new SchemaBoundaryError('schema_invalid');
+      const resolved = snapshot.resolve('tools', identity);
+      if (!resolved) throw new SchemaBoundaryError('schema_invalid');
+      const routeKey = JSON.stringify([resolved.entry.route.connectionKey, resolved.entry.route.upstreamIdentity]);
+      const contract = schemaContracts.get(routeKey);
+      if (!contract) throw new SchemaBoundaryError('schema_invalid');
+      const validateOutput = await prepareToolValidation(contract, args, {
+        routeKey,
+        generation: String(started),
+        signal,
+      });
+      assertCurrent();
+      if (scopedState.snapshot !== snapshot || scopedState.latestStarted !== started)
+        throw new SchemaBoundaryError('schema_invalid');
+      return validateOutput;
+    },
     connections: readonlyConnections(captured),
     isCurrent,
     projectUnlistedResource(connectionKey: string, upstreamIdentity: string) {

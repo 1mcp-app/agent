@@ -29,6 +29,7 @@ import {
   StreamableServeClient,
 } from '@src/commands/shared/serveClient.js';
 import { API_INSPECT_ENDPOINT, API_TOOL_INVOCATIONS_ENDPOINT } from '@src/constants/api.js';
+import { schemaInputErrorResult } from '@src/core/validation/toolSchemaBoundary.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
 import {
@@ -117,7 +118,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
 
   if (response.rawResponse.result.isError) {
     process.stderr.write(`${output}\n`);
-    process.exitCode = 2;
+    process.exitCode = 5;
     return;
   }
 
@@ -173,7 +174,7 @@ async function tryRunRest(
         }).arguments;
 
   if (toolInfo) {
-    const validation = validateToolArgs(
+    const validation = await validateToolArgs(
       resolvedArguments,
       toolInfo.inputSchema as Record<string, unknown>,
       options.tool,
@@ -186,7 +187,9 @@ async function tryRunRest(
             rawResponse: {
               jsonrpc: '2.0',
               id: 0,
-              error: { code: -32602, message: validation.errorMessage },
+              ...(validation.errorMessage === 'schema_input_invalid'
+                ? { result: schemaInputErrorResult() }
+                : { error: { code: -32603, message: validation.errorMessage } }),
             },
             retryWithFreshSession: false,
           },
@@ -501,7 +504,7 @@ export async function invokeTool(options: {
     });
 
     if (tool) {
-      const validation = validateToolArgs(
+      const validation = await validateToolArgs(
         resolvedArguments.arguments,
         tool.inputSchema as Record<string, unknown>,
         options.displayToolName,
@@ -511,7 +514,9 @@ export async function invokeTool(options: {
           rawResponse: {
             jsonrpc: '2.0',
             id: 0,
-            error: { code: -32602, message: validation.errorMessage },
+            ...(validation.errorMessage === 'schema_input_invalid'
+              ? { result: schemaInputErrorResult() }
+              : { error: { code: -32603, message: validation.errorMessage } }),
           },
           sessionId: client.sessionId,
           retryWithFreshSession: false,
