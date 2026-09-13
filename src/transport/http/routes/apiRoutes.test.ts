@@ -556,4 +556,30 @@ describe('apiRoutes inspect', () => {
       tools: [{ tool: 'query-docs' }],
     });
   });
+  it.each(['registry', 'aggregator'])(
+    'does not turn a failed inventory into an empty %s fallback',
+    async (fallback) => {
+      const target = outboundConnections.get('context7')!;
+      vi.mocked(target.adapter.request).mockRejectedValue(new Error('private upstream outage'));
+      const lazy = {
+        getToolRegistry: () =>
+          fallback === 'registry' ? { listTools: () => ({ tools: [], totalCount: 0, hasMore: false }) } : undefined,
+        getCapabilityAggregator: () => ({ getCurrentCapabilities: () => ({ tools: [] }) }),
+      };
+      const manager = {
+        getClients: () => outboundConnections,
+        getClient: (name: string) => outboundConnections.get(name),
+        getLazyLoadingOrchestrator: () => lazy,
+        getInstructionAggregator: () => undefined,
+        getServerRegistry: () => ({ get: () => undefined }),
+      };
+      const handler = createInspectHandler(manager as never);
+      const req = { query: { target: 'context7' } };
+      const res = createMockResponse();
+      await invokeInspectRoute(scopeAuthMiddleware, req, res);
+      await invokeInspectRoute(handler, req, res);
+      expect(res.statusCode, JSON.stringify(res.body)).toBe(503);
+      expect(res.body).toEqual({ error: 'Tool inventory not available for this server' });
+    },
+  );
 });

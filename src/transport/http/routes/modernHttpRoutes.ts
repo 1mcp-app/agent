@@ -17,7 +17,12 @@ import type { ServerManager } from '@src/core/server/serverManager.js';
 import { ModernInboundEraAdapter } from '@src/gateway/adapters/modern/modernInboundEraAdapter.js';
 import { createEffectiveRequestAuthority } from '@src/gateway/contracts/effectiveRequestAuthority.js';
 import { type GatewayOperation, gatewayOperationSchema } from '@src/gateway/contracts/gatewayRequest.js';
-import type { GatewayFailure, ImmutableJsonValue } from '@src/gateway/contracts/index.js';
+import {
+  type GatewayFailure,
+  gatewayFailureFromUnknown,
+  gatewayFailureToMcp,
+  type ImmutableJsonValue,
+} from '@src/gateway/contracts/index.js';
 import { MODERN_PROTOCOL_REVISION } from '@src/gateway/contracts/protocolEra.js';
 import { GatewayDispatcher } from '@src/gateway/core/gatewayDispatcher.js';
 import { GatewaySession } from '@src/gateway/core/gatewaySession.js';
@@ -102,17 +107,12 @@ async function modernAdmission(req: Request, _res: Response, next: NextFunction)
 }
 
 function gatewayFailureError(failure: GatewayFailure): ProtocolError {
-  const numericCode = Number(failure.code);
-  const fallback =
-    failure.kind === 'authorization'
-      ? -32_001
-      : failure.kind === 'deadline-exceeded'
-        ? -32_008
-        : failure.kind === 'invalid-request' || failure.kind === 'protocol'
-          ? -32_602
-          : -32_603;
-  return new ProtocolError(Number.isSafeInteger(numericCode) ? numericCode : fallback, failure.message, failure.data);
+  const projected = gatewayFailureToMcp(failure, 'modern');
+  return new ProtocolError(projected.code, projected.message, projected.data);
 }
+
+let activeModernRequests = 0;
+const MAX_ACTIVE_MODERN_REQUESTS = 256;
 
 async function dispatchGateway(
   method: GatewayOperation,
@@ -124,68 +124,80 @@ async function dispatchGateway(
   deadlineUnixMs: number,
 ): Promise<ImmutableJsonValue> {
   signal.throwIfAborted();
-  const bridge = await createBridge(serverManager, config);
-  const dispatcher = new GatewayDispatcher({
-    resolveOutbound: (id) => (id === bridge.targetConnectionId ? bridge.outbound : undefined),
-  });
-  const session = new GatewaySession(dispatcher);
-  const correlationId = randomUUID();
-  let delivered = false;
-  let cancellationDelivered = false;
-  let settle!: (state: 'done' | 'cancel') => void;
-  const settled = new Promise<'done' | 'cancel'>((resolve) => {
-    settle = resolve;
-  });
-  const abort = () => settle('cancel');
-  signal.addEventListener('abort', abort, { once: true });
-
-  try {
-    signal.throwIfAborted();
-    return await new Promise<ImmutableJsonValue>((resolve, reject) => {
-      const inbound = new ModernInboundEraAdapter({
-        revision: MODERN_PROTOCOL_REVISION,
-        receive: async () => {
-          if (!delivered) {
-            delivered = true;
-            return { type: 'request', correlationId, operation: method, params: stripInboundRequestMeta(params) };
-          }
-          const state = await settled;
-          if (state === 'cancel' && !cancellationDelivered) {
-            cancellationDelivered = true;
-            return { type: 'cancel', correlationId };
-          }
-          return undefined;
-        },
-        requestContext: () => ({
-          requestId: `modern-${randomUUID()}`,
-          targetConnectionId: bridge.targetConnectionId,
-          authority: createEffectiveRequestAuthority({
-            connectionIds: [bridge.targetConnectionId],
-            provenance: ['authenticated-http-admission'],
-          }),
-          outbound: bridge.outbound.pin,
-          deadlineUnixMs,
-        }),
-        respond: async (frame) => {
-          if (isFrameRecord(frame) && frame.type === 'success') resolve(frame.result);
-          else if (isFrameRecord(frame) && frame.type === 'failure') {
-            reject(gatewayFailureError(frame.failure as unknown as GatewayFailure));
-          } else reject(new ProtocolError(-32_603, 'Invalid gateway response'));
-          settle('done');
-        },
-      });
-      void session.run(inbound).catch((error: unknown) => {
-        reject(
-          typeof error === 'object' && error !== null && 'kind' in error
-            ? gatewayFailureError(error as GatewayFailure)
-            : error,
-        );
-      });
+  if (activeModernRequests >= MAX_ACTIVE_MODERN_REQUESTS) {
+    throw new ProtocolError(-32000, 'Gateway request capacity exceeded', {
+      'app.1mcp/failure': { kind: 'transport', code: 'gateway_overloaded' },
     });
+  }
+  activeModernRequests++;
+  try {
+    const bridge = await createBridge(serverManager, config).catch((error: unknown) => {
+      throw gatewayFailureError(gatewayFailureFromUnknown(error));
+    });
+    const dispatcher = new GatewayDispatcher({
+      resolveOutbound: (id) => (id === bridge.targetConnectionId ? bridge.outbound : undefined),
+    });
+    const session = new GatewaySession(dispatcher);
+    const correlationId = randomUUID();
+    let delivered = false;
+    let cancellationDelivered = false;
+    let settle!: (state: 'done' | 'cancel') => void;
+    const settled = new Promise<'done' | 'cancel'>((resolve) => {
+      settle = resolve;
+    });
+    const abort = () => settle('cancel');
+    signal.addEventListener('abort', abort, { once: true });
+
+    try {
+      signal.throwIfAborted();
+      return await new Promise<ImmutableJsonValue>((resolve, reject) => {
+        const inbound = new ModernInboundEraAdapter({
+          revision: MODERN_PROTOCOL_REVISION,
+          receive: async () => {
+            if (!delivered) {
+              delivered = true;
+              return { type: 'request', correlationId, operation: method, params: stripInboundRequestMeta(params) };
+            }
+            const state = await settled;
+            if (state === 'cancel' && !cancellationDelivered) {
+              cancellationDelivered = true;
+              return { type: 'cancel', correlationId };
+            }
+            return undefined;
+          },
+          requestContext: () => ({
+            requestId: `modern-${randomUUID()}`,
+            targetConnectionId: bridge.targetConnectionId,
+            authority: createEffectiveRequestAuthority({
+              connectionIds: [bridge.targetConnectionId],
+              provenance: ['authenticated-http-admission'],
+            }),
+            outbound: bridge.outbound.pin,
+            deadlineUnixMs,
+          }),
+          respond: async (frame) => {
+            if (isFrameRecord(frame) && frame.type === 'success') resolve(frame.result);
+            else if (isFrameRecord(frame) && frame.type === 'failure') {
+              reject(gatewayFailureError(frame.failure as unknown as GatewayFailure));
+            } else reject(new ProtocolError(-32_603, 'Invalid gateway response'));
+            settle('done');
+          },
+        });
+        void session.run(inbound).catch((error: unknown) => {
+          reject(
+            typeof error === 'object' && error !== null && 'kind' in error
+              ? gatewayFailureError(error as GatewayFailure)
+              : gatewayFailureError(gatewayFailureFromUnknown(error)),
+          );
+        });
+      });
+    } finally {
+      settle('done');
+      signal.removeEventListener('abort', abort);
+      await bridge.close();
+    }
   } finally {
-    settle('done');
-    signal.removeEventListener('abort', abort);
-    await bridge.close();
+    activeModernRequests--;
   }
 }
 

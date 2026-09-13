@@ -500,7 +500,7 @@ describe('MetaToolProvider', () => {
       expect(result.error).toBeDefined();
       if ('error' in result && result.error) {
         expect(result.error.type).toBe('upstream');
-        expect(result.error.message).toContain('Server Error');
+        expect(result.error.message).toBe('Gateway transport failure');
       }
     });
 
@@ -778,8 +778,8 @@ describe('MetaToolProvider', () => {
       expect('error' in result).toBe(true);
       if ('error' in result && result.error) {
         expect(result.error.type).toBe('upstream');
-        expect(result.error.message).toContain('Failed to load schema from server');
-        expect(result.error.message).toContain('Connection timeout');
+        expect(result.error.message).toBe('Gateway transport failure');
+        expect(result.error.message).not.toContain('Connection timeout');
       } else {
         throw new Error('Expected error in result');
       }
@@ -1184,7 +1184,7 @@ describe('MetaToolProvider', () => {
       expect('error' in result).toBe(true);
       if ('error' in result && result.error) {
         expect(result.error.type).toBe('internal');
-        expect(result.error.message).toContain('Internal error listing tools');
+        expect(result.error.message).toBe('Gateway internal failure');
       }
     });
 

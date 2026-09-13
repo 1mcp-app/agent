@@ -1,3 +1,4 @@
+import { gatewayFailureFromUnknown, gatewayFailureToMcp } from '@src/gateway/contracts/index.js';
 import logger from '@src/logger/logger.js';
 import { ErrorCode } from '@src/sdk/contracts/index.js';
 
@@ -25,9 +26,8 @@ export function withErrorHandling<T, Args extends readonly unknown[]>(
       }
 
       // Convert other errors to MCPError
-      throw new MCPError(errorMessage, ErrorCode.InternalError, {
-        originalError: error instanceof Error ? error : new Error(String(error)),
-      });
+      const failure = gatewayFailureToMcp(gatewayFailureFromUnknown(error));
+      throw new MCPError(errorMessage, failure.code, failure.data);
     }
   };
 }

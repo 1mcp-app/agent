@@ -1,10 +1,17 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 
 import type { OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import { ErrorCode } from '@src/sdk/contracts/index.js';
 import { MCPError } from '@src/utils/core/errorTypes.js';
 
 import { clearConfiguredToolSnapshot } from './configuredToolSnapshot.js';
+
+export class CapabilityProvidersUnavailableError extends MCPError {
+  constructor() {
+    super('Capability providers are unavailable', -32000);
+    Object.setPrototypeOf(this, CapabilityProvidersUnavailableError.prototype);
+  }
+}
 
 /** MCP result metadata key used to describe a partial aggregate walk. */
 export const CAPABILITY_PAGINATION_META_KEY = 'app.1mcp/capability-pagination';
@@ -31,7 +38,8 @@ export interface CapabilityPaginationResult<T> extends CapabilityPage<T> {
 }
 
 interface CapabilityPaginationCursor {
-  v: 1;
+  v: 2;
+  e: number;
   k: CapabilityKind;
   g: string;
   f: string;
@@ -57,6 +65,10 @@ const notificationStates = new WeakMap<object, CapabilityNotificationState>();
 const registeredAdapters = new WeakMap<OutboundConnections, Set<object>>();
 const clientIds = new WeakMap<object, number>();
 const MAX_DISABLED_PAGINATION_PAGES = 1000;
+const CURSOR_TTL_MS = 15 * 60 * 1000;
+const MAX_CURSOR_LENGTH = 4 * 1024;
+const upstreamCursors = new Map<string, { value: string; expiresAt: number }>();
+const cursorSecret = randomBytes(32);
 let nextClientId = 1;
 
 function getClientId(client: object): number {
@@ -80,6 +92,12 @@ function getRuntimeState(connections: OutboundConnections): RuntimePaginationSta
     runtimeStates.set(connections, state);
   }
   return state;
+}
+
+/** Stable process-local invalidation epoch for operations pinned to these connections. */
+export function getCapabilityPaginationGeneration(connections: OutboundConnections, kind: CapabilityKind): string {
+  const state = getRuntimeState(connections);
+  return `${state.nonce}:${state.generation[kind]}`;
 }
 
 /** Invalidate outstanding cursors for one capability collection. */
@@ -183,12 +201,12 @@ function stableValue(value: unknown): unknown {
 }
 
 function digest(value: unknown): string {
-  return createHash('sha256')
+  return createHmac('sha256', cursorSecret)
     .update(JSON.stringify(stableValue(value)))
     .digest('base64url');
 }
 
-function compareCodePoints(left: string, right: string): number {
+export function compareCodePoints(left: string, right: string): number {
   const leftPoints = Array.from(left, (value) => value.codePointAt(0)!);
   const rightPoints = Array.from(right, (value) => value.codePointAt(0)!);
   const length = Math.min(leftPoints.length, rightPoints.length);
@@ -227,54 +245,78 @@ function invalidCursor(reason: string): never {
 }
 
 function encodeCursor(cursor: CapabilityPaginationCursor): string {
-  return Buffer.from(JSON.stringify(cursor)).toString('base64url');
+  let upstreamKey: string | undefined;
+  if (cursor.u !== undefined) {
+    if (Buffer.byteLength(cursor.u) > 64 * 1024) throw new Error('Upstream cursor exceeds the limit');
+    upstreamKey = createHmac('sha256', cursorSecret).update(cursor.u).digest('base64url');
+    for (const [key, entry] of upstreamCursors) if (entry.expiresAt <= Date.now()) upstreamCursors.delete(key);
+    if (!upstreamCursors.has(upstreamKey) && upstreamCursors.size >= 1000) throw new Error('Cursor capacity exceeded');
+    upstreamCursors.set(upstreamKey, {
+      value: cursor.u,
+      expiresAt: Math.max(cursor.e, upstreamCursors.get(upstreamKey)?.expiresAt ?? 0),
+    });
+  }
+  const payload = Buffer.from(JSON.stringify({ ...cursor, u: upstreamKey })).toString('base64url');
+  const signature = createHmac('sha256', cursorSecret).update(payload).digest('base64url');
+  const encoded = `${payload}.${signature}`;
+  if (encoded.length > MAX_CURSOR_LENGTH) throw new Error('Upstream pagination cursor exceeds the limit');
+  return encoded;
 }
 
 function decodeCursor(value: string): CapabilityPaginationCursor {
-  if (!/^[A-Za-z0-9_-]+$/.test(value)) invalidCursor('malformed');
-
+  if (value.length > MAX_CURSOR_LENGTH || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/.test(value)) {
+    invalidCursor('malformed');
+  }
+  const [payload, signature] = value.split('.');
+  const expected = createHmac('sha256', cursorSecret).update(payload).digest();
+  const actual = Buffer.from(signature, 'base64url');
+  if (
+    actual.length !== expected.length ||
+    !timingSafeEqual(actual, expected) ||
+    actual.toString('base64url') !== signature
+  ) {
+    invalidCursor('authentication_failed');
+  }
   let decoded: unknown;
   try {
-    decoded = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+    decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
   } catch {
     invalidCursor('malformed');
   }
-
   if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) invalidCursor('malformed');
   const cursor = decoded as Partial<CapabilityPaginationCursor>;
-  const keys = Object.keys(cursor);
-  const failuresValid = cursor.x === undefined || (typeof cursor.x === 'string' && /^[A-Za-z0-9_-]+$/.test(cursor.x));
   if (
-    cursor.v !== 1 ||
-    keys.some((key) => !['v', 'k', 'g', 'f', 'p', 'u', 'x'].includes(key)) ||
+    cursor.v !== 2 ||
+    !Number.isSafeInteger(cursor.e) ||
+    Object.keys(cursor).some((key) => !['v', 'e', 'k', 'g', 'f', 'p', 'u', 'x'].includes(key)) ||
     !['tools', 'resources', 'resourceTemplates', 'prompts'].includes(cursor.k ?? '') ||
     typeof cursor.g !== 'string' ||
     typeof cursor.f !== 'string' ||
     typeof cursor.p !== 'string' ||
     (cursor.u !== undefined && typeof cursor.u !== 'string') ||
-    !failuresValid
-  ) {
+    (cursor.x !== undefined && (typeof cursor.x !== 'string' || !/^[A-Za-z0-9_-]+$/.test(cursor.x)))
+  )
     invalidCursor('malformed');
+  if (cursor.e! <= Date.now()) invalidCursor('expired');
+  if (cursor.u !== undefined) {
+    const upstream = upstreamCursors.get(cursor.u);
+    if (!upstream || upstream.expiresAt <= Date.now()) invalidCursor('expired');
+    cursor.u = upstream.value;
   }
   return cursor as CapabilityPaginationCursor;
 }
 
-function partialMeta(
-  failurePositions: number[],
-  providers: CapabilityPageProvider<unknown>[],
-): Record<string, unknown> | undefined {
+function partialMeta(failurePositions: number[], generation: string): Record<string, unknown> | undefined {
   if (failurePositions.length === 0) return undefined;
   return {
     [CAPABILITY_PAGINATION_META_KEY]: {
       partial: true,
-      failures: failurePositions.map((position) => ({
-        provider: providers[position].name,
-        code: 'upstream_list_failed',
-      })),
-      recovery: {
-        action: 'restart_without_cursor',
-        description: 'Restart the capability listing without a cursor to retry unavailable providers.',
-      },
+      complete: false,
+      generation,
+      failedSourceCount: failurePositions.length,
+      failureCategories: { upstream_list_failed: failurePositions.length },
+      retryable: true,
+      recovery: 'restart-walk',
     },
   };
 }
@@ -308,22 +350,32 @@ export async function walkCapabilityPages<T>(options: {
   filterSelection: unknown;
   extraGenerationSignature?: unknown;
   enablePagination: boolean;
+  failedProviderIds?: readonly string[];
 }): Promise<CapabilityPaginationResult<T>> {
   const providers = [...options.providers].sort(
     (left, right) => compareCodePoints(left.name, right.name) || compareCodePoints(left.id, right.id),
   );
-  const generation = observeGeneration(options.connections, options.kind, options.extraGenerationSignature);
+  const generation = observeGeneration(options.connections, options.kind, {
+    providers: providers.map(({ id, name }) => ({ id, name })),
+    extra: options.extraGenerationSignature,
+  });
   const filter = digest(options.filterSelection);
   let providerIndex = 0;
   let upstreamCursor: string | undefined;
-  let failures: number[] = [];
+  let failures = providers.flatMap((provider, index) =>
+    options.failedProviderIds?.includes(provider.id) ? [index] : [],
+  );
+  let expiresAt = Date.now() + CURSOR_TTL_MS;
 
-  if (options.cursor) {
+  if (options.cursor !== undefined) {
     const cursor = decodeCursor(options.cursor);
+    expiresAt = cursor.e;
     if (cursor.k !== options.kind) invalidCursor('capability_kind_mismatch');
     if (cursor.g !== generation) invalidCursor('stale_generation');
     if (cursor.f !== filter) invalidCursor('filter_mismatch');
-    providerIndex = providers.findIndex((provider) => provider.id === cursor.p);
+    providerIndex = providers.findIndex(
+      (provider) => createHmac('sha256', cursorSecret).update(provider.id).digest('base64url') === cursor.p,
+    );
     if (providerIndex < 0) invalidCursor('provider_missing');
     upstreamCursor = cursor.u;
     failures = decodeFailurePositions(cursor.x, providers.length);
@@ -345,34 +397,38 @@ export async function walkCapabilityPages<T>(options: {
             throw new Error('Upstream pagination did not terminate');
           }
           if (cursor !== undefined) seenCursors.add(cursor);
-        } while (cursor);
+        } while (cursor !== undefined);
       } catch {
         if (!failures.includes(position)) failures.push(position);
       }
     }
-    return { items, _meta: partialMeta(failures, providers) };
+    if (providers.length > 0 && failures.length === providers.length && items.length === 0) {
+      throw new CapabilityProvidersUnavailableError();
+    }
+    return { items, _meta: partialMeta(failures, generation) };
   }
 
   while (providerIndex < providers.length) {
     const provider = providers[providerIndex];
     try {
       const page = await provider.list(upstreamCursor);
-      const nextProviderIndex = page.nextCursor ? providerIndex : providerIndex + 1;
+      const nextProviderIndex = page.nextCursor !== undefined ? providerIndex : providerIndex + 1;
       const nextProvider = providers[nextProviderIndex];
       const nextCursor = nextProvider
         ? encodeCursor({
-            v: 1,
+            v: 2,
+            e: expiresAt,
             k: options.kind,
             g: generation,
             f: filter,
-            p: nextProvider.id,
+            p: createHmac('sha256', cursorSecret).update(nextProvider.id).digest('base64url'),
             u: page.nextCursor,
             x: encodeFailurePositions(failures, providers.length),
           })
         : undefined;
 
-      if (page.items.length > 0 || page.nextCursor) {
-        return { items: page.items, nextCursor, _meta: partialMeta(failures, providers) };
+      if (page.items.length > 0 || page.nextCursor !== undefined) {
+        return { items: page.items, nextCursor, _meta: partialMeta(failures, generation) };
       }
       providerIndex += 1;
       upstreamCursor = undefined;
@@ -383,5 +439,8 @@ export async function walkCapabilityPages<T>(options: {
     }
   }
 
-  return { items: [], _meta: partialMeta(failures, providers) };
+  if (options.cursor === undefined && providers.length > 0 && failures.length === providers.length) {
+    throw new CapabilityProvidersUnavailableError();
+  }
+  return { items: [], _meta: partialMeta(failures, generation) };
 }

@@ -363,7 +363,7 @@ describe('modern HTTP admission', () => {
       params: { _meta: { ...modernMeta } },
     });
     expect(unavailable.status).toBe(200);
-    expect(unavailable.body.error).toMatchObject({ code: -32603, message: 'bridge unavailable' });
+    expect(unavailable.body.error).toMatchObject({ code: -32603, message: 'Gateway internal failure' });
 
     const close = vi.fn(async () => undefined);
     createBridge.mockResolvedValueOnce({
@@ -387,8 +387,8 @@ describe('modern HTTP admission', () => {
     });
     expect(invalid.body.error).toMatchObject({
       code: -32602,
-      message: 'Invalid tool arguments',
-      data: { field: 'name' },
+      message: 'Gateway transport failure',
+      data: { 'app.1mcp/failure': { code: '-32602', kind: 'transport' } },
     });
     expect(close).toHaveBeenCalledTimes(1);
   });
@@ -610,5 +610,55 @@ describe('modern HTTP admission', () => {
       await client.close();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
+  });
+  it('bounds simultaneous HTTP exchanges before bridge allocation and releases admission', async () => {
+    const instance = app();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    createBridge.mockImplementation(async () => {
+      await gate;
+      return {
+        targetConnectionId: 'bounded',
+        outbound: {
+          role: 'outbound',
+          pin: { era: 'legacy', revision: '2025-11-25' },
+          request: async () => ({ tools: [] }),
+          cancel: async () => undefined,
+          close: async () => undefined,
+        },
+        close: async () => undefined,
+      };
+    });
+    const pending = Array.from({ length: 256 }, (_, id) =>
+      modernPost(instance, { jsonrpc: '2.0', id, method: 'tools/list', params: { _meta: modernMeta } }).then(
+        (response) => response,
+      ),
+    );
+    try {
+      await vi.waitFor(() => expect(createBridge).toHaveBeenCalledTimes(256), { timeout: 5000 });
+      const overloaded = await modernPost(instance, {
+        jsonrpc: '2.0',
+        id: 999,
+        method: 'tools/list',
+        params: { _meta: modernMeta },
+      });
+      expect(overloaded.body.error).toMatchObject({
+        code: -32000,
+        data: { 'app.1mcp/failure': { code: 'gateway_overloaded' } },
+      });
+      expect(createBridge).toHaveBeenCalledTimes(256);
+    } finally {
+      release();
+      await Promise.all(pending);
+    }
+    const recovered = await modernPost(instance, {
+      jsonrpc: '2.0',
+      id: 1000,
+      method: 'tools/list',
+      params: { _meta: modernMeta },
+    });
+    expect(recovered.body.result).toMatchObject({ tools: [], ttlMs: 0, cacheScope: 'private' });
   });
 });

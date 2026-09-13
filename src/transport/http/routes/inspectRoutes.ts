@@ -110,36 +110,6 @@ function hasDisabledTools(serverConfigs: ServerConfigMap, serverName: string): b
   return getDisabledToolsForServer(serverConfigs, serverName).length > 0;
 }
 
-function summarizeRegistryTools(
-  tools: ReturnType<ToolRegistry['listTools']>['tools'],
-  serverName: string,
-  serverConfigs: ServerConfigMap,
-): ToolSummary[] {
-  return tools.map((tool) => ({
-    tool: tool.name,
-    qualifiedName: qualifyToolName(serverName, tool.name),
-    description: applySourceToolDescription(tool, serverConfigs[serverName], serverName).description,
-    requiredArgs: 0,
-    optionalArgs: 0,
-  }));
-}
-
-function buildRegistryToolsResult(
-  serverName: string,
-  result: ReturnType<ToolRegistry['listTools']>,
-  serverConfigs: ServerConfigMap,
-): { tools: ToolSummary[]; totalTools: number; hasMore: boolean; nextCursor?: string } {
-  const filteredTools = result.tools.filter((tool) => !isSourceToolDisabled(serverConfigs, serverName, tool.name));
-  const disabledToolsConfigured = hasDisabledTools(serverConfigs, serverName);
-
-  return {
-    tools: summarizeRegistryTools(filteredTools, serverName, serverConfigs),
-    totalTools: disabledToolsConfigured ? filteredTools.length : result.totalCount,
-    hasMore: disabledToolsConfigured ? false : result.hasMore,
-    nextCursor: disabledToolsConfigured ? undefined : result.nextCursor,
-  };
-}
-
 function buildDirectToolsResult(
   serverName: string,
   directResult: DirectListToolsResult,
@@ -353,7 +323,6 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       const requestSessionId = await ensureRequestContextInitialized(serverManager, req, res, filterConfig);
       const filteredConnections = FilteringService.getFilteredConnections(serverManager.getClients(), filterConfig);
       const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
-      const toolRegistry: ToolRegistry | undefined = lazyOrchestrator?.getToolRegistry();
       const capabilityAggregator: CapabilityAggregator | undefined = lazyOrchestrator?.getCapabilityAggregator();
       const serverRegistry: ServerRegistry = serverManager.getServerRegistry();
       const target = parseTarget(targetRaw);
@@ -517,42 +486,13 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
 
       let toolsResult: { tools: ToolSummary[]; totalTools: number; hasMore: boolean; nextCursor?: string };
 
-      if (toolRegistry) {
-        if (connection) {
-          try {
-            const directResult = await listDirectServerTools(connection, { limit, cursor: cursorParam });
-            toolsResult = buildDirectToolsResult(serverName, directResult, serverConfigs);
-          } catch {
-            const result = toolRegistry.listTools({ server: serverName, limit, cursor: cursorParam });
-            toolsResult = buildRegistryToolsResult(serverName, result, serverConfigs);
-          }
-        } else {
-          const result = toolRegistry.listTools({ server: serverName, limit, cursor: cursorParam });
-          toolsResult = buildRegistryToolsResult(serverName, result, serverConfigs);
-        }
-      } else if (capabilityAggregator) {
-        const capTools = filterDisabledTools(
-          capabilityAggregator
-            .getCurrentCapabilities()
-            .tools.filter((t) => readPublicCapabilityRoute(t)?.server === serverName),
-          serverConfigs,
-          serverName,
-        );
-        toolsResult = {
-          tools: capTools.map((tool) =>
-            summarizeToolSchema(applyEffectiveToolDescription(tool, serverConfigs[serverName], serverName)),
-          ),
-          totalTools: capTools.length,
-          hasMore: false,
-        };
-      } else {
-        try {
-          const directResult = await listDirectServerTools(connection, { limit, cursor: cursorParam });
-          toolsResult = buildDirectToolsResult(serverName, directResult, serverConfigs);
-        } catch {
-          res.status(503).json({ error: 'Tool inventory not available for this server' });
-          return;
-        }
+      try {
+        const directResult = await listDirectServerTools(connection, { limit, cursor: cursorParam });
+        toolsResult = buildDirectToolsResult(serverName, directResult, serverConfigs);
+      } catch {
+        // A failed authoritative inventory cannot become a successful stale or empty view.
+        res.status(503).json({ error: 'Tool inventory not available for this server' });
+        return;
       }
 
       const payload: InspectServerPayload = {

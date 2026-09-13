@@ -124,7 +124,7 @@ describe('GatewaySession', () => {
 
     await expect(
       new GatewaySession(new GatewayDispatcher({ resolveOutbound: () => outbound, now: () => 1_000 })).run(inbound),
-    ).rejects.toMatchObject({ kind: 'transport', message: 'inbound read failed' });
+    ).rejects.toMatchObject({ kind: 'transport', message: 'Gateway transport failure' });
     expect(cancel).toHaveBeenCalledWith('request-read-failure');
   });
 });

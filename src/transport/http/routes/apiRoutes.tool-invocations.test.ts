@@ -220,7 +220,11 @@ describe('apiRoutes /api/tool-invocations', () => {
     await invokeInspectRoute(handler, { body: { tool: 'server/tool' } }, res);
 
     expect(res.statusCode).toBe(502);
-    expect(res.body).toEqual({ error: 'Upstream error: Upstream error' });
+    expect(res.body).toMatchObject({
+      status: 502,
+      error: 'Gateway transport failure',
+      type: 'https://docs.1mcp.app/problems/transport',
+    });
   });
 
   it('recovers OAuth for a non-lazy HTTP direct tool invocation', async () => {
@@ -538,6 +542,44 @@ describe('apiRoutes /api/tool-invocations', () => {
       server: 'serena',
       tool: 'list_memories',
     });
+  });
+
+  it('never falls back to a second invocation after the catalog Tool has side effects and fails', async () => {
+    let effects = 0;
+    const callTool = vi.fn(async () => {
+      effects++;
+      throw new Error('secret upstream failure');
+    });
+    const connection = createMockOutboundConnection({
+      name: 'server',
+      capabilities: { tools: {} },
+      adapter: createToolCallAdapter(callTool),
+    });
+    const connections = new Map([['server', connection]]);
+    const lazyOrchestrator = {
+      getToolRegistry: () =>
+        ToolRegistry.fromToolsWithServer([
+          {
+            server: 'server',
+            connectionKey: 'server',
+            tool: toProtocolTool({ name: 'tool', inputSchema: { type: 'object' } }),
+          },
+        ]).withConnections(connections),
+      getSchemaCache: () => ({ getIfCached: () => null }),
+      callMetaTool: vi.fn(async () => {
+        effects++;
+        return {};
+      }),
+    };
+    const manager = { getLazyLoadingOrchestrator: () => lazyOrchestrator, getClients: () => connections };
+    const handler = createToolInvocationsHandler(manager as never);
+    const res = createMockResponse();
+    await invokeInspectRoute(scopeAuthMiddleware, { body: { tool: 'server/tool' } }, res);
+    await invokeInspectRoute(handler, { body: { tool: 'server/tool' } }, res);
+    expect(effects).toBe(1);
+    expect(lazyOrchestrator.callMetaTool).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(502);
+    expect(JSON.stringify(res.body)).not.toContain('secret');
   });
 
   it('returns 200 with result on success', async () => {

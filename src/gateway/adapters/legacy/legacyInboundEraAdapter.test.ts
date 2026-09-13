@@ -92,7 +92,7 @@ describe('LegacyInboundEraAdapter', () => {
     const adapter = new LegacyInboundEraAdapter(fixture.value, LEGACY_PIN);
 
     const failure = await adapter.nextEvent().catch((error: unknown) => error);
-    expect(failure).toEqual({ kind: 'transport', code: '503', message: 'Unavailable' });
+    expect(failure).toEqual({ kind: 'transport', code: '503', message: 'Gateway transport failure' });
     expect(Object.getPrototypeOf(failure)).toBe(Object.prototype);
   });
 

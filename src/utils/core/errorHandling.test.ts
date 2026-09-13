@@ -57,7 +57,9 @@ describe('withErrorHandling', () => {
     } catch (error) {
       expect(error).toBeInstanceOf(MCPError);
       expect((error as MCPError).code).toBe(ErrorCode.InternalError);
-      expect(((error as MCPError).data as any)?.originalError).toBe(originalError);
+      expect((error as MCPError).data).toEqual({
+        'app.1mcp/failure': { kind: 'internal', code: 'gateway_internal_error' },
+      });
     }
   });
 
@@ -72,8 +74,9 @@ describe('withErrorHandling', () => {
       await wrappedFn();
     } catch (error) {
       expect(error).toBeInstanceOf(MCPError);
-      expect(((error as MCPError).data as any)?.originalError).toBeInstanceOf(Error);
-      expect(((error as MCPError).data as any)?.originalError.message).toBe('string error');
+      expect((error as MCPError).data).toEqual({
+        'app.1mcp/failure': { kind: 'internal', code: 'gateway_internal_error' },
+      });
     }
   });
 

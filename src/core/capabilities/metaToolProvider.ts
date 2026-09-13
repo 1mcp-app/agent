@@ -1,6 +1,7 @@
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { OutboundConnections } from '@src/core/types/index.js';
+import { gatewayFailureFromUnknown } from '@src/gateway/contracts/index.js';
 import logger, { errorIf } from '@src/logger/logger.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
 import { zodToInputSchema, zodToOutputSchema } from '@src/utils/schemaUtils.js';
@@ -261,7 +262,7 @@ export class MetaToolProvider {
         hasMore: false,
         error: {
           type: 'internal',
-          message: `Internal error listing tools: ${errorMessage}`,
+          message: gatewayFailureFromUnknown(error).message,
         },
       };
     }
@@ -307,7 +308,7 @@ export class MetaToolProvider {
         schema: {},
         error: {
           type: 'internal',
-          message: `Internal error describing tool: ${errorMessage}`,
+          message: gatewayFailureFromUnknown(error).message,
         },
       };
     }
@@ -367,7 +368,7 @@ export class MetaToolProvider {
         tool: args.toolName,
         error: {
           type: 'upstream',
-          message: `Server Error: ${error}. This is an upstream server issue - please report it.`,
+          message: gatewayFailureFromUnknown(error, 'transport').message,
         },
       };
     }

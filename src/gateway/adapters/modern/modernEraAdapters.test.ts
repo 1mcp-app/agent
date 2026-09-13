@@ -312,8 +312,7 @@ describe('ModernOutboundEraAdapter', () => {
     expect(failure).toEqual({
       kind: 'transport',
       code: '-32603',
-      message: 'foreign failure',
-      data: { sdk: 'v2' },
+      message: 'Gateway transport failure',
     });
     expect(Object.getPrototypeOf(failure)).toBe(Object.prototype);
     expect(Object.isFrozen(failure)).toBe(true);

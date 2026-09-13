@@ -15,6 +15,11 @@ import { createConnectionResolver, type TemplateHashProvider } from '@src/core/s
 import { getDisabledToolError } from '@src/core/server/disabledTools.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
+import {
+  createGatewayFailure,
+  gatewayFailureFromUnknown,
+  gatewayFailureToProblem,
+} from '@src/gateway/contracts/index.js';
 import logger from '@src/logger/logger.js';
 import { CONTEXT_HEADERS } from '@src/transport/http/utils/contextExtractor.js';
 
@@ -316,8 +321,9 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           res.json({ result: upstreamResult, server: target.serverName, tool: target.toolName });
         } catch (error) {
           logger.error('Direct tool invocation error:', error);
-          const message = error instanceof Error ? error.message : typeof error === 'string' ? error : 'Upstream error';
-          res.status(502).json({ error: `Upstream error: ${message}` });
+          const problem = gatewayFailureToProblem(gatewayFailureFromUnknown(error, 'transport'));
+          res.setHeader('Content-Type', 'application/problem+json');
+          res.status(problem.status).json(problem);
         }
         return;
       }
@@ -346,10 +352,33 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           res.json({ result: catalogResult.result, server: catalogResult.server, tool: catalogResult.tool });
           return;
         }
-        if (catalogResult.error.message.includes('Tool is disabled')) {
-          res.status(404).json({ error: catalogResult.error.message });
-          return;
-        }
+        // The catalog may already have executed the Tool. A fallback would duplicate side effects.
+        const status =
+          catalogResult.error.type === 'validation'
+            ? 400
+            : catalogResult.error.type === 'not_found'
+              ? 404
+              : catalogResult.error.type === 'upstream'
+                ? 502
+                : 500;
+        const problem = gatewayFailureToProblem(
+          createGatewayFailure({
+            kind:
+              catalogResult.error.type === 'validation'
+                ? 'invalid-request'
+                : catalogResult.error.type === 'upstream'
+                  ? 'transport'
+                  : 'internal',
+            code: `gateway_${catalogResult.error.type}`,
+            message:
+              catalogResult.error.type === 'upstream'
+                ? 'Tool execution may have occurred; the outcome is unknown'
+                : catalogResult.error.message,
+          }),
+        );
+        res.setHeader('Content-Type', 'application/problem+json');
+        res.status(status).json({ ...problem, status });
+        return;
       }
 
       const result = (await lazyOrchestrator.callMetaTool(

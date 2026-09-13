@@ -417,11 +417,12 @@ describe('capability pagination protocol handlers', () => {
     expect(first._meta).toEqual({
       'app.1mcp/capability-pagination': {
         partial: true,
-        failures: [{ provider: 'alpha', code: 'upstream_list_failed' }],
-        recovery: {
-          action: 'restart_without_cursor',
-          description: 'Restart the capability listing without a cursor to retry unavailable providers.',
-        },
+        complete: false,
+        failedSourceCount: 1,
+        failureCategories: { upstream_list_failed: 1 },
+        generation: expect.any(String),
+        retryable: true,
+        recovery: 'restart-walk',
       },
     });
     expect(JSON.stringify(first._meta)).not.toContain('secret token');
@@ -461,7 +462,11 @@ describe('capability pagination protocol handlers', () => {
     expect(result._meta).toMatchObject({
       'app.1mcp/capability-pagination': {
         partial: true,
-        failures: [{ provider: 'alpha', code: 'upstream_list_failed' }],
+        complete: false,
+        failedSourceCount: 1,
+        failureCategories: { upstream_list_failed: 1 },
+        generation: expect.any(String),
+        retryable: true,
       },
     });
     expect(JSON.stringify(result._meta)).not.toContain('private failure detail');
@@ -483,20 +488,8 @@ describe('capability pagination protocol handlers', () => {
     const handler = handlers.get(ListResourcesRequestSchema);
     if (!handler) throw new Error('resources/list handler was not registered');
 
-    const result = (await handler({ params: {} })) as {
-      resources: Array<{ name: string }>;
-      _meta?: Record<string, unknown>;
-    };
-
-    // Repeated source identities are quarantined instead of silently keeping duplicate routes.
-    expect(result.resources).toHaveLength(0);
+    await expect(handler({ params: {} })).rejects.toThrow('Capability providers are unavailable');
     expect(listResources).toHaveBeenCalledTimes(2);
-    expect(result._meta).toMatchObject({
-      'app.1mcp/capability-pagination': {
-        partial: true,
-        failures: [{ provider: 'alpha', code: 'upstream_list_failed' }],
-      },
-    });
   });
 
   it('caps pagination-disabled draining for unique upstream cursors', async () => {
@@ -529,7 +522,11 @@ describe('capability pagination protocol handlers', () => {
     expect(result._meta).toMatchObject({
       'app.1mcp/capability-pagination': {
         partial: true,
-        failures: [{ provider: 'alpha', code: 'upstream_list_failed' }],
+        complete: false,
+        failedSourceCount: 1,
+        failureCategories: { upstream_list_failed: 1 },
+        generation: expect.any(String),
+        retryable: true,
       },
     });
   });
@@ -706,12 +703,12 @@ describe('capability pagination protocol handlers', () => {
 
     const first = (await handler({ params: {} })) as {
       nextCursor?: string;
-      _meta: { 'app.1mcp/capability-pagination': { failures: unknown[] } };
+      _meta: { 'app.1mcp/capability-pagination': { failedSourceCount: number } };
     };
     const second = (await handler({ params: { cursor: first.nextCursor } })) as typeof first;
 
     expect(first.nextCursor?.length).toBeLessThan(8192);
-    expect(first._meta['app.1mcp/capability-pagination'].failures).toHaveLength(130);
+    expect(first._meta['app.1mcp/capability-pagination'].failedSourceCount).toBe(130);
     expect(second._meta).toEqual(first._meta);
   });
 
@@ -731,7 +728,7 @@ describe('capability pagination protocol handlers', () => {
       resources: Array<{ name: string }>;
     };
 
-    expect(first.nextCursor?.length).toBeGreaterThan(8192);
+    expect(first.nextCursor?.length).toBeLessThanOrEqual(4096);
     expect(second.resources.map((resource) => resource.name)).toEqual(['alpha-2']);
     expect(listResources).toHaveBeenLastCalledWith(
       { cursor: upstreamCursor },

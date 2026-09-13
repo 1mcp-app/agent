@@ -229,21 +229,18 @@ describe('run command internals', () => {
       );
     });
 
-    it('requests a retry with a fresh session when a cached session 404s', async () => {
+    it('does not retry a cached-session 404 after Tool dispatch may have started', async () => {
       transportState.throw404OnMethod = 'tools/call';
-
-      const response = await invokeTool({
-        serverUrl: new URL('http://127.0.0.1:3050/mcp'),
-        sessionId: 'stale-session',
-        displayToolName: 'runner/echo_args',
-        qualifiedToolName: 'runner_1mcp_echo_args',
-        explicitArgs: '{"message":"hello"}',
-        resolveTool: false,
-      });
-
-      expect(response.retryWithFreshSession).toBe(true);
-      expect(response.sessionId).toBeUndefined();
-      expect('error' in response.rawResponse && response.rawResponse.error.message).toBe('Cached session expired.');
+      await expect(
+        invokeTool({
+          serverUrl: new URL('http://127.0.0.1:3050/mcp'),
+          sessionId: 'stale-session',
+          displayToolName: 'runner/echo_args',
+          qualifiedToolName: 'runner_1mcp_echo_args',
+          explicitArgs: '{"message":"hello"}',
+          resolveTool: false,
+        }),
+      ).rejects.toThrow('Session not found');
     });
   });
 

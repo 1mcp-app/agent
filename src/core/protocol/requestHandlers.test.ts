@@ -292,7 +292,7 @@ describe('Request Handlers', () => {
       await expect(handler({ params: { name: 'client1_1mcp_tool', arguments: {} } })).rejects.toMatchObject({
         name: 'OneMcpProtocolError',
         code: 401,
-        message: unauthorized.message,
+        message: 'Gateway transport failure',
       });
       expect(connection.status).toBe(ClientStatus.AwaitingOAuth);
       expect(mockClient1.close).toHaveBeenCalledOnce();

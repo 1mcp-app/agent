@@ -376,8 +376,8 @@ describe('runCommand REST-first path', () => {
     // missing invocation endpoint still falls back to MCP normally.
     const toolInvocationCalls = mockFetch.mock.calls.filter(([url]) => String(url).includes('tool-invocations'));
     expect(toolInvocationCalls).toHaveLength(1);
-    // MCP was used
-    expect(transportState.instances.length).toBeGreaterThan(0);
+    // A lost invocation response is not evidence that dispatch never occurred.
+    expect(transportState.instances).toHaveLength(0);
 
     vi.clearAllMocks();
   });

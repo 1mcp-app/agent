@@ -15,6 +15,7 @@ import { MCPError } from '@src/utils/core/errorTypes.js';
 import {
   type CapabilityPage,
   type CapabilityPaginationResult,
+  compareCodePoints,
   registerCapabilityPaginationNotifications,
   unregisterCapabilityPaginationConnections,
   walkCapabilityPages,
@@ -99,6 +100,7 @@ export interface RuntimeCapabilitySnapshot {
 interface RuntimeScope {
   sessionId?: string;
   latestStarted: number;
+  lastAccess: number;
   snapshot?: RuntimeCapabilitySnapshot;
   paginationConnections: OutboundConnections;
   resourceRoutes: Map<
@@ -137,6 +139,13 @@ export async function acquireRuntimeCapabilityCatalog(
   if (!state) {
     state = { nextId: 1, scopes: new Map() };
     states.set(connections, state);
+  }
+  for (const [key, retained] of state.scopes) {
+    if (Date.now() - retained.lastAccess < 15 * 60 * 1000) continue;
+    state.scopes.delete(key);
+    unregisterCapabilityPaginationConnections(retained.paginationConnections);
+    retained.paginationConnections.clear();
+    retained.resourceRoutes.clear();
   }
   const captured = new Map(
     Array.from(connections).filter(
@@ -180,15 +189,18 @@ export async function acquireRuntimeCapabilityCatalog(
   const started = state.nextId++;
   let currentScope = state.scopes.get(scope);
   if (!currentScope) {
+    if (state.scopes.size >= 256) throw new Error('Capability catalog scope capacity exceeded');
     currentScope = {
       sessionId: visibility?.sessionId,
       latestStarted: started,
+      lastAccess: Date.now(),
       paginationConnections: new Map(captured),
       resourceRoutes: new Map(),
     };
     state.scopes.set(scope, currentScope);
   }
   currentScope.latestStarted = started;
+  currentScope.lastAccess = Date.now();
   const scopedState = currentScope;
   const observedConnections = scopedState.paginationConnections;
   for (const [identity, route] of scopedState.resourceRoutes) {
@@ -224,6 +236,8 @@ export async function acquireRuntimeCapabilityCatalog(
   };
   const sources: CapabilitySource[] = [];
   const sourcePages: SourcePages[] = [];
+  let capturedItems = 0;
+  let capturedBytes = 0;
   await Promise.all(
     Array.from(captured, async ([key, connection]) => {
       const server = visibility?.serverCandidates.get(key) ?? connection.name ?? key;
@@ -245,7 +259,18 @@ export async function acquireRuntimeCapabilityCatalog(
               );
               if (!Array.isArray(result[kind])) throw new Error(`Invalid ${kind} list result`);
               const items = result[kind] as unknown[];
+              capturedItems += items.length;
+              capturedBytes += Buffer.byteLength(JSON.stringify(items));
+              if (capturedItems > 100000 || capturedBytes > 32 * 1024 * 1024) {
+                throw new Error('Capability snapshot capacity exceeded');
+              }
               const nextCursor = typeof result.nextCursor === 'string' ? result.nextCursor : undefined;
+              if (nextCursor !== undefined) {
+                const cursorBytes = Buffer.byteLength(nextCursor);
+                if (cursorBytes > 64 * 1024) throw new Error('Upstream cursor capacity exceeded');
+                capturedBytes += cursorBytes;
+                if (capturedBytes > 32 * 1024 * 1024) throw new Error('Capability snapshot capacity exceeded');
+              }
               provider.pages.set(cursor, { items, nextCursor });
               cursor = nextCursor;
               if (cursor !== undefined && (seen.has(cursor) || provider.pages.size >= 1000)) {
@@ -319,21 +344,6 @@ export async function acquireRuntimeCapabilityCatalog(
     (left, right) => left.kind.localeCompare(right.kind) || left.connectionKey.localeCompare(right.connectionKey),
   );
   sourcePages.sort((left, right) => left.key.localeCompare(right.key) || left.kind.localeCompare(right.kind));
-  const previous = state.scopes.get(scope)?.snapshot;
-  const sameBackends =
-    previous &&
-    previous.isCurrent() &&
-    previous.connections.size === captured.size &&
-    Array.from(captured).every(([key, connection]) => previous.connections.get(key) === connection);
-  const externalPages = sourcePages.filter((provider) => captured.has(provider.key));
-  if (
-    externalPages.length > 0 &&
-    externalPages.every((provider) => provider.error && provider.pages.size === 0) &&
-    sameBackends
-  ) {
-    for (const connection of captured.values()) clearConfiguredToolSnapshot(connection);
-    return previous;
-  }
   const generation = buildCatalogGeneration(started, sources, { allowTemplateInstances: visibility === undefined });
   const keys = new Set(captured.keys());
   for (const source of sources) if (source.origin === 'internal') keys.add(source.connectionKey);
@@ -369,7 +379,15 @@ export async function acquireRuntimeCapabilityCatalog(
     for (const [cursor, page] of provider.pages) {
       provider.pages.set(cursor, { ...page, items: publicItems(provider.kind, provider.key, page.items) });
     }
-  const entriesJson = JSON.stringify(generation.entries);
+  const entriesJson = JSON.stringify([
+    generation.entries,
+    sourcePages.map((provider) => ({
+      kind: provider.kind,
+      key: provider.key,
+      failed: !!provider.error,
+      pages: [...provider.pages].map(([cursor, page]) => [cursor, page.nextCursor, page.items.length]),
+    })),
+  ]);
   let lastConfigsJson: string | undefined;
   let lastSignature: string;
   const signature = (serverConfigs: Record<string, MCPServerParams> | undefined) => {
@@ -395,6 +413,7 @@ export async function acquireRuntimeCapabilityCatalog(
         )
           return identity;
       }
+      if (scopedState.resourceRoutes.size >= 1000) throw new Error('Resource route capacity exceeded');
       // This namespace cannot collide with canonical identities, which always contain the MCP separator.
       const identity = `urn:1mcp:resource:${randomUUID()}`;
       const server = visibility?.serverCandidates.get(connectionKey) ?? connection.name ?? connectionKey;
@@ -447,21 +466,42 @@ export async function acquireRuntimeCapabilityCatalog(
           reason: 'stale_generation',
         });
       }
-      if (!listOptions.cursor) assertCurrent();
+      scopedState.lastAccess = Date.now();
+      if (listOptions.cursor === undefined) assertCurrent();
       observeConnections();
       const currentVisibility = listOptions.visibility ?? visibility;
-      const providers = sourcePages
+      const selectedProviders = sourcePages
         .filter((provider) => provider.kind === kind && (!listOptions.internalOnly || !captured.has(provider.key)))
         .map((provider) => ({
-          id: provider.key,
-          name: provider.server,
-          async list(cursor?: string) {
-            const page = provider.pages.get(cursor);
-            if (provider.error && (!page || cursor === provider.errorCursor)) throw provider.error;
-            if (!page) throw new Error('Unknown captured upstream cursor');
-            return { items: [...page.items] as T[], nextCursor: page.nextCursor };
-          },
+          ...provider,
+          pages: new Map([...provider.pages].map(([cursor, page]) => [cursor, { ...page }])),
         }));
+      const pages = [...selectedProviders]
+        .sort((left, right) => compareCodePoints(left.server, right.server) || compareCodePoints(left.key, right.key))
+        .flatMap((provider) => [...provider.pages.values()]);
+      const identity = (item: unknown): string => {
+        const value = item as Record<string, unknown>;
+        return String(kind === 'resources' ? value.uri : kind === 'resourceTemplates' ? value.uriTemplate : value.name);
+      };
+      const sorted = pages
+        .flatMap((page) => page.items)
+        .sort((left, right) => compareCodePoints(identity(left), identity(right)));
+      let offset = 0;
+      for (const page of pages) {
+        const length = page.items.length;
+        page.items = sorted.slice(offset, offset + length);
+        offset += length;
+      }
+      const providers = selectedProviders.map((provider) => ({
+        id: provider.key,
+        name: provider.server,
+        async list(cursor?: string) {
+          const page = provider.pages.get(cursor);
+          if (provider.error && (!page || cursor === provider.errorCursor)) throw provider.error;
+          if (!page) throw new Error('Unknown captured upstream cursor');
+          return { items: [...page.items] as T[], nextCursor: page.nextCursor };
+        },
+      }));
       const result = await walkCapabilityPages<T>({
         connections: observedConnections,
         kind,
@@ -474,6 +514,9 @@ export async function acquireRuntimeCapabilityCatalog(
           selection: listOptions.filterSelection,
           internalOnly: listOptions.internalOnly,
         },
+        failedProviderIds: sourcePages
+          .filter((provider) => provider.kind === kind && provider.error)
+          .map((provider) => provider.key),
         extraGenerationSignature: signature(listOptions.serverConfigs ?? options.serverConfigs),
         providers: listOptions.internalOnly
           ? [

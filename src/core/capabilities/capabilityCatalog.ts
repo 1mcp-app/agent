@@ -8,6 +8,7 @@ import {
   type OutboundConnection,
   type OutboundConnections,
 } from '@src/core/types/index.js';
+import { gatewayFailureFromUnknown } from '@src/gateway/contracts/index.js';
 import logger from '@src/logger/logger.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
 
@@ -271,7 +272,7 @@ export class CapabilityCatalog {
         schema: {},
         error: {
           type: 'upstream',
-          message: `Failed to load schema from server: ${error}`,
+          message: gatewayFailureFromUnknown(error, 'transport').message,
         },
         refresh,
       };
@@ -344,7 +345,7 @@ export class CapabilityCatalog {
         route,
         error: {
           type: 'upstream',
-          message: `Server Error: ${error}. This is an upstream server issue - please report it.`,
+          message: gatewayFailureFromUnknown(error, 'transport').message,
         },
         refresh,
       };
