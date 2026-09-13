@@ -32,7 +32,7 @@ export type CallToolResult = ToolInvokeOutput;
 /**
  * Function to load tool schema from upstream server
  */
-export type SchemaLoader = (server: string, toolName: string) => Promise<Tool>;
+export type SchemaLoader = (server: string, toolName: string, signal?: AbortSignal) => Promise<Tool>;
 
 /**
  * Arguments for tool_list
@@ -355,19 +355,6 @@ export class MetaToolProvider {
     } catch (error) {
       const failure = gatewayFailureFromUnknown(error, 'transport');
       logger.error('Meta-tool invocation failed', { failure });
-
-      // Check if it's a tool not found error from upstream
-      if (error instanceof Error && error.message.includes('not found')) {
-        return {
-          result: {},
-          server: args.server,
-          tool: args.toolName,
-          error: {
-            type: 'not_found',
-            message: `Tool not found: ${args.server}:${args.toolName}`,
-          },
-        };
-      }
 
       return {
         result: {},

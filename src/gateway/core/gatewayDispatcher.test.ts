@@ -48,6 +48,10 @@ function request(
 }
 
 describe('GatewayDispatcher', () => {
+  it.each([NaN, Infinity, 0, -1, 1.5])('rejects invalid active request capacity %s', (maxActiveRequests) => {
+    expect(() => new GatewayDispatcher({ resolveOutbound: () => undefined, maxActiveRequests })).toThrow();
+  });
+
   it('dispatches a frozen read-only request without extending its absolute deadline', async () => {
     const fixture = adapter(Object.freeze({ era: 'modern', revision: '2026-07-28' }));
     const dispatcher = new GatewayDispatcher({ resolveOutbound: () => fixture.port, now: () => 1_000 });

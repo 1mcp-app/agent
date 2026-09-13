@@ -504,7 +504,7 @@ describe('MetaToolProvider', () => {
       }
     });
 
-    it('should detect not found errors from upstream', async () => {
+    it('keeps post-dispatch not-found messages classified as upstream failures', async () => {
       mockClient.callTool.mockRejectedValue(new Error('Tool not found: read_file'));
 
       const result = await provider.callMetaTool('tool_invoke', {
@@ -516,7 +516,7 @@ describe('MetaToolProvider', () => {
       expect('error' in result).toBe(true);
       expect(result.error).toBeDefined();
       if ('error' in result && result.error) {
-        expect(result.error.type).toBe('not_found');
+        expect(result.error.type).toBe('upstream');
       }
     });
   });
@@ -594,7 +594,7 @@ describe('MetaToolProvider', () => {
         toolName: 'read_file',
       });
 
-      expect(mockSchemaLoader).toHaveBeenCalledWith('filesystem', 'read_file');
+      expect(mockSchemaLoader).toHaveBeenCalledWith('filesystem', 'read_file', expect.any(AbortSignal));
       expect('error' in result).toBe(false);
       if ('schema' in result && 'fromCache' in result) {
         expect(result.schema).toMatchObject(mockSchema);
@@ -694,8 +694,8 @@ describe('MetaToolProvider', () => {
         createCapabilityVisibility([['filesystem:session-b', 'filesystem']], 'session-b'),
       );
 
-      expect(mockSchemaLoader).toHaveBeenNthCalledWith(1, 'filesystem:session-a', 'read_file');
-      expect(mockSchemaLoader).toHaveBeenNthCalledWith(2, 'filesystem:session-b', 'read_file');
+      expect(mockSchemaLoader).toHaveBeenNthCalledWith(1, 'filesystem:session-a', 'read_file', expect.any(AbortSignal));
+      expect(mockSchemaLoader).toHaveBeenNthCalledWith(2, 'filesystem:session-b', 'read_file', expect.any(AbortSignal));
       expect(sessionSchemaCache.getIfCached('filesystem:session-a', 'read_file')?.description).toBe('session-a');
       expect(sessionSchemaCache.getIfCached('filesystem:session-b', 'read_file')?.description).toBe('session-b');
       expect(sessionSchemaCache.getIfCached('filesystem', 'read_file')).toBeNull();
@@ -774,7 +774,7 @@ describe('MetaToolProvider', () => {
         toolName: 'read_file',
       });
 
-      expect(mockSchemaLoader).toHaveBeenCalledWith('filesystem', 'read_file');
+      expect(mockSchemaLoader).toHaveBeenCalledWith('filesystem', 'read_file', expect.any(AbortSignal));
       expect('error' in result).toBe(true);
       if ('error' in result && result.error) {
         expect(result.error.type).toBe('upstream');

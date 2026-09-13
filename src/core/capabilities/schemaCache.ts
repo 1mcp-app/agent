@@ -1,6 +1,8 @@
 import logger, { debugIf } from '@src/logger/logger.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
 
+import { z } from 'zod';
+
 /**
  * Statistics for schema cache operations
  */
@@ -19,6 +21,11 @@ export interface SchemaCacheConfig {
   maxEntries: number;
   ttlMs?: number;
 }
+
+const schemaCacheConfigSchema = z.object({
+  maxEntries: z.number().finite().int().positive().max(Number.MAX_SAFE_INTEGER),
+  ttlMs: z.number().finite().nonnegative().optional(),
+});
 
 /**
  * Cache entry with optional expiration
@@ -63,13 +70,8 @@ export class SchemaCache {
   };
 
   constructor(config: SchemaCacheConfig) {
-    if (!Number.isSafeInteger(config.maxEntries) || config.maxEntries <= 0) {
-      throw new TypeError('Schema cache maxEntries must be a positive integer');
-    }
-    if (config.ttlMs !== undefined && (!Number.isFinite(config.ttlMs) || config.ttlMs < 0)) {
-      throw new TypeError('Schema cache TTL must be finite and non-negative');
-    }
-    this.config = { ...config, ttlMs: Math.min(config.ttlMs ?? 60000, 15 * 60 * 1000) };
+    const parsed = schemaCacheConfigSchema.parse(config);
+    this.config = { ...parsed, ttlMs: Math.min(parsed.ttlMs ?? 60000, 15 * 60 * 1000) };
   }
 
   /**
@@ -134,7 +136,7 @@ export class SchemaCache {
   public async getOrLoad(
     server: string,
     toolName: string,
-    loader: (server: string, toolName: string) => Promise<Tool>,
+    loader: (server: string, toolName: string, signal?: AbortSignal) => Promise<Tool>,
   ): Promise<Tool> {
     const cacheKey = this.getCacheKey(server, toolName);
 
@@ -173,14 +175,19 @@ export class SchemaCache {
     // Create new request
     this.stats.misses++;
     this.activeLoads++;
+    const controller = new AbortController();
     const load = Promise.resolve()
-      .then(() => loader(server, toolName))
+      .then(() => loader(server, toolName, controller.signal))
       .finally(() => {
         this.activeLoads--;
       });
     let timer: ReturnType<typeof setTimeout>;
     const deadline = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error('Schema cache load deadline exceeded')), 30000);
+      timer = setTimeout(() => {
+        const error = new Error('Schema cache load deadline exceeded');
+        reject(error);
+        controller.abort(error);
+      }, 30000);
       timer.unref?.();
     });
     const promise = Promise.race([load, deadline])
@@ -342,7 +349,7 @@ export class SchemaCache {
    */
   public async preload(
     tools: Array<{ server: string; toolName: string }>,
-    loader: (server: string, toolName: string) => Promise<Tool>,
+    loader: (server: string, toolName: string, signal?: AbortSignal) => Promise<Tool>,
   ): Promise<{ loaded: number; failed: Array<{ server: string; toolName: string; error: string }> }> {
     debugIf(() => ({ message: `Preloading ${tools.length} tool schemas` }));
 

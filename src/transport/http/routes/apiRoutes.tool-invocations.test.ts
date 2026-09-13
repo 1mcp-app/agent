@@ -628,7 +628,9 @@ describe('apiRoutes /api/tool-invocations', () => {
     let effects = 0;
     const callTool = vi.fn(async () => {
       effects++;
-      throw Object.assign(new Error('SECRET480-CATALOG'), { diagnostic: 'SECRET480-CATALOG' });
+      throw Object.assign(new Error('SECRET480-CATALOG not found after side effects'), {
+        diagnostic: 'SECRET480-CATALOG',
+      });
     });
     const connection = createMockOutboundConnection({
       name: 'server',

@@ -13,6 +13,15 @@ export class CapabilityProvidersUnavailableError extends MCPError {
   }
 }
 
+export class CapabilityCursorCapacityError extends MCPError {
+  constructor() {
+    super('Capability cursor capacity exceeded', -32000, {
+      'app.1mcp/failure': { kind: 'transport', code: 'gateway_overloaded' },
+    });
+    Object.setPrototypeOf(this, CapabilityCursorCapacityError.prototype);
+  }
+}
+
 /** MCP result metadata key used to describe a partial aggregate walk. */
 export const CAPABILITY_PAGINATION_META_KEY = 'app.1mcp/capability-pagination';
 
@@ -67,7 +76,22 @@ const clientIds = new WeakMap<object, number>();
 const MAX_DISABLED_PAGINATION_PAGES = 1000;
 const CURSOR_TTL_MS = 15 * 60 * 1000;
 const MAX_CURSOR_LENGTH = 4 * 1024;
-const upstreamCursors = new Map<string, { value: string; expiresAt: number }>();
+const upstreamCursors = new Map<
+  string,
+  {
+    value: string;
+    expiresAt: number;
+    scope: string;
+    runtimeNonce: string;
+    kind: CapabilityKind;
+    generation: string;
+    bytes: number;
+  }
+>();
+const MAX_GLOBAL_CURSOR_ENTRIES = 4000;
+const MAX_SCOPE_CURSOR_ENTRIES = 1000;
+const MAX_GLOBAL_CURSOR_BYTES = 64 * 1024 * 1024;
+const MAX_SCOPE_CURSOR_BYTES = 32 * 1024 * 1024;
 const cursorSecret = randomBytes(32);
 let nextClientId = 1;
 
@@ -102,7 +126,9 @@ export function getCapabilityPaginationGeneration(connections: OutboundConnectio
 
 /** Invalidate outstanding cursors for one capability collection. */
 export function advanceCapabilityPaginationGeneration(connections: OutboundConnections, kind: CapabilityKind): void {
-  getRuntimeState(connections).generation[kind] += 1;
+  const state = getRuntimeState(connections);
+  state.generation[kind] += 1;
+  pruneCursorStore(state);
 }
 
 /** Register generation invalidation for a provider created after inbound setup. */
@@ -185,6 +211,11 @@ export function unregisterCapabilityPaginationConnections(connections: OutboundC
     notificationStates.get(adapter)?.connections.delete(connections);
   }
   registeredAdapters.delete(connections);
+  const state = runtimeStates.get(connections);
+  if (state)
+    for (const [key, entry] of upstreamCursors) {
+      if (entry.runtimeNonce === state.nonce) upstreamCursors.delete(key);
+    }
   runtimeStates.delete(connections);
 }
 
@@ -237,6 +268,7 @@ function observeGeneration(connections: OutboundConnections, kind: CapabilityKin
     state.generation[kind] += 1;
   }
   state.signature[kind] = signature;
+  pruneCursorStore(state);
   return `${state.nonce}:${state.generation[kind]}`;
 }
 
@@ -244,22 +276,58 @@ function invalidCursor(reason: string): never {
   throw new MCPError('Invalid capability pagination cursor', ErrorCode.InvalidParams, { reason });
 }
 
-function encodeCursor(cursor: CapabilityPaginationCursor): string {
-  let upstreamKey: string | undefined;
-  if (cursor.u !== undefined) {
-    if (Buffer.byteLength(cursor.u) > 64 * 1024) throw new Error('Upstream cursor exceeds the limit');
-    upstreamKey = createHmac('sha256', cursorSecret).update(cursor.u).digest('base64url');
-    for (const [key, entry] of upstreamCursors) if (entry.expiresAt <= Date.now()) upstreamCursors.delete(key);
-    if (!upstreamCursors.has(upstreamKey) && upstreamCursors.size >= 1000) throw new Error('Cursor capacity exceeded');
-    upstreamCursors.set(upstreamKey, {
-      value: cursor.u,
-      expiresAt: Math.max(cursor.e, upstreamCursors.get(upstreamKey)?.expiresAt ?? 0),
-    });
+function pruneCursorStore(state?: RuntimePaginationState): void {
+  const now = Date.now();
+  for (const [key, entry] of upstreamCursors) {
+    if (
+      entry.expiresAt <= now ||
+      (state?.nonce === entry.runtimeNonce && entry.generation !== `${state.nonce}:${state.generation[entry.kind]}`)
+    )
+      upstreamCursors.delete(key);
   }
+}
+
+function encodeCursor(cursor: CapabilityPaginationCursor, scope: string, runtimeNonce: string): string {
+  const bytes = cursor.u === undefined ? 0 : Buffer.byteLength(cursor.u);
+  if (bytes > 64 * 1024) throw new Error('Upstream cursor exceeds the limit');
+  const upstreamKey = cursor.u === undefined ? undefined : digest([scope, cursor.g, cursor.u]);
   const payload = Buffer.from(JSON.stringify({ ...cursor, u: upstreamKey })).toString('base64url');
   const signature = createHmac('sha256', cursorSecret).update(payload).digest('base64url');
   const encoded = `${payload}.${signature}`;
   if (encoded.length > MAX_CURSOR_LENGTH) throw new Error('Upstream pagination cursor exceeds the limit');
+  if (upstreamKey !== undefined && cursor.u !== undefined) {
+    pruneCursorStore();
+    const existing = upstreamCursors.get(upstreamKey);
+    if (!existing) {
+      let globalBytes = 0;
+      let scopeBytes = 0;
+      let scopeEntries = 0;
+      for (const entry of upstreamCursors.values()) {
+        globalBytes += entry.bytes;
+        if (entry.scope === scope) {
+          scopeBytes += entry.bytes;
+          scopeEntries++;
+        }
+      }
+      if (
+        upstreamCursors.size >= MAX_GLOBAL_CURSOR_ENTRIES ||
+        scopeEntries >= MAX_SCOPE_CURSOR_ENTRIES ||
+        globalBytes + bytes > MAX_GLOBAL_CURSOR_BYTES ||
+        scopeBytes + bytes > MAX_SCOPE_CURSOR_BYTES
+      ) {
+        throw new CapabilityCursorCapacityError();
+      }
+    }
+    upstreamCursors.set(upstreamKey, {
+      value: cursor.u,
+      expiresAt: Math.max(cursor.e, existing?.expiresAt ?? 0),
+      scope,
+      runtimeNonce,
+      kind: cursor.k,
+      generation: cursor.g,
+      bytes,
+    });
+  }
   return encoded;
 }
 
@@ -298,11 +366,6 @@ function decodeCursor(value: string): CapabilityPaginationCursor {
   )
     invalidCursor('malformed');
   if (cursor.e! <= Date.now()) invalidCursor('expired');
-  if (cursor.u !== undefined) {
-    const upstream = upstreamCursors.get(cursor.u);
-    if (!upstream || upstream.expiresAt <= Date.now()) invalidCursor('expired');
-    cursor.u = upstream.value;
-  }
   return cursor as CapabilityPaginationCursor;
 }
 
@@ -360,6 +423,8 @@ export async function walkCapabilityPages<T>(options: {
     extra: options.extraGenerationSignature,
   });
   const filter = digest({ selection: options.filterSelection, enablePagination: options.enablePagination });
+  const runtimeNonce = getRuntimeState(options.connections).nonce;
+  const scope = digest([runtimeNonce, options.kind, filter]);
   let providerIndex = 0;
   let upstreamCursor: string | undefined;
   let failures = providers.flatMap((provider, index) =>
@@ -377,7 +442,18 @@ export async function walkCapabilityPages<T>(options: {
       (provider) => createHmac('sha256', cursorSecret).update(provider.id).digest('base64url') === cursor.p,
     );
     if (providerIndex < 0) invalidCursor('provider_missing');
-    upstreamCursor = cursor.u;
+    if (cursor.u !== undefined) {
+      const upstream = upstreamCursors.get(cursor.u);
+      if (
+        !upstream ||
+        upstream.expiresAt <= Date.now() ||
+        upstream.scope !== scope ||
+        upstream.generation !== generation
+      ) {
+        invalidCursor('expired');
+      }
+      upstreamCursor = upstream.value;
+    }
     failures = decodeFailurePositions(cursor.x, providers.length);
   }
 
@@ -398,7 +474,8 @@ export async function walkCapabilityPages<T>(options: {
           }
           if (cursor !== undefined) seenCursors.add(cursor);
         } while (cursor !== undefined);
-      } catch {
+      } catch (error) {
+        if (error instanceof CapabilityCursorCapacityError) throw error;
         if (!failures.includes(position)) failures.push(position);
       }
     }
@@ -415,16 +492,20 @@ export async function walkCapabilityPages<T>(options: {
       const nextProviderIndex = page.nextCursor !== undefined ? providerIndex : providerIndex + 1;
       const nextProvider = providers[nextProviderIndex];
       const nextCursor = nextProvider
-        ? encodeCursor({
-            v: 2,
-            e: expiresAt,
-            k: options.kind,
-            g: generation,
-            f: filter,
-            p: createHmac('sha256', cursorSecret).update(nextProvider.id).digest('base64url'),
-            u: page.nextCursor,
-            x: encodeFailurePositions(failures, providers.length),
-          })
+        ? encodeCursor(
+            {
+              v: 2,
+              e: expiresAt,
+              k: options.kind,
+              g: generation,
+              f: filter,
+              p: createHmac('sha256', cursorSecret).update(nextProvider.id).digest('base64url'),
+              u: page.nextCursor,
+              x: encodeFailurePositions(failures, providers.length),
+            },
+            scope,
+            runtimeNonce,
+          )
         : undefined;
 
       if (page.items.length > 0 || page.nextCursor !== undefined) {
@@ -432,7 +513,8 @@ export async function walkCapabilityPages<T>(options: {
       }
       providerIndex += 1;
       upstreamCursor = undefined;
-    } catch {
+    } catch (error) {
+      if (error instanceof CapabilityCursorCapacityError) throw error;
       if (!failures.includes(providerIndex)) failures.push(providerIndex);
       providerIndex += 1;
       upstreamCursor = undefined;
