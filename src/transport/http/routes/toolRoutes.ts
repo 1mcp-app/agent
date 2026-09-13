@@ -19,7 +19,7 @@ import {
   createGatewayFailure,
   gatewayFailureFromUnknown,
   gatewayFailureToProblem,
-} from '@src/gateway/contracts/index.js';
+} from '@src/gateway/contracts/gatewayFailure.js';
 import logger from '@src/logger/logger.js';
 import { CONTEXT_HEADERS } from '@src/transport/http/utils/contextExtractor.js';
 
@@ -113,7 +113,7 @@ async function createFallbackCapabilityCatalog(
         ...(result.tools ?? []).map((tool) => ({ tool, server: logicalServerName, connectionKey, tags })),
       );
     } catch (err) {
-      logger.error(`Failed to list tools for ${connectionKey}:`, err);
+      logger.error('Failed to list tools', { failure: gatewayFailureFromUnknown(err, 'transport') });
       degradedServers.push(connectionKey);
     }
   }
@@ -230,7 +230,7 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
 
       res.json(result);
     } catch (error) {
-      logger.error('API tools handler error:', error);
+      logger.error('API tools handler error', { failure: gatewayFailureFromUnknown(error) });
       res.status(500).json({ error: 'Internal server error' });
     }
   };
@@ -320,8 +320,9 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           });
           res.json({ result: upstreamResult, server: target.serverName, tool: target.toolName });
         } catch (error) {
-          logger.error('Direct tool invocation error:', error);
-          const problem = gatewayFailureToProblem(gatewayFailureFromUnknown(error, 'transport'));
+          const failure = gatewayFailureFromUnknown(error, 'transport');
+          logger.error('Direct tool invocation error', { failure });
+          const problem = gatewayFailureToProblem(failure);
           res.setHeader('Content-Type', 'application/problem+json');
           res.status(problem.status).json(problem);
         }
@@ -410,7 +411,7 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
 
       res.json(result);
     } catch (error) {
-      logger.error('API tool-invocations handler error:', error);
+      logger.error('API tool-invocations handler error', { failure: gatewayFailureFromUnknown(error) });
       res.status(500).json({ error: 'Internal server error' });
     }
   };

@@ -1,4 +1,4 @@
-import { gatewayFailureFromUnknown, gatewayFailureToMcp } from '@src/gateway/contracts/index.js';
+import { gatewayFailureFromUnknown, gatewayFailureToMcp } from '@src/gateway/contracts/gatewayFailure.js';
 import logger from '@src/logger/logger.js';
 import { ErrorCode } from '@src/sdk/contracts/index.js';
 
@@ -18,7 +18,8 @@ export function withErrorHandling<T, Args extends readonly unknown[]>(
     try {
       return await fn(...args);
     } catch (error) {
-      logger.error(`${errorMessage}: ${error instanceof Error ? error.message : String(error)}`);
+      const normalized = gatewayFailureFromUnknown(error);
+      logger.error(errorMessage, { failure: normalized });
 
       // Rethrow MCPErrors as is
       if (error instanceof MCPError) {
@@ -26,7 +27,7 @@ export function withErrorHandling<T, Args extends readonly unknown[]>(
       }
 
       // Convert other errors to MCPError
-      const failure = gatewayFailureToMcp(gatewayFailureFromUnknown(error));
+      const failure = gatewayFailureToMcp(normalized);
       throw new MCPError(errorMessage, failure.code, failure.data);
     }
   };

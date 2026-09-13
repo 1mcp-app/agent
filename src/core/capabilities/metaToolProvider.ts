@@ -1,7 +1,7 @@
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { OutboundConnections } from '@src/core/types/index.js';
-import { gatewayFailureFromUnknown } from '@src/gateway/contracts/index.js';
+import { gatewayFailureFromUnknown } from '@src/gateway/contracts/gatewayFailure.js';
 import logger, { errorIf } from '@src/logger/logger.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
 import { zodToInputSchema, zodToOutputSchema } from '@src/utils/schemaUtils.js';
@@ -249,10 +249,10 @@ export class MetaToolProvider {
 
       return response;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const failure = gatewayFailureFromUnknown(error);
       errorIf(() => ({
         message: 'Error in tool_list meta-tool',
-        meta: { args, error: errorMessage },
+        meta: { failure },
       }));
 
       return {
@@ -262,7 +262,7 @@ export class MetaToolProvider {
         hasMore: false,
         error: {
           type: 'internal',
-          message: gatewayFailureFromUnknown(error).message,
+          message: failure.message,
         },
       };
     }
@@ -298,17 +298,17 @@ export class MetaToolProvider {
         fromCache: result.fromCache,
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const failure = gatewayFailureFromUnknown(error);
       errorIf(() => ({
         message: 'Error in tool_schema meta-tool',
-        meta: { server: args.server, toolName: args.toolName, error: errorMessage },
+        meta: { failure },
       }));
 
       return {
         schema: {},
         error: {
           type: 'internal',
-          message: gatewayFailureFromUnknown(error).message,
+          message: failure.message,
         },
       };
     }
@@ -347,7 +347,8 @@ export class MetaToolProvider {
         tool: result.tool,
       };
     } catch (error) {
-      logger.error(`Error in tool_invoke: ${error}`);
+      const failure = gatewayFailureFromUnknown(error, 'transport');
+      logger.error('Meta-tool invocation failed', { failure });
 
       // Check if it's a tool not found error from upstream
       if (error instanceof Error && error.message.includes('not found')) {
@@ -368,7 +369,7 @@ export class MetaToolProvider {
         tool: args.toolName,
         error: {
           type: 'upstream',
-          message: gatewayFailureFromUnknown(error, 'transport').message,
+          message: failure.message,
         },
       };
     }

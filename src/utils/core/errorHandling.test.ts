@@ -1,5 +1,7 @@
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 
+import logger from '@src/logger/logger.js';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -24,6 +26,24 @@ vi.mock('@src/logger/logger.js', () => ({
 describe('withErrorHandling', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('keeps raw upstream diagnostics out of operator logs and projected failures', async () => {
+    const error = Object.assign(new Error('SECRET480 cause'), {
+      headers: { Authorization: 'SECRET480 token' },
+      url: 'https://SECRET480/private',
+    });
+    const wrapped = withErrorHandling(async () => {
+      throw error;
+    }, 'Tool request failed');
+    await expect(wrapped()).rejects.toMatchObject({
+      message: 'Tool request failed',
+      data: { 'app.1mcp/failure': { code: 'gateway_internal_error' } },
+    });
+    expect(logger.error).toHaveBeenCalledWith('Tool request failed', {
+      failure: { kind: 'internal', code: 'gateway_internal_error', message: 'Gateway internal failure' },
+    });
+    expect(JSON.stringify(vi.mocked(logger.error).mock.calls)).not.toContain('SECRET480');
   });
 
   it('should return successful function result', async () => {

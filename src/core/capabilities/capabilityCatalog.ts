@@ -8,7 +8,7 @@ import {
   type OutboundConnection,
   type OutboundConnections,
 } from '@src/core/types/index.js';
-import { gatewayFailureFromUnknown } from '@src/gateway/contracts/index.js';
+import { gatewayFailureFromUnknown } from '@src/gateway/contracts/gatewayFailure.js';
 import logger from '@src/logger/logger.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
 
@@ -267,12 +267,13 @@ export class CapabilityCatalog {
         refresh,
       };
     } catch (error) {
-      logger.error(`Failed to load tool schema from upstream server: ${route.server}:${route.toolName}`, { error });
+      const failure = gatewayFailureFromUnknown(error, 'transport');
+      logger.error('Failed to load upstream tool schema', { failure });
       return {
         schema: {},
         error: {
           type: 'upstream',
-          message: gatewayFailureFromUnknown(error, 'transport').message,
+          message: failure.message,
         },
         refresh,
       };
@@ -323,7 +324,8 @@ export class CapabilityCatalog {
       });
       return { result, server: route.server, tool: route.toolName, route, refresh };
     } catch (error) {
-      logger.error(`Tool invocation failed: ${route.server}:${route.toolName}`, { error });
+      const failure = gatewayFailureFromUnknown(error, 'transport');
+      logger.error('Tool invocation failed', { failure });
       if (error instanceof Error && error.message.includes('not found')) {
         return {
           result: {},
@@ -345,7 +347,7 @@ export class CapabilityCatalog {
         route,
         error: {
           type: 'upstream',
-          message: gatewayFailureFromUnknown(error, 'transport').message,
+          message: failure.message,
         },
         refresh,
       };

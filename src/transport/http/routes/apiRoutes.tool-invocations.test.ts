@@ -2,6 +2,7 @@ import { createMockLegacySdkAdapter, createMockOutboundConnection } from '@test/
 
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { ClientStatus, type OutboundConnections } from '@src/core/types/index.js';
+import logger from '@src/logger/logger.js';
 import { type JsonValue, OneMcpProtocolError, toJsonValue, toProtocolTool } from '@src/sdk/contracts/index.js';
 
 import type { Request, RequestHandler, Response } from 'express';
@@ -202,7 +203,7 @@ describe('apiRoutes /api/tool-invocations', () => {
   });
 
   it('returns a safe upstream error message for direct invocation failures', async () => {
-    const callTool = vi.fn().mockRejectedValue({ detail: 'boom' });
+    const callTool = vi.fn().mockRejectedValue({ detail: 'SECRET480-DIRECT' });
     const connection = createMockOutboundConnection({
       name: 'server',
       capabilities: { tools: {} },
@@ -220,6 +221,7 @@ describe('apiRoutes /api/tool-invocations', () => {
     await invokeInspectRoute(handler, { body: { tool: 'server/tool' } }, res);
 
     expect(res.statusCode).toBe(502);
+    expect(JSON.stringify(vi.mocked(logger.error).mock.calls)).not.toContain('SECRET480-DIRECT');
     expect(res.body).toMatchObject({
       status: 502,
       error: 'Gateway transport failure',
@@ -548,7 +550,7 @@ describe('apiRoutes /api/tool-invocations', () => {
     let effects = 0;
     const callTool = vi.fn(async () => {
       effects++;
-      throw new Error('secret upstream failure');
+      throw Object.assign(new Error('SECRET480-CATALOG'), { diagnostic: 'SECRET480-CATALOG' });
     });
     const connection = createMockOutboundConnection({
       name: 'server',
@@ -579,7 +581,8 @@ describe('apiRoutes /api/tool-invocations', () => {
     expect(effects).toBe(1);
     expect(lazyOrchestrator.callMetaTool).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(502);
-    expect(JSON.stringify(res.body)).not.toContain('secret');
+    expect(JSON.stringify(res.body)).not.toContain('SECRET480');
+    expect(JSON.stringify(vi.mocked(logger.error).mock.calls)).not.toContain('SECRET480');
   });
 
   it('returns 200 with result on success', async () => {

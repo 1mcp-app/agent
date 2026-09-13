@@ -29,7 +29,7 @@ import {
   StreamableServeClient,
 } from '@src/commands/shared/serveClient.js';
 import { API_INSPECT_ENDPOINT, API_TOOL_INVOCATIONS_ENDPOINT } from '@src/constants/api.js';
-import { gatewayFailureExitCode, gatewayFailureFromUnknown } from '@src/gateway/contracts/index.js';
+import { gatewayFailureExitCode, gatewayFailureFromUnknown } from '@src/gateway/contracts/gatewayFailure.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
 import {
