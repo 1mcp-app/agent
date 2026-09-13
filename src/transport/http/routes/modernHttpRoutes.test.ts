@@ -1,6 +1,6 @@
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
-import { EventEmitter } from 'node:events';
+import { EventEmitter, once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import { Writable } from 'node:stream';
 
@@ -42,7 +42,7 @@ function app(policy: ModernHttpRequestPolicy = loopbackPolicy) {
   return instance;
 }
 
-function modernPost(instance: express.Express, body: object) {
+function modernPost(instance: express.Express | string, body: object) {
   return request(instance)
     .post('/mcp')
     .set('MCP-Protocol-Version', '2026-07-28')
@@ -613,6 +613,9 @@ describe('modern HTTP admission', () => {
   });
   it('bounds simultaneous HTTP exchanges before bridge allocation and releases admission', async () => {
     const instance = app();
+    const server = instance.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const endpoint = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
@@ -632,13 +635,14 @@ describe('modern HTTP admission', () => {
       };
     });
     const pending = Array.from({ length: 256 }, (_, id) =>
-      modernPost(instance, { jsonrpc: '2.0', id, method: 'tools/list', params: { _meta: modernMeta } }).then(
+      modernPost(endpoint, { jsonrpc: '2.0', id, method: 'tools/list', params: { _meta: modernMeta } }).then(
         (response) => response,
       ),
     );
+    const settled = Promise.allSettled(pending);
     try {
       await vi.waitFor(() => expect(createBridge).toHaveBeenCalledTimes(256), { timeout: 5000 });
-      const overloaded = await modernPost(instance, {
+      const overloaded = await modernPost(endpoint, {
         jsonrpc: '2.0',
         id: 999,
         method: 'tools/list',
@@ -649,16 +653,19 @@ describe('modern HTTP admission', () => {
         data: { 'app.1mcp/failure': { code: 'gateway_overloaded' } },
       });
       expect(createBridge).toHaveBeenCalledTimes(256);
-    } finally {
       release();
       await Promise.all(pending);
+      const recovered = await modernPost(endpoint, {
+        jsonrpc: '2.0',
+        id: 1000,
+        method: 'tools/list',
+        params: { _meta: modernMeta },
+      });
+      expect(recovered.body.result).toMatchObject({ tools: [], ttlMs: 0, cacheScope: 'private' });
+    } finally {
+      release();
+      await settled;
+      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
     }
-    const recovered = await modernPost(instance, {
-      jsonrpc: '2.0',
-      id: 1000,
-      method: 'tools/list',
-      params: { _meta: modernMeta },
-    });
-    expect(recovered.body.result).toMatchObject({ tools: [], ttlMs: 0, cacheScope: 'private' });
-  });
+  }, 15_000);
 });

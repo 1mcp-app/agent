@@ -1,6 +1,9 @@
+import { STATUS_CODES } from 'node:http';
+
 import { MCP_SERVER_VERSION } from '@src/constants.js';
 import logger from '@src/logger/logger.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
+import { MCPError } from '@src/utils/core/errorTypes.js';
 
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 
@@ -427,12 +430,19 @@ export class MCPRegistryClient {
       if (axios.isAxiosError(error)) {
         const errorMessages = {
           ECONNABORTED: `Request timeout after ${this.timeout}ms`,
-          response: `HTTP ${error.response?.status}: ${error.response?.statusText}`,
           request: `Network error: ${error instanceof Error ? error.message : String(error)}`,
         };
 
         if (error.code === 'ECONNABORTED') throw new Error(errorMessages.ECONNABORTED);
-        if (error.response) throw new Error(errorMessages.response);
+        if (error.response) {
+          const observedStatus = error.response.status;
+          const status =
+            Number.isInteger(observedStatus) && observedStatus >= 100 && observedStatus <= 599 ? observedStatus : 502;
+          // Preserve safe HTTP classification through shared error handling, never remote status text/body.
+          throw new MCPError(`HTTP ${status}: ${STATUS_CODES[status] ?? 'Registry request failed'}`, status, {
+            httpStatus: status,
+          });
+        }
         if (error.request) throw new Error(errorMessages.request);
       }
       throw error;
