@@ -109,7 +109,7 @@ export class ApiClient {
       let error: string | undefined;
 
       const contentType = response.headers.get('content-type') ?? '';
-      if (contentType.includes('application/json')) {
+      if (contentType.includes('application/json') || contentType.includes('application/problem+json')) {
         try {
           const json = (await response.json()) as unknown;
           data = json as T;

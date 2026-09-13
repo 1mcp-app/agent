@@ -94,6 +94,7 @@ describe('apiRoutes inspect', () => {
 
   const connection = (name: string, tags: string[], tools: unknown[] = []) =>
     createMockOutboundConnection({
+      capabilities: { tools: {} },
       name,
       tags,
       adapter: { request: vi.fn().mockResolvedValue({ tools }) },

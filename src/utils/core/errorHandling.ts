@@ -1,4 +1,9 @@
 import { SchemaBoundaryError } from '@src/core/validation/schemaPolicy.js';
+import {
+  createGatewayFailure,
+  gatewayFailureFromUnknown,
+  gatewayFailureToMcp,
+} from '@src/gateway/contracts/gatewayFailure.js';
 import logger from '@src/logger/logger.js';
 import { ErrorCode } from '@src/sdk/contracts/index.js';
 
@@ -18,14 +23,18 @@ export function withErrorHandling<T, Args extends readonly unknown[]>(
     try {
       return await fn(...args);
     } catch (error) {
-      logger.error(`${errorMessage}: ${error instanceof Error ? error.message : String(error)}`);
+      const normalized =
+        error instanceof SchemaBoundaryError
+          ? createGatewayFailure({
+              kind: error.phase === 'input' && !error.retryable ? 'invalid-request' : 'protocol',
+              code: error.code,
+              message: error.code,
+            })
+          : gatewayFailureFromUnknown(error);
+      logger.error(errorMessage, { failure: normalized });
 
       if (error instanceof SchemaBoundaryError) {
-        throw new MCPError(
-          error.code,
-          error.code === 'schema_input_invalid' ? ErrorCode.InvalidParams : ErrorCode.InternalError,
-          { reason: error.code },
-        );
+        throw new MCPError(error.code, gatewayFailureToMcp(normalized).code, gatewayFailureToMcp(normalized).data);
       }
 
       // Rethrow MCPErrors as is
@@ -34,9 +43,8 @@ export function withErrorHandling<T, Args extends readonly unknown[]>(
       }
 
       // Convert other errors to MCPError
-      throw new MCPError(errorMessage, ErrorCode.InternalError, {
-        originalError: error instanceof Error ? error : new Error(String(error)),
-      });
+      const failure = gatewayFailureToMcp(normalized);
+      throw new MCPError(errorMessage, failure.code, failure.data);
     }
   };
 }

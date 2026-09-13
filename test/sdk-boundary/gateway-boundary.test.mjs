@@ -72,8 +72,14 @@ test('shared gateway layers remain independent of protocol SDK implementations',
   assert.deepEqual(violations, []);
 });
 
-test('gateway production attachment is confined to explicit inbound and outbound adapters', () => {
+test('gateway production attachment is confined to explicit adapters and shared failure projections', () => {
   const allowed = new Set([
+    // Approved destination adapters consume only the SDK-free shared failure leaf.
+    'src/commands/run/run.ts -> @src/gateway/contracts/gatewayFailure.js',
+    'src/core/capabilities/capabilityCatalog.ts -> @src/gateway/contracts/gatewayFailure.js',
+    'src/core/capabilities/metaToolProvider.ts -> @src/gateway/contracts/gatewayFailure.js',
+    'src/transport/http/routes/toolRoutes.ts -> @src/gateway/contracts/gatewayFailure.js',
+    'src/utils/core/errorHandling.ts -> @src/gateway/contracts/gatewayFailure.js',
     'src/core/capabilities/catalogGeneration.ts -> @src/gateway/contracts/immutableJson.js',
     'src/sdk/legacy/client/runtime/legacyGatewayClientAdapter.ts -> @src/gateway/contracts/gatewayRequest.js',
     'src/sdk/legacy/client/runtime/modernSdkClientAdapter.ts -> @src/gateway/contracts/gatewayRequest.js',

@@ -30,6 +30,12 @@ import {
 } from '@src/commands/shared/serveClient.js';
 import { API_INSPECT_ENDPOINT, API_TOOL_INVOCATIONS_ENDPOINT } from '@src/constants/api.js';
 import { schemaInputErrorResult } from '@src/core/validation/toolSchemaBoundary.js';
+import {
+  createGatewayFailure,
+  gatewayFailureExitCode,
+  gatewayFailureFromMcpError,
+  gatewayFailureToMcp,
+} from '@src/gateway/contracts/gatewayFailure.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
 import {
@@ -40,6 +46,16 @@ import {
   toProtocolTools,
 } from '@src/sdk/contracts/index.js';
 import type { ContextData } from '@src/types/context.js';
+
+function schemaPreflightError(code: string) {
+  return gatewayFailureToMcp(
+    createGatewayFailure({
+      kind: code === 'schema_budget_exceeded' ? 'invalid-request' : 'protocol',
+      code,
+      message: code,
+    }),
+  );
+}
 
 export interface RunCommandOptions extends GlobalOptions {
   url?: string;
@@ -112,7 +128,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
   const output = formatToolCallOutput(response.rawResponse, format, maxChars);
   if ('error' in response.rawResponse) {
     process.stderr.write(`${output}\n`);
-    process.exitCode = 1;
+    process.exitCode = gatewayFailureExitCode(gatewayFailureFromMcpError(response.rawResponse.error));
     return;
   }
 
@@ -189,7 +205,7 @@ async function tryRunRest(
               id: 0,
               ...(validation.errorMessage === 'schema_input_invalid'
                 ? { result: schemaInputErrorResult() }
-                : { error: { code: -32603, message: validation.errorMessage } }),
+                : { error: schemaPreflightError(validation.errorMessage) }),
             },
             retryWithFreshSession: false,
           },
@@ -238,7 +254,11 @@ async function tryRunRest(
       : {
           jsonrpc: '2.0',
           id: 0,
-          error: { code: -32000, message: apiResponse.error ?? `HTTP ${apiResponse.status}` },
+          error: {
+            code: apiResponse.status,
+            message: apiResponse.error ?? `HTTP ${apiResponse.status}`,
+            data: { 'app.1mcp/failure': { code: String(apiResponse.status), kind: 'transport' } },
+          },
         };
 
   return {
@@ -357,7 +377,7 @@ function isEndpointNotFoundResponse(status: number, error?: string): boolean {
 }
 
 function shouldFallbackToMcpForRest(status: number, error?: string): boolean {
-  return status === 405 || status === 503 || status === 0 || isEndpointNotFoundResponse(status, error);
+  return status === 405 || isEndpointNotFoundResponse(status, error);
 }
 
 function shouldPersistRestSupportDisabled(status: number, error?: string): boolean {
@@ -426,6 +446,7 @@ export async function invokeTool(options: {
 }> {
   const client = new StreamableServeClient(options.serverUrl, options.sessionId, options.bearerToken);
   await client.start();
+  let toolDispatchStarted = false;
 
   try {
     let tool: Tool | undefined;
@@ -516,7 +537,7 @@ export async function invokeTool(options: {
             id: 0,
             ...(validation.errorMessage === 'schema_input_invalid'
               ? { result: schemaInputErrorResult() }
-              : { error: { code: -32603, message: validation.errorMessage } }),
+              : { error: schemaPreflightError(validation.errorMessage) }),
           },
           sessionId: client.sessionId,
           retryWithFreshSession: false,
@@ -524,6 +545,7 @@ export async function invokeTool(options: {
       }
     }
 
+    toolDispatchStarted = true;
     const response = await client.callTool(options.qualifiedToolName, resolvedArguments.arguments);
     return {
       rawResponse: toJsonValue(response) as unknown as JsonRpcResponse<CallToolResult>,
@@ -531,7 +553,7 @@ export async function invokeTool(options: {
       retryWithFreshSession: false,
     };
   } catch (error) {
-    if (hasHttpErrorCode(error, 404) && options.sessionId) {
+    if (!toolDispatchStarted && hasHttpErrorCode(error, 404) && options.sessionId) {
       return {
         rawResponse: {
           jsonrpc: '2.0',

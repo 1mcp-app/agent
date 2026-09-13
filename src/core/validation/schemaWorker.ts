@@ -71,7 +71,7 @@ function compile(job: Job): ValidateFunction {
     let scope = parentBase;
     if (typeof node.$id === 'string') {
       scope = new URL(node.$id, parentBase).href.replace(/#$/, '');
-      if (resources.has(scope)) fail('schema_invalid');
+      if (resources.has(scope) && resources.get(scope) !== node) fail('schema_invalid');
       resources.set(scope, node);
     }
     for (const keyword of modern ? ['$anchor', ...(job.dialect === '2020-12' ? ['$dynamicAnchor'] : [])] : [])

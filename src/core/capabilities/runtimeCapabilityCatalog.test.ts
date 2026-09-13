@@ -20,6 +20,58 @@ function fixture(
 }
 
 describe('runtime capability catalog', () => {
+  it('keeps identical external contracts callable across concurrent publications', async () => {
+    const connection = fixture();
+    const connections = new Map([['server', connection]]);
+    const snapshots = await Promise.all(Array.from({ length: 3 }, () => acquireRuntimeCapabilityCatalog(connections)));
+    for (const snapshot of snapshots) {
+      const finish = await snapshot.prepareToolCall('server_1mcp_echo', {});
+      await expect(finish({ content: [] })).resolves.toBeUndefined();
+    }
+  });
+
+  it('keeps a published contract callable during a pending read, then rejects an observed change', async () => {
+    const connection = fixture();
+    const connections = new Map([['server', connection]]);
+    const first = await acquireRuntimeCapabilityCatalog(connections);
+    let release!: (value: never) => void;
+    vi.mocked(connection.adapter.request).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const pending = acquireRuntimeCapabilityCatalog(connections);
+    const finish = await first.prepareToolCall('server_1mcp_echo', {});
+    await expect(finish({ content: [] })).resolves.toBeUndefined();
+    expect(() => finish.assertCurrent()).not.toThrow();
+    release({ tools: [{ ...tool('echo'), inputSchema: { type: 'object', required: ['new'] } }] } as never);
+    await pending;
+    expect(() => finish.assertCurrent()).toThrow('schema_invalid');
+    await expect(finish({ content: [] })).resolves.toBeUndefined();
+    await expect(first.prepareToolCall('server_1mcp_echo', {})).rejects.toThrow('schema_invalid');
+  });
+
+  it('keeps immutable internal contracts callable across concurrent same-scope acquisitions', async () => {
+    const connections = new Map();
+    const internalTools = [
+      {
+        name: 'internal',
+        inputSchema: { type: 'object', required: ['value'] },
+        outputSchema: { type: 'object', required: ['ok'] },
+      },
+    ];
+    const snapshots = await Promise.all(
+      Array.from({ length: 3 }, () => acquireRuntimeCapabilityCatalog(connections, undefined, { internalTools })),
+    );
+    for (const snapshot of snapshots) {
+      const finish = await snapshot.prepareToolCall('1mcp_1mcp_internal', { value: 1 });
+      await expect(finish({ content: [], structuredContent: { ok: true } })).resolves.toBeUndefined();
+      await expect(snapshot.prepareToolCall('1mcp_1mcp_internal', {})).rejects.toThrow('schema_input_invalid');
+      await expect(finish({ content: [], structuredContent: {} })).rejects.toThrow('schema_output_invalid');
+    }
+  });
+
   it('does not reuse the unscoped template registry for a failed request-scoped refresh', async () => {
     const first = fixture('template');
     const second = fixture('template');
@@ -71,7 +123,10 @@ describe('runtime capability catalog', () => {
       data: { reason: 'stale_generation' },
     });
     vi.mocked(connection.adapter.request).mockRejectedValue(new Error('unavailable'));
-    expect(await acquireRuntimeCapabilityCatalog(connections, visibility)).toBe(reopened);
+    expect(
+      (await acquireRuntimeCapabilityCatalog(connections, visibility)).resolve('tools', 'server_1mcp_echo'),
+    ).toBeUndefined();
+    expect(reopened.isCurrent()).toBe(true);
   });
 
   it('quarantines public routes shared by two simultaneously visible instances', async () => {
@@ -154,16 +209,16 @@ describe('runtime capability catalog', () => {
     ).toBeDefined();
   });
 
-  it('retains a previous complete generation on failed refresh without redirecting it to replacement backends', async () => {
+  it('never serves a previous successful generation as a failed refresh result', async () => {
     let fail = false;
     const connection = fixture('server', () => {
       if (fail) throw new Error('unavailable');
       return { tools: [tool('echo')] };
     });
     const connections = new Map([['server', connection]]);
-    const first = await acquireRuntimeCapabilityCatalog(connections);
+    await acquireRuntimeCapabilityCatalog(connections);
     fail = true;
-    expect(await acquireRuntimeCapabilityCatalog(connections)).toBe(first);
+    expect((await acquireRuntimeCapabilityCatalog(connections)).resolve('tools', 'server_1mcp_echo')).toBeUndefined();
     connections.set(
       'server',
       fixture('server', () => {
@@ -225,7 +280,8 @@ describe('runtime capability catalog', () => {
     const latest = await acquireRuntimeCapabilityCatalog(connections);
     finish({ tools: [tool('old')] });
     await first;
-    expect(await acquireRuntimeCapabilityCatalog(connections)).toBe(latest);
+    expect((await acquireRuntimeCapabilityCatalog(connections)).resolve('tools', 'server_1mcp_old')).toBeUndefined();
+    expect(latest.resolve('tools', 'server_1mcp_new')).toBeDefined();
   });
 
   it('retains request configuration and prevents mutation of the captured connection index', async () => {
@@ -287,5 +343,79 @@ describe('runtime capability catalog', () => {
     Object.assign(connection, { adapter: fixture().adapter });
     expect(snapshot.isCurrent()).toBe(false);
     expect(() => snapshot.resolve('tools', 'server_1mcp_echo')).toThrow('backend changed');
+  });
+  it('reclaims expired scope capacity without retaining authority after expiry', async () => {
+    vi.useFakeTimers();
+    try {
+      const connections = new Map([['server', fixture()]]);
+      const original = await acquireRuntimeCapabilityCatalog(
+        connections,
+        createCapabilityVisibility([['server', 'server']], 'session-0'),
+      );
+      for (let index = 1; index < 256; index++)
+        await acquireRuntimeCapabilityCatalog(
+          connections,
+          createCapabilityVisibility([['server', 'server']], `session-${index}`),
+        );
+      await expect(
+        acquireRuntimeCapabilityCatalog(connections, createCapabilityVisibility([['server', 'server']], 'overflow')),
+      ).rejects.toThrow('capacity');
+      vi.advanceTimersByTime(15 * 60 * 1000);
+      await expect(
+        acquireRuntimeCapabilityCatalog(connections, createCapabilityVisibility([['server', 'server']], 'recovered')),
+      ).resolves.toBeDefined();
+      expect(original.isCurrent()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('invalidates a cursor when upstream page positions change despite identical objects', async () => {
+    let token = 'old';
+    const connection = fixture('server', (_method, params) =>
+      (params as { cursor?: string })?.cursor === token
+        ? { tools: [tool('two')] }
+        : { tools: [tool('one')], nextCursor: token },
+    );
+    const connections = new Map([['server', connection]]);
+    const first = await acquireRuntimeCapabilityCatalog(connections);
+    const page = await first.list('tools', { enablePagination: true });
+    token = 'new';
+    const second = await acquireRuntimeCapabilityCatalog(connections);
+    await second.list('tools', { enablePagination: true });
+    await expect(second.list('tools', { enablePagination: true, cursor: page.nextCursor })).rejects.toMatchObject({
+      data: { reason: 'stale_generation' },
+    });
+  });
+
+  it('rejects an oversized upstream cursor before retaining it or requesting another page', async () => {
+    const connection = fixture('server', () => ({ tools: [], nextCursor: 'x'.repeat(65537) }));
+    const snapshot = await acquireRuntimeCapabilityCatalog(new Map([['server', connection]]));
+    expect(connection.adapter.request).toHaveBeenCalledTimes(1);
+    await expect(snapshot.list('tools', { enablePagination: false })).rejects.toThrow(
+      'Capability providers are unavailable',
+    );
+  });
+
+  it('bounds empty cursor-only walks by retained bytes, not only item count', async () => {
+    let page = 0;
+    const connection = fixture('server', () => ({ tools: [], nextCursor: `${++page}`.padEnd(65536, 'x') }));
+    const snapshot = await acquireRuntimeCapabilityCatalog(new Map([['server', connection]]));
+    expect(page).toBeLessThanOrEqual(513);
+    await expect(snapshot.list('tools', { enablePagination: false })).rejects.toThrow(
+      'Capability providers are unavailable',
+    );
+  });
+
+  it('orders the complete public snapshot across upstream page boundaries', async () => {
+    const connection = fixture('server', (_method, params) =>
+      (params as { cursor?: string })?.cursor === 'next'
+        ? { tools: [tool('a')] }
+        : { tools: [tool('z')], nextCursor: 'next' },
+    );
+    const snapshot = await acquireRuntimeCapabilityCatalog(new Map([['server', connection]]));
+    const first = await snapshot.list<{ name: string }>('tools', { enablePagination: true });
+    const second = await snapshot.list<{ name: string }>('tools', { enablePagination: true, cursor: first.nextCursor });
+    expect([...first.items, ...second.items].map((item) => item.name)).toEqual(['server_1mcp_a', 'server_1mcp_z']);
   });
 });

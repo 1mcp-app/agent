@@ -80,6 +80,7 @@ export async function handleMcpSearch(args: McpSearchToolArgs): Promise<McpSearc
           prerequisiteHint = `Requires: ${requirements.join(', ')}`;
         }
 
+        const downloads = (server._meta as { downloads?: number })?.downloads;
         return {
           name: server.name,
           version: server.version,
@@ -88,7 +89,7 @@ export async function handleMcpSearch(args: McpSearchToolArgs): Promise<McpSearc
           tags: (server._meta as { tags?: string[] })?.tags || [],
           transport: server.packages?.map((pkg) => pkg.transport?.type).filter(Boolean) || [],
           registry: 'official',
-          downloads: (server._meta as { downloads?: number })?.downloads,
+          ...(downloads === undefined ? {} : { downloads }),
 
           // Enhanced installation information
           installationMethod,
@@ -133,7 +134,7 @@ export async function handleMcpRegistryStatus(args: McpRegistryStatusToolArgs): 
       status: status.available ? ('online' as const) : ('offline' as const),
       responseTime: status.response_time_ms,
       lastCheck: status.last_updated,
-      error: status.available ? undefined : 'Registry unavailable',
+      ...(status.available ? {} : { error: 'Registry unavailable' }),
       metadata: {
         version: '1.0.0',
         supportedFormats: ['json', 'table'],
@@ -200,21 +201,21 @@ export async function handleMcpRegistryList(args: McpRegistryListToolArgs): Prom
           url: 'https://registry.modelcontextprotocol.io',
           status: 'online' as const,
           description: 'The official Model Context Protocol server registry',
-          packageCount: args.includeStats ? 150 : undefined,
+          ...(args.includeStats ? { packageCount: 150 } : {}),
         },
         {
           name: 'Community Registry',
           url: 'https://community-registry.modelcontextprotocol.io',
           status: 'online' as const,
           description: 'Community-contributed MCP servers',
-          packageCount: args.includeStats ? 75 : undefined,
+          ...(args.includeStats ? { packageCount: 75 } : {}),
         },
         {
           name: 'Experimental Registry',
           url: 'https://experimental-registry.modelcontextprotocol.io',
           status: 'unknown' as const, // 'beta' mapped to 'unknown' for schema compliance
           description: 'Experimental and cutting-edge MCP servers',
-          packageCount: args.includeStats ? 25 : undefined,
+          ...(args.includeStats ? { packageCount: 25 } : {}),
         },
       ],
       total: 3,
@@ -272,6 +273,7 @@ export async function handleMcpInfo(args: McpInfoToolArgs): Promise<McpInfoOutpu
       tags?: string[];
     };
     const capabilities = serverMeta?.capabilities || {};
+    const command = server.packages?.[0]?.identifier;
 
     const result = {
       server: {
@@ -280,7 +282,7 @@ export async function handleMcpInfo(args: McpInfoToolArgs): Promise<McpInfoOutpu
         transport: 'stdio' as const, // Determine from server.packages
       },
       configuration: {
-        command: server.packages?.[0]?.identifier,
+        ...(command === undefined ? {} : { command }),
         tags: (serverMeta?.tags as string[]) || [],
         autoRestart: false, // Default value
         enabled: true, // Default value

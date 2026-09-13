@@ -17,6 +17,11 @@ import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
 import { SchemaBoundaryError } from '@src/core/validation/schemaPolicy.js';
 import { schemaInputErrorResult } from '@src/core/validation/toolSchemaBoundary.js';
+import {
+  createGatewayFailure,
+  gatewayFailureFromUnknown,
+  gatewayFailureToProblem,
+} from '@src/gateway/contracts/gatewayFailure.js';
 import logger from '@src/logger/logger.js';
 import { CONTEXT_HEADERS } from '@src/transport/http/utils/contextExtractor.js';
 
@@ -110,7 +115,7 @@ async function createFallbackCapabilityCatalog(
         ...(result.tools ?? []).map((tool) => ({ tool, server: logicalServerName, connectionKey, tags })),
       );
     } catch (err) {
-      logger.error(`Failed to list tools for ${connectionKey}:`, err);
+      logger.error('Failed to list tools', { failure: gatewayFailureFromUnknown(err, 'transport') });
       degradedServers.push(connectionKey);
     }
   }
@@ -227,7 +232,7 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
 
       res.json(result);
     } catch (error) {
-      logger.error('API tools handler error:', error);
+      logger.error('API tools handler error', { failure: gatewayFailureFromUnknown(error) });
       res.status(500).json({ error: 'Internal server error' });
     }
   };
@@ -327,6 +332,7 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
             res.status(404).json({ error: disabled });
             return;
           }
+          validateOutput.assertCurrent();
           const upstreamResult = await requestLegacyAdapter(
             adapter,
             'tools/call',
@@ -343,15 +349,22 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
             res.json({ result: schemaInputErrorResult(), server: target.serverName, tool: target.toolName });
             return;
           }
-          if (error instanceof SchemaBoundaryError) {
-            res
-              .status(schemaFailureStatus(error.code, error.phase === 'input' ? 'validation' : 'upstream'))
-              .json({ error: error.code });
-            return;
-          }
-          logger.error('Direct tool invocation error:', error);
-          const message = error instanceof Error ? error.message : typeof error === 'string' ? error : 'Upstream error';
-          res.status(502).json({ error: `Upstream error: ${message}` });
+          const failure =
+            error instanceof SchemaBoundaryError
+              ? createGatewayFailure({
+                  kind: error.phase === 'input' && !error.retryable ? 'invalid-request' : 'protocol',
+                  code: error.code,
+                  message: error.code,
+                })
+              : gatewayFailureFromUnknown(error, 'transport');
+          logger.error('Direct tool invocation error', { failure });
+          const problem = gatewayFailureToProblem(failure);
+          const status =
+            error instanceof SchemaBoundaryError
+              ? schemaFailureStatus(error.code, error.phase === 'input' ? 'validation' : 'upstream')
+              : problem.status;
+          res.setHeader('Content-Type', 'application/problem+json');
+          res.status(status).json({ ...problem, status });
         }
         return;
       }
@@ -381,10 +394,27 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           res.json({ result: catalogResult.result, server: catalogResult.server, tool: catalogResult.tool });
           return;
         }
-        // A rejected output can follow an upstream side effect; never dispatch a fallback.
-        res
-          .status(schemaFailureStatus(catalogResult.error.message, catalogResult.error.type))
-          .json({ error: catalogResult.error.message });
+        // The catalog may already have executed the Tool. A fallback would duplicate side effects.
+        const status = schemaFailureStatus(catalogResult.error.message, catalogResult.error.type);
+        const problem = gatewayFailureToProblem(
+          createGatewayFailure({
+            kind:
+              catalogResult.error.type === 'validation'
+                ? 'invalid-request'
+                : catalogResult.error.type === 'upstream'
+                  ? 'transport'
+                  : 'internal',
+            code: catalogResult.error.message.startsWith('schema_')
+              ? catalogResult.error.message
+              : `gateway_${catalogResult.error.type}`,
+            message:
+              catalogResult.error.type === 'upstream' && !catalogResult.error.message.startsWith('schema_')
+                ? 'Tool execution may have occurred; the outcome is unknown'
+                : catalogResult.error.message,
+          }),
+        );
+        res.setHeader('Content-Type', 'application/problem+json');
+        res.status(status).json({ ...problem, status });
         return;
       }
 
@@ -423,7 +453,7 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
 
       res.json(result);
     } catch (error) {
-      logger.error('API tool-invocations handler error:', error);
+      logger.error('API tool-invocations handler error', { failure: gatewayFailureFromUnknown(error) });
       res.status(500).json({ error: 'Internal server error' });
     } finally {
       req.off?.('aborted', abort);
@@ -450,5 +480,6 @@ async function initializeRequestContextForApi(
 function schemaFailureStatus(code: string, type: string): number {
   if (code === 'schema_evaluation_timeout') return 504;
   if (code === 'schema_evaluation_unavailable') return 503;
+  if (code === 'schema_budget_exceeded' && type === 'validation') return 413;
   return type === 'validation' ? 400 : type === 'not_found' ? 404 : type === 'upstream' ? 502 : 500;
 }

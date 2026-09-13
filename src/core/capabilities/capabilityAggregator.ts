@@ -5,6 +5,7 @@ import { InternalCapabilitiesProvider } from '@src/core/capabilities/internalCap
 import type { OutboundConnections } from '@src/core/types/index.js';
 import type { Prompt, Resource, ResourceTemplate, Tool } from '@src/sdk/contracts/index.js';
 
+import { CapabilityProvidersUnavailableError } from './capabilityPagination.js';
 import { buildCatalogGeneration, type CatalogGeneration } from './catalogGeneration.js';
 import {
   acquireRuntimeCapabilityCatalog,
@@ -80,11 +81,18 @@ export class CapabilityAggregator extends EventEmitter {
         internalResources: internal.getAvailableResources(),
         internalPrompts: internal.getAvailablePrompts(),
       });
+      // Background readiness must survive one unavailable kind. Request-facing snapshot.list
+      // still fails that kind explicitly, and every new acquisition retries enumeration.
+      const backgroundView = <T>(listing: Promise<{ items: T[] }>) =>
+        listing.catch((error: unknown) => {
+          if (!(error instanceof CapabilityProvidersUnavailableError)) throw error;
+          return { items: [] as T[] };
+        });
       const [tools, resources, resourceTemplates, prompts] = await Promise.all([
-        snapshot.list<Tool>('tools', { enablePagination: false }),
-        snapshot.list<Resource>('resources', { enablePagination: false }),
-        snapshot.list<ResourceTemplate>('resourceTemplates', { enablePagination: false }),
-        snapshot.list<Prompt>('prompts', { enablePagination: false }),
+        backgroundView(snapshot.list<Tool>('tools', { enablePagination: false })),
+        backgroundView(snapshot.list<Resource>('resources', { enablePagination: false })),
+        backgroundView(snapshot.list<ResourceTemplate>('resourceTemplates', { enablePagination: false })),
+        backgroundView(snapshot.list<Prompt>('prompts', { enablePagination: false })),
       ]);
       return { snapshot, tools, resources, resourceTemplates, prompts };
     };

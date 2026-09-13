@@ -1,5 +1,8 @@
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 
+import { SchemaBoundaryError } from '@src/core/validation/schemaPolicy.js';
+import logger from '@src/logger/logger.js';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -21,9 +24,37 @@ vi.mock('@src/logger/logger.js', () => ({
   debugIf: vi.fn(),
 }));
 
+it('projects an invalid upstream schema result through the shared MCP failure contract', async () => {
+  const invoke = withErrorHandling(async () => {
+    throw new SchemaBoundaryError('schema_output_invalid');
+  }, 'Tool failed');
+  await expect(invoke()).rejects.toMatchObject({
+    code: -32000,
+    data: { 'app.1mcp/failure': { code: 'schema_output_invalid' } },
+  });
+});
+
 describe('withErrorHandling', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('keeps raw upstream diagnostics out of operator logs and projected failures', async () => {
+    const error = Object.assign(new Error('SECRET480 cause'), {
+      headers: { Authorization: 'SECRET480 token' },
+      url: 'https://SECRET480/private',
+    });
+    const wrapped = withErrorHandling(async () => {
+      throw error;
+    }, 'Tool request failed');
+    await expect(wrapped()).rejects.toMatchObject({
+      message: 'Tool request failed',
+      data: { 'app.1mcp/failure': { code: 'gateway_internal_error' } },
+    });
+    expect(logger.error).toHaveBeenCalledWith('Tool request failed', {
+      failure: { kind: 'internal', code: 'gateway_internal_error', message: 'Gateway internal failure' },
+    });
+    expect(JSON.stringify(vi.mocked(logger.error).mock.calls)).not.toContain('SECRET480');
   });
 
   it('should return successful function result', async () => {
@@ -57,7 +88,9 @@ describe('withErrorHandling', () => {
     } catch (error) {
       expect(error).toBeInstanceOf(MCPError);
       expect((error as MCPError).code).toBe(ErrorCode.InternalError);
-      expect(((error as MCPError).data as any)?.originalError).toBe(originalError);
+      expect((error as MCPError).data).toEqual({
+        'app.1mcp/failure': { kind: 'internal', code: 'gateway_internal_error' },
+      });
     }
   });
 
@@ -72,8 +105,9 @@ describe('withErrorHandling', () => {
       await wrappedFn();
     } catch (error) {
       expect(error).toBeInstanceOf(MCPError);
-      expect(((error as MCPError).data as any)?.originalError).toBeInstanceOf(Error);
-      expect(((error as MCPError).data as any)?.originalError.message).toBe('string error');
+      expect((error as MCPError).data).toEqual({
+        'app.1mcp/failure': { kind: 'internal', code: 'gateway_internal_error' },
+      });
     }
   });
 

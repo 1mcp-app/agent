@@ -339,6 +339,7 @@ describe('CapabilityAggregator', () => {
           if (request.method === 'tools/list') return (await listTools()) as never;
           if (request.method === 'resources/list') return (await listResources()) as never;
           if (request.method === 'prompts/list') return (await listPrompts()) as never;
+          if (request.method === 'resources/templates/list') return { resourceTemplates: [] } as never;
           return {};
         } catch (error) {
           if (error === unauthorized) {
@@ -481,5 +482,26 @@ describe('CapabilityAggregator', () => {
       expect(capabilities.resources).toHaveLength(0);
       expect(capabilities.prompts).toHaveLength(0);
     });
+  });
+  it('keeps background startup available but rejects a failed request-facing kind', async () => {
+    mockConnections.set(
+      'partial',
+      createMockOutboundConnection({
+        name: 'partial',
+        capabilities: { tools: {}, resources: {} },
+        adapter: {
+          request: vi.fn(async ({ method }): Promise<JsonValue> => {
+            if (method === 'tools/list') return { tools: [{ name: 'healthy', inputSchema: { type: 'object' } }] };
+            if (method === 'resources/list') return { resources: [] };
+            throw new Error('templates unavailable');
+          }),
+        },
+      }),
+    );
+    await expect(aggregator.updateCapabilities()).resolves.toBeDefined();
+    expect(aggregator.getCurrentCapabilities().tools.map((tool) => tool.name)).toContain('partial_1mcp_healthy');
+    await expect(
+      aggregator.getCatalogSnapshot()!.list('resourceTemplates', { enablePagination: false }),
+    ).rejects.toThrow('Capability providers are unavailable');
   });
 });

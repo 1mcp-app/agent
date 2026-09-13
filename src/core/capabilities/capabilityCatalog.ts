@@ -15,6 +15,7 @@ import {
   projectToolSchemas,
   schemaInputErrorResult,
 } from '@src/core/validation/toolSchemaBoundary.js';
+import { gatewayFailureFromUnknown } from '@src/gateway/contracts/gatewayFailure.js';
 import logger from '@src/logger/logger.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
 
@@ -329,12 +330,13 @@ export class CapabilityCatalog {
         refresh,
       };
     } catch (error) {
-      logger.error(`Failed to load tool schema from upstream server: ${route.server}:${route.toolName}`, { error });
+      const failure = gatewayFailureFromUnknown(error, 'transport');
+      logger.error('Failed to load upstream tool schema', { failure });
       return {
         schema: {},
         error: {
           type: 'upstream',
-          message: 'Failed to load schema from upstream server',
+          message: failure.message,
         },
         refresh,
       };
@@ -432,7 +434,8 @@ export class CapabilityCatalog {
             message: error.code,
           },
         };
-      logger.error(`Tool invocation failed: ${route.server}:${route.toolName}`, { error });
+      const failure = gatewayFailureFromUnknown(error, 'transport');
+      logger.error('Tool invocation failed', { failure });
       if (error instanceof Error && error.message.includes('not found')) {
         return {
           result: {},
@@ -454,7 +457,7 @@ export class CapabilityCatalog {
         route,
         error: {
           type: 'upstream',
-          message: 'Upstream tool invocation failed',
+          message: failure.message,
         },
         refresh,
       };

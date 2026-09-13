@@ -56,27 +56,37 @@ export function gatewayFailureFromUnknown(error: unknown, kind: GatewayFailureKi
   const failureKind = GATEWAY_FAILURE_KINDS.includes(trustedKind as GatewayFailureKind)
     ? (trustedKind as GatewayFailureKind)
     : kind;
+  const trusted = record !== undefined && knownGatewayFailures.has(record);
   const rawCode = record ? ownDataValue(record, 'code') : undefined;
-  const code = typeof rawCode === 'string' || typeof rawCode === 'number' ? String(rawCode) : 'gateway_internal_error';
-  const rawMessage = record ? ownDataValue(record, 'message') : undefined;
-  let message = typeof rawMessage === 'string' ? rawMessage : 'Unknown gateway failure';
-  if (rawMessage === undefined && !record) {
-    try {
-      message = String(error);
-    } catch {
-      message = 'Unknown gateway failure';
-    }
-  }
-  let data: ImmutableJsonValue | undefined;
-  const rawData = record ? ownDataValue(record, 'data') : undefined;
-  if (rawData !== undefined) {
-    try {
-      data = toImmutableJsonValue(rawData);
-    } catch {
-      data = undefined;
-    }
-  }
+  // Retain numeric protocol codes, never untrusted messages, data, or arbitrary strings.
+  const code =
+    trusted && typeof rawCode === 'string'
+      ? rawCode
+      : (typeof rawCode === 'number' && Number.isSafeInteger(rawCode)) ||
+          (typeof rawCode === 'string' && /^-?\d+$/.test(rawCode) && Number.isSafeInteger(Number(rawCode)))
+        ? String(rawCode)
+        : `gateway_${failureKind.replaceAll('-', '_')}_error`;
+  const message = trusted ? (ownDataValue(record!, 'message') as string) : `Gateway ${failureKind} failure`;
+  const data = trusted ? (ownDataValue(record!, 'data') as ImmutableJsonValue | undefined) : undefined;
   return createGatewayFailure({ kind: failureKind, code, message, ...(data === undefined ? {} : { data }) });
+}
+
+/** Decode only bounded public gateway failure facts; never carry upstream messages or arbitrary data. */
+export function gatewayFailureFromMcpError(error: unknown): GatewayFailure {
+  const fallback = gatewayFailureFromUnknown(error, 'protocol');
+  if (fallback.code !== '-32000' || !error || typeof error !== 'object') return fallback;
+  const data = ownDataValue(error, 'data');
+  const facts = data && typeof data === 'object' ? ownDataValue(data, 'app.1mcp/failure') : undefined;
+  if (!facts || typeof facts !== 'object') return fallback;
+  const kind = ownDataValue(facts, 'kind');
+  const code = ownDataValue(facts, 'code');
+  if (
+    !GATEWAY_FAILURE_KINDS.includes(kind as GatewayFailureKind) ||
+    typeof code !== 'string' ||
+    !/^(?:gateway|schema|interaction)_[a-z0-9_]{1,80}$/.test(code)
+  )
+    return fallback;
+  return createGatewayFailure({ kind: kind as GatewayFailureKind, code, message: 'Gateway operation failed' });
 }
 
 export type GatewayResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; failure: GatewayFailure }>;
@@ -87,4 +97,76 @@ export function gatewaySuccess<T>(value: T): GatewayResult<T> {
 
 export function gatewayFailure<T = never>(failure: GatewayFailure): GatewayResult<T> {
   return Object.freeze({ ok: false, failure });
+}
+
+/** Public projections share sanitized facts; raw upstream diagnostics never cross these boundaries. */
+export function gatewayFailureToMcp(failure: GatewayFailure, era: 'legacy' | 'modern' = 'legacy') {
+  const safe = createGatewayFailure({ kind: failure.kind, code: failure.code, message: failure.message });
+  const numeric = Number(safe.code);
+  const code =
+    numeric === -32002
+      ? era === 'modern'
+        ? -32602
+        : -32002
+      : [-32700, -32600, -32601, -32602, -32603].includes(numeric)
+        ? numeric
+        : safe.kind === 'invalid-request'
+          ? -32602
+          : safe.kind === 'internal'
+            ? -32603
+            : safe.code === 'resource_not_found'
+              ? era === 'modern'
+                ? -32602
+                : -32002
+              : -32000;
+  return { code, message: safe.message, data: { 'app.1mcp/failure': { kind: safe.kind, code: safe.code } } };
+}
+
+export function gatewayFailureToProblem(failure: GatewayFailure) {
+  const safe = createGatewayFailure({ kind: failure.kind, code: failure.code, message: failure.message });
+  const status =
+    safe.kind === 'invalid-request'
+      ? 400
+      : safe.kind === 'authorization'
+        ? 403
+        : safe.kind === 'deadline-exceeded'
+          ? 408
+          : safe.kind === 'cancelled'
+            ? 408
+            : safe.code === 'gateway_overloaded'
+              ? 503
+              : safe.kind === 'transport' || safe.kind === 'protocol'
+                ? 502
+                : 500;
+  return {
+    type: `https://docs.1mcp.app/problems/${safe.kind}`,
+    title: safe.message,
+    status,
+    detail: safe.message,
+    error: safe.message,
+    'app.1mcp/failure': { kind: safe.kind, code: safe.code },
+  };
+}
+
+export function gatewayFailureToToolResult(failure: GatewayFailure) {
+  const safe = createGatewayFailure({ kind: failure.kind, code: failure.code, message: failure.message });
+  return {
+    isError: true as const,
+    content: [{ type: 'text' as const, text: safe.message }],
+    structuredContent: { 'app.1mcp/failure': { kind: safe.kind, code: safe.code } },
+  };
+}
+
+export function gatewayFailureExitCode(failure: GatewayFailure): number {
+  const safe = createGatewayFailure({ kind: failure.kind, code: failure.code, message: failure.message });
+  if (['400', '413'].includes(safe.code)) return 2;
+  if (safe.code === '404') return 4;
+  if (safe.code === '500') return 1;
+  if (['0', '408', '429', '503', '504'].includes(safe.code)) return 6;
+  if (['schema_evaluation_timeout', 'schema_evaluation_unavailable'].includes(safe.code)) return 6;
+  if (safe.kind === 'invalid-request' || ['-32700', '-32600', '-32602'].includes(safe.code)) return 2;
+  if (safe.kind === 'authorization' || ['401', '403'].includes(safe.code)) return 3;
+  if (safe.kind === 'deadline-exceeded' || safe.kind === 'cancelled' || safe.code === 'gateway_overloaded') return 6;
+  if (['gateway_target_unavailable', '-32004', '-32010'].includes(safe.code)) return 4;
+  return safe.kind === 'internal' || safe.code === '-32603' ? 1 : 5;
 }

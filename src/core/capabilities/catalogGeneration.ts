@@ -100,6 +100,13 @@ export function readPublicCapabilityRoute(
   });
 }
 
+function hasOnlyUnicodeScalars(value: string): boolean {
+  return Array.from(value).every((character) => {
+    const point = character.codePointAt(0)!;
+    return point < 0xd800 || point > 0xdfff;
+  });
+}
+
 function capture(source: CapabilitySource): CatalogEntry {
   const origin = source.origin ?? 'external';
   if (
@@ -118,10 +125,10 @@ function capture(source: CapabilitySource): CatalogEntry {
     throw new TypeError('Source asserted reserved ownership');
   const identityField = identityFields[source.kind];
   const upstreamIdentity = normalized[identityField];
-  if (typeof upstreamIdentity !== 'string' || !upstreamIdentity.trim())
+  if (typeof upstreamIdentity !== 'string' || !upstreamIdentity.trim() || !hasOnlyUnicodeScalars(upstreamIdentity))
     throw new TypeError('Invalid capability identity');
   const publicIdentity = source.publicIdentity ?? buildUri(source.server, upstreamIdentity, MCP_URI_SEPARATOR);
-  if (!publicIdentity.trim()) throw new TypeError('Invalid public identity');
+  if (!publicIdentity.trim() || !hasOnlyUnicodeScalars(publicIdentity)) throw new TypeError('Invalid public identity');
   const route = Object.freeze({
     kind: source.kind,
     server: source.server,

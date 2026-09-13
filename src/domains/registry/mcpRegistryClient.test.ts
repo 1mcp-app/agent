@@ -268,7 +268,11 @@ describe('MCPRegistryClient', () => {
       mockAxiosInstance.get.mockRejectedValueOnce(axiosError);
       vi.mocked(axios.isAxiosError).mockReturnValueOnce(true);
 
-      await expect(client.getServers()).rejects.toThrow('Failed to fetch servers from registry');
+      await expect(client.getServers()).rejects.toMatchObject({
+        code: 500,
+        message: 'HTTP 500: Internal Server Error',
+        data: { httpStatus: 500 },
+      });
     });
 
     it('should handle request timeout', async () => {
@@ -290,6 +294,24 @@ describe('MCPRegistryClient', () => {
   });
 
   describe('getServerById', () => {
+    it('preserves safe HTTP classification without upstream status text or body', async () => {
+      mockAxiosInstance.get.mockRejectedValueOnce({
+        response: {
+          status: 404,
+          statusText: 'SECRET480 remote detail',
+          data: { token: 'SECRET480', url: 'https://SECRET480/private' },
+        },
+      });
+      vi.mocked(axios.isAxiosError).mockReturnValueOnce(true);
+      const lookup = client.getServerById('missing-server');
+      await expect(lookup).rejects.toMatchObject({
+        code: 404,
+        message: 'HTTP 404: Not Found',
+        data: { httpStatus: 404 },
+      });
+      await expect(lookup).rejects.toHaveProperty('data', { httpStatus: 404 });
+    });
+
     it('should fetch server by ID successfully', async () => {
       const mockServerResponse = {
         servers: [

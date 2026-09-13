@@ -97,8 +97,7 @@ describe('LegacyOutboundEraAdapter', () => {
     expect(failure).toEqual({
       kind: 'transport',
       code: '-32601',
-      message: 'Method not found',
-      data: { method: 'missing' },
+      message: 'Gateway transport failure',
     });
     expect(Object.getPrototypeOf(failure)).toBe(Object.prototype);
     expect(Object.isFrozen(failure)).toBe(true);

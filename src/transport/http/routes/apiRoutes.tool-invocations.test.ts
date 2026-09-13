@@ -1,8 +1,10 @@
 import { createMockLegacySdkAdapter, createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
+import * as runtimeCatalog from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { SchemaCache } from '@src/core/capabilities/schemaCache.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { ClientStatus, type OutboundConnections } from '@src/core/types/index.js';
+import logger from '@src/logger/logger.js';
 import { type JsonValue, OneMcpProtocolError, toJsonValue, toProtocolTool } from '@src/sdk/contracts/index.js';
 
 import type { Request, RequestHandler, Response } from 'express';
@@ -203,7 +205,7 @@ describe('apiRoutes /api/tool-invocations', () => {
   });
 
   it('returns a safe upstream error message for direct invocation failures', async () => {
-    const callTool = vi.fn().mockRejectedValue({ detail: 'boom' });
+    const callTool = vi.fn().mockRejectedValue({ detail: 'SECRET480-DIRECT' });
     const connection = createMockOutboundConnection({
       name: 'server',
       capabilities: { tools: {} },
@@ -221,7 +223,12 @@ describe('apiRoutes /api/tool-invocations', () => {
     await invokeInspectRoute(handler, { body: { tool: 'server/tool' } }, res);
 
     expect(res.statusCode).toBe(502);
-    expect(res.body).toEqual({ error: 'Upstream error: Upstream error' });
+    expect(JSON.stringify(vi.mocked(logger.error).mock.calls)).not.toContain('SECRET480-DIRECT');
+    expect(res.body).toMatchObject({
+      status: 502,
+      error: 'Gateway transport failure',
+      type: 'https://docs.1mcp.app/problems/transport',
+    });
   });
 
   it('recovers OAuth for a non-lazy HTTP direct tool invocation', async () => {
@@ -614,6 +621,94 @@ describe('apiRoutes /api/tool-invocations', () => {
     expect(res.statusCode).toBe(502);
     expect(callTool).toHaveBeenCalledTimes(1);
     expect(fallback).not.toHaveBeenCalled();
+    expect(res.body).toMatchObject({ 'app.1mcp/failure': { code: 'schema_output_invalid' } });
+  });
+
+  it('never falls back to a second invocation after the catalog Tool has side effects and fails', async () => {
+    let effects = 0;
+    const callTool = vi.fn(async () => {
+      effects++;
+      throw Object.assign(new Error('SECRET480-CATALOG'), { diagnostic: 'SECRET480-CATALOG' });
+    });
+    const connection = createMockOutboundConnection({
+      name: 'server',
+      capabilities: { tools: {} },
+      adapter: createToolCallAdapter(callTool),
+    });
+    const connections = new Map([['server', connection]]);
+    const lazyOrchestrator = {
+      getToolRegistry: () =>
+        ToolRegistry.fromToolsWithServer([
+          {
+            server: 'server',
+            connectionKey: 'server',
+            tool: toProtocolTool({ name: 'tool', inputSchema: { type: 'object' } }),
+          },
+        ]).withConnections(connections),
+      getSchemaCache: () => ({ getIfCached: () => null }),
+      callMetaTool: vi.fn(async () => {
+        effects++;
+        return {};
+      }),
+    };
+    const manager = { getLazyLoadingOrchestrator: () => lazyOrchestrator, getClients: () => connections };
+    const handler = createToolInvocationsHandler(manager as never);
+    const res = createMockResponse();
+    await invokeInspectRoute(scopeAuthMiddleware, { body: { tool: 'server/tool' } }, res);
+    await invokeInspectRoute(handler, { body: { tool: 'server/tool' } }, res);
+    expect(effects).toBe(1);
+    expect(lazyOrchestrator.callMetaTool).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(502);
+    expect(JSON.stringify(res.body)).not.toContain('SECRET480');
+    expect(JSON.stringify(vi.mocked(logger.error).mock.calls)).not.toContain('SECRET480');
+  });
+
+  it('rechecks a contract replaced between asynchronous validation and direct REST dispatch', async () => {
+    let definition = { name: 'tool', inputSchema: { type: 'object' as const, required: [] as string[] } };
+    const callTool = vi.fn(async () => ({ content: [] }));
+    const connection = createMockOutboundConnection({
+      name: 'server',
+      capabilities: { tools: {} },
+      adapter: {
+        request: vi.fn(async ({ method }) => (method === 'tools/list' ? { tools: [definition] } : callTool())),
+      },
+    });
+    const connections = new Map([['server', connection]]);
+    const acquire = runtimeCatalog.acquireRuntimeCapabilityCatalog;
+    const spy = vi
+      .spyOn(runtimeCatalog, 'acquireRuntimeCapabilityCatalog')
+      .mockImplementationOnce(async (...parameters) => {
+        const snapshot = await acquire(...parameters);
+        return {
+          ...snapshot,
+          async prepareToolCall(...args: Parameters<runtimeCatalog.RuntimeCapabilitySnapshot['prepareToolCall']>) {
+            const prepared = await snapshot.prepareToolCall(...args);
+            definition = { name: 'tool', inputSchema: { type: 'object', required: ['new'] } };
+            await acquire(...parameters);
+            return prepared;
+          },
+        };
+      });
+    try {
+      const manager = {
+        getLazyLoadingOrchestrator: () => undefined,
+        getClients: () => connections,
+        getClient: () => connection,
+      };
+      const res = createMockResponse();
+      res.locals.tagFilterMode = 'none';
+      res.locals.validatedTags = [];
+      await invokeInspectRoute(
+        createToolInvocationsHandler(manager as never),
+        { body: { tool: 'server/tool', args: {} } },
+        res,
+      );
+      expect(res.statusCode).toBe(502);
+      expect(res.body).toMatchObject({ 'app.1mcp/failure': { code: 'schema_invalid' } });
+      expect(callTool).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('returns 200 with result on success', async () => {

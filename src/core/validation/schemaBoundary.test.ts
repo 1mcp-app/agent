@@ -14,6 +14,11 @@ afterEach(async () => {
   await Promise.all(pools.splice(0).map((item) => item.shutdown()));
 });
 describe('isolated schema boundary', () => {
+  it('accepts an explicit root id equal to the internal resolution base', async () => {
+    const boundary = pool();
+    const contract = await boundary.admit({ $id: 'https://schema.invalid/', type: 'number' }, binding);
+    expect(await boundary.evaluate(contract, 3, binding)).toEqual({ valid: true });
+  });
   it.each(['2020-12', '2019-09', 'draft-07', 'draft-06'])(
     'evaluates %s without mutation or defaults',
     async (dialect) => {

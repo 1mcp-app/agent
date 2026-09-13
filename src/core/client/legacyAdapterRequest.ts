@@ -45,9 +45,10 @@ export async function requestLegacyAdapter<T = JsonValue>(
   options: { timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<T> {
   const requestId = randomUUID() as LegacyRequestId;
-  const onAbort = () => void adapter.cancel(requestId);
+  const onAbort = () => {
+    void adapter.cancel(requestId).catch(() => undefined);
+  };
   if (options.signal?.aborted) {
-    await adapter.cancel(requestId);
     throw new Error('Request cancelled');
   }
   options.signal?.addEventListener('abort', onAbort, { once: true });

@@ -1,7 +1,10 @@
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { InternalCapabilitiesProvider } from '@src/core/capabilities/internalCapabilitiesProvider.js';
 import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
-import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
+import {
+  acquireRuntimeCapabilityCatalog,
+  type PreparedToolCall,
+} from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { executeWithPostAuthOAuthRecovery } from '@src/core/client/postAuthOAuthRecovery.js';
 import {
@@ -100,12 +103,25 @@ export function registerToolHandlers(
         throw new Error(`Unknown tool: ${request.params.name}`);
       }
       const adapter = resolved.connection?.adapter;
-      let validateOutput: (result: unknown) => Promise<void>;
+      let validateOutput: PreparedToolCall;
       try {
         validateOutput = await snapshot.prepareToolCall(request.params.name, request.params.arguments, extra?.signal);
       } catch (error) {
-        if (error instanceof SchemaBoundaryError && error.code === 'schema_input_invalid')
+        if (error instanceof SchemaBoundaryError && error.code === 'schema_input_invalid') {
+          const route = resolved.entry.route;
+          if (route.origin === 'internal' && route.connectionKey === '\0app.1mcp/meta-tools') {
+            const detail = { type: 'validation', message: error.code };
+            switch (route.upstreamIdentity) {
+              case 'tool_list':
+                return structuredToolResult({ tools: [], totalCount: 0, servers: [], hasMore: false, error: detail });
+              case 'tool_schema':
+                return structuredToolResult({ schema: {}, error: detail });
+              case 'tool_invoke':
+                return structuredToolResult({ result: {}, server: '', tool: '', error: detail });
+            }
+          }
           return { isError: true, content: [{ type: 'text' as const, text: error.code }] };
+        }
         throw error;
       }
       const finish = async <T>(result: T) => {
@@ -117,6 +133,7 @@ export function registerToolHandlers(
       };
       if (extra?.signal?.aborted) throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
       const { route } = resolved.entry;
+      validateOutput.assertCurrent();
       if (route.origin === 'internal') {
         if (lazyLoadingOrchestrator && route.connectionKey === '\0app.1mcp/meta-tools') {
           return finish(
@@ -160,9 +177,10 @@ export function registerToolHandlers(
 }
 
 function structuredToolResult(result: unknown) {
+  const isError = result !== null && typeof result === 'object' && 'error' in result && result.error !== undefined;
   return {
-    ...(result && typeof result === 'object' && 'error' in result && result.error ? { isError: true } : {}),
     content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
     structuredContent: result,
+    ...(isError ? { isError: true } : {}),
   };
 }

@@ -26,6 +26,7 @@ export interface SchemaCacheConfig {
 interface CacheEntry {
   tool: Tool;
   timestamp: number;
+  bytes: number;
 }
 
 /**
@@ -47,6 +48,8 @@ interface CacheEntry {
 export class SchemaCache {
   private cache: Map<string, CacheEntry> = new Map();
   private inflightRequests: Map<string, Promise<Tool>> = new Map();
+  private activeLoads = 0;
+  private readonly waiters = new WeakMap<Promise<Tool>, number>();
   private config: SchemaCacheConfig;
   private stats: SchemaCacheStats = {
     hits: 0,
@@ -60,26 +63,32 @@ export class SchemaCache {
   };
 
   constructor(config: SchemaCacheConfig) {
-    this.config = config;
+    if (!Number.isSafeInteger(config.maxEntries) || config.maxEntries <= 0) {
+      throw new TypeError('Schema cache maxEntries must be a positive integer');
+    }
+    if (config.ttlMs !== undefined && (!Number.isFinite(config.ttlMs) || config.ttlMs < 0)) {
+      throw new TypeError('Schema cache TTL must be finite and non-negative');
+    }
+    this.config = { ...config, ttlMs: Math.min(config.ttlMs ?? 60000, 15 * 60 * 1000) };
   }
 
   /**
    * Generate cache key from server and tool name
    */
   private getCacheKey(server: string, toolName: string): string {
-    return `${server}:${toolName}`;
+    return JSON.stringify([server, toolName]);
   }
 
   /**
    * Check if a cache entry has expired (TTL)
    */
   private isExpired(entry: CacheEntry): boolean {
-    if (!this.config.ttlMs) {
+    if (this.config.ttlMs === undefined) {
       return false;
     }
     const now = Date.now();
     const age = now - entry.timestamp;
-    return age > this.config.ttlMs;
+    return age >= this.config.ttlMs;
   }
 
   /**
@@ -101,6 +110,15 @@ export class SchemaCache {
       this.cache.delete(oldestKey);
       this.stats.evictions++;
       debugIf(() => ({ message: `Evicted oldest cache entry: ${oldestKey}` }));
+    }
+  }
+
+  private makeRoom(key: string, bytes: number): void {
+    this.cache.delete(key);
+    let total = Array.from(this.cache.values()).reduce((sum, entry) => sum + entry.bytes, 0);
+    while (this.cache.size >= this.config.maxEntries || total + bytes > 32 * 1024 * 1024) {
+      this.evictOldest();
+      total = Array.from(this.cache.values()).reduce((sum, entry) => sum + entry.bytes, 0);
     }
   }
 
@@ -137,31 +155,55 @@ export class SchemaCache {
     // Check for in-flight request (coalescing)
     const inflight = this.inflightRequests.get(cacheKey);
     if (inflight) {
+      const waiters = this.waiters.get(inflight) ?? 0;
+      if (waiters >= 256) throw new Error('Schema cache waiter capacity exceeded');
+      this.waiters.set(inflight, waiters + 1);
       this.stats.coalesced++;
-      debugIf(() => ({ message: `Coalesced request for: ${cacheKey}` }));
-      return inflight;
+      try {
+        return await inflight;
+      } finally {
+        this.waiters.set(inflight, (this.waiters.get(inflight) ?? 1) - 1);
+      }
+    }
+
+    if (this.activeLoads >= this.config.maxEntries) {
+      throw new Error('Schema cache load capacity exceeded');
     }
 
     // Create new request
     this.stats.misses++;
-    const promise = loader(server, toolName)
+    this.activeLoads++;
+    const load = Promise.resolve()
+      .then(() => loader(server, toolName))
+      .finally(() => {
+        this.activeLoads--;
+      });
+    let timer: ReturnType<typeof setTimeout>;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Schema cache load deadline exceeded')), 30000);
+      timer.unref?.();
+    });
+    const promise = Promise.race([load, deadline])
       .then((tool) => {
-        // Store in cache
-        if (this.cache.size >= this.config.maxEntries) {
-          this.evictOldest();
-        }
+        const bytes = Buffer.byteLength(JSON.stringify(tool));
+        if (bytes > 1024 * 1024) throw new Error('Schema cache entry capacity exceeded');
+        // An invalidated or superseded load cannot republish its stale schema.
+        if (this.inflightRequests.get(cacheKey) !== promise) return tool;
+        this.makeRoom(cacheKey, bytes);
 
         this.cache.set(cacheKey, {
           tool,
           timestamp: Date.now(),
+          bytes,
         });
 
         debugIf(() => ({ message: `Loaded and cached: ${cacheKey}` }));
         return tool;
       })
       .finally(() => {
+        clearTimeout(timer);
         // Clean up in-flight map
-        this.inflightRequests.delete(cacheKey);
+        if (this.inflightRequests.get(cacheKey) === promise) this.inflightRequests.delete(cacheKey);
       });
 
     this.inflightRequests.set(cacheKey, promise);
@@ -202,13 +244,15 @@ export class SchemaCache {
   public set(server: string, toolName: string, tool: Tool): void {
     const cacheKey = this.getCacheKey(server, toolName);
 
-    if (this.cache.size >= this.config.maxEntries) {
-      this.evictOldest();
-    }
+    const bytes = Buffer.byteLength(JSON.stringify(tool));
+    if (bytes > 1024 * 1024) throw new Error('Schema cache entry capacity exceeded');
+    this.inflightRequests.delete(cacheKey);
+    this.makeRoom(cacheKey, bytes);
 
     this.cache.set(cacheKey, {
       tool,
       timestamp: Date.now(),
+      bytes,
     });
 
     debugIf(() => ({ message: `Manually cached: ${cacheKey}` }));
@@ -219,6 +263,7 @@ export class SchemaCache {
    */
   public delete(server: string, toolName: string): boolean {
     const cacheKey = this.getCacheKey(server, toolName);
+    this.inflightRequests.delete(cacheKey);
     return this.cache.delete(cacheKey);
   }
 
@@ -255,11 +300,11 @@ export class SchemaCache {
 
     for (const [cacheKey, entry] of this.cache.entries()) {
       // Skip expired entries
-      if (this.config.ttlMs && now - entry.timestamp > this.config.ttlMs) {
+      if (this.config.ttlMs !== undefined && now - entry.timestamp >= this.config.ttlMs) {
         continue;
       }
 
-      const [server, toolName] = cacheKey.split(':');
+      const [server, toolName] = JSON.parse(cacheKey) as [string, string];
       tools.push({ server, toolName });
     }
 
