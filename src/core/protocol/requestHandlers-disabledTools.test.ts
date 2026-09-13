@@ -65,7 +65,7 @@ vi.mock('@src/core/capabilities/internalCapabilitiesProvider.js', () => ({
 
 describe('requestHandlers disabled tools enforcement', () => {
   let registerRequestHandlers: typeof import('./requestHandlers.js').registerRequestHandlers;
-  let mockServer: { setRequestHandler: ReturnType<typeof vi.fn> };
+  let mockServer: { getClientCapabilities: ReturnType<typeof vi.fn>; setRequestHandler: ReturnType<typeof vi.fn> };
   let mockClient: {
     callTool: ReturnType<typeof vi.fn>;
     listTools: ReturnType<typeof vi.fn>;
@@ -80,6 +80,7 @@ describe('requestHandlers disabled tools enforcement', () => {
     ({ registerRequestHandlers } = await import('./requestHandlers.js'));
 
     mockServer = {
+      getClientCapabilities: vi.fn(() => ({})),
       setRequestHandler: vi.fn(),
     };
 
@@ -125,7 +126,8 @@ describe('requestHandlers disabled tools enforcement', () => {
       throw new Error('Expected handler registration was not found');
     }
 
-    return registration[1];
+    return (...args) =>
+      registration[1](args[0], args[1] ?? { signal: new AbortController().signal, requestId: 'test' });
   }
 
   function inboundConnection() {

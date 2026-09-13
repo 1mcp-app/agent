@@ -61,7 +61,10 @@ vi.mock('@src/core/server/serverManager.js', () => ({
 }));
 
 describe('capability pagination protocol handlers', () => {
-  let handlers: Map<unknown, (request: { params?: { cursor?: string; uri?: string } }) => Promise<unknown>>;
+  let handlers: Map<
+    unknown,
+    (request: { params?: { cursor?: string; uri?: string } }, extra?: unknown) => Promise<unknown>
+  >;
 
   beforeEach(() => {
     handlers = new Map();
@@ -138,6 +141,7 @@ describe('capability pagination protocol handlers', () => {
       server: {
         transport: createMockTransport(),
         notification: notify,
+        getClientCapabilities: vi.fn(() => ({})),
         setRequestHandler: vi.fn((schema, handler) => handlers.set(schema, handler)),
       } as never,
     });
@@ -155,7 +159,9 @@ describe('capability pagination protocol handlers', () => {
     expect(notify.mock.calls[0][0].params._meta).toEqual({ marker: 1 });
     const read = handlers.get(ReadResourceRequestSchema);
     if (!read) throw new Error('No resource read handler');
-    expect(await read({ params: { uri } })).toMatchObject({ contents: [{ uri, text: 'updated' }] });
+    expect(await read({ params: { uri } }, { signal: new AbortController().signal, requestId: 'test' })).toMatchObject({
+      contents: [{ uri, text: 'updated' }],
+    });
     expect(readResource).toHaveBeenCalledWith({ uri: upstreamUri }, expect.anything());
   });
 

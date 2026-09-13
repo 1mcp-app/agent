@@ -16,6 +16,8 @@ import {
 } from '@src/sdk/legacy/types.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 
+import { withPrivateInteractionConnection } from './privateInteractionConnection.js';
+
 export function registerResourceHandlers(
   outboundConns: LegacyOutboundConnections,
   inboundConn: InboundConnection,
@@ -79,13 +81,20 @@ export function registerResourceHandlers(
   );
   server.setRequestHandler(
     ReadResourceRequestSchema,
-    withErrorHandling(async (request) => {
+    withErrorHandling(async (request, extra) => {
       const snapshot = await acquire();
       const route = resolveResourceRoute(snapshot, request.params.uri);
-      const result = await requestLegacyOutbound<{ contents: Array<{ uri: string; [key: string]: unknown }> }>(
+      const result = await withPrivateInteractionConnection(
         route.connection,
-        'resources/read',
-        { ...request.params, uri: route.upstreamIdentity },
+        inboundConn,
+        extra,
+        route.entry,
+        (selected) =>
+          requestLegacyOutbound<{ contents: Array<{ uri: string; [key: string]: unknown }> }>(
+            selected,
+            'resources/read',
+            { ...request.params, uri: route.upstreamIdentity },
+          ),
       );
       return {
         ...result,

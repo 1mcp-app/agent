@@ -9,6 +9,8 @@ import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInb
 import { CompleteRequestSchema, GetPromptRequestSchema, ListPromptsRequestSchema } from '@src/sdk/legacy/types.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 
+import { withPrivateInteractionConnection } from './privateInteractionConnection.js';
+
 export function registerPromptHandlers(outboundConns: LegacyOutboundConnections, inboundConn: InboundConnection): void {
   const acquire = (cursor?: string) =>
     acquireRuntimeCapabilityCatalog(
@@ -36,13 +38,15 @@ export function registerPromptHandlers(outboundConns: LegacyOutboundConnections,
   );
   server.setRequestHandler(
     GetPromptRequestSchema,
-    withErrorHandling(async (request) => {
+    withErrorHandling(async (request, extra) => {
       const route = (await acquire()).resolve('prompts', request.params.name);
       if (!route?.connection) throw new Error(`Unknown prompt: ${request.params.name}`);
-      return requestLegacyOutbound(route.connection, 'prompts/get', {
-        ...request.params,
-        name: route.entry.route.upstreamIdentity,
-      });
+      return withPrivateInteractionConnection(route.connection, inboundConn, extra, route.entry, (selected) =>
+        requestLegacyOutbound(selected, 'prompts/get', {
+          ...request.params,
+          name: route.entry.route.upstreamIdentity,
+        }),
+      );
     }, 'Error getting prompt'),
   );
 }

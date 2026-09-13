@@ -1,3 +1,5 @@
+import { captureJson } from '@src/core/validation/schemaPolicy.js';
+
 import {
   createEffectiveRequestAuthority,
   createGatewayFailure,
@@ -7,7 +9,16 @@ import {
   toImmutableJsonValue,
 } from '../../contracts/index.js';
 import type { OutboundEraAdapter, OutboundGatewayRequest } from '../../ports/index.js';
+import type {
+  GatewayInteractionRequest,
+  GatewayInteractionRound,
+  GatewayRequestOptions,
+} from '../../ports/outboundEraAdapter.js';
 import { requireModernPin } from './modernPin.js';
+
+function isRecord(value: unknown): value is { readonly [key: string]: ImmutableJsonValue } {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
 
 export interface ModernOutboundAdapterCallbacks {
   /** Receives a detached, recursively frozen JSON request frame. */
@@ -42,8 +53,8 @@ export class ModernOutboundEraAdapter implements OutboundEraAdapter {
     Object.freeze(this);
   }
 
-  async request(request: OutboundGatewayRequest): Promise<ImmutableJsonValue> {
-    const frame = toImmutableJsonValue({
+  async request(request: OutboundGatewayRequest, options?: GatewayRequestOptions): Promise<ImmutableJsonValue> {
+    let frame = toImmutableJsonValue({
       requestId: request.requestId,
       operation: request.operation,
       ...(request.params === undefined ? {} : { params: request.params }),
@@ -67,7 +78,83 @@ export class ModernOutboundEraAdapter implements OutboundEraAdapter {
 
     this.#activeRequestIds.add(request.requestId);
     try {
-      return toImmutableJsonValue(await this.#callbacks.request(frame));
+      let stateOnly = 0;
+      for (let round = 0; ; round++) {
+        if (this.#cancelledRequestIds.has(request.requestId) || request.deadlineUnixMs <= this.#now()) {
+          throw createGatewayFailure({
+            kind: 'cancelled',
+            code: 'interaction_expired',
+            message: 'Interaction expired or cancelled',
+          });
+        }
+        const result = toImmutableJsonValue(captureJson(await this.#callbacks.request(frame), false, true).value);
+        if (!isRecord(result) || result.resultType !== 'input_required') return result;
+        if (!['tools/call', 'prompts/get', 'resources/read'].includes(request.operation) || round >= 10) {
+          throw createGatewayFailure({
+            kind: 'protocol',
+            code: 'interaction_round_limit',
+            message: 'Interaction is unsupported or exhausted',
+          });
+        }
+        const inputs = result.inputRequests;
+        if (inputs !== undefined && (!inputs || typeof inputs !== 'object' || Array.isArray(inputs)))
+          throw new TypeError('Invalid interaction inputs');
+        const entries = Object.entries(inputs ?? {});
+        if (
+          entries.length > 32 ||
+          (entries.length === 0 && typeof result.requestState !== 'string') ||
+          (result.requestState !== undefined &&
+            (typeof result.requestState !== 'string' || Buffer.byteLength(result.requestState) > 65_536))
+        ) {
+          throw new TypeError('Invalid interaction round');
+        }
+        stateOnly = entries.length === 0 ? stateOnly + 1 : 0;
+        if (stateOnly > 3) throw new TypeError('Interaction state-only limit exceeded');
+        if (entries.length && !options?.interaction && !options?.interactionRound)
+          throw createGatewayFailure({
+            kind: 'authorization',
+            code: 'interaction_capability_required',
+            message: 'Interaction provider required',
+          });
+        for (const [, input] of entries) {
+          if (
+            !isRecord(input) ||
+            !['elicitation/create', 'sampling/createMessage', 'roots/list'].includes(String(input.method))
+          )
+            throw new TypeError('Invalid interaction kind');
+        }
+        let responses: Record<string, ImmutableJsonValue> = {};
+        if (entries.length && options?.interactionRound) {
+          const received = captureJson(
+            await options.interactionRound(inputs as unknown as GatewayInteractionRound),
+            false,
+          ).value;
+          if (!isRecord(received) || entries.some(([key]) => !Object.hasOwn(received, key)))
+            throw new TypeError('Incomplete interaction round');
+          responses = Object.fromEntries(entries.map(([key]) => [key, received[key]]));
+        } else {
+          for (const [key, input] of entries) {
+            Object.defineProperty(responses, key, {
+              value: await options!.interaction!(input as unknown as GatewayInteractionRequest),
+              enumerable: true,
+            });
+          }
+        }
+        if (stateOnly)
+          await new Promise((resolve) =>
+            setTimeout(resolve, Math.min(25 * stateOnly, Math.max(0, request.deadlineUnixMs - this.#now()))),
+          );
+        frame = toImmutableJsonValue({
+          requestId: `${request.requestId}:round:${round + 1}`,
+          cancellationId: request.requestId,
+          operation: request.operation,
+          ...(request.params === undefined ? {} : { params: request.params }),
+          authority: createEffectiveRequestAuthority(request.authority),
+          deadlineUnixMs: request.deadlineUnixMs,
+          inputResponses: responses,
+          ...(result.requestState === undefined ? {} : { requestState: result.requestState }),
+        });
+      }
     } catch (error) {
       throw gatewayFailureFromUnknown(error, 'transport');
     } finally {

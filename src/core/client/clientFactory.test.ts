@@ -13,7 +13,7 @@ vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
 
 vi.mock('@modelcontextprotocol/client', () => ({
   Client: vi.fn().mockImplementation(function () {
-    return { connect: vi.fn(), getServerVersion: vi.fn(), close: vi.fn() };
+    return { connect: vi.fn(), getServerVersion: vi.fn(), close: vi.fn(), registerCapabilities: vi.fn() };
   }),
 }));
 
@@ -47,6 +47,7 @@ describe('ClientFactory', () => {
         connect: vi.fn(),
         getServerVersion: vi.fn(),
         close: vi.fn(),
+        registerCapabilities: vi.fn(),
       };
     });
   });
@@ -116,7 +117,7 @@ describe('ClientFactory', () => {
           name: expect.any(String),
           version: expect.any(String),
         }),
-        { jsonSchemaValidator: expect.any(Object) },
+        { capabilities: {}, jsonSchemaValidator: expect.any(Object) },
       );
     });
 

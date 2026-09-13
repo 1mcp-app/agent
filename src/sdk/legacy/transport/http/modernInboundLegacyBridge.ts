@@ -5,8 +5,17 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
 import type { InboundConnectionConfig } from '@src/core/types/index.js';
 import { LegacyOutboundEraAdapter } from '@src/gateway/adapters/legacy/legacyOutboundEraAdapter.js';
+import type { ImmutableJsonValue } from '@src/gateway/contracts/index.js';
+import type { GatewayInteractionRequest } from '@src/gateway/ports/outboundEraAdapter.js';
+import { toJsonValue } from '@src/sdk/contracts/index.js';
 import { Client } from '@src/sdk/legacy/client/index.js';
 import { LegacySdkClientAdapter } from '@src/sdk/legacy/client/runtime/legacySdkClientAdapter.js';
+import {
+  ClientCapabilitiesSchema,
+  CreateMessageRequestSchema,
+  ElicitRequestSchema,
+  ListRootsRequestSchema,
+} from '@src/sdk/legacy/types.js';
 
 const LEGACY_REVISION = '2025-11-25';
 
@@ -23,17 +32,51 @@ export interface ModernInboundLegacyBridge {
 export async function createModernInboundLegacyBridge(
   serverManager: ServerManager,
   config: InboundConnectionConfig,
+  options: {
+    readonly capabilities?: ImmutableJsonValue;
+    readonly logLevel?: 'debug' | 'info' | 'notice' | 'warning' | 'error' | 'critical' | 'alert' | 'emergency';
+    readonly interaction?: (input: GatewayInteractionRequest) => Promise<ImmutableJsonValue>;
+  } = {},
 ): Promise<ModernInboundLegacyBridge> {
   const connectionId = `modern-${randomUUID()}`;
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: '1mcp-modern-http-bridge', version: '1.0.0' }, { capabilities: {} });
+  const capabilities = ClientCapabilitiesSchema.parse(options.capabilities ?? {});
+  const client = new Client({ name: '1mcp-modern-http-bridge', version: '1.0.0' }, { capabilities });
+  if (options.interaction) {
+    const interact = options.interaction;
+    for (const schema of [CreateMessageRequestSchema, ElicitRequestSchema, ListRootsRequestSchema] as const) {
+      const capability =
+        schema === CreateMessageRequestSchema
+          ? capabilities.sampling
+          : schema === ElicitRequestSchema
+            ? capabilities.elicitation
+            : capabilities.roots;
+      if (!capability) continue;
+      client.setRequestHandler(
+        schema,
+        async (request) =>
+          toJsonValue(
+            await interact({
+              method: request.method,
+              ...(request.params === undefined ? {} : { params: request.params as ImmutableJsonValue }),
+            }),
+          ) as never,
+      );
+    }
+  }
 
   const connecting = [
-    serverManager.connectTransport(serverTransport, connectionId, { ...config, requestOnly: true, canonicalSchemaProjection: true }),
+    serverManager.connectTransport(serverTransport, connectionId, {
+      ...config,
+      requestOnly: true,
+      canonicalSchemaProjection: true,
+    }),
     client.connect(clientTransport),
   ];
   try {
     await Promise.all(connecting);
+    // This private inbound session owns the threshold; no shared upstream logging/setLevel is sent.
+    if (options.logLevel !== undefined) await client.setLoggingLevel(options.logLevel);
   } catch (error) {
     await Promise.allSettled([clientTransport.close(), serverTransport.close()]);
     await Promise.allSettled(connecting);
@@ -41,7 +84,7 @@ export async function createModernInboundLegacyBridge(
     throw error;
   }
 
-  const legacy = new LegacySdkClientAdapter(client, clientTransport);
+  const legacy = new LegacySdkClientAdapter(client, clientTransport, { interactionBridge: true });
   try {
     await legacy.start();
   } catch (error) {

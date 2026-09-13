@@ -226,6 +226,7 @@ describe('ExpressServer', () => {
 
     // Mock ServerManager
     mockServerManager = {
+      registerCleanup: vi.fn(),
       getClients: vi.fn(() => new Map()),
       getServer: vi.fn(),
     } as any;
@@ -685,7 +686,7 @@ describe('ExpressServer', () => {
     });
 
     it('should work with minimal server manager', async () => {
-      const minimalServerManager = {} as ServerManager;
+      const minimalServerManager = { registerCleanup: vi.fn() } as unknown as ServerManager;
 
       expect(() => {
         new ExpressServer(minimalServerManager);

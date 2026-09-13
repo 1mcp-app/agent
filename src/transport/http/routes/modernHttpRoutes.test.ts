@@ -36,7 +36,7 @@ function app(policy: ModernHttpRequestPolicy = loopbackPolicy) {
   instance.use(express.json());
   instance.use(errorHandler);
   const router = express.Router();
-  setupModernHttpRoutes(router, {} as never, [(_req, _res, next) => next()], createBridge, policy);
+  setupModernHttpRoutes(router, { registerCleanup: vi.fn() } as never, [(_req, _res, next) => next()], createBridge, policy);
   router.post('/mcp', (_req, res) => res.status(299).json({ legacy: true }));
   instance.use(router);
   return instance;
@@ -469,7 +469,7 @@ describe('modern HTTP admission', () => {
       instance.use(errorHandler);
       const router = express.Router();
       const pass = (_req: express.Request, _res: express.Response, next: express.NextFunction) => next();
-      setupModernHttpRoutes(router, {} as never, [pass], createBridge, loopbackPolicy);
+      setupModernHttpRoutes(router, { registerCleanup: vi.fn() } as never, [pass], createBridge, loopbackPolicy);
       const legacyLifecycle = {
         resolveExistingSession: vi.fn(),
         completeExplicitDelete: vi.fn(),

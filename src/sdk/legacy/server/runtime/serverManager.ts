@@ -46,6 +46,14 @@ export interface ContextChangedEventData {
  * - ConfigurationManager: Handles configuration reprocessing with circuit breaker
  */
 export class ServerManager {
+  private readonly cleanupCallbacks = new Set<() => Promise<void>>();
+
+  public registerCleanup(callback: () => Promise<void>): () => void {
+    this.cleanupCallbacks.add(callback);
+    return () => {
+      this.cleanupCallbacks.delete(callback);
+    };
+  }
   private static instance: ServerManager | undefined;
   private serverConfig: { name: string; version: string };
   private serverCapabilities: { capabilities: Record<string, unknown> };
@@ -596,6 +604,19 @@ export class ServerManager {
    * Clean up all resources (for shutdown)
    */
   public async cleanup(): Promise<void> {
+    const callbacks = Array.from(this.cleanupCallbacks);
+    this.cleanupCallbacks.clear();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        Promise.allSettled(callbacks.map((callback) => Promise.resolve().then(callback))),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, 1000);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
     await shutdownSchemaBoundary();
     // Clean up all connections
     await this.connectionManager.cleanup();

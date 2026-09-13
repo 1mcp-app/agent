@@ -13,6 +13,7 @@ import { enhanceServerWithLogging } from '@src/logger/mcpLoggingEnhancer.js';
 import { toJsonValue } from '@src/sdk/contracts/jsonValue.js';
 import type { LegacyConnectionId } from '@src/sdk/contracts/legacySdkAdapter.js';
 import { Server } from '@src/sdk/legacy/server/index.js';
+import { unregisterLegacyNotificationOwner } from '@src/sdk/legacy/server/protocol/requestInteractionScope.js';
 import { Transport } from '@src/sdk/legacy/shared/transport.js';
 import type { ContextData } from '@src/types/context.js';
 import { executeOperation } from '@src/utils/core/operationExecution.js';
@@ -135,6 +136,7 @@ export class ConnectionManager {
       try {
         // Update status to Disconnected
         connection.status = ServerStatus.Disconnected;
+        unregisterLegacyNotificationOwner(this.outboundConns.values(), connection);
         evictRuntimeCapabilityCatalogSession(this.outboundConns, connection.context?.sessionId ?? sessionId);
 
         // Only close the transport if explicitly requested

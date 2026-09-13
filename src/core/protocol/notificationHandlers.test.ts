@@ -210,126 +210,31 @@ describe('Notification Handlers', () => {
   });
 
   describe('setupServerToClientNotifications', () => {
-    it('should handle "Not connected" error gracefully when server sends to disconnected client', async () => {
-      // Mock the client notification to throw "Not connected" error
-      mockClient.notification = vi.fn().mockImplementation(() => {
-        throw new Error('Not connected');
-      });
-
-      // Ensure client transport exists so the notification is attempted
-      mockClient.transport = {
-        timeout: 5000,
-        start: vi.fn(),
-        send: vi.fn(),
-        close: vi.fn(),
-      };
-
-      // Setup the notification handlers
+    it('leaves cancellation with the SDK request owner rather than broadcasting it', () => {
       setupServerToClientNotifications(mockOutboundConns, mockInboundConn);
-
-      // Verify that setNotificationHandler was called on the server
-      expect(mockServer.setNotificationHandler).toHaveBeenCalled();
-
-      // Use CancelledNotificationSchema which is still forwarded server→client
-      const setNotificationHandlerCalls = mockServer.setNotificationHandler.mock.calls;
-      const cancelledHandlerCall = setNotificationHandlerCalls.find(
-        (call: any) => call[0] === CancelledNotificationSchema,
-      );
-
-      expect(cancelledHandlerCall).toBeDefined();
-      const notificationHandler = cancelledHandlerCall[1];
-
-      // Simulate a notification being received from server
-      const testNotification = {
-        method: 'notifications/cancelled',
-        params: { requestId: '1', reason: 'test' },
-      };
-
-      // This should not throw an error, it should handle the "Not connected" error gracefully
-      await expect(notificationHandler(testNotification)).resolves.not.toThrow();
-
-      // Verify that the client notification was attempted
-      expect(mockClient.notification).toHaveBeenCalledWith({
-        method: 'notifications/cancelled',
-        params: {
-          requestId: '1',
-          reason: 'test',
-          client: 'test-client',
-        },
-      });
+      expect(
+        mockServer.setNotificationHandler.mock.calls.some((call: any) => call[0] === CancelledNotificationSchema),
+      ).toBe(false);
+      expect(mockClient.notification).not.toHaveBeenCalled();
     });
 
-    it('should handle async capability rejection when forwarding to client', async () => {
-      const capabilityError = new Error(
-        'Client does not support roots list changed notifications (required for notifications/roots/list_changed)',
-      );
-      let rejectForwardedNotification!: (error: Error) => void;
-      const forwardedNotification = new Promise<void>((_, reject) => {
-        rejectForwardedNotification = reject;
-      });
-      forwardedNotification.catch(() => undefined);
-
-      mockClient.notification = vi.fn().mockReturnValue(forwardedNotification);
-      mockClient.transport = {
-        timeout: 5000,
-        start: vi.fn(),
-        send: vi.fn(),
-        close: vi.fn(),
-      };
-
+    it('suppresses root changes without an exact active legacy relationship', async () => {
       setupServerToClientNotifications(mockOutboundConns, mockInboundConn);
-
-      const setNotificationHandlerCalls = mockServer.setNotificationHandler.mock.calls;
-      const rootsChangedHandlerCall = setNotificationHandlerCalls.find(
+      const registration = mockServer.setNotificationHandler.mock.calls.find(
         (call: any) => call[0] === RootsListChangedNotificationSchema,
       );
-
-      expect(rootsChangedHandlerCall).toBeDefined();
-      const notificationHandler = rootsChangedHandlerCall[1];
-      const handlerPromise = notificationHandler({
-        method: 'notifications/roots/list_changed',
-        params: {},
-      });
-
-      rejectForwardedNotification(capabilityError);
-
-      await expect(handlerPromise).resolves.not.toThrow();
-      expect(mockClient.notification).toHaveBeenCalledWith({
-        method: 'notifications/roots/list_changed',
-        params: {
-          client: 'test-client',
-        },
-      });
-      expect(logger.error).toHaveBeenCalledWith(`Failed to send notification to test-client: ${capabilityError}`);
+      expect(registration).toBeDefined();
+      await registration[1]({ method: 'notifications/roots/list_changed', params: {} });
+      expect(mockClient.notification).not.toHaveBeenCalled();
     });
 
-    it('should not send notifications when client status is not connected', async () => {
-      // Set client status to disconnected
-      const disconnectedClient = mockOutboundConns.get('test-client')!;
-      disconnectedClient.status = ClientStatus.Disconnected;
-
-      // Setup the notification handlers
+    it('does not forward root changes to disconnected clients', async () => {
+      mockOutboundConns.get('test-client')!.status = ClientStatus.Disconnected;
       setupServerToClientNotifications(mockOutboundConns, mockInboundConn);
-
-      // Get the notification handler that was registered (CancelledNotificationSchema is still forwarded)
-      const setNotificationHandlerCalls = mockServer.setNotificationHandler.mock.calls;
-      const cancelledHandlerCall = setNotificationHandlerCalls.find(
-        (call: any) => call[0] === CancelledNotificationSchema,
+      const registration = mockServer.setNotificationHandler.mock.calls.find(
+        (call: any) => call[0] === RootsListChangedNotificationSchema,
       );
-
-      expect(cancelledHandlerCall).toBeDefined();
-      const notificationHandler = cancelledHandlerCall[1];
-
-      // Simulate a notification being received from server
-      const testNotification = {
-        method: 'notifications/cancelled',
-        params: { requestId: '1', reason: 'test' },
-      };
-
-      // Execute the handler
-      await notificationHandler(testNotification);
-
-      // Verify that the client notification was NOT called since client is disconnected
+      await registration[1]({ method: 'notifications/roots/list_changed', params: {} });
       expect(mockClient.notification).not.toHaveBeenCalled();
     });
 

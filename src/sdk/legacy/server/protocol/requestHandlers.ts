@@ -5,30 +5,18 @@ import {
   getRequestSession,
   resolveOutboundConnection,
 } from '@src/core/protocol/requestHandlerUtils.js';
-import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, InboundConnection } from '@src/core/types/index.js';
-import logger, { setLogLevel } from '@src/logger/logger.js';
+import logger from '@src/logger/logger.js';
 import {
-  getLegacyTransport,
   type LegacyOutboundConnections,
   requestLegacyOutbound,
-  setOutboundRequestHandler,
 } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
-import {
-  CreateMessageRequest,
-  CreateMessageRequestSchema,
-  ElicitRequest,
-  ElicitRequestSchema,
-  ListRootsRequest,
-  ListRootsRequestSchema,
-  PingRequestSchema,
-  SetLevelRequestSchema,
-} from '@src/sdk/legacy/types.js';
+import { PingRequestSchema, SetLevelRequestSchema } from '@src/sdk/legacy/types.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
-import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
 
 import { registerCompletionHandlers, registerPromptHandlers } from './promptRequestHandlers.js';
+import { sessionLogLevels } from './requestInteractionScope.js';
 import { registerResourceHandlers } from './resourceRequestHandlers.js';
 import { registerToolHandlers } from './toolRequestHandlers.js';
 
@@ -38,78 +26,6 @@ export {
   getRequestSession,
   resolveOutboundConnection,
 };
-
-/**
- * Type for extended server capabilities that include experimental features
- */
-type ExtendedServerCapabilities = Record<string, unknown>;
-
-/**
- * Registers server-specific request handlers
- * @param outboundConns Record of client instances
- * @param serverInfo The MCP server instance
- */
-function registerServerRequestHandlers(outboundConns: LegacyOutboundConnections, inboundConn: InboundConnection): void {
-  Array.from(outboundConns.entries()).forEach(([_, outboundConn]) => {
-    const capabilities = outboundConn.capabilities as ExtendedServerCapabilities | undefined;
-
-    // Ping is always supported
-    setOutboundRequestHandler(
-      outboundConn,
-      PingRequestSchema,
-      withErrorHandling(async () => {
-        return ServerManager.current.executeServerOperation(inboundConn, (inboundConn: InboundConnection) =>
-          getLegacyInboundServer(inboundConn).ping(),
-        );
-      }, 'Error pinging'),
-    );
-
-    // Only register CreateMessage handler if server supports sampling capability
-    if (capabilities?.sampling) {
-      setOutboundRequestHandler(
-        outboundConn,
-        CreateMessageRequestSchema,
-        withErrorHandling(async (request: CreateMessageRequest) => {
-          return ServerManager.current.executeServerOperation(inboundConn, (inboundConn: InboundConnection) =>
-            getLegacyInboundServer(inboundConn).createMessage(request.params, {
-              timeout: getRequestTimeout(getLegacyTransport(outboundConn)),
-            }),
-          );
-        }, 'Error creating message'),
-      );
-    }
-
-    // Only register ElicitRequest handler if server supports elicitation capability
-    if (capabilities?.elicitation) {
-      setOutboundRequestHandler(
-        outboundConn,
-        ElicitRequestSchema,
-        withErrorHandling(async (request: ElicitRequest) => {
-          return ServerManager.current.executeServerOperation(inboundConn, (inboundConn: InboundConnection) =>
-            getLegacyInboundServer(inboundConn).elicitInput(request.params, {
-              timeout: getRequestTimeout(getLegacyTransport(outboundConn)),
-            }),
-          );
-        }, 'Error eliciting input'),
-      );
-    }
-
-    // Only register ListRoots handler if server supports roots capability
-    if (capabilities?.roots) {
-      setOutboundRequestHandler(
-        outboundConn,
-        ListRootsRequestSchema,
-        withErrorHandling(async (request: ListRootsRequest) => {
-          return ServerManager.current.executeServerOperation(inboundConn, (inboundConn: InboundConnection) =>
-            getLegacyInboundServer(inboundConn).listRoots(request.params, {
-              timeout: getRequestTimeout(getLegacyTransport(outboundConn)),
-            }),
-          );
-        }, 'Error listing roots'),
-      );
-    }
-  });
-}
 
 /**
  * Registers all request handlers based on available capabilities
@@ -126,7 +42,7 @@ export function registerRequestHandlers(
 ): void {
   // Register logging level handler
   getLegacyInboundServer(inboundConn).setRequestHandler(SetLevelRequestSchema, async (request) => {
-    setLogLevel(request.params.level);
+    sessionLogLevels.set(inboundConn, request.params.level);
     return {};
   });
 
@@ -165,7 +81,4 @@ export function registerRequestHandlers(
 
   // Register completion-related handlers
   registerCompletionHandlers(outboundConns, inboundConn);
-
-  // Register server-specific request handlers
-  if (!inboundConn.requestOnly) registerServerRequestHandlers(outboundConns, inboundConn);
 }

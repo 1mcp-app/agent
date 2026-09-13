@@ -65,6 +65,7 @@ describe('OAuthFlowHandler', () => {
       getServerCapabilities: vi.fn(),
       getInstructions: vi.fn(),
       setNotificationHandler: vi.fn(),
+      registerCapabilities: vi.fn(),
     };
 
     mockTransport = {

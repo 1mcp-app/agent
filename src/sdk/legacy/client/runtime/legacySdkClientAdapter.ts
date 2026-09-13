@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
+import { assertInteractionRoute } from '@src/gateway/interactions/interactionRoute.js';
 import logger from '@src/logger/logger.js';
 import {
   type JsonValue,
@@ -27,6 +28,7 @@ import {
   ToolListChangedNotificationSchema,
 } from '@src/sdk/legacy/types.js';
 
+import { beginLegacyInteractionRequest, currentLegacyInteractionSignal } from './legacyInteractionLease.js';
 import type { AuthProviderTransport } from './legacyTransport.js';
 import { TransportRecreator } from './transportRecreator.js';
 
@@ -34,6 +36,8 @@ const INTERNAL_ERROR = -32_603;
 const POST_AUTH_UNAUTHORIZED_MESSAGE = 'Server returned 401 after successful authentication';
 
 export interface LegacySdkClientAdapterOptions {
+  /** Trusted private gateway bridge only; the selected provider still checks the operation pin. */
+  readonly interactionBridge?: boolean;
   readonly recreateHttpTransport?: (transport: AuthProviderTransport, serverName?: string) => AuthProviderTransport;
 }
 
@@ -79,6 +83,7 @@ function publishAwaitingOAuth(serverName: string, error: StreamableHTTPError): v
 
 /** Concrete boundary around one legacy v1 SDK Client. */
 export class LegacySdkClientAdapter implements LegacySdkAdapter {
+  private readonly interactionBridge: boolean;
   readonly connectionId = randomUUID() as LegacyConnectionId;
   private lifecycleState: LegacySdkLifecycleState = 'idle';
   private readonly controllers = new Map<LegacyRequestId, AbortController>();
@@ -87,6 +92,7 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
   private readonly recreateHttpTransport: NonNullable<LegacySdkClientAdapterOptions['recreateHttpTransport']>;
 
   constructor(client: Client, transport: AuthProviderTransport, options: LegacySdkClientAdapterOptions = {}) {
+    this.interactionBridge = options.interactionBridge === true;
     legacyHandles.set(this, { client, transport });
     const transportRecreator = new TransportRecreator();
     this.recreateHttpTransport =
@@ -95,12 +101,12 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
     this.registerListChangedNotifications();
   }
 
-  get protocolRevision(): string | undefined {
-    return this.handles.transport.negotiatedProtocolRevision;
-  }
-
   get state(): LegacySdkLifecycleState {
     return this.lifecycleState;
+  }
+
+  get protocolRevision(): string | undefined {
+    return this.handles.transport.negotiatedProtocolRevision;
   }
 
   async start(): Promise<void> {
@@ -118,10 +124,16 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
   }
 
   async request(request: LegacySdkRequest): Promise<JsonValue> {
+    if (!this.interactionBridge) assertInteractionRoute(this, request.method, request.params);
     if (this.lifecycleState === 'stopped' || this.lifecycleState === 'stopping') {
       throw new OneMcpProtocolError(INTERNAL_ERROR, 'Legacy SDK adapter is closed');
     }
+    const releaseInteraction = beginLegacyInteractionRequest(this, request.method);
     const controller = new AbortController();
+    const ownerSignal = currentLegacyInteractionSignal();
+    const cancelOwner = () => controller.abort();
+    if (ownerSignal?.aborted) controller.abort();
+    else ownerSignal?.addEventListener('abort', cancelOwner, { once: true });
     this.controllers.set(request.id, controller);
     try {
       if (this.lifecycleState === 'idle') await this.start();
@@ -131,6 +143,8 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
       throw toProtocolError(error);
     } finally {
       this.controllers.delete(request.id);
+      ownerSignal?.removeEventListener('abort', cancelOwner);
+      releaseInteraction();
     }
   }
 

@@ -2,11 +2,18 @@ import { Client, type NotificationMethod, type RequestMethod } from '@modelconte
 
 import { randomUUID } from 'node:crypto';
 
+import { captureJson } from '@src/core/validation/schemaPolicy.js';
 import { LegacyOutboundEraAdapter } from '@src/gateway/adapters/legacy/legacyOutboundEraAdapter.js';
 import { ModernOutboundEraAdapter } from '@src/gateway/adapters/modern/modernOutboundEraAdapter.js';
 import { createEffectiveRequestAuthority } from '@src/gateway/contracts/effectiveRequestAuthority.js';
 import { type GatewayOperation, gatewayOperationSchema } from '@src/gateway/contracts/gatewayRequest.js';
 import { toImmutableJsonValue } from '@src/gateway/contracts/immutableJson.js';
+import { hasInteractionCapability } from '@src/gateway/interactions/interactionCapabilities.js';
+import { assertInteractionRoute, currentNativeInteractionRound } from '@src/gateway/interactions/interactionRoute.js';
+import {
+  validateInteractionRequest,
+  validateInteractionResponse,
+} from '@src/gateway/interactions/validateInteractionResponse.js';
 import type { OutboundEraAdapter } from '@src/gateway/ports/outboundEraAdapter.js';
 import {
   createLegacyTimeoutMs,
@@ -26,6 +33,12 @@ import { captureCapabilityListResult } from '@src/sdk/legacy/shared/capabilityLi
 
 import { z } from 'zod';
 
+import {
+  beginLegacyInteractionRequest,
+  currentLegacyInteractionCapabilities,
+  currentLegacyInteractionLogLevel,
+  currentLegacyInteractionSignal,
+} from './legacyInteractionLease.js';
 import type { AuthProviderTransport } from './legacyTransport.js';
 import { stripInboundRequestMeta } from './outboundRequestParams.js';
 
@@ -63,6 +76,7 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
   private readonly waiters: Array<(event: LegacySdkEvent) => void> = [];
   private readonly gatewayRequests = new Set<LegacyRequestId>();
   private readonly outbound: OutboundEraAdapter;
+  private readonly interactionHandlers = new Map<string, (request: never) => unknown>();
   private closePromise?: Promise<void>;
 
   constructor(client: Client, transport: AuthProviderTransport) {
@@ -78,16 +92,25 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
             request: async (frame) => {
               const request = frame as {
                 readonly requestId: string;
+                readonly cancellationId?: string;
                 readonly operation: GatewayOperation;
                 readonly params?: JsonValue;
                 readonly deadlineUnixMs: number;
+                readonly inputResponses?: Record<string, unknown>;
+                readonly requestState?: string;
               };
-              return this.requestDirect({
-                id: request.requestId as LegacyRequestId,
-                method: request.operation,
-                ...(request.params === undefined ? {} : { params: request.params }),
-                timeoutMs: createLegacyTimeoutMs(Math.max(1, request.deadlineUnixMs - Date.now())),
-              });
+              return this.requestDirect(
+                {
+                  id: (request.cancellationId ?? request.requestId) as LegacyRequestId,
+                  method: request.operation,
+                  ...(request.params === undefined ? {} : { params: request.params }),
+                  timeoutMs: createLegacyTimeoutMs(Math.max(1, request.deadlineUnixMs - Date.now())),
+                },
+                {
+                  inputResponses: request.inputResponses,
+                  requestState: request.requestState,
+                },
+              );
             },
             cancel: async (requestId) => this.cancelDirect(requestId as LegacyRequestId),
             close: async () => this.closeDirect(),
@@ -101,6 +124,10 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
 
   get state(): LegacySdkLifecycleState {
     return this.lifecycleState;
+  }
+
+  get protocol() {
+    return this.outbound.pin;
   }
 
   async start(): Promise<void> {
@@ -118,28 +145,66 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
   }
 
   async request(request: LegacySdkRequest): Promise<JsonValue> {
+    assertInteractionRoute(this, request.method, request.params);
     const params = stripInboundRequestMeta(request.params);
     const operation = gatewayOperationSchema.safeParse(request.method);
     if (!operation.success) {
       return this.requestDirect({ ...request, params });
     }
+    const release = beginLegacyInteractionRequest(this, request.method);
     this.gatewayRequests.add(request.id);
     try {
       const timeoutMs = request.timeoutMs ?? createLegacyTimeoutMs(60_000);
+      const nativeRound = currentNativeInteractionRound();
       return toJsonValue(
-        await this.outbound.request({
-          requestId: request.id,
-          operation: operation.data,
-          ...(params === undefined ? {} : { params: toImmutableJsonValue(params) }),
-          authority: createEffectiveRequestAuthority({
-            connectionIds: [this.connectionId],
-            provenance: ['configured-backend'],
-          }),
-          deadlineUnixMs: Date.now() + timeoutMs,
-        }),
+        await this.outbound.request(
+          {
+            requestId: request.id,
+            operation: operation.data,
+            ...(params === undefined ? {} : { params: toImmutableJsonValue(params) }),
+            authority: createEffectiveRequestAuthority({
+              connectionIds: [this.connectionId],
+              provenance: ['configured-backend'],
+            }),
+            deadlineUnixMs: Date.now() + timeoutMs,
+          },
+          {
+            interactionRound: nativeRound
+              ? async (inputs) => {
+                  if (
+                    !Object.values(inputs).every((input) =>
+                      hasInteractionCapability(currentLegacyInteractionCapabilities(), input),
+                    )
+                  ) {
+                    throw new OneMcpProtocolError(-32021, 'Interaction capability required');
+                  }
+                  return nativeRound(inputs);
+                }
+              : undefined,
+            interaction: async (input) => {
+              if (!hasInteractionCapability(currentLegacyInteractionCapabilities(), input))
+                throw new OneMcpProtocolError(-32021, 'Interaction capability required');
+              const handler = this.interactionHandlers.get(input.method);
+              if (!handler) throw new OneMcpProtocolError(-32021, 'Interaction capability required');
+              const binding = {
+                principal: 'request-scoped-provider',
+                request: request.id,
+                route: this.connectionId,
+                generation: this.connectionId,
+                inbound: 'legacy',
+                outbound: 'modern',
+              };
+              await validateInteractionRequest(input, binding);
+              const response = toImmutableJsonValue(await handler(input as never));
+              await validateInteractionResponse(input, response, binding);
+              return response;
+            },
+          },
+        ),
       );
     } finally {
       this.gatewayRequests.delete(request.id);
+      release();
     }
   }
 
@@ -162,7 +227,11 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
 
   registerRequestHandler(schema: unknown, handler: (request: never) => unknown): void {
     const method = this.methodFromLegacySchema(schema) as RequestMethod;
-    this.handles.client.setRequestHandler(method, async (request) => handler(request as never) as never);
+    // Modern inputs are driven by our request-local MRTR loop, not SDK reverse handlers.
+    if (this.protocol.era === 'legacy') {
+      this.handles.client.setRequestHandler(method, async (request) => handler(request as never) as never);
+    }
+    this.interactionHandlers.set(method, handler);
   }
 
   registerNotificationHandler(
@@ -179,29 +248,76 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
     return this.outbound.close();
   }
 
-  private async requestDirect(request: LegacySdkRequest): Promise<JsonValue> {
+  private async requestDirect(
+    request: LegacySdkRequest,
+    continuation?: {
+      inputResponses?: Record<string, unknown>;
+      requestState?: string;
+    },
+  ): Promise<JsonValue> {
     if (this.lifecycleState === 'stopped' || this.lifecycleState === 'stopping') {
       throw new OneMcpProtocolError(-32_603, 'Modern SDK adapter is closed');
     }
     const controller = new AbortController();
+    const ownerSignal = currentLegacyInteractionSignal();
+    const abort = () => controller.abort();
+    ownerSignal?.addEventListener('abort', abort, { once: true });
+    if (ownerSignal?.aborted) abort();
     this.controllers.set(request.id, controller);
     try {
-      const message = {
+      controller.signal.throwIfAborted();
+      const logLevel = currentLegacyInteractionLogLevel();
+      const message: { method: RequestMethod; params?: unknown } = {
         method: request.method as RequestMethod,
-        ...(request.params === undefined ? {} : { params: toJsonValue(request.params) }),
+        ...(continuation?.inputResponses !== undefined || continuation?.requestState !== undefined
+          ? {
+              params: {
+                ...((request.params as Record<string, unknown>) ?? {}),
+                ...(continuation.inputResponses === undefined ? {} : { inputResponses: continuation.inputResponses }),
+                ...(continuation.requestState === undefined ? {} : { requestState: continuation.requestState }),
+              },
+            }
+          : request.params === undefined
+            ? {}
+            : { params: toJsonValue(request.params) }),
       };
+      if (
+        this.protocol.era === 'modern' &&
+        (logLevel || ['tools/call', 'prompts/get', 'resources/read'].includes(request.method))
+      ) {
+        message.params = {
+          ...((message.params as Record<string, unknown>) ?? {}),
+          _meta: {
+            'io.modelcontextprotocol/clientCapabilities': currentLegacyInteractionCapabilities() ?? {},
+            ...(logLevel === undefined ? {} : { 'io.modelcontextprotocol/logLevel': logLevel }),
+          },
+        };
+      }
       const options = {
         signal: controller.signal,
+        allowInputRequired: true,
         ...(request.timeoutMs === undefined ? {} : { timeout: request.timeoutMs }),
       };
       const result = capabilityListMethods.has(request.method)
         ? await this.handles.client.request(message as never, capabilityListResultSchema, options)
         : await this.handles.client.request(message as never, options);
+      // The SDK has decoded the modern MRTR variant; complete Tool validation belongs after the broker's loop.
+      if (
+        this.protocol.era === 'modern' &&
+        ['tools/call', 'prompts/get', 'resources/read'].includes(request.method) &&
+        result &&
+        typeof result === 'object' &&
+        'resultType' in result &&
+        result.resultType === 'input_required'
+      ) {
+        return toJsonValue(captureJson(result, false, true).value);
+      }
       return captureCapabilityListResult(request.method, result);
     } catch (error) {
       throw toProtocolError(error);
     } finally {
       this.controllers.delete(request.id);
+      ownerSignal?.removeEventListener('abort', abort);
     }
   }
 
