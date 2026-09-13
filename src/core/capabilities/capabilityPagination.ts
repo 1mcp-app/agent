@@ -359,7 +359,7 @@ export async function walkCapabilityPages<T>(options: {
     providers: providers.map(({ id, name }) => ({ id, name })),
     extra: options.extraGenerationSignature,
   });
-  const filter = digest(options.filterSelection);
+  const filter = digest({ selection: options.filterSelection, enablePagination: options.enablePagination });
   let providerIndex = 0;
   let upstreamCursor: string | undefined;
   let failures = providers.flatMap((provider, index) =>

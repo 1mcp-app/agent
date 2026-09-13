@@ -27,6 +27,9 @@ describe('authenticated capability cursors', () => {
     };
     const first = await walkCapabilityPages(options);
     expect(first.nextCursor).toBeDefined();
+    await expect(
+      walkCapabilityPages({ ...options, cursor: first.nextCursor, enablePagination: false }),
+    ).rejects.toMatchObject({ data: { reason: 'filter_mismatch' } });
     const [payload, signature] = first.nextCursor!.split('.');
     expect(Buffer.from(payload, 'base64url').toString()).not.toContain('private');
     const changed = JSON.parse(Buffer.from(payload, 'base64url').toString());

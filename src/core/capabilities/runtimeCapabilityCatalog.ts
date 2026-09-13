@@ -60,6 +60,7 @@ export interface RuntimeCatalogOptions {
     kind: CapabilityKind;
     cursor: string;
     enablePagination: boolean;
+    pageSize?: number;
     internalOnly?: boolean;
     filterSelection?: unknown;
   };
@@ -89,6 +90,7 @@ export interface RuntimeCapabilitySnapshot {
     options: {
       cursor?: string;
       enablePagination: boolean;
+      pageSize?: number;
       filterSelection?: unknown;
       internalOnly?: boolean;
       visibility?: CapabilityVisibility;
@@ -155,12 +157,23 @@ export async function acquireRuntimeCapabilityCatalog(
   );
   const capturedAdapters = new Map(Array.from(captured, ([key, connection]) => [key, connection.adapter]));
   const { continuation, ...catalogOptions } = options;
-  const scope = JSON.stringify([
-    Array.from(captured.keys()).sort(),
-    visibility?.sessionId,
-    catalogOptions,
-    visibility ? Array.from(visibility.serverCandidates).sort(([a], [b]) => a.localeCompare(b)) : null,
-  ]);
+  const scope = createHash('sha256')
+    .update(
+      JSON.stringify(
+        [
+          Array.from(captured.keys()).sort(),
+          visibility?.sessionId,
+          visibility?.filterSelection,
+          catalogOptions,
+          visibility ? Array.from(visibility.serverCandidates).sort(([a], [b]) => compareCodePoints(a, b)) : null,
+        ],
+        (_key, value: unknown) =>
+          value !== null && typeof value === 'object' && !Array.isArray(value)
+            ? Object.fromEntries(Object.entries(value).sort(([left], [right]) => compareCodePoints(left, right)))
+            : value,
+      ),
+    )
+    .digest('hex');
   if (continuation) {
     const scopedPrevious = state.scopes.get(scope)?.snapshot;
     const previous =
@@ -455,6 +468,7 @@ export async function acquireRuntimeCapabilityCatalog(
       listOptions: {
         cursor?: string;
         enablePagination: boolean;
+        pageSize?: number;
         filterSelection?: unknown;
         internalOnly?: boolean;
         visibility?: CapabilityVisibility;
@@ -502,6 +516,42 @@ export async function acquireRuntimeCapabilityCatalog(
           return { items: [...page.items] as T[], nextCursor: page.nextCursor };
         },
       }));
+      const pageSize = listOptions.pageSize;
+      if (pageSize !== undefined && (!Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 5000)) {
+        throw new MCPError('Invalid capability page size', ErrorCode.InvalidParams);
+      }
+      const pagedProviders =
+        pageSize === undefined
+          ? undefined
+          : [
+              ...selectedProviders
+                .filter((provider) => provider.error)
+                .map((provider) => ({
+                  id: provider.key,
+                  name: '',
+                  async list(): Promise<CapabilityPage<T>> {
+                    throw provider.error;
+                  },
+                })),
+              ...(sorted.length === 0 && selectedProviders.some((provider) => provider.error)
+                ? []
+                : [
+                    {
+                      id: '\0app.1mcp/snapshot-pages',
+                      name: 'page',
+                      async list(cursor?: string): Promise<CapabilityPage<T>> {
+                        const offset = cursor === undefined ? 0 : Number(cursor);
+                        if (!Number.isSafeInteger(offset) || offset < 0 || offset > sorted.length) {
+                          throw new MCPError('Invalid capability page position', ErrorCode.InvalidParams);
+                        }
+                        return {
+                          items: sorted.slice(offset, offset + pageSize) as T[],
+                          nextCursor: offset + pageSize < sorted.length ? String(offset + pageSize) : undefined,
+                        };
+                      },
+                    },
+                  ]),
+            ];
       const result = await walkCapabilityPages<T>({
         connections: observedConnections,
         kind,
@@ -512,32 +562,35 @@ export async function acquireRuntimeCapabilityCatalog(
             ? Array.from(currentVisibility.serverCandidates.keys()).sort()
             : Array.from(captured.keys()).sort(),
           selection: listOptions.filterSelection,
+          pageSize,
           internalOnly: listOptions.internalOnly,
         },
         failedProviderIds: sourcePages
           .filter((provider) => provider.kind === kind && provider.error)
           .map((provider) => provider.key),
         extraGenerationSignature: signature(listOptions.serverConfigs ?? options.serverConfigs),
-        providers: listOptions.internalOnly
-          ? [
-              {
-                id: '\0app.1mcp/lazy-tools',
-                name: '1mcp',
-                async list() {
-                  const pages = await Promise.all(providers.map((provider) => provider.list()));
-                  return {
-                    items: pages
-                      .flatMap((page) => page.items)
-                      .sort((left, right) => {
-                        const a = (left as { name: string }).name;
-                        const b = (right as { name: string }).name;
-                        return a < b ? -1 : a > b ? 1 : 0;
-                      }),
-                  };
+        providers:
+          pagedProviders ??
+          (listOptions.internalOnly
+            ? [
+                {
+                  id: '\0app.1mcp/lazy-tools',
+                  name: '1mcp',
+                  async list() {
+                    const pages = await Promise.all(providers.map((provider) => provider.list()));
+                    return {
+                      items: pages
+                        .flatMap((page) => page.items)
+                        .sort((left, right) => {
+                          const a = (left as { name: string }).name;
+                          const b = (right as { name: string }).name;
+                          return a < b ? -1 : a > b ? 1 : 0;
+                        }),
+                    };
+                  },
                 },
-              },
-            ]
-          : providers,
+              ]
+            : providers),
       });
       assertCurrent();
       return result;

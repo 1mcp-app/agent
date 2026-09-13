@@ -92,6 +92,7 @@ describe('apiRoutes inspect', () => {
 
   const connection = (name: string, tags: string[], tools: unknown[] = []) =>
     createMockOutboundConnection({
+      capabilities: { tools: {} },
       name,
       tags,
       adapter: { request: vi.fn().mockResolvedValue({ tools }) },
@@ -422,69 +423,59 @@ describe('apiRoutes inspect', () => {
     expect(res.body).toEqual({ error: 'Server not found: hidden' });
   });
 
-  it('preserves pagination metadata when inspecting a server through direct listTools', async () => {
-    const pagedConnections = new Map(outboundConnections) as OutboundConnections;
-    const pagedRequest = vi.fn().mockResolvedValue({
-      tools: [
-        {
-          name: 'query-docs',
-          description: 'Query docs',
-          inputSchema: { type: 'object', properties: {} },
-        },
-      ],
-      totalCount: 3,
-      hasMore: true,
-      nextCursor: 'cursor-2',
-    });
+  it('uses complete ordered snapshots and signed cursors for Admin and CLI inspect', async () => {
+    const pagedConnections = new Map(outboundConnections);
+    const pagedRequest = vi.fn(async ({ params }: { params?: unknown }) =>
+      (params as { cursor?: string })?.cursor === 'private-upstream'
+        ? { tools: [{ name: 'a', inputSchema: { type: 'object' } }] }
+        : { tools: [{ name: 'z', inputSchema: { type: 'object' } }], nextCursor: 'private-upstream' },
+    );
     pagedConnections.set(
       'context7',
-      createMockOutboundConnection({ ...pagedConnections.get('context7')!, adapter: { request: pagedRequest } }),
+      createMockOutboundConnection({
+        ...pagedConnections.get('context7')!,
+        adapter: { request: pagedRequest as never },
+      }),
     );
-
-    const serverRegistry = {
-      getServerNames: vi.fn(() => ['context7', 'filesystem', 'hidden']),
-      get: vi.fn(
-        (name: string) =>
-          ({
-            context7: makeAdapter('context7', ['context7']),
-            filesystem: makeAdapter('filesystem', ['filesystem']),
-            hidden: makeAdapter('hidden', ['hidden']),
-          })[name],
-      ),
+    const manager = {
+      getClients: () => pagedConnections,
+      getClient: (name: string) => pagedConnections.get(name),
+      getInstructionAggregator: () => undefined,
+      getLazyLoadingOrchestrator: () => undefined,
+      getServerRegistry: () => ({ get: () => undefined }),
     };
-
-    const serverManager = {
-      getClients: vi.fn(() => pagedConnections),
-      getInstructionAggregator: vi.fn(() => ({
-        hasInstructions: () => false,
-        getServerInstructions: () => undefined,
-      })),
-      getLazyLoadingOrchestrator: vi.fn(() => ({
-        getToolRegistry: vi.fn(() => ({ listTools: vi.fn() })),
-        getCapabilityAggregator: vi.fn(() => undefined),
-      })),
-      getServerRegistry: vi.fn(() => serverRegistry),
-      getClient: vi.fn((name: string) => pagedConnections.get(name)),
+    const handler = createInspectHandler(manager as never);
+    const query = { target: 'context7', limit: '1' };
+    const first = createMockResponse();
+    await invokeInspectRoute(scopeAuthMiddleware, { query }, first);
+    await invokeInspectRoute(handler, { query }, first);
+    expect(first.statusCode, JSON.stringify(first.body)).toBe(200);
+    expect(first.body).toMatchObject({ totalTools: 2, hasMore: true, tools: [{ tool: 'a' }] });
+    const cursor = (first.body as { nextCursor: string }).nextCursor;
+    expect(cursor.length).toBeLessThanOrEqual(4096);
+    expect(Buffer.from(cursor.split('.')[0], 'base64url').toString()).not.toContain('private-upstream');
+    const second = createMockResponse();
+    await invokeInspectRoute(scopeAuthMiddleware, { query }, second);
+    await invokeInspectRoute(handler, { query: { ...query, cursor } }, second);
+    expect(second.body).toMatchObject({ hasMore: false, tools: [{ tool: 'z' }] });
+    expect(pagedRequest).toHaveBeenCalledTimes(2);
+    for (const changed of [{ cursor: cursor + 'x' }, { cursor, limit: '2' }, { cursor, all: 'true' }]) {
+      const res = createMockResponse();
+      await invokeInspectRoute(scopeAuthMiddleware, { query }, res);
+      await invokeInspectRoute(handler, { query: { ...query, ...changed } }, res);
+      expect(res.statusCode).toBe(400);
+    }
+    const changedAuthority = createMockResponse();
+    await invokeInspectRoute(scopeAuthMiddleware, { query }, changedAuthority);
+    changedAuthority.locals.auth = {
+      token: 'private-token',
+      clientId: 'other-principal',
+      grantedScopes: ['all'],
+      grantedTags: [],
     };
-
-    const pagedInspectHandler = createInspectHandler(serverManager as never);
-    const req = { query: { preset: 'dev-backend', target: 'context7', limit: '1', cursor: 'cursor-1' } };
-    const res = createMockResponse();
-
-    await invokeInspectRoute(scopeAuthMiddleware, req, res);
-    await invokeInspectRoute(pagedInspectHandler, req, res);
-
-    expect(res.statusCode, JSON.stringify(res.body)).toBe(200);
-    expect(res.body).toMatchObject({
-      kind: 'server',
-      server: 'context7',
-      totalTools: 3,
-      hasMore: true,
-      nextCursor: 'cursor-2',
-    });
-    expect(pagedRequest).toHaveBeenCalledWith(
-      expect.objectContaining({ method: 'tools/list', params: { limit: 1, cursor: 'cursor-1' } }),
-    );
+    await invokeInspectRoute(handler, { query: { ...query, cursor } }, changedAuthority);
+    expect(changedAuthority.statusCode).toBe(400);
+    expect(pagedRequest).toHaveBeenCalledTimes(2);
   });
 
   it('includes per-server instructions in inspect listings when the aggregator has them', async () => {

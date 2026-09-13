@@ -90,6 +90,7 @@ async function invokeInspectRoute(handler: RequestHandler, req: Partial<Request>
 
 function connectionWithTools(name: string, tags: string[], tools: unknown[]) {
   return createMockOutboundConnection({
+    capabilities: { tools: {} },
     name,
     tags,
     status: ClientStatus.Connected,
@@ -259,6 +260,7 @@ describe('apiRoutes inspect', () => {
       tools: [{ name: 'find_symbol', description: 'Find symbol', inputSchema: { type: 'object' } }],
     });
     const connection = createMockOutboundConnection({
+      capabilities: { tools: {} },
       name: 'serena',
       tags: ['serena'],
       status: ClientStatus.Connected,
@@ -270,7 +272,7 @@ describe('apiRoutes inspect', () => {
     const createTemplateBasedServers = vi.fn();
     const registerTemplate = vi.fn();
     const serverManager = {
-      getClients: vi.fn(() => new Map()),
+      getClients: vi.fn(() => new Map([['serena:rendered', connection]])),
       getInstructionAggregator: vi.fn(() => ({
         hasInstructions: () => false,
         getServerInstructions: () => undefined,

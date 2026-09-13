@@ -1,25 +1,22 @@
 import { ConfigManager } from '@src/config/configManager.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { CapabilityAggregator } from '@src/core/capabilities/capabilityAggregator.js';
-import { buildCatalogGeneration, readPublicCapabilityRoute } from '@src/core/capabilities/catalogGeneration.js';
+import { createCapabilityVisibility } from '@src/core/capabilities/capabilityVisibility.js';
+import { readPublicCapabilityRoute } from '@src/core/capabilities/catalogGeneration.js';
+import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { LoadingState, type ServerLoadingInfo } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { ServerRegistry } from '@src/core/server/adapters/ServerRegistry.js';
-import {
-  filterDisabledTools,
-  getDisabledToolError,
-  getDisabledToolsForServer,
-  isSourceToolDisabled,
-} from '@src/core/server/disabledTools.js';
+import { filterDisabledTools, getDisabledToolError, isSourceToolDisabled } from '@src/core/server/disabledTools.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
-import {
-  applyEffectiveToolDescription,
-  applySourceToolDescription,
-} from '@src/core/server/toolDescriptionOverrides.js';
+import { applyEffectiveToolDescription } from '@src/core/server/toolDescriptionOverrides.js';
 import logger from '@src/logger/logger.js';
+import { ErrorCode } from '@src/sdk/contracts/index.js';
+import { getAuthInfo } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
+import { MCPError } from '@src/utils/core/errorTypes.js';
 
 import { Request, RequestHandler, Response } from 'express';
 
@@ -52,30 +49,11 @@ export type { InspectServerPayload, InspectServersPayload, InspectToolPayload, S
 type FilteredConnections = ReturnType<typeof FilteringService.getFilteredConnections>;
 type Tool = Parameters<typeof summarizeDirectServerTool>[1];
 
-interface DirectListToolsResult {
-  tools?: Tool[];
-  totalCount?: number;
-  hasMore?: boolean;
-  nextCursor?: string;
-}
-
 type DeclaredServers = ReturnType<ConfigManager['loadDeclaredServerConfigs']>;
 type ServerConfigMap =
   ReturnType<typeof McpConfigManager.getInstance> extends { getConfiguredServerTargets(): infer TResult }
     ? TResult
     : never;
-
-async function listDirectServerTools(
-  connection: NonNullable<FilteredConnections extends Map<unknown, infer TValue> ? TValue : never>,
-  options: { limit: number; cursor?: string },
-): Promise<DirectListToolsResult> {
-  return requestLegacyAdapter<DirectListToolsResult>(
-    connection.adapter,
-    'tools/list',
-    { limit: options.limit, ...(options.cursor === undefined ? {} : { cursor: options.cursor }) },
-    { timeoutMs: connection.requestTimeoutMs },
-  );
-}
 
 function getServerConfigs() {
   const manager = McpConfigManager.getInstance();
@@ -104,38 +82,6 @@ function getLoadingInfo(serverName: string): ServerLoadingInfo | undefined {
 
 function isLoadTrackedStaticServer(declaredServers: DeclaredServers, serverName: string): boolean {
   return Boolean(declaredServers.staticServers[serverName] && !declaredServers.staticServers[serverName].disabled);
-}
-
-function hasDisabledTools(serverConfigs: ServerConfigMap, serverName: string): boolean {
-  return getDisabledToolsForServer(serverConfigs, serverName).length > 0;
-}
-
-function buildDirectToolsResult(
-  serverName: string,
-  directResult: DirectListToolsResult,
-  serverConfigs: ServerConfigMap,
-): { tools: ToolSummary[]; totalTools: number; hasMore: boolean; nextCursor?: string } {
-  const rawTools = directResult.tools ?? [];
-  const generation = buildCatalogGeneration(
-    0,
-    rawTools.map((tool) => ({
-      kind: 'tools',
-      server: serverName,
-      connectionKey: serverName,
-      object: applySourceToolDescription(tool, serverConfigs[serverName], serverName),
-    })),
-  );
-  const directTools = generation.entries.filter(
-    (entry) => !isSourceToolDisabled(serverConfigs, serverName, entry.route.upstreamIdentity),
-  );
-  const disabledToolsConfigured = hasDisabledTools(serverConfigs, serverName);
-
-  return {
-    tools: directTools.map((entry) => summarizeToolSchema(entry.publicObject as unknown as Tool)),
-    totalTools: disabledToolsConfigured ? directTools.length : (directResult.totalCount ?? directTools.length),
-    hasMore: disabledToolsConfigured ? false : (directResult.hasMore ?? Boolean(directResult.nextCursor)),
-    nextCursor: disabledToolsConfigured ? undefined : directResult.nextCursor,
-  };
 }
 
 export async function buildServerSummaries(
@@ -322,9 +268,38 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
 
       const requestSessionId = await ensureRequestContextInitialized(serverManager, req, res, filterConfig);
       const filteredConnections = FilteringService.getFilteredConnections(serverManager.getClients(), filterConfig);
-      const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
-      const capabilityAggregator: CapabilityAggregator | undefined = lazyOrchestrator?.getCapabilityAggregator();
       const serverRegistry: ServerRegistry = serverManager.getServerRegistry();
+      const auth = getAuthInfo(res);
+      const selection = {
+        destination: 'rest-inspect',
+        filterConfig,
+        authority: auth
+          ? { clientId: auth.clientId, scopes: [...auth.grantedScopes].sort(), tags: [...auth.grantedTags].sort() }
+          : undefined,
+      };
+      const acquireServerSnapshot = async (
+        connection: NonNullable<FilteredConnections extends Map<unknown, infer T> ? T : never>,
+        serverName: string,
+        continuation = false,
+      ) => {
+        const connections = serverManager.getClients();
+        const key = [...connections].find(([, candidate]) => candidate === connection)?.[0];
+        if (key === undefined) throw new Error('Tool inventory backend is no longer current');
+        const visibility = createCapabilityVisibility([[key, serverName]], requestSessionId, selection);
+        return acquireRuntimeCapabilityCatalog(connections, visibility, {
+          serverConfigs,
+          continuation:
+            continuation && cursorParam !== undefined
+              ? {
+                  kind: 'tools',
+                  cursor: cursorParam,
+                  enablePagination: !allParam,
+                  pageSize: limit,
+                  filterSelection: selection,
+                }
+              : undefined,
+        });
+      };
       const target = parseTarget(targetRaw);
       if (!target) {
         res.status(400).json({ error: 'Invalid target format. Use <server> or <server>/<tool>.' });
@@ -358,38 +333,16 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
         }
 
         let found: Tool | undefined;
-
-        if (capabilityAggregator) {
-          found = capabilityAggregator
-            .getCurrentCapabilities()
-            .tools.find((t) => t.name === qualifiedName && readPublicCapabilityRoute(t)?.server === serverName);
-        }
-
-        if (!found) {
-          const connection = sessionConnection ?? filteredConnection;
-          if (connection) {
-            try {
-              const result = await requestLegacyAdapter<{ tools: Tool[] }>(
-                connection.adapter,
-                'tools/list',
-                undefined,
-                {
-                  timeoutMs: connection.requestTimeoutMs,
-                },
-              );
-              const generation = buildCatalogGeneration(
-                0,
-                (result.tools ?? []).map((tool) => ({
-                  kind: 'tools',
-                  server: serverName,
-                  connectionKey: serverName,
-                  object: applySourceToolDescription(tool, serverConfigs[serverName], serverName),
-                })),
-              );
-              found = generation.resolve('tools', qualifiedName)?.publicObject as unknown as Tool | undefined;
-            } catch (error) {
-              logger.warn(`Failed to list tools for server '${serverName}' while resolving tool '${toolName}':`, error);
-            }
+        const connection = sessionConnection ?? filteredConnection;
+        if (connection) {
+          try {
+            const snapshot = await acquireServerSnapshot(connection, serverName);
+            // A failed enumeration must not turn a previously cached schema into a current result.
+            await snapshot.list('tools', { enablePagination: false });
+            found = snapshot.resolve('tools', qualifiedName)?.entry.publicObject as unknown as Tool | undefined;
+          } catch {
+            res.status(503).json({ error: 'Tool inventory not available for this server' });
+            return;
           }
         }
 
@@ -484,12 +437,38 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
         return;
       }
 
-      let toolsResult: { tools: ToolSummary[]; totalTools: number; hasMore: boolean; nextCursor?: string };
+      let toolsResult: {
+        tools: ToolSummary[];
+        totalTools: number;
+        hasMore: boolean;
+        nextCursor?: string;
+        _meta?: Record<string, unknown>;
+      };
 
       try {
-        const directResult = await listDirectServerTools(connection, { limit, cursor: cursorParam });
-        toolsResult = buildDirectToolsResult(serverName, directResult, serverConfigs);
-      } catch {
+        const snapshot = await acquireServerSnapshot(connection, serverName, true);
+        const page = await snapshot.list<Tool>('tools', {
+          cursor: cursorParam,
+          enablePagination: !allParam,
+          pageSize: limit,
+          filterSelection: selection,
+        });
+        toolsResult = {
+          tools: page.items.map(summarizeToolSchema),
+          totalTools: snapshot.generation.entries.filter(
+            (entry) =>
+              entry.route.kind === 'tools' &&
+              !isSourceToolDisabled(serverConfigs, serverName, entry.route.upstreamIdentity),
+          ).length,
+          hasMore: page.nextCursor !== undefined,
+          nextCursor: page.nextCursor,
+          _meta: page._meta,
+        };
+      } catch (error) {
+        if (error instanceof MCPError && error.code === ErrorCode.InvalidParams) {
+          res.status(400).json({ error: error.message, code: error.code, data: error.data });
+          return;
+        }
         // A failed authoritative inventory cannot become a successful stale or empty view.
         res.status(503).json({ error: 'Tool inventory not available for this server' });
         return;
@@ -509,6 +488,7 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
         totalTools: toolsResult.totalTools,
         hasMore: toolsResult.hasMore,
         nextCursor: toolsResult.nextCursor,
+        ...(toolsResult._meta === undefined ? {} : { _meta: toolsResult._meta }),
       };
       res.json(payload);
     } catch (error) {
