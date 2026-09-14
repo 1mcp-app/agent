@@ -26,6 +26,7 @@ vi.mock('@src/commands/shared/authProfileStore.js', () => ({
 
 const transportState = vi.hoisted(() => ({
   callResult: {
+    isError: false,
     content: [{ type: 'text', text: 'ok' }],
   },
   sessionIdOnInitialize: 'fresh-session',
@@ -173,7 +174,7 @@ describe('runCommand REST-first path', () => {
     vi.stubGlobal('fetch', mockFetch);
     mockFetch.mockReset();
     transportState.instances = [];
-    transportState.callResult = { content: [{ type: 'text', text: 'ok' }] };
+    transportState.callResult = { isError: false, content: [{ type: 'text', text: 'ok' }] };
     transportState.sessionIdOnInitialize = 'fresh-session';
     transportState.throw404OnMethod = undefined;
     mockedResolveProjectContext.mockReset();
@@ -228,6 +229,46 @@ describe('runCommand REST-first path', () => {
   function makeConnectedServerResponse() {
     return makeRestResponse(200, { kind: 'server', server: 'runner', status: 'connected', available: true });
   }
+
+  it.each(['rest', 'mcp'] as const)('adds EOF recovery guidance once through %s', async (path) => {
+    const text = 'Get "https://example.invalid/api/datasources/uid/prometheus": EOF';
+    const result = { isError: true, content: [{ type: 'text', text }] };
+    transportState.callResult = result;
+    mockFetch.mockResolvedValueOnce(makeConnectedServerResponse());
+    mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
+    mockFetch.mockResolvedValueOnce(
+      path === 'rest'
+        ? makeRestResponse(200, { result, server: 'runner', tool: 'echo_args' })
+        : makeTextResponse(404, 'Not Found'),
+    );
+    const stderr: string[] = [];
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      stderr.push(String(chunk));
+      return true;
+    });
+    const originalExitCode = process.exitCode;
+    try {
+      const { runCommand } = await import('./run.js');
+      await runCommand({
+        tool: 'runner/echo_args',
+        args: '{}',
+        'config-dir': cacheDir,
+        'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
+      } as never);
+      expect(process.exitCode).toBe(5);
+      expect(stderr.join('')).toContain('example.invalid');
+      expect(stderr.join('')).toContain('root cause is unconfirmed');
+      expect(stderr.join('').match(/1MCP: /g)).toHaveLength(1);
+      expect(stderr.join('')).toContain('5. After an authorized restart');
+      const mcpCalls = transportState.instances
+        .flatMap((instance) => instance.sentMessages)
+        .filter((message) => message.method === 'tools/call');
+      expect(mcpCalls).toHaveLength(path === 'rest' ? 0 : 1);
+      expect(mockFetch.mock.calls.filter(([url]) => String(url).includes('tool-invocations'))).toHaveLength(1);
+    } finally {
+      process.exitCode = originalExitCode;
+    }
+  });
 
   it('does not persist hasRestEndpoint=false for transient 503 REST failures', async () => {
     await writeCliSessionCache(cachePath, {

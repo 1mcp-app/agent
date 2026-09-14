@@ -10,6 +10,7 @@ import {
   type RunOutputFormat,
   validateToolArgs,
 } from '@src/commands/run/runUtils.js';
+import { formatUpstreamEofGuidance } from '@src/commands/run/upstreamEofGuidance.js';
 import { ApiClient } from '@src/commands/shared/apiClient.js';
 import {
   attachReusableClientSurface,
@@ -118,6 +119,10 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
 
   if (response.rawResponse.result.isError) {
     process.stderr.write(`${output}\n`);
+    if (format !== 'json') {
+      const guidance = formatUpstreamEofGuidance(response.rawResponse.result);
+      if (guidance) process.stderr.write(`\n${guidance}\n`);
+    }
     process.exitCode = 5;
     return;
   }

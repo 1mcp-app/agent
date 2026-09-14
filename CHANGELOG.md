@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.0] - 2026-09-13
+
+### 🚀 Features
+- Preserve complete capabilities and exact routes by @xizhibei in [#530](https://github.com/1mcp-app/agent/pull/530)
+- Serve and negotiate MCP 2026 compatibility by @xizhibei in [#528](https://github.com/1mcp-app/agent/pull/528)
+- Establish SDK-free protocol era boundary by @xizhibei in [#526](https://github.com/1mcp-app/agent/pull/526)
+- Contain legacy SDK while introducing TypeScript SDK v2 by @xizhibei in [#525](https://github.com/1mcp-app/agent/pull/525)
+
+### 🐛 Bug Fixes
+- Enforce owner-only permissions on credential stores, with read-side self-heal (AUTH-07) by @Xxx91n in [#518](https://github.com/1mcp-app/agent/pull/518)
+- Prevent workflow script injection and add schema-based security gate by @Xxx91n in [#516](https://github.com/1mcp-app/agent/pull/516)
+- Refresh conformance pins and report integrity failures by @xizhibei in [#529](https://github.com/1mcp-app/agent/pull/529)
+- Address code scanning alerts by @xizhibei in [#519](https://github.com/1mcp-app/agent/pull/519)
+
+### 🧪 Testing
+- Build cross-era MCP evidence foundation by @xizhibei in [#514](https://github.com/1mcp-app/agent/pull/514)
+
+### ⚙️ Miscellaneous Tasks
+- Improve code formatting across multiple files by @xizhibei
+
+
 ## [0.37.0] - 2026-08-31
 
 ### 🚀 Features
@@ -46,7 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 🚀 Features
 - Configure per-server tool metadata by @xizhibei in [#458](https://github.com/1mcp-app/agent/pull/458)
 - Add admin-managed instruction templates by @xizhibei in [#457](https://github.com/1mcp-app/agent/pull/457)
-- Add Windows Task Scheduler install script and tests by @RCrushMe in [#455](https://github.com/1mcp-app/agent/pull/455)
+- Add Windows Task Scheduler install script and tests by @RCrushMe
 - Refine console workflows and bundle loading by @xizhibei in [#456](https://github.com/1mcp-app/agent/pull/456)
 - Authorize template context per runtime scope by @xizhibei in [#439](https://github.com/1mcp-app/agent/pull/439)
 - Add custom configured server creation by @xizhibei in [#440](https://github.com/1mcp-app/agent/pull/440)
@@ -63,7 +84,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 🐛 Bug Fixes
 - Speed up Windows proxy startup by @xizhibei in [#460](https://github.com/1mcp-app/agent/pull/460)
 - Stop capability polling after terminal 401 by @iddictive in [#426](https://github.com/1mcp-app/agent/pull/426)
-- Handle EPERM error on Windows in isOwnershipExistsError by @RCrushMe in [#446](https://github.com/1mcp-app/agent/pull/446)
+- Handle EPERM error on Windows in isOwnershipExistsError by @RCrushMe
 - Stabilize aggregate capability pagination by @xizhibei in [#448](https://github.com/1mcp-app/agent/pull/448)
 - Use basic parsing in Windows smoke test by @xizhibei in [#441](https://github.com/1mcp-app/agent/pull/441)
 - Write Windows smoke configs without BOM by @xizhibei in [#438](https://github.com/1mcp-app/agent/pull/438)
@@ -81,7 +102,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 📚 Documentation
 - Align documentation with current codebase by @xizhibei in [#443](https://github.com/1mcp-app/agent/pull/443)
-- Add Windows Task Scheduler deployment guide by @RCrushMe in [#449](https://github.com/1mcp-app/agent/pull/449)
+- Add Windows Task Scheduler deployment guide by @RCrushMe
 - Add ADRs for OAuth refresh tokens and managed backend log delivery by @xizhibei
 - Document async loading sub-parameters by @adity982 in [#398](https://github.com/1mcp-app/agent/pull/398)
 
@@ -94,7 +115,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## New Contributors
 * @iddictive made their first contribution in [#426](https://github.com/1mcp-app/agent/pull/426)
-* @RCrushMe made their first contribution in [#449](https://github.com/1mcp-app/agent/pull/449)
+* @RCrushMe made their first contribution
 * @Quentin-M made their first contribution in [#414](https://github.com/1mcp-app/agent/pull/414)
 * @Congee-wine made their first contribution in [#416](https://github.com/1mcp-app/agent/pull/416)
 * @adity982 made their first contribution in [#398](https://github.com/1mcp-app/agent/pull/398)
@@ -1139,6 +1160,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * @xizhibei made their first contribution in [#1](https://github.com/1mcp-app/agent/pull/1)
 * @dependabot[bot] made their first contribution
 
+[0.38.0]: https://github.com/1mcp-app/agent/compare/v0.37.0..v0.38.0
 [0.37.0]: https://github.com/1mcp-app/agent/compare/v0.36.0..v0.37.0
 [0.36.0]: https://github.com/1mcp-app/agent/compare/v0.35.0..v0.36.0
 [0.35.0]: https://github.com/1mcp-app/agent/compare/v0.34.4..v0.35.0
