@@ -49,6 +49,15 @@ function compile(job: Job): ValidateFunction {
     ...(modern ? ['$defs', 'dependentSchemas'] : []),
     ...(job.dialect !== '2020-12' ? ['definitions'] : []),
   ];
+  const anchors: string[] = [];
+  const referenceKeywords = ['$ref'];
+  if (modern) anchors.push('$anchor');
+  if (job.dialect === '2020-12') {
+    anchors.push('$dynamicAnchor');
+    referenceKeywords.push('$dynamicRef');
+  } else if (job.dialect === '2019-09') {
+    referenceKeywords.push('$recursiveRef');
+  }
   function walk(schema: unknown, parentBase: string): void {
     if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return;
     if (visited.has(schema)) return;
@@ -74,7 +83,7 @@ function compile(job: Job): ValidateFunction {
       if (resources.has(scope) && resources.get(scope) !== node) fail('schema_invalid');
       resources.set(scope, node);
     }
-    for (const keyword of modern ? ['$anchor', ...(job.dialect === '2020-12' ? ['$dynamicAnchor'] : [])] : [])
+    for (const keyword of anchors)
       if (typeof node[keyword] === 'string') {
         const anchor = new URL('#' + node[keyword], scope).href;
         if (resources.has(anchor)) fail('schema_invalid');
@@ -95,10 +104,7 @@ function compile(job: Job): ValidateFunction {
       for (const [uri, required] of Object.entries(node.$vocabulary))
         if (required && !supported.has(uri)) fail('schema_unsupported_vocabulary');
     }
-    for (const keyword of [
-      '$ref',
-      ...(job.dialect === '2020-12' ? ['$dynamicRef'] : job.dialect === '2019-09' ? ['$recursiveRef'] : []),
-    ])
+    for (const keyword of referenceKeywords)
       if (typeof node[keyword] === 'string') {
         if (++references > limits.references) fail('schema_budget_exceeded');
         refs.push(new URL(node[keyword], scope).href.replace(/#$/, ''));
@@ -149,11 +155,13 @@ function compile(job: Job): ValidateFunction {
     }
     walk(target, scope);
   }
-  const Constructor = (job.dialect === '2020-12'
-    ? Ajv2020
-    : job.dialect === '2019-09'
-      ? Ajv2019
-      : Ajv) as unknown as new (options: object) => AjvType;
+  let dialectConstructor: typeof Ajv | typeof Ajv2020 | typeof Ajv2019 = Ajv;
+  if (job.dialect === '2020-12') {
+    dialectConstructor = Ajv2020;
+  } else if (job.dialect === '2019-09') {
+    dialectConstructor = Ajv2019;
+  }
+  const Constructor = dialectConstructor as unknown as new (options: object) => AjvType;
   const ajv = new Constructor({
     strict: false,
     validateSchema: true,

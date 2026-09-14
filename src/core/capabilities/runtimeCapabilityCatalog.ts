@@ -320,14 +320,20 @@ export async function acquireRuntimeCapabilityCatalog(
   );
 
   for (const kind of Object.keys(METHODS) as CapabilityKind[]) {
-    const items =
-      kind === 'tools'
-        ? options.internalTools
-        : kind === 'resources'
-          ? options.internalResources
-          : kind === 'prompts'
-            ? options.internalPrompts
-            : options.internalResourceTemplates;
+    let items: readonly unknown[] | undefined;
+    switch (kind) {
+      case 'tools':
+        items = options.internalTools;
+        break;
+      case 'resources':
+        items = options.internalResources;
+        break;
+      case 'prompts':
+        items = options.internalPrompts;
+        break;
+      default:
+        items = options.internalResourceTemplates;
+    }
     if (!items?.length) continue;
     const key = `\0app.1mcp/${kind}`;
     sourcePages.push({ kind, key, server: '1mcp', pages: new Map([[undefined, { items: [...items] }]]) });
@@ -429,7 +435,7 @@ export async function acquireRuntimeCapabilityCatalog(
     items.flatMap<unknown>((item) => {
       if (!item || typeof item !== 'object') return [];
       const raw = item as Record<string, unknown>;
-      const identity = kind === 'resources' ? raw.uri : kind === 'resourceTemplates' ? raw.uriTemplate : raw.name;
+      const identity = getCapabilityIdentity(kind, raw);
       const entry = accepted.get(JSON.stringify([kind, key, identity]));
       if (!entry) return [];
       if (kind === 'tools') {
@@ -589,7 +595,7 @@ export async function acquireRuntimeCapabilityCatalog(
         .flatMap((provider) => [...provider.pages.values()]);
       const identity = (item: unknown): string => {
         const value = item as Record<string, unknown>;
-        return String(kind === 'resources' ? value.uri : kind === 'resourceTemplates' ? value.uriTemplate : value.name);
+        return String(getCapabilityIdentity(kind, value));
       };
       const sorted = pages
         .flatMap((page) => page.items)
@@ -678,7 +684,9 @@ export async function acquireRuntimeCapabilityCatalog(
                         .sort((left, right) => {
                           const a = (left as { name: string }).name;
                           const b = (right as { name: string }).name;
-                          return a < b ? -1 : a > b ? 1 : 0;
+                          if (a < b) return -1;
+                          if (a > b) return 1;
+                          return 0;
                         }),
                     };
                   },
@@ -706,6 +714,12 @@ export async function acquireRuntimeCapabilityCatalog(
     publishCompleteConfiguredToolTargetSnapshots(connections);
   }
   return snapshot;
+}
+
+function getCapabilityIdentity(kind: CapabilityKind, value: Record<string, unknown>): unknown {
+  if (kind === 'resources') return value.uri;
+  if (kind === 'resourceTemplates') return value.uriTemplate;
+  return value.name;
 }
 
 function readonlyConnections(map: Map<string, OutboundConnection>): ReadonlyMap<string, OutboundConnection> {

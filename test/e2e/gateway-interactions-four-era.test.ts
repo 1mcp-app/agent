@@ -43,11 +43,9 @@ import { z } from 'zod';
 const serverCapabilities = { tools: {}, prompts: {}, resources: {}, completions: {} };
 const clientCapabilities = { roots: {}, sampling: {}, elicitation: { form: {} } };
 function selectedCapabilities(method: string) {
-  return method === 'roots/list'
-    ? { roots: {} }
-    : method === 'sampling/createMessage'
-      ? { sampling: {} }
-      : { elicitation: { form: {} } };
+  if (method === 'roots/list') return { roots: {} };
+  if (method === 'sampling/createMessage') return { sampling: {} };
+  return { elicitation: { form: {} } };
 }
 const interactions = [
   {

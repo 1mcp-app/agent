@@ -158,12 +158,12 @@ async function tryRunRest(
   });
   const needsSchemaForStdin = options.args === undefined && stdinText !== undefined;
   const needsSchemaForValidation = options.args !== undefined;
-  const restArgs =
-    options.args !== undefined
-      ? parseExplicitArgs(options.args)
-      : stdinText !== undefined
-        ? parseJsonObject(stdinText)
-        : {};
+  let restArgs: Record<string, unknown> | null = {};
+  if (options.args !== undefined) {
+    restArgs = parseExplicitArgs(options.args);
+  } else if (stdinText !== undefined) {
+    restArgs = parseJsonObject(stdinText);
+  }
 
   // Parse explicit input before any network activity so invalid command input
   // remains a local validation error even while a backend is starting.

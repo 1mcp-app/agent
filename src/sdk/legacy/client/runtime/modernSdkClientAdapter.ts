@@ -269,18 +269,16 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
       const logLevel = currentLegacyInteractionLogLevel();
       const message: { method: RequestMethod; params?: unknown } = {
         method: request.method as RequestMethod,
-        ...(continuation?.inputResponses !== undefined || continuation?.requestState !== undefined
-          ? {
-              params: {
-                ...((request.params as Record<string, unknown>) ?? {}),
-                ...(continuation.inputResponses === undefined ? {} : { inputResponses: continuation.inputResponses }),
-                ...(continuation.requestState === undefined ? {} : { requestState: continuation.requestState }),
-              },
-            }
-          : request.params === undefined
-            ? {}
-            : { params: toJsonValue(request.params) }),
       };
+      if (continuation?.inputResponses !== undefined || continuation?.requestState !== undefined) {
+        message.params = {
+          ...((request.params as Record<string, unknown>) ?? {}),
+          ...(continuation.inputResponses === undefined ? {} : { inputResponses: continuation.inputResponses }),
+          ...(continuation.requestState === undefined ? {} : { requestState: continuation.requestState }),
+        };
+      } else if (request.params !== undefined) {
+        message.params = toJsonValue(request.params);
+      }
       if (
         this.protocol.era === 'modern' &&
         (logLevel || ['tools/call', 'prompts/get', 'resources/read'].includes(request.method))

@@ -78,19 +78,26 @@ describe('capability pagination protocol handlers', () => {
         _schema: unknown,
         options: Record<string, unknown>,
       ) => {
-        const method = (
-          request.method === 'resources/list'
-            ? client.listResources
-            : request.method === 'resources/templates/list'
-              ? client.listResourceTemplates
-              : request.method === 'prompts/list'
-                ? client.listPrompts
-                : request.method === 'tools/list'
-                  ? client.listTools
-                  : request.method === 'resources/read'
-                    ? client.readResource
-                    : undefined
-        ) as ((params: Record<string, unknown>, options: Record<string, unknown>) => Promise<unknown>) | undefined;
+        let selectedMethod;
+        switch (request.method) {
+          case 'resources/list':
+            selectedMethod = client.listResources;
+            break;
+          case 'resources/templates/list':
+            selectedMethod = client.listResourceTemplates;
+            break;
+          case 'prompts/list':
+            selectedMethod = client.listPrompts;
+            break;
+          case 'tools/list':
+            selectedMethod = client.listTools;
+            break;
+          case 'resources/read':
+            selectedMethod = client.readResource;
+            break;
+        }
+        const method = selectedMethod as
+          ((params: Record<string, unknown>, options: Record<string, unknown>) => Promise<unknown>) | undefined;
         if (!method) throw new Error(`Unexpected adapter request: ${request.method}`);
         return method(request.params ?? {}, options);
       },

@@ -48,11 +48,15 @@ function identity(value: object): string {
 }
 
 function digest(value: unknown): string {
-  const json = JSON.stringify(value, (_key, item: unknown) =>
-    item && typeof item === 'object' && !Array.isArray(item)
-      ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
-      : item,
-  );
+  const json = JSON.stringify(value, (_key, item: unknown) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+    const entries = Object.entries(item).sort(([a], [b]) => {
+      if (a < b) return -1;
+      if (a > b) return 1;
+      return 0;
+    });
+    return Object.fromEntries(entries);
+  });
 
   return createHash('sha256').update(json).digest('hex');
 }
@@ -82,7 +86,9 @@ export async function createModernInteractionBinding(
   if (!auth || !['tools/call', 'prompts/get', 'resources/read'].includes(operation)) return undefined;
   const captured = toImmutableJsonValue(params ?? {});
   if (!captured || typeof captured !== 'object' || Array.isArray(captured)) return undefined;
-  const kind = operation === 'tools/call' ? 'tools' : operation === 'prompts/get' ? 'prompts' : 'resources';
+  let kind: 'tools' | 'prompts' | 'resources' = 'resources';
+  if (operation === 'tools/call') kind = 'tools';
+  else if (operation === 'prompts/get') kind = 'prompts';
   const record = captured as Readonly<
     Record<string, import('@src/gateway/contracts/immutableJson.js').ImmutableJsonValue>
   >;

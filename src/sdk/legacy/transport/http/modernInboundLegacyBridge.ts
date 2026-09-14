@@ -44,14 +44,12 @@ export async function createModernInboundLegacyBridge(
   const client = new Client({ name: '1mcp-modern-http-bridge', version: '1.0.0' }, { capabilities });
   if (options.interaction) {
     const interact = options.interaction;
-    for (const schema of [CreateMessageRequestSchema, ElicitRequestSchema, ListRootsRequestSchema] as const) {
-      const capability =
-        schema === CreateMessageRequestSchema
-          ? capabilities.sampling
-          : schema === ElicitRequestSchema
-            ? capabilities.elicitation
-            : capabilities.roots;
-      if (!capability) continue;
+    for (const [schema, capability] of [
+      [CreateMessageRequestSchema, 'sampling'],
+      [ElicitRequestSchema, 'elicitation'],
+      [ListRootsRequestSchema, 'roots'],
+    ] as const) {
+      if (!capabilities[capability]) continue;
       client.setRequestHandler(
         schema,
         async (request) =>

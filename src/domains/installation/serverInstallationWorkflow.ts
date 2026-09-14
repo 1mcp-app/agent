@@ -111,14 +111,15 @@ class DefaultServerInstallationWorkflow implements ServerInstallationWorkflow {
       };
     }
 
+    let status: 'template_conflict' | 'exists' | 'failed' = 'failed';
+    if (configChange.status === 'template_conflict') {
+      status = 'template_conflict';
+    } else if (configChange.status === 'destination_conflict') {
+      status = 'exists';
+    }
     return {
       ...resultFromResolved(input.mode, resolved),
-      status:
-        configChange.status === 'template_conflict'
-          ? 'template_conflict'
-          : configChange.status === 'destination_conflict'
-            ? 'exists'
-            : 'failed',
+      status,
       configChange,
       warnings: [...resolved.warnings, ...configChange.warnings],
       error: configChange.error ?? `Config Change returned ${configChange.status}`,

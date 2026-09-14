@@ -228,7 +228,12 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       const cursorParam = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
       const allParam = req.query.all === 'true' || req.query.all === '1';
 
-      const limit = allParam ? 5000 : Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 20;
+      let limit = 20;
+      if (allParam) {
+        limit = 5000;
+      } else if (Number.isFinite(limitParam) && limitParam > 0) {
+        limit = limitParam;
+      }
 
       const filterConfig = buildFilterConfig(res);
       const instructionAggregator = serverManager.getInstructionAggregator();

@@ -223,15 +223,19 @@ export class SchemaBoundary {
   private finish(job: Job, error?: SchemaFailureCode, verdict?: SchemaVerdict): void {
     clearTimeout(job.timer);
     if (job.abort) job.signal?.removeEventListener('abort', job.abort);
-    if (error)
+    if (error) {
+      let phase: SchemaBoundaryError['phase'] = 'admission';
+      if (job.operation !== 'compile') {
+        phase = job.contract.profile === 'tool-output' ? 'output' : 'input';
+      }
       job.reject(
         new SchemaBoundaryError(
           error,
           error === 'schema_evaluation_unavailable' || error === 'schema_evaluation_timeout',
-          job.operation === 'compile' ? 'admission' : job.contract.profile === 'tool-output' ? 'output' : 'input',
+          phase,
         ),
       );
-    else job.resolve(verdict!);
+    } else job.resolve(verdict!);
   }
   private remove(slot: Slot, code: SchemaFailureCode): void {
     if (!this.slots.delete(slot)) return;

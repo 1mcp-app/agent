@@ -117,14 +117,15 @@ export class ApiClient {
             error = undefined;
           } else {
             const errObj = json as Record<string, unknown>;
-            error =
-              typeof errObj.error === 'string'
-                ? errObj.error
-                : isErrorObject(errObj.error) && typeof errObj.error.message === 'string'
-                  ? errObj.error.message
-                  : typeof errObj.message === 'string'
-                    ? errObj.message
-                    : `HTTP ${response.status}`;
+            if (typeof errObj.error === 'string') {
+              error = errObj.error;
+            } else if (isErrorObject(errObj.error) && typeof errObj.error.message === 'string') {
+              error = errObj.error.message;
+            } else if (typeof errObj.message === 'string') {
+              error = errObj.message;
+            } else {
+              error = `HTTP ${response.status}`;
+            }
           }
         } catch {
           error = `HTTP ${response.status}: invalid JSON response`;
