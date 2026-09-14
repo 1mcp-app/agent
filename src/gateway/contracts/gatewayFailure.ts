@@ -59,13 +59,17 @@ export function gatewayFailureFromUnknown(error: unknown, kind: GatewayFailureKi
   const trusted = record !== undefined && knownGatewayFailures.has(record);
   const rawCode = record ? ownDataValue(record, 'code') : undefined;
   // Retain numeric protocol codes, never untrusted messages, data, or arbitrary strings.
-  const code =
-    trusted && typeof rawCode === 'string'
-      ? rawCode
-      : (typeof rawCode === 'number' && Number.isSafeInteger(rawCode)) ||
-          (typeof rawCode === 'string' && /^-?\d+$/.test(rawCode) && Number.isSafeInteger(Number(rawCode)))
-        ? String(rawCode)
-        : `gateway_${failureKind.replaceAll('-', '_')}_error`;
+  let code: string;
+  if (trusted && typeof rawCode === 'string') {
+    code = rawCode;
+  } else if (
+    (typeof rawCode === 'number' && Number.isSafeInteger(rawCode)) ||
+    (typeof rawCode === 'string' && /^-?\d+$/.test(rawCode) && Number.isSafeInteger(Number(rawCode)))
+  ) {
+    code = String(rawCode);
+  } else {
+    code = `gateway_${failureKind.replaceAll('-', '_')}_error`;
+  }
   const message = trusted ? (ownDataValue(record!, 'message') as string) : `Gateway ${failureKind} failure`;
   const data = trusted ? (ownDataValue(record!, 'data') as ImmutableJsonValue | undefined) : undefined;
   return createGatewayFailure({ kind: failureKind, code, message, ...(data === undefined ? {} : { data }) });
@@ -85,41 +89,39 @@ export function gatewayFailure<T = never>(failure: GatewayFailure): GatewayResul
 export function gatewayFailureToMcp(failure: GatewayFailure, era: 'legacy' | 'modern' = 'legacy') {
   const safe = createGatewayFailure({ kind: failure.kind, code: failure.code, message: failure.message });
   const numeric = Number(safe.code);
-  const code =
-    numeric === -32002
-      ? era === 'modern'
-        ? -32602
-        : -32002
-      : [-32700, -32600, -32601, -32602, -32603].includes(numeric)
-        ? numeric
-        : safe.kind === 'invalid-request'
-          ? -32602
-          : safe.kind === 'internal'
-            ? -32603
-            : safe.code === 'resource_not_found'
-              ? era === 'modern'
-                ? -32602
-                : -32002
-              : -32000;
+  let code: number;
+  if (numeric === -32002) {
+    code = era === 'modern' ? -32602 : -32002;
+  } else if ([-32700, -32600, -32601, -32602, -32603].includes(numeric)) {
+    code = numeric;
+  } else if (safe.kind === 'invalid-request') {
+    code = -32602;
+  } else if (safe.kind === 'internal') {
+    code = -32603;
+  } else if (safe.code === 'resource_not_found') {
+    code = era === 'modern' ? -32602 : -32002;
+  } else {
+    code = -32000;
+  }
   return { code, message: safe.message, data: { 'app.1mcp/failure': { kind: safe.kind, code: safe.code } } };
 }
 
 export function gatewayFailureToProblem(failure: GatewayFailure) {
   const safe = createGatewayFailure({ kind: failure.kind, code: failure.code, message: failure.message });
-  const status =
-    safe.kind === 'invalid-request'
-      ? 400
-      : safe.kind === 'authorization'
-        ? 403
-        : safe.kind === 'deadline-exceeded'
-          ? 408
-          : safe.kind === 'cancelled'
-            ? 408
-            : safe.code === 'gateway_overloaded'
-              ? 503
-              : safe.kind === 'transport' || safe.kind === 'protocol'
-                ? 502
-                : 500;
+  let status: number;
+  if (safe.kind === 'invalid-request') {
+    status = 400;
+  } else if (safe.kind === 'authorization') {
+    status = 403;
+  } else if (safe.kind === 'deadline-exceeded' || safe.kind === 'cancelled') {
+    status = 408;
+  } else if (safe.code === 'gateway_overloaded') {
+    status = 503;
+  } else if (safe.kind === 'transport' || safe.kind === 'protocol') {
+    status = 502;
+  } else {
+    status = 500;
+  }
   return {
     type: `https://docs.1mcp.app/problems/${safe.kind}`,
     title: safe.message,

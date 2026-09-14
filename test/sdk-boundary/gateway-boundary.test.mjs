@@ -10,7 +10,8 @@ const root = process.cwd();
 function filesBelow(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
-    return entry.isDirectory() ? filesBelow(path) : /\.(?:[cm]?ts|tsx)$/u.test(entry.name) ? [path] : [];
+    if (entry.isDirectory()) return filesBelow(path);
+    return /\.(?:[cm]?ts|tsx)$/u.test(entry.name) ? [path] : [];
   });
 }
 

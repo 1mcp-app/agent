@@ -223,7 +223,12 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
       )) as ToolListOutput;
 
       if (result.error) {
-        const status = result.error.type === 'validation' ? 400 : result.error.type === 'not_found' ? 404 : 500;
+        let status = 500;
+        if (result.error.type === 'validation') {
+          status = 400;
+        } else if (result.error.type === 'not_found') {
+          status = 404;
+        }
         res.status(status).json({ error: result.error.message });
         return;
       }
@@ -354,22 +359,23 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           return;
         }
         // The catalog may already have executed the Tool. A fallback would duplicate side effects.
-        const status =
-          catalogResult.error.type === 'validation'
-            ? 400
-            : catalogResult.error.type === 'not_found'
-              ? 404
-              : catalogResult.error.type === 'upstream'
-                ? 502
-                : 500;
+        let status = 500;
+        if (catalogResult.error.type === 'validation') {
+          status = 400;
+        } else if (catalogResult.error.type === 'not_found') {
+          status = 404;
+        } else if (catalogResult.error.type === 'upstream') {
+          status = 502;
+        }
+        let kind: 'invalid-request' | 'transport' | 'internal' = 'internal';
+        if (catalogResult.error.type === 'validation') {
+          kind = 'invalid-request';
+        } else if (catalogResult.error.type === 'upstream') {
+          kind = 'transport';
+        }
         const problem = gatewayFailureToProblem(
           createGatewayFailure({
-            kind:
-              catalogResult.error.type === 'validation'
-                ? 'invalid-request'
-                : catalogResult.error.type === 'upstream'
-                  ? 'transport'
-                  : 'internal',
+            kind,
             code: `gateway_${catalogResult.error.type}`,
             message:
               catalogResult.error.type === 'upstream'

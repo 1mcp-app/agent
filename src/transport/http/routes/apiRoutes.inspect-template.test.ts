@@ -305,15 +305,12 @@ describe('apiRoutes inspect', () => {
       getLazyLoadingOrchestrator: vi.fn(() => undefined),
       getServerRegistry: vi.fn(() => ({
         getServerNames: vi.fn(() => ['context7', 'filesystem', 'serena']),
-        get: vi.fn((name: string) =>
-          name === 'context7'
-            ? makeAdapter('context7', ['context7'])
-            : name === 'filesystem'
-              ? makeAdapter('filesystem', ['filesystem'])
-              : name === 'serena'
-                ? templateAdapter
-                : undefined,
-        ),
+        get: vi.fn((name: string) => {
+          if (name === 'context7') return makeAdapter('context7', ['context7']);
+          if (name === 'filesystem') return makeAdapter('filesystem', ['filesystem']);
+          if (name === 'serena') return templateAdapter;
+          return undefined;
+        }),
         has: vi.fn(() => false),
         registerTemplate,
       })),
