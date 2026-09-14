@@ -54,7 +54,12 @@ export function captureJson(value: unknown, schema: boolean, output = false): { 
   let nodes = 0;
   let bytes = 0;
   const active = new Set<object>();
-  const maxBytes = schema ? SCHEMA_LIMITS.schemaBytes : output ? SCHEMA_LIMITS.outputBytes : SCHEMA_LIMITS.inputBytes;
+  let maxBytes = SCHEMA_LIMITS.inputBytes;
+  if (schema) {
+    maxBytes = SCHEMA_LIMITS.schemaBytes;
+  } else if (output) {
+    maxBytes = SCHEMA_LIMITS.outputBytes;
+  }
   const fail = () => {
     throw new SchemaBoundaryError('schema_budget_exceeded');
   };
@@ -80,11 +85,13 @@ export function captureJson(value: unknown, schema: boolean, output = false): { 
     active.add(item);
     const descriptors = Object.getOwnPropertyDescriptors(item);
     const keys = Reflect.ownKeys(descriptors).filter((key) => !(array && key === 'length'));
-    if (
-      keys.length >
-      (array ? SCHEMA_LIMITS.arrayEntries : schema ? SCHEMA_LIMITS.properties : SCHEMA_LIMITS.instanceProperties)
-    )
-      fail();
+    let maxEntries: number = SCHEMA_LIMITS.instanceProperties;
+    if (array) {
+      maxEntries = SCHEMA_LIMITS.arrayEntries;
+    } else if (schema) {
+      maxEntries = SCHEMA_LIMITS.properties;
+    }
+    if (keys.length > maxEntries) fail();
     if (array && keys.length !== item.length) throw new SchemaBoundaryError('schema_invalid');
     const result: Record<string, unknown> | unknown[] = array ? [] : (Object.create(null) as Record<string, unknown>);
     if (keys.some((key) => typeof key !== 'string')) throw new SchemaBoundaryError('schema_invalid');

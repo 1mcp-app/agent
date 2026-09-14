@@ -245,15 +245,18 @@ describe('runtime capability catalog', () => {
   });
 
   it('captures all four kinds and owns internal unprefixed meta-tool identities explicitly', async () => {
-    const connection = fixture('server', (method) =>
-      method === 'resources/templates/list'
-        ? { resourceTemplates: [{ name: 'r', uriTemplate: 'file:///{id}' }] }
-        : method === 'resources/list'
-          ? { resources: [{ name: 'r', uri: 'file:///one' }] }
-          : method === 'prompts/list'
-            ? { prompts: [{ name: 'p' }] }
-            : { tools: [tool('echo')] },
-    );
+    const connection = fixture('server', (method) => {
+      switch (method) {
+        case 'resources/templates/list':
+          return { resourceTemplates: [{ name: 'r', uriTemplate: 'file:///{id}' }] };
+        case 'resources/list':
+          return { resources: [{ name: 'r', uri: 'file:///one' }] };
+        case 'prompts/list':
+          return { prompts: [{ name: 'p' }] };
+        default:
+          return { tools: [tool('echo')] };
+      }
+    });
     connection.capabilities = { tools: {}, prompts: {}, resources: {} };
     const snapshot = await acquireRuntimeCapabilityCatalog(new Map([['server', connection]]), undefined, {
       unprefixedTools: [{ name: 'tool_list', inputSchema: { type: 'object' } }],

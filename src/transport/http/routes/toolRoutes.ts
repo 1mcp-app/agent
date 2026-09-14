@@ -225,7 +225,12 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
       )) as ToolListOutput;
 
       if (result.error) {
-        const status = result.error.type === 'validation' ? 400 : result.error.type === 'not_found' ? 404 : 500;
+        let status = 500;
+        if (result.error.type === 'validation') {
+          status = 400;
+        } else if (result.error.type === 'not_found') {
+          status = 404;
+        }
         res.status(status).json({ error: result.error.message });
         return;
       }
@@ -396,14 +401,15 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
         }
         // The catalog may already have executed the Tool. A fallback would duplicate side effects.
         const status = schemaFailureStatus(catalogResult.error.message, catalogResult.error.type);
+        let kind: 'invalid-request' | 'transport' | 'internal' = 'internal';
+        if (catalogResult.error.type === 'validation') {
+          kind = 'invalid-request';
+        } else if (catalogResult.error.type === 'upstream') {
+          kind = 'transport';
+        }
         const problem = gatewayFailureToProblem(
           createGatewayFailure({
-            kind:
-              catalogResult.error.type === 'validation'
-                ? 'invalid-request'
-                : catalogResult.error.type === 'upstream'
-                  ? 'transport'
-                  : 'internal',
+            kind,
             code: catalogResult.error.message.startsWith('schema_')
               ? catalogResult.error.message
               : `gateway_${catalogResult.error.type}`,
@@ -481,5 +487,14 @@ function schemaFailureStatus(code: string, type: string): number {
   if (code === 'schema_evaluation_timeout') return 504;
   if (code === 'schema_evaluation_unavailable') return 503;
   if (code === 'schema_budget_exceeded' && type === 'validation') return 413;
-  return type === 'validation' ? 400 : type === 'not_found' ? 404 : type === 'upstream' ? 502 : 500;
+  switch (type) {
+    case 'validation':
+      return 400;
+    case 'not_found':
+      return 404;
+    case 'upstream':
+      return 502;
+    default:
+      return 500;
+  }
 }

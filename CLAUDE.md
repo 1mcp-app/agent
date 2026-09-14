@@ -94,6 +94,11 @@ src/
 
 ## Development Conventions
 
+### Readable branching
+
+- Use `if`/`else`, guard clauses, or `switch` for multi-way decisions; reserve ternaries for a single, simple two-way choice. Avoid nested ternary chains in production code and tests.
+- Use a typed lookup table for fixed key-to-value mappings when it improves readability. Preserve branch precedence, fallback behavior, and lazy evaluation when refactoring.
+
 ### Environment Variables
 
 - Access through yargs options (`ONE_MCP_*` prefix auto-loaded), never direct `process.env` access

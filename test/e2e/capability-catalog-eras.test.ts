@@ -82,12 +82,14 @@ describe('capability catalog with real SDK peers', () => {
           tools: [tool, schemaTool, { name: 'invalid-schema', inputSchema: { type: 'object', $ref: '#/missing' } }],
         };
       const params = request.params as { name?: string; arguments?: { value?: number } } | undefined;
-      if (request.method === 'tools/call' && params?.name === schemaTool.name)
+      if (request.method === 'tools/call' && params?.name === schemaTool.name) {
+        let structuredContent: unknown = outboundEra === 'modern' ? [2] : { result: [2] };
+        if (params.arguments?.value === 13) structuredContent = 'invalid-output';
         return {
           content: [],
-          structuredContent:
-            params.arguments?.value === 13 ? 'invalid-output' : outboundEra === 'modern' ? [2] : { result: [2] },
+          structuredContent,
         };
+      }
       if (request.method === 'tools/call') return { ...results[request.method], structuredContent: {} };
       return results[request.method];
     };
