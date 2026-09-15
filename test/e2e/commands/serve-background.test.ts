@@ -483,15 +483,28 @@ describe('serve --background E2E', () => {
     expect((await fetch(`http://127.0.0.1:${port}/health/ready`)).status).toBe(200);
   });
 
-  it('starts despite an orphaned PID file pointing to a dead process', async () => {
+  it.each([false, true])('handles a dead process PID file conservatively (legacy=%s)', async (legacy) => {
     const scope = makeScope();
     const port = await getFreePort();
-
-    // Pre-seed a stale PID file for a non-existent process.
+    const child = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `import { readProcessIdentity } from './build/core/server/processIdentity.js';
+         console.log(JSON.stringify({ pid: process.pid, processIdentity: readProcessIdentity(process.pid) }));`,
+      ],
+      { encoding: 'utf8', timeout: 10000 },
+    );
+    expect(child.status, child.stderr).toBe(0);
+    const dead = JSON.parse(child.stdout);
+    expect(dead.processIdentity).toBeDefined();
+    // The child has exited; only the new record can prove which incarnation died.
     writeFileSync(
       join(scope, 'server.pid'),
       JSON.stringify({
-        pid: 99999999,
+        pid: dead.pid,
+        processIdentity: legacy ? undefined : dead.processIdentity,
         url: `http://127.0.0.1:${port}/mcp`,
         port,
         host: '127.0.0.1',
@@ -503,7 +516,12 @@ describe('serve --background E2E', () => {
 
     const result = runBackground(scope, port);
 
-    expect(result.status).toBe(0);
-    expect(readPid(scope).pid).not.toBe(99999999);
+    expect(result.status).toBe(legacy ? 1 : 0);
+    if (legacy) {
+      expect(readPid(scope).pid).toBe(dead.pid);
+      expect(result.stderr).toContain('Cannot verify process identity');
+    } else {
+      expect(readPid(scope).pid).not.toBe(dead.pid);
+    }
   });
 });

@@ -8,6 +8,7 @@ import {
 } from '@src/commands/serve/serveStatus.js';
 import type { BackgroundSupervisorState } from '@src/core/server/backgroundRuntimeSupervisorState.js';
 import { getPidFilePath, ServerPidInfo, writePidFile } from '@src/core/server/pidFileManager.js';
+import { readProcessIdentity } from '@src/core/server/processIdentity.js';
 import type { RuntimeScopeOwnershipRecord } from '@src/core/server/runtimeScopeOwnership.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -31,6 +32,7 @@ describe('serveStatus', () => {
   function baseInfo(overrides: Partial<ServerPidInfo> = {}): ServerPidInfo {
     return {
       pid: process.pid,
+      processIdentity: readProcessIdentity(process.pid),
       url: 'http://localhost:3050/mcp',
       port: 3050,
       host: 'localhost',
@@ -150,7 +152,7 @@ describe('serveStatus', () => {
         readSupervisorState: () => null,
         discoverRuntime: vi.fn().mockResolvedValue({ status: 'not-running', info: null }),
         readOwnership: () => owner,
-        isAlive: (pid) => pid === owner.pid,
+        inspectIdentity: (pid) => (pid === owner.pid ? 'alive' : 'dead'),
       });
 
       expect(report).toMatchObject({ status: 'unreachable', info: null, ownership: owner });
@@ -160,6 +162,30 @@ describe('serveStatus', () => {
       expect(text).toContain('Owner: foreground HTTP');
       expect(text).toContain('Owner PID: 8200 (alive)');
       expect(text).toContain('Runtime metadata: unavailable');
+    });
+
+    it('does not report a legacy owner as live or reclaim its ambiguous metadata', async () => {
+      const owner = ownership({ pid: process.pid });
+      const reclaimOwnership = vi.fn();
+      const report = await getRuntimeStatusReport(testConfigDir, {
+        readSupervisorState: () => null,
+        discoverRuntime: async () => ({ status: 'not-running', info: null }),
+        readOwnership: () => owner,
+        reclaimOwnership,
+      });
+      expect(report.status).toBe('error');
+      expect(reclaimOwnership).not.toHaveBeenCalled();
+    });
+
+    it('retains ambiguous supervisor state instead of claiming a recycled PID is restarting', async () => {
+      const cleanupSupervisorState = vi.fn();
+      const report = await getRuntimeStatusReport(testConfigDir, {
+        readSupervisorState: () =>
+          supervisorState({ status: 'restarting', supervisorPid: process.pid, runtimePid: null }),
+        cleanupSupervisorState,
+      });
+      expect(report.status).toBe('error');
+      expect(cleanupSupervisorState).not.toHaveBeenCalled();
     });
 
     it('fails closed when canonical ownership is malformed or unreadable', async () => {
@@ -183,10 +209,10 @@ describe('serveStatus', () => {
         discoverRuntime: vi.fn().mockResolvedValue({ status: 'not-running', info: null }),
         readOwnership: () => owner,
         reclaimOwnership,
-        isAlive: () => false,
+        inspectIdentity: () => 'dead',
       });
 
-      expect(reclaimOwnership).toHaveBeenCalledWith(testConfigDir, owner, expect.any(Function));
+      expect(reclaimOwnership).toHaveBeenCalledWith(testConfigDir, owner);
       expect(report).toMatchObject({ status: 'not-running', info: null });
       expect(report.ownership).toBeUndefined();
     });
@@ -199,10 +225,10 @@ describe('serveStatus', () => {
         discoverRuntime: vi.fn().mockResolvedValue({ status: 'not-running', info: null }),
         readOwnership: () => owner,
         reclaimOwnership,
-        isAlive: () => false,
+        inspectIdentity: () => 'dead',
       });
 
-      expect(reclaimOwnership).toHaveBeenCalledWith(testConfigDir, owner, expect.any(Function));
+      expect(reclaimOwnership).toHaveBeenCalledWith(testConfigDir, owner);
       expect(report).toMatchObject({ status: 'not-running', info: null });
     });
 
@@ -215,7 +241,7 @@ describe('serveStatus', () => {
         reclaimOwnership: () => {
           throw new Error('supervisor starting state with no published runtime PID is ambiguous');
         },
-        isAlive: () => false,
+        inspectIdentity: () => 'dead',
       });
 
       expect(report).toMatchObject({ status: 'error', info: null });
@@ -234,10 +260,10 @@ describe('serveStatus', () => {
         discoverRuntime: vi.fn().mockResolvedValue({ status: 'not-running', info: null }),
         readOwnership,
         reclaimOwnership,
-        isAlive: (pid) => pid === replacement.pid,
+        inspectIdentity: (pid) => (pid === replacement.pid ? 'alive' : 'dead'),
       });
 
-      expect(reclaimOwnership).toHaveBeenCalledWith(testConfigDir, stale, expect.any(Function));
+      expect(reclaimOwnership).toHaveBeenCalledWith(testConfigDir, stale);
       expect(report).toMatchObject({ status: 'unreachable', ownership: replacement });
       expect(formatRuntimeStatusReport(report)).toContain('Owner: foreground stdio');
     });
@@ -254,7 +280,7 @@ describe('serveStatus', () => {
 
       const report = await getRuntimeStatusReport(testConfigDir, {
         readSupervisorState: () => state,
-        isAlive: (pid) => pid === state.supervisorPid,
+        inspectIdentity: (pid) => (pid === state.supervisorPid ? 'alive' : 'dead'),
         discoverRuntime: vi.fn(),
       });
 
@@ -276,7 +302,7 @@ describe('serveStatus', () => {
       const report = await getRuntimeStatusReport(testConfigDir, {
         readSupervisorState: () => state,
         discoverRuntime: vi.fn().mockResolvedValue({ status: 'not-running', info: null }),
-        isAlive: (pid) => pid === state.supervisorPid,
+        inspectIdentity: (pid) => (pid === state.supervisorPid ? 'alive' : 'dead'),
       });
 
       expect(report).toMatchObject({ status: 'unreachable', info: null, supervisorState: state });
@@ -293,7 +319,7 @@ describe('serveStatus', () => {
           info: null,
           error: 'runtime PID metadata is unreadable',
         }),
-        isAlive: (pid) => pid === state.supervisorPid,
+        inspectIdentity: (pid) => (pid === state.supervisorPid ? 'alive' : 'dead'),
       });
 
       expect(report).toMatchObject({
@@ -324,7 +350,7 @@ describe('serveStatus', () => {
         cleanupSupervisorState,
         discoverRuntime: vi.fn().mockResolvedValue({ status: 'running', info: worker }),
         readOwnership: () => owner,
-        isAlive: (pid) => pid === worker.pid,
+        inspectIdentity: (pid) => (pid === worker.pid ? 'alive' : 'dead'),
       });
 
       expect(report).toMatchObject({
@@ -348,7 +374,7 @@ describe('serveStatus', () => {
 
       const report = await getRuntimeStatusReport(testConfigDir, {
         readSupervisorState: () => state,
-        isAlive: (pid) => pid === state.supervisorPid,
+        inspectIdentity: (pid) => (pid === state.supervisorPid ? 'alive' : 'dead'),
         discoverRuntime: vi.fn(),
       });
 
@@ -366,7 +392,7 @@ describe('serveStatus', () => {
 
       const report = await getRuntimeStatusReport(testConfigDir, {
         readSupervisorState: () => state,
-        isAlive: (pid) => pid === state.runtimePid,
+        inspectIdentity: (pid) => (pid === state.runtimePid ? 'alive' : 'dead'),
         discoverRuntime: vi.fn(),
       });
 
@@ -386,7 +412,7 @@ describe('serveStatus', () => {
 
       const report = await getRuntimeStatusReport(testConfigDir, {
         readSupervisorState: () => state,
-        isAlive: () => false,
+        inspectIdentity: () => 'dead',
         cleanupSupervisorState,
         discoverRuntime,
       });
@@ -419,7 +445,7 @@ describe('serveStatus', () => {
         reclaimOwnership: () => {
           throw new Error('supervisor starting state may be between worker spawn and state publication');
         },
-        isAlive: () => false,
+        inspectIdentity: () => 'dead',
       });
 
       expect(report).toMatchObject({ status: 'error', info: null });
