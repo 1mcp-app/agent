@@ -104,7 +104,7 @@ npx -y @1mcp/agent inspect filesystem --limit 20 --cursor next-page-token
 在以下情况使用 `inspect`：
 
 - 确认当前有哪些服务器可用
-- 找到工具的准确限定名
+- 找到工具的 server/tool 命令引用
 - 调用前查看工具的输入和输出 schema
 - 通过 JSON 输出构建自动化脚本
 - 让 agent 一次只关注工具面的一个局部

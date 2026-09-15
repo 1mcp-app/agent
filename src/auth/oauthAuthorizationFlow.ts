@@ -196,12 +196,12 @@ export interface OAuthAuthorizationFlowProvider {
 export function createOAuthAuthorizationFlow(dependencies: OAuthAuthorizationFlowDependencies): OAuthAuthorizationFlow {
   // Return context is short-lived, single-use and independent of Admin credentials.
   const returns = new Map<string, { serverName: string; origin: string; providerState?: string; expiresAt: number }>();
-  function bindReturn(authorizationUrl: string, input: BackendOAuthInput): string {
+  function bindReturn(authorizationUrl: string, input: BackendOAuthInput): string | undefined {
     if (!input.adminReturnOrigin) return authorizationUrl;
     for (const [key, value] of returns) {
       if (value.expiresAt <= Date.now()) returns.delete(key);
     }
-    if (returns.size >= 1000) return authorizationUrl;
+    if (returns.size >= 1000) return undefined;
     const url = new URL(authorizationUrl);
     const state = `admin_return_${randomUUID()}`;
     returns.set(state, {
@@ -311,9 +311,16 @@ export function createOAuthAuthorizationFlow(dependencies: OAuthAuthorizationFlo
         return started;
       }
 
+      const redirectUrl = bindReturn(started.authorizationUrl, input);
+      if (!redirectUrl) {
+        return {
+          status: 'oauth_url_unavailable',
+          errorDescription: 'Too many pending Admin OAuth return transactions',
+        };
+      }
       return {
         status: 'redirect',
-        redirectUrl: bindReturn(started.authorizationUrl, input),
+        redirectUrl,
       };
     },
 
@@ -342,9 +349,16 @@ export function createOAuthAuthorizationFlow(dependencies: OAuthAuthorizationFlo
         return started;
       }
 
+      const redirectUrl = bindReturn(started.authorizationUrl, input);
+      if (!redirectUrl) {
+        return {
+          status: 'oauth_url_unavailable',
+          errorDescription: 'Too many pending Admin OAuth return transactions',
+        };
+      }
       return {
         status: 'restarted',
-        redirectUrl: bindReturn(started.authorizationUrl, input),
+        redirectUrl,
       };
     },
 

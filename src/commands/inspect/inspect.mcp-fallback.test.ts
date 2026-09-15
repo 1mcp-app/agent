@@ -23,6 +23,7 @@ interface MockSchemaPayload {
 }
 
 const transportState = vi.hoisted(() => ({
+  malformedPages: {} as Record<string, unknown>,
   pages: {} as Record<string, MockSchemaPayload>,
   sessionIdOnInitialize: 'inspect-session',
   throw404OnMethod: undefined as string | undefined,
@@ -152,13 +153,18 @@ const mockedTransport = vi.hoisted(() => {
           });
           break;
         case 'tools/list':
-          this.onmessage?.({
-            jsonrpc: '2.0',
-            id: message.id,
-            result: message.params?.cursor
-              ? transportState.pages[String(message.params.cursor)]
-              : transportState.schemaPayload,
-          });
+          {
+            const pageKey = String(message.params?.cursor ?? 'first');
+            this.onmessage?.({
+              jsonrpc: '2.0',
+              id: message.id,
+              result: Object.hasOwn(transportState.malformedPages, pageKey)
+                ? transportState.malformedPages[pageKey]
+                : message.params?.cursor
+                  ? transportState.pages[String(message.params.cursor)]
+                  : transportState.schemaPayload,
+            });
+          }
           break;
         default:
           this.onmessage?.({
@@ -187,6 +193,7 @@ vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
 describe('inspect command internals', () => {
   beforeEach(() => {
     transportState.pages = {};
+    transportState.malformedPages = {};
     transportState.sessionIdOnInitialize = 'inspect-session';
     transportState.throw404OnMethod = undefined;
     transportState.initializeResult = {};
@@ -235,6 +242,30 @@ describe('inspect command internals', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it.each([
+    { label: 'missing tools', payload: {} },
+    { label: 'non-array tools', payload: { tools: {} } },
+    { label: 'invalid tool', payload: { tools: [{ name: 42, inputSchema: { type: 'object' } }] } },
+    { label: 'invalid schema', payload: { tools: [{ name: 'bad', inputSchema: [] }] } },
+    { label: 'invalid cursor', payload: { tools: [], nextCursor: { injected: true } } },
+  ])('rejects $label on first and later pages before forwarding a cursor', async ({ payload }) => {
+    mockedApiClientGet.mockResolvedValue({ ok: false, status: 404, error: 'HTTP 404' });
+    for (const page of ['first', 'later']) {
+      transportState.instances = [];
+      transportState.malformedPages = { [page]: payload };
+      transportState.schemaPayload.nextCursor = 'later';
+      await expect(getInspectResult({ target: 'runner', url: 'http://127.0.0.1:3050/mcp' })).rejects.toThrow(
+        'Invalid tools/list response',
+      );
+      const requests = transportState.instances
+        .flatMap((instance) => instance.sentMessages)
+        .filter((message) => message.method === 'tools/list');
+      expect(requests.map((message) => message.params?.cursor)).toEqual(
+        page === 'first' ? [undefined] : [undefined, 'later'],
+      );
+    }
   });
 
   it('collects MCP fallback pages before applying local limits and all', async () => {

@@ -463,4 +463,39 @@ describe('OAuth Authorization Flow', () => {
     ).not.toHaveProperty('adminReturnOrigin');
     expect(completeOAuthAndReconnect).toHaveBeenCalledTimes(1);
   });
+  it.each(['startBackendOAuth', 'restartBackendOAuth'] as const)(
+    'fails closed at return capacity and recovers after expiry for %s',
+    async (operation) => {
+      const client = {
+        status: 'awaiting_oauth',
+        authorizationUrl: 'https://provider.example/authorize?state=original',
+      };
+      const { flow } = createFlow({
+        serverRuntime: { getClient: vi.fn().mockReturnValue(client) },
+        clientRuntime: {
+          initiateOAuth: vi.fn(async () => {
+            client.authorizationUrl = 'https://provider.example/authorize?state=original';
+          }),
+        },
+      });
+      const input = { serverName: 'github', adminReturnOrigin: 'http://localhost:3050' };
+      for (let i = 0; i < 1000; i++) {
+        expect(await flow.startBackendOAuth(input)).toMatchObject({ status: 'redirect' });
+      }
+      expect(await flow[operation](input)).toEqual({
+        status: 'oauth_url_unavailable',
+        errorDescription: 'Too many pending Admin OAuth return transactions',
+      });
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 600_001);
+      try {
+        const recovered = await flow[operation](input);
+        expect(recovered.status).toBe(operation === 'startBackendOAuth' ? 'redirect' : 'restarted');
+        if (!('redirectUrl' in recovered) || !recovered.redirectUrl)
+          throw new Error('Expected bound provider redirect');
+        expect(new URL(recovered.redirectUrl).searchParams.get('state')).toMatch(/^admin_return_/);
+      } finally {
+        clock.mockRestore();
+      }
+    },
+  );
 });

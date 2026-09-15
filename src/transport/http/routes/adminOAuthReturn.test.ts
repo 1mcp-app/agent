@@ -12,6 +12,12 @@ describe('trusted Admin OAuth return origins', () => {
   it.each([
     undefined,
     'null',
+    'HTTP://localhost:3050',
+    'http://localhost:3050/',
+    'http://localhost:3050?redirect=evil',
+    'http://localhost:3050#fragment',
+    ' http://localhost:3050',
+    'file://localhost:3050',
     'https://evil.example',
     'http://localhost:3051',
     'https://localhost:3050',

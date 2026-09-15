@@ -198,6 +198,40 @@ describe('apiRoutes inspect', () => {
     inspectHandler = createInspectHandler(serverManager as never);
   });
 
+  it.each(['5001', '999999999999999999999', '1.5', '1junk', '0', '-1', 'NaN', 'Infinity', ''])(
+    'rejects invalid limit %j before querying tools',
+    async (limit) => {
+      const targetConnection = outboundConnections.get('context7')!;
+      for (const all of [undefined, 'true']) {
+        const response = createMockResponse();
+        await invokeInspectRoute(
+          inspectHandler,
+          { query: { target: 'context7', limit, ...(all ? { all } : {}) } },
+          response,
+        );
+        expect(response.statusCode).toBe(400);
+      }
+      expect(targetConnection.adapter.request).not.toHaveBeenCalled();
+    },
+  );
+
+  it('accepts the maximum page size and allows all to return a larger complete inventory', async () => {
+    const tools = Array.from({ length: 5001 }, (_, index) => ({
+      name: `tool_${index}`,
+      inputSchema: { type: 'object' },
+    }));
+    outboundConnections.set('context7', connection('context7', ['context7'], tools));
+    const page = createMockResponse();
+    await invokeInspectRoute(inspectHandler, { query: { target: 'context7', limit: '5000' } }, page);
+    expect(page.statusCode).toBe(200);
+    expect((page.body as { tools: unknown[] }).tools).toHaveLength(5000);
+    const all = createMockResponse();
+    await invokeInspectRoute(inspectHandler, { query: { target: 'context7', all: 'true' } }, all);
+    expect(all.statusCode).toBe(200);
+    expect((all.body as { tools: unknown[] }).tools).toHaveLength(5001);
+    expect(all.body).toMatchObject({ totalTools: 5001, hasMore: false });
+  });
+
   it.each(['direct', 'registry', 'snapshot'])('bounds %s inventory pages after disabled filtering', async (source) => {
     const rawTools = ['first', 'disabled', 'last'].map((name) => ({ name, inputSchema: { type: 'object' } }));
     const targetConnection = connection('context7', ['context7'], rawTools);

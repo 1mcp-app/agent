@@ -8,6 +8,7 @@ import {
   type ReusableClientSurface,
 } from '@src/commands/shared/clientSurfaceAttachment.js';
 import { buildFilterSelectionQuery } from '@src/commands/shared/filterSelectionQuery.js';
+import { inspectToolsPageSchema } from '@src/commands/shared/inspectApiSchemas.js';
 import {
   type JsonRpcErrorEnvelope,
   type JsonRpcResponse,
@@ -337,7 +338,9 @@ async function listAllInspectTools(client: StreamableServeClient) {
   const result = await collectConfiguredToolPages(async (cursor) => {
     const response = cursor === undefined ? first : await client.listTools(cursor);
     if ('error' in response) throw new InspectCommandError(response.error.message);
-    return { ...response.result, tools: toProtocolTools(response.result.tools) };
+    const page = inspectToolsPageSchema.safeParse(response.result);
+    if (!page.success) throw new InspectCommandError('Invalid tools/list response from server.');
+    return { ...page.data, tools: toProtocolTools(page.data.tools) };
   });
   return { ...first, result };
 }
