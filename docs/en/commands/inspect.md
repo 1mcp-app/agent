@@ -114,7 +114,7 @@ npx -y @1mcp/agent inspect filesystem --limit 20 --cursor next-page-token
 Use `inspect` when you need to:
 
 - Confirm which servers are currently available
-- Discover the exact qualified name of a tool
+- Discover a tool’s server/tool command reference
 - Review a tool's input and output schema before calling it
 - Build scriptable automation using JSON output
 - Keep the agent focused on one part of the tool surface at a time
@@ -126,3 +126,9 @@ Use `inspect` when you need to:
 - **[Run Command](./run.md)** - Call a tool after you have inspected its schema
 - **[Serve Command](./serve.md)** - Start the 1MCP server that `inspect` queries
 - **[Configuration Deep Dive](../guide/essentials/configuration.md)** - Global flags including CLI session cache configuration
+
+### Tool output and pagination
+
+CLI output identifies tools with `server` and `tool`; redundant `qualifiedName` / `qualified_name` display fields are omitted in text, JSON and TOON. API routing identities are unchanged.
+
+`--limit` bounds the visible page even if the upstream server ignores pagination limits. `totalTools` is the complete currently visible inventory size; `hasMore` and `nextCursor` describe the remaining tools. Each inspection request collects upstream pages with a bounded walk (up to 1,000 pages) before applying local pagination. `--all` returns all remaining tools (all tools when no cursor is supplied). Cursors are tied to the target, filters and inventory. If a cursor is invalid or stale, restart without `--cursor`.
