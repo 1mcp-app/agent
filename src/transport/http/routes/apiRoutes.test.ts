@@ -1,5 +1,6 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
+import { LoadingState, LoadingStateTracker } from '@src/core/loading/loadingStateTracker.js';
 import { type ServerAdapter, ServerStatus, ServerType } from '@src/core/server/adapters/types.js';
 import type { OutboundConnections } from '@src/core/types/index.js';
 
@@ -7,6 +8,11 @@ import type { Request, RequestHandler, Response } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createInspectHandler } from './apiRoutes.js';
+
+const mockedGetServerState = vi.hoisted(() => vi.fn());
+vi.mock('@src/core/loading/mcpLoadingManager.js', () => ({
+  McpLoadingManager: { current: { getStateTracker: () => ({ getServerState: mockedGetServerState }) } },
+}));
 
 const mockedLoadDeclaredServerConfigs = vi.hoisted(() => vi.fn());
 const mockedLoadConfigWithTemplates = vi.hoisted(() => vi.fn());
@@ -121,6 +127,7 @@ describe('apiRoutes inspect', () => {
   };
 
   beforeEach(() => {
+    mockedGetServerState.mockReset();
     mockedLoadDeclaredServerConfigs.mockReset();
     mockedLoadConfigWithTemplates.mockReset();
     mockedExtractRequestContext.mockReset();
@@ -422,20 +429,46 @@ describe('apiRoutes inspect', () => {
     expect(res.body).toEqual({ error: 'Server not found: hidden' });
   });
 
-  it('preserves pagination metadata when inspecting a server through direct listTools', async () => {
-    const pagedConnections = new Map(outboundConnections) as OutboundConnections;
-    const pagedRequest = vi.fn().mockResolvedValue({
-      tools: [
-        {
-          name: 'query-docs',
-          description: 'Query docs',
-          inputSchema: { type: 'object', properties: {} },
-        },
-      ],
-      totalCount: 3,
-      hasMore: true,
-      nextCursor: 'cursor-2',
+  it('omits resolved OAuth diagnostics from a Ready server response', async () => {
+    const tracker = new LoadingStateTracker();
+    tracker.startLoading(['context7']);
+    tracker.updateServerState('context7', LoadingState.AwaitingOAuth, {
+      error: new Error('Authorization required'),
+      authorizationUrl: 'https://example.test/oauth',
     });
+    tracker.updateServerState('context7', LoadingState.Ready);
+    mockedGetServerState.mockImplementation((name: string) => tracker.getServerState(name));
+    const response = createMockResponse();
+    await invokeInspectRoute(inspectHandler, { query: { target: 'context7' } }, response);
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toMatchObject({ status: 'connected', available: true });
+    expect(response.body).not.toHaveProperty('error');
+    expect(response.body).not.toHaveProperty('authorizationUrl');
+  });
+
+  it('returns local pagination metadata after collecting upstream pages', async () => {
+    const pagedConnections = new Map(outboundConnections) as OutboundConnections;
+    const pagedRequest = vi.fn().mockImplementation(async ({ params }) =>
+      params.cursor
+        ? {
+            tools: [
+              { name: 'second', inputSchema: { type: 'object' } },
+              { name: 'third', inputSchema: { type: 'object' } },
+            ],
+          }
+        : {
+            tools: [
+              {
+                name: 'query-docs',
+                description: 'Query docs',
+                inputSchema: { type: 'object', properties: {} },
+              },
+            ],
+            totalCount: 3,
+            hasMore: true,
+            nextCursor: 'cursor-2',
+          },
+    );
     pagedConnections.set(
       'context7',
       createMockOutboundConnection({ ...pagedConnections.get('context7')!, adapter: { request: pagedRequest } }),
@@ -468,7 +501,7 @@ describe('apiRoutes inspect', () => {
     };
 
     const pagedInspectHandler = createInspectHandler(serverManager as never);
-    const req = { query: { preset: 'dev-backend', target: 'context7', limit: '1', cursor: 'cursor-1' } };
+    const req = { query: { preset: 'dev-backend', target: 'context7', limit: '1' } };
     const res = createMockResponse();
 
     await invokeInspectRoute(scopeAuthMiddleware, req, res);
@@ -480,10 +513,10 @@ describe('apiRoutes inspect', () => {
       server: 'context7',
       totalTools: 3,
       hasMore: true,
-      nextCursor: 'cursor-2',
+      nextCursor: expect.any(String),
     });
     expect(pagedRequest).toHaveBeenCalledWith(
-      expect.objectContaining({ method: 'tools/list', params: { limit: 1, cursor: 'cursor-1' } }),
+      expect.objectContaining({ method: 'tools/list', params: { limit: 5000, cursor: 'cursor-2' } }),
     );
   });
 

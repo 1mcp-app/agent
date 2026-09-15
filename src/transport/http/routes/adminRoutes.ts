@@ -524,6 +524,7 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     const result = await options.oauthService.authorizeService({
       context: buildAdminOperationContext(req, options, { type: 'backend_oauth_service', id: serviceId }),
       serviceId,
+      adminReturnOrigin: trustedAdminReturnOrigin(req.header('Origin'), options.getRuntimeIdentity().externalUrl),
     });
     sendAdminOAuthOperationResult(res, result);
   });
@@ -539,6 +540,7 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     const result = await options.oauthService.restartService({
       context: buildAdminOperationContext(req, options, { type: 'backend_oauth_service', id: serviceId }),
       serviceId,
+      adminReturnOrigin: trustedAdminReturnOrigin(req.header('Origin'), options.getRuntimeIdentity().externalUrl),
     });
     sendAdminOAuthOperationResult(res, result);
   });
@@ -2769,4 +2771,26 @@ function isLoopbackRuntimeUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** Only authenticated, CSRF-checked browser requests can supply this origin. */
+export function trustedAdminReturnOrigin(origin: string | undefined, externalUrl: string): string | undefined {
+  if (!origin) return undefined;
+  try {
+    const candidate = new URL(origin);
+    const configured = new URL(externalUrl);
+    if (origin !== candidate.origin || !['http:', 'https:'].includes(candidate.protocol)) return undefined;
+    const loopback = new Set(['localhost', '127.0.0.1', '[::1]']);
+    if (
+      candidate.origin === configured.origin ||
+      (loopback.has(candidate.hostname) &&
+        loopback.has(configured.hostname) &&
+        candidate.protocol === configured.protocol &&
+        candidate.port === configured.port)
+    )
+      return candidate.origin;
+  } catch {
+    /* Invalid origins use the callback-local fallback. */
+  }
+  return undefined;
 }

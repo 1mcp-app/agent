@@ -10,6 +10,8 @@ import {
   readCliSessionCache,
   writeCliSessionCache,
 } from '@src/commands/shared/serveClient.js';
+import { buildCatalogGeneration } from '@src/core/capabilities/catalogGeneration.js';
+import { toProtocolTool } from '@src/sdk/contracts/index.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -17,9 +19,11 @@ import { getInspectResult, inspectCommand } from './inspect.js';
 
 interface MockSchemaPayload {
   tools: Tool[];
+  nextCursor?: string;
 }
 
 const transportState = vi.hoisted(() => ({
+  pages: {} as Record<string, MockSchemaPayload>,
   sessionIdOnInitialize: 'inspect-session',
   throw404OnMethod: undefined as string | undefined,
   initializeResult: {} as Record<string, unknown>,
@@ -151,7 +155,9 @@ const mockedTransport = vi.hoisted(() => {
           this.onmessage?.({
             jsonrpc: '2.0',
             id: message.id,
-            result: transportState.schemaPayload,
+            result: message.params?.cursor
+              ? transportState.pages[String(message.params.cursor)]
+              : transportState.schemaPayload,
           });
           break;
         default:
@@ -180,6 +186,7 @@ vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
 
 describe('inspect command internals', () => {
   beforeEach(() => {
+    transportState.pages = {};
     transportState.sessionIdOnInitialize = 'inspect-session';
     transportState.throw404OnMethod = undefined;
     transportState.initializeResult = {};
@@ -228,6 +235,36 @@ describe('inspect command internals', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it('collects MCP fallback pages before applying local limits and all', async () => {
+    mockedApiClientGet.mockResolvedValue({ ok: false, status: 404, error: 'HTTP 404' });
+    const tools = buildCatalogGeneration(
+      1,
+      ['echo_args', 'tail'].map((name) => ({
+        kind: 'tools',
+        server: 'runner',
+        connectionKey: 'runner',
+        object: { name, inputSchema: { type: 'object' } },
+      })),
+    ).entries.map((entry) => toProtocolTool(entry.publicObject));
+    transportState.schemaPayload = { tools: [tools[0]], nextCursor: 'empty' };
+    transportState.pages.empty = { tools: [], nextCursor: 'tail' };
+    transportState.pages.tail = { tools: [tools[1]] };
+    const options = { target: 'runner', limit: 1, url: 'http://127.0.0.1:3050/mcp' };
+    const first = await getInspectResult(options);
+    expect(first).toMatchObject({ tools: [{ tool: 'echo_args' }], totalTools: 2, hasMore: true });
+    if (first.kind !== 'server') throw new Error('Expected server');
+    expect(await getInspectResult({ ...options, cursor: first.nextCursor })).toMatchObject({
+      tools: [{ tool: 'tail' }],
+      hasMore: false,
+    });
+    expect(await getInspectResult({ ...options, all: true })).toMatchObject({
+      tools: [{ tool: 'echo_args' }, { tool: 'tail' }],
+      hasMore: false,
+    });
+    transportState.pages.tail.nextCursor = 'empty';
+    await expect(getInspectResult(options)).rejects.toThrow('repeated cursor');
   });
 
   it('falls back to MCP when the inspect endpoint is unavailable for a server target', async () => {

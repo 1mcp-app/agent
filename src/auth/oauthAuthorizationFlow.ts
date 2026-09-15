@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { AUTH_CONFIG } from '@src/constants.js';
 import logger from '@src/logger/logger.js';
 import type { LegacySdkAdapter } from '@src/sdk/contracts/index.js';
@@ -115,10 +117,12 @@ export type LocalhostCliTokenResult =
 
 export interface BackendOAuthInput {
   serverName: string;
+  adminReturnOrigin?: string;
 }
 
 export interface BackendOAuthCallbackInput {
   serverName: string;
+  state?: string;
   code?: string;
   error?: string;
   iss?: string;
@@ -147,9 +151,11 @@ export type RestartBackendOAuthResult =
 export type CompleteBackendOAuthCallbackResult =
   | {
       status: 'completed';
+      adminReturnOrigin?: string;
     }
   | {
       status: 'provider_error' | 'missing_code' | 'callback_failed' | 'runtime_unavailable';
+      adminReturnOrigin?: string;
       errorDescription: string;
     };
 
@@ -188,6 +194,25 @@ export interface OAuthAuthorizationFlowProvider {
 }
 
 export function createOAuthAuthorizationFlow(dependencies: OAuthAuthorizationFlowDependencies): OAuthAuthorizationFlow {
+  // Return context is short-lived, single-use and independent of Admin credentials.
+  const returns = new Map<string, { serverName: string; origin: string; providerState?: string; expiresAt: number }>();
+  function bindReturn(authorizationUrl: string, input: BackendOAuthInput): string {
+    if (!input.adminReturnOrigin) return authorizationUrl;
+    for (const [key, value] of returns) {
+      if (value.expiresAt <= Date.now()) returns.delete(key);
+    }
+    if (returns.size >= 1000) return authorizationUrl;
+    const url = new URL(authorizationUrl);
+    const state = `admin_return_${randomUUID()}`;
+    returns.set(state, {
+      serverName: input.serverName,
+      origin: input.adminReturnOrigin,
+      providerState: url.searchParams.get('state') ?? undefined,
+      expiresAt: Date.now() + 600_000,
+    });
+    url.searchParams.set('state', state);
+    return url.toString();
+  }
   return {
     createLocalhostCliToken(): LocalhostCliTokenResult {
       const authConfig = dependencies.getAuthConfig();
@@ -288,7 +313,7 @@ export function createOAuthAuthorizationFlow(dependencies: OAuthAuthorizationFlo
 
       return {
         status: 'redirect',
-        redirectUrl: started.authorizationUrl,
+        redirectUrl: bindReturn(started.authorizationUrl, input),
       };
     },
 
@@ -319,13 +344,24 @@ export function createOAuthAuthorizationFlow(dependencies: OAuthAuthorizationFlo
 
       return {
         status: 'restarted',
-        redirectUrl: started.authorizationUrl,
+        redirectUrl: bindReturn(started.authorizationUrl, input),
       };
     },
 
     async completeBackendOAuthCallback(input: BackendOAuthCallbackInput): Promise<CompleteBackendOAuthCallbackResult> {
+      const context = input.state ? returns.get(input.state) : undefined;
+      if (input.state) returns.delete(input.state);
+      const adminReturnOrigin =
+        context && context.serverName === input.serverName && context.expiresAt > Date.now()
+          ? context.origin
+          : undefined;
+      const returnContext = adminReturnOrigin ? { adminReturnOrigin } : {};
+      if (input.state?.startsWith('admin_return_') && !adminReturnOrigin) {
+        return { status: 'callback_failed', errorDescription: 'Invalid or expired OAuth return transaction' };
+      }
       if (input.error) {
         return {
+          ...returnContext,
           status: 'provider_error',
           errorDescription: input.error,
         };
@@ -333,6 +369,7 @@ export function createOAuthAuthorizationFlow(dependencies: OAuthAuthorizationFlo
 
       if (!input.code) {
         return {
+          ...returnContext,
           status: 'missing_code',
           errorDescription: 'Missing authorization code',
         };
@@ -340,6 +377,7 @@ export function createOAuthAuthorizationFlow(dependencies: OAuthAuthorizationFlo
 
       if (!dependencies.clientRuntime) {
         return {
+          ...returnContext,
           status: 'runtime_unavailable',
           errorDescription: 'Backend OAuth runtime is unavailable',
         };
@@ -347,13 +385,20 @@ export function createOAuthAuthorizationFlow(dependencies: OAuthAuthorizationFlo
 
       try {
         const authorizationResponse =
-          input.iss === undefined ? input.code : new URLSearchParams({ code: input.code, iss: input.iss });
+          input.iss === undefined && !context?.providerState
+            ? input.code
+            : new URLSearchParams({
+                code: input.code,
+                ...(input.iss ? { iss: input.iss } : {}),
+                ...(context?.providerState ? { state: context.providerState } : {}),
+              });
         await dependencies.clientRuntime.completeOAuthAndReconnect(input.serverName, authorizationResponse);
         dependencies.loadingRuntime?.markReady(input.serverName);
-        return { status: 'completed' };
+        return { status: 'completed', ...returnContext };
       } catch (error) {
         logger.error(`OAuth callback completion failed for ${input.serverName}`, { error });
         return {
+          ...returnContext,
           status: 'callback_failed',
           errorDescription: 'Failed to complete OAuth callback',
         };

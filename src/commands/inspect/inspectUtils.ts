@@ -193,17 +193,28 @@ export function extractInspectServerInfo(
 }
 
 export function formatInspectOutput(result: InspectResult, format: InspectOutputFormat): string {
+  const displayed =
+    result.kind === 'tool'
+      ? omitQualifiedName(result)
+      : result.kind === 'server'
+        ? { ...result, tools: result.tools.map(omitQualifiedName) }
+        : result;
   if (format === 'json') {
-    return JSON.stringify(result, null, 2);
+    return JSON.stringify(displayed, null, 2);
   }
 
   if (format === 'toon') {
-    return encode(result);
+    return encode(displayed);
   }
 
   if (result.kind === 'servers') return formatServersOutput(result);
   if (result.kind === 'server') return formatServerOutput(result);
   return formatToolOutput(result);
+}
+
+function omitQualifiedName<T extends { qualifiedName: string }>(value: T): Omit<T, 'qualifiedName'> {
+  const { qualifiedName: _qualifiedName, ...displayed } = value;
+  return displayed;
 }
 
 function formatServersOutput(info: InspectServersInfo): string {
@@ -254,7 +265,7 @@ function formatServersOutput(info: InspectServersInfo): string {
 function formatToolOutput(toolInfo: InspectToolInfo): string {
   const sections: string[] = [
     chalk.bold.cyan('Inspect: Tool'),
-    [`server: ${toolInfo.server}`, `tool: ${toolInfo.tool}`, `qualified_name: ${toolInfo.qualifiedName}`].join('\n'),
+    [`server: ${toolInfo.server}`, `tool: ${toolInfo.tool}`].join('\n'),
   ];
 
   if (toolInfo.description) {

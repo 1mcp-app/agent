@@ -419,4 +419,48 @@ describe('OAuth Authorization Flow', () => {
     });
     expect(getClients).toHaveBeenCalledWith();
   });
+  it('binds concurrent Admin returns to single-use expiring transactions without changing redirect_uri', async () => {
+    const url =
+      'https://provider.example/authorize?redirect_uri=https%3A%2F%2Fcallback.example%2Fregistered&state=provider-state';
+    const completeOAuthAndReconnect = vi.fn().mockResolvedValue(undefined);
+    const { flow } = createFlow({
+      serverRuntime: { getClient: vi.fn().mockReturnValue({ authorizationUrl: url }) },
+      clientRuntime: { completeOAuthAndReconnect },
+    });
+    const start = async (origin: string) => {
+      const result = await flow.startBackendOAuth({ serverName: 'github', adminReturnOrigin: origin });
+      if (result.status !== 'redirect') throw new Error('Expected redirect');
+      const parsed = new URL(result.redirectUrl);
+      expect(parsed.searchParams.get('redirect_uri')).toBe('https://callback.example/registered');
+      return parsed.searchParams.get('state')!;
+    };
+    const first = await start('http://localhost:3050');
+    const second = await start('http://127.0.0.1:3050');
+    expect(first).not.toBe(second);
+    expect(
+      await flow.completeBackendOAuthCallback({ serverName: 'github', state: second, error: 'access_denied' }),
+    ).toMatchObject({ adminReturnOrigin: 'http://127.0.0.1:3050', status: 'provider_error' });
+    expect(await flow.completeBackendOAuthCallback({ serverName: 'github', state: first, code: 'code' })).toMatchObject(
+      { adminReturnOrigin: 'http://localhost:3050', status: 'completed' },
+    );
+    expect(completeOAuthAndReconnect).toHaveBeenCalledWith(
+      'github',
+      new URLSearchParams({ code: 'code', state: 'provider-state' }),
+    );
+    expect(
+      await flow.completeBackendOAuthCallback({ serverName: 'github', state: first, code: 'must-not-exchange' }),
+    ).not.toHaveProperty('adminReturnOrigin');
+    const expired = await start('http://localhost:3050');
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 600_001);
+    expect(
+      await flow.completeBackendOAuthCallback({ serverName: 'github', state: expired, code: 'must-not-exchange' }),
+    ).not.toHaveProperty('adminReturnOrigin');
+    now.mockRestore();
+    expect(completeOAuthAndReconnect).toHaveBeenCalledTimes(1);
+    const wrongServer = await start('http://localhost:3050');
+    expect(
+      await flow.completeBackendOAuthCallback({ serverName: 'other', state: wrongServer, code: 'must-not-exchange' }),
+    ).not.toHaveProperty('adminReturnOrigin');
+    expect(completeOAuthAndReconnect).toHaveBeenCalledTimes(1);
+  });
 });

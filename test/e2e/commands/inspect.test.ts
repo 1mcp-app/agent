@@ -52,7 +52,7 @@ describeInspectE2E('inspect command E2E', () => {
     runner.assertSuccess(result);
     expect(result.stderr).toBe('');
     expect(result.stdout).toContain('kind: tool');
-    expect(result.stdout).toContain('qualifiedName: runner_1mcp_echo_args');
+    expect(result.stdout).not.toContain('qualifiedName');
     expect(result.stdout).toContain('requiredArgs[1]');
     expect(result.stdout).toContain('message,true,string,Message to echo back.');
     expect(result.stdout).toContain('optionalArgs[3]');
@@ -74,8 +74,8 @@ describeInspectE2E('inspect command E2E', () => {
     expect(result.stdout).toContain('kind: server');
     expect(result.stdout).toContain('server: runner');
     expect(result.stdout).toContain('totalTools: 4');
-    expect(result.stdout).toContain('echo_args,runner_1mcp_echo_args');
-    expect(result.stdout).toContain('summarize,runner_1mcp_summarize');
+    expect(result.stdout).toContain('echo_args,');
+    expect(result.stdout).toContain('summarize,');
   });
 
   it('hides disabled tools from server inventory', async () => {
@@ -90,8 +90,8 @@ describeInspectE2E('inspect command E2E', () => {
 
     runner.assertSuccess(result);
     expect(result.stdout).toContain('totalTools: 3');
-    expect(result.stdout).not.toContain('echo_args,runner_1mcp_echo_args');
-    expect(result.stdout).toContain('summarize,runner_1mcp_summarize');
+    expect(result.stdout).not.toContain('echo_args,');
+    expect(result.stdout).toContain('summarize,');
   });
 
   it('returns a disabled-tool error for tool inspect', async () => {
@@ -152,6 +152,39 @@ describeInspectE2E('inspect command E2E', () => {
     expect(parsed.tools.map((tool) => tool.tool)).toContain('summarize');
   });
 
+  it('walks bounded pages across separate CLI invocations when upstream ignores limit', async () => {
+    await startServeProcess();
+    const names: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const result = await runner.runInspectCommand('runner', {
+        cwd: environment.getTempDir(),
+        args: [
+          ...getCliSessionCacheArgs(),
+          '--format',
+          'json',
+          '--limit',
+          '1',
+          ...(cursor ? ['--cursor', cursor] : []),
+        ],
+      });
+      runner.assertSuccess(result);
+      const page = JSON.parse(result.stdout) as {
+        tools: Array<{ tool: string }>;
+        totalTools: number;
+        nextCursor?: string;
+      };
+      expect(page.tools).toHaveLength(1);
+      expect(page.totalTools).toBe(4);
+      expect(result.stdout).not.toMatch(/qualifiedName|qualified_name/);
+      names.push(page.tools[0].tool);
+      cursor = page.nextCursor;
+    } while (cursor && names.length < 5);
+    expect(names).toHaveLength(4);
+    expect(new Set(names).size).toBe(4);
+    expect(cursor).toBeUndefined();
+  });
+
   it('reports unknown tools cleanly', async () => {
     await startServeProcess();
 
@@ -175,7 +208,7 @@ describeInspectE2E('inspect command E2E', () => {
 
     runner.assertSuccess(result);
     expect(result.stderr).toBe('');
-    expect(result.stdout).toContain('runner_1mcp_echo_args');
+    expect(result.stdout).toContain('tool: echo_args');
   });
 
   it('retries with a fresh session when the cache is stale', async () => {
@@ -311,7 +344,7 @@ describeInspectE2E('inspect command E2E', () => {
     expect(serverResult.stdout).not.toContain('instructions:');
     expect(serverResult.stdout).not.toContain('# Serena Instructions');
     expect(serverResult.stdout).not.toContain('# 1MCP - Model Context Protocol Proxy');
-    expect(serverResult.stdout).toContain('find_symbol,serena_1mcp_find_symbol');
+    expect(serverResult.stdout).toContain('find_symbol,');
   });
 
   async function startServeProcess(): Promise<void> {
