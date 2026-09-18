@@ -43,6 +43,7 @@ const testEnv = vi.hoisted(() => {
       getServerVersion: vi.fn().mockResolvedValue({ name: 'mock-backend', version: '1.0.0' }),
       getServerCapabilities: vi.fn(() => transport?.__caps),
       getInstructions: vi.fn(() => transport?.__instr),
+      setNotificationHandler: vi.fn(),
       close: vi.fn().mockResolvedValue(undefined),
       onclose: undefined,
       onerror: undefined,
@@ -72,6 +73,7 @@ function makeTransport(caps: any, instr: string, recreate?: () => any): any {
     stdioSupervision: {
       policy: { restartOnExit: true, restartDelay: 0 },
       recreate: recreate ?? (() => makeTransport(caps, instr)),
+      getLastExit: () => ({ code: 1, signal: null }),
     },
     close: vi.fn().mockResolvedValue(undefined),
     pid: 1234,
