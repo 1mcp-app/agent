@@ -9,7 +9,7 @@ import {
 import type { BackgroundSupervisorState } from '@src/core/server/backgroundRuntimeSupervisorState.js';
 import { getPidFilePath, ServerPidInfo, writePidFile } from '@src/core/server/pidFileManager.js';
 import { readProcessIdentity } from '@src/core/server/processIdentity.js';
-import type { RuntimeScopeOwnershipRecord } from '@src/core/server/runtimeScopeOwnership.js';
+import { RuntimeScopeOwnedError, type RuntimeScopeOwnershipRecord } from '@src/core/server/runtimeScopeOwnership.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -249,24 +249,57 @@ describe('serveStatus', () => {
       expect(STATUS_EXIT_CODES[report.status]).toBe(2);
     });
 
-    it('reports a replacement owner when guarded stale cleanup loses the race', async () => {
-      const stale = ownership({ pid: 99999991, claimId: 'stale-owner' });
-      const replacement = ownership({ pid: 8300, claimId: 'replacement-owner', kind: 'foreground-stdio' });
-      const readOwnership = vi.fn().mockReturnValueOnce(stale).mockReturnValue(replacement);
-      const reclaimOwnership = vi.fn().mockReturnValue(false);
+    it.each(['replacement', 'lock-contention'])(
+      'reports a replacement owner when guarded stale cleanup loses the race: %s',
+      async (race) => {
+        const stale = ownership({ pid: 99999991, claimId: 'stale-owner' });
+        const replacement = ownership({ pid: 8300, claimId: 'replacement-owner', kind: 'foreground-stdio' });
+        const readOwnership = vi.fn().mockReturnValueOnce(stale).mockReturnValue(replacement);
+        const reclaimOwnership = vi.fn(() => {
+          if (race === 'lock-contention') {
+            throw new RuntimeScopeOwnedError(testConfigDir, 'ambiguous', null, 'filesystem lock is held');
+          }
+          return false;
+        });
 
-      const report = await getRuntimeStatusReport(testConfigDir, {
-        readSupervisorState: () => null,
-        discoverRuntime: vi.fn().mockResolvedValue({ status: 'not-running', info: null }),
-        readOwnership,
-        reclaimOwnership,
-        inspectIdentity: (pid) => (pid === replacement.pid ? 'alive' : 'dead'),
-      });
+        const report = await getRuntimeStatusReport(testConfigDir, {
+          readSupervisorState: () => null,
+          discoverRuntime: vi.fn().mockResolvedValue({ status: 'not-running', info: null }),
+          readOwnership,
+          reclaimOwnership,
+          inspectIdentity: (pid) => (pid === replacement.pid ? 'alive' : 'dead'),
+        });
 
-      expect(reclaimOwnership).toHaveBeenCalledWith(testConfigDir, stale);
-      expect(report).toMatchObject({ status: 'unreachable', ownership: replacement });
-      expect(formatRuntimeStatusReport(report)).toContain('Owner: foreground stdio');
-    });
+        expect(reclaimOwnership).toHaveBeenCalledWith(testConfigDir, stale);
+        expect(report).toMatchObject({ status: 'unreachable', ownership: replacement });
+        expect(formatRuntimeStatusReport(report)).toContain('Owner: foreground stdio');
+      },
+    );
+
+    it.each(['missing', 'dead', 'unknown'] as const)(
+      'retains the reclamation error when the replacement owner is %s',
+      async (replacementStatus) => {
+        const stale = ownership({ pid: 99999991, claimId: 'stale-owner' });
+        const replacement = ownership({ pid: 8300, claimId: 'replacement-owner' });
+        const readOwnership = vi
+          .fn()
+          .mockReturnValueOnce(stale)
+          .mockReturnValue(replacementStatus === 'missing' ? null : replacement);
+        const error = new RuntimeScopeOwnedError(testConfigDir, 'ambiguous', null, 'filesystem lock is held');
+        const report = await getRuntimeStatusReport(testConfigDir, {
+          readSupervisorState: () => null,
+          discoverRuntime: async () => ({ status: 'not-running', info: null }),
+          readOwnership,
+          reclaimOwnership: () => {
+            throw error;
+          },
+          inspectIdentity: (pid) => (pid === stale.pid || replacementStatus === 'dead' ? 'dead' : 'unknown'),
+        });
+
+        expect(report).toMatchObject({ status: 'error', info: null, error: error.message });
+        expect(readOwnership).toHaveBeenCalledTimes(2);
+      },
+    );
 
     it('reports a pending supervised restart with attempt, exit, and retry details', async () => {
       const state = supervisorState({

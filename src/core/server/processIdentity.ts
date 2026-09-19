@@ -39,7 +39,7 @@ export function readProcessIdentity(pid: number): ProcessIdentity | undefined {
     if (process.platform === 'darwin') {
       // macOS ps exposes birth time at second precision; see the lifecycle platform contract.
       const startTime = childProcess
-        .execFileSync('/usr/bin/env', ['LC_ALL=C', '/bin/ps', '-p', String(pid), '-o', 'lstart='], {
+        .execFileSync('/usr/bin/env', ['LC_ALL=C', 'TZ=UTC', '/bin/ps', '-p', String(pid), '-o', 'lstart='], {
           encoding: 'utf8',
           timeout: 3000,
           stdio: ['ignore', 'pipe', 'ignore'],

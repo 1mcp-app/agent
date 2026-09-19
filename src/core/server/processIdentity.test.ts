@@ -37,7 +37,20 @@ describe('process incarnation evidence', () => {
 });
 
 describe('platform identity capture', () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it.skipIf(process.platform !== 'darwin')('recognizes the same live process across caller timezones', () => {
+    vi.stubEnv('TZ', 'UTC');
+    const recorded = readProcessIdentity(process.pid);
+    expect(recorded).toBeDefined();
+
+    vi.stubEnv('TZ', 'Asia/Shanghai');
+    expect(readProcessIdentity(process.pid)).toEqual(recorded);
+    expect(inspectProcessIdentity(process.pid, recorded)).toBe('alive');
+  });
 
   it('reads Linux start ticks after a parenthesized process name', () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
@@ -63,13 +76,13 @@ describe('platform identity capture', () => {
     expect(readProcessIdentity(1)).toBeUndefined();
   });
 
-  it('records macOS birth time using a fixed locale', () => {
+  it('records macOS birth time using a fixed locale and timezone', () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
     const exec = vi.spyOn(childProcess, 'execFileSync').mockReturnValue('Tue Sep 15 10:00:00 2026\n');
     expect(readProcessIdentity(123)).toMatchObject({ platform: 'darwin', startTime: 'Tue Sep 15 10:00:00 2026' });
     expect(exec).toHaveBeenCalledWith(
       '/usr/bin/env',
-      ['LC_ALL=C', '/bin/ps', '-p', '123', '-o', 'lstart='],
+      ['LC_ALL=C', 'TZ=UTC', '/bin/ps', '-p', '123', '-o', 'lstart='],
       expect.any(Object),
     );
   });

@@ -111,9 +111,15 @@ try {
   `,
   ]);
   const unrelatedDeadline = Date.now() + 10_000;
-  while (!existsSync(join(scope, 'unrelated.pid')) && Date.now() < unrelatedDeadline) await setTimeout(100);
-  const unrelatedPid = Number(readFileSync(join(scope, 'unrelated.pid'), 'utf8'));
-  assert.ok(unrelatedPid > 1);
+  let unrelatedPid = 0;
+  while (Date.now() < unrelatedDeadline) {
+    if (existsSync(join(scope, 'unrelated.pid'))) {
+      unrelatedPid = Number(readFileSync(join(scope, 'unrelated.pid'), 'utf8').trim());
+      if (Number.isSafeInteger(unrelatedPid) && unrelatedPid > 1) break;
+    }
+    await setTimeout(100);
+  }
+  assert.ok(Number.isSafeInteger(unrelatedPid) && unrelatedPid > 1, 'Unrelated helper must publish its PID');
   docker([
     'exec',
     replacement,

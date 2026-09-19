@@ -10,6 +10,7 @@ import { discoverScopedRuntime, RuntimeStatus } from '@src/core/server/runtimeLi
 import {
   readRuntimeScopeOwnership,
   reclaimStaleRuntimeScopeOwnership,
+  RuntimeScopeOwnedError,
   type RuntimeScopeOwnershipRecord,
 } from '@src/core/server/runtimeScopeOwnership.js';
 
@@ -191,18 +192,27 @@ async function discoverRuntimeWithOwnership(
   if (ownerStatus === 'alive') {
     return { status: 'unreachable', configDir, info: null, ownership };
   }
+  let reclaimError: RuntimeScopeOwnedError | undefined;
   try {
     if (deps.reclaimOwnership(configDir, ownership)) {
       return { ...discovered, configDir };
     }
+  } catch (error) {
+    if (!(error instanceof RuntimeScopeOwnedError)) return statusError(configDir, error);
+    reclaimError = error;
+  }
+  try {
     const replacement = deps.readOwnership(configDir);
     if (!replacement) {
-      return { ...discovered, configDir };
+      return reclaimError ? statusError(configDir, reclaimError) : { ...discovered, configDir };
     }
     if (deps.inspectIdentity(replacement.pid, replacement.processIdentity) === 'alive') {
       return { status: 'unreachable', configDir, info: null, ownership: replacement };
     }
-    return statusError(configDir, new Error('Runtime Scope ownership changed while removing stale metadata'));
+    return statusError(
+      configDir,
+      reclaimError ?? new Error('Runtime Scope ownership changed while removing stale metadata'),
+    );
   } catch (error) {
     return statusError(configDir, error);
   }
