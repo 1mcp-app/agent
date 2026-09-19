@@ -90,7 +90,12 @@ export async function getRuntimeStatusReport(
     if (supervisorStatus === 'unknown' || runtimeStatus === 'unknown') {
       return statusError(
         configDir,
-        new Error('Cannot verify supervisor or worker process identity; lifecycle metadata was retained'),
+        new Error(
+          'Cannot verify supervisor or worker process identity; lifecycle metadata was retained' +
+            (!supervisorState.supervisorIdentity && !supervisorState.runtimeIdentity
+              ? '. Legacy metadata requires explicit recovery. On Linux, a live supervised pair with complete scope metadata can use 1mcp serve --restart with the same --config-dir. On macOS/Windows, stop the verified old runtime using its original CLI or service manager before restarting with the new CLI; retain metadata until all scope participants have stopped.'
+              : ''),
+        ),
       );
     }
     const supervisorAlive = supervisorStatus === 'alive';
@@ -187,7 +192,12 @@ async function discoverRuntimeWithOwnership(
   if (ownerStatus === 'unknown')
     return statusError(
       configDir,
-      new Error('Cannot verify Runtime Scope owner identity; lifecycle metadata was retained'),
+      new Error(
+        'Cannot verify Runtime Scope owner identity; lifecycle metadata was retained' +
+          (!ownership.processIdentity
+            ? '. Legacy ownership-only metadata cannot prove a live supervisor/worker pair. Stop the original runtime using its original CLI or service manager; verify all scope participants have stopped before manual metadata cleanup.'
+            : ''),
+      ),
     );
   if (ownerStatus === 'alive') {
     return { status: 'unreachable', configDir, info: null, ownership };

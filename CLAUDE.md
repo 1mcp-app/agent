@@ -98,6 +98,14 @@ src/
 
 ## Development Conventions
 
+### Maintainable control flow
+
+- Make each branch express one decision. Prefer guard clauses and early returns over nested `if/else` chains.
+- Split conditions that mix several concerns or require mentally unpacking `&&`, `||`, and negation. Use sequential checks or a well-named domain predicate; keep the predicate itself straightforward.
+- Keep ordinary two-way `if/else` when it is clearer. Avoid nested ternaries and boolean flags that make one function perform different workflows.
+- Extract small functions around meaningful decisions or steps, not wrappers that merely hide a complicated expression. Do not replace simple branches with unnecessary dispatch tables, classes, or abstractions.
+- During refactoring, preserve validation, short-circuit order, side effects, and failure behavior. Review new or changed code against these rules and verify the affected behavior.
+
 ### Environment Variables
 
 - Access through yargs options (`ONE_MCP_*` prefix auto-loaded), never direct `process.env` access

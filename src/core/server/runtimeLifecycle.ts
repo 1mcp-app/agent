@@ -174,7 +174,11 @@ export async function discoverScopedRuntime(
     return {
       status: 'error',
       info: null,
-      error: `Cannot verify process identity for Runtime Scope PID ${info.pid}; lifecycle metadata was retained.`,
+      error:
+        `Cannot verify process identity for Runtime Scope PID ${info.pid}; lifecycle metadata was retained.` +
+        (!info.processIdentity
+          ? ' A legacy PID record alone cannot establish recovery authority. Stop the original runtime using its original CLI or service manager; verify all scope participants have stopped before manual metadata cleanup.'
+          : ''),
     };
   }
   if (identityStatus === 'dead') {
