@@ -192,6 +192,7 @@ describe('waitForBackgroundReady', () => {
   it('resolves ready when the PID file matches the child and readiness passes', async () => {
     writePidFile(testConfigDir, info({ pid: 4321 }));
     const result = await waitForBackgroundReady(testConfigDir, 4321, {
+      inspectIdentity: () => 'alive',
       readinessProbe: async () => true,
       sleep: async () => {},
     });
@@ -199,8 +200,29 @@ describe('waitForBackgroundReady', () => {
     expect(result.info?.pid).toBe(4321);
   });
 
+  it.each(['dead', 'unknown'] as const)(
+    'does not probe readiness for %s process identity despite matching PID',
+    async (identityStatus) => {
+      writePidFile(testConfigDir, info({ pid: 4321 }));
+      const readinessProbe = vi.fn(async () => true);
+      let clock = 0;
+      const result = await waitForBackgroundReady(testConfigDir, 4321, {
+        inspectIdentity: () => identityStatus,
+        readinessProbe,
+        timeoutMs: 100,
+        now: () => clock,
+        sleep: async () => {
+          clock += 100;
+        },
+      });
+      expect(result.ready).toBe(false);
+      expect(readinessProbe).not.toHaveBeenCalled();
+    },
+  );
+
   it('fails fast when the child exits before becoming ready', async () => {
     const result = await waitForBackgroundReady(testConfigDir, 4321, {
+      inspectIdentity: () => 'alive',
       isChildAlive: () => false,
       readinessProbe: async () => true,
       sleep: async () => {},
@@ -213,6 +235,7 @@ describe('waitForBackgroundReady', () => {
     writePidFile(testConfigDir, info({ pid: 4321 }));
     let clock = 0;
     const result = await waitForBackgroundReady(testConfigDir, 4321, {
+      inspectIdentity: () => 'alive',
       readinessProbe: async () => false,
       timeoutMs: 1000,
       intervalMs: 100,
@@ -231,6 +254,7 @@ describe('waitForBackgroundReady', () => {
     const onProgress = vi.fn();
 
     const result = await waitForBackgroundReady(testConfigDir, 4321, {
+      inspectIdentity: () => 'alive',
       readinessProbe: async () => false,
       timeoutMs: 300,
       intervalMs: 100,
@@ -269,6 +293,7 @@ describe('waitForBackgroundSupervisorReady', () => {
       configDir: '/scope',
     };
     const result = await waitForBackgroundSupervisorReady('/scope', 100, {
+      inspectIdentity: () => 'alive',
       readState: () => snapshots.shift() ?? null,
       readRuntimeInfo: () => runtimeInfo,
       readinessProbe: async () => true,
@@ -279,8 +304,22 @@ describe('waitForBackgroundSupervisorReady', () => {
     expect(result).toMatchObject({ ready: true, info: { pid: 202 } });
   });
 
+  it('rejects stale supervisor identity even when its numeric PID is alive', async () => {
+    const readinessProbe = vi.fn(async () => true);
+    const result = await waitForBackgroundSupervisorReady('/scope', 100, {
+      readState: () => createSupervisorState({ status: 'crash-loop', runtimePid: null }),
+      isSupervisorAlive: () => true,
+      inspectIdentity: () => 'unknown',
+      readinessProbe,
+    });
+    expect(result).toMatchObject({ ready: false, reason: 'background supervisor identity could not be verified' });
+    expect(result.terminal).toBeUndefined();
+    expect(readinessProbe).not.toHaveBeenCalled();
+  });
+
   it('returns terminal failure without stopping a resident crash-loop supervisor', async () => {
     const result = await waitForBackgroundSupervisorReady('/scope', 100, {
+      inspectIdentity: () => 'alive',
       readState: () => createSupervisorState({ status: 'crash-loop', runtimePid: null }),
       isSupervisorAlive: () => true,
       sleep: async () => {},

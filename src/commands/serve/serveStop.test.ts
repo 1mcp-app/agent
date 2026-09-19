@@ -4,6 +4,7 @@ import path from 'node:path';
 import { runServeStop, waitForProcessExit } from '@src/commands/serve/serveStop.js';
 import { getBackgroundLaunchConfigPath, writeBackgroundLaunchConfig } from '@src/core/server/backgroundLaunchConfig.js';
 import { PidFileReadError, type ServerPidInfo } from '@src/core/server/pidFileManager.js';
+import { readProcessIdentity } from '@src/core/server/processIdentity.js';
 import {
   claimRuntimeScope,
   getRuntimeScopeOwnershipPath,
@@ -125,12 +126,167 @@ describe('runServeStop', () => {
     expect(stderr).toContain('cannot inspect Runtime Scope');
   });
 
+  it.each([null, 8200])(
+    'retains supervisor ownership when malformed PID metadata may hide a worker (%s)',
+    async (runtimePid) => {
+      fs.mkdirSync(tempScope, { recursive: true });
+      fs.writeFileSync(path.join(tempScope, 'server.pid'), '{broken');
+      const owner = backgroundOwner(8100);
+      const cleanupOwnership = vi.fn();
+      const kill = vi.fn();
+      await runServeStop(tempScope, {
+        readOwnership: () => owner,
+        readSupervisorState: () =>
+          runtimePid === null
+            ? null
+            : {
+                version: 1,
+                status: 'running',
+                supervisorPid: 8100,
+                runtimePid,
+                restartAttempt: 0,
+                lastExit: null,
+                nextRetryAt: null,
+                readyAt: null,
+                updatedAt: '2026-09-15T00:00:00.000Z',
+              },
+        acquireStopLock,
+        inspectIdentity: () => 'dead',
+        cleanupOwnership,
+        kill,
+      });
+      expect(process.exitCode).toBe(1);
+      expect(kill).not.toHaveBeenCalled();
+      expect(cleanupOwnership).not.toHaveBeenCalled();
+      expect(fs.existsSync(path.join(tempScope, 'server.pid'))).toBe(true);
+    },
+  );
+
+  it.each([8200, 8300])(
+    'preserves conflicting worker metadata and ownership (replacement PID %s)',
+    async (replacementPid) => {
+      const oldIdentity = { platform: 'linux' as const, bootId: 'boot', pidNamespace: 'pid:[1]', startTime: '1' };
+      const replacementIdentity = { ...oldIdentity, startTime: '2' };
+      const owner = backgroundOwner(8100);
+      const state = {
+        version: 1 as const,
+        status: 'running' as const,
+        supervisorPid: 8100,
+        runtimePid: 8200,
+        runtimeIdentity: oldIdentity,
+        restartAttempt: 0,
+        lastExit: null,
+        nextRetryAt: null,
+        readyAt: null,
+        updatedAt: '2026-09-15T00:00:00.000Z',
+      };
+      const cleanup = vi.fn();
+      const cleanupOwnership = vi.fn();
+      const kill = vi.fn();
+      await runServeStop('/scope', {
+        readOwnership: () => owner,
+        readSupervisorState: () => state,
+        acquireStopLock,
+        readInfo: () => info({ pid: replacementPid, processIdentity: replacementIdentity }),
+        inspectIdentity: () => 'dead',
+        cleanup,
+        cleanupOwnership,
+        kill,
+      });
+      expect(process.exitCode).toBe(1);
+      expect(kill).not.toHaveBeenCalled();
+      expect(cleanup).not.toHaveBeenCalled();
+      expect(cleanupOwnership).not.toHaveBeenCalled();
+    },
+  );
+
+  it('retains ownership when worker metadata changes during shutdown or cleanup fails', async () => {
+    for (const replaced of [true, false]) {
+      const state = {
+        version: 1 as const,
+        status: 'running' as const,
+        supervisorPid: 8100,
+        runtimePid: 8200,
+        restartAttempt: 0,
+        lastExit: null,
+        nextRetryAt: null,
+        readyAt: null,
+        updatedAt: '2026-09-15T00:00:00.000Z',
+      };
+      const cleanupOwnership = vi.fn();
+      const cleanup = vi.fn(() => false);
+      const readInfo = vi
+        .fn()
+        .mockReturnValueOnce(info({ pid: 8200 }))
+        .mockReturnValue(info({ pid: replaced ? 8300 : 8200 }));
+      await runServeStop('/scope', {
+        readOwnership: () => backgroundOwner(8100),
+        readSupervisorState: () => state,
+        acquireStopLock,
+        readInfo,
+        inspectIdentity: () => 'dead',
+        cleanup,
+        cleanupOwnership,
+      });
+      expect(process.exitCode).toBe(1);
+      expect(cleanupOwnership).not.toHaveBeenCalled();
+      if (replaced) expect(cleanup).not.toHaveBeenCalled();
+      else expect(cleanup).toHaveBeenCalled();
+    }
+  });
+
+  it('never signals a reused PID belonging to an unrelated process', async () => {
+    const identity = readProcessIdentity(process.pid)!;
+    const kill = vi.fn();
+    const cleanup = vi.fn(() => true);
+    await runServeStop('/scope', {
+      readInfo: () =>
+        info({
+          pid: process.pid,
+          processIdentity: { ...identity, startTime: identity.platform === 'darwin' ? 'old birth time' : '0' },
+        }),
+      kill,
+      cleanup,
+    });
+    expect(kill).not.toHaveBeenCalled();
+    expect(cleanup).toHaveBeenCalledWith('/scope', process.pid);
+    expect(process.exitCode).toBe(0);
+  });
+
+  it('fails closed for legacy and foreign-namespace PID records', async () => {
+    for (const processIdentity of [
+      undefined,
+      { platform: 'linux' as const, bootId: 'foreign', pidNamespace: 'pid:[foreign]', startTime: '1' },
+    ]) {
+      const kill = vi.fn();
+      const cleanup = vi.fn();
+      await runServeStop('/scope', { readInfo: () => info({ pid: process.pid, processIdentity }), kill, cleanup });
+      expect(kill).not.toHaveBeenCalled();
+      expect(cleanup).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(1);
+    }
+  });
+
+  it('rechecks identity before SIGKILL and leaves a replacement process alone', async () => {
+    const kill = vi.fn();
+    const inspectIdentity = vi.fn().mockReturnValueOnce('alive').mockReturnValueOnce('alive').mockReturnValue('dead');
+    await runServeStop('/scope', {
+      readInfo: () => info(),
+      inspectIdentity,
+      kill,
+      cleanup: () => true,
+      waitForExit: vi.fn().mockResolvedValue(false),
+    });
+    expect(kill.mock.calls).toEqual([[4321, 'SIGTERM']]);
+    expect(process.exitCode).toBe(0);
+  });
+
   it('removes a stale PID file for a dead process without signaling', async () => {
     const kill = vi.fn();
     const cleanup = vi.fn().mockReturnValue(true);
     await runServeStop('/scope', {
       readInfo: () => info({ pid: 99999999 }),
-      isAlive: () => false,
+      inspectIdentity: () => 'dead',
       kill,
       cleanup,
     });
@@ -145,7 +301,7 @@ describe('runServeStop', () => {
     const cleanup = vi.fn().mockReturnValue(false);
     await runServeStop('/scope', {
       readInfo: () => info({ pid: 99999999 }),
-      isAlive: () => false,
+      inspectIdentity: () => 'dead',
       kill: vi.fn(),
       cleanup,
     });
@@ -161,7 +317,7 @@ describe('runServeStop', () => {
 
     await runServeStop('/scope', {
       readInfo: () => info({ pid: 4321 }),
-      isAlive: () => true,
+      inspectIdentity: () => 'alive',
       kill,
       cleanup,
       waitForExit,
@@ -182,7 +338,7 @@ describe('runServeStop', () => {
 
     await runServeStop('/scope', {
       readInfo: () => info({ pid: 4321 }),
-      isAlive: () => true,
+      inspectIdentity: () => 'alive',
       kill,
       cleanup,
       waitForExit,
@@ -201,7 +357,7 @@ describe('runServeStop', () => {
 
     await runServeStop('/scope', {
       readInfo: () => info({ pid: 4321 }),
-      isAlive: () => true,
+      inspectIdentity: () => 'alive',
       kill,
       cleanup,
       waitForExit,
@@ -222,7 +378,7 @@ describe('runServeStop', () => {
 
     await runServeStop('/scope', {
       readInfo: () => info({ pid: 4321 }),
-      isAlive: () => true,
+      inspectIdentity: () => 'alive',
       kill,
       cleanup,
       waitForExit,
@@ -254,7 +410,7 @@ describe('runServeStop', () => {
       readOwnership: () => backgroundOwner(state.supervisorPid),
       acquireStopLock,
       readInfo,
-      isAlive: (pid) => pid === state.supervisorPid,
+      inspectIdentity: (pid) => (pid === state.supervisorPid ? 'alive' : 'dead'),
       kill,
       waitForExit: vi.fn().mockResolvedValue(true),
       cleanupLaunchConfig: vi.fn().mockReturnValue(true),
@@ -293,7 +449,7 @@ describe('runServeStop', () => {
         readOwnership: () => backgroundOwner(state.supervisorPid),
         acquireStopLock,
         readInfo: () => null,
-        isAlive: (pid) => pid === state.supervisorPid,
+        inspectIdentity: (pid) => (pid === state.supervisorPid ? 'alive' : 'dead'),
         kill: vi.fn(),
         waitForExit: vi.fn().mockResolvedValue(true),
         cleanupLaunchConfig,
@@ -339,7 +495,7 @@ describe('runServeStop', () => {
       readOwnership: () => backgroundOwner(state.supervisorPid),
       acquireStopLock,
       readInfo: vi.fn(),
-      isAlive: (pid) => pid === state.runtimePid,
+      inspectIdentity: (pid) => (pid === state.runtimePid ? 'alive' : 'dead'),
       kill,
       waitForExit: vi.fn().mockResolvedValue(true),
       cleanupLaunchConfig,
@@ -384,7 +540,8 @@ describe('runServeStop', () => {
       readOwnership: () => backgroundOwner(initialState.supervisorPid),
       acquireStopLock,
       readInfo: vi.fn(),
-      isAlive: (pid) => (pid === initialState.supervisorPid ? supervisorAlive : pid === 8200 && runtimeAlive),
+      inspectIdentity: (pid) =>
+        (pid === initialState.supervisorPid ? supervisorAlive : pid === 8200 && runtimeAlive) ? 'alive' : 'dead',
       kill,
       waitForExit,
       cleanupLaunchConfig: vi.fn().mockReturnValue(true),
@@ -427,7 +584,7 @@ describe('runServeStop', () => {
         claimedAt: '2026-06-26T00:02:00.000Z',
       }),
       readInfo: () => current,
-      isAlive: (pid) => pid === current.pid,
+      inspectIdentity: (pid) => (pid === current.pid ? 'alive' : 'dead'),
       kill,
       waitForExit: vi.fn().mockResolvedValue(true),
       cleanupSupervisorState,
@@ -458,7 +615,8 @@ describe('runServeStop', () => {
       readOwnership: () => backgroundOwner(supervisorPid),
       acquireStopLock,
       readInfo: () => info({ pid: workerPid }),
-      isAlive: (pid) => (pid === supervisorPid ? supervisorAlive : pid === workerPid && workerAlive),
+      inspectIdentity: (pid) =>
+        (pid === supervisorPid ? supervisorAlive : pid === workerPid && workerAlive) ? 'alive' : 'dead',
       kill,
       waitForExit,
       cleanupLaunchConfig: vi.fn().mockReturnValue(true),
@@ -504,8 +662,10 @@ describe('runServeStop', () => {
       readOwnership: () => backgroundOwner(replacementSupervisorPid),
       acquireStopLock,
       readInfo: () => info({ pid: replacementWorkerPid }),
-      isAlive: (pid) =>
-        pid === replacementSupervisorPid ? supervisorAlive : pid === replacementWorkerPid && workerAlive,
+      inspectIdentity: (pid) =>
+        (pid === replacementSupervisorPid ? supervisorAlive : pid === replacementWorkerPid && workerAlive)
+          ? 'alive'
+          : 'dead',
       kill,
       waitForExit,
       cleanupLaunchConfig: vi.fn().mockReturnValue(true),
@@ -547,7 +707,7 @@ describe('runServeStop', () => {
       readSupervisorState: vi.fn().mockReturnValueOnce(oldState).mockReturnValue(null),
       cleanupSupervisorState: vi.fn().mockReturnValue(true),
       readInfo: () => null,
-      isAlive: (pid) => pid === replacementSupervisorPid && supervisorAlive,
+      inspectIdentity: (pid) => (pid === replacementSupervisorPid && supervisorAlive ? 'alive' : 'dead'),
       kill: vi.fn(),
       waitForExit: vi.fn(async () => {
         supervisorAlive = false;

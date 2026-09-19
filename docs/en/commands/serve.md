@@ -100,6 +100,23 @@ Each Runtime Scope has one race-safe lifecycle owner. An ordinary foreground or 
 
 Foreground HTTP and deprecated foreground stdio starts participate in the same ownership rule, but remain unsupervised. Prefer `1mcp proxy` for stdio-compatible clients; background mode is HTTP-only.
 
+### Persistent volumes and process identity
+
+On Linux, lifecycle ownership uses kernel file locks as well as persisted process identity (boot ID, PID namespace, and process start time). The `flock` command must be available; the official Alpine-based Docker image includes it. The config directory must reside on storage that provides working, shared `flock` semantics. Missing locking support fails closed.
+
+After a foreground Docker runtime is externally killed, a replacement container can reclaim its abandoned owner and stop records on the same persistent volume, even when both processes are PID 1. A different live container sharing that volume still holds the kernel lock and excludes a competing start. Changing the hostname alone never authorizes takeover.
+
+The stable `runtime.owner.flock` and `runtime.stop.flock` files remain after shutdown. Their presence does not mean a lock is held. **Do not delete these files while any process may use the scope**: replacing their inodes would defeat coordination.
+
+`server.pid`, ownership, and supervisor metadata record process birth evidence. Discovery and stop commands retain ambiguous metadata and refuse to signal an unverified process. Stop checks identity again before escalating from SIGTERM to SIGKILL.
+
+Compatibility and limits:
+
+- **Existing records:** Version-1 metadata without process identity or the new locking marker cannot safely be recovered from numeric PID liveness alone. Gracefully stop the old runtime before upgrading. If old metadata remains after a crash, first verify that every runtime, supervisor, worker, and lifecycle command using that scope has stopped, then remove the abandoned `runtime.owner`, `runtime.stop`, `server.pid`, and, for a background runtime, `background-runtime.json`. Do not automate blanket deletion at startup.
+- **Other platforms:** macOS uses `ps` process start time in UTC, with one-second precision; Windows uses PowerShell process start ticks. Missing tools, denied access, unsupported platforms, or mismatched execution contexts remain uncertain and fail closed. Linux file-lock recovery does not apply on these platforms.
+- **Background containers:** An abandoned supervisor lock does not prove that its worker has exited. If a worker belongs to a different PID namespace and its death cannot be verified, background recovery remains blocked. Stop or verify the entire old container before manually recovering its metadata.
+- **Coordination boundary:** This protects one scope on storage with reliable locking; it is not a distributed multi-host lifecycle service. Run stop/restart from the runtime's execution context. Identity checks precede ordinary numeric-PID signals, so a small check-to-signal race remains; macOS also has the start-time precision limit above. PID-file cleanup rechecks the recorded generation, but does not atomically compare-and-delete against a concurrent publisher.
+
 ### Start in the background
 
 `1mcp serve --background` starts a persistent supervisor with one detached runtime worker and returns once the worker is ready, so scripts can continue:
