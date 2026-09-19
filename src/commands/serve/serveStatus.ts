@@ -90,7 +90,12 @@ export async function getRuntimeStatusReport(
     if (supervisorStatus === 'unknown' || runtimeStatus === 'unknown') {
       return statusError(
         configDir,
-        new Error('Cannot verify supervisor or worker process identity; lifecycle metadata was retained'),
+        new Error(
+          'Cannot verify supervisor or worker process identity; lifecycle metadata was retained' +
+            (!supervisorState.supervisorIdentity && !supervisorState.runtimeIdentity
+              ? '. Legacy metadata requires explicit recovery: run 1mcp serve --restart with the same --config-dir. If verification fails, stop the original runtime before manual cleanup.'
+              : ''),
+        ),
       );
     }
     const supervisorAlive = supervisorStatus === 'alive';
@@ -187,7 +192,12 @@ async function discoverRuntimeWithOwnership(
   if (ownerStatus === 'unknown')
     return statusError(
       configDir,
-      new Error('Cannot verify Runtime Scope owner identity; lifecycle metadata was retained'),
+      new Error(
+        'Cannot verify Runtime Scope owner identity; lifecycle metadata was retained' +
+          (!ownership.processIdentity
+            ? '. Legacy metadata requires explicit stop/restart recovery; if verification fails, stop the original runtime before manual cleanup.'
+            : ''),
+      ),
     );
   if (ownerStatus === 'alive') {
     return { status: 'unreachable', configDir, info: null, ownership };

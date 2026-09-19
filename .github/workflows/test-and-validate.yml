@@ -242,3 +242,38 @@ jobs:
           exit "$test_status"
         env:
           CI: true
+
+  test-legacy-upgrade:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, macos-15-intel]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.checkout_ref || github.ref }}
+          persist-credentials: false
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+      - name: Build
+        run: pnpm build
+      - name: Install actual legacy version
+        run: npm install --prefix .tmp/legacy-runtime @1mcp/agent@0.38.0 --ignore-scripts --omit=dev --no-audit --no-fund
+      - name: Test published-version lifecycle upgrade
+        run: node scripts/test/runtime-legacy-upgrade.mjs .tmp/legacy-runtime/node_modules/@1mcp/agent/build/index.js
+      - name: Test installed npm artifact through its shebang
+        run: |
+          mkdir -p .tmp/npm-artifact
+          npm pack --pack-destination .tmp/npm-artifact --ignore-scripts
+          npm install --prefix .tmp/installed-runtime ./.tmp/npm-artifact/*.tgz --ignore-scripts --omit=dev --no-audit --no-fund
+          node scripts/test/runtime-legacy-upgrade.mjs .tmp/legacy-runtime/node_modules/@1mcp/agent/build/index.js .tmp/installed-runtime/node_modules/@1mcp/agent/build/index.js direct
+      - name: Build standalone candidate
+        if: runner.os == 'macOS'
+        run: pnpm sea:build && pnpm sea:binary
+      - name: Test standalone lifecycle upgrade
+        if: runner.os == 'macOS'
+        run: node scripts/test/runtime-legacy-upgrade.mjs .tmp/legacy-runtime/node_modules/@1mcp/agent/build/index.js ./1mcp relative

@@ -28,6 +28,8 @@ import {
 } from '@src/core/server/runtimeScopeOwnership.js';
 import logger from '@src/logger/logger.js';
 
+import { stopLegacyRuntime } from './legacyRuntimeStop.js';
+
 /**
  * `serve --stop`: stop only the runtime in the selected Runtime Scope.
  *
@@ -239,8 +241,9 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
     }
 
     try {
+      let initialInfo: ServerPidInfo | null;
       try {
-        const initialInfo = readInfo(configDir);
+        initialInfo = readInfo(configDir);
         if (
           supervisorState.runtimePid !== null &&
           !runtimeMetadataMatches(initialInfo, supervisorState.runtimePid, supervisorState.runtimeIdentity)
@@ -265,7 +268,30 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
           ? 'dead'
           : inspectIdentity(supervisorState.runtimePid, supervisorState.runtimeIdentity);
       if (supervisorStatus === 'unknown' || workerStatus === 'unknown') {
-        failStop(`cannot verify process identity in Runtime Scope ${configDir}; refusing ambiguous stop.`);
+        if (
+          !owner.processIdentity &&
+          !supervisorState.supervisorIdentity &&
+          !supervisorState.runtimeIdentity &&
+          !initialInfo?.processIdentity
+        ) {
+          try {
+            if (await stopLegacyRuntime(configDir, owner, supervisorState, initialInfo)) {
+              process.stdout.write(`Stopped verified legacy background runtime in Runtime Scope ${configDir}.\n`);
+              process.exitCode = 0;
+              return;
+            }
+          } catch (error) {
+            failStop(`legacy runtime recovery aborted: ${errorMessage(error)}`);
+            return;
+          }
+        }
+        failStop(
+          `cannot verify process identity in Runtime Scope ${configDir}; refusing ambiguous stop. ` +
+            (!owner.processIdentity
+              ? 'Legacy metadata has no process identity. Stop the old runtime using its original CLI or service manager; verify all scope participants have stopped before manual metadata recovery.'
+              : ''),
+        );
+
         return;
       }
       const supervisorWasAlive = supervisorStatus === 'alive';
@@ -407,7 +433,12 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
   // Stale dead-process PID file: clean it up and report cleanly.
   const identityStatus = inspectIdentity(info.pid, info.processIdentity);
   if (identityStatus === 'unknown') {
-    failStop(`cannot verify process identity for Runtime Scope PID ${info.pid}; refusing ambiguous stop.`);
+    failStop(
+      `cannot verify process identity for Runtime Scope PID ${info.pid}; refusing ambiguous stop.` +
+        (!info.processIdentity
+          ? ' Legacy foreground or unverifiable runtimes require stopping through the original CLI or service manager. Verify all scope participants have stopped before manual metadata cleanup.'
+          : ''),
+    );
     return;
   }
   if (identityStatus === 'dead') {

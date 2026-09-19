@@ -18,6 +18,9 @@ pnpm exec tsc --project tsconfig.build.json
 echo "🔗 Resolving path aliases..."
 pnpm exec tsc-alias -p tsconfig.build.json
 
+# Build the macOS process reader (no-op on other platforms).
+node scripts/build-process-evidence.cjs
+
 # Build Admin Console SPA
 echo "🖥️ Building Admin Console SPA..."
 pnpm exec tsc --noEmit --project web/admin/tsconfig.json

@@ -43,6 +43,11 @@ function buildSEA() {
     console.log('📦 Building TypeScript...');
     execSync('tsc --project tsconfig.build.json', { stdio: 'inherit' });
 
+    require('./build-process-evidence.cjs').buildProcessEvidence();
+    const processEvidencePath = path.join('build', 'native', 'process-evidence-darwin');
+    const processEvidence =
+      process.platform === 'darwin' ? fs.readFileSync(processEvidencePath).toString('base64') : undefined;
+
     // 3. Set execute permissions on main file
     const mainFile = 'build/index.js';
     if (fs.existsSync(mainFile)) {
@@ -108,6 +113,9 @@ const __TIKTOKEN_WASM_DATA__ = ${JSON.stringify(wasmData)};
 
 // Inlined version data for SEA compatibility
 const __PACKAGE_VERSION__ = ${JSON.stringify(packageJson.version)};
+
+// Inlined macOS process reader for standalone lifecycle recovery
+globalThis.__1MCP_SEA_PROCESS_EVIDENCE__ = ${JSON.stringify(processEvidence)};
 
 // Inlined Admin Console assets for SEA compatibility
 globalThis.__1MCP_SEA_ADMIN_CONSOLE_ASSETS__ = ${JSON.stringify(adminConsoleAssets)};
