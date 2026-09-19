@@ -7,41 +7,44 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 
 const integer = z.number().int().nonnegative().max(2147483647);
-const evidenceSchema = z
-  .object({
-    pid: integer.positive(),
-    ppid: integer,
-    uid: z.number().int().nonnegative(),
-    realUid: z.number().int().nonnegative(),
-    executable: z.string(),
-    argv: z.array(z.string()).max(65536),
-    exited: z.literal(true).optional(),
-    birth: z.string().regex(/^\d+(?:\.\d+)?$/),
-    context: z.discriminatedUnion('platform', [
-      z.object({
-        platform: z.literal('linux'),
-        bootId: z.string().min(1),
-        pidNamespace: z.string().regex(/^pid:\[\d+\]$/),
-        mountNamespace: z
-          .string()
-          .regex(/^mnt:\[\d+\]$/)
-          .optional(),
-        userNamespace: z
-          .string()
-          .regex(/^user:\[\d+\]$/)
-          .optional(),
-      }),
-      z.object({ platform: z.literal('darwin'), bootId: z.string().regex(/^\d+\.\d+$/) }),
-    ]),
-  })
-  .refine((value) =>
-    value.exited
-      ? value.executable === '' && value.argv.length === 0
-      : value.executable.startsWith('/') &&
-        value.argv.length > 0 &&
-        (value.context.platform !== 'linux' || !!(value.context.mountNamespace && value.context.userNamespace)),
-  );
-export type ProcessEvidence = z.infer<typeof evidenceSchema>;
+const evidenceShape = z.object({
+  pid: integer.positive(),
+  ppid: integer,
+  uid: z.number().int().nonnegative(),
+  realUid: z.number().int().nonnegative(),
+  executable: z.string(),
+  argv: z.array(z.string()).max(65536),
+  exited: z.literal(true).optional(),
+  birth: z.string().regex(/^\d+(?:\.\d+)?$/),
+  context: z.discriminatedUnion('platform', [
+    z.object({
+      platform: z.literal('linux'),
+      bootId: z.string().min(1),
+      pidNamespace: z.string().regex(/^pid:\[\d+\]$/),
+      mountNamespace: z
+        .string()
+        .regex(/^mnt:\[\d+\]$/)
+        .optional(),
+      userNamespace: z
+        .string()
+        .regex(/^user:\[\d+\]$/)
+        .optional(),
+    }),
+    z.object({ platform: z.literal('darwin'), bootId: z.string().regex(/^\d+\.\d+$/) }),
+  ]),
+});
+export type ProcessEvidence = z.infer<typeof evidenceShape>;
+const evidenceSchema = evidenceShape.refine(hasCompleteEvidence);
+
+function hasCompleteEvidence(value: ProcessEvidence): boolean {
+  if (value.exited) return value.executable === '' && value.argv.length === 0;
+  if (!value.executable.startsWith('/')) return false;
+  if (value.argv.length === 0) return false;
+  if (value.context.platform === 'linux') {
+    return !!(value.context.mountNamespace && value.context.userNamespace);
+  }
+  return true;
+}
 const MAX_BYTES = 4 * 1024 * 1024;
 
 function readBounded(filename: string, limit: number): string {
@@ -81,7 +84,8 @@ function linuxSnapshot(pid: number): ProcessEvidence {
   const status = readBounded(`${base}/status`, 65536);
   const uid = /^Uid:\s+(\d+)\s+(\d+)\s+\d+\s+\d+$/m.exec(status);
   const cmdline = exited ? '' : readBounded(`${base}/cmdline`, MAX_BYTES);
-  if (!uid || (!exited && !cmdline.endsWith('\0'))) throw new Error('Missing process evidence');
+  if (!uid) throw new Error('Missing process evidence');
+  if (!exited && !cmdline.endsWith('\0')) throw new Error('Missing process evidence');
   return evidenceSchema.parse({
     pid,
     ppid: Number(fields[1]),
@@ -133,9 +137,17 @@ function darwinSnapshot(pid: number): ProcessEvidence {
 export function readProcessEvidence(pid: number): ProcessEvidence | undefined {
   if (!Number.isSafeInteger(pid) || pid <= 0 || pid > 2147483647) return undefined;
   try {
-    const read =
-      process.platform === 'linux' ? linuxSnapshot : process.platform === 'darwin' ? darwinSnapshot : undefined;
-    if (!read) return undefined;
+    let read: (pid: number) => ProcessEvidence;
+    switch (process.platform) {
+      case 'linux':
+        read = linuxSnapshot;
+        break;
+      case 'darwin':
+        read = darwinSnapshot;
+        break;
+      default:
+        return undefined;
+    }
     const before = read(pid);
     const after = read(pid);
     return JSON.stringify(before) === JSON.stringify(after) ? after : undefined;

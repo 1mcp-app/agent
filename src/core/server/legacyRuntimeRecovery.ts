@@ -25,21 +25,8 @@ export function verifyLegacyRuntimeOwner(
   dependencies: { readEvidence?: typeof readProcessEvidence } = {},
 ): { supervisor: ProcessEvidence; worker: ProcessEvidence } | undefined {
   try {
-    if (
-      !owner ||
-      !supervisorState ||
-      !pidInfo ||
-      owner.kind !== 'background-supervisor' ||
-      owner.processIdentity !== undefined ||
-      supervisorState.supervisorIdentity !== undefined ||
-      supervisorState.runtimeIdentity !== undefined ||
-      pidInfo.processIdentity !== undefined ||
-      owner.pid !== supervisorState.supervisorPid ||
-      pidInfo.pid !== supervisorState.runtimePid ||
-      owner.pid === pidInfo.pid ||
-      !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(owner.claimId)
-    )
-      return undefined;
+    if (!owner || !supervisorState || !pidInfo) return undefined;
+    if (!isLegacySupervisedPair(owner, supervisorState, pidInfo)) return undefined;
 
     const scope = fs.realpathSync(configDir);
     if (!path.isAbsolute(pidInfo.configDir) || fs.realpathSync(pidInfo.configDir) !== scope) return undefined;
@@ -47,22 +34,11 @@ export function verifyLegacyRuntimeOwner(
     const caller = readEvidence(process.pid);
     const supervisor = readEvidence(owner.pid);
     const worker = readEvidence(pidInfo.pid);
-    if (
-      !caller ||
-      !supervisor ||
-      !worker ||
-      caller.exited ||
-      supervisor.exited ||
-      worker.exited ||
-      worker.ppid !== supervisor.pid ||
-      ![caller, supervisor, worker].every(
-        (evidence) =>
-          evidence.uid === caller.uid &&
-          evidence.realUid === caller.uid &&
-          isDeepStrictEqual(evidence.context, caller.context),
-      )
-    )
-      return undefined;
+    if (!caller || !supervisor || !worker) return undefined;
+    const participants = [caller, supervisor, worker];
+    if (participants.some((evidence) => evidence.exited)) return undefined;
+    if (worker.ppid !== supervisor.pid) return undefined;
+    if (!participants.every((evidence) => belongsToCaller(evidence, caller))) return undefined;
 
     const files = [
       path.join(scope, 'runtime.owner', 'owner.json'),
@@ -71,13 +47,10 @@ export function verifyLegacyRuntimeOwner(
       getBackgroundLaunchConfigPath(scope),
     ];
     const before = snapshotFiles(scope, files, caller.uid);
-    if (
-      !isDeepStrictEqual(JSON.parse(before[1].content), owner) ||
-      !isDeepStrictEqual(JSON.parse(before[2].content), supervisorState) ||
-      !isDeepStrictEqual(JSON.parse(before[3].content), pidInfo) ||
-      readBackgroundLaunchConfig(files[3]).claimId !== owner.claimId
-    )
-      return undefined;
+    if (!isDeepStrictEqual(JSON.parse(before[1].content), owner)) return undefined;
+    if (!isDeepStrictEqual(JSON.parse(before[2].content), supervisorState)) return undefined;
+    if (!isDeepStrictEqual(JSON.parse(before[3].content), pidInfo)) return undefined;
+    if (readBackgroundLaunchConfig(files[3]).claimId !== owner.claimId) return undefined;
 
     // Namespace equality alone does not exclude a chroot in the same mount namespace.
     if (caller.context.platform === 'linux') {
@@ -92,37 +65,23 @@ export function verifyLegacyRuntimeOwner(
 
     const supervisorArgs = invocationArgs(supervisor);
     const workerArgs = invocationArgs(worker);
-    if (
-      !supervisorArgs ||
-      !workerArgs ||
-      supervisor.executable !== worker.executable ||
-      supervisor.argv.slice(0, supervisor.argv.length - supervisorArgs.length).join('\0') !==
-        worker.argv.slice(0, worker.argv.length - workerArgs.length).join('\0') ||
-      values(supervisorArgs, 'background-bootstrap').join() !== 'true' ||
-      values(workerArgs, 'background-bootstrap').length !== 0 ||
-      values(supervisorArgs, 'runtime-owner-claim-id').length !== 0 ||
-      values(supervisorArgs, 'background-launch-config').length !== 0 ||
-      !isSingleValue(workerArgs, 'runtime-owner-claim-id', owner.claimId) ||
-      !isSingleValue(workerArgs, 'background-launch-config', files[3])
-    )
-      return undefined;
+    if (!supervisorArgs || !workerArgs) return undefined;
+    if (supervisor.executable !== worker.executable) return undefined;
+    if (invocationPrefix(supervisor, supervisorArgs) !== invocationPrefix(worker, workerArgs)) return undefined;
+    if (!hasSupervisorRole(supervisorArgs)) return undefined;
+    if (!hasWorkerClaim(workerArgs, owner.claimId, files[3])) return undefined;
+
     for (const args of [supervisorArgs, workerArgs]) {
       const scopes = values(args, 'config-dir');
-      if (
-        scopes.length > 1 ||
-        (scopes.length === 1 && (!path.isAbsolute(scopes[0]) || fs.realpathSync(scopes[0]) !== scope))
-      )
-        return undefined;
+      if (scopes.length > 1) return undefined;
+      if (scopes.length === 1 && !isScopePath(scopes[0], scope)) return undefined;
       if (args.some((arg) => /^(--(stop|restart|status|background)(=|$)|--$)/.test(arg))) return undefined;
     }
 
-    if (
-      !isDeepStrictEqual(before, snapshotFiles(scope, files, caller.uid)) ||
-      !processEvidenceMatches(caller, readEvidence(process.pid)) ||
-      !processEvidenceMatches(supervisor, readEvidence(owner.pid)) ||
-      !processEvidenceMatches(worker, readEvidence(pidInfo.pid))
-    )
-      return undefined;
+    if (!isDeepStrictEqual(before, snapshotFiles(scope, files, caller.uid))) return undefined;
+    if (!processEvidenceMatches(caller, readEvidence(process.pid))) return undefined;
+    if (!processEvidenceMatches(supervisor, readEvidence(owner.pid))) return undefined;
+    if (!processEvidenceMatches(worker, readEvidence(pidInfo.pid))) return undefined;
     return { supervisor, worker };
   } catch {
     // Missing, inaccessible, or malformed evidence never grants signal authority.
@@ -130,17 +89,61 @@ export function verifyLegacyRuntimeOwner(
   }
 }
 
+function isLegacySupervisedPair(
+  owner: RuntimeScopeOwnershipRecord,
+  state: BackgroundSupervisorState,
+  info: ServerPidInfo,
+): boolean {
+  if (owner.kind !== 'background-supervisor') return false;
+  const identities = [owner.processIdentity, state.supervisorIdentity, state.runtimeIdentity, info.processIdentity];
+  if (identities.some((identity) => identity !== undefined)) return false;
+  if (owner.pid !== state.supervisorPid) return false;
+  if (info.pid !== state.runtimePid) return false;
+  if (owner.pid === info.pid) return false;
+  return /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(owner.claimId);
+}
+
+function belongsToCaller(evidence: ProcessEvidence, caller: ProcessEvidence): boolean {
+  if (evidence.uid !== caller.uid) return false;
+  if (evidence.realUid !== caller.uid) return false;
+  return isDeepStrictEqual(evidence.context, caller.context);
+}
+
+function invocationPrefix(evidence: ProcessEvidence, args: string[]): string {
+  return evidence.argv.slice(0, evidence.argv.length - args.length).join('\0');
+}
+
+function hasSupervisorRole(args: string[]): boolean {
+  if (values(args, 'background-bootstrap').join() !== 'true') return false;
+  if (values(args, 'runtime-owner-claim-id').length !== 0) return false;
+  return values(args, 'background-launch-config').length === 0;
+}
+
+function hasWorkerClaim(args: string[], claimId: string, launchConfig: string): boolean {
+  if (values(args, 'background-bootstrap').length !== 0) return false;
+  if (!isSingleValue(args, 'runtime-owner-claim-id', claimId)) return false;
+  return isSingleValue(args, 'background-launch-config', launchConfig);
+}
+
+function isScopePath(candidate: string, scope: string): boolean {
+  if (!path.isAbsolute(candidate)) return false;
+  return fs.realpathSync(candidate) === scope;
+}
+
+function isInspectableMetadata(file: string, scope: string, stat: fs.Stats, uid: number): boolean {
+  if (stat.isSymbolicLink()) return false;
+  if (stat.uid !== uid) return false;
+  const expectedType = file === scope ? stat.isDirectory() : stat.isFile();
+  if (!expectedType) return false;
+  if ((stat.mode & 0o022) !== 0) return false;
+  if (stat.size > 1024 * 1024) return false;
+  return fs.realpathSync(file) === file;
+}
+
 function snapshotFiles(scope: string, files: string[], uid: number) {
   return [scope, ...files].map((file) => {
     const stat = fs.lstatSync(file);
-    if (
-      stat.isSymbolicLink() ||
-      stat.uid !== uid ||
-      (file === scope ? !stat.isDirectory() : !stat.isFile()) ||
-      (stat.mode & 0o022) !== 0 ||
-      stat.size > 1024 * 1024 ||
-      fs.realpathSync(file) !== file
-    ) {
+    if (!isInspectableMetadata(file, scope, stat, uid)) {
       throw new Error('Unverifiable legacy metadata');
     }
     return {

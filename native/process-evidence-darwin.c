@@ -19,6 +19,15 @@ static void string_json(const char *s) {
   putchar('"');
 }
 
+static int same_process(const struct proc_bsdinfo *before, const struct proc_bsdinfo *after) {
+  if (before->pbi_pid != after->pbi_pid) return 0;
+  if (before->pbi_ppid != after->pbi_ppid) return 0;
+  if (before->pbi_uid != after->pbi_uid) return 0;
+  if (before->pbi_ruid != after->pbi_ruid) return 0;
+  if (before->pbi_start_tvsec != after->pbi_start_tvsec) return 0;
+  return before->pbi_start_tvusec == after->pbi_start_tvusec;
+}
+
 int main(int argc, char **argv) {
   if (argc != 2) return 2;
   char *end;
@@ -34,11 +43,9 @@ int main(int argc, char **argv) {
   if (sysctlbyname("kern.boottime", &boot, &boot_size, NULL, 0) || boot_size != sizeof(boot)) return 5;
   if (before.pbi_pid != (unsigned int)pid) return 3;
   if (before.pbi_status == SZOMB) {
-    if (proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &after, sizeof(after)) != sizeof(after) ||
-        after.pbi_status != SZOMB || before.pbi_pid != after.pbi_pid ||
-        before.pbi_ppid != after.pbi_ppid || before.pbi_uid != after.pbi_uid ||
-        before.pbi_ruid != after.pbi_ruid || before.pbi_start_tvsec != after.pbi_start_tvsec ||
-        before.pbi_start_tvusec != after.pbi_start_tvusec) return 13;
+    if (proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &after, sizeof(after)) != sizeof(after)) return 13;
+    if (after.pbi_status != SZOMB) return 13;
+    if (!same_process(&before, &after)) return 13;
     printf("{\"pid\":%u,\"ppid\":%u,\"uid\":%u,\"realUid\":%u,\"birth\":\"%llu.%06llu\","
            "\"executable\":\"\",\"argv\":[],\"exited\":true,"
            "\"context\":{\"platform\":\"darwin\",\"bootId\":\"%lld.%06d\"}}\n",
@@ -91,9 +98,8 @@ int main(int argc, char **argv) {
     }
   }
   if (proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &after, sizeof(after)) != sizeof(after)) { free(args); free(buf); return 12; }
-  if (before.pbi_pid != (unsigned int)pid || before.pbi_status == SZOMB || after.pbi_status == SZOMB || before.pbi_pid != after.pbi_pid || before.pbi_ppid != after.pbi_ppid ||
-      before.pbi_uid != after.pbi_uid || before.pbi_ruid != after.pbi_ruid ||
-      before.pbi_start_tvsec != after.pbi_start_tvsec || before.pbi_start_tvusec != after.pbi_start_tvusec) { free(args); free(buf); return 13; }
+  const int still_alive = before.pbi_status != SZOMB && after.pbi_status != SZOMB;
+  if (!still_alive || !same_process(&before, &after)) { free(args); free(buf); return 13; }
   printf("{\"pid\":%u,\"ppid\":%u,\"uid\":%u,\"realUid\":%u,\"birth\":\"%llu.%06llu\",\"executable\":",
     before.pbi_pid, before.pbi_ppid, before.pbi_uid, before.pbi_ruid,
     before.pbi_start_tvsec, before.pbi_start_tvusec);

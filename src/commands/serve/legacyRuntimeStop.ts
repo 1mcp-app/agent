@@ -34,7 +34,7 @@ function processExists(pid: number): boolean {
     process.kill(pid, 0);
     return true;
   } catch (error) {
-    return !(error instanceof Error && 'code' in error && error.code === 'ESRCH');
+    return !isMissingProcess(error);
   }
 }
 
@@ -56,19 +56,12 @@ export async function stopLegacyRuntime(
     const currentOwner = readRuntimeScopeOwnership(configDir);
     const currentState = readBackgroundSupervisorState(configDir);
     const currentInfo = readPidFile(configDir);
-    if (
-      (!allowMissing && (!currentOwner || !currentState || !currentInfo)) ||
-      (currentOwner && !isDeepStrictEqual(currentOwner, owner)) ||
-      (currentState &&
-        (currentState.supervisorPid !== owner.pid ||
-          (currentState.runtimePid !== null && currentState.runtimePid !== info.pid) ||
-          currentState.supervisorIdentity ||
-          currentState.runtimeIdentity)) ||
-      (currentInfo && !isDeepStrictEqual(currentInfo, info)) ||
-      (!currentInfo && fs.existsSync(getPidFilePath(configDir)))
-    ) {
-      throw new Error('Legacy runtime ownership or worker changed; metadata retained and restart aborted');
-    }
+    const missingMetadata = !currentOwner || !currentState || !currentInfo;
+    if (!allowMissing && missingMetadata) metadataChanged();
+    if (currentOwner && !isDeepStrictEqual(currentOwner, owner)) metadataChanged();
+    if (currentState && !matchesCapturedSupervisor(currentState, owner.pid, info.pid)) metadataChanged();
+    if (currentInfo && !isDeepStrictEqual(currentInfo, info)) metadataChanged();
+    if (!currentInfo && fs.existsSync(getPidFilePath(configDir))) metadataChanged();
   };
 
   const status = (expected: ProcessEvidence, allowReparent: boolean): 'alive' | 'dead' | 'unknown' => {
@@ -76,19 +69,13 @@ export async function stopLegacyRuntime(
     if (!observed) return exists(expected.pid) ? 'unknown' : 'dead';
     if (observed.exited) {
       // A zombie has already exited; Linux no longer exposes its mount namespace.
-      const sameContext =
-        observed.context.platform === expected.context.platform &&
-        observed.context.bootId === expected.context.bootId &&
-        (observed.context.platform !== 'linux' ||
-          (expected.context.platform === 'linux' && observed.context.pidNamespace === expected.context.pidNamespace));
-      return sameContext ? 'dead' : 'unknown';
+      return matchesExitContext(expected.context, observed.context) ? 'dead' : 'unknown';
     }
     if (!isDeepStrictEqual(observed.context, expected.context)) return 'unknown';
     if (observed.birth !== expected.birth) return 'dead';
     // Parent changes are expected only after the verified supervisor has exited.
-    return processEvidenceMatches(expected, allowReparent ? { ...observed, ppid: expected.ppid } : observed)
-      ? 'alive'
-      : 'unknown';
+    const comparable = allowReparent ? { ...observed, ppid: expected.ppid } : observed;
+    return processEvidenceMatches(expected, comparable) ? 'alive' : 'unknown';
   };
 
   const wait = async (expected: ProcessEvidence, allowReparent: boolean, timeout: number): Promise<boolean> => {
@@ -115,17 +102,11 @@ export async function stopLegacyRuntime(
       try {
         kill(expected.pid, signal);
       } catch (error) {
-        if (
-          error instanceof Error &&
-          'code' in error &&
-          error.code === 'ESRCH' &&
-          status(expected, supervisorExited) === 'dead'
-        )
-          return;
+        if (isMissingProcess(error) && status(expected, supervisorExited) === 'dead') return;
         throw error;
       }
-      if (await wait(expected, supervisorExited, signal === 'SIGTERM' ? (dependencies.timeoutMs ?? 10000) : 2000))
-        return;
+      const timeout = signal === 'SIGTERM' ? (dependencies.timeoutMs ?? 10000) : 2000;
+      if (await wait(expected, supervisorExited, timeout)) return;
     }
     throw new Error('Legacy process did not exit; restart aborted');
   };
@@ -148,4 +129,35 @@ export async function stopLegacyRuntime(
   }
   checkMetadata(true);
   return true;
+}
+
+function metadataChanged(): never {
+  throw new Error('Legacy runtime ownership or worker changed; metadata retained and restart aborted');
+}
+
+function matchesCapturedSupervisor(
+  state: BackgroundSupervisorState,
+  supervisorPid: number,
+  workerPid: number,
+): boolean {
+  if (state.supervisorPid !== supervisorPid) return false;
+  if (state.runtimePid !== null && state.runtimePid !== workerPid) return false;
+  if (state.supervisorIdentity || state.runtimeIdentity) return false;
+  return true;
+}
+
+function matchesExitContext(expected: ProcessEvidence['context'], observed: ProcessEvidence['context']): boolean {
+  if (observed.platform !== expected.platform) return false;
+  if (observed.bootId !== expected.bootId) return false;
+  if (observed.platform === 'linux') {
+    if (expected.platform !== 'linux') return false;
+    return observed.pidNamespace === expected.pidNamespace;
+  }
+  return true;
+}
+
+function isMissingProcess(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (!('code' in error)) return false;
+  return error.code === 'ESRCH';
 }
