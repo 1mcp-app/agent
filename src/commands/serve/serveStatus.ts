@@ -5,7 +5,7 @@ import {
   readBackgroundSupervisorState,
 } from '@src/core/server/backgroundRuntimeSupervisor.js';
 import { ServerPidInfo } from '@src/core/server/pidFileManager.js';
-import { inspectProcessIdentity } from '@src/core/server/processIdentity.js';
+import { inspectProcessIdentity, processIdentityRecoveryMessage } from '@src/core/server/processIdentity.js';
 import { discoverScopedRuntime, RuntimeStatus } from '@src/core/server/runtimeLifecycle.js';
 import {
   readRuntimeScopeOwnership,
@@ -88,15 +88,10 @@ export async function getRuntimeStatusReport(
         ? 'dead'
         : inspectIdentity(supervisorState.runtimePid, supervisorState.runtimeIdentity);
     if (supervisorStatus === 'unknown' || runtimeStatus === 'unknown') {
-      return statusError(
-        configDir,
-        new Error(
-          'Cannot verify supervisor or worker process identity; lifecycle metadata was retained' +
-            (!supervisorState.supervisorIdentity && !supervisorState.runtimeIdentity
-              ? '. Legacy metadata requires explicit recovery. On Linux, a live supervised pair with complete scope metadata can use 1mcp serve --restart with the same --config-dir. On macOS/Windows, stop the verified old runtime using its original CLI or service manager before restarting with the new CLI; retain metadata until all scope participants have stopped.'
-              : ''),
-        ),
-      );
+      const pid = supervisorStatus === 'unknown' ? supervisorState.supervisorPid : supervisorState.runtimePid!;
+      const identity =
+        supervisorStatus === 'unknown' ? supervisorState.supervisorIdentity : supervisorState.runtimeIdentity;
+      return statusError(configDir, new Error(processIdentityRecoveryMessage(pid, identity)));
     }
     const supervisorAlive = supervisorStatus === 'alive';
     const runtimeAlive = runtimeStatus === 'alive';
@@ -190,15 +185,7 @@ async function discoverRuntimeWithOwnership(
   }
   const ownerStatus = deps.inspectIdentity(ownership.pid, ownership.processIdentity);
   if (ownerStatus === 'unknown')
-    return statusError(
-      configDir,
-      new Error(
-        'Cannot verify Runtime Scope owner identity; lifecycle metadata was retained' +
-          (!ownership.processIdentity
-            ? '. Legacy ownership-only metadata cannot prove a live supervisor/worker pair. Stop the original runtime using its original CLI or service manager; verify all scope participants have stopped before manual metadata cleanup.'
-            : ''),
-      ),
-    );
+    return statusError(configDir, new Error(processIdentityRecoveryMessage(ownership.pid, ownership.processIdentity)));
   if (ownerStatus === 'alive') {
     return { status: 'unreachable', configDir, info: null, ownership };
   }

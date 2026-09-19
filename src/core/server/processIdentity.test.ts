@@ -3,7 +3,12 @@ import fs from 'node:fs';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { inspectProcessIdentity, type ProcessIdentity, readProcessIdentity } from './processIdentity.js';
+import {
+  inspectProcessIdentity,
+  type ProcessIdentity,
+  processIdentityRecoveryMessage,
+  readProcessIdentity,
+} from './processIdentity.js';
 
 const identity: ProcessIdentity = { platform: 'linux', bootId: 'boot', pidNamespace: 'pid:[1]', startTime: '10' };
 
@@ -170,5 +175,46 @@ describe('platform identity capture', () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('freebsd');
     expect(readProcessIdentity(123)).toBeUndefined();
     expect(readProcessIdentity(-1)).toBeUndefined();
+  });
+});
+
+describe('process identity recovery guidance', () => {
+  it.each([
+    ['missing birth evidence', undefined, () => identity, 'legacy format'],
+    ['unavailable OS evidence', identity, () => undefined, 'permissions or platform tools'],
+    ['another boot', identity, () => ({ ...identity, bootId: 'other' }), 'another boot session'],
+    ['another namespace', identity, () => ({ ...identity, pidNamespace: 'other' }), 'another PID namespace'],
+  ])('explains %s without authorizing cleanup', (_label, recorded, readIdentity, reason) => {
+    const message = processIdentityRecoveryMessage(123, recorded, { readIdentity });
+    expect(message).toContain(reason);
+    expect(message).toContain('PID 123');
+    expect(message).toContain('Do not delete lifecycle metadata');
+    expect(message).toContain('original CLI or service manager');
+  });
+
+  it('identifies hostname changes in legacy macOS records', () => {
+    const recorded: ProcessIdentity = { platform: 'darwin', hostname: 'old', startTime: 'birth' };
+    expect(
+      processIdentityRecoveryMessage(123, recorded, {
+        readIdentity: () => ({ ...recorded, hostname: 'new' }),
+      }),
+    ).toContain('hostname differs');
+  });
+
+  it('reports unreadable target evidence separately from unreadable CLI evidence', () => {
+    expect(
+      processIdentityRecoveryMessage(123, identity, {
+        readIdentity: (pid) => (pid === process.pid ? identity : undefined),
+        processAlive: () => true,
+      }),
+    ).toContain('its birth evidence could not be read');
+  });
+
+  it('asks for a retry when evidence changes during diagnostic re-read', () => {
+    expect(
+      processIdentityRecoveryMessage(123, identity, {
+        readIdentity: () => identity,
+      }),
+    ).toContain('retry the command');
   });
 });

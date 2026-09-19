@@ -98,17 +98,51 @@ function processExists(pid: number): boolean {
   }
 }
 
-function sameContext(left: ProcessIdentity, right: ProcessIdentity): boolean {
-  if (left.platform !== right.platform) return false;
-  if (left.platform === 'linux' && right.platform === 'linux') {
-    return left.bootId === right.bootId && left.pidNamespace === right.pidNamespace;
+function contextMismatch(recorded: ProcessIdentity, observed: ProcessIdentity): string | undefined {
+  if (recorded.platform !== observed.platform) return 'the recorded process belongs to another operating system';
+  if (recorded.platform === 'linux' && observed.platform === 'linux') {
+    if (recorded.bootId !== observed.bootId) return 'the recorded process belongs to another boot session';
+    if (recorded.pidNamespace !== observed.pidNamespace) return 'the recorded process belongs to another PID namespace';
+    return undefined;
   }
-  // macOS hostnames can change with the network. New records use the boot session;
-  // legacy records still require their original hostname rather than a PID-only match.
-  if (left.platform === 'darwin' && right.platform === 'darwin' && left.bootId) {
-    return left.bootId === right.bootId;
+  if (recorded.platform === 'darwin' && observed.platform === 'darwin' && recorded.bootId) {
+    if (!observed.bootId) return 'the current macOS boot-session ID could not be read';
+    if (recorded.bootId !== observed.bootId) return 'the recorded process belongs to another boot session';
+    return undefined;
   }
-  return 'hostname' in left && 'hostname' in right && left.hostname === right.hostname;
+  // Compatibility only: retire hostname-based macOS records at the next major release.
+  if ('hostname' in recorded && 'hostname' in observed && recorded.hostname !== observed.hostname) {
+    return 'the hostname differs from the hostname-based process record';
+  }
+  return undefined;
+}
+
+type IdentityInspection = { status: 'alive' | 'dead' } | { status: 'unknown'; reason: string };
+
+/** All lifecycle paths use the same evidence and fail-closed decisions. */
+function inspectIdentity(
+  pid: number,
+  identity: ProcessIdentity | undefined,
+  dependencies: IdentityDependencies,
+): IdentityInspection {
+  if (!identity) return { status: 'unknown', reason: 'the record has no process birth evidence (legacy format)' };
+  const readIdentity = dependencies.readIdentity ?? readProcessIdentity;
+  const context = readIdentity(process.pid);
+  if (!context)
+    return {
+      status: 'unknown',
+      reason: 'OS process evidence is unavailable to this CLI (permissions or platform tools)',
+    };
+  const mismatch = contextMismatch(identity, context);
+  if (mismatch) return { status: 'unknown', reason: mismatch };
+  const observed = readIdentity(pid);
+  if (observed) {
+    const mismatch = contextMismatch(identity, observed);
+    if (mismatch) return { status: 'unknown', reason: mismatch };
+    return { status: observed.startTime === identity.startTime ? 'alive' : 'dead' };
+  }
+  if (!(dependencies.processAlive ?? processExists)(pid)) return { status: 'dead' };
+  return { status: 'unknown', reason: 'the process may still exist, but its birth evidence could not be read' };
 }
 
 /** Numeric PIDs are meaningful only within the recorded execution context. */
@@ -117,14 +151,25 @@ export function inspectProcessIdentity(
   identity?: ProcessIdentity,
   dependencies: IdentityDependencies = {},
 ): ProcessIdentityStatus {
-  if (!identity) return 'unknown';
-  const readIdentity = dependencies.readIdentity ?? readProcessIdentity;
-  const context = readIdentity(process.pid);
-  if (!context || !sameContext(identity, context)) return 'unknown';
-  const observed = readIdentity(pid);
-  if (observed) {
-    if (!sameContext(identity, observed)) return 'unknown';
-    return observed.startTime === identity.startTime ? 'alive' : 'dead';
-  }
-  return (dependencies.processAlive ?? processExists)(pid) ? 'unknown' : 'dead';
+  return inspectIdentity(pid, identity, dependencies).status;
+}
+
+/** Diagnostic re-read only; this never authorizes signalling or metadata cleanup. */
+export function processIdentityRecoveryMessage(
+  pid: number,
+  identity?: ProcessIdentity,
+  dependencies: IdentityDependencies = {},
+): string {
+  const inspection = inspectIdentity(pid, identity, dependencies);
+  const reason =
+    inspection.status === 'unknown'
+      ? inspection.reason
+      : 'process evidence changed during verification; retry the command';
+  return (
+    `Cannot verify process identity for PID ${pid}: ${reason}. Lifecycle metadata was retained. ` +
+    'Run the command as the runtime user on the same host/container with OS process-inspection permissions. ' +
+    'On Linux, legacy supervised pairs can use explicit serve --stop or serve --restart with the same --config-dir. ' +
+    'For other legacy records, stop the old runtime through its original CLI or service manager, then start with this CLI. ' +
+    'Do not delete lifecycle metadata while any process may still use this scope.'
+  );
 }
