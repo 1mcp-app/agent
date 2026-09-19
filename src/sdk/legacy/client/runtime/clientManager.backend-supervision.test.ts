@@ -1,7 +1,9 @@
-import { ClientManager } from './clientManager.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import { ClientStatus } from '@src/core/types/index.js';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { ClientManager } from './clientManager.js';
 
 // ---------------------------------------------------------------------------
 // Production-path regression tests for #547.
