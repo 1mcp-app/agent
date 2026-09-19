@@ -105,36 +105,74 @@ function linuxSnapshot(pid: number): ProcessEvidence {
   });
 }
 
-function darwinSnapshot(pid: number): ProcessEvidence {
+function prepareDarwinHelper(): { file: string; directory?: string } {
   const embedded = (globalThis as typeof globalThis & { __1MCP_SEA_PROCESS_EVIDENCE__?: string })
     .__1MCP_SEA_PROCESS_EVIDENCE__;
-  let directory: string | undefined;
+  if (embedded === undefined) {
+    // Emitted at build/core/server: two parents resolve to build/native, not repository/native.
+    return { file: fileURLToPath(new URL('../../native/process-evidence-darwin', import.meta.url)) };
+  }
+  if (!embedded.length || embedded.length > MAX_BYTES * 2) throw new Error('Invalid embedded helper');
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), '1mcp-process-evidence-'));
   try {
-    let helper: string;
-    if (embedded !== undefined) {
-      if (!embedded.length || embedded.length > MAX_BYTES * 2) throw new Error('Invalid embedded helper');
-      directory = fs.mkdtempSync(path.join(os.tmpdir(), '1mcp-process-evidence-'));
-      fs.chmodSync(directory, 0o700);
-      helper = path.join(directory, 'probe');
-      fs.writeFileSync(helper, Buffer.from(embedded, 'base64'), { mode: 0o700, flag: 'wx' });
-    } else {
-      helper = fileURLToPath(new URL('../../native/process-evidence-darwin', import.meta.url));
+    fs.chmodSync(directory, 0o700);
+    const file = path.join(directory, 'probe');
+    fs.writeFileSync(file, Buffer.from(embedded, 'base64'), { mode: 0o700, flag: 'wx' });
+    return { file, directory };
+  } catch (error) {
+    fs.rmSync(directory, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function darwinSnapshot(pid: number, helper: string): ProcessEvidence {
+  const output = childProcess.execFileSync(helper, [String(pid)], {
+    timeout: 3000,
+    maxBuffer: MAX_BYTES,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  const result = evidenceSchema.parse(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(output)));
+  if (result.pid !== pid || result.context.platform !== 'darwin') throw new Error('Wrong process evidence');
+  return result;
+}
+
+/** Owns only helper materialization; every read still acquires fresh paired process snapshots. */
+export function createProcessEvidenceReader(): { read: typeof readProcessEvidence; close: () => void } {
+  let helper: ReturnType<typeof prepareDarwinHelper> | undefined;
+  let closed = false;
+  const readDarwin = (pid: number): ProcessEvidence => {
+    helper ??= prepareDarwinHelper();
+    return darwinSnapshot(pid, helper.file);
+  };
+  return {
+    read(pid) {
+      if (closed) return undefined;
+      return readStableEvidence(pid, readDarwin);
+    },
+    close() {
+      if (closed) return;
+      closed = true;
+      if (helper?.directory) fs.rmSync(helper.directory, { recursive: true, force: true });
+    },
+  };
+}
+
+/** Convenience read outside a lifecycle operation; always disposes its own helper. */
+export function readProcessEvidence(pid: number): ProcessEvidence | undefined {
+  try {
+    const reader = createProcessEvidenceReader();
+    try {
+      return reader.read(pid);
+    } finally {
+      reader.close();
     }
-    const output = childProcess.execFileSync(helper, [String(pid)], {
-      timeout: 3000,
-      maxBuffer: MAX_BYTES,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-    const result = evidenceSchema.parse(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(output)));
-    if (result.pid !== pid || result.context.platform !== 'darwin') throw new Error('Wrong process evidence');
-    return result;
-  } finally {
-    if (directory) fs.rmSync(directory, { recursive: true, force: true });
+  } catch {
+    return undefined;
   }
 }
 
 /** Capture exact argv and kernel ownership evidence; unavailable or changing evidence fails closed. */
-export function readProcessEvidence(pid: number): ProcessEvidence | undefined {
+function readStableEvidence(pid: number, readDarwin: (pid: number) => ProcessEvidence): ProcessEvidence | undefined {
   if (!Number.isSafeInteger(pid) || pid <= 0 || pid > 2147483647) return undefined;
   try {
     let read: (pid: number) => ProcessEvidence;
@@ -143,7 +181,7 @@ export function readProcessEvidence(pid: number): ProcessEvidence | undefined {
         read = linuxSnapshot;
         break;
       case 'darwin':
-        read = darwinSnapshot;
+        read = readDarwin;
         break;
       default:
         return undefined;

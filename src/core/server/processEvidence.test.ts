@@ -3,7 +3,7 @@ import fs from 'node:fs';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { readProcessEvidence } from './processEvidence.js';
+import { createProcessEvidenceReader, readProcessEvidence } from './processEvidence.js';
 
 const evidence = {
   pid: 123,
@@ -75,6 +75,47 @@ describe('readProcessEvidence', () => {
     expect(readProcessEvidence(123)).toBeUndefined();
     expect(extracted).not.toBe('');
     expect(fs.existsSync(extracted)).toBe(false);
+  });
+
+  it('extracts once per reader while taking fresh paired snapshots on every read', () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
+    seaGlobal.__1MCP_SEA_PROCESS_EVIDENCE__ = Buffer.from('fixture executable').toString('base64');
+    const create = vi.spyOn(fs, 'mkdtempSync');
+    const exec = vi.spyOn(childProcess, 'execFileSync').mockReturnValue(Buffer.from(JSON.stringify(evidence)));
+    const reader = createProcessEvidenceReader();
+    let helper = '';
+    try {
+      expect(reader.read(123)).toEqual(evidence);
+      expect(reader.read(123)).toEqual(evidence);
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(exec).toHaveBeenCalledTimes(4);
+      helper = String(exec.mock.calls[0][0]);
+      expect(exec.mock.calls.every(([file]) => String(file) === helper)).toBe(true);
+      expect(fs.existsSync(helper)).toBe(true);
+    } finally {
+      reader.close();
+    }
+    reader.close();
+    expect(fs.existsSync(helper)).toBe(false);
+    expect(reader.read(123)).toBeUndefined();
+    expect(exec).toHaveBeenCalledTimes(4);
+  });
+
+  it('cleans a partially materialized helper when writing fails', () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
+    seaGlobal.__1MCP_SEA_PROCESS_EVIDENCE__ = Buffer.from('fixture executable').toString('base64');
+    const create = vi.spyOn(fs, 'mkdtempSync');
+    vi.spyOn(fs, 'writeFileSync').mockImplementation(() => {
+      throw new Error('disk unavailable');
+    });
+    const reader = createProcessEvidenceReader();
+    try {
+      expect(reader.read(123)).toBeUndefined();
+    } finally {
+      reader.close();
+    }
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(fs.existsSync(String(create.mock.results[0].value))).toBe(false);
   });
 
   it('reads procfs with exact argv and rejects changing birth evidence', () => {

@@ -177,7 +177,7 @@ export async function discoverScopedRuntime(
       error:
         `Cannot verify process identity for Runtime Scope PID ${info.pid}; lifecycle metadata was retained.` +
         (!info.processIdentity
-          ? ' Legacy metadata requires explicit recovery: run 1mcp serve --restart with the same --config-dir. If verification fails, stop the original runtime before manual cleanup.'
+          ? ' A legacy PID record alone cannot establish recovery authority. Stop the original runtime using its original CLI or service manager; verify all scope participants have stopped before manual metadata cleanup.'
           : ''),
     };
   }

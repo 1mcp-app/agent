@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
 const execute = promisify(execFile);
@@ -36,6 +37,13 @@ async function port() {
   const value = server.address().port;
   await new Promise((resolve) => server.close(resolve));
   return value;
+}
+// Exercise the real built/installed module without the SEA global override.
+if (process.platform === 'darwin' && /\.[cm]?js$/.test(candidate)) {
+  const modulePath = path.join(path.dirname(candidate), 'core/server/processEvidence.js');
+  const { readProcessEvidence } = await import(pathToFileURL(modulePath).href);
+  assert.equal(readProcessEvidence(process.pid)?.pid, process.pid, 'non-SEA packaged helper must resolve and execute');
+  console.log('PASS: non-SEA native helper resolves from the built/installed module');
 }
 try {
   for (const operation of ['stop', 'restart']) {

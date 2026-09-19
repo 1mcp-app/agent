@@ -14,7 +14,11 @@ import {
   readPidFile,
   type ServerPidInfo,
 } from '@src/core/server/pidFileManager.js';
-import { type ProcessEvidence, readProcessEvidence } from '@src/core/server/processEvidence.js';
+import {
+  createProcessEvidenceReader,
+  type ProcessEvidence,
+  readProcessEvidence,
+} from '@src/core/server/processEvidence.js';
 import {
   readRuntimeScopeOwnership,
   releaseRuntimeScopeOwnership,
@@ -46,7 +50,28 @@ export async function stopLegacyRuntime(
   info: ServerPidInfo | null,
   dependencies: LegacyStopDependencies = {},
 ): Promise<boolean> {
-  const readEvidence = dependencies.readEvidence ?? readProcessEvidence;
+  if (dependencies.readEvidence) {
+    return stopWithEvidence(configDir, owner, state, info, {
+      ...dependencies,
+      readEvidence: dependencies.readEvidence,
+    });
+  }
+  const reader = createProcessEvidenceReader();
+  try {
+    return await stopWithEvidence(configDir, owner, state, info, { ...dependencies, readEvidence: reader.read });
+  } finally {
+    reader.close();
+  }
+}
+
+async function stopWithEvidence(
+  configDir: string,
+  owner: RuntimeScopeOwnershipRecord,
+  state: BackgroundSupervisorState,
+  info: ServerPidInfo | null,
+  dependencies: LegacyStopDependencies & { readEvidence: typeof readProcessEvidence },
+): Promise<boolean> {
+  const readEvidence = dependencies.readEvidence;
   const pair = (dependencies.verify ?? verifyLegacyRuntimeOwner)(configDir, owner, state, info, { readEvidence });
   if (!pair || !info) return false;
   const kill = dependencies.kill ?? ((pid, signal) => process.kill(pid, signal));
@@ -83,11 +108,14 @@ export async function stopLegacyRuntime(
     do {
       const current = status(expected, allowReparent);
       if (current === 'dead') return true;
-      if (current === 'unknown')
-        throw new Error('Legacy process evidence became unavailable or changed; refusing further signals');
+      // Exit can fall between the paired snapshots. Wait for evidence to settle; never signal on uncertainty.
       await new Promise((resolve) => setTimeout(resolve, 100));
     } while (Date.now() < deadline);
-    return status(expected, allowReparent) === 'dead';
+    const current = status(expected, allowReparent);
+    if (current === 'unknown') {
+      throw new Error('Legacy process evidence became unavailable or changed; refusing further signals');
+    }
+    return current === 'dead';
   };
 
   const terminate = async (expected: ProcessEvidence, supervisorExited: boolean): Promise<void> => {

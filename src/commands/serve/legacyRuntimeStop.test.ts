@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import * as processEvidence from '@src/core/server/processEvidence.js';
 import type { BackgroundSupervisorState } from '@src/core/server/backgroundRuntimeSupervisorState.js';
 import type { ServerPidInfo } from '@src/core/server/pidFileManager.js';
 import type { ProcessEvidence } from '@src/core/server/processEvidence.js';
@@ -70,7 +71,10 @@ describe('verified legacy shutdown', () => {
     write('server.pid', info);
     write('background-launch.json', { version: 1, claimId: owner.claimId, appConfig: {} });
   });
-  afterEach(() => fs.rmSync(scope, { recursive: true, force: true }));
+  afterEach(() => {
+    vi.restoreAllMocks();
+    fs.rmSync(scope, { recursive: true, force: true });
+  });
   const deps = () => ({
     verify: () => ({ supervisor, worker }),
     readEvidence: (pid: number) => processes.get(pid),
@@ -179,5 +183,50 @@ describe('verified legacy shutdown', () => {
     });
     expect(await stopLegacyRuntime(scope, owner, state, info, { ...deps(), kill, exists: () => true })).toBe(true);
     expect(kill.mock.calls.map(([pid]) => pid)).toEqual([supervisor.pid, worker.pid]);
+  });
+  it('waits for transient post-signal uncertainty to settle without escalating', async () => {
+    let closing: number | undefined;
+    let uncertainReads = 0;
+    const readEvidence = (pid: number) => {
+      if (pid !== closing) return processes.get(pid);
+      uncertainReads++;
+      if (uncertainReads === 1) return undefined;
+      processes.delete(pid);
+      return undefined;
+    };
+    const kill = vi.fn((pid: number) => {
+      closing = pid;
+      uncertainReads = 0;
+      if (pid === supervisor.pid) processes.set(worker.pid, { ...worker, ppid: 1 });
+    });
+    expect(await stopLegacyRuntime(scope, owner, state, info, { ...deps(), readEvidence, kill, timeoutMs: 1000 })).toBe(
+      true,
+    );
+    expect(kill.mock.calls.map(([pid]) => pid)).toEqual([supervisor.pid, worker.pid]);
+  });
+
+  it('closes the operation reader when initial verification refuses recovery', async () => {
+    const close = vi.fn();
+    vi.spyOn(processEvidence, 'createProcessEvidenceReader').mockReturnValue({ read: deps().readEvidence, close });
+    expect(
+      await stopLegacyRuntime(scope, owner, state, info, {
+        ...deps(),
+        readEvidence: undefined,
+        verify: () => undefined,
+      }),
+    ).toBe(false);
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes the operation reader when signalling fails', async () => {
+    const close = vi.fn();
+    vi.spyOn(processEvidence, 'createProcessEvidenceReader').mockReturnValue({ read: deps().readEvidence, close });
+    const kill = () => {
+      throw new Error('signal denied');
+    };
+    await expect(
+      stopLegacyRuntime(scope, owner, state, info, { ...deps(), readEvidence: undefined, kill }),
+    ).rejects.toThrow('signal denied');
+    expect(close).toHaveBeenCalledTimes(1);
   });
 });

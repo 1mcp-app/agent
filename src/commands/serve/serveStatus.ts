@@ -93,7 +93,7 @@ export async function getRuntimeStatusReport(
         new Error(
           'Cannot verify supervisor or worker process identity; lifecycle metadata was retained' +
             (!supervisorState.supervisorIdentity && !supervisorState.runtimeIdentity
-              ? '. Legacy metadata requires explicit recovery: run 1mcp serve --restart with the same --config-dir. If verification fails, stop the original runtime before manual cleanup.'
+              ? '. Legacy metadata requires explicit recovery. A live supervised pair with complete scope metadata can use 1mcp serve --restart with the same --config-dir; otherwise stop the original runtime using its original CLI or service manager before manual cleanup.'
               : ''),
         ),
       );
@@ -195,7 +195,7 @@ async function discoverRuntimeWithOwnership(
       new Error(
         'Cannot verify Runtime Scope owner identity; lifecycle metadata was retained' +
           (!ownership.processIdentity
-            ? '. Legacy metadata requires explicit stop/restart recovery; if verification fails, stop the original runtime before manual cleanup.'
+            ? '. Legacy ownership-only metadata cannot prove a live supervisor/worker pair. Stop the original runtime using its original CLI or service manager; verify all scope participants have stopped before manual metadata cleanup.'
             : ''),
       ),
     );
