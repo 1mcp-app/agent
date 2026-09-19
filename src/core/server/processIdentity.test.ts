@@ -29,6 +29,64 @@ describe('process incarnation evidence', () => {
       }),
     ).toBe('unknown');
   });
+  it('recognizes macOS processes after a hostname change within the same boot', () => {
+    const recorded: ProcessIdentity = {
+      platform: 'darwin',
+      hostname: 'old-host',
+      bootId: 'boot-session',
+      startTime: 'birth',
+    };
+    expect(
+      inspectProcessIdentity(123, recorded, {
+        readIdentity: () => ({ ...recorded, hostname: 'new-host' }),
+      }),
+    ).toBe('alive');
+  });
+
+  it('rejects macOS evidence from another boot or without the recorded boot ID', () => {
+    const recorded: ProcessIdentity = {
+      platform: 'darwin',
+      hostname: 'host',
+      bootId: 'boot-session',
+      startTime: 'birth',
+    };
+    for (const bootId of ['other-boot', undefined]) {
+      expect(
+        inspectProcessIdentity(123, recorded, {
+          readIdentity: () => ({ ...recorded, bootId }),
+        }),
+      ).toBe('unknown');
+    }
+  });
+
+  it('retains hostname checks for legacy macOS records', () => {
+    const recorded: ProcessIdentity = { platform: 'darwin', hostname: 'host', startTime: 'birth' };
+    expect(
+      inspectProcessIdentity(123, recorded, {
+        readIdentity: () => ({ ...recorded, bootId: 'boot-session' }),
+      }),
+    ).toBe('alive');
+    expect(
+      inspectProcessIdentity(123, recorded, {
+        readIdentity: () => ({ ...recorded, hostname: 'other-host', bootId: 'boot-session' }),
+      }),
+    ).toBe('unknown');
+  });
+
+  it('still detects macOS PID reuse after a hostname change', () => {
+    const recorded: ProcessIdentity = {
+      platform: 'darwin',
+      hostname: 'old-host',
+      bootId: 'boot-session',
+      startTime: 'birth',
+    };
+    expect(
+      inspectProcessIdentity(123, recorded, {
+        readIdentity: () => ({ ...recorded, hostname: 'new-host', startTime: 'later' }),
+      }),
+    ).toBe('dead');
+  });
+
   it('fails closed for legacy and unavailable identity evidence', () => {
     const processAlive = vi.fn(() => true);
     expect(inspectProcessIdentity(1, undefined, { processAlive })).toBe('unknown');
@@ -78,13 +136,28 @@ describe('platform identity capture', () => {
 
   it('records macOS birth time using a fixed locale and timezone', () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
-    const exec = vi.spyOn(childProcess, 'execFileSync').mockReturnValue('Tue Sep 15 10:00:00 2026\n');
-    expect(readProcessIdentity(123)).toMatchObject({ platform: 'darwin', startTime: 'Tue Sep 15 10:00:00 2026' });
+    const exec = vi
+      .spyOn(childProcess, 'execFileSync')
+      .mockImplementation((file) => (file === '/usr/sbin/sysctl' ? 'boot-session\n' : 'Tue Sep 15 10:00:00 2026\n'));
+    expect(readProcessIdentity(123)).toMatchObject({
+      platform: 'darwin',
+      bootId: 'boot-session',
+      startTime: 'Tue Sep 15 10:00:00 2026',
+    });
     expect(exec).toHaveBeenCalledWith(
       '/usr/bin/env',
       ['LC_ALL=C', 'TZ=UTC', '/bin/ps', '-p', '123', '-o', 'lstart='],
       expect.any(Object),
     );
+  });
+
+  it('fails closed when the macOS boot session cannot be read', () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
+    vi.spyOn(childProcess, 'execFileSync').mockImplementation((file) => {
+      if (file === '/usr/sbin/sysctl') throw new Error('EACCES');
+      return 'Tue Sep 15 10:00:00 2026\n';
+    });
+    expect(readProcessIdentity(123)).toBeUndefined();
   });
 
   it('records Windows UTC process-start ticks', () => {

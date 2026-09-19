@@ -11,7 +11,12 @@ export const processIdentitySchema = z.discriminatedUnion('platform', [
     pidNamespace: z.string().min(1),
     startTime: z.string().regex(/^\d+$/),
   }),
-  z.object({ platform: z.literal('darwin'), hostname: z.string().min(1), startTime: z.string().min(1) }),
+  z.object({
+    platform: z.literal('darwin'),
+    hostname: z.string().min(1),
+    bootId: z.string().min(1).optional(),
+    startTime: z.string().min(1),
+  }),
   z.object({ platform: z.literal('win32'), hostname: z.string().min(1), startTime: z.string().regex(/^\d+$/) }),
 ]);
 export type ProcessIdentity = z.infer<typeof processIdentitySchema>;
@@ -45,7 +50,14 @@ export function readProcessIdentity(pid: number): ProcessIdentity | undefined {
           stdio: ['ignore', 'pipe', 'ignore'],
         })
         .trim();
-      return processIdentitySchema.parse({ platform: 'darwin', hostname: os.hostname(), startTime });
+      const bootId = childProcess
+        .execFileSync('/usr/sbin/sysctl', ['-n', 'kern.bootsessionuuid'], {
+          encoding: 'utf8',
+          timeout: 3000,
+          stdio: ['ignore', 'pipe', 'ignore'],
+        })
+        .trim();
+      return processIdentitySchema.parse({ platform: 'darwin', hostname: os.hostname(), bootId, startTime });
     }
     if (process.platform === 'win32') {
       const startTime = childProcess
@@ -90,6 +102,11 @@ function sameContext(left: ProcessIdentity, right: ProcessIdentity): boolean {
   if (left.platform !== right.platform) return false;
   if (left.platform === 'linux' && right.platform === 'linux') {
     return left.bootId === right.bootId && left.pidNamespace === right.pidNamespace;
+  }
+  // macOS hostnames can change with the network. New records use the boot session;
+  // legacy records still require their original hostname rather than a PID-only match.
+  if (left.platform === 'darwin' && right.platform === 'darwin' && left.bootId) {
+    return left.bootId === right.bootId;
   }
   return 'hostname' in left && 'hostname' in right && left.hostname === right.hostname;
 }
