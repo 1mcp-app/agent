@@ -93,7 +93,7 @@ export async function getRuntimeStatusReport(
         new Error(
           'Cannot verify supervisor or worker process identity; lifecycle metadata was retained' +
             (!supervisorState.supervisorIdentity && !supervisorState.runtimeIdentity
-              ? '. Legacy metadata requires explicit recovery. A live supervised pair with complete scope metadata can use 1mcp serve --restart with the same --config-dir; otherwise stop the original runtime using its original CLI or service manager before manual cleanup.'
+              ? '. Legacy metadata requires explicit recovery. On Linux, a live supervised pair with complete scope metadata can use 1mcp serve --restart with the same --config-dir. On macOS/Windows, stop the verified old runtime using its original CLI or service manager before restarting with the new CLI; retain metadata until all scope participants have stopped.'
               : ''),
         ),
       );

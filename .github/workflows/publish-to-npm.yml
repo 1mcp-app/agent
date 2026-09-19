@@ -114,15 +114,6 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Include verified macOS process reader
-        uses: actions/download-artifact@v8
-        with:
-          name: runtime-process-evidence-darwin
-          path: build/native
-
-      - name: Restore native reader permissions
-        run: chmod 755 build/native/process-evidence-darwin
-
       - name: Publish to npm
         env:
           NPM_TAG: ${{ inputs.npm_tag }}

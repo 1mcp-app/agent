@@ -53,13 +53,11 @@ export function verifyLegacyRuntimeOwner(
     if (readBackgroundLaunchConfig(files[3]).claimId !== owner.claimId) return undefined;
 
     // Namespace equality alone does not exclude a chroot in the same mount namespace.
-    if (caller.context.platform === 'linux') {
-      for (const evidence of [caller, supervisor, worker]) {
-        for (const file of [scope, ...files]) {
-          const local = fs.statSync(file);
-          const remote = fs.statSync(`/proc/${evidence.pid}/root${file}`);
-          if (local.dev !== remote.dev || local.ino !== remote.ino) return undefined;
-        }
+    for (const evidence of participants) {
+      for (const file of [scope, ...files]) {
+        const local = fs.statSync(file);
+        const remote = fs.statSync(`/proc/${evidence.pid}/root${file}`);
+        if (local.dev !== remote.dev || local.ino !== remote.ino) return undefined;
       }
     }
 

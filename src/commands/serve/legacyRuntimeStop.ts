@@ -14,11 +14,7 @@ import {
   readPidFile,
   type ServerPidInfo,
 } from '@src/core/server/pidFileManager.js';
-import {
-  createProcessEvidenceReader,
-  type ProcessEvidence,
-  readProcessEvidence,
-} from '@src/core/server/processEvidence.js';
+import { type ProcessEvidence, readProcessEvidence } from '@src/core/server/processEvidence.js';
 import {
   readRuntimeScopeOwnership,
   releaseRuntimeScopeOwnership,
@@ -50,28 +46,7 @@ export async function stopLegacyRuntime(
   info: ServerPidInfo | null,
   dependencies: LegacyStopDependencies = {},
 ): Promise<boolean> {
-  if (dependencies.readEvidence) {
-    return stopWithEvidence(configDir, owner, state, info, {
-      ...dependencies,
-      readEvidence: dependencies.readEvidence,
-    });
-  }
-  const reader = createProcessEvidenceReader();
-  try {
-    return await stopWithEvidence(configDir, owner, state, info, { ...dependencies, readEvidence: reader.read });
-  } finally {
-    reader.close();
-  }
-}
-
-async function stopWithEvidence(
-  configDir: string,
-  owner: RuntimeScopeOwnershipRecord,
-  state: BackgroundSupervisorState,
-  info: ServerPidInfo | null,
-  dependencies: LegacyStopDependencies & { readEvidence: typeof readProcessEvidence },
-): Promise<boolean> {
-  const readEvidence = dependencies.readEvidence;
+  const readEvidence = dependencies.readEvidence ?? readProcessEvidence;
   const pair = (dependencies.verify ?? verifyLegacyRuntimeOwner)(configDir, owner, state, info, { readEvidence });
   if (!pair || !info) return false;
   const kill = dependencies.kill ?? ((pid, signal) => process.kill(pid, signal));
@@ -175,13 +150,8 @@ function matchesCapturedSupervisor(
 }
 
 function matchesExitContext(expected: ProcessEvidence['context'], observed: ProcessEvidence['context']): boolean {
-  if (observed.platform !== expected.platform) return false;
   if (observed.bootId !== expected.bootId) return false;
-  if (observed.platform === 'linux') {
-    if (expected.platform !== 'linux') return false;
-    return observed.pidNamespace === expected.pidNamespace;
-  }
-  return true;
+  return observed.pidNamespace === expected.pidNamespace;
 }
 
 function isMissingProcess(error: unknown): boolean {

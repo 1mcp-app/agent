@@ -12,6 +12,8 @@ import type { RuntimeScopeOwnershipRecord } from './runtimeScopeOwnership.js';
 
 vi.mock('./processEvidence.js', () => ({ readProcessEvidence: vi.fn() }));
 
+const actualStat = fs.statSync;
+
 describe('legacy runtime ownership verification', () => {
   let scope: string;
   let owner: RuntimeScopeOwnershipRecord;
@@ -73,7 +75,13 @@ describe('legacy runtime ownership verification', () => {
       executable: '/usr/local/bin/1mcp',
       argv: ['/usr/local/bin/1mcp', 'serve', '--stop'],
       birth: '1',
-      context: { platform: 'darwin', bootId: 'boot' },
+      context: {
+        platform: 'linux',
+        bootId: 'boot',
+        pidNamespace: 'pid:[1]',
+        mountNamespace: 'mnt:[1]',
+        userNamespace: 'user:[1]',
+      },
     };
     supervisor = {
       ...caller,
@@ -99,8 +107,14 @@ describe('legacy runtime ownership verification', () => {
       structuredClone([caller, supervisor, worker].find((item) => item.pid === pid)),
     );
     writeMetadata();
+    // Model the same files as observed through each Linux process root.
+    vi.spyOn(fs, 'statSync').mockImplementation(((file, options) => {
+      const resolved = typeof file === 'string' ? file.replace(/^\/proc\/\d+\/root/, '') : file;
+      return actualStat(resolved, options);
+    }) as typeof fs.statSync);
   });
   afterEach(() => {
+    vi.restoreAllMocks();
     fs.rmSync(scope, { recursive: true, force: true });
   });
 
@@ -171,6 +185,13 @@ describe('legacy runtime ownership verification', () => {
     };
     supervisor.context = { ...caller.context };
     worker.context = { ...caller.context, mountNamespace: 'mnt:2' };
+    expect(verify()).toBeUndefined();
+  });
+  it('rejects a different filesystem behind the process root', () => {
+    vi.mocked(fs.statSync).mockImplementation(((file, options) => {
+      const target = typeof file === 'string' && file.startsWith('/proc/') ? os.tmpdir() : file;
+      return actualStat(target, options);
+    }) as typeof fs.statSync);
     expect(verify()).toBeUndefined();
   });
   it('refuses symbolic links and writable metadata', () => {

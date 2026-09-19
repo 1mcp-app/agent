@@ -249,7 +249,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, macos-15-intel]
+        os: [ubuntu-latest, macos-latest]
     permissions:
       contents: read
     steps:
@@ -271,9 +271,3 @@ jobs:
           npm pack --pack-destination .tmp/npm-artifact --ignore-scripts
           npm install --prefix .tmp/installed-runtime ./.tmp/npm-artifact/*.tgz --ignore-scripts --omit=dev --no-audit --no-fund
           node scripts/test/runtime-legacy-upgrade.mjs .tmp/legacy-runtime/node_modules/@1mcp/agent/build/index.js .tmp/installed-runtime/node_modules/@1mcp/agent/build/index.js direct
-      - name: Build standalone candidate
-        if: runner.os == 'macOS'
-        run: pnpm sea:build && pnpm sea:binary
-      - name: Test standalone lifecycle upgrade
-        if: runner.os == 'macOS'
-        run: node scripts/test/runtime-legacy-upgrade.mjs .tmp/legacy-runtime/node_modules/@1mcp/agent/build/index.js ./1mcp relative

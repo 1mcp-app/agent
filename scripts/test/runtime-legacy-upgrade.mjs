@@ -6,7 +6,6 @@ import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
 const execute = promisify(execFile);
@@ -37,13 +36,6 @@ async function port() {
   const value = server.address().port;
   await new Promise((resolve) => server.close(resolve));
   return value;
-}
-// Exercise the real built/installed module without the SEA global override.
-if (process.platform === 'darwin' && /\.[cm]?js$/.test(candidate)) {
-  const modulePath = path.join(path.dirname(candidate), 'core/server/processEvidence.js');
-  const { readProcessEvidence } = await import(pathToFileURL(modulePath).href);
-  assert.equal(readProcessEvidence(process.pid)?.pid, process.pid, 'non-SEA packaged helper must resolve and execute');
-  console.log('PASS: non-SEA native helper resolves from the built/installed module');
 }
 try {
   for (const operation of ['stop', 'restart']) {
@@ -101,8 +93,27 @@ try {
       200,
     );
 
-    const output = await run(candidate, scope, [`--${operation}`, ...options]);
-    assert.match(output.stdout, /Stopped verified legacy background runtime/);
+    if (process.platform === 'linux') {
+      const output = await run(candidate, scope, [`--${operation}`, ...options]);
+      assert.match(output.stdout, /Stopped verified legacy background runtime/);
+    } else {
+      const before = records.map((name) => fs.readFileSync(path.join(scope, name), 'utf8'));
+      await assert.rejects(
+        run(candidate, scope, [`--${operation}`, ...options]),
+        (error) => error.code === 1 && /original CLI or service manager/.test(error.stderr),
+      );
+      assert.deepEqual(
+        records.map((name) => fs.readFileSync(path.join(scope, name), 'utf8')),
+        before,
+      );
+      assert.equal(
+        (await fetch(`http://127.0.0.1:${listenPort}/health/ready`, { signal: AbortSignal.timeout(5000) })).status,
+        200,
+      );
+      // This fixture owns the old process; guided migration leaves this step to the operator.
+      await run(legacy, scope, ['--stop']);
+      if (operation === 'restart') await run(candidate, scope, ['--background', ...options]);
+    }
     if (operation === 'restart') {
       const updated = read(scope, records[2]);
       assert(updated.processIdentity);
@@ -119,7 +130,7 @@ try {
     assert(!fs.existsSync(path.join(scope, 'runtime.owner')));
     assert(!fs.existsSync(path.join(scope, 'server.pid')));
     console.log(
-      `PASS ${process.platform}/${process.arch}: v0.38.0 -> candidate --${operation}; status and copied-scope safety`,
+      `PASS ${process.platform}/${process.arch}: v0.38.0 ${process.platform === 'linux' ? 'automatic' : 'guided'} --${operation}; scope safety and modern lifecycle`,
     );
   }
 } finally {

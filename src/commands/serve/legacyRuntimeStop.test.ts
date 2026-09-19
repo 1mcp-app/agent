@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import * as processEvidence from '@src/core/server/processEvidence.js';
 import type { BackgroundSupervisorState } from '@src/core/server/backgroundRuntimeSupervisorState.js';
 import type { ServerPidInfo } from '@src/core/server/pidFileManager.js';
 import type { ProcessEvidence } from '@src/core/server/processEvidence.js';
@@ -59,7 +58,13 @@ describe('verified legacy shutdown', () => {
       executable: '/bin/1mcp',
       argv: ['/bin/1mcp', 'serve'],
       birth: '100',
-      context: { platform: 'darwin', bootId: '1.0' },
+      context: {
+        platform: 'linux',
+        bootId: 'boot',
+        pidNamespace: 'pid:[1]',
+        mountNamespace: 'mnt:[1]',
+        userNamespace: 'user:[1]',
+      },
     };
     worker = { ...supervisor, pid: info.pid, ppid: owner.pid, birth: '101' };
     processes = new Map([
@@ -203,30 +208,5 @@ describe('verified legacy shutdown', () => {
       true,
     );
     expect(kill.mock.calls.map(([pid]) => pid)).toEqual([supervisor.pid, worker.pid]);
-  });
-
-  it('closes the operation reader when initial verification refuses recovery', async () => {
-    const close = vi.fn();
-    vi.spyOn(processEvidence, 'createProcessEvidenceReader').mockReturnValue({ read: deps().readEvidence, close });
-    expect(
-      await stopLegacyRuntime(scope, owner, state, info, {
-        ...deps(),
-        readEvidence: undefined,
-        verify: () => undefined,
-      }),
-    ).toBe(false);
-    expect(close).toHaveBeenCalledTimes(1);
-  });
-
-  it('closes the operation reader when signalling fails', async () => {
-    const close = vi.fn();
-    vi.spyOn(processEvidence, 'createProcessEvidenceReader').mockReturnValue({ read: deps().readEvidence, close });
-    const kill = () => {
-      throw new Error('signal denied');
-    };
-    await expect(
-      stopLegacyRuntime(scope, owner, state, info, { ...deps(), readEvidence: undefined, kill }),
-    ).rejects.toThrow('signal denied');
-    expect(close).toHaveBeenCalledTimes(1);
   });
 });

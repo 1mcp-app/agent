@@ -288,7 +288,7 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
         failStop(
           `cannot verify process identity in Runtime Scope ${configDir}; refusing ambiguous stop. ` +
             (!owner.processIdentity
-              ? 'Legacy metadata has no process identity. Stop the old runtime using its original CLI or service manager; verify all scope participants have stopped before manual metadata recovery.'
+              ? 'Legacy metadata has no process identity; automatic recovery requires a verified live pair on Linux. Stop the old runtime using its original CLI or service manager; verify all scope participants have stopped before manual metadata recovery.'
               : ''),
         );
 
