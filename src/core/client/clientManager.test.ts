@@ -54,10 +54,13 @@ describe('ClientManager (Integration)', () => {
   let mockClient: Partial<Client>;
   let mockTransports: Record<string, Transport>;
 
-  const withLegacyNotifications = <T extends object>(client: T): T & Pick<Client, 'setNotificationHandler'> => {
-    const candidate = client as T & Partial<Pick<Client, 'setNotificationHandler'>>;
+  const withLegacyNotifications = <T extends object>(
+    client: T,
+  ): T & Pick<Client, 'setNotificationHandler' | 'registerCapabilities'> => {
+    const candidate = client as T & Partial<Pick<Client, 'setNotificationHandler' | 'registerCapabilities'>>;
     candidate.setNotificationHandler ??= vi.fn();
-    return candidate as T & Pick<Client, 'setNotificationHandler'>;
+    candidate.registerCapabilities ??= vi.fn();
+    return candidate as T & Pick<Client, 'setNotificationHandler' | 'registerCapabilities'>;
   };
 
   beforeEach(() => {

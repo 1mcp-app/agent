@@ -61,7 +61,9 @@ function resolvesInside(specifier, importingFile, target) {
 }
 
 test('shared gateway layers remain independent of protocol SDK implementations', () => {
-  const sharedRoots = ['contracts', 'core', 'ports'].map((directory) => join(root, 'src/gateway', directory));
+  const sharedRoots = ['contracts', 'core', 'ports', 'interactions'].map((directory) =>
+    join(root, 'src/gateway', directory),
+  );
   const violations = sharedRoots.flatMap(filesBelow).flatMap((path) =>
     importSpecifiers(path)
       .filter(
@@ -75,12 +77,36 @@ test('shared gateway layers remain independent of protocol SDK implementations',
 
 test('gateway production attachment is confined to explicit adapters and shared failure projections', () => {
   const allowed = new Set([
+    'src/sdk/legacy/server/protocol/privateInteractionConnection.ts -> @src/gateway/interactions/interactionCapabilities.js',
+    'src/sdk/legacy/client/runtime/modernSdkClientAdapter.ts -> @src/gateway/interactions/interactionCapabilities.js',
+    'src/sdk/legacy/server/protocol/requestInteractionScope.ts -> @src/gateway/interactions/interactionCapabilities.js',
+    'src/transport/http/routes/modernHttpRoutes.ts -> @src/gateway/interactions/interactionCapabilities.js',
     // Approved destination adapters consume only the SDK-free shared failure leaf.
     'src/commands/run/run.ts -> @src/gateway/contracts/gatewayFailure.js',
     'src/core/capabilities/capabilityCatalog.ts -> @src/gateway/contracts/gatewayFailure.js',
     'src/core/capabilities/metaToolProvider.ts -> @src/gateway/contracts/gatewayFailure.js',
     'src/transport/http/routes/toolRoutes.ts -> @src/gateway/contracts/gatewayFailure.js',
     'src/utils/core/errorHandling.ts -> @src/gateway/contracts/gatewayFailure.js',
+    // Request-local interaction attachment; SDK objects never enter these plain-data ports.
+    'src/sdk/legacy/client/runtime/legacySdkClientAdapter.ts -> @src/gateway/interactions/interactionRoute.js',
+    'src/sdk/legacy/client/runtime/modernSdkClientAdapter.ts -> @src/gateway/interactions/interactionRoute.js',
+    'src/sdk/legacy/client/runtime/modernSdkClientAdapter.ts -> @src/gateway/interactions/validateInteractionResponse.js',
+    'src/sdk/legacy/server/protocol/privateInteractionConnection.ts -> @src/gateway/interactions/interactionRoute.js',
+    'src/sdk/legacy/server/protocol/requestInteractionScope.ts -> @src/gateway/interactions/validateInteractionResponse.js',
+    'src/sdk/legacy/server/protocol/requestInteractionScope.ts -> @src/gateway/interactions/interactionOwner.js',
+    'src/sdk/legacy/server/protocol/requestInteractionScope.ts -> @src/gateway/interactions/interactionRoute.js',
+    'src/sdk/legacy/server/protocol/requestInteractionScope.ts -> @src/gateway/ports/outboundEraAdapter.js',
+    'src/sdk/legacy/transport/http/modernInboundLegacyBridge.ts -> @src/gateway/contracts/index.js',
+    'src/sdk/legacy/transport/http/modernInboundLegacyBridge.ts -> @src/gateway/ports/outboundEraAdapter.js',
+    'src/transport/http/routes/modernHttpRoutes.ts -> @src/gateway/contracts/immutableJson.js',
+    'src/transport/http/routes/modernHttpRoutes.ts -> @src/gateway/interactions/interactionBroker.js',
+    'src/transport/http/routes/modernHttpRoutes.ts -> @src/gateway/interactions/interactionRoute.js',
+    'src/transport/http/routes/modernHttpRoutes.ts -> @src/gateway/interactions/validateInteractionResponse.js',
+    'src/transport/http/routes/modernHttpRoutes.ts -> @src/gateway/ports/outboundEraAdapter.js',
+    'src/transport/http/routes/modernInteractionBinding.ts -> @src/gateway/contracts/gatewayRequest.js',
+    'src/transport/http/routes/modernInteractionBinding.ts -> @src/gateway/contracts/immutableJson.js',
+    'src/transport/http/routes/modernInteractionBinding.ts -> @src/gateway/interactions/interactionOwner.js',
+    'src/transport/http/routes/modernInteractionBinding.ts -> @src/gateway/interactions/interactionRoute.js',
     'src/core/capabilities/catalogGeneration.ts -> @src/gateway/contracts/immutableJson.js',
     'src/sdk/legacy/client/runtime/legacyGatewayClientAdapter.ts -> @src/gateway/contracts/gatewayRequest.js',
     'src/sdk/legacy/client/runtime/modernSdkClientAdapter.ts -> @src/gateway/contracts/gatewayRequest.js',

@@ -44,7 +44,7 @@ it('does not dispatch a call cancelled while the bridge is connecting', async ()
     req.socket.once('close', sawClose);
     next();
   });
-  setupModernHttpRoutes(app as never, {} as never, [], createBridge, {
+  setupModernHttpRoutes(app as never, { registerCleanup: vi.fn() } as never, [], createBridge, {
     allowsHost: () => true,
     allowsOrigin: () => true,
   });
@@ -119,6 +119,21 @@ it('retains legacy notification delivery after a modern bridge closes', async ()
     await existing.connect(inClient);
     await backend.notification({ method: 'notifications/message', params: { level: 'info', data: 'before' } });
     await vi.waitFor(() => expect(received).toHaveBeenCalledTimes(1));
+    const second = new Client({ name: 'second', version: '1' }, { capabilities: {} });
+    const [secondClient, secondServer] = InMemoryTransport.createLinkedPair();
+    const secondReceived = vi.fn();
+    second.setNotificationHandler(LoggingMessageNotificationSchema, secondReceived);
+    try {
+      await manager.connectTransport(secondServer, 'second', {});
+      await second.connect(secondClient);
+      await backend.notification({ method: 'notifications/message', params: { level: 'info', data: 'ambiguous' } });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(received).toHaveBeenCalledTimes(1);
+      expect(secondReceived).not.toHaveBeenCalled();
+    } finally {
+      await manager.disconnectTransport('second', true);
+      await second.close();
+    }
     registerNotification.mockClear();
     registerRequest.mockClear();
     const bridge = await createModernInboundLegacyBridge(manager as never, {});

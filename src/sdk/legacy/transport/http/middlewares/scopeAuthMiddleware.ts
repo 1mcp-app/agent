@@ -56,6 +56,24 @@ export interface AuthInfo {
   grantedTags: string[];
 }
 
+const authRevalidators = new WeakMap<AuthInfo, () => Promise<boolean>>();
+
+function normalizedGrant(clientId: string, scopes: string[]): string {
+  return JSON.stringify([clientId, [...new Set(scopes)].sort(), [...new Set(scopesToTags(scopes))].sort()]);
+}
+
+/** Re-read the admitted grant using its original provider immediately before a continuation claim. */
+export async function revalidateAuthInfo(auth: AuthInfo | undefined): Promise<boolean> {
+  const revalidate = auth && authRevalidators.get(auth);
+  if (!revalidate) return false;
+  try {
+    return await revalidate();
+  } catch {
+    // Credential storage and verifier errors must not leak tokens or permit a stale grant.
+    return false;
+  }
+}
+
 /**
  * Creates a scope validation middleware that uses the SDK's bearer auth middleware
  *
@@ -165,6 +183,22 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
         grantedScopes,
         grantedTags,
       };
+      const admittedGrant = normalizedGrant(authContext.clientId, grantedScopes);
+      const admittedExpires = authInfo.expiresAt;
+      authRevalidators.set(authContext, async () => {
+        const current = await provider.verifyAccessToken(token);
+        // The native provider exposes the session repository's millisecond expiry.
+        return (
+          typeof current.expiresAt === 'number' &&
+          Number.isFinite(current.expiresAt) &&
+          current.expiresAt > Date.now() &&
+          current.expiresAt === admittedExpires &&
+          typeof current.clientId === 'string' &&
+          Array.isArray(current.scopes) &&
+          current.scopes.every((scope) => typeof scope === 'string') &&
+          normalizedGrant(current.clientId, current.scopes) === admittedGrant
+        );
+      });
       res.locals.auth = authContext;
 
       // Provide validated tags to downstream handlers

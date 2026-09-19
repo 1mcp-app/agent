@@ -1,11 +1,142 @@
-import { Client } from '@modelcontextprotocol/client';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { createMcpHandler, Server } from '@modelcontextprotocol/server';
+
+import * as validation from '@src/gateway/interactions/validateInteractionResponse.js';
 
 import { describe, expect, it, vi } from 'vitest';
 
+import { withLegacyInteractionLease } from './legacyInteractionLease.js';
 import type { AuthProviderTransport } from './legacyTransport.js';
 import { ModernSdkClientAdapter } from './modernSdkClientAdapter.js';
 
 describe('ModernSdkClientAdapter', () => {
+  it('uses request-local MRTR capabilities without registering SDK reverse handlers on a capability-less modern client', async () => {
+    const client = new Client({ name: 'configured-client', version: '2.0.0' });
+    vi.spyOn(client, 'getProtocolEra').mockReturnValue('modern');
+    vi.spyOn(client, 'getNegotiatedProtocolVersion').mockReturnValue('2026-07-28');
+    const register = vi.spyOn(client, 'setRequestHandler');
+    vi.spyOn(client, 'request')
+      .mockResolvedValueOnce({
+        resultType: 'input_required',
+        requestState: 'state',
+        inputRequests: { roots: { method: 'roots/list' } },
+      } as never)
+      .mockResolvedValueOnce({ content: [] } as never);
+    const adapter = new ModernSdkClientAdapter(client, {} as AuthProviderTransport);
+    const answer = vi.fn(async () => ({ roots: [] }));
+    adapter.registerRequestHandler({ shape: { method: { value: 'roots/list' } } }, answer);
+    expect(register).not.toHaveBeenCalled();
+    await expect(
+      withLegacyInteractionLease(
+        adapter,
+        () => adapter.request({ id: 'local-profile' as never, method: 'tools/call', params: { name: 'act' } }),
+        undefined,
+        undefined,
+        { roots: {} },
+      ),
+    ).resolves.toEqual({ content: [] });
+    expect(answer).toHaveBeenCalledOnce();
+  });
+  it.each(['cancel', 'capability loss'] as const)(
+    'does not send a continuation after %s during response validation',
+    async (change) => {
+      const client = new Client({ name: 'configured-client', version: '2.0.0' });
+      vi.spyOn(client, 'getProtocolEra').mockReturnValue('modern');
+      vi.spyOn(client, 'getNegotiatedProtocolVersion').mockReturnValue('2026-07-28');
+      const request = vi.spyOn(client, 'request').mockResolvedValueOnce({
+        resultType: 'input_required',
+        requestState: 'state',
+        inputRequests: { roots: { method: 'roots/list' } },
+      } as never);
+      const adapter = new ModernSdkClientAdapter(client, {} as AuthProviderTransport);
+      adapter.registerRequestHandler({ shape: { method: { value: 'roots/list' } } }, async () => ({ roots: [] }));
+      const controller = new AbortController();
+      const capabilities: { roots?: object } = { roots: {} };
+      const validate = vi
+        .spyOn(validation, 'validateInteractionResponse')
+        .mockImplementationOnce(async (_input, _response, _binding, signal) => {
+          expect(signal).toBe(controller.signal);
+          if (change === 'cancel') controller.abort();
+          else delete capabilities.roots;
+        });
+      try {
+        await expect(
+          withLegacyInteractionLease(
+            adapter,
+            () => adapter.request({ id: 'cancelled-round' as never, method: 'tools/call', params: { name: 'act' } }),
+            controller.signal,
+            undefined,
+            capabilities,
+          ),
+        ).rejects.toBeDefined();
+        expect(validate).toHaveBeenCalledOnce();
+        expect(request).toHaveBeenCalledOnce();
+      } finally {
+        validate.mockRestore();
+      }
+    },
+  );
+
+  it('drives a real modern peer MRTR through the gateway using envelope continuations', async () => {
+    const calls: unknown[] = [];
+    const handler = createMcpHandler(
+      () => {
+        const server = new Server({ name: 'peer', version: '1' }, { capabilities: { tools: {} } });
+        server.setRequestHandler('tools/call', async (_request, context) => {
+          expect(context.mcpReq.envelope).toMatchObject({
+            'io.modelcontextprotocol/clientCapabilities': { elicitation: { form: {} } },
+            'io.modelcontextprotocol/logLevel': 'warning',
+          });
+          calls.push(context.mcpReq.id);
+          if (context.mcpReq.requestState() === undefined)
+            return {
+              resultType: 'input_required',
+              requestState: 'upstream-private-state',
+              inputRequests: {
+                confirm: {
+                  method: 'elicitation/create',
+                  params: { mode: 'form', message: 'Confirm', requestedSchema: { type: 'object', properties: {} } },
+                },
+              },
+            };
+          expect(context.mcpReq.requestState()).toBe('upstream-private-state');
+          expect(context.mcpReq.inputResponses).toEqual({ confirm: { action: 'accept', content: {} } });
+          return { content: [{ type: 'text', text: 'done' }] };
+        });
+        return server;
+      },
+      { legacy: 'reject' },
+    );
+    const transport = new StreamableHTTPClientTransport(new URL('http://localhost/mcp'), {
+      fetch: async (input, init) => handler.fetch(new Request(input, init)),
+    });
+    const client = new Client(
+      { name: 'gateway', version: '1' },
+      { capabilities: { elicitation: { form: {} } }, versionNegotiation: { mode: { pin: '2026-07-28' } } },
+    );
+    await client.connect(transport);
+    const adapter = new ModernSdkClientAdapter(client, transport as unknown as AuthProviderTransport);
+    adapter.registerRequestHandler({ shape: { method: { value: 'elicitation/create' } } }, async () => ({
+      action: 'accept',
+      content: {},
+    }));
+    try {
+      await expect(
+        withLegacyInteractionLease(
+          adapter,
+          () => adapter.request({ id: 'operation' as never, method: 'tools/call', params: { name: 'write' } }),
+          undefined,
+          'warning',
+          { elicitation: { form: {} } },
+        ),
+      ).resolves.toMatchObject({ content: [{ text: 'done' }] });
+      expect(calls).toHaveLength(2);
+      expect(calls[0]).not.toBe(calls[1]);
+    } finally {
+      await adapter.close();
+      await handler.close();
+    }
+  });
   it('quarantines malformed template syntax before catalog capture', async () => {
     const client = new Client({ name: 'configured-client', version: '2.0.0' });
     vi.spyOn(client, 'getProtocolEra').mockReturnValue('modern');

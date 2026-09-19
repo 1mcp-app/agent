@@ -10,6 +10,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { ClientStatus } from '@src/core/types/index.js';
 import { Client as LegacyClient } from '@src/sdk/legacy/client/index.js';
+import { ClientFactory } from '@src/sdk/legacy/client/runtime/clientFactory.js';
 import { createLegacyOutboundConnection } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import { Server as LegacyServer } from '@src/sdk/legacy/server/index.js';
 import { ServerManager } from '@src/sdk/legacy/server/runtime/serverManager.js';
@@ -103,8 +104,8 @@ describe('capability catalog with real SDK peers', () => {
             return fixtureResult(request);
           });
         }
-        const client = new LegacyClient({ name: 'gateway-backend', version: '1' });
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        const client = new ClientFactory().createClient(clientTransport, {});
         cleanup.push(() => backend.close());
         await backend.connect(serverTransport);
         await client.connect(clientTransport);

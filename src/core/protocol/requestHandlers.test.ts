@@ -194,6 +194,7 @@ describe('Request Handlers', () => {
 
     // Create mock server
     mockServer = {
+      getClientCapabilities: vi.fn(() => ({})),
       setRequestHandler: vi.fn(),
       ping: vi.fn(),
       createMessage: vi.fn(),
@@ -226,12 +227,12 @@ describe('Request Handlers', () => {
       expect(mockServer.setRequestHandler.mock.calls.length).toBeGreaterThan(5);
     });
 
-    it('should register server-specific handlers for clients', () => {
+    it('defers reverse handlers until an operation owns the client', () => {
       registerRequestHandlers(mockOutboundConns, mockInboundConn);
 
       // Verify client request handlers were set
-      expect(mockClient1.setRequestHandler).toHaveBeenCalled();
-      expect(mockClient2.setRequestHandler).toHaveBeenCalled();
+      expect(mockClient1.setRequestHandler).not.toHaveBeenCalled();
+      expect(mockClient2.setRequestHandler).not.toHaveBeenCalled();
     });
 
     it('should handle server with no clients', () => {
@@ -289,7 +290,12 @@ describe('Request Handlers', () => {
         ([schema]: [unknown]) => schema === CallToolRequestSchema,
       )?.[1];
 
-      await expect(handler({ params: { name: 'client1_1mcp_tool', arguments: {} } })).rejects.toMatchObject({
+      await expect(
+        handler(
+          { params: { name: 'client1_1mcp_tool', arguments: {} } },
+          { signal: new AbortController().signal, requestId: 'test' },
+        ),
+      ).rejects.toMatchObject({
         name: 'OneMcpProtocolError',
         code: 401,
         message: 'Gateway transport failure',
@@ -459,12 +465,12 @@ describe('Request Handlers', () => {
       expect(mockServer.setRequestHandler.mock.calls.length).toBeGreaterThanOrEqual(10);
     });
 
-    it('should register client-specific handlers', () => {
+    it('does not install mutable connection-wide reverse handlers', () => {
       registerRequestHandlers(mockOutboundConns, mockInboundConn);
 
       // Each client should have multiple handlers registered
-      expect(mockClient1.setRequestHandler.mock.calls.length).toBeGreaterThan(0);
-      expect(mockClient2.setRequestHandler.mock.calls.length).toBeGreaterThan(0);
+      expect(mockClient1.setRequestHandler.mock.calls.length).toBe(0);
+      expect(mockClient2.setRequestHandler.mock.calls.length).toBe(0);
     });
 
     it('should handle missing transport timeout gracefully', () => {

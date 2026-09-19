@@ -17,6 +17,7 @@ import type { ServerManager } from '@src/core/server/serverManager.js';
 import { ModernInboundEraAdapter } from '@src/gateway/adapters/modern/modernInboundEraAdapter.js';
 import { createEffectiveRequestAuthority } from '@src/gateway/contracts/effectiveRequestAuthority.js';
 import { type GatewayOperation, gatewayOperationSchema } from '@src/gateway/contracts/gatewayRequest.js';
+import { toImmutableJsonValue } from '@src/gateway/contracts/immutableJson.js';
 import {
   type GatewayFailure,
   gatewayFailureFromUnknown,
@@ -26,15 +27,32 @@ import {
 import { MODERN_PROTOCOL_REVISION } from '@src/gateway/contracts/protocolEra.js';
 import { GatewayDispatcher } from '@src/gateway/core/gatewayDispatcher.js';
 import { GatewaySession } from '@src/gateway/core/gatewaySession.js';
+import { InteractionBroker } from '@src/gateway/interactions/interactionBroker.js';
+import { hasInteractionCapability } from '@src/gateway/interactions/interactionCapabilities.js';
+import { withNativeInteractionRound } from '@src/gateway/interactions/interactionRoute.js';
 import {
+  validateInteractionRequest,
+  validateInteractionResponse,
+} from '@src/gateway/interactions/validateInteractionResponse.js';
+import type { GatewayInteractionRequest } from '@src/gateway/ports/outboundEraAdapter.js';
+import {
+  getAuthInfo,
   getPresetName,
   getTagExpression,
   getTagFilterMode,
   getTagQuery,
   getValidatedTags,
+  revalidateAuthInfo,
 } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
 
 import type { NextFunction, Request, RequestHandler, Response, Router } from 'express';
+
+import {
+  createModernInteractionBinding,
+  isModernInteractionBindingCurrent,
+  watchModernInteractionBinding,
+  withModernInteractionBinding,
+} from './modernInteractionBinding.js';
 
 const DEFAULT_MODERN_REQUEST_TIMEOUT_MS = 60_000;
 
@@ -63,6 +81,11 @@ function buildConfig(req: Request, res: Response) {
 export type ModernInboundBridgeFactory = (
   serverManager: ServerManager,
   config: ReturnType<typeof buildConfig>,
+  options?: {
+    capabilities?: ImmutableJsonValue;
+    logLevel?: 'debug' | 'info' | 'notice' | 'warning' | 'error' | 'critical' | 'alert' | 'emergency';
+    interaction?: (input: GatewayInteractionRequest) => Promise<ImmutableJsonValue>;
+  },
 ) => Promise<ModernInboundBridge>;
 
 function isFrameRecord(value: ImmutableJsonValue): value is { readonly [key: string]: ImmutableJsonValue } {
@@ -122,82 +145,96 @@ async function dispatchGateway(
   config: ReturnType<typeof buildConfig>,
   createBridge: ModernInboundBridgeFactory,
   deadlineUnixMs: number,
+  interactionOptions?: Parameters<ModernInboundBridgeFactory>[2],
 ): Promise<ImmutableJsonValue> {
   signal.throwIfAborted();
-  if (activeModernRequests >= MAX_ACTIVE_MODERN_REQUESTS) {
-    throw new ProtocolError(-32000, 'Gateway request capacity exceeded', {
-      'app.1mcp/failure': { kind: 'transport', code: 'gateway_overloaded' },
-    });
-  }
-  activeModernRequests++;
+  const opening = createBridge(serverManager, config, interactionOptions);
+  let rejectOpening!: (reason: unknown) => void;
+  const interrupted = new Promise<never>((_resolve, reject) => {
+    rejectOpening = reject;
+  });
+  const abortOpening = () => rejectOpening(new ProtocolError(-32008, 'Gateway request interrupted'));
+  signal.addEventListener('abort', abortOpening, { once: true });
+  const openingTimer = setTimeout(abortOpening, Math.max(0, deadlineUnixMs - Date.now()));
+  openingTimer.unref();
+  let bridge: ModernInboundBridge;
   try {
-    const bridge = await createBridge(serverManager, config).catch((error: unknown) => {
-      throw gatewayFailureError(gatewayFailureFromUnknown(error));
-    });
-    const dispatcher = new GatewayDispatcher({
-      resolveOutbound: (id) => (id === bridge.targetConnectionId ? bridge.outbound : undefined),
-    });
-    const session = new GatewaySession(dispatcher);
-    const correlationId = randomUUID();
-    let delivered = false;
-    let cancellationDelivered = false;
-    let settle!: (state: 'done' | 'cancel') => void;
-    const settled = new Promise<'done' | 'cancel'>((resolve) => {
-      settle = resolve;
-    });
-    const abort = () => settle('cancel');
-    signal.addEventListener('abort', abort, { once: true });
-
-    try {
-      signal.throwIfAborted();
-      return await new Promise<ImmutableJsonValue>((resolve, reject) => {
-        const inbound = new ModernInboundEraAdapter({
-          revision: MODERN_PROTOCOL_REVISION,
-          receive: async () => {
-            if (!delivered) {
-              delivered = true;
-              return { type: 'request', correlationId, operation: method, params: stripInboundRequestMeta(params) };
-            }
-            const state = await settled;
-            if (state === 'cancel' && !cancellationDelivered) {
-              cancellationDelivered = true;
-              return { type: 'cancel', correlationId };
-            }
-            return undefined;
-          },
-          requestContext: () => ({
-            requestId: `modern-${randomUUID()}`,
-            targetConnectionId: bridge.targetConnectionId,
-            authority: createEffectiveRequestAuthority({
-              connectionIds: [bridge.targetConnectionId],
-              provenance: ['authenticated-http-admission'],
-            }),
-            outbound: bridge.outbound.pin,
-            deadlineUnixMs,
-          }),
-          respond: async (frame) => {
-            if (isFrameRecord(frame) && frame.type === 'success') resolve(frame.result);
-            else if (isFrameRecord(frame) && frame.type === 'failure') {
-              reject(gatewayFailureError(frame.failure as unknown as GatewayFailure));
-            } else reject(new ProtocolError(-32_603, 'Invalid gateway response'));
-            settle('done');
-          },
-        });
-        void session.run(inbound).catch((error: unknown) => {
-          reject(
-            typeof error === 'object' && error !== null && 'kind' in error
-              ? gatewayFailureError(error as GatewayFailure)
-              : gatewayFailureError(gatewayFailureFromUnknown(error)),
-          );
-        });
-      });
-    } finally {
-      settle('done');
-      signal.removeEventListener('abort', abort);
-      await bridge.close();
-    }
+    if (signal.aborted) abortOpening();
+    bridge = await Promise.race([opening, interrupted]);
+  } catch (error) {
+    // A late-created private transport is an orphan, never an operation to retry.
+    void opening.then((orphan) => orphan.close()).catch(() => undefined);
+    throw gatewayFailureError(gatewayFailureFromUnknown(error));
   } finally {
-    activeModernRequests--;
+    clearTimeout(openingTimer);
+    signal.removeEventListener('abort', abortOpening);
+  }
+  const dispatcher = new GatewayDispatcher({
+    resolveOutbound: (id) => (id === bridge.targetConnectionId ? bridge.outbound : undefined),
+  });
+  const session = new GatewaySession(dispatcher);
+  const correlationId = randomUUID();
+  let delivered = false;
+  let cancellationDelivered = false;
+  let settle!: (state: 'done' | 'cancel') => void;
+  const settled = new Promise<'done' | 'cancel'>((resolve) => {
+    settle = resolve;
+  });
+  const abort = () => settle('cancel');
+  signal.addEventListener('abort', abort, { once: true });
+
+  try {
+    signal.throwIfAborted();
+    return await new Promise<ImmutableJsonValue>((resolve, reject) => {
+      const inbound = new ModernInboundEraAdapter({
+        revision: MODERN_PROTOCOL_REVISION,
+        receive: async () => {
+          if (!delivered) {
+            delivered = true;
+            return {
+              type: 'request',
+              correlationId,
+              operation: method,
+              params: stripInboundRequestMeta(params),
+            };
+          }
+          const state = await settled;
+          if (state === 'cancel' && !cancellationDelivered) {
+            cancellationDelivered = true;
+            return { type: 'cancel', correlationId };
+          }
+          return undefined;
+        },
+        requestContext: () => ({
+          requestId: `modern-${randomUUID()}`,
+          targetConnectionId: bridge.targetConnectionId,
+          authority: createEffectiveRequestAuthority({
+            connectionIds: [bridge.targetConnectionId],
+            provenance: ['authenticated-http-admission'],
+          }),
+          outbound: bridge.outbound.pin,
+          deadlineUnixMs,
+        }),
+        respond: async (frame) => {
+          if (isFrameRecord(frame) && frame.type === 'success') resolve(frame.result);
+          else if (isFrameRecord(frame) && frame.type === 'failure') {
+            reject(gatewayFailureError(frame.failure as unknown as GatewayFailure));
+          } else reject(new ProtocolError(-32_603, 'Invalid gateway response'));
+          settle('done');
+        },
+      });
+      void session.run(inbound).catch((error: unknown) => {
+        reject(
+          typeof error === 'object' && error !== null && 'kind' in error
+            ? gatewayFailureError(error as GatewayFailure)
+            : gatewayFailureError(gatewayFailureFromUnknown(error)),
+        );
+      });
+    });
+  } finally {
+    settle('done');
+    signal.removeEventListener('abort', abort);
+    await bridge.close();
   }
 }
 
@@ -256,6 +293,12 @@ export function setupModernHttpRoutes(
   requestPolicy: ModernHttpRequestPolicy,
   requestTimeoutMs = DEFAULT_MODERN_REQUEST_TIMEOUT_MS,
 ): void {
+  const interactions = new InteractionBroker({
+    validate: validateInteractionResponse,
+    validateRequest: validateInteractionRequest,
+    authorize: () => true,
+  });
+  serverManager.registerCleanup(() => interactions.close());
   const rejectUnsupportedTransportMethod = async (req: Request, res: Response): Promise<void> => {
     const request = webRequest(req);
     const rejected =
@@ -303,13 +346,133 @@ export function setupModernHttpRoutes(
         () => {
           const server = new Server(
             { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
-            { capabilities: { tools: {}, prompts: {}, resources: {}, completions: {} } },
+            {
+              capabilities: {
+                tools: {},
+                prompts: {},
+                resources: {},
+                completions: {},
+              },
+            },
           );
           for (const operation of gatewayOperationSchema.options) {
-            server.setRequestHandler(
-              operation,
-              async (message, context: ServerContext) =>
-                (await dispatchGateway(
+            server.setRequestHandler(operation, async (message, context: ServerContext) => {
+              if (activeModernRequests >= MAX_ACTIVE_MODERN_REQUESTS) {
+                throw new ProtocolError(-32000, 'Gateway request capacity exceeded', {
+                  'app.1mcp/failure': {
+                    kind: 'transport',
+                    code: 'gateway_overloaded',
+                  },
+                });
+              }
+              activeModernRequests++;
+              try {
+                const capabilities =
+                  (context.mcpReq.envelope as Record<string, unknown> | undefined)?.[
+                    'io.modelcontextprotocol/clientCapabilities'
+                  ] ?? {};
+                const logLevel = (context.mcpReq.envelope as Record<string, unknown> | undefined)?.[
+                  'io.modelcontextprotocol/logLevel'
+                ] as NonNullable<Parameters<ModernInboundBridgeFactory>[2]>['logLevel'];
+                const binding = await createModernInteractionBinding(
+                  serverManager,
+                  config,
+                  operation,
+                  stripInboundRequestMeta(message.params),
+                  getAuthInfo(res),
+                  capabilities,
+                  context.mcpReq.signal,
+                );
+                const requestState = context.mcpReq.requestState();
+                if (requestState !== undefined) {
+                  if (!binding || typeof requestState !== 'string')
+                    throw new ProtocolError(-32602, 'Interaction continuation rejected');
+                  return (await interactions.resume(
+                    requestState,
+                    binding,
+                    context.mcpReq.inputResponses,
+                    context.mcpReq.signal,
+                    async () =>
+                      JSON.stringify(binding) ===
+                        JSON.stringify(
+                          await createModernInteractionBinding(
+                            serverManager,
+                            config,
+                            operation,
+                            stripInboundRequestMeta(message.params),
+                            getAuthInfo(res),
+                            capabilities,
+                            context.mcpReq.signal,
+                          ),
+                        ) &&
+                      (await revalidateAuthInfo(getAuthInfo(res))) &&
+                      isModernInteractionBindingCurrent(binding),
+                  )) as never;
+                }
+                const deadline = Date.now() + requestTimeoutMs;
+                if (binding) {
+                  const verifyBinding = async (signal: AbortSignal) => {
+                    const current = await createModernInteractionBinding(
+                      serverManager,
+                      config,
+                      operation,
+                      stripInboundRequestMeta(message.params),
+                      getAuthInfo(res),
+                      capabilities,
+                      signal,
+                    );
+                    if (JSON.stringify(current) !== JSON.stringify(binding)) {
+                      interactions.invalidate(binding);
+                      throw new ProtocolError(-32602, 'Interaction route or authority changed');
+                    }
+                  };
+                  return (await interactions.start(
+                    binding,
+                    deadline,
+                    async (interaction, signal, interactionRound) => {
+                      const unwatch = watchModernInteractionBinding(binding, () => interactions.invalidate(binding));
+                      try {
+                        await verifyBinding(signal);
+                        return await withModernInteractionBinding(binding, () =>
+                          withNativeInteractionRound(
+                            async (inputs) => {
+                              await verifyBinding(signal);
+                              if (
+                                !Object.values(inputs).every((input) => hasInteractionCapability(capabilities, input))
+                              )
+                                throw new ProtocolError(-32021, 'Interaction capability required');
+                              return interactionRound(inputs);
+                            },
+                            () =>
+                              dispatchGateway(
+                                operation,
+                                message.params,
+                                signal,
+                                serverManager,
+                                config,
+                                createBridge,
+                                deadline,
+                                {
+                                  capabilities: toImmutableJsonValue(capabilities),
+                                  logLevel,
+                                  interaction: async (input) => {
+                                    await verifyBinding(signal);
+                                    if (!hasInteractionCapability(capabilities, input))
+                                      throw new ProtocolError(-32021, 'Interaction capability required');
+                                    return interaction(input);
+                                  },
+                                },
+                              ),
+                          ),
+                        );
+                      } finally {
+                        unwatch();
+                      }
+                    },
+                    context.mcpReq.signal,
+                  )) as never;
+                }
+                return (await dispatchGateway(
                   operation,
                   message.params,
                   context.mcpReq.signal,
@@ -317,8 +480,11 @@ export function setupModernHttpRoutes(
                   config,
                   createBridge,
                   Date.now() + requestTimeoutMs,
-                )) as never,
-            );
+                )) as never;
+              } finally {
+                activeModernRequests--;
+              }
+            });
           }
           return server;
         },

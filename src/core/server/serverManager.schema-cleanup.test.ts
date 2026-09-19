@@ -28,17 +28,22 @@ describe('ServerManager schema cleanup', () => {
     const templateShutdown = vi.fn(async () => {
       await expect(schemaBoundary.admit({}, binding)).rejects.toThrow('schema_evaluation_unavailable');
     });
+    const closeInteractions = vi.fn(async () => {
+      await expect(schemaBoundary.admit({}, binding)).rejects.toThrow('schema_evaluation_unavailable');
+    });
     const manager = Object.assign(Object.create(ServerManager.prototype), {
+      cleanupCallbacks: new Set([closeInteractions]),
       connectionManager: { cleanup: connectionCleanup },
       templateServerManager: { shutdown: templateShutdown },
       templateConfigurationManager: { cleanup: vi.fn() },
       filterCache: { clear: vi.fn() },
     }) as ServerManager;
     const cleanup = manager.cleanup();
-    expect(connectionCleanup).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(connectionCleanup).toHaveBeenCalledOnce());
     await expect(schemaBoundary.admit({}, binding)).rejects.toThrow('schema_evaluation_unavailable');
     finishConnections();
     await cleanup;
+    expect(closeInteractions).toHaveBeenCalledOnce();
     expect(templateShutdown).toHaveBeenCalledOnce();
     expect(schemaBoundary).toBe(boundary);
     await expect(schemaBoundary.admit({}, binding)).rejects.toThrow('schema_evaluation_unavailable');
