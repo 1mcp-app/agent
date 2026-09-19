@@ -103,29 +103,32 @@ export async function handleMcpInstall(args: McpInstallToolArgs): Promise<McpIns
       : result.status === 'exists'
         ? ('exists' as const)
         : (result.status ?? ('failed' as const));
+    const packageName =
+      args.package ||
+      (installationMethod === 'package'
+        ? (registryInfo as { packages?: Array<{ identifier?: string }> })?.packages?.[0]?.identifier
+        : undefined);
     const structuredResult = {
       name: result.serverName,
       status,
       message: `MCP server '${result.serverName}' ${result.success ? 'installed successfully' : `installation ${status}`}`,
-      package:
-        args.package ||
-        (installationMethod === 'package'
-          ? (registryInfo as { packages?: Array<{ identifier?: string }> })?.packages?.[0]?.identifier
-          : undefined),
-      version: result.version,
-      location: result.configPath,
-      installedAt: result.installedAt instanceof Date ? result.installedAt.toISOString() : result.installedAt,
-      configPath: result.configPath,
-      backupPath: result.backupPath,
-      operationId: result.operationId,
-      warnings: result.warnings,
+      ...(packageName === undefined ? {} : { package: packageName }),
+      ...(result.version === undefined ? {} : { version: result.version }),
+      ...(result.configPath === undefined ? {} : { location: result.configPath }),
+      ...(result.installedAt === undefined
+        ? {}
+        : { installedAt: result.installedAt instanceof Date ? result.installedAt.toISOString() : result.installedAt }),
+      ...(result.configPath === undefined ? {} : { configPath: result.configPath }),
+      ...(result.backupPath === undefined ? {} : { backupPath: result.backupPath }),
+      ...(result.operationId === undefined ? {} : { operationId: result.operationId }),
+      ...(result.warnings === undefined ? {} : { warnings: result.warnings }),
       reloadRecommended: result.success && result.reloadStatus !== 'observed',
-      error: result.success ? undefined : result.errors?.[0] || 'Installation failed',
+      ...(result.success ? {} : { error: result.errors?.[0] || 'Installation failed' }),
 
       // Enhanced fields for LLM context
-      registryId: args.registryId,
-      installationMethod,
-      prerequisites: prerequisiteInfo,
+      ...(args.registryId === undefined ? {} : { registryId: args.registryId }),
+      ...(installationMethod === undefined ? {} : { installationMethod: installationMethod }),
+      ...(prerequisiteInfo === undefined ? {} : { prerequisites: prerequisiteInfo }),
     };
 
     return McpInstallOutputSchema.parse(structuredResult);
@@ -198,10 +201,10 @@ function extractPrerequisiteInfo(registryServer: unknown): McpInstallToolArgs['p
         .filter((envVar): envVar is NonNullable<typeof envVar> => envVar.name != null)
         .map((envVar) => ({
           name: envVar.name || envVar.variable || '',
-          description: envVar.description,
-          isRequired: envVar.isRequired,
-          isSecret: envVar.isSecret,
-          defaultValue: envVar.value,
+          ...(envVar.description === undefined ? {} : { description: envVar.description }),
+          ...(envVar.isRequired === undefined ? {} : { isRequired: envVar.isRequired }),
+          ...(envVar.isSecret === undefined ? {} : { isSecret: envVar.isSecret }),
+          ...(envVar.value === undefined ? {} : { defaultValue: envVar.value }),
         }));
     }
 
@@ -211,10 +214,10 @@ function extractPrerequisiteInfo(registryServer: unknown): McpInstallToolArgs['p
         .filter((arg): arg is NonNullable<typeof arg> => arg.name != null)
         .map((arg) => ({
           name: arg.name || '',
-          description: arg.description,
-          isRequired: arg.isRequired,
-          defaultValue: arg.value,
-          choices: arg.choices,
+          ...(arg.description === undefined ? {} : { description: arg.description }),
+          ...(arg.isRequired === undefined ? {} : { isRequired: arg.isRequired }),
+          ...(arg.value === undefined ? {} : { defaultValue: arg.value }),
+          ...(arg.choices === undefined ? {} : { choices: arg.choices }),
         }));
     }
 
@@ -224,10 +227,10 @@ function extractPrerequisiteInfo(registryServer: unknown): McpInstallToolArgs['p
         .filter((arg): arg is NonNullable<typeof arg> => arg.name != null)
         .map((arg) => ({
           name: arg.name || '',
-          description: arg.description,
-          isRequired: arg.isRequired,
-          defaultValue: arg.value,
-          choices: arg.choices,
+          ...(arg.description === undefined ? {} : { description: arg.description }),
+          ...(arg.isRequired === undefined ? {} : { isRequired: arg.isRequired }),
+          ...(arg.value === undefined ? {} : { defaultValue: arg.value }),
+          ...(arg.choices === undefined ? {} : { choices: arg.choices }),
         }));
     }
 
@@ -301,13 +304,15 @@ export async function handleMcpUninstall(args: McpUninstallToolArgs): Promise<Mc
       status: result.success ? ('success' as const) : ('failed' as const),
       message: `MCP server '${result.serverName}' ${result.success ? 'uninstalled' : 'uninstallation failed'}${result.success ? ' successfully' : ''}`,
       removed: result.success,
-      removedAt: result.removedAt instanceof Date ? result.removedAt.toISOString() : result.removedAt,
-      configRemoved: result.configRemoved,
-      gracefulShutdown: args.graceful,
-      operationId: result.operationId,
-      warnings: result.warnings,
+      ...(result.removedAt === undefined
+        ? {}
+        : { removedAt: result.removedAt instanceof Date ? result.removedAt.toISOString() : result.removedAt }),
+      ...(result.configRemoved === undefined ? {} : { configRemoved: result.configRemoved }),
+      ...(args.graceful === undefined ? {} : { gracefulShutdown: args.graceful }),
+      ...(result.operationId === undefined ? {} : { operationId: result.operationId }),
+      ...(result.warnings === undefined ? {} : { warnings: result.warnings }),
       reloadRecommended: result.success,
-      error: result.success ? undefined : result.errors?.[0] || 'Uninstallation failed',
+      ...(result.success ? {} : { error: result.errors?.[0] || 'Uninstallation failed' }),
     };
 
     return McpUninstallOutputSchema.parse(structuredResult);
@@ -360,13 +365,15 @@ export async function handleMcpUpdate(args: McpUpdateToolArgs): Promise<McpUpdat
       name: result.serverName,
       status: result.success ? ('success' as const) : ('failed' as const),
       message: `MCP server '${result.serverName}' ${result.success ? 'updated' : 'update failed'}${result.success ? ' successfully' : ''}`,
-      previousVersion: result.previousVersion,
-      newVersion: result.newVersion,
-      updatedAt: result.updatedAt instanceof Date ? result.updatedAt.toISOString() : result.updatedAt,
-      operationId: result.operationId,
-      warnings: result.warnings,
+      ...(result.previousVersion === undefined ? {} : { previousVersion: result.previousVersion }),
+      ...(result.newVersion === undefined ? {} : { newVersion: result.newVersion }),
+      ...(result.updatedAt === undefined
+        ? {}
+        : { updatedAt: result.updatedAt instanceof Date ? result.updatedAt.toISOString() : result.updatedAt }),
+      ...(result.operationId === undefined ? {} : { operationId: result.operationId }),
+      ...(result.warnings === undefined ? {} : { warnings: result.warnings }),
       reloadRecommended: result.success,
-      error: result.success ? undefined : result.errors?.[0] || 'Update failed',
+      ...(result.success ? {} : { error: result.errors?.[0] || 'Update failed' }),
     };
 
     return McpUpdateOutputSchema.parse(structuredResult);

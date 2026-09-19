@@ -264,8 +264,16 @@ export class SchemaBoundary {
   }
 }
 export let schemaBoundary = new SchemaBoundary();
-export async function shutdownSchemaBoundary(): Promise<void> {
-  const current = schemaBoundary;
-  await current.shutdown();
-  if (schemaBoundary === current) schemaBoundary = new SchemaBoundary();
+let schemaShutdown: Promise<void> | undefined;
+
+/** Reopen admission only when a new server runtime is explicitly created. */
+export function initializeSchemaBoundary(): void {
+  if (!schemaShutdown) return;
+  schemaBoundary = new SchemaBoundary();
+  schemaShutdown = undefined;
+}
+
+export function shutdownSchemaBoundary(): Promise<void> {
+  schemaShutdown ??= schemaBoundary.shutdown();
+  return schemaShutdown;
 }

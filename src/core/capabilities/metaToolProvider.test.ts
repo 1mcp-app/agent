@@ -574,6 +574,36 @@ describe('MetaToolProvider', () => {
       providerWithLoader = new MetaToolProvider(() => toolRegistry, schemaCache, outboundConnections, mockSchemaLoader);
     });
 
+    it('propagates tool_schema cancellation to its uncached schema load', async () => {
+      let started!: () => void;
+      const loading = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      let upstreamSignal!: AbortSignal;
+      mockSchemaLoader.mockImplementation((_server: string, _tool: string, signal: AbortSignal) => {
+        upstreamSignal = signal;
+        started();
+        return new Promise((_, reject) => {
+          signal.addEventListener('abort', () => reject(new Error('cancelled')), { once: true });
+        });
+      });
+      const controller = new AbortController();
+      const pending = providerWithLoader.callMetaTool(
+        'tool_schema',
+        {
+          server: 'filesystem',
+          toolName: 'read_file',
+        },
+        undefined,
+        controller.signal,
+      );
+      await loading;
+      controller.abort();
+      expect(await pending).toMatchObject({ error: { type: 'upstream' } });
+      expect(upstreamSignal.aborted).toBe(true);
+      expect(schemaCache.getIfCached('filesystem', 'read_file')).toBeNull();
+    });
+
     it('should load schema from server when not cached and loader is available', async () => {
       const mockSchema: Tool = {
         name: 'read_file',

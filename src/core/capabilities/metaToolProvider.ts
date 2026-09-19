@@ -175,7 +175,7 @@ export class MetaToolProvider {
             },
           } as DescribeToolResult;
         }
-        return this.describeTool(parsed.data, visibility);
+        return this.describeTool(parsed.data, visibility, signal);
       }
       case 'tool_invoke': {
         const parsed = ToolInvokeInputSchema.safeParse(args);
@@ -285,9 +285,13 @@ export class MetaToolProvider {
   /**
    * Implement tool_schema
    */
-  private async describeTool(args: DescribeToolArgs, visibility?: CapabilityVisibility): Promise<DescribeToolResult> {
+  private async describeTool(
+    args: DescribeToolArgs,
+    visibility?: CapabilityVisibility,
+    signal?: AbortSignal,
+  ): Promise<DescribeToolResult> {
     try {
-      const result = await this.capabilityCatalog.describeVisibleTool(args, visibility);
+      const result = await this.capabilityCatalog.describeVisibleTool(args, visibility, { signal });
       if (result.error) {
         return {
           schema: {},

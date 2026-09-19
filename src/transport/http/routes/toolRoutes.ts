@@ -26,6 +26,7 @@ import logger from '@src/logger/logger.js';
 import { CONTEXT_HEADERS } from '@src/transport/http/utils/contextExtractor.js';
 
 import { Request, RequestHandler, Response } from 'express';
+import { z } from 'zod';
 
 import {
   buildFilterConfig,
@@ -243,6 +244,11 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
   };
 }
 
+const toolInvocationBodySchema = z.object({
+  tool: z.string(),
+  args: z.record(z.string(), z.unknown()).optional(),
+});
+
 export function createToolInvocationsHandler(serverManager: ServerManager): RequestHandler {
   return async (req: Request, res: Response): Promise<void> => {
     const controller = new AbortController();
@@ -250,25 +256,17 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
     req.once?.('aborted', abort);
     res.once?.('close', abort);
     try {
+      const parsed = toolInvocationBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        const error =
+          parsed.error.issues[0]?.path[0] === 'args'
+            ? 'Tool arguments must be an object'
+            : 'Request body must include a "tool" field as a string.';
+        res.status(400).json({ error });
+        return;
+      }
+      const { tool: toolRef, args: toolArgs = {} } = parsed.data;
       const requestSessionId = await initializeRequestContextForApi(serverManager, req, res);
-      const body = req.body as unknown;
-      if (
-        !body ||
-        typeof body !== 'object' ||
-        !('tool' in body) ||
-        typeof (body as Record<string, unknown>).tool !== 'string'
-      ) {
-        res.status(400).json({ error: 'Request body must include a "tool" field as a string.' });
-        return;
-      }
-
-      const toolRef = (body as Record<string, unknown>).tool as string;
-      const args = (body as Record<string, unknown>).args;
-      if (args !== undefined && (args === null || typeof args !== 'object' || Array.isArray(args))) {
-        res.status(400).json({ error: 'Tool arguments must be an object' });
-        return;
-      }
-      const toolArgs = args === undefined ? {} : (args as Record<string, unknown>);
 
       const target = parseTarget(toolRef);
       if (!target || target.kind !== 'tool') {
@@ -437,10 +435,7 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
 
       if (result.error) {
         let status: number;
-        if (
-          result.error.message === 'schema_evaluation_timeout' ||
-          result.error.message === 'schema_evaluation_unavailable'
-        ) {
+        if (result.error.message.startsWith('schema_')) {
           status = schemaFailureStatus(result.error.message, result.error.type);
         } else if (result.error.type === 'validation') {
           status = 400;

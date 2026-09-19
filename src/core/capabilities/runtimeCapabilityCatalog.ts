@@ -192,6 +192,7 @@ async function collectRuntimeCapabilityCatalog(
   );
   const capturedAdapters = new Map(Array.from(captured, ([key, connection]) => [key, connection.adapter]));
   const { continuation, signal, ...catalogOptions } = options;
+  signal?.throwIfAborted();
   const scope = createHash('sha256')
     .update(
       JSON.stringify(
@@ -327,6 +328,7 @@ async function collectRuntimeCapabilityCatalog(
               if (cursor !== undefined) seen.add(cursor);
             } while (cursor !== undefined);
           } catch (error) {
+            signal?.throwIfAborted();
             provider.error = error;
             // Retain every captured page, but never replay the failed or looping continuation.
             const lastPage = [...provider.pages.values()].at(-1);
@@ -340,6 +342,7 @@ async function collectRuntimeCapabilityCatalog(
     }),
   );
 
+  signal?.throwIfAborted();
   for (const kind of Object.keys(METHODS) as CapabilityKind[]) {
     let items: readonly unknown[] | undefined;
     switch (kind) {
@@ -438,13 +441,16 @@ async function collectRuntimeCapabilityCatalog(
           signal,
         }),
       );
+      signal?.throwIfAborted();
       index++;
     } catch (error) {
+      signal?.throwIfAborted();
       if (!(error instanceof SchemaBoundaryError) || error.retryable) throw error;
       sources.splice(index, 1);
     }
   }
   assertCurrent();
+  signal?.throwIfAborted();
   const generation = buildCatalogGeneration(started, sources, { allowTemplateInstances: visibility === undefined });
   const keys = new Set(captured.keys());
   for (const source of sources) if (source.origin === 'internal') keys.add(source.connectionKey);

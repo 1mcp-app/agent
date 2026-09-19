@@ -182,6 +182,30 @@ describe('apiRoutes /api/tool-invocations', () => {
     expect(res.statusCode).toBe(400);
   });
 
+  it.each([null, [], 'bad', 42])('rejects non-object arguments %j before dispatch', async (args) => {
+    const callMetaTool = vi.fn();
+    const handler = createToolInvocationsHandler({ getLazyLoadingOrchestrator: () => ({ callMetaTool }) } as never);
+    const res = createMockResponse();
+    await invokeInspectRoute(handler, { body: { tool: 'server/tool', args } }, res);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual({ error: 'Tool arguments must be an object' });
+    expect(callMetaTool).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['schema_budget_exceeded', 413],
+    ['schema_evaluation_timeout', 504],
+    ['schema_evaluation_unavailable', 503],
+  ])('maps meta-tool failure %s to %i', async (message, status) => {
+    const callMetaTool = vi.fn().mockResolvedValue({ error: { type: 'validation', message } });
+    const handler = createToolInvocationsHandler({ getLazyLoadingOrchestrator: () => ({ callMetaTool }) } as never);
+    const res = createMockResponse();
+    await invokeInspectRoute(handler, { body: { tool: 'server/tool' } }, res);
+    expect(res.statusCode).toBe(status);
+    expect(res.body).toEqual({ error: message });
+    expect(callMetaTool).toHaveBeenCalledTimes(1);
+  });
+
   it('returns 400 for invalid tool format (no slash)', async () => {
     const serverManager = { getLazyLoadingOrchestrator: vi.fn(() => undefined) };
     const handler = createToolInvocationsHandler(serverManager as never);
