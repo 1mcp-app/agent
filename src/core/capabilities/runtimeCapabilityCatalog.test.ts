@@ -1,9 +1,11 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
 import type { OutboundConnections } from '@src/core/types/index.js';
+import { schemaBoundary } from '@src/core/validation/schemaBoundary.js';
 
 import { CapabilityCursorCapacityError } from './capabilityPagination.js';
 import { createCapabilityVisibility } from './capabilityVisibility.js';
+import { readConfiguredToolSnapshot } from './configuredToolSnapshot.js';
 import { acquireRuntimeCapabilityCatalog, evictRuntimeCapabilityCatalogSession } from './runtimeCapabilityCatalog.js';
 
 const tool = (name: string) => ({ name, inputSchema: { type: 'object' } });
@@ -21,6 +23,116 @@ function fixture(
 }
 
 describe('runtime capability catalog', () => {
+  it.each(['reject', 'resolve'] as const)('preserves published tools when a cancelled refresh %ss', async (outcome) => {
+    const connection = fixture();
+    const connections = new Map([['server', connection]]);
+    const snapshot = await acquireRuntimeCapabilityCatalog(connections);
+    const published = readConfiguredToolSnapshot(connection);
+    const controller = new AbortController();
+    let finish!: () => void;
+    vi.mocked(connection.adapter.request).mockImplementationOnce(
+      () =>
+        new Promise((resolve, reject) => {
+          finish = () => {
+            if (outcome === 'reject') reject(new Error('Request cancelled'));
+            else resolve({ tools: [] } as never);
+          };
+        }),
+    );
+    const refresh = acquireRuntimeCapabilityCatalog(connections, undefined, { signal: controller.signal });
+    const reason = new Error('caller cancelled');
+    controller.abort(reason);
+    finish();
+    await expect(refresh).rejects.toBe(reason);
+    expect(readConfiguredToolSnapshot(connection)).toBe(published);
+    expect(snapshot.resolve('tools', 'server_1mcp_echo')).toBeDefined();
+    const validate = await snapshot.prepareToolCall('server_1mcp_echo', {});
+    await expect(validate({ content: [] })).resolves.toBeUndefined();
+  });
+
+  it.each(['echo', 'replacement'])(
+    'retains inventory but respects observed %s contract after admission cancellation',
+    async (observedName) => {
+      const connection = fixture();
+      const connections = new Map([['server', connection]]);
+      const snapshot = await acquireRuntimeCapabilityCatalog(connections);
+      const published = readConfiguredToolSnapshot(connection);
+      vi.mocked(connection.adapter.request).mockResolvedValueOnce({ tools: [tool(observedName)] } as never);
+      const controller = new AbortController();
+      const reason = new Error('cancel during admission');
+      const admission = vi.spyOn(schemaBoundary, 'admit').mockImplementationOnce(async () => {
+        controller.abort(reason);
+        throw reason;
+      });
+      try {
+        await expect(
+          acquireRuntimeCapabilityCatalog(connections, undefined, { signal: controller.signal }),
+        ).rejects.toBe(reason);
+      } finally {
+        admission.mockRestore();
+      }
+      expect(readConfiguredToolSnapshot(connection)).toBe(published);
+      if (observedName === 'replacement') {
+        await expect(snapshot.prepareToolCall('server_1mcp_echo', {})).rejects.toThrow('schema_invalid');
+        return;
+      }
+      const validate = await snapshot.prepareToolCall('server_1mcp_echo', {});
+      await expect(validate({ content: [] })).resolves.toBeUndefined();
+    },
+  );
+
+  it('keeps identical external contracts callable across concurrent publications', async () => {
+    const connection = fixture();
+    const connections = new Map([['server', connection]]);
+    const snapshots = await Promise.all(Array.from({ length: 3 }, () => acquireRuntimeCapabilityCatalog(connections)));
+    for (const snapshot of snapshots) {
+      const finish = await snapshot.prepareToolCall('server_1mcp_echo', {});
+      await expect(finish({ content: [] })).resolves.toBeUndefined();
+    }
+  });
+
+  it('keeps a published contract callable during a pending read, then rejects an observed change', async () => {
+    const connection = fixture();
+    const connections = new Map([['server', connection]]);
+    const first = await acquireRuntimeCapabilityCatalog(connections);
+    let release!: (value: never) => void;
+    vi.mocked(connection.adapter.request).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const pending = acquireRuntimeCapabilityCatalog(connections);
+    const finish = await first.prepareToolCall('server_1mcp_echo', {});
+    await expect(finish({ content: [] })).resolves.toBeUndefined();
+    expect(() => finish.assertCurrent()).not.toThrow();
+    release({ tools: [{ ...tool('echo'), inputSchema: { type: 'object', required: ['new'] } }] } as never);
+    await pending;
+    expect(() => finish.assertCurrent()).toThrow('schema_invalid');
+    await expect(finish({ content: [] })).resolves.toBeUndefined();
+    await expect(first.prepareToolCall('server_1mcp_echo', {})).rejects.toThrow('schema_invalid');
+  });
+
+  it('keeps immutable internal contracts callable across concurrent same-scope acquisitions', async () => {
+    const connections = new Map();
+    const internalTools = [
+      {
+        name: 'internal',
+        inputSchema: { type: 'object', required: ['value'] },
+        outputSchema: { type: 'object', required: ['ok'] },
+      },
+    ];
+    const snapshots = await Promise.all(
+      Array.from({ length: 3 }, () => acquireRuntimeCapabilityCatalog(connections, undefined, { internalTools })),
+    );
+    for (const snapshot of snapshots) {
+      const finish = await snapshot.prepareToolCall('1mcp_1mcp_internal', { value: 1 });
+      await expect(finish({ content: [], structuredContent: { ok: true } })).resolves.toBeUndefined();
+      await expect(snapshot.prepareToolCall('1mcp_1mcp_internal', {})).rejects.toThrow('schema_input_invalid');
+      await expect(finish({ content: [], structuredContent: {} })).rejects.toThrow('schema_output_invalid');
+    }
+  });
+
   it('does not reuse the unscoped template registry for a failed request-scoped refresh', async () => {
     const first = fixture('template');
     const second = fixture('template');
@@ -416,7 +528,7 @@ describe('runtime capability catalog', () => {
       await expect(acquireRuntimeCapabilityCatalog(connections)).rejects.toBeInstanceOf(CapabilityCursorCapacityError);
       expect(connection.adapter.request).toHaveBeenCalledTimes(256);
     } finally {
-      finish({ tools: [tool('echo')] });
+      finish({ tools: [] });
       await Promise.all(acquisitions);
     }
     await expect(acquireRuntimeCapabilityCatalog(connections)).resolves.toBeDefined();

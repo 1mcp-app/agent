@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 
 import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { isSourceToolDisabled } from '@src/core/server/disabledTools.js';
@@ -9,6 +10,13 @@ import {
   type OutboundConnection,
   type OutboundConnections,
 } from '@src/core/types/index.js';
+import { SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
+import {
+  admitToolSchemas,
+  prepareToolValidation,
+  projectToolSchemas,
+  type ToolSchemaContracts,
+} from '@src/core/validation/toolSchemaBoundary.js';
 import { ErrorCode, type Tool } from '@src/sdk/contracts/index.js';
 import { MCPError } from '@src/utils/core/errorTypes.js';
 
@@ -52,6 +60,7 @@ const METHODS: Record<CapabilityKind, string> = {
 };
 
 export interface RuntimeCatalogOptions {
+  signal?: AbortSignal;
   serverConfigs?: Record<string, MCPServerParams>;
   internalTools?: readonly unknown[];
   internalResources?: readonly unknown[];
@@ -76,8 +85,14 @@ interface SourcePages {
   error?: unknown;
 }
 
+export interface PreparedToolCall {
+  (result: unknown): Promise<void>;
+  assertCurrent(): void;
+}
+
 export interface RuntimeCapabilitySnapshot {
   readonly generation: CatalogGeneration;
+  prepareToolCall(identity: string, args: unknown, signal?: AbortSignal): Promise<PreparedToolCall>;
   readonly connections: ReadonlyMap<string, OutboundConnection>;
   isCurrent(): boolean;
   /** Issue a session-scoped, backend-bound route for a resource absent from discovery. */
@@ -105,6 +120,7 @@ interface RuntimeScope {
   latestStarted: number;
   lastAccess: number;
   snapshot?: RuntimeCapabilitySnapshot;
+  observedTools?: { started: number; fingerprints: ReadonlyMap<string, string | null> };
   paginationConnections: OutboundConnections;
   resourceRoutes: Map<
     string,
@@ -175,7 +191,8 @@ async function collectRuntimeCapabilityCatalog(
     ),
   );
   const capturedAdapters = new Map(Array.from(captured, ([key, connection]) => [key, connection.adapter]));
-  const { continuation, ...catalogOptions } = options;
+  const { continuation, signal, ...catalogOptions } = options;
+  signal?.throwIfAborted();
   const scope = createHash('sha256')
     .update(
       JSON.stringify(
@@ -287,7 +304,7 @@ async function collectRuntimeCapabilityCatalog(
                 capturedAdapters.get(key)!,
                 METHODS[kind],
                 cursor === undefined ? undefined : { cursor },
-                { timeoutMs: connection.requestTimeoutMs },
+                { timeoutMs: connection.requestTimeoutMs, signal },
               );
               if (!Array.isArray(result[kind])) throw new Error(`Invalid ${kind} list result`);
               const items = result[kind] as unknown[];
@@ -311,6 +328,7 @@ async function collectRuntimeCapabilityCatalog(
               if (cursor !== undefined) seen.add(cursor);
             } while (cursor !== undefined);
           } catch (error) {
+            signal?.throwIfAborted();
             provider.error = error;
             // Retain every captured page, but never replay the failed or looping continuation.
             const lastPage = [...provider.pages.values()].at(-1);
@@ -324,6 +342,7 @@ async function collectRuntimeCapabilityCatalog(
     }),
   );
 
+  signal?.throwIfAborted();
   for (const kind of Object.keys(METHODS) as CapabilityKind[]) {
     let items: readonly unknown[] | undefined;
     switch (kind) {
@@ -384,6 +403,54 @@ async function collectRuntimeCapabilityCatalog(
     (left, right) => left.kind.localeCompare(right.kind) || left.connectionKey.localeCompare(right.connectionKey),
   );
   sourcePages.sort((left, right) => left.key.localeCompare(right.key) || left.kind.localeCompare(right.kind));
+  const sourceFingerprints = new Map<string, string | null>();
+  for (const source of sources) {
+    if (source.kind !== 'tools') continue;
+    const key = JSON.stringify([source.connectionKey, (source.object as { name?: unknown } | null)?.name]);
+    const fingerprint = createHash('sha256')
+      .update(
+        JSON.stringify(source, (_key, value: unknown) =>
+          value !== null && typeof value === 'object' && !Array.isArray(value)
+            ? Object.fromEntries(Object.entries(value).sort(([left], [right]) => compareCodePoints(left, right)))
+            : value,
+        ),
+      )
+      .digest('hex');
+    // A collision is not a usable source contract, even before admission finishes.
+    sourceFingerprints.set(key, sourceFingerprints.has(key) ? null : fingerprint);
+  }
+  if (!scopedState.observedTools || started > scopedState.observedTools.started) {
+    scopedState.observedTools = { started, fingerprints: sourceFingerprints };
+  }
+  const schemaContracts = new Map<string, ToolSchemaContracts>();
+  for (let index = 0; index < sources.length;) {
+    const source = sources[index];
+    if (source.kind !== 'tools') {
+      index++;
+      continue;
+    }
+    const object = source.object as Record<string, unknown>;
+    const routeKey = JSON.stringify([source.connectionKey, object?.name]);
+    try {
+      schemaContracts.set(
+        routeKey,
+        await admitToolSchemas(object, {
+          routeKey,
+          generation: String(started),
+          sourceRevision: captured.get(source.connectionKey)?.adapter.protocolRevision,
+          signal,
+        }),
+      );
+      signal?.throwIfAborted();
+      index++;
+    } catch (error) {
+      signal?.throwIfAborted();
+      if (!(error instanceof SchemaBoundaryError) || error.retryable) throw error;
+      sources.splice(index, 1);
+    }
+  }
+  assertCurrent();
+  signal?.throwIfAborted();
   const generation = buildCatalogGeneration(started, sources, { allowTemplateInstances: visibility === undefined });
   const keys = new Set(captured.keys());
   for (const source of sources) if (source.origin === 'internal') keys.add(source.connectionKey);
@@ -408,7 +475,10 @@ async function collectRuntimeCapabilityCatalog(
         );
         return [
           Object.freeze({
-            ...entry.publicObject,
+            ...projectToolSchemas(
+              entry.publicObject as Record<string, unknown>,
+              schemaContracts.get(JSON.stringify([key, entry.route.upstreamIdentity]))!,
+            ),
             ...(effective.description === undefined ? {} : { description: effective.description }),
           }),
         ];
@@ -440,6 +510,36 @@ async function collectRuntimeCapabilityCatalog(
   };
   const snapshot: RuntimeCapabilitySnapshot = Object.freeze({
     generation,
+    async prepareToolCall(identity: string, args: unknown, signal?: AbortSignal) {
+      const resolved = snapshot.resolve('tools', identity);
+      if (!resolved) throw new SchemaBoundaryError('schema_invalid');
+      const routeKey = JSON.stringify([resolved.entry.route.connectionKey, resolved.entry.route.upstreamIdentity]);
+      const contract = schemaContracts.get(routeKey);
+      if (!contract) throw new SchemaBoundaryError('schema_invalid');
+      const assertContractCurrent = () => {
+        assertCurrent();
+        // A known changed/removed source invalidates just this route, including an
+        // admission that fails. Starting an otherwise identical read does not.
+        if (scopedState.observedTools?.fingerprints.get(routeKey) !== sourceFingerprints.get(routeKey))
+          throw new SchemaBoundaryError('schema_invalid');
+        const latest = scopedState.snapshot?.resolve('tools', identity);
+        if (
+          !latest ||
+          latest.connection !== resolved.connection ||
+          !isDeepStrictEqual(latest.entry.route, resolved.entry.route) ||
+          !isDeepStrictEqual(latest.entry.sourceObject, resolved.entry.sourceObject)
+        )
+          throw new SchemaBoundaryError('schema_invalid');
+      };
+      assertContractCurrent();
+      const validateOutput = await prepareToolValidation(contract, args, {
+        routeKey,
+        generation: String(started),
+        signal,
+      });
+      assertContractCurrent();
+      return Object.freeze(Object.assign(validateOutput, { assertCurrent: assertContractCurrent }));
+    },
     connections: readonlyConnections(captured),
     isCurrent,
     projectUnlistedResource(connectionKey: string, upstreamIdentity: string) {
@@ -608,7 +708,7 @@ async function collectRuntimeCapabilityCatalog(
       return result;
     },
   });
-  if (state.scopes.get(scope) === scopedState && started === scopedState.latestStarted) {
+  if (state.scopes.get(scope) === scopedState && (started === scopedState.latestStarted || !scopedState.snapshot)) {
     scopedState.snapshot = snapshot;
     for (const [key, connection] of captured) {
       const provider = sourcePages.find((page) => page.kind === 'tools' && page.key === key);

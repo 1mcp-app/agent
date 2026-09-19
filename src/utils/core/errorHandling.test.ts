@@ -1,5 +1,6 @@
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 
+import { SchemaBoundaryError } from '@src/core/validation/schemaPolicy.js';
 import logger from '@src/logger/logger.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -22,6 +23,16 @@ vi.mock('@src/logger/logger.js', () => ({
   },
   debugIf: vi.fn(),
 }));
+
+it('projects an invalid upstream schema result through the shared MCP failure contract', async () => {
+  const invoke = withErrorHandling(async () => {
+    throw new SchemaBoundaryError('schema_output_invalid');
+  }, 'Tool failed');
+  await expect(invoke()).rejects.toMatchObject({
+    code: -32000,
+    data: { 'app.1mcp/failure': { code: 'schema_output_invalid' } },
+  });
+});
 
 describe('withErrorHandling', () => {
   beforeEach(() => {

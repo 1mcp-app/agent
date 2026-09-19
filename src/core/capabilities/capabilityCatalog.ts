@@ -8,6 +8,13 @@ import {
   type OutboundConnection,
   type OutboundConnections,
 } from '@src/core/types/index.js';
+import { SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
+import {
+  admitToolSchemas,
+  prepareToolValidation,
+  projectToolSchemas,
+  schemaInputErrorResult,
+} from '@src/core/validation/toolSchemaBoundary.js';
 import { gatewayFailureFromUnknown } from '@src/gateway/contracts/gatewayFailure.js';
 import logger from '@src/logger/logger.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
@@ -51,6 +58,7 @@ export interface CapabilityRefreshResult {
 
 export interface CapabilityCatalogQueryOptions {
   refreshIntent?: CapabilityRefreshIntent;
+  signal?: AbortSignal;
 }
 
 export interface CapabilityRoute extends CatalogRoute {
@@ -193,7 +201,32 @@ export class CapabilityCatalog {
   ): Promise<VisibleToolListResult> {
     const refresh = await this.resolveRefreshFacts(queryOptions.refreshIntent ?? 'never', 'list');
     const registry = this.visibleToolRegistry(visibility);
-    const result = registry.listTools(options);
+    const admitted = [];
+    for (const tool of registry.getAllTools()) {
+      try {
+        const key = tool.connectionKey ?? tool.server;
+        const definition =
+          tool.definition ??
+          this.deps.schemaCache.getIfCached(key, tool.name) ??
+          (this.deps.loadSchema ? await this.deps.loadSchema(key, tool.name, queryOptions.signal) : undefined);
+        if (!definition) continue;
+        const contracts = await admitToolSchemas(definition as unknown as Record<string, unknown>, {
+          routeKey: JSON.stringify([key, tool.name]),
+          generation: this.deps.outboundConnections.get(key)?.adapter.connectionId ?? 'internal',
+          sourceRevision: this.deps.outboundConnections.get(key)?.adapter.protocolRevision,
+          signal: queryOptions.signal,
+        });
+        admitted.push({
+          tool: projectToolSchemas(definition as unknown as Record<string, unknown>, contracts) as unknown as Tool,
+          server: tool.server,
+          connectionKey: key,
+          tags: tool.tags,
+        });
+      } catch (error) {
+        if (!(error instanceof SchemaBoundaryError) || error.retryable) throw error;
+      }
+    }
+    const result = ToolRegistry.fromToolsWithServer(admitted).listTools(options);
     const tools = result.tools;
     const servers = Array.from(new Set(tools.map((tool) => tool.server))).sort();
     const routes = tools
@@ -221,13 +254,23 @@ export class CapabilityCatalog {
     }
 
     const { route } = access;
-    if (access.tool.definition && access.connection) {
+    const connection = access.connection;
+    if (access.tool.definition && connection) {
       const cached = this.deps.schemaCache.getIfCached(route.connectionKey, route.toolName);
       const fromCache = cached !== null && JSON.stringify(cached) === JSON.stringify(access.tool.definition);
+      const contracts = await admitToolSchemas(access.tool.definition as unknown as Record<string, unknown>, {
+        routeKey: JSON.stringify(route),
+        generation: connection.adapter.connectionId,
+        sourceRevision: connection.adapter.protocolRevision,
+        signal: queryOptions.signal,
+      });
       if (!fromCache) this.deps.schemaCache.set(route.connectionKey, route.toolName, access.tool.definition);
       return {
         schema: applySourceToolDescription(
-          access.tool.definition,
+          projectToolSchemas(
+            access.tool.definition as unknown as Record<string, unknown>,
+            contracts,
+          ) as unknown as Tool,
           this.deps.getServerConfigs()[route.server],
           route.server,
         ),
@@ -238,8 +281,18 @@ export class CapabilityCatalog {
     }
     const cached = this.deps.schemaCache.getIfCached(route.connectionKey, route.toolName);
     if (cached) {
+      const contracts = await admitToolSchemas(cached as unknown as Record<string, unknown>, {
+        routeKey: JSON.stringify(route),
+        generation: this.deps.outboundConnections.get(route.connectionKey)?.adapter.connectionId ?? '',
+        sourceRevision: this.deps.outboundConnections.get(route.connectionKey)?.adapter.protocolRevision,
+        signal: queryOptions.signal,
+      });
       return {
-        schema: applySourceToolDescription(cached, this.deps.getServerConfigs()[route.server], route.server),
+        schema: applySourceToolDescription(
+          projectToolSchemas(cached as unknown as Record<string, unknown>, contracts) as unknown as Tool,
+          this.deps.getServerConfigs()[route.server],
+          route.server,
+        ),
         fromCache: true,
         route,
         refresh,
@@ -259,9 +312,24 @@ export class CapabilityCatalog {
     }
 
     try {
-      const tool = await this.deps.schemaCache.getOrLoad(route.connectionKey, route.toolName, this.deps.loadSchema);
+      const tool = await this.deps.schemaCache.getOrLoad(
+        route.connectionKey,
+        route.toolName,
+        this.deps.loadSchema,
+        queryOptions.signal,
+      );
+      const contracts = await admitToolSchemas(tool as unknown as Record<string, unknown>, {
+        routeKey: JSON.stringify(route),
+        generation: this.deps.outboundConnections.get(route.connectionKey)?.adapter.connectionId ?? '',
+        sourceRevision: this.deps.outboundConnections.get(route.connectionKey)?.adapter.protocolRevision,
+        signal: queryOptions.signal,
+      });
       return {
-        schema: applySourceToolDescription(tool, this.deps.getServerConfigs()[route.server], route.server),
+        schema: applySourceToolDescription(
+          projectToolSchemas(tool as unknown as Record<string, unknown>, contracts) as unknown as Tool,
+          this.deps.getServerConfigs()[route.server],
+          route.server,
+        ),
         fromCache: false,
         route,
         refresh,
@@ -318,12 +386,58 @@ export class CapabilityCatalog {
     }
 
     try {
-      const result = await requestLegacyAdapter(connection.adapter, 'tools/call', {
-        name: route.toolName,
-        arguments: args.args as never,
-      });
+      const adapter = connection.adapter;
+      const definition =
+        access.tool.definition ??
+        this.deps.schemaCache.getIfCached(route.connectionKey, route.toolName) ??
+        (this.deps.loadSchema
+          ? await this.deps.loadSchema(route.connectionKey, route.toolName, queryOptions.signal)
+          : undefined);
+      if (!definition) throw new SchemaBoundaryError('schema_invalid');
+      const binding = {
+        routeKey: JSON.stringify(route),
+        generation: adapter.connectionId,
+        sourceRevision: adapter.protocolRevision,
+        signal: queryOptions.signal,
+      };
+      const contracts = await admitToolSchemas(definition as unknown as Record<string, unknown>, binding);
+      const validateOutput = await prepareToolValidation(contracts, args.args, binding);
+      const current = this.resolveVisibleToolAccess(args, visibility);
+      if (
+        queryOptions.signal?.aborted ||
+        current.error ||
+        this.deps.outboundConnections.get(route.connectionKey) !== connection ||
+        connection.adapter !== adapter ||
+        JSON.stringify(current.route) !== JSON.stringify(route) ||
+        (current.tool.definition && JSON.stringify(current.tool.definition) !== JSON.stringify(definition))
+      )
+        throw new SchemaBoundaryError('schema_invalid');
+      const result = await requestLegacyAdapter(
+        adapter,
+        'tools/call',
+        {
+          name: route.toolName,
+          arguments: args.args as never,
+        },
+        { signal: queryOptions.signal, timeoutMs: connection.requestTimeoutMs },
+      );
+      await validateOutput(result);
       return { result, server: route.server, tool: route.toolName, route, refresh };
     } catch (error) {
+      if (error instanceof SchemaBoundaryError && error.code === 'schema_input_invalid')
+        return { result: schemaInputErrorResult(), server: route.server, tool: route.toolName, route, refresh };
+      if (error instanceof SchemaBoundaryError)
+        return {
+          result: {},
+          server: route.server,
+          tool: route.toolName,
+          route,
+          refresh,
+          error: {
+            type: !error.retryable && error.phase === 'input' ? 'validation' : 'upstream',
+            message: error.code,
+          },
+        };
       const failure = gatewayFailureFromUnknown(error, 'transport');
       logger.error('Tool invocation failed', { failure });
 

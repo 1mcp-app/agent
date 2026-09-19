@@ -1,8 +1,6 @@
 import { mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-
 import { buildCliContext } from '@src/commands/shared/cliContext.js';
 import {
   getCliSessionCachePath,
@@ -11,7 +9,7 @@ import {
   writeCliSessionCache,
 } from '@src/commands/shared/serveClient.js';
 import { buildCatalogGeneration } from '@src/core/capabilities/catalogGeneration.js';
-import { toProtocolTool } from '@src/sdk/contracts/index.js';
+import { type Tool, toProtocolTool } from '@src/sdk/contracts/index.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 

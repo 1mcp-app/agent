@@ -11,6 +11,27 @@ import {
 } from './gatewayFailure.js';
 
 describe('gateway failure public projections', () => {
+  it.each([
+    ['schema_evaluation_timeout', 6],
+    ['schema_evaluation_unavailable', 6],
+    ['schema_budget_exceeded', 2],
+  ] as const)('retains %s in CLI classification without forwarding diagnostic payloads', (code, exit) => {
+    const error = {
+      code: code === 'schema_budget_exceeded' ? -32602 : -32000,
+      message: 'SECRET',
+      data: {
+        'app.1mcp/failure': {
+          kind: code === 'schema_budget_exceeded' ? 'invalid-request' : 'protocol',
+          code,
+          extra: 'SECRET',
+        },
+      },
+    };
+    const failure = gatewayFailureFromMcpError(error);
+    expect(gatewayFailureExitCode(failure)).toBe(exit);
+    expect(JSON.stringify(failure)).not.toContain('SECRET');
+    expect(gatewayFailureExitCode(gatewayFailureFromMcpError({ ...error, code: 500 }))).toBe(1);
+  });
   it('drops hostile messages, data, accessors and arbitrary codes across destinations', () => {
     const raw = new Error('Bearer secret https://private/ argument=value');
     Object.assign(raw, { code: 'secret-code', data: { secret: 'sensitive' } });

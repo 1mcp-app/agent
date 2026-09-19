@@ -116,7 +116,7 @@ describe('ClientFactory', () => {
           name: expect.any(String),
           version: expect.any(String),
         }),
-        undefined,
+        { jsonSchemaValidator: expect.any(Object) },
       );
     });
 

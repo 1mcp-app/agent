@@ -92,7 +92,13 @@ export function gatewayFailureFromMcpError(error: unknown): GatewayFailure {
   if (!parsed.success) return fallback;
   const { kind, code } = parsed.data;
   const safeCode =
-    ['gateway_overloaded', 'gateway_target_unavailable', 'resource_not_found'].includes(code) ||
+    [
+      'gateway_overloaded',
+      'gateway_target_unavailable',
+      'resource_not_found',
+      'schema_evaluation_timeout',
+      'schema_evaluation_unavailable',
+    ].includes(code) ||
     (/^-?\d+$/.test(code) && Number.isSafeInteger(Number(code)))
       ? code
       : `gateway_${kind.replaceAll('-', '_')}_error`;
@@ -178,6 +184,7 @@ export function gatewayFailureExitCode(failure: GatewayFailure): number {
   if (safe.code === '404') return 4;
   if (safe.code === '500') return 1;
   if (['0', '408', '429', '503', '504'].includes(safe.code)) return 6;
+  if (['schema_evaluation_timeout', 'schema_evaluation_unavailable'].includes(safe.code)) return 6;
   if (safe.kind === 'invalid-request' || ['-32700', '-32600', '-32602'].includes(safe.code)) return 2;
   if (safe.kind === 'authorization' || ['401', '403'].includes(safe.code)) return 3;
   if (safe.kind === 'deadline-exceeded' || safe.kind === 'cancelled' || safe.code === 'gateway_overloaded') return 6;

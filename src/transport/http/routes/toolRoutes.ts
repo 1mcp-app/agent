@@ -15,6 +15,8 @@ import { createConnectionResolver, type TemplateHashProvider } from '@src/core/s
 import { getDisabledToolError } from '@src/core/server/disabledTools.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
+import { SchemaBoundaryError } from '@src/core/validation/schemaPolicy.js';
+import { schemaInputErrorResult } from '@src/core/validation/toolSchemaBoundary.js';
 import {
   createGatewayFailure,
   gatewayFailureFromUnknown,
@@ -24,6 +26,7 @@ import logger from '@src/logger/logger.js';
 import { CONTEXT_HEADERS } from '@src/transport/http/utils/contextExtractor.js';
 
 import { Request, RequestHandler, Response } from 'express';
+import { z } from 'zod';
 
 import {
   buildFilterConfig,
@@ -241,25 +244,29 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
   };
 }
 
+const toolInvocationBodySchema = z.object({
+  tool: z.string(),
+  args: z.record(z.string(), z.unknown()).optional(),
+});
+
 export function createToolInvocationsHandler(serverManager: ServerManager): RequestHandler {
   return async (req: Request, res: Response): Promise<void> => {
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    req.once?.('aborted', abort);
+    res.once?.('close', abort);
     try {
-      const requestSessionId = await initializeRequestContextForApi(serverManager, req, res);
-      const body = req.body as unknown;
-      if (
-        !body ||
-        typeof body !== 'object' ||
-        !('tool' in body) ||
-        typeof (body as Record<string, unknown>).tool !== 'string'
-      ) {
-        res.status(400).json({ error: 'Request body must include a "tool" field as a string.' });
+      const parsed = toolInvocationBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        const error =
+          parsed.error.issues[0]?.path[0] === 'args'
+            ? 'Tool arguments must be an object'
+            : 'Request body must include a "tool" field as a string.';
+        res.status(400).json({ error });
         return;
       }
-
-      const toolRef = (body as Record<string, unknown>).tool as string;
-      const args = (body as Record<string, unknown>).args;
-      const toolArgs =
-        args && typeof args === 'object' && !Array.isArray(args) ? (args as Record<string, unknown>) : {};
+      const { tool: toolRef, args: toolArgs = {} } = parsed.data;
+      const requestSessionId = await initializeRequestContextForApi(serverManager, req, res);
 
       const target = parseTarget(toolRef);
       if (!target || target.kind !== 'tool') {
@@ -312,24 +319,55 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
                 .map(([key]) => [key, target.serverName] as const),
               requestSessionId,
             ),
-            { serverConfigs: getServerConfigs() },
+            { serverConfigs: getServerConfigs(), signal: controller.signal },
           );
           const resolved = snapshot.resolve('tools', target.qualifiedName);
           if (!resolved?.connection) {
             res.status(404).json({ error: `Tool not found: ${toolRef}` });
             return;
           }
-          const upstreamResult = await requestLegacyAdapter(resolved.connection.adapter, 'tools/call', {
-            name: resolved.entry.route.upstreamIdentity,
-            arguments: toolArgs as never,
-          });
+          const adapter = resolved.connection.adapter;
+          const validateOutput = await snapshot.prepareToolCall(target.qualifiedName, toolArgs, controller.signal);
+          if (resolved.connection.adapter !== adapter || !snapshot.isCurrent())
+            throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
+          const disabled = getDisabledToolInvocationError(target.serverName, target.toolName);
+          if (disabled) {
+            res.status(404).json({ error: disabled });
+            return;
+          }
+          validateOutput.assertCurrent();
+          const upstreamResult = await requestLegacyAdapter(
+            adapter,
+            'tools/call',
+            {
+              name: resolved.entry.route.upstreamIdentity,
+              arguments: toolArgs as never,
+            },
+            { signal: controller.signal, timeoutMs: resolved.connection.requestTimeoutMs },
+          );
+          await validateOutput(upstreamResult);
           res.json({ result: upstreamResult, server: target.serverName, tool: target.toolName });
         } catch (error) {
-          const failure = gatewayFailureFromUnknown(error, 'transport');
+          if (error instanceof SchemaBoundaryError && error.code === 'schema_input_invalid') {
+            res.json({ result: schemaInputErrorResult(), server: target.serverName, tool: target.toolName });
+            return;
+          }
+          const failure =
+            error instanceof SchemaBoundaryError
+              ? createGatewayFailure({
+                  kind: error.phase === 'input' && !error.retryable ? 'invalid-request' : 'protocol',
+                  code: error.code,
+                  message: error.code,
+                })
+              : gatewayFailureFromUnknown(error, 'transport');
           logger.error('Direct tool invocation error', { failure });
           const problem = gatewayFailureToProblem(failure);
+          const status =
+            error instanceof SchemaBoundaryError
+              ? schemaFailureStatus(error.code, error.phase === 'input' ? 'validation' : 'upstream')
+              : problem.status;
           res.setHeader('Content-Type', 'application/problem+json');
-          res.status(problem.status).json(problem);
+          res.status(status).json({ ...problem, status });
         }
         return;
       }
@@ -353,20 +391,14 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
         const catalogResult = await catalog.invokeVisibleTool(
           { server: target.serverName, toolName: target.toolName, args: toolArgs },
           visibility,
+          { signal: controller.signal },
         );
         if (!catalogResult.error) {
           res.json({ result: catalogResult.result, server: catalogResult.server, tool: catalogResult.tool });
           return;
         }
         // The catalog may already have executed the Tool. A fallback would duplicate side effects.
-        let status = 500;
-        if (catalogResult.error.type === 'validation') {
-          status = 400;
-        } else if (catalogResult.error.type === 'not_found') {
-          status = 404;
-        } else if (catalogResult.error.type === 'upstream') {
-          status = 502;
-        }
+        const status = schemaFailureStatus(catalogResult.error.message, catalogResult.error.type);
         let kind: 'invalid-request' | 'transport' | 'internal' = 'internal';
         if (catalogResult.error.type === 'validation') {
           kind = 'invalid-request';
@@ -376,9 +408,11 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
         const problem = gatewayFailureToProblem(
           createGatewayFailure({
             kind,
-            code: `gateway_${catalogResult.error.type}`,
+            code: catalogResult.error.message.startsWith('schema_')
+              ? catalogResult.error.message
+              : `gateway_${catalogResult.error.type}`,
             message:
-              catalogResult.error.type === 'upstream'
+              catalogResult.error.type === 'upstream' && !catalogResult.error.message.startsWith('schema_')
                 ? 'Tool execution may have occurred; the outcome is unknown'
                 : catalogResult.error.message,
           }),
@@ -396,11 +430,14 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           args: toolArgs,
         },
         visibility,
+        controller.signal,
       )) as ToolInvokeOutput;
 
       if (result.error) {
         let status: number;
-        if (result.error.type === 'validation') {
+        if (result.error.message.startsWith('schema_')) {
+          status = schemaFailureStatus(result.error.message, result.error.type);
+        } else if (result.error.type === 'validation') {
           status = 400;
         } else if (result.error.type === 'not_found') {
           status = 404;
@@ -419,6 +456,9 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
     } catch (error) {
       logger.error('API tool-invocations handler error', { failure: gatewayFailureFromUnknown(error) });
       res.status(500).json({ error: 'Internal server error' });
+    } finally {
+      req.off?.('aborted', abort);
+      res.off?.('close', abort);
     }
   };
 }
@@ -436,4 +476,20 @@ async function initializeRequestContextForApi(
 
   const headerSessionId = req.headers?.[CONTEXT_HEADERS.SESSION_ID];
   return Array.isArray(headerSessionId) ? headerSessionId[0] : headerSessionId;
+}
+
+function schemaFailureStatus(code: string, type: string): number {
+  if (code === 'schema_evaluation_timeout') return 504;
+  if (code === 'schema_evaluation_unavailable') return 503;
+  if (code === 'schema_budget_exceeded' && type === 'validation') return 413;
+  switch (type) {
+    case 'validation':
+      return 400;
+    case 'not_found':
+      return 404;
+    case 'upstream':
+      return 502;
+    default:
+      return 500;
+  }
 }

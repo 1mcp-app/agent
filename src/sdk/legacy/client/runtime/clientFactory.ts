@@ -16,6 +16,13 @@ const DEBOUNCED_NOTIFICATION_METHODS = [
 
 export class ClientFactory {
   public createClient(transport?: AuthProviderTransport): OutboundSdkClient {
+    if (transport) {
+      const setProtocolVersion = transport.setProtocolVersion?.bind(transport);
+      transport.setProtocolVersion = (revision: string) => {
+        transport.negotiatedProtocolRevision = revision;
+        setProtocolVersion?.(revision);
+      };
+    }
     const protocolVersion = transport?.outboundProtocolVersion;
     if (protocolVersion && protocolVersion !== 'legacy') {
       return this.createModernClient(protocolVersion, transport);
@@ -65,7 +72,7 @@ export class ClientFactory {
         name: MCP_SERVER_NAME,
         version: MCP_SERVER_VERSION,
       },
-      undefined,
+      { jsonSchemaValidator: new CustomJsonSchemaValidator() },
     );
   }
 
@@ -77,6 +84,7 @@ export class ClientFactory {
       },
       {
         capabilities: {},
+        jsonSchemaValidator: new CustomJsonSchemaValidator(),
       },
     );
   }

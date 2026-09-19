@@ -1,7 +1,7 @@
 import { encode } from '@toon-format/toon';
 
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
-import { CustomJsonSchemaValidator } from '@src/core/validation/CustomJsonSchemaValidator.js';
+import { schemaBoundary, SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
 import type { CallToolResult, Tool } from '@src/sdk/contracts/index.js';
 import { buildUri } from '@src/utils/core/parsing.js';
 import { isPlainObject } from '@src/utils/typeGuards.js';
@@ -68,25 +68,24 @@ export class RunCommandInputError extends Error {}
 export interface ValidateToolArgsFailure {
   valid: false;
   errorMessage: string;
-  schema: Record<string, unknown>;
 }
 
-export function validateToolArgs(
+export async function validateToolArgs(
   args: Record<string, unknown>,
   inputSchema: Record<string, unknown>,
   toolDisplayName: string,
-): { valid: true } | ValidateToolArgsFailure {
-  const validator = new CustomJsonSchemaValidator();
-  const validate = validator.getValidator<Record<string, unknown>>(inputSchema);
-  const result = validate(args);
-  if (result.valid) {
+): Promise<{ valid: true } | ValidateToolArgsFailure> {
+  const binding = { routeKey: toolDisplayName, generation: 'cli-preflight', profile: 'tool-input' as const };
+  try {
+    const contract = await schemaBoundary.admit(inputSchema, binding);
+    await schemaBoundary.evaluate(contract, args, binding);
     return { valid: true };
+  } catch (error) {
+    return {
+      valid: false,
+      errorMessage: error instanceof SchemaBoundaryError ? error.code : 'schema_evaluation_unavailable',
+    };
   }
-  return {
-    valid: false,
-    errorMessage: `Validation failed for ${toolDisplayName}:\n  ${result.errorMessage ?? 'Invalid arguments'}\n\nExpected schema:\n${JSON.stringify(inputSchema, null, 2)}`,
-    schema: inputSchema,
-  };
 }
 
 export function parseToolReference(toolRef: string): ParsedToolReference {

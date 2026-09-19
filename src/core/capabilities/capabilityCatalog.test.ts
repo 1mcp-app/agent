@@ -119,7 +119,7 @@ describe('CapabilityCatalog', () => {
       'filesystem/read_file',
       'template-server/template_tool',
     ]);
-    expect(result.tools.find((tool) => tool.name === 'read_file')?.inputSchema).toEqual({
+    expect(result.tools.find((tool) => tool.name === 'read_file')?.inputSchema).toMatchObject({
       type: 'object',
       properties: { path: { type: 'string' } },
     });
@@ -146,7 +146,7 @@ describe('CapabilityCatalog', () => {
 
     expect(listed.tools.find((tool) => tool.name === 'read_file')?.description).toBe('Read a workspace file safely');
     expect(listed.tools.find((tool) => tool.name === 'template_tool')?.description).toBe('Describe a rendered project');
-    expect(described.schema).toEqual({
+    expect(described.schema).toMatchObject({
       ...upstreamSchema,
       description: 'Read a workspace file safely',
     });

@@ -6,6 +6,7 @@
  */
 import { FlagManager } from '@src/core/flags/flagManager.js';
 import { AdapterFactory } from '@src/core/tools/internal/adapters/index.js';
+import { captureJson } from '@src/core/validation/schemaPolicy.js';
 import type { RegistryServer } from '@src/domains/registry/types.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -237,6 +238,8 @@ describe('discoveryHandlers', () => {
       const result = await handleMcpSearch(args);
 
       expect(result.results[0].transport).toEqual([]);
+      expect(Object.hasOwn(result.results[0], 'downloads')).toBe(false);
+      expect(() => captureJson(result, false, true)).not.toThrow();
     });
 
     it('should throw error on adapter failure', async () => {
@@ -285,7 +288,6 @@ describe('discoveryHandlers', () => {
         status: 'online',
         responseTime: 150,
         lastCheck: '2023-01-01T00:00:00Z',
-        error: undefined,
         metadata: {
           version: '1.0.0',
           supportedFormats: ['json', 'table'],
@@ -295,6 +297,8 @@ describe('discoveryHandlers', () => {
       });
 
       // Verify schema validation
+      expect(Object.hasOwn(result, 'error')).toBe(false);
+      expect(() => captureJson(result, false, true)).not.toThrow();
       const validated = McpRegistryStatusOutputSchema.parse(result);
       expect(validated).toBeDefined();
 
@@ -382,27 +386,26 @@ describe('discoveryHandlers', () => {
             url: 'https://registry.modelcontextprotocol.io',
             status: 'online',
             description: 'The official Model Context Protocol server registry',
-            packageCount: undefined,
           },
           {
             name: 'Community Registry',
             url: 'https://community-registry.modelcontextprotocol.io',
             status: 'online',
             description: 'Community-contributed MCP servers',
-            packageCount: undefined,
           },
           {
             name: 'Experimental Registry',
             url: 'https://experimental-registry.modelcontextprotocol.io',
             status: 'unknown',
             description: 'Experimental and cutting-edge MCP servers',
-            packageCount: undefined,
           },
         ]),
         total: 3,
       });
 
       // Verify schema validation
+      expect(result.registries.every((item) => !Object.hasOwn(item, 'packageCount'))).toBe(true);
+      expect(() => captureJson(result, false, true)).not.toThrow();
       const validated = McpRegistryListOutputSchema.parse(result);
       expect(validated).toBeDefined();
     });
@@ -434,6 +437,26 @@ describe('discoveryHandlers', () => {
   });
 
   describe('handleMcpInfo', () => {
+    it('omits an unavailable package command from a JSON-safe server result', async () => {
+      mockDiscoveryAdapter.getServerById.mockResolvedValue({
+        name: 'remote-only',
+        version: '1',
+        description: 'Remote only',
+        status: 'active',
+      });
+      const result = await handleMcpInfo({
+        name: 'remote-only',
+        version: undefined,
+        format: 'json',
+        includeCapabilities: true,
+        includeConfig: true,
+      });
+      expect(Object.hasOwn(result.configuration!, 'command')).toBe(false);
+      expect(result.configuration?.enabled).toBe(true);
+      expect(result.configuration?.autoRestart).toBe(false);
+      expect(() => captureJson(result, false, true)).not.toThrow();
+    });
+
     it('should return structured data for found server', async () => {
       const mockServer: RegistryServer = {
         name: 'test-server',

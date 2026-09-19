@@ -30,7 +30,13 @@ import {
   StreamableServeClient,
 } from '@src/commands/shared/serveClient.js';
 import { API_INSPECT_ENDPOINT, API_TOOL_INVOCATIONS_ENDPOINT } from '@src/constants/api.js';
-import { gatewayFailureExitCode, gatewayFailureFromMcpError } from '@src/gateway/contracts/gatewayFailure.js';
+import { schemaInputErrorResult } from '@src/core/validation/toolSchemaBoundary.js';
+import {
+  createGatewayFailure,
+  gatewayFailureExitCode,
+  gatewayFailureFromMcpError,
+  gatewayFailureToMcp,
+} from '@src/gateway/contracts/gatewayFailure.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
 import {
@@ -41,6 +47,16 @@ import {
   toProtocolTools,
 } from '@src/sdk/contracts/index.js';
 import type { ContextData } from '@src/types/context.js';
+
+function schemaPreflightError(code: string) {
+  return gatewayFailureToMcp(
+    createGatewayFailure({
+      kind: code === 'schema_budget_exceeded' ? 'invalid-request' : 'protocol',
+      code,
+      message: code,
+    }),
+  );
+}
 
 export interface RunCommandOptions extends GlobalOptions {
   url?: string;
@@ -179,7 +195,7 @@ async function tryRunRest(
         }).arguments;
 
   if (toolInfo) {
-    const validation = validateToolArgs(
+    const validation = await validateToolArgs(
       resolvedArguments,
       toolInfo.inputSchema as Record<string, unknown>,
       options.tool,
@@ -192,7 +208,9 @@ async function tryRunRest(
             rawResponse: {
               jsonrpc: '2.0',
               id: 0,
-              error: { code: -32602, message: validation.errorMessage },
+              ...(validation.errorMessage === 'schema_input_invalid'
+                ? { result: schemaInputErrorResult() }
+                : { error: schemaPreflightError(validation.errorMessage) }),
             },
             retryWithFreshSession: false,
           },
@@ -512,7 +530,7 @@ export async function invokeTool(options: {
     });
 
     if (tool) {
-      const validation = validateToolArgs(
+      const validation = await validateToolArgs(
         resolvedArguments.arguments,
         tool.inputSchema as Record<string, unknown>,
         options.displayToolName,
@@ -522,7 +540,9 @@ export async function invokeTool(options: {
           rawResponse: {
             jsonrpc: '2.0',
             id: 0,
-            error: { code: -32602, message: validation.errorMessage },
+            ...(validation.errorMessage === 'schema_input_invalid'
+              ? { result: schemaInputErrorResult() }
+              : { error: schemaPreflightError(validation.errorMessage) }),
           },
           sessionId: client.sessionId,
           retryWithFreshSession: false,

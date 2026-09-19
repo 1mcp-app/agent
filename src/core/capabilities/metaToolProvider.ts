@@ -145,6 +145,7 @@ export class MetaToolProvider {
     name: string,
     args: unknown,
     visibility?: CapabilityVisibility,
+    signal?: AbortSignal,
   ): Promise<ListToolsResult | DescribeToolResult | CallToolResult> {
     switch (name) {
       case 'tool_list': {
@@ -161,7 +162,7 @@ export class MetaToolProvider {
             },
           } as ListToolsResult;
         }
-        return this.listAvailableTools(parsed.data, visibility);
+        return this.listAvailableTools(parsed.data, visibility, signal);
       }
       case 'tool_schema': {
         const parsed = ToolSchemaInputSchema.safeParse(args);
@@ -174,7 +175,7 @@ export class MetaToolProvider {
             },
           } as DescribeToolResult;
         }
-        return this.describeTool(parsed.data, visibility);
+        return this.describeTool(parsed.data, visibility, signal);
       }
       case 'tool_invoke': {
         const parsed = ToolInvokeInputSchema.safeParse(args);
@@ -189,7 +190,7 @@ export class MetaToolProvider {
             },
           } as CallToolResult;
         }
-        return this.callTool(parsed.data, visibility);
+        return this.callTool(parsed.data, visibility, signal);
       }
       default:
         return {
@@ -223,9 +224,10 @@ export class MetaToolProvider {
   private async listAvailableTools(
     args: ListAvailableToolsArgs,
     visibility?: CapabilityVisibility,
+    signal?: AbortSignal,
   ): Promise<ListToolsResult> {
     try {
-      const result = await this.capabilityCatalog.listVisibleTools(args, visibility);
+      const result = await this.capabilityCatalog.listVisibleTools(args, visibility, { signal });
 
       // Format tools for response
       const tools = result.tools.map((tool: ToolMetadata) => ({
@@ -283,9 +285,13 @@ export class MetaToolProvider {
   /**
    * Implement tool_schema
    */
-  private async describeTool(args: DescribeToolArgs, visibility?: CapabilityVisibility): Promise<DescribeToolResult> {
+  private async describeTool(
+    args: DescribeToolArgs,
+    visibility?: CapabilityVisibility,
+    signal?: AbortSignal,
+  ): Promise<DescribeToolResult> {
     try {
-      const result = await this.capabilityCatalog.describeVisibleTool(args, visibility);
+      const result = await this.capabilityCatalog.describeVisibleTool(args, visibility, { signal });
       if (result.error) {
         return {
           schema: {},
@@ -329,9 +335,13 @@ export class MetaToolProvider {
   /**
    * Implement tool_invoke
    */
-  private async callTool(args: CallToolArgs, visibility?: CapabilityVisibility): Promise<CallToolResult> {
+  private async callTool(
+    args: CallToolArgs,
+    visibility?: CapabilityVisibility,
+    signal?: AbortSignal,
+  ): Promise<CallToolResult> {
     try {
-      const result = await this.capabilityCatalog.invokeVisibleTool(args, visibility);
+      const result = await this.capabilityCatalog.invokeVisibleTool(args, visibility, { signal });
       if (result.error) {
         return {
           result: {},

@@ -64,6 +64,35 @@ describe('capability catalog with real SDK peers', () => {
   ] as const)('round-trips mixed capabilities and exact routes in the %s-%s cell', async (inboundEra, outboundEra) => {
     const cleanup: Array<() => Promise<unknown>> = [];
     const observed: Array<{ method: string; params?: unknown }> = [];
+    const schemaTool = {
+      name: 'schema-probe',
+      inputSchema: { type: 'object', required: ['value'], properties: { value: { type: 'integer' } } },
+      outputSchema:
+        outboundEra === 'modern'
+          ? { type: 'array', items: { $ref: '#/$defs/n' }, $defs: { n: { type: 'integer' } } }
+          : {
+              type: 'object',
+              properties: { result: { type: 'array', items: { type: 'integer' } } },
+              required: ['result'],
+            },
+    };
+    const fixtureResult = (request: { method: string; params?: unknown }) => {
+      if (request.method === 'tools/list')
+        return {
+          tools: [tool, schemaTool, { name: 'invalid-schema', inputSchema: { type: 'object', $ref: '#/missing' } }],
+        };
+      const params = request.params as { name?: string; arguments?: { value?: number } } | undefined;
+      if (request.method === 'tools/call' && params?.name === schemaTool.name) {
+        let structuredContent: unknown = outboundEra === 'modern' ? [2] : { result: [2] };
+        if (params.arguments?.value === 13) structuredContent = 'invalid-output';
+        return {
+          content: [],
+          structuredContent,
+        };
+      }
+      if (request.method === 'tools/call') return { ...results[request.method], structuredContent: {} };
+      return results[request.method];
+    };
     try {
       let connection;
       if (outboundEra === 'legacy') {
@@ -71,7 +100,7 @@ describe('capability catalog with real SDK peers', () => {
         for (const schema of schemas) {
           backend.setRequestHandler(schema, async (request) => {
             observed.push(request);
-            return results[request.method];
+            return fixtureResult(request);
           });
         }
         const client = new LegacyClient({ name: 'gateway-backend', version: '1' });
@@ -93,7 +122,7 @@ describe('capability catalog with real SDK peers', () => {
             for (const schema of schemas) {
               backend.setRequestHandler(schema.shape.method.value, async (request) => {
                 observed.push(request);
-                return results[request.method] as never;
+                return fixtureResult(request) as never;
               });
             }
             return backend;
@@ -159,7 +188,11 @@ describe('capability catalog with real SDK peers', () => {
         request = (method, params) => client.request({ method, ...(params ? { params } : {}) }, z.looseObject({}));
       }
       const publicIdentity = (value: string) => buildUri('fixture', value, MCP_URI_SEPARATOR);
-      expect(await request('tools/list')).toMatchObject({ tools: [{ ...tool, name: publicIdentity(tool.name) }] });
+      expect(
+        ((await request('tools/list')).tools as Array<{ name: string }>).find(
+          (item) => item.name === publicIdentity(tool.name),
+        ),
+      ).toMatchObject({ ...tool, name: publicIdentity(tool.name) });
       expect(await request('prompts/list')).toMatchObject({
         prompts: [{ ...prompt, name: publicIdentity(prompt.name) }],
       });
@@ -172,6 +205,32 @@ describe('capability catalog with real SDK peers', () => {
       expect(await request('tools/call', { name: publicIdentity(tool.name), arguments: {} })).toMatchObject(
         results['tools/call'],
       );
+      const schemaList = await request('tools/list');
+      const advertised = (schemaList.tools as Array<{ name: string; outputSchema: Record<string, unknown> }>).find(
+        (item) => item.name === publicIdentity(schemaTool.name),
+      );
+      expect(advertised).toBeDefined();
+      expect((schemaList.tools as Array<{ name: string }>).some((item) => item.name.endsWith('invalid-schema'))).toBe(
+        false,
+      );
+      const beforeInvalid = observed.filter((item) => item.method === 'tools/call').length;
+      expect(
+        await request('tools/call', { name: publicIdentity(schemaTool.name), arguments: { value: 'wrong' } }),
+      ).toMatchObject({ isError: true });
+      expect(observed.filter((item) => item.method === 'tools/call')).toHaveLength(beforeInvalid);
+      const validSchemaResult = await request('tools/call', {
+        name: publicIdentity(schemaTool.name),
+        arguments: { value: 2 },
+      });
+      expect(validSchemaResult.structuredContent).toEqual(
+        inboundEra === 'modern' && outboundEra === 'modern' ? [2] : { result: [2] },
+      );
+      expect(advertised!.outputSchema.type).toBe(
+        inboundEra === 'modern' && outboundEra === 'modern' ? 'array' : 'object',
+      );
+      await expect(
+        request('tools/call', { name: publicIdentity(schemaTool.name), arguments: { value: 13 } }),
+      ).rejects.toThrow();
       expect(
         await request('prompts/get', { name: publicIdentity(prompt.name), arguments: { topic: 'test' } }),
       ).toMatchObject(results['prompts/get']);

@@ -16,6 +16,49 @@ vi.mock('@src/core/server/serverManager.js', () => ({
 }));
 
 describe('registerToolHandlers capability visibility', () => {
+  it.each([
+    {
+      name: 'tool_list',
+      args: { limit: 'invalid' },
+      schema: { type: 'object', properties: { limit: { type: 'number' } } },
+      defaults: { tools: [], totalCount: 0, servers: [], hasMore: false },
+    },
+    {
+      name: 'tool_schema',
+      args: {},
+      schema: { type: 'object', required: ['server', 'toolName'] },
+      defaults: { schema: {} },
+    },
+    {
+      name: 'tool_invoke',
+      args: { args: {} },
+      schema: { type: 'object', required: ['server', 'toolName', 'args'] },
+      defaults: { result: {}, server: '', tool: '' },
+    },
+  ])('preserves the structured $name validation error without invocation', async ({ name, args, schema, defaults }) => {
+    const handlers: Array<(request: { params: { name: string; arguments: unknown } }) => Promise<unknown>> = [];
+    const inbound = createMockLegacyInboundConnection({
+      server: { setRequestHandler: vi.fn((_schema, handler) => handlers.push(handler)) } as never,
+    });
+    const callMetaTool = vi.fn();
+    const orchestrator = {
+      isEnabled: () => true,
+      callMetaTool,
+      getCapabilitiesForVisibility: vi.fn().mockResolvedValue({ tools: [{ name, inputSchema: schema }] }),
+    } as unknown as LazyLoadingOrchestrator;
+    registerToolHandlers(new Map(), inbound, orchestrator);
+    const result = (await handlers[1]({ params: { name, arguments: args } })) as {
+      isError: boolean;
+      content: Array<{ text: string }>;
+      structuredContent: unknown;
+    };
+    const expected = { ...defaults, error: { type: 'validation', message: 'schema_input_invalid' } };
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text)).toEqual(expected);
+    expect(result.structuredContent).toEqual(expected);
+    expect(callMetaTool).not.toHaveBeenCalled();
+  });
+
   it('re-resolves the Server Candidate Set for each meta-tool request', async () => {
     type CapturedHandler = (request: { params: { name: string; arguments: unknown } }) => Promise<unknown>;
     const handlers: CapturedHandler[] = [];

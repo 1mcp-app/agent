@@ -1199,6 +1199,7 @@ describe('LazyLoadingOrchestrator', () => {
     });
 
     it('discovers and invokes a late-ready server after its capability snapshot refresh', async () => {
+      mockClient.callTool.mockResolvedValue({ content: [] });
       mockOutboundConnections.set(
         'late-ready',
         connectionFromClient('late-ready', mockClient, { tags: ['fs'], capabilities: { tools: {} } }),

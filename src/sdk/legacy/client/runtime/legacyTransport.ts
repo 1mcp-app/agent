@@ -10,6 +10,8 @@ export interface RecreateTransportOptions {
 export interface AuthProviderTransport extends Transport {
   /** 1MCP-owned outbound mode; absent transports retain legacy compatibility. */
   outboundProtocolVersion?: OutboundProtocolVersion;
+  /** Captured from the SDK transport negotiation callback, never inferred from schema keywords. */
+  negotiatedProtocolRevision?: string;
   /** Rebuilds from the configured backend rather than copying live transport state. */
   recreate?: (options?: RecreateTransportOptions) => AuthProviderTransport;
   connectionTimeout?: number;

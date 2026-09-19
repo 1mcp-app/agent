@@ -231,17 +231,10 @@ describe('requestHandlers disabled tools enforcement', () => {
   });
 
   it('re-reads disabled tools config for callTool after config reload', async () => {
-    mockGetTransportConfig.mockReturnValueOnce({
+    mockGetTransportConfig.mockReturnValue({
       filesystem: {
         type: 'stdio',
         command: 'node',
-      },
-    });
-    mockGetTransportConfig.mockReturnValueOnce({
-      filesystem: {
-        type: 'stdio',
-        command: 'node',
-        disabledTools: ['write_file'],
       },
     });
 
@@ -257,6 +250,13 @@ describe('requestHandlers disabled tools enforcement', () => {
       params: {
         name: 'filesystem_1mcp_write_file',
         arguments: {},
+      },
+    });
+    mockGetTransportConfig.mockReturnValue({
+      filesystem: {
+        type: 'stdio',
+        command: 'node',
+        disabledTools: ['write_file'],
       },
     });
     const secondResult = await handler({

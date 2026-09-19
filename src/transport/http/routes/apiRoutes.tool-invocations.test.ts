@@ -1,5 +1,7 @@
 import { createMockLegacySdkAdapter, createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
+import * as runtimeCatalog from '@src/core/capabilities/runtimeCapabilityCatalog.js';
+import { SchemaCache } from '@src/core/capabilities/schemaCache.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { ClientStatus, type OutboundConnections } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
@@ -178,6 +180,30 @@ describe('apiRoutes /api/tool-invocations', () => {
     await invokeInspectRoute(scopeAuthMiddleware, { body: {} }, res);
     await invokeInspectRoute(handler, { body: {} }, res);
     expect(res.statusCode).toBe(400);
+  });
+
+  it.each([null, [], 'bad', 42])('rejects non-object arguments %j before dispatch', async (args) => {
+    const callMetaTool = vi.fn();
+    const handler = createToolInvocationsHandler({ getLazyLoadingOrchestrator: () => ({ callMetaTool }) } as never);
+    const res = createMockResponse();
+    await invokeInspectRoute(handler, { body: { tool: 'server/tool', args } }, res);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual({ error: 'Tool arguments must be an object' });
+    expect(callMetaTool).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['schema_budget_exceeded', 413],
+    ['schema_evaluation_timeout', 504],
+    ['schema_evaluation_unavailable', 503],
+  ])('maps meta-tool failure %s to %i', async (message, status) => {
+    const callMetaTool = vi.fn().mockResolvedValue({ error: { type: 'validation', message } });
+    const handler = createToolInvocationsHandler({ getLazyLoadingOrchestrator: () => ({ callMetaTool }) } as never);
+    const res = createMockResponse();
+    await invokeInspectRoute(handler, { body: { tool: 'server/tool' } }, res);
+    expect(res.statusCode).toBe(status);
+    expect(res.body).toEqual({ error: message });
+    expect(callMetaTool).toHaveBeenCalledTimes(1);
   });
 
   it('returns 400 for invalid tool format (no slash)', async () => {
@@ -546,6 +572,82 @@ describe('apiRoutes /api/tool-invocations', () => {
     });
   });
 
+  it.each([false, true])('returns a Tool error for invalid arguments without side effects (lazy=%s)', async (lazy) => {
+    const definition = { name: 'tool', inputSchema: { type: 'object' as const, required: ['value'] } };
+    const callTool = vi.fn(async () => ({ content: [] }));
+    const connection = createMockOutboundConnection({
+      name: 'server',
+      capabilities: { tools: {} },
+      adapter: {
+        request: vi.fn(async ({ method }) => (method === 'tools/list' ? { tools: [definition] } : callTool())),
+      },
+    });
+    const connections = new Map([['server', connection]]);
+    const registry = ToolRegistry.fromToolsWithServer([
+      { server: 'server', connectionKey: 'server', tool: definition },
+    ]).withConnections(connections);
+    const orchestrator = {
+      getToolRegistry: () => registry,
+      getSchemaCache: () => new SchemaCache({ maxEntries: 10 }),
+      callMetaTool: vi.fn(),
+    };
+    const manager = {
+      getLazyLoadingOrchestrator: () => (lazy ? orchestrator : undefined),
+      getClients: () => connections,
+      getClient: () => connection,
+    };
+    const res = createMockResponse();
+    res.locals.tagFilterMode = 'none';
+    res.locals.validatedTags = [];
+    await invokeInspectRoute(
+      createToolInvocationsHandler(manager as never),
+      { body: { tool: 'server/tool', args: {} } },
+      res,
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ result: { isError: true } });
+    expect(callTool).not.toHaveBeenCalled();
+    expect(orchestrator.callMetaTool).not.toHaveBeenCalled();
+  });
+
+  it('returns 502 for invalid structured output without a second invocation', async () => {
+    const definition = {
+      name: 'tool',
+      inputSchema: { type: 'object' as const },
+      outputSchema: { type: 'object', required: ['value'] },
+    };
+    const callTool = vi.fn(async () => ({ content: [], structuredContent: {} }));
+    const connection = createMockOutboundConnection({
+      name: 'server',
+      adapter: { request: vi.fn(async () => callTool()) },
+    });
+    const connections = new Map([['server', connection]]);
+    const registry = ToolRegistry.fromToolsWithServer([
+      { server: 'server', connectionKey: 'server', tool: definition },
+    ]).withConnections(connections);
+    const fallback = vi.fn();
+    const orchestrator = {
+      getToolRegistry: () => registry,
+      getSchemaCache: () => new SchemaCache({ maxEntries: 10 }),
+      callMetaTool: fallback,
+    };
+    const res = createMockResponse();
+    res.locals.tagFilterMode = 'none';
+    res.locals.validatedTags = [];
+    await invokeInspectRoute(
+      createToolInvocationsHandler({
+        getLazyLoadingOrchestrator: () => orchestrator,
+        getClients: () => connections,
+      } as never),
+      { body: { tool: 'server/tool', args: {} } },
+      res,
+    );
+    expect(res.statusCode).toBe(502);
+    expect(callTool).toHaveBeenCalledTimes(1);
+    expect(fallback).not.toHaveBeenCalled();
+    expect(res.body).toMatchObject({ 'app.1mcp/failure': { code: 'schema_output_invalid' } });
+  });
+
   it('never falls back to a second invocation after the catalog Tool has side effects and fails', async () => {
     let effects = 0;
     const callTool = vi.fn(async () => {
@@ -587,6 +689,54 @@ describe('apiRoutes /api/tool-invocations', () => {
     expect(JSON.stringify(vi.mocked(logger.error).mock.calls)).not.toContain('SECRET480');
   });
 
+  it('rechecks a contract replaced between asynchronous validation and direct REST dispatch', async () => {
+    let definition = { name: 'tool', inputSchema: { type: 'object' as const, required: [] as string[] } };
+    const callTool = vi.fn(async () => ({ content: [] }));
+    const connection = createMockOutboundConnection({
+      name: 'server',
+      capabilities: { tools: {} },
+      adapter: {
+        request: vi.fn(async ({ method }) => (method === 'tools/list' ? { tools: [definition] } : callTool())),
+      },
+    });
+    const connections = new Map([['server', connection]]);
+    const acquire = runtimeCatalog.acquireRuntimeCapabilityCatalog;
+    const spy = vi
+      .spyOn(runtimeCatalog, 'acquireRuntimeCapabilityCatalog')
+      .mockImplementationOnce(async (...parameters) => {
+        const snapshot = await acquire(...parameters);
+        return {
+          ...snapshot,
+          async prepareToolCall(...args: Parameters<runtimeCatalog.RuntimeCapabilitySnapshot['prepareToolCall']>) {
+            const prepared = await snapshot.prepareToolCall(...args);
+            definition = { name: 'tool', inputSchema: { type: 'object', required: ['new'] } };
+            await acquire(...parameters);
+            return prepared;
+          },
+        };
+      });
+    try {
+      const manager = {
+        getLazyLoadingOrchestrator: () => undefined,
+        getClients: () => connections,
+        getClient: () => connection,
+      };
+      const res = createMockResponse();
+      res.locals.tagFilterMode = 'none';
+      res.locals.validatedTags = [];
+      await invokeInspectRoute(
+        createToolInvocationsHandler(manager as never),
+        { body: { tool: 'server/tool', args: {} } },
+        res,
+      );
+      expect(res.statusCode).toBe(502);
+      expect(res.body).toMatchObject({ 'app.1mcp/failure': { code: 'schema_invalid' } });
+      expect(callTool).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('returns 200 with result on success', async () => {
     const mockResult = {
       result: { content: [{ type: 'text', text: 'done' }], isError: false },
@@ -604,6 +754,7 @@ describe('apiRoutes /api/tool-invocations', () => {
       'tool_invoke',
       { server: 'alpha', toolName: 'mytool', args: { x: 1 } },
       undefined,
+      expect.any(AbortSignal),
     );
     expect(res.body).toEqual(mockResult);
   });
@@ -641,6 +792,7 @@ describe('apiRoutes /api/tool-invocations', () => {
       'tool_invoke',
       { server: 'alpha', toolName: 'mytool', args: { x: 1 } },
       expect.objectContaining({ sessionId: 'rest-session-123', serverCandidates: expect.any(Map) }),
+      expect.any(AbortSignal),
     );
   });
 });
