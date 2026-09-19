@@ -30,7 +30,7 @@ import {
   StreamableServeClient,
 } from '@src/commands/shared/serveClient.js';
 import { API_INSPECT_ENDPOINT, API_TOOL_INVOCATIONS_ENDPOINT } from '@src/constants/api.js';
-import { gatewayFailureExitCode, gatewayFailureFromUnknown } from '@src/gateway/contracts/gatewayFailure.js';
+import { gatewayFailureExitCode, gatewayFailureFromMcpError } from '@src/gateway/contracts/gatewayFailure.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
 import {
@@ -113,7 +113,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
   const output = formatToolCallOutput(response.rawResponse, format, maxChars);
   if ('error' in response.rawResponse) {
     process.stderr.write(`${output}\n`);
-    process.exitCode = gatewayFailureExitCode(gatewayFailureFromUnknown(response.rawResponse.error, 'protocol'));
+    process.exitCode = gatewayFailureExitCode(gatewayFailureFromMcpError(response.rawResponse.error));
     return;
   }
 

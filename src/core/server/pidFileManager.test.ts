@@ -306,6 +306,14 @@ describe('pidFileManager', () => {
       expect(readPidFile(testConfigDir)?.pid).toBe(process.pid);
     });
 
+    it('retains replacement metadata even when the numeric PID is unchanged', () => {
+      writePidFile(testConfigDir, infoWithPid(process.pid));
+      const observed = readPidFile(testConfigDir)!;
+      writePidFile(testConfigDir, { ...observed, startedAt: '2026-09-15T00:00:00.000Z' });
+      expect(cleanupPidFileIfMatches(testConfigDir, observed)).toBe(true);
+      expect(readPidFile(testConfigDir)?.startedAt).toBe('2026-09-15T00:00:00.000Z');
+    });
+
     it('should be a no-op when no PID file exists', () => {
       expect(cleanupPidFileIfMatches(testConfigDir, process.pid)).toBe(true);
     });

@@ -20,6 +20,7 @@ import { getAuthInfo } from '@src/transport/http/middlewares/scopeAuthMiddleware
 import { MCPError } from '@src/utils/core/errorTypes.js';
 
 import { Request, RequestHandler, Response } from 'express';
+import { z } from 'zod';
 
 import {
   buildFilterConfig,
@@ -220,20 +221,29 @@ export function createServersHandler(serverManager: ServerManager): RequestHandl
   };
 }
 
+const inspectQuerySchema = z.object({
+  target: z.string().optional(),
+  limit: z
+    .string()
+    .regex(/^[0-9]+$/)
+    .transform(Number)
+    .pipe(z.number().int().min(1).max(5000))
+    .optional(),
+  cursor: z.string().optional(),
+  all: z.enum(['true', 'false', '1', '0']).optional(),
+});
+
 export function createInspectHandler(serverManager: ServerManager): RequestHandler {
   return async (req: Request, res: Response): Promise<void> => {
     try {
-      const targetRaw = typeof req.query.target === 'string' ? req.query.target : undefined;
-      const limitParam = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : 20;
-      const cursorParam = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
-      const allParam = req.query.all === 'true' || req.query.all === '1';
-
-      let limit = 20;
-      if (allParam) {
-        limit = 5000;
-      } else if (Number.isFinite(limitParam) && limitParam > 0) {
-        limit = limitParam;
+      const query = inspectQuerySchema.safeParse(req.query);
+      if (!query.success) {
+        res.status(400).json({ error: 'Invalid inspect query. limit must be an integer from 1 to 5000.' });
+        return;
       }
+      const { target: targetRaw, cursor: cursorParam } = query.data;
+      const allParam = query.data.all === 'true' || query.data.all === '1';
+      const limit = query.data.limit ?? 20;
 
       const filterConfig = buildFilterConfig(res);
       const instructionAggregator = serverManager.getInstructionAggregator();
@@ -346,7 +356,11 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
             // A failed enumeration must not turn a previously cached schema into a current result.
             await snapshot.list('tools', { enablePagination: false });
             found = snapshot.resolve('tools', qualifiedName)?.entry.publicObject as unknown as Tool | undefined;
-          } catch {
+          } catch (error) {
+            if (error instanceof CapabilityCursorCapacityError) {
+              res.status(503).json({ error: error.message, code: 'gateway_overloaded' });
+              return;
+            }
             res.status(503).json({ error: 'Tool inventory not available for this server' });
             return;
           }

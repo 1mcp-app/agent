@@ -1,7 +1,9 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
+import { buildCatalogGeneration } from '@src/core/capabilities/catalogGeneration.js';
 import { type ServerAdapter, ServerStatus, ServerType } from '@src/core/server/adapters/types.js';
 import type { OutboundConnections } from '@src/core/types/index.js';
+import type { JsonValue } from '@src/sdk/contracts/index.js';
 
 import type { Request, RequestHandler, Response } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -91,6 +93,7 @@ async function invokeInspectRoute(handler: RequestHandler, req: Partial<Request>
 describe('apiRoutes inspect', () => {
   let inspectHandler: RequestHandler;
   let outboundConnections: OutboundConnections;
+  const lazyOrchestrator = vi.fn();
 
   const connection = (name: string, tags: string[], tools: unknown[] = []) =>
     createMockOutboundConnection({
@@ -124,6 +127,7 @@ describe('apiRoutes inspect', () => {
   };
 
   beforeEach(() => {
+    lazyOrchestrator.mockReset();
     mockedLoadDeclaredServerConfigs.mockReset();
     mockedLoadConfigWithTemplates.mockReset();
     mockedExtractRequestContext.mockReset();
@@ -187,12 +191,153 @@ describe('apiRoutes inspect', () => {
         hasInstructions: (name: string) => name === 'context7' || name === 'serena',
         getServerInstructions: (name: string) => (name === 'context7' ? '# Context7 Instructions' : undefined),
       })),
-      getLazyLoadingOrchestrator: vi.fn(() => undefined),
+      getLazyLoadingOrchestrator: lazyOrchestrator,
       getServerRegistry: vi.fn(() => serverRegistry),
       getClient: vi.fn((name: string) => outboundConnections.get(name)),
     };
 
     inspectHandler = createInspectHandler(serverManager as never);
+  });
+
+  it.each(['5001', '999999999999999999999', '1.5', '1junk', '0', '-1', 'NaN', 'Infinity', ''])(
+    'rejects invalid limit %j before querying tools',
+    async (limit) => {
+      const targetConnection = outboundConnections.get('context7')!;
+      for (const all of [undefined, 'true']) {
+        const response = createMockResponse();
+        await invokeInspectRoute(
+          inspectHandler,
+          { query: { target: 'context7', limit, ...(all ? { all } : {}) } },
+          response,
+        );
+        expect(response.statusCode).toBe(400);
+      }
+      expect(targetConnection.adapter.request).not.toHaveBeenCalled();
+    },
+  );
+
+  it('accepts the maximum page size and allows all to return a larger complete inventory', async () => {
+    const tools = Array.from({ length: 5001 }, (_, index) => ({
+      name: `tool_${index}`,
+      inputSchema: { type: 'object' },
+    }));
+    outboundConnections.set('context7', connection('context7', ['context7'], tools));
+    const page = createMockResponse();
+    await invokeInspectRoute(inspectHandler, { query: { target: 'context7', limit: '5000' } }, page);
+    expect(page.statusCode).toBe(200);
+    expect((page.body as { tools: unknown[] }).tools).toHaveLength(5000);
+    const all = createMockResponse();
+    await invokeInspectRoute(inspectHandler, { query: { target: 'context7', all: 'true' } }, all);
+    expect(all.statusCode).toBe(200);
+    expect((all.body as { tools: unknown[] }).tools).toHaveLength(5001);
+    expect(all.body).toMatchObject({ totalTools: 5001, hasMore: false });
+  });
+
+  it.each(['direct', 'registry', 'snapshot'])(
+    'uses authoritative %s inventory after disabled filtering',
+    async (source) => {
+      const rawTools = ['first', 'disabled', 'last'].map((name) => ({ name, inputSchema: { type: 'object' } }));
+      const targetConnection = connection('context7', ['context7'], rawTools);
+      outboundConnections.set('context7', targetConnection);
+      mockedGetConfiguredServerTargets.mockReturnValue({ context7: { disabledTools: ['disabled'] } });
+      if (source === 'registry') {
+        vi.mocked(targetConnection.adapter.request).mockRejectedValue(new Error('offline'));
+        lazyOrchestrator.mockReturnValue({
+          getToolRegistry: () => ({ groupByServer: () => ({ context7: rawTools }) }),
+          getCapabilityAggregator: () => undefined,
+        });
+      } else if (source === 'snapshot') {
+        const generation = buildCatalogGeneration(
+          1,
+          rawTools.map((object) => ({
+            kind: 'tools',
+            server: 'context7',
+            connectionKey: 'context7',
+            object,
+          })),
+        );
+        lazyOrchestrator.mockReturnValue({
+          getToolRegistry: () => undefined,
+          getCapabilityAggregator: () => ({
+            getCurrentCapabilities: () => ({ tools: generation.entries.map((entry) => entry.publicObject) }),
+          }),
+        });
+      }
+      const first = createMockResponse();
+      await invokeInspectRoute(inspectHandler, { query: { target: 'context7', limit: '1' } }, first);
+      if (source === 'registry') {
+        expect(first.statusCode).toBe(503);
+        expect(first.body).toEqual({ error: 'Tool inventory not available for this server' });
+        return;
+      }
+      expect(first.statusCode).toBe(200);
+      const page = first.body as { tools: Array<{ tool: string }>; nextCursor: string };
+      expect(page).toMatchObject({ tools: [{ tool: 'first' }], totalTools: 2, hasMore: true });
+      const last = createMockResponse();
+      await invokeInspectRoute(
+        inspectHandler,
+        { query: { target: 'context7', limit: '1', cursor: page.nextCursor } },
+        last,
+      );
+      expect(last.body).toMatchObject({ tools: [{ tool: 'last' }], totalTools: 2, hasMore: false });
+      const all = createMockResponse();
+      await invokeInspectRoute(inspectHandler, { query: { target: 'context7', limit: '1', all: 'true' } }, all);
+      expect(all.body).toMatchObject({ tools: [{ tool: 'first' }, { tool: 'last' }], hasMore: false });
+      const wrongTarget = createMockResponse();
+      await invokeInspectRoute(
+        inspectHandler,
+        { query: { target: 'filesystem', cursor: page.nextCursor } },
+        wrongTarget,
+      );
+      expect(wrongTarget.statusCode).toBe(400);
+      const changedFilter = createMockResponse();
+      changedFilter.locals.validatedTags = ['context7'];
+      changedFilter.locals.tagFilterMode = 'simple-or';
+      await invokeInspectRoute(
+        inspectHandler,
+        { query: { target: 'context7', cursor: page.nextCursor } },
+        changedFilter,
+      );
+      expect(changedFilter.statusCode).toBe(400);
+    },
+  );
+
+  it('walks oversized and empty upstream pages and rejects repeated upstream cursors', async () => {
+    const targetConnection = connection('context7', ['context7']);
+    outboundConnections.set('context7', targetConnection);
+    const request = vi.mocked(targetConnection.adapter.request);
+    request.mockImplementation(async ({ params }): Promise<JsonValue> => {
+      const cursor = (params as { cursor?: string } | undefined)?.cursor;
+      if (cursor === undefined)
+        return {
+          tools: [
+            { name: 'a', inputSchema: { type: 'object' } },
+            { name: 'b', inputSchema: { type: 'object' } },
+          ],
+          nextCursor: 'empty',
+        };
+      if (cursor === 'empty') return { tools: [], nextCursor: 'tail' };
+      return { tools: [{ name: 'c', inputSchema: { type: 'object' } }] };
+    });
+    const names: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const response = createMockResponse();
+      await invokeInspectRoute(
+        inspectHandler,
+        { query: { target: 'context7', limit: '1', ...(cursor ? { cursor } : {}) } },
+        response,
+      );
+      expect(response.statusCode).toBe(200);
+      const page = response.body as { tools: Array<{ tool: string }>; nextCursor?: string };
+      names.push(...page.tools.map((tool) => tool.tool));
+      cursor = page.nextCursor;
+    } while (cursor);
+    expect(names).toEqual(['a', 'b', 'c']);
+    request.mockResolvedValue({ tools: [], nextCursor: 'repeat' });
+    const repeated = createMockResponse();
+    await invokeInspectRoute(inspectHandler, { query: { target: 'context7', limit: '1' } }, repeated);
+    expect(repeated.statusCode).toBe(503);
   });
 
   it('uses the configured effective description in server and tool payloads', async () => {

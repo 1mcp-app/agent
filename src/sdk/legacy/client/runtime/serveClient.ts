@@ -140,8 +140,8 @@ export class StreamableServeClient {
     return response;
   }
 
-  async listTools(): Promise<JsonRpcResponse<ListToolsResult>> {
-    return this.sendRequest<ListToolsResult>('tools/list', {});
+  async listTools(cursor?: string): Promise<JsonRpcResponse<ListToolsResult>> {
+    return this.sendRequest<ListToolsResult>('tools/list', cursor === undefined ? {} : { cursor });
   }
 
   async callTool(name: string, args: Record<string, unknown>): Promise<JsonRpcResponse<CallToolResult>> {

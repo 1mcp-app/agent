@@ -2,6 +2,62 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { LoadingState, LoadingStateEvent, LoadingStateTracker } from './loadingStateTracker.js';
 
+describe('LoadingStateTracker recovery diagnostics', () => {
+  it.each([LoadingState.AwaitingOAuth, LoadingState.Failed])(
+    'clears resolved diagnostics after %s recovers',
+    (state) => {
+      const tracker = new LoadingStateTracker();
+      tracker.registerServer('server');
+      tracker.updateServerState('server', state, {
+        error: new Error('Previous failure'),
+        authorizationUrl: 'https://auth.example/old',
+        oauthStartTime: new Date(0),
+      });
+      const onReady = vi.fn();
+      tracker.on(LoadingStateEvent.ServerReady, onReady);
+
+      tracker.updateServerState('server', LoadingState.Ready);
+
+      const recovered = tracker.getServerState('server')!;
+      expect(recovered.state).toBe(LoadingState.Ready);
+      expect(recovered).not.toHaveProperty('error');
+      expect(recovered).not.toHaveProperty('authorizationUrl');
+      expect(recovered).not.toHaveProperty('oauthStartTime');
+      expect(onReady).toHaveBeenCalledWith('server', recovered);
+    },
+  );
+
+  it('publishes fresh diagnostics for a later authorization cycle and retains a new reconnection failure', () => {
+    const tracker = new LoadingStateTracker();
+    tracker.registerServer('server');
+    tracker.updateServerState('server', LoadingState.AwaitingOAuth, {
+      error: new Error('Old authorization required'),
+      authorizationUrl: 'https://auth.example/old',
+      oauthStartTime: new Date(0),
+    });
+    tracker.updateServerState('server', LoadingState.Ready);
+
+    tracker.updateServerState('server', LoadingState.AwaitingOAuth, {
+      error: new Error('New authorization required'),
+      authorizationUrl: 'https://auth.example/new',
+    });
+
+    expect(tracker.getServerState('server')).toMatchObject({
+      state: LoadingState.AwaitingOAuth,
+      error: new Error('New authorization required'),
+      authorizationUrl: 'https://auth.example/new',
+    });
+    expect(tracker.getServerState('server')!.oauthStartTime!.getTime()).toBeGreaterThan(0);
+
+    tracker.updateServerState('server', LoadingState.Failed, { error: new Error('Reconnection failed') });
+
+    expect(tracker.getServerState('server')).toMatchObject({
+      state: LoadingState.Failed,
+      error: new Error('Reconnection failed'),
+    });
+  });
+});
+
 describe('LoadingStateTracker.registerServer', () => {
   it('adds a single server at runtime without resetting other servers', () => {
     const tracker = new LoadingStateTracker();

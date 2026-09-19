@@ -2,6 +2,7 @@ import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js'
 
 import * as runtimeCatalog from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { CapabilityCursorCapacityError } from '@src/core/capabilities/capabilityPagination.js';
+import { LoadingState, LoadingStateTracker } from '@src/core/loading/loadingStateTracker.js';
 import { type ServerAdapter, ServerStatus, ServerType } from '@src/core/server/adapters/types.js';
 import type { OutboundConnections } from '@src/core/types/index.js';
 
@@ -9,6 +10,11 @@ import type { Request, RequestHandler, Response } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createInspectHandler } from './apiRoutes.js';
+
+const mockedGetServerState = vi.hoisted(() => vi.fn());
+vi.mock('@src/core/loading/mcpLoadingManager.js', () => ({
+  McpLoadingManager: { current: { getStateTracker: () => ({ getServerState: mockedGetServerState }) } },
+}));
 
 const mockedLoadDeclaredServerConfigs = vi.hoisted(() => vi.fn());
 const mockedLoadConfigWithTemplates = vi.hoisted(() => vi.fn());
@@ -124,6 +130,7 @@ describe('apiRoutes inspect', () => {
   };
 
   beforeEach(() => {
+    mockedGetServerState.mockReset();
     mockedLoadDeclaredServerConfigs.mockReset();
     mockedLoadConfigWithTemplates.mockReset();
     mockedExtractRequestContext.mockReset();
@@ -461,6 +468,9 @@ describe('apiRoutes inspect', () => {
     await invokeInspectRoute(handler, { query: { ...query, cursor } }, second);
     expect(second.body).toMatchObject({ hasMore: false, tools: [{ tool: 'z' }] });
     expect(pagedRequest).toHaveBeenCalledTimes(2);
+    expect(pagedRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ method: 'tools/list', params: { cursor: 'private-upstream' } }),
+    );
     for (const changed of [{ cursor: cursor + 'x' }, { cursor, limit: '2' }, { cursor, all: 'true' }]) {
       const res = createMockResponse();
       await invokeInspectRoute(scopeAuthMiddleware, { query }, res);
@@ -478,6 +488,23 @@ describe('apiRoutes inspect', () => {
     await invokeInspectRoute(handler, { query: { ...query, cursor } }, changedAuthority);
     expect(changedAuthority.statusCode).toBe(400);
     expect(pagedRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it('omits resolved OAuth diagnostics from a Ready server response', async () => {
+    const tracker = new LoadingStateTracker();
+    tracker.startLoading(['context7']);
+    tracker.updateServerState('context7', LoadingState.AwaitingOAuth, {
+      error: new Error('Authorization required'),
+      authorizationUrl: 'https://example.test/oauth',
+    });
+    tracker.updateServerState('context7', LoadingState.Ready);
+    mockedGetServerState.mockImplementation((name: string) => tracker.getServerState(name));
+    const response = createMockResponse();
+    await invokeInspectRoute(inspectHandler, { query: { target: 'context7' } }, response);
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toMatchObject({ status: 'connected', available: true });
+    expect(response.body).not.toHaveProperty('error');
+    expect(response.body).not.toHaveProperty('authorizationUrl');
   });
 
   it('includes per-server instructions in inspect listings when the aggregator has them', async () => {
@@ -575,19 +602,22 @@ describe('apiRoutes inspect', () => {
       expect(res.body).toEqual({ error: 'Tool inventory not available for this server' });
     },
   );
-  it('projects internal cursor overload distinctly from unavailable provider inventory', async () => {
-    const acquire = vi
-      .spyOn(runtimeCatalog, 'acquireRuntimeCapabilityCatalog')
-      .mockRejectedValueOnce(new CapabilityCursorCapacityError());
-    try {
-      const req = { query: { target: 'context7' } };
-      const res = createMockResponse();
-      await invokeInspectRoute(scopeAuthMiddleware, req, res);
-      await invokeInspectRoute(inspectHandler, req, res);
-      expect(res.statusCode).toBe(503);
-      expect(res.body).toEqual({ error: 'Capability cursor capacity exceeded', code: 'gateway_overloaded' });
-    } finally {
-      acquire.mockRestore();
-    }
-  });
+  it.each(['context7', 'context7/query-docs'])(
+    'projects internal cursor overload for %s distinctly from unavailable provider inventory',
+    async (target) => {
+      const acquire = vi
+        .spyOn(runtimeCatalog, 'acquireRuntimeCapabilityCatalog')
+        .mockRejectedValueOnce(new CapabilityCursorCapacityError());
+      try {
+        const req = { query: { target } };
+        const res = createMockResponse();
+        await invokeInspectRoute(scopeAuthMiddleware, req, res);
+        await invokeInspectRoute(inspectHandler, req, res);
+        expect(res.statusCode).toBe(503);
+        expect(res.body).toEqual({ error: 'Capability cursor capacity exceeded', code: 'gateway_overloaded' });
+      } finally {
+        acquire.mockRestore();
+      }
+    },
+  );
 });

@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 import { type ImmutableJsonValue, toImmutableJsonValue } from './immutableJson.js';
 
 export type GatewayFailureKind =
@@ -73,6 +75,35 @@ export function gatewayFailureFromUnknown(error: unknown, kind: GatewayFailureKi
   const message = trusted ? (ownDataValue(record!, 'message') as string) : `Gateway ${failureKind} failure`;
   const data = trusted ? (ownDataValue(record!, 'data') as ImmutableJsonValue | undefined) : undefined;
   return createGatewayFailure({ kind: failureKind, code, message, ...(data === undefined ? {} : { data }) });
+}
+
+const mcpFailureProjectionSchema = z.object({
+  kind: z.enum(GATEWAY_FAILURE_KINDS),
+  code: z.string().max(128),
+});
+
+/** Decode our public MCP classification only at a client boundary; never trust wire diagnostics. */
+export function gatewayFailureFromMcpError(error: unknown): GatewayFailure {
+  const fallback = gatewayFailureFromUnknown(error, 'protocol');
+  if (typeof error !== 'object' || error === null) return fallback;
+  const data = ownDataValue(error, 'data');
+  if (typeof data !== 'object' || data === null) return fallback;
+  const parsed = mcpFailureProjectionSchema.safeParse(ownDataValue(data, 'app.1mcp/failure'));
+  if (!parsed.success) return fallback;
+  const { kind, code } = parsed.data;
+  const safeCode =
+    ['gateway_overloaded', 'gateway_target_unavailable', 'resource_not_found'].includes(code) ||
+    (/^-?\d+$/.test(code) && Number.isSafeInteger(Number(code)))
+      ? code
+      : `gateway_${kind.replaceAll('-', '_')}_error`;
+  const failure = createGatewayFailure({ kind, code: safeCode, message: `Gateway ${kind} failure` });
+  const numeric = ownDataValue(error, 'code');
+  if (
+    gatewayFailureToMcp(failure, 'legacy').code !== numeric &&
+    gatewayFailureToMcp(failure, 'modern').code !== numeric
+  )
+    return fallback;
+  return failure;
 }
 
 export type GatewayResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; failure: GatewayFailure }>;
