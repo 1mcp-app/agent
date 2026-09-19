@@ -429,10 +429,7 @@ export class CapabilityCatalog {
           route,
           refresh,
           error: {
-            type:
-              !error.retryable && (error.phase === 'input' || error.code === 'schema_input_invalid')
-                ? 'validation'
-                : 'upstream',
+            type: !error.retryable && error.phase === 'input' ? 'validation' : 'upstream',
             message: error.code,
           },
         };

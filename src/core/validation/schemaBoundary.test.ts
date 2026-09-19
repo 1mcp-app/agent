@@ -86,6 +86,7 @@ describe('isolated schema boundary', () => {
     const jobs = Array.from({ length: SCHEMA_LIMITS.queue + 1 }, () =>
       boundary.admit({}, { ...binding, signal: controller.signal }).catch((error) => error),
     );
+    await expect(jobs.at(-1)).resolves.toMatchObject({ code: 'schema_evaluation_unavailable', retryable: true });
     controller.abort();
     const results = await Promise.all(jobs);
     expect(results.every((result) => result instanceof Error)).toBe(true);
@@ -96,6 +97,13 @@ describe('isolated schema boundary', () => {
     await boundary.admit({}, binding);
     await boundary.shutdown();
     await expect(boundary.admit({}, binding)).rejects.toThrow('schema_evaluation_unavailable');
+  });
+  it('rejects queued admission during shutdown without publishing a contract', async () => {
+    const boundary = pool();
+    const pending = boundary.admit({}, binding);
+    const rejected = expect(pending).rejects.toMatchObject({ code: 'schema_evaluation_unavailable', retryable: true });
+    await boundary.shutdown();
+    await rejected;
   });
   it('captures only strict bounded JSON without invoking accessors', () => {
     let called = false;
@@ -190,10 +198,10 @@ describe('dialect and canonical capture regressions', () => {
       binding,
     );
     expect(await boundary.evaluate(draft06, 123, binding)).toEqual({ valid: true });
-    const source = { type: 'string', nullable: true };
+    const source = { type: 'string', nullable: true, $async: true };
     const string = await boundary.admit(source, binding);
     await expect(boundary.evaluate(string, null, binding)).rejects.toThrow('schema_input_invalid');
-    expect(source).toEqual({ type: 'string', nullable: true });
+    expect(source).toEqual({ type: 'string', nullable: true, $async: true });
     const modern = await boundary.admit({ type: 'object', dependencies: { x: ['y'] } }, binding);
     expect(await boundary.evaluate(modern, { x: 1 }, binding)).toEqual({ valid: true });
   });

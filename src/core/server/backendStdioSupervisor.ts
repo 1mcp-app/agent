@@ -195,18 +195,20 @@ export class BackendStdioSupervisor {
         return;
       }
 
-      result.activate?.();
-      if (this.isRecoveryStale(generation, controller)) {
-        await result.dispose?.();
-        return;
-      }
-
+      // Set state to 'connected' BEFORE activate(): when activate() rewrites the
+      // supervisor snapshot, a still-'restarting' state would cause
+      // applyBackendSupervisionState() to clear capabilities/instructions (#547)
       this.recoveryController = null;
       this.state = 'connected';
       this.currentPid = result.pid ?? null;
       this.lastError = null;
       if (manual) {
         this.attempt = 0;
+      }
+      result.activate?.();
+      if (this.isRecoveryStale(generation, controller)) {
+        await result.dispose?.();
+        return;
       }
       this.publish();
       this.scheduleStableReset(generation);

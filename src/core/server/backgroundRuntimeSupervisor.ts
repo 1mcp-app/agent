@@ -7,6 +7,8 @@ import {
   writeBackgroundSupervisorState,
 } from '@src/core/server/backgroundRuntimeSupervisorState.js';
 
+import { readProcessIdentity } from './processIdentity.js';
+
 export * from '@src/core/server/backgroundRuntimeSupervisorState.js';
 
 export const BACKGROUND_RESTART_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000] as const;
@@ -151,6 +153,7 @@ export async function runBackgroundRuntimeSupervisor(
     version: 1,
     status: 'starting',
     supervisorPid,
+    supervisorIdentity: readProcessIdentity(supervisorPid),
     runtimePid: null,
     restartAttempt: 0,
     lastExit: null,
@@ -187,7 +190,13 @@ export async function runBackgroundRuntimeSupervisor(
         }
       });
       const runtimePid = worker.pid;
-      persist({ status: 'starting', runtimePid, nextRetryAt: null, readyAt: null });
+      persist({
+        status: 'starting',
+        runtimePid,
+        runtimeIdentity: readProcessIdentity(runtimePid),
+        nextRetryAt: null,
+        readyAt: null,
+      });
       record({ event: 'runtime-spawned', runtimePid, restartAttempt: state.restartAttempt });
 
       const stopWorker = async (): Promise<void> => {
@@ -290,7 +299,7 @@ export async function runBackgroundRuntimeSupervisor(
         throw new Error('Background Runtime Supervisor lost the worker exit outcome');
       }
       const exit = exitOutcome.exit;
-      persist({ runtimePid: null, lastExit: exit, nextRetryAt: null, readyAt: null });
+      persist({ runtimePid: null, runtimeIdentity: undefined, lastExit: exit, nextRetryAt: null, readyAt: null });
       record({ event: 'runtime-exit', runtimePid, restartAttempt: state.restartAttempt, exit });
 
       if (state.restartAttempt >= BACKGROUND_RESTART_DELAYS_MS.length) {

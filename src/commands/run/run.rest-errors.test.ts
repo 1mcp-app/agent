@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { buildCliContext } from '@src/commands/shared/cliContext.js';
+import { createGatewayFailure, gatewayFailureToMcp } from '@src/gateway/contracts/gatewayFailure.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -29,6 +30,7 @@ const transportState = vi.hoisted(() => ({
     isError: false,
     content: [{ type: 'text', text: 'ok' }],
   },
+  callError: undefined as { code: number; message: string; data?: unknown } | undefined,
   sessionIdOnInitialize: 'fresh-session',
   throw404OnMethod: undefined as string | undefined,
   toolName: 'runner_1mcp_echo_args',
@@ -122,6 +124,10 @@ const mockedTransport = vi.hoisted(() => {
           });
           break;
         case 'tools/call':
+          if (transportState.callError) {
+            this.onmessage?.({ jsonrpc: '2.0', id: message.id, error: transportState.callError });
+            break;
+          }
           this.onmessage?.({
             jsonrpc: '2.0',
             id: message.id,
@@ -177,6 +183,7 @@ describe('runCommand REST-first path', () => {
     transportState.callResult = { isError: false, content: [{ type: 'text', text: 'ok' }] };
     transportState.sessionIdOnInitialize = 'fresh-session';
     transportState.throw404OnMethod = undefined;
+    transportState.callError = undefined;
     mockedResolveProjectContext.mockReset();
     mockedResolveProjectContext.mockResolvedValue({
       cwd: '/tmp/project',
@@ -265,6 +272,36 @@ describe('runCommand REST-first path', () => {
         .filter((message) => message.method === 'tools/call');
       expect(mcpCalls).toHaveLength(path === 'rest' ? 0 : 1);
       expect(mockFetch.mock.calls.filter(([url]) => String(url).includes('tool-invocations'))).toHaveLength(1);
+    } finally {
+      process.exitCode = originalExitCode;
+    }
+  });
+
+  it.each([
+    ['transport', 'gateway_overloaded', 6],
+    ['authorization', 'gateway_authorization_error', 3],
+    ['cancelled', 'gateway_cancelled_error', 6],
+  ] as const)('classifies MCP %s/%s without redispatch', async (kind, code, exit) => {
+    transportState.callError = gatewayFailureToMcp(createGatewayFailure({ kind, code, message: 'Safe error' }));
+    mockFetch.mockResolvedValueOnce(makeConnectedServerResponse());
+    mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
+    mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const originalExitCode = process.exitCode;
+    try {
+      const { runCommand } = await import('./run.js');
+      await runCommand({
+        tool: 'runner/echo_args',
+        args: '{}',
+        'config-dir': cacheDir,
+        'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
+      } as never);
+      expect(process.exitCode).toBe(exit);
+      expect(
+        transportState.instances
+          .flatMap((instance) => instance.sentMessages)
+          .filter((message) => message.method === 'tools/call'),
+      ).toHaveLength(1);
     } finally {
       process.exitCode = originalExitCode;
     }

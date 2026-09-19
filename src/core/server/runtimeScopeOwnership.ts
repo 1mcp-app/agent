@@ -4,6 +4,13 @@ import path from 'node:path';
 
 import { readBackgroundSupervisorState } from '@src/core/server/backgroundRuntimeSupervisorState.js';
 import { getPidFilePath, isProcessAlive, readPidFile } from '@src/core/server/pidFileManager.js';
+import {
+  inspectProcessIdentity,
+  type ProcessIdentity,
+  processIdentitySchema,
+  readProcessIdentity,
+} from '@src/core/server/processIdentity.js';
+import { acquireRuntimeFileLock, type RuntimeFileLock } from '@src/core/server/runtimeFileLock.js';
 import logger from '@src/logger/logger.js';
 
 import { z } from 'zod';
@@ -22,6 +29,8 @@ export interface RuntimeScopeOwnershipRecord {
   claimId: string;
   kind: RuntimeScopeClaimantKind;
   claimedAt: string;
+  processIdentity?: ProcessIdentity;
+  coordination?: 'flock';
 }
 
 export interface RuntimeScopeOwnership {
@@ -61,6 +70,8 @@ const runtimeScopeOwnershipRecordSchema = z.object({
   claimId: z.string().min(1),
   kind: z.enum(['foreground-http', 'foreground-stdio', 'background-supervisor']),
   claimedAt: z.string().datetime(),
+  processIdentity: processIdentitySchema.optional(),
+  coordination: z.literal('flock').optional(),
 }) satisfies z.ZodType<RuntimeScopeOwnershipRecord>;
 
 const runtimeScopeStopLockSchema = z.object({
@@ -69,6 +80,8 @@ const runtimeScopeStopLockSchema = z.object({
   ownerClaimId: z.string().min(1),
   pid: z.number().int().positive(),
   acquiredAt: z.string().datetime(),
+  processIdentity: processIdentitySchema.optional(),
+  coordination: z.literal('flock').optional(),
 });
 
 interface OwnershipDependencies {
@@ -119,13 +132,16 @@ export function claimRuntimeScope(
     claimId: createClaimId(),
     kind: claimant.kind,
     claimedAt: now().toISOString(),
+    processIdentity: readProcessIdentity(claimant.pid ?? process.pid),
   };
 
   fs.mkdirSync(configDir, { recursive: true });
   const candidateDir = `${ownerDir}.${record.claimId}.candidate`;
-  writeCandidate(candidateDir, OWNER_RECORD_NAME, record);
-
+  const fileLock = acquireScopeFileLock(configDir, 'owner');
+  if (fileLock) record.coordination = 'flock';
+  let retained = false;
   try {
+    writeCandidate(candidateDir, OWNER_RECORD_NAME, record);
     for (let attempt = 0; attempt < CLAIM_ATTEMPTS; attempt += 1) {
       assertNoActiveStopLock(configDir, processAlive);
       try {
@@ -139,10 +155,10 @@ export function claimRuntimeScope(
         if (!existing) {
           continue;
         }
-        if (processAlive(existing.record.pid)) {
+        if (!ownerIsDead(existing.record, processAlive, fileLock !== null)) {
           throw new RuntimeScopeOwnedError(ownerDir, 'owned', existing.record);
         }
-        reclaimObservedOwnership(configDir, existing, processAlive);
+        reclaimObservedOwnership(configDir, existing, processAlive, fileLock !== null);
         continue;
       }
 
@@ -154,6 +170,7 @@ export function claimRuntimeScope(
       }
 
       let released = false;
+      retained = true;
       return {
         record,
         release: () => {
@@ -161,7 +178,11 @@ export function claimRuntimeScope(
             return;
           }
           released = true;
-          releaseRuntimeScopeOwnership(configDir, record);
+          try {
+            releaseRuntimeScopeOwnership(configDir, record);
+          } finally {
+            fileLock?.release();
+          }
         },
       };
     }
@@ -169,6 +190,7 @@ export function claimRuntimeScope(
     throw new RuntimeScopeOwnedError(ownerDir, 'ambiguous', null, 'ownership changed during claim');
   } finally {
     removeCandidateDirectoryIfPresent(candidateDir);
+    if (!retained) fileLock?.release();
   }
 }
 
@@ -188,15 +210,19 @@ export function acquireRuntimeScopeStopLock(
     ownerClaimId: expectedOwner.claimId,
     pid: process.pid,
     acquiredAt: now().toISOString(),
+    processIdentity: readProcessIdentity(process.pid),
+    coordination: undefined as 'flock' | undefined,
   };
 
   fs.mkdirSync(configDir, { recursive: true });
   const candidateDir = `${stopLockPath}.${lockRecord.operationId}.candidate`;
-  writeCandidate(candidateDir, STOP_LOCK_RECORD_NAME, lockRecord);
-
+  const fileLock = acquireScopeFileLock(configDir, 'stop');
+  if (fileLock) lockRecord.coordination = 'flock';
+  let retained = false;
   try {
+    writeCandidate(candidateDir, STOP_LOCK_RECORD_NAME, lockRecord);
     for (let attempt = 0; attempt < CLAIM_ATTEMPTS; attempt += 1) {
-      assertNoActiveStopLock(configDir, processAlive);
+      assertNoActiveStopLock(configDir, processAlive, fileLock !== null);
       try {
         fs.renameSync(candidateDir, stopLockPath);
       } catch (error) {
@@ -220,18 +246,23 @@ export function acquireRuntimeScopeStopLock(
         rollbackPublishedStopLock(configDir, lockRecord.operationId, error);
       }
 
+      retained = true;
       let released = false;
       return {
         release: () => {
           if (released) return;
           released = true;
-          if (!removeStopLockIfMatches(configDir, lockRecord.operationId)) {
-            throw new RuntimeScopeOwnedError(
-              stopLockPath,
-              'ambiguous',
-              observed.record,
-              'stop lock changed before release',
-            );
+          try {
+            if (!removeStopLockIfMatches(configDir, lockRecord.operationId)) {
+              throw new RuntimeScopeOwnedError(
+                stopLockPath,
+                'ambiguous',
+                observed.record,
+                'stop lock changed before release',
+              );
+            }
+          } finally {
+            fileLock?.release();
           }
         },
       };
@@ -239,6 +270,7 @@ export function acquireRuntimeScopeStopLock(
     throw new RuntimeScopeOwnedError(stopLockPath, 'ambiguous', null, 'stop lock changed during acquisition');
   } finally {
     removeCandidateDirectoryIfPresent(candidateDir);
+    if (!retained) fileLock?.release();
   }
 }
 
@@ -251,23 +283,48 @@ export function reclaimStaleRuntimeScopeOwnership(
   expected: RuntimeScopeOwnershipIdentity,
   processAlive: (pid: number) => boolean = isProcessAlive,
 ): boolean {
-  const observed = inspectRuntimeScopeOwnership(configDir);
-  if (!observed || !ownershipMatches(observed.record, expected) || processAlive(observed.record.pid)) {
-    return false;
+  const fileLock = acquireScopeFileLock(configDir, 'owner');
+  try {
+    const observed = inspectRuntimeScopeOwnership(configDir);
+    if (
+      !observed ||
+      !ownershipMatches(observed.record, expected) ||
+      !ownerIsDead(observed.record, processAlive, fileLock !== null)
+    ) {
+      return false;
+    }
+    return reclaimObservedOwnership(configDir, observed, processAlive, fileLock !== null);
+  } finally {
+    fileLock?.release();
   }
-  return reclaimObservedOwnership(configDir, observed, processAlive);
+}
+
+function ownerIsDead(
+  record: RuntimeScopeOwnershipRecord,
+  processAlive: (pid: number) => boolean,
+  heldFileLock: boolean,
+): boolean {
+  return (
+    (heldFileLock && record.coordination === 'flock') ||
+    inspectProcessIdentity(record.pid, record.processIdentity, { processAlive }) === 'dead'
+  );
 }
 
 function reclaimObservedOwnership(
   configDir: string,
   observed: ObservedOwnership,
   processAlive: (pid: number) => boolean,
+  heldFileLock: boolean,
 ): boolean {
   const ownerDir = getRuntimeScopeOwnershipPath(configDir);
   const stopLock = acquireRuntimeScopeStopLock(configDir, observed.record, { processAlive });
   try {
     const current = inspectRuntimeScopeOwnership(configDir);
-    if (!current || !ownershipMatches(current.record, observed.record) || processAlive(current.record.pid)) {
+    if (
+      !current ||
+      !ownershipMatches(current.record, observed.record) ||
+      !ownerIsDead(current.record, processAlive, heldFileLock)
+    ) {
       return false;
     }
     assertDeadSupervisorIsReclaimable(configDir, ownerDir, current.record, processAlive);
@@ -302,7 +359,10 @@ function assertDeadSupervisorIsReclaimable(
     if (state.supervisorPid !== owner.pid) {
       throw new RuntimeScopeOwnedError(ownerPath, 'ambiguous', owner, 'ownership and supervisor state disagree');
     }
-    if (state.runtimePid !== null && processAlive(state.runtimePid)) {
+    if (
+      state.runtimePid !== null &&
+      inspectProcessIdentity(state.runtimePid, state.runtimeIdentity, { processAlive }) !== 'dead'
+    ) {
       throw new RuntimeScopeOwnedError(
         ownerPath,
         'owned',
@@ -340,7 +400,10 @@ function assertDeadSupervisorIsReclaimable(
   if (!runtimeInfo && fs.existsSync(pidFilePath)) {
     throw new RuntimeScopeOwnedError(ownerPath, 'ambiguous', owner, 'runtime PID metadata is malformed');
   }
-  if (runtimeInfo && processAlive(runtimeInfo.pid)) {
+  if (
+    runtimeInfo &&
+    inspectProcessIdentity(runtimeInfo.pid, runtimeInfo.processIdentity, { processAlive }) !== 'dead'
+  ) {
     throw new RuntimeScopeOwnedError(
       ownerPath,
       'owned',
@@ -370,27 +433,47 @@ export function verifyRuntimeScopeOwnership(
   if (observed.interruptedReclaim) {
     throw new RuntimeScopeOwnedError(ownerDir, 'ambiguous', owner, 'ownership release is incomplete');
   }
-  if (owner.claimId !== claimId || owner.kind !== expectedKind || !processAlive(owner.pid)) {
+  if (
+    owner.claimId !== claimId ||
+    owner.kind !== expectedKind ||
+    inspectProcessIdentity(owner.pid, owner.processIdentity, { processAlive }) !== 'alive'
+  ) {
     throw new RuntimeScopeOwnedError(ownerDir, 'owned', owner, 'supervised worker authorization failed');
   }
   assertNoActiveStopLock(configDir, processAlive);
   return owner;
 }
 
-function assertNoActiveStopLock(configDir: string, processAlive: (pid: number) => boolean): void {
-  const stopLockPath = getRuntimeScopeStopLockPath(configDir);
-  const observed = inspectRuntimeScopeStopLock(configDir);
-  if (!observed) return;
-  if (processAlive(observed.record.pid)) {
-    throw new RuntimeScopeOwnedError(
-      stopLockPath,
-      'ambiguous',
-      null,
-      `lifecycle stop is active (PID: ${observed.record.pid})`,
-    );
+function acquireScopeFileLock(configDir: string, kind: 'owner' | 'stop'): RuntimeFileLock | null {
+  try {
+    return acquireRuntimeFileLock(path.join(configDir, `runtime.${kind}.flock`));
+  } catch (error) {
+    throw new RuntimeScopeOwnedError(path.join(configDir, `runtime.${kind}`), 'ambiguous', null, errorMessage(error));
   }
-  if (!removeObservedStopLock(configDir, observed)) {
-    throw new RuntimeScopeOwnedError(stopLockPath, 'ambiguous', null, 'stop lock changed during stale cleanup');
+}
+
+function assertNoActiveStopLock(configDir: string, processAlive: (pid: number) => boolean, heldFileLock = false): void {
+  const fileLock = heldFileLock ? null : acquireScopeFileLock(configDir, 'stop');
+  try {
+    const stopLockPath = getRuntimeScopeStopLockPath(configDir);
+    const observed = inspectRuntimeScopeStopLock(configDir);
+    if (!observed) return;
+    const abandoned =
+      ((heldFileLock || fileLock !== null) && observed.record.coordination === 'flock') ||
+      inspectProcessIdentity(observed.record.pid, observed.record.processIdentity, { processAlive }) === 'dead';
+    if (!abandoned) {
+      throw new RuntimeScopeOwnedError(
+        stopLockPath,
+        'ambiguous',
+        null,
+        `lifecycle stop is active or cannot be verified (PID: ${observed.record.pid})`,
+      );
+    }
+    if (!removeObservedStopLock(configDir, observed)) {
+      throw new RuntimeScopeOwnedError(stopLockPath, 'ambiguous', null, 'stop lock changed during stale cleanup');
+    }
+  } finally {
+    fileLock?.release();
   }
 }
 

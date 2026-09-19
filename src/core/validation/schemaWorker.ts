@@ -89,7 +89,7 @@ function compile(job: Job): ValidateFunction {
         if (resources.has(anchor)) fail('schema_invalid');
         resources.set(anchor, node);
       }
-    if (node.$data !== undefined || node.$async !== undefined) fail('schema_unsupported_vocabulary');
+    if (node.$data !== undefined) fail('schema_unsupported_vocabulary');
     if (modern && node.$vocabulary && typeof node.$vocabulary === 'object') {
       const supported = new Set(
         [

@@ -5,11 +5,14 @@ import logger from '@src/logger/logger.js';
 
 import { z } from 'zod';
 
+import { type ProcessIdentity, processIdentitySchema, readProcessIdentity } from './processIdentity.js';
+
 /**
  * Server information stored in PID file
  */
 export interface ServerPidInfo {
   pid: number;
+  processIdentity?: ProcessIdentity;
   url: string;
   port: number;
   host: string;
@@ -34,6 +37,7 @@ export interface ServerPidInfo {
  */
 const serverPidInfoSchema = z.object({
   pid: z.number().int().positive(),
+  processIdentity: processIdentitySchema.optional(),
   url: z.string().min(1),
   port: z.number().int().min(1).max(65535),
   host: z.string().min(1),
@@ -99,7 +103,11 @@ export function writePidFile(configDir: string, serverInfo: ServerPidInfo): void
     // Write PID file atomically: write to a sibling temp file then rename into
     // place (rename is atomic on POSIX). Concurrent readers — racing `serve
     // --status` / discovery — never observe a half-written, unparseable file.
-    const content = JSON.stringify(serverInfo, null, 2);
+    const content = JSON.stringify(
+      { ...serverInfo, processIdentity: serverInfo.processIdentity ?? readProcessIdentity(serverInfo.pid) },
+      null,
+      2,
+    );
     const tempFilePath = `${pidFilePath}.${process.pid}.tmp`;
     fs.writeFileSync(tempFilePath, content, { encoding: 'utf-8' });
     fs.renameSync(tempFilePath, pidFilePath);
@@ -185,7 +193,9 @@ export function cleanupPidFile(configDir: string): boolean {
 }
 
 /**
- * Delete the PID file only if it still records `expectedPid`. Guards against a
+ * Delete the PID file only if it still matches the expected PID or full record.
+ * Lifecycle callers pass the full record to also match birth evidence and startup time.
+ * Guards against a
  * time-of-check/time-of-use race: between reading a stale/dead PID and deleting
  * the file, a new runtime may have written a fresh PID file in the same scope.
  * Deleting unconditionally would strand that live runtime (undiscoverable to
@@ -194,7 +204,8 @@ export function cleanupPidFile(configDir: string): boolean {
  * @returns true if the file was removed or is already gone/replaced; false if a
  *   matching file existed but could not be deleted.
  */
-export function cleanupPidFileIfMatches(configDir: string, expectedPid: number): boolean {
+export function cleanupPidFileIfMatches(configDir: string, expected: number | ServerPidInfo): boolean {
+  const expectedPid = typeof expected === 'number' ? expected : expected.pid;
   let current: ServerPidInfo | null;
   try {
     current = readPidFile(configDir);
@@ -204,7 +215,13 @@ export function cleanupPidFileIfMatches(configDir: string, expectedPid: number):
     }
     throw error;
   }
-  if (!current || current.pid !== expectedPid) {
+  if (
+    !current ||
+    current.pid !== expectedPid ||
+    (typeof expected !== 'number' &&
+      (current.startedAt !== expected.startedAt ||
+        JSON.stringify(current.processIdentity) !== JSON.stringify(expected.processIdentity)))
+  ) {
     // Already gone, or replaced by a newer runtime — leave it untouched.
     return true;
   }

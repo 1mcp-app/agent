@@ -10,6 +10,7 @@ interface AdminOAuthServiceOptions {
 interface AdminOAuthOperationInput {
   context: AdminOperationContext;
   serviceId: string;
+  adminReturnOrigin?: string;
 }
 
 export interface AdminOAuthRedirectResult {
@@ -37,7 +38,10 @@ export class AdminOAuthService implements AdminOAuthOperations {
       run: async () => {
         let result;
         try {
-          result = await this.options.oauthFlow.startBackendOAuth({ serverName: input.serviceId });
+          result = await this.options.oauthFlow.startBackendOAuth({
+            serverName: input.serviceId,
+            ...(input.adminReturnOrigin ? { adminReturnOrigin: input.adminReturnOrigin } : {}),
+          });
         } catch {
           throw new Error('backend_oauth_authorization_start_failed');
         }
@@ -71,7 +75,10 @@ export class AdminOAuthService implements AdminOAuthOperations {
       run: async () => {
         let result;
         try {
-          result = await this.options.oauthFlow.restartBackendOAuth({ serverName: input.serviceId });
+          result = await this.options.oauthFlow.restartBackendOAuth({
+            serverName: input.serviceId,
+            ...(input.adminReturnOrigin ? { adminReturnOrigin: input.adminReturnOrigin } : {}),
+          });
         } catch {
           throw new Error('backend_oauth_authorization_start_failed');
         }

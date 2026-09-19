@@ -2,6 +2,7 @@ import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js'
 
 import type { OutboundConnections } from '@src/core/types/index.js';
 
+import { CapabilityCursorCapacityError } from './capabilityPagination.js';
 import { createCapabilityVisibility } from './capabilityVisibility.js';
 import { acquireRuntimeCapabilityCatalog, evictRuntimeCapabilityCatalogSession } from './runtimeCapabilityCatalog.js';
 
@@ -420,5 +421,56 @@ describe('runtime capability catalog', () => {
     const first = await snapshot.list<{ name: string }>('tools', { enablePagination: true });
     const second = await snapshot.list<{ name: string }>('tools', { enablePagination: true, cursor: first.nextCursor });
     expect([...first.items, ...second.items].map((item) => item.name)).toEqual(['server_1mcp_a', 'server_1mcp_z']);
+  });
+
+  it.each([true, false])(
+    'retains healthy internal tools after an upstream cursor loop with pagination=%s',
+    async (enablePagination) => {
+      const connection = fixture('a', (_method, params) => ({
+        tools: [tool((params as { cursor?: string })?.cursor === undefined ? 'z' : 'a')],
+        nextCursor: 'loop',
+      }));
+      const snapshot = await acquireRuntimeCapabilityCatalog(new Map([['a', connection]]), undefined, {
+        unprefixedTools: [{ name: 'tool_list', inputSchema: { type: 'object' } }],
+      });
+      const names: string[] = [];
+      let cursor: string | undefined;
+      let pages = 0;
+      do {
+        const result = await snapshot.list<{ name: string }>('tools', { enablePagination, cursor });
+        names.push(...result.items.map((item) => item.name));
+        expect(result._meta).toMatchObject({
+          'app.1mcp/capability-pagination': { partial: true, failedSourceCount: 1 },
+        });
+        cursor = result.nextCursor;
+        expect(++pages).toBeLessThanOrEqual(3);
+      } while (cursor !== undefined);
+      expect(names).toEqual(['a_1mcp_a', 'a_1mcp_z', 'tool_list']);
+      expect(connection.adapter.request).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it('bounds concurrent acquisitions of one scope and releases admission after completion', async () => {
+    let finish!: (value: unknown) => void;
+    const pending = new Promise((resolve) => {
+      finish = resolve;
+    });
+    const connection = fixture('server', () => pending);
+    const connections = new Map([['server', connection]]);
+    // An early rejection must also release admission.
+    await expect(
+      acquireRuntimeCapabilityCatalog(connections, undefined, {
+        serverConfigs: { bad: { unsupported: () => {} } } as never,
+      }),
+    ).rejects.toThrow();
+    const acquisitions = Array.from({ length: 256 }, () => acquireRuntimeCapabilityCatalog(connections));
+    try {
+      await expect(acquireRuntimeCapabilityCatalog(connections)).rejects.toBeInstanceOf(CapabilityCursorCapacityError);
+      expect(connection.adapter.request).toHaveBeenCalledTimes(256);
+    } finally {
+      finish({ tools: [] });
+      await Promise.all(acquisitions);
+    }
+    await expect(acquireRuntimeCapabilityCatalog(connections)).resolves.toBeDefined();
   });
 });
