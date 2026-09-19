@@ -34,6 +34,7 @@ interface Scope {
   readonly extra: Extra;
   readonly callbacks: { pending: number };
   readonly abort: AbortController;
+  readonly assertCurrent?: () => void;
 }
 const legacyOwners = new InteractionOwner();
 const active = new WeakMap<OutboundConnection, Scope>();
@@ -76,6 +77,7 @@ export async function withRequestInteractionScope<T>(
   extra: Extra,
   operation: () => Promise<T>,
   sourceProviderId?: string,
+  assertCurrent?: () => void,
 ): Promise<T> {
   if (active.has(connection)) throw new McpError(-32000, 'interaction_capacity_exceeded');
   if (extra.signal.aborted) throw new McpError(-32000, 'interaction_lost');
@@ -129,9 +131,29 @@ export async function withRequestInteractionScope<T>(
               scope.extra.signal.aborted
             )
               throw new McpError(-32000, 'interaction_lost');
-            const capabilities = getLegacyInboundServer(scope.inbound).getClientCapabilities();
-            if (!hasInteractionCapability(capabilities, request as GatewayInteractionRequest))
+            const assertRoute = () => {
+              try {
+                scope.assertCurrent?.();
+              } catch {
+                scope.abort.abort();
+                throw new McpError(-32000, 'interaction_lost');
+              }
+            };
+            assertRoute();
+            if (
+              !hasInteractionCapability(
+                getLegacyInboundServer(scope.inbound).getClientCapabilities(),
+                request as GatewayInteractionRequest,
+              )
+            )
               throw new McpError(-32000, 'interaction_capability_required');
+            const assertCapability = () => {
+              const capabilities = getLegacyInboundServer(scope.inbound).getClientCapabilities();
+              if (!hasInteractionCapability(capabilities, request as GatewayInteractionRequest)) {
+                scope.abort.abort();
+                throw new McpError(-32000, 'interaction_capability_required');
+              }
+            };
             if (scope.callbacks.pending >= 32) {
               scope.abort.abort();
               throw new McpError(-32000, 'interaction_capacity_exceeded');
@@ -147,10 +169,14 @@ export async function withRequestInteractionScope<T>(
                 inbound: 'legacy',
                 outbound: 'legacy',
               };
-              await validateInteractionRequest(input, binding);
+              await validateInteractionRequest(input, binding, scope.extra.signal);
               scope.extra.signal.throwIfAborted();
+              assertCapability();
+              assertRoute();
               const response = await scope.extra.sendRequest(request, resultSchema, { signal: scope.extra.signal });
-              await validateInteractionResponse(input, response, binding);
+              await validateInteractionResponse(input, response, binding, scope.extra.signal);
+              assertCapability();
+              assertRoute();
               if (
                 scope.extra.signal.aborted ||
                 active.get(connection) !== scope ||
@@ -185,9 +211,11 @@ export async function withRequestInteractionScope<T>(
           adapter: connection.adapter,
           callbacks: { pending: 0 },
           abort,
+          assertCurrent,
         });
         active.set(connection, scope);
         try {
+          assertCurrent?.();
           return await operation();
         } finally {
           abort.abort();

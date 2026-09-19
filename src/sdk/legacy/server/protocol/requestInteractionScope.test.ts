@@ -1,13 +1,16 @@
 import { createHash } from 'node:crypto';
 
 import * as validation from '@src/gateway/interactions/validateInteractionResponse.js';
-import type { InboundConnection, OutboundConnection } from '@src/core/types/index.js';
+import type { CatalogEntry } from '@src/core/capabilities/catalogGeneration.js';
+import { ClientStatus, type InboundConnection, type OutboundConnection } from '@src/core/types/index.js';
 import { InteractionOwner } from '@src/gateway/interactions/interactionOwner.js';
+import type { LegacySdkEvent } from '@src/sdk/contracts/index.js';
 import type { RequestHandlerExtra } from '@src/sdk/legacy/shared/protocol.js';
 import type { ServerNotification, ServerRequest } from '@src/sdk/legacy/types.js';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { withPrivateInteractionConnection } from './privateInteractionConnection.js';
 import { forwardScopedNotification, sessionLogLevels, withRequestInteractionScope } from './requestInteractionScope.js';
 
 const handlers = vi.hoisted(() => new Map<string, (request: ServerRequest) => Promise<unknown>>());
@@ -74,6 +77,172 @@ describe('legacy operation interaction ownership', () => {
         finish();
         await operation;
         await response.catch(() => undefined);
+      }
+    },
+  );
+
+  it.each(['request validation', 'response validation'] as const)(
+    'rejects capability loss during %s before forwarding further',
+    async (stage) => {
+      const { inbound, connection, extra } = fixture();
+      let releaseValidation!: () => void;
+      let finish!: () => void;
+      let validationSignal!: AbortSignal;
+      if (stage === 'request validation') {
+        vi.spyOn(validation, 'validateInteractionRequest').mockImplementation((_input, _binding, signal) => {
+          validationSignal = signal!;
+          return new Promise<void>((resolve) => {
+            releaseValidation = resolve;
+          });
+        });
+      } else {
+        vi.spyOn(validation, 'validateInteractionResponse').mockImplementation(
+          (_input, _response, _binding, signal) => {
+            validationSignal = signal!;
+            return new Promise<void>((resolve) => {
+              releaseValidation = resolve;
+            });
+          },
+        );
+      }
+      const operation = withRequestInteractionScope(
+        connection,
+        inbound,
+        extra,
+        () =>
+          new Promise<void>((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const response = handlers.get('roots/list')!({ method: 'roots/list' });
+      try {
+        await vi.waitFor(() => expect(releaseValidation).toBeTypeOf('function'));
+        Object.assign(inbound, { capabilities: {} });
+        releaseValidation();
+        await expect(response).rejects.toThrow('interaction_capability_required');
+        expect(validationSignal.aborted).toBe(true);
+        expect(extra.sendRequest).toHaveBeenCalledTimes(stage === 'request validation' ? 0 : 1);
+      } finally {
+        releaseValidation?.();
+        finish();
+        await operation;
+        await response.catch(() => undefined);
+      }
+    },
+  );
+
+  it('rejects a route revoked while awaiting a callback without affecting another scope', async () => {
+    const { inbound, connection, extra } = fixture();
+    let current = true;
+    let answer!: (value: unknown) => void;
+    let finish!: () => void;
+    let callbackSignal!: AbortSignal;
+    vi.mocked(extra.sendRequest).mockImplementation((_request, _schema, options) => {
+      callbackSignal = options!.signal!;
+      return new Promise((resolve) => {
+        answer = resolve;
+      });
+    });
+    const operation = withRequestInteractionScope(
+      connection,
+      inbound,
+      extra,
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+      undefined,
+      () => {
+        if (!current) throw new Error('private changed source');
+      },
+    );
+    const response = handlers.get('roots/list')!({ method: 'roots/list' });
+    try {
+      await vi.waitFor(() => expect(answer).toBeTypeOf('function'));
+      current = false;
+      answer({ roots: [] });
+      await expect(response).rejects.toThrow('interaction_lost');
+      expect(callbackSignal.aborted).toBe(true);
+      const other = fixture();
+      await withRequestInteractionScope(other.connection, other.inbound, other.extra, async () => {
+        await expect(handlers.get('roots/list')!({ method: 'roots/list' })).resolves.toEqual({ roots: [] });
+      });
+    } finally {
+      answer?.({ roots: [] });
+      finish();
+      await operation;
+      await response.catch(() => undefined);
+    }
+  });
+
+  it.each(['prompts', 'resources'] as const)(
+    'invalidates parked %s callbacks only for the selected provider generation',
+    async (kind) => {
+      const selected = fixture();
+      const unrelated = fixture();
+      const emitters = new Map<OutboundConnection, (event: LegacySdkEvent) => void>();
+      for (const item of [selected, unrelated]) {
+        item.connection.status = ClientStatus.Connected;
+        item.connection.adapter.nextEvent = vi.fn(
+          () =>
+            new Promise<LegacySdkEvent>((resolve) => {
+              emitters.set(item.connection, resolve);
+            }),
+        );
+      }
+      const entry = { route: { kind, connectionKey: 'selected' } } as CatalogEntry;
+      let answer!: (value: unknown) => void;
+      let finish!: () => void;
+      vi.mocked(selected.extra.sendRequest).mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            answer = resolve;
+          }),
+      );
+      const operation = withPrivateInteractionConnection(
+        selected.connection,
+        selected.inbound,
+        selected.extra,
+        entry,
+        () =>
+          new Promise<void>((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const handler = handlers.get('roots/list')!;
+      try {
+        const first = handler({ method: 'roots/list' });
+        await vi.waitFor(() => expect(answer).toBeTypeOf('function'));
+        await withPrivateInteractionConnection(
+          unrelated.connection,
+          unrelated.inbound,
+          unrelated.extra,
+          entry,
+          async () => {
+            emitters.get(unrelated.connection)!({
+              type: 'notification',
+              notification: { method: `notifications/${kind}/list_changed` },
+            });
+            await Promise.resolve();
+          },
+        );
+        answer({ roots: [] });
+        await expect(first).resolves.toEqual({ roots: [] });
+        const previousAnswer = answer;
+        const second = handler({ method: 'roots/list' });
+        await vi.waitFor(() => expect(answer).not.toBe(previousAnswer));
+        emitters.get(selected.connection)!({
+          type: 'notification',
+          notification: { method: `notifications/${kind}/list_changed` },
+        });
+        await Promise.resolve();
+        answer({ roots: [] });
+        await expect(second).rejects.toThrow('interaction_lost');
+      } finally {
+        answer?.({ roots: [] });
+        finish();
+        await operation;
+        for (const emit of emitters.values()) emit({ type: 'closed' });
       }
     },
   );

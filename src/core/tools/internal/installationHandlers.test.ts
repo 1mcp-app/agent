@@ -3,6 +3,7 @@
  */
 import { FlagManager } from '@src/core/flags/flagManager.js';
 import { AdapterFactory } from '@src/core/tools/internal/adapters/index.js';
+import { captureJson } from '@src/core/validation/schemaPolicy.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -12,6 +13,11 @@ import {
   handleMcpUninstall,
   handleMcpUpdate,
 } from './installationHandlers.js';
+
+const mockRegistryServer = vi.hoisted(() => vi.fn());
+vi.mock('@src/domains/registry/mcpRegistryClient.js', () => ({
+  createRegistryClient: () => ({ getServerById: mockRegistryServer }),
+}));
 
 // Mock dependencies
 vi.mock('@src/core/flags/flagManager.js');
@@ -43,6 +49,7 @@ describe('installationHandlers', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockRegistryServer.mockReset();
     flagManager = {
       isToolEnabled: vi.fn().mockReturnValue(true),
     } as any;
@@ -101,6 +108,8 @@ describe('installationHandlers', () => {
       expect(result.installedAt).toBe(mockResult.installedAt.toISOString());
       expect(result.warnings).toEqual([]);
       expect(result.reloadRecommended).toBe(true);
+      expect(() => captureJson(result, false, true)).not.toThrow();
+      expect(result).not.toHaveProperty('error');
       expect(mockInstallationAdapter.installServer).toHaveBeenCalledWith('test-server', '1.0.0', {
         force: false,
         backup: false,
@@ -112,6 +121,32 @@ describe('installationHandlers', () => {
         transport: 'stdio',
         url: undefined,
       });
+    });
+
+    it('keeps sparse registry prerequisites valid JSON', async () => {
+      mockRegistryServer.mockResolvedValue({
+        packages: [
+          {
+            identifier: '@scope/server',
+            environmentVariables: [{ name: 'TOKEN', isRequired: false }],
+            packageArguments: [{ name: 'path' }],
+            runtimeArguments: [{ name: 'port' }],
+          },
+        ],
+      });
+      mockInstallationAdapter.installServer.mockResolvedValue({ success: true, serverName: 'server' });
+      const result = await handleMcpInstall({
+        name: 'server',
+        registryId: 'owner/server',
+        transport: 'stdio',
+        enabled: true,
+        autoRestart: false,
+        force: false,
+        backup: false,
+      });
+      expect(result.status).toBe('applied');
+      expect(result.prerequisites?.environmentVariables).toEqual([{ name: 'TOKEN', isRequired: false }]);
+      expect(() => captureJson(result, false, true)).not.toThrow();
     });
 
     it('should preserve explicit registry ID while using name as local server name', async () => {
@@ -263,6 +298,8 @@ describe('installationHandlers', () => {
       expect(result.gracefulShutdown).toBe(true);
       expect(result.warnings).toEqual([]);
       expect(result.reloadRecommended).toBe(true);
+      expect(() => captureJson(result, false, true)).not.toThrow();
+      expect(result).not.toHaveProperty('error');
       expect(mockInstallationAdapter.uninstallServer).toHaveBeenCalledWith('test-server', {
         force: true,
         backup: false,
@@ -376,6 +413,8 @@ describe('installationHandlers', () => {
       expect(result.updatedAt).toBe(mockResult.updatedAt.toISOString());
       expect(result.warnings).toEqual([]);
       expect(result.reloadRecommended).toBe(true);
+      expect(() => captureJson(result, false, true)).not.toThrow();
+      expect(result).not.toHaveProperty('error');
       expect(mockInstallationAdapter.updateServer).toHaveBeenCalledWith('test-server', '2.0.0', {
         force: false,
         backup: true,

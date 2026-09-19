@@ -81,6 +81,7 @@ export async function createModernInteractionBinding(
   params: unknown,
   auth: AuthInfo | undefined,
   capabilities: unknown,
+  signal?: AbortSignal,
 ): Promise<InteractionBinding | undefined> {
   // Anonymous bearer continuations need an explicit listener policy; they are not enabled implicitly.
   if (!auth || !['tools/call', 'prompts/get', 'resources/read'].includes(operation)) return undefined;
@@ -102,7 +103,7 @@ export async function createModernInteractionBinding(
     { ...config },
   );
   const serverConfigs = getConfiguredServerTargets();
-  const snapshot = await acquireRuntimeCapabilityCatalog(connections, visibility, { serverConfigs });
+  const snapshot = await acquireRuntimeCapabilityCatalog(connections, visibility, { serverConfigs, signal });
   const selected =
     kind === 'resources' ? resolveResourceRoute(snapshot, publicIdentity) : snapshot.resolve(kind, publicIdentity);
   if (!selected?.connection) return undefined;

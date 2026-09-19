@@ -206,6 +206,71 @@ describe('process-local interaction lifecycle', () => {
     await expect(broker.resume(initial.requestState, binding, { '1': {} })).rejects.toBeDefined();
     await broker.close();
   });
+  it('cancels a continuation disconnected during validation without releasing its operation', async () => {
+    let release!: () => void;
+    const validate = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const broker = new InteractionBroker({ authorize: () => true, validate });
+    let operationSignal!: AbortSignal;
+    const initial = frame(
+      await broker.start(binding, Date.now() + 5000, async (interact, signal) => {
+        operationSignal = signal;
+        await interact(input);
+        return {};
+      }),
+    );
+    const wrongOwner = new AbortController();
+    await expect(
+      broker.resume(initial.requestState, { ...binding, principal: 'mallory' }, { '1': {} }, wrongOwner.signal),
+    ).rejects.toBeDefined();
+    wrongOwner.abort();
+    expect(operationSignal.aborted).toBe(false);
+    const controller = new AbortController();
+    const response = broker.resume(initial.requestState, binding, { '1': {} }, controller.signal);
+    controller.abort();
+    try {
+      expect(operationSignal.aborted).toBe(true);
+    } finally {
+      release();
+      await expect(response).rejects.toBeDefined();
+      await broker.close();
+    }
+  });
+
+  it('rejects simultaneous continuations before duplicate validation and permits retry after invalid input', async () => {
+    let rejectValidation!: (reason: unknown) => void;
+    const validate = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            rejectValidation = reject;
+          }),
+      )
+      .mockResolvedValue(undefined);
+    const broker = new InteractionBroker({ authorize: () => true, validate });
+    const initial = frame(
+      await broker.start(binding, Date.now() + 5000, async (interact) => {
+        await interact(input);
+        return { done: true };
+      }),
+    );
+    const first = broker.resume(initial.requestState, binding, { '1': {} });
+    try {
+      await expect(broker.resume(initial.requestState, binding, { '1': {} })).rejects.toBeDefined();
+      expect(validate).toHaveBeenCalledOnce();
+    } finally {
+      rejectValidation(new Error('invalid input'));
+      await expect(first).rejects.toThrow('invalid input');
+    }
+    expect(await broker.resume(initial.requestState, binding, { '1': {} })).toEqual({ done: true });
+    await broker.close();
+  });
+
   it('rechecks authority after deferred validation before releasing the live operation', async () => {
     let release!: () => void;
     let authorized = true;

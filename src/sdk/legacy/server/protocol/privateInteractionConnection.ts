@@ -1,3 +1,8 @@
+import {
+  getCapabilityPaginationGeneration,
+  registerCapabilityPaginationNotifications,
+  unregisterCapabilityPaginationConnections,
+} from '@src/core/capabilities/capabilityPagination.js';
 import type { CatalogEntry } from '@src/core/capabilities/catalogGeneration.js';
 import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { ClientStatus, type InboundConnection, type OutboundConnection } from '@src/core/types/index.js';
@@ -25,16 +30,47 @@ import { setRequestInteractionProfile, withRequestInteractionScope } from './req
 let active = 0;
 const capacity = 128;
 
-/** Reuse an empty legacy profile only with factory evidence; unknown or wider profiles require isolation. */
+/** Keep each operation pinned to notifications from its selected provider only. */
 export async function withPrivateInteractionConnection<T>(
   source: OutboundConnection,
   inbound: InboundConnection,
   extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
   entry: CatalogEntry,
   operation: (connection: OutboundConnection) => Promise<T>,
+  assertCurrent?: () => void,
+): Promise<T> {
+  const adapter = source.adapter;
+  const observed = new Map([[entry.route.connectionKey, source]]);
+  registerCapabilityPaginationNotifications(observed, source);
+  const kinds = entry.route.kind === 'resources' ? (['resources', 'resourceTemplates'] as const) : [entry.route.kind];
+  const generations = kinds.map((kind) => getCapabilityPaginationGeneration(observed, kind));
+  const assertProviderCurrent = () => {
+    if (
+      source.adapter !== adapter ||
+      source.status !== ClientStatus.Connected ||
+      kinds.some((kind, index) => getCapabilityPaginationGeneration(observed, kind) !== generations[index])
+    )
+      throw new McpError(-32000, 'interaction_lost');
+    assertCurrent?.();
+  };
+  try {
+    return await withSelectedInteractionConnection(source, inbound, extra, entry, operation, assertProviderCurrent);
+  } finally {
+    unregisterCapabilityPaginationConnections(observed);
+  }
+}
+
+/** Reuse an empty legacy profile only with factory evidence; unknown or wider profiles require isolation. */
+async function withSelectedInteractionConnection<T>(
+  source: OutboundConnection,
+  inbound: InboundConnection,
+  extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
+  entry: CatalogEntry,
+  operation: (connection: OutboundConnection) => Promise<T>,
+  assertCurrent?: () => void,
 ): Promise<T> {
   if (!inbound.canonicalSchemaProjection || source.adapter.protocol?.era === 'modern') {
-    return withRequestInteractionScope(source, inbound, extra, () => operation(source));
+    return withRequestInteractionScope(source, inbound, extra, () => operation(source), undefined, assertCurrent);
   }
   const callerCapabilities = getLegacyInboundServer(inbound).getClientCapabilities() ?? {};
   const interactive =
@@ -45,7 +81,7 @@ export async function withPrivateInteractionConnection<T>(
   const advertised = getAdvertisedClientCapabilities(getLegacyClient(source));
   const provenEmpty = advertised !== undefined && Object.keys(advertised).length === 0;
   if (!interactive && provenEmpty) {
-    return withRequestInteractionScope(source, inbound, extra, () => operation(source));
+    return withRequestInteractionScope(source, inbound, extra, () => operation(source), undefined, assertCurrent);
   }
   const originalTransport = getLegacyTransport(source);
   if (!originalTransport.recreate) throw new McpError(-32000, 'interaction_unsupported');
@@ -91,7 +127,11 @@ export async function withPrivateInteractionConnection<T>(
     return await Promise.race([
       withDerivedInteractionRoute(source.adapter, privateSource.adapter, async () => {
         // A changed contract on the new peer must fail before any side-effecting operation.
-        const snapshot = await acquireRuntimeCapabilityCatalog(new Map([[entry.route.connectionKey, privateSource]]));
+        const snapshot = await acquireRuntimeCapabilityCatalog(
+          new Map([[entry.route.connectionKey, privateSource]]),
+          undefined,
+          { signal },
+        );
         const matches = snapshot.generation.entries.filter(
           (candidate) =>
             candidate.route.kind === entry.route.kind &&
@@ -110,6 +150,7 @@ export async function withPrivateInteractionConnection<T>(
           { ...extra, signal },
           () => operation(privateSource),
           source.adapter.connectionId,
+          assertCurrent,
         );
       }),
       aborted,

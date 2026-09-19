@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 import { type ImmutableJsonValue, toImmutableJsonValue } from './immutableJson.js';
 
 export type GatewayFailureKind =
@@ -75,22 +77,39 @@ export function gatewayFailureFromUnknown(error: unknown, kind: GatewayFailureKi
   return createGatewayFailure({ kind: failureKind, code, message, ...(data === undefined ? {} : { data }) });
 }
 
-/** Decode only bounded public gateway failure facts; never carry upstream messages or arbitrary data. */
+const mcpFailureProjectionSchema = z.object({
+  kind: z.enum(GATEWAY_FAILURE_KINDS),
+  code: z.string().max(128),
+});
+
+/** Decode our public MCP classification only at a client boundary; never trust wire diagnostics. */
 export function gatewayFailureFromMcpError(error: unknown): GatewayFailure {
   const fallback = gatewayFailureFromUnknown(error, 'protocol');
-  if (fallback.code !== '-32000' || !error || typeof error !== 'object') return fallback;
+  if (typeof error !== 'object' || error === null) return fallback;
   const data = ownDataValue(error, 'data');
-  const facts = data && typeof data === 'object' ? ownDataValue(data, 'app.1mcp/failure') : undefined;
-  if (!facts || typeof facts !== 'object') return fallback;
-  const kind = ownDataValue(facts, 'kind');
-  const code = ownDataValue(facts, 'code');
+  if (typeof data !== 'object' || data === null) return fallback;
+  const parsed = mcpFailureProjectionSchema.safeParse(ownDataValue(data, 'app.1mcp/failure'));
+  if (!parsed.success) return fallback;
+  const { kind, code } = parsed.data;
+  const safeCode =
+    [
+      'gateway_overloaded',
+      'gateway_target_unavailable',
+      'resource_not_found',
+      'schema_evaluation_timeout',
+      'schema_evaluation_unavailable',
+    ].includes(code) ||
+    (/^-?\d+$/.test(code) && Number.isSafeInteger(Number(code)))
+      ? code
+      : `gateway_${kind.replaceAll('-', '_')}_error`;
+  const failure = createGatewayFailure({ kind, code: safeCode, message: `Gateway ${kind} failure` });
+  const numeric = ownDataValue(error, 'code');
   if (
-    !GATEWAY_FAILURE_KINDS.includes(kind as GatewayFailureKind) ||
-    typeof code !== 'string' ||
-    !/^(?:gateway|schema|interaction)_[a-z0-9_]{1,80}$/.test(code)
+    gatewayFailureToMcp(failure, 'legacy').code !== numeric &&
+    gatewayFailureToMcp(failure, 'modern').code !== numeric
   )
     return fallback;
-  return createGatewayFailure({ kind: kind as GatewayFailureKind, code, message: 'Gateway operation failed' });
+  return failure;
 }
 
 export type GatewayResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; failure: GatewayFailure }>;

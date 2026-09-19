@@ -56,7 +56,10 @@ export class SchemaCache {
   private cache: Map<string, CacheEntry> = new Map();
   private inflightRequests: Map<string, Promise<Tool>> = new Map();
   private activeLoads = 0;
-  private readonly waiters = new WeakMap<Promise<Tool>, number>();
+  private readonly waiters = new WeakMap<
+    Promise<Tool>,
+    { active: number; joined: number; settled: boolean; controller: AbortController }
+  >();
   private config: SchemaCacheConfig;
   private stats: SchemaCacheStats = {
     hits: 0,
@@ -137,7 +140,9 @@ export class SchemaCache {
     server: string,
     toolName: string,
     loader: (server: string, toolName: string, signal?: AbortSignal) => Promise<Tool>,
+    signal?: AbortSignal,
   ): Promise<Tool> {
+    signal?.throwIfAborted();
     const cacheKey = this.getCacheKey(server, toolName);
 
     // Check cache first
@@ -157,15 +162,8 @@ export class SchemaCache {
     // Check for in-flight request (coalescing)
     const inflight = this.inflightRequests.get(cacheKey);
     if (inflight) {
-      const waiters = this.waiters.get(inflight) ?? 0;
-      if (waiters >= 256) throw new Error('Schema cache waiter capacity exceeded');
-      this.waiters.set(inflight, waiters + 1);
       this.stats.coalesced++;
-      try {
-        return await inflight;
-      } finally {
-        this.waiters.set(inflight, (this.waiters.get(inflight) ?? 1) - 1);
-      }
+      return this.waitForLoad(cacheKey, inflight, signal);
     }
 
     if (this.activeLoads >= this.config.maxEntries) {
@@ -177,16 +175,20 @@ export class SchemaCache {
     this.activeLoads++;
     const controller = new AbortController();
     const load = Promise.resolve()
-      .then(() => loader(server, toolName, controller.signal))
+      .then(() => {
+        controller.signal.throwIfAborted();
+        return loader(server, toolName, controller.signal);
+      })
       .finally(() => {
         this.activeLoads--;
       });
     let timer: ReturnType<typeof setTimeout>;
+    let onAbort: () => void;
     const deadline = new Promise<never>((_, reject) => {
+      onAbort = () => reject(controller.signal.reason);
+      controller.signal.addEventListener('abort', onAbort, { once: true });
       timer = setTimeout(() => {
-        const error = new Error('Schema cache load deadline exceeded');
-        reject(error);
-        controller.abort(error);
+        controller.abort(new Error('Schema cache load deadline exceeded'));
       }, 30000);
       timer.unref?.();
     });
@@ -208,13 +210,41 @@ export class SchemaCache {
         return tool;
       })
       .finally(() => {
+        this.waiters.get(promise)!.settled = true;
         clearTimeout(timer);
+        controller.signal.removeEventListener('abort', onAbort);
         // Clean up in-flight map
         if (this.inflightRequests.get(cacheKey) === promise) this.inflightRequests.delete(cacheKey);
       });
 
     this.inflightRequests.set(cacheKey, promise);
-    return promise;
+    this.waiters.set(promise, { active: 0, joined: 0, settled: false, controller });
+    return this.waitForLoad(cacheKey, promise, signal);
+  }
+
+  private async waitForLoad(cacheKey: string, promise: Promise<Tool>, signal?: AbortSignal): Promise<Tool> {
+    const waiters = this.waiters.get(promise)!;
+    // Count every attached continuation until settlement, including canceled callers.
+    if (waiters.joined >= 256) throw new Error('Schema cache waiter capacity exceeded');
+    waiters.joined++;
+    waiters.active++;
+    let onAbort: (() => void) | undefined;
+    try {
+      if (!signal) return await promise;
+      const cancelled = new Promise<never>((_, reject) => {
+        onAbort = () => reject(new Error('Schema cache wait cancelled'));
+        signal.addEventListener('abort', onAbort, { once: true });
+        if (signal.aborted) onAbort();
+      });
+      return await Promise.race([promise, cancelled]);
+    } finally {
+      if (onAbort) signal?.removeEventListener('abort', onAbort);
+      waiters.active--;
+      if (waiters.active === 0 && !waiters.settled) {
+        if (this.inflightRequests.get(cacheKey) === promise) this.inflightRequests.delete(cacheKey);
+        waiters.controller.abort(new Error('Schema cache load cancelled'));
+      }
+    }
   }
 
   /**

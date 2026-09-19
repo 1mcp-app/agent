@@ -45,6 +45,33 @@ function fixture() {
 }
 
 describe('modern interaction route binding', () => {
+  it('cancels upstream enumeration when binding acquisition is interrupted', async () => {
+    const { manager, connection } = fixture();
+    let rejectList!: (reason: unknown) => void;
+    vi.mocked(connection.adapter.request).mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectList = reject;
+        }),
+    );
+    vi.mocked(connection.adapter.cancel).mockImplementation(async () => {
+      rejectList(new Error('list cancelled'));
+    });
+    const controller = new AbortController();
+    const pending = createModernInteractionBinding(
+      manager,
+      {},
+      'tools/call',
+      { name: 'server_1mcp_echo' },
+      auth,
+      {},
+      controller.signal,
+    );
+    controller.abort();
+    await expect(pending).rejects.toThrow();
+    expect(connection.adapter.cancel).toHaveBeenCalledOnce();
+  });
+
   it('keeps an unchanged exact route stable across fresh catalog acquisitions', async () => {
     const { bind } = fixture();
     const first = await bind();

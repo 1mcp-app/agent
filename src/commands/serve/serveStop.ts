@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+
 import { getConfigDir } from '@src/constants.js';
 import {
   backgroundLaunchConfigExists,
@@ -10,10 +12,13 @@ import {
 } from '@src/core/server/backgroundRuntimeSupervisor.js';
 import {
   cleanupPidFileIfMatches,
+  getPidFilePath,
   isProcessAlive,
   PidFileReadError,
   readPidFile,
+  type ServerPidInfo,
 } from '@src/core/server/pidFileManager.js';
+import { inspectProcessIdentity, type ProcessIdentity } from '@src/core/server/processIdentity.js';
 import {
   acquireRuntimeScopeStopLock,
   readRuntimeScopeOwnership,
@@ -22,6 +27,8 @@ import {
   type RuntimeScopeStopLock,
 } from '@src/core/server/runtimeScopeOwnership.js';
 import logger from '@src/logger/logger.js';
+
+import { stopLegacyRuntime } from './legacyRuntimeStop.js';
 
 /**
  * `serve --stop`: stop only the runtime in the selected Runtime Scope.
@@ -61,6 +68,7 @@ export async function waitForProcessExit(pid: number, options: WaitForExitOption
 type StopSignal = 'SIGTERM' | 'SIGKILL';
 
 export interface RunStopDeps {
+  inspectIdentity?: typeof inspectProcessIdentity;
   readSupervisorState?: typeof readBackgroundSupervisorState;
   readOwnership?: typeof readRuntimeScopeOwnership;
   acquireStopLock?: typeof acquireRuntimeScopeStopLock;
@@ -70,7 +78,6 @@ export interface RunStopDeps {
   /** Guarded release of the matching background-supervisor ownership record. */
   cleanupOwnership?: (configDir: string, expectedSupervisorPid: number) => boolean;
   readInfo?: typeof readPidFile;
-  isAlive?: (pid: number) => boolean;
   kill?: (pid: number, signal: StopSignal) => void;
   /** Delete the PID file only if it still records the stopped PID. */
   cleanup?: (configDir: string, expectedPid: number) => boolean;
@@ -114,6 +121,10 @@ function cleanupSupervisorLaunchConfig(configDir: string, expectedSupervisorPid:
   return cleanupBackgroundLaunchConfig(configDir, owner.claimId, { removeStaleGeneration: true });
 }
 
+function runtimeMetadataMatches(info: ServerPidInfo | null, pid: number | null, identity?: ProcessIdentity): boolean {
+  return !info || (info.pid === pid && JSON.stringify(info.processIdentity) === JSON.stringify(identity));
+}
+
 function bootstrapSupervisorState(supervisorPid: number): BackgroundSupervisorState {
   const now = new Date().toISOString();
   return {
@@ -140,10 +151,34 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
   const cleanupSupervisorState = deps.cleanupSupervisorState ?? cleanupBackgroundSupervisorState;
   const cleanupLaunchConfig = deps.cleanupLaunchConfig ?? cleanupSupervisorLaunchConfig;
   const cleanupOwnership = deps.cleanupOwnership ?? cleanupSupervisorOwnership;
-  const readInfo = deps.readInfo ?? readPidFile;
-  const isAlive = deps.isAlive ?? isProcessAlive;
+  const observedPidRecords = new Map<number, NonNullable<ReturnType<typeof readPidFile>>>();
+  const expectedWorkerIdentities = new Map<number, ProcessIdentity>();
+  const readInfo: typeof readPidFile = (scope) => {
+    const info = (deps.readInfo ?? readPidFile)(scope);
+    if (!info && fs.existsSync(getPidFilePath(scope))) {
+      throw new PidFileReadError(getPidFilePath(scope), new Error('runtime PID metadata is malformed'));
+    }
+    if (info) observedPidRecords.set(info.pid, info);
+    return info;
+  };
   const kill = deps.kill ?? defaultKill;
-  const cleanup = deps.cleanup ?? cleanupPidFileIfMatches;
+  const inspectIdentity = deps.inspectIdentity ?? inspectProcessIdentity;
+  const cleanup =
+    deps.cleanup ??
+    ((scope: string, pid: number) => {
+      const observed = observedPidRecords.get(pid);
+      if (observed) return cleanupPidFileIfMatches(scope, observed);
+      const current = readPidFile(scope);
+      if (!current) return !fs.existsSync(getPidFilePath(scope));
+      const expectedIdentity = expectedWorkerIdentities.get(pid);
+      if (
+        current.pid !== pid ||
+        !expectedIdentity ||
+        JSON.stringify(current.processIdentity) !== JSON.stringify(expectedIdentity)
+      )
+        return false;
+      return cleanupPidFileIfMatches(scope, current);
+    });
   const waitForExit = deps.waitForExit ?? waitForProcessExit;
   const gracefulTimeoutMs = deps.gracefulTimeoutMs ?? 10000;
 
@@ -171,8 +206,9 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
     const stateMatchesOwner = owner?.kind === 'background-supervisor' && owner.pid === supervisorState.supervisorPid;
     if (!stateMatchesOwner) {
       const staleProcessStillAlive =
-        isAlive(supervisorState.supervisorPid) ||
-        (supervisorState.runtimePid !== null && isAlive(supervisorState.runtimePid));
+        inspectIdentity(supervisorState.supervisorPid, supervisorState.supervisorIdentity) !== 'dead' ||
+        (supervisorState.runtimePid !== null &&
+          inspectIdentity(supervisorState.runtimePid, supervisorState.runtimeIdentity) !== 'dead');
       if (staleProcessStillAlive) {
         failStop(`supervisor state does not match Runtime Scope ownership in ${configDir}; refusing ambiguous stop.`);
         return;
@@ -205,13 +241,69 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
     }
 
     try {
-      const supervisorWasAlive = isAlive(supervisorState.supervisorPid);
-      const runtimeWasAlive = supervisorState.runtimePid !== null && isAlive(supervisorState.runtimePid);
-      const terminateOptions = { kill, waitForExit, isAlive, gracefulTimeoutMs };
+      let initialInfo: ServerPidInfo | null;
+      try {
+        initialInfo = readInfo(configDir);
+        if (
+          supervisorState.runtimePid !== null &&
+          !runtimeMetadataMatches(initialInfo, supervisorState.runtimePid, supervisorState.runtimeIdentity)
+        ) {
+          throw new Error('runtime PID metadata conflicts with supervisor state');
+        }
+        if (
+          owner.processIdentity &&
+          supervisorState.supervisorIdentity &&
+          JSON.stringify(owner.processIdentity) !== JSON.stringify(supervisorState.supervisorIdentity)
+        ) {
+          throw new Error('supervisor identity conflicts with Runtime Scope ownership');
+        }
+      } catch (error) {
+        failStop(`cannot inspect runtime PID metadata in Runtime Scope ${configDir}: ${errorMessage(error)}`);
+        return;
+      }
+      const supervisorIdentity = owner.processIdentity ?? supervisorState.supervisorIdentity;
+      const supervisorStatus = inspectIdentity(supervisorState.supervisorPid, supervisorIdentity);
+      const workerStatus =
+        supervisorState.runtimePid === null
+          ? 'dead'
+          : inspectIdentity(supervisorState.runtimePid, supervisorState.runtimeIdentity);
+      if (supervisorStatus === 'unknown' || workerStatus === 'unknown') {
+        if (
+          !owner.processIdentity &&
+          !supervisorState.supervisorIdentity &&
+          !supervisorState.runtimeIdentity &&
+          !initialInfo?.processIdentity
+        ) {
+          try {
+            if (await stopLegacyRuntime(configDir, owner, supervisorState, initialInfo)) {
+              process.stdout.write(`Stopped verified legacy background runtime in Runtime Scope ${configDir}.\n`);
+              process.exitCode = 0;
+              return;
+            }
+          } catch (error) {
+            failStop(`legacy runtime recovery aborted: ${errorMessage(error)}`);
+            return;
+          }
+        }
+        failStop(
+          `cannot verify process identity in Runtime Scope ${configDir}; refusing ambiguous stop. ` +
+            (!owner.processIdentity
+              ? 'Legacy metadata has no process identity; automatic recovery requires a verified live pair on Linux. Stop the old runtime using its original CLI or service manager; verify all scope participants have stopped before manual metadata recovery.'
+              : ''),
+        );
+
+        return;
+      }
+      const supervisorWasAlive = supervisorStatus === 'alive';
+      const runtimeWasAlive = workerStatus === 'alive';
+      const terminateOptions = { kill, waitForExit, gracefulTimeoutMs, inspectIdentity };
 
       if (
         supervisorWasAlive &&
-        !(await terminateProcess(supervisorState.supervisorPid, 'supervisor', terminateOptions))
+        !(await terminateProcess(supervisorState.supervisorPid, 'supervisor', {
+          ...terminateOptions,
+          identity: supervisorIdentity,
+        }))
       ) {
         failStop(
           `failed to stop Background Runtime Supervisor (PID ${supervisorState.supervisorPid}) in Runtime Scope ${configDir}.`,
@@ -220,11 +312,15 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
       }
 
       let runtimePid = supervisorState.runtimePid;
+      let runtimeIdentity = supervisorState.runtimeIdentity;
       if (supervisorWasAlive) {
         try {
           const finalState = readSupervisorState(configDir);
           if (finalState?.supervisorPid === supervisorState.supervisorPid) {
-            runtimePid = finalState.runtimePid ?? runtimePid;
+            if (finalState.runtimePid !== null) {
+              runtimePid = finalState.runtimePid;
+              runtimeIdentity = finalState.runtimeIdentity;
+            }
           }
         } catch (error) {
           failStop(
@@ -238,7 +334,9 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
       // final state has already disappeared, the PID file is the recovery source.
       if (runtimePid === null) {
         try {
-          runtimePid = readInfo(configDir)?.pid ?? null;
+          const recoveredInfo = readInfo(configDir);
+          runtimePid = recoveredInfo?.pid ?? null;
+          runtimeIdentity = recoveredInfo?.processIdentity;
         } catch (error) {
           failStop(
             `supervisor stopped, but its runtime PID could not be recovered in Runtime Scope ${configDir}: ${errorMessage(error)}`,
@@ -252,15 +350,26 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
       // stopped worker.
       if (
         runtimePid !== null &&
-        isAlive(runtimePid) &&
-        !(await terminateProcess(runtimePid, 'runtime', terminateOptions))
+        !(await terminateProcess(runtimePid, 'runtime', { ...terminateOptions, identity: runtimeIdentity }))
       ) {
         failStop(`failed to stop supervised runtime (PID ${runtimePid}) in Runtime Scope ${configDir}.`);
         return;
       }
 
-      if (runtimePid !== null) {
-        cleanup(configDir, runtimePid);
+      try {
+        const finalInfo = readInfo(configDir);
+        if (!runtimeMetadataMatches(finalInfo, runtimePid, runtimeIdentity)) {
+          throw new Error('runtime PID metadata changed to a different process incarnation');
+        }
+        if (runtimePid !== null) {
+          if (runtimeIdentity) expectedWorkerIdentities.set(runtimePid, runtimeIdentity);
+          if (!cleanup(configDir, runtimePid)) throw new Error('runtime PID metadata could not be safely removed');
+        }
+      } catch (error) {
+        failStop(
+          `runtime stopped, but PID metadata must be retained in Runtime Scope ${configDir}: ${errorMessage(error)}`,
+        );
+        return;
       }
 
       try {
@@ -312,13 +421,27 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
   }
 
   if (!info) {
+    if (fs.existsSync(getPidFilePath(configDir))) {
+      failStop(`runtime PID metadata is malformed in Runtime Scope ${configDir}; refusing ambiguous stop.`);
+      return;
+    }
     process.stdout.write(`No runtime is running in this Runtime Scope: ${configDir}\n`);
     process.exitCode = 0;
     return;
   }
 
   // Stale dead-process PID file: clean it up and report cleanly.
-  if (!isAlive(info.pid)) {
+  const identityStatus = inspectIdentity(info.pid, info.processIdentity);
+  if (identityStatus === 'unknown') {
+    failStop(
+      `cannot verify process identity for Runtime Scope PID ${info.pid}; refusing ambiguous stop.` +
+        (!info.processIdentity
+          ? ' Legacy foreground or unverifiable runtimes require stopping through the original CLI or service manager. Verify all scope participants have stopped before manual metadata cleanup.'
+          : ''),
+    );
+    return;
+  }
+  if (identityStatus === 'dead') {
     if (cleanup(configDir, info.pid)) {
       process.stdout.write(
         `No running runtime in this Runtime Scope; removed a stale PID file (was PID ${info.pid}).\n`,
@@ -334,9 +457,10 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
   }
 
   const exited = await terminateProcess(info.pid, 'Runtime', {
+    identity: info.processIdentity,
+    inspectIdentity,
     kill,
     waitForExit,
-    isAlive,
     gracefulTimeoutMs,
   });
 
@@ -354,13 +478,17 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
 }
 
 interface TerminateProcessOptions {
+  identity?: ProcessIdentity;
+  inspectIdentity: typeof inspectProcessIdentity;
   kill: (pid: number, signal: StopSignal) => void;
   waitForExit: typeof waitForProcessExit;
-  isAlive: (pid: number) => boolean;
   gracefulTimeoutMs: number;
 }
 
 async function terminateProcess(pid: number, label: string, options: TerminateProcessOptions): Promise<boolean> {
+  const beforeTerm = options.inspectIdentity(pid, options.identity);
+  if (beforeTerm !== 'alive') return beforeTerm === 'dead';
+  const sameProcessAlive = () => options.inspectIdentity(pid, options.identity) !== 'dead';
   try {
     options.kill(pid, 'SIGTERM');
   } catch (error) {
@@ -369,17 +497,19 @@ async function terminateProcess(pid: number, label: string, options: TerminatePr
 
   let exited = await options.waitForExit(pid, {
     timeoutMs: options.gracefulTimeoutMs,
-    isAlive: options.isAlive,
+    isAlive: sameProcessAlive,
   });
   if (exited) {
     return true;
   }
 
+  const beforeKill = options.inspectIdentity(pid, options.identity);
+  if (beforeKill !== 'alive') return beforeKill === 'dead';
   logger.warn(`${label} (PID ${pid}) did not exit after SIGTERM; escalating to SIGKILL`);
   try {
     options.kill(pid, 'SIGKILL');
   } catch (error) {
     logger.warn(`Failed to send SIGKILL to ${label} PID ${pid}: ${error}`);
   }
-  return options.waitForExit(pid, { timeoutMs: 2000, isAlive: options.isAlive });
+  return options.waitForExit(pid, { timeoutMs: 2000, isAlive: sameProcessAlive });
 }

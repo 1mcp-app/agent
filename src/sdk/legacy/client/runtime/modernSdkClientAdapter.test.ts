@@ -1,6 +1,8 @@
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { createMcpHandler, Server } from '@modelcontextprotocol/server';
 
+import * as validation from '@src/gateway/interactions/validateInteractionResponse.js';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import { withLegacyInteractionLease } from './legacyInteractionLease.js';
@@ -35,6 +37,46 @@ describe('ModernSdkClientAdapter', () => {
     ).resolves.toEqual({ content: [] });
     expect(answer).toHaveBeenCalledOnce();
   });
+  it.each(['cancel', 'capability loss'] as const)(
+    'does not send a continuation after %s during response validation',
+    async (change) => {
+      const client = new Client({ name: 'configured-client', version: '2.0.0' });
+      vi.spyOn(client, 'getProtocolEra').mockReturnValue('modern');
+      vi.spyOn(client, 'getNegotiatedProtocolVersion').mockReturnValue('2026-07-28');
+      const request = vi.spyOn(client, 'request').mockResolvedValueOnce({
+        resultType: 'input_required',
+        requestState: 'state',
+        inputRequests: { roots: { method: 'roots/list' } },
+      } as never);
+      const adapter = new ModernSdkClientAdapter(client, {} as AuthProviderTransport);
+      adapter.registerRequestHandler({ shape: { method: { value: 'roots/list' } } }, async () => ({ roots: [] }));
+      const controller = new AbortController();
+      const capabilities: { roots?: object } = { roots: {} };
+      const validate = vi
+        .spyOn(validation, 'validateInteractionResponse')
+        .mockImplementationOnce(async (_input, _response, _binding, signal) => {
+          expect(signal).toBe(controller.signal);
+          if (change === 'cancel') controller.abort();
+          else delete capabilities.roots;
+        });
+      try {
+        await expect(
+          withLegacyInteractionLease(
+            adapter,
+            () => adapter.request({ id: 'cancelled-round' as never, method: 'tools/call', params: { name: 'act' } }),
+            controller.signal,
+            undefined,
+            capabilities,
+          ),
+        ).rejects.toBeDefined();
+        expect(validate).toHaveBeenCalledOnce();
+        expect(request).toHaveBeenCalledOnce();
+      } finally {
+        validate.mockRestore();
+      }
+    },
+  );
+
   it('drives a real modern peer MRTR through the gateway using envelope continuations', async () => {
     const calls: unknown[] = [];
     const handler = createMcpHandler(

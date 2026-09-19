@@ -194,9 +194,13 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
                 inbound: 'legacy',
                 outbound: 'modern',
               };
-              await validateInteractionRequest(input, binding);
+              await validateInteractionRequest(input, binding, currentLegacyInteractionSignal());
+              currentLegacyInteractionSignal()?.throwIfAborted();
               const response = toImmutableJsonValue(await handler(input as never));
-              await validateInteractionResponse(input, response, binding);
+              await validateInteractionResponse(input, response, binding, currentLegacyInteractionSignal());
+              currentLegacyInteractionSignal()?.throwIfAborted();
+              if (!hasInteractionCapability(currentLegacyInteractionCapabilities(), input))
+                throw new OneMcpProtocolError(-32021, 'Interaction capability required');
               return response;
             },
           },

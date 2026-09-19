@@ -13,22 +13,17 @@ export function hasInteractionCapability(capabilities: unknown, request: Gateway
       return Object.hasOwn(capabilities, 'roots') && record(capabilities.roots);
     case 'sampling/createMessage': {
       const sampling = capabilities.sampling;
-      return (
-        Object.hasOwn(capabilities, 'sampling') &&
-        record(sampling) &&
-        (!(params.tools !== undefined || params.toolChoice !== undefined) ||
-          (Object.hasOwn(sampling, 'tools') && record(sampling.tools)))
-      );
+      if (!Object.hasOwn(capabilities, 'sampling') || !record(sampling)) return false;
+      if (params.tools === undefined && params.toolChoice === undefined) return true;
+      return Object.hasOwn(sampling, 'tools') && record(sampling.tools);
     }
     case 'elicitation/create': {
       const elicitation = capabilities.elicitation;
       if (!Object.hasOwn(capabilities, 'elicitation') || !record(elicitation)) return false;
       if (params.mode === 'url') return Object.hasOwn(elicitation, 'url') && record(elicitation.url);
       if (params.mode !== undefined && params.mode !== 'form') return false;
-      return (
-        (Object.hasOwn(elicitation, 'form') && record(elicitation.form)) ||
-        (!Object.hasOwn(elicitation, 'form') && !Object.hasOwn(elicitation, 'url'))
-      );
+      if (Object.hasOwn(elicitation, 'form')) return record(elicitation.form);
+      return !Object.hasOwn(elicitation, 'url');
     }
     default:
       return false;

@@ -227,7 +227,7 @@ async function dispatchGateway(
         reject(
           typeof error === 'object' && error !== null && 'kind' in error
             ? gatewayFailureError(error as GatewayFailure)
-            : error,
+            : gatewayFailureError(gatewayFailureFromUnknown(error)),
         );
       });
     });
@@ -381,6 +381,7 @@ export function setupModernHttpRoutes(
                   stripInboundRequestMeta(message.params),
                   getAuthInfo(res),
                   capabilities,
+                  context.mcpReq.signal,
                 );
                 const requestState = context.mcpReq.requestState();
                 if (requestState !== undefined) {
@@ -401,6 +402,7 @@ export function setupModernHttpRoutes(
                             stripInboundRequestMeta(message.params),
                             getAuthInfo(res),
                             capabilities,
+                            context.mcpReq.signal,
                           ),
                         ) &&
                       (await revalidateAuthInfo(getAuthInfo(res))) &&
@@ -409,7 +411,7 @@ export function setupModernHttpRoutes(
                 }
                 const deadline = Date.now() + requestTimeoutMs;
                 if (binding) {
-                  const verifyBinding = async () => {
+                  const verifyBinding = async (signal: AbortSignal) => {
                     const current = await createModernInteractionBinding(
                       serverManager,
                       config,
@@ -417,6 +419,7 @@ export function setupModernHttpRoutes(
                       stripInboundRequestMeta(message.params),
                       getAuthInfo(res),
                       capabilities,
+                      signal,
                     );
                     if (JSON.stringify(current) !== JSON.stringify(binding)) {
                       interactions.invalidate(binding);
@@ -429,11 +432,11 @@ export function setupModernHttpRoutes(
                     async (interaction, signal, interactionRound) => {
                       const unwatch = watchModernInteractionBinding(binding, () => interactions.invalidate(binding));
                       try {
-                        await verifyBinding();
+                        await verifyBinding(signal);
                         return await withModernInteractionBinding(binding, () =>
                           withNativeInteractionRound(
                             async (inputs) => {
-                              await verifyBinding();
+                              await verifyBinding(signal);
                               if (
                                 !Object.values(inputs).every((input) => hasInteractionCapability(capabilities, input))
                               )
@@ -453,7 +456,7 @@ export function setupModernHttpRoutes(
                                   capabilities: toImmutableJsonValue(capabilities),
                                   logLevel,
                                   interaction: async (input) => {
-                                    await verifyBinding();
+                                    await verifyBinding(signal);
                                     if (!hasInteractionCapability(capabilities, input))
                                       throw new ProtocolError(-32021, 'Interaction capability required');
                                     return interaction(input);

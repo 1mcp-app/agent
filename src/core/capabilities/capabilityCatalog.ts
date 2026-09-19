@@ -312,7 +312,12 @@ export class CapabilityCatalog {
     }
 
     try {
-      const tool = await this.deps.schemaCache.getOrLoad(route.connectionKey, route.toolName, this.deps.loadSchema);
+      const tool = await this.deps.schemaCache.getOrLoad(
+        route.connectionKey,
+        route.toolName,
+        this.deps.loadSchema,
+        queryOptions.signal,
+      );
       const contracts = await admitToolSchemas(tool as unknown as Record<string, unknown>, {
         routeKey: JSON.stringify(route),
         generation: this.deps.outboundConnections.get(route.connectionKey)?.adapter.connectionId ?? '',
@@ -429,10 +434,7 @@ export class CapabilityCatalog {
           route,
           refresh,
           error: {
-            type:
-              !error.retryable && (error.phase === 'input' || error.code === 'schema_input_invalid')
-                ? 'validation'
-                : 'upstream',
+            type: !error.retryable && error.phase === 'input' ? 'validation' : 'upstream',
             message: error.code,
           },
         };

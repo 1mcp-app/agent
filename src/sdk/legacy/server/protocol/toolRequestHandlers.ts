@@ -162,21 +162,27 @@ export function registerToolHandlers(
       const disabled = getDisabledSourceToolError(getConfiguredServerTargets(), route.server, route.upstreamIdentity);
       if (disabled) return structuredToolResult({ error: disabled });
       return finish(
-        await withPrivateInteractionConnection(connection, inboundConn, extra, resolved.entry, (selected) => {
-          validateOutput.assertCurrent();
-          const selectedAdapter = selected.adapter;
-          return executeWithPostAuthOAuthRecovery(route.server, selected, () =>
-            requestLegacyAdapter(
-              selectedAdapter,
-              'tools/call',
-              toJsonValue({
-                name: route.upstreamIdentity,
-                ...(request.params.arguments === undefined ? {} : { arguments: request.params.arguments }),
-              }),
-              { signal: extra?.signal, timeoutMs: selected.requestTimeoutMs },
-            ),
-          );
-        }),
+        await withPrivateInteractionConnection(
+          connection,
+          inboundConn,
+          extra,
+          resolved.entry,
+          (selected) => {
+            const selectedAdapter = selected.adapter;
+            return executeWithPostAuthOAuthRecovery(route.server, selected, () =>
+              requestLegacyAdapter(
+                selectedAdapter,
+                'tools/call',
+                toJsonValue({
+                  name: route.upstreamIdentity,
+                  ...(request.params.arguments === undefined ? {} : { arguments: request.params.arguments }),
+                }),
+                { signal: extra?.signal, timeoutMs: selected.requestTimeoutMs },
+              ),
+            );
+          },
+          validateOutput.assertCurrent,
+        ),
       );
     }, 'Error calling tool'),
   );

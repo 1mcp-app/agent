@@ -12,6 +12,21 @@ const binding = {
 };
 
 describe('shared interaction schema boundary', () => {
+  it('passes cancellation through the shared request and response schema boundary', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const request = {
+      method: 'elicitation/create' as const,
+      params: { message: 'Name', requestedSchema: { type: 'object', properties: {} } },
+    };
+    await expect(validateInteractionRequest(request, binding, controller.signal)).rejects.toThrow(
+      'schema_evaluation_unavailable',
+    );
+    await expect(
+      validateInteractionResponse(request, { action: 'decline' }, binding, controller.signal),
+    ).rejects.toThrow('schema_evaluation_unavailable');
+  });
+
   it('admits a form before presentation and rejects nested objects and unresolved refs', async () => {
     await expect(
       validateInteractionRequest(

@@ -17,6 +17,7 @@ interface Flow {
     requests: GatewayInteractionRound;
     responses: Readonly<Record<string, ImmutableJsonValue>>;
     token: string;
+    resuming?: boolean;
   };
   deliver?: (result: Result) => void;
   ready?: Result;
@@ -32,8 +33,13 @@ export interface InteractionBrokerOptions {
     request: GatewayInteractionRequest,
     response: unknown,
     binding: InteractionBinding,
+    signal?: AbortSignal,
   ) => Promise<void>;
-  readonly validateRequest?: (request: GatewayInteractionRequest, binding: InteractionBinding) => Promise<void>;
+  readonly validateRequest?: (
+    request: GatewayInteractionRequest,
+    binding: InteractionBinding,
+    signal?: AbortSignal,
+  ) => Promise<void>;
   readonly authorize: (binding: InteractionBinding, request?: GatewayInteractionRequest) => boolean;
 }
 
@@ -118,70 +124,72 @@ export class InteractionBroker {
     if (
       !flow ||
       !current ||
+      current.resuming ||
       !Object.values(current.requests).every((request) => this.options.authorize(binding, request)) ||
       JSON.stringify(flow.binding) !== JSON.stringify(binding)
     )
       throw rejected();
-    if (!responses || typeof responses !== 'object' || Array.isArray(responses)) throw rejected();
-    const record = captureJson(responses, false).value as Record<string, ImmutableJsonValue>;
-    const accepted: Record<string, ImmutableJsonValue> = {
-      ...current.responses,
-    };
-    for (const [key, request] of Object.entries(current.requests)) {
-      if (Object.hasOwn(current.responses, key) || !Object.hasOwn(record, key)) continue;
-      await this.options.validate(request, record[key], binding);
-      Object.defineProperty(accepted, key, {
-        value: record[key],
-        enumerable: true,
-        configurable: true,
-      });
-    }
-    const combined = captureJson(accepted, false).value as Readonly<Record<string, ImmutableJsonValue>>;
-    callerSignal?.throwIfAborted();
-    let allowed = false;
-    try {
-      allowed =
-        (!reauthorize || (await reauthorize())) &&
-        Object.values(current.requests).every((request) => this.options.authorize(binding, request));
-    } catch {
-      allowed = false;
-    }
-    if (!allowed) {
-      this.owner.cancel(flow.id, 'authority_lost');
-      throw rejected();
-    }
-    callerSignal?.throwIfAborted();
-    if (flow.current !== current || this.tokens.get(digest(token)) !== flow) throw rejected();
-    const missing = Object.fromEntries(
-      Object.entries(current.requests).filter(([key]) => !Object.hasOwn(accepted, key)),
-    );
-    if (Object.keys(missing).length > 0) {
-      // Keep valid inputs only within this native round; never send partial responses upstream.
-      const successor = this.owner.rotate(token, binding);
-      this.tokens.delete(digest(token));
-      this.tokens.set(digest(successor), flow);
-      flow.current = {
-        requests: current.requests,
-        responses: combined,
-        token: digest(successor),
-      };
-      return toImmutableJsonValue({
-        resultType: 'input_required',
-        requestState: successor,
-        inputRequests: missing,
-      });
-    }
-    this.owner.resume(token, binding, combined);
-    this.tokens.delete(digest(token));
-    delete flow.current;
-    flow.reserved = flow.queue.length > 0;
-    flow.queue.shift()?.();
+    current.resuming = true;
     const abort = () => this.owner.cancel(flow.id);
     callerSignal?.addEventListener('abort', abort, { once: true });
-    if (callerSignal?.aborted) abort();
     try {
+      if (!responses || typeof responses !== 'object' || Array.isArray(responses)) throw rejected();
+      const record = captureJson(responses, false).value as Record<string, ImmutableJsonValue>;
+      const accepted: Record<string, ImmutableJsonValue> = {
+        ...current.responses,
+      };
+      for (const [key, request] of Object.entries(current.requests)) {
+        if (Object.hasOwn(current.responses, key) || !Object.hasOwn(record, key)) continue;
+        await this.options.validate(request, record[key], binding, flow.signal);
+        Object.defineProperty(accepted, key, {
+          value: record[key],
+          enumerable: true,
+          configurable: true,
+        });
+      }
+      const combined = captureJson(accepted, false).value as Readonly<Record<string, ImmutableJsonValue>>;
+      callerSignal?.throwIfAborted();
+      let allowed = false;
+      try {
+        allowed =
+          (!reauthorize || (await reauthorize())) &&
+          Object.values(current.requests).every((request) => this.options.authorize(binding, request));
+      } catch {
+        allowed = false;
+      }
+      if (!allowed) {
+        this.owner.cancel(flow.id, 'authority_lost');
+        throw rejected();
+      }
+      callerSignal?.throwIfAborted();
+      if (flow.current !== current || this.tokens.get(digest(token)) !== flow) throw rejected();
+      const missing = Object.fromEntries(
+        Object.entries(current.requests).filter(([key]) => !Object.hasOwn(accepted, key)),
+      );
+      if (Object.keys(missing).length > 0) {
+        // Keep valid inputs only within this native round; never send partial responses upstream.
+        const successor = this.owner.rotate(token, binding);
+        this.tokens.delete(digest(token));
+        this.tokens.set(digest(successor), flow);
+        flow.current = {
+          requests: current.requests,
+          responses: combined,
+          token: digest(successor),
+        };
+        return toImmutableJsonValue({
+          resultType: 'input_required',
+          requestState: successor,
+          inputRequests: missing,
+        });
+      }
+      this.owner.resume(token, binding, combined);
+      this.tokens.delete(digest(token));
+      delete flow.current;
+      flow.reserved = flow.queue.length > 0;
+      flow.queue.shift()?.();
       return await this.next(flow);
     } finally {
+      current.resuming = false;
       callerSignal?.removeEventListener('abort', abort);
     }
   }
@@ -239,7 +247,7 @@ export class InteractionBroker {
       flow.signal.throwIfAborted();
       flow.reserved = true;
       try {
-        for (const [, request] of entries) await this.options.validateRequest?.(request, flow.binding);
+        for (const [, request] of entries) await this.options.validateRequest?.(request, flow.binding, flow.signal);
       } catch (error) {
         this.owner.cancel(flow.id, 'response_invalid');
         throw error;

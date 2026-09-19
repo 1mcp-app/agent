@@ -1,8 +1,11 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
 import type { OutboundConnections } from '@src/core/types/index.js';
+import { schemaBoundary } from '@src/core/validation/schemaBoundary.js';
 
+import { CapabilityCursorCapacityError } from './capabilityPagination.js';
 import { createCapabilityVisibility } from './capabilityVisibility.js';
+import { readConfiguredToolSnapshot } from './configuredToolSnapshot.js';
 import { acquireRuntimeCapabilityCatalog, evictRuntimeCapabilityCatalogSession } from './runtimeCapabilityCatalog.js';
 
 const tool = (name: string) => ({ name, inputSchema: { type: 'object' } });
@@ -20,6 +23,64 @@ function fixture(
 }
 
 describe('runtime capability catalog', () => {
+  it.each(['reject', 'resolve'] as const)('preserves published tools when a cancelled refresh %ss', async (outcome) => {
+    const connection = fixture();
+    const connections = new Map([['server', connection]]);
+    const snapshot = await acquireRuntimeCapabilityCatalog(connections);
+    const published = readConfiguredToolSnapshot(connection);
+    const controller = new AbortController();
+    let finish!: () => void;
+    vi.mocked(connection.adapter.request).mockImplementationOnce(
+      () =>
+        new Promise((resolve, reject) => {
+          finish = () => {
+            if (outcome === 'reject') reject(new Error('Request cancelled'));
+            else resolve({ tools: [] } as never);
+          };
+        }),
+    );
+    const refresh = acquireRuntimeCapabilityCatalog(connections, undefined, { signal: controller.signal });
+    const reason = new Error('caller cancelled');
+    controller.abort(reason);
+    finish();
+    await expect(refresh).rejects.toBe(reason);
+    expect(readConfiguredToolSnapshot(connection)).toBe(published);
+    expect(snapshot.resolve('tools', 'server_1mcp_echo')).toBeDefined();
+    const validate = await snapshot.prepareToolCall('server_1mcp_echo', {});
+    await expect(validate({ content: [] })).resolves.toBeUndefined();
+  });
+
+  it.each(['echo', 'replacement'])(
+    'retains inventory but respects observed %s contract after admission cancellation',
+    async (observedName) => {
+      const connection = fixture();
+      const connections = new Map([['server', connection]]);
+      const snapshot = await acquireRuntimeCapabilityCatalog(connections);
+      const published = readConfiguredToolSnapshot(connection);
+      vi.mocked(connection.adapter.request).mockResolvedValueOnce({ tools: [tool(observedName)] } as never);
+      const controller = new AbortController();
+      const reason = new Error('cancel during admission');
+      const admission = vi.spyOn(schemaBoundary, 'admit').mockImplementationOnce(async () => {
+        controller.abort(reason);
+        throw reason;
+      });
+      try {
+        await expect(
+          acquireRuntimeCapabilityCatalog(connections, undefined, { signal: controller.signal }),
+        ).rejects.toBe(reason);
+      } finally {
+        admission.mockRestore();
+      }
+      expect(readConfiguredToolSnapshot(connection)).toBe(published);
+      if (observedName === 'replacement') {
+        await expect(snapshot.prepareToolCall('server_1mcp_echo', {})).rejects.toThrow('schema_invalid');
+        return;
+      }
+      const validate = await snapshot.prepareToolCall('server_1mcp_echo', {});
+      await expect(validate({ content: [] })).resolves.toBeUndefined();
+    },
+  );
+
   it('keeps identical external contracts callable across concurrent publications', async () => {
     const connection = fixture();
     const connections = new Map([['server', connection]]);
@@ -420,5 +481,56 @@ describe('runtime capability catalog', () => {
     const first = await snapshot.list<{ name: string }>('tools', { enablePagination: true });
     const second = await snapshot.list<{ name: string }>('tools', { enablePagination: true, cursor: first.nextCursor });
     expect([...first.items, ...second.items].map((item) => item.name)).toEqual(['server_1mcp_a', 'server_1mcp_z']);
+  });
+
+  it.each([true, false])(
+    'retains healthy internal tools after an upstream cursor loop with pagination=%s',
+    async (enablePagination) => {
+      const connection = fixture('a', (_method, params) => ({
+        tools: [tool((params as { cursor?: string })?.cursor === undefined ? 'z' : 'a')],
+        nextCursor: 'loop',
+      }));
+      const snapshot = await acquireRuntimeCapabilityCatalog(new Map([['a', connection]]), undefined, {
+        unprefixedTools: [{ name: 'tool_list', inputSchema: { type: 'object' } }],
+      });
+      const names: string[] = [];
+      let cursor: string | undefined;
+      let pages = 0;
+      do {
+        const result = await snapshot.list<{ name: string }>('tools', { enablePagination, cursor });
+        names.push(...result.items.map((item) => item.name));
+        expect(result._meta).toMatchObject({
+          'app.1mcp/capability-pagination': { partial: true, failedSourceCount: 1 },
+        });
+        cursor = result.nextCursor;
+        expect(++pages).toBeLessThanOrEqual(3);
+      } while (cursor !== undefined);
+      expect(names).toEqual(['a_1mcp_a', 'a_1mcp_z', 'tool_list']);
+      expect(connection.adapter.request).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it('bounds concurrent acquisitions of one scope and releases admission after completion', async () => {
+    let finish!: (value: unknown) => void;
+    const pending = new Promise((resolve) => {
+      finish = resolve;
+    });
+    const connection = fixture('server', () => pending);
+    const connections = new Map([['server', connection]]);
+    // An early rejection must also release admission.
+    await expect(
+      acquireRuntimeCapabilityCatalog(connections, undefined, {
+        serverConfigs: { bad: { unsupported: () => {} } } as never,
+      }),
+    ).rejects.toThrow();
+    const acquisitions = Array.from({ length: 256 }, () => acquireRuntimeCapabilityCatalog(connections));
+    try {
+      await expect(acquireRuntimeCapabilityCatalog(connections)).rejects.toBeInstanceOf(CapabilityCursorCapacityError);
+      expect(connection.adapter.request).toHaveBeenCalledTimes(256);
+    } finally {
+      finish({ tools: [] });
+      await Promise.all(acquisitions);
+    }
+    await expect(acquireRuntimeCapabilityCatalog(connections)).resolves.toBeDefined();
   });
 });

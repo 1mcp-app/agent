@@ -16,12 +16,7 @@ const simpleContent = {
 };
 const contentBlock = {
   anyOf: [
-    { type: 'object', required: ['type', 'text'], properties: { type: { const: 'text' }, text: { type: 'string' } } },
-    {
-      type: 'object',
-      required: ['type', 'data', 'mimeType'],
-      properties: { type: { enum: ['image', 'audio'] }, data: { type: 'string' }, mimeType: { type: 'string' } },
-    },
+    ...simpleContent.anyOf,
     {
       type: 'object',
       required: ['type', 'id', 'name', 'input'],
@@ -82,8 +77,9 @@ export async function validateInteractionResponse(
   request: GatewayInteractionRequest,
   response: unknown,
   binding: InteractionBinding,
+  signal?: AbortSignal,
 ): Promise<void> {
-  const scope = { routeKey: binding.route, generation: binding.generation, profile: 'interaction' as const };
+  const scope = { routeKey: binding.route, generation: binding.generation, profile: 'interaction' as const, signal };
   const contract = await schemaBoundary.admit(responseSchemas[request.method], scope);
   await schemaBoundary.evaluate(contract, response, scope);
   const value = response as Record<string, unknown>;
@@ -116,8 +112,9 @@ export async function validateInteractionResponse(
 export async function validateInteractionRequest(
   request: GatewayInteractionRequest,
   binding: InteractionBinding,
+  signal?: AbortSignal,
 ): Promise<void> {
-  const scope = { routeKey: binding.route, generation: binding.generation, profile: 'interaction' as const };
+  const scope = { routeKey: binding.route, generation: binding.generation, profile: 'interaction' as const, signal };
   const params = request.params as Record<string, unknown> | undefined;
   if (request.method === 'roots/list') return;
   const schema =

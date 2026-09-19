@@ -43,16 +43,16 @@ export class TestProcessManager extends EventEmitter {
     };
 
     this.processes.set(id, processInfo);
-      const tail: string[] = this.outputTails.get(id) ?? [];
-      this.outputTails.set(id, tail);
-      childProcess.stdout?.on('data', (data) => {
-        tail.push(String(data));
-        if (tail.length > 40) tail.shift();
-      });
-      childProcess.stderr?.on('data', (data) => {
-        tail.push('stderr: ' + String(data));
-        if (tail.length > 40) tail.shift();
-      });
+    const tail: string[] = this.outputTails.get(id) ?? [];
+    this.outputTails.set(id, tail);
+    childProcess.stdout?.on('data', (data) => {
+      tail.push(String(data));
+      if (tail.length > 40) tail.shift();
+    });
+    childProcess.stderr?.on('data', (data) => {
+      tail.push('stderr: ' + String(data));
+      if (tail.length > 40) tail.shift();
+    });
 
     // Set up event handlers
     childProcess.on('error', (error) => {

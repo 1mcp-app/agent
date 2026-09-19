@@ -67,12 +67,15 @@ function buildSEA() {
       { stdio: 'inherit' },
     );
 
-    const schemaWorkerSource = fs
-      .readFileSync('build/core/validation/schemaWorker.js', 'utf8')
-      .replace(
-        /createRequire\(import.meta.url\)\('ajv\/dist\/refs\/json-schema-draft-06.json'\)/,
-        JSON.stringify(require('ajv/dist/refs/json-schema-draft-06.json')),
-      );
+    const draft06Pattern = /createRequire\(import\.meta\.url\)\('ajv\/dist\/refs\/json-schema-draft-06\.json'\)/;
+    const rawSchemaWorkerSource = fs.readFileSync('build/core/validation/schemaWorker.js', 'utf8');
+    if (!draft06Pattern.test(rawSchemaWorkerSource)) {
+      throw new Error('schemaWorker.js no longer contains the expected draft-06 createRequire call');
+    }
+    const schemaWorkerSource = rawSchemaWorkerSource.replace(
+      draft06Pattern,
+      JSON.stringify(require('ajv/dist/refs/json-schema-draft-06.json')),
+    );
     const schemaWorkerBundle = require('esbuild').buildSync({
       stdin: { contents: schemaWorkerSource, resolveDir: process.cwd(), loader: 'js' },
       bundle: true,
