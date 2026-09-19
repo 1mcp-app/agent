@@ -640,6 +640,50 @@ describe('ClientManager (Integration)', () => {
       expect(recreatedTransport).toBeInstanceOf(SSEClientTransport);
     });
 
+    it('also recovers the "Unknown Mcp-Session-Id header" body a Streamable HTTP backend returns for an unrecognised session', async () => {
+      vi.useRealTimers();
+
+      const originalTransport = {
+        _url: new URL('https://example.com/mcp'),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AuthProviderTransport;
+      Object.setPrototypeOf(originalTransport, StreamableHTTPClientTransport.prototype);
+
+      const freshTransport = {
+        _url: new URL('https://example.com/mcp'),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AuthProviderTransport;
+      Object.setPrototypeOf(freshTransport, StreamableHTTPClientTransport.prototype);
+
+      (mockClient.connect as unknown as MockInstance).mockResolvedValue(undefined);
+      (mockClient.getServerVersion as unknown as MockInstance).mockResolvedValue({
+        name: 'test-server',
+        version: '1.0.0',
+      });
+
+      const recreateForSessionLoss = vi
+        .spyOn((clientManager as any).transportRecreator, 'recreateForSessionLoss')
+        .mockReturnValue(freshTransport);
+
+      await clientManager.createSingleClient('unknown-session-client', originalTransport);
+      expect(clientManager.getTransport('unknown-session-client')).toBe(originalTransport);
+
+      const registeredClient = getLegacyClient(clientManager.getClient('unknown-session-client'));
+      registeredClient.onerror?.(
+        new Error(
+          'SdkHttpError: Error POSTing to endpoint: ' +
+            '{"jsonrpc":"2.0","error":{"code":-32000,"message":"Not Found: Unknown Mcp-Session-Id header"},"id":null}',
+        ),
+      );
+
+      await vi.waitFor(() => {
+        expect(clientManager.getTransport('unknown-session-client')).toBe(freshTransport);
+      });
+
+      expect(recreateForSessionLoss).toHaveBeenCalledWith(originalTransport, 'unknown-session-client');
+      expect(clientManager.getClient('unknown-session-client').status).toBe(ClientStatus.Connected);
+    });
+
     it('ignores unrelated client errors', async () => {
       vi.useRealTimers();
 
@@ -664,6 +708,47 @@ describe('ClientManager (Integration)', () => {
       await Promise.resolve();
       expect(recreateForSessionLoss).not.toHaveBeenCalled();
       expect(clientManager.getTransport('unrelated-error-client')).toBe(originalTransport);
+    });
+
+    // Widening SESSION_LOST_PATTERN must not turn other refusals into spurious
+    // reconnects. The two session wordings below matter most: the request
+    // never carried a session at all, so reconnecting cannot help — that is
+    // why the new alternative keys off "unknown" instead of a bare
+    // "mcp-session-id".
+    it.each([
+      ['a MISSING session header', 'Bad Request: Missing Mcp-Session-Id header'],
+      ['a REQUIRED session header', 'Bad Request: Mcp-Session-Id header is required'],
+      ['invalid params', 'Invalid params'],
+      ['a refused connection', 'connect ECONNREFUSED 127.0.0.1:1'],
+      ['an upstream EOF', 'upstream HTTP EOF'],
+    ])('leaves the backend alone when a request is refused for %s', async (_label, detail) => {
+      vi.useRealTimers();
+
+      const originalTransport = {
+        _url: new URL('https://example.com/mcp'),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AuthProviderTransport;
+      Object.setPrototypeOf(originalTransport, StreamableHTTPClientTransport.prototype);
+
+      (mockClient.connect as unknown as MockInstance).mockResolvedValue(undefined);
+      (mockClient.getServerVersion as unknown as MockInstance).mockResolvedValue({
+        name: 'test-server',
+        version: '1.0.0',
+      });
+
+      const recreateForSessionLoss = vi.spyOn((clientManager as any).transportRecreator, 'recreateForSessionLoss');
+
+      await clientManager.createSingleClient('refused-client', originalTransport);
+      const registeredClient = getLegacyClient(clientManager.getClient('refused-client'));
+      registeredClient.onerror?.(
+        new Error(
+          `SdkHttpError: Error POSTing to endpoint: {"jsonrpc":"2.0","error":{"code":-32600,"message":"${detail}"},"id":null}`,
+        ),
+      );
+
+      await Promise.resolve();
+      expect(recreateForSessionLoss).not.toHaveBeenCalled();
+      expect(clientManager.getTransport('refused-client')).toBe(originalTransport);
     });
 
     it('does not let a recreation failure escape onerror for a non-HTTP/SSE transport', async () => {
