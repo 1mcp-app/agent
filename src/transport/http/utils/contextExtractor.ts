@@ -1,6 +1,10 @@
+import { isDeepStrictEqual } from 'node:util';
+
 import type { TemplateContextProof } from '@src/core/context/templateContextTrust.js';
 import logger from '@src/logger/logger.js';
+import { ErrorCode } from '@src/sdk/contracts/index.js';
 import type { ContextData } from '@src/types/context.js';
+import { MCPError } from '@src/utils/core/errorTypes.js';
 
 import type { Request } from 'express';
 import { z } from 'zod';
@@ -178,10 +182,12 @@ export function extractContextFromQuery(req: Request): ContextData | null {
 }
 
 export function extractRequestContext(req: Request): ContextData | null {
+  assertConsistentContext(req);
   return (extractContextFromMeta(req) as ContextData | null) ?? extractContextFromQuery(req);
 }
 
 export function extractTemplateContextRequest(req: Request): ExtractedTemplateContextRequest | null {
+  assertConsistentContext(req);
   const metaContext = extractContextFromMeta(req) as ContextData | null;
   if (metaContext) {
     return {
@@ -228,4 +234,30 @@ function extractProofFromQuery(req: Request): TemplateContextProof | null {
 
 function isTemplateContextProof(value: unknown): value is TemplateContextProof {
   return templateContextProofSchema.safeParse(value).success;
+}
+
+function assertConsistentContext(req: Request): void {
+  const body = req.body as
+    | {
+        _meta?: { context?: unknown; contextProof?: unknown };
+        params?: { _meta?: { context?: unknown; contextProof?: unknown } };
+      }
+    | undefined;
+  for (const key of ['context', 'contextProof'] as const) {
+    const values: unknown[] = [];
+    if (body?._meta?.[key] !== undefined) values.push(body._meta[key]);
+    if (body?.params?._meta?.[key] !== undefined) values.push(body.params._meta[key]);
+    const query = req.query?.[key];
+    if (query !== undefined) {
+      try {
+        if (typeof query !== 'string' || query.length > 65536) throw new Error();
+        values.push(JSON.parse(Buffer.from(query, 'base64url').toString('utf8')));
+      } catch {
+        throw new MCPError('Invalid request context', ErrorCode.InvalidParams);
+      }
+    }
+    if (values.length > 1 && values.slice(1).some((value) => !isDeepStrictEqual(value, values[0]))) {
+      throw new MCPError('Conflicting request context', ErrorCode.InvalidParams);
+    }
+  }
 }

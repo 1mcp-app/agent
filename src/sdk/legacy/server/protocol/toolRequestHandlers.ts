@@ -101,8 +101,8 @@ export function registerToolHandlers(
       const connection = resolved.connection;
       return executeWithPostAuthOAuthRecovery(route.server, connection, () =>
         requestLegacyOutbound(connection, 'tools/call', {
-          ...request.params,
           name: route.upstreamIdentity,
+          ...(request.params.arguments === undefined ? {} : { arguments: request.params.arguments }),
         }),
       );
     }, 'Error calling tool'),
@@ -110,5 +110,10 @@ export function registerToolHandlers(
 }
 
 function structuredToolResult(result: unknown) {
-  return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }], structuredContent: result };
+  const isError = result !== null && typeof result === 'object' && 'error' in result && result.error !== undefined;
+  return {
+    content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+    structuredContent: result,
+    ...(isError ? { isError: true } : {}),
+  };
 }

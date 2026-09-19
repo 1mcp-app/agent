@@ -9,7 +9,9 @@ const recoveries = new WeakMap<OutboundConnection, Promise<void>>();
 
 export function isPostAuthUnauthorized(error: unknown): error is OneMcpProtocolError {
   return (
-    error instanceof OneMcpProtocolError && error.code === 401 && error.message.includes(POST_AUTH_UNAUTHORIZED_MESSAGE)
+    error instanceof OneMcpProtocolError &&
+    error.code === 401 &&
+    (error.message.includes(POST_AUTH_UNAUTHORIZED_MESSAGE) || error.message === 'Gateway transport failure')
   );
 }
 

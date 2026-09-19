@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 import {
   authorityAllows,
   createGatewayFailure,
@@ -15,7 +17,10 @@ import type { OutboundEraAdapter, OutboundGatewayRequest } from '../ports/index.
 export interface GatewayDispatcherDependencies {
   resolveOutbound(connectionId: string): OutboundEraAdapter | undefined;
   now?: () => number;
+  maxActiveRequests?: number;
 }
+
+const maxActiveRequestsSchema = z.number().finite().int().positive().max(Number.MAX_SAFE_INTEGER).default(256);
 
 function pinsEqual(left: ProtocolEraPin, right: ProtocolEraPin): boolean {
   return left.era === right.era && left.revision === right.revision;
@@ -23,19 +28,32 @@ function pinsEqual(left: ProtocolEraPin, right: ProtocolEraPin): boolean {
 
 export class GatewayDispatcher {
   private readonly active = new Map<string, OutboundEraAdapter>();
+  private readonly dispatched = new WeakSet<GatewayRequestEnvelope>();
   private readonly now: () => number;
+  private readonly maxActiveRequests: number;
 
   constructor(private readonly dependencies: GatewayDispatcherDependencies) {
     this.now = dependencies.now ?? Date.now;
+    this.maxActiveRequests = maxActiveRequestsSchema.parse(dependencies.maxActiveRequests);
   }
 
   async dispatch(request: GatewayRequestEnvelope): Promise<GatewayResult<ImmutableJsonValue>> {
-    if (this.active.has(request.requestId)) {
+    if (this.active.has(request.requestId) || this.dispatched.has(request)) {
       return gatewayFailure(
         createGatewayFailure({
           kind: 'invalid-request',
           code: 'gateway_request_already_active',
-          message: 'The gateway request id is already active',
+          message: 'The gateway request id has already been dispatched',
+        }),
+      );
+    }
+    // Completed operation ownership follows the envelope lifetime, not reusable wire request IDs.
+    if (this.active.size >= this.maxActiveRequests) {
+      return gatewayFailure(
+        createGatewayFailure({
+          kind: 'transport',
+          code: 'gateway_overloaded',
+          message: 'Gateway request capacity exceeded',
         }),
       );
     }
@@ -86,10 +104,20 @@ export class GatewayDispatcher {
       deadlineUnixMs: request.deadlineUnixMs,
     });
     this.active.set(request.requestId, outbound);
+    this.dispatched.add(request);
     try {
       return gatewaySuccess(toImmutableJsonValue(await outbound.request(outboundRequest)));
     } catch (error) {
-      return gatewayFailure(gatewayFailureFromUnknown(error, 'transport'));
+      const failure = gatewayFailureFromUnknown(error, 'transport');
+      return gatewayFailure(
+        request.operation === 'tools/call' && failure.kind === 'transport'
+          ? createGatewayFailure({
+              kind: 'transport',
+              code: 'gateway_tool_outcome_unknown',
+              message: 'Tool execution may have occurred; the outcome is unknown',
+            })
+          : failure,
+      );
     } finally {
       if (this.active.get(request.requestId) === outbound) this.active.delete(request.requestId);
     }

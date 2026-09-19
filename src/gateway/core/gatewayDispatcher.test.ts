@@ -48,6 +48,10 @@ function request(
 }
 
 describe('GatewayDispatcher', () => {
+  it.each([NaN, Infinity, 0, -1, 1.5])('rejects invalid active request capacity %s', (maxActiveRequests) => {
+    expect(() => new GatewayDispatcher({ resolveOutbound: () => undefined, maxActiveRequests })).toThrow();
+  });
+
   it('dispatches a frozen read-only request without extending its absolute deadline', async () => {
     const fixture = adapter(Object.freeze({ era: 'modern', revision: '2026-07-28' }));
     const dispatcher = new GatewayDispatcher({ resolveOutbound: () => fixture.port, now: () => 1_000 });
@@ -107,7 +111,7 @@ describe('GatewayDispatcher', () => {
     const result = await dispatcher.dispatch(request(fixture.port.pin));
     expect(result).toEqual({
       ok: false,
-      failure: { kind: 'transport', code: '-32601', message: 'foreign', data: { safe: true } },
+      failure: { kind: 'transport', code: '-32601', message: 'Gateway transport failure' },
     });
     if (!result.ok) expect(Object.getPrototypeOf(result.failure)).toBe(Object.prototype);
   });
@@ -144,7 +148,7 @@ describe('GatewayDispatcher', () => {
 
     await expect(dispatcher.dispatch(request(fixture.port.pin))).resolves.toEqual({
       ok: false,
-      failure: { kind: 'transport', code: 'foreign', message: 'Unknown gateway failure' },
+      failure: { kind: 'transport', code: 'gateway_transport_error', message: 'Gateway transport failure' },
     });
   });
 
@@ -170,5 +174,60 @@ describe('GatewayDispatcher', () => {
     await pending;
     expect(first.cancellations).toEqual(['request-1']);
     expect(second.requests).toHaveLength(0);
+  });
+});
+
+describe('Tool dispatch ownership', () => {
+  const pins: ProtocolEraPin[] = [
+    { era: 'legacy', revision: '2025-11-25' },
+    { era: 'modern', revision: '2026-07-28' },
+  ];
+  for (const inbound of pins)
+    for (const outbound of pins) {
+      it(`${inbound.era} -> ${outbound.era} never repeats an interrupted operation`, async () => {
+        let sideEffects = 0;
+        const fixture = adapter(outbound);
+        fixture.port.request = vi.fn(async () => {
+          sideEffects++;
+          throw new Error('secret argument and credential');
+        });
+        const dispatcher = new GatewayDispatcher({ resolveOutbound: () => fixture.port, now: () => 1000 });
+        const operation = request(outbound, { inbound, operation: 'tools/call' });
+        await expect(dispatcher.dispatch(operation)).resolves.toMatchObject({
+          ok: false,
+          failure: { code: 'gateway_tool_outcome_unknown' },
+        });
+        await expect(dispatcher.dispatch(operation)).resolves.toMatchObject({
+          ok: false,
+          failure: { code: 'gateway_request_already_active' },
+        });
+        expect(sideEffects).toBe(1);
+        // A new operation may reuse the completed wire ID.
+        await dispatcher.dispatch(request(outbound, { inbound, operation: 'tools/call' }));
+        expect(sideEffects).toBe(2);
+      });
+    }
+  it('allows retry only when no outbound adapter was invoked and bounds active operations', async () => {
+    const fixture = adapter(pins[0]);
+    let ready = false;
+    const dispatcher = new GatewayDispatcher({
+      resolveOutbound: () => (ready ? fixture.port : undefined),
+      now: () => 1000,
+      maxActiveRequests: 1,
+    });
+    const operation = request(pins[0], { params: 'pending' });
+    await expect(dispatcher.dispatch(operation)).resolves.toMatchObject({
+      ok: false,
+      failure: { code: 'gateway_target_unavailable' },
+    });
+    ready = true;
+    const pending = dispatcher.dispatch(operation);
+    await expect(dispatcher.dispatch(request(pins[0], { requestId: 'second' }))).resolves.toMatchObject({
+      ok: false,
+      failure: { code: 'gateway_overloaded' },
+    });
+    expect(fixture.requests).toHaveLength(1);
+    await dispatcher.cancel(operation.requestId);
+    await pending;
   });
 });

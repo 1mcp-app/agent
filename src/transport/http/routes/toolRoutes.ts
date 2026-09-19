@@ -15,6 +15,11 @@ import { createConnectionResolver, type TemplateHashProvider } from '@src/core/s
 import { getDisabledToolError } from '@src/core/server/disabledTools.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
+import {
+  createGatewayFailure,
+  gatewayFailureFromUnknown,
+  gatewayFailureToProblem,
+} from '@src/gateway/contracts/gatewayFailure.js';
 import logger from '@src/logger/logger.js';
 import { CONTEXT_HEADERS } from '@src/transport/http/utils/contextExtractor.js';
 
@@ -108,7 +113,7 @@ async function createFallbackCapabilityCatalog(
         ...(result.tools ?? []).map((tool) => ({ tool, server: logicalServerName, connectionKey, tags })),
       );
     } catch (err) {
-      logger.error(`Failed to list tools for ${connectionKey}:`, err);
+      logger.error('Failed to list tools', { failure: gatewayFailureFromUnknown(err, 'transport') });
       degradedServers.push(connectionKey);
     }
   }
@@ -218,14 +223,19 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
       )) as ToolListOutput;
 
       if (result.error) {
-        const status = result.error.type === 'validation' ? 400 : result.error.type === 'not_found' ? 404 : 500;
+        let status = 500;
+        if (result.error.type === 'validation') {
+          status = 400;
+        } else if (result.error.type === 'not_found') {
+          status = 404;
+        }
         res.status(status).json({ error: result.error.message });
         return;
       }
 
       res.json(result);
     } catch (error) {
-      logger.error('API tools handler error:', error);
+      logger.error('API tools handler error', { failure: gatewayFailureFromUnknown(error) });
       res.status(500).json({ error: 'Internal server error' });
     }
   };
@@ -315,9 +325,11 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           });
           res.json({ result: upstreamResult, server: target.serverName, tool: target.toolName });
         } catch (error) {
-          logger.error('Direct tool invocation error:', error);
-          const message = error instanceof Error ? error.message : typeof error === 'string' ? error : 'Upstream error';
-          res.status(502).json({ error: `Upstream error: ${message}` });
+          const failure = gatewayFailureFromUnknown(error, 'transport');
+          logger.error('Direct tool invocation error', { failure });
+          const problem = gatewayFailureToProblem(failure);
+          res.setHeader('Content-Type', 'application/problem+json');
+          res.status(problem.status).json(problem);
         }
         return;
       }
@@ -346,10 +358,34 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           res.json({ result: catalogResult.result, server: catalogResult.server, tool: catalogResult.tool });
           return;
         }
-        if (catalogResult.error.message.includes('Tool is disabled')) {
-          res.status(404).json({ error: catalogResult.error.message });
-          return;
+        // The catalog may already have executed the Tool. A fallback would duplicate side effects.
+        let status = 500;
+        if (catalogResult.error.type === 'validation') {
+          status = 400;
+        } else if (catalogResult.error.type === 'not_found') {
+          status = 404;
+        } else if (catalogResult.error.type === 'upstream') {
+          status = 502;
         }
+        let kind: 'invalid-request' | 'transport' | 'internal' = 'internal';
+        if (catalogResult.error.type === 'validation') {
+          kind = 'invalid-request';
+        } else if (catalogResult.error.type === 'upstream') {
+          kind = 'transport';
+        }
+        const problem = gatewayFailureToProblem(
+          createGatewayFailure({
+            kind,
+            code: `gateway_${catalogResult.error.type}`,
+            message:
+              catalogResult.error.type === 'upstream'
+                ? 'Tool execution may have occurred; the outcome is unknown'
+                : catalogResult.error.message,
+          }),
+        );
+        res.setHeader('Content-Type', 'application/problem+json');
+        res.status(status).json({ ...problem, status });
+        return;
       }
 
       const result = (await lazyOrchestrator.callMetaTool(
@@ -381,7 +417,7 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
 
       res.json(result);
     } catch (error) {
-      logger.error('API tool-invocations handler error:', error);
+      logger.error('API tool-invocations handler error', { failure: gatewayFailureFromUnknown(error) });
       res.status(500).json({ error: 'Internal server error' });
     }
   };

@@ -8,6 +8,7 @@ import {
   type OutboundConnection,
   type OutboundConnections,
 } from '@src/core/types/index.js';
+import { gatewayFailureFromUnknown } from '@src/gateway/contracts/gatewayFailure.js';
 import logger from '@src/logger/logger.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
 
@@ -70,7 +71,7 @@ export interface CapabilityCatalogDependencies {
   schemaCache: SchemaCache;
   outboundConnections: OutboundConnections;
   getServerConfigs: () => Record<string, MCPServerParams>;
-  loadSchema?: (server: string, toolName: string) => Promise<Tool>;
+  loadSchema?: (server: string, toolName: string, signal?: AbortSignal) => Promise<Tool>;
   refreshCapabilities?: (input: CapabilityRefreshInput) => Promise<CapabilityRefreshResult | void>;
   defaultVisibility?: CapabilityVisibility;
   templateHashProvider?: TemplateHashProvider;
@@ -266,12 +267,13 @@ export class CapabilityCatalog {
         refresh,
       };
     } catch (error) {
-      logger.error(`Failed to load tool schema from upstream server: ${route.server}:${route.toolName}`, { error });
+      const failure = gatewayFailureFromUnknown(error, 'transport');
+      logger.error('Failed to load upstream tool schema', { failure });
       return {
         schema: {},
         error: {
           type: 'upstream',
-          message: `Failed to load schema from server: ${error}`,
+          message: failure.message,
         },
         refresh,
       };
@@ -322,20 +324,8 @@ export class CapabilityCatalog {
       });
       return { result, server: route.server, tool: route.toolName, route, refresh };
     } catch (error) {
-      logger.error(`Tool invocation failed: ${route.server}:${route.toolName}`, { error });
-      if (error instanceof Error && error.message.includes('not found')) {
-        return {
-          result: {},
-          server: route.server,
-          tool: route.toolName,
-          route,
-          error: {
-            type: 'not_found',
-            message: `Tool not found: ${route.server}:${route.toolName}`,
-          },
-          refresh,
-        };
-      }
+      const failure = gatewayFailureFromUnknown(error, 'transport');
+      logger.error('Tool invocation failed', { failure });
 
       return {
         result: {},
@@ -344,7 +334,7 @@ export class CapabilityCatalog {
         route,
         error: {
           type: 'upstream',
-          message: `Server Error: ${error}. This is an upstream server issue - please report it.`,
+          message: failure.message,
         },
         refresh,
       };

@@ -8,6 +8,7 @@ import {
 } from '@src/domains/config-change/configChange.js';
 import { createRegistryClient } from '@src/domains/registry/mcpRegistryClient.js';
 import type { RegistryServer } from '@src/domains/registry/types.js';
+import { hasHttpErrorCode } from '@src/sdk/contracts/index.js';
 
 import {
   resolveDirectInstallTarget,
@@ -110,14 +111,15 @@ class DefaultServerInstallationWorkflow implements ServerInstallationWorkflow {
       };
     }
 
+    let status: 'template_conflict' | 'exists' | 'failed' = 'failed';
+    if (configChange.status === 'template_conflict') {
+      status = 'template_conflict';
+    } else if (configChange.status === 'destination_conflict') {
+      status = 'exists';
+    }
     return {
       ...resultFromResolved(input.mode, resolved),
-      status:
-        configChange.status === 'template_conflict'
-          ? 'template_conflict'
-          : configChange.status === 'destination_conflict'
-            ? 'exists'
-            : 'failed',
+      status,
       configChange,
       warnings: [...resolved.warnings, ...configChange.warnings],
       error: configChange.error ?? `Config Change returned ${configChange.status}`,
@@ -148,13 +150,17 @@ class DefaultServerInstallationWorkflow implements ServerInstallationWorkflow {
     try {
       registryServer = await this.getRegistryServer(source.registryId, source.version);
     } catch (error) {
-      return {
-        status: 'registry_unavailable',
-        sourceType: 'registry',
-        registryId: source.registryId,
-        warnings: [],
-        error: error instanceof Error ? error.message : String(error),
-      };
+      if (hasHttpErrorCode(error, 404)) {
+        registryServer = null;
+      } else {
+        return {
+          status: 'registry_unavailable',
+          sourceType: 'registry',
+          registryId: source.registryId,
+          warnings: [],
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
     }
 
     if (!registryServer) {

@@ -59,7 +59,7 @@ describe('upstream EOF guidance', () => {
       try {
         await runCommand({ tool: 'runner/write', args: '{"secret":"private"}', ...options });
         const output = stderr.mock.calls.map(([chunk]) => String(chunk)).join('');
-        expect(process.exitCode).toBe(2);
+        expect(process.exitCode).toBe(5);
         if ('raw' in options || options.format === 'json') {
           expect(JSON.parse(output)).toEqual(backendResult.content);
           expect(output).not.toContain('1MCP:');
@@ -87,7 +87,7 @@ describe('upstream EOF guidance', () => {
     const oldExit = process.exitCode;
     try {
       await runCommand({ tool: 'runner/write', args: '{}' });
-      expect(process.exitCode).toBe(1);
+      expect(process.exitCode).toBe(5);
       expect(stderr.mock.calls.map(([chunk]) => String(chunk)).join('')).not.toContain('1MCP:');
     } finally {
       process.exitCode = oldExit;

@@ -13,8 +13,11 @@ import { ErrorCode, type Tool } from '@src/sdk/contracts/index.js';
 import { MCPError } from '@src/utils/core/errorTypes.js';
 
 import {
+  CapabilityCursorCapacityError,
   type CapabilityPage,
+  type CapabilityPageProvider,
   type CapabilityPaginationResult,
+  compareCodePoints,
   registerCapabilityPaginationNotifications,
   unregisterCapabilityPaginationConnections,
   walkCapabilityPages,
@@ -59,6 +62,7 @@ export interface RuntimeCatalogOptions {
     kind: CapabilityKind;
     cursor: string;
     enablePagination: boolean;
+    pageSize?: number;
     internalOnly?: boolean;
     filterSelection?: unknown;
   };
@@ -70,7 +74,6 @@ interface SourcePages {
   server: string;
   pages: Map<string | undefined, CapabilityPage<unknown>>;
   error?: unknown;
-  errorCursor?: string;
 }
 
 export interface RuntimeCapabilitySnapshot {
@@ -88,6 +91,7 @@ export interface RuntimeCapabilitySnapshot {
     options: {
       cursor?: string;
       enablePagination: boolean;
+      pageSize?: number;
       filterSelection?: unknown;
       internalOnly?: boolean;
       visibility?: CapabilityVisibility;
@@ -99,6 +103,7 @@ export interface RuntimeCapabilitySnapshot {
 interface RuntimeScope {
   sessionId?: string;
   latestStarted: number;
+  lastAccess: number;
   snapshot?: RuntimeCapabilitySnapshot;
   paginationConnections: OutboundConnections;
   resourceRoutes: Map<
@@ -112,6 +117,8 @@ interface RuntimeState {
   scopes: Map<string, RuntimeScope>;
 }
 const states = new WeakMap<OutboundConnections, RuntimeState>();
+let activeAcquisitions = 0;
+const MAX_ACTIVE_ACQUISITIONS = 256;
 
 /** Release all visibility variants and in-flight publications owned by a disconnected session. */
 export function evictRuntimeCapabilityCatalogSession(connections: OutboundConnections, sessionId: string): void {
@@ -132,11 +139,34 @@ export async function acquireRuntimeCapabilityCatalog(
   visibility?: CapabilityVisibility,
   options: RuntimeCatalogOptions = {},
 ): Promise<RuntimeCapabilitySnapshot> {
+  if (activeAcquisitions >= MAX_ACTIVE_ACQUISITIONS) {
+    throw new CapabilityCursorCapacityError();
+  }
+  activeAcquisitions++;
+  try {
+    return await collectRuntimeCapabilityCatalog(connections, visibility, options);
+  } finally {
+    activeAcquisitions--;
+  }
+}
+
+async function collectRuntimeCapabilityCatalog(
+  connections: OutboundConnections,
+  visibility: CapabilityVisibility | undefined,
+  options: RuntimeCatalogOptions,
+): Promise<RuntimeCapabilitySnapshot> {
   options = { ...options, serverConfigs: structuredClone(options.serverConfigs ?? {}) };
   let state = states.get(connections);
   if (!state) {
     state = { nextId: 1, scopes: new Map() };
     states.set(connections, state);
+  }
+  for (const [key, retained] of state.scopes) {
+    if (Date.now() - retained.lastAccess < 15 * 60 * 1000) continue;
+    state.scopes.delete(key);
+    unregisterCapabilityPaginationConnections(retained.paginationConnections);
+    retained.paginationConnections.clear();
+    retained.resourceRoutes.clear();
   }
   const captured = new Map(
     Array.from(connections).filter(
@@ -146,12 +176,23 @@ export async function acquireRuntimeCapabilityCatalog(
   );
   const capturedAdapters = new Map(Array.from(captured, ([key, connection]) => [key, connection.adapter]));
   const { continuation, ...catalogOptions } = options;
-  const scope = JSON.stringify([
-    Array.from(captured.keys()).sort(),
-    visibility?.sessionId,
-    catalogOptions,
-    visibility ? Array.from(visibility.serverCandidates).sort(([a], [b]) => a.localeCompare(b)) : null,
-  ]);
+  const scope = createHash('sha256')
+    .update(
+      JSON.stringify(
+        [
+          Array.from(captured.keys()).sort(),
+          visibility?.sessionId,
+          visibility?.filterSelection,
+          catalogOptions,
+          visibility ? Array.from(visibility.serverCandidates).sort(([a], [b]) => compareCodePoints(a, b)) : null,
+        ],
+        (_key, value: unknown) =>
+          value !== null && typeof value === 'object' && !Array.isArray(value)
+            ? Object.fromEntries(Object.entries(value).sort(([left], [right]) => compareCodePoints(left, right)))
+            : value,
+      ),
+    )
+    .digest('hex');
   if (continuation) {
     const scopedPrevious = state.scopes.get(scope)?.snapshot;
     const previous =
@@ -180,15 +221,18 @@ export async function acquireRuntimeCapabilityCatalog(
   const started = state.nextId++;
   let currentScope = state.scopes.get(scope);
   if (!currentScope) {
+    if (state.scopes.size >= 256) throw new CapabilityCursorCapacityError();
     currentScope = {
       sessionId: visibility?.sessionId,
       latestStarted: started,
+      lastAccess: Date.now(),
       paginationConnections: new Map(captured),
       resourceRoutes: new Map(),
     };
     state.scopes.set(scope, currentScope);
   }
   currentScope.latestStarted = started;
+  currentScope.lastAccess = Date.now();
   const scopedState = currentScope;
   const observedConnections = scopedState.paginationConnections;
   for (const [identity, route] of scopedState.resourceRoutes) {
@@ -224,6 +268,8 @@ export async function acquireRuntimeCapabilityCatalog(
   };
   const sources: CapabilitySource[] = [];
   const sourcePages: SourcePages[] = [];
+  let capturedItems = 0;
+  let capturedBytes = 0;
   await Promise.all(
     Array.from(captured, async ([key, connection]) => {
       const server = visibility?.serverCandidates.get(key) ?? connection.name ?? key;
@@ -245,7 +291,18 @@ export async function acquireRuntimeCapabilityCatalog(
               );
               if (!Array.isArray(result[kind])) throw new Error(`Invalid ${kind} list result`);
               const items = result[kind] as unknown[];
+              capturedItems += items.length;
+              capturedBytes += Buffer.byteLength(JSON.stringify(items));
+              if (capturedItems > 100000 || capturedBytes > 32 * 1024 * 1024) {
+                throw new Error('Capability snapshot capacity exceeded');
+              }
               const nextCursor = typeof result.nextCursor === 'string' ? result.nextCursor : undefined;
+              if (nextCursor !== undefined) {
+                const cursorBytes = Buffer.byteLength(nextCursor);
+                if (cursorBytes > 64 * 1024) throw new Error('Upstream cursor capacity exceeded');
+                capturedBytes += cursorBytes;
+                if (capturedBytes > 32 * 1024 * 1024) throw new Error('Capability snapshot capacity exceeded');
+              }
               provider.pages.set(cursor, { items, nextCursor });
               cursor = nextCursor;
               if (cursor !== undefined && (seen.has(cursor) || provider.pages.size >= 1000)) {
@@ -255,7 +312,9 @@ export async function acquireRuntimeCapabilityCatalog(
             } while (cursor !== undefined);
           } catch (error) {
             provider.error = error;
-            provider.errorCursor = cursor;
+            // Retain every captured page, but never replay the failed or looping continuation.
+            const lastPage = [...provider.pages.values()].at(-1);
+            if (lastPage) lastPage.nextCursor = undefined;
           }
           for (const page of provider.pages.values()) {
             for (const object of page.items) sources.push({ kind, server, connectionKey: key, object });
@@ -266,14 +325,20 @@ export async function acquireRuntimeCapabilityCatalog(
   );
 
   for (const kind of Object.keys(METHODS) as CapabilityKind[]) {
-    const items =
-      kind === 'tools'
-        ? options.internalTools
-        : kind === 'resources'
-          ? options.internalResources
-          : kind === 'prompts'
-            ? options.internalPrompts
-            : options.internalResourceTemplates;
+    let items: readonly unknown[] | undefined;
+    switch (kind) {
+      case 'tools':
+        items = options.internalTools;
+        break;
+      case 'resources':
+        items = options.internalResources;
+        break;
+      case 'prompts':
+        items = options.internalPrompts;
+        break;
+      default:
+        items = options.internalResourceTemplates;
+    }
     if (!items?.length) continue;
     const key = `\0app.1mcp/${kind}`;
     sourcePages.push({ kind, key, server: '1mcp', pages: new Map([[undefined, { items: [...items] }]]) });
@@ -319,21 +384,6 @@ export async function acquireRuntimeCapabilityCatalog(
     (left, right) => left.kind.localeCompare(right.kind) || left.connectionKey.localeCompare(right.connectionKey),
   );
   sourcePages.sort((left, right) => left.key.localeCompare(right.key) || left.kind.localeCompare(right.kind));
-  const previous = state.scopes.get(scope)?.snapshot;
-  const sameBackends =
-    previous &&
-    previous.isCurrent() &&
-    previous.connections.size === captured.size &&
-    Array.from(captured).every(([key, connection]) => previous.connections.get(key) === connection);
-  const externalPages = sourcePages.filter((provider) => captured.has(provider.key));
-  if (
-    externalPages.length > 0 &&
-    externalPages.every((provider) => provider.error && provider.pages.size === 0) &&
-    sameBackends
-  ) {
-    for (const connection of captured.values()) clearConfiguredToolSnapshot(connection);
-    return previous;
-  }
   const generation = buildCatalogGeneration(started, sources, { allowTemplateInstances: visibility === undefined });
   const keys = new Set(captured.keys());
   for (const source of sources) if (source.origin === 'internal') keys.add(source.connectionKey);
@@ -345,7 +395,7 @@ export async function acquireRuntimeCapabilityCatalog(
     items.flatMap<unknown>((item) => {
       if (!item || typeof item !== 'object') return [];
       const raw = item as Record<string, unknown>;
-      const identity = kind === 'resources' ? raw.uri : kind === 'resourceTemplates' ? raw.uriTemplate : raw.name;
+      const identity = getCapabilityIdentity(kind, raw);
       const entry = accepted.get(JSON.stringify([kind, key, identity]));
       if (!entry) return [];
       if (kind === 'tools') {
@@ -369,7 +419,15 @@ export async function acquireRuntimeCapabilityCatalog(
     for (const [cursor, page] of provider.pages) {
       provider.pages.set(cursor, { ...page, items: publicItems(provider.kind, provider.key, page.items) });
     }
-  const entriesJson = JSON.stringify(generation.entries);
+  const entriesJson = JSON.stringify([
+    generation.entries,
+    sourcePages.map((provider) => ({
+      kind: provider.kind,
+      key: provider.key,
+      failed: !!provider.error,
+      pages: [...provider.pages].map(([cursor, page]) => [cursor, page.nextCursor, page.items.length]),
+    })),
+  ]);
   let lastConfigsJson: string | undefined;
   let lastSignature: string;
   const signature = (serverConfigs: Record<string, MCPServerParams> | undefined) => {
@@ -395,6 +453,7 @@ export async function acquireRuntimeCapabilityCatalog(
         )
           return identity;
       }
+      if (scopedState.resourceRoutes.size >= 1000) throw new Error('Resource route capacity exceeded');
       // This namespace cannot collide with canonical identities, which always contain the MCP separator.
       const identity = `urn:1mcp:resource:${randomUUID()}`;
       const server = visibility?.serverCandidates.get(connectionKey) ?? connection.name ?? connectionKey;
@@ -436,6 +495,7 @@ export async function acquireRuntimeCapabilityCatalog(
       listOptions: {
         cursor?: string;
         enablePagination: boolean;
+        pageSize?: number;
         filterSelection?: unknown;
         internalOnly?: boolean;
         visibility?: CapabilityVisibility;
@@ -447,21 +507,84 @@ export async function acquireRuntimeCapabilityCatalog(
           reason: 'stale_generation',
         });
       }
-      if (!listOptions.cursor) assertCurrent();
+      scopedState.lastAccess = Date.now();
+      if (listOptions.cursor === undefined) assertCurrent();
       observeConnections();
       const currentVisibility = listOptions.visibility ?? visibility;
-      const providers = sourcePages
-        .filter((provider) => provider.kind === kind && (!listOptions.internalOnly || !captured.has(provider.key)))
-        .map((provider) => ({
-          id: provider.key,
-          name: provider.server,
-          async list(cursor?: string) {
-            const page = provider.pages.get(cursor);
-            if (provider.error && (!page || cursor === provider.errorCursor)) throw provider.error;
-            if (!page) throw new Error('Unknown captured upstream cursor');
-            return { items: [...page.items] as T[], nextCursor: page.nextCursor };
+      const selectedProviders = sourcePages.filter(
+        (provider) => provider.kind === kind && (!listOptions.internalOnly || !captured.has(provider.key)),
+      );
+      const identity = (item: unknown): string => {
+        const value = item as Record<string, unknown>;
+        return String(getCapabilityIdentity(kind, value));
+      };
+      const sorted = selectedProviders
+        .flatMap((provider) => [...provider.pages.values()].flatMap((page) => page.items))
+        .sort((left, right) => compareCodePoints(identity(left), identity(right)));
+      const pageSize = listOptions.pageSize;
+      if (pageSize !== undefined && (!Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 5000)) {
+        throw new MCPError('Invalid capability page size', ErrorCode.InvalidParams);
+      }
+      let providers: CapabilityPageProvider<T>[];
+      if (pageSize !== undefined) {
+        providers = selectedProviders
+          .filter((provider) => provider.error)
+          .map((provider) => ({
+            id: provider.key,
+            name: '',
+            async list(): Promise<CapabilityPage<T>> {
+              throw provider.error;
+            },
+          }));
+        if (sorted.length > 0 || providers.length === 0) {
+          providers.push({
+            id: '\0app.1mcp/snapshot-pages',
+            name: 'page',
+            async list(cursor?: string): Promise<CapabilityPage<T>> {
+              const offset = cursor === undefined ? 0 : Number(cursor);
+              if (!Number.isSafeInteger(offset) || offset < 0 || offset > sorted.length) {
+                throw new MCPError('Invalid capability page position', ErrorCode.InvalidParams);
+              }
+              return {
+                items: sorted.slice(offset, offset + pageSize) as T[],
+                nextCursor: offset + pageSize < sorted.length ? String(offset + pageSize) : undefined,
+              };
+            },
+          });
+        }
+      } else if (listOptions.internalOnly) {
+        providers = [
+          {
+            id: '\0app.1mcp/lazy-tools',
+            name: '1mcp',
+            async list() {
+              return { items: sorted as T[] };
+            },
           },
-        }));
+        ];
+      } else {
+        let offset = 0;
+        providers = [...selectedProviders]
+          .sort((left, right) => compareCodePoints(left.server, right.server) || compareCodePoints(left.key, right.key))
+          .map((provider) => {
+            const pages = new Map(
+              [...provider.pages].map(([cursor, page]) => {
+                const items = sorted.slice(offset, offset + page.items.length) as T[];
+                offset += page.items.length;
+                return [cursor, { items, nextCursor: page.nextCursor }] as const;
+              }),
+            );
+            return {
+              id: provider.key,
+              name: provider.server,
+              async list(cursor?: string) {
+                const page = pages.get(cursor);
+                if (!page) throw provider.error ?? new Error('Unknown captured upstream cursor');
+                return { ...page, items: [...page.items] };
+              },
+            };
+          });
+      }
       const result = await walkCapabilityPages<T>({
         connections: observedConnections,
         kind,
@@ -472,29 +595,14 @@ export async function acquireRuntimeCapabilityCatalog(
             ? Array.from(currentVisibility.serverCandidates.keys()).sort()
             : Array.from(captured.keys()).sort(),
           selection: listOptions.filterSelection,
+          pageSize,
           internalOnly: listOptions.internalOnly,
         },
+        failedProviderIds: sourcePages
+          .filter((provider) => provider.kind === kind && provider.error)
+          .map((provider) => provider.key),
         extraGenerationSignature: signature(listOptions.serverConfigs ?? options.serverConfigs),
-        providers: listOptions.internalOnly
-          ? [
-              {
-                id: '\0app.1mcp/lazy-tools',
-                name: '1mcp',
-                async list() {
-                  const pages = await Promise.all(providers.map((provider) => provider.list()));
-                  return {
-                    items: pages
-                      .flatMap((page) => page.items)
-                      .sort((left, right) => {
-                        const a = (left as { name: string }).name;
-                        const b = (right as { name: string }).name;
-                        return a < b ? -1 : a > b ? 1 : 0;
-                      }),
-                  };
-                },
-              },
-            ]
-          : providers,
+        providers,
       });
       assertCurrent();
       return result;
@@ -516,6 +624,12 @@ export async function acquireRuntimeCapabilityCatalog(
     publishCompleteConfiguredToolTargetSnapshots(connections);
   }
   return snapshot;
+}
+
+function getCapabilityIdentity(kind: CapabilityKind, value: Record<string, unknown>): unknown {
+  if (kind === 'resources') return value.uri;
+  if (kind === 'resourceTemplates') return value.uriTemplate;
+  return value.name;
 }
 
 function readonlyConnections(map: Map<string, OutboundConnection>): ReadonlyMap<string, OutboundConnection> {

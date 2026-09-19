@@ -162,4 +162,17 @@ describe('immutable catalog generations', () => {
       readPublicCapabilityRoute({ _meta: { 'app.1mcp/route': { kind: 'tasks', server: 'x', upstreamIdentity: 'a' } } }),
     ).toBeUndefined();
   });
+  it.each(Object.keys(objects) as CapabilityKind[])(
+    'quarantines unpaired surrogates and keeps valid astral %s identities',
+    (kind) => {
+      const generation = buildCatalogGeneration(1, [
+        source(kind, { object: { ...objects[kind], [fields[kind]]: 'bad-\ud800' } }),
+        source(kind, { object: { ...objects[kind], [fields[kind]]: 'bad-\udc00' } }),
+        source(kind, { object: { ...objects[kind], [fields[kind]]: 'valid-\ud83d\ude00' } }),
+      ]);
+      expect(generation.entries).toHaveLength(1);
+      expect(generation.entries[0].route.upstreamIdentity).toBe('valid-\ud83d\ude00');
+      expect(generation.quarantine).toHaveLength(2);
+    },
+  );
 });

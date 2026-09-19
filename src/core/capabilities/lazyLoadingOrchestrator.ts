@@ -219,8 +219,8 @@ export class LazyLoadingOrchestrator extends EventEmitter {
     debugIf(() => ({ message: `Preloading ${toolsToPreload.length} tools` }));
 
     // Preload schemas
-    await this.schemaCache.preload(toolsToPreload, async (server, toolName) => {
-      return this.loadSchemaFromServer(server, toolName);
+    await this.schemaCache.preload(toolsToPreload, async (server, toolName, signal) => {
+      return this.loadSchemaFromServer(server, toolName, signal);
     });
 
     logger.info(`Preloaded ${toolsToPreload.length} tool schemas`);
@@ -229,7 +229,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
   /**
    * Load tool schema from upstream server
    */
-  private async loadSchemaFromServer(server: string, toolName: string): Promise<Tool> {
+  private async loadSchemaFromServer(server: string, toolName: string, signal?: AbortSignal): Promise<Tool> {
     // Use ConnectionResolver to find the connection (handles template servers with hash-suffixed keys)
     const result = this.connectionResolver.findByServerName(server);
     if (!result || result.connection.status !== ClientStatus.Connected) {
@@ -241,7 +241,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
       result.connection.adapter,
       'tools/list',
       undefined,
-      { timeoutMs: result.connection.requestTimeoutMs },
+      { timeoutMs: result.connection.requestTimeoutMs, signal },
     );
     const tool = toolsResult.tools.find((t) => t.name === toolName);
 
@@ -264,8 +264,8 @@ export class LazyLoadingOrchestrator extends EventEmitter {
     debugIf(() => ({ message: `Preloading ${tools.length} specific tools` }));
 
     // Preload schemas
-    await this.schemaCache.preload(tools, async (server, toolName) => {
-      return this.loadSchemaFromServer(server, toolName);
+    await this.schemaCache.preload(tools, async (server, toolName, signal) => {
+      return this.loadSchemaFromServer(server, toolName, signal);
     });
 
     logger.info(`Preloaded ${tools.length} tool schemas`);

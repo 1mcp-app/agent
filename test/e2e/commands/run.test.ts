@@ -67,7 +67,7 @@ describeRunE2E('run command E2E', () => {
       args: [...getCliSessionCacheArgs(), '--args', '{"message":"hello"}', '--format', 'text'],
     });
 
-    runner.assertFailure(result, 1);
+    runner.assertFailure(result, 4);
     expect(result.stdout).toBe('');
     expect(result.stderr).toContain('Tool is disabled: runner:echo_args');
   });
@@ -142,14 +142,14 @@ describeRunE2E('run command E2E', () => {
     runner.assertSuccess(second);
   });
 
-  it('returns tool errors on stderr with exit code 2', async () => {
+  it('returns tool errors on stderr with exit code 5', async () => {
     await startServeProcess();
 
     const result = await runner.runRunCommand('runner/fail_tool', {
       args: [...getCliSessionCacheArgs(), '--args', '{"message":"boom"}', '--format', 'text'],
     });
 
-    runner.assertFailure(result, 2);
+    runner.assertFailure(result, 5);
     expect(result.stdout).toBe('');
     expect(result.stderr).toContain('tool failed: boom');
   });

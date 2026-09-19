@@ -30,6 +30,7 @@ import {
   StreamableServeClient,
 } from '@src/commands/shared/serveClient.js';
 import { API_INSPECT_ENDPOINT, API_TOOL_INVOCATIONS_ENDPOINT } from '@src/constants/api.js';
+import { gatewayFailureExitCode, gatewayFailureFromMcpError } from '@src/gateway/contracts/gatewayFailure.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
 import {
@@ -112,7 +113,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
   const output = formatToolCallOutput(response.rawResponse, format, maxChars);
   if ('error' in response.rawResponse) {
     process.stderr.write(`${output}\n`);
-    process.exitCode = 1;
+    process.exitCode = gatewayFailureExitCode(gatewayFailureFromMcpError(response.rawResponse.error));
     return;
   }
 
@@ -122,7 +123,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
       const guidance = formatUpstreamEofGuidance(response.rawResponse.result);
       if (guidance) process.stderr.write(`\n${guidance}\n`);
     }
-    process.exitCode = 2;
+    process.exitCode = 5;
     return;
   }
 
@@ -146,12 +147,12 @@ async function tryRunRest(
   });
   const needsSchemaForStdin = options.args === undefined && stdinText !== undefined;
   const needsSchemaForValidation = options.args !== undefined;
-  const restArgs =
-    options.args !== undefined
-      ? parseExplicitArgs(options.args)
-      : stdinText !== undefined
-        ? parseJsonObject(stdinText)
-        : {};
+  let restArgs: Record<string, unknown> | null = {};
+  if (options.args !== undefined) {
+    restArgs = parseExplicitArgs(options.args);
+  } else if (stdinText !== undefined) {
+    restArgs = parseJsonObject(stdinText);
+  }
 
   // Parse explicit input before any network activity so invalid command input
   // remains a local validation error even while a backend is starting.
@@ -240,7 +241,11 @@ async function tryRunRest(
       : {
           jsonrpc: '2.0',
           id: 0,
-          error: { code: -32000, message: apiResponse.error ?? `HTTP ${apiResponse.status}` },
+          error: {
+            code: apiResponse.status,
+            message: apiResponse.error ?? `HTTP ${apiResponse.status}`,
+            data: { 'app.1mcp/failure': { code: String(apiResponse.status), kind: 'transport' } },
+          },
         };
 
   return {
@@ -359,7 +364,7 @@ function isEndpointNotFoundResponse(status: number, error?: string): boolean {
 }
 
 function shouldFallbackToMcpForRest(status: number, error?: string): boolean {
-  return status === 405 || status === 503 || status === 0 || isEndpointNotFoundResponse(status, error);
+  return status === 405 || isEndpointNotFoundResponse(status, error);
 }
 
 function shouldPersistRestSupportDisabled(status: number, error?: string): boolean {
@@ -428,6 +433,7 @@ export async function invokeTool(options: {
 }> {
   const client = new StreamableServeClient(options.serverUrl, options.sessionId, options.bearerToken);
   await client.start();
+  let toolDispatchStarted = false;
 
   try {
     let tool: Tool | undefined;
@@ -524,6 +530,7 @@ export async function invokeTool(options: {
       }
     }
 
+    toolDispatchStarted = true;
     const response = await client.callTool(options.qualifiedToolName, resolvedArguments.arguments);
     return {
       rawResponse: toJsonValue(response) as unknown as JsonRpcResponse<CallToolResult>,
@@ -531,7 +538,7 @@ export async function invokeTool(options: {
       retryWithFreshSession: false,
     };
   } catch (error) {
-    if (hasHttpErrorCode(error, 404) && options.sessionId) {
+    if (!toolDispatchStarted && hasHttpErrorCode(error, 404) && options.sessionId) {
       return {
         rawResponse: {
           jsonrpc: '2.0',

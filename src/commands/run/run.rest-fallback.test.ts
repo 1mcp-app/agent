@@ -293,4 +293,39 @@ describe('runCommand REST-first path', () => {
     expect(transportState.instances).toHaveLength(0);
     expect(stderr.join('')).toContain('upstream failed');
   });
+  it.each([
+    [400, 2],
+    [404, 4],
+    [503, 6],
+    [504, 6],
+    [502, 5],
+    [500, 1],
+  ])('preserves REST status %s as CLI exit %s without redispatch', async (status, exit) => {
+    await writeCliSessionCache(cachePath, {
+      sessionId: 'cached-session',
+      serverUrl: 'http://127.0.0.1:3050/mcp',
+      contextHash: makeContextHash('/tmp/project', 'run', 'run'),
+      savedAt: Date.now(),
+      hasRestEndpoint: true,
+    });
+    mockFetch.mockResolvedValueOnce(makeConnectedServerResponse());
+    mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
+    mockFetch.mockResolvedValueOnce(
+      makeRestResponse(status, {
+        error: 'Safe problem detail',
+        status,
+        type: 'https://docs.1mcp.app/problems/transport',
+      }),
+    );
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const { runCommand } = await import('./run.js');
+    await runCommand({
+      tool: 'runner/echo_args',
+      args: '{}',
+      'config-dir': cacheDir,
+      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
+    } as never);
+    expect(process.exitCode).toBe(exit);
+    expect(transportState.instances).toHaveLength(0);
+  });
 });

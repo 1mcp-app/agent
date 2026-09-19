@@ -1,6 +1,8 @@
 import logger, { debugIf } from '@src/logger/logger.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
 
+import { z } from 'zod';
+
 /**
  * Statistics for schema cache operations
  */
@@ -20,12 +22,18 @@ export interface SchemaCacheConfig {
   ttlMs?: number;
 }
 
+const schemaCacheConfigSchema = z.object({
+  maxEntries: z.number().finite().int().positive().max(Number.MAX_SAFE_INTEGER),
+  ttlMs: z.number().finite().nonnegative().optional(),
+});
+
 /**
  * Cache entry with optional expiration
  */
 interface CacheEntry {
   tool: Tool;
   timestamp: number;
+  bytes: number;
 }
 
 /**
@@ -47,6 +55,8 @@ interface CacheEntry {
 export class SchemaCache {
   private cache: Map<string, CacheEntry> = new Map();
   private inflightRequests: Map<string, Promise<Tool>> = new Map();
+  private activeLoads = 0;
+  private readonly waiters = new WeakMap<Promise<Tool>, number>();
   private config: SchemaCacheConfig;
   private stats: SchemaCacheStats = {
     hits: 0,
@@ -60,26 +70,27 @@ export class SchemaCache {
   };
 
   constructor(config: SchemaCacheConfig) {
-    this.config = config;
+    const parsed = schemaCacheConfigSchema.parse(config);
+    this.config = { ...parsed, ttlMs: Math.min(parsed.ttlMs ?? 60000, 15 * 60 * 1000) };
   }
 
   /**
    * Generate cache key from server and tool name
    */
   private getCacheKey(server: string, toolName: string): string {
-    return `${server}:${toolName}`;
+    return JSON.stringify([server, toolName]);
   }
 
   /**
    * Check if a cache entry has expired (TTL)
    */
   private isExpired(entry: CacheEntry): boolean {
-    if (!this.config.ttlMs) {
+    if (this.config.ttlMs === undefined) {
       return false;
     }
     const now = Date.now();
     const age = now - entry.timestamp;
-    return age > this.config.ttlMs;
+    return age >= this.config.ttlMs;
   }
 
   /**
@@ -104,6 +115,15 @@ export class SchemaCache {
     }
   }
 
+  private makeRoom(key: string, bytes: number): void {
+    this.cache.delete(key);
+    let total = Array.from(this.cache.values()).reduce((sum, entry) => sum + entry.bytes, 0);
+    while (this.cache.size >= this.config.maxEntries || total + bytes > 32 * 1024 * 1024) {
+      this.evictOldest();
+      total = Array.from(this.cache.values()).reduce((sum, entry) => sum + entry.bytes, 0);
+    }
+  }
+
   /**
    * Get tool schema from cache or load it using the provided loader function
    * Implements request coalescing for parallel requests to the same tool
@@ -116,7 +136,7 @@ export class SchemaCache {
   public async getOrLoad(
     server: string,
     toolName: string,
-    loader: (server: string, toolName: string) => Promise<Tool>,
+    loader: (server: string, toolName: string, signal?: AbortSignal) => Promise<Tool>,
   ): Promise<Tool> {
     const cacheKey = this.getCacheKey(server, toolName);
 
@@ -137,31 +157,60 @@ export class SchemaCache {
     // Check for in-flight request (coalescing)
     const inflight = this.inflightRequests.get(cacheKey);
     if (inflight) {
+      const waiters = this.waiters.get(inflight) ?? 0;
+      if (waiters >= 256) throw new Error('Schema cache waiter capacity exceeded');
+      this.waiters.set(inflight, waiters + 1);
       this.stats.coalesced++;
-      debugIf(() => ({ message: `Coalesced request for: ${cacheKey}` }));
-      return inflight;
+      try {
+        return await inflight;
+      } finally {
+        this.waiters.set(inflight, (this.waiters.get(inflight) ?? 1) - 1);
+      }
+    }
+
+    if (this.activeLoads >= this.config.maxEntries) {
+      throw new Error('Schema cache load capacity exceeded');
     }
 
     // Create new request
     this.stats.misses++;
-    const promise = loader(server, toolName)
+    this.activeLoads++;
+    const controller = new AbortController();
+    const load = Promise.resolve()
+      .then(() => loader(server, toolName, controller.signal))
+      .finally(() => {
+        this.activeLoads--;
+      });
+    let timer: ReturnType<typeof setTimeout>;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        const error = new Error('Schema cache load deadline exceeded');
+        reject(error);
+        controller.abort(error);
+      }, 30000);
+      timer.unref?.();
+    });
+    const promise = Promise.race([load, deadline])
       .then((tool) => {
-        // Store in cache
-        if (this.cache.size >= this.config.maxEntries) {
-          this.evictOldest();
-        }
+        const bytes = Buffer.byteLength(JSON.stringify(tool));
+        if (bytes > 1024 * 1024) throw new Error('Schema cache entry capacity exceeded');
+        // An invalidated or superseded load cannot republish its stale schema.
+        if (this.inflightRequests.get(cacheKey) !== promise) return tool;
+        this.makeRoom(cacheKey, bytes);
 
         this.cache.set(cacheKey, {
           tool,
           timestamp: Date.now(),
+          bytes,
         });
 
         debugIf(() => ({ message: `Loaded and cached: ${cacheKey}` }));
         return tool;
       })
       .finally(() => {
+        clearTimeout(timer);
         // Clean up in-flight map
-        this.inflightRequests.delete(cacheKey);
+        if (this.inflightRequests.get(cacheKey) === promise) this.inflightRequests.delete(cacheKey);
       });
 
     this.inflightRequests.set(cacheKey, promise);
@@ -202,13 +251,15 @@ export class SchemaCache {
   public set(server: string, toolName: string, tool: Tool): void {
     const cacheKey = this.getCacheKey(server, toolName);
 
-    if (this.cache.size >= this.config.maxEntries) {
-      this.evictOldest();
-    }
+    const bytes = Buffer.byteLength(JSON.stringify(tool));
+    if (bytes > 1024 * 1024) throw new Error('Schema cache entry capacity exceeded');
+    this.inflightRequests.delete(cacheKey);
+    this.makeRoom(cacheKey, bytes);
 
     this.cache.set(cacheKey, {
       tool,
       timestamp: Date.now(),
+      bytes,
     });
 
     debugIf(() => ({ message: `Manually cached: ${cacheKey}` }));
@@ -219,6 +270,7 @@ export class SchemaCache {
    */
   public delete(server: string, toolName: string): boolean {
     const cacheKey = this.getCacheKey(server, toolName);
+    this.inflightRequests.delete(cacheKey);
     return this.cache.delete(cacheKey);
   }
 
@@ -255,11 +307,11 @@ export class SchemaCache {
 
     for (const [cacheKey, entry] of this.cache.entries()) {
       // Skip expired entries
-      if (this.config.ttlMs && now - entry.timestamp > this.config.ttlMs) {
+      if (this.config.ttlMs !== undefined && now - entry.timestamp >= this.config.ttlMs) {
         continue;
       }
 
-      const [server, toolName] = cacheKey.split(':');
+      const [server, toolName] = JSON.parse(cacheKey) as [string, string];
       tools.push({ server, toolName });
     }
 
@@ -297,7 +349,7 @@ export class SchemaCache {
    */
   public async preload(
     tools: Array<{ server: string; toolName: string }>,
-    loader: (server: string, toolName: string) => Promise<Tool>,
+    loader: (server: string, toolName: string, signal?: AbortSignal) => Promise<Tool>,
   ): Promise<{ loaded: number; failed: Array<{ server: string; toolName: string; error: string }> }> {
     debugIf(() => ({ message: `Preloading ${tools.length} tool schemas` }));
 
