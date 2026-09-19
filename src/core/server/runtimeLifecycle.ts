@@ -11,7 +11,7 @@ import logger from '@src/logger/logger.js';
 
 import { z } from 'zod';
 
-import { inspectProcessIdentity } from './processIdentity.js';
+import { inspectProcessIdentity, processIdentityRecoveryMessage } from './processIdentity.js';
 
 /**
  * Lifecycle module for the (Background) Aggregated Runtime.
@@ -174,11 +174,7 @@ export async function discoverScopedRuntime(
     return {
       status: 'error',
       info: null,
-      error:
-        `Cannot verify process identity for Runtime Scope PID ${info.pid}; lifecycle metadata was retained.` +
-        (!info.processIdentity
-          ? ' A legacy PID record alone cannot establish recovery authority. Stop the original runtime using its original CLI or service manager; verify all scope participants have stopped before manual metadata cleanup.'
-          : ''),
+      error: processIdentityRecoveryMessage(info.pid, info.processIdentity),
     };
   }
   if (identityStatus === 'dead') {

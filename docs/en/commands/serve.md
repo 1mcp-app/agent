@@ -110,6 +110,10 @@ The stable `runtime.owner.flock` and `runtime.stop.flock` files remain after shu
 
 `server.pid`, ownership, and supervisor metadata record process birth evidence. Discovery and stop commands retain ambiguous metadata and refuse to signal an unverified process. Stop checks identity again before escalating from SIGTERM to SIGKILL.
 
+New macOS records use the boot-session UUID and UTC process start time, so network-driven hostname changes do not block restart. Identity errors identify the affected PID and missing or mismatched evidence. Run lifecycle commands as the runtime user on the same host/container with process-inspection permissions. Legacy hostname records require a one-time verified stop through the original CLI or service manager if the hostname changed; the next start writes the current format. Do not delete metadata to bypass verification.
+
+Legacy process-record compatibility is scheduled for removal in the next major release (1.0). Stop old runtimes before upgrading across that boundary; release notes and upgrade tests must cover this transition.
+
 Compatibility and limits:
 
 - **Upgrading a running legacy background runtime:** On Linux, explicit `serve --stop` and `serve --restart` can recover an old supervisor with a live worker when OS process evidence proves the exact ownership claim, parent relationship, user, execution context, and selected scope. Recovery checks the captured processes again before signals and cleanup, stops the supervisor first, and aborts if a different worker or owner appears. It does not rewrite old identity metadata. `serve --status` and client commands only provide recovery guidance.

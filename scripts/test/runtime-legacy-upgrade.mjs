@@ -71,7 +71,7 @@ try {
     assert.equal(oldInfo.processIdentity, undefined);
     await assert.rejects(
       run(candidate, scope, ['--status']),
-      (error) => error.code === 2 && /Legacy metadata/.test(error.stdout),
+      (error) => error.code === 2 && /no process birth evidence \(legacy format\)/.test(error.stdout),
     );
     assert.deepEqual(read(scope, records[0]), oldOwner);
 
@@ -81,7 +81,7 @@ try {
     const copiedRecords = records.map((name) => fs.readFileSync(path.join(copy, name), 'utf8'));
     await assert.rejects(
       run(candidate, copy, ['--stop']),
-      (error) => error.code === 1 && /cannot verify/.test(error.stderr),
+      (error) => error.code === 1 && /cannot verify/i.test(error.stderr),
     );
     assert.deepEqual(
       records.map((name) => fs.readFileSync(path.join(copy, name), 'utf8')),

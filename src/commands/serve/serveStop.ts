@@ -18,7 +18,11 @@ import {
   readPidFile,
   type ServerPidInfo,
 } from '@src/core/server/pidFileManager.js';
-import { inspectProcessIdentity, type ProcessIdentity } from '@src/core/server/processIdentity.js';
+import {
+  inspectProcessIdentity,
+  type ProcessIdentity,
+  processIdentityRecoveryMessage,
+} from '@src/core/server/processIdentity.js';
 import {
   acquireRuntimeScopeStopLock,
   readRuntimeScopeOwnership,
@@ -285,12 +289,9 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
             return;
           }
         }
-        failStop(
-          `cannot verify process identity in Runtime Scope ${configDir}; refusing ambiguous stop. ` +
-            (!owner.processIdentity
-              ? 'Legacy metadata has no process identity; automatic recovery requires a verified live pair on Linux. Stop the old runtime using its original CLI or service manager; verify all scope participants have stopped before manual metadata recovery.'
-              : ''),
-        );
+        const pid = supervisorStatus === 'unknown' ? supervisorState.supervisorPid : supervisorState.runtimePid!;
+        const identity = supervisorStatus === 'unknown' ? supervisorIdentity : supervisorState.runtimeIdentity;
+        failStop(processIdentityRecoveryMessage(pid, identity));
 
         return;
       }
@@ -433,12 +434,7 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
   // Stale dead-process PID file: clean it up and report cleanly.
   const identityStatus = inspectIdentity(info.pid, info.processIdentity);
   if (identityStatus === 'unknown') {
-    failStop(
-      `cannot verify process identity for Runtime Scope PID ${info.pid}; refusing ambiguous stop.` +
-        (!info.processIdentity
-          ? ' Legacy foreground or unverifiable runtimes require stopping through the original CLI or service manager. Verify all scope participants have stopped before manual metadata cleanup.'
-          : ''),
-    );
+    failStop(processIdentityRecoveryMessage(info.pid, info.processIdentity));
     return;
   }
   if (identityStatus === 'dead') {
