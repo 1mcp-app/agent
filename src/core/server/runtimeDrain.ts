@@ -9,6 +9,11 @@ export const admissionSnapshotSchema = z.object({
 });
 export type AdmissionSnapshot = z.infer<typeof admissionSnapshotSchema>;
 
+function isDrained(snapshot: AdmissionSnapshot | undefined): boolean {
+  if (!snapshot?.closed) return false;
+  return snapshot.active === 0;
+}
+
 export class RuntimeDrainingError extends Error {
   readonly code = -32004;
   readonly data = { retryable: true, reason: 'runtime_draining' };
@@ -91,8 +96,7 @@ export class RuntimeAdmission {
   }
 
   commit(): AdmissionSnapshot {
-    if (!this.closed) throw new Error('Runtime is not drained');
-    if (this.active !== 0) throw new Error('Runtime is not drained');
+    if (!isDrained(this.snapshot())) throw new Error('Runtime is not drained');
     this.committed = true;
     this.changed();
     return this.snapshot();
@@ -198,10 +202,7 @@ export class RuntimeReplacementDrain {
       return;
     }
     operation.active = snapshot.active;
-    operation.state = 'draining';
-    if (!snapshot.closed) return;
-    if (snapshot.active !== 0) return;
-    operation.state = 'drained';
+    operation.state = isDrained(snapshot) ? 'drained' : 'draining';
   }
 
   status(operationId: string): ReplacementDrainStatus {
@@ -218,9 +219,9 @@ export class RuntimeReplacementDrain {
       return { ...operation };
     }
     this.status(operationId);
-    if (operation.state !== 'drained') throw new Error('Replacement operation is not drained');
-    if (!this.snapshot?.closed) throw new Error('Replacement operation is not drained');
-    if (this.snapshot.active !== 0) throw new Error('Replacement operation is not drained');
+    if (operation.state !== 'drained' || !isDrained(this.snapshot)) {
+      throw new Error('Replacement operation is not drained');
+    }
     // The irreversible decision and expiry exclusion happen in one synchronous turn.
     operation.state = 'committing';
     clearTimeout(this.timer);

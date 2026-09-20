@@ -29,6 +29,14 @@ export class InsecureFilePermissionsError extends Error {
   }
 }
 
+/** Inspect POSIX ownership and mode without repairing permissions; Windows uses ACLs instead. */
+export function hasSafeCredentialPermissions(entry: Pick<fs.Stats, 'mode' | 'uid'>, forbiddenMode: number): boolean {
+  if (process.platform === 'win32') return true;
+  if ((entry.mode & forbiddenMode) !== 0) return false;
+  if (process.geteuid && entry.uid !== process.geteuid()) return false;
+  return true;
+}
+
 /** Refuse credentials not owned by the current process uid (OpenSSH foreign-owner rule). */
 function foreignOwnershipError(filePath: string, mode: number): InsecureFilePermissionsError {
   return new InsecureFilePermissionsError(

@@ -74,6 +74,56 @@ const activationSchema = z.object({
   version: z.string(),
   runtime: serverPidInfoSchema,
 });
+type RuntimeActivation = z.infer<typeof activationSchema>;
+
+function matchesSupervisorActivation(
+  activation: RuntimeActivation,
+  bootstrap: RuntimeLaunchBootstrap,
+  owner: ReturnType<typeof readRuntimeScopeOwnership>,
+  supervisorPid: number | undefined,
+): boolean {
+  if (activation.nonce !== bootstrap.nonce) return false;
+  if (activation.digest !== bootstrap.digest) return false;
+  if (activation.version !== MCP_SERVER_VERSION) return false;
+  if (owner?.claimId !== activation.claimId) return false;
+  return owner.pid === supervisorPid;
+}
+
+function matchesRunningActivation(
+  description: RuntimeControlDescription | undefined,
+  activation: RuntimeActivation,
+  claimId: string | undefined,
+): boolean {
+  if (!description) return false;
+  if (description.runtime?.pid !== activation.runtime.pid) return false;
+  if (description.digest !== activation.digest) return false;
+  if (description.version !== activation.version) return false;
+  return claimId === activation.claimId;
+}
+
+function matchesWorkerActivation(
+  activation: RuntimeActivation,
+  launch: RuntimeLaunchBootstrap,
+  workerPid: number | undefined,
+): boolean {
+  if (activation.nonce !== launch.nonce) return false;
+  if (activation.claimId !== launch.claimId) return false;
+  if (activation.digest !== launch.digest) return false;
+  if (activation.version !== MCP_SERVER_VERSION) return false;
+  return activation.runtime.pid === workerPid;
+}
+
+function isCooperativeParent(
+  owner: ReturnType<typeof readRuntimeScopeOwnership>,
+  claimId: string | undefined,
+): boolean {
+  if (!claimId) return false;
+  if (owner?.claimId !== claimId) return false;
+  if (owner.kind !== 'background-supervisor') return false;
+  if (owner.pid !== process.ppid) return false;
+  return owner.cooperative === true;
+}
+
 const prepareSchema = z
   .object({ digest: z.string().regex(/^[a-f0-9]{64}$/), timeoutMs: z.number().int().positive().max(86400000) })
   .strict();
@@ -167,25 +217,13 @@ export async function launchCooperativeRuntime(
   try {
     const activated = activationSchema.parse(await waitForChildActivation(child, bootstrap));
     const owner = readRuntimeScopeOwnership(runtimeScope);
-    if (activated.nonce !== bootstrap.nonce) throw new Error('Runtime activation did not match the spawned generation');
-    if (activated.digest !== bootstrap.digest)
+    if (!matchesSupervisorActivation(activated, bootstrap, owner, child.pid))
       throw new Error('Runtime activation did not match the spawned generation');
-    if (activated.version !== MCP_SERVER_VERSION)
-      throw new Error('Runtime activation did not match the spawned generation');
-    if (owner?.claimId !== activated.claimId)
-      throw new Error('Runtime activation did not match the spawned generation');
-    if (owner.pid !== child.pid) throw new Error('Runtime activation did not match the spawned generation');
     if (child.exitCode !== null || child.signalCode !== null) throw new Error('Supervisor exited during activation');
     const summary = await probeLoadingSummary(activated.runtime);
     const control = await connectRuntimeControl(runtimeScope);
     const current = await control?.request<RuntimeControlDescription>('describe');
-    if (!current) throw new Error('Worker exited or changed during activation verification');
-    if (current.runtime?.pid !== activated.runtime.pid)
-      throw new Error('Worker exited or changed during activation verification');
-    if (current.digest !== activated.digest) throw new Error('Worker exited or changed during activation verification');
-    if (current.version !== activated.version)
-      throw new Error('Worker exited or changed during activation verification');
-    if (control?.descriptor.claimId !== activated.claimId)
+    if (!matchesRunningActivation(current, activated, control?.descriptor.claimId))
       throw new Error('Worker exited or changed during activation verification');
     if (child.exitCode !== null || child.signalCode !== null)
       throw new Error('Supervisor exited during activation verification');
@@ -414,11 +452,8 @@ export async function runCooperativeSupervisor(): Promise<void> {
             if (child.pid) spawnedWorkerPids.add(child.pid);
             const ready = waitForChildActivation(child, launch).then((message) => {
               const value = activationSchema.parse(message);
-              if (value.nonce !== launch.nonce) throw new Error('Worker activation binding failed');
-              if (value.claimId !== ownership.record.claimId) throw new Error('Worker activation binding failed');
-              if (value.digest !== launch.digest) throw new Error('Worker activation binding failed');
-              if (value.version !== MCP_SERVER_VERSION) throw new Error('Worker activation binding failed');
-              if (value.runtime.pid !== child.pid) throw new Error('Worker activation binding failed');
+              if (!matchesWorkerActivation(value, launch, child.pid))
+                throw new Error('Worker activation binding failed');
               runtime = value.runtime;
               runtimeDigest = launch.digest;
               if (!activated) {
@@ -498,11 +533,8 @@ export function settleCooperativeInitialLoading(): void {
 export async function authorizeCooperativeWorker(): Promise<RuntimeLaunchBootstrap> {
   const bootstrap = await receiveRuntimeBootstrap();
   const owner = readRuntimeScopeOwnership(bootstrap.snapshot.runtimeScope);
-  if (!bootstrap.claimId) throw new Error('Private worker launch does not match scope ownership');
-  if (owner?.claimId !== bootstrap.claimId) throw new Error('Private worker launch does not match scope ownership');
-  if (owner.kind !== 'background-supervisor') throw new Error('Private worker launch does not match scope ownership');
-  if (owner.pid !== process.ppid) throw new Error('Private worker launch does not match scope ownership');
-  if (!owner.cooperative) throw new Error('Private worker launch does not match scope ownership');
+  if (!isCooperativeParent(owner, bootstrap.claimId))
+    throw new Error('Private worker launch does not match scope ownership');
   installRuntimeReplacementConfig(bootstrap.snapshot, bootstrap.digest, bootstrap.snapshot.runtimeScope);
   workerBootstrapDigest = bootstrap.digest;
   const requestSchema = z.object({

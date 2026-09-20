@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 
-import { credentialReadFlags } from '@src/utils/filePermissions.js';
+import { credentialReadFlags, hasSafeCredentialPermissions } from '@src/utils/filePermissions.js';
 
 import { z } from 'zod';
 
@@ -116,18 +116,8 @@ function readPrivate(file: string): string {
   try {
     const stat = fs.fstatSync(fd);
     if (!stat.isFile() || stat.size > LIMIT) throw new Error('Invalid runtime control file');
-    if (process.platform !== 'win32') {
-      for (const [entry, forbidden] of [
-        [dir, 0o022],
-        [stat, 0o077],
-      ] as const) {
-        if ((entry.mode & forbidden) !== 0) {
-          throw new Error('Runtime control files require owner-only permissions');
-        }
-        if (process.geteuid && entry.uid !== process.geteuid()) {
-          throw new Error('Runtime control files require owner-only permissions');
-        }
-      }
+    if (!hasSafeCredentialPermissions(dir, 0o022) || !hasSafeCredentialPermissions(stat, 0o077)) {
+      throw new Error('Runtime control files require owner-only permissions');
     }
     return fs.readFileSync(fd, 'utf8');
   } finally {
@@ -162,6 +152,16 @@ async function readBody(stream: AsyncIterable<Uint8Array>): Promise<unknown> {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
+function isValidChallenge(
+  challenge: { nonce: string; expires: number } | undefined,
+  request: { nonce: string; expires: number },
+): boolean {
+  if (!challenge) return false;
+  if (challenge.nonce !== request.nonce) return false;
+  if (challenge.expires !== request.expires) return false;
+  return challenge.expires > Date.now();
+}
+
 export async function startRuntimeControl(
   configDir: string,
   claimId: string,
@@ -173,13 +173,8 @@ export async function startRuntimeControl(
   configDir = fs.realpathSync(configDir);
   nonceSchema.parse(claimId);
   const directory = fs.statSync(configDir);
-  if (process.platform !== 'win32') {
-    if ((directory.mode & 0o022) !== 0) {
-      throw new Error('Runtime control directory must be owned by the current user and not writable by others');
-    }
-    if (process.geteuid && directory.uid !== process.geteuid()) {
-      throw new Error('Runtime control directory must be owned by the current user and not writable by others');
-    }
+  if (!hasSafeCredentialPermissions(directory, 0o022)) {
+    throw new Error('Runtime control directory must be owned by the current user and not writable by others');
   }
   const secret = randomBytes(32).toString('base64url');
   const challenges = new Map<string, { nonce: string; expires: number }>();
@@ -204,13 +199,7 @@ export async function startRuntimeControl(
       const { signature, ...request } = requestSchema.parse(body);
       const challenge = challenges.get(request.challenge);
       challenges.delete(request.challenge);
-      if (!challenge) {
-        throw new Error('Expired or consumed runtime control challenge');
-      }
-      if (challenge.nonce !== request.nonce || challenge.expires !== request.expires) {
-        throw new Error('Expired or consumed runtime control challenge');
-      }
-      if (challenge.expires <= Date.now()) {
+      if (!isValidChallenge(challenge, request)) {
         throw new Error('Expired or consumed runtime control challenge');
       }
       verify(signature, proof(secret, descriptor, 'request', request));
