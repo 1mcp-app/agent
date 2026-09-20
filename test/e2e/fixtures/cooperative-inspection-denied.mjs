@@ -30,3 +30,21 @@ for (const method of ['readFileSync', 'readlinkSync']) {
 }
 syncBuiltinESMExports();
 record('loaded');
+
+// Preserve test-process failure evidence without changing exception handling or exit policy.
+if (process.platform === 'win32') {
+  const diagnostic = (kind, detail) => {
+    try {
+      record(kind, detail);
+    } catch {
+      /* Scope may already be torn down. */
+    }
+  };
+  process.on('uncaughtExceptionMonitor', (error) => diagnostic('uncaught', error.stack ?? String(error)));
+  process.on('exit', (code) => diagnostic('exit', String(code)));
+  const exit = process.exit;
+  process.exit = function (code) {
+    diagnostic('explicit-exit', new Error(`exit ${code}`).stack);
+    return exit.call(this, code);
+  };
+}
