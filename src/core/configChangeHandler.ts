@@ -4,6 +4,7 @@ import {
   clearCompleteConfiguredToolTargetSnapshot,
   clearLastConfiguredToolSnapshot,
 } from '@src/core/capabilities/configuredToolSnapshot.js';
+import { runtimeAdmission } from '@src/core/server/runtimeDrain.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { MCPServerParams } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
@@ -23,8 +24,18 @@ export class ConfigChangeHandler {
    */
   private constructor(configManager?: ConfigManager) {
     this.configManager = configManager || ConfigManager.getInstance();
-    this.configChangesListener = this.handleConfigChanges.bind(this);
-    this.runtimeEnvironmentListener = this.handleRuntimeEnvironmentChange.bind(this);
+    this.configChangesListener = (changes) =>
+      runtimeAdmission
+        .run(() => this.handleConfigChanges(changes))
+        .catch((error: unknown) => {
+          logger.error('Failed to apply configuration changes', error);
+        });
+    this.runtimeEnvironmentListener = (change) =>
+      runtimeAdmission
+        .run(() => this.handleRuntimeEnvironmentChange(change))
+        .catch((error: unknown) => {
+          logger.error('Failed to apply Runtime Scope environment changes', error);
+        });
 
     // Listen to config changes
     this.configManager.on(CONFIG_EVENTS.CONFIG_CHANGED, this.configChangesListener);

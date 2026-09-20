@@ -33,6 +33,7 @@ import { captureCapabilityListResult } from '@src/sdk/legacy/shared/capabilityLi
 
 import { z } from 'zod';
 
+import { observeBackendDispatchLifetime } from './backendDispatchLifetime.js';
 import {
   beginLegacyInteractionRequest,
   currentLegacyInteractionCapabilities,
@@ -295,6 +296,7 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
           },
         };
       }
+      observeBackendDispatchLifetime(this.handles.transport);
       const options = {
         signal: controller.signal,
         allowInputRequired: true,

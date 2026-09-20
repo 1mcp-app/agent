@@ -1,4 +1,5 @@
 import { getConfigDir } from '@src/constants.js';
+import { connectRuntimeControl, type RuntimeControlDescription } from '@src/core/server/runtimeControl.js';
 import { discoverScopedRuntime } from '@src/core/server/runtimeLifecycle.js';
 import {
   fetchRuntimeIdentity,
@@ -135,7 +136,12 @@ const clientSurfaceProbe = async (info: { url: string }): Promise<boolean> =>
  */
 export async function detectUrlFromPidFile(configDir?: string): Promise<string | null> {
   const dir = getConfigDir(configDir);
-  const runtime = await discoverScopedRuntime(dir, clientSurfaceProbe);
+  const control = await connectRuntimeControl(dir);
+  if (control) {
+    const description = await control.request<RuntimeControlDescription>('describe');
+    return description.runtime?.url ?? null;
+  }
+  const runtime = await discoverScopedRuntime(dir, clientSurfaceProbe, { cleanupStale: false });
 
   if (runtime.status === 'running' && runtime.info) {
     return runtime.info.url;
@@ -178,17 +184,55 @@ export async function discoverServerWithPidFile(configDir?: string, userUrl?: st
   // 2. Try PID file. A live PID is authoritative for its Runtime Scope, even
   //    when the endpoint rejects or cannot satisfy the probe.
   const dir = getConfigDir(configDir);
+  try {
+    const control = await connectRuntimeControl(dir);
+    if (control) {
+      const description = await control.request<RuntimeControlDescription>('describe');
+      if (description.state === 'draining' || description.state === 'stopping')
+        throw new Error('Runtime is draining for replacement; retry after it resumes or activates');
+      if (!description.runtime) throw new Error('Runtime worker is unavailable; inspect serve --status');
+      const validation = await validateServer1mcpUrl(description.runtime.url);
+      if (!validation.valid) {
+        throw new RuntimeProbeError(toRuntimeProbeFailure(validation, description.runtime.url), {
+          targetKind: 'local',
+          configDir: dir,
+          pid: description.runtime.pid,
+          recoveryCommand: localRuntimeStatusCommand(dir),
+        });
+      }
+      if (validation.identity && validation.identity.runtimeScopeId !== description.runtimeScopeId) {
+        throw new Error('Authenticated Runtime Scope does not match runtime endpoint');
+      }
+      return {
+        url: description.runtime.url,
+        source: 'pidfile',
+        validated: true,
+        pid: description.runtime.pid,
+        ...(validation.identity ? { runtimeIdentity: validation.identity } : {}),
+      };
+    }
+  } catch (error) {
+    if (error instanceof RuntimeProbeError) throw error;
+    throw new LocalRuntimeAttachmentError(
+      error instanceof Error ? error.message : 'Runtime control authentication failed',
+      localRuntimeStatusCommand(dir),
+    );
+  }
   let ownedProbeFailure: RuntimeProbeFailure | undefined;
   let runtimeIdentity: RuntimeTargetObservedIdentity | undefined;
-  const runtime = await discoverScopedRuntime(dir, async (info) => {
-    const validation = await validateServer1mcpUrl(info.url);
-    if (!validation.valid) {
-      ownedProbeFailure = toRuntimeProbeFailure(validation, info.url);
-    } else {
-      runtimeIdentity = validation.identity;
-    }
-    return validation.valid;
-  });
+  const runtime = await discoverScopedRuntime(
+    dir,
+    async (info) => {
+      const validation = await validateServer1mcpUrl(info.url);
+      if (!validation.valid) {
+        ownedProbeFailure = toRuntimeProbeFailure(validation, info.url);
+      } else {
+        runtimeIdentity = validation.identity;
+      }
+      return validation.valid;
+    },
+    { cleanupStale: false },
+  );
 
   if (runtime.status === 'running' && runtime.info) {
     return {

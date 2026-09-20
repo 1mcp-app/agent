@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import { runtimeAdmission } from '@src/core/server/runtimeDrain.js';
 import {
   createLegacyTimeoutMs,
   type JsonValue,
@@ -44,24 +45,26 @@ export async function requestLegacyAdapter<T = JsonValue>(
   params?: JsonValue,
   options: { timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<T> {
-  const requestId = randomUUID() as LegacyRequestId;
-  const onAbort = () => {
-    void adapter.cancel(requestId).catch(() => undefined);
-  };
-  if (options.signal?.aborted) {
-    throw new Error('Request cancelled');
-  }
-  options.signal?.addEventListener('abort', onAbort, { once: true });
-  try {
-    return (await adapter.request({
-      id: requestId,
-      method,
-      ...(params === undefined ? {} : { params }),
-      ...(options.timeoutMs === undefined ? {} : { timeoutMs: createLegacyTimeoutMs(options.timeoutMs) }),
-    })) as T;
-  } catch (error) {
-    throw numericProtocolError(error) ?? error;
-  } finally {
-    options.signal?.removeEventListener('abort', onAbort);
-  }
+  return runtimeAdmission.run(async () => {
+    const requestId = randomUUID() as LegacyRequestId;
+    const onAbort = () => {
+      void adapter.cancel(requestId).catch(() => undefined);
+    };
+    if (options.signal?.aborted) {
+      throw new Error('Request cancelled');
+    }
+    options.signal?.addEventListener('abort', onAbort, { once: true });
+    try {
+      return (await adapter.request({
+        id: requestId,
+        method,
+        ...(params === undefined ? {} : { params }),
+        ...(options.timeoutMs === undefined ? {} : { timeoutMs: createLegacyTimeoutMs(options.timeoutMs) }),
+      })) as T;
+    } catch (error) {
+      throw numericProtocolError(error) ?? error;
+    } finally {
+      options.signal?.removeEventListener('abort', onAbort);
+    }
+  });
 }

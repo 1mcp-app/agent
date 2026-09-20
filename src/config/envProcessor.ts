@@ -1,5 +1,7 @@
 import logger, { debugIf } from '@src/logger/logger.js';
 
+import { getRuntimeParentEnvironment } from './runtimeBootstrap.js';
+
 const DEFAULT_INHERITED_ENV_VARS =
   process.platform === 'win32'
     ? [
@@ -21,7 +23,7 @@ const DEFAULT_INHERITED_ENV_VARS =
 function getDefaultEnvironment(): Record<string, string> {
   const environment: Record<string, string> = {};
   for (const key of DEFAULT_INHERITED_ENV_VARS) {
-    const value = process.env[key];
+    const value = getRuntimeParentEnvironment()[key];
     if (value !== undefined && !value.startsWith('()')) {
       environment[key] = value;
     }
@@ -67,7 +69,7 @@ export interface ProcessedEnvironment {
  */
 export function parseEnvArray(
   envArray: string[],
-  sourceEnv: Readonly<Record<string, string | undefined>> = process.env,
+  sourceEnv: Readonly<Record<string, string | undefined>> = getRuntimeParentEnvironment(),
 ): Record<string, string> {
   const envObject: Record<string, string> = {};
 
@@ -178,7 +180,7 @@ function applyEnvPatterns(
 function getParentEnvironment(runtimeEnv: Readonly<Record<string, string>> = {}): Record<string, string> {
   const parentEnv: Record<string, string> = {};
 
-  for (const [key, value] of Object.entries({ ...runtimeEnv, ...process.env })) {
+  for (const [key, value] of Object.entries({ ...runtimeEnv, ...getRuntimeParentEnvironment() })) {
     if (value === undefined) continue;
 
     // Skip bash functions and other potentially dangerous variables
@@ -198,7 +200,10 @@ function getParentEnvironment(runtimeEnv: Readonly<Record<string, string>> = {})
  * @param configValue Configuration value that may contain ${VAR} or $VAR patterns
  * @returns Value with environment variables substituted
  */
-export function substituteEnvVars(configValue: string, env: Record<string, string | undefined> = process.env): string {
+export function substituteEnvVars(
+  configValue: string,
+  env: Record<string, string | undefined> = getRuntimeParentEnvironment(),
+): string {
   return configValue.replace(
     /\$\{([^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g,
     (match, bracedEnvVar?: string, shellEnvVar?: string) => {
@@ -220,7 +225,7 @@ export function substituteEnvVars(configValue: string, env: Record<string, strin
  * @returns Processed environment variables with metadata
  */
 export function processEnvironment(config: EnvProcessingConfig): ProcessedEnvironment {
-  const referenceEnvironment = { ...config.runtimeEnv, ...process.env };
+  const referenceEnvironment = { ...config.runtimeEnv, ...getRuntimeParentEnvironment() };
   // 1. Start with SDK safe defaults
   const sdkDefaults = getDefaultEnvironment();
   const sdkDefaultKeys = Object.keys(sdkDefaults);

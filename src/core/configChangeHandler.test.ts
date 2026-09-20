@@ -4,6 +4,7 @@ import {
   readLastConfiguredToolSnapshot,
 } from '@src/core/capabilities/configuredToolSnapshot.js';
 import { ConfigChangeHandler } from '@src/core/configChangeHandler.js';
+import { runtimeAdmission } from '@src/core/server/runtimeDrain.js';
 import logger from '@src/logger/logger.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -76,6 +77,34 @@ describe('ConfigChangeHandler', () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('keeps detached asynchronous reload listeners in the admitted root until backend work settles', async () => {
+    const { ServerManager } = await import('@src/core/server/serverManager.js');
+    let finish!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    vi.mocked(ServerManager.current.loadMcpServer).mockImplementationOnce(async () => blocked);
+    mockConfigManager.getTransportConfig.mockReturnValue({ backend: { command: 'node' } });
+    const listener = mockConfigManager.on.mock.calls.find(([event]: [string]) => event === 'configChanged')[1] as (
+      changes: unknown[],
+    ) => Promise<void>;
+    let detached!: Promise<void>;
+    await runtimeAdmission.run(async () => {
+      // EventEmitter deliberately does not await listener promises.
+      detached = listener([{ serverName: 'backend', type: ConfigChangeType.ADDED }]);
+    });
+    expect(runtimeAdmission.snapshot().active).toBe(1);
+    runtimeAdmission.close();
+    try {
+      expect(runtimeAdmission.snapshot().active).toBe(1);
+    } finally {
+      finish();
+      await detached;
+      runtimeAdmission.resume();
+    }
+    expect(runtimeAdmission.snapshot().active).toBe(0);
   });
 
   describe('initialization', () => {

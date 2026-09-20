@@ -1,3 +1,4 @@
+import { runtimeAdmission } from '@src/core/server/runtimeDrain.js';
 import type { LegacySdkAdapter } from '@src/sdk/contracts/index.js';
 
 import { describe, expect, it, vi } from 'vitest';
@@ -45,5 +46,38 @@ describe('requestLegacyAdapter protocol error boundary', () => {
 
     await expect(requestLegacyAdapter(adapterRejecting(failure), 'tools/list')).rejects.toBe(failure);
     expect(code).not.toHaveBeenCalled();
+  });
+});
+
+describe('legacy dispatch drain', () => {
+  it('rejects before dispatch and keeps cancelled work counted until the adapter settles', async () => {
+    let finish!: (value: unknown) => void;
+    const backend = {
+      request: vi.fn(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      ),
+      cancel: vi.fn(async () => {}),
+    } as unknown as LegacySdkAdapter;
+    const controller = new AbortController();
+    const pending = requestLegacyAdapter(backend, 'tools/call', undefined, { signal: controller.signal });
+    try {
+      runtimeAdmission.close();
+      controller.abort();
+      expect(runtimeAdmission.snapshot().active).toBe(1);
+      await expect(requestLegacyAdapter(backend, 'tools/call')).rejects.toMatchObject({
+        code: -32004,
+        data: { retryable: true },
+      });
+      expect(backend.request).toHaveBeenCalledTimes(1);
+      expect(backend.cancel).toHaveBeenCalledTimes(1);
+    } finally {
+      finish({});
+      await pending;
+      runtimeAdmission.resume();
+    }
+    expect(runtimeAdmission.snapshot().active).toBe(0);
   });
 });

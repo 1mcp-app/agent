@@ -14,6 +14,8 @@ import {
   type RuntimeScopeOwnershipRecord,
 } from '@src/core/server/runtimeScopeOwnership.js';
 
+import { cooperativeRuntimeStatus } from './cooperativeRuntime.js';
+
 /**
  * `serve --status`: report the state of the Background Aggregated Runtime in the
  * selected Runtime Scope. Discovery goes through the lifecycle module, so the
@@ -35,6 +37,8 @@ export interface RuntimeStatusReport {
   ownership?: RuntimeScopeOwnershipRecord;
   /** Human-readable discovery failure for `error` reports. */
   error?: string;
+  cooperativeState?: string;
+  runtimeVersion?: string;
 }
 
 /** Process exit codes per runtime state, allowing scripts to branch on status. */
@@ -67,6 +71,29 @@ export async function getRuntimeStatusReport(
   deps: RuntimeStatusDeps = {},
 ): Promise<RuntimeStatusReport> {
   const configDir = getConfigDir(configDirOption);
+  try {
+    const cooperative = await cooperativeRuntimeStatus(configDir);
+    if (cooperative) {
+      const { description, ready } = cooperative;
+      return {
+        configDir,
+        info: description.runtime,
+        cooperativeState: description.state,
+        runtimeVersion: description.version,
+        supervisorState: readBackgroundSupervisorState(configDir) ?? undefined,
+        status:
+          description.state === 'crash-loop'
+            ? 'crash-loop'
+            : description.state === 'restarting'
+              ? 'restarting'
+              : ready
+                ? 'running'
+                : 'unreachable',
+      };
+    }
+  } catch (error) {
+    return statusError(configDir, error);
+  }
   const readSupervisorState = deps.readSupervisorState ?? readBackgroundSupervisorState;
   const cleanupSupervisorState = deps.cleanupSupervisorState ?? cleanupBackgroundSupervisorState;
   const inspectIdentity = deps.inspectIdentity ?? inspectProcessIdentity;
@@ -230,6 +257,7 @@ function statusError(configDir: string, error: unknown): RuntimeStatusReport {
 export function formatRuntimeStatusReport(report: RuntimeStatusReport): string {
   const { status, configDir, info } = report;
   const lines: string[] = [`Runtime Scope: ${configDir}`];
+  if (report.cooperativeState) lines.push(`Lifecycle: ${report.cooperativeState} (version ${report.runtimeVersion})`);
 
   if (report.ownership) {
     lines.push('Status: occupied (unreachable)');

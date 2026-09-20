@@ -1,5 +1,8 @@
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
 import { ConfigManager } from '@src/config/configManager.js';
 import { MCP_SERVER_CAPABILITIES, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@src/constants.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 // Import the mocked modules
 import logger from '@src/logger/logger.js';
 
@@ -8,11 +11,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientManager } from './core/client/clientManager.js';
 import type { BackendLoadingPolicy } from './core/loading/backendLoadingPolicy.js';
 import { ServerManager } from './core/server/serverManager.js';
+import type { JsonValue } from './sdk/contracts/index.js';
 import { setupServer } from './server.js';
 import { createTransports } from './transport/transportFactory.js';
 
 // Mock dependencies at top level to avoid hoisting issues
 vi.mock('@src/logger/logger.ts', () => ({
+  debugIf: vi.fn(),
+  infoIf: vi.fn(),
+  warnIf: vi.fn(),
+  errorIf: vi.fn(),
   default: {
     info: vi.fn(),
     error: vi.fn(),
@@ -112,6 +120,92 @@ describe('server', () => {
   });
 
   describe('setupServer', () => {
+    it('activates cooperative setup before backends finish without changing explicit async-loading false', async () => {
+      const config = AgentConfigManager.getInstance();
+      config.updateConfig({ asyncLoading: { ...config.get('asyncLoading'), enabled: false } });
+      mockClients.clear();
+      mockTransports = { slow: { name: 'slow' } };
+      vi.mocked(createTransports).mockReturnValue(mockTransports);
+      let finishConnection!: () => void;
+      const connection = new Promise<void>((resolve) => {
+        finishConnection = resolve;
+      });
+      mockClientManager.getClients = vi.fn(() => mockClients);
+      mockClientManager.createSingleClient = vi.fn(async () => {
+        await connection;
+        mockClients.set(
+          'slow',
+          createMockOutboundConnection({
+            name: 'slow',
+            capabilities: { tools: {} },
+            adapter: {
+              request: vi.fn(async ({ method }): Promise<JsonValue> =>
+                method === 'tools/list' ? { tools: [{ name: 'loaded_tool', inputSchema: { type: 'object' } }] } : {},
+              ),
+            },
+          }),
+        );
+      });
+      mockServerManager.recordMcpServerReady = vi.fn();
+      const result = await setupServer(
+        undefined,
+        undefined,
+        {
+          maxConcurrentLoads: 1,
+          maxRetries: 0,
+          retryDelayMs: 0,
+          enableBackgroundRetry: false,
+          backgroundRetryIntervalMs: 1000,
+          backgroundRetryMaxServersPerCycle: 1,
+        },
+        'cooperative-activation',
+      );
+      let settled = false;
+      void result.loadingPromise.then(() => {
+        settled = true;
+      });
+      try {
+        expect(settled).toBe(false);
+        expect(result.loadingManager.getSummary().isComplete).toBe(false);
+        expect(config.get('asyncLoading').enabled).toBe(false);
+        expect(result.asyncOrchestrator?.isReady()).toBe(true);
+        result.asyncOrchestrator?.initializeNotifications({} as never);
+        expect(result.asyncOrchestrator?.getNotificationManager()).toBeNull();
+        finishConnection();
+        await result.loadingPromise;
+        await vi.waitFor(() =>
+          expect(result.asyncOrchestrator?.getCapabilityAggregator().getCurrentCapabilities().tools).toEqual(
+            expect.arrayContaining([expect.objectContaining({ name: expect.stringContaining('loaded_tool') })]),
+          ),
+        );
+        expect(result.loadingManager.getSummary().ready).toBe(1);
+      } finally {
+        finishConnection();
+        result.asyncOrchestrator?.shutdown();
+        result.loadingManager.shutdown();
+      }
+    });
+
+    it('keeps configured foreground startup waiting for synchronous backend completion', async () => {
+      let finishConnection!: (value: typeof mockClients) => void;
+      mockClientManager.createClients.mockReturnValue(
+        new Promise((resolve) => {
+          finishConnection = resolve;
+        }),
+      );
+      let settled = false;
+      const setup = setupServer().then((result) => {
+        settled = true;
+        return result;
+      });
+      await vi.waitFor(() => expect(mockClientManager.createClients).toHaveBeenCalled());
+      expect(settled).toBe(false);
+      finishConnection(mockClients);
+      const result = await setup;
+      expect(result.asyncOrchestrator).toBeUndefined();
+      result.loadingManager.shutdown();
+    });
+
     it('should set up server successfully', async () => {
       const result = await setupServer();
 

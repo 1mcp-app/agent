@@ -2,6 +2,8 @@ import { createHash, createHmac, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { runtimeAdmission } from '@src/core/server/runtimeDrain.js';
+
 import type { AdminMutationAvailability } from './runtimeScopeAdminLock.js';
 
 const ADMIN_STATE_DIR = 'admin';
@@ -372,6 +374,10 @@ export class AdminOperationService {
   }
 
   async executeMutation<T>(input: ExecuteMutationInput<T>): Promise<AdminOperationResult<T>> {
+    return runtimeAdmission.run(() => this.executeAdmittedMutation(input));
+  }
+
+  private async executeAdmittedMutation<T>(input: ExecuteMutationInput<T>): Promise<AdminOperationResult<T>> {
     const admissionResult = this.validateMutationAdmission(input.context, input.operationName);
     if (admissionResult) {
       return admissionResult;

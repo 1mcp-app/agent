@@ -742,6 +742,50 @@ describe('McpLoadingManager', () => {
     });
   });
 
+  describe('initial loading completion', () => {
+    it('returns from scheduling while the completion barrier waits for all queued connections', async () => {
+      const first = makeDeferred();
+      const second = makeDeferred();
+      const clients = makeClientManagerMock();
+      clients.createSingleClient.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+      const loader = new McpLoadingManager(clients as never, { ...FAST_CONFIG, maxConcurrentLoads: 1 });
+      try {
+        await loader.startAsyncLoading({ first: makeFakeTransport() as never, second: makeFakeTransport() as never });
+        let settled = false;
+        const completion = loader.waitForInitialLoading().then(() => {
+          settled = true;
+        });
+        await yieldToEventLoop();
+        expect(settled).toBe(false);
+        first.resolve();
+        await yieldToEventLoop();
+        expect(clients.createSingleClient).toHaveBeenCalledTimes(2);
+        expect(settled).toBe(false);
+        second.resolve();
+        await completion;
+        expect(loader.getSummary().isComplete).toBe(true);
+      } finally {
+        first.resolve();
+        second.resolve();
+        loader.shutdown();
+      }
+    });
+
+    it('settles after initial failure without waiting for background retry', async () => {
+      const clients = makeClientManagerMock(() =>
+        Promise.reject(new NonRetryableClientConnectionError('failed', new Error('connection refused'))),
+      );
+      const loader = new McpLoadingManager(clients as never, FAST_CONFIG);
+      try {
+        await loader.startAsyncLoading({ failed: makeFakeTransport() as never });
+        await loader.waitForInitialLoading();
+        expect(loader.getStateTracker().getServerState('failed')?.state).toBe(LoadingState.Failed);
+      } finally {
+        loader.shutdown();
+      }
+    });
+  });
+
   describe('shutdown', () => {
     it('aborts all in-flight server op controllers', async () => {
       // loadServer with a hanging connection

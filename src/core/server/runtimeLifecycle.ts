@@ -147,6 +147,7 @@ export async function probeLoadingSummary(
 export async function discoverScopedRuntime(
   configDir: string,
   readinessProbe: ReadinessProbe = probeReadiness,
+  options: { cleanupStale?: boolean } = {},
 ): Promise<ScopedRuntime> {
   let info: ServerPidInfo | null;
   try {
@@ -178,8 +179,10 @@ export async function discoverScopedRuntime(
     };
   }
   if (identityStatus === 'dead') {
-    logger.warn(`PID file points to dead process (PID: ${info.pid}); removing stale PID file`);
-    cleanupPidFileIfMatches(configDir, info);
+    if (options.cleanupStale !== false) {
+      logger.warn(`PID file points to dead process (PID: ${info.pid}); removing stale PID file`);
+      cleanupPidFileIfMatches(configDir, info);
+    }
     return { status: 'not-running', info: null };
   }
 

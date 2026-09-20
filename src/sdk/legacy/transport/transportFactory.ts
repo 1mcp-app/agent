@@ -10,6 +10,7 @@ import path from 'path';
 
 import { OAuthClientConfig, SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
 import { processEnvironment, substituteEnvVars } from '@src/config/envProcessor.js';
+import { getRuntimeParentEnvironment } from '@src/config/runtimeBootstrap.js';
 import { getRuntimeScopeEnvironment, sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
 import { AUTH_CONFIG, MCP_SERVER_VERSION } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
@@ -100,7 +101,7 @@ function createOAuthProvider(name: string, validatedTransport: ValidatedTranspor
 
 function substituteStringRecord(
   values: Record<string, string> | undefined,
-  env: Record<string, string | undefined> = process.env,
+  env: Record<string, string | undefined> = getRuntimeParentEnvironment(),
 ): Record<string, string> | undefined {
   if (!values) {
     return undefined;
@@ -118,7 +119,7 @@ function withTransportEnvSubstitution(validatedTransport: ValidatedTransport): V
     return validatedTransport;
   }
 
-  const referenceEnvironment = { ...getRuntimeScopeEnvironment(), ...process.env };
+  const referenceEnvironment = { ...getRuntimeScopeEnvironment(), ...getRuntimeParentEnvironment() };
   let oauth = validatedTransport.oauth;
   if (oauth) {
     oauth = { ...oauth };
@@ -233,7 +234,7 @@ function createStdioTransport(
   const referenceEnvironment =
     validatedTransport.envFilter && validatedTransport.envFilter.length > 0
       ? envResult.processedEnv
-      : { ...getRuntimeScopeEnvironment(), ...process.env, ...envResult.processedEnv };
+      : { ...getRuntimeScopeEnvironment(), ...getRuntimeParentEnvironment(), ...envResult.processedEnv };
 
   debugIf(() => ({
     message: `Environment processing for ${name}:`,

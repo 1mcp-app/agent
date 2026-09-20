@@ -28,6 +28,7 @@ import {
   ToolListChangedNotificationSchema,
 } from '@src/sdk/legacy/types.js';
 
+import { observeBackendDispatchLifetime } from './backendDispatchLifetime.js';
 import { beginLegacyInteractionRequest, currentLegacyInteractionSignal } from './legacyInteractionLease.js';
 import type { AuthProviderTransport } from './legacyTransport.js';
 import { TransportRecreator } from './transportRecreator.js';
@@ -150,6 +151,7 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
 
   private async requestWithRecovery(request: LegacySdkRequest, controller: AbortController): Promise<unknown> {
     const requestClient = this.handles.client;
+    observeBackendDispatchLifetime(this.handles.transport);
     const params = request.params === undefined ? undefined : toJsonValue(request.params);
     try {
       return await requestClient.request(

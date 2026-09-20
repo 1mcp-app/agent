@@ -5,7 +5,9 @@ import path from 'path';
 import ConfigContext from '@src/config/configContext.js';
 import { ConfigLoader } from '@src/config/configLoader.js';
 import { mergeGlobalAndServerConfig } from '@src/config/mcpConfigMerge.js';
+import { deferUntilRuntimeActivation, getFrozenRuntimeBootstrap } from '@src/config/runtimeBootstrap.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { runtimeAdmission, RuntimeDrainingError } from '@src/core/server/runtimeDrain.js';
 import {
   ApplicationConfig,
   GlobalTransportConfig,
@@ -35,6 +37,8 @@ export class McpConfigManager extends EventEmitter {
   private loader: ConfigLoader;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private lastModified: number = 0;
+  private cancelDeferredReload?: () => void;
+  private reloadGeneration = 0;
 
   private static resolveConfigFilePath(configFilePath?: string): string {
     if (configFilePath) {
@@ -133,6 +137,7 @@ export class McpConfigManager extends EventEmitter {
    * Start watching the configuration file for changes
    */
   public startWatching(): void {
+    if (deferUntilRuntimeActivation(() => this.startWatching())) return;
     // Check if config reload is enabled
     const agentConfig = AgentConfigManager.getInstance();
     const features = agentConfig.get('features');
@@ -203,6 +208,9 @@ export class McpConfigManager extends EventEmitter {
    * Stop watching the configuration file
    */
   public stopWatching(): void {
+    this.reloadGeneration++;
+    this.cancelDeferredReload?.();
+    this.cancelDeferredReload = undefined;
     if (this.configWatcher) {
       this.configWatcher.close();
       this.configWatcher = null;
@@ -242,6 +250,36 @@ export class McpConfigManager extends EventEmitter {
    * Reload the configuration from the config file
    */
   public reloadConfig(): void {
+    const generation = this.reloadGeneration;
+    void runtimeAdmission
+      .run(async () => this.applyReloadConfig())
+      .catch((error: unknown) => {
+        if (error instanceof RuntimeDrainingError) {
+          if (generation === this.reloadGeneration) this.deferReloadUntilResume();
+          return;
+        }
+        logger.error('Failed to apply configuration reload', error);
+      });
+  }
+
+  private deferReloadUntilResume(): void {
+    if (this.cancelDeferredReload) return;
+    const reload = () => {
+      this.cancelDeferredReload?.();
+      this.cancelDeferredReload = undefined;
+      this.reloadConfig();
+    };
+    if (!runtimeAdmission.snapshot().closed) {
+      reload();
+      return;
+    }
+    this.cancelDeferredReload = runtimeAdmission.subscribe((snapshot) => {
+      if (!snapshot.closed) reload();
+    });
+  }
+
+  private applyReloadConfig(): void {
+    if (getFrozenRuntimeBootstrap(this.configFilePath)) return;
     const oldConfig = { ...this.transportConfig };
 
     try {

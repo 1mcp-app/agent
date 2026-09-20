@@ -580,12 +580,13 @@ export class ExpressServer {
    * @param port - The port number to listen on
    * @param host - The host address to bind to
    */
-  public start(): void {
+  public start(onListening?: () => void): void {
     const { port, host } = this.configManager.getConfig();
     this.app.listen(port, host, () => {
       const authStatus = this.configManager.get('features').auth ? 'with authentication' : 'without authentication';
       logger.info(`Server is running on port ${port} with HTTP/SSE and Streamable HTTP transport ${authStatus}`);
       logger.info(`📋 OAuth Management Dashboard: ${this.configManager.getUrl()}/oauth`);
+      onListening?.();
     });
   }
 

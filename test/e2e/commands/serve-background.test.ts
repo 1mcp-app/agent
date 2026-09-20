@@ -273,7 +273,7 @@ describe('serve --background E2E', () => {
 
     expect(successes).toHaveLength(1);
     expect(failures).toHaveLength(1);
-    expect(failures[0].stderr).toMatch(/already owns|already owned|did not become ready/);
+    expect(failures[0].stderr).toMatch(/already owns|already owned|activation|did not become ready/);
     const status = trackLifecyclePids(runStatus(scope));
     expect(status.status).toBe('running');
     expect(status.supervisorPid).not.toBeNull();
@@ -421,57 +421,26 @@ describe('serve --background E2E', () => {
     expect(processIsAlive(original.runtimePid!)).toBe(false);
   });
 
-  it('reports and recovers an orphan when the supervisor dies before its worker', async () => {
-    const scope = makeScope();
-    const port = await getFreePort();
-
-    expect(runBackground(scope, port).status).toBe(0);
-    const original = trackLifecyclePids(runStatus(scope));
-    process.kill(original.supervisorPid!, 'SIGKILL');
-
-    const orphanResult = await waitFor(
-      () => runStatus(scope),
-      (result) => result.status === 7,
-    );
-    const orphan = trackLifecyclePids(orphanResult);
-    expect(orphan.status).toBe('orphaned');
-    expect(orphan.supervisorPid).toBe(original.supervisorPid);
-    expect(orphan.runtimePid).toBe(original.runtimePid);
-    expect(processIsAlive(original.runtimePid!)).toBe(true);
-
-    const stop = runStop(scope);
-    expect(stop.status).toBe(0);
-    expect(stop.stdout).toContain('Recovered orphaned runtime');
-    await waitFor(
-      () => processIsAlive(original.runtimePid!),
-      (alive) => !alive,
-    );
-    expect(runStatus(scope).status).toBe(3);
-  });
-
-  it('serve --restart replaces an orphaned supervisor and worker', async () => {
-    const scope = makeScope();
-    const port = await getFreePort();
-
-    expect(runBackground(scope, port).status).toBe(0);
-    const original = trackLifecyclePids(runStatus(scope));
-    process.kill(original.supervisorPid!, 'SIGKILL');
-    await waitFor(
-      () => runStatus(scope),
-      (result) => result.status === 7,
-    );
-
-    const restart = runRestart(scope, port);
-    expect(restart.status, `restart stderr:\n${restart.stderr}\nrestart stdout:\n${restart.stdout}`).toBe(0);
-    const replacement = trackLifecyclePids(runStatus(scope));
-    expect(replacement.supervisorPid).not.toBe(original.supervisorPid);
-    expect(replacement.runtimePid).not.toBe(original.runtimePid);
-    await waitFor(
-      () => processIsAlive(original.runtimePid!),
-      (alive) => !alive,
-    );
-    expect((await fetch(`http://127.0.0.1:${port}/health/ready`)).status).toBe(200);
-  });
+  it.each(['--stop', '--restart'])(
+    'refuses %s when a cooperative supervisor is unreachable and preserves its worker evidence',
+    async (action) => {
+      const scope = makeScope();
+      const port = await getFreePort();
+      expect(runBackground(scope, port).status).toBe(0);
+      const original = trackLifecyclePids(runStatus(scope));
+      const record = readFileSync(join(scope, 'runtime.owner', 'owner.json'), 'utf8');
+      process.kill(original.supervisorPid!, 'SIGKILL');
+      await waitFor(
+        () => processIsAlive(original.supervisorPid!),
+        (alive) => !alive,
+      );
+      const result = action === '--stop' ? runStop(scope) : runRestart(scope, port);
+      expect(result.status).not.toBe(0);
+      expect(result.stderr + result.stdout).toMatch(/recovery|unreachable/);
+      expect(readFileSync(join(scope, 'runtime.owner', 'owner.json'), 'utf8')).toBe(record);
+      expect(processIsAlive(original.runtimePid!)).toBe(true);
+    },
+  );
 
   it('serve --restart cold-starts a runtime when nothing is running', async () => {
     const scope = makeScope();
@@ -514,14 +483,15 @@ describe('serve --background E2E', () => {
       }),
     );
 
-    const result = runBackground(scope, port);
+    const result = spawnSync(
+      process.execPath,
+      [cliPath, 'serve', '--background', '--config-dir', scope, '--port', String(port)],
+      { encoding: 'utf8', timeout: 10000 },
+    );
 
-    expect(result.status).toBe(legacy ? 1 : 0);
-    if (legacy) {
-      expect(readPid(scope).pid).toBe(dead.pid);
-      expect(result.stderr).toContain('Cannot verify process identity');
-    } else {
-      expect(readPid(scope).pid).not.toBe(dead.pid);
-    }
+    // Cooperative launch never reclaims metadata, even when legacy recovery could verify death.
+    expect(result.status).toBe(1);
+    expect(readPid(scope).pid).toBe(dead.pid);
+    expect(result.stderr).toContain('ownership');
   });
 });

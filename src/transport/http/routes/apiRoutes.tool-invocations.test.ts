@@ -3,6 +3,7 @@ import { createMockLegacySdkAdapter, createMockOutboundConnection } from '@test/
 import * as runtimeCatalog from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { SchemaCache } from '@src/core/capabilities/schemaCache.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
+import { runtimeAdmission } from '@src/core/server/runtimeDrain.js';
 import { ClientStatus, type OutboundConnections } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 import { type JsonValue, OneMcpProtocolError, toJsonValue, toProtocolTool } from '@src/sdk/contracts/index.js';
@@ -795,4 +796,24 @@ describe('apiRoutes /api/tool-invocations', () => {
       expect.any(AbortSignal),
     );
   });
+});
+
+it('returns a retryable 503 before REST invocation starts while draining', async () => {
+  const serverManager = { getLazyLoadingOrchestrator: vi.fn(() => undefined) };
+  const app = express();
+  app.use(express.json());
+  app.use(
+    '/api/v1',
+    createApiRoutes(serverManager as never, (_req, _res, next) => next()),
+  );
+  runtimeAdmission.close();
+  try {
+    const response = await request(app).post('/api/v1/tool-invocations').send({ tool: 'server/tool' });
+    expect(response.status).toBe(503);
+    expect(response.headers['retry-after']).toBe('1');
+    expect(response.body.retryable).toBe(true);
+    expect(serverManager.getLazyLoadingOrchestrator).not.toHaveBeenCalled();
+  } finally {
+    runtimeAdmission.resume();
+  }
 });

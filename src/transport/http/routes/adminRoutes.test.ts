@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import type { BackendOAuthDashboardResult, OAuthAuthorizationFlow } from '@src/auth/oauthAuthorizationFlow.js';
+import { runtimeAdmission } from '@src/core/server/runtimeDrain.js';
 import type { AdminBackendRestartOperations } from '@src/domains/admin/adminBackendRestartService.js';
 import {
   AdminConfiguredServerApplyError,
@@ -250,6 +251,32 @@ describe('admin routes', () => {
     fs.writeFileSync(`${assetsRoot}/assets/admin-console.css`, '.admin-console { display: block; }');
     return assetsRoot;
   }
+
+  it('rejects new browser and CLI admin mutations with a retryable drain response', async () => {
+    const app = mountAdminRoutes();
+    const login = vi.spyOn(adminService, 'login');
+    runtimeAdmission.close();
+    try {
+      const browser = await request(app)
+        .post('/admin/api/session/login')
+        .send({ username: 'operator', password: 'correct horse battery staple' });
+      expect(browser.status).toBe(503);
+      expect(browser.body).toMatchObject({
+        error: 'runtime_draining',
+        retryable: true,
+        details: { reason: 'runtime_draining' },
+      });
+      const cli = await request(app).post('/admin/cli/v1/session/login').send({});
+      expect(cli.status).toBe(503);
+      expect(cli.body).toMatchObject({
+        ok: false,
+        error: { code: 'runtime_draining', retryable: true, details: { reason: 'runtime_draining' } },
+      });
+      expect(login).not.toHaveBeenCalled();
+    } finally {
+      runtimeAdmission.resume();
+    }
+  });
 
   it('protects instruction-template reads and forwards confirmed activation through Admin Operations', async () => {
     const listTemplates = vi.fn<AdminInstructionTemplateOperations['listTemplates']>().mockResolvedValue({

@@ -31,6 +31,7 @@ export interface RuntimeScopeOwnershipRecord {
   claimedAt: string;
   processIdentity?: ProcessIdentity;
   coordination?: 'flock';
+  cooperative?: true;
 }
 
 export interface RuntimeScopeOwnership {
@@ -45,6 +46,8 @@ export interface RuntimeScopeStopLock {
 export interface RuntimeScopeClaimant {
   kind: RuntimeScopeClaimantKind;
   pid?: number;
+  /** Never inspect or reclaim existing ownership on cooperative launch. */
+  cooperative?: true;
 }
 
 export type RuntimeScopeOwnershipFailureReason = 'owned' | 'ambiguous';
@@ -72,6 +75,7 @@ const runtimeScopeOwnershipRecordSchema = z.object({
   claimedAt: z.string().datetime(),
   processIdentity: processIdentitySchema.optional(),
   coordination: z.literal('flock').optional(),
+  cooperative: z.literal(true).optional(),
 }) satisfies z.ZodType<RuntimeScopeOwnershipRecord>;
 
 const runtimeScopeStopLockSchema = z.object({
@@ -132,7 +136,9 @@ export function claimRuntimeScope(
     claimId: createClaimId(),
     kind: claimant.kind,
     claimedAt: now().toISOString(),
-    processIdentity: readProcessIdentity(claimant.pid ?? process.pid),
+    ...(claimant.cooperative
+      ? { cooperative: true as const }
+      : { processIdentity: readProcessIdentity(claimant.pid ?? process.pid) }),
   };
 
   fs.mkdirSync(configDir, { recursive: true });
@@ -143,7 +149,13 @@ export function claimRuntimeScope(
   try {
     writeCandidate(candidateDir, OWNER_RECORD_NAME, record);
     for (let attempt = 0; attempt < CLAIM_ATTEMPTS; attempt += 1) {
-      assertNoActiveStopLock(configDir, processAlive);
+      if (claimant.cooperative) {
+        if (fs.existsSync(getRuntimeScopeStopLockPath(configDir))) {
+          throw new RuntimeScopeOwnedError(ownerDir, 'ambiguous', null, 'stop metadata requires explicit recovery');
+        }
+      } else {
+        assertNoActiveStopLock(configDir, processAlive);
+      }
       try {
         fs.renameSync(candidateDir, ownerDir);
       } catch (error) {
@@ -155,7 +167,7 @@ export function claimRuntimeScope(
         if (!existing) {
           continue;
         }
-        if (!ownerIsDead(existing.record, processAlive, fileLock !== null)) {
+        if (claimant.cooperative || !ownerIsDead(existing.record, processAlive, fileLock !== null)) {
           throw new RuntimeScopeOwnedError(ownerDir, 'owned', existing.record);
         }
         reclaimObservedOwnership(configDir, existing, processAlive, fileLock !== null);
@@ -163,7 +175,13 @@ export function claimRuntimeScope(
       }
 
       try {
-        assertNoActiveStopLock(configDir, processAlive);
+        if (claimant.cooperative) {
+          if (fs.existsSync(getRuntimeScopeStopLockPath(configDir))) {
+            throw new RuntimeScopeOwnedError(ownerDir, 'ambiguous', null, 'stop metadata requires explicit recovery');
+          }
+        } else {
+          assertNoActiveStopLock(configDir, processAlive);
+        }
       } catch (error) {
         releaseRuntimeScopeOwnership(configDir, record);
         throw error;
@@ -304,6 +322,7 @@ function ownerIsDead(
   processAlive: (pid: number) => boolean,
   heldFileLock: boolean,
 ): boolean {
+  if (record.cooperative) return false;
   return (
     (heldFileLock && record.coordination === 'flock') ||
     inspectProcessIdentity(record.pid, record.processIdentity, { processAlive }) === 'dead'

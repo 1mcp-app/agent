@@ -94,6 +94,7 @@ export function gatewayFailureFromMcpError(error: unknown): GatewayFailure {
   const safeCode =
     [
       'gateway_overloaded',
+      'runtime_draining',
       'gateway_target_unavailable',
       'resource_not_found',
       'schema_evaluation_timeout',
@@ -152,7 +153,7 @@ export function gatewayFailureToProblem(failure: GatewayFailure) {
     status = 403;
   } else if (safe.kind === 'deadline-exceeded' || safe.kind === 'cancelled') {
     status = 408;
-  } else if (safe.code === 'gateway_overloaded') {
+  } else if (safe.code === 'gateway_overloaded' || safe.code === 'runtime_draining') {
     status = 503;
   } else if (safe.kind === 'transport' || safe.kind === 'protocol') {
     status = 502;
@@ -187,7 +188,13 @@ export function gatewayFailureExitCode(failure: GatewayFailure): number {
   if (['schema_evaluation_timeout', 'schema_evaluation_unavailable'].includes(safe.code)) return 6;
   if (safe.kind === 'invalid-request' || ['-32700', '-32600', '-32602'].includes(safe.code)) return 2;
   if (safe.kind === 'authorization' || ['401', '403'].includes(safe.code)) return 3;
-  if (safe.kind === 'deadline-exceeded' || safe.kind === 'cancelled' || safe.code === 'gateway_overloaded') return 6;
+  if (
+    safe.kind === 'deadline-exceeded' ||
+    safe.kind === 'cancelled' ||
+    safe.code === 'gateway_overloaded' ||
+    safe.code === 'runtime_draining'
+  )
+    return 6;
   if (['gateway_target_unavailable', '-32004', '-32010'].includes(safe.code)) return 4;
   return safe.kind === 'internal' || safe.code === '-32603' ? 1 : 5;
 }

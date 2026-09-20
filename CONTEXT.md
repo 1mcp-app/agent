@@ -20,6 +20,18 @@ _Avoid_: Runtime-Backed Command, remote serve command
 The long-lived control process for one **Runtime Scope** that owns at most one **Background Aggregated Runtime** and can replace it after unexpected termination. It does not expose **Client Surfaces** and is not itself an **Aggregated Runtime**.
 _Avoid_: second runtime, background runtime, watchdog
 
+**Runtime Upgrade**:
+Activation of an already-installed 1MCP version by replacing the **Background Runtime Supervisor** and its **Background Aggregated Runtime** in one **Runtime Scope**.
+_Avoid_: package installation, backend restart
+
+**Cooperative Runtime Replacement**:
+A replacement in which the responsive current **Background Runtime Supervisor** participates in retiring its runtime before a successor takes ownership of the same **Runtime Scope**.
+_Avoid_: orphan recovery, takeover
+
+**Runtime Activation**:
+The establishment of an intended supervisor/runtime generation as the owner serving one **Runtime Scope** with its selected configuration. Activation is distinct from the health of its configured backends.
+_Avoid_: backend readiness, package installation
+
 **Backend Stdio Supervision**:
 The lifecycle policy by which an **Aggregated Runtime** owns a backend MCP server connected through child-process stdin/stdout, including crash recovery. It is distinct from supervision of the **Aggregated Runtime** itself.
 _Avoid_: process manager, Background Runtime Supervisor

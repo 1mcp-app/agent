@@ -4,6 +4,7 @@ import { tmpdir } from 'os';
 import path from 'path';
 
 import ConfigContext from '@src/config/configContext.js';
+import { runtimeAdmission } from '@src/core/server/runtimeDrain.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -1226,5 +1227,16 @@ describe('Config Change', () => {
     } catch {
       return false;
     }
+  }
+});
+
+it('rejects configuration mutations before inspecting or writing the config during drain', async () => {
+  runtimeAdmission.close();
+  try {
+    await expect(
+      createConfigChangeService().removeConfiguredServerTarget({ targetName: 'server' }),
+    ).rejects.toMatchObject({ code: -32004 });
+  } finally {
+    runtimeAdmission.resume();
   }
 });
