@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.0-beta.0] - 2026-09-20
+
+### 🚀 Features
+- Support cooperative installed-version upgrades by @xizhibei in [#552](https://github.com/1mcp-app/agent/pull/552)
+- Translate bounded interactions across protocol eras by @xizhibei in [#536](https://github.com/1mcp-app/agent/pull/536)
+- Enforce isolated multi-dialect validation by @xizhibei in [#535](https://github.com/1mcp-app/agent/pull/535)
+
+### 🐛 Bug Fixes
+- Recover a lost session the backend reports as an unknown Mcp-Session-Id by @cq-guojia in [#550](https://github.com/1mcp-app/agent/pull/550)
+- Stabilize macOS restart and clarify lifecycle recovery by @xizhibei in [#551](https://github.com/1mcp-app/agent/pull/551)
+- Authenticate cursors and prevent duplicate dispatch by @xizhibei in [#534](https://github.com/1mcp-app/agent/pull/534)
+
+
 ## [0.38.2] - 2026-09-19
 
 ### 🐛 Bug Fixes
@@ -1182,6 +1195,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * @xizhibei made their first contribution in [#1](https://github.com/1mcp-app/agent/pull/1)
 * @dependabot[bot] made their first contribution
 
+[0.39.0-beta.0]: https://github.com/1mcp-app/agent/compare/v0.38.2..v0.39.0-beta.0
 [0.38.2]: https://github.com/1mcp-app/agent/compare/v0.38.1..v0.38.2
 [0.38.1]: https://github.com/1mcp-app/agent/compare/v0.38.0..v0.38.1
 [0.38.0]: https://github.com/1mcp-app/agent/compare/v0.37.0..v0.38.0
