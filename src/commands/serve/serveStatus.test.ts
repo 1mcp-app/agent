@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
+import * as cooperativeRuntime from '@src/commands/serve/cooperativeRuntime.js';
 import {
   formatRuntimeStatusReport,
   getRuntimeStatusReport,
@@ -51,6 +52,7 @@ describe('serveStatus', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     if (fs.existsSync(testPidFilePath)) {
       fs.unlinkSync(testPidFilePath);
     }
@@ -85,6 +87,28 @@ describe('serveStatus', () => {
         ...overrides,
       };
     }
+
+    it('retains authenticated status when supplementary supervisor state is unreadable', async () => {
+      vi.spyOn(cooperativeRuntime, 'cooperativeRuntimeStatus').mockResolvedValue({
+        description: {
+          runtimeScopeId: 'test',
+          explicitInputs: { version: 1, values: {} },
+          digest: 'test',
+          supervisorPid: process.pid,
+          state: 'running',
+          version: 'test',
+          runtime: baseInfo(),
+        },
+        ready: true,
+      });
+      const readSupervisorState = vi.fn(() => {
+        throw new Error('invalid supplementary state');
+      });
+      const report = await getRuntimeStatusReport(testConfigDir, { readSupervisorState });
+      expect(readSupervisorState).toHaveBeenCalledWith(testConfigDir);
+      expect(report).toMatchObject({ status: 'running', runtimeVersion: 'test' });
+      expect(report.supervisorState).toBeUndefined();
+    });
 
     it('reports running with full details when alive and ready', async () => {
       writePidFile(testConfigDir, baseInfo({ logFile: '/tmp/server.log' }));

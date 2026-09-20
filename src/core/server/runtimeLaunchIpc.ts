@@ -79,7 +79,11 @@ export function waitForChildActivation(child: ChildProcess, bootstrap: RuntimeLa
       if (!message || typeof message !== 'object' || !('type' in message)) return;
       if (message.type === 'runtime-hello' && !sent) {
         sent = true;
-        sendChild(child, bootstrap);
+        try {
+          sendChild(child, bootstrap);
+        } catch (error) {
+          finish(error as Error);
+        }
         return;
       }
       if (message.type === 'runtime-failed') {

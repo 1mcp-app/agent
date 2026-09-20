@@ -89,7 +89,6 @@ export type RuntimeReplacementSnapshot = z.infer<typeof runtimeReplacementSnapsh
 export interface PreparedRuntimeReplacementConfig {
   snapshot: RuntimeReplacementSnapshot;
   digest: string;
-  explicitInputs: ExplicitLaunchInputs;
   effectiveOptions: Partial<ServeOptions>;
 }
 
@@ -137,11 +136,19 @@ export function prepareRuntimeReplacementConfig(input: {
     const explicitConfig = explicitInputs.values.config;
     const configFilePath = path.resolve(typeof explicitConfig === 'string' ? explicitConfig : input.configFilePath);
     const runtimeScope = path.resolve(input.runtimeScope);
-    if (path.dirname(configFilePath) !== runtimeScope) throw new Error('Runtime scope mismatch');
+    const canonicalScope = fs.realpathSync.native(runtimeScope);
+    if (fs.realpathSync.native(path.dirname(configFilePath)) !== canonicalScope)
+      throw new Error('Runtime scope mismatch');
     for (const values of [previous.values, invocation.values]) {
-      if (typeof values.config === 'string' && path.dirname(path.resolve(values.config)) !== runtimeScope)
+      if (
+        typeof values.config === 'string' &&
+        fs.realpathSync.native(path.dirname(path.resolve(values.config))) !== canonicalScope
+      )
         throw new Error('Runtime config scope changed');
-      if (typeof values['config-dir'] === 'string' && path.resolve(values['config-dir']) !== runtimeScope)
+      if (
+        typeof values['config-dir'] === 'string' &&
+        fs.realpathSync.native(path.resolve(values['config-dir'])) !== canonicalScope
+      )
         throw new Error('Runtime scope changed');
     }
     const tomlPath = path.join(path.dirname(configFilePath), 'config.toml');
@@ -173,7 +180,6 @@ export function prepareRuntimeReplacementConfig(input: {
     return {
       snapshot,
       digest: digestRuntimeReplacementConfig(snapshot),
-      explicitInputs,
       effectiveOptions: { ...explicitInputs.values } as Partial<ServeOptions>,
     };
   } catch {

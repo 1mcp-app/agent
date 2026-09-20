@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
+import * as runtimeBootstrap from '@src/config/runtimeBootstrap.js';
 import { DEFAULT_CONFIG } from '@src/constants.js';
 import { runtimeAdmission } from '@src/core/server/runtimeDrain.js';
 import logger from '@src/logger/logger.js';
@@ -89,6 +90,27 @@ describe('McpConfigManager', () => {
     (fs.existsSync as unknown as MockInstance).mockReturnValue(true);
     (fs.readFileSync as unknown as MockInstance).mockReturnValue(JSON.stringify({ mcpServers: {} }));
     (fs.statSync as unknown as MockInstance).mockReturnValue({ mtime: new Date() });
+  });
+
+  it('does not start a deferred watcher after stopping before activation', () => {
+    const manager = McpConfigManager.getInstance(testConfigPath);
+    let activate: (() => void) | undefined;
+    const defer = vi.spyOn(runtimeBootstrap, 'deferUntilRuntimeActivation').mockImplementationOnce((callback) => {
+      activate = callback;
+      return true;
+    });
+    vi.mocked(fs.watch).mockClear();
+    try {
+      manager.startWatching();
+      expect(activate).toBeDefined();
+      expect(fs.watch).not.toHaveBeenCalled();
+      manager.stopWatching();
+      activate!();
+      expect(fs.watch).not.toHaveBeenCalled();
+    } finally {
+      defer.mockRestore();
+      manager.stopWatching();
+    }
   });
 
   it('defers and coalesces reload requests until admission resumes', async () => {

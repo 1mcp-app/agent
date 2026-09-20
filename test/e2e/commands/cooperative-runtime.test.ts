@@ -388,6 +388,60 @@ describe('cooperative runtime real-process lifecycle', () => {
     }
   });
 
+  it(
+    'keeps current backend files after a worker crash without changing supervisor launch settings',
+    { timeout: 55_000 },
+    async () => {
+      const s = scope();
+      const port = await freePort();
+      const originalJournal = path.join(s.directory, 'original.ndjson');
+      const currentJournal = path.join(s.directory, 'current.ndjson');
+      fs.writeFileSync(path.join(s.directory, '.env'), `COOPERATIVE_RESTART_JOURNAL=${originalJournal}\n`);
+      fs.writeFileSync(path.join(s.directory, 'config.toml'), 'host = "127.0.0.1"\n');
+      await start(s, port);
+      const initialOwner = owner(s);
+      const initialRuntime = runtime(s);
+
+      fs.writeFileSync(path.join(s.directory, '.env'), `COOPERATIVE_RESTART_JOURNAL=${currentJournal}\n`);
+      fs.writeFileSync(
+        path.join(s.directory, 'mcp.json'),
+        JSON.stringify({
+          mcpServers: {
+            fixture: {
+              type: 'stdio',
+              command: process.execPath,
+              args: [path.join(fixtures, 'cooperative-slow-server.mjs'), '${COOPERATIVE_RESTART_JOURNAL}'],
+            },
+          },
+        }),
+      );
+      await waitForFixture(port);
+      expect((await invoke(port, 'before-crash')).ok).toBe(true);
+      await eventually(() => audit(currentJournal).some((entry) => entry.invocation === 'before-crash'));
+      // Ordinary crash recovery preserves app launch settings; changing these needs serve --restart.
+      fs.writeFileSync(path.join(s.directory, 'config.toml'), 'transport = "stdio"\n');
+      expect(runtime(s).ownerClaimId).toBe(initialOwner.claimId);
+      process.kill(initialRuntime.pid, 'SIGKILL');
+      await eventually(() => {
+        try {
+          return runtime(s).pid !== initialRuntime.pid;
+        } catch {
+          return false;
+        }
+      }, 15000);
+      await eventually(async () => {
+        try {
+          return (await invoke(port, 'after-crash')).ok;
+        } catch {
+          return false;
+        }
+      }, 15000);
+      expect(owner(s)).toEqual(initialOwner);
+      await eventually(() => audit(currentJournal).some((entry) => entry.invocation === 'after-crash'));
+      expect(fs.existsSync(originalJournal)).toBe(false);
+    },
+  );
+
   it('retains a custom configuration filename across restart by scope', { timeout: 55_000 }, async () => {
     const s = scope();
     const custom = path.join(s.directory, 'custom.json');

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { loadRuntimeScopeEnvironment } from '@src/config/runtimeScopeEnv.js';
 import { MCP_SERVER_VERSION } from '@src/constants.js';
 import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
 import {
@@ -42,16 +43,19 @@ import { probeLoadingSummary, probeReadiness } from '@src/core/server/runtimeLif
 import {
   activateRuntimeReplacementConfig,
   captureExplicitLaunchInputs,
+  digestRuntimeReplacementConfig,
   explicitLaunchInputsSchema,
   installRuntimeReplacementConfig,
   type PreparedRuntimeReplacementConfig,
   prepareRuntimeReplacementConfig,
+  type RuntimeReplacementSnapshot,
 } from '@src/core/server/runtimeReplacementConfig.js';
 import {
   claimRuntimeScope,
   getRuntimeScopeOwnershipPath,
   readRuntimeScopeOwnership,
 } from '@src/core/server/runtimeScopeOwnership.js';
+import { mcpServerConfigSchema } from '@src/core/types/transport.js';
 import { normalizedArgv } from '@src/utils/cli/normalizedArgv.js';
 
 import { z } from 'zod';
@@ -259,6 +263,18 @@ export async function restartCooperativeRuntime(options: ServeOptions): Promise<
   }
 }
 
+function readCurrentBackendSnapshot(snapshot: RuntimeReplacementSnapshot): RuntimeReplacementSnapshot {
+  try {
+    return {
+      ...snapshot,
+      mcpConfig: mcpServerConfigSchema.parse(JSON.parse(fs.readFileSync(snapshot.configFilePath, 'utf8'))),
+      runtimeEnvironment: loadRuntimeScopeEnvironment(snapshot.configFilePath),
+    };
+  } catch {
+    throw new Error('Runtime backend configuration is invalid; correct the selected scope before restarting');
+  }
+}
+
 export async function runCooperativeSupervisor(): Promise<void> {
   const bootstrap = await receiveRuntimeBootstrap();
   const scope = bootstrap.snapshot.runtimeScope;
@@ -269,6 +285,7 @@ export async function runCooperativeSupervisor(): Promise<void> {
   const spawnedWorkerPids = new Set<number>();
   let runtime: ServerPidInfo | null = null;
   let activated = false;
+  let runtimeDigest = bootstrap.digest;
   let stopping = false;
   let failed = false;
   let admissionClosed = false;
@@ -318,6 +335,12 @@ export async function runCooperativeSupervisor(): Promise<void> {
       return admissionSnapshotSchema.parse(await controlWorker('commit'));
     },
   });
+  const currentState = (): RuntimeControlDescription['state'] => {
+    if (stopping) return 'stopping';
+    if (failed) return 'crash-loop';
+    if (admissionClosed) return 'draining';
+    return readBackgroundSupervisorState(scope)?.status ?? 'starting';
+  };
   const control = await startRuntimeControl(scope, ownership.record.claimId, async (method, payload, operationId) => {
     switch (method) {
       case 'describe':
@@ -326,15 +349,9 @@ export async function runCooperativeSupervisor(): Promise<void> {
           runtimeScopeId: new RuntimeIdentityService({ storageDir: scope }).getRuntimeScopeId(),
           version: MCP_SERVER_VERSION,
           explicitInputs: bootstrap.snapshot.explicitInputs,
-          digest: bootstrap.digest,
+          digest: runtimeDigest,
           supervisorPid: process.pid,
-          state: stopping
-            ? 'stopping'
-            : failed
-              ? 'crash-loop'
-              : admissionClosed
-                ? 'draining'
-                : (readBackgroundSupervisorState(scope)?.status ?? 'starting'),
+          state: currentState(),
         } satisfies RuntimeControlDescription;
       case 'prepare-replacement': {
         const input = prepareSchema.parse(payload);
@@ -382,24 +399,37 @@ export async function runCooperativeSupervisor(): Promise<void> {
           spawnWorker: (cmd, args) => {
             if (stopping) throw new Error('Supervisor is retiring; worker restart refused');
             runtime = null;
+            // A later crash restart reads current backend files, as ordinary supervised workers do.
+            // Preserve the supervisor's launch options and app settings; only activation freezes backend files.
+            const snapshot = activated ? readCurrentBackendSnapshot(bootstrap.snapshot) : bootstrap.snapshot;
+            const launch = {
+              ...bootstrap,
+              snapshot,
+              digest: digestRuntimeReplacementConfig(snapshot),
+              nonce: randomUUID(),
+              claimId: ownership.record.claimId,
+            };
             const child = spawn(cmd, [...args], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
             worker = child;
             if (child.pid) spawnedWorkerPids.add(child.pid);
-            const launch = { ...bootstrap, nonce: randomUUID(), claimId: ownership.record.claimId };
             const ready = waitForChildActivation(child, launch).then((message) => {
               const value = activationSchema.parse(message);
               if (
                 value.nonce !== launch.nonce ||
                 value.claimId !== ownership.record.claimId ||
-                value.digest !== bootstrap.digest ||
+                value.digest !== launch.digest ||
                 value.version !== MCP_SERVER_VERSION ||
                 value.runtime.pid !== child.pid
               )
                 throw new Error('Worker activation binding failed');
               runtime = value.runtime;
-              if (!activated && process.connected) sendRuntimeParent({ ...value, nonce: bootstrap.nonce });
-              activated = true;
-              sendChild(child, { type: 'runtime-activation-recorded', digest: bootstrap.digest });
+              runtimeDigest = launch.digest;
+              if (!activated) {
+                if (process.connected) sendRuntimeParent({ ...value, nonce: bootstrap.nonce });
+                activateRuntimeReplacementConfig(bootstrap.digest);
+                activated = true;
+              }
+              sendChild(child, { type: 'runtime-activation-recorded', digest: launch.digest });
               return true;
             });
             // Keep a rejection handled while the supervisor installs its readiness race.

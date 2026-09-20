@@ -86,7 +86,11 @@ export class ConfigManager extends EventEmitter {
   public async initialize(): Promise<void> {
     try {
       this.loadConfig();
-      if (!deferUntilRuntimeActivation(() => this.watcher.startWatching())) this.watcher.startWatching();
+      const generation = this.reloadGeneration;
+      const startWatching = () => {
+        if (generation === this.reloadGeneration) this.watcher.startWatching();
+      };
+      if (!deferUntilRuntimeActivation(startWatching)) startWatching();
       logger.info('ConfigManager initialized');
     } catch (error) {
       const errorMsg = `Failed to initialize ConfigManager: ${error instanceof Error ? error.message : String(error)}`;

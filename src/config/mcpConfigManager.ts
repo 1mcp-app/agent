@@ -138,7 +138,13 @@ export class McpConfigManager extends EventEmitter {
    * Start watching the configuration file for changes
    */
   public startWatching(): void {
-    if (deferUntilRuntimeActivation(() => this.startWatching())) return;
+    const generation = this.reloadGeneration;
+    if (
+      deferUntilRuntimeActivation(() => {
+        if (generation === this.reloadGeneration) this.startWatching();
+      })
+    )
+      return;
     // Check if config reload is enabled
     const agentConfig = AgentConfigManager.getInstance();
     const features = agentConfig.get('features');

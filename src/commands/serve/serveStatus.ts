@@ -75,20 +75,22 @@ export async function getRuntimeStatusReport(
     const cooperative = await cooperativeRuntimeStatus(configDir);
     if (cooperative) {
       const { description, ready } = cooperative;
+      let status: ServeRuntimeStatus = ready ? 'running' : 'unreachable';
+      if (description.state === 'crash-loop') status = 'crash-loop';
+      if (description.state === 'restarting') status = 'restarting';
+      let supervisorState: BackgroundSupervisorState | undefined;
+      try {
+        supervisorState = (deps.readSupervisorState ?? readBackgroundSupervisorState)(configDir) ?? undefined;
+      } catch {
+        // The authenticated description remains authoritative if supplementary state is unreadable.
+      }
       return {
         configDir,
         info: description.runtime,
         cooperativeState: description.state,
         runtimeVersion: description.version,
-        supervisorState: readBackgroundSupervisorState(configDir) ?? undefined,
-        status:
-          description.state === 'crash-loop'
-            ? 'crash-loop'
-            : description.state === 'restarting'
-              ? 'restarting'
-              : ready
-                ? 'running'
-                : 'unreachable',
+        supervisorState,
+        status,
       };
     }
   } catch (error) {

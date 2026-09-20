@@ -3,6 +3,7 @@ import fs, { promises as fsPromises } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
+import * as runtimeBootstrap from '@src/config/runtimeBootstrap.js';
 import { CONFIG_EVENTS, ConfigChangeType, ConfigManager } from '@src/config/configManager.js';
 import { getRuntimeScopeEnvironment } from '@src/config/runtimeScopeEnv.js';
 import { runtimeAdmission, RuntimeReplacementDrain } from '@src/core/server/runtimeDrain.js';
@@ -126,6 +127,27 @@ describe('ConfigManager (Integration)', () => {
     configManager = ConfigManager.getInstance(configFilePath);
     await configManager.initialize();
     await configManager.stop();
+  });
+
+  it('does not start a deferred watcher after stopping before activation', async () => {
+    let activate: (() => void) | undefined;
+    const defer = vi.spyOn(runtimeBootstrap, 'deferUntilRuntimeActivation').mockImplementationOnce((callback) => {
+      activate = callback;
+      return true;
+    });
+    const watcher = watcherState.getLastWatcherInstance()!;
+    const start = vi.spyOn(watcher, 'startWatching');
+    try {
+      await configManager.initialize();
+      expect(activate).toBeDefined();
+      expect(start).not.toHaveBeenCalled();
+      await configManager.stop();
+      activate!();
+      expect(start).not.toHaveBeenCalled();
+    } finally {
+      defer.mockRestore();
+      start.mockRestore();
+    }
   });
 
   afterEach(async () => {

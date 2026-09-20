@@ -121,6 +121,32 @@ describe('replacement launch provenance', () => {
     expect(overridden.snapshot.configFilePath).toBe(configFilePath);
   });
 
+  it('accepts a directory alias without changing the selected configuration path', () => {
+    const alias = path.join(directory, 'alias');
+    fs.symlinkSync(directory, alias, 'junction');
+    const selectedConfig = path.join(alias, 'mcp.json');
+    const result = prepareRuntimeReplacementConfig({
+      configFilePath,
+      runtimeScope: directory,
+      previousExplicitInputs: { version: 1, values: { 'config-dir': alias } },
+      invocationExplicitInputs: { version: 1, values: { config: selectedConfig } },
+    });
+    expect(result.snapshot.configFilePath).toBe(selectedConfig);
+    expect(result.snapshot.runtimeScope).toBe(directory);
+  });
+
+  it('keeps scope environment beside a symlinked configuration file', () => {
+    const external = path.join(directory, 'external');
+    fs.mkdirSync(external);
+    const target = path.join(external, 'mcp.json');
+    fs.renameSync(configFilePath, target);
+    fs.symlinkSync(target, configFilePath);
+    const result = prepare();
+    expect(result.snapshot.configFilePath).toBe(configFilePath);
+    expect(result.snapshot.runtimeEnvironment.RUNTIME_TEST_TOKEN).toBe('first');
+    expect(result.snapshot.appConfig.port).toBe(3100);
+  });
+
   it('rejects scope changes before any bootstrap state is installed', () => {
     expect(() =>
       prepareRuntimeReplacementConfig({
