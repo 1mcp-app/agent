@@ -37,15 +37,28 @@ export const enum ClientManagerEvent {
   BackendSupervisionStateChanged = 'backend-supervision-state-changed',
 }
 
-// Matches the two message shapes downstream servers are observed to send back
+// Matches the message shapes downstream servers are observed to send back
 // when a Streamable HTTP / SSE session ID they issued no longer exists on
 // their side (e.g. the backend process restarted and its in-memory session
-// store was wiped): the MCP spec's own "Session not found" wording, and the
-// free-form "Could not find session ID '...'" text some server SDKs use. The
-// second alternative spells out "session id" (rather than a bare "session")
-// so we don't also match unrelated "could not find session <noun>" wording
-// that isn't the specific session-loss shape this recovery path handles.
-const SESSION_LOST_PATTERN = /session (?:id )?not found|could not find session id/i;
+// store was wiped, the entry was reaped while the connection sat idle, or the
+// request was routed to an instance that never issued it): the MCP spec's own
+// "Session not found" wording, the free-form "Could not find session ID '...'"
+// text some server SDKs use, and the "Not Found: Unknown Mcp-Session-Id
+// header" body a Streamable HTTP backend returns for a session ID it does not
+// recognise. That last wording is not standardised -- backends that
+// re-implement the transport each phrase a refused session differently, and
+// the reference SDKs say "Session not found" / "No valid session ID provided"
+// instead -- so this is a whitelist of observed shapes rather than a closed
+// set. A wording missing from it is silently fatal: the client keeps replaying
+// the dead session ID and never reconnects.
+//
+// The second alternative spells out "session id" (rather than a bare
+// "session") so we don't also match unrelated "could not find session <noun>"
+// wording that isn't the specific session-loss shape this recovery path
+// handles. The third keys off "unknown" so a *missing* or *required* session
+// header -- a different failure, where the request never carried one and
+// reconnecting cannot help -- is not swept in.
+const SESSION_LOST_PATTERN = /session (?:id )?not found|could not find session id|unknown mcp-session-id/i;
 
 function isSessionLostError(error: unknown): boolean {
   if (!(error instanceof Error)) {
