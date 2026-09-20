@@ -16,6 +16,7 @@ import { createScopeAuthMiddleware } from '@src/transport/http/middlewares/scope
 import { setupModernHttpRoutes } from '@src/transport/http/routes/modernHttpRoutes.js';
 
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import { describe, expect, it, vi } from 'vitest';
 
 async function listen(server: HttpServer): Promise<URL> {
@@ -124,6 +125,7 @@ describe('native round capability admission', () => {
         cleanup.push(() => ServerManager.resetInstance());
         const app = express();
         app.use(express.json());
+        app.use(rateLimit({ windowMs: 60_000, limit: 1000 }));
         const expiresAt = Date.now() + 120_000;
         const provider = {
           verifyAccessToken: async (token: string) => {
