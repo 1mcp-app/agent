@@ -466,22 +466,29 @@ for (const scenario of [
       { FIXTURE_SECRET_SENTINEL: secret },
     );
 
-    assert.equal(output.ok, scenario.protocol === 'legacy');
+    assert.equal(output.ok, true);
     assert.equal(output.sdkEra, scenario.client);
     assert.equal(output.protocolEra, scenario.protocol);
     assert.equal(output.transport, 'streamable-http');
-    assert.deepEqual(output.operations, {
-      initialize: scenario.protocol === 'legacy',
-      ping: scenario.protocol === 'legacy',
-      toolsList: { count: 1, fixtureTool: true },
-      toolsCall: { contentTypes: ['text'], isError: false },
-    });
+    assert.deepEqual(
+      output.operations,
+      scenario.protocol === 'legacy'
+        ? {
+            initialize: true,
+            ping: true,
+            toolsList: { count: 1, fixtureTool: true },
+            toolsCall: { contentTypes: ['text'], isError: false },
+          }
+        : {
+            serverDiscover: true,
+            toolsList: { count: 1, fixtureTool: true },
+            toolsCall: { contentTypes: ['text'], isError: false },
+          },
+    );
     if (scenario.protocol === 'modern') {
-      assert.equal(output.classification, 'unsupported-operation');
-      assert.deepEqual(output.unsupported, [
-        { operation: 'initialize', reason: 'modern-uses-server-discover' },
-        { operation: 'ping', reason: 'not-in-2026-07-28' },
-      ]);
+      assert.equal('initialized' in output, false);
+      assert.equal('ping' in output, false);
+      assert.equal(output.operations.serverDiscover, true);
     }
     assert.equal(text.includes(secret), false);
     assert.equal(text.includes(server.endpoint), false);
@@ -539,7 +546,7 @@ for (const sdkEra of ['v1', 'v2']) {
       'stdio',
     ]);
 
-    assert.equal(output.ok, sdkEra === 'v1');
+    assert.equal(output.ok, true);
     assert.equal(output.transport, 'stdio');
     assert.equal(output.protocolEra, protocolEra);
     assert.equal(text.includes(fixture), false);

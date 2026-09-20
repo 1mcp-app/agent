@@ -30,6 +30,7 @@ const RevisionSchema = z
   .max(32)
   .regex(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/u);
 const EraSchema = z.enum(['legacy', 'modern']);
+const SdkEraSchema = z.enum(['v1', 'v2']);
 const VariantSchema = z.enum(['typescript-baseline', 'alternate-inbound', 'alternate-upstream']);
 const UpstreamTransportTypeSchema = z.enum(['stdio', 'sse', 'http', 'streamableHttp']);
 const CommandSchema = z
@@ -67,27 +68,47 @@ const MatrixExecutionOptionsSchema = z
   })
   .strict();
 
-const ProbeSuccessSchema = z
-  .object({
-    fixtureId: SafeIdSchema,
-    transport: SafeIdSchema,
-    initialized: z.literal(true),
-    ping: z.literal(true),
-    negotiatedRevision: RevisionSchema,
-    operations: z
-      .array(
-        z
-          .string()
-          .min(1)
-          .max(64)
-          .regex(/^[a-z0-9][a-z0-9/._-]*$/u),
-      )
-      .min(1)
-      .max(64),
-    toolsCount: z.number().int().nonnegative().max(100_000),
-    callError: z.boolean(),
-  })
-  .strict();
+const ProbeOperationSchema = z.enum(['server/discover', 'initialize', 'ping', 'tools/list', 'tools/call']);
+const LegacyProbeOperationsSchema = z.tuple([
+  z.literal('initialize'),
+  z.literal('ping'),
+  z.literal('tools/list'),
+  z.literal('tools/call'),
+]);
+const ModernProbeOperationsSchema = z.tuple([
+  z.literal('server/discover'),
+  z.literal('tools/list'),
+  z.literal('tools/call'),
+]);
+
+const ProbeSuccessSchema = z.discriminatedUnion('protocolEra', [
+  z
+    .object({
+      fixtureId: SafeIdSchema,
+      transport: SafeIdSchema,
+      sdkEra: SdkEraSchema.optional(),
+      protocolEra: z.literal('legacy'),
+      initialized: z.literal(true),
+      ping: z.literal(true),
+      negotiatedRevision: RevisionSchema,
+      operations: LegacyProbeOperationsSchema,
+      toolsCount: z.number().int().nonnegative().max(100_000),
+      callError: z.literal(false),
+    })
+    .strict(),
+  z
+    .object({
+      fixtureId: SafeIdSchema,
+      transport: SafeIdSchema,
+      sdkEra: SdkEraSchema.optional(),
+      protocolEra: z.literal('modern'),
+      negotiatedRevision: RevisionSchema,
+      operations: ModernProbeOperationsSchema,
+      toolsCount: z.number().int().nonnegative().max(100_000),
+      callError: z.literal(false),
+    })
+    .strict(),
+]);
 
 const ProbeUnsupportedSchema = z
   .object({
@@ -123,13 +144,83 @@ const ProbeRejectedSchema = z
   })
   .strict();
 
-const PeerProbeSchema = z
+const PeerToolListSchema = z
+  .object({
+    count: z.number().int().nonnegative().max(100_000),
+    fixtureTool: z.boolean(),
+  })
+  .strict();
+const PeerToolCallSchema = z
+  .object({
+    contentTypes: z.array(z.string().min(1).max(64)).max(64),
+    isError: z.literal(false),
+  })
+  .strict();
+const PeerSuccessSchema = z.discriminatedUnion('protocolEra', [
+  z
+    .object({
+      fixtureId: SafeIdSchema,
+      transport: SafeIdSchema,
+      sdkEra: SdkEraSchema.optional(),
+      protocolEra: z.literal('legacy'),
+      ok: z.literal(true),
+      initialized: z.literal(true),
+      ping: z.literal(true),
+      negotiatedRevision: RevisionSchema,
+      operations: z
+        .object({
+          initialize: z.literal(true),
+          ping: z.literal(true),
+          toolsList: PeerToolListSchema,
+          toolsCall: PeerToolCallSchema,
+        })
+        .strict(),
+      toolsCount: z.number().int().nonnegative().max(100_000),
+      callError: z.literal(false),
+    })
+    .strict(),
+  z
+    .object({
+      fixtureId: SafeIdSchema,
+      transport: SafeIdSchema,
+      sdkEra: SdkEraSchema.optional(),
+      protocolEra: z.literal('modern'),
+      ok: z.literal(true),
+      negotiatedRevision: RevisionSchema,
+      operations: z
+        .object({
+          serverDiscover: z.literal(true),
+          toolsList: PeerToolListSchema,
+          toolsCall: PeerToolCallSchema,
+        })
+        .strict(),
+      toolsCount: z.number().int().nonnegative().max(100_000),
+      callError: z.literal(false),
+    })
+    .strict(),
+]);
+const PeerCallFailureSchema = z
   .object({
     fixtureId: SafeIdSchema,
     transport: SafeIdSchema,
+    sdkEra: SdkEraSchema.optional(),
     protocolEra: EraSchema,
-    ok: z.boolean(),
-    classification: z.literal('unsupported-operation').optional(),
+    ok: z.literal(false),
+    classification: z.literal('tools-call-failed'),
+    negotiatedRevision: RevisionSchema,
+    operations: z.array(ProbeOperationSchema).min(1).max(5),
+    toolsCount: z.number().int().nonnegative().max(100_000),
+    callError: z.literal(true),
+  })
+  .strict();
+const PeerUnsupportedSchema = z
+  .object({
+    fixtureId: SafeIdSchema,
+    transport: SafeIdSchema,
+    sdkEra: SdkEraSchema.optional(),
+    protocolEra: EraSchema,
+    ok: z.literal(false),
+    classification: z.literal('unsupported-operation'),
     unsupported: z
       .array(
         z
@@ -139,18 +230,16 @@ const PeerProbeSchema = z
           })
           .strict(),
       )
-      .optional(),
+      .min(1),
     initialized: z.boolean(),
     ping: z.boolean(),
     negotiatedRevision: RevisionSchema,
-    operations: z
-      .array(z.enum(['server/discover', 'initialize', 'ping', 'tools/list', 'tools/call']))
-      .min(1)
-      .max(5),
+    operations: z.array(ProbeOperationSchema).min(1).max(5),
     toolsCount: z.number().int().nonnegative().max(100_000),
     callError: z.boolean(),
   })
   .strict();
+const PeerProbeSchema = z.union([PeerSuccessSchema, PeerCallFailureSchema, PeerUnsupportedSchema]);
 
 const UpstreamReadySchema = z.object({
   endpoint: z.string().url(),
@@ -173,6 +262,7 @@ export const MatrixAssignmentDescriptorSchema = z
 export type MatrixAssignmentDescriptor = z.infer<typeof MatrixAssignmentDescriptorSchema>;
 export type MatrixExecutionOptions = z.input<typeof MatrixExecutionOptionsSchema>;
 export type ProbeFacts = z.infer<typeof ProbeSuccessSchema>;
+type ProbeOutput = ProbeFacts | z.infer<typeof ProbeUnsupportedSchema> | z.infer<typeof ProbeRejectedSchema>;
 
 export type MatrixExecutionResult =
   | {
@@ -429,15 +519,70 @@ async function waitForGatewayReady(child: ManagedChild, origin: string, timeoutM
   throw new RuntimeFault('process', 'gateway_readiness_timeout');
 }
 
+export function parseProbeOutput(value: unknown, exitCode: number): ProbeOutput {
+  const rejected = ProbeRejectedSchema.safeParse(value);
+  if (exitCode !== 0) {
+    if (rejected.success) return rejected.data;
+    throw new RuntimeFault('process', 'probe_process_failed');
+  }
+  if (rejected.success) throw new RuntimeFault('fixture', 'probe_output_invalid');
+
+  const success = ProbeSuccessSchema.safeParse(value);
+  if (success.success) return success.data;
+  const unsupported = ProbeUnsupportedSchema.safeParse(value);
+  if (unsupported.success) return unsupported.data;
+  const peer = PeerProbeSchema.safeParse(value);
+  if (peer.success) {
+    if (!peer.data.ok) {
+      if (peer.data.classification === 'tools-call-failed') {
+        return { fixtureId: peer.data.fixtureId, errorCode: 'tools-call-failed' };
+      }
+      const unsupportedOperation = peer.data.unsupported?.[0]?.operation;
+      if (peer.data.classification !== 'unsupported-operation' || !unsupportedOperation) {
+        throw new RuntimeFault('fixture', 'probe_output_invalid');
+      }
+      return {
+        fixtureId: peer.data.fixtureId,
+        transport: peer.data.transport,
+        status: 'unsupported',
+        unsupportedOperation,
+        negotiatedRevision: peer.data.negotiatedRevision,
+        operations: peer.data.operations,
+      };
+    }
+    if (peer.data.protocolEra === 'legacy') {
+      return {
+        fixtureId: peer.data.fixtureId,
+        protocolEra: 'legacy',
+        transport: peer.data.transport,
+        initialized: true,
+        ping: true,
+        negotiatedRevision: peer.data.negotiatedRevision,
+        operations: ['initialize', 'ping', 'tools/list', 'tools/call'],
+        toolsCount: peer.data.toolsCount,
+        callError: false,
+      };
+    }
+    return {
+      fixtureId: peer.data.fixtureId,
+      transport: peer.data.transport,
+      protocolEra: 'modern',
+      negotiatedRevision: peer.data.negotiatedRevision,
+      operations: ['server/discover', 'tools/list', 'tools/call'],
+      toolsCount: peer.data.toolsCount,
+      callError: false,
+    };
+  }
+  throw new RuntimeFault('fixture', 'probe_output_invalid');
+}
+
 async function runProbe(
   command: string,
   args: readonly string[],
   environment: Environment,
   cwd: string,
   timeoutMs: number,
-): Promise<
-  z.infer<typeof ProbeSuccessSchema> | z.infer<typeof ProbeUnsupportedSchema> | z.infer<typeof ProbeRejectedSchema>
-> {
+): Promise<ProbeOutput> {
   const child = startChild(command, args, environment, cwd);
   const chunks: Buffer[] = [];
   let bytes = 0;
@@ -474,48 +619,7 @@ async function runProbe(
   }
   output.fill(0);
 
-  const rejected = ProbeRejectedSchema.safeParse(value);
-  if (completion.code !== 0) {
-    if (rejected.success) return rejected.data;
-    throw new RuntimeFault('process', 'probe_process_failed');
-  }
-  if (rejected.success) throw new RuntimeFault('fixture', 'probe_output_invalid');
-
-  const success = ProbeSuccessSchema.safeParse(value);
-  if (success.success) return success.data;
-  const unsupported = ProbeUnsupportedSchema.safeParse(value);
-  if (unsupported.success) return unsupported.data;
-  const peer = PeerProbeSchema.safeParse(value);
-  if (peer.success) {
-    if (!peer.data.ok) {
-      const unsupportedOperation = peer.data.unsupported?.[0]?.operation;
-      if (peer.data.classification !== 'unsupported-operation' || !unsupportedOperation) {
-        throw new RuntimeFault('fixture', 'probe_output_invalid');
-      }
-      return {
-        fixtureId: peer.data.fixtureId,
-        transport: peer.data.transport,
-        status: 'unsupported',
-        unsupportedOperation,
-        negotiatedRevision: peer.data.negotiatedRevision,
-        operations: peer.data.operations,
-      };
-    }
-    if (peer.data.classification || peer.data.unsupported?.length || !peer.data.initialized || !peer.data.ping) {
-      throw new RuntimeFault('fixture', 'probe_output_invalid');
-    }
-    return {
-      fixtureId: peer.data.fixtureId,
-      transport: peer.data.transport,
-      initialized: true,
-      ping: true,
-      negotiatedRevision: peer.data.negotiatedRevision,
-      operations: peer.data.operations,
-      toolsCount: peer.data.toolsCount,
-      callError: peer.data.callError,
-    };
-  }
-  throw new RuntimeFault('fixture', 'probe_output_invalid');
+  return parseProbeOutput(value, completion.code ?? 1);
 }
 
 function validatorForRevision(revision: string): (envelope: Record<string, unknown>) => boolean {

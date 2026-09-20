@@ -108,19 +108,10 @@ async function runProbe(values) {
 
   try {
     await client.connect(clientTransport);
-    const unsupported = [];
-    let initialized = true;
-    let ping = true;
-    if (protocolEra === 'modern') {
-      initialized = false;
-      unsupported.push({ operation: 'initialize', reason: 'modern-uses-server-discover' });
-    }
     try {
       await client.ping();
     } catch (error) {
       if (protocolEra !== 'modern' || error?.code !== 'METHOD_NOT_SUPPORTED_BY_PROTOCOL_VERSION') throw error;
-      ping = false;
-      unsupported.push({ operation: 'ping', reason: 'not-in-2026-07-28' });
     }
     const listed = await client.listTools();
     const toolName = values.aggregated
@@ -134,45 +125,61 @@ async function runProbe(values) {
     if (values['runtime-output']) {
       const negotiatedRevision = client.getNegotiatedProtocolVersion();
       if (typeof negotiatedRevision !== 'string') throw new Error('NEGOTIATED_REVISION_UNAVAILABLE');
-      if (unsupported.length > 0) {
-        writeJson(process.stdout, {
-          fixtureId: `typescript-${sdkEra}`,
-          transport,
-          status: 'unsupported',
-          unsupportedOperation: unsupported[0].operation,
-          negotiatedRevision,
-          operations: ['server/discover', 'tools/list', 'tools/call'],
-        });
-      } else {
-        writeJson(process.stdout, {
-          fixtureId: `typescript-${sdkEra}`,
-          transport,
-          initialized,
-          ping,
-          negotiatedRevision,
-          operations: ['initialize', 'ping', 'tools/list', 'tools/call'],
-          toolsCount: listed.tools.length,
-          callError: called.isError === true,
-        });
+      const callError = called.isError === true;
+      if (callError) {
+        writeJson(process.stdout, { fixtureId: `typescript-${sdkEra}`, errorCode: 'tools-call-failed' });
+        process.exitCode = 1;
+        return;
       }
+      writeJson(process.stdout, {
+        fixtureId: `typescript-${sdkEra}`,
+        protocolEra,
+        transport,
+        negotiatedRevision,
+        operations:
+          protocolEra === 'modern'
+            ? ['server/discover', 'tools/list', 'tools/call']
+            : ['initialize', 'ping', 'tools/list', 'tools/call'],
+        ...(protocolEra === 'legacy' ? { initialized: true, ping: true } : {}),
+        toolsCount: listed.tools.length,
+        callError,
+      });
       return;
     }
+    const callError = called.isError === true;
     writeJson(process.stdout, {
-      kind: 'probe',
-      ok: unsupported.length === 0,
-      ...(unsupported.length > 0 ? { classification: 'unsupported-operation', unsupported } : {}),
+      ok: !callError,
+      ...(callError ? { classification: 'tools-call-failed' } : {}),
       sdkEra,
       protocolEra,
       transport,
-      operations: {
-        initialize: initialized,
-        ping,
-        toolsList: {
-          count: listed.tools.length,
-          fixtureTool: listed.tools.some((tool) => tool.name === TOOL_NAME),
-        },
-        toolsCall: structuralToolResult(called),
-      },
+      ...(protocolEra === 'legacy'
+        ? {
+            initialized: true,
+            ping: true,
+            operations: {
+              initialize: true,
+              ping: true,
+              toolsList: {
+                count: listed.tools.length,
+                fixtureTool: listed.tools.some((tool) => tool.name === TOOL_NAME),
+              },
+              toolsCall: structuralToolResult(called),
+            },
+          }
+        : {
+            operations: {
+              serverDiscover: true,
+              toolsList: {
+                count: listed.tools.length,
+                fixtureTool: listed.tools.some((tool) => tool.name === TOOL_NAME),
+              },
+              toolsCall: structuralToolResult(called),
+            },
+          }),
+      negotiatedRevision: client.getNegotiatedProtocolVersion(),
+      toolsCount: listed.tools.length,
+      callError,
     });
   } finally {
     await client.close();

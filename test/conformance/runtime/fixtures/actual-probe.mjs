@@ -18,6 +18,7 @@ try {
     `${JSON.stringify({
       fixtureId: 'typescript-sdk-v1',
       transport: 'streamable-http',
+      protocolEra: 'legacy',
       initialized: true,
       ping: true,
       negotiatedRevision: transport.protocolVersion,
