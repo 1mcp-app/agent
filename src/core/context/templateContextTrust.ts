@@ -163,11 +163,13 @@ export class TemplateContextCapabilityStore {
     // instead of silently reading an exposed capability.
     if (readOnly) {
       const directory = fs.statSync(this.options.storageDir);
-      if (
-        process.platform !== 'win32' &&
-        ((directory.mode & 0o022) !== 0 || (process.geteuid && directory.uid !== process.geteuid()))
-      ) {
-        throw new TemplateContextCapabilityError('Template context capability directory is insecure');
+      if (process.platform !== 'win32') {
+        if ((directory.mode & 0o022) !== 0) {
+          throw new TemplateContextCapabilityError('Template context capability directory is insecure');
+        }
+        if (process.geteuid && directory.uid !== process.geteuid()) {
+          throw new TemplateContextCapabilityError('Template context capability directory is insecure');
+        }
       }
     } else {
       assertOwnerOnlyDirPermissions(this.options.storageDir);
@@ -180,12 +182,16 @@ export class TemplateContextCapabilityStore {
     try {
       if (readOnly) {
         const opened = fs.fstatSync(fd);
-        if (
-          !opened.isFile() ||
-          (process.platform !== 'win32' &&
-            ((opened.mode & 0o077) !== 0 || (process.geteuid && opened.uid !== process.geteuid())))
-        ) {
+        if (!opened.isFile()) {
           throw new TemplateContextCapabilityError('Template context capability file is insecure');
+        }
+        if (process.platform !== 'win32') {
+          if ((opened.mode & 0o077) !== 0) {
+            throw new TemplateContextCapabilityError('Template context capability file is insecure');
+          }
+          if (process.geteuid && opened.uid !== process.geteuid()) {
+            throw new TemplateContextCapabilityError('Template context capability file is insecure');
+          }
         }
       } else {
         enforceOwnerOnlyFilePermissions(fd, filePath);

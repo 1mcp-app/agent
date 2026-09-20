@@ -54,7 +54,8 @@ export class RuntimeAdmission {
   /** Retain only an existing admitted root; transport observers never admit background work. */
   retain(): (() => void) | undefined {
     const root = this.context.getStore();
-    if (!root || root.pending === 0) return undefined;
+    if (!root) return undefined;
+    if (root.pending === 0) return undefined;
     root.pending++;
     let released = false;
     return () => {
@@ -90,7 +91,8 @@ export class RuntimeAdmission {
   }
 
   commit(): AdmissionSnapshot {
-    if (!this.closed || this.active !== 0) throw new Error('Runtime is not drained');
+    if (!this.closed) throw new Error('Runtime is not drained');
+    if (this.active !== 0) throw new Error('Runtime is not drained');
     this.committed = true;
     this.changed();
     return this.snapshot();
@@ -165,9 +167,9 @@ export class RuntimeReplacementDrain {
         // A late close acknowledgement may arrive after the deadline's resume.
         this.resuming = this.ports.resume();
         await this.resuming;
-      } else {
-        this.update(snapshot);
+        return { ...operation };
       }
+      this.update(snapshot);
     } catch (error) {
       this.abort(operation);
       throw error;
@@ -188,18 +190,24 @@ export class RuntimeReplacementDrain {
   update(snapshot: AdmissionSnapshot): void {
     this.snapshot = admissionSnapshotSchema.parse(snapshot);
     const operation = this.operation;
-    if (!operation || operation.state === 'aborted' || operation.state === 'committing') return;
+    if (!operation) return;
+    if (operation.state === 'aborted') return;
+    if (operation.state === 'committing') return;
     if (Date.now() >= operation.deadlineUnixMs) {
       this.abort(operation);
       return;
     }
     operation.active = snapshot.active;
-    operation.state = snapshot.closed && snapshot.active === 0 ? 'drained' : 'draining';
+    operation.state = 'draining';
+    if (!snapshot.closed) return;
+    if (snapshot.active !== 0) return;
+    operation.state = 'drained';
   }
 
   status(operationId: string): ReplacementDrainStatus {
     const operation = this.match(operationId);
-    if (operation.state !== 'committing' && Date.now() >= operation.deadlineUnixMs) this.abort(operation);
+    if (operation.state === 'committing') return { ...operation };
+    if (Date.now() >= operation.deadlineUnixMs) this.abort(operation);
     return { ...operation };
   }
 
@@ -210,9 +218,9 @@ export class RuntimeReplacementDrain {
       return { ...operation };
     }
     this.status(operationId);
-    if (operation.state !== 'drained' || !this.snapshot?.closed || this.snapshot.active !== 0) {
-      throw new Error('Replacement operation is not drained');
-    }
+    if (operation.state !== 'drained') throw new Error('Replacement operation is not drained');
+    if (!this.snapshot?.closed) throw new Error('Replacement operation is not drained');
+    if (this.snapshot.active !== 0) throw new Error('Replacement operation is not drained');
     // The irreversible decision and expiry exclusion happen in one synchronous turn.
     operation.state = 'committing';
     clearTimeout(this.timer);
@@ -235,7 +243,9 @@ export class RuntimeReplacementDrain {
   }
 
   private abort(operation: ReplacementDrainStatus): void {
-    if (this.operation !== operation || operation.state === 'committing' || operation.state === 'aborted') return;
+    if (this.operation !== operation) return;
+    if (operation.state === 'committing') return;
+    if (operation.state === 'aborted') return;
     operation.state = 'aborted';
     clearTimeout(this.timer);
     // Keep a failed resume as a rejected barrier; a new prepare must not hide loss of worker control.

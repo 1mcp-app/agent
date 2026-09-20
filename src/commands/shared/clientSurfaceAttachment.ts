@@ -462,27 +462,21 @@ async function createLocalTemplateContextProof<TOptions extends ResolvableServeT
     const control = await connectRuntimeControl(localScope.storagePath);
     if (control) {
       const description = await control.request<RuntimeControlDescription>('describe');
-      if (
-        !description.runtime ||
-        (localScope.runtimeScopeId !== undefined && localScope.runtimeScopeId !== description.runtimeScopeId) ||
-        (target.serverPid !== undefined && description.runtime.pid !== target.serverPid) ||
-        normalizeServerUrl(description.runtime.url) !== normalizeServerUrl(target.discoveredUrl)
-      ) {
+      if (!description.runtime) return undefined;
+      if (localScope.runtimeScopeId !== undefined && localScope.runtimeScopeId !== description.runtimeScopeId) {
         return undefined;
       }
+      if (target.serverPid !== undefined && description.runtime.pid !== target.serverPid) return undefined;
+      if (normalizeServerUrl(description.runtime.url) !== normalizeServerUrl(target.discoveredUrl)) return undefined;
       // Bind capability issuance to the authenticated owner, never public identity alone.
       localScope.runtimeScopeId = description.runtimeScopeId;
     } else {
       const runtimeInfo = readPidFile(localScope.storagePath);
-      if (
-        !runtimeInfo ||
-        !isProcessAlive(runtimeInfo.pid) ||
-        path.resolve(runtimeInfo.configDir) !== path.resolve(localScope.storagePath) ||
-        (target.serverPid !== undefined && runtimeInfo.pid !== target.serverPid) ||
-        normalizeServerUrl(runtimeInfo.url) !== normalizeServerUrl(target.discoveredUrl)
-      ) {
-        return undefined;
-      }
+      if (!runtimeInfo) return undefined;
+      if (!isProcessAlive(runtimeInfo.pid)) return undefined;
+      if (path.resolve(runtimeInfo.configDir) !== path.resolve(localScope.storagePath)) return undefined;
+      if (target.serverPid !== undefined && runtimeInfo.pid !== target.serverPid) return undefined;
+      if (normalizeServerUrl(runtimeInfo.url) !== normalizeServerUrl(target.discoveredUrl)) return undefined;
     }
   } catch {
     return undefined;

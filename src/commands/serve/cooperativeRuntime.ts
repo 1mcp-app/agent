@@ -167,25 +167,25 @@ export async function launchCooperativeRuntime(
   try {
     const activated = activationSchema.parse(await waitForChildActivation(child, bootstrap));
     const owner = readRuntimeScopeOwnership(runtimeScope);
-    if (
-      activated.nonce !== bootstrap.nonce ||
-      activated.digest !== bootstrap.digest ||
-      activated.version !== MCP_SERVER_VERSION ||
-      owner?.claimId !== activated.claimId ||
-      owner.pid !== child.pid
-    )
+    if (activated.nonce !== bootstrap.nonce) throw new Error('Runtime activation did not match the spawned generation');
+    if (activated.digest !== bootstrap.digest)
       throw new Error('Runtime activation did not match the spawned generation');
+    if (activated.version !== MCP_SERVER_VERSION)
+      throw new Error('Runtime activation did not match the spawned generation');
+    if (owner?.claimId !== activated.claimId)
+      throw new Error('Runtime activation did not match the spawned generation');
+    if (owner.pid !== child.pid) throw new Error('Runtime activation did not match the spawned generation');
     if (child.exitCode !== null || child.signalCode !== null) throw new Error('Supervisor exited during activation');
     const summary = await probeLoadingSummary(activated.runtime);
     const control = await connectRuntimeControl(runtimeScope);
     const current = await control?.request<RuntimeControlDescription>('describe');
-    if (
-      !current ||
-      current.runtime?.pid !== activated.runtime.pid ||
-      current.digest !== activated.digest ||
-      current.version !== activated.version ||
-      control?.descriptor.claimId !== activated.claimId
-    )
+    if (!current) throw new Error('Worker exited or changed during activation verification');
+    if (current.runtime?.pid !== activated.runtime.pid)
+      throw new Error('Worker exited or changed during activation verification');
+    if (current.digest !== activated.digest) throw new Error('Worker exited or changed during activation verification');
+    if (current.version !== activated.version)
+      throw new Error('Worker exited or changed during activation verification');
+    if (control?.descriptor.claimId !== activated.claimId)
       throw new Error('Worker exited or changed during activation verification');
     if (child.exitCode !== null || child.signalCode !== null)
       throw new Error('Supervisor exited during activation verification');
@@ -414,14 +414,11 @@ export async function runCooperativeSupervisor(): Promise<void> {
             if (child.pid) spawnedWorkerPids.add(child.pid);
             const ready = waitForChildActivation(child, launch).then((message) => {
               const value = activationSchema.parse(message);
-              if (
-                value.nonce !== launch.nonce ||
-                value.claimId !== ownership.record.claimId ||
-                value.digest !== launch.digest ||
-                value.version !== MCP_SERVER_VERSION ||
-                value.runtime.pid !== child.pid
-              )
-                throw new Error('Worker activation binding failed');
+              if (value.nonce !== launch.nonce) throw new Error('Worker activation binding failed');
+              if (value.claimId !== ownership.record.claimId) throw new Error('Worker activation binding failed');
+              if (value.digest !== launch.digest) throw new Error('Worker activation binding failed');
+              if (value.version !== MCP_SERVER_VERSION) throw new Error('Worker activation binding failed');
+              if (value.runtime.pid !== child.pid) throw new Error('Worker activation binding failed');
               runtime = value.runtime;
               runtimeDigest = launch.digest;
               if (!activated) {
@@ -436,24 +433,18 @@ export async function runCooperativeSupervisor(): Promise<void> {
             void ready.catch(() => undefined);
             activations.set(child as unknown as SupervisedRuntimeWorker, ready);
             child.on('message', (message) => {
-              if (
-                worker === child &&
-                message &&
-                typeof message === 'object' &&
-                'type' in message &&
-                message.type === 'runtime-admission' &&
-                'snapshot' in message
-              ) {
-                const parsed = admissionSnapshotSchema.safeParse(message.snapshot);
-                if (parsed.success) drain.update(parsed.data);
-              }
+              if (worker !== child) return;
+              if (!message || typeof message !== 'object') return;
+              if (!('type' in message) || message.type !== 'runtime-admission') return;
+              if (!('snapshot' in message)) return;
+              const parsed = admissionSnapshotSchema.safeParse(message.snapshot);
+              if (parsed.success) drain.update(parsed.data);
             });
             child.once('exit', () => {
-              if (worker === child) {
-                worker = undefined;
-                runtime = null;
-                if (drain.workerExited()) requestStop();
-              }
+              if (worker !== child) return;
+              worker = undefined;
+              runtime = null;
+              if (drain.workerExited()) requestStop();
             });
             return child as unknown as SupervisedRuntimeWorker;
           },
@@ -491,7 +482,9 @@ let initialLoadingSettled = false;
 let workerBootstrapDigest: string | undefined;
 
 function releaseWorkerBootstrap(): void {
-  if (!activationRecorded || !initialLoadingSettled || !workerBootstrapDigest) return;
+  if (!activationRecorded) return;
+  if (!initialLoadingSettled) return;
+  if (!workerBootstrapDigest) return;
   const digest = workerBootstrapDigest;
   workerBootstrapDigest = undefined;
   activateRuntimeReplacementConfig(digest);
@@ -505,14 +498,11 @@ export function settleCooperativeInitialLoading(): void {
 export async function authorizeCooperativeWorker(): Promise<RuntimeLaunchBootstrap> {
   const bootstrap = await receiveRuntimeBootstrap();
   const owner = readRuntimeScopeOwnership(bootstrap.snapshot.runtimeScope);
-  if (
-    !bootstrap.claimId ||
-    owner?.claimId !== bootstrap.claimId ||
-    owner.kind !== 'background-supervisor' ||
-    owner.pid !== process.ppid ||
-    !owner.cooperative
-  )
-    throw new Error('Private worker launch does not match scope ownership');
+  if (!bootstrap.claimId) throw new Error('Private worker launch does not match scope ownership');
+  if (owner?.claimId !== bootstrap.claimId) throw new Error('Private worker launch does not match scope ownership');
+  if (owner.kind !== 'background-supervisor') throw new Error('Private worker launch does not match scope ownership');
+  if (owner.pid !== process.ppid) throw new Error('Private worker launch does not match scope ownership');
+  if (!owner.cooperative) throw new Error('Private worker launch does not match scope ownership');
   installRuntimeReplacementConfig(bootstrap.snapshot, bootstrap.digest, bootstrap.snapshot.runtimeScope);
   workerBootstrapDigest = bootstrap.digest;
   const requestSchema = z.object({
@@ -524,14 +514,11 @@ export async function authorizeCooperativeWorker(): Promise<RuntimeLaunchBootstr
     if (process.connected) sendRuntimeParent({ type: 'runtime-admission', snapshot });
   });
   process.on('message', (message: unknown) => {
-    if (
-      message &&
-      typeof message === 'object' &&
-      'type' in message &&
-      message.type === 'runtime-activation-recorded' &&
-      'digest' in message &&
-      message.digest === bootstrap.digest
-    ) {
+    if (!message || typeof message !== 'object') return;
+    if (!('type' in message)) return;
+    if (message.type === 'runtime-activation-recorded') {
+      if (!('digest' in message)) return;
+      if (message.digest !== bootstrap.digest) return;
       activationRecorded = true;
       releaseWorkerBootstrap();
       return;

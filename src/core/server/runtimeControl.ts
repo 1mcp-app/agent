@@ -121,7 +121,10 @@ function readPrivate(file: string): string {
         [dir, 0o022],
         [stat, 0o077],
       ] as const) {
-        if ((entry.mode & forbidden) !== 0 || (process.geteuid && entry.uid !== process.geteuid())) {
+        if ((entry.mode & forbidden) !== 0) {
+          throw new Error('Runtime control files require owner-only permissions');
+        }
+        if (process.geteuid && entry.uid !== process.geteuid()) {
           throw new Error('Runtime control files require owner-only permissions');
         }
       }
@@ -170,11 +173,13 @@ export async function startRuntimeControl(
   configDir = fs.realpathSync(configDir);
   nonceSchema.parse(claimId);
   const directory = fs.statSync(configDir);
-  if (
-    process.platform !== 'win32' &&
-    ((directory.mode & 0o022) !== 0 || (process.geteuid && directory.uid !== process.geteuid()))
-  ) {
-    throw new Error('Runtime control directory must be owned by the current user and not writable by others');
+  if (process.platform !== 'win32') {
+    if ((directory.mode & 0o022) !== 0) {
+      throw new Error('Runtime control directory must be owned by the current user and not writable by others');
+    }
+    if (process.geteuid && directory.uid !== process.geteuid()) {
+      throw new Error('Runtime control directory must be owned by the current user and not writable by others');
+    }
   }
   const secret = randomBytes(32).toString('base64url');
   const challenges = new Map<string, { nonce: string; expires: number }>();
@@ -199,12 +204,13 @@ export async function startRuntimeControl(
       const { signature, ...request } = requestSchema.parse(body);
       const challenge = challenges.get(request.challenge);
       challenges.delete(request.challenge);
-      if (
-        !challenge ||
-        challenge.nonce !== request.nonce ||
-        challenge.expires !== request.expires ||
-        challenge.expires <= Date.now()
-      ) {
+      if (!challenge) {
+        throw new Error('Expired or consumed runtime control challenge');
+      }
+      if (challenge.nonce !== request.nonce || challenge.expires !== request.expires) {
+        throw new Error('Expired or consumed runtime control challenge');
+      }
+      if (challenge.expires <= Date.now()) {
         throw new Error('Expired or consumed runtime control challenge');
       }
       verify(signature, proof(secret, descriptor, 'request', request));
