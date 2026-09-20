@@ -28,6 +28,24 @@ for (const method of ['readFileSync', 'readlinkSync']) {
     return original.call(this, file, ...args);
   };
 }
+// Native Windows aborts bypass JS exception hooks; keep their stderr in the isolated fixture.
+if (process.platform === 'win32' && log) {
+  const spawn = childProcess.spawn;
+  childProcess.spawn = function (command, args, options) {
+    if (Array.isArray(args) && args.includes('--cooperative-bootstrap=worker') && Array.isArray(options?.stdio)) {
+      const descriptor = fs.openSync(`${log}.worker-stderr`, 'a', 0o600);
+      try {
+        return spawn.call(this, command, args, {
+          ...options,
+          stdio: [options.stdio[0], options.stdio[1], descriptor, 'ipc'],
+        });
+      } finally {
+        fs.closeSync(descriptor);
+      }
+    }
+    return spawn.call(this, command, args, options);
+  };
+}
 syncBuiltinESMExports();
 record('loaded');
 

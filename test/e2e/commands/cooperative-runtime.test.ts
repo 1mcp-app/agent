@@ -209,7 +209,12 @@ afterEach(async ({ task }) => {
   const failures: string[] = [];
   for (const s of scopes.splice(0)) {
     if (process.platform === 'win32') {
-      for (const name of ['background-runtime.json', 'inspection.ndjson', 'logs/server.log']) {
+      for (const name of [
+        'background-runtime.json',
+        'inspection.ndjson',
+        'inspection.ndjson.worker-stderr',
+        'logs/server.log',
+      ]) {
         const file = path.join(s.directory, name);
         if (fs.existsSync(file)) {
           const content = fs.readFileSync(file, 'utf8');
@@ -220,7 +225,7 @@ afterEach(async ({ task }) => {
                   .filter((line) => /error|warn|shutting|shutdown/i.test(line))
                   .slice(-15)
                   .join('\n')
-              : content;
+              : content.slice(0, 8000);
           console.error(`Lifecycle fixture ${task.name} ${name}: ${diagnostic}`);
         }
       }
