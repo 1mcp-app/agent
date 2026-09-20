@@ -42,8 +42,81 @@ describe('cli setup file writers', () => {
 
     expect(content).toContain('If this session already received the current 1MCP instructions content from hooks');
     expect(content).toContain('Otherwise, run `1mcp instructions` before using any 1MCP-managed MCP servers.');
-    expect(content).toContain('Run `1mcp inspect <server>` before selecting a tool.');
+    expect(content).toContain('Run `1mcp inspect <server>` before selecting a tool');
   });
+
+  it.each(['global', 'repo', 'all'] as const)(
+    'refreshes search guidance for both clients in %s scope without replacing custom content',
+    async (scope) => {
+      const root = path.join(process.cwd(), '.tmp-test', `cli-search-${scope}-${Date.now()}`);
+      const homeDir = path.join(root, 'home');
+      const repoRoot = path.join(root, 'repo');
+      tempRoots.push(root);
+      vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
+      const locations = scope === 'all' ? ['global', 'repo'] : [scope];
+      const files: Array<{ managed: string; startup: string; hooks: string }> = [];
+      for (const location of locations) {
+        for (const target of ['codex', 'claude']) {
+          const base = location === 'global' ? homeDir : repoRoot;
+          const config = path.join(base, `.${target}`);
+          await mkdir(config, { recursive: true });
+          const managed = path.join(config, '1MCP.md');
+          const startup = path.join(
+            location === 'global' ? config : base,
+            target === 'codex' ? 'AGENTS.md' : 'CLAUDE.md',
+          );
+          const hooks = path.join(config, target === 'codex' ? 'hooks.json' : 'settings.json');
+          await writeFile(managed, '# Old managed guidance\n');
+          await writeFile(startup, '# Keep custom startup instructions\n');
+          await writeFile(
+            hooks,
+            JSON.stringify({
+              custom: true,
+              hooks: {
+                SessionStart: [
+                  {
+                    hooks: [
+                      { type: 'command', command: 'echo keep-custom-hook' },
+                      { type: 'command', command: '1mcp instructions' },
+                    ],
+                  },
+                ],
+              },
+            }),
+          );
+          files.push({ managed, startup, hooks });
+        }
+      }
+      await writeCliSetupFiles({ repoRoot, scope, targets: ['codex', 'claude'] });
+      for (const file of files) {
+        const content = await readFile(file.managed, 'utf8');
+        expect(content).not.toContain('Old managed guidance');
+        expect(content).toContain('1mcp inspect --search <query>');
+        expect(content).toContain('1mcp inspect <server> --search <query>');
+        expect(content).toContain('case-insensitive literal substring');
+        expect(content).toContain('--search "filesystem/*read?" --glob');
+        expect(content).toContain('`--include-descriptions` also matches effective descriptions');
+        expect(content).toContain('`--show-descriptions` independently displays descriptions');
+        expect(content).toContain('When the target is known, inspect it directly');
+        expect(content.indexOf('read its applicable instructions')).toBeLessThan(
+          content.indexOf('1mcp inspect <server>/<tool>'),
+        );
+        expect(content).toContain('do not run `1mcp instructions` again');
+        const startup = await readFile(file.startup, 'utf8');
+        expect(startup).toContain('# Keep custom startup instructions');
+        expect(startup).not.toContain('--search');
+        const hooks = JSON.parse(await readFile(file.hooks, 'utf8'));
+        expect(hooks.custom).toBe(true);
+        const commands = hooks.hooks.SessionStart.flatMap((entry: { hooks: Array<{ command: string }> }) =>
+          entry.hooks.map((hook) => hook.command),
+        );
+        expect(commands.filter((command: string) => command === '1mcp instructions')).toHaveLength(1);
+        expect(commands).toContain('echo keep-custom-hook');
+      }
+      const repeated = await writeCliSetupFiles({ repoRoot, scope, targets: ['codex', 'claude'] });
+      expect(repeated.every((result) => !result.changed)).toBe(true);
+    },
+  );
 
   it('upserts a reference-only startup block', () => {
     const block = renderStartupDocManagedBlock('/tmp/.claude/CLAUDE.md', '/tmp/.claude/1MCP.md');

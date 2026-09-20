@@ -56,14 +56,43 @@ This is the command that turns the broad inventory from `instructions` into a sc
 ### Output and Pagination
 
 - **`--format <toon|text|json>`** - Output format
-- **`--all`** - Fetch all tools without pagination for a server target
-- **`--limit <number>`** - Page size for server tool listings (default: `20`)
+- **`--all`** - Fetch all remaining tools for a server target or search
+- **`--limit <number>`** - Page size for server tool listings and search results (default: `20`)
 - **`--cursor <cursor>`** - Cursor returned from a previous paginated response
 
 ### Related Global Options
 
 - **`--config-dir, -d <path>`** - Config directory for auth profile lookup and server discovery
 - **`--cli-session-cache-path <path>`** - Override the session cache path template used by `inspect` and `run`; supports `{pid}` and `{scope}`
+
+## Search for Tools
+
+When the provider or tool is unknown, search the visible inventory before exact inspection:
+
+```bash
+1mcp inspect --search read
+1mcp inspect filesystem --search read
+1mcp inspect --search 'filesystem/*read?' --glob
+1mcp inspect --search 'read a file' --include-descriptions
+1mcp inspect --search read --show-descriptions --format json
+# Read the selected server's applicable instructions, then inspect and invoke.
+1mcp inspect filesystem
+1mcp inspect filesystem/read_file
+1mcp run filesystem/read_file --args '{"path":"README.md"}'
+```
+
+If the target is already known, inspect it directly. Reuse current startup instructions supplied by hooks; search does not replace applicable server instructions or exact schema inspection.
+
+- **`--search <query>`** searches all visible servers, or only the specified server. Matching is case-insensitive literal substring matching against `server/tool` references.
+- **`--glob`** opts into whole-reference matching with only `*` (zero or more characters) and `?` (one character) as wildcards. Quote patterns to avoid shell expansion; all other punctuation remains literal.
+- **`--include-descriptions`** also matches effective descriptions, including configured overrides, using the selected matching mode. Each tool appears once even when both fields match.
+- **`--show-descriptions`** independently includes descriptions in output; it does not change matching. Description matching alone keeps output compact.
+
+Blank queries, exact-tool targets with search, and search-only flags without `--search` are invalid. Search preserves authentication, preset/tag filters, contextual template visibility, and disabled-tool rules.
+
+Search returns `server`, `tool`, and required/optional argument counts without schemas. TOON is the default; text and JSON are also supported. Results are sorted by public server/tool identity and paginated after matching. `--limit` defaults to 20, and `--all` returns all remaining matches after an optional cursor. `totalTools` counts matches in the collected inventory, not all tools. Cursors bind the query, matching options, target, filters, and inventory; restart without a cursor if any change invalidates continuation.
+
+A complete search with no matches succeeds. Check completeness and loading/unavailable metadata before concluding that a tool is absent. Partial inventories are not definitive absence; failed or malformed enumeration is reported. Use `1mcp wait <server>` for a loading static server. Cross-server search requires a runtime supporting inspect search; upgrade/restart an older runtime when directed. Server-scoped search may use the existing MCP fallback. Authentication failures remain terminal and do not trigger fallback.
 
 ## Examples
 

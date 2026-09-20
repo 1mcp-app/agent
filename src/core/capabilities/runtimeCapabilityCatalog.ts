@@ -313,7 +313,10 @@ async function collectRuntimeCapabilityCatalog(
               if (capturedItems > 100000 || capturedBytes > 32 * 1024 * 1024) {
                 throw new Error('Capability snapshot capacity exceeded');
               }
-              const nextCursor = typeof result.nextCursor === 'string' ? result.nextCursor : undefined;
+              if (result.nextCursor !== undefined && typeof result.nextCursor !== 'string') {
+                throw new Error('Invalid capability continuation cursor');
+              }
+              const nextCursor = result.nextCursor;
               if (nextCursor !== undefined) {
                 const cursorBytes = Buffer.byteLength(nextCursor);
                 if (cursorBytes > 64 * 1024) throw new Error('Upstream cursor capacity exceeded');
