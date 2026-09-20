@@ -25,6 +25,7 @@ import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { getBackgroundLaunchConfigPath, readBackgroundLaunchConfig } from '@src/core/server/backgroundLaunchConfig.js';
 import { cleanupPidFileOnExit, registerPidFileCleanup, writePidFile } from '@src/core/server/pidFileManager.js';
+import type { RuntimeLaunchBootstrap } from '@src/core/server/runtimeLaunchIpc.js';
 import {
   claimRuntimeScope,
   type RuntimeScopeOwnership,
@@ -53,6 +54,8 @@ export interface ServeOptions {
   stop?: boolean;
   /** Lifecycle action: stop (if running) then start a fresh background runtime. */
   restart?: boolean;
+  'drain-timeout'?: number;
+  'cooperative-bootstrap'?: 'supervisor' | 'worker';
   /** Internal guard set on the detached child to prevent recursive spawning. */
   'background-bootstrap'?: boolean;
   /** Internal authorization proving that a supervised worker belongs to the scoped supervisor. */
@@ -337,6 +340,27 @@ export function setupGracefulShutdown(
 export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
   let runtimeOwnership: RuntimeScopeOwnership | undefined;
   try {
+    let cooperativeLaunch: RuntimeLaunchBootstrap | undefined;
+    const cooperative = parsedArgv['cooperative-bootstrap']
+      ? await import('@src/commands/serve/cooperativeRuntime.js')
+      : undefined;
+    if (parsedArgv['cooperative-bootstrap'] === 'supervisor') {
+      await cooperative!.runCooperativeSupervisor();
+      return;
+    }
+    if (parsedArgv['cooperative-bootstrap'] === 'worker') {
+      cooperativeLaunch = await cooperative!.authorizeCooperativeWorker();
+      parsedArgv = {
+        ...parsedArgv,
+        ...cooperativeLaunch.options,
+        status: false,
+        stop: false,
+        restart: false,
+        background: false,
+        'background-bootstrap': false,
+        'runtime-owner-claim-id': cooperativeLaunch.claimId,
+      };
+    }
     const { configFilePath, runtimeScope } = resolveServeConfigPaths(parsedArgv);
 
     // Lifecycle actions short-circuit before any server setup. They operate on
@@ -357,16 +381,16 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     // background runtime. The guard mirrors the background branch; the detached
     // child never carries --restart, but the check keeps the branch defensive.
     if (parsedArgv.restart && !parsedArgv['background-bootstrap']) {
-      const { runServeRestart } = await import('@src/commands/serve/serveRestart.js');
-      await runServeRestart(parsedArgv);
+      const { restartCooperativeRuntime } = await import('@src/commands/serve/cooperativeRuntime.js');
+      await restartCooperativeRuntime(parsedArgv);
       return;
     }
 
     // Background parent: spawn a detached supervisor and wait for its worker's
     // readiness. The supervisor carries the guard flag so it cannot recurse.
     if (parsedArgv.background && !parsedArgv['background-bootstrap']) {
-      const { runServeBackground } = await import('@src/commands/serve/serveBackground.js');
-      await runServeBackground(parsedArgv);
+      const { launchCooperativeRuntime } = await import('@src/commands/serve/cooperativeRuntime.js');
+      await launchCooperativeRuntime(parsedArgv);
       return;
     }
 
@@ -380,13 +404,13 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       await runServeBackgroundSupervisor(parsedArgv);
       return;
     }
-    if (supervisorClaimId) {
+    if (supervisorClaimId && !cooperativeLaunch) {
       verifyRuntimeScopeOwnership(runtimeScope, supervisorClaimId, 'background-supervisor');
       const expectedLaunchConfigFile = getBackgroundLaunchConfigPath(runtimeScope);
       if (!launchConfigFile || path.resolve(launchConfigFile) !== path.resolve(expectedLaunchConfigFile)) {
         throw new Error('Authorized supervised workers must use the Runtime Scope background launch configuration');
       }
-    } else {
+    } else if (!cooperativeLaunch) {
       runtimeOwnership = claimRuntimeScope(runtimeScope, {
         kind: parsedArgv.transport === 'stdio' ? 'foreground-stdio' : 'foreground-http',
       });
@@ -632,11 +656,16 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     resetBackendLogBroker();
 
     // Initialize server and get server manager with custom config path if provided
-    const { serverManager, loadingManager, asyncOrchestrator, instructionAggregator } = await setupServer(
-      configFilePath,
-      undefined,
-      asyncLoading.loadingPolicy,
-    );
+    const setup = cooperativeLaunch
+      ? await setupServer(configFilePath, undefined, asyncLoading.loadingPolicy, 'cooperative-activation')
+      : await setupServer(configFilePath, undefined, asyncLoading.loadingPolicy);
+    const { serverManager, loadingManager, asyncOrchestrator, instructionAggregator } = setup;
+    if (cooperativeLaunch) {
+      void setup.loadingPromise.then(
+        () => cooperative!.settleCooperativeInitialLoading(),
+        () => cooperative!.settleCooperativeInitialLoading(),
+      );
+    }
 
     // Load custom instructions template if provided (applies to all transport types)
     const customTemplate = loadInstructionsTemplate(parsedArgv['instructions-template'], runtimeScope);
@@ -689,12 +718,15 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       case 'http': {
         // Use HTTP/SSE transport
         expressServer = new ExpressServer(serverManager, loadingManager, asyncOrchestrator, customTemplate);
-        expressServer.start();
+        expressServer.start(
+          cooperativeLaunch ? () => cooperative!.acknowledgeCooperativeWorker(cooperativeLaunch!) : undefined,
+        );
 
         // Write PID file for proxy auto-discovery
         const serverUrl = serverConfigManager.getUrl();
         writePidFile(runtimeScope, {
           pid: process.pid,
+          ...(cooperativeLaunch ? { ownerClaimId: cooperativeLaunch.claimId } : {}),
           url: `${serverUrl}/mcp`,
           port: effectivePort,
           host: effectiveHost,
@@ -741,7 +773,9 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     });
   } catch (error) {
     runtimeOwnership?.release();
-    logger.error(`Server error: ${error instanceof Error ? error.message : String(error)}`);
+    if (parsedArgv.background || parsedArgv.restart)
+      process.stderr.write(`Error: ${error instanceof Error ? error.message : String(error)}\n`);
+    else logger.error(`Server error: ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);
   }
 }

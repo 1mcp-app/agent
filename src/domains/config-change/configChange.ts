@@ -5,6 +5,7 @@ import path from 'path';
 import ConfigContext from '@src/config/configContext.js';
 import { ConfigLoader } from '@src/config/configLoader.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { runtimeAdmission } from '@src/core/server/runtimeDrain.js';
 import type { MCPServerParams } from '@src/core/types/index.js';
 import { mcpServerConfigSchema } from '@src/core/types/transport.js';
 import logger from '@src/logger/logger.js';
@@ -109,6 +110,54 @@ class DefaultConfigChangeService implements ConfigChangeService {
   constructor(private readonly ports: ConfigChangePorts) {}
 
   async removeConfiguredServerTarget(input: RemoveConfiguredServerTargetInput): Promise<ConfigChangeResult> {
+    return runtimeAdmission.run(() => this.removeConfiguredServerTargetAdmitted(input));
+  }
+
+  async deleteConfiguredServerTarget(input: DeleteConfiguredServerTargetInput): Promise<ConfigChangeResult> {
+    return runtimeAdmission.run(() => this.deleteConfiguredServerTargetAdmitted(input));
+  }
+
+  async setStaticConfiguredServerTarget(input: SetStaticConfiguredServerTargetInput): Promise<ConfigChangeResult> {
+    return runtimeAdmission.run(() => this.setStaticConfiguredServerTargetAdmitted(input));
+  }
+
+  async createStaticConfiguredServerTarget(
+    input: CreateStaticConfiguredServerTargetInput,
+  ): Promise<ConfigChangeResult> {
+    return runtimeAdmission.run(() => this.createStaticConfiguredServerTargetAdmitted(input));
+  }
+
+  async createTemplateConfiguredServerTarget(
+    input: CreateTemplateConfiguredServerTargetInput,
+  ): Promise<ConfigChangeResult> {
+    return runtimeAdmission.run(() => this.createTemplateConfiguredServerTargetAdmitted(input));
+  }
+
+  async setConfiguredServerTargetEnabledState(
+    input: SetConfiguredServerTargetEnabledStateInput,
+  ): Promise<ConfigChangeResult> {
+    return runtimeAdmission.run(() => this.setConfiguredServerTargetEnabledStateAdmitted(input));
+  }
+
+  async editConfiguredServerTarget(input: EditConfiguredServerTargetInput): Promise<ConfigChangeResult> {
+    return runtimeAdmission.run(() => this.editConfiguredServerTargetAdmitted(input));
+  }
+
+  async setInstructionTemplateConfiguration(
+    input: SetInstructionTemplateConfigurationInput,
+  ): Promise<ConfigChangeResult> {
+    return runtimeAdmission.run(() => this.setInstructionTemplateConfigurationAdmitted(input));
+  }
+
+  async changeConfiguredServerInstructionOverride(
+    input: ChangeConfiguredServerInstructionOverrideInput,
+  ): Promise<ConfigChangeResult> {
+    return runtimeAdmission.run(() => this.changeConfiguredServerInstructionOverrideAdmitted(input));
+  }
+
+  private async removeConfiguredServerTargetAdmitted(
+    input: RemoveConfiguredServerTargetInput,
+  ): Promise<ConfigChangeResult> {
     const configPath = this.resolveConfigPath();
     const operation = input.operation ?? 'remove';
     let releaseLock: ReleaseConfigLock;
@@ -183,7 +232,9 @@ class DefaultConfigChangeService implements ConfigChangeService {
     };
   }
 
-  async deleteConfiguredServerTarget(input: DeleteConfiguredServerTargetInput): Promise<ConfigChangeResult> {
+  private async deleteConfiguredServerTargetAdmitted(
+    input: DeleteConfiguredServerTargetInput,
+  ): Promise<ConfigChangeResult> {
     const configPath = this.resolveConfigPath();
     let releaseLock: ReleaseConfigLock;
 
@@ -250,7 +301,9 @@ class DefaultConfigChangeService implements ConfigChangeService {
     return { ...resultWithoutReload, reload: await this.reloadConfig(configPath) };
   }
 
-  async setStaticConfiguredServerTarget(input: SetStaticConfiguredServerTargetInput): Promise<ConfigChangeResult> {
+  private async setStaticConfiguredServerTargetAdmitted(
+    input: SetStaticConfiguredServerTargetInput,
+  ): Promise<ConfigChangeResult> {
     const configPath = this.resolveConfigPath();
     const operation = input.operation ?? 'config_change';
     let releaseLock: ReleaseConfigLock;
@@ -329,7 +382,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
     };
   }
 
-  async createStaticConfiguredServerTarget(
+  private async createStaticConfiguredServerTargetAdmitted(
     input: CreateStaticConfiguredServerTargetInput,
   ): Promise<ConfigChangeResult> {
     const configPath = this.resolveConfigPath();
@@ -416,7 +469,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
     return { ...resultWithoutReload, reload: await this.reloadConfig(configPath) };
   }
 
-  async createTemplateConfiguredServerTarget(
+  private async createTemplateConfiguredServerTargetAdmitted(
     input: CreateTemplateConfiguredServerTargetInput,
   ): Promise<ConfigChangeResult> {
     const configPath = this.resolveConfigPath();
@@ -502,7 +555,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
     return { ...resultWithoutReload, reload: await this.reloadConfig(configPath) };
   }
 
-  async setConfiguredServerTargetEnabledState(
+  private async setConfiguredServerTargetEnabledStateAdmitted(
     input: SetConfiguredServerTargetEnabledStateInput,
   ): Promise<ConfigChangeResult> {
     const configPath = this.resolveConfigPath();
@@ -632,7 +685,9 @@ class DefaultConfigChangeService implements ConfigChangeService {
     };
   }
 
-  async editConfiguredServerTarget(input: EditConfiguredServerTargetInput): Promise<ConfigChangeResult> {
+  private async editConfiguredServerTargetAdmitted(
+    input: EditConfiguredServerTargetInput,
+  ): Promise<ConfigChangeResult> {
     const configPath = this.resolveConfigPath();
     let releaseLock: ReleaseConfigLock;
 
@@ -820,7 +875,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
     };
   }
 
-  async setInstructionTemplateConfiguration(
+  private async setInstructionTemplateConfigurationAdmitted(
     input: SetInstructionTemplateConfigurationInput,
   ): Promise<ConfigChangeResult> {
     const configPath = this.resolveConfigPath();
@@ -887,7 +942,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
     return { ...resultWithoutReload, reload: await this.reloadConfig(configPath) };
   }
 
-  async changeConfiguredServerInstructionOverride(
+  private async changeConfiguredServerInstructionOverrideAdmitted(
     input: ChangeConfiguredServerInstructionOverrideInput,
   ): Promise<ConfigChangeResult> {
     const configPath = this.resolveConfigPath();

@@ -13,6 +13,7 @@ import {
   PresetValidationResult,
 } from '@src/domains/preset/types/presetTypes.js';
 import logger from '@src/logger/logger.js';
+import { resolveWatchPath } from '@src/utils/watchPath.js';
 
 import { cleanupPresetManagerState } from './presetManagerCleanup.js';
 import { ensurePresetConfigDirectory, writePresetStorage } from './presetStorage.js';
@@ -299,7 +300,7 @@ export class PresetManager {
     }
 
     try {
-      this.watcher = watch(this.configPath, { persistent: false }, async (eventType) => {
+      this.watcher = watch(resolveWatchPath(this.configPath), { persistent: false }, async (eventType) => {
         if (eventType === 'change') {
           logger.debug('Preset file changed, scheduling reload...');
 

@@ -1,0 +1,71 @@
+name: Cooperative runtime
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+  pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cooperative-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  HUSKY: 0
+  CI: true
+
+jobs:
+  lifecycle:
+    name: Lifecycle / ${{ matrix.os }} / Node and SEA
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            binary: 1mcp
+          - os: macos-latest
+            binary: 1mcp
+          - os: windows-latest
+            binary: 1mcp.exe
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Build Node installation
+        shell: bash
+        run: bash scripts/build.sh
+
+      - name: Verify cooperative lifecycle with Node
+        run: pnpm test:e2e test/e2e/commands/cooperative-runtime.test.ts --retry=0
+
+      # Keep builds and process tests sequential: SEA writes shared build artifacts.
+      - name: Build SEA bundle
+        run: pnpm sea:build
+
+      - name: Build packaged executable
+        run: pnpm sea:binary
+
+      # SEA compilation rewrites build/ before bundling; restore runnable Node fixtures.
+      - name: Restore Node fixture installation
+        shell: bash
+        run: bash scripts/build.sh
+
+      - name: Verify cooperative lifecycle with packaged executable
+        env:
+          ONE_MCP_TEST_BINARY: ${{ github.workspace }}/${{ matrix.binary }}
+        run: pnpm test:e2e test/e2e/commands/cooperative-runtime.test.ts --retry=0

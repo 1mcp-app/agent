@@ -1,5 +1,6 @@
 import { createMockCliSessionCache } from '@test/unit-utils/MockFactories.js';
 
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,6 +8,7 @@ import path from 'node:path';
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
 import { authorizeTemplateContext, TemplateContextCapabilityStore } from '@src/core/context/templateContextTrust.js';
 import { writePidFile } from '@src/core/server/pidFileManager.js';
+import { startRuntimeControl } from '@src/core/server/runtimeControl.js';
 import type { ContextData } from '@src/types/context.js';
 
 import { describe, expect, it, vi } from 'vitest';
@@ -629,6 +631,77 @@ describe('attachReusableClientSurface', () => {
 });
 
 describe('local template context proof attachment', () => {
+  it('signs using authenticated scope authority with process inspection denied', async () => {
+    const storagePath = fs.mkdtempSync(path.join(os.tmpdir(), '1mcp-cooperative-proof-'));
+    const claimId = randomUUID();
+    const capability = new TemplateContextCapabilityStore({
+      storageDir: storagePath,
+      runtimeScopeId: 'scope-a',
+    }).getOrCreate();
+    fs.mkdirSync(path.join(storagePath, 'runtime.owner'));
+    fs.writeFileSync(
+      path.join(storagePath, 'runtime.owner', 'owner.json'),
+      JSON.stringify({
+        version: 1,
+        pid: process.pid,
+        claimId,
+        kind: 'background-supervisor',
+        claimedAt: new Date().toISOString(),
+      }),
+    );
+    const server = await startRuntimeControl(storagePath, claimId, () => ({
+      runtime: {
+        pid: process.pid,
+        url: 'http://127.0.0.1:3050/mcp',
+        port: 3050,
+        host: '127.0.0.1',
+        transport: 'http',
+        startedAt: new Date().toISOString(),
+        configDir: storagePath,
+      },
+      runtimeScopeId: 'scope-a',
+      version: '0.38.2',
+      explicitInputs: {},
+      digest: 'digest',
+      supervisorPid: process.pid,
+      state: 'running',
+    }));
+    const kill = vi.spyOn(process, 'kill').mockImplementation(() => {
+      throw new Error('inspection denied');
+    });
+    try {
+      const target = makeResolvedTarget({ serverPid: process.pid, localRuntimeScope: { storagePath } });
+      const attachment = await attachFreshClientSurface({
+        clientSurface: 'stdio-proxy',
+        version: 'proxy',
+        options: { 'config-dir': storagePath },
+        ports: makePorts({ target }),
+      });
+      expect(
+        authorizeTemplateContext({
+          mode: 'verified',
+          context: attachment.context,
+          proof: attachment.contextProof,
+          capability,
+          transportSessionId: attachment.sessionId,
+        }),
+      ).toMatchObject({ status: 'trusted' });
+      expect(kill).not.toHaveBeenCalled();
+      target.discoveredUrl = 'http://127.0.0.1:4050/mcp';
+      const mismatch = await attachFreshClientSurface({
+        clientSurface: 'stdio-proxy',
+        version: 'proxy',
+        options: { 'config-dir': storagePath },
+        ports: makePorts({ target }),
+      });
+      expect(mismatch.contextProof).toBeUndefined();
+    } finally {
+      kill.mockRestore();
+      await server.close();
+      fs.rmSync(storagePath, { recursive: true, force: true });
+    }
+  });
+
   it('signs only a live PID-owned URL in the selected Runtime Scope', async () => {
     const storagePath = fs.mkdtempSync(path.join(os.tmpdir(), '1mcp-local-proof-'));
     try {

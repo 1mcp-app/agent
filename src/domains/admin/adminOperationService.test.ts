@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { runtimeAdmission } from '@src/core/server/runtimeDrain.js';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type AdminOperationContext, AdminOperationService } from './adminOperationService.js';
@@ -49,6 +51,39 @@ describe('AdminOperationService', () => {
       ...overrides,
     };
   }
+
+  it('counts preset mutations until completion and rejects new mutations during drain', async () => {
+    const service = createService();
+    let finish!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const firstRun = vi.fn(async () => {
+      await blocked;
+      return { saved: true };
+    });
+    const first = service.executeMutation({ context: context(), operationName: 'createPreset', run: firstRun });
+    await vi.waitFor(() => expect(firstRun).toHaveBeenCalledOnce());
+    expect(runtimeAdmission.snapshot().active).toBe(1);
+    runtimeAdmission.close();
+    const newRun = vi.fn(async () => ({ saved: true }));
+    try {
+      await expect(
+        service.executeMutation({
+          context: context({ idempotencyKey: 'another-key' }),
+          operationName: 'deletePreset',
+          run: newRun,
+        }),
+      ).rejects.toMatchObject({ data: { retryable: true, reason: 'runtime_draining' } });
+      expect(newRun).not.toHaveBeenCalled();
+      expect(runtimeAdmission.snapshot().active).toBe(1);
+    } finally {
+      finish();
+      await first;
+      runtimeAdmission.resume();
+    }
+    expect(runtimeAdmission.snapshot().active).toBe(0);
+  });
 
   it('replays a completed mutation for the same idempotency key and request fingerprint', async () => {
     const service = createService();

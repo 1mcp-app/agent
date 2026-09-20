@@ -6,6 +6,7 @@ import { discoverScopedRuntime, probeLoadingSummary } from '@src/core/server/run
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import * as processIdentity from './processIdentity.js';
 import { readProcessIdentity } from './processIdentity.js';
 
 describe('runtimeLifecycle', () => {
@@ -22,6 +23,22 @@ describe('runtimeLifecycle', () => {
     startedAt: new Date().toISOString(),
     configDir: testConfigDir,
     ...overrides,
+  });
+
+  it('leaves stale PID metadata untouched during read-only attachment', async () => {
+    writePidFile(testConfigDir, baseInfo());
+    const inspect = vi.spyOn(processIdentity, 'inspectProcessIdentity').mockReturnValue('dead');
+    try {
+      const before = fs.readFileSync(testPidFilePath, 'utf8');
+      const probe = vi.fn();
+      await expect(discoverScopedRuntime(testConfigDir, probe, { cleanupStale: false })).resolves.toMatchObject({
+        status: 'not-running',
+      });
+      expect(fs.readFileSync(testPidFilePath, 'utf8')).toBe(before);
+      expect(probe).not.toHaveBeenCalled();
+    } finally {
+      inspect.mockRestore();
+    }
   });
 
   beforeEach(() => {

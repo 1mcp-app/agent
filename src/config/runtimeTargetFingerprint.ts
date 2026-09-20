@@ -3,6 +3,7 @@ import { createHmac, randomBytes } from 'node:crypto';
 import type { MCPServerParams } from '@src/core/types/transport.js';
 
 import { processEnvironment, substituteEnvVars } from './envProcessor.js';
+import { getRuntimeParentEnvironment } from './runtimeBootstrap.js';
 
 const fingerprintKey = randomBytes(32);
 
@@ -11,7 +12,7 @@ export function createRuntimeTargetFingerprint(
   runtimeEnv: Readonly<Record<string, string>>,
   substituteEnv: boolean,
 ): string {
-  const referenceEnvironment = { ...runtimeEnv, ...process.env };
+  const referenceEnvironment = { ...runtimeEnv, ...getRuntimeParentEnvironment() };
   let effective: unknown;
 
   if (config.type === 'stdio' || (!config.type && config.command)) {
@@ -23,7 +24,9 @@ export function createRuntimeTargetFingerprint(
       runtimeEnv,
     }).processedEnv;
     const stdioReferenceEnvironment =
-      config.envFilter && config.envFilter.length > 0 ? environment : { ...runtimeEnv, ...process.env, ...environment };
+      config.envFilter && config.envFilter.length > 0
+        ? environment
+        : { ...runtimeEnv, ...getRuntimeParentEnvironment(), ...environment };
     effective = {
       ...config,
       command:

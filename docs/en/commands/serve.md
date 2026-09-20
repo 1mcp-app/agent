@@ -87,10 +87,11 @@ For runtime-wide configuration details, see the **[Configuration Guide](/guide/e
 
 ### Lifecycle
 
-- **`--background`**: Start a persistent Background Runtime Supervisor and its HTTP Aggregated Runtime for the selected **Runtime Scope**, then return once the runtime is ready. HTTP only.
+- **`--background`**: Start a persistent Background Runtime Supervisor and its HTTP Aggregated Runtime for the selected **Runtime Scope**, then return after generation-bound activation. Backend readiness is reported separately. HTTP only.
 - **`--status`**: Report the state of the runtime in the selected **Runtime Scope**, then exit without starting a server.
 - **`--stop`**: Stop the runtime in the selected **Runtime Scope**, then exit.
-- **`--restart`**: Stop the runtime in the selected **Runtime Scope** (if running), then start a fresh detached background runtime. HTTP only.
+- **`--restart`**: Cooperatively replace a compatible background supervisor and worker in the selected **Runtime Scope** using the invoking installation. An empty scope starts a background runtime. HTTP only.
+- **`--drain-timeout <seconds>`**: Deadline for the reversible drain before replacement commits; default `30`. Expiry resumes the old runtime and aborts the upgrade.
 
 ## Runtime Scope and Lifecycle
 
@@ -100,23 +101,29 @@ Each Runtime Scope has one race-safe lifecycle owner. An ordinary foreground or 
 
 Foreground HTTP and deprecated foreground stdio starts participate in the same ownership rule, but remain unsupervised. Prefer `1mcp proxy` for stdio-compatible clients; background mode is HTTP-only.
 
-### Persistent volumes and process identity
+### Cooperative background ownership
 
-On Linux, lifecycle ownership uses kernel file locks as well as persisted process identity (boot ID, PID namespace, and process start time). The `flock` command must be available; the official Alpine-based Docker image includes it. The config directory must reside on storage that provides working, shared `flock` semantics. Missing locking support fails closed.
+Compatible background runtimes authenticate a scope-local supervisor control channel. Normal background launch, client attachment, status, stop, and cooperative restart do not require `ps`, `sysctl`, or equivalent OS process inspection. The supervisor controls its own worker through a private parent/child channel. Persisted PIDs and scope metadata alone never authorize signalling or takeover.
+
+This path requires a responsive, compatible supervisor. It does not adopt orphaned workers or reclaim ambiguous ownership. An unreachable or incompatible owner retains its records and requires explicit migration or recovery through its original CLI or service manager. Foreground ownership and legacy recovery retain the process-identity rules below.
+
+### Persistent volumes and legacy process identity
+
+On Linux, lifecycle ownership uses kernel file locks; foreground and legacy recovery also use persisted process identity (boot ID, PID namespace, and process start time). The `flock` command must be available; the official Alpine-based Docker image includes it. The config directory must reside on storage that provides working, shared `flock` semantics. Missing locking support fails closed.
 
 After a foreground Docker runtime is externally killed, a replacement container can reclaim its abandoned owner and stop records on the same persistent volume, even when both processes are PID 1. A different live container sharing that volume still holds the kernel lock and excludes a competing start. Changing the hostname alone never authorizes takeover.
 
 The stable `runtime.owner.flock` and `runtime.stop.flock` files remain after shutdown. Their presence does not mean a lock is held. **Do not delete these files while any process may use the scope**: replacing their inodes would defeat coordination.
 
-`server.pid`, ownership, and supervisor metadata record process birth evidence. Discovery and stop commands retain ambiguous metadata and refuse to signal an unverified process. Stop checks identity again before escalating from SIGTERM to SIGKILL.
+Foreground and legacy `server.pid`, ownership, and supervisor metadata record process birth evidence. Discovery and stop commands retain ambiguous metadata and refuse to signal an unverified process. Stop checks identity again before escalating from SIGTERM to SIGKILL.
 
-New macOS records use the boot-session UUID and UTC process start time, so network-driven hostname changes do not block restart. Identity errors identify the affected PID and missing or mismatched evidence. Run lifecycle commands as the runtime user on the same host/container with process-inspection permissions. Legacy hostname records require a one-time verified stop through the original CLI or service manager if the hostname changed; the next start writes the current format. Do not delete metadata to bypass verification.
+Process-identity-based macOS records use the boot-session UUID and UTC process start time, so network-driven hostname changes do not block restart. Identity errors identify the affected PID and missing or mismatched evidence. Run lifecycle commands as the runtime user on the same host/container with process-inspection permissions. Legacy hostname records require a one-time verified stop through the original CLI or service manager if the hostname changed; the next start writes the current format. Do not delete metadata to bypass verification.
 
 Legacy process-record compatibility is scheduled for removal in the next major release (1.0). Stop old runtimes before upgrading across that boundary; release notes and upgrade tests must cover this transition.
 
 Compatibility and limits:
 
-- **Upgrading a running legacy background runtime:** On Linux, explicit `serve --stop` and `serve --restart` can recover an old supervisor with a live worker when OS process evidence proves the exact ownership claim, parent relationship, user, execution context, and selected scope. Recovery checks the captured processes again before signals and cleanup, stops the supervisor first, and aborts if a different worker or owner appears. It does not rewrite old identity metadata. `serve --status` and client commands only provide recovery guidance.
+- **Upgrading a running legacy background runtime:** On Linux, explicit `serve --stop` can recover an old supervisor with a live worker when OS process evidence proves the exact ownership claim, parent relationship, user, execution context, and selected scope. Recovery checks the captured processes again before signals and cleanup, stops the supervisor first, and aborts if a different worker or owner appears. It does not rewrite old identity metadata. Legacy `serve --restart` requires guided migration; it does not take over the old owner. `serve --status` and client commands only provide recovery guidance.
 - **Guided legacy recovery:** macOS and Windows, standalone old runtimes, supervisors without a verifiable live worker, conflicting modern identity, foreign execution contexts, or unavailable inspection receive guided recovery instead. Use the original CLI or service manager to stop the old runtime. Before removing abandoned `runtime.owner`, `runtime.stop`, `server.pid`, or `background-runtime.json`, independently verify that every runtime, supervisor, worker, and lifecycle command using that scope has stopped. Never delete these records merely because the recorded PID is absent locally. Stopping before upgrading remains the simplest upgrade procedure.
 - **Persisted identity on other platforms:** macOS identity records use `ps` start time in UTC, with one-second precision. Legacy records without identity evidence require guided migration; this does not change normal restarts of runtimes with valid identity records. Windows identity records use PowerShell process start ticks. Missing tools, denied access, unsupported platforms, or mismatched execution contexts remain uncertain and fail closed. Linux file-lock recovery does not apply on these platforms.
 - **Background containers:** An abandoned supervisor lock does not prove that its worker has exited. If a worker belongs to a different PID namespace and its death cannot be verified, background recovery remains blocked. Stop or verify the entire old container before manually recovering its metadata.
@@ -124,36 +131,38 @@ Compatibility and limits:
 
 ### Start in the background
 
-`1mcp serve --background` starts a persistent supervisor with one detached runtime worker and returns once the worker is ready, so scripts can continue:
+`1mcp serve --background` starts a persistent supervisor with one detached runtime worker and returns after the worker acknowledges activation of the intended generation and configuration, so scripts can continue:
 
 ```bash
 1mcp serve --background
 1mcp serve --background --config-dir ./config --port 3051
 ```
 
-While it waits, it prints live progress to stderr (elapsed time and, once the runtime is up, how many upstream servers are ready) so the startup is never silent. On success it prints the PID, URL, log file, and server count, then exits `0`:
+The command reports the activated version, supervisor and worker PIDs, ownership generation, configuration digest, URL, and backend loading summary, then exits `0`. Activation means the intended generation owns the scope, loaded the frozen configuration, and bound its endpoint. It does not mean every backend passes `/health/ready`.
 
 ```text
+Runtime activated (version <installed-version>).
 Background runtime started.
-PID: 48213
+Supervisor PID: 48190
+Runtime PID: 48213
+Generation: <claim-id>
+Configuration: <configuration-digest>
 URL: http://localhost:3050/mcp
-Log file: /home/me/.config/1mcp/logs/server.log
-Servers: 3/5 ready
+Backend health: <loading-summary>
 ```
 
 Behavior:
 
 - **HTTP only.** `--transport stdio` is rejected (stdio cannot be detached). `sse` is normalized to HTTP, and the runtime records `transport: http`.
-- **Fast detach.** In the default synchronous mode the command returns only after every upstream server connects, so the wait scales with the slowest one. Add `--enable-async-loading` to bind the HTTP endpoint first and return in well under a second, with upstream servers loading in the background.
+- **Activation and loading.** Startup timing follows the configured loading mode. `--enable-async-loading` allows the HTTP endpoint to bind while upstream servers load. Backend loading failures remain separate from the activation acknowledgement.
 - **Deterministic logs.** When no `--log-file` or `logging.file` is configured, background logs default to `<config-dir>/logs/server.log`.
 - **Exclusive startup.** If the Runtime Scope is already owned, the command exits non-zero without spawning another runtime worker or binding a port. Simultaneous starts have exactly one winner. A separate `--config-dir` is a separate scope and can run independently.
 - **Crash recovery.** Every unexpected worker exit consumes an attempt. The supervisor retries up to five times after 1, 2, 4, 8, and 16 seconds, reusing the original effective configuration, transport, host, port, logging, and startup options.
-- **Stable reset.** The retry counter resets only after a replacement reaches readiness and stays alive for five minutes.
+- **Stable reset.** The retry counter resets only after a replacement activates and stays alive for five minutes.
 - **Health is observational.** A live worker that later fails readiness is reported as unreachable; it is not killed or restarted solely because of health.
-- **Terminal failure.** After retry exhaustion, the supervisor stays resident in `crash-loop` without a worker until `--stop` or `--restart`. The original background command exits non-zero if startup reaches this state.
-- **Orphan handling.** If the supervisor dies while its worker remains alive, the scope is `orphaned`. Ordinary starts continue to fail closed; use `--stop` or `--restart` to recover it.
-- **Stale ownership.** Valid ownership left by a dead process can be reclaimed. Unreadable, malformed, or otherwise ambiguous ownership fails closed.
-- **Lifecycle logs.** Supervisor events append to the background log, including worker exit reason, attempt, delay, replacement PID, recovery, and retry exhaustion.
+- **Terminal failure.** After retry exhaustion, the supervisor stays resident in `crash-loop` without a worker. Use `--stop` before starting again if no worker is available to acknowledge a cooperative drain. Failed initial activation exits non-zero.
+- **Orphan handling.** If the supervisor dies while its worker remains alive, new work is closed and ownership evidence remains. Use the original service manager or explicit verified recovery; a cooperative restart does not adopt or signal an orphan based on its recorded PID.
+- **Stale ownership.** Cooperative startup requires an empty scope and never reclaims existing records. Resolve stale or ambiguous evidence through explicit recovery before starting.
 
 ### Check runtime status
 
@@ -164,7 +173,7 @@ Behavior:
 1mcp serve --status --config-dir ./config
 ```
 
-For a supervised background runtime it prints the supervisor and runtime PIDs, restart attempt, last exit, next retry, URL, start time, log file, and readiness:
+A compatible background runtime is queried through its authenticated supervisor; readiness remains a separate HTTP probe. Legacy supervised reports include the supervisor and runtime PIDs, restart attempt, last exit, next retry, URL, start time, log file, and readiness:
 
 ```text
 Runtime Scope: /home/me/.config/1mcp
@@ -190,7 +199,7 @@ The exit code reflects the state, so scripts can branch on it:
 - `6` — `crash-loop` after automatic retries are exhausted
 - `7` — orphaned (the supervisor is dead while its runtime worker remains alive)
 
-Status does not restart or kill a live process. Stale dead metadata is cleaned up when it can be identified safely; live-but-unreachable and ambiguous ownership remain in place so the scope never appears falsely available.
+Status does not restart or kill a process. Cooperative status does not clean lifecycle metadata. Legacy discovery may clean records only when it can independently establish that they are stale; unreachable or ambiguous ownership remains in place.
 
 ### Stop the runtime
 
@@ -201,36 +210,40 @@ Status does not restart or kill a live process. Stale dead metadata is cleaned u
 1mcp serve --stop --config-dir ./config
 ```
 
-For a background runtime it first stops the supervisor, which cancels pending retry work, and then ensures the worker exits before releasing lifecycle ownership. This ordering prevents a deliberate stop from spawning a replacement. It also recovers an orphan by stopping the surviving worker directly.
+For a compatible background runtime, an authenticated request asks the supervisor to stop its worker and cancel pending retries. Ownership is released only after the tracked worker exits. This is a deliberate stop, not the reversible drain used by restart. An unreachable supervisor requires explicit recovery.
 
 ```text
-Stopped supervised background runtime in Runtime Scope /home/me/.config/1mcp (supervisor PID 48190).
+Background runtime stopped.
 ```
 
 Behavior:
 
 - **Scope-isolated.** Only the runtime recorded for the selected Runtime Scope is signalled; a runtime in a different `--config-dir` is never touched.
 - **No respawn.** A pending retry is cancelled before the worker is stopped, and ownership is released only after supervisor and worker termination.
-- **Orphan recovery.** A dead supervisor with a live worker is stopped and its stale lifecycle metadata is released.
+- **Orphan recovery.** Cooperative control cannot stop an unreachable supervisor or adopt a surviving worker. Legacy recovery requires independent identity evidence; otherwise use the original service manager.
 - **Clean when idle.** If nothing is running it reports so and exits `0`, removing stale metadata when it is safe to do so.
 
 ### Restart the runtime
 
-`1mcp serve --restart` stops the runtime in the selected Runtime Scope (if any) and then starts a fresh detached background runtime:
+`1mcp serve --restart` replaces a compatible background supervisor and worker with the installation that runs the command:
 
 ```bash
 1mcp serve --restart
-1mcp serve --restart --config-dir ./config --port 3051
+1mcp serve --restart --config-dir ./config --port 3051 --drain-timeout 60
 ```
 
-It composes `--stop` and `--background`, so it accepts the same HTTP options as `--background` and prints the same startup progress and started report.
+Install the desired version through your package manager or binary deployment process first, then invoke that installation's `serve --restart`. The command does not download or install packages.
 
 Behavior:
 
-- **Always ends running.** Following `systemctl restart` semantics, an empty scope is a clean no-op stop followed by a cold start, so a successful restart always leaves a runtime running and exits `0`.
-- **Resets supervision.** Restart works from running, restarting, `crash-loop`, and orphaned states. It replaces both supervisor and worker and resets the retry counter.
-- **HTTP only.** Like `--background`, `--transport stdio` is rejected.
-- **Safe handoff.** If the existing runtime cannot be stopped (still alive after escalation), the restart aborts before starting and exits non-zero, so two runtimes never contend for the same scope.
+- **Preflight before interruption.** Authenticate the old supervisor, require compatible capabilities and explicit launch-input provenance, and strictly validate the current configuration with the invoking installation. Invalid configuration leaves the running generation untouched.
+- **Frozen replacement configuration.** Explicit launch settings are preserved, including values equal to old defaults; explicitly supplied restart options override supported settings. Omitted values use the new installation's defaults. The replacement loads the validated snapshot, and hot reload resumes after activation.
+- **Reversible drain.** Close admission to new backend work and configuration mutations while existing operations finish. New work receives a retryable draining error; interaction replies, progress, and cancellation remain available. Idle sessions do not block the drain.
+- **Listener activation.** Cooperative background startup accepts clients before backend loading finishes, even with `--enable-async-loading=false`. The explicit setting and notification policy remain preserved; foreground startup is unchanged. Backend loading remains visible at `/health/mcp`.
+- **Bounded preparation.** The default deadline is 30 seconds (`--drain-timeout`). Expiry before commit reopens admission and aborts replacement, even if all calls finished or the coordinating CLI disappeared. Repeating preparation does not extend the deadline.
+- **Exclusive activation.** After commit, retire the old worker and supervisor before the replacement claims the scope. A competing owner or incomplete retirement blocks activation. A successful report confirms the new generation and configuration digest, with backend health reported separately.
+- **Interruption is expected.** Sessions and connections may disconnect. Tool calls are never automatically replayed. If activation fails after the old runtime retires, the command reports failure and does not roll back automatically; fix the cause and retry.
+- **Compatibility and recovery.** An incompatible or unresponsive runtime is not forcibly replaced through cooperative control. Preserve its records and use the original CLI, service manager, or independently verified legacy recovery. An empty scope starts normally; `--transport stdio` remains unsupported.
 
 ## Examples
 

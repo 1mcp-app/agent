@@ -13,6 +13,7 @@ import {
   resolveLazyCapabilityVisibility,
 } from '@src/core/protocol/requestHandlerUtils.js';
 import { getDisabledSourceToolError } from '@src/core/server/disabledTools.js';
+import { withRuntimeAdmission } from '@src/core/server/runtimeDrain.js';
 import { InboundConnection } from '@src/core/types/index.js';
 import { SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
 import { toJsonValue } from '@src/sdk/contracts/index.js';
@@ -71,120 +72,130 @@ export function registerToolHandlers(
   const server = getLegacyInboundServer(inboundConn);
   server.setRequestHandler(
     ListToolsRequestSchema,
-    withErrorHandling(async (request, extra) => {
-      const { snapshot } = await acquire(request.params?.cursor, extra?.signal);
-      const result = await snapshot.list<Tool>('tools', {
-        cursor: request.params?.cursor,
-        enablePagination: inboundConn.enablePagination ?? false,
-        filterSelection: { lazy },
-        internalOnly: lazy,
-      });
-      const listed = {
-        tools: result.items,
-        ...(result.nextCursor === undefined ? {} : { nextCursor: result.nextCursor }),
-        ...(result._meta === undefined ? {} : { _meta: result._meta }),
-      };
-      return inboundConn.canonicalSchemaProjection
-        ? listed
-        : projectLegacyTools(toJsonValue(listed) as import('@src/sdk/contracts/index.js').JsonObject);
-    }, 'Error listing tools'),
+    withErrorHandling(
+      withRuntimeAdmission(async (request, extra) => {
+        const { snapshot } = await acquire(request.params?.cursor, extra?.signal);
+        const result = await snapshot.list<Tool>('tools', {
+          cursor: request.params?.cursor,
+          enablePagination: inboundConn.enablePagination ?? false,
+          filterSelection: { lazy },
+          internalOnly: lazy,
+        });
+        const listed = {
+          tools: result.items,
+          ...(result.nextCursor === undefined ? {} : { nextCursor: result.nextCursor }),
+          ...(result._meta === undefined ? {} : { _meta: result._meta }),
+        };
+        return inboundConn.canonicalSchemaProjection
+          ? listed
+          : projectLegacyTools(toJsonValue(listed) as import('@src/sdk/contracts/index.js').JsonObject);
+      }),
+      'Error listing tools',
+    ),
   );
   const registerToolCall = inboundConn.canonicalSchemaProjection
     ? canonicalBridgeToolRegistrar(server)
     : server.setRequestHandler.bind(server);
   registerToolCall(
     CallToolRequestSchema,
-    withErrorHandling(async (request, extra) => {
-      const { snapshot, visibility, provider, serverConfigs } = await acquire(undefined, extra?.signal);
-      const resolved = snapshot.resolve('tools', request.params.name);
-      if (!resolved) {
-        const entry = snapshot.generation.resolve('tools', request.params.name);
-        const error =
-          entry && getDisabledSourceToolError(serverConfigs, entry.route.server, entry.route.upstreamIdentity);
-        if (error) return structuredToolResult({ error });
-        throw new Error(`Unknown tool: ${request.params.name}`);
-      }
-      const adapter = resolved.connection?.adapter;
-      let validateOutput: PreparedToolCall;
-      try {
-        validateOutput = await snapshot.prepareToolCall(request.params.name, request.params.arguments, extra?.signal);
-      } catch (error) {
-        if (error instanceof SchemaBoundaryError && error.code === 'schema_input_invalid') {
-          const route = resolved.entry.route;
-          if (route.origin === 'internal' && route.connectionKey === '\0app.1mcp/meta-tools') {
-            const detail = { type: 'validation', message: error.code };
-            switch (route.upstreamIdentity) {
-              case 'tool_list':
-                return structuredToolResult({ tools: [], totalCount: 0, servers: [], hasMore: false, error: detail });
-              case 'tool_schema':
-                return structuredToolResult({ schema: {}, error: detail });
-              case 'tool_invoke':
-                return structuredToolResult({ result: {}, server: '', tool: '', error: detail });
-            }
-          }
-          return { isError: true, content: [{ type: 'text' as const, text: error.code }] };
+    withErrorHandling(
+      withRuntimeAdmission(async (request, extra) => {
+        const { snapshot, visibility, provider, serverConfigs } = await acquire(undefined, extra?.signal);
+        const resolved = snapshot.resolve('tools', request.params.name);
+        if (!resolved) {
+          const entry = snapshot.generation.resolve('tools', request.params.name);
+          const error =
+            entry && getDisabledSourceToolError(serverConfigs, entry.route.server, entry.route.upstreamIdentity);
+          if (error) return structuredToolResult({ error });
+          throw new Error(`Unknown tool: ${request.params.name}`);
         }
-        throw error;
-      }
-      const finish = async <T>(result: T) => {
-        await validateOutput(result);
-        return (inboundConn.canonicalSchemaProjection ? projectCanonicalToolResult : projectLegacyToolResult)(
-          result,
-          resolved.entry.sourceObject.outputSchema as Record<string, unknown> | undefined,
-        ) as T;
-      };
-      if (extra?.signal?.aborted) throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
-      const { route } = resolved.entry;
-      validateOutput.assertCurrent();
-      if (route.origin === 'internal') {
-        if (lazyLoadingOrchestrator && route.connectionKey === '\0app.1mcp/meta-tools') {
+        const adapter = resolved.connection?.adapter;
+        let validateOutput: PreparedToolCall;
+        try {
+          validateOutput = await snapshot.prepareToolCall(request.params.name, request.params.arguments, extra?.signal);
+        } catch (error) {
+          if (error instanceof SchemaBoundaryError && error.code === 'schema_input_invalid') {
+            const route = resolved.entry.route;
+            if (route.origin === 'internal' && route.connectionKey === '\0app.1mcp/meta-tools') {
+              const detail = { type: 'validation', message: error.code };
+              switch (route.upstreamIdentity) {
+                case 'tool_list':
+                  return structuredToolResult({ tools: [], totalCount: 0, servers: [], hasMore: false, error: detail });
+                case 'tool_schema':
+                  return structuredToolResult({ schema: {}, error: detail });
+                case 'tool_invoke':
+                  return structuredToolResult({ result: {}, server: '', tool: '', error: detail });
+              }
+            }
+            return { isError: true, content: [{ type: 'text' as const, text: error.code }] };
+          }
+          throw error;
+        }
+        const finish = async <T>(result: T) => {
+          await validateOutput(result);
+          return (inboundConn.canonicalSchemaProjection ? projectCanonicalToolResult : projectLegacyToolResult)(
+            result,
+            resolved.entry.sourceObject.outputSchema as Record<string, unknown> | undefined,
+          ) as T;
+        };
+        if (extra?.signal?.aborted) throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
+        const { route } = resolved.entry;
+        validateOutput.assertCurrent();
+        if (route.origin === 'internal') {
+          if (lazyLoadingOrchestrator && route.connectionKey === '\0app.1mcp/meta-tools') {
+            return finish(
+              structuredToolResult(
+                await lazyLoadingOrchestrator.callMetaTool(
+                  route.upstreamIdentity,
+                  request.params.arguments,
+                  visibility,
+                  extra?.signal,
+                ),
+              ),
+            );
+          }
           return finish(
             structuredToolResult(
-              await lazyLoadingOrchestrator.callMetaTool(
+              await provider.executeTool(
                 route.upstreamIdentity,
                 request.params.arguments,
-                visibility,
-                extra?.signal,
+                lazy ? visibility : undefined,
               ),
             ),
           );
         }
+        if (!resolved.connection) throw new Error(`Server not connected: ${route.server}`);
+        const connection = resolved.connection;
+        if (connection.adapter !== adapter || !snapshot.isCurrent())
+          throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
+        const disabled = getDisabledSourceToolError(getConfiguredServerTargets(), route.server, route.upstreamIdentity);
+        if (disabled) return structuredToolResult({ error: disabled });
         return finish(
-          structuredToolResult(
-            await provider.executeTool(route.upstreamIdentity, request.params.arguments, lazy ? visibility : undefined),
+          await withPrivateInteractionConnection(
+            connection,
+            inboundConn,
+            extra,
+            resolved.entry,
+            (selected) => {
+              const selectedAdapter = selected.adapter;
+              return executeWithPostAuthOAuthRecovery(route.server, selected, () =>
+                requestLegacyAdapter(
+                  selectedAdapter,
+                  'tools/call',
+                  toJsonValue({
+                    name: route.upstreamIdentity,
+                    ...(request.params.arguments === undefined ? {} : { arguments: request.params.arguments }),
+                  }),
+                  { signal: extra?.signal, timeoutMs: selected.requestTimeoutMs },
+                ),
+              );
+            },
+            validateOutput.assertCurrent,
           ),
         );
-      }
-      if (!resolved.connection) throw new Error(`Server not connected: ${route.server}`);
-      const connection = resolved.connection;
-      if (connection.adapter !== adapter || !snapshot.isCurrent())
-        throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
-      const disabled = getDisabledSourceToolError(getConfiguredServerTargets(), route.server, route.upstreamIdentity);
-      if (disabled) return structuredToolResult({ error: disabled });
-      return finish(
-        await withPrivateInteractionConnection(
-          connection,
-          inboundConn,
-          extra,
-          resolved.entry,
-          (selected) => {
-            const selectedAdapter = selected.adapter;
-            return executeWithPostAuthOAuthRecovery(route.server, selected, () =>
-              requestLegacyAdapter(
-                selectedAdapter,
-                'tools/call',
-                toJsonValue({
-                  name: route.upstreamIdentity,
-                  ...(request.params.arguments === undefined ? {} : { arguments: request.params.arguments }),
-                }),
-                { signal: extra?.signal, timeoutMs: selected.requestTimeoutMs },
-              ),
-            );
-          },
-          validateOutput.assertCurrent,
-        ),
-      );
-    }, 'Error calling tool'),
+      }),
+      'Error calling tool',
+    ),
   );
 }
 

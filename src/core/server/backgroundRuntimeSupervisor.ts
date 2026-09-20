@@ -46,11 +46,13 @@ export interface BackgroundSupervisorOptions {
   /** Immutable effective invocation reused verbatim for every replacement. */
   workerArgs: readonly string[];
   supervisorPid?: number;
+  claimId?: string;
 }
 
 export interface BackgroundSupervisorDependencies {
   spawnWorker?: (command: string, args: readonly string[], options: SpawnOptions) => SupervisedRuntimeWorker;
   waitForReady: (worker: SupervisedRuntimeWorker) => Promise<boolean>;
+  beforeSpawn?: () => Promise<void>;
   writeState?: (state: BackgroundSupervisorState) => void;
   appendEvent?: (event: BackgroundSupervisorEvent) => void;
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
@@ -153,7 +155,8 @@ export async function runBackgroundRuntimeSupervisor(
     version: 1,
     status: 'starting',
     supervisorPid,
-    supervisorIdentity: readProcessIdentity(supervisorPid),
+    supervisorIdentity: options.claimId ? undefined : readProcessIdentity(supervisorPid),
+    claimId: options.claimId,
     runtimePid: null,
     restartAttempt: 0,
     lastExit: null,
@@ -176,6 +179,13 @@ export async function runBackgroundRuntimeSupervisor(
     persist({ status: 'starting' });
 
     for (;;) {
+      if (dependencies.beforeSpawn) {
+        const admission = await Promise.race([
+          dependencies.beforeSpawn().then(() => ({ kind: 'spawn' as const })),
+          stopPromise,
+        ]);
+        if (admission.kind === 'stop') return;
+      }
       const worker = spawnWorker(options.workerCommand, workerArgs, { stdio: 'ignore' });
       const exitPromise = waitForWorkerExit(worker, now);
       if (!worker.pid) {
@@ -193,7 +203,7 @@ export async function runBackgroundRuntimeSupervisor(
       persist({
         status: 'starting',
         runtimePid,
-        runtimeIdentity: readProcessIdentity(runtimePid),
+        runtimeIdentity: options.claimId ? undefined : readProcessIdentity(runtimePid),
         nextRetryAt: null,
         readyAt: null,
       });

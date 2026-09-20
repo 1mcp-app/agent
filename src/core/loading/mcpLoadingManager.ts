@@ -124,6 +124,7 @@ export class McpLoadingManager extends EventEmitter {
    */
   private serverOpAbortControllers: Map<string, AbortController> = new Map();
   private activeLoadOperations = 0;
+  private initialLoadingPromise: Promise<void> = Promise.resolve();
   private loadSlotWaiters: LoadingSlotWaiter[] = [];
 
   constructor(clientManager: ClientManager, config: Partial<BackendLoadingPolicy> = {}) {
@@ -184,10 +185,20 @@ export class McpLoadingManager extends EventEmitter {
     this.emit(McpLoadingEvent.LoadingStarted, serverNames);
 
     // Start loading servers with concurrency control
-    this.loadServersWithConcurrency(transports);
+    this.initialLoadingPromise = this.loadServersWithConcurrency(transports);
+    // Existing callers start loading without waiting; keep rejection observed while
+    // retaining the original promise for bootstrap completion consumers.
+    void this.initialLoadingPromise.catch((error) => {
+      logger.error('Initial MCP loading failed', sanitizeRuntimeScopeError(error));
+    });
 
     // Return current connections (may be empty initially)
     return this.clientManager.getClients();
+  }
+
+  /** Resolves after the initial connection attempts settle, not merely after scheduling them. */
+  public waitForInitialLoading(): Promise<void> {
+    return this.initialLoadingPromise;
   }
 
   /**

@@ -8,7 +8,7 @@ import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import type { ContextData } from '@src/types/context.js';
 
-import { AsyncLoadingOrchestrator } from './core/capabilities/asyncLoadingOrchestrator.js';
+import { AsyncLoadingOrchestrator, type BackendStartupPolicy } from './core/capabilities/asyncLoadingOrchestrator.js';
 import { InternalCapabilitiesProvider } from './core/capabilities/internalCapabilitiesProvider.js';
 import { LazyLoadingOrchestrator } from './core/capabilities/lazyLoadingOrchestrator.js';
 import { ClientManager } from './core/client/clientManager.js';
@@ -59,6 +59,7 @@ async function setupServer(
   configFilePath?: string,
   context?: ContextData,
   backendLoadingPolicy: BackendLoadingPolicy = DEFAULT_BACKEND_LOADING_POLICY,
+  startupPolicy: BackendStartupPolicy = 'configured',
 ): Promise<ServerSetupResult> {
   try {
     // Initialize the new unified config management system
@@ -93,8 +94,9 @@ async function setupServer(
       `Created ${Object.keys(transports).length} static transports (template servers will be created per-client)`,
     );
 
-    const setupResult = asyncLoadingEnabled
-      ? await setupServerAsync(transports, context, backendLoadingPolicy)
+    const nonblockingStartup = asyncLoadingEnabled || startupPolicy === 'cooperative-activation';
+    const setupResult = nonblockingStartup
+      ? await setupServerAsync(transports, context, backendLoadingPolicy, startupPolicy)
       : await setupServerSync(transports, context, backendLoadingPolicy);
 
     const { templateServers, errors } = configManager.loadDeclaredServerConfigs();
@@ -104,7 +106,7 @@ async function setupServer(
       logger.warn('Skipping initial template index because the declared configuration is invalid', { errors });
     }
 
-    if (asyncLoadingEnabled) {
+    if (nonblockingStartup) {
       logger.info('Using async loading mode - HTTP server will start immediately, MCP servers load in background');
     } else {
       logger.info('Using legacy synchronous loading mode - waiting for all MCP servers before starting HTTP server');
@@ -125,6 +127,7 @@ async function setupServerAsync(
   transports: Record<string, AuthProviderTransport>,
   _context: ContextData | undefined,
   backendLoadingPolicy: BackendLoadingPolicy,
+  startupPolicy: BackendStartupPolicy,
 ): Promise<ServerSetupResult> {
   // Get agent config for feature flags
   const agentConfig = AgentConfigManager.getInstance();
@@ -155,7 +158,7 @@ async function setupServerAsync(
 
   // Create async loading orchestrator for capability tracking and notifications
   const asyncOrchestrator = new AsyncLoadingOrchestrator(clients, serverManager, loadingManager);
-  await asyncOrchestrator.initialize();
+  await asyncOrchestrator.initialize(startupPolicy);
 
   // Create lazy loading orchestrator if enabled
   const lazyLoadingEnabled = agentConfig.get('lazyLoading').enabled;
@@ -182,6 +185,7 @@ async function setupServerAsync(
   // Start async loading (non-blocking)
   const loadingPromise = loadingManager
     .startAsyncLoading(transports)
+    .then(() => loadingManager.waitForInitialLoading())
     .then(() => {
       logger.info('All MCP servers finished loading (successfully or failed)');
     })

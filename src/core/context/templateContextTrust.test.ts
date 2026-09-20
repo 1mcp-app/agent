@@ -30,6 +30,16 @@ describe('template context trust', () => {
     fs.rmSync(storageDir, { recursive: true, force: true });
   });
 
+  it('does not heal exposed capability permissions during read-only attachment', () => {
+    if (process.platform === 'win32') return;
+    const store = new TemplateContextCapabilityStore({ storageDir, runtimeScopeId: 'scope-a' });
+    store.getOrCreate();
+    const file = path.join(storageDir, 'template-context-capability.json');
+    fs.chmodSync(file, 0o644);
+    expect(() => store.read({ readOnly: true })).toThrow('insecure');
+    expect(fs.statSync(file).mode & 0o777).toBe(0o644);
+  });
+
   it('persists one owner-only capability per Runtime Scope', () => {
     const first = new TemplateContextCapabilityStore({
       storageDir,

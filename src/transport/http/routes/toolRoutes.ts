@@ -13,6 +13,7 @@ import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { type ServerAdapter, ServerType } from '@src/core/server/adapters/types.js';
 import { createConnectionResolver, type TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { getDisabledToolError } from '@src/core/server/disabledTools.js';
+import { runtimeAdmission, RuntimeDrainingError } from '@src/core/server/runtimeDrain.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
 import { SchemaBoundaryError } from '@src/core/validation/schemaPolicy.js';
@@ -251,6 +252,16 @@ const toolInvocationBodySchema = z.object({
 
 export function createToolInvocationsHandler(serverManager: ServerManager): RequestHandler {
   return async (req: Request, res: Response): Promise<void> => {
+    try {
+      return await runtimeAdmission.run(() => invoke(req, res));
+    } catch (error) {
+      if (!(error instanceof RuntimeDrainingError)) throw error;
+      res.setHeader('Retry-After', '1');
+      res.status(503).json({ error: error.message, retryable: true });
+    }
+  };
+
+  async function invoke(req: Request, res: Response): Promise<void> {
     const controller = new AbortController();
     const abort = () => controller.abort();
     req.once?.('aborted', abort);
@@ -460,7 +471,7 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
       req.off?.('aborted', abort);
       res.off?.('close', abort);
     }
-  };
+  }
 }
 
 async function initializeRequestContextForApi(

@@ -4,6 +4,8 @@ import { detectRunningServerUrl, discoverServerWithPidFile, validateServer1mcpUr
 
 const mockedFetchRuntimeTargetUrl = vi.hoisted(() => vi.fn());
 const mockedDiscoverScopedRuntime = vi.hoisted(() => vi.fn());
+const mockedConnectControl = vi.hoisted(() => vi.fn());
+vi.mock('@src/core/server/runtimeControl.js', () => ({ connectRuntimeControl: mockedConnectControl }));
 
 vi.mock('@src/core/server/runtimeLifecycle.js', async () => {
   const actual = await vi.importActual<typeof import('@src/core/server/runtimeLifecycle.js')>(
@@ -29,6 +31,7 @@ describe('validateServer1mcpUrl', () => {
   beforeEach(() => {
     mockedFetchRuntimeTargetUrl.mockReset();
     mockedDiscoverScopedRuntime.mockReset();
+    mockedConnectControl.mockReset().mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -221,6 +224,44 @@ describe('validateServer1mcpUrl', () => {
         retryAfterSeconds: 60,
       },
     });
+  });
+
+  it('discovers the authenticated owner without lifecycle inspection', async () => {
+    mockedConnectControl.mockResolvedValue({
+      request: vi.fn().mockResolvedValue({
+        runtimeScopeId: 'scope-a',
+        runtime: { url: 'http://127.0.0.1:3050/mcp', pid: 4242 },
+      }),
+    });
+    mockedFetchRuntimeTargetUrl.mockResolvedValue(
+      response({
+        status: 200,
+        body: {
+          identityProtocolVersion: '1',
+          runtimeScopeId: 'scope-a',
+          externalUrl: 'http://127.0.0.1:3050',
+          runtimeVersion: '0.38.2',
+          serverTime: '2026-08-03T08:10:47.192Z',
+        },
+      }),
+    );
+    await expect(discoverServerWithPidFile('/tmp/runtime-scope')).resolves.toMatchObject({
+      source: 'pidfile',
+      pid: 4242,
+      url: 'http://127.0.0.1:3050/mcp',
+    });
+    expect(mockedDiscoverScopedRuntime).not.toHaveBeenCalled();
+  });
+
+  it('does not fall back to process inspection or port scanning after control authentication fails', async () => {
+    mockedConnectControl.mockRejectedValue(new Error('authentication failed'));
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    await expect(discoverServerWithPidFile('/tmp/runtime-scope')).rejects.toMatchObject({
+      code: 'local_runtime_discovery_failed',
+    });
+    expect(mockedDiscoverScopedRuntime).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('reports a live PID probe rejection instead of scanning another port', async () => {

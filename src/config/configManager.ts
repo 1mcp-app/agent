@@ -4,6 +4,7 @@ import { isOperatorDisabledTemplateDefinition } from '@src/config/configuredServ
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { mergeGlobalAndServerConfig } from '@src/config/mcpConfigMerge.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { runtimeAdmission, RuntimeDrainingError } from '@src/core/server/runtimeDrain.js';
 import {
   ApplicationConfig,
   mcpServerConfigSchema,
@@ -22,6 +23,7 @@ import { z } from 'zod';
 import { ConfigChangeDetector } from './configChangeDetector.js';
 import { ConfigLoader } from './configLoader.js';
 import { ConfigWatcher } from './configWatcher.js';
+import { deferUntilRuntimeActivation, getFrozenRuntimeBootstrap } from './runtimeBootstrap.js';
 import { activateRuntimeScopeEnvironment, loadRuntimeScopeEnvironment } from './runtimeScopeEnv.js';
 import { createRuntimeTargetFingerprint } from './runtimeTargetFingerprint.js';
 import { TemplateProcessor } from './templateProcessor.js';
@@ -36,6 +38,8 @@ export class ConfigManager extends EventEmitter {
   private templateProcessor: TemplateProcessor;
   private watcher: ConfigWatcher;
   private changeDetector: ConfigChangeDetector;
+  private cancelDeferredReload?: () => void;
+  private reloadGeneration = 0;
 
   // Template processing related properties
   private templateProcessingErrors: string[] = [];
@@ -82,7 +86,11 @@ export class ConfigManager extends EventEmitter {
   public async initialize(): Promise<void> {
     try {
       this.loadConfig();
-      this.watcher.startWatching();
+      const generation = this.reloadGeneration;
+      const startWatching = () => {
+        if (generation === this.reloadGeneration) this.watcher.startWatching();
+      };
+      if (!deferUntilRuntimeActivation(startWatching)) startWatching();
       logger.info('ConfigManager initialized');
     } catch (error) {
       const errorMsg = `Failed to initialize ConfigManager: ${error instanceof Error ? error.message : String(error)}`;
@@ -92,6 +100,9 @@ export class ConfigManager extends EventEmitter {
   }
 
   public async stop(): Promise<void> {
+    this.reloadGeneration++;
+    this.cancelDeferredReload?.();
+    this.cancelDeferredReload = undefined;
     this.watcher.stopWatching();
     logger.info('ConfigManager stopped');
   }
@@ -450,6 +461,36 @@ export class ConfigManager extends EventEmitter {
   }
 
   private async handleConfigChange(): Promise<ConfigReloadAttempt> {
+    const generation = this.reloadGeneration;
+    try {
+      return await runtimeAdmission.run(() => this.applyConfigChange());
+    } catch (error) {
+      if (!(error instanceof RuntimeDrainingError)) throw error;
+      if (generation === this.reloadGeneration) this.deferReloadUntilResume();
+      return { status: 'disabled' };
+    }
+  }
+
+  private deferReloadUntilResume(): void {
+    if (this.cancelDeferredReload) return;
+    const reload = () => {
+      this.cancelDeferredReload?.();
+      this.cancelDeferredReload = undefined;
+      void this.handleConfigChange().catch((error: unknown) => {
+        logger.error('Failed to apply deferred configuration reload', error);
+      });
+    };
+    if (!runtimeAdmission.snapshot().closed) {
+      reload();
+      return;
+    }
+    this.cancelDeferredReload = runtimeAdmission.subscribe((snapshot) => {
+      if (!snapshot.closed) reload();
+    });
+  }
+
+  private async applyConfigChange(): Promise<ConfigReloadAttempt> {
+    if (getFrozenRuntimeBootstrap(this.loader.getConfigFilePath())) return { status: 'disabled' };
     if (!this.isReloadEnabled()) {
       logger.info('Configuration hot-reload is disabled, ignoring file changes');
       return { status: 'disabled' };

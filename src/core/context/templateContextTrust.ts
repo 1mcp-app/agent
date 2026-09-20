@@ -8,6 +8,7 @@ import {
   assertOwnerOnlyDirPermissions,
   credentialReadFlags,
   enforceOwnerOnlyFilePermissions,
+  hasSafeCredentialPermissions,
   InsecureFilePermissionsError,
 } from '@src/utils/filePermissions.js';
 
@@ -146,12 +147,12 @@ export class TemplateContextCapabilityStore {
     }
   }
 
-  read(): TemplateContextCapability | null {
+  read(options: { readOnly?: boolean } = {}): TemplateContextCapability | null {
     const filePath = this.filePath();
-    return fs.existsSync(filePath) ? this.readExisting(filePath) : null;
+    return fs.existsSync(filePath) ? this.readExisting(filePath, options.readOnly) : null;
   }
 
-  private readExisting(filePath: string): TemplateContextCapability {
+  private readExisting(filePath: string, readOnly = false): TemplateContextCapability {
     const stat = fs.lstatSync(filePath);
     if (!stat.isFile() || stat.isSymbolicLink()) {
       throw new TemplateContextCapabilityError(`Template context capability is not a regular file: ${filePath}`);
@@ -161,14 +162,28 @@ export class TemplateContextCapabilityStore {
     // heal-then-consume on one open fd (no TOCTOU), with the dir leg (0700)
     // checked first; a denied heal fails closed via InsecureFilePermissionsError
     // instead of silently reading an exposed capability.
-    assertOwnerOnlyDirPermissions(this.options.storageDir);
+    if (readOnly) {
+      const directory = fs.statSync(this.options.storageDir);
+      if (!hasSafeCredentialPermissions(directory, 0o022)) {
+        throw new TemplateContextCapabilityError('Template context capability directory is insecure');
+      }
+    } else {
+      assertOwnerOnlyDirPermissions(this.options.storageDir);
+    }
     // O_NOFOLLOW (via credentialReadFlags) closes the lstat→open symlink race:
     // the lstat above rejects a symlink up front, and the open re-checks it
     // atomically instead of trusting a racy pre-check.
     const fd = fs.openSync(filePath, credentialReadFlags());
     let value: unknown;
     try {
-      enforceOwnerOnlyFilePermissions(fd, filePath);
+      if (readOnly) {
+        const opened = fs.fstatSync(fd);
+        if (!opened.isFile() || !hasSafeCredentialPermissions(opened, 0o077)) {
+          throw new TemplateContextCapabilityError('Template context capability file is insecure');
+        }
+      } else {
+        enforceOwnerOnlyFilePermissions(fd, filePath);
+      }
       value = JSON.parse(fs.readFileSync(fd, 'utf8'));
     } catch (error) {
       if (error instanceof InsecureFilePermissionsError) {

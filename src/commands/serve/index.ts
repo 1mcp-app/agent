@@ -31,6 +31,16 @@ export const serverOptions = {
     type: 'boolean' as const,
     default: false,
   },
+  'drain-timeout': {
+    describe: 'Maximum seconds to drain backend work before aborting a runtime upgrade',
+    type: 'number' as const,
+    default: 30,
+  },
+  'cooperative-bootstrap': {
+    type: 'string' as const,
+    choices: ['supervisor', 'worker'] as const,
+    hidden: true,
+  },
   // Internal hidden guard flag set on the detached child so it runs the normal
   // serve path instead of recursively spawning another background process.
   'background-bootstrap': {

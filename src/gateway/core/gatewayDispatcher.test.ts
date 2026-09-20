@@ -1,3 +1,5 @@
+import { runtimeAdmission } from '@src/core/server/runtimeDrain.js';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -230,4 +232,19 @@ describe('Tool dispatch ownership', () => {
     await dispatcher.cancel(operation.requestId);
     await pending;
   });
+});
+
+it('rejects gateway calls before backend dispatch while draining, without outcome-unknown remapping', async () => {
+  const fixture = adapter(Object.freeze({ era: 'modern', revision: '2026-07-28' }));
+  const dispatcher = new GatewayDispatcher({ resolveOutbound: () => fixture.port, now: () => 1000 });
+  runtimeAdmission.close();
+  try {
+    await expect(dispatcher.dispatch(request(fixture.port.pin, { operation: 'tools/call' }))).resolves.toMatchObject({
+      ok: false,
+      failure: { code: 'runtime_draining', data: { retryable: true } },
+    });
+    expect(fixture.requests).toHaveLength(0);
+  } finally {
+    runtimeAdmission.resume();
+  }
 });

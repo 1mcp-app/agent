@@ -31,6 +31,8 @@ import { InternalCapabilitiesProvider } from './internalCapabilitiesProvider.js'
  * orchestrator.initialize();
  * ```
  */
+export type BackendStartupPolicy = 'configured' | 'cooperative-activation';
+
 export class AsyncLoadingOrchestrator extends EventEmitter {
   private capabilityAggregator: CapabilityAggregator;
   private notificationManager: NotificationManager | null = null;
@@ -59,13 +61,13 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
   /**
    * Initialize the orchestrator and wire up event handlers
    */
-  public async initialize(): Promise<void> {
+  public async initialize(startupPolicy: BackendStartupPolicy = 'configured'): Promise<void> {
     if (this.isInitialized) {
       logger.warn('AsyncLoadingOrchestrator already initialized');
       return;
     }
 
-    if (!this.agentConfig.get('asyncLoading').enabled) {
+    if (!this.agentConfig.get('asyncLoading').enabled && startupPolicy === 'configured') {
       logger.info('Async loading disabled - AsyncLoadingOrchestrator skipping initialization');
       return;
     }

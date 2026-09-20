@@ -32,6 +32,7 @@ import {
 } from '@src/core/server/runtimeScopeOwnership.js';
 import logger from '@src/logger/logger.js';
 
+import { stopCooperativeRuntime } from './cooperativeRuntime.js';
 import { stopLegacyRuntime } from './legacyRuntimeStop.js';
 
 /**
@@ -149,6 +150,12 @@ function bootstrapSupervisorState(supervisorPid: number): BackgroundSupervisorSt
  */
 export async function runServeStop(configDirOption?: string, deps: RunStopDeps = {}): Promise<void> {
   const configDir = getConfigDir(configDirOption);
+  try {
+    if (await stopCooperativeRuntime(configDir)) return;
+  } catch (error) {
+    failStop(errorMessage(error));
+    return;
+  }
   const readSupervisorState = deps.readSupervisorState ?? readBackgroundSupervisorState;
   const readOwnership = deps.readOwnership ?? readRuntimeScopeOwnership;
   const acquireStopLock = deps.acquireStopLock ?? acquireRuntimeScopeStopLock;

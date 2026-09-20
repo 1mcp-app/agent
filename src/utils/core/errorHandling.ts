@@ -1,3 +1,4 @@
+import { RuntimeDrainingError } from '@src/core/server/runtimeDrain.js';
 import { SchemaBoundaryError } from '@src/core/validation/schemaPolicy.js';
 import {
   createGatewayFailure,
@@ -23,6 +24,9 @@ export function withErrorHandling<T, Args extends readonly unknown[]>(
     try {
       return await fn(...args);
     } catch (error) {
+      if (error instanceof RuntimeDrainingError) {
+        throw new MCPError(error.message, error.code, error.data);
+      }
       const normalized =
         error instanceof SchemaBoundaryError
           ? createGatewayFailure({

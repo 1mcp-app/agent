@@ -93,7 +93,7 @@ try {
       200,
     );
 
-    if (process.platform === 'linux') {
+    if (process.platform === 'linux' && operation === 'stop') {
       const output = await run(candidate, scope, [`--${operation}`, ...options]);
       assert.match(output.stdout, /Stopped verified legacy background runtime/);
     } else {
@@ -110,35 +110,45 @@ try {
         (await fetch(`http://127.0.0.1:${listenPort}/health/ready`, { signal: AbortSignal.timeout(5000) })).status,
         200,
       );
+      // Restart never adopts an incompatible owner, including on Linux.
       // This fixture owns the old process; guided migration leaves this step to the operator.
       await run(legacy, scope, ['--stop']);
       if (operation === 'restart') await run(candidate, scope, ['--background', ...options]);
     }
     if (operation === 'restart') {
       const updated = read(scope, records[2]);
-      assert(updated.processIdentity);
+      const updatedOwner = read(scope, records[0]);
+      assert.equal(updatedOwner.cooperative, true);
+      assert.equal(updated.ownerClaimId, updatedOwner.claimId);
+      assert.equal(updated.processIdentity, undefined);
+      assert.equal(updatedOwner.processIdentity, undefined);
       assert.notEqual(updated.pid, oldInfo.pid);
-      assert(read(scope, records[0]).processIdentity);
+      assert.notEqual(updatedOwner.claimId, oldOwner.claimId);
       assert.equal(
         (await fetch(`http://127.0.0.1:${listenPort}/health/ready`, { signal: AbortSignal.timeout(5000) })).status,
         200,
       );
       await run(candidate, scope, ['--restart', ...options]);
+      const restartedOwner = read(scope, records[0]);
+      assert.equal(restartedOwner.cooperative, true);
+      assert.notEqual(restartedOwner.claimId, updatedOwner.claimId);
+      assert.equal(read(scope, records[2]).ownerClaimId, restartedOwner.claimId);
       assert.match((await run(candidate, scope, ['--status'])).stdout, /Readiness .*ready/);
       await run(candidate, scope, ['--stop']);
     }
     assert(!fs.existsSync(path.join(scope, 'runtime.owner')));
     assert(!fs.existsSync(path.join(scope, 'server.pid')));
     console.log(
-      `PASS ${process.platform}/${process.arch}: v0.38.0 ${process.platform === 'linux' ? 'automatic' : 'guided'} --${operation}; scope safety and modern lifecycle`,
+      `PASS ${process.platform}/${process.arch}: v0.38.0 ${process.platform === 'linux' && operation === 'stop' ? 'verified legacy stop' : 'guided migration'} --${operation}; scope safety and modern lifecycle`,
     );
   }
 } finally {
   for (const scope of scopes) {
     if (fs.existsSync(path.join(scope, 'runtime.owner'))) {
-      // Only this harness's freshly created scopes, using the old CLI for teardown.
+      // Only this harness's freshly created scopes; use the owning generation's CLI.
       try {
-        await run(legacy, scope, ['--stop']);
+        const ownerCli = read(scope, records[0]).cooperative ? candidate : legacy;
+        await run(ownerCli, scope, ['--stop']);
       } catch (error) {
         console.error(`Fixture teardown failed: ${error.message}`);
       }

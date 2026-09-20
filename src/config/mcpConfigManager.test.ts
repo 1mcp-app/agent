@@ -1,7 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 
+import * as runtimeBootstrap from '@src/config/runtimeBootstrap.js';
 import { DEFAULT_CONFIG } from '@src/constants.js';
+import { runtimeAdmission } from '@src/core/server/runtimeDrain.js';
 import logger from '@src/logger/logger.js';
 
 import { beforeEach, describe, expect, it, MockInstance, vi } from 'vitest';
@@ -88,6 +90,64 @@ describe('McpConfigManager', () => {
     (fs.existsSync as unknown as MockInstance).mockReturnValue(true);
     (fs.readFileSync as unknown as MockInstance).mockReturnValue(JSON.stringify({ mcpServers: {} }));
     (fs.statSync as unknown as MockInstance).mockReturnValue({ mtime: new Date() });
+  });
+
+  it('does not start a deferred watcher after stopping before activation', () => {
+    const manager = McpConfigManager.getInstance(testConfigPath);
+    let activate: (() => void) | undefined;
+    const defer = vi.spyOn(runtimeBootstrap, 'deferUntilRuntimeActivation').mockImplementationOnce((callback) => {
+      activate = callback;
+      return true;
+    });
+    vi.mocked(fs.watch).mockClear();
+    try {
+      manager.startWatching();
+      expect(activate).toBeDefined();
+      expect(fs.watch).not.toHaveBeenCalled();
+      manager.stopWatching();
+      activate!();
+      expect(fs.watch).not.toHaveBeenCalled();
+    } finally {
+      defer.mockRestore();
+      manager.stopWatching();
+    }
+  });
+
+  it('defers and coalesces reload requests until admission resumes', async () => {
+    const manager = McpConfigManager.getInstance(testConfigPath);
+    const changed = vi.fn();
+    manager.on(ConfigChangeEvent.TRANSPORT_CONFIG_CHANGED, changed);
+    runtimeAdmission.close();
+    try {
+      vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(testConfig));
+      manager.reloadConfig();
+      manager.reloadConfig();
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(manager.getTransportConfig()).toEqual({});
+      runtimeAdmission.resume();
+      await vi.waitFor(() => expect(manager.getTransportConfig()).toEqual(testConfig.mcpServers));
+      expect(changed).toHaveBeenCalledOnce();
+    } finally {
+      manager.stopWatching();
+      runtimeAdmission.resume();
+    }
+  });
+
+  it('does not install a deferred reload after stop races with admission rejection', async () => {
+    const manager = McpConfigManager.getInstance(testConfigPath);
+    runtimeAdmission.close();
+    try {
+      vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(testConfig));
+      manager.reloadConfig();
+      manager.stopWatching();
+      await new Promise((resolve) => setImmediate(resolve));
+      runtimeAdmission.resume();
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(manager.getTransportConfig()).toEqual({});
+    } finally {
+      manager.stopWatching();
+      runtimeAdmission.resume();
+    }
   });
 
   describe('getInstance', () => {

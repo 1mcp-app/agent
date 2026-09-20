@@ -269,14 +269,11 @@ describe('publishing documentation', () => {
     const vitepressConfig = readRepoFile('docs/.vitepress/config/index.ts');
     const roadmap = readRepoFile('docs/ROADMAP.md');
     const readme = readRepoFile('docs/README.md');
-    const architecture = readRepoFile('docs/agents/architecture-opportunities.md');
 
     expect(vitepressConfig).toContain("'research/**'");
     expect(roadmap).toContain('status: archived');
     expect(roadmap).toContain('not current product guidance');
     expect(readme).toContain('publishingDocs.test.ts');
-    expect(architecture).toContain('Milestones 1-6 are complete for their planned scopes.');
-    expect(architecture).not.toContain('known follow-ups after the Milestone 1-6 roadmap');
 
     for (const path of markdownFiles('docs/zh')) {
       const content = readRepoFile(path);

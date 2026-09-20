@@ -3,8 +3,10 @@ import fs, { promises as fsPromises } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
+import * as runtimeBootstrap from '@src/config/runtimeBootstrap.js';
 import { CONFIG_EVENTS, ConfigChangeType, ConfigManager } from '@src/config/configManager.js';
 import { getRuntimeScopeEnvironment } from '@src/config/runtimeScopeEnv.js';
+import { runtimeAdmission, RuntimeReplacementDrain } from '@src/core/server/runtimeDrain.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -127,6 +129,27 @@ describe('ConfigManager (Integration)', () => {
     await configManager.stop();
   });
 
+  it('does not start a deferred watcher after stopping before activation', async () => {
+    let activate: (() => void) | undefined;
+    const defer = vi.spyOn(runtimeBootstrap, 'deferUntilRuntimeActivation').mockImplementationOnce((callback) => {
+      activate = callback;
+      return true;
+    });
+    const watcher = watcherState.getLastWatcherInstance()!;
+    const start = vi.spyOn(watcher, 'startWatching');
+    try {
+      await configManager.initialize();
+      expect(activate).toBeDefined();
+      expect(start).not.toHaveBeenCalled();
+      await configManager.stop();
+      activate!();
+      expect(start).not.toHaveBeenCalled();
+    } finally {
+      defer.mockRestore();
+      start.mockRestore();
+    }
+  });
+
   afterEach(async () => {
     if (originalContext7ApiKey === undefined) {
       delete process.env.CONTEXT7_API_KEY;
@@ -157,6 +180,48 @@ describe('ConfigManager (Integration)', () => {
       };
       return key.split('.').reduce((obj: any, k: string) => obj?.[k], config);
     });
+  });
+
+  it('coalesces watcher edits while draining and applies the latest file after the drain deadline', async () => {
+    await configManager.initialize();
+    const changed = vi.fn();
+    configManager.on(CONFIG_EVENTS.CONFIG_CHANGED, changed);
+    const drain = new RuntimeReplacementDrain({
+      close: async () => runtimeAdmission.close(),
+      resume: async () => runtimeAdmission.resume(),
+      commit: async () => runtimeAdmission.commit(),
+    });
+    await drain.prepare('deferred-config', 'digest', 400);
+    try {
+      await fsPromises.writeFile(
+        configFilePath,
+        JSON.stringify({ mcpServers: { deferred: { command: 'node', args: ['latest.js'] } } }),
+      );
+      watcherState.getLastWatcherInstance()?.simulateFileChange();
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(configManager.getTransportConfig()).not.toHaveProperty('deferred');
+      expect(changed).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(configManager.getTransportConfig().deferred?.args).toEqual(['latest.js']));
+      expect(changed).toHaveBeenCalledOnce();
+      expect(drain.status('deferred-config').state).toBe('aborted');
+    } finally {
+      drain.workerExited();
+      runtimeAdmission.resume();
+    }
+  });
+
+  it('does not replay a deferred reload after the manager is stopped', async () => {
+    runtimeAdmission.close();
+    try {
+      await fsPromises.writeFile(configFilePath, JSON.stringify({ mcpServers: { deferred: { command: 'node' } } }));
+      await expect(configManager.reloadConfig()).rejects.toThrow('disabled');
+      await configManager.stop();
+      runtimeAdmission.resume();
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(configManager.getTransportConfig()).not.toHaveProperty('deferred');
+    } finally {
+      runtimeAdmission.resume();
+    }
   });
 
   describe('initialization', () => {

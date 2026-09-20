@@ -3,6 +3,8 @@ import path from 'node:path';
 
 import { OAuthRequiredError } from '@src/core/client/types.js';
 
+import { getFrozenRuntimeBootstrap } from './runtimeBootstrap.js';
+
 const ENV_FILE_NAME = '.env';
 const ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const REDACTED_RUNTIME_SCOPE_VALUE = '[REDACTED]';
@@ -50,6 +52,8 @@ export function sanitizeRuntimeScopeError(error: unknown): Error {
 }
 
 export function loadRuntimeScopeEnvironment(configFilePath: string): Record<string, string> {
+  const frozen = getFrozenRuntimeBootstrap(configFilePath);
+  if (frozen) return frozen.runtimeEnvironment;
   const filePath = getRuntimeScopeEnvPath(configFilePath);
   let source: string;
 

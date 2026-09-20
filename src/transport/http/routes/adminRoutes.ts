@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import type { BackendOAuthDashboardResult } from '@src/auth/oauthAuthorizationFlow.js';
 import { MCP_PROJECT_METADATA } from '@src/constants.js';
 import { RuntimeIdentity } from '@src/core/runtime/runtimeIdentityService.js';
+import { runtimeAdmission, RuntimeDrainingError } from '@src/core/server/runtimeDrain.js';
 import { parseTemplateConnectionKey } from '@src/core/server/templateIdentity.js';
 import type {
   AdminBackendRestartOperations,
@@ -249,6 +250,45 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
   }
 
   const router = Router();
+  router.use((req, res, next) => {
+    if (!isUnsafeMethod(req.method)) {
+      next();
+      return;
+    }
+    // Retain the root through the response; nested mutation work also retains it after disconnect.
+    void runtimeAdmission
+      .run(
+        () =>
+          new Promise<void>((resolve) => {
+            const finished = () => {
+              res.off('finish', finished);
+              res.off('close', finished);
+              resolve();
+            };
+            res.once('finish', finished);
+            res.once('close', finished);
+            next();
+          }),
+      )
+      .catch((error: unknown) => {
+        if (!(error instanceof RuntimeDrainingError)) {
+          next(error);
+          return;
+        }
+        res.setHeader('Retry-After', '1');
+        if (req.path.startsWith('/cli/')) {
+          sendCliError(req, res, {
+            status: 503,
+            code: 'runtime_draining',
+            message: error.message,
+            retryable: true,
+            details: error.data,
+          });
+          return;
+        }
+        res.status(503).json({ ok: false, error: 'runtime_draining', retryable: true, details: error.data });
+      });
+  });
   const rateLimitPolicy = options.rateLimit ?? DEFAULT_ADMIN_RATE_LIMIT_POLICY;
   const failedLoginLimiter = new FailedLoginLimiter(
     Date.now,

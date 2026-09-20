@@ -13,6 +13,7 @@ import { type ProcessIdentity, processIdentitySchema, readProcessIdentity } from
 export interface ServerPidInfo {
   pid: number;
   processIdentity?: ProcessIdentity;
+  ownerClaimId?: string;
   url: string;
   port: number;
   host: string;
@@ -35,7 +36,7 @@ export interface ServerPidInfo {
  * operator's own shell), so a corrupt/hand-edited file must never reach the
  * signal paths in `serveStop`.
  */
-const serverPidInfoSchema = z.object({
+export const serverPidInfoSchema = z.object({
   pid: z.number().int().positive(),
   processIdentity: processIdentitySchema.optional(),
   url: z.string().min(1),
@@ -45,6 +46,7 @@ const serverPidInfoSchema = z.object({
   startedAt: z.string().min(1),
   configDir: z.string().min(1),
   logFile: z.string().min(1).optional(),
+  ownerClaimId: z.string().min(1).optional(),
 }) satisfies z.ZodType<ServerPidInfo>;
 
 const PID_FILE_NAME = 'server.pid';
@@ -104,7 +106,12 @@ export function writePidFile(configDir: string, serverInfo: ServerPidInfo): void
     // place (rename is atomic on POSIX). Concurrent readers — racing `serve
     // --status` / discovery — never observe a half-written, unparseable file.
     const content = JSON.stringify(
-      { ...serverInfo, processIdentity: serverInfo.processIdentity ?? readProcessIdentity(serverInfo.pid) },
+      {
+        ...serverInfo,
+        processIdentity: serverInfo.ownerClaimId
+          ? undefined
+          : (serverInfo.processIdentity ?? readProcessIdentity(serverInfo.pid)),
+      },
       null,
       2,
     );
@@ -219,7 +226,8 @@ export function cleanupPidFileIfMatches(configDir: string, expected: number | Se
     !current ||
     current.pid !== expectedPid ||
     (typeof expected !== 'number' &&
-      (current.startedAt !== expected.startedAt ||
+      (current.ownerClaimId !== expected.ownerClaimId ||
+        current.startedAt !== expected.startedAt ||
         JSON.stringify(current.processIdentity) !== JSON.stringify(expected.processIdentity)))
   ) {
     // Already gone, or replaced by a newer runtime — leave it untouched.
@@ -233,7 +241,8 @@ export function cleanupPidFileIfMatches(configDir: string, expected: number | Se
  * @param configDir Configuration directory
  */
 export function cleanupPidFileOnExit(configDir: string): void {
-  cleanupPidFile(configDir);
+  const record = readPidFile(configDir);
+  if (record?.pid === process.pid) cleanupPidFileIfMatches(configDir, record);
 }
 
 /**
@@ -243,8 +252,9 @@ export function cleanupPidFileOnExit(configDir: string): void {
  * @param configDir Configuration directory
  */
 export function registerPidFileCleanup(configDir: string): void {
+  const record = readPidFile(configDir);
   const cleanup = () => {
-    cleanupPidFile(configDir);
+    if (record) cleanupPidFileIfMatches(configDir, record);
   };
 
   // Only register for the 'exit' event

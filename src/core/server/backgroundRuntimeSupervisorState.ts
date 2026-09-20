@@ -22,6 +22,7 @@ export interface BackgroundSupervisorState {
   version: 1;
   status: BackgroundSupervisorStatus;
   supervisorPid: number;
+  claimId?: string;
   supervisorIdentity?: ProcessIdentity;
   runtimeIdentity?: ProcessIdentity;
   runtimePid: number | null;
@@ -36,6 +37,7 @@ const stateSchema = z.object({
   version: z.literal(1),
   status: z.enum(['starting', 'running', 'restarting', 'crash-loop', 'stopping']),
   supervisorPid: z.number().int().positive(),
+  claimId: z.string().min(1).optional(),
   supervisorIdentity: processIdentitySchema.optional(),
   runtimeIdentity: processIdentitySchema.optional(),
   runtimePid: z.number().int().positive().nullable(),
@@ -98,12 +100,12 @@ export function writeBackgroundSupervisorState(configDir: string, state: Backgro
   fs.renameSync(tempFilePath, stateFilePath);
 }
 
-export function cleanupBackgroundSupervisorState(configDir: string, supervisorPid: number): boolean {
+export function cleanupBackgroundSupervisorState(configDir: string, supervisorPid: number, claimId?: string): boolean {
   const current = readBackgroundSupervisorState(configDir);
   if (!current) {
     return true;
   }
-  if (current.supervisorPid !== supervisorPid) {
+  if (current.supervisorPid !== supervisorPid || (claimId !== undefined && current.claimId !== claimId)) {
     return false;
   }
   try {

@@ -18,6 +18,7 @@ import logger, { debugIf } from '@src/logger/logger.js';
 import { parse as parseToml } from 'smol-toml';
 import { ZodError } from 'zod';
 
+import { getFrozenRuntimeBootstrap } from './runtimeBootstrap.js';
 import { getRuntimeScopeEnvPath } from './runtimeScopeEnv.js';
 
 interface ErrnoException extends Error {
@@ -121,6 +122,10 @@ function normalizeRawServerConfigs(rawServers: unknown): Record<string, MCPServe
 
 export function loadAppConfigFromTomlPath(tomlPath: string): ApplicationConfig {
   try {
+    const frozen = getFrozenRuntimeBootstrap();
+    if (frozen && path.join(path.dirname(frozen.configFilePath), 'config.toml') === path.resolve(tomlPath)) {
+      return frozen.appConfig;
+    }
     if (!fs.existsSync(tomlPath)) {
       return {};
     }
@@ -149,7 +154,7 @@ export class ConfigLoader {
   constructor(configFilePath?: string, options?: ConfigLoaderOptions) {
     this.configFilePath = configFilePath || getGlobalConfigPath();
     this.runtimeEnvSignature = this.getRuntimeEnvSignature();
-    if (options?.ensureConfigExists !== false) {
+    if (options?.ensureConfigExists !== false && !getFrozenRuntimeBootstrap(this.configFilePath)) {
       this.ensureConfigExists();
     }
   }
@@ -233,6 +238,8 @@ export class ConfigLoader {
   }
 
   private loadRawConfigResult(): RawConfigLoadResult {
+    const frozen = getFrozenRuntimeBootstrap(this.configFilePath);
+    if (frozen) return { config: frozen.mcpConfig, lastModified: 0, schemaInjected: false };
     try {
       const stats = fs.statSync(this.configFilePath);
       const lastModified = stats.mtime.getTime();

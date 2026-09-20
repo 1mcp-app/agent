@@ -1,3 +1,5 @@
+import { runtimeAdmission, RuntimeDrainingError } from '@src/core/server/runtimeDrain.js';
+
 import { z } from 'zod';
 
 import {
@@ -103,6 +105,21 @@ export class GatewayDispatcher {
       authority: request.authority,
       deadlineUnixMs: request.deadlineUnixMs,
     });
+    try {
+      return await runtimeAdmission.run(() => this.dispatchAdmitted(request, outbound, outboundRequest));
+    } catch (error) {
+      if (!(error instanceof RuntimeDrainingError)) throw error;
+      return gatewayFailure(
+        createGatewayFailure({ kind: 'transport', code: 'runtime_draining', message: error.message, data: error.data }),
+      );
+    }
+  }
+
+  private async dispatchAdmitted(
+    request: GatewayRequestEnvelope,
+    outbound: OutboundEraAdapter,
+    outboundRequest: OutboundGatewayRequest,
+  ): Promise<GatewayResult<ImmutableJsonValue>> {
     this.active.set(request.requestId, outbound);
     this.dispatched.add(request);
     try {
