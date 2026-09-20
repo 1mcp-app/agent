@@ -54,7 +54,12 @@ import {
   watchModernInteractionBinding,
   withModernInteractionBinding,
 } from './modernInteractionBinding.js';
-import { cancelModernSubscription, closeModernSubscriptions, serveModernSubscription } from './modernSubscriptions.js';
+import {
+  cancelModernSubscription,
+  closeModernSubscriptions,
+  getModernSubscriptionCapabilities,
+  serveModernSubscription,
+} from './modernSubscriptions.js';
 
 const DEFAULT_MODERN_REQUEST_TIMEOUT_MS = 60_000;
 
@@ -381,9 +386,7 @@ export function setupModernHttpRoutes(
             { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
             {
               capabilities: {
-                tools: { listChanged: true },
-                prompts: { listChanged: true },
-                resources: { subscribe: true, listChanged: true },
+                ...getModernSubscriptionCapabilities(serverManager, config),
                 completions: {},
               },
             },

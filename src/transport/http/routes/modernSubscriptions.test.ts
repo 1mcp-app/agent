@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 
+import { FilteringService } from '@src/core/filtering/filteringService.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus } from '@src/core/types/index.js';
 
@@ -7,7 +8,11 @@ import type { Request, Response } from 'express';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ModernInboundBridgeFactory } from './modernHttpRoutes.js';
-import { closeModernSubscriptions, serveModernSubscription } from './modernSubscriptions.js';
+import {
+  closeModernSubscriptions,
+  getModernSubscriptionCapabilities,
+  serveModernSubscription,
+} from './modernSubscriptions.js';
 
 const authState = vi.hoisted(() => ({ allowed: true }));
 vi.mock('@src/config/configuredServerTargets.js', () => ({ getConfiguredServerTargets: () => ({}) }));
@@ -116,6 +121,49 @@ afterEach(async () => {
 const messages = (frames: string[]) => frames.map((frame) => JSON.parse(frame.split('data: ')[1]));
 
 describe('modern subscription ownership', () => {
+  it('advertises only supported notification coverage across the visible provider set', () => {
+    const value = tracked();
+    value.connections.clear();
+    expect(getModernSubscriptionCapabilities(value.manager, {})).toEqual({ tools: {}, prompts: {}, resources: {} });
+    value.connections.set('supported', value.connection);
+    expect(getModernSubscriptionCapabilities(value.manager, {})).toEqual({
+      tools: { listChanged: true },
+      prompts: {},
+      resources: { subscribe: true },
+    });
+    value.connections.set('unsupported', { ...value.connection, capabilities: { tools: {}, resources: {} } } as never);
+    expect(getModernSubscriptionCapabilities(value.manager, {})).toEqual({
+      tools: {},
+      prompts: {},
+      resources: { subscribe: true },
+    });
+    const filtered = vi
+      .spyOn(FilteringService, 'getFilteredConnections')
+      .mockReturnValueOnce(new Map([['supported', value.connection]]) as never);
+    expect(getModernSubscriptionCapabilities(value.manager, { tags: ['visible'] })).toEqual({
+      tools: { listChanged: true },
+      prompts: {},
+      resources: { subscribe: true },
+    });
+    filtered.mockRestore();
+    value.connections.set('supported', { ...value.connection, status: ClientStatus.Disconnected } as never);
+    expect(getModernSubscriptionCapabilities(value.manager, {})).toEqual({ tools: {}, prompts: {}, resources: {} });
+    value.connections.clear();
+    value.connections.set('full', {
+      ...value.connection,
+      capabilities: {
+        tools: { listChanged: true },
+        prompts: { listChanged: true },
+        resources: { listChanged: true, subscribe: true },
+      },
+    } as never);
+    expect(getModernSubscriptionCapabilities(value.manager, {})).toEqual({
+      tools: { listChanged: true },
+      prompts: { listChanged: true },
+      resources: { listChanged: true, subscribe: true },
+    });
+  });
+
   it('buffers setup notifications until the truthful acknowledgement and preserves order/exact URI', async () => {
     const value = tracked();
     value.subscribe.mockImplementation(async (uri) => {

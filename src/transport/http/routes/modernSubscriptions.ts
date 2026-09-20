@@ -44,6 +44,42 @@ const MAX_BYTES = 1024 * 1024;
 let setups = 0;
 const owners = new Set<ModernSubscription>();
 
+/** Discovery reflects current visible providers; listen still verifies upstream acknowledgement. */
+export function getModernSubscriptionCapabilities(
+  manager: Pick<ServerManager, 'getClients'>,
+  config: InboundConnectionConfig,
+) {
+  const connections = manager.getClients();
+  if (!connections.size) return { tools: {}, prompts: {}, resources: {} };
+  const visible = FilteringService.getFilteredConnections(filterConnectionsForSession(connections, undefined), config);
+  const sources = [...visible.values()].filter((connection) => connection.status === ClientStatus.Connected);
+  const supports = (
+    connection: OutboundConnection,
+    kind: 'tools' | 'resources' | 'prompts',
+    flag: 'listChanged' | 'subscribe',
+  ) => {
+    const capability = connection.capabilities?.[kind];
+    if (!capability || typeof capability !== 'object' || Array.isArray(capability)) return false;
+    return capability[flag] === true;
+  };
+  const listCapability = (kind: 'tools' | 'resources' | 'prompts'): { listChanged?: true } => {
+    const providers = sources.filter((connection) => connection.capabilities?.[kind]);
+    if (!providers.length) return {};
+    if (providers.some((connection) => !supports(connection, kind, 'listChanged'))) return {};
+    return { listChanged: true };
+  };
+  return {
+    tools: listCapability('tools'),
+    prompts: listCapability('prompts'),
+    resources: {
+      ...listCapability('resources'),
+      ...(sources.some((connection) => supports(connection, 'resources', 'subscribe'))
+        ? { subscribe: true as const }
+        : {}),
+    },
+  };
+}
+
 /** One queue per HTTP exchange. No event IDs, retained history, or reconnect replay. */
 class ModernSubscription {
   private queue: Array<{ notification: Notification; bytes: number }> = [];

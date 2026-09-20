@@ -44,10 +44,16 @@ it('does not dispatch a call cancelled while the bridge is connecting', async ()
     req.socket.once('close', sawClose);
     next();
   });
-  setupModernHttpRoutes(app as never, { registerCleanup: vi.fn() } as never, [], createBridge, {
-    allowsHost: () => true,
-    allowsOrigin: () => true,
-  });
+  setupModernHttpRoutes(
+    app as never,
+    { registerCleanup: vi.fn(), getClients: () => new Map() } as never,
+    [],
+    createBridge,
+    {
+      allowsHost: () => true,
+      allowsOrigin: () => true,
+    },
+  );
   const server = app.listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', resolve));
   const controller = new AbortController();

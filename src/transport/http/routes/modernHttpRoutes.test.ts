@@ -38,7 +38,7 @@ function app(policy: ModernHttpRequestPolicy = loopbackPolicy) {
   const router = express.Router();
   setupModernHttpRoutes(
     router,
-    { registerCleanup: vi.fn() } as never,
+    { registerCleanup: vi.fn(), getClients: () => new Map() } as never,
     [(_req, _res, next) => next()],
     createBridge,
     policy,
@@ -137,17 +137,17 @@ describe('modern HTTP admission', () => {
         cacheScope: 'private',
         supportedVersions: ['2026-07-28'],
         capabilities: {
-          tools: { listChanged: true },
-          prompts: { listChanged: true },
-          resources: { subscribe: true, listChanged: true },
+          tools: {},
+          prompts: {},
+          resources: {},
           completions: {},
         },
       },
     });
     expect(response.headers['mcp-session-id']).toBeUndefined();
     expect(response.body.result.capabilities.extensions).toBeUndefined();
-    expect(response.body.result.capabilities.resources.subscribe).toBe(true);
-    expect(response.body.result.capabilities.resources.listChanged).toBe(true);
+    expect(response.body.result.capabilities.resources.subscribe).toBeUndefined();
+    expect(response.body.result.capabilities.resources.listChanged).toBeUndefined();
     expect(createBridge).not.toHaveBeenCalled();
   });
 
@@ -480,7 +480,13 @@ describe('modern HTTP admission', () => {
       instance.use(errorHandler);
       const router = express.Router();
       const pass = (_req: express.Request, _res: express.Response, next: express.NextFunction) => next();
-      setupModernHttpRoutes(router, { registerCleanup: vi.fn() } as never, [pass], createBridge, loopbackPolicy);
+      setupModernHttpRoutes(
+        router,
+        { registerCleanup: vi.fn(), getClients: () => new Map() } as never,
+        [pass],
+        createBridge,
+        loopbackPolicy,
+      );
       const legacyLifecycle = {
         resolveExistingSession: vi.fn(),
         completeExplicitDelete: vi.fn(),
