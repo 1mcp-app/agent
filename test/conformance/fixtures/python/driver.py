@@ -126,20 +126,20 @@ async def probe(
         raise FixtureError("protocol-probe-failed") from error
 
     call_error = result.is_error
-    emit(
-        {
-            "callError": call_error,
-            **({"classification": "tools-call-failed"} if call_error else {}),
-            "fixtureId": FIXTURE_ID,
-            "negotiatedRevision": negotiated_revision,
-            "ok": not call_error,
-            "operations": operations,
-            "protocolEra": protocol_era,
-            "toolsCount": len(tools.tools),
-            "transport": transport_name,
-            **({"initialized": True, "ping": True} if protocol_era == "legacy" else {}),
-        }
-    )
+    output = {
+        "callError": call_error,
+        **({"classification": "tools-call-failed"} if call_error else {}),
+        "fixtureId": FIXTURE_ID,
+        "negotiatedRevision": negotiated_revision,
+        "ok": not call_error,
+        "operations": operations,
+        "protocolEra": protocol_era,
+        "toolsCount": len(tools.tools),
+        "transport": transport_name,
+    }
+    if not call_error and protocol_era == "legacy":
+        output.update({"initialized": True, "ping": True})
+    emit(output)
 
 
 async def serve_streamable_http(protocol_era: str) -> None:

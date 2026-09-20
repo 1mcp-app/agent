@@ -147,9 +147,26 @@ async function runProbe(values) {
       return;
     }
     const callError = called.isError === true;
+    const operations =
+      protocolEra === 'modern'
+        ? ['server/discover', 'tools/list', 'tools/call']
+        : ['initialize', 'ping', 'tools/list', 'tools/call'];
+    if (callError) {
+      writeJson(process.stdout, {
+        ok: false,
+        classification: 'tools-call-failed',
+        sdkEra,
+        protocolEra,
+        transport,
+        negotiatedRevision: client.getNegotiatedProtocolVersion(),
+        operations,
+        toolsCount: listed.tools.length,
+        callError: true,
+      });
+      return;
+    }
     writeJson(process.stdout, {
-      ok: !callError,
-      ...(callError ? { classification: 'tools-call-failed' } : {}),
+      ok: true,
       sdkEra,
       protocolEra,
       transport,
@@ -179,7 +196,7 @@ async function runProbe(values) {
           }),
       negotiatedRevision: client.getNegotiatedProtocolVersion(),
       toolsCount: listed.tools.length,
-      callError,
+      callError: false,
     });
   } finally {
     await client.close();

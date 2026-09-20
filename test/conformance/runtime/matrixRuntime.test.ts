@@ -86,17 +86,20 @@ describe('matrix runtime execution', () => {
     });
   });
 
-  it('keeps a modern tool invocation error out of the success path', () => {
+  it.each([
+    { protocolEra: 'legacy', operations: ['initialize', 'ping', 'tools/list', 'tools/call'] },
+    { protocolEra: 'modern', operations: ['server/discover', 'tools/list', 'tools/call'] },
+  ] as const)('keeps a $protocolEra tool invocation error out of the success path', ({ protocolEra, operations }) => {
     expect(
       parseProbeOutput(
         {
           fixtureId: 'python-sdk',
           transport: 'streamable-http',
-          protocolEra: 'modern',
+          protocolEra,
           ok: false,
           classification: 'tools-call-failed',
-          negotiatedRevision: '2026-07-28',
-          operations: ['server/discover', 'tools/list', 'tools/call'],
+          negotiatedRevision: protocolEra === 'modern' ? '2026-07-28' : '2025-11-25',
+          operations,
           toolsCount: 1,
           callError: true,
         },
