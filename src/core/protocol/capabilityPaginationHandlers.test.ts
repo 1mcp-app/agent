@@ -15,6 +15,7 @@ import {
   ReadResourceRequestSchema,
   ResourceListChangedNotificationSchema,
   ResourceUpdatedNotificationSchema,
+  SubscribeRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 
 import {
@@ -23,6 +24,7 @@ import {
 } from '@src/core/capabilities/capabilityPagination.js';
 import type { OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import { ClientStatus, ServerStatus } from '@src/core/types/index.js';
+import { cleanupOwnedResources } from '@src/sdk/legacy/server/protocol/resourceSubscriptions.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -92,6 +94,12 @@ describe('capability pagination protocol handlers', () => {
           case 'tools/list':
             selectedMethod = client.listTools;
             break;
+          case 'resources/subscribe':
+            selectedMethod = client.subscribeResource;
+            break;
+          case 'resources/unsubscribe':
+            selectedMethod = client.unsubscribeResource;
+            break;
           case 'resources/read':
             selectedMethod = client.readResource;
             break;
@@ -128,12 +136,14 @@ describe('capability pagination protocol handlers', () => {
     return handler;
   }
 
-  it('forwards an unlisted resource update and routes the subsequent read back to its origin', async () => {
+  it('forwards only a subscribed resource update and routes the subsequent read back to its origin', async () => {
     const notificationHandlers = new Map<unknown, (notification: unknown) => Promise<unknown>>();
     const upstreamUri = 'custom:///unlisted%2f?q=a%20b#x';
     const readResource = vi.fn().mockResolvedValue({ contents: [{ uri: upstreamUri, text: 'updated' }] });
     const outbound = connection('origin', {
-      listResources: vi.fn().mockResolvedValue({ resources: [] }),
+      listResources: vi.fn().mockResolvedValue({ resources: [{ uri: upstreamUri, name: 'resource' }] }),
+      subscribeResource: vi.fn().mockResolvedValue({}),
+      unsubscribeResource: vi.fn().mockResolvedValue({}),
       listResourceTemplates: vi.fn().mockResolvedValue({ resourceTemplates: [] }),
       listTools: vi.fn().mockResolvedValue({ tools: [] }),
       listPrompts: vi.fn().mockResolvedValue({ prompts: [] }),
@@ -156,13 +166,17 @@ describe('capability pagination protocol handlers', () => {
     registerResourceHandlers(connections, inbound);
     const notification = notificationHandlers.get(ResourceUpdatedNotificationSchema);
     if (!notification) throw new Error('No resource update handler');
-    await notification({
-      method: 'notifications/resources/updated',
-      params: { uri: upstreamUri, _meta: { marker: 1 } },
-    });
-    expect(notify).toHaveBeenCalledOnce();
-    const uri = notify.mock.calls[0][0].params.uri;
-    expect(uri).toMatch(/^urn:1mcp:resource:/);
+    const update = { method: 'notifications/resources/updated', params: { uri: upstreamUri, _meta: { marker: 1 } } };
+    await notification(update);
+    expect(notify).not.toHaveBeenCalled();
+    const list = handlers.get(ListResourcesRequestSchema)!;
+    const listed = (await list({ params: {} })) as { resources: { uri: string }[] };
+    const uri = listed.resources[0].uri;
+    const subscribe = handlers.get(SubscribeRequestSchema)!;
+    await subscribe({ params: { uri } }, { signal: new AbortController().signal });
+    await notification(update);
+    await vi.waitFor(() => expect(notify).toHaveBeenCalledOnce());
+    expect(notify.mock.calls[0][0].params.uri).toBe(uri);
     expect(notify.mock.calls[0][0].params._meta).toEqual({ marker: 1 });
     const read = handlers.get(ReadResourceRequestSchema);
     if (!read) throw new Error('No resource read handler');
@@ -170,6 +184,7 @@ describe('capability pagination protocol handlers', () => {
       contents: [{ uri, text: 'updated' }],
     });
     expect(readResource).toHaveBeenCalledWith({ uri: upstreamUri }, expect.anything());
+    await cleanupOwnedResources(inbound);
   });
 
   it('walks providers in canonical order and preserves opaque upstream cursors', async () => {
@@ -554,6 +569,7 @@ describe('capability pagination protocol handlers', () => {
       listResources,
       setNotificationHandler: vi.fn((schema, handler) => notificationHandlers.set(schema, handler)),
     });
+    outbound.capabilities = { ...outbound.capabilities, resources: { listChanged: true } };
     const connections = new Map([['alpha', outbound]]) as OutboundConnections;
     const inboundNotification = vi.fn().mockResolvedValue(undefined);
     const inbound = createMockLegacyInboundConnection({
@@ -582,10 +598,13 @@ describe('capability pagination protocol handlers', () => {
       data: { reason: 'stale_generation' },
     });
     expect(listResources).not.toHaveBeenCalled();
-    expect(inboundNotification).toHaveBeenCalledWith({
-      method: 'notifications/resources/list_changed',
-      params: { server: 'alpha' },
-    });
+    await vi.waitFor(() =>
+      expect(inboundNotification).toHaveBeenCalledWith({
+        method: 'notifications/resources/list_changed',
+        params: { server: 'alpha' },
+      }),
+    );
+    await cleanupOwnedResources(inbound);
   });
 
   it('applies the cursor contract to the lazy tool surface', async () => {

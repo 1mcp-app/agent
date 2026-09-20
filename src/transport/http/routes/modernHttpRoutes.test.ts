@@ -136,13 +136,18 @@ describe('modern HTTP admission', () => {
         ttlMs: 0,
         cacheScope: 'private',
         supportedVersions: ['2026-07-28'],
-        capabilities: { tools: {}, prompts: {}, resources: {}, completions: {} },
+        capabilities: {
+          tools: { listChanged: true },
+          prompts: { listChanged: true },
+          resources: { subscribe: true, listChanged: true },
+          completions: {},
+        },
       },
     });
     expect(response.headers['mcp-session-id']).toBeUndefined();
     expect(response.body.result.capabilities.extensions).toBeUndefined();
-    expect(response.body.result.capabilities.resources.subscribe).toBeUndefined();
-    expect(response.body.result.capabilities.resources.listChanged).toBeUndefined();
+    expect(response.body.result.capabilities.resources.subscribe).toBe(true);
+    expect(response.body.result.capabilities.resources.listChanged).toBe(true);
     expect(createBridge).not.toHaveBeenCalled();
   });
 

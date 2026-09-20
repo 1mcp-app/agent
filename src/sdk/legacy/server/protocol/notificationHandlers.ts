@@ -1,6 +1,4 @@
 import { registerCapabilityPaginationNotifications } from '@src/core/capabilities/capabilityPagination.js';
-import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
-import { getRequestSession, resolveCapabilityVisibility } from '@src/core/protocol/requestHandlerUtils.js';
 import { ClientStatus, InboundConnection, ServerStatus } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 import { toJsonValue } from '@src/sdk/contracts/index.js';
@@ -8,13 +6,15 @@ import {
   type LegacyOutboundConnections,
   setOutboundNotificationHandler,
 } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
+import {
+  ensureModernSubscriptionCoverage,
+  type ModernSubscriptionFilter,
+} from '@src/sdk/legacy/client/runtime/modernSubscriptions.js';
 import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
-import { projectResourceUri } from '@src/sdk/legacy/shared/resourceTemplateRouting.js';
 import {
   CancelledNotificationSchema,
   LoggingMessageNotificationSchema,
   ProgressNotificationSchema,
-  ResourceUpdatedNotificationSchema,
   RootsListChangedNotificationSchema,
 } from '@src/sdk/legacy/types.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
@@ -24,6 +24,11 @@ import {
   ownsActiveInteraction,
   registerLegacyNotificationOwner,
 } from './requestInteractionScope.js';
+import {
+  enqueueOwnedCatalogNotification,
+  registerOwnedCatalogConnection,
+  setupOwnedResourceNotifications,
+} from './resourceSubscriptions.js';
 
 function formatNotificationError(error: unknown): string {
   return error instanceof Error ? `Error: ${error.message}` : String(error);
@@ -34,19 +39,43 @@ function formatNotificationError(error: unknown): string {
  * @param clients Record of client instances
  * @param serverInfo The MCP server instance
  */
-export function setupClientToServerNotifications(
+export async function setupClientToServerNotifications(
   outboundConns: LegacyOutboundConnections,
   inboundConn: InboundConnection,
-): void {
+): Promise<void> {
+  const coverage: Promise<void>[] = [];
   const clientNotificationSchemas = [
     CancelledNotificationSchema,
     ProgressNotificationSchema,
     LoggingMessageNotificationSchema,
-    ResourceUpdatedNotificationSchema,
   ];
 
   for (const [name, outboundConn] of outboundConns.entries()) {
+    if (outboundConn.adapter.protocol?.era === 'modern') {
+      const filter: ModernSubscriptionFilter = {};
+      for (const kind of ['tools', 'resources', 'prompts'] as const) {
+        if (inboundConn.subscriptionListKinds && !inboundConn.subscriptionListKinds.includes(kind)) continue;
+        const capability = outboundConn.capabilities?.[kind];
+        if (
+          capability &&
+          typeof capability === 'object' &&
+          !Array.isArray(capability) &&
+          capability.listChanged === true
+        )
+          filter[`${kind}ListChanged`] = true;
+      }
+      if (Object.keys(filter).length)
+        coverage.push(
+          ensureModernSubscriptionCoverage(outboundConn.adapter, filter).then((accepted) => {
+            for (const key of Object.keys(filter) as Array<keyof ModernSubscriptionFilter>)
+              if (accepted[key] !== true) throw new Error('Upstream catalog subscription coverage unavailable');
+          }),
+        );
+    }
     registerLegacyNotificationOwner(outboundConn, inboundConn);
+    setupOwnedResourceNotifications(outboundConn);
+    for (const kind of ['tools', 'resources', 'prompts'] as const)
+      registerOwnedCatalogConnection(outboundConns, inboundConn, outboundConn, kind);
     registerCapabilityPaginationNotifications(
       outboundConns,
       outboundConn,
@@ -59,21 +88,10 @@ export function setupClientToServerNotifications(
           return;
         }
 
-        try {
-          await getLegacyInboundServer(inboundConn).notification({
-            method: notification.method,
-            params: {
-              ...notification.params,
-              server: name,
-            },
-          });
-        } catch (error) {
-          if (error instanceof Error && error.message.includes('Not connected')) {
-            logger.warn(`Server transport not connected. Dropping notification from ${name}`);
-          } else {
-            logger.error(`Failed to send notification from ${name}: ${formatNotificationError(error)}`);
-          }
-        }
+        enqueueOwnedCatalogNotification(outboundConns, inboundConn, outboundConn, {
+          method: notification.method,
+          params: { ...notification.params, server: name },
+        });
       }, `Error handling client notification from ${name}`),
     );
 
@@ -99,24 +117,11 @@ export function setupClientToServerNotifications(
 
           // Try to send notification, catch connection errors gracefully
           try {
-            let params = notification.params;
-            if (notification.method === 'notifications/resources/updated') {
-              const visibility = resolveCapabilityVisibility(
-                outboundConns,
-                inboundConn,
-                getRequestSession(inboundConn),
-                'resources',
-              );
-              if (!visibility.serverCandidates.has(name) || typeof params?.uri !== 'string') return;
-              const snapshot = await acquireRuntimeCapabilityCatalog(outboundConns, visibility);
-              if (snapshot.connections.get(name) !== outboundConn) return;
-              params = { ...params, uri: projectResourceUri(snapshot, name, params.uri) };
-            }
             // Preserve original message structure and only modify params
             const forwardedNotification = {
               method: notification.method,
               params: {
-                ...params,
+                ...notification.params,
                 server: name,
               },
             };
@@ -132,6 +137,7 @@ export function setupClientToServerNotifications(
       );
     });
   }
+  await Promise.all(coverage);
 }
 
 /**

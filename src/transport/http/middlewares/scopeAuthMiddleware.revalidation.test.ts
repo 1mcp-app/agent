@@ -12,7 +12,12 @@ import { type AgentConfig, AgentConfigManager } from '@src/core/server/agentConf
 import type { Request, Response } from 'express';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createScopeAuthMiddleware, getAuthInfo, revalidateAuthInfo } from './scopeAuthMiddleware.js';
+import {
+  createScopeAuthMiddleware,
+  getAuthInfo,
+  revalidateAuthInfo,
+  revalidateLegacyRequestAuthInfo,
+} from './scopeAuthMiddleware.js';
 
 const client: OAuthClientInformationFull = {
   client_id: 'continuation-owner',
@@ -45,12 +50,15 @@ describe('native continuation authentication fence', () => {
     vi.restoreAllMocks();
   });
 
+  let sdkAuth: Request['auth'];
+
   async function admit() {
     const req = { headers: { authorization: `Bearer ${token}` } } as Request;
     const res = { locals: {}, status: vi.fn(), json: vi.fn(), set: vi.fn() } as unknown as Response;
     const next = vi.fn();
     await createScopeAuthMiddleware(provider)(req, res, next);
     expect(next).toHaveBeenCalledOnce();
+    sdkAuth = req.auth;
     const auth = getAuthInfo(res)!;
     expect(auth).toBeDefined();
     return auth;
@@ -108,6 +116,14 @@ describe('native continuation authentication fence', () => {
     vi.useFakeTimers();
     vi.setSystemTime(Date.now() + 60_001);
     expect(await revalidateAuthInfo(auth)).toBe(false);
+  });
+
+  it('revalidates the original legacy SDK request grant and rejects copies and revocation', async () => {
+    await admit();
+    expect(await revalidateLegacyRequestAuthInfo(sdkAuth)).toBe(true);
+    expect(await revalidateLegacyRequestAuthInfo({ ...sdkAuth })).toBe(false);
+    await provider.revokeToken(client, { token });
+    expect(await revalidateLegacyRequestAuthInfo(sdkAuth)).toBe(false);
   });
 
   it('fails closed for copied auth records and verifier failures', async () => {

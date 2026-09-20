@@ -185,7 +185,12 @@ describe('capability catalog with real SDK peers', () => {
         );
         await client.connect(new StreamableHTTPClientTransport(await listen(server)));
         cleanup.push(() => client.close());
-        expect(client.getServerCapabilities()).toEqual(capabilities);
+        expect(client.getServerCapabilities()).toEqual({
+          ...capabilities,
+          tools: { listChanged: true },
+          prompts: { listChanged: true },
+          resources: { subscribe: true, listChanged: true },
+        });
         request = (method, params) => client.request({ method, ...(params ? { params } : {}) }, z.looseObject({}));
       }
       const publicIdentity = (value: string) => buildUri('fixture', value, MCP_URI_SEPARATOR);

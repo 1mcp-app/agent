@@ -421,7 +421,10 @@ export class ServerManager {
       if (inbound.status !== 'connected') continue;
       for (const method of notifications) {
         try {
-          await inbound.adapter.notify({ method, params: {} });
+          await (inbound.adapter.notifySubscription ?? inbound.adapter.notify).call(inbound.adapter, {
+            method,
+            params: {},
+          });
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           logger.warn(`Failed to send ${method} to an inbound client: ${message}`);

@@ -2,6 +2,7 @@ import { setupCapabilities } from '@src/core/capabilities/capabilityManager.js';
 import { unregisterCapabilityPaginationForwarder } from '@src/core/capabilities/capabilityPagination.js';
 import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
 import { evictRuntimeCapabilityCatalogSession } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import type { OutboundConnections } from '@src/core/types/client.js';
 import { InboundConnection, InboundConnectionConfig, OperationOptions, ServerStatus } from '@src/core/types/index.js';
 import {
@@ -12,8 +13,17 @@ import logger, { debugIf } from '@src/logger/logger.js';
 import { enhanceServerWithLogging } from '@src/logger/mcpLoggingEnhancer.js';
 import { toJsonValue } from '@src/sdk/contracts/jsonValue.js';
 import type { LegacyConnectionId } from '@src/sdk/contracts/legacySdkAdapter.js';
+import { revalidateLegacyRequestAuthInfo } from '@src/sdk/legacy/server/auth/requestAuthRevalidation.js';
 import { Server } from '@src/sdk/legacy/server/index.js';
 import { unregisterLegacyNotificationOwner } from '@src/sdk/legacy/server/protocol/requestInteractionScope.js';
+import {
+  bindOwnedNotificationAuthorization,
+  cleanupOwnedResources,
+  enqueueOwnedNotification,
+  requireOwnedNotificationAuthorization,
+} from '@src/sdk/legacy/server/protocol/resourceSubscriptions.js';
+import { SSEServerTransport } from '@src/sdk/legacy/server/sse.js';
+import { StreamableHTTPServerTransport } from '@src/sdk/legacy/server/streamableHttp.js';
 import { Transport } from '@src/sdk/legacy/shared/transport.js';
 import type { ContextData } from '@src/types/context.js';
 import { executeOperation } from '@src/utils/core/operationExecution.js';
@@ -136,6 +146,7 @@ export class ConnectionManager {
       try {
         // Update status to Disconnected
         connection.status = ServerStatus.Disconnected;
+        await cleanupOwnedResources(connection);
         unregisterLegacyNotificationOwner(this.outboundConns.values(), connection);
         evictRuntimeCapabilityCatalogSession(this.outboundConns, connection.context?.sessionId ?? sessionId);
 
@@ -303,14 +314,44 @@ export class ConnectionManager {
     // Enhance server with logging middleware
     enhanceServerWithLogging(server);
 
+    if (
+      (transport instanceof SSEServerTransport || transport instanceof StreamableHTTPServerTransport) &&
+      AgentConfigManager.getInstance().get('features').auth
+    ) {
+      requireOwnedNotificationAuthorization(this.outboundConns, serverInfo);
+    }
+
+    adapter.setSubscriptionDelivery((notification) => {
+      if (serverInfo.requestOnly) return;
+      enqueueOwnedNotification(this.outboundConns, serverInfo, {
+        method: notification.method,
+        params: notification.params as Record<string, unknown> | undefined,
+      });
+    });
+
     // Set up capabilities for this server instance
-    await setupCapabilities(this.outboundConns, serverInfo, this.lazyLoadingOrchestrator);
+    try {
+      await setupCapabilities(this.outboundConns, serverInfo, this.lazyLoadingOrchestrator);
+    } catch (error) {
+      await cleanupOwnedResources(serverInfo);
+      unregisterLegacyNotificationOwner(this.outboundConns.values(), serverInfo);
+      unregisterCapabilityPaginationForwarder(this.outboundConns, serverInfo);
+      await adapter.close().catch(() => undefined);
+      throw error;
+    }
 
     // Store the server instance
     this.inboundConns.set(sessionId, serverInfo);
 
     // Connect the transport to the new server instance
     await adapter.start();
+    const receive = transport.onmessage;
+    transport.onmessage = (message, extra) => {
+      const auth = extra?.authInfo;
+      if (auth)
+        bindOwnedNotificationAuthorization(this.outboundConns, serverInfo, () => revalidateLegacyRequestAuthInfo(auth));
+      receive?.(message, extra);
+    };
 
     // Update status to Connected after successful connection
     serverInfo.status = ServerStatus.Connected;
@@ -339,7 +380,10 @@ export class ConnectionManager {
       sendNotification: async (method: string, params?: Record<string, unknown>) => {
         try {
           if (serverInfo.status === ServerStatus.Connected && isLegacyServerConnected(serverInfo.adapter)) {
-            await serverInfo.adapter.notify({ method, params: toJsonValue(params || {}) });
+            await (serverInfo.adapter.notifySubscription ?? serverInfo.adapter.notify).call(serverInfo.adapter, {
+              method,
+              params: toJsonValue(params || {}),
+            });
             debugIf(() => ({ message: 'Sent notification to client', meta: { sessionId, method } }));
           } else {
             logger.warn('Cannot send notification to disconnected client', { sessionId, method });

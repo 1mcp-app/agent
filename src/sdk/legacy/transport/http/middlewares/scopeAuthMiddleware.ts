@@ -5,6 +5,10 @@ import { TagExpression } from '@src/domains/preset/parsers/tagQueryParser.js';
 import { TagQuery } from '@src/domains/preset/types/presetTypes.js';
 import logger from '@src/logger/logger.js';
 import { requireBearerAuth } from '@src/sdk/legacy/server/auth/middleware/bearerAuth.js';
+import {
+  registerRequestAuthRevalidator,
+  revalidateLegacyRequestAuthInfo,
+} from '@src/sdk/legacy/server/auth/requestAuthRevalidation.js';
 import type { AuthInfo as SDKAuthInfo } from '@src/sdk/legacy/server/auth/types.js';
 import { auditScopeOperation, hasRequiredScopes, scopesToTags } from '@src/utils/validation/scopeValidation.js';
 
@@ -56,22 +60,15 @@ export interface AuthInfo {
   grantedTags: string[];
 }
 
-const authRevalidators = new WeakMap<AuthInfo, () => Promise<boolean>>();
+export { revalidateLegacyRequestAuthInfo };
 
 function normalizedGrant(clientId: string, scopes: string[]): string {
   return JSON.stringify([clientId, [...new Set(scopes)].sort(), [...new Set(scopesToTags(scopes))].sort()]);
 }
 
 /** Re-read the admitted grant using its original provider immediately before a continuation claim. */
-export async function revalidateAuthInfo(auth: AuthInfo | undefined): Promise<boolean> {
-  const revalidate = auth && authRevalidators.get(auth);
-  if (!revalidate) return false;
-  try {
-    return await revalidate();
-  } catch {
-    // Credential storage and verifier errors must not leak tokens or permit a stale grant.
-    return false;
-  }
+export function revalidateAuthInfo(auth: AuthInfo | undefined): Promise<boolean> {
+  return revalidateLegacyRequestAuthInfo(auth);
 }
 
 /**
@@ -185,7 +182,7 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
       };
       const admittedGrant = normalizedGrant(authContext.clientId, grantedScopes);
       const admittedExpires = authInfo.expiresAt;
-      authRevalidators.set(authContext, async () => {
+      const revalidate = async () => {
         const current = await provider.verifyAccessToken(token);
         // The native provider exposes the session repository's millisecond expiry.
         return (
@@ -198,7 +195,9 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
           current.scopes.every((scope) => typeof scope === 'string') &&
           normalizedGrant(current.clientId, current.scopes) === admittedGrant
         );
-      });
+      };
+      registerRequestAuthRevalidator(authContext, revalidate);
+      registerRequestAuthRevalidator(authInfo, revalidate);
       res.locals.auth = authContext;
 
       // Provide validated tags to downstream handlers
