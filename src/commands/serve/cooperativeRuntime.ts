@@ -94,7 +94,7 @@ function assertEmptyScope(scope: string): void {
   ]) {
     if (fs.existsSync(path.join(scope, name)))
       throw new Error(
-        'A runtime already owns this Runtime Scope or ownership is uncertain. Use serve --status and explicit migration/recovery; no takeover was attempted.',
+        'A runtime already owns this Runtime Scope or ownership is uncertain. Use serve --status and the original CLI or service manager for explicit migration/recovery; no takeover was attempted.',
       );
   }
 }
@@ -286,19 +286,36 @@ export async function runCooperativeSupervisor(): Promise<void> {
       throw new Error('Runtime worker unavailable; ownership retained');
     return worker;
   };
+  const activations = new WeakMap<SupervisedRuntimeWorker, Promise<boolean>>();
+  const controlWorker = async (action: 'close' | 'resume' | 'commit') => {
+    const child = requireWorker();
+    try {
+      const activation = activations.get(child as unknown as SupervisedRuntimeWorker);
+      if (!activation) throw new Error('Worker private launch authorization is unavailable');
+      await activation;
+    } catch (error) {
+      if (action === 'resume' && worker !== child) return;
+      throw error;
+    }
+    if (worker !== child) {
+      if (action === 'resume') return;
+      throw new Error('Worker changed during replacement preparation');
+    }
+    return requestWorker(child, action);
+  };
   const drain = new RuntimeReplacementDrain({
     close: async () => {
       admissionClosed = true;
       if (!worker) return { closed: true, active: 0, committed: false };
-      return admissionSnapshotSchema.parse(await requestWorker(requireWorker(), 'close'));
+      return admissionSnapshotSchema.parse(await controlWorker('close'));
     },
     resume: async () => {
       admissionClosed = false;
-      if (worker) await requestWorker(requireWorker(), 'resume');
+      if (worker) await controlWorker('resume');
     },
     commit: async () => {
       if (!worker) return { closed: admissionClosed, active: 0, committed: true };
-      return admissionSnapshotSchema.parse(await requestWorker(requireWorker(), 'commit'));
+      return admissionSnapshotSchema.parse(await controlWorker('commit'));
     },
   });
   const control = await startRuntimeControl(scope, ownership.record.claimId, async (method, payload, operationId) => {
@@ -341,7 +358,6 @@ export async function runCooperativeSupervisor(): Promise<void> {
     ownership.release();
     throw error;
   });
-  const activations = new WeakMap<SupervisedRuntimeWorker, Promise<boolean>>();
   const { command, baseArgs } = resolveSelfInvocation();
   try {
     try {

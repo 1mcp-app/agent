@@ -66,7 +66,7 @@ const descriptionSchema = z
       .nullable(),
     runtimeScopeId: z.string().min(1),
     version: z.string(),
-    explicitInputs: z.unknown(),
+    explicitInputs: z.unknown().optional(),
     digest: z.string(),
     supervisorPid: z.number().int().positive(),
     state: z.string(),
