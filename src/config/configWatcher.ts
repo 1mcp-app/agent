@@ -4,6 +4,7 @@ import path from 'path';
 
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+import { resolveWatchPath } from '@src/utils/watchPath.js';
 
 interface ConfigLoader {
   getConfigFilePath: () => string;
@@ -47,7 +48,8 @@ export class ConfigWatcher extends EventEmitter {
         throw new Error(`Configuration directory does not exist: ${configDir}`);
       }
 
-      this.configWatcher = fs.watch(configDir, (eventType: fs.WatchEventType, filename: string | null) => {
+      const watchedDir = resolveWatchPath(configDir);
+      this.configWatcher = fs.watch(watchedDir, (eventType: fs.WatchEventType, filename: string | null) => {
         this.handleWatchEvent(eventType, filename, configDir, configFileName, runtimeEnvFileName);
       });
       this.configWatcher.on('error', (error) => {

@@ -200,7 +200,7 @@ beforeAll(() => {
   if (binary) expect(fs.existsSync(binary), 'ONE_MCP_TEST_BINARY must name the built SEA executable').toBe(true);
 });
 
-afterEach(async ({ task }) => {
+afterEach(async () => {
   for (const child of fixtureChildren) {
     if (child.connected) child.send('stop');
     await eventually(() => child.exitCode !== null || child.signalCode !== null, 3000).catch(() => child.kill());
@@ -208,28 +208,6 @@ afterEach(async ({ task }) => {
   fixtureChildren.clear();
   const failures: string[] = [];
   for (const s of scopes.splice(0)) {
-    if (process.platform === 'win32') {
-      for (const name of [
-        'background-runtime.json',
-        'inspection.ndjson',
-        'inspection.ndjson.worker-stderr',
-        'logs/server.log',
-      ]) {
-        const file = path.join(s.directory, name);
-        if (fs.existsSync(file)) {
-          const content = fs.readFileSync(file, 'utf8');
-          const diagnostic =
-            name === 'logs/server.log'
-              ? content
-                  .split('\n')
-                  .filter((line) => /error|warn|shutting|shutdown/i.test(line))
-                  .slice(-15)
-                  .join('\n')
-              : content.slice(0, 8000);
-          console.error(`Lifecycle fixture ${task.name} ${name}: ${diagnostic}`);
-        }
-      }
-    }
     if (s.managed && hasOwner(s)) {
       const stopped = await run(s, ['serve', '--stop'], { timeout: 15000 }).catch((error: unknown) => ({
         code: -1,

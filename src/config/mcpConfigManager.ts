@@ -15,6 +15,7 @@ import {
   MCPServerParams,
 } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+import { resolveWatchPath } from '@src/utils/watchPath.js';
 
 /**
  * Configuration change event types
@@ -155,7 +156,8 @@ export class McpConfigManager extends EventEmitter {
       const configFileName = path.basename(this.configFilePath);
 
       // Watch the directory instead of the file to handle atomic operations like vim's :x
-      this.configWatcher = fs.watch(configDir, (eventType: fs.WatchEventType, filename: string | null) => {
+      const watchedDir = resolveWatchPath(configDir);
+      this.configWatcher = fs.watch(watchedDir, (eventType: fs.WatchEventType, filename: string | null) => {
         debugIf(() => ({
           message: 'Directory change detected',
           meta: { eventType, filename, configDir, configFileName },
