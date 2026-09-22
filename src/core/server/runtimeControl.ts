@@ -105,14 +105,19 @@ export function runtimeControlExists(configDir: string): boolean {
   }
 }
 
+/**
+ * Remove runtime control descriptor and secret files when the descriptor matches the expected claim ID.
+ * Deletes the secret file before unlinking the descriptor to ensure atomicity.
+ * Returns true if control files do not exist or were safely removed; false on claim mismatch or error.
+ */
 export function cleanupRuntimeControlFiles(configDir: string, expectedClaimId: string): boolean {
   if (!runtimeControlExists(configDir)) return true;
   try {
     const raw = readPrivate(path.join(configDir, CONTROL_FILE));
     const descriptor = descriptorSchema.parse(JSON.parse(raw));
     if (descriptor.claimId !== expectedClaimId) return false;
-    fs.unlinkSync(path.join(configDir, CONTROL_FILE));
     fs.rmSync(secretPath(configDir, expectedClaimId), { force: true });
+    fs.unlinkSync(path.join(configDir, CONTROL_FILE));
     return true;
   } catch {
     return false;

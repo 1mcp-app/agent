@@ -6,7 +6,12 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { connectRuntimeControl, runtimeControlExists, startRuntimeControl } from './runtimeControl.js';
+import {
+  cleanupRuntimeControlFiles,
+  connectRuntimeControl,
+  runtimeControlExists,
+  startRuntimeControl,
+} from './runtimeControl.js';
 
 let dir: string;
 let claimId: string;
@@ -198,5 +203,43 @@ describe('authenticated runtime control', () => {
     await server.close();
     expect(JSON.parse(fs.readFileSync(path.join(dir, 'runtime-control.json'), 'utf8'))).toEqual(successor);
     expect(runtimeControlExists(dir)).toBe(true);
+  });
+});
+
+describe('cleanupRuntimeControlFiles', () => {
+  it('returns true when control files do not exist', () => {
+    expect(cleanupRuntimeControlFiles(dir, claimId)).toBe(true);
+  });
+
+  it('safely removes control files when claimId matches', async () => {
+    const server = await startRuntimeControl(dir, claimId, () => 'ok');
+    expect(runtimeControlExists(dir)).toBe(true);
+    const secretFilesBefore = fs.readdirSync(dir).filter((name) => name.endsWith('.secret'));
+    expect(secretFilesBefore.length).toBe(1);
+
+    const result = cleanupRuntimeControlFiles(dir, claimId);
+    expect(result).toBe(true);
+    expect(runtimeControlExists(dir)).toBe(false);
+    const secretFilesAfter = fs.readdirSync(dir).filter((name) => name.endsWith('.secret'));
+    expect(secretFilesAfter.length).toBe(0);
+
+    await server.close();
+  });
+
+  it('preserves files and returns false when claimId does not match', async () => {
+    const server = await startRuntimeControl(dir, claimId, () => 'ok');
+    closers.push(server.close);
+    const otherClaimId = randomUUID();
+
+    const result = cleanupRuntimeControlFiles(dir, otherClaimId);
+    expect(result).toBe(false);
+    expect(runtimeControlExists(dir)).toBe(true);
+    const secretFiles = fs.readdirSync(dir).filter((name) => name.endsWith('.secret'));
+    expect(secretFiles.length).toBe(1);
+  });
+
+  it('returns false when control descriptor is corrupted', () => {
+    fs.writeFileSync(path.join(dir, 'runtime-control.json'), '{corrupt-json');
+    expect(cleanupRuntimeControlFiles(dir, claimId)).toBe(false);
   });
 });

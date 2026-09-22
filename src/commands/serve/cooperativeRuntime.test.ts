@@ -8,7 +8,7 @@ import { type RuntimeControlMethod, startRuntimeControl } from '@src/core/server
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
-import { restartCooperativeRuntime } from './cooperativeRuntime.js';
+import { restartCooperativeRuntime, stopCooperativeRuntime } from './cooperativeRuntime.js';
 import type { ServeOptions } from './serve.js';
 
 const spawn = vi.hoisted(() =>
@@ -90,4 +90,94 @@ describe('cooperative restart commit reconciliation', () => {
       }
     },
   );
+});
+
+describe('stopCooperativeRuntime', () => {
+  it('returns false when runtime control does not exist', async () => {
+    const scope = fs.mkdtempSync(path.join(os.tmpdir(), 'cooperative-stop-none-'));
+    try {
+      expect(await stopCooperativeRuntime(scope)).toBe(false);
+    } finally {
+      fs.rmSync(scope, { recursive: true, force: true });
+    }
+  });
+
+  it('returns false when runtime control endpoint is unreachable', async () => {
+    const scope = fs.mkdtempSync(path.join(os.tmpdir(), 'cooperative-stop-unreachable-'));
+    const claimId = randomUUID();
+    fs.mkdirSync(path.join(scope, 'runtime.owner'), { mode: 0o700 });
+    fs.writeFileSync(
+      path.join(scope, 'runtime.owner', 'owner.json'),
+      JSON.stringify({
+        version: 1,
+        pid: process.pid,
+        claimId,
+        kind: 'background-supervisor',
+        claimedAt: new Date().toISOString(),
+      }),
+    );
+    // Start control, then immediately close it so the listener is closed but descriptor/secret files remain
+    const control = await startRuntimeControl(scope, claimId, () => ({ accepted: true }));
+    const descriptor = control.descriptor;
+    await control.close();
+    // Re-write descriptor and a dummy secret file so connect succeeds but HTTP requests fail
+    fs.writeFileSync(path.join(scope, 'runtime-control.json'), JSON.stringify(descriptor));
+    const secretFile = fs.readdirSync(scope).find((name) => name.endsWith('.secret'));
+    if (!secretFile) {
+      // If closed removed secret, write one
+      fs.writeFileSync(path.join(scope, `runtime-control-test.secret`), Buffer.alloc(32).toString('base64url'));
+    }
+
+    try {
+      expect(await stopCooperativeRuntime(scope)).toBe(false);
+    } finally {
+      fs.rmSync(scope, { recursive: true, force: true });
+    }
+  });
+
+  it('stops a live cooperative runtime when control endpoint accepts stop and owner retires', async () => {
+    const scope = fs.mkdtempSync(path.join(os.tmpdir(), 'cooperative-stop-success-'));
+    const claimId = randomUUID();
+    fs.mkdirSync(path.join(scope, 'runtime.owner'), { mode: 0o700 });
+    const ownerPath = path.join(scope, 'runtime.owner', 'owner.json');
+    fs.writeFileSync(
+      ownerPath,
+      JSON.stringify({
+        version: 1,
+        pid: process.pid,
+        claimId,
+        kind: 'background-supervisor',
+        claimedAt: new Date().toISOString(),
+      }),
+    );
+
+    const control = await startRuntimeControl(scope, claimId, (method) => {
+      if (method === 'describe')
+        return {
+          runtime: null,
+          runtimeScopeId: 'scope',
+          version: 'test',
+          digest: 'a'.repeat(64),
+          supervisorPid: process.pid,
+          state: 'running',
+        };
+      if (method === 'stop') {
+        // Simulate retirement by releasing ownership directory
+        fs.rmSync(path.join(scope, 'runtime.owner'), { recursive: true, force: true });
+        return { accepted: true };
+      }
+      return {};
+    });
+
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      const result = await stopCooperativeRuntime(scope);
+      expect(result).toBe(true);
+      expect(stdout).toHaveBeenCalled();
+    } finally {
+      stdout.mockRestore();
+      await control.close();
+      fs.rmSync(scope, { recursive: true, force: true });
+    }
+  });
 });

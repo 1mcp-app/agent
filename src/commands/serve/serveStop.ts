@@ -275,10 +275,10 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
       }
       const supervisorIdentity = owner.processIdentity ?? supervisorState.supervisorIdentity;
       const supervisorStatus = inspectIdentity(supervisorState.supervisorPid, supervisorIdentity);
-      const workerStatus =
-        supervisorState.runtimePid === null
-          ? 'dead'
-          : inspectIdentity(supervisorState.runtimePid, supervisorState.runtimeIdentity);
+      const workerPid = supervisorState.runtimePid ?? initialInfo?.pid ?? null;
+      const workerIdentity =
+        supervisorState.runtimePid === null ? initialInfo?.processIdentity : supervisorState.runtimeIdentity;
+      const workerStatus = workerPid === null ? 'dead' : inspectIdentity(workerPid, workerIdentity);
       if (supervisorStatus === 'unknown' || workerStatus === 'unknown') {
         if (
           !owner.processIdentity &&
@@ -300,12 +300,11 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
         if (
           owner.cooperative &&
           !isProcessAlive(supervisorState.supervisorPid) &&
-          (supervisorState.runtimePid === null || !isProcessAlive(supervisorState.runtimePid))
+          (workerPid === null || !isProcessAlive(workerPid))
         ) {
           try {
-            if (supervisorState.runtimePid !== null && initialInfo) {
-              if (!cleanup(configDir, initialInfo.pid))
-                throw new Error('runtime PID metadata could not be safely removed');
+            if (workerPid !== null && initialInfo) {
+              if (!cleanup(configDir, workerPid)) throw new Error('runtime PID metadata could not be safely removed');
             }
             if (!cleanupLaunchConfig(configDir, supervisorState.supervisorPid)) {
               throw new Error('launch configuration changed before cleanup');
@@ -316,10 +315,12 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
             ) {
               throw new Error('supervisor state changed before cleanup');
             }
+            if (!cleanupRuntimeControlFiles(configDir, owner.claimId)) {
+              throw new Error('runtime control files could not be safely removed');
+            }
             if (!cleanupOwnership(configDir, supervisorState.supervisorPid)) {
               throw new Error('lifecycle ownership changed before cleanup');
             }
-            cleanupRuntimeControlFiles(configDir, owner.claimId);
             process.stdout.write(
               `Recovered stale cooperative runtime in Runtime Scope ${configDir} ` +
                 `(supervisor PID ${supervisorState.supervisorPid}).\n`,
@@ -331,8 +332,14 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
             return;
           }
         }
-        const pid = supervisorStatus === 'unknown' ? supervisorState.supervisorPid : supervisorState.runtimePid!;
-        const identity = supervisorStatus === 'unknown' ? supervisorIdentity : supervisorState.runtimeIdentity;
+        if (owner.cooperative) {
+          failStop(
+            'Runtime control is unreachable. Preserve ownership metadata and use the original CLI or service manager for explicit recovery.',
+          );
+          return;
+        }
+        const pid = supervisorStatus === 'unknown' ? supervisorState.supervisorPid : workerPid!;
+        const identity = supervisorStatus === 'unknown' ? supervisorIdentity : workerIdentity;
         failStop(processIdentityRecoveryMessage(pid, identity));
 
         return;

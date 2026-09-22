@@ -73,6 +73,13 @@ describe('runServeStop', () => {
     };
   }
 
+  function cooperativeOwner(supervisorPid: number): RuntimeScopeOwnershipRecord {
+    return {
+      ...backgroundOwner(supervisorPid),
+      cooperative: true,
+    };
+  }
+
   function acquireStopLock(): RuntimeScopeStopLock {
     return { release: vi.fn() };
   }
@@ -719,5 +726,190 @@ describe('runServeStop', () => {
     expect(fs.existsSync(getBackgroundLaunchConfigPath(tempScope))).toBe(false);
     expect(fs.existsSync(getRuntimeScopeOwnershipPath(tempScope))).toBe(false);
     expect(replacementOwner.record.claimId).toBe('replacement-owner');
+  });
+
+  describe('cooperative runtime recovery', () => {
+    it('recovers a stale cooperative runtime when both supervisor and worker are dead', async () => {
+      const supervisorPid = 99999991;
+      const workerPid = 99999992;
+      const cleanupLaunchConfig = vi.fn().mockReturnValue(true);
+      const cleanupSupervisorState = vi.fn().mockReturnValue(true);
+      const cleanupOwnership = vi.fn().mockReturnValue(true);
+      const cleanup = vi.fn().mockReturnValue(true);
+
+      const state = {
+        version: 1 as const,
+        status: 'running' as const,
+        supervisorPid,
+        runtimePid: workerPid,
+        restartAttempt: 0,
+        lastExit: null,
+        nextRetryAt: null,
+        readyAt: null,
+        updatedAt: '2026-09-22T00:00:00.000Z',
+      };
+
+      await runServeStop('/scope', {
+        readSupervisorState: () => state,
+        readOwnership: () => cooperativeOwner(supervisorPid),
+        readInfo: () => info({ pid: workerPid }),
+        acquireStopLock,
+        cleanupLaunchConfig,
+        cleanupSupervisorState,
+        cleanupOwnership,
+        cleanup,
+      });
+
+      expect(process.exitCode).toBe(0);
+      expect(stdout).toContain('Recovered stale cooperative runtime');
+      expect(cleanup).toHaveBeenCalledWith('/scope', workerPid);
+      expect(cleanupLaunchConfig).toHaveBeenCalledWith('/scope', supervisorPid);
+      expect(cleanupSupervisorState).toHaveBeenCalledWith('/scope', supervisorPid);
+      expect(cleanupOwnership).toHaveBeenCalledWith('/scope', supervisorPid);
+    });
+
+    it('recovers a stale cooperative runtime when supervisorState.runtimePid is null but initialInfo has dead worker', async () => {
+      const supervisorPid = 99999991;
+      const workerPid = 99999992;
+      const cleanupLaunchConfig = vi.fn().mockReturnValue(true);
+      const cleanupSupervisorState = vi.fn().mockReturnValue(true);
+      const cleanupOwnership = vi.fn().mockReturnValue(true);
+      const cleanup = vi.fn().mockReturnValue(true);
+
+      const state = {
+        version: 1 as const,
+        status: 'running' as const,
+        supervisorPid,
+        runtimePid: null,
+        restartAttempt: 0,
+        lastExit: null,
+        nextRetryAt: null,
+        readyAt: null,
+        updatedAt: '2026-09-22T00:00:00.000Z',
+      };
+
+      await runServeStop('/scope', {
+        readSupervisorState: () => state,
+        readOwnership: () => cooperativeOwner(supervisorPid),
+        readInfo: () => info({ pid: workerPid }),
+        acquireStopLock,
+        cleanupLaunchConfig,
+        cleanupSupervisorState,
+        cleanupOwnership,
+        cleanup,
+      });
+
+      expect(process.exitCode).toBe(0);
+      expect(stdout).toContain('Recovered stale cooperative runtime');
+      expect(cleanup).toHaveBeenCalledWith('/scope', workerPid);
+      expect(cleanupOwnership).toHaveBeenCalledWith('/scope', supervisorPid);
+    });
+
+    it('refuses recovery and preserves ownership when cooperative worker is still alive', async () => {
+      const supervisorPid = 99999991;
+      const workerPid = process.pid; // current process is guaranteed alive
+      const cleanupOwnership = vi.fn().mockReturnValue(true);
+
+      const state = {
+        version: 1 as const,
+        status: 'running' as const,
+        supervisorPid,
+        runtimePid: workerPid,
+        restartAttempt: 0,
+        lastExit: null,
+        nextRetryAt: null,
+        readyAt: null,
+        updatedAt: '2026-09-22T00:00:00.000Z',
+      };
+
+      await runServeStop('/scope', {
+        readSupervisorState: () => state,
+        readOwnership: () => cooperativeOwner(supervisorPid),
+        readInfo: () => info({ pid: workerPid }),
+        acquireStopLock,
+        cleanupOwnership,
+      });
+
+      expect(process.exitCode).toBe(1);
+      expect(stderr).toContain('Runtime control is unreachable. Preserve ownership metadata');
+      expect(cleanupOwnership).not.toHaveBeenCalled();
+    });
+
+    it('refuses recovery when supervisorState.runtimePid is null but initialInfo identifies a live worker', async () => {
+      const supervisorPid = 99999991;
+      const workerPid = process.pid; // alive
+      const cleanupOwnership = vi.fn().mockReturnValue(true);
+
+      const state = {
+        version: 1 as const,
+        status: 'running' as const,
+        supervisorPid,
+        runtimePid: null,
+        restartAttempt: 0,
+        lastExit: null,
+        nextRetryAt: null,
+        readyAt: null,
+        updatedAt: '2026-09-22T00:00:00.000Z',
+      };
+
+      await runServeStop('/scope', {
+        readSupervisorState: () => state,
+        readOwnership: () => cooperativeOwner(supervisorPid),
+        readInfo: () => info({ pid: workerPid }),
+        acquireStopLock,
+        cleanupOwnership,
+      });
+
+      expect(process.exitCode).toBe(1);
+      expect(stderr).toContain('Runtime control is unreachable. Preserve ownership metadata');
+      expect(cleanupOwnership).not.toHaveBeenCalled();
+    });
+
+    it('fails recovery without releasing ownership when control-file cleanup fails', async () => {
+      fs.mkdirSync(tempScope, { recursive: true, mode: 0o700 });
+      // Write control file with a mismatched claimId so cleanupRuntimeControlFiles returns false
+      fs.writeFileSync(
+        path.join(tempScope, 'runtime-control.json'),
+        JSON.stringify({
+          version: 1,
+          configDir: tempScope,
+          claimId: 'different-claim-id-which-will-mismatch-12345',
+          url: 'http://127.0.0.1:3000/',
+        }),
+        { mode: 0o600 },
+      );
+
+      const supervisorPid = 99999991;
+      const workerPid = 99999992;
+      const cleanupOwnership = vi.fn().mockReturnValue(true);
+
+      const state = {
+        version: 1 as const,
+        status: 'running' as const,
+        supervisorPid,
+        runtimePid: workerPid,
+        restartAttempt: 0,
+        lastExit: null,
+        nextRetryAt: null,
+        readyAt: null,
+        updatedAt: '2026-09-22T00:00:00.000Z',
+      };
+
+      await runServeStop(tempScope, {
+        readSupervisorState: () => state,
+        readOwnership: () => cooperativeOwner(supervisorPid),
+        readInfo: () => info({ pid: workerPid }),
+        acquireStopLock,
+        cleanupLaunchConfig: vi.fn().mockReturnValue(true),
+        cleanupSupervisorState: vi.fn().mockReturnValue(true),
+        cleanupOwnership,
+        cleanup: vi.fn().mockReturnValue(true),
+      });
+
+      expect(process.exitCode).toBe(1);
+      expect(stderr).toContain('cooperative runtime recovery failed');
+      expect(stderr).toContain('runtime control files could not be safely removed');
+      expect(cleanupOwnership).not.toHaveBeenCalled();
+    });
   });
 });
