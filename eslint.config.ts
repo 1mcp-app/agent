@@ -25,6 +25,7 @@ export default [
       'coverage',
       '.tmp',
       '.tmp-test',
+      '.scratch/**',
       '.pnpm-store',
       'eslint.config.*',
       'docs/.vitepress/dist',

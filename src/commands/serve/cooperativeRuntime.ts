@@ -588,10 +588,23 @@ export function acknowledgeCooperativeWorker(bootstrap: RuntimeLaunchBootstrap):
   });
 }
 
+/**
+ * Request cooperative runtime shutdown via the runtime control protocol.
+ * Returns true when shutdown is confirmed, or false if the control endpoint is unreachable.
+ */
 export async function stopCooperativeRuntime(scope: string): Promise<boolean> {
-  const client = await connectRuntimeControl(scope);
+  let client;
+  try {
+    client = await connectRuntimeControl(scope);
+  } catch {
+    return false;
+  }
   if (!client) return false;
-  await client.request('describe');
+  try {
+    await client.request('describe');
+  } catch {
+    return false;
+  }
   try {
     await client.request('stop');
   } catch {
