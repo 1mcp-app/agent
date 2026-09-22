@@ -46,14 +46,43 @@ npx -y @1mcp/agent inspect [target] [选项]
 ### 输出与分页
 
 - **`--format <toon|text|json>`** - 输出格式
-- **`--all`** - 对服务器 target 拉取所有工具，跳过分页
-- **`--limit <number>`** - 服务器工具列表的分页大小，默认 `20`
+- **`--all`** - 拉取服务器 target 或搜索的全部剩余工具
+- **`--limit <number>`** - 服务器工具列表和搜索结果的分页大小，默认 `20`
 - **`--cursor <cursor>`** - 上一页响应返回的 cursor
 
 ### 相关全局选项
 
 - **`--config-dir, -d <path>`** - 用于鉴权配置和服务器发现的配置目录
 - **`--cli-session-cache-path <path>`** - 覆盖 `inspect` 与 `run` 使用的会话缓存路径模板；支持 `{pid}` 与 `{scope}`
+
+## 搜索工具
+
+不知道提供方或工具名时，先搜索可见清单，再查看确切的 schema：
+
+```bash
+1mcp inspect --search read
+1mcp inspect filesystem --search read
+1mcp inspect --search 'filesystem/*read?' --glob
+1mcp inspect --search 'read a file' --include-descriptions
+1mcp inspect --search read --show-descriptions --format json
+# 阅读所选服务器的适用指令，然后查看 schema 并调用。
+1mcp inspect filesystem
+1mcp inspect filesystem/read_file
+1mcp run filesystem/read_file --args '{"path":"README.md"}'
+```
+
+已知目标时直接检查即可。复用 hooks 已提供的当前启动指令；搜索不能替代适用的服务器指令或确切工具的 schema 检查。
+
+- **`--search <query>`** 搜索所有可见服务器，或指定服务器。默认对 `server/tool` 引用执行不区分大小写的字面子串匹配。
+- **`--glob`** 显式启用整段匹配，仅支持 `*`（任意数量字符）与 `?`（单个字符）通配符。请给模式加引号，避免 shell 展开；其他标点仍按字面匹配。
+- **`--include-descriptions`** 使用所选匹配模式同时搜索有效描述，包括配置覆盖后的描述。引用与描述均匹配时工具只出现一次。
+- **`--show-descriptions`** 独立控制输出是否显示描述，不改变匹配结果。仅启用描述匹配仍保持紧凑输出。
+
+空查询、确切工具目标与搜索组合，以及未指定 `--search` 时使用搜索专属选项均会报错。搜索保留鉴权、预设与标签筛选、上下文模板可见性和禁用工具规则。
+
+搜索返回 `server`、`tool` 及必填/可选参数数量，不返回 schema。默认格式为 TOON，也支持文本和 JSON。结果按公开服务器/工具标识排序，匹配后再分页。`--limit` 默认为 20；`--all` 返回可选游标之后的全部剩余匹配。`totalTools` 表示已收集清单中的匹配数，而非全部工具数。游标绑定查询、匹配选项、目标、筛选条件及清单；这些条件变化导致游标失效时，请移除游标重新开始。
+
+完整搜索无匹配时仍成功。断定工具不存在前，应检查完整性及加载中/不可用元数据；部分清单不代表确实不存在，枚举失败或格式错误会报告。静态服务器仍在加载时可用 `1mcp wait <server>`。跨服务器搜索要求运行时支持 inspect 搜索；旧运行时应按提示升级并重启。单服务器搜索可使用现有 MCP 回退路径；鉴权失败始终终止，不会触发回退。
 
 ## 示例
 

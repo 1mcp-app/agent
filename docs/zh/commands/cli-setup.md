@@ -94,9 +94,14 @@ npx -y @1mcp/agent cli-setup --codex --scope all
 受管理的启动文档会告诉客户端：
 
 1. 如果当前会话尚未通过 hooks 注入最新内容，就先执行 `1mcp instructions`
-2. 在选择工具前先执行 `1mcp inspect <server>`
-3. 在调用工具前先执行 `1mcp inspect <server>/<tool>`
-4. 只有在确认 schema 之后才执行 `1mcp run <server>/<tool> --args '<json>'`
+2. 不知道提供方或工具时，可先执行 `1mcp inspect --search <query>`（也可指定服务器）；已知目标时直接检查
+3. 在选择工具前执行 `1mcp inspect <server>` 并阅读适用的服务器指令
+4. 在调用工具前先执行 `1mcp inspect <server>/<tool>`
+5. 只有在确认 schema 之后才执行 `1mcp run <server>/<tool> --args '<json>'`
+
+搜索默认使用不区分大小写的字面子串匹配。使用带引号的 `--search 'filesystem/*read?' --glob` 可按 `*`/`?` 对整个引用匹配。`--include-descriptions` 将有效描述纳入匹配；`--show-descriptions` 独立控制描述显示。
+
+重新运行相同的 `cli-setup` 命令即可更新任意范围的受管理指引。重复执行是幂等的，并保留无关的启动文档内容和 hooks。启动引用保持轻量，hooks 仍调用 `1mcp instructions`。
 
 ## 另请参阅
 

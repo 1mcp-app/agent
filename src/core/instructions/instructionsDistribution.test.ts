@@ -9,6 +9,7 @@ import {
   shouldEagerlyInspectServer,
   upsertStartupDocManagedBlock,
 } from './instructionsDistribution.js';
+import { DEFAULT_CLI_INSTRUCTION_TEMPLATE } from './templateTypes.js';
 
 describe('instructionsDistribution', () => {
   it('eagerly inspects template servers even when unavailable', () => {
@@ -258,7 +259,28 @@ describe('instructionsDistribution', () => {
 
     expect(content).toContain('If this session already received the current 1MCP instructions content from hooks');
     expect(content).toContain('Otherwise, run `1mcp instructions` before using any 1MCP-managed MCP servers.');
-    expect(content).toContain('Run `1mcp inspect <server>` before selecting a tool.');
+    expect(content).toContain('Run `1mcp inspect <server>` before selecting a tool');
+  });
+
+  it('keeps the managed reference and hook-delivered playbook search workflow consistent', () => {
+    for (const content of [renderManagedDocContent(), DEFAULT_CLI_INSTRUCTION_TEMPLATE]) {
+      expect(content).toContain('1mcp inspect --search <query>');
+      expect(content).toContain('1mcp inspect <server> --search <query>');
+      expect(content).toContain('case-insensitive literal substring');
+      expect(content).toContain('--search "filesystem/*read?" --glob');
+      expect(content).toContain('`--include-descriptions` also matches effective descriptions');
+      expect(content).toContain('`--show-descriptions` independently displays descriptions');
+      expect(content).toContain('When the target is known, inspect it directly');
+      expect(content.indexOf('read its applicable instructions')).toBeLessThan(
+        content.indexOf('1mcp inspect <server>/<tool>'),
+      );
+      expect(content.indexOf('1mcp inspect <server>/<tool>')).toBeLessThan(content.indexOf('1mcp run <server>/<tool>'));
+      expect(content).toContain('--preset');
+      expect(content).toContain('--tags');
+      expect(content).toContain('--tag-filter');
+    }
+    expect(DEFAULT_CLI_INSTRUCTION_TEMPLATE).toContain('1mcp wait <server>');
+    expect(DEFAULT_CLI_INSTRUCTION_TEMPLATE).toContain('1mcp auth login --context <name> --token <token>');
   });
 
   it('renders global Codex startup references as absolute managed-doc references', () => {
