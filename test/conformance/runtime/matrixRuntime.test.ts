@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import {
   executeMatrixAssignment,
   type MatrixAssignmentDescriptor,
+  parseProbeOutput,
   validateMatrixAssignments,
 } from './matrixRuntime.js';
 
@@ -55,6 +56,79 @@ describe('matrix assignment validation', () => {
 });
 
 describe('matrix runtime execution', () => {
+  it('accepts modern peer success without legacy lifecycle fields', () => {
+    expect(
+      parseProbeOutput(
+        {
+          fixtureId: 'python-sdk',
+          transport: 'streamable-http',
+          protocolEra: 'modern',
+          ok: true,
+          negotiatedRevision: '2026-07-28',
+          operations: {
+            serverDiscover: true,
+            toolsList: { count: 1, fixtureTool: true },
+            toolsCall: { contentTypes: ['text'], isError: false },
+          },
+          toolsCount: 1,
+          callError: false,
+        },
+        0,
+      ),
+    ).toEqual({
+      fixtureId: 'python-sdk',
+      transport: 'streamable-http',
+      protocolEra: 'modern',
+      negotiatedRevision: '2026-07-28',
+      operations: ['server/discover', 'tools/list', 'tools/call'],
+      toolsCount: 1,
+      callError: false,
+    });
+  });
+
+  it.each([
+    { protocolEra: 'legacy', operations: ['initialize', 'ping', 'tools/list', 'tools/call'] },
+    { protocolEra: 'modern', operations: ['server/discover', 'tools/list', 'tools/call'] },
+  ] as const)('keeps a $protocolEra tool invocation error out of the success path', ({ protocolEra, operations }) => {
+    expect(
+      parseProbeOutput(
+        {
+          fixtureId: 'python-sdk',
+          transport: 'streamable-http',
+          protocolEra,
+          ok: false,
+          classification: 'tools-call-failed',
+          negotiatedRevision: protocolEra === 'modern' ? '2026-07-28' : '2025-11-25',
+          operations,
+          toolsCount: 1,
+          callError: true,
+        },
+        0,
+      ),
+    ).toEqual({ fixtureId: 'python-sdk', errorCode: 'tools-call-failed' });
+  });
+
+  it('rejects modern peer output that omits the discovery proof', () => {
+    expect(() =>
+      parseProbeOutput(
+        {
+          fixtureId: 'python-sdk',
+          transport: 'streamable-http',
+          protocolEra: 'modern',
+          ok: true,
+          negotiatedRevision: '2026-07-28',
+          operations: {
+            toolsList: { count: 1, fixtureTool: true },
+            toolsCall: { contentTypes: ['text'], isError: false },
+          },
+          toolsCount: 1,
+          callError: false,
+        },
+        0,
+      ),
+    ).toThrow('probe_output_invalid');
+  });
+
   it.each([
     { mode: 'invalid-probe', defect: 'fixture', reason: 'probe_output_invalid' },
     { mode: 'crash-probe', defect: 'process', reason: 'probe_process_failed' },
