@@ -591,7 +591,11 @@ export function acknowledgeCooperativeWorker(bootstrap: RuntimeLaunchBootstrap):
 export async function stopCooperativeRuntime(scope: string): Promise<boolean> {
   const client = await connectRuntimeControl(scope);
   if (!client) return false;
-  await client.request('describe');
+  try {
+    await client.request('describe');
+  } catch {
+    return false;
+  }
   try {
     await client.request('stop');
   } catch {

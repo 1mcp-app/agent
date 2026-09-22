@@ -23,6 +23,7 @@ import {
   type ProcessIdentity,
   processIdentityRecoveryMessage,
 } from '@src/core/server/processIdentity.js';
+import { cleanupRuntimeControlFiles } from '@src/core/server/runtimeControl.js';
 import {
   acquireRuntimeScopeStopLock,
   readRuntimeScopeOwnership,
@@ -293,6 +294,40 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
             }
           } catch (error) {
             failStop(`legacy runtime recovery aborted: ${errorMessage(error)}`);
+            return;
+          }
+        }
+        if (
+          owner.cooperative &&
+          !isProcessAlive(supervisorState.supervisorPid) &&
+          (supervisorState.runtimePid === null || !isProcessAlive(supervisorState.runtimePid))
+        ) {
+          try {
+            if (supervisorState.runtimePid !== null && initialInfo) {
+              if (!cleanup(configDir, initialInfo.pid))
+                throw new Error('runtime PID metadata could not be safely removed');
+            }
+            if (!cleanupLaunchConfig(configDir, supervisorState.supervisorPid)) {
+              throw new Error('launch configuration changed before cleanup');
+            }
+            if (
+              !cleanupSupervisorState(configDir, supervisorState.supervisorPid) &&
+              readSupervisorState(configDir) !== null
+            ) {
+              throw new Error('supervisor state changed before cleanup');
+            }
+            if (!cleanupOwnership(configDir, supervisorState.supervisorPid)) {
+              throw new Error('lifecycle ownership changed before cleanup');
+            }
+            cleanupRuntimeControlFiles(configDir, owner.claimId);
+            process.stdout.write(
+              `Recovered stale cooperative runtime in Runtime Scope ${configDir} ` +
+                `(supervisor PID ${supervisorState.supervisorPid}).\n`,
+            );
+            process.exitCode = 0;
+            return;
+          } catch (error) {
+            failStop(`cooperative runtime recovery failed in Runtime Scope ${configDir}: ${errorMessage(error)}`);
             return;
           }
         }

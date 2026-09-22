@@ -105,6 +105,20 @@ export function runtimeControlExists(configDir: string): boolean {
   }
 }
 
+export function cleanupRuntimeControlFiles(configDir: string, expectedClaimId: string): boolean {
+  if (!runtimeControlExists(configDir)) return true;
+  try {
+    const raw = readPrivate(path.join(configDir, CONTROL_FILE));
+    const descriptor = descriptorSchema.parse(JSON.parse(raw));
+    if (descriptor.claimId !== expectedClaimId) return false;
+    fs.unlinkSync(path.join(configDir, CONTROL_FILE));
+    fs.rmSync(secretPath(configDir, expectedClaimId), { force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function secretPath(configDir: string, claimId: string): string {
   return path.join(configDir, `runtime-control-${createHash('sha256').update(claimId).digest('hex')}.secret`);
 }
