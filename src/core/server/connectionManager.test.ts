@@ -110,6 +110,7 @@ describe('ConnectionManager', () => {
     mockOutboundConns = new Map();
     mockTransport = {
       close: vi.fn().mockResolvedValue(undefined),
+      send: vi.fn().mockResolvedValue(undefined),
     } as unknown as Transport;
     connectionManager = new ConnectionManager(mockServerConfig, mockServerCapabilities, mockOutboundConns);
   });
@@ -359,6 +360,7 @@ describe('ConnectionManager', () => {
       const sessionId = 'test-session-error';
       const errorTransport = {
         close: vi.fn().mockResolvedValue(undefined),
+        send: vi.fn().mockResolvedValue(undefined),
       } as unknown as Transport;
 
       // Mock Server.connect to reject

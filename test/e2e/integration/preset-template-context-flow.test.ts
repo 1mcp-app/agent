@@ -73,6 +73,7 @@ vi.mock('@src/core/server/clientInstancePool.js', () => ({
         },
         transport: {
           close: vi.fn().mockResolvedValue(undefined),
+          send: vi.fn().mockResolvedValue(undefined),
         },
         renderedHash: 'test-rendered-hash',
         referenceCount: 1,
@@ -203,6 +204,7 @@ describe('Preset + Template Context Flow Integration', () => {
 
       const mockTransport = {
         close: vi.fn().mockResolvedValue(undefined),
+        send: vi.fn().mockResolvedValue(undefined),
       } as any;
 
       const opts = {
@@ -226,6 +228,7 @@ describe('Preset + Template Context Flow Integration', () => {
       // Test that opts.context doesn't override the context parameter's sessionId
       const mockTransport = {
         close: vi.fn().mockResolvedValue(undefined),
+        send: vi.fn().mockResolvedValue(undefined),
       } as any;
 
       const opts = {
@@ -257,6 +260,7 @@ describe('Preset + Template Context Flow Integration', () => {
       // opts.context should be used
       const mockTransport = {
         close: vi.fn().mockResolvedValue(undefined),
+        send: vi.fn().mockResolvedValue(undefined),
       } as any;
 
       const altSessionId = `alt-session-${randomBytes(4).toString('hex')}`;

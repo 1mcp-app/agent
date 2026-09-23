@@ -41,6 +41,15 @@ import {
   currentLegacyInteractionSignal,
 } from './legacyInteractionLease.js';
 import type { AuthProviderTransport } from './legacyTransport.js';
+import {
+  closeModernSubscriptions,
+  type ModernSubscriptionFilter,
+  type ModernSubscriptionHandle,
+  type ModernSubscriptionNotification,
+  openModernSubscription,
+  rebindModernSubscriptionTransport,
+  registerModernSubscriptions,
+} from './modernSubscriptions.js';
 import { stripInboundRequestMeta } from './outboundRequestParams.js';
 
 const LIST_CHANGED_METHODS = [
@@ -79,6 +88,10 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
   private readonly outbound: OutboundEraAdapter;
   private readonly interactionHandlers = new Map<string, (request: never) => unknown>();
   private closePromise?: Promise<void>;
+  private catalogSubscription?: Promise<ModernSubscriptionHandle>;
+  private catalogCoverageLost = false;
+  private readonly resourceSubscriptions = new Map<string, Promise<ModernSubscriptionHandle>>();
+  private readonly subscriptionHandlers = new Map<string, (notification: ModernSubscriptionNotification) => unknown>();
 
   constructor(client: Client, transport: AuthProviderTransport) {
     modernHandles.set(this, { client, transport });
@@ -117,6 +130,16 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
             close: async () => this.closeDirect(),
           })
         : new LegacyOutboundEraAdapter(direct, { era: 'legacy', revision });
+    if (this.protocol.era === 'modern' && typeof transport.send === 'function') {
+      registerModernSubscriptions(this, client, transport, async (filter) => {
+        const accepted = (await this.ensureCatalogSubscription()).honoredFilter;
+        return {
+          ...(filter.toolsListChanged && accepted.toolsListChanged ? { toolsListChanged: true } : {}),
+          ...(filter.promptsListChanged && accepted.promptsListChanged ? { promptsListChanged: true } : {}),
+          ...(filter.resourcesListChanged && accepted.resourcesListChanged ? { resourcesListChanged: true } : {}),
+        };
+      });
+    }
   }
 
   get protocolRevision(): string {
@@ -134,6 +157,7 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
   async start(): Promise<void> {
     if (this.lifecycleState === 'stopped') throw new Error('Modern SDK adapter is stopped');
     this.lifecycleState = 'running';
+    if (this.protocol.era === 'modern') await this.ensureCatalogSubscription();
   }
 
   nextEvent(): Promise<LegacySdkEvent> {
@@ -148,6 +172,9 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
   async request(request: LegacySdkRequest): Promise<JsonValue> {
     assertInteractionRoute(this, request.method, request.params);
     const params = stripInboundRequestMeta(request.params);
+    if (this.protocol.era === 'modern' && ['resources/subscribe', 'resources/unsubscribe'].includes(request.method)) {
+      return this.resourceSubscription(request, params);
+    }
     const operation = gatewayOperationSchema.safeParse(request.method);
     if (!operation.success) {
       return this.requestDirect({ ...request, params });
@@ -244,7 +271,14 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
     handler: (notification: { method: string; params?: Record<string, unknown> }) => unknown,
   ): void {
     const method = this.methodFromLegacySchema(schema) as NotificationMethod;
+    this.subscriptionHandlers.set(method, handler);
+    if (method === ('notifications/1mcp/subscription_lost' as string)) return;
     this.handles.client.setNotificationHandler(method, async (notification) => {
+      if (
+        this.protocol.era === 'modern' &&
+        notification.params?._meta?.['io.modelcontextprotocol/subscriptionId'] !== undefined
+      )
+        return;
       await handler(notification);
     });
   }
@@ -336,6 +370,11 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
     this.closePromise = (async () => {
       for (const controller of this.controllers.values()) controller.abort();
       this.controllers.clear();
+      closeModernSubscriptions(this);
+      const subscriptions = [...this.resourceSubscriptions.values()];
+      if (this.catalogSubscription) subscriptions.push(this.catalogSubscription);
+      this.resourceSubscriptions.clear();
+      await Promise.allSettled(subscriptions.map(async (pending) => (await pending).close()));
       try {
         await this.handles.client.close();
       } catch (error) {
@@ -368,6 +407,7 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
   private registerListChangedNotifications(): void {
     for (const method of LIST_CHANGED_METHODS) {
       this.handles.client.setNotificationHandler(method, async (notification) => {
+        if (this.protocol.era === 'modern') return;
         this.publish({
           type: 'notification',
           notification: {
@@ -376,6 +416,124 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
           },
         });
       });
+    }
+  }
+
+  private ensureCatalogSubscription(): Promise<ModernSubscriptionHandle> {
+    if (this.lifecycleState !== 'running')
+      return Promise.reject(new OneMcpProtocolError(-32603, 'Modern SDK adapter is closed'));
+    if (this.catalogSubscription) return this.catalogSubscription;
+    const caps = this.handles.client.getServerCapabilities();
+    const filter: ModernSubscriptionFilter = {
+      ...(caps?.tools?.listChanged ? { toolsListChanged: true } : {}),
+      ...(caps?.prompts?.listChanged ? { promptsListChanged: true } : {}),
+      ...(caps?.resources?.listChanged ? { resourcesListChanged: true } : {}),
+    };
+    if (Object.keys(filter).length === 0) return Promise.resolve({ honoredFilter: {}, close: async () => {} });
+    this.catalogCoverageLost = false;
+    this.catalogSubscription = openModernSubscription(
+      this,
+      filter,
+      (note) => this.deliverSubscription(note),
+      () => {
+        this.catalogSubscription = undefined;
+        this.deliverSubscription({ method: 'notifications/1mcp/subscription_lost', params: { catalog: true } });
+      },
+    );
+    void this.catalogSubscription.catch(() => {
+      this.catalogSubscription = undefined;
+    });
+    return this.catalogSubscription;
+  }
+
+  private deliverSubscription(note: ModernSubscriptionNotification): void {
+    const handler = this.subscriptionHandlers.get(note.method);
+    if (handler) {
+      void Promise.resolve(handler(note)).catch(() => {});
+      return;
+    }
+    if (LIST_CHANGED_METHODS.some((method) => method === note.method)) {
+      if (this.catalogCoverageLost) return;
+      const queued = this.events.filter(
+        (event) =>
+          event.type === 'notification' && LIST_CHANGED_METHODS.some((method) => method === event.notification.method),
+      );
+      const queuedBytes = queued.reduce((bytes, event) => bytes + Buffer.byteLength(JSON.stringify(event)), 0);
+      if (
+        !this.waiters.length &&
+        (queued.length >= 64 || queuedBytes + Buffer.byteLength(JSON.stringify(note)) > 1024 * 1024)
+      ) {
+        const subscription = this.catalogSubscription;
+        this.catalogSubscription = undefined;
+        this.catalogCoverageLost = true;
+        for (let index = this.events.length - 1; index >= 0; index--) {
+          const event = this.events[index];
+          if (
+            event.type === 'notification' &&
+            LIST_CHANGED_METHODS.some((method) => method === event.notification.method)
+          )
+            this.events.splice(index, 1);
+        }
+        void subscription?.then((handle) => handle.close()).catch(() => {});
+        this.deliverSubscription({ method: 'notifications/1mcp/subscription_lost', params: { catalog: true } });
+        return;
+      }
+    }
+    if (note.method === 'notifications/1mcp/subscription_lost' && note.params?.catalog === true) {
+      if (this.events.some((event) => event.type === 'notification' && event.notification.method === note.method))
+        return;
+    }
+    this.publish({
+      type: 'notification',
+      notification: { method: note.method, ...(note.params ? { params: toJsonValue(note.params) } : {}) },
+    });
+  }
+
+  private async resourceSubscription(request: LegacySdkRequest, params: JsonValue | undefined): Promise<JsonValue> {
+    const { uri } = z.object({ uri: z.string().max(8192) }).parse(params);
+    const existing = this.resourceSubscriptions.get(uri);
+    if (request.method === 'resources/unsubscribe') {
+      this.resourceSubscriptions.delete(uri);
+      if (existing) await (await existing).close();
+      return {};
+    }
+    if (existing) {
+      await existing;
+      return {};
+    }
+    const controller = new AbortController();
+    const signal = currentLegacyInteractionSignal();
+    const abort = () => controller.abort();
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
+    this.controllers.set(request.id, controller);
+    let pending: Promise<ModernSubscriptionHandle>;
+    pending = openModernSubscription(
+      this,
+      { resourceSubscriptions: [uri] },
+      (note) => this.deliverSubscription(note),
+      () => {
+        if (this.resourceSubscriptions.get(uri) === pending) this.resourceSubscriptions.delete(uri);
+        this.deliverSubscription({ method: 'notifications/1mcp/subscription_lost', params: { uri } });
+      },
+      controller.signal,
+    ).then(async (handle) => {
+      if (!handle.honoredFilter.resourceSubscriptions?.includes(uri)) {
+        await handle.close();
+        throw new OneMcpProtocolError(-32602, 'Upstream did not accept the resource subscription');
+      }
+      return handle;
+    });
+    this.resourceSubscriptions.set(uri, pending);
+    try {
+      await pending;
+      return {};
+    } catch (error) {
+      if (this.resourceSubscriptions.get(uri) === pending) this.resourceSubscriptions.delete(uri);
+      throw error;
+    } finally {
+      signal?.removeEventListener('abort', abort);
+      this.controllers.delete(request.id);
     }
   }
 
@@ -406,4 +564,5 @@ export function getModernSdkTransport(adapter: ModernSdkClientAdapter): AuthProv
 
 export function setModernSdkTransport(adapter: ModernSdkClientAdapter, transport: AuthProviderTransport): void {
   modernHandles.get(adapter)!.transport = transport;
+  rebindModernSubscriptionTransport(adapter, transport);
 }

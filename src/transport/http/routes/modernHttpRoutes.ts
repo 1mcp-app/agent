@@ -14,6 +14,7 @@ import { pipeline } from 'node:stream/promises';
 
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION, STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
+import type { InboundConnectionConfig } from '@src/core/types/index.js';
 import { ModernInboundEraAdapter } from '@src/gateway/adapters/modern/modernInboundEraAdapter.js';
 import { createEffectiveRequestAuthority } from '@src/gateway/contracts/effectiveRequestAuthority.js';
 import { type GatewayOperation, gatewayOperationSchema } from '@src/gateway/contracts/gatewayRequest.js';
@@ -53,12 +54,20 @@ import {
   watchModernInteractionBinding,
   withModernInteractionBinding,
 } from './modernInteractionBinding.js';
+import {
+  cancelModernSubscription,
+  closeModernSubscriptions,
+  getModernSubscriptionCapabilities,
+  serveModernSubscription,
+} from './modernSubscriptions.js';
 
 const DEFAULT_MODERN_REQUEST_TIMEOUT_MS = 60_000;
 
 export interface ModernInboundBridge {
   readonly targetConnectionId: string;
   readonly outbound: NonNullable<ReturnType<ConstructorParameters<typeof GatewayDispatcher>[0]['resolveOutbound']>>;
+  subscribe?(uri: string, signal: AbortSignal): Promise<void>;
+  prepareSubscriptions?(filter: Record<string, unknown>): Promise<Record<string, unknown>>;
   close(): Promise<void>;
 }
 
@@ -80,8 +89,12 @@ function buildConfig(req: Request, res: Response) {
 
 export type ModernInboundBridgeFactory = (
   serverManager: ServerManager,
-  config: ReturnType<typeof buildConfig>,
+  config: InboundConnectionConfig,
   options?: {
+    subscriptionSignal?: AbortSignal;
+    subscriptionListKinds?: readonly ('tools' | 'resources' | 'prompts')[];
+    subscriptionNotification?: (notification: { method: string; params?: Record<string, unknown> }) => void;
+    subscriptionClosed?: () => void;
     capabilities?: ImmutableJsonValue;
     logLevel?: 'debug' | 'info' | 'notice' | 'warning' | 'error' | 'critical' | 'alert' | 'emergency';
     interaction?: (input: GatewayInteractionRequest) => Promise<ImmutableJsonValue>;
@@ -142,7 +155,7 @@ async function dispatchGateway(
   params: unknown,
   signal: AbortSignal,
   serverManager: ServerManager,
-  config: ReturnType<typeof buildConfig>,
+  config: InboundConnectionConfig,
   createBridge: ModernInboundBridgeFactory,
   deadlineUnixMs: number,
   interactionOptions?: Parameters<ModernInboundBridgeFactory>[2],
@@ -299,6 +312,7 @@ export function setupModernHttpRoutes(
     authorize: () => true,
   });
   serverManager.registerCleanup(() => interactions.close());
+  serverManager.registerCleanup(async () => closeModernSubscriptions(serverManager));
   const rejectUnsupportedTransportMethod = async (req: Request, res: Response): Promise<void> => {
     const request = webRequest(req);
     const rejected =
@@ -339,6 +353,30 @@ export function setupModernHttpRoutes(
       }
 
       const config = buildConfig(req, res);
+      const method = (req.body as { method?: unknown } | null)?.method;
+      if (method === 'subscriptions/listen' || method === 'notifications/cancelled') {
+        // Preserve the pinned SDK's envelope, header, version and wire validation ladder.
+        const validation = createMcpHandler(
+          () => new Server({ name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION }, { capabilities: {} }),
+          { legacy: 'reject' },
+        );
+        try {
+          const checked = await validation.fetch(request, { parsedBody: req.body });
+          if (checked.status !== 200 && checked.status !== 202) {
+            await writeWebResponse(checked, res);
+            return;
+          }
+          await checked.body?.cancel();
+        } finally {
+          await validation.close();
+        }
+        if (method === 'subscriptions/listen') {
+          await serveModernSubscription(req, res, serverManager, config, createBridge, disconnect.controller.signal);
+        } else {
+          cancelModernSubscription(req, res, serverManager, config);
+        }
+        return;
+      }
       const accepted = (req.get('accept') ?? '').split(',').map((value) => value.trim());
       const responseMode =
         accepted.includes('text/event-stream') && !accepted.includes('application/json') ? 'sse' : 'auto';
@@ -348,9 +386,7 @@ export function setupModernHttpRoutes(
             { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
             {
               capabilities: {
-                tools: {},
-                prompts: {},
-                resources: {},
+                ...getModernSubscriptionCapabilities(serverManager, config),
                 completions: {},
               },
             },
