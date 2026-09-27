@@ -104,9 +104,14 @@ When `--codex` is used, the command also prints a required `config.toml` snippet
 The managed startup docs tell the client to:
 
 1. Run `1mcp instructions` unless the current session already received those instructions from hooks
-2. Run `1mcp inspect <server>` before picking a tool
-3. Run `1mcp inspect <server>/<tool>` before invocation
-4. Run `1mcp run <server>/<tool> --args '<json>'` only after inspecting the schema
+2. If the provider or tool is unknown, optionally use `1mcp inspect --search <query>` (or add a server target); otherwise inspect the known target directly
+3. Run `1mcp inspect <server>` and read the applicable server instructions before picking a tool
+4. Run `1mcp inspect <server>/<tool>` before invocation
+5. Run `1mcp run <server>/<tool> --args '<json>'` only after inspecting the schema
+
+Search defaults to case-insensitive literal substring matching. Use a quoted `--search 'filesystem/*read?' --glob` pattern for whole-reference `*`/`?` matching. `--include-descriptions` adds effective descriptions to matching; `--show-descriptions` independently displays them.
+
+Rerun the same `cli-setup` command to refresh managed guidance in any scope. Repeated runs are idempotent and preserve unrelated startup-document content and hooks. Startup references stay lightweight, and hooks continue to call `1mcp instructions`.
 
 ## See Also
 

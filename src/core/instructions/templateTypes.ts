@@ -357,13 +357,16 @@ export const DEFAULT_CLI_INSTRUCTION_TEMPLATE = `1MCP CLI Instructions
 === PLAYBOOK ===
 
 1. Start here before selecting tools.
-2. Review the available servers below and choose the server that matches the task.
-3. Run \`1mcp inspect <server>\` to list that server's tools.
+2. Review the available servers below and their applicable instructions. If the provider or tool is unknown, optionally discover candidates with \`1mcp inspect --search <query>\` or \`1mcp inspect <server> --search <query>\`.
+3. Run \`1mcp inspect <server>\` to list that server's tools and read its applicable instructions. When the target is known, inspect it directly without searching.
 4. Run \`1mcp inspect <server>/<tool>\` to inspect the tool schema and arguments.
 5. Run \`1mcp wait <server>\` when a configured static server is still loading.
 6. Run \`1mcp run <server>/<tool> --args '<json>'\` only after inspecting the tool.
 7. Use \`--preset\`, \`--tags\`, or \`--tag-filter\` to narrow the server set when needed.
 8. If authentication is required, run \`1mcp auth login --context <name> --token <token>\` and retry.
+
+Search uses case-insensitive literal substring matching on server/tool references. Use a quoted pattern such as \`--search "filesystem/*read?" --glob\` for whole-reference matching with only \`*\` and \`?\` wildcards.
+\`--include-descriptions\` also matches effective descriptions using the selected matching mode; \`--show-descriptions\` independently displays descriptions without changing matches.
 
 === SERVER SUMMARY ===
 {{#each servers}}

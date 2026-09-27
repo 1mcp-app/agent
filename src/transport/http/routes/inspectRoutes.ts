@@ -4,6 +4,8 @@ import { CapabilityAggregator } from '@src/core/capabilities/capabilityAggregato
 import { CapabilityCursorCapacityError } from '@src/core/capabilities/capabilityPagination.js';
 import { createCapabilityVisibility } from '@src/core/capabilities/capabilityVisibility.js';
 import { readPublicCapabilityRoute } from '@src/core/capabilities/catalogGeneration.js';
+import { InspectCursorError } from '@src/core/capabilities/inspectPagination.js';
+import { inspectSearchOptionsSchema, searchInspectTools } from '@src/core/capabilities/inspectSearch.js';
 import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
@@ -223,6 +225,10 @@ export function createServersHandler(serverManager: ServerManager): RequestHandl
 
 const inspectQuerySchema = z.object({
   target: z.string().optional(),
+  search: z.string().optional(),
+  glob: z.enum(['true', 'false', '1', '0']).optional(),
+  'include-descriptions': z.enum(['true', 'false', '1', '0']).optional(),
+  'show-descriptions': z.enum(['true', 'false', '1', '0']).optional(),
   limit: z
     .string()
     .regex(/^[0-9]+$/)
@@ -245,10 +251,115 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       const allParam = query.data.all === 'true' || query.data.all === '1';
       const limit = query.data.limit ?? 20;
 
+      const searchOptions = {
+        search: query.data.search,
+        glob: query.data.glob === 'true' || query.data.glob === '1',
+        'include-descriptions':
+          query.data['include-descriptions'] === 'true' || query.data['include-descriptions'] === '1',
+        'show-descriptions': query.data['show-descriptions'] === 'true' || query.data['show-descriptions'] === '1',
+      };
+      const searchValidation = inspectSearchOptionsSchema.safeParse(searchOptions);
+      if (!searchValidation.success || (query.data.search !== undefined && targetRaw?.includes('/'))) {
+        res.status(400).json({
+          error: searchValidation.success
+            ? 'Search accepts an optional server target, not a tool target.'
+            : searchValidation.error.issues[0].message,
+        });
+        return;
+      }
       const filterConfig = buildFilterConfig(res);
       const instructionAggregator = serverManager.getInstructionAggregator();
       const declaredServers = ConfigManager.getInstance().loadDeclaredServerConfigs();
       const serverConfigs = getServerTargetConfigs(declaredServers);
+
+      if (query.data.search !== undefined) {
+        const requestSessionId = await ensureRequestContextInitialized(serverManager, req, res, filterConfig);
+        const connections = serverManager.getClients();
+        const filtered = FilteringService.getFilteredConnections(connections, filterConfig);
+        const registry = serverManager.getServerRegistry();
+        const names = new Set([
+          ...Object.keys(serverConfigs),
+          ...registry.getServerNames(),
+          ...[...filtered.keys()].filter((name) => !name.includes(':')),
+        ]);
+        const sources: Array<{ server: string; status: string; available: boolean }> = [];
+        const candidates: Array<[string, string]> = [];
+        const serverTarget = targetRaw?.trim() || undefined;
+        for (const name of [...names].sort()) {
+          if (serverTarget && name !== serverTarget) continue;
+          const config = serverConfigs[name];
+          const adapter = registry.get(name);
+          if (config?.disabled) continue;
+          if (!matchesFilterConfig(config?.tags ?? adapter?.config.tags ?? filtered.get(name)?.tags, filterConfig))
+            continue;
+          const isTemplate = !!declaredServers.templateServers[name] || adapter?.type === 'template';
+          // Template connections must belong to this Request Session. Never use a sibling instance.
+          let connection = filtered.get(name);
+          if (isTemplate) {
+            connection = requestSessionId
+              ? registry.resolveConnection(name, { sessionId: requestSessionId })
+              : undefined;
+          }
+          const loading = getLoadingInfo(name);
+          const state = deriveServerState(
+            adapter?.getStatus(requestSessionId ? { sessionId: requestSessionId } : undefined),
+            adapter?.isAvailable(requestSessionId ? { sessionId: requestSessionId } : undefined),
+            connection,
+            loading,
+          );
+          const key = connection && [...filtered].find(([, value]) => value === connection)?.[0];
+          const available = state.available && key !== undefined;
+          sources.push({ server: name, status: state.status, available });
+          if (available && key !== undefined) candidates.push([key, name]);
+        }
+        if (serverTarget && sources.length === 0) {
+          res.status(404).json({ error: `Server not found: ${serverTarget}` });
+          return;
+        }
+        const auth = getAuthInfo(res);
+        const selection = {
+          destination: 'rest-inspect-search',
+          filterConfig,
+          authority: auth
+            ? { clientId: auth.clientId, scopes: [...auth.grantedScopes].sort(), tags: [...auth.grantedTags].sort() }
+            : undefined,
+        };
+        const visibility = createCapabilityVisibility(candidates, requestSessionId, selection);
+        try {
+          const snapshot = await acquireRuntimeCapabilityCatalog(connections, visibility, { serverConfigs });
+          const page = await snapshot.list<Tool>('tools', { enablePagination: false });
+          res.json(
+            searchInspectTools(
+              page.items,
+              {
+                ...searchOptions,
+                search: query.data.search,
+                target: serverTarget,
+                limit,
+                all: allParam,
+                cursor: cursorParam,
+              },
+              { selection, candidates, requestSessionId },
+              {
+                complete: page._meta === undefined && sources.every((source) => source.available),
+                sources,
+                ...(page._meta === undefined ? {} : { _meta: page._meta }),
+              },
+            ),
+          );
+        } catch (error) {
+          if (error instanceof InspectCursorError) {
+            res.status(400).json({ error: error.message });
+            return;
+          }
+          if (error instanceof CapabilityCursorCapacityError) {
+            res.status(503).json({ error: error.message, code: 'gateway_overloaded' });
+            return;
+          }
+          res.status(503).json({ error: 'Tool inventory not available for search' });
+        }
+        return;
+      }
 
       // No target: list all filtered servers
       if (!targetRaw) {

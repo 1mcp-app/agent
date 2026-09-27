@@ -199,6 +199,83 @@ describe('apiRoutes inspect', () => {
     inspectHandler = createInspectHandler(serverManager as never);
   });
 
+  it('reapplies authorization and invalidates search cursors when inventory or authority changes', async () => {
+    outboundConnections.set(
+      'context7',
+      connection(
+        'context7',
+        ['context7'],
+        [
+          { name: 'a', inputSchema: { type: 'object' } },
+          { name: 'b', inputSchema: { type: 'object' } },
+        ],
+      ),
+    );
+    outboundConnections.set(
+      'hidden',
+      connection('hidden', ['hidden'], [{ name: 'secret', inputSchema: { type: 'object' } }]),
+    );
+    const query = { search: 'context7', limit: '1' };
+    const first = createMockResponse();
+    first.locals.validatedTags = ['context7'];
+    await invokeInspectRoute(inspectHandler, { query }, first);
+    expect(first.statusCode).toBe(200);
+    expect(first.body).toMatchObject({
+      kind: 'search',
+      complete: true,
+      totalTools: 2,
+      tools: [{ server: 'context7', tool: 'a' }],
+      sources: [{ server: 'context7' }],
+    });
+    const cursor = (first.body as { nextCursor: string }).nextCursor;
+    const changedAuthority = createMockResponse();
+    changedAuthority.locals.validatedTags = ['hidden'];
+    await invokeInspectRoute(inspectHandler, { query: { ...query, cursor } }, changedAuthority);
+    expect(changedAuthority.statusCode).toBe(400);
+    expect(changedAuthority.body).toMatchObject({ error: expect.stringContaining('stale') });
+    // Same identities and counts, changed schema: the inventory still changed.
+    outboundConnections.set(
+      'context7',
+      connection(
+        'context7',
+        ['context7'],
+        [
+          { name: 'a', inputSchema: { type: 'object', description: 'changed' } },
+          { name: 'b', inputSchema: { type: 'object' } },
+        ],
+      ),
+    );
+    const changedInventory = createMockResponse();
+    changedInventory.locals.validatedTags = ['context7'];
+    await invokeInspectRoute(inspectHandler, { query: { ...query, cursor } }, changedInventory);
+    expect(changedInventory.statusCode).toBe(400);
+  });
+
+  it('distinguishes unavailable sources from a complete empty search', async () => {
+    const unavailable = createMockResponse();
+    await invokeInspectRoute(inspectHandler, { query: { search: 'nothing', target: 'serena' } }, unavailable);
+    expect(unavailable.body).toMatchObject({
+      kind: 'search',
+      tools: [],
+      totalTools: 0,
+      complete: false,
+      sources: [{ server: 'serena', available: false }],
+    });
+    const empty = createMockResponse();
+    await invokeInspectRoute(inspectHandler, { query: { search: 'nothing', target: 'filesystem' } }, empty);
+    expect(empty.body).toMatchObject({ kind: 'search', tools: [], totalTools: 0, complete: true });
+  });
+
+  it('reports a malformed authoritative cursor as unavailable instead of complete empty search', async () => {
+    vi.mocked(outboundConnections.get('context7')!.adapter.request).mockResolvedValue({
+      tools: [],
+      nextCursor: 42,
+    } as never);
+    const response = createMockResponse();
+    await invokeInspectRoute(inspectHandler, { query: { search: 'anything', target: 'context7' } }, response);
+    expect(response.statusCode).toBe(503);
+  });
+
   it.each(['5001', '999999999999999999999', '1.5', '1junk', '0', '-1', 'NaN', 'Infinity', ''])(
     'rejects invalid limit %j before querying tools',
     async (limit) => {

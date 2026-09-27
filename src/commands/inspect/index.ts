@@ -43,13 +43,29 @@ export function setupInspectCommand(yargs: Argv): Argv {
           type: 'string',
           choices: ['toon', 'text', 'json'],
         })
+        .option('search', {
+          describe: 'Search visible server/tool references by case-insensitive literal substring',
+          type: 'string',
+        })
+        .option('glob', {
+          describe: 'With --search, match the whole reference using quoted * and ? wildcards',
+          type: 'boolean',
+        })
+        .option('include-descriptions', {
+          describe: 'With --search, also match effective tool descriptions',
+          type: 'boolean',
+        })
+        .option('show-descriptions', {
+          describe: 'With --search, display descriptions independently of matching',
+          type: 'boolean',
+        })
         .option('all', {
-          describe: 'Fetch all tools without pagination (server target only)',
+          describe: 'Fetch all remaining tools after an optional cursor (server listing or search)',
           type: 'boolean',
           default: false,
         })
         .option('limit', {
-          describe: 'Page size for tool listing (server target only)',
+          describe: 'Page size for tool listing (server listing or search)',
           type: 'number',
           default: 20,
         })
@@ -57,6 +73,12 @@ export function setupInspectCommand(yargs: Argv): Argv {
           describe: 'Pagination cursor from a previous response',
           type: 'string',
         })
+        .example('$0 inspect --search "filesystem/read_*" --glob', 'Find tools using a whole-reference glob')
+        .example(
+          '$0 inspect --search docs --include-descriptions --show-descriptions',
+          'Match and display descriptions',
+        )
+        .example('$0 inspect --search read', 'Find tools, then inspect <server>/<tool> before invoking')
         .example('$0 inspect', 'List all servers exposed by the running 1MCP instance')
         .example('$0 inspect filesystem', 'List the exposed tools for a server')
         .example('$0 inspect filesystem/read_file', 'Show a readable summary of a tool schema')

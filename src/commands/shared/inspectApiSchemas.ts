@@ -63,6 +63,30 @@ const inspectToolSchema = z
 export const inspectToolsPageSchema = z
   .object({
     tools: z.array(inspectToolSchema),
+    _meta: z.record(z.string(), z.unknown()).optional(),
     nextCursor: z.string().optional(),
   })
   .passthrough();
+
+export const inspectSearchResultSchema = z.object({
+  kind: z.literal('search'),
+  search: z.string(),
+  glob: z.boolean(),
+  includeDescriptions: z.boolean(),
+  showDescriptions: z.boolean(),
+  tools: z.array(
+    z.object({
+      server: z.string(),
+      tool: z.string(),
+      requiredArgs: z.number().int().nonnegative(),
+      optionalArgs: z.number().int().nonnegative(),
+      description: z.string().optional(),
+    }),
+  ),
+  totalTools: z.number().int().nonnegative(),
+  hasMore: z.boolean(),
+  nextCursor: z.string().optional(),
+  complete: z.boolean(),
+  sources: z.array(z.object({ server: z.string(), status: z.string(), available: z.boolean() })).optional(),
+  _meta: z.record(z.string(), z.unknown()).optional(),
+});

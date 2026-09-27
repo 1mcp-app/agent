@@ -347,6 +347,185 @@ describeInspectE2E('inspect command E2E', () => {
     expect(serverResult.stdout).toContain('find_symbol,');
   });
 
+  async function configureSearchInventory(): Promise<void> {
+    const fixture = join(process.cwd(), 'test/e2e/fixtures/inspect-search-server.js');
+    await writeFile(
+      environment.getConfigPath(),
+      JSON.stringify({
+        templateSettings: { cacheContext: true },
+        mcpServers: {
+          visible: {
+            transport: 'stdio',
+            command: 'node',
+            args: [fixture],
+            tags: ['search'],
+            disabledTools: ['hidden'],
+            toolDescriptionOverrides: { alpha: 'Needle alpha effective override' },
+          },
+          excluded: { transport: 'stdio', command: 'node', args: [fixture], tags: ['other'] },
+        },
+        mcpTemplates: {
+          contextual: {
+            transport: 'stdio',
+            command: 'node',
+            args: [join(process.cwd(), 'test/e2e/fixtures/inspect-template-server.js'), '{{project.path}}'],
+            tags: ['search'],
+            template: { shareable: true },
+          },
+        },
+      }),
+      'utf8',
+    );
+    runner.assertSuccess(
+      await runner.runCommand('preset', 'create', {
+        args: ['search-only', '--filter', 'search', '--config-dir', environment.getConfigDir()],
+      }),
+    );
+    await startServeProcess();
+  }
+
+  async function search(query: string, args: string[] = [], target = '') {
+    return runner.runInspectCommand(target, {
+      cwd: environment.getTempDir(),
+      args: [
+        ...getCliSessionCacheArgs(),
+        '--search',
+        query,
+        ...(args.includes('--format') ? [] : ['--format', 'json']),
+        ...args,
+      ],
+    });
+  }
+
+  it('searches the complete visible inventory with compact identities and template context', async () => {
+    await configureSearchInventory();
+    const result = await search('VISIBLE/ALPHA', ['--tags', 'search']);
+    runner.assertSuccess(result);
+    const page = JSON.parse(result.stdout);
+    expect(page.totalTools).toBe(2);
+    expect(page.tools).toEqual([
+      { server: 'visible', tool: 'alpha', requiredArgs: 1, optionalArgs: 1 },
+      { server: 'visible', tool: 'alpha.late', requiredArgs: 1, optionalArgs: 1 },
+    ]);
+    expect(result.stdout).not.toMatch(/description|inputSchema|qualifiedName/);
+    const template = await search('contextual/find', ['--tags', 'search']);
+    runner.assertSuccess(template);
+    expect(JSON.parse(template.stdout).tools).toEqual([
+      { server: 'contextual', tool: 'find_symbol', requiredArgs: 1, optionalArgs: 1 },
+    ]);
+    const preset = await search('alpha', ['--preset', 'search-only']);
+    runner.assertSuccess(preset);
+    expect(JSON.parse(preset.stdout).tools.map((tool: { server: string }) => tool.server)).toEqual([
+      'visible',
+      'visible',
+    ]);
+    const expression = await search('alpha', ['--tag-filter', 'search AND NOT other']);
+    runner.assertSuccess(expression);
+    expect(JSON.parse(expression.stdout).tools).toEqual(page.tools);
+    const hidden = await search('hidden', ['--tags', 'search']);
+    runner.assertSuccess(hidden);
+    expect(JSON.parse(hidden.stdout).tools).toEqual([]);
+    const excluded = await search('excluded', ['--tags', 'search']);
+    runner.assertSuccess(excluded);
+    expect(JSON.parse(excluded.stdout).tools).toEqual([]);
+  });
+
+  it('paginates after matching and binds continuations to matching options and visibility', async () => {
+    await configureSearchInventory();
+    const first = await search('alpha', ['--tags', 'search', '--limit', '1']);
+    runner.assertSuccess(first);
+    const page = JSON.parse(first.stdout);
+    expect(page.totalTools).toBe(2);
+    expect(page.tools.map((tool: { tool: string }) => tool.tool)).toEqual(['alpha']);
+    expect(page.nextCursor).toEqual(expect.any(String));
+    const rest = await search('alpha', ['--tags', 'search', '--cursor', page.nextCursor, '--all']);
+    runner.assertSuccess(rest);
+    expect(JSON.parse(rest.stdout).tools.map((tool: { tool: string }) => tool.tool)).toEqual(['alpha.late']);
+    runner.assertFailure(await search('beta', ['--tags', 'search', '--cursor', page.nextCursor]), 1);
+    for (const changed of [
+      ['--glob', '--tags', 'search'],
+      ['--include-descriptions', '--tags', 'search'],
+      ['--tags', 'other'],
+    ]) {
+      const result = await search('alpha', [...changed, '--cursor', page.nextCursor]);
+      runner.assertFailure(result, 1);
+    }
+  });
+
+  it('matches literal punctuation by default and only explicit whole-reference glob wildcards', async () => {
+    await configureSearchInventory();
+    for (const [query, flags, names] of [
+      ['alpha.', [], ['alpha.late']],
+      ['alpha*', [], []],
+      ['VISIBLE/ALPH?', ['--glob'], ['alpha']],
+      ['*/alpha.*', ['--glob'], ['alpha.late']],
+      ['alpha*', ['--glob'], []],
+      ['*/alpha[.]late', ['--glob'], []],
+    ] as Array<[string, string[], string[]]>) {
+      const result = await search(query, flags, 'visible');
+      runner.assertSuccess(result);
+      expect(JSON.parse(result.stdout).tools.map((tool: { tool: string }) => tool.tool)).toEqual(names);
+    }
+  });
+
+  it('matches effective descriptions independently from display in all output formats', async () => {
+    await configureSearchInventory();
+    for (const format of ['json', 'toon', 'text']) {
+      for (const include of [false, true]) {
+        for (const show of [false, true]) {
+          const result = await search(
+            'Needle',
+            [
+              '--format',
+              format,
+              ...(include ? ['--include-descriptions'] : []),
+              ...(show ? ['--show-descriptions'] : []),
+            ],
+            'visible',
+          );
+          runner.assertSuccess(result);
+          if (include) {
+            expect(result.stdout).toContain('alpha.late');
+            if (show) expect(result.stdout).toContain('Needle alpha effective override');
+            else expect(result.stdout).not.toContain('Needle alpha effective override');
+          } else {
+            expect(result.stdout).not.toContain('alpha');
+          }
+          expect(result.stdout).not.toContain('Original description');
+          expect(result.stdout).not.toContain('hidden');
+        }
+      }
+    }
+    const glob = await search('*NEEDLE*', ['--glob', '--include-descriptions'], 'visible');
+    runner.assertSuccess(glob);
+    expect(JSON.parse(glob.stdout).totalTools).toBe(2);
+    const deduplicated = await search('alpha', ['--include-descriptions'], 'visible');
+    runner.assertSuccess(deduplicated);
+    expect(JSON.parse(deduplicated.stdout).totalTools).toBe(2);
+    const absent = await search('no_description', ['--include-descriptions', '--show-descriptions'], 'visible');
+    runner.assertSuccess(absent);
+    expect(JSON.parse(absent.stdout).tools).toHaveLength(1);
+  });
+
+  it('rejects invalid search combinations without changing ordinary inspection', async () => {
+    await startServeProcess();
+    for (const args of [['--glob'], ['--include-descriptions'], ['--show-descriptions'], ['--search', '   ']]) {
+      const result = await runner.runInspectCommand('runner', {
+        cwd: environment.getTempDir(),
+        args: [...getCliSessionCacheArgs(), ...args],
+      });
+      runner.assertFailure(result, 1);
+    }
+    runner.assertFailure(await search('echo', [], 'runner/echo_args'), 1);
+    runner.assertFailure(await search('echo', [], 'missing-server'), 1);
+    const ordinary = await runner.runInspectCommand('runner/echo_args', {
+      cwd: environment.getTempDir(),
+      args: [...getCliSessionCacheArgs(), '--format', 'json'],
+    });
+    runner.assertSuccess(ordinary);
+    expect(JSON.parse(ordinary.stdout).description).toEqual(expect.any(String));
+  });
+
   async function startServeProcess(): Promise<void> {
     if (serveProcess) {
       return;

@@ -18,6 +18,7 @@ import { getInspectResult, inspectCommand } from './inspect.js';
 interface MockSchemaPayload {
   tools: Tool[];
   nextCursor?: string;
+  _meta?: Record<string, unknown>;
 }
 
 const transportState = vi.hoisted(() => ({
@@ -294,6 +295,192 @@ describe('inspect command internals', () => {
     });
     transportState.pages.tail.nextCursor = 'empty';
     await expect(getInspectResult(options)).rejects.toThrow('repeated cursor');
+  });
+
+  it('searches the complete scoped fallback inventory and retains partial metadata from earlier pages', async () => {
+    mockedApiClientGet.mockResolvedValue({ ok: false, status: 404, error: 'HTTP 404' });
+    const tools = buildCatalogGeneration(
+      1,
+      ['first', 'tail'].map((name) => ({
+        kind: 'tools',
+        server: 'runner',
+        connectionKey: 'runner',
+        object: { name, inputSchema: { type: 'object' } },
+      })),
+    ).entries.map((entry) => toProtocolTool(entry.publicObject));
+    transportState.schemaPayload = { tools: [tools[0]], nextCursor: 'tail', _meta: { partial: true } };
+    transportState.pages.tail = { tools: [tools[1]] };
+    const result = await getInspectResult({ target: 'runner', search: 'TAIL', url: 'http://127.0.0.1:3050/mcp' });
+    expect(result).toMatchObject({
+      kind: 'search',
+      totalTools: 1,
+      complete: false,
+      _meta: { partial: true },
+      tools: [{ server: 'runner', tool: 'tail', requiredArgs: 0, optionalArgs: 0 }],
+    });
+  });
+
+  it('rejects cross-server search on an older endpoint that ignores search', async () => {
+    mockedApiClientGet.mockResolvedValue({ ok: true, status: 200, data: { kind: 'servers', servers: [] } });
+    await expect(getInspectResult({ search: 'tail', url: 'http://127.0.0.1:3050/mcp' })).rejects.toThrow('Upgrade');
+    expect(transportState.instances).toHaveLength(0);
+  });
+
+  it('rejects blank searches and exact tool targets before attachment', async () => {
+    await expect(getInspectResult({ search: '  ' })).rejects.toThrow('blank');
+    await expect(getInspectResult({ search: 'tail', target: 'runner/tail' })).rejects.toThrow('tool target');
+    expect(mockedApiClientGet).not.toHaveBeenCalled();
+  });
+
+  it('preserves partial facts when a later page supplies complete metadata', async () => {
+    mockedApiClientGet.mockResolvedValue({ ok: false, status: 404, error: 'HTTP 404' });
+    transportState.schemaPayload = {
+      tools: [],
+      nextCursor: 'tail',
+      _meta: { 'app.1mcp/capability-pagination': { partial: true, complete: false } },
+    };
+    transportState.pages.tail = {
+      tools: [],
+      _meta: { 'app.1mcp/capability-pagination': { partial: false, complete: true } },
+    };
+    expect(
+      await getInspectResult({ target: 'runner', search: 'tail', url: 'http://127.0.0.1:3050/mcp' }),
+    ).toMatchObject({
+      complete: false,
+      _meta: { 'app.1mcp/capability-pagination': { partial: true, complete: false } },
+    });
+  });
+
+  it('rejects unauthorized search without MCP fallback', async () => {
+    mockedApiClientGet.mockResolvedValue({ ok: false, status: 403, error: 'Forbidden' });
+    await expect(
+      getInspectResult({ target: 'runner', search: 'tail', url: 'http://127.0.0.1:3050/mcp' }),
+    ).rejects.toThrow();
+    expect(transportState.instances).toHaveLength(0);
+  });
+
+  it('filters a search-ignoring server endpoint through MCP including glob and descriptions', async () => {
+    mockedApiClientGet.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: { kind: 'server', server: 'runner', tools: [] },
+    });
+    const tools = buildCatalogGeneration(
+      1,
+      [
+        { name: 'a.b', description: 'Read documents', inputSchema: { type: 'object' } },
+        { name: 'axb', description: 'Other', inputSchema: { type: 'object' } },
+      ].map((object) => ({ kind: 'tools', server: 'runner', connectionKey: 'runner', object })),
+    ).entries.map((entry) => toProtocolTool(entry.publicObject));
+    transportState.schemaPayload = { tools };
+    const options = { target: 'runner', url: 'http://127.0.0.1:3050/mcp', glob: true };
+    expect(await getInspectResult({ ...options, search: 'RUNNER/a.?', 'show-descriptions': true })).toMatchObject({
+      totalTools: 1,
+      tools: [{ tool: 'a.b', description: 'Read documents' }],
+    });
+    expect(await getInspectResult({ ...options, search: '*DOC*', 'include-descriptions': true })).toMatchObject({
+      totalTools: 1,
+      tools: [{ tool: 'a.b' }],
+    });
+  });
+
+  it('rejects malformed, repeating, and over-budget search enumeration', async () => {
+    mockedApiClientGet.mockResolvedValue({ ok: false, status: 404, error: 'HTTP 404' });
+    const options = { target: 'runner', search: 'tail', url: 'http://127.0.0.1:3050/mcp' };
+    transportState.malformedPages.first = { tools: null };
+    await expect(getInspectResult(options)).rejects.toThrow('Invalid tools/list');
+    transportState.malformedPages = {};
+    transportState.schemaPayload = { tools: [], nextCursor: 'loop' };
+    transportState.pages.loop = { tools: [], nextCursor: 'loop' };
+    await expect(getInspectResult(options)).rejects.toThrow('repeated cursor');
+    transportState.schemaPayload = { tools: [], nextCursor: '1' };
+    transportState.pages = Object.fromEntries(
+      Array.from({ length: 1000 }, (_, i) => [String(i + 1), { tools: [], nextCursor: String(i + 2) }]),
+    );
+    await expect(getInspectResult(options)).rejects.toThrow('exceeded 1000 pages');
+  });
+
+  it.each(['loading', 'disconnected', 'awaiting_oauth'])(
+    'preserves authoritative %s source state through MCP search fallback',
+    async (status) => {
+      mockedApiClientGet.mockResolvedValue({
+        ok: true,
+        status: 200,
+        data: {
+          kind: 'server',
+          server: 'runner',
+          status,
+          available: false,
+          tools: [],
+        },
+      });
+      transportState.schemaPayload = { tools: [] };
+      expect(
+        await getInspectResult({ target: 'runner', search: 'tail', url: 'http://127.0.0.1:3050/mcp' }),
+      ).toMatchObject({
+        kind: 'search',
+        complete: false,
+        totalTools: 0,
+        sources: [{ server: 'runner', status, available: false }],
+      });
+    },
+  );
+
+  it.each(['rest', 'mcp'])('retains partial %s metadata when combining fallback evidence', async (partialSource) => {
+    const partial = { partial: true, complete: false, failedSourceCount: 1 };
+    const complete = { partial: false, complete: true };
+    mockedApiClientGet.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: {
+        kind: 'server',
+        server: 'runner',
+        status: 'connected',
+        available: true,
+        tools: [],
+        _meta: { restFact: true, 'app.1mcp/capability-pagination': partialSource === 'rest' ? partial : complete },
+      },
+    });
+    transportState.schemaPayload = {
+      tools: [],
+      _meta: {
+        mcpFact: true,
+        'app.1mcp/capability-pagination': partialSource === 'mcp' ? partial : complete,
+      },
+    };
+    expect(
+      await getInspectResult({ target: 'runner', search: 'tail', url: 'http://127.0.0.1:3050/mcp' }),
+    ).toMatchObject({
+      complete: false,
+      sources: [{ server: 'runner', status: 'connected', available: true }],
+      _meta: { restFact: true, mcpFact: true, 'app.1mcp/capability-pagination': partial },
+    });
+  });
+
+  it('rejects legacy unrouted fallback tools even when REST confirms the server exists', async () => {
+    mockedApiClientGet.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: {
+        kind: 'server',
+        server: 'runner',
+        status: 'connected',
+        available: true,
+        tools: [],
+      },
+    });
+    transportState.schemaPayload = { tools: [{ name: 'runner_1mcp_tail', inputSchema: { type: 'object' } }] };
+    await expect(
+      getInspectResult({ target: 'runner', search: 'tail', url: 'http://127.0.0.1:3050/mcp' }),
+    ).rejects.toThrow('public tool route metadata');
+  });
+
+  it('does not report unknown fallback servers as complete zero matches', async () => {
+    transportState.schemaPayload = { tools: [] };
+    mockedApiClientGet.mockResolvedValue({ ok: false, status: 404, error: 'HTTP 404' });
+    await expect(
+      getInspectResult({ target: 'missing', search: 'anything', url: 'http://127.0.0.1:3050/mcp' }),
+    ).rejects.toThrow('Cannot establish whether server');
   });
 
   it('falls back to MCP when the inspect endpoint is unavailable for a server target', async () => {

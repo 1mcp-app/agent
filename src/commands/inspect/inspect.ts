@@ -8,19 +8,22 @@ import {
   type ReusableClientSurface,
 } from '@src/commands/shared/clientSurfaceAttachment.js';
 import { buildFilterSelectionQuery } from '@src/commands/shared/filterSelectionQuery.js';
-import { inspectToolsPageSchema } from '@src/commands/shared/inspectApiSchemas.js';
+import { inspectSearchResultSchema, inspectToolsPageSchema } from '@src/commands/shared/inspectApiSchemas.js';
 import {
   type JsonRpcErrorEnvelope,
   type JsonRpcResponse,
   StreamableServeClient,
 } from '@src/commands/shared/serveClient.js';
 import { API_INSPECT_ENDPOINT } from '@src/constants/api.js';
+import { CAPABILITY_PAGINATION_META_KEY } from '@src/core/capabilities/capabilityPagination.js';
 import { readPublicCapabilityRoute } from '@src/core/capabilities/catalogGeneration.js';
 import { collectConfiguredToolPages } from '@src/core/capabilities/configuredToolSnapshot.js';
 import { paginateInspectTools } from '@src/core/capabilities/inspectPagination.js';
+import { inspectSearchOptionsSchema, searchInspectTools } from '@src/core/capabilities/inspectSearch.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 import { hasHttpErrorCode, type Tool, toProtocolTools } from '@src/sdk/contracts/index.js';
 import type { ContextData } from '@src/types/context.js';
+import { isPlainObject } from '@src/utils/typeGuards.js';
 
 import {
   extractInspectServerInfo,
@@ -48,6 +51,10 @@ export interface InspectCommandOptions extends GlobalOptions {
   all?: boolean;
   limit?: number;
   cursor?: string;
+  search?: string;
+  glob?: boolean;
+  'include-descriptions'?: boolean;
+  'show-descriptions'?: boolean;
 }
 
 interface GetInspectResultOptions {
@@ -66,11 +73,28 @@ interface ApiInspectToolResult {
 }
 
 function buildInspectQuery(
-  options: Pick<InspectCommandOptions, 'preset' | 'filter' | 'tags' | 'tag-filter' | 'all' | 'limit' | 'cursor'>,
+  options: Pick<
+    InspectCommandOptions,
+    | 'preset'
+    | 'filter'
+    | 'tags'
+    | 'tag-filter'
+    | 'all'
+    | 'limit'
+    | 'cursor'
+    | 'search'
+    | 'glob'
+    | 'include-descriptions'
+    | 'show-descriptions'
+  >,
   target?: string,
 ): Record<string, string> {
   const query: Record<string, string> = buildFilterSelectionQuery(options);
   if (target) query.target = target;
+  if (options.search !== undefined) query.search = options.search;
+  if (options.glob) query.glob = 'true';
+  if (options['include-descriptions']) query['include-descriptions'] = 'true';
+  if (options['show-descriptions']) query['show-descriptions'] = 'true';
   if (options.all) query.all = 'true';
   else if (options.limit && options.limit !== 20) query.limit = String(options.limit);
   if (options.cursor) query.cursor = options.cursor;
@@ -153,10 +177,19 @@ export async function getInspectResult(
   options: InspectCommandOptions,
   resultOptions: GetInspectResultOptions = {},
 ): Promise<InspectResult> {
+  const validatedSearch = inspectSearchOptionsSchema.safeParse(options);
+  if (!validatedSearch.success) throw new InspectCommandError(validatedSearch.error.issues[0].message);
+  if (options.search !== undefined && parseInspectTarget(options.target).kind === 'tool') {
+    throw new InspectCommandError('Search accepts an optional server target, not an exact tool target.');
+  }
+  if (options.limit !== undefined && (!Number.isInteger(options.limit) || options.limit < 1 || options.limit > 5000)) {
+    throw new InspectCommandError('limit must be an integer from 1 to 5000.');
+  }
   const includeServerInstructions = resultOptions.includeServerInstructions ?? true;
   const clientSurface = resultOptions.clientSurface ?? 'inspect';
   const attachment = await attachReusableClientSurface<InspectCommandOptions, InspectAttachmentValue>({
     clientSurface,
+    alwaysTryRest: options.search !== undefined,
     version: clientSurface,
     options,
     rest: (context) => tryInspectRest(context, includeServerInstructions),
@@ -169,6 +202,9 @@ export async function getInspectResult(
         contextProof: context.contextProof,
         sendInitialize: context.sendInitialize,
       });
+      if ('error' in response.rawResponse && !response.retryWithFreshSession) {
+        throw new InspectCommandError(response.rawResponse.error.message);
+      }
       const target = parseInspectTarget(context.options.target);
       const shouldRetryWithFreshSession =
         response.retryWithFreshSession ||
@@ -204,6 +240,9 @@ export async function getInspectResult(
   }
   const response = attachment.value;
 
+  let serverConfirmed = false;
+  let searchMetadata = response._meta;
+  let searchSource: { server: string; status: string; available: boolean } | undefined;
   if (target.kind === 'server') {
     const apiClient = new ApiClient({
       baseUrl: attachment.baseUrl,
@@ -216,13 +255,79 @@ export async function getInspectResult(
       API_INSPECT_ENDPOINT,
       buildInspectQuery(attachment.target.mergedOptions, attachment.target.mergedOptions.target),
     );
-    if (refreshedApiResponse.ok && refreshedApiResponse.data !== undefined) {
+    serverConfirmed =
+      refreshedApiResponse.ok &&
+      isPlainObject(refreshedApiResponse.data) &&
+      refreshedApiResponse.data.kind === 'server' &&
+      refreshedApiResponse.data.server === target.serverName;
+    if (serverConfirmed && isPlainObject(refreshedApiResponse.data)) {
+      const data = refreshedApiResponse.data;
+      if (isPlainObject(data._meta)) searchMetadata = mergeInspectMetadata(searchMetadata, data._meta);
+      if (typeof data.status === 'string' || typeof data.available === 'boolean') {
+        const status = typeof data.status === 'string' ? data.status : 'unknown';
+        searchSource = {
+          server: target.serverName,
+          status,
+          available: data.available === true && (status === 'connected' || status === 'unknown'),
+        };
+      }
+    }
+    if (refreshedApiResponse.status === 401 || refreshedApiResponse.status === 403) {
+      throw new InspectCommandError('Authorization failed while inspecting tools.');
+    }
+    if (attachment.target.mergedOptions.search !== undefined && !refreshedApiResponse.ok) {
+      const missingEndpoint =
+        refreshedApiResponse.status === 404 &&
+        (!refreshedApiResponse.error || refreshedApiResponse.error === 'HTTP 404');
+      if (!missingEndpoint && ![0, 405, 503].includes(refreshedApiResponse.status)) {
+        throw new InspectCommandError(
+          refreshedApiResponse.error || `Server returned HTTP ${refreshedApiResponse.status}`,
+        );
+      }
+    }
+    if (
+      refreshedApiResponse.ok &&
+      refreshedApiResponse.data !== undefined &&
+      attachment.target.mergedOptions.search === undefined
+    ) {
       return normalizeApiInspectResult(
         refreshedApiResponse.data as Parameters<typeof formatInspectOutput>[0],
         target,
         includeServerInstructions,
       );
     }
+  }
+
+  if (attachment.target.mergedOptions.search !== undefined) {
+    if (response.tools.some((tool) => readPublicCapabilityRoute(tool)?.kind !== 'tools')) {
+      throw new InspectCommandError(
+        'This runtime does not expose public tool route metadata required for inspect search. Upgrade the running 1MCP runtime.',
+      );
+    }
+    if (
+      target.kind === 'server' &&
+      !serverConfirmed &&
+      !hasServerTools(response.tools, target.serverName) &&
+      searchMetadata === undefined
+    ) {
+      throw new InspectCommandError(
+        `Cannot establish whether server '${target.serverName}' exists in this runtime's empty scoped inventory. Upgrade the running 1MCP runtime for supported inspect search.`,
+      );
+    }
+    return searchInspectTools(
+      response.tools,
+      {
+        ...attachment.target.mergedOptions,
+        search: attachment.target.mergedOptions.search,
+        target: target.kind === 'server' ? target.serverName : undefined,
+      },
+      buildInspectQuery({ ...attachment.target.mergedOptions, cursor: undefined, all: false, limit: 20 }),
+      {
+        complete: searchMetadata === undefined && (searchSource?.available ?? true),
+        ...(searchSource === undefined ? {} : { sources: [searchSource] }),
+        ...(searchMetadata === undefined ? {} : { _meta: searchMetadata }),
+      },
+    );
   }
 
   let result: Parameters<typeof formatInspectOutput>[0];
@@ -278,6 +383,28 @@ async function tryInspectRest(
   );
 
   if (apiResponse.ok && apiResponse.data !== undefined) {
+    if (context.options.search !== undefined) {
+      const parsed = inspectSearchResultSchema.safeParse(apiResponse.data);
+      if (
+        !parsed.success ||
+        parsed.data.search !== context.options.search ||
+        parsed.data.glob !== (context.options.glob ?? false) ||
+        parsed.data.includeDescriptions !== (context.options['include-descriptions'] ?? false) ||
+        parsed.data.showDescriptions !== (context.options['show-descriptions'] ?? false)
+      ) {
+        if (target.kind === 'server') return { status: 'fallback', reason: 'endpoint_missing' };
+        return {
+          status: 'error',
+          message:
+            'This runtime does not support inspect search. Upgrade the running 1MCP runtime, or search an explicit server with --search.',
+        };
+      }
+      return {
+        status: 'success',
+        sessionId: apiResponse.sessionId ?? context.sessionId,
+        value: { result: parsed.data },
+      };
+    }
     return {
       status: 'success',
       sessionId: apiResponse.sessionId ?? context.sessionId,
@@ -313,7 +440,10 @@ async function tryInspectRest(
   if (target.kind === 'all') {
     return {
       status: 'error',
-      message: 'Cannot list all servers: the running 1MCP server does not support the /api/inspect endpoint.',
+      message:
+        context.options.search !== undefined
+          ? 'This runtime does not support cross-server inspect search. Upgrade the running 1MCP runtime, or search an explicit server with --search.'
+          : 'Cannot list all servers: the running 1MCP server does not support the /api/inspect endpoint.',
     };
   }
 
@@ -332,17 +462,34 @@ export async function inspectCommand(options: InspectCommandOptions): Promise<vo
   }
 }
 
+function mergeInspectMetadata(
+  previous: Record<string, unknown> | undefined,
+  incoming: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!incoming) return previous;
+  const metadata = { ...previous, ...incoming };
+  const previousPartial = previous?.[CAPABILITY_PAGINATION_META_KEY];
+  if (isPlainObject(previousPartial) && previousPartial.partial === true) {
+    const current = metadata[CAPABILITY_PAGINATION_META_KEY];
+    metadata[CAPABILITY_PAGINATION_META_KEY] = { ...(isPlainObject(current) ? current : {}), ...previousPartial };
+  }
+  return metadata;
+}
+
 async function listAllInspectTools(client: StreamableServeClient) {
   const first = await client.listTools();
   if ('error' in first) return first;
+  let metadata: Record<string, unknown> | undefined;
   const result = await collectConfiguredToolPages(async (cursor) => {
     const response = cursor === undefined ? first : await client.listTools(cursor);
     if ('error' in response) throw new InspectCommandError(response.error.message);
     const page = inspectToolsPageSchema.safeParse(response.result);
     if (!page.success) throw new InspectCommandError('Invalid tools/list response from server.');
-    return { ...page.data, tools: toProtocolTools(page.data.tools) };
+    metadata = mergeInspectMetadata(metadata, page.data._meta);
+    const { _meta: _metadata, ...validatedPage } = page.data;
+    return { ...validatedPage, tools: toProtocolTools(page.data.tools) };
   });
-  return { ...first, result };
+  return { ...first, result: { ...result, ...(metadata === undefined ? {} : { _meta: metadata }) } };
 }
 
 export async function inspectTools(options: {
@@ -358,6 +505,7 @@ export async function inspectTools(options: {
   sessionId?: string;
   instructions?: string | null;
   retryWithFreshSession: boolean;
+  _meta?: Record<string, unknown>;
 }> {
   const client = new StreamableServeClient(options.serverUrl, options.sessionId, options.bearerToken);
   await client.start();
@@ -390,6 +538,7 @@ export async function inspectTools(options: {
       return {
         rawResponse: response,
         tools: toProtocolTools(response.result.tools),
+        _meta: response.result._meta,
         sessionId: client.sessionId,
         instructions: initializeResponse.result.instructions ?? null,
         retryWithFreshSession: false,
@@ -410,6 +559,7 @@ export async function inspectTools(options: {
     return {
       rawResponse: response,
       tools: toProtocolTools(response.result.tools),
+      _meta: response.result._meta,
       sessionId: client.sessionId,
       instructions: undefined,
       retryWithFreshSession: false,

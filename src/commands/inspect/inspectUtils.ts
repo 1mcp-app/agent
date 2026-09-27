@@ -3,6 +3,7 @@ import { encode } from '@toon-format/toon';
 import type { ParsedToolReference } from '@src/commands/run/runUtils.js';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { readPublicCapabilityRoute } from '@src/core/capabilities/catalogGeneration.js';
+import type { InspectSearchResult } from '@src/core/capabilities/inspectSearch.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
 import { buildUri } from '@src/utils/core/parsing.js';
 import { isPlainObject } from '@src/utils/typeGuards.js';
@@ -86,7 +87,7 @@ export interface InspectServersInfo {
   serverInstructions?: Record<string, string>;
 }
 
-export type InspectResult = InspectToolInfo | InspectServerInfo | InspectServersInfo;
+export type InspectResult = InspectToolInfo | InspectServerInfo | InspectServersInfo | InspectSearchResult;
 
 export type InspectTarget =
   | {
@@ -207,6 +208,25 @@ export function formatInspectOutput(result: InspectResult, format: InspectOutput
     return encode(displayed);
   }
 
+  if (result.kind === 'search') {
+    const lines = [
+      `Inspect: Search`,
+      `search: ${result.search}`,
+      `totalTools: ${result.totalTools}`,
+      `complete: ${result.complete}`,
+      `hasMore: ${result.hasMore}`,
+    ];
+    for (const tool of result.tools) {
+      lines.push(
+        `- server: ${tool.server}\n  tool: ${tool.tool}\n  requiredArgs: ${tool.requiredArgs}\n  optionalArgs: ${tool.optionalArgs}`,
+      );
+      if (tool.description !== undefined) lines.push(`  description: ${tool.description}`);
+    }
+    if (result.sources) lines.push(`sources: ${JSON.stringify(result.sources)}`);
+    if (result._meta) lines.push(`_meta: ${JSON.stringify(result._meta)}`);
+    if (result.nextCursor) lines.push(`nextCursor: ${result.nextCursor}`);
+    return lines.join('\n');
+  }
   if (result.kind === 'servers') return formatServersOutput(result);
   if (result.kind === 'server') return formatServerOutput(result);
   return formatToolOutput(result);
