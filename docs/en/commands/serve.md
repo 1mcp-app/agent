@@ -91,7 +91,8 @@ For runtime-wide configuration details, see the **[Configuration Guide](/guide/e
 - **`--status`**: Report the state of the runtime in the selected **Runtime Scope**, then exit without starting a server.
 - **`--stop`**: Stop the runtime in the selected **Runtime Scope**, then exit.
 - **`--restart`**: Cooperatively replace a compatible background supervisor and worker in the selected **Runtime Scope** using the invoking installation. An empty scope starts a background runtime. HTTP only.
-- **`--drain-timeout <seconds>`**: Deadline for the reversible drain before replacement commits; default `30`. Expiry resumes the old runtime and aborts the upgrade.
+- **`--drain-timeout <seconds>`**: Maximum time to let existing backend work finish before applying the deadline action; default `30`.
+- **`--on-drain-timeout <restart|abort>`**: Default `restart`: stop the old runtime after the deadline, interrupting unfinished calls, then activate the replacement. Use `abort` to cancel replacement and resume the old runtime. Calls are never automatically replayed.
 
 ## Runtime Scope and Lifecycle
 
@@ -240,10 +241,40 @@ Behavior:
 - **Frozen replacement configuration.** Explicit launch settings are preserved, including values equal to old defaults; explicitly supplied restart options override supported settings. Omitted values use the new installation's defaults. The replacement loads the validated snapshot, and hot reload resumes after activation.
 - **Reversible drain.** Close admission to new backend work and configuration mutations while existing operations finish. New work receives a retryable draining error; interaction replies, progress, and cancellation remain available. Idle sessions do not block the drain.
 - **Listener activation.** Cooperative background startup accepts clients before backend loading finishes, even with `--enable-async-loading=false`. The explicit setting and notification policy remain preserved; foreground startup is unchanged. Backend loading remains visible at `/health/mcp`.
-- **Bounded preparation.** The default deadline is 30 seconds (`--drain-timeout`). Expiry before commit reopens admission and aborts replacement, even if all calls finished or the coordinating CLI disappeared. Repeating preparation does not extend the deadline.
+- **Bounded drain.** The default deadline is 30 seconds (`--drain-timeout`). On expiry, the CLI reports the last observed unresolved request count, warns about interrupted calls, and asks the authenticated supervisor to stop. `--on-drain-timeout abort` instead cancels replacement and resumes admission. The deadline policy applies only to this invocation. If the coordinator disappears before requesting retirement, the supervisor resumes admission at expiry; repeating preparation does not extend the deadline.
 - **Exclusive activation.** After commit, retire the old worker and supervisor before the replacement claims the scope. A competing owner or incomplete retirement blocks activation. A successful report confirms the new generation and configuration digest, with backend health reported separately.
 - **Interruption is expected.** Sessions and connections may disconnect. Tool calls are never automatically replayed. If activation fails after the old runtime retires, the command reports failure and does not roll back automatically; fix the cause and retry.
 - **Compatibility and recovery.** An incompatible or unresponsive runtime is not forcibly replaced through cooperative control. Preserve its records and use the original CLI, service manager, or independently verified legacy recovery. An empty scope starts normally; `--transport stdio` remains unsupported.
+
+### Drain timeout and recovery
+
+Use a longer grace period for slow calls, or keep the old runtime if they do not finish:
+
+```bash
+1mcp serve --restart --drain-timeout 120
+1mcp serve --restart --drain-timeout 120 --on-drain-timeout abort
+```
+
+A timed-out or disconnected backend call may remain tracked until its terminal reply arrives. Increasing the grace period cannot resolve a call that never replies. With the default policy, restart proceeds after the deadline:
+
+```text
+Drain deadline reached after 30s; 2 requests remain unresolved.
+Restarting now. Unfinished calls may be interrupted and will not be replayed.
+```
+
+The deadline starts retirement; it is not a promise that replacement activation completes within 30 seconds. The CLI waits up to another 30 seconds to confirm that the old owner has retired. Compatible older supervisors may briefly resume admission between deadline expiry and the stop request.
+
+If retirement cannot be confirmed, the replacement is not started. The error supplies a scoped `--status` command and explicit stop/retry guidance. If activation fails after retirement, the old runtime has already stopped; inspect status, fix the reported cause, and rerun `--restart`. Preserve the original configuration overrides when retrying. For a custom scope, use the same `--config-dir` throughout:
+
+```bash
+1mcp serve --config-dir ./config --status
+# If the old runtime is still running and deliberate interruption is acceptable:
+1mcp serve --config-dir ./config --stop
+# After confirmed stop, or after correcting a replacement activation failure:
+1mcp serve --config-dir ./config --restart
+```
+
+If control is unreachable, use the original service manager; do not delete ownership records. An interrupted call may already have performed external work, so check its outcome before retrying it.
 
 ## Examples
 

@@ -35,6 +35,31 @@ describe('setupServeCommand', () => {
     expect(serveCommandMock.mock.calls[0]?.[0]).not.toHaveProperty('transport');
   });
 
+  it.each([
+    [[], 'restart'],
+    [['--on-drain-timeout', 'abort'], 'abort'],
+    [['--on-drain-timeout', 'restart'], 'restart'],
+  ] as const)('selects the drain deadline policy for %j', async (args, expected) => {
+    await setupServeCommand(yargs([]).exitProcess(false).help(false).version(false)).parseAsync([
+      'serve',
+      '--restart',
+      ...args,
+    ]);
+    expect(serveCommandMock).toHaveBeenCalledWith(expect.objectContaining({ 'on-drain-timeout': expected }));
+  });
+
+  it('rejects an unknown drain deadline policy before serving', () => {
+    expect(() =>
+      setupServeCommand(yargs([]).exitProcess(false).showHelpOnFail(false).help(false).version(false)).parseSync([
+        'serve',
+        '--restart',
+        '--on-drain-timeout',
+        'ignore',
+      ]),
+    ).toThrow('Invalid values');
+    expect(serveCommandMock).not.toHaveBeenCalled();
+  });
+
   it('passes the CLI transport through when explicitly provided', async () => {
     await setupServeCommand(yargs([]).exitProcess(false).help(false).version(false)).parseAsync([
       'serve',

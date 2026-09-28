@@ -62,6 +62,14 @@ describe('replacement launch provenance', () => {
     expect(captured.values).not.toHaveProperty('lazy-cache-max-entries');
   });
 
+  it('does not persist drain policy from CLI or environment as a launch override', () => {
+    vi.stubEnv('ONE_MCP_ON_DRAIN_TIMEOUT', 'abort');
+    expect(captureExplicitLaunchInputs(['serve', '--restart']).values).not.toHaveProperty('on-drain-timeout');
+    expect(
+      captureExplicitLaunchInputs(['serve', '--restart', '--on-drain-timeout', 'abort']).values,
+    ).not.toHaveProperty('on-drain-timeout');
+  });
+
   it('preserves old explicit settings, overlays new explicit settings, and leaves defaults unspecified', () => {
     const result = prepareRuntimeReplacementConfig({
       configFilePath,

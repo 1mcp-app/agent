@@ -32,9 +32,15 @@ export const serverOptions = {
     default: false,
   },
   'drain-timeout': {
-    describe: 'Maximum seconds to drain backend work before aborting a runtime upgrade',
+    describe: 'Maximum seconds to drain backend work before applying --on-drain-timeout',
     type: 'number' as const,
     default: 30,
+  },
+  'on-drain-timeout': {
+    describe: 'Action when restart draining expires: interrupt unfinished calls and restart, or abort and resume',
+    type: 'string' as const,
+    choices: ['restart', 'abort'] as const,
+    default: 'restart' as const,
   },
   'cooperative-bootstrap': {
     type: 'string' as const,

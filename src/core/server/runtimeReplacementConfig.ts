@@ -38,6 +38,7 @@ const excludedOptions = new Set([
   'background-launch-config',
   'cooperative-bootstrap',
   'drain-timeout',
+  'on-drain-timeout',
 ]);
 const launchOptions: Record<string, Options> = Object.fromEntries(
   Object.entries({ ...globalOptions, ...serverOptions })
