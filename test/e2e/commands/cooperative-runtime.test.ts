@@ -371,7 +371,7 @@ describe('cooperative runtime real-process lifecycle', () => {
       );
       cancellation.abort();
       await expect(call).rejects.toBeDefined();
-      const restart = await run(s, ['serve', '--restart', '--drain-timeout', '0.3']);
+      const restart = await run(s, ['serve', '--restart', '--drain-timeout', '0.3', '--on-drain-timeout', 'abort']);
       expect(restart.code, restart.stdout + restart.stderr).not.toBe(0);
       expect(restart.stdout + restart.stderr).toMatch(/aborted|deadline/);
       expect(owner(s)).toEqual(original);
@@ -632,7 +632,7 @@ describe('cooperative runtime real-process lifecycle', () => {
         audit(journal).some((event) => event.invocation === 'slow-original' && event.event === 'start'),
       );
       let preparing = false;
-      const restarting = run(s, ['serve', '--restart', '--drain-timeout', '0.5'], {
+      const restarting = run(s, ['serve', '--restart', '--drain-timeout', '0.5', '--on-drain-timeout', 'abort'], {
         output: (text) => {
           if (text.includes('Draining')) preparing = true;
         },
@@ -661,6 +661,40 @@ describe('cooperative runtime real-process lifecycle', () => {
       const starts = audit(journal).filter((entry) => entry.event === 'start');
       expect(starts.filter((entry) => entry.invocation === 'slow-original')).toHaveLength(1);
       expect(new Set(starts.map((entry) => entry.invocation)).size).toBe(starts.length);
+    },
+  );
+
+  it.each([{ policy: [] }, { policy: ['--on-drain-timeout', 'restart'] }])(
+    'interrupts unfinished work at the deadline and activates once with %j',
+    { timeout: 55_000 },
+    async ({ policy }) => {
+      const s = scope();
+      const journal = configureSlowFixture(s);
+      const port = await freePort();
+      await start(s, port);
+      await waitForFixture(port);
+      const previousOwner = owner(s);
+      const previousRuntime = runtime(s);
+      const unfinished = invoke(port, 'interrupted-original', 60_000)
+        .then(async (response) => ({ status: response.status, body: await response.text() }))
+        .catch(() => ({ status: 0, body: '' }));
+      await eventually(() =>
+        audit(journal).some((entry) => entry.invocation === 'interrupted-original' && entry.event === 'start'),
+      );
+      const restarted = await run(s, ['serve', '--restart', '--drain-timeout', '0.3', ...policy]);
+      expect(restarted.code, restarted.stdout + restarted.stderr).toBe(0);
+      expect(restarted.stderr).toContain('Drain deadline reached after 0.3s; 1 request remains unresolved');
+      expect(restarted.stderr).toContain('will not be replayed');
+      expect(restarted.stdout).toContain('Runtime activated');
+      expect(owner(s).claimId).not.toBe(previousOwner.claimId);
+      expect(owner(s).pid).not.toBe(previousOwner.pid);
+      expect(runtime(s).pid).not.toBe(previousRuntime.pid);
+      expect(runtime(s).port).toBe(port);
+      expect((await unfinished).status).not.toBe(200);
+      await waitForFixture(port);
+      expect((await invoke(port, 'after-interruption')).status).toBe(200);
+      const original = audit(journal).filter((entry) => entry.invocation === 'interrupted-original');
+      expect(original).toEqual([{ invocation: 'interrupted-original', event: 'start' }]);
     },
   );
 

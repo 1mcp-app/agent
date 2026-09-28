@@ -237,7 +237,13 @@ export async function launchCooperativeRuntime(
   }
 }
 
-/** Preflight precedes the first mutation. Lost commit responses are reconciled, never resent. */
+function scopedServeCommand(runtimeScope: string): string {
+  // Commands are copyable in POSIX shells or PowerShell, including scopes with spaces/apostrophes.
+  const escaped = runtimeScope.replaceAll("'", process.platform === 'win32' ? "''" : "'\\''");
+  return `1mcp serve --config-dir '${escaped}'`;
+}
+
+/** Preflight precedes the first mutation. Lost retirement responses are reconciled, never resent. */
 export async function restartCooperativeRuntime(options: ServeOptions): Promise<void> {
   const { runtimeScope } = resolveServeConfigPaths(options);
   const client = await connectRuntimeControl(runtimeScope);
@@ -246,6 +252,8 @@ export async function restartCooperativeRuntime(options: ServeOptions): Promise<
     await launchCooperativeRuntime(options);
     return;
   }
+  const recoveryCommand = scopedServeCommand(runtimeScope);
+  const onDrainTimeout = z.enum(['restart', 'abort']).parse(options['on-drain-timeout'] ?? 'restart');
   const description = await client.request<RuntimeControlDescription>('describe');
   if (!explicitLaunchInputsSchema.safeParse(description.explicitInputs).success)
     throw new Error(
@@ -268,35 +276,63 @@ export async function restartCooperativeRuntime(options: ServeOptions): Promise<
     await sleep(100);
     operation = statusSchema.parse(await client.request('operation-status', {}, operationId));
   }
-  if (operation.state === 'aborted')
-    throw new Error('Runtime upgrade aborted at the drain deadline; the old runtime resumed admission');
-  if (operation.state !== 'drained') throw new Error('Runtime replacement is not ready to commit');
-  try {
-    await client.request('commit-replacement', { digest: prepared.digest }, operationId);
-  } catch {
-    // An unreachable control endpoint is not proof of retirement. Exclusive ownership below is authoritative.
-    let reconciled: ReplacementDrainStatus | undefined;
+  if (operation.state === 'aborted') {
+    if (Date.now() < operation.deadlineUnixMs)
+      throw new Error(
+        `Runtime replacement aborted before the drain deadline; no stop was requested. Inspect: ${recoveryCommand} --status`,
+      );
+    const remaining = `${operation.active} request${operation.active === 1 ? '' : 's'} remain${operation.active === 1 ? 's' : ''} unresolved`;
+    if (onDrainTimeout === 'abort')
+      throw new Error(
+        `Runtime restart aborted at the drain deadline after ${timeoutMs / 1000}s; ${remaining}. ` +
+          `The old runtime was asked to resume admission. Inspect: ${recoveryCommand} --status. ` +
+          `Allow more time with --drain-timeout, or interrupt unfinished calls: ${recoveryCommand} --restart --on-drain-timeout restart. Calls will not be replayed.`,
+      );
+    process.stderr.write(
+      `Drain deadline reached after ${timeoutMs / 1000}s; ${remaining}.\n` +
+        'Restarting now. Unfinished calls may be interrupted and will not be replayed.\n',
+    );
     try {
-      reconciled = statusSchema.parse(await client.request('operation-status', {}, operationId));
+      // Use the same authenticated generation, including older supervisors without a force-commit method.
+      await client.request('stop');
     } catch {
-      process.stderr.write('Commit response unavailable; waiting for observed owner retirement.\n');
+      process.stderr.write('Stop response unavailable; waiting for observed owner retirement.\n');
     }
-    if (reconciled && reconciled.state !== 'committing')
-      throw new Error('Runtime commit was not accepted; existing owner retained');
+  } else {
+    if (operation.state !== 'drained') throw new Error('Runtime replacement is not ready to commit');
+    try {
+      await client.request('commit-replacement', { digest: prepared.digest }, operationId);
+    } catch {
+      // An unreachable control endpoint is not proof of retirement. Exclusive ownership below is authoritative.
+      let reconciled: ReplacementDrainStatus | undefined;
+      try {
+        reconciled = statusSchema.parse(await client.request('operation-status', {}, operationId));
+      } catch {
+        process.stderr.write('Commit response unavailable; waiting for observed owner retirement.\n');
+      }
+      if (reconciled && reconciled.state !== 'committing')
+        throw new Error(
+          `Runtime commit was not accepted; existing owner retained. Inspect: ${recoveryCommand} --status`,
+        );
+    }
   }
   const until = Date.now() + 30_000;
   while (fs.existsSync(getRuntimeScopeOwnershipPath(runtimeScope)) && Date.now() < until) {
     if (readRuntimeScopeOwnership(runtimeScope)?.claimId !== client.descriptor.claimId)
-      throw new Error('Another runtime won ownership; replacement not started');
+      throw new Error(`Another runtime won ownership; replacement not started. Inspect: ${recoveryCommand} --status`);
     await sleep(100);
   }
   if (fs.existsSync(getRuntimeScopeOwnershipPath(runtimeScope)))
-    throw new Error('Old runtime has not retired. Ownership retained; inspect status for explicit recovery');
+    throw new Error(
+      `Old runtime retirement was not confirmed within 30s; ownership retained and replacement not started. ` +
+        `Inspect: ${recoveryCommand} --status. If the old runtime is still running, stop it with ${recoveryCommand} --stop, ` +
+        `then retry ${recoveryCommand} --restart. If control is unreachable, use the original service manager; do not delete ownership records.`,
+    );
   try {
     await launchCooperativeRuntime(options, prepared);
   } catch (error) {
     throw new Error(
-      `Runtime activation failed after retirement; no rollback was attempted. Retry serve --restart after resolving the cause: ${error instanceof Error ? error.message : 'launch failure'}`,
+      `Runtime activation failed after the old runtime retired; no rollback was attempted. Inspect: ${recoveryCommand} --status. After resolving the cause, retry: ${recoveryCommand} --restart. Cause: ${error instanceof Error ? error.message : 'launch failure'}`,
     );
   }
 }

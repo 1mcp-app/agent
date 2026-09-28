@@ -55,6 +55,7 @@ export interface ServeOptions {
   /** Lifecycle action: stop (if running) then start a fresh background runtime. */
   restart?: boolean;
   'drain-timeout'?: number;
+  'on-drain-timeout'?: 'restart' | 'abort';
   'cooperative-bootstrap'?: 'supervisor' | 'worker';
   /** Internal guard set on the detached child to prevent recursive spawning. */
   'background-bootstrap'?: boolean;
