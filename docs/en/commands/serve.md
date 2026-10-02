@@ -90,7 +90,7 @@ For runtime-wide configuration details, see the **[Configuration Guide](/guide/e
 - **`--background`**: Start a persistent Background Runtime Supervisor and its HTTP Aggregated Runtime for the selected **Runtime Scope**, then return after generation-bound activation. Backend readiness is reported separately. HTTP only.
 - **`--status`**: Report the state of the runtime in the selected **Runtime Scope**, then exit without starting a server.
 - **`--stop`**: Stop the runtime in the selected **Runtime Scope**, then exit.
-- **`--restart`**: Cooperatively replace a compatible background supervisor and worker in the selected **Runtime Scope** using the invoking installation. An empty scope starts a background runtime. HTTP only.
+- **`--restart`**: Cooperatively replace a compatible background supervisor and worker in the selected **Runtime Scope** using the invoking installation. An empty scope starts a background runtime. After a crash or reboot, it also recovers a cooperative generation whose supervisor and recorded workers are confirmed absent. HTTP only.
 - **`--drain-timeout <seconds>`**: Maximum time to let existing backend work finish before applying the deadline action; default `30`.
 - **`--on-drain-timeout <restart|abort>`**: Default `restart`: stop the old runtime after the deadline, interrupting unfinished calls, then activate the replacement. Use `abort` to cancel replacement and resume the old runtime. Calls are never automatically replayed.
 
@@ -106,7 +106,7 @@ Foreground HTTP and deprecated foreground stdio starts participate in the same o
 
 Compatible background runtimes authenticate a scope-local supervisor control channel. Normal background launch, client attachment, status, stop, and cooperative restart do not require `ps`, `sysctl`, or equivalent OS process inspection. The supervisor controls its own worker through a private parent/child channel. Persisted PIDs and scope metadata alone never authorize signalling or takeover.
 
-This path requires a responsive, compatible supervisor. It does not adopt orphaned workers or reclaim ambiguous ownership. An unreachable or incompatible owner retains its records and requires explicit migration or recovery through its original CLI or service manager. Foreground ownership and legacy recovery retain the process-identity rules below.
+Cooperative replacement requires a responsive, compatible supervisor. After a crash or reboot, explicit `serve --restart` can also recover matching cooperative ownership when its supervisor and every recorded worker are confirmed absent. Configuration validation precedes cleanup, and recovery rechecks the generation and process absence while holding the lifecycle stop lock. It starts from the current configuration files and CLI options; launch overrides held only by the exited supervisor cannot be restored. It does not adopt orphaned workers or reclaim ambiguous ownership. Live, incompatible, conflicting, or unverifiable owners retain their records and require explicit recovery through `serve --stop`, the original CLI, or the service manager. Foreground ownership and legacy recovery retain the process-identity rules below.
 
 ### Persistent volumes and legacy process identity
 
@@ -244,7 +244,7 @@ Behavior:
 - **Bounded drain.** The default deadline is 30 seconds (`--drain-timeout`). On expiry, the CLI reports the last observed unresolved request count, warns about interrupted calls, and asks the authenticated supervisor to stop. `--on-drain-timeout abort` instead cancels replacement and resumes admission. The deadline policy applies only to this invocation. If the coordinator disappears before requesting retirement, the supervisor resumes admission at expiry; repeating preparation does not extend the deadline.
 - **Exclusive activation.** After commit, retire the old worker and supervisor before the replacement claims the scope. A competing owner or incomplete retirement blocks activation. A successful report confirms the new generation and configuration digest, with backend health reported separately.
 - **Interruption is expected.** Sessions and connections may disconnect. Tool calls are never automatically replayed. If activation fails after the old runtime retires, the command reports failure and does not roll back automatically; fix the cause and retry.
-- **Compatibility and recovery.** An incompatible or unresponsive runtime is not forcibly replaced through cooperative control. Preserve its records and use the original CLI, service manager, or independently verified legacy recovery. An empty scope starts normally; `--transport stdio` remains unsupported.
+- **Compatibility and recovery.** After an unclean shutdown, `--restart` recovers a matching cooperative generation only when its supervisor and recorded workers are confirmed absent, then launches from current files and invocation options. No separate `--stop` is required in that case. A live or unverifiable owner is retained and receives scoped recovery guidance. Incompatible live runtimes require the original CLI or service manager. An empty scope starts normally; `--transport stdio` remains unsupported.
 
 ### Drain timeout and recovery
 

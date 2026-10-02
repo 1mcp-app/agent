@@ -216,7 +216,7 @@ export function claimRuntimeScope(
 export function acquireRuntimeScopeStopLock(
   configDir: string,
   expectedOwner: Pick<RuntimeScopeOwnershipRecord, 'claimId' | 'pid'>,
-  dependencies: OwnershipDependencies = {},
+  dependencies: OwnershipDependencies & { cooperative?: true } = {},
 ): RuntimeScopeStopLock {
   const processAlive = dependencies.processAlive ?? isProcessAlive;
   const createOperationId = dependencies.createClaimId ?? randomUUID;
@@ -228,7 +228,7 @@ export function acquireRuntimeScopeStopLock(
     ownerClaimId: expectedOwner.claimId,
     pid: process.pid,
     acquiredAt: now().toISOString(),
-    processIdentity: readProcessIdentity(process.pid),
+    processIdentity: dependencies.cooperative ? undefined : readProcessIdentity(process.pid),
     coordination: undefined as 'flock' | undefined,
   };
 

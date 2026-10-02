@@ -55,6 +55,10 @@ import {
   getRuntimeScopeOwnershipPath,
   readRuntimeScopeOwnership,
 } from '@src/core/server/runtimeScopeOwnership.js';
+import {
+  readStaleCooperativeRuntime,
+  retireStaleCooperativeRuntime,
+} from '@src/core/server/staleCooperativeRuntime.js';
 import { mcpServerConfigSchema } from '@src/core/types/transport.js';
 import { normalizedArgv } from '@src/utils/cli/normalizedArgv.js';
 
@@ -243,18 +247,46 @@ function scopedServeCommand(runtimeScope: string): string {
   return `1mcp serve --config-dir '${escaped}'`;
 }
 
+/** Explicit restart can also recover an absent generation after a crash or host reboot. */
+async function restartStaleCooperativeRuntime(options: ServeOptions, expectedClaimId?: string): Promise<boolean> {
+  const { runtimeScope } = resolveServeConfigPaths(options);
+  const stale = readStaleCooperativeRuntime(runtimeScope, expectedClaimId);
+  if (!stale) return false;
+  // Validate and freeze the new configuration before removing any old evidence.
+  const prepared = prepare(options);
+  retireStaleCooperativeRuntime(runtimeScope, stale);
+  process.stderr.write('Recovered stale cooperative runtime; starting from current configuration and CLI options.\n');
+  try {
+    await launchCooperativeRuntime(options, prepared);
+  } catch (error) {
+    throw new Error(
+      `Runtime activation failed after stale recovery. Retry: ${scopedServeCommand(runtimeScope)} --restart. Cause: ${error instanceof Error ? error.message : 'launch failure'}`,
+    );
+  }
+  return true;
+}
+
 /** Preflight precedes the first mutation. Lost retirement responses are reconciled, never resent. */
 export async function restartCooperativeRuntime(options: ServeOptions): Promise<void> {
   const { runtimeScope } = resolveServeConfigPaths(options);
   const client = await connectRuntimeControl(runtimeScope);
   if (!client) {
+    if (await restartStaleCooperativeRuntime(options)) return;
     assertEmptyScope(runtimeScope);
     await launchCooperativeRuntime(options);
     return;
   }
   const recoveryCommand = scopedServeCommand(runtimeScope);
   const onDrainTimeout = z.enum(['restart', 'abort']).parse(options['on-drain-timeout'] ?? 'restart');
-  const description = await client.request<RuntimeControlDescription>('describe');
+  let description: RuntimeControlDescription;
+  try {
+    description = await client.request<RuntimeControlDescription>('describe');
+  } catch (error) {
+    if (await restartStaleCooperativeRuntime(options, client.descriptor.claimId)) return;
+    throw new Error(
+      `Runtime control is unavailable and process absence could not be confirmed; ownership retained. Try: ${recoveryCommand} --stop. If processes remain alive or recovery is refused, stop them through the original CLI or service manager. Cause: ${error instanceof Error ? error.message : 'control failure'}`,
+    );
+  }
   if (!explicitLaunchInputsSchema.safeParse(description.explicitInputs).success)
     throw new Error(
       'Incompatible runtime: explicit launch provenance is missing. Stop with the original CLI or service manager before activating this installation.',
