@@ -34,7 +34,10 @@ export function withDerivedInteractionRoute<T>(
   operation: () => Promise<T>,
 ): Promise<T> {
   const pin = routes.getStore();
-  if (!pin || pin.adapter !== original || pin.isCurrent?.() === false) {
+  // Anonymous requests carry no route authority to derive. The shared connection serves
+  // them unpinned as well, so the private peer must not be stricter than its source.
+  if (!pin) return operation();
+  if (pin.adapter !== original || pin.isCurrent?.() === false) {
     throw createGatewayFailure({
       kind: 'authorization',
       code: 'interaction_lost',
