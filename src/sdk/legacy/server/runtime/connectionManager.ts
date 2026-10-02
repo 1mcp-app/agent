@@ -50,6 +50,7 @@ function snapshotInboundConfig(
     ...(opts.tagFilterMode !== undefined ? { tagFilterMode: opts.tagFilterMode } : {}),
     ...(opts.enablePagination !== undefined ? { enablePagination: opts.enablePagination } : {}),
     ...(opts.requestOnly !== undefined ? { requestOnly: opts.requestOnly } : {}),
+    ...(opts.subscriptionListKinds !== undefined ? { subscriptionListKinds: [...opts.subscriptionListKinds] } : {}),
     ...(opts.canonicalSchemaProjection === true ? { canonicalSchemaProjection: true } : {}),
     ...(opts.presetName !== undefined ? { presetName: opts.presetName } : {}),
     ...(opts.contextProof !== undefined ? { contextProof: opts.contextProof } : {}),
@@ -146,7 +147,12 @@ export class ConnectionManager {
       try {
         // Update status to Disconnected
         connection.status = ServerStatus.Disconnected;
-        await cleanupOwnedResources(connection);
+        let resourceCleanupError: unknown;
+        try {
+          await cleanupOwnedResources(connection);
+        } catch (error) {
+          resourceCleanupError = error;
+        }
         unregisterLegacyNotificationOwner(this.outboundConns.values(), connection);
         evictRuntimeCapabilityCatalogSession(this.outboundConns, connection.context?.sessionId ?? sessionId);
 
@@ -167,6 +173,7 @@ export class ConnectionManager {
 
         this.inboundConns.delete(sessionId);
         logger.info(`Disconnected transport for session ${sessionId}`);
+        if (resourceCleanupError !== undefined) throw resourceCleanupError;
       } finally {
         this.disconnectingIds.delete(sessionId);
       }
@@ -333,7 +340,7 @@ export class ConnectionManager {
     try {
       await setupCapabilities(this.outboundConns, serverInfo, this.lazyLoadingOrchestrator);
     } catch (error) {
-      await cleanupOwnedResources(serverInfo);
+      await cleanupOwnedResources(serverInfo).catch(() => undefined);
       unregisterLegacyNotificationOwner(this.outboundConns.values(), serverInfo);
       unregisterCapabilityPaginationForwarder(this.outboundConns, serverInfo);
       await adapter.close().catch(() => undefined);
@@ -412,11 +419,12 @@ export class ConnectionManager {
    */
   public async cleanup(): Promise<void> {
     // Clean up existing connections with forced close
-    for (const [sessionId] of this.inboundConns) {
-      await this.disconnectTransport(sessionId, true);
-    }
+    const results = await Promise.allSettled(
+      Array.from(this.inboundConns.keys(), (sessionId) => this.disconnectTransport(sessionId, true)),
+    );
     this.inboundConns.clear();
     this.connectionSemaphore.clear();
     this.disconnectingIds.clear();
+    if (results.some((result) => result.status === 'rejected')) throw new Error('Connection cleanup incomplete');
   }
 }

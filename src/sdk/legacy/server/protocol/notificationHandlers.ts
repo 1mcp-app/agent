@@ -3,10 +3,12 @@ import { ClientStatus, InboundConnection, ServerStatus } from '@src/core/types/i
 import logger from '@src/logger/logger.js';
 import { toJsonValue } from '@src/sdk/contracts/index.js';
 import {
+  type LegacyOutboundConnection,
   type LegacyOutboundConnections,
   setOutboundNotificationHandler,
 } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import {
+  applyModernCatalogCoverage,
   ensureModernSubscriptionCoverage,
   type ModernSubscriptionFilter,
 } from '@src/sdk/legacy/client/runtime/modernSubscriptions.js';
@@ -34,6 +36,30 @@ function formatNotificationError(error: unknown): string {
   return error instanceof Error ? `Error: ${error.message}` : String(error);
 }
 
+/** Register only catalog coverage honored by the upstream, preserving other operations. */
+async function setupCatalogCoverage(
+  connections: LegacyOutboundConnections,
+  inbound: InboundConnection,
+  connection: LegacyOutboundConnection,
+): Promise<void> {
+  const kinds = ['tools', 'resources', 'prompts'] as const;
+  if (connection.adapter.protocol?.era === 'modern') {
+    const filter: ModernSubscriptionFilter = {};
+    for (const kind of kinds) {
+      if (inbound.subscriptionListKinds && !inbound.subscriptionListKinds.includes(kind)) continue;
+      const capability = connection.capabilities?.[kind];
+      if (!capability || typeof capability !== 'object' || Array.isArray(capability)) continue;
+      if (capability.listChanged === true) filter[`${kind}ListChanged`] = true;
+    }
+    if (Object.keys(filter).length) {
+      const adapter = connection.adapter;
+      const accepted = await ensureModernSubscriptionCoverage(adapter, filter);
+      applyModernCatalogCoverage(connection, adapter, filter, accepted);
+    }
+  }
+  for (const kind of kinds) registerOwnedCatalogConnection(connections, inbound, connection, kind);
+}
+
 /**
  * Sets up client-to-server notification handlers
  * @param clients Record of client instances
@@ -51,31 +77,8 @@ export async function setupClientToServerNotifications(
   ];
 
   for (const [name, outboundConn] of outboundConns.entries()) {
-    if (outboundConn.adapter.protocol?.era === 'modern') {
-      const filter: ModernSubscriptionFilter = {};
-      for (const kind of ['tools', 'resources', 'prompts'] as const) {
-        if (inboundConn.subscriptionListKinds && !inboundConn.subscriptionListKinds.includes(kind)) continue;
-        const capability = outboundConn.capabilities?.[kind];
-        if (
-          capability &&
-          typeof capability === 'object' &&
-          !Array.isArray(capability) &&
-          capability.listChanged === true
-        )
-          filter[`${kind}ListChanged`] = true;
-      }
-      if (Object.keys(filter).length)
-        coverage.push(
-          ensureModernSubscriptionCoverage(outboundConn.adapter, filter).then((accepted) => {
-            for (const key of Object.keys(filter) as Array<keyof ModernSubscriptionFilter>)
-              if (accepted[key] !== true) throw new Error('Upstream catalog subscription coverage unavailable');
-          }),
-        );
-    }
     registerLegacyNotificationOwner(outboundConn, inboundConn);
     setupOwnedResourceNotifications(outboundConn);
-    for (const kind of ['tools', 'resources', 'prompts'] as const)
-      registerOwnedCatalogConnection(outboundConns, inboundConn, outboundConn, kind);
     registerCapabilityPaginationNotifications(
       outboundConns,
       outboundConn,
@@ -136,6 +139,7 @@ export async function setupClientToServerNotifications(
         }, `Error handling client notification from ${name}`),
       );
     });
+    coverage.push(setupCatalogCoverage(outboundConns, inboundConn, outboundConn));
   }
   await Promise.all(coverage);
 }

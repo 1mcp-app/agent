@@ -12,7 +12,10 @@ import type { GatewayInteractionRequest } from '@src/gateway/ports/outboundEraAd
 import { toJsonValue } from '@src/sdk/contracts/index.js';
 import { Client } from '@src/sdk/legacy/client/index.js';
 import { LegacySdkClientAdapter } from '@src/sdk/legacy/client/runtime/legacySdkClientAdapter.js';
-import { ensureModernSubscriptionCoverage } from '@src/sdk/legacy/client/runtime/modernSubscriptions.js';
+import {
+  applyModernCatalogCoverage,
+  ensureModernSubscriptionCoverage,
+} from '@src/sdk/legacy/client/runtime/modernSubscriptions.js';
 import {
   ClientCapabilitiesSchema,
   CreateMessageRequestSchema,
@@ -187,7 +190,10 @@ async function prepareCatalogFilter(
         supported = false;
         break;
       }
-      const honored = await ensureModernSubscriptionCoverage(connection.adapter, { [field]: true });
+      const adapter = connection.adapter;
+      const requested = { [field]: true };
+      const honored = await ensureModernSubscriptionCoverage(adapter, requested);
+      applyModernCatalogCoverage(connection, adapter, requested, honored);
       if (honored[field] !== true) {
         supported = false;
         break;

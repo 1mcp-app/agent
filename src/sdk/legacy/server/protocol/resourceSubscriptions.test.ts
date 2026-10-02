@@ -1,5 +1,6 @@
 import type { InboundConnection, OutboundConnection } from '@src/core/types/index.js';
 import { ServerStatus } from '@src/core/types/index.js';
+import logger from '@src/logger/logger.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -36,6 +37,7 @@ vi.mock('@src/sdk/legacy/client/runtime/legacyOutboundConnection.js', () => ({
   requestLegacyOutbound: mocks.request,
   setOutboundNotificationHandler: mocks.notification,
 }));
+vi.mock('@src/logger/logger.js', () => ({ default: { warn: vi.fn() } }));
 
 const inbounds: InboundConnection[] = [];
 function fixture() {
@@ -65,6 +67,7 @@ describe('owned legacy resource subscriptions', () => {
     mocks.request.mockReset().mockResolvedValue({});
     mocks.acquire.mockReset().mockResolvedValue({});
     mocks.notification.mockClear();
+    vi.mocked(logger.warn).mockClear();
     mocks.openModern.mockReset().mockImplementation(async (_connection, filter) => ({
       honoredFilter: filter,
       close: vi.fn().mockResolvedValue(undefined),
@@ -140,13 +143,13 @@ describe('owned legacy resource subscriptions', () => {
     blocked.resolve();
   });
 
-  it('terminates coverage loss before sending and only removes owned watches', async () => {
+  it('retires lost resource coverage before sending and only removes affected watches', async () => {
     const first = fixture();
     const second = fixture();
     await subscribeOwnedResource(connections, first, 'public:file:///a');
     await subscribeOwnedResource(connections, second, 'public:file:///b');
     loseOwnedResourceCoverage(upstream, 'file:///a');
-    expect(first.adapter.close).toHaveBeenCalledTimes(1);
+    expect(first.adapter.close).not.toHaveBeenCalled();
     expect(second.adapter.close).not.toHaveBeenCalled();
     deliverOwnedResourceUpdate(upstream, update());
     expect(first.adapter.notify).not.toHaveBeenCalled();
@@ -154,7 +157,10 @@ describe('owned legacy resource subscriptions', () => {
       throw new Error('No longer visible');
     });
     deliverOwnedResourceUpdate(upstream, update('file:///b'));
-    await vi.waitFor(() => expect(second.adapter.close).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect(mocks.request.mock.calls.filter(([, method]) => method === 'resources/unsubscribe')).toHaveLength(2),
+    );
+    expect(second.adapter.close).not.toHaveBeenCalled();
     expect(second.adapter.notify).not.toHaveBeenCalled();
   });
 
@@ -193,7 +199,7 @@ describe('owned legacy resource subscriptions', () => {
 
   it('terminates idle coverage loss on a bounded periodic check', async () => {
     vi.useFakeTimers();
-    const owner = fixture();
+    const owner = Object.assign(fixture(), { subscriptionListKinds: [] });
     await subscribeOwnedResource(connections, owner, 'public:file:///a');
     mocks.route.mockImplementation(() => {
       throw new Error('Route removed');
@@ -202,6 +208,118 @@ describe('owned legacy resource subscriptions', () => {
     expect(owner.adapter.close).toHaveBeenCalledOnce();
     expect(owner.adapter.notify).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('acquires one current catalog for all watches in each monitor tick', async () => {
+    vi.useFakeTimers();
+    const owner = fixture();
+    for (const uri of ['a', 'b', 'c']) await subscribeOwnedResource(connections, owner, `public:file:///${uri}`);
+    mocks.acquire.mockClear();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(mocks.acquire).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(mocks.acquire).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps an unaffected legacy watch when another URI disappears from the current catalog', async () => {
+    vi.useFakeTimers();
+    const owner = fixture();
+    await subscribeOwnedResource(connections, owner, 'public:file:///a');
+    await subscribeOwnedResource(connections, owner, 'public:file:///b');
+    mocks.route.mockImplementation((_snapshot, uri: string) => {
+      if (uri === 'public:file:///a') throw new Error('Route removed');
+      return { connection: upstream, upstreamIdentity: 'file:///b', entry: {} };
+    });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(owner.adapter.close).not.toHaveBeenCalled();
+    expect(mocks.request.mock.calls.filter(([, method]) => method === 'resources/unsubscribe')).toEqual([
+      [expect.anything(), 'resources/unsubscribe', { uri: 'file:///a' }],
+    ]);
+    deliverOwnedResourceUpdate(upstream, update('file:///b'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(owner.adapter.notify).toHaveBeenCalledOnce();
+  });
+
+  it('reports failed cleanup and reestablishes uncertain upstream coverage for a new owner', async () => {
+    const first = fixture();
+    await subscribeOwnedResource(connections, first, 'public:file:///a');
+    mocks.request.mockRejectedValueOnce(new Error('Private provider error'));
+    await expect(cleanupOwnedResources(first)).rejects.toThrow('Resource subscription cleanup incomplete');
+    expect(logger.warn).toHaveBeenCalledWith('Resource subscription cleanup incomplete', { failedWatches: 1 });
+    const second = fixture();
+    await subscribeOwnedResource(connections, second, 'public:file:///a');
+    expect(mocks.request.mock.calls.filter(([, method]) => method === 'resources/subscribe')).toHaveLength(2);
+    await cleanupOwnedResources(second);
+    expect(mocks.request.mock.calls.filter(([, method]) => method === 'resources/unsubscribe')).toHaveLength(2);
+  });
+
+  it('retains failed teardown when a new owner cannot reestablish the same URI', async () => {
+    const first = fixture();
+    await subscribeOwnedResource(connections, first, 'public:file:///a');
+    mocks.request.mockRejectedValueOnce(new Error('Unsubscribe failed'));
+    await expect(cleanupOwnedResources(first)).rejects.toThrow('cleanup incomplete');
+    mocks.request.mockRejectedValueOnce(new Error('Subscribe failed'));
+    await expect(subscribeOwnedResource(connections, fixture(), 'public:file:///a')).rejects.toThrow(
+      'Subscribe failed',
+    );
+    expect(mocks.request.mock.calls.filter(([, method]) => method === 'resources/unsubscribe')).toHaveLength(2);
+  });
+
+  it('reports failed teardown after setup authorization is lost', async () => {
+    const owner = fixture();
+    mocks.request.mockResolvedValueOnce({}).mockRejectedValueOnce(new Error('Private teardown error'));
+    const authorize = vi.fn().mockResolvedValueOnce(true).mockResolvedValue(false);
+    await expect(subscribeOwnedResource(connections, owner, 'public:file:///a', undefined, authorize)).rejects.toThrow(
+      'authorization lost',
+    );
+    expect(logger.warn).toHaveBeenCalledExactlyOnceWith('Resource subscription cleanup incomplete', {
+      failedWatches: 1,
+    });
+    await subscribeOwnedResource(connections, fixture(), 'public:file:///a');
+  });
+
+  it('reports failed teardown during cancellation of an admitted setup', async () => {
+    const blocked = deferred();
+    mocks.request.mockReturnValueOnce(blocked.promise).mockRejectedValueOnce(new Error('Private teardown error'));
+    const controller = new AbortController();
+    const opening = subscribeOwnedResource(connections, fixture(), 'public:file:///a', controller.signal);
+    const rejected = expect(opening).rejects.toThrow('cancelled');
+    await vi.waitFor(() => expect(mocks.request).toHaveBeenCalledOnce());
+    controller.abort();
+    blocked.resolve();
+    await rejected;
+    await vi.waitFor(() =>
+      expect(logger.warn).toHaveBeenCalledExactlyOnceWith('Resource subscription cleanup incomplete', {
+        failedWatches: 1,
+      }),
+    );
+    await subscribeOwnedResource(connections, fixture(), 'public:file:///a');
+  });
+
+  it('counts uncertain watches across providers and releases capacity after their adapter closes', async () => {
+    Object.assign(upstream.adapter, { state: 'running' });
+    mocks.request.mockImplementation(async (_connection, method) => {
+      if (method === 'resources/unsubscribe') throw new Error('Teardown rejected');
+      return {};
+    });
+    for (let index = 0; index < 1024; index++) {
+      const owner = fixture();
+      await subscribeOwnedResource(connections, owner, `public:file:///${index}`);
+      await expect(cleanupOwnedResources(owner)).rejects.toThrow('cleanup incomplete');
+    }
+    const previous = upstream;
+    upstream = { name: 'other', adapter: { state: 'running' } } as OutboundConnection;
+    connections = new Map([['backend', upstream]]);
+    await expect(subscribeOwnedResource(connections, fixture(), 'public:file:///blocked')).rejects.toThrow(
+      'Resource subscription admission limit exceeded',
+    );
+    Object.assign(upstream.adapter, { protocol: { era: 'modern' } });
+    await expect(subscribeOwnedResource(connections, fixture(), 'public:file:///modern-blocked')).rejects.toThrow(
+      'Resource subscription admission limit exceeded',
+    );
+    Object.assign(previous.adapter, { state: 'stopped' });
+    mocks.request.mockResolvedValue({});
+    await subscribeOwnedResource(connections, fixture(), 'public:file:///recovered');
   });
 
   it('fails closed when the subscription grant is revoked', async () => {
@@ -265,6 +383,30 @@ describe('owned legacy resource subscriptions', () => {
       params: { uri: 'public:file:///a', server: 'backend', _meta: { retained: true } },
     });
     expect(first.adapter.notify).not.toHaveBeenCalled();
+  });
+
+  it('keeps another legacy watch when only one modern upstream listen ends', async () => {
+    Object.assign(upstream.adapter, { protocol: { era: 'modern' } });
+    const owner = fixture();
+    await subscribeOwnedResource(connections, owner, 'public:file:///a');
+    await subscribeOwnedResource(connections, owner, 'public:file:///b');
+    const secondHandle = await mocks.openModern.mock.results[1].value;
+    mocks.openModern.mock.calls[0][3]();
+    expect(secondHandle.close).not.toHaveBeenCalled();
+    expect(owner.adapter.close).not.toHaveBeenCalled();
+    mocks.openModern.mock.calls[1][2](update('file:///b'));
+    await vi.waitFor(() => expect(owner.adapter.notify).toHaveBeenCalledOnce());
+  });
+
+  it('ends a modern composite listener when an acknowledged resource loses coverage', async () => {
+    Object.assign(upstream.adapter, { protocol: { era: 'modern' } });
+    const owner = Object.assign(fixture(), { subscriptionListKinds: [] });
+    await subscribeOwnedResource(connections, owner, 'public:file:///a');
+    await subscribeOwnedResource(connections, owner, 'public:file:///b');
+    const secondHandle = await mocks.openModern.mock.results[1].value;
+    mocks.openModern.mock.calls[0][3]();
+    expect(secondHandle.close).toHaveBeenCalledOnce();
+    expect(owner.adapter.close).toHaveBeenCalledOnce();
   });
 
   it('does not terminate a resource-only modern bridge when catalog coverage is lost', async () => {

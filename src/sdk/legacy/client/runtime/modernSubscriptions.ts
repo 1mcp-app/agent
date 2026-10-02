@@ -1,5 +1,6 @@
 import type { Client } from '@modelcontextprotocol/client';
 
+import type { OutboundConnection } from '@src/core/types/client.js';
 import { OneMcpProtocolError } from '@src/sdk/contracts/index.js';
 
 import type { AuthProviderTransport } from './legacyTransport.js';
@@ -88,6 +89,25 @@ export function ensureModernSubscriptionCoverage(
   filter: ModernSubscriptionFilter,
 ): Promise<ModernSubscriptionFilter> {
   return states.get(connection)?.coverage(filter) ?? Promise.resolve(filter);
+}
+
+/** Publish declined catalog coverage for this exact adapter before narrowing an inbound filter. */
+export function applyModernCatalogCoverage(
+  connection: OutboundConnection,
+  adapter: OutboundConnection['adapter'],
+  requested: ModernSubscriptionFilter,
+  honored: ModernSubscriptionFilter,
+): void {
+  if (connection.adapter !== adapter) throw new OneMcpProtocolError(-32603, 'Catalog subscription coverage changed');
+  const capabilities = { ...connection.capabilities };
+  for (const kind of ['tools', 'resources', 'prompts'] as const) {
+    const field = `${kind}ListChanged` as const;
+    if (requested[field] !== true || honored[field] === true) continue;
+    const capability = capabilities[kind];
+    if (!capability || typeof capability !== 'object' || Array.isArray(capability)) continue;
+    capabilities[kind] = { ...capability, listChanged: false };
+  }
+  connection.capabilities = capabilities;
 }
 
 export async function openModernSubscription(

@@ -1,6 +1,10 @@
-import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
+import {
+  acquireRuntimeCapabilityCatalog,
+  type RuntimeCapabilitySnapshot,
+} from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { getRequestSession, resolveCapabilityVisibility } from '@src/core/protocol/requestHandlerUtils.js';
 import { ClientStatus, type InboundConnection, ServerStatus } from '@src/core/types/index.js';
+import logger from '@src/logger/logger.js';
 import { toJsonValue } from '@src/sdk/contracts/index.js';
 import {
   type LegacyOutboundConnection,
@@ -72,23 +76,56 @@ interface Owner {
 }
 interface UpstreamWatch {
   readonly connection: LegacyOutboundConnection;
+  readonly registry: Map<string, UpstreamWatch>;
+  readonly uri: string;
   readonly owners: Set<Watch>;
   operation: Promise<void>;
   subscribed: boolean;
+  cleanupFailed: boolean;
 }
 const catalogOwners = new WeakMap<LegacyOutboundConnection, Set<Owner>>();
 const owners = new WeakMap<InboundConnection, Owner>();
 const upstreamWatches = new WeakMap<LegacyOutboundConnection, Map<string, UpstreamWatch>>();
+// Unconfirmed teardown retains process capacity even after its local owner is gone.
+const upstreamReservations = new Set<UpstreamWatch>();
 const installed = new WeakMap<LegacyOutboundConnection, LegacyOutboundConnection['adapter']>();
 
-async function resolve(owner: Owner, uri: string) {
+function releaseClosedUpstreamReservations(): void {
+  for (const upstream of upstreamReservations) {
+    if (upstream.connection.adapter.state !== 'stopped') continue;
+    removeUpstreamRecord(upstream);
+    upstream.subscribed = false;
+    upstream.cleanupFailed = false;
+  }
+}
+
+function removeUpstreamRecord(upstream: UpstreamWatch): void {
+  upstreamReservations.delete(upstream);
+  if (upstream.registry.get(upstream.uri) === upstream) upstream.registry.delete(upstream.uri);
+}
+
+function countUnconfirmedUpstreamWatches(): number {
+  let count = 0;
+  for (const upstream of upstreamReservations) {
+    if (upstream.owners.size) continue;
+    if (!upstream.subscribed) continue;
+    count++;
+  }
+  return count;
+}
+
+async function acquireOwnerCatalog(owner: Owner): Promise<RuntimeCapabilitySnapshot> {
   const visibility = resolveCapabilityVisibility(
     owner.connections,
     owner.inbound,
     getRequestSession(owner.inbound),
     'resources',
   );
-  const snapshot = await acquireRuntimeCapabilityCatalog(owner.connections, visibility);
+  return acquireRuntimeCapabilityCatalog(owner.connections, visibility, { signal: owner.abort.signal });
+}
+
+async function resolve(owner: Owner, uri: string, snapshot?: RuntimeCapabilitySnapshot) {
+  snapshot ??= await acquireOwnerCatalog(owner);
   return resolveResourceRoute(snapshot, uri);
 }
 
@@ -133,13 +170,21 @@ function removeReservation(watch: Watch): void {
 async function detach(watch: Watch): Promise<void> {
   removeReservation(watch);
   watch.abort.abort();
+  try {
+    await closeUpstreamWatch(watch);
+  } catch (error) {
+    logger.warn('Resource subscription cleanup incomplete', { failedWatches: 1 });
+    throw error;
+  }
+}
+
+async function closeUpstreamWatch(watch: Watch): Promise<void> {
   if (watch.modern) {
     await watch.modern.close();
     return;
   }
   const { connection, upstreamUri } = watch;
   if (!connection || upstreamUri === undefined) return;
-  const watches = upstreamWatches.get(connection);
   const upstream = watch.upstream;
   if (!upstream || !upstream.owners.delete(watch)) return;
   const operation = upstream.operation
@@ -147,18 +192,29 @@ async function detach(watch: Watch): Promise<void> {
     .then(async () => {
       if (upstream.owners.size) return;
       if (!upstream.subscribed) return;
-      await requestLegacyOutbound(upstream.connection, 'resources/unsubscribe', { uri: upstreamUri });
-      upstream.subscribed = false;
+      try {
+        await requestLegacyOutbound(upstream.connection, 'resources/unsubscribe', { uri: upstreamUri });
+        upstream.subscribed = false;
+        upstream.cleanupFailed = false;
+      } catch (error) {
+        upstream.cleanupFailed = true;
+        throw error;
+      }
     });
   upstream.operation = operation;
   try {
     await operation;
   } finally {
     // A later attachment may have queued behind this unsubscribe.
-    if (!upstream.owners.size && upstream.operation === operation && watches?.get(upstreamUri) === upstream) {
-      watches.delete(upstreamUri);
-    }
+    releaseUpstreamWatch(upstream, operation);
   }
+}
+
+function releaseUpstreamWatch(upstream: UpstreamWatch, operation: Promise<void>): void {
+  if (upstream.owners.size) return;
+  if (upstream.operation !== operation) return;
+  if (upstream.subscribed) return;
+  removeUpstreamRecord(upstream);
 }
 
 export async function cleanupOwnedResources(inbound: InboundConnection): Promise<void> {
@@ -170,14 +226,28 @@ export async function cleanupOwnedResources(inbound: InboundConnection): Promise
   clearInterval(owner.monitor);
   for (const { connection } of owner.catalogs.values()) catalogOwners.get(connection)?.delete(owner);
   owner.catalogs.clear();
-  await Promise.allSettled(Array.from(owner.watches.values(), detach));
+  const results = await Promise.allSettled(Array.from(owner.watches.values(), detach));
+  const failedWatches = results.filter((result) => result.status === 'rejected').length;
+  if (failedWatches) {
+    throw new Error('Resource subscription cleanup incomplete');
+  }
 }
 
 function terminate(owner: Owner): void {
   if (owner.closed) return;
   // Revoke ownership synchronously, without waiting for an upstream or a slow recipient.
-  void cleanupOwnedResources(owner.inbound);
+  void cleanupOwnedResources(owner.inbound).catch(() => undefined);
   void (owner.inbound.adapter.closeWhenIdle?.() ?? owner.inbound.adapter.close()).catch(() => {});
+}
+
+/** Retained legacy URI watches are independent; a modern listen owns its complete acknowledged filter. */
+function loseWatchCoverage(watch: Watch): void {
+  if (!watch.active || watch.owner.closed) return;
+  if (watch.owner.inbound.subscriptionListKinds !== undefined) {
+    terminate(watch.owner);
+    return;
+  }
+  void detach(watch).catch(() => undefined);
 }
 
 function getOwner(connections: LegacyOutboundConnections, inbound: InboundConnection): Owner {
@@ -203,11 +273,11 @@ function getOwner(connections: LegacyOutboundConnections, inbound: InboundConnec
   return owner;
 }
 
-async function assertWatchCurrent(watch: Watch): Promise<void> {
+async function assertWatchCurrent(watch: Watch, snapshot?: RuntimeCapabilitySnapshot): Promise<void> {
   if (!watch.active || watch.owner.closed) return;
   if (watch.owner.inbound.status !== ServerStatus.Connected) throw new Error('Resource subscription disconnected');
   if (watch.authorize && !(await watch.authorize())) throw new Error('Resource subscription authorization lost');
-  const route = await resolve(watch.owner, watch.uri);
+  const route = await resolve(watch.owner, watch.uri, snapshot);
   if (!watch.active || watch.owner.closed) return;
   if (
     route.connection !== watch.connection ||
@@ -255,9 +325,16 @@ function monitorOwner(owner: Owner): void {
       assertCatalogCurrent(owner);
       if (owner.requiresAuthorization && !owner.authorize) return;
       if (owner.authorize && !(await owner.authorize())) throw new Error('Subscription authorization lost');
-      for (const watch of owner.watches.values()) {
-        if (!watch.active || !watch.connection) continue;
-        await assertWatchCurrent(watch);
+      const watches = Array.from(owner.watches.values()).filter((watch) => watch.active && watch.connection);
+      if (!watches.length) return;
+      const snapshot = await acquireOwnerCatalog(owner);
+      for (const watch of watches) {
+        if (owner.closed) return;
+        try {
+          await assertWatchCurrent(watch, snapshot);
+        } catch {
+          loseWatchCoverage(watch);
+        }
       }
     })
       .catch(() => terminate(owner))
@@ -437,10 +514,11 @@ export async function subscribeOwnedResource(
   const existing = owner.watches.get(uri);
   if (existing) return existing.ready;
   if (Buffer.byteLength(uri) > MAX_URI_BYTES) throw new Error('Resource subscription URI exceeds limit');
+  releaseClosedUpstreamReservations();
   if (
     owner.watches.size >= MAX_OWNER_WATCHES ||
     owner.setups >= MAX_OWNER_WATCHES ||
-    watchCount >= MAX_PROCESS_WATCHES ||
+    watchCount + countUnconfirmedUpstreamWatches() >= MAX_PROCESS_WATCHES ||
     setupCount >= MAX_PROCESS_WATCHES
   ) {
     throw new Error('Resource subscription admission limit exceeded');
@@ -468,7 +546,7 @@ export async function subscribeOwnedResource(
           route.connection.adapter,
           { resourceSubscriptions: [route.upstreamIdentity] },
           (notification) => deliverWatch(watch, notification),
-          () => terminate(owner),
+          () => loseWatchCoverage(watch),
           AbortSignal.any([owner.abort.signal, watch.abort.signal]),
         );
         watch.modern = handle;
@@ -489,12 +567,18 @@ export async function subscribeOwnedResource(
       }
       let upstream = watches.get(route.upstreamIdentity);
       if (!upstream || upstream.connection.adapter !== watch.adapter) {
+        releaseClosedUpstreamReservations();
+        if (upstreamReservations.size >= MAX_PROCESS_WATCHES) throw new Error('Upstream watch capacity exceeded');
         upstream = {
           connection: { ...route.connection, adapter: watch.adapter },
+          registry: watches,
+          uri: route.upstreamIdentity,
           owners: new Set(),
           operation: Promise.resolve(),
           subscribed: false,
+          cleanupFailed: false,
         };
+        upstreamReservations.add(upstream);
         watches.set(route.upstreamIdentity, upstream);
       }
       watch.upstream = upstream;
@@ -504,9 +588,10 @@ export async function subscribeOwnedResource(
         .catch(() => {})
         .then(async () => {
           if (!watch.active) return;
-          if (selected.subscribed) return;
+          if (selected.subscribed && !selected.cleanupFailed) return;
           await requestLegacyOutbound(selected.connection, 'resources/subscribe', { uri: route.upstreamIdentity });
           selected.subscribed = true;
+          selected.cleanupFailed = false;
         });
       upstream.operation = operation;
       await operation;
@@ -551,7 +636,12 @@ function deliverWatch(watch: Watch, notification: Update): void {
   enqueue(watch.owner, Buffer.byteLength(encoded), async () => {
     await watch.ready;
     if (!watch.active || watch.owner.closed) return;
-    await assertWatchCurrent(watch);
+    try {
+      await assertWatchCurrent(watch);
+    } catch {
+      loseWatchCoverage(watch);
+      return;
+    }
     if (!watch.active || watch.owner.closed) return;
     const params = { ...snapshot.params, uri: watch.uri, server: watch.connection?.name };
     const meta = snapshot.params?._meta;
@@ -575,6 +665,6 @@ export function loseOwnedResourceCoverage(connection: LegacyOutboundConnection, 
   if (!watches) return;
   for (const [upstreamUri, upstream] of watches) {
     if (uri !== undefined && upstreamUri !== uri) continue;
-    for (const watch of Array.from(upstream.owners)) terminate(watch.owner);
+    for (const watch of Array.from(upstream.owners)) loseWatchCoverage(watch);
   }
 }

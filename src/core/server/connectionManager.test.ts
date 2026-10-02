@@ -3,6 +3,7 @@ import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
+import * as resourceSubscriptions from '@src/sdk/legacy/server/protocol/resourceSubscriptions.js';
 import { createCapabilityVisibility } from '@src/core/capabilities/capabilityVisibility.js';
 import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { OutboundConnections } from '@src/core/types/client.js';
@@ -120,6 +121,16 @@ describe('ConnectionManager', () => {
   });
 
   describe('connectTransport - context merging', () => {
+    it.each([{ selection: [] }, { selection: ['tools'] }] as const)(
+      'preserves the selected subscription list kinds $selection',
+      async ({ selection }) => {
+        const subscriptionListKinds: Array<'tools' | 'resources' | 'prompts'> = [...selection];
+        await connectionManager.connectTransport(mockTransport, 'subscription-filter', { subscriptionListKinds });
+        subscriptionListKinds.push('tools');
+        expect(connectionManager.getServer('subscription-filter')?.subscriptionListKinds).toEqual(selection);
+      },
+    );
+
     it('should merge context parameter into InboundConnection.context when opts.context is undefined', async () => {
       const sessionId = 'test-session-123';
       const context: ContextData = {
@@ -391,6 +402,42 @@ describe('ConnectionManager', () => {
   });
 
   describe('disconnectTransport', () => {
+    it('finishes local disconnection and reports a failed upstream watch cleanup', async () => {
+      await connectionManager.connectTransport(mockTransport, 'failed-resource-cleanup', {});
+      const cleanup = vi
+        .spyOn(resourceSubscriptions, 'cleanupOwnedResources')
+        .mockRejectedValueOnce(new Error('Resource subscription cleanup incomplete'));
+      try {
+        await expect(connectionManager.disconnectTransport('failed-resource-cleanup', true)).rejects.toThrow(
+          'Resource subscription cleanup incomplete',
+        );
+        expect(connectionManager.getServer('failed-resource-cleanup')).toBeUndefined();
+        expect(mockTransport.close).toHaveBeenCalledOnce();
+      } finally {
+        cleanup.mockRestore();
+      }
+    });
+
+    it('closes every connection on shutdown when one resource cleanup fails', async () => {
+      await connectionManager.connectTransport(mockTransport, 'first-shutdown-session', {});
+      const secondTransport = {
+        close: vi.fn().mockResolvedValue(undefined),
+        send: vi.fn().mockResolvedValue(undefined),
+      } as unknown as Transport;
+      await connectionManager.connectTransport(secondTransport, 'second-shutdown-session', {});
+      const cleanup = vi
+        .spyOn(resourceSubscriptions, 'cleanupOwnedResources')
+        .mockRejectedValueOnce(new Error('Resource subscription cleanup incomplete'));
+      try {
+        await expect(connectionManager.cleanup()).rejects.toThrow('Connection cleanup incomplete');
+        expect(connectionManager.getActiveTransportsCount()).toBe(0);
+        expect(mockTransport.close).toHaveBeenCalledOnce();
+        expect(secondTransport.close).toHaveBeenCalledOnce();
+      } finally {
+        cleanup.mockRestore();
+      }
+    });
+
     it('should remove inbound connection and update status to Disconnected', async () => {
       const sessionId = 'test-session-disconnect';
 
