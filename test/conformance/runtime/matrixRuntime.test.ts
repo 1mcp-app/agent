@@ -161,6 +161,28 @@ describe('matrix runtime execution', () => {
     ).toEqual({ fixtureId: 'python-sdk', errorCode: 'tools-call-failed' });
   });
 
+  it('rejects unsupported peer output that reports a tool call error', () => {
+    expect(() =>
+      parseProbeOutput(
+        {
+          fixtureId: 'python-sdk',
+          transport: 'streamable-http',
+          protocolEra: 'modern',
+          ok: false,
+          classification: 'unsupported-operation',
+          unsupported: [{ operation: 'initialize', reason: 'modern-uses-server-discover' }],
+          initialized: false,
+          ping: false,
+          negotiatedRevision: '2026-07-28',
+          operations: ['server/discover', 'tools/list'],
+          toolsCount: 1,
+          callError: true,
+        },
+        0,
+      ),
+    ).toThrow('probe_output_invalid');
+  });
+
   it('rejects modern peer output that omits the discovery proof', () => {
     expect(() =>
       parseProbeOutput(

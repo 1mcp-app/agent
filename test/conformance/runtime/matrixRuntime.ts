@@ -240,7 +240,7 @@ const PeerUnsupportedSchema = z
     negotiatedRevision: RevisionSchema,
     operations: z.array(ProbeOperationSchema).min(1).max(5),
     toolsCount: z.number().int().nonnegative().max(100_000),
-    callError: z.boolean(),
+    callError: z.literal(false),
   })
   .strict();
 const PeerProbeSchema = z.union([PeerSuccessSchema, PeerCallFailureSchema, PeerUnsupportedSchema]);
