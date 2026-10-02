@@ -87,6 +87,59 @@ describe('matrix runtime execution', () => {
   });
 
   it.each([
+    {
+      protocolEra: 'legacy',
+      output: {
+        fixtureId: 'python-sdk',
+        transport: 'stdio',
+        protocolEra: 'legacy',
+        ok: true,
+        initialized: true,
+        ping: true,
+        negotiatedRevision: '2025-11-25',
+        operations: ['initialize', 'ping', 'tools/list', 'tools/call'],
+        toolsCount: 1,
+        callError: false,
+      },
+      expected: {
+        fixtureId: 'python-sdk',
+        transport: 'stdio',
+        protocolEra: 'legacy',
+        initialized: true,
+        ping: true,
+        negotiatedRevision: '2025-11-25',
+        operations: ['initialize', 'ping', 'tools/list', 'tools/call'],
+        toolsCount: 1,
+        callError: false,
+      },
+    },
+    {
+      protocolEra: 'modern',
+      output: {
+        fixtureId: 'python-sdk',
+        transport: 'stdio',
+        protocolEra: 'modern',
+        ok: true,
+        negotiatedRevision: '2026-07-28',
+        operations: ['server/discover', 'tools/list', 'tools/call'],
+        toolsCount: 1,
+        callError: false,
+      },
+      expected: {
+        fixtureId: 'python-sdk',
+        transport: 'stdio',
+        protocolEra: 'modern',
+        negotiatedRevision: '2026-07-28',
+        operations: ['server/discover', 'tools/list', 'tools/call'],
+        toolsCount: 1,
+        callError: false,
+      },
+    },
+  ] as const)('accepts the Python $protocolEra success record', ({ output, expected }) => {
+    expect(parseProbeOutput(output, 0)).toEqual(expected);
+  });
+
+  it.each([
     { protocolEra: 'legacy', operations: ['initialize', 'ping', 'tools/list', 'tools/call'] },
     { protocolEra: 'modern', operations: ['server/discover', 'tools/list', 'tools/call'] },
   ] as const)('keeps a $protocolEra tool invocation error out of the success path', ({ protocolEra, operations }) => {

@@ -81,34 +81,38 @@ const ModernProbeOperationsSchema = z.tuple([
   z.literal('tools/call'),
 ]);
 
-const ProbeSuccessSchema = z.discriminatedUnion('protocolEra', [
-  z
-    .object({
-      fixtureId: SafeIdSchema,
-      transport: SafeIdSchema,
-      sdkEra: SdkEraSchema.optional(),
-      protocolEra: z.literal('legacy'),
-      initialized: z.literal(true),
-      ping: z.literal(true),
-      negotiatedRevision: RevisionSchema,
-      operations: LegacyProbeOperationsSchema,
-      toolsCount: z.number().int().nonnegative().max(100_000),
-      callError: z.literal(false),
-    })
-    .strict(),
-  z
-    .object({
-      fixtureId: SafeIdSchema,
-      transport: SafeIdSchema,
-      sdkEra: SdkEraSchema.optional(),
-      protocolEra: z.literal('modern'),
-      negotiatedRevision: RevisionSchema,
-      operations: ModernProbeOperationsSchema,
-      toolsCount: z.number().int().nonnegative().max(100_000),
-      callError: z.literal(false),
-    })
-    .strict(),
-]);
+const ProbeSuccessSchema = z
+  .discriminatedUnion('protocolEra', [
+    z
+      .object({
+        fixtureId: SafeIdSchema,
+        transport: SafeIdSchema,
+        sdkEra: SdkEraSchema.optional(),
+        protocolEra: z.literal('legacy'),
+        ok: z.literal(true).optional(),
+        initialized: z.literal(true),
+        ping: z.literal(true),
+        negotiatedRevision: RevisionSchema,
+        operations: LegacyProbeOperationsSchema,
+        toolsCount: z.number().int().nonnegative().max(100_000),
+        callError: z.literal(false),
+      })
+      .strict(),
+    z
+      .object({
+        fixtureId: SafeIdSchema,
+        transport: SafeIdSchema,
+        sdkEra: SdkEraSchema.optional(),
+        protocolEra: z.literal('modern'),
+        ok: z.literal(true).optional(),
+        negotiatedRevision: RevisionSchema,
+        operations: ModernProbeOperationsSchema,
+        toolsCount: z.number().int().nonnegative().max(100_000),
+        callError: z.literal(false),
+      })
+      .strict(),
+  ])
+  .transform(({ ok: _ok, ...probe }) => probe);
 
 const ProbeUnsupportedSchema = z
   .object({
