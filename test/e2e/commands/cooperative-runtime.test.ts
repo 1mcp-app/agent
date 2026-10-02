@@ -238,6 +238,50 @@ afterEach(async () => {
 });
 
 describe('cooperative runtime real-process lifecycle', () => {
+  it('recovers an uncleanly stopped generation with one restart command', { timeout: 55_000 }, async () => {
+    const s = scope();
+    const port = await freePort();
+    await start(s, port);
+    const previousOwner = owner(s);
+    const previousRuntime = runtime(s);
+    // These processes were launched by this fixture; force an exit without metadata retirement.
+    process.kill(previousOwner.pid, 'SIGKILL');
+    process.kill(previousRuntime.pid, 'SIGKILL');
+    await eventually(() => {
+      try {
+        process.kill(previousOwner.pid, 0);
+        return false;
+      } catch (error) {
+        return error instanceof Error && 'code' in error && error.code === 'ESRCH';
+      }
+    });
+    await eventually(() => {
+      try {
+        process.kill(previousRuntime.pid, 0);
+        return false;
+      } catch (error) {
+        return error instanceof Error && 'code' in error && error.code === 'ESRCH';
+      }
+    });
+    expect(owner(s)).toEqual(previousOwner);
+    const records = ['server.pid', 'background-runtime.json', 'runtime-control.json', 'runtime.owner/owner.json'];
+    const evidence = records.map((name) => fs.readFileSync(path.join(s.directory, name), 'utf8'));
+    const status = await run(s, ['serve', '--status']);
+    expect(status.code).toBe(2);
+    expect(status.stdout).toContain(`1mcp serve --config-dir '${fs.realpathSync(s.directory)}' --restart`);
+    fs.writeFileSync(path.join(s.directory, 'mcp.json'), '{broken');
+    const invalid = await run(s, ['serve', '--restart', '--port', String(port)]);
+    expect(invalid.code).not.toBe(0);
+    expect(records.map((name) => fs.readFileSync(path.join(s.directory, name), 'utf8'))).toEqual(evidence);
+    fs.writeFileSync(path.join(s.directory, 'mcp.json'), '{"mcpServers":{}}');
+    const restarted = await run(s, ['serve', '--restart', '--port', String(port), '--host', '127.0.0.1']);
+    expect(restarted.code, restarted.stdout + restarted.stderr).toBe(0);
+    expect(restarted.stderr).toContain('Recovered stale cooperative runtime');
+    expect(owner(s).claimId).not.toBe(previousOwner.claimId);
+    expect(runtime(s).ownerClaimId).toBe(owner(s).claimId);
+    await healthy(port);
+  });
+
   it(
     'launches, attaches, restarts preserving explicit port, reports status and stops without inspection',
     { timeout: 55_000 },

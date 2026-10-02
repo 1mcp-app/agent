@@ -293,8 +293,12 @@ export async function connectRuntimeControl(configDir: string): Promise<{
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(value),
     }).catch(() => {
+      const escapedScope = configDir.replaceAll("'", process.platform === 'win32' ? "''" : "'\\''");
       throw new Error(
-        'Runtime control is unreachable. Preserve ownership metadata and use the original CLI or service manager for explicit recovery.',
+        'Runtime control is unreachable. Preserve ownership metadata. ' +
+          `Try: 1mcp serve --config-dir '${escapedScope}' --restart. ` +
+          'Restart can recover stale records when the supervisor and all recorded workers have exited. ' +
+          'If recovery is refused, use the original CLI or service manager.',
       );
     });
     if (!response.ok || !response.body) throw new Error('Runtime control request rejected');
