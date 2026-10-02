@@ -41,10 +41,12 @@ export function registerToolHandlers(
 ): void {
   const sessionId = getRequestSession(inboundConn);
   const lazy = lazyLoadingOrchestrator?.isEnabled() ?? false;
-  const acquire = async (cursor?: string, signal?: AbortSignal) => {
-    const visibility = lazy
+  const acquire = async (cursor?: string, signal?: AbortSignal, { upstream = true } = {}) => {
+    const resolved = lazy
       ? resolveLazyCapabilityVisibility(outboundConns, inboundConn, sessionId)
       : resolveCapabilityVisibility(outboundConns, inboundConn, sessionId, 'tools');
+    // Lazy discovery lists only gateway tools, so it must not wait on upstream enumeration.
+    const visibility = upstream ? resolved : { ...resolved, serverCandidates: new Map<string, string>() };
     const provider = InternalCapabilitiesProvider.getInstance();
     await provider.initialize();
     const internalTools = provider.getAvailableTools();
@@ -82,7 +84,7 @@ export function registerToolHandlers(
           bindOwnedNotificationAuthorization(outboundConns, inboundConn, () =>
             revalidateLegacyRequestAuthInfo(extra.authInfo),
           );
-        const { snapshot } = await acquire(request.params?.cursor, extra?.signal);
+        const { snapshot } = await acquire(request.params?.cursor, extra?.signal, { upstream: !lazy });
         const result = await snapshot.list<Tool>('tools', {
           cursor: request.params?.cursor,
           enablePagination: inboundConn.enablePagination ?? false,

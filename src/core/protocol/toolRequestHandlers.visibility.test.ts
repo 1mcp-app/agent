@@ -126,6 +126,39 @@ describe('registerToolHandlers capability visibility', () => {
     expect(callMetaTool.mock.calls[1][2].sessionId).toBe('session-1');
   });
 
+  it('lists lazy tools without enumerating upstream servers', async () => {
+    type CapturedHandler = (request: { params: Record<string, unknown> }) => Promise<unknown>;
+    const handlers: CapturedHandler[] = [];
+    const inbound = createMockLegacyInboundConnection({
+      server: { setRequestHandler: vi.fn((_schema, handler) => handlers.push(handler)) } as never,
+    });
+    const request = vi.fn(async () => ({ tools: [{ name: 'echo', inputSchema: { type: 'object' } }] }) as never);
+    const connections: OutboundConnections = new Map([
+      [
+        'slow',
+        createMockOutboundConnection({
+          name: 'slow',
+          status: ClientStatus.Connected,
+          capabilities: { tools: {} },
+          adapter: { request },
+        }),
+      ],
+    ]);
+    const orchestrator = {
+      isEnabled: () => true,
+      callMetaTool: vi.fn(),
+      getCapabilitiesForVisibility: vi.fn().mockResolvedValue({
+        tools: [{ name: 'tool_list', inputSchema: { type: 'object' } }],
+      }),
+    } as unknown as LazyLoadingOrchestrator;
+
+    registerToolHandlers(connections, inbound, orchestrator);
+    const result = (await handlers[0]({ params: {} })) as { tools: Array<{ name: string }> };
+
+    expect(result.tools.map((tool) => tool.name)).toEqual(['tool_list']);
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it('answers meta-tools from the snapshot the request captured', async () => {
     type CapturedHandler = (request: { params: { name: string; arguments: unknown } }) => Promise<unknown>;
     const handlers: CapturedHandler[] = [];
