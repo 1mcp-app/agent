@@ -5,6 +5,7 @@ import {
   type LegacyOutboundConnections,
   requestLegacyOutbound,
 } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
+import { revalidateLegacyRequestAuthInfo } from '@src/sdk/legacy/server/auth/requestAuthRevalidation.js';
 import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
 import { projectResourceUri, resolveResourceRoute } from '@src/sdk/legacy/shared/resourceTemplateRouting.js';
 import {
@@ -17,6 +18,12 @@ import {
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 
 import { withPrivateInteractionConnection } from './privateInteractionConnection.js';
+import {
+  bindOwnedCatalogConnections,
+  bindOwnedNotificationAuthorization,
+  subscribeOwnedResource,
+  unsubscribeOwnedResource,
+} from './resourceSubscriptions.js';
 
 export function registerResourceHandlers(
   outboundConns: LegacyOutboundConnections,
@@ -31,7 +38,12 @@ export function registerResourceHandlers(
   const server = getLegacyInboundServer(inboundConn);
   server.setRequestHandler(
     ListResourcesRequestSchema,
-    withErrorHandling(async (request) => {
+    withErrorHandling(async (request, extra) => {
+      bindOwnedCatalogConnections(outboundConns, inboundConn, 'resources');
+      if (extra?.authInfo)
+        bindOwnedNotificationAuthorization(outboundConns, inboundConn, () =>
+          revalidateLegacyRequestAuthInfo(extra.authInfo),
+        );
       const snapshot = await acquire(request.params?.cursor);
       const result = await snapshot.list('resources', {
         cursor: request.params?.cursor,
@@ -46,7 +58,12 @@ export function registerResourceHandlers(
   );
   server.setRequestHandler(
     ListResourceTemplatesRequestSchema,
-    withErrorHandling(async (request) => {
+    withErrorHandling(async (request, extra) => {
+      bindOwnedCatalogConnections(outboundConns, inboundConn, 'resources');
+      if (extra?.authInfo)
+        bindOwnedNotificationAuthorization(outboundConns, inboundConn, () =>
+          revalidateLegacyRequestAuthInfo(extra.authInfo),
+        );
       const snapshot = await acquire(request.params?.cursor, 'resourceTemplates');
       const result = await snapshot.list('resourceTemplates', {
         cursor: request.params?.cursor,
@@ -61,22 +78,22 @@ export function registerResourceHandlers(
   );
   server.setRequestHandler(
     SubscribeRequestSchema,
-    withErrorHandling(async (request) => {
-      const route = resolveResourceRoute(await acquire(), request.params.uri);
-      return requestLegacyOutbound(route.connection, 'resources/subscribe', {
-        ...request.params,
-        uri: route.upstreamIdentity,
-      });
+    withErrorHandling(async (request, extra) => {
+      await subscribeOwnedResource(
+        outboundConns,
+        inboundConn,
+        request.params.uri,
+        extra.signal,
+        extra.authInfo ? () => revalidateLegacyRequestAuthInfo(extra.authInfo) : undefined,
+      );
+      return {};
     }, 'Error subscribing to resource'),
   );
   server.setRequestHandler(
     UnsubscribeRequestSchema,
     withErrorHandling(async (request) => {
-      const route = resolveResourceRoute(await acquire(), request.params.uri);
-      return requestLegacyOutbound(route.connection, 'resources/unsubscribe', {
-        ...request.params,
-        uri: route.upstreamIdentity,
-      });
+      await unsubscribeOwnedResource(inboundConn, request.params.uri);
+      return {};
     }, 'Error unsubscribing from resource'),
   );
   server.setRequestHandler(

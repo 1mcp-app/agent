@@ -33,7 +33,7 @@ export async function setupCapabilities(
 
   // Set up notification handlers
   if (!serverInfo.requestOnly) {
-    setupClientToServerNotifications(clients, serverInfo);
+    await setupClientToServerNotifications(clients, serverInfo);
     setupServerToClientNotifications(clients, serverInfo);
   }
 

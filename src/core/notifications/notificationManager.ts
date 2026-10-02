@@ -234,7 +234,10 @@ export class NotificationManager extends EventEmitter {
         return;
       }
 
-      const delivery = this.inboundConn.adapter.notify(notification);
+      const delivery = (this.inboundConn.adapter.notifySubscription ?? this.inboundConn.adapter.notify).call(
+        this.inboundConn.adapter,
+        notification,
+      );
       void Promise.resolve(delivery).catch((error: unknown) => this.handleNotificationFailure(type, error));
 
       debugIf(() => ({ message: `Sent ${type} listChanged notification to client`, meta: { type } }));

@@ -19,6 +19,7 @@ import { SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
 import { toJsonValue } from '@src/sdk/contracts/index.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
 import { type LegacyOutboundConnections } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
+import { revalidateLegacyRequestAuthInfo } from '@src/sdk/legacy/server/auth/requestAuthRevalidation.js';
 import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
 import {
   canonicalBridgeToolRegistrar,
@@ -30,6 +31,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@src/sdk/legacy/t
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 
 import { withPrivateInteractionConnection } from './privateInteractionConnection.js';
+import { bindOwnedCatalogConnections, bindOwnedNotificationAuthorization } from './resourceSubscriptions.js';
 
 export function registerToolHandlers(
   outboundConns: LegacyOutboundConnections,
@@ -74,6 +76,11 @@ export function registerToolHandlers(
     ListToolsRequestSchema,
     withErrorHandling(
       withRuntimeAdmission(async (request, extra) => {
+        bindOwnedCatalogConnections(outboundConns, inboundConn, 'tools');
+        if (extra?.authInfo)
+          bindOwnedNotificationAuthorization(outboundConns, inboundConn, () =>
+            revalidateLegacyRequestAuthInfo(extra.authInfo),
+          );
         const { snapshot } = await acquire(request.params?.cursor, extra?.signal);
         const result = await snapshot.list<Tool>('tools', {
           cursor: request.params?.cursor,

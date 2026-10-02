@@ -37,6 +37,7 @@ import { createScopeAuthMiddleware } from '@src/transport/http/middlewares/scope
 import { setupModernHttpRoutes } from '@src/transport/http/routes/modernHttpRoutes.js';
 
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
@@ -263,6 +264,7 @@ describe('real gateway interaction peers across protocol eras', () => {
         } else {
           const app = express();
           app.use(express.json());
+          app.use(rateLimit({ windowMs: 60_000, limit: 1000 }));
           // Exercise native admission and its provider-bound continuation revalidation.
           const expiresAt = Date.now() + 120_000;
           const authProvider = {

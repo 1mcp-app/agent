@@ -19,7 +19,13 @@ export enum ServerStatus {
   Error = 'error',
 }
 
-export type InboundConnectionAdapter = Pick<LegacySdkAdapter, 'connectionId' | 'state' | 'start' | 'notify' | 'close'>;
+export type InboundConnectionAdapter = Pick<
+  LegacySdkAdapter,
+  'connectionId' | 'state' | 'start' | 'notify' | 'close'
+> & {
+  closeWhenIdle?(): Promise<void>;
+  notifySubscription?: LegacySdkAdapter['notify'];
+};
 
 export interface InboundConnectionError {
   readonly name: string;
@@ -35,6 +41,8 @@ export interface InboundConnectionConfig extends TemplateConfig {
   readonly enablePagination?: boolean;
   /** Stateless bridges must not take ownership of shared upstream callbacks. */
   readonly requestOnly?: boolean;
+  /** Private modern subscription bridge list coverage; absent for retained legacy connections. */
+  readonly subscriptionListKinds?: readonly ('tools' | 'resources' | 'prompts')[];
   /** Trusted private bridge provenance; never populated from client-supplied configuration. */
   readonly canonicalSchemaProjection?: boolean;
   readonly presetName?: string;

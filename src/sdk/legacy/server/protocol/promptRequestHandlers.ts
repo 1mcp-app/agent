@@ -5,11 +5,13 @@ import {
   type LegacyOutboundConnections,
   requestLegacyOutbound,
 } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
+import { revalidateLegacyRequestAuthInfo } from '@src/sdk/legacy/server/auth/requestAuthRevalidation.js';
 import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
 import { CompleteRequestSchema, GetPromptRequestSchema, ListPromptsRequestSchema } from '@src/sdk/legacy/types.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 
 import { withPrivateInteractionConnection } from './privateInteractionConnection.js';
+import { bindOwnedCatalogConnections, bindOwnedNotificationAuthorization } from './resourceSubscriptions.js';
 
 export function registerPromptHandlers(outboundConns: LegacyOutboundConnections, inboundConn: InboundConnection): void {
   const acquire = (cursor?: string) =>
@@ -25,7 +27,12 @@ export function registerPromptHandlers(outboundConns: LegacyOutboundConnections,
   const server = getLegacyInboundServer(inboundConn);
   server.setRequestHandler(
     ListPromptsRequestSchema,
-    withErrorHandling(async (request) => {
+    withErrorHandling(async (request, extra) => {
+      bindOwnedCatalogConnections(outboundConns, inboundConn, 'prompts');
+      if (extra?.authInfo)
+        bindOwnedNotificationAuthorization(outboundConns, inboundConn, () =>
+          revalidateLegacyRequestAuthInfo(extra.authInfo),
+        );
       const result = await (
         await acquire(request.params?.cursor)
       ).list('prompts', { cursor: request.params?.cursor, enablePagination: inboundConn.enablePagination ?? false });
