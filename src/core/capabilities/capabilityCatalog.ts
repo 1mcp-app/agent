@@ -59,6 +59,8 @@ export interface CapabilityRefreshResult {
 export interface CapabilityCatalogQueryOptions {
   refreshIntent?: CapabilityRefreshIntent;
   signal?: AbortSignal;
+  /** Request-scoped registry, e.g. built from the snapshot the request already captured. */
+  toolRegistry?: ToolRegistry;
 }
 
 export interface CapabilityRoute extends CatalogRoute {
@@ -75,7 +77,7 @@ export interface VisibleToolListResult extends RegistryListToolsResult {
 }
 
 export interface CapabilityCatalogDependencies {
-  getToolRegistry: () => ToolRegistry;
+  getToolRegistry: () => ToolRegistry | Promise<ToolRegistry>;
   schemaCache: SchemaCache;
   outboundConnections: OutboundConnections;
   getServerConfigs: () => Record<string, MCPServerParams>;
@@ -200,7 +202,7 @@ export class CapabilityCatalog {
     queryOptions: CapabilityCatalogQueryOptions = {},
   ): Promise<VisibleToolListResult> {
     const refresh = await this.resolveRefreshFacts(queryOptions.refreshIntent ?? 'never', 'list');
-    const registry = this.visibleToolRegistry(visibility);
+    const registry = await this.visibleToolRegistry(visibility, queryOptions.toolRegistry);
     const admitted = [];
     for (const tool of registry.getAllTools()) {
       try {
@@ -248,7 +250,7 @@ export class CapabilityCatalog {
     queryOptions: CapabilityCatalogQueryOptions = {},
   ): Promise<DescribeVisibleToolResult> {
     const refresh = await this.resolveRefreshFacts(queryOptions.refreshIntent ?? 'never', 'describe');
-    const access = this.resolveVisibleToolAccess(args, visibility);
+    const access = await this.resolveVisibleToolAccess(args, visibility, queryOptions.toolRegistry);
     if (access.error) {
       return { schema: {}, error: access.error, refresh };
     }
@@ -354,7 +356,7 @@ export class CapabilityCatalog {
     queryOptions: CapabilityCatalogQueryOptions = {},
   ): Promise<InvokeVisibleToolResult> {
     const refresh = await this.resolveRefreshFacts(queryOptions.refreshIntent ?? 'never', 'invoke');
-    const access = this.resolveVisibleToolAccess(args, visibility);
+    const access = await this.resolveVisibleToolAccess(args, visibility, queryOptions.toolRegistry);
     if (access.error) {
       return {
         result: {},
@@ -402,7 +404,7 @@ export class CapabilityCatalog {
       };
       const contracts = await admitToolSchemas(definition as unknown as Record<string, unknown>, binding);
       const validateOutput = await prepareToolValidation(contracts, args.args, binding);
-      const current = this.resolveVisibleToolAccess(args, visibility);
+      const current = await this.resolveVisibleToolAccess(args, visibility, queryOptions.toolRegistry);
       if (
         queryOptions.signal?.aborted ||
         current.error ||
@@ -481,8 +483,11 @@ export class CapabilityCatalog {
     };
   }
 
-  private visibleToolRegistry(visibility?: CapabilityVisibility): ToolRegistry {
-    let registry = this.deps.getToolRegistry();
+  private async visibleToolRegistry(
+    visibility?: CapabilityVisibility,
+    requestRegistry?: ToolRegistry,
+  ): Promise<ToolRegistry> {
+    let registry = requestRegistry ?? (await this.deps.getToolRegistry());
     if (registry.isCurrent?.() === false) return ToolRegistry.empty();
     const effectiveVisibility = visibility ?? this.deps.defaultVisibility;
     if (effectiveVisibility !== undefined) {
@@ -520,12 +525,14 @@ export class CapabilityCatalog {
     ).withConnections(registry.getConnections(), () => registry.isCurrent());
   }
 
-  private resolveVisibleToolAccess(
+  private async resolveVisibleToolAccess(
     args: { server?: string; toolName?: string },
     visibility?: CapabilityVisibility,
-  ):
+    requestRegistry?: ToolRegistry,
+  ): Promise<
     | { route: CapabilityRoute; tool: ToolMetadata; connection?: OutboundConnection; error?: never }
-    | { route?: never; tool?: never; connection?: never; error: CapabilityAccessError } {
+    | { route?: never; tool?: never; connection?: never; error: CapabilityAccessError }
+  > {
     if (!args.server || !args.toolName) {
       return {
         error: {
@@ -535,7 +542,7 @@ export class CapabilityCatalog {
       };
     }
 
-    const visibleRegistry = this.visibleToolRegistry(visibility);
+    const visibleRegistry = await this.visibleToolRegistry(visibility, requestRegistry);
     if (typeof visibleRegistry.getTool !== 'function') {
       return {
         error: {

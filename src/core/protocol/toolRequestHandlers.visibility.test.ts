@@ -1,6 +1,7 @@
 import { createMockLegacyInboundConnection, createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
 import type { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
+import type { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { ClientStatus, type OutboundConnections } from '@src/core/types/index.js';
 
 import { describe, expect, it, vi } from 'vitest';
@@ -123,5 +124,40 @@ describe('registerToolHandlers capability visibility', () => {
       ['late', 'late'],
     ]);
     expect(callMetaTool.mock.calls[1][2].sessionId).toBe('session-1');
+  });
+
+  it('answers meta-tools from the snapshot the request captured', async () => {
+    type CapturedHandler = (request: { params: { name: string; arguments: unknown } }) => Promise<unknown>;
+    const handlers: CapturedHandler[] = [];
+    const inbound = createMockLegacyInboundConnection({
+      server: { setRequestHandler: vi.fn((_schema, handler) => handlers.push(handler)) } as never,
+    });
+    const connections: OutboundConnections = new Map([
+      [
+        'ready',
+        createMockOutboundConnection({
+          name: 'ready',
+          status: ClientStatus.Connected,
+          capabilities: { tools: {} },
+          adapter: {
+            request: vi.fn(async () => ({ tools: [{ name: 'echo', inputSchema: { type: 'object' } }] }) as never),
+          },
+        }),
+      ],
+    ]);
+    const callMetaTool = vi.fn().mockResolvedValue({ tools: [] });
+    const orchestrator = {
+      isEnabled: () => true,
+      callMetaTool,
+      getCapabilitiesForVisibility: vi.fn().mockResolvedValue({
+        tools: [{ name: 'tool_list', inputSchema: { type: 'object' } }],
+      }),
+    } as unknown as LazyLoadingOrchestrator;
+
+    registerToolHandlers(connections, inbound, orchestrator);
+    await handlers[1]({ params: { name: 'tool_list', arguments: {} } });
+
+    const registry = callMetaTool.mock.calls[0][4] as ToolRegistry;
+    expect(registry.getAllTools().map((tool) => `${tool.server}:${tool.name}`)).toEqual(['ready:echo']);
   });
 });

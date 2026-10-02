@@ -5,6 +5,7 @@ import {
   acquireRuntimeCapabilityCatalog,
   type PreparedToolCall,
 } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
+import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { executeWithPostAuthOAuthRecovery } from '@src/core/client/postAuthOAuthRecovery.js';
 import {
@@ -157,6 +158,9 @@ export function registerToolHandlers(
                   request.params.arguments,
                   visibility,
                   extra?.signal,
+                  // This request already enumerated its visible backends; answer from that
+                  // snapshot rather than a shared registry that may be stale or partial.
+                  ToolRegistry.fromCapabilitySnapshot(snapshot),
                 ),
               ),
             );

@@ -6,7 +6,7 @@ import logger, { errorIf } from '@src/logger/logger.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
 import { zodToInputSchema, zodToOutputSchema } from '@src/utils/schemaUtils.js';
 
-import { CapabilityCatalog } from './capabilityCatalog.js';
+import { CapabilityCatalog, type CapabilityCatalogQueryOptions } from './capabilityCatalog.js';
 import type { CapabilityVisibility } from './capabilityVisibility.js';
 import { SchemaCache } from './schemaCache.js';
 import {
@@ -66,7 +66,7 @@ export interface CallToolArgs {
  * Function to get the current tool registry
  * This allows the provider to always have access to the latest registry
  */
-export type ToolRegistryProvider = () => ToolRegistry;
+export type ToolRegistryProvider = () => ToolRegistry | Promise<ToolRegistry>;
 
 /**
  * MetaToolProvider provides meta-tools for lazy loading:
@@ -146,7 +146,9 @@ export class MetaToolProvider {
     args: unknown,
     visibility?: CapabilityVisibility,
     signal?: AbortSignal,
+    toolRegistry?: ToolRegistry,
   ): Promise<ListToolsResult | DescribeToolResult | CallToolResult> {
+    const query = { signal, toolRegistry };
     switch (name) {
       case 'tool_list': {
         const parsed = ToolListInputSchema.safeParse(args);
@@ -162,7 +164,7 @@ export class MetaToolProvider {
             },
           } as ListToolsResult;
         }
-        return this.listAvailableTools(parsed.data, visibility, signal);
+        return this.listAvailableTools(parsed.data, visibility, query);
       }
       case 'tool_schema': {
         const parsed = ToolSchemaInputSchema.safeParse(args);
@@ -175,7 +177,7 @@ export class MetaToolProvider {
             },
           } as DescribeToolResult;
         }
-        return this.describeTool(parsed.data, visibility, signal);
+        return this.describeTool(parsed.data, visibility, query);
       }
       case 'tool_invoke': {
         const parsed = ToolInvokeInputSchema.safeParse(args);
@@ -190,7 +192,7 @@ export class MetaToolProvider {
             },
           } as CallToolResult;
         }
-        return this.callTool(parsed.data, visibility, signal);
+        return this.callTool(parsed.data, visibility, query);
       }
       default:
         return {
@@ -224,10 +226,10 @@ export class MetaToolProvider {
   private async listAvailableTools(
     args: ListAvailableToolsArgs,
     visibility?: CapabilityVisibility,
-    signal?: AbortSignal,
+    query: CapabilityCatalogQueryOptions = {},
   ): Promise<ListToolsResult> {
     try {
-      const result = await this.capabilityCatalog.listVisibleTools(args, visibility, { signal });
+      const result = await this.capabilityCatalog.listVisibleTools(args, visibility, query);
 
       // Format tools for response
       const tools = result.tools.map((tool: ToolMetadata) => ({
@@ -288,10 +290,10 @@ export class MetaToolProvider {
   private async describeTool(
     args: DescribeToolArgs,
     visibility?: CapabilityVisibility,
-    signal?: AbortSignal,
+    query: CapabilityCatalogQueryOptions = {},
   ): Promise<DescribeToolResult> {
     try {
-      const result = await this.capabilityCatalog.describeVisibleTool(args, visibility, { signal });
+      const result = await this.capabilityCatalog.describeVisibleTool(args, visibility, query);
       if (result.error) {
         return {
           schema: {},
@@ -338,10 +340,10 @@ export class MetaToolProvider {
   private async callTool(
     args: CallToolArgs,
     visibility?: CapabilityVisibility,
-    signal?: AbortSignal,
+    query: CapabilityCatalogQueryOptions = {},
   ): Promise<CallToolResult> {
     try {
-      const result = await this.capabilityCatalog.invokeVisibleTool(args, visibility, { signal });
+      const result = await this.capabilityCatalog.invokeVisibleTool(args, visibility, query);
       if (result.error) {
         return {
           result: {},
