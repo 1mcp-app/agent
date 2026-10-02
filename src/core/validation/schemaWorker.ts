@@ -20,7 +20,12 @@ const validators = new Map<string, ValidateFunction>();
 function compile(job: Job): ValidateFunction {
   const key = JSON.stringify([job.dialect, job.schema]);
   const cached = validators.get(key);
-  if (cached) return cached;
+  if (cached) {
+    // Keep recently used validators: evaluation reuses the tools agents actually call.
+    validators.delete(key);
+    validators.set(key, cached);
+    return cached;
+  }
   const schema = structuredClone(job.schema);
   const limits = job.limits;
   let references = 0,
