@@ -1,3 +1,8 @@
+---
+title: 仅追踪上下文传播的验证
+description: 验证不启用 Provider 或 Exporter 的 W3C 上下文传播与隐私边界。
+---
+
 # 仅追踪上下文传播的验证
 
 Issue #488 只安装 OpenTelemetry 异步上下文管理器和 W3C 追踪传播器，不创建 Provider、Span、Exporter、指标或 Baggage。即使设置 `OTEL_SDK_DISABLED=true`，消息级上下文传播也保持有效。

@@ -172,7 +172,9 @@ describe('Notification Handlers', () => {
           server: 'test-client',
         },
       });
-      expect(logger.error).toHaveBeenCalledWith(`Failed to send notification from test-client: ${forwardError}`);
+      expect(logger.error).toHaveBeenCalledWith('notificationHandlers.failed.to.send.notification.from.5fd1ccf3', {
+        error: forwardError,
+      });
     });
 
     it('should not send notifications when client is not connected', async () => {

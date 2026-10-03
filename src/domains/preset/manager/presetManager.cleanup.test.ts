@@ -137,7 +137,9 @@ describe('PresetManager', () => {
       expect((cleanupManager as any).notificationCallbacks.size).toBe(0);
       expect((cleanupManager as any).presets.size).toBe(0);
 
-      expect(logger.debug).toHaveBeenCalledWith('PresetManager cleanup completed successfully');
+      expect(logger.debug).toHaveBeenCalledWith(
+        'presetManagerCleanup.presetmanager.cleanup.completed.successfully.0047ca52',
+      );
     });
 
     it('should handle cleanup errors gracefully', async () => {
@@ -154,7 +156,7 @@ describe('PresetManager', () => {
       // Should not throw despite internal cleanup errors
       await expect(cleanupManager.cleanup()).resolves.not.toThrow();
 
-      expect(logger.error).toHaveBeenCalledWith('Error during PresetManager cleanup', {
+      expect(logger.error).toHaveBeenCalledWith('presetManagerCleanup.error.during.presetmanager.cleanup.ea747462', {
         error: expect.any(Error),
       });
     });
@@ -171,7 +173,9 @@ describe('PresetManager', () => {
       // Should not throw when clear method doesn't exist
       await expect(cleanupManager.cleanup()).resolves.not.toThrow();
 
-      expect(logger.debug).toHaveBeenCalledWith('PresetManager cleanup completed successfully');
+      expect(logger.debug).toHaveBeenCalledWith(
+        'presetManagerCleanup.presetmanager.cleanup.completed.successfully.0047ca52',
+      );
     });
   });
 
@@ -221,8 +225,7 @@ describe('PresetManager', () => {
       // Mock cleanup to fail
       vi.spyOn(instance, 'cleanup').mockRejectedValue(new Error('Cleanup failed'));
 
-      // Mock logger.warn to return logger for chaining
-      const mockWarn = vi.spyOn(logger, 'warn').mockReturnValue(logger);
+      const mockWarn = vi.spyOn(logger, 'warn');
 
       // Should not throw despite cleanup failure
       expect(() => PresetManager.resetInstance()).not.toThrow();
@@ -231,7 +234,9 @@ describe('PresetManager', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       // Should log warning about cleanup failure
-      expect(mockWarn).toHaveBeenCalledWith('Failed to cleanup PresetManager during reset:', expect.any(Error));
+      expect(mockWarn).toHaveBeenCalledWith('presetManager.failed.to.cleanup.presetmanager.during.reset.601df09b', {
+        error: expect.any(Error),
+      });
 
       mockWarn.mockRestore();
     });

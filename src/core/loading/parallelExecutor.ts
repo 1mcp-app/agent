@@ -117,10 +117,7 @@ export class ParallelExecutor<T, R> extends EventEmitter {
         } catch (error) {
           const errorObj = error instanceof Error ? error : new Error(String(error));
           this.emit(ParallelExecutorEvent.ItemComplete, item, errorObj);
-          logger.error(`Failed to process item in parallel execution: ${item}`, {
-            error: errorObj.message,
-            itemType: typeof item,
-          });
+          logger.error('parallelExecutor.failed.to.process.item.in.parallel.execution.e51696a2', { error: errorObj });
         } finally {
           markItemComplete(itemIndex);
         }

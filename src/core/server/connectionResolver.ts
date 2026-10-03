@@ -60,8 +60,8 @@ export class ConnectionResolver {
         }
       } catch (error) {
         errorIf(() => ({
-          message: 'Failed to get rendered hash for template connection lookup',
-          meta: { clientName, sessionId, error: error instanceof Error ? error.message : String(error) },
+          message: 'connectionResolver.failed.to.get.rendered.hash.for.template.connection.lookup.efcf33df',
+          meta: { sessionId: sessionId, error: error },
         }));
       }
     }
@@ -112,8 +112,8 @@ export class ConnectionResolver {
       const identity = parseTemplateConnectionKey(key);
       if (identity.kind === 'invalid') {
         errorIf(() => ({
-          message: 'Invalid connection key format: expected clean name or exactly one colon delimiter',
-          meta: { key },
+          message:
+            'connectionResolver.invalid.connection.key.format.expected.clean.name.or.exactly.one.colon.deli.dc9d4e0b',
         }));
         continue;
       }
@@ -154,13 +154,8 @@ export class ConnectionResolver {
           );
         } catch (error) {
           errorIf(() => ({
-            message: 'Failed to get rendered hash while filtering connections for session',
-            meta: {
-              key,
-              sessionId,
-              templateName: identity.templateName,
-              error: error instanceof Error ? error.message : String(error),
-            },
+            message: 'connectionResolver.failed.to.get.rendered.hash.while.filtering.connections.for.session.2401fe74',
+            meta: { sessionId: sessionId, error: error },
           }));
           renderedHashCache.set(identity.templateName, undefined);
         }
@@ -187,8 +182,8 @@ export class ConnectionResolver {
       return this.templateHashProvider.getAllRenderedHashesForSession?.(sessionId);
     } catch (error) {
       errorIf(() => ({
-        message: 'Failed to get rendered hashes while filtering connections for session',
-        meta: { sessionId, error: error instanceof Error ? error.message : String(error) },
+        message: 'connectionResolver.failed.to.get.rendered.hashes.while.filtering.connections.for.session.c8c80565',
+        meta: { sessionId: sessionId, error: error },
       }));
       return undefined;
     }

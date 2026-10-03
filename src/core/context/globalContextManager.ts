@@ -34,7 +34,7 @@ export class GlobalContextManager extends EventEmitter {
    */
   public initialize(initialContext?: ContextData): void {
     if (this.isInitialized) {
-      logger.warn('GlobalContextManager is already initialized');
+      logger.warn('globalContextManager.globalcontextmanager.is.already.initialized.49f1fa01');
       return;
     }
 
@@ -42,11 +42,9 @@ export class GlobalContextManager extends EventEmitter {
     this.isInitialized = true;
 
     if (initialContext) {
-      logger.info(
-        `GlobalContextManager initialized with context: ${initialContext.project.name} (${initialContext.sessionId})`,
-      );
+      logger.info('globalContextManager.globalcontextmanager.initialized.with.context.0f1bf2da');
     } else {
-      logger.info('GlobalContextManager initialized without context');
+      logger.info('globalContextManager.globalcontextmanager.initialized.without.context.5955c783');
     }
   }
 
@@ -108,7 +106,7 @@ export class GlobalContextManager extends EventEmitter {
         });
       }
 
-      logger.info(`Context updated: ${context.project.name} (${context.sessionId})`);
+      logger.info('globalContextManager.context.updated.82bba4bc');
     }
   }
 
@@ -135,7 +133,7 @@ export class GlobalContextManager extends EventEmitter {
         // Call the actual listener
         (actualListener as (...args: unknown[]) => void)(...args);
       } catch (error) {
-        logger.error(`Error in ${event} listener:`, error);
+        logger.error('globalContextManager.error.in.listener.247420ba', { error: error });
         // Continue with other listeners even if one fails
       }
     }
@@ -190,7 +188,7 @@ export class GlobalContextManager extends EventEmitter {
         timestamp: Date.now(),
       });
 
-      logger.info('Context cleared');
+      logger.info('globalContextManager.context.cleared.7ea81849');
     }
   }
 

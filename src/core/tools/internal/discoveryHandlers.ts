@@ -30,10 +30,7 @@ import {
  */
 export async function handleMcpSearch(args: McpSearchToolArgs): Promise<McpSearchOutput> {
   try {
-    debugIf(() => ({
-      message: 'Executing mcp_search tool',
-      meta: { args },
-    }));
+    debugIf(() => ({ message: 'discoveryHandlers.executing.mcp.search.tool.845230c7' }));
 
     const adapter = AdapterFactory.getDiscoveryAdapter();
     const servers = await adapter.searchServers(args.query || '', {
@@ -109,7 +106,7 @@ export async function handleMcpSearch(args: McpSearchToolArgs): Promise<McpSearc
     return McpSearchOutputSchema.parse(result);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Error in mcp_search tool handler', { error: errorMessage });
+    logger.error('discoveryHandlers.error.in.mcp.search.tool.handler.6d657ab8', { error: errorMessage });
     throw new Error(`Search failed: ${errorMessage}`);
   }
 }
@@ -119,10 +116,7 @@ export async function handleMcpSearch(args: McpSearchToolArgs): Promise<McpSearc
  */
 export async function handleMcpRegistryStatus(args: McpRegistryStatusToolArgs): Promise<McpRegistryStatusOutput> {
   try {
-    debugIf(() => ({
-      message: 'Executing mcp_registry_status tool',
-      meta: { args },
-    }));
+    debugIf(() => ({ message: 'discoveryHandlers.executing.mcp.registry.status.tool.aecabda0' }));
 
     const adapter = AdapterFactory.getDiscoveryAdapter();
     const status = await adapter.getRegistryStatus(args.includeStats);
@@ -146,7 +140,7 @@ export async function handleMcpRegistryStatus(args: McpRegistryStatusToolArgs): 
     return McpRegistryStatusOutputSchema.parse(result);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Error in mcp_registry_status tool handler', { error: errorMessage });
+    logger.error('discoveryHandlers.error.in.mcp.registry.status.tool.handler.b2310b7e', { error: errorMessage });
     throw new Error(`Registry status check failed: ${errorMessage}`);
   }
 }
@@ -156,10 +150,7 @@ export async function handleMcpRegistryStatus(args: McpRegistryStatusToolArgs): 
  */
 export async function handleMcpRegistryInfo(args: McpRegistryInfoToolArgs): Promise<McpRegistryInfoOutput> {
   try {
-    debugIf(() => ({
-      message: 'Executing mcp_registry_info tool',
-      meta: { args },
-    }));
+    debugIf(() => ({ message: 'discoveryHandlers.executing.mcp.registry.info.tool.b6187e32' }));
 
     // Mock registry info - in real implementation, this would get detailed registry information
     const registryInfo = {
@@ -178,7 +169,7 @@ export async function handleMcpRegistryInfo(args: McpRegistryInfoToolArgs): Prom
     return McpRegistryInfoOutputSchema.parse(registryInfo);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Error in mcp_registry_info tool handler', { error: errorMessage });
+    logger.error('discoveryHandlers.error.in.mcp.registry.info.tool.handler.ec4bb259', { error: errorMessage });
     throw new Error(`Registry info check failed: ${errorMessage}`);
   }
 }
@@ -188,10 +179,7 @@ export async function handleMcpRegistryInfo(args: McpRegistryInfoToolArgs): Prom
  */
 export async function handleMcpRegistryList(args: McpRegistryListToolArgs): Promise<McpRegistryListOutput> {
   try {
-    debugIf(() => ({
-      message: 'Executing mcp_registry_list tool',
-      meta: { args },
-    }));
+    debugIf(() => ({ message: 'discoveryHandlers.executing.mcp.registry.list.tool.d0912276' }));
 
     // Mock registry list - in real implementation, this would query the actual registry
     const registryList = {
@@ -224,7 +212,7 @@ export async function handleMcpRegistryList(args: McpRegistryListToolArgs): Prom
     return McpRegistryListOutputSchema.parse(registryList);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Error in mcp_registry_list tool handler', { error: errorMessage });
+    logger.error('discoveryHandlers.error.in.mcp.registry.list.tool.handler.74170233', { error: errorMessage });
     throw new Error(`Registry list failed: ${errorMessage}`);
   }
 }
@@ -234,10 +222,7 @@ export async function handleMcpRegistryList(args: McpRegistryListToolArgs): Prom
  */
 export async function handleMcpInfo(args: McpInfoToolArgs): Promise<McpInfoOutput> {
   try {
-    debugIf(() => ({
-      message: 'Executing mcp_info tool',
-      meta: { args },
-    }));
+    debugIf(() => ({ message: 'discoveryHandlers.executing.mcp.info.tool.4931ee9d' }));
 
     const adapter = AdapterFactory.getDiscoveryAdapter();
     const server = await adapter.getServerById(args.name, args.version);
@@ -323,7 +308,7 @@ export async function handleMcpInfo(args: McpInfoToolArgs): Promise<McpInfoOutpu
     return McpInfoOutputSchema.parse(result);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Error in mcp_info tool handler', { error: errorMessage });
+    logger.error('discoveryHandlers.error.in.mcp.info.tool.handler.64c66f95', { error: errorMessage });
     throw new Error(`Server info check failed: ${errorMessage}`);
   }
 }

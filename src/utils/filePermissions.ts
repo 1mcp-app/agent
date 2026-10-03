@@ -46,10 +46,8 @@ function foreignOwnershipError(filePath: string, mode: number): InsecureFilePerm
   );
 }
 
-function logFileHealed(filePath: string, mode: number): void {
-  logger.warn(
-    `Self-healed insecure 0${(mode & 0o777).toString(8)} permissions to 0600 on ${path.basename(path.dirname(filePath))} data file`,
-  );
+function logFileHealed(_filePath: string, _mode: number): void {
+  logger.warn('filePermissions.self.healed.insecure.0.permissions.to.0600.on.data.file.6c08f3ca');
 }
 
 /**
@@ -66,10 +64,8 @@ function isCapabilityError(error: unknown): boolean {
   return typeof code === 'string' && CAPABILITY_ERROR_CODES.has(code);
 }
 
-function logHealDegraded(filePath: string, code: string): void {
-  logger.warn(
-    `chmod unsupported on ${path.basename(path.dirname(filePath))} volume (${code}) — filesystem lacks POSIX modes, degrading`,
-  );
+function logHealDegraded(_filePath: string, _code: string): void {
+  logger.warn('filePermissions.chmod.unsupported.on.volume.filesystem.lacks.posix.modes.degrading.a14d6e0a');
 }
 
 /**
@@ -124,7 +120,7 @@ export function assertOwnerOnlyDirPermissions(dirPath: string): void {
   }
   try {
     fs.chmodSync(dirPath, 0o700);
-    logger.warn('Self-healed insecure storage directory permissions to 0700');
+    logger.warn('filePermissions.self.healed.insecure.storage.directory.permissions.to.0700.9aec7689');
   } catch (error) {
     if (isCapabilityError(error)) {
       logHealDegraded(dirPath, String((error as { code?: unknown }).code));
@@ -149,7 +145,7 @@ export async function assertOwnerOnlyDirPermissionsAsync(dirPath: string): Promi
   }
   try {
     await chmod(dirPath, 0o700);
-    logger.warn('Self-healed insecure storage directory permissions to 0700');
+    logger.warn('filePermissions.self.healed.insecure.storage.directory.permissions.to.0700.9aec7689');
   } catch (error) {
     if (isCapabilityError(error)) {
       logHealDegraded(dirPath, String((error as { code?: unknown }).code));

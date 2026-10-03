@@ -128,10 +128,7 @@ export class ToolRegistry {
     isCurrent?: () => boolean,
   ): ToolRegistry {
     if (generation.quarantine.length) {
-      errorIf(() => ({
-        message: 'Capabilities excluded from catalog by quarantine',
-        meta: { quarantine: generation.quarantine },
-      }));
+      errorIf(() => ({ message: 'toolRegistry.capabilities.excluded.from.catalog.by.quarantine.06fb2156' }));
     }
     return new ToolRegistry(
       generation.entries
@@ -215,8 +212,8 @@ export class ToolRegistry {
         } catch (error) {
           // Invalid regex pattern - log and exclude this tool
           errorIf(() => ({
-            message: 'Invalid pattern regex in tool filter',
-            meta: { pattern: options.pattern, error },
+            message: 'toolRegistry.invalid.pattern.regex.in.tool.filter.10735435',
+            meta: { error: error },
           }));
           return false;
         }
@@ -241,8 +238,7 @@ export class ToolRegistry {
 
       if (serverMismatch || patternMismatch || tagMismatch) {
         errorIf(() => ({
-          message: 'Cursor does not match current filters, resetting to first page',
-          meta: { cursor: decoded, currentFilters: options },
+          message: 'toolRegistry.cursor.does.not.match.current.filters.resetting.to.first.page.c7cc0a9f',
         }));
         offset = 0;
       } else {
@@ -391,8 +387,8 @@ export class ToolRegistry {
     try {
       const json = Buffer.from(cursor, 'base64').toString('utf-8');
       return JSON.parse(json) as PaginationCursor;
-    } catch (error) {
-      logger.warn(`Failed to decode cursor: ${error}`);
+    } catch (_error) {
+      logger.warn('toolRegistry.failed.to.decode.cursor.961a9ed1', { error: _error });
       return { offset: 0 };
     }
   }

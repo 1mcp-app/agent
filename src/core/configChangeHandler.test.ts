@@ -154,8 +154,8 @@ describe('ConfigChangeHandler', () => {
       ).resolves.toBeUndefined();
 
       expect(errorSpy).toHaveBeenCalledWith(
-        'Failed to reload templates after Runtime Scope environment change',
-        expect.any(Error),
+        'configChangeHandler.failed.to.reload.templates.after.runtime.scope.environment.change.ac9ce5e9',
+        { error: expect.any(Error) },
       );
     });
 
@@ -239,7 +239,8 @@ describe('ConfigChangeHandler', () => {
       const { ServerManager } = await import('@src/core/server/serverManager.js');
       expect(ServerManager.current.loadMcpServer).not.toHaveBeenCalled();
       expect(errorSpy).not.toHaveBeenCalledWith(
-        expect.stringContaining('Failed to process change for server missing-added-server'),
+        'configChangeHandler.failed.to.process.change.for.server.ba4a3660',
+        expect.anything(),
       );
 
       errorSpy.mockRestore();
@@ -322,7 +323,10 @@ describe('ConfigChangeHandler', () => {
       const { ServerManager } = await import('@src/core/server/serverManager.js');
       expect(ServerManager.current.unloadMcpServer).not.toHaveBeenCalledWith('logfire');
       expect(ServerManager.current.loadMcpServer).not.toHaveBeenCalledWith('logfire', expect.anything());
-      expect(errorSpy).not.toHaveBeenCalledWith(expect.stringContaining('Failed to process change for server logfire'));
+      expect(errorSpy).not.toHaveBeenCalledWith(
+        'configChangeHandler.failed.to.process.change.for.server.ba4a3660',
+        expect.anything(),
+      );
 
       errorSpy.mockRestore();
     });

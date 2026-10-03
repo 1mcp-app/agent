@@ -81,7 +81,7 @@ export function createMcpAvailabilityMiddleware(
     try {
       // If no loading manager, assume all servers are available (legacy mode)
       if (!loadingManager) {
-        debugIf('No loading manager - assuming all servers available');
+        debugIf('mcpAvailabilityMiddleware.no.loading.manager.assuming.all.servers.available.a8e72968');
         next();
         return;
       }
@@ -120,16 +120,10 @@ export function createMcpAvailabilityMiddleware(
           return requestedTagsLower.every((requestedTag) => serverTags.includes(requestedTag));
         });
 
-        debugIf(() => ({
-          message: `Filtered ${relevantServers.length}/${allServers.length} servers with tags: ${requestedTags.join(', ')}`,
-          meta: { relevantServers: relevantServers.length, allServers: allServers.length, requestedTags },
-        }));
+        debugIf(() => ({ message: 'mcpAvailabilityMiddleware.filtered.servers.with.tags.dd0e332f' }));
       } else {
         relevantServers = allServers;
-        debugIf(() => ({
-          message: `Checking availability for all ${relevantServers.length} servers`,
-          meta: { relevantServers: relevantServers.length },
-        }));
+        debugIf(() => ({ message: 'mcpAvailabilityMiddleware.checking.availability.for.all.servers.bc8c113e' }));
       }
 
       // Categorize servers by state with detailed error information
@@ -210,16 +204,8 @@ export function createMcpAvailabilityMiddleware(
       };
 
       // Log availability status
-      const tagInfo =
-        requestedTags && requestedTags.length > 0
-          ? ` (filtered by tags: ${requestedTags.join(', ')}, ${allServers.length} total)`
-          : '';
-      const oauthCount = oauthRequiredServers.length;
-      secureLogger.debug(
-        `MCP Availability: ${availableServers.length}/${relevantServers.length} ready, ` +
-          `${loadingServers.length} loading, ${unavailableServers.length} failed, ` +
-          `${oauthCount} OAuth required${tagInfo}`,
-      );
+
+      secureLogger.debug('mcpAvailabilityMiddleware.mcp.availability.ready.5134e4c0');
 
       // Decide whether to proceed based on availability
       if (relevantServers.length === 0) {
@@ -236,7 +222,7 @@ export function createMcpAvailabilityMiddleware(
 
       if (!hasPartialAvailability) {
         // No servers available - return error with detailed information
-        logger.warn('No MCP servers available for request');
+        logger.warn('mcpAvailabilityMiddleware.no.mcp.servers.available.for.request.068382c0');
 
         // Create detailed error message including specific server failures
         const failureDetails = unavailableServers
@@ -280,9 +266,7 @@ export function createMcpAvailabilityMiddleware(
 
       if (opts.allowPartialAvailability) {
         // Some servers available - proceed with warning
-        logger.info(
-          `Proceeding with partial MCP availability: ${availableServers.length}/${relevantServers.length} servers ready`,
-        );
+        logger.info('mcpAvailabilityMiddleware.proceeding.with.partial.mcp.availability.servers.ready.415db11a');
 
         // Add warning headers
         res.setHeader('X-MCP-Partial-Availability', 'true');
@@ -297,7 +281,7 @@ export function createMcpAvailabilityMiddleware(
         return;
       } else {
         // Partial availability not allowed - return error with detailed information
-        logger.warn('Partial MCP availability not allowed - blocking request');
+        logger.warn('mcpAvailabilityMiddleware.partial.mcp.availability.not.allowed.blocking.request.c8b5f2c0');
 
         const primaryReason = loadingServers.length > 0 ? 'loading' : 'unavailable';
         let detailedMessage = primaryReason === 'loading' ? opts.loadingMessage : opts.unavailableMessage;
@@ -356,7 +340,7 @@ export function createMcpAvailabilityMiddleware(
         return;
       }
     } catch (error) {
-      logger.error('MCP availability check failed:', error);
+      logger.error('mcpAvailabilityMiddleware.mcp.availability.check.failed.31542fd1', { error: error });
 
       // On error, proceed normally to avoid blocking requests
       // This ensures the system remains functional even if availability checking fails

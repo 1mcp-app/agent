@@ -31,7 +31,7 @@ export function setInstallationMetadata(
 ): void {
   const server = getServer(serverName);
   if (!server) {
-    logger.warn(`Cannot set metadata for non-existent server: ${serverName}`);
+    logger.warn('mcpServerConfig.cannot.set.metadata.for.non.existent.server.6b7bd7a4');
     return;
   }
 
@@ -58,12 +58,12 @@ export function updateInstallationMetadata(
 ): void {
   const server = getServer(serverName) as MCPServerParamsWithMetadata;
   if (!server) {
-    logger.warn(`Cannot update metadata for non-existent server: ${serverName}`);
+    logger.warn('mcpServerConfig.cannot.update.metadata.for.non.existent.server.baf4ecbd');
     return;
   }
 
   if (!server._metadata) {
-    logger.warn(`No metadata found for server: ${serverName}`);
+    logger.warn('mcpServerConfig.no.metadata.found.for.server.f6c7e306');
     return;
   }
 
@@ -101,8 +101,8 @@ export function getInstallationMetadata(serverName: string): {
       registryId: metadata.registryId,
       lastUpdated: metadata.lastUpdated ? new Date(metadata.lastUpdated) : undefined,
     };
-  } catch (error) {
-    logger.error(`Failed to get installation metadata for ${serverName}: ${error}`);
+  } catch (_error) {
+    logger.error('mcpServerConfig.failed.to.get.installation.metadata.for.509a9169', { error: _error });
     return null;
   }
 }

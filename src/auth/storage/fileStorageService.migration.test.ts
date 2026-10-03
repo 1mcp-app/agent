@@ -4,6 +4,7 @@ import path from 'path';
 
 import { FILE_PREFIX_MAPPING, STORAGE_SUBDIRS } from '@src/constants.js';
 import logger from '@src/logger/logger.js';
+import { normalizeEvent } from '@src/observability/events/normalize.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -478,14 +479,16 @@ describe('FileStorageService', () => {
       const testService = new FileStorageService(baseDir, 'server');
 
       const infoCalls = (logger.info as unknown as { mock: { calls: unknown[][] } }).mock.calls;
-      const allInfo = infoCalls.map((call) => JSON.stringify(call)).join('\n');
+      const normalizedInfo = infoCalls.map(([event, fields]) => normalizeEvent(event, fields));
+      const allInfo = normalizedInfo.map((event) => JSON.stringify(event)).join('\n');
 
       expect(allInfo).not.toContain(sensitiveAuthCode);
       expect(allInfo).not.toContain(sensitiveAuthRequest);
       expect(allInfo).not.toMatch(/auth_code_code-[0-9a-f-]+/i);
       expect(allInfo).not.toMatch(/auth_request_code-[0-9a-f-]+/i);
-      expect(allInfo).toContain('auth_code_[REDACTED].json');
-      expect(allInfo).toContain('auth_request_[REDACTED].json');
+      expect(normalizedInfo).toContainEqual(
+        expect.objectContaining({ event: 'fileStorageService.migrated.from.to.474c939b' }),
+      );
 
       testService.shutdown();
       fs.rmSync(baseDir, { recursive: true, force: true });
@@ -515,11 +518,14 @@ describe('FileStorageService', () => {
         testService.shutdown();
 
         const errorCalls = (logger.error as unknown as { mock: { calls: unknown[][] } }).mock.calls;
-        const allError = errorCalls.map((call) => JSON.stringify(call)).join('\n');
+        const normalizedErrors = errorCalls.map(([event, fields]) => normalizeEvent(event, fields));
+        const allError = normalizedErrors.map((event) => JSON.stringify(event)).join('\n');
 
         expect(allError).not.toContain(sensitiveAuthCode);
         expect(allError).not.toMatch(/auth_code_code-[0-9a-f-]+/i);
-        expect(allError).toContain('auth_code_[REDACTED].json');
+        expect(normalizedErrors).toContainEqual(
+          expect.objectContaining({ event: 'fileStorageService.failed.to.migrate.7d2a3922', error_code: 'EACCES' }),
+        );
         expect(allError).toContain('EACCES');
       } finally {
         fs.renameSync = realRenameSync;

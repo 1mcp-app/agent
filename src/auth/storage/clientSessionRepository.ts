@@ -58,7 +58,7 @@ export class ClientSessionRepository {
     };
 
     this.storage.writeData(AUTH_CONFIG.CLIENT.SESSION.FILE_PREFIX, sessionId, dataWithExpiry);
-    logger.info(`Saved client session for server: ${serverName}`);
+    logger.info('clientSessionRepository.saved.client.session.for.server.7d984677');
     return sanitizedServerName;
   }
 

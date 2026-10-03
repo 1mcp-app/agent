@@ -73,7 +73,7 @@ export async function uninstallCommand(argv: UninstallCommandArgs): Promise<void
     initializeConfigContext(configPath, configDir);
 
     if (verbose) {
-      logger.info('Starting uninstall process...');
+      logger.info('uninstall.starting.uninstall.process.0d392255');
     }
 
     // Validate server name
@@ -96,7 +96,7 @@ export async function uninstallCommand(argv: UninstallCommandArgs): Promise<void
     // Remove server configuration if requested
     if (removeConfig) {
       if (verbose) {
-        logger.info(`Removing server configuration for '${serverName}'...`);
+        logger.info('uninstall.removing.server.configuration.for.6593ee65');
       }
 
       const result = await createConfigChangeService().removeConfiguredServerTarget({
@@ -112,7 +112,7 @@ export async function uninstallCommand(argv: UninstallCommandArgs): Promise<void
 
       const facts: Record<string, string> = {};
       if (result.backup.path) {
-        logger.info(`Backup created: ${result.backup.path}`);
+        logger.info('uninstall.backup.created.8cfc48c8');
         facts['Backup created'] = result.backup.path;
       }
       facts['Reload status'] = result.reload.status;
@@ -130,7 +130,7 @@ export async function uninstallCommand(argv: UninstallCommandArgs): Promise<void
     const errorMessage = error instanceof Error ? error.message : String(error);
     printer.error(`Uninstall failed: ${errorMessage}`);
     if (error instanceof Error && error.stack) {
-      logger.error('Uninstall error stack:', error.stack);
+      logger.error('uninstall.uninstall.error.stack.e0902bbb', { error: error });
     }
     throw error;
   }

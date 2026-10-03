@@ -35,7 +35,7 @@ export class UrlGenerator {
     // Add preset parameter
     url.searchParams.set('preset', presetName);
 
-    logger.debug('Generated preset URL', { presetName, url: url.toString() });
+    logger.debug('urlGenerator.generated.preset.url.9f63d187');
     return url.toString();
   }
 
@@ -49,7 +49,7 @@ export class UrlGenerator {
     // Add tag-filter parameter
     url.searchParams.set('tag-filter', tagFilter);
 
-    logger.debug('Generated tag filter URL', { tagFilter, url: url.toString() });
+    logger.debug('urlGenerator.generated.tag.filter.url.5064cfdf');
     return url.toString();
   }
 
@@ -63,7 +63,7 @@ export class UrlGenerator {
     // Add tags parameter
     url.searchParams.set('tags', tags.join(','));
 
-    logger.debug('Generated tags URL (deprecated)', { tags, url: url.toString() });
+    logger.debug('urlGenerator.generated.tags.url.deprecated.3e28188a');
     return url.toString();
   }
 
@@ -100,11 +100,7 @@ export class UrlGenerator {
       // This is a placeholder for future auth URL parameters
     }
 
-    logger.debug('Generated URL', {
-      options,
-      url: url.toString(),
-      baseUrl,
-    });
+    logger.debug('urlGenerator.generated.url.9d390e38');
 
     return url.toString();
   }
@@ -160,7 +156,7 @@ export class UrlGenerator {
         valid: true,
       };
     } catch (error) {
-      logger.error('URL validation and generation failed', { presetName, error });
+      logger.error('urlGenerator.url.validation.and.generation.failed.9dfb7037', { error: error });
       return {
         url: '',
         valid: false,
@@ -221,7 +217,7 @@ export class UrlGenerator {
 
       return result;
     } catch (error) {
-      logger.error('Failed to parse URL', { url, error });
+      logger.error('urlGenerator.failed.to.parse.url.e2366536', { error: error });
       return { otherParams: {} };
     }
   }

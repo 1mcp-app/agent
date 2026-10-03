@@ -13,8 +13,8 @@ export async function validateServerConfig(
   config: Partial<MCPServerParams & { newName?: string }>,
 ): Promise<ValidationResult> {
   debugIf(() => ({
-    message: 'Adapter: Validating server config',
-    meta: { serverName, config },
+    message: 'validation.adapter.validating.server.config.d058708f',
+    meta: { serverName: serverName },
   }));
 
   try {
@@ -202,7 +202,10 @@ export async function validateServerConfig(
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    logger.error('Server config validation failed', { error: errorMessage, serverName });
+    logger.error('validation.server.config.validation.failed.82ac52aa', {
+      error: errorMessage,
+      serverName: serverName,
+    });
     return {
       valid: false,
       errors: [errorMessage],

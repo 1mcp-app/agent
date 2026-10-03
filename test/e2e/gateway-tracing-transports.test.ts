@@ -18,11 +18,11 @@ import { ServerManager } from '@src/sdk/legacy/server/runtime/serverManager.js';
 import { SSEServerTransport } from '@src/sdk/legacy/server/sse.js';
 import { StreamableHTTPServerTransport } from '@src/sdk/legacy/server/streamableHttp.js';
 import { createModernInboundLegacyBridge } from '@src/sdk/legacy/transport/http/modernInboundLegacyBridge.js';
-import { ResultSchema } from '@src/sdk/legacy/types.js';
+import { LoggingMessageNotificationSchema, ResultSchema } from '@src/sdk/legacy/types.js';
 import { setupModernHttpRoutes } from '@src/transport/http/routes/modernHttpRoutes.js';
 
 import express from 'express';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 const parent = '00-12345678901234567890123456789012-1234567890123456-01';
 const metadata = {
@@ -40,7 +40,10 @@ describe('real transport trace carriers', () => {
       const directory = await mkdtemp(path.join(tmpdir(), '1mcp-tracing-'));
       const cleanup: Array<() => Promise<unknown>> = [() => rm(directory, { recursive: true, force: true })];
       try {
-        const upstream = new Client({ name: 'upstream-client', version: '1' });
+        const upstream = new Client(
+          { name: 'upstream-client', version: '1' },
+          { capabilities: { roots: { listChanged: true } } },
+        );
         const recreate = (): StdioClientTransport =>
           Object.assign(
             new StdioClientTransport({
@@ -126,7 +129,24 @@ describe('real transport trace carriers', () => {
           expect(result).toMatchObject({ _meta: { other: 'preserved' }, structuredContent: { baggage: 'legit' } });
           expect((result as unknown as { _meta: object })._meta).not.toHaveProperty('baggage');
         } else {
-          const client = new Client({ name: 'tracing-client', version: '1' });
+          const client = new Client(
+            { name: 'tracing-client', version: '1' },
+            { capabilities: { roots: { listChanged: true } } },
+          );
+          const notifications: unknown[] = [];
+          client.setNotificationHandler(LoggingMessageNotificationSchema, async (notification) => {
+            notifications.push(notification.params);
+            await client.notification({
+              method: 'notifications/roots/list_changed',
+              params: {
+                _meta: {
+                  baggage: 'private-roots-carrier',
+                  other: 'preserved',
+                  business: { baggage: 'legit-roots-data' },
+                },
+              },
+            });
+          });
           const transport =
             transportKind === 'sse'
               ? new SSEClientTransport(url)
@@ -143,16 +163,37 @@ describe('real transport trace carriers', () => {
             const result = (await client.request(
               {
                 method: 'tools/call',
-                params: { name: 'fixture_1mcp_trace', arguments: {}, _meta: { ...metadata, traceparent } },
+                params: {
+                  name: 'fixture_1mcp_trace',
+                  arguments: { notify: true },
+                  _meta: { ...metadata, traceparent },
+                },
               },
               ResultSchema,
             )) as { content: Array<{ text: string }> };
             expect(result).toMatchObject({ _meta: { other: 'preserved' }, structuredContent: { baggage: 'legit' } });
             expect((result as unknown as { _meta: object })._meta).not.toHaveProperty('baggage');
+            expect(result).toMatchObject({
+              structuredContent: {
+                forwardedNotification: { _meta: { other: 'preserved', business: { baggage: 'legit-roots-data' } } },
+              },
+            });
+            expect(
+              (result as unknown as { structuredContent: { forwardedNotification: { _meta: object } } })
+                .structuredContent.forwardedNotification._meta,
+            ).not.toHaveProperty('baggage');
             expect(JSON.parse(result.content[0].text)).toEqual(
               traceparent === parent ? { traceparent: parent, tracestate: 'vendor=opaque' } : {},
             );
           }
+          await vi.waitFor(() => expect(notifications).toHaveLength(2));
+          expect(notifications).toEqual(
+            Array.from({ length: 2 }, () => ({
+              level: 'info',
+              data: { baggage: 'legit-notification-data' },
+              _meta: { other: 'preserved' },
+            })),
+          );
         }
       } finally {
         for (const close of cleanup.reverse()) await close();

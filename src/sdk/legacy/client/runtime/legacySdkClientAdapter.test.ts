@@ -212,6 +212,20 @@ describe('LegacySdkClientAdapter', () => {
     });
   });
 
+  it('removes reserved baggage from notifications without changing business fields', async () => {
+    const client = createClient();
+    const notification = vi.spyOn(client, 'notification').mockResolvedValue(undefined);
+    const adapter = new LegacySdkClientAdapter(client, createTransport());
+    await adapter.notify({
+      method: 'notifications/roots/list_changed',
+      params: { data: { baggage: 'business' }, _meta: { baggage: 'private', other: 'preserved' } },
+    });
+    expect(notification).toHaveBeenCalledWith({
+      method: 'notifications/roots/list_changed',
+      params: { data: { baggage: 'business' }, _meta: { other: 'preserved' } },
+    });
+  });
+
   it('rejects schema objects before invoking the SDK client', async () => {
     const client = createClient();
     const request = vi.spyOn(client, 'request');

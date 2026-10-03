@@ -78,9 +78,9 @@ export class FileStorageService {
           ? String((error as { code: string }).code)
           : '';
       if (degradeCapabilityErrors && ['ENOTSUP', 'EOPNOTSUPP', 'EINVAL', 'ENOSYS'].includes(code)) {
-        const loggableTarget = this.getLoggableFileName(path.basename(targetPath));
         logger.warn(
-          `chmod ${mode.toString(8)} unsupported on ${loggableTarget} (${code}) — filesystem lacks POSIX permission capabilities, degrading safely`,
+          'fileStorageService.chmod.unsupported.on.filesystem.lacks.posix.permission.capabilities.degradi.fa8e2186',
+          { error: error },
         );
         return;
       }
@@ -95,13 +95,13 @@ export class FileStorageService {
     try {
       if (!fs.existsSync(this.storageDir)) {
         fs.mkdirSync(this.storageDir, { recursive: true, mode: 0o700 });
-        logger.info(`Created storage directory: ${this.storageDir}`);
+        logger.info('fileStorageService.created.storage.directory.457c7184');
       }
       if (process.platform !== 'win32') {
         this.hardenPermissionsSafely(this.storageDir, 0o700, { degradeCapabilityErrors: true });
       }
     } catch (error) {
-      logger.error(`Failed to create storage directory: ${error}`);
+      logger.error('fileStorageService.failed.to.create.storage.directory.8d6e79fa', { error: error });
       throw error;
     }
   }
@@ -159,11 +159,11 @@ export class FileStorageService {
         try {
           this.hardenPermissionsSafely(migrationFlagPath, 0o600);
         } catch (error) {
-          logger.error(`Failed to harden migration flag permissions: ${error}`);
+          logger.error('fileStorageService.failed.to.harden.migration.flag.permissions.69dfb23b', { error: error });
           throw error;
         }
       }
-      logger.debug(`Migration from ${sourceDir} to ${currentSubDir} already completed`);
+      logger.debug('fileStorageService.migration.from.to.already.completed.c86350f8');
       return;
     }
 
@@ -193,12 +193,10 @@ export class FileStorageService {
             this.hardenPermissionsSafely(newPath, 0o600);
           }
           migrationCount++;
-          logger.info(`Migrated ${this.getLoggableFileName(file)} from ${sourceDir} to ${this.storageDir}`);
-        } catch (error) {
+          logger.info('fileStorageService.migrated.from.to.474c939b');
+        } catch (_error) {
           hasFailures = true;
-          logger.error(
-            `Failed to migrate ${this.getLoggableFileName(file)}: ${this.getLoggableErrorForFileName(file, error)}`,
-          );
+          logger.error('fileStorageService.failed.to.migrate.7d2a3922', { error: _error });
         }
       }
     }
@@ -206,7 +204,7 @@ export class FileStorageService {
     if (!hasFailures) {
       this.createMigrationFlag(sourceDir, currentSubDir);
       if (migrationCount > 0) {
-        logger.info(`Migration completed: ${migrationCount} files migrated to ${currentSubDir}/`);
+        logger.info('fileStorageService.migration.completed.files.migrated.to.9086112b');
       }
     }
   }
@@ -229,9 +227,9 @@ export class FileStorageService {
       if (process.platform !== 'win32') {
         this.hardenPermissionsSafely(migrationFlagPath, 0o600);
       }
-      logger.debug(`Created migration flag: .migrated-to-${targetSubDir} in ${sourceDir}`);
+      logger.debug('fileStorageService.created.migration.flag.migrated.to.in.b89fe290');
     } catch (error) {
-      logger.error(`Failed to create migration flag: ${error}`);
+      logger.error('fileStorageService.failed.to.create.migration.flag.ef732c12', { error: error });
       throw error;
     }
   }
@@ -320,9 +318,9 @@ export class FileStorageService {
           return uuidRegex.test(uuidPart);
         } catch (error) {
           const isSensitive = this.isSensitivePrefix(prefix) || this.isSensitivePrefix(id);
-          const loggableId = isSensitive ? '[REDACTED]' : id;
+
           const loggableError = isSensitive ? this.getLoggableError(prefix, error) : error;
-          logger.debug(`extractUuidPart failed for id=${loggableId}, prefix=${prefix}`, { error: loggableError });
+          logger.debug('fileStorageService.extractuuidpart.failed.for.id.prefix.69442aa5', { error: loggableError });
           return false;
         }
       }
@@ -472,7 +470,7 @@ export class FileStorageService {
       if (durable) {
         this.flushStorageDirectory();
       }
-      logger.debug(`Wrote data to ${this.getLoggableFilePath(filePrefix, id)}`);
+      logger.debug('fileStorageService.wrote.data.to.0d444b04');
     } catch (error) {
       if (temporaryPath && created) {
         try {
@@ -481,9 +479,7 @@ export class FileStorageService {
           // A later startup cleanup removes abandoned temporary files.
         }
       }
-      logger.error(
-        `Failed to write data for ${this.getLoggableId(filePrefix, id)}: ${this.getLoggableError(filePrefix, error)}`,
-      );
+      logger.error('fileStorageService.failed.to.write.data.for.1dcbea2a', { error: error });
       throw error;
     }
   }
@@ -508,7 +504,7 @@ export class FileStorageService {
    */
   readData<T extends ExpirableData>(filePrefix: string, id: string, schema?: ZodType<T>): T | null {
     if (!this.isValidId(id, filePrefix)) {
-      logger.warn(`Rejected readData with invalid ID: ${this.getLoggableId(filePrefix, id)}`);
+      logger.warn('fileStorageService.rejected.readdata.with.invalid.id.81150da1');
       return null;
     }
 
@@ -546,9 +542,7 @@ export class FileStorageService {
       if (error instanceof InsecureFilePermissionsError) {
         throw error;
       }
-      logger.error(
-        `Failed to read data for ${this.getLoggableId(filePrefix, id)}: ${this.getLoggableError(filePrefix, error)}`,
-      );
+      logger.error('fileStorageService.failed.to.read.data.for.709c6b64', { error: error });
       return null;
     }
   }
@@ -558,7 +552,7 @@ export class FileStorageService {
    */
   deleteData(filePrefix: string, id: string): boolean {
     if (!this.isValidId(id, filePrefix)) {
-      logger.warn(`Rejected deleteData with invalid ID: ${this.getLoggableId(filePrefix, id)}`);
+      logger.warn('fileStorageService.rejected.deletedata.with.invalid.id.a25fcab7');
       return false;
     }
 
@@ -566,14 +560,12 @@ export class FileStorageService {
       const filePath = this.getFilePath(filePrefix, id);
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
-        logger.debug(`Deleted data file: ${this.getLoggableFilePath(filePrefix, id)}`);
+        logger.debug('fileStorageService.deleted.data.file.8587c119');
         return true;
       }
       return false;
     } catch (error) {
-      logger.error(
-        `Failed to delete data for ${this.getLoggableId(filePrefix, id)}: ${this.getLoggableError(filePrefix, error)}`,
-      );
+      logger.error('fileStorageService.failed.to.delete.data.for.391c9b0b', { error: error });
       throw error;
     }
   }
@@ -640,10 +632,8 @@ export class FileStorageService {
               fs.unlinkSync(temporaryPath);
               cleanedCount++;
             }
-          } catch (error) {
-            logger.warn(
-              `Failed to clean temporary file ${this.getLoggableFileName(file)}: ${this.getLoggableErrorForFileName(file, error)}`,
-            );
+          } catch (_error) {
+            logger.warn('fileStorageService.failed.to.clean.temporary.file.48c7fb76', { error: _error });
           }
           continue;
         }
@@ -661,13 +651,11 @@ export class FileStorageService {
             } finally {
               fs.closeSync(fd);
             }
-          } catch (readError) {
+          } catch (_readError) {
             // Fail-closed means "do not consume", never "destroy the
             // credential" — unlink needs only dir write access, so any
             // open/heal/read failure must NOT turn into deletion.
-            logger.warn(
-              `Skipping unreadable credential file ${this.getLoggableFileName(file)}: ${this.getLoggableErrorForFileName(file, readError)}`,
-            );
+            logger.warn('fileStorageService.skipping.unreadable.credential.file.b0d290a8', { error: _readError });
             continue;
           }
           try {
@@ -678,36 +666,30 @@ export class FileStorageService {
               try {
                 fs.unlinkSync(filePath);
                 cleanedCount++;
-                logger.debug(`Cleaned up expired file: ${this.getLoggableFileName(file)}`);
-              } catch (unlinkError) {
-                logger.warn(
-                  `Failed to remove expired file ${this.getLoggableFileName(file)}: ${this.getLoggableErrorForFileName(file, unlinkError)}`,
-                );
+                logger.debug('fileStorageService.cleaned.up.expired.file.c453faef');
+              } catch (_unlinkError) {
+                logger.warn('fileStorageService.failed.to.remove.expired.file.5348882d', { error: _unlinkError });
               }
             }
-          } catch (error) {
+          } catch (_error) {
             // Remove corrupted files (read succeeded, JSON parse failed)
-            logger.warn(
-              `Removing corrupted file ${this.getLoggableFileName(file)}: ${this.getLoggableErrorForFileName(file, error)}`,
-            );
+            logger.warn('fileStorageService.removing.corrupted.file.e49d8b38', { error: _error });
             try {
               fs.unlinkSync(filePath);
               cleanedCount++;
-            } catch (unlinkError) {
-              logger.error(
-                `Failed to remove corrupted file ${this.getLoggableFileName(file)}: ${this.getLoggableErrorForFileName(file, unlinkError)}`,
-              );
+            } catch (_unlinkError) {
+              logger.error('fileStorageService.failed.to.remove.corrupted.file.0c104eb3', { error: _unlinkError });
             }
           }
         }
       }
 
       if (cleanedCount > 0) {
-        logger.info(`Cleaned up ${cleanedCount} expired/corrupted files`);
+        logger.info('fileStorageService.cleaned.up.expired.corrupted.files.5d2edba3');
       }
       return cleanedCount;
-    } catch (error) {
-      logger.error(`Failed to cleanup expired data: ${this.getLoggableError('', error)}`);
+    } catch (_error) {
+      logger.error('fileStorageService.failed.to.cleanup.expired.data.59c8a76e', { error: _error });
       return 0;
     }
   }
@@ -739,8 +721,8 @@ export class FileStorageService {
 
         return true;
       });
-    } catch (error) {
-      logger.error(`Failed to list files: ${error}`);
+    } catch (_error) {
+      logger.error('fileStorageService.failed.to.list.files.b597413e', { error: _error });
       return [];
     }
   }
@@ -759,7 +741,7 @@ export class FileStorageService {
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
       this.cleanupInterval = null;
-      logger.info('FileStorageService cleanup interval stopped');
+      logger.info('fileStorageService.filestorageservice.cleanup.interval.stopped.381c8aed');
     }
   }
 
@@ -859,7 +841,7 @@ export class FileStorageService {
   private releaseLock(lockPath: string, operationId: string): void {
     const owner = this.readLockOwner(lockPath);
     if (owner?.operationId !== operationId) {
-      logger.error(`Storage lock ownership changed before release: ${lockPath}`);
+      logger.error('fileStorageService.storage.lock.ownership.changed.before.release.f36c6767');
       return;
     }
 
@@ -869,11 +851,13 @@ export class FileStorageService {
     } catch (renameError) {
       const currentOwner = this.readLockOwner(lockPath);
       if (!currentOwner && !fs.existsSync(lockPath)) {
-        logger.warn(`Storage lock disappeared during release: ${lockPath}`);
+        logger.warn('fileStorageService.storage.lock.disappeared.during.release.c47b3b4c', { error: renameError });
         return;
       }
       if (currentOwner?.operationId !== operationId) {
-        logger.error(`Storage lock ownership changed during release: ${lockPath}`);
+        logger.error('fileStorageService.storage.lock.ownership.changed.during.release.efa9d04b', {
+          error: renameError,
+        });
         throw renameError;
       }
 
@@ -888,18 +872,22 @@ export class FileStorageService {
 
       try {
         this.flushStorageDirectory();
-      } catch (flushError) {
-        logger.error(`Failed to flush storage directory after lock release ${lockPath}: ${flushError}`);
+      } catch (_flushError) {
+        logger.error('fileStorageService.failed.to.flush.storage.directory.after.lock.release.ff0f3139', {
+          error: _flushError,
+        });
       }
-      logger.warn(`Released storage lock without rename after rename failure: ${lockPath}`);
+      logger.warn('fileStorageService.released.storage.lock.without.rename.after.rename.failure.2f4c48e6', {
+        error: renameError,
+      });
       return;
     }
 
     try {
       removeLockDirectory(tombstonePath);
       this.flushStorageDirectory();
-    } catch (error) {
-      logger.error(`Failed to release storage lock ${lockPath}: ${error}`);
+    } catch (_error) {
+      logger.error('fileStorageService.failed.to.release.storage.lock.f179f145', { error: _error });
     }
   }
 

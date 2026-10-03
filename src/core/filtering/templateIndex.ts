@@ -63,7 +63,7 @@ export class TemplateIndex {
     const startTime = Date.now();
 
     debugIf(() => ({
-      message: `TemplateIndex.buildIndex: Building index for ${Object.keys(templates).length} templates`,
+      message: 'templateIndex.templateindex.buildindex.building.index.for.templates.9bec56f8',
       meta: { templateCount: Object.keys(templates).length },
     }));
 
@@ -81,16 +81,7 @@ export class TemplateIndex {
     this.built = true;
     this.buildTime = Date.now() - startTime;
 
-    const stats = this.getStats();
-    debugIf(() => ({
-      message: `TemplateIndex.buildIndex: Index built successfully`,
-      meta: {
-        buildTime: this.buildTime,
-        totalTemplates: stats.totalTemplates,
-        uniqueTags: stats.uniqueTags,
-        averageTagsPerTemplate: stats.averageTagsPerTemplate,
-      },
-    }));
+    debugIf(() => ({ message: 'templateIndex.templateindex.buildindex.index.built.successfully.58026db5' }));
   }
 
   /**
@@ -98,7 +89,7 @@ export class TemplateIndex {
    */
   public getTemplatesByTag(tag: string): string[] {
     if (!this.built) {
-      logger.warn('TemplateIndex.getTemplatesByTag: Index not built, returning empty result');
+      logger.warn('templateIndex.templateindex.gettemplatesbytag.index.not.built.returning.empty.result.304ff545');
       return [];
     }
 
@@ -166,7 +157,7 @@ export class TemplateIndex {
    */
   public evaluateExpression(expression: string): string[] {
     if (!this.built) {
-      logger.warn('TemplateIndex.evaluateExpression: Index not built, returning empty result');
+      logger.warn('templateIndex.templateindex.evaluateexpression.index.not.built.returning.empty.result.7afd3f4c');
       return [];
     }
 
@@ -174,9 +165,8 @@ export class TemplateIndex {
       const parsedExpression = TagQueryParser.parseAdvanced(expression);
       return this.evaluateParsedExpression(parsedExpression);
     } catch (error) {
-      logger.warn(`TemplateIndex.evaluateExpression: Failed to parse expression: ${expression}`, {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        expression,
+      logger.warn('templateIndex.templateindex.evaluateexpression.failed.to.parse.expression.637476be', {
+        error: error,
       });
       return [];
     }
@@ -187,7 +177,7 @@ export class TemplateIndex {
    */
   public evaluateTagQuery(query: TagQuery): string[] {
     if (!this.built) {
-      logger.warn('TemplateIndex.evaluateTagQuery: Index not built, returning empty result');
+      logger.warn('templateIndex.templateindex.evaluatetagquery.index.not.built.returning.empty.result.d8bf49a9');
       return [];
     }
 
@@ -200,10 +190,8 @@ export class TemplateIndex {
           result.push(templateName);
         }
       } catch (error) {
-        logger.warn(`TemplateIndex.evaluateTagQuery: Failed to evaluate query for template ${templateName}`, {
-          error: error instanceof Error ? error.message : 'Unknown error',
-          templateName,
-          templateTags,
+        logger.warn('templateIndex.templateindex.evaluatetagquery.failed.to.evaluate.query.for.template.585e54ad', {
+          error: error,
         });
       }
     }
@@ -402,7 +390,7 @@ export class TemplateIndex {
       }
 
       default:
-        logger.warn(`TemplateIndex.evaluateParsedExpression: Unknown expression type: ${expression.type}`);
+        logger.warn('templateIndex.templateindex.evaluateparsedexpression.unknown.expression.type.406f8a9e');
         return [];
     }
   }
@@ -437,7 +425,7 @@ export class TemplateIndex {
     // Rebuild popular tags
     this.buildPopularTags();
 
-    debugIf('TemplateIndex.optimize: Index optimization completed');
+    debugIf('templateIndex.templateindex.optimize.index.optimization.completed.ada2c265');
   }
 
   /**

@@ -176,11 +176,11 @@ export class McpLoadingManager extends EventEmitter {
     const serverNames = Object.keys(transports);
 
     if (serverNames.length === 0) {
-      logger.info('No MCP servers to load');
+      logger.info('mcpLoadingManager.no.mcp.servers.to.load.c3b2be31');
       return new Map();
     }
 
-    logger.info(`Starting async loading of ${serverNames.length} MCP servers`);
+    logger.info('mcpLoadingManager.starting.async.loading.of.mcp.servers.b40171ec');
     this.stateTracker.startLoading(serverNames);
     this.emit(McpLoadingEvent.LoadingStarted, serverNames);
 
@@ -188,8 +188,8 @@ export class McpLoadingManager extends EventEmitter {
     this.initialLoadingPromise = this.loadServersWithConcurrency(transports);
     // Existing callers start loading without waiting; keep rejection observed while
     // retaining the original promise for bootstrap completion consumers.
-    void this.initialLoadingPromise.catch((error) => {
-      logger.error('Initial MCP loading failed', sanitizeRuntimeScopeError(error));
+    void this.initialLoadingPromise.catch((_error) => {
+      logger.error('mcpLoadingManager.initial.mcp.loading.failed.e9e56036');
     });
 
     // Return current connections (may be empty initially)
@@ -219,7 +219,7 @@ export class McpLoadingManager extends EventEmitter {
    */
   public async loadServer(name: string, config: MCPServerParams): Promise<void> {
     if (config.disabled) {
-      logger.info(`Server ${name} is disabled, skipping load`);
+      logger.info('mcpLoadingManager.server.is.disabled.skipping.load.52ad48bb');
       // Ensure no stale state/connection lingers for a now-disabled server.
       await this.unloadServer(name);
       return;
@@ -245,7 +245,7 @@ export class McpLoadingManager extends EventEmitter {
       transport = transports[name];
     } catch (error) {
       const safeError = sanitizeRuntimeScopeError(error);
-      logger.error(`Failed to create transport for ${name}: ${safeError}`);
+      logger.error('mcpLoadingManager.failed.to.create.transport.for.f5b1976f', { error: error });
       this.stateTracker.registerServer(name);
       this.stateTracker.updateServerState(name, LoadingState.Failed, {
         error: safeError,
@@ -255,7 +255,7 @@ export class McpLoadingManager extends EventEmitter {
     }
 
     if (!transport) {
-      logger.warn(`No transport created for ${name} (possibly disabled); skipping`);
+      logger.warn('mcpLoadingManager.no.transport.created.for.possibly.disabled.skipping.30daed4b');
       this.serverOpAbortControllers.delete(name);
       return;
     }
@@ -289,13 +289,13 @@ export class McpLoadingManager extends EventEmitter {
 
     try {
       await this.clientManager.removeClient(name);
-    } catch (error) {
+    } catch (_error) {
       // Guard against: client not present / transport already closed; we still
       // want to clear tracker state below.
-      debugIf(() => ({ message: `unloadServer: removeClient(${name}) noop/err: ${error}` }));
+      debugIf(() => ({ message: 'mcpLoadingManager.unloadserver.removeclient.noop.err.022e4e54' }));
     }
     this.stateTracker.removeServer(name);
-    logger.info(`Unloaded MCP server: ${name}`);
+    logger.info('mcpLoadingManager.unloaded.mcp.server.199f0ce9');
   }
 
   /**
@@ -343,7 +343,7 @@ export class McpLoadingManager extends EventEmitter {
       },
     );
 
-    logger.info('Initial server loading phase completed');
+    logger.info('mcpLoadingManager.initial.server.loading.phase.completed.5c61dce3');
   }
 
   /**
@@ -400,19 +400,19 @@ export class McpLoadingManager extends EventEmitter {
 
         // Success!
         this.stateTracker.updateServerState(name, LoadingState.Ready);
-        logger.info(`Successfully loaded MCP server: ${name} (${retryCount} retries)`);
+        logger.info('mcpLoadingManager.successfully.loaded.mcp.server.retries.30f53981');
         return;
       } catch (error) {
         // If the operation was cancelled, exit cleanly without marking Failed.
         if (opSignal?.aborted) {
-          debugIf(() => ({ message: `loadSingleServer: operation cancelled for ${name}` }));
+          debugIf(() => ({ message: 'mcpLoadingManager.loadsingleserver.operation.cancelled.for.27923175' }));
           return;
         }
 
         lastError = sanitizeRuntimeScopeError(error);
         // Handle OAuth case specially
         if (lastError.name === 'OAuthRequiredError') {
-          logger.info(`OAuth required for ${name}`);
+          logger.info('mcpLoadingManager.oauth.required.for.143d2b37');
           const authorizationUrl = this.extractAuthorizationUrl(name, transport);
           this.stateTracker.updateServerState(name, LoadingState.AwaitingOAuth, {
             error: lastError,
@@ -422,7 +422,7 @@ export class McpLoadingManager extends EventEmitter {
         }
 
         if (lastError instanceof NonRetryableClientConnectionError) {
-          logger.warn(`Failed to load ${name}: ${lastError.message} (non-retryable)`);
+          logger.warn('mcpLoadingManager.failed.to.load.non.retryable.24de04a0', { error: error });
           break;
         }
 
@@ -430,11 +430,11 @@ export class McpLoadingManager extends EventEmitter {
         this.stateTracker.incrementRetryCount(name);
 
         // Handle other errors
-        logger.warn(`Failed to load ${name} (attempt ${retryCount}): ${lastError.message}`);
+        logger.warn('mcpLoadingManager.failed.to.load.attempt.5c21425d', { error: error });
 
         if (retryCount <= this.config.maxRetries && !this.isShuttingDown && !opSignal?.aborted) {
           const delay = this.config.retryDelayMs * Math.pow(2, retryCount - 1); // Exponential backoff
-          logger.info(`Retrying ${name} in ${delay}ms...`);
+          logger.info('mcpLoadingManager.retrying.in.ms.6b403f13');
           try {
             await this.sleep(delay, opSignal);
           } catch {
@@ -456,9 +456,11 @@ export class McpLoadingManager extends EventEmitter {
     });
 
     if (lastError instanceof NonRetryableClientConnectionError) {
-      logger.error(`Failed to load ${name} with a non-retryable error, continuing with other servers`);
+      logger.error(
+        'mcpLoadingManager.failed.to.load.with.a.non.retryable.error.continuing.with.other.servers.487a4944',
+      );
     } else {
-      logger.error(`Failed to load ${name} after ${this.config.maxRetries} retries, continuing with other servers`);
+      logger.error('mcpLoadingManager.failed.to.load.after.retries.continuing.with.other.servers.0ff6dccb');
     }
   }
 
@@ -573,7 +575,7 @@ export class McpLoadingManager extends EventEmitter {
 
     this.backgroundRetryTimer.unref?.();
 
-    logger.info('Background retry enabled for failed servers');
+    logger.info('mcpLoadingManager.background.retry.enabled.for.failed.servers.b0bcb89b');
   }
 
   /**
@@ -592,7 +594,7 @@ export class McpLoadingManager extends EventEmitter {
         return;
       }
 
-      logger.info(`Background retry for ${failedServers.length} failed servers`);
+      logger.info('mcpLoadingManager.background.retry.for.failed.servers.8ac42468');
 
       const serversToRetry = failedServers.slice(0, this.config.backgroundRetryMaxServersPerCycle);
       const retryOperations: Promise<void>[] = [];
@@ -612,9 +614,8 @@ export class McpLoadingManager extends EventEmitter {
 
           retryOperations.push(
             this.loadSingleServer(name, transport, opController.signal)
-              .catch((error: unknown) => {
-                const errorMessage = error instanceof Error ? error.message : String(error);
-                debugIf(() => ({ message: `Background retry failed for ${name}: ${errorMessage}` }));
+              .catch((_error: unknown) => {
+                debugIf(() => ({ message: 'mcpLoadingManager.background.retry.failed.for.f7ebe05f' }));
               })
               .finally(() => {
                 if (this.serverOpAbortControllers.get(name) === opController) {
@@ -648,8 +649,8 @@ export class McpLoadingManager extends EventEmitter {
       if (oauthProvider && typeof oauthProvider.getAuthorizationUrl === 'function') {
         return oauthProvider.getAuthorizationUrl();
       }
-    } catch (error) {
-      debugIf(() => ({ message: `Could not extract authorization URL for ${name}: ${error}` }));
+    } catch (_error) {
+      debugIf(() => ({ message: 'mcpLoadingManager.could.not.extract.authorization.url.for.f0455b11' }));
     }
 
     return undefined;
@@ -698,11 +699,11 @@ export class McpLoadingManager extends EventEmitter {
     const hasConnController = this.abortControllers.has(serverName);
 
     if (!hasOpController && !hasConnController) {
-      logger.warn(`No active loading operation found for server: ${serverName}`);
+      logger.warn('mcpLoadingManager.no.active.loading.operation.found.for.server.8ff2171e');
       return;
     }
 
-    logger.info(`Cancelling loading of server: ${serverName}`);
+    logger.info('mcpLoadingManager.cancelling.loading.of.server.c6875d4d');
 
     // Cancel the full retry loop first (interrupts sleep delays and signals the
     // loop to exit cleanly without writing state back).
@@ -744,7 +745,7 @@ export class McpLoadingManager extends EventEmitter {
     // Union of servers that are either mid-connection-attempt or mid-retry-sleep.
     const allActive = new Set([...this.abortControllers.keys(), ...this.serverOpAbortControllers.keys()]);
     if (allActive.size > 0) {
-      logger.info(`Cancelling loading of ${allActive.size} servers`);
+      logger.info('mcpLoadingManager.cancelling.loading.of.servers.eaed33b5');
       this.cancelServersLoading(Array.from(allActive));
     }
   }
@@ -788,7 +789,7 @@ export class McpLoadingManager extends EventEmitter {
       this.stateTracker.updateServerState(server.name, LoadingState.Cancelled);
     }
 
-    logger.info('MCP loading manager shutdown complete');
+    logger.info('mcpLoadingManager.mcp.loading.manager.shutdown.complete.995e246f');
   }
 
   /**

@@ -44,10 +44,7 @@ export class ConfigManagementAdapter implements ManagementAdapter {
    * List all configured servers with optional filtering
    */
   async listServers(options: ManagementListOptions = {}): Promise<ServerInfo[]> {
-    debugIf(() => ({
-      message: 'Adapter: Listing servers',
-      meta: { options },
-    }));
+    debugIf(() => ({ message: 'managementAdapter.adapter.listing.servers.edbf3728' }));
 
     try {
       const allServers = getAllServers();
@@ -99,7 +96,7 @@ export class ConfigManagementAdapter implements ManagementAdapter {
       return serverInfos;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('Server listing failed', { error: errorMessage });
+      logger.error('managementAdapter.server.listing.failed.0dc16e3f', { error: errorMessage });
       throw new Error(`Server listing failed: ${errorMessage}`);
     }
   }
@@ -109,8 +106,8 @@ export class ConfigManagementAdapter implements ManagementAdapter {
    */
   async getServerStatus(serverName?: string, options: ManagementStatusOptions = {}): Promise<ServerStatusInfo> {
     debugIf(() => ({
-      message: 'Adapter: Getting server status',
-      meta: { serverName },
+      message: 'managementAdapter.adapter.getting.server.status.716f48b0',
+      meta: { serverName: serverName },
     }));
 
     try {
@@ -142,7 +139,7 @@ export class ConfigManagementAdapter implements ManagementAdapter {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('Server status check failed', { error: errorMessage });
+      logger.error('managementAdapter.server.status.check.failed.1a469764', { error: errorMessage });
       throw new Error(`Server status check failed: ${errorMessage}`);
     }
   }
@@ -152,8 +149,8 @@ export class ConfigManagementAdapter implements ManagementAdapter {
    */
   async enableServer(serverName: string, options: EnableServerOptions = {}): Promise<EnableServerResult> {
     debugIf(() => ({
-      message: 'Adapter: Enabling server',
-      meta: { serverName, options },
+      message: 'managementAdapter.adapter.enabling.server.c13276d8',
+      meta: { serverName: serverName },
     }));
 
     try {
@@ -192,7 +189,7 @@ export class ConfigManagementAdapter implements ManagementAdapter {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('Server enable failed', { error: errorMessage, serverName });
+      logger.error('managementAdapter.server.enable.failed.185d648b', { error: errorMessage, serverName: serverName });
       throw new Error(`Server enable failed: ${errorMessage}`);
     }
   }
@@ -202,8 +199,8 @@ export class ConfigManagementAdapter implements ManagementAdapter {
    */
   async disableServer(serverName: string, options: DisableServerOptions = {}): Promise<DisableServerResult> {
     debugIf(() => ({
-      message: 'Adapter: Disabling server',
-      meta: { serverName, options },
+      message: 'managementAdapter.adapter.disabling.server.b9bc9ead',
+      meta: { serverName: serverName },
     }));
 
     try {
@@ -242,7 +239,7 @@ export class ConfigManagementAdapter implements ManagementAdapter {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('Server disable failed', { error: errorMessage, serverName });
+      logger.error('managementAdapter.server.disable.failed.ef84f36f', { error: errorMessage, serverName: serverName });
       throw new Error(`Server disable failed: ${errorMessage}`);
     }
   }
@@ -251,10 +248,7 @@ export class ConfigManagementAdapter implements ManagementAdapter {
    * Reload configuration
    */
   async reloadConfiguration(options: ReloadOptions = {}): Promise<ReloadResult> {
-    debugIf(() => ({
-      message: 'Adapter: Reloading configuration',
-      meta: { options },
-    }));
+    debugIf(() => ({ message: 'managementAdapter.adapter.reloading.configuration.a3daacfc' }));
 
     try {
       if (options.server) {
@@ -319,7 +313,7 @@ export class ConfigManagementAdapter implements ManagementAdapter {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('Configuration reload failed', { error: errorMessage });
+      logger.error('managementAdapter.configuration.reload.failed.398d4189', { error: errorMessage });
       throw new Error(`Configuration reload failed: ${errorMessage}`);
     }
   }
@@ -332,8 +326,8 @@ export class ConfigManagementAdapter implements ManagementAdapter {
     configUpdate: Partial<MCPServerParams & { newName?: string }>,
   ): Promise<UpdateConfigResult> {
     debugIf(() => ({
-      message: 'Adapter: Updating server config',
-      meta: { serverName, configUpdate },
+      message: 'managementAdapter.adapter.updating.server.config.18395639',
+      meta: { serverName: serverName },
     }));
 
     try {
@@ -440,7 +434,10 @@ export class ConfigManagementAdapter implements ManagementAdapter {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('Server config update failed', { error: errorMessage, serverName });
+      logger.error('managementAdapter.server.config.update.failed.ca162694', {
+        error: errorMessage,
+        serverName: serverName,
+      });
       throw new Error(`Server config update failed: ${errorMessage}`);
     }
   }
@@ -458,17 +455,14 @@ export class ConfigManagementAdapter implements ManagementAdapter {
   /**
    * Get 1mcp server URL for current configuration
    */
-  async getServerUrl(options?: ServerUrlOptions): Promise<string> {
-    debugIf(() => ({
-      message: 'Adapter: Getting server URL',
-      meta: { options },
-    }));
+  async getServerUrl(_options?: ServerUrlOptions): Promise<string> {
+    debugIf(() => ({ message: 'managementAdapter.adapter.getting.server.url.129c4643' }));
 
     try {
       return getServer1mcpUrl();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('Failed to get server URL', { error: errorMessage });
+      logger.error('managementAdapter.failed.to.get.server.url.9bda30f6', { error: errorMessage });
       throw new Error(`Failed to get server URL: ${errorMessage}`);
     }
   }

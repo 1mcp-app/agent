@@ -151,6 +151,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  logger.error('CLI error:', error);
+  logger.error('runtime.cli-failed', { error });
   process.exit(1);
 });

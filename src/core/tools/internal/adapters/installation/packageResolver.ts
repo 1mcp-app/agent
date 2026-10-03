@@ -38,10 +38,7 @@ export class PackageResolver {
       // Strategy 2: Extract organization/author from package and search for that
       if (!matchedServer && options.package.includes('/')) {
         const orgName = options.package.split('/')[0].replace('@', '');
-        debugIf(() => ({
-          message: 'Adapter: Trying organization search',
-          meta: { packageName: options.package, orgName },
-        }));
+        debugIf(() => ({ message: 'packageResolver.adapter.trying.organization.search.67ea0532' }));
 
         searchResults = await this.registryClient.searchServers({
           query: orgName,
@@ -64,10 +61,7 @@ export class PackageResolver {
       if (!matchedServer) {
         const serverComponent = options.package.split('/').pop();
         if (serverComponent) {
-          debugIf(() => ({
-            message: 'Adapter: Trying server component search',
-            meta: { packageName: options.package, serverComponent },
-          }));
+          debugIf(() => ({ message: 'packageResolver.adapter.trying.server.component.search.09ff5656' }));
 
           searchResults = await this.registryClient.searchServers({
             query: serverComponent,
@@ -90,24 +84,24 @@ export class PackageResolver {
       if (matchedServer) {
         const actualServerName = matchedServer.name;
         debugIf(() => ({
-          message: 'Adapter: Resolved package to registry server',
-          meta: { packageName: options.package, serverName: actualServerName },
+          message: 'packageResolver.adapter.resolved.package.to.registry.server.40d09eb5',
+          meta: { serverName: actualServerName },
         }));
         return actualServerName;
       } else {
         // If no server found for the package, try using the package name as server ID
         const actualServerName = options.package;
         debugIf(() => ({
-          message: 'Adapter: Using package name as server ID',
-          meta: { packageName: options.package, serverName: actualServerName },
+          message: 'packageResolver.adapter.using.package.name.as.server.id.881107c3',
+          meta: { serverName: actualServerName },
         }));
         return actualServerName;
       }
     } catch (searchError) {
       // If search fails, fall back to using the original server name
       debugIf(() => ({
-        message: 'Adapter: Package search failed, using original server name',
-        meta: { packageName: options.package, serverName, error: searchError },
+        message: 'packageResolver.adapter.package.search.failed.using.original.server.name.997cc88b',
+        meta: { serverName: serverName, error: searchError },
       }));
       return serverName;
     }

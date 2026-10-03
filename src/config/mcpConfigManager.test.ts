@@ -324,7 +324,7 @@ describe('McpConfigManager', () => {
       const instance = McpConfigManager.getInstance(testConfigPath);
       expect(instance.getAppConfig()).toEqual({});
       expect(warnSpy).toHaveBeenCalledWith(
-        `The "app" key in mcp.json is deprecated. Please move your app settings to ${path.join(path.dirname(testConfigPath), 'config.toml')}. The "app" key in mcp.json will be ignored.`,
+        'configLoader.the.app.key.in.mcp.json.is.deprecated.please.move.your.app.settings.to.the..973af260',
       );
     });
 
@@ -351,11 +351,11 @@ describe('McpConfigManager', () => {
           command: 'node',
         },
       });
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining(
-          'Ignoring invalid serverDefaults configuration: Invalid global configuration: timeout: Invalid input: expected number, received string',
-        ),
-      );
+      expect(warnSpy).toHaveBeenCalledWith('configLoader.ignoring.invalid.serverdefaults.configuration.56393432', {
+        error: expect.objectContaining({
+          message: 'Invalid global configuration: timeout: Invalid input: expected number, received string',
+        }),
+      });
     });
 
     it('exposes template-first configured targets with inherited defaults', () => {

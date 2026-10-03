@@ -24,48 +24,29 @@ const activeRequests = new Map<string, LogContext>();
 /**
  * Logs MCP request details
  */
-function logRequest(requestId: string, method: string, params: unknown): void {
-  logger.info('MCP Request', {
-    requestId,
-    method,
-    params: JSON.stringify(params),
-    timestamp: new Date().toISOString(),
-  });
+function logRequest(requestId: string, method: string, _params: unknown): void {
+  logger.info('mcpLoggingEnhancer.mcp.request.837d8877', { requestId: requestId, method: method });
 }
 
 /**
  * Logs MCP response details
  */
 function logResponse(requestId: string, result: unknown, duration: number): void {
-  logger.info('MCP Response', {
-    requestId,
-    duration,
-    timestamp: new Date().toISOString(),
-  });
+  logger.info('mcpLoggingEnhancer.mcp.response.7a62c1df', { requestId: requestId, duration: duration });
 }
 
 /**
  * Logs MCP error details
  */
 function logError(requestId: string, error: unknown, duration: number): void {
-  logger.error('MCP Error', {
-    requestId,
-    error: error instanceof Error ? error.message : JSON.stringify(error),
-    stack: error instanceof Error ? error.stack : undefined,
-    duration,
-    timestamp: new Date().toISOString(),
-  });
+  logger.error('mcpLoggingEnhancer.mcp.error.62447971', { requestId: requestId, error: error, duration: duration });
 }
 
 /**
  * Logs MCP notification details
  */
-function logNotification(method: string, params: unknown): void {
-  logger.info('MCP Notification', {
-    method,
-    params: JSON.stringify(params),
-    timestamp: new Date().toISOString(),
-  });
+function logNotification(method: string, _params: unknown): void {
+  logger.info('mcpLoggingEnhancer.mcp.notification.867bb301', { method: method });
 }
 
 /**
@@ -95,13 +76,13 @@ function wrapRequestHandler<T extends z.ZodType>(
       const result = await originalHandler(request, {
         ...extra,
         sendNotification: async (notification: ServerNotification) => {
-          logger.info('Sending notification', { requestId, notification });
+          logger.info('mcpLoggingEnhancer.sending.notification.20ae8d0b', { requestId: requestId });
           return extra.sendNotification(notification);
         },
         // Reason: MCP SDK sendRequest expects any schema type; Zod schemas have complex generic types
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         sendRequest: async (request: ServerRequest, resultSchema: any, options?: unknown) => {
-          logger.info('Sending request', { requestId, request });
+          logger.info('mcpLoggingEnhancer.sending.request.ee0ac423', { requestId: requestId });
           // Reason: MCP SDK internal types don't match our wrapper signatures; any required for compatibility
           // eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
           return extra.sendRequest(request, resultSchema as any, options as any);
@@ -231,7 +212,7 @@ export function enhanceServerWithLogging(server: Server): void {
     logNotification(notification.method, notification.params);
 
     if (!server.transport) {
-      logger.warn('Attempted to send notification on disconnected transport');
+      logger.warn('mcpLoggingEnhancer.attempted.to.send.notification.on.disconnected.transport.244c8d91');
       return Promise.resolve();
     }
 
@@ -244,7 +225,7 @@ export function enhanceServerWithLogging(server: Server): void {
         // It's a promise - handle async errors
         return result.catch((error: unknown) => {
           if (error instanceof Error && error.message.includes('Not connected')) {
-            logger.warn('Attempted to send notification on disconnected transport');
+            logger.warn('mcpLoggingEnhancer.attempted.to.send.notification.on.disconnected.transport.244c8d91');
             return Promise.resolve();
           }
           throw error;
@@ -255,7 +236,9 @@ export function enhanceServerWithLogging(server: Server): void {
       return result;
     } catch (error) {
       if (error instanceof Error && error.message.includes('Not connected')) {
-        logger.warn('Attempted to send notification on disconnected transport');
+        logger.warn('mcpLoggingEnhancer.attempted.to.send.notification.on.disconnected.transport.244c8d91', {
+          error: error,
+        });
         return Promise.resolve();
       }
       throw error;

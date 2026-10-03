@@ -286,7 +286,7 @@ describe('TransportFactory environment substitution', () => {
 
     createTransports(config);
 
-    const environmentProcessingLog = vi
+    const environmentProcessingEvent = vi
       .mocked(debugIf)
       .mock.calls.map(([messageOrFactory]) =>
         typeof messageOrFactory === 'function' ? messageOrFactory() : messageOrFactory,
@@ -295,14 +295,15 @@ describe('TransportFactory environment substitution', () => {
         (entry) =>
           typeof entry === 'object' &&
           entry !== null &&
-          'meta' in entry &&
-          typeof (entry as { meta?: { totalVariables?: unknown } }).meta?.totalVariables === 'number',
+          'message' in entry &&
+          (entry as { message?: unknown }).message ===
+            'envProcessor.environment.processing.complete.total.variables.aaf53195',
       );
-    expect((environmentProcessingLog as { meta?: { totalVariables?: number } } | undefined)?.meta?.totalVariables).toBe(
-      0,
-    );
+    expect(environmentProcessingEvent).toEqual({
+      message: 'envProcessor.environment.processing.complete.total.variables.aaf53195',
+    });
     expect(logger.warn).toHaveBeenCalledWith(
-      'Environment variable CONTEXT7_API_KEY not found, keeping placeholder unchanged',
+      'envProcessor.environment.variable.not.found.keeping.placeholder.unchanged.9e4fa714',
     );
     expect(StdioClientTransport).toHaveBeenCalledWith(
       expect.objectContaining({

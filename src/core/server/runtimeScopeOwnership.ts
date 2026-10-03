@@ -823,7 +823,7 @@ function removeCandidateDirectoryIfPresent(candidateDir: string): void {
     fs.rmSync(candidateDir, { recursive: true });
   } catch (error) {
     if (!isCode(error, 'ENOENT')) {
-      logger.warn(`Runtime ownership candidate cleanup failed (${candidateDir}): ${errorMessage(error)}`);
+      logger.warn('runtimeScopeOwnership.runtime.ownership.candidate.cleanup.failed.f3f3f24d', { error: error });
     }
   }
 }

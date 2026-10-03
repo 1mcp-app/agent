@@ -41,9 +41,11 @@ describe('ServerManager backend supervision notifications', () => {
     expect(refreshCapabilities).toHaveBeenCalledTimes(1);
     expect(failingNotification).toHaveBeenCalledTimes(3);
     expect(healthyNotification).toHaveBeenCalledTimes(3);
-    expect(logger.warn).toHaveBeenCalledWith('Failed to refresh lazy backend capabilities: refresh failed');
-    expect(logger.warn).toHaveBeenCalledWith(
-      'Failed to send notifications/tools/list_changed to an inbound client: client disconnected',
-    );
+    expect(logger.warn).toHaveBeenCalledWith('serverManager.failed.to.refresh.lazy.backend.capabilities.e65163b1', {
+      error: expect.objectContaining({ message: 'refresh failed' }),
+    });
+    expect(logger.warn).toHaveBeenCalledWith('serverManager.failed.to.send.to.an.inbound.client.cefdc74d', {
+      error: expect.objectContaining({ message: 'client disconnected' }),
+    });
   });
 });

@@ -66,7 +66,7 @@ export class McpConnectionHelper {
     servers: Record<string, MCPServerParams>,
     timeoutMs: number = 10000,
   ): Promise<ServerCapabilities[]> {
-    logger.info(`Connecting to ${Object.keys(servers).length} MCP servers`);
+    logger.info('connectionHelper.connecting.to.mcp.servers.461c8d6e');
 
     const serverNames = Object.keys(servers);
     if (serverNames.length === 0) {
@@ -75,14 +75,14 @@ export class McpConnectionHelper {
 
     // Create transports from server configurations
     const transports = createTransports(servers) as unknown as Parameters<ClientManager['createClients']>[0];
-    logger.debug(`Created ${Object.keys(transports).length} transports`);
+    logger.debug('connectionHelper.created.transports.f05ade79');
 
     const results: ServerCapabilities[] = [];
 
     // Connect to servers in parallel with individual timeouts
     const connectionPromises = serverNames.map(async (serverName) => {
       try {
-        logger.debug(`Connecting to server: ${serverName}`);
+        logger.debug('connectionHelper.connecting.to.server.18da2df3');
 
         // Get transport for this server
         const transport = transports[serverName];
@@ -117,10 +117,10 @@ export class McpConnectionHelper {
           ...capabilities,
         });
 
-        logger.debug(`Successfully connected to ${serverName}`);
+        logger.debug('connectionHelper.successfully.connected.to.efd457e4');
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        logger.warn(`Failed to connect to server ${serverName}: ${errorMessage}`);
+        logger.warn('connectionHelper.failed.to.connect.to.server.c68471ca', { error: error });
         results.push({
           serverName,
           connected: false,
@@ -135,8 +135,7 @@ export class McpConnectionHelper {
     // Wait for all connections to complete (success or failure)
     await Promise.allSettled(connectionPromises);
 
-    const connectedCount = results.filter((r) => r.connected).length;
-    logger.info(`Connected to ${connectedCount}/${serverNames.length} MCP servers`);
+    logger.info('connectionHelper.connected.to.mcp.servers.e37c33e9');
 
     return results;
   }
@@ -181,8 +180,8 @@ export class McpConnectionHelper {
         list: () => requestLegacyAdapter<PromptListResult>(connection.adapter, 'prompts/list'),
         select: (result) => toProtocolPrompts(result?.prompts ?? []),
       });
-    } catch (error) {
-      logger.warn(`Error getting capabilities from ${serverName}: ${error instanceof Error ? error.message : error}`);
+    } catch (_error) {
+      logger.warn('connectionHelper.error.getting.capabilities.from.67bec470', { error: _error });
     }
 
     return { tools, resources, prompts };
@@ -196,7 +195,7 @@ export class McpConnectionHelper {
     list: () => Promise<TResult>;
     select: (result: TResult) => TItem[];
   }): Promise<void> {
-    const { serverName, items, capabilityName, timeoutMessage, list, select } = options;
+    const { items, timeoutMessage, list, select } = options;
 
     try {
       const result = await this.withTimeout(list(), 5000, timeoutMessage);
@@ -206,11 +205,9 @@ export class McpConnectionHelper {
         items.push(...capabilityItems);
       }
 
-      logger.debug(`Got ${capabilityItems.length} ${capabilityName} from ${serverName}`);
-    } catch (error) {
-      logger.debug(
-        `Failed to get ${capabilityName} from ${serverName}: ${error instanceof Error ? error.message : error}`,
-      );
+      logger.debug('connectionHelper.got.from.9f852132');
+    } catch (_error) {
+      logger.debug('connectionHelper.failed.to.get.from.37b44b45', { error: _error });
     }
   }
 
@@ -218,19 +215,19 @@ export class McpConnectionHelper {
    * Clean up connections
    */
   async cleanup(): Promise<void> {
-    logger.debug('Cleaning up MCP connections');
+    logger.debug('connectionHelper.cleaning.up.mcp.connections.1b42fca5');
 
     const cleanupPromises: Promise<void>[] = [];
 
-    for (const [serverName, connection] of this.connections) {
+    for (const [_serverName, connection] of this.connections) {
       const cleanupPromise = (async () => {
         try {
           await this.withTimeout(connection.adapter.close(), 3000, 'Client close timeout');
-        } catch (error) {
-          logger.warn(`Error closing client for ${serverName}: ${error instanceof Error ? error.message : error}`);
+        } catch (_error) {
+          logger.warn('connectionHelper.error.closing.client.for.b4896484', { error: _error });
         }
 
-        logger.debug(`Closed connection to ${serverName}`);
+        logger.debug('connectionHelper.closed.connection.to.b8f5aa07');
       })();
 
       cleanupPromises.push(cleanupPromise);

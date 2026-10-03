@@ -1,3 +1,12 @@
+import { isBackendDiagnosticEntry } from '@src/domains/backend-logs/backendLogBroker.js';
+import { sanitizeBackendLogContent } from '@src/domains/backend-logs/backendLogSanitizer.js';
+import type { BackendLogEntry } from '@src/domains/backend-logs/backendLogTypes.js';
+import { type EventFields, normalizeEvent } from '@src/observability/events/normalize.js';
+import { EVENT_REGISTRY, type EventName } from '@src/observability/events/registry.js';
+import { ownData } from '@src/observability/privacy/fields.js';
+import { ManagedStdioStderrEvent } from '@src/transport/managedStdioStderrEvent.js';
+import type { ManagedStdioStderrMetadata } from '@src/transport/managedStdioStderrMetadata.js';
+
 import chalk from 'chalk';
 import winston from 'winston';
 
@@ -47,7 +56,7 @@ const consoleFormat = winston.format.combine(
 );
 
 // Create the logger without the MCP transport initially
-const logger = winston.createLogger({
+const sink = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
   format: customFormat,
   transports: [
@@ -65,8 +74,8 @@ const logger = winston.createLogger({
  * Enable the console transport
  */
 export function enableConsoleTransport(): void {
-  if (logger.transports.length > 0) {
-    logger.transports[0].silent = false;
+  if (sink.transports.length > 0) {
+    sink.transports[0].silent = false;
   }
 }
 
@@ -79,8 +88,8 @@ export function setLogLevel(mcpLevel: string): void {
   const winstonLevel = MCP_TO_WINSTON_LEVEL[mcpLevel] || 'info';
 
   // Set the log level for all transports
-  logger.level = winstonLevel;
-  logger.transports.forEach((transport) => {
+  sink.level = winstonLevel;
+  sink.transports.forEach((transport) => {
     transport.level = winstonLevel;
   });
 }
@@ -113,9 +122,7 @@ export function configureLogger(options: LoggerOptions): void {
   if (!logLevel) {
     logLevel = process.env.LOG_LEVEL;
     if (logLevel) {
-      logger.warn(
-        'LOG_LEVEL environment variable is deprecated. Please use ONE_MCP_LOG_LEVEL or --log-level CLI option instead.',
-      );
+      logger.warn('logger.deprecated-level');
     }
   }
 
@@ -128,7 +135,7 @@ export function configureLogger(options: LoggerOptions): void {
   logger.clear();
 
   // Set logger level
-  logger.level = winstonLevel;
+  sink.level = winstonLevel;
 
   // Configure transports based on options
   if (options.logFile) {
@@ -173,7 +180,7 @@ export function configureLogger(options: LoggerOptions): void {
  * Use this to avoid expensive operations when debug logging is disabled
  */
 export function isDebugEnabled(): boolean {
-  return logger.isDebugEnabled();
+  return sink.isDebugEnabled();
 }
 
 /**
@@ -181,7 +188,7 @@ export function isDebugEnabled(): boolean {
  * Use this to avoid expensive operations when info logging is disabled
  */
 export function isInfoEnabled(): boolean {
-  return logger.isInfoEnabled();
+  return sink.isInfoEnabled();
 }
 
 /**
@@ -189,149 +196,125 @@ export function isInfoEnabled(): boolean {
  * Use this to avoid expensive operations when warn logging is disabled
  */
 export function isWarnEnabled(): boolean {
-  return logger.isWarnEnabled();
+  return sink.isWarnEnabled();
 }
 
-/**
- * Conditional debug logging - only executes the message function if debug is enabled
- * @param messageOrFunc Message string or function that returns message and metadata
- */
-export function debugIf(messageOrFunc: string | (() => { message: string; meta?: Record<string, unknown> })): void {
-  if (isDebugEnabled()) {
-    if (typeof messageOrFunc === 'string') {
-      logger.debug(messageOrFunc);
-    } else {
-      try {
-        const result = messageOrFunc();
-        if (result && typeof result === 'object' && 'message' in result) {
-          const { message, meta } = result;
-          if (meta) {
-            logger.debug(message, meta);
-          } else {
-            logger.debug(message);
-          }
-        } else {
-          // Fallback for malformed callback results
-          logger.debug('[debugIf: Invalid callback result]', { callbackResult: result });
-        }
-      } catch (error) {
-        // Never let logging errors crash the application
-        // Use logger.warn to avoid infinite recursion if debugIf were to call itself
-        if (logger.isWarnEnabled()) {
-          logger.warn('debugIf callback failed', {
-            error: error instanceof Error ? error.message : String(error),
-            stack: error instanceof Error ? error.stack : undefined,
-          });
-        }
-      }
+/** Typed runtime logger. Raw Winston transports are kept inside this module. */
+function emit<E extends EventName>(
+  level: 'debug' | 'info' | 'warn' | 'error',
+  event: E,
+  fields?: EventFields<E>,
+): void {
+  const normalized = normalizeEvent(event, fields);
+  if (normalized) sink.log({ ...normalized, level });
+}
+
+const logger = {
+  debug: <E extends EventName>(event: E, fields?: EventFields<E>) => emit('debug', event, fields),
+  info: <E extends EventName>(event: E, fields?: EventFields<E>) => emit('info', event, fields),
+  warn: <E extends EventName>(event: E, fields?: EventFields<E>) => emit('warn', event, fields),
+  error: <E extends EventName>(event: E, fields?: EventFields<E>) => emit('error', event, fields),
+  isDebugEnabled: () => sink.isDebugEnabled(),
+  isInfoEnabled: () => sink.isInfoEnabled(),
+  isWarnEnabled: () => sink.isWarnEnabled(),
+  isErrorEnabled: () => sink.isErrorEnabled(),
+  get level() {
+    return sink.level;
+  },
+  set level(value: string) {
+    sink.level = value;
+  },
+  get transports() {
+    return sink.transports;
+  },
+  clear: () => {
+    sink.clear();
+  },
+  add: (transport: Parameters<typeof sink.add>[0]) => {
+    sink.add(transport);
+  },
+};
+
+interface LazyEvent<E extends EventName> {
+  message: E;
+  meta?: EventFields<E>;
+}
+function conditional<E extends EventName>(
+  level: 'debug' | 'info' | 'warn' | 'error',
+  input: E | (() => LazyEvent<E>),
+): void {
+  if (!sink.isLevelEnabled(level)) return;
+  try {
+    if (typeof input === 'string') {
+      logger[level](input);
+      return;
     }
+    const result = input();
+    if (!result || typeof result !== 'object') {
+      logger.warn('logger.callback-invalid');
+      return;
+    }
+    const event = ownData(result, 'message');
+    const fields = ownData(result, 'meta');
+    if (typeof event !== 'string' || !Object.hasOwn(EVENT_REGISTRY, event)) {
+      logger.warn('logger.callback-invalid');
+      return;
+    }
+    logger[level](event as E, fields as EventFields<E>);
+  } catch (error) {
+    logger.warn('logger.callback-failed', { error });
   }
 }
-
-/**
- * Conditional info logging - only executes the message function if info is enabled
- * @param messageOrFunc Message string or function that returns message and metadata
- */
-export function infoIf(messageOrFunc: string | (() => { message: string; meta?: Record<string, unknown> })): void {
-  if (isInfoEnabled()) {
-    if (typeof messageOrFunc === 'string') {
-      logger.info(messageOrFunc);
-    } else {
-      try {
-        const result = messageOrFunc();
-        if (result && typeof result === 'object' && 'message' in result) {
-          const { message, meta } = result;
-          if (meta) {
-            logger.info(message, meta);
-          } else {
-            logger.info(message);
-          }
-        } else {
-          // Fallback for malformed callback results
-          logger.info('[infoIf: Invalid callback result]', { callbackResult: result });
-        }
-      } catch (error) {
-        // Never let logging errors crash the application
-        // Use logger.warn to avoid infinite recursion if infoIf were to call itself
-        if (logger.isWarnEnabled()) {
-          logger.warn('infoIf callback failed', {
-            error: error instanceof Error ? error.message : String(error),
-            stack: error instanceof Error ? error.stack : undefined,
-          });
-        }
-      }
-    }
-  }
+export function debugIf<E extends EventName>(input: E | (() => LazyEvent<E>)): void {
+  conditional('debug', input);
 }
-
-/**
- * Conditional warn logging - only executes the message function if warn is enabled
- * @param messageOrFunc Message string or function that returns message and metadata
- */
-export function warnIf(messageOrFunc: string | (() => { message: string; meta?: Record<string, unknown> })): void {
-  if (isWarnEnabled()) {
-    if (typeof messageOrFunc === 'string') {
-      logger.warn(messageOrFunc);
-    } else {
-      try {
-        const result = messageOrFunc();
-        if (result && typeof result === 'object' && 'message' in result) {
-          const { message, meta } = result;
-          if (meta) {
-            logger.warn(message, meta);
-          } else {
-            logger.warn(message);
-          }
-        } else {
-          // Fallback for malformed callback results
-          logger.warn('[warnIf: Invalid callback result]', { callbackResult: result });
-        }
-      } catch (error) {
-        // Never let logging errors crash the application
-        // For warnIf, we use console.error as last resort to avoid recursion
-        console.error('warnIf callback failed:', error instanceof Error ? error.message : String(error));
-      }
-    }
-  }
+export function infoIf<E extends EventName>(input: E | (() => LazyEvent<E>)): void {
+  conditional('info', input);
 }
-
-/**
- * Check if error logging is enabled
- * Use this to avoid expensive operations when error logging is disabled
- */
+export function warnIf<E extends EventName>(input: E | (() => LazyEvent<E>)): void {
+  conditional('warn', input);
+}
+export function errorIf<E extends EventName>(input: E | (() => LazyEvent<E>)): void {
+  conditional('error', input);
+}
 export function isErrorEnabled(): boolean {
-  return logger.isErrorEnabled();
+  return sink.isErrorEnabled();
 }
 
-/**
- * Conditional error logging - only executes the message function if error is enabled
- * @param messageOrFunc Message string or function that returns message and metadata
- */
-export function errorIf(messageOrFunc: string | (() => { message: string; meta?: Record<string, unknown> })): void {
-  if (isErrorEnabled()) {
-    if (typeof messageOrFunc === 'string') {
-      logger.error(messageOrFunc);
-    } else {
-      try {
-        const result = messageOrFunc();
-        if (result && typeof result === 'object' && 'message' in result) {
-          const { message, meta } = result;
-          if (meta) {
-            logger.error(message, meta);
-          } else {
-            logger.error(message);
-          }
-        } else {
-          // Fallback for malformed callback results
-          logger.error('[errorIf: Invalid callback result]', { callbackResult: result });
-        }
-      } catch (error) {
-        // Never let logging errors crash the application
-        // For errorIf, we use console.error as last resort to avoid recursion
-        console.error('errorIf callback failed:', error instanceof Error ? error.message : String(error));
-      }
-    }
-  }
+/** ADR 0011 local diagnostic projection. Never normalize or correlate backend records. */
+export function writeBackendDiagnostic(entry: BackendLogEntry): void {
+  if (!isBackendDiagnosticEntry(entry)) return;
+  sink.warn(`[${entry.displayName}] ${entry.content}`, {
+    serverName: entry.canonicalName,
+    source: 'backend-stderr',
+    backendLogSequence: entry.sequence,
+    backendLogSourceId: entry.sourceId,
+    backendLogEventKind: entry.kind,
+    ...(entry.count === undefined ? {} : { count: entry.count }),
+    ...(entry.truncated ? { truncated: true } : {}),
+  });
+}
+
+/** Legacy managed-stderr fallback is also a diagnostic-only local sink. */
+export function writeManagedStderrDiagnostic(
+  event: ManagedStdioStderrEvent,
+  metadata: ManagedStdioStderrMetadata,
+): void {
+  if (
+    ![ManagedStdioStderrEvent.Line, ManagedStdioStderrEvent.Repeated, ManagedStdioStderrEvent.Suppressed].includes(
+      event,
+    )
+  )
+    return;
+  const line = typeof metadata.line === 'string' ? sanitizeBackendLogContent(metadata.line) : '';
+  sink.warn(event, {
+    source: 'backend-stderr',
+    serverName: sanitizeBackendLogContent(metadata.serverName),
+    ...(line ? { line } : {}),
+    ...(metadata.repeatCount === undefined ? {} : { repeatCount: metadata.repeatCount }),
+    ...(metadata.suppressedCount === undefined ? {} : { suppressedCount: metadata.suppressedCount }),
+    ...(metadata.truncated ? { truncated: true } : {}),
+  });
 }
 
 export default logger;

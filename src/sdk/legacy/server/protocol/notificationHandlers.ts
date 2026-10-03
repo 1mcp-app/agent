@@ -32,10 +32,6 @@ import {
   setupOwnedResourceNotifications,
 } from './resourceSubscriptions.js';
 
-function formatNotificationError(error: unknown): string {
-  return error instanceof Error ? `Error: ${error.message}` : String(error);
-}
-
 /** Register only catalog coverage honored by the upstream, preserving other operations. */
 async function setupCatalogCoverage(
   connections: LegacyOutboundConnections,
@@ -84,10 +80,10 @@ export async function setupClientToServerNotifications(
       outboundConn,
       inboundConn,
       withErrorHandling(async (notification) => {
-        logger.info(`Received notification in client: ${name} ${JSON.stringify(notification)}`);
+        logger.info('notificationHandlers.received.notification.in.client.689f962c');
 
         if (inboundConn.status !== ServerStatus.Connected || !getLegacyInboundServer(inboundConn).transport) {
-          logger.warn(`Server transport not connected. Dropping notification from ${name}`);
+          logger.warn('notificationHandlers.server.transport.not.connected.dropping.notification.from.9ee58811');
           return;
         }
 
@@ -114,7 +110,7 @@ export async function setupClientToServerNotifications(
 
           // Check if client is connected before attempting to send
           if (inboundConn.status !== ServerStatus.Connected || !getLegacyInboundServer(inboundConn).transport) {
-            logger.warn(`Server transport not connected. Dropping notification from ${name}`);
+            logger.warn('notificationHandlers.server.transport.not.connected.dropping.notification.from.9ee58811');
             return;
           }
 
@@ -131,9 +127,11 @@ export async function setupClientToServerNotifications(
             await getLegacyInboundServer(inboundConn).notification(forwardedNotification);
           } catch (error) {
             if (error instanceof Error && error.message.includes('Not connected')) {
-              logger.warn(`Server transport not connected. Dropping notification from ${name}`);
+              logger.warn('notificationHandlers.server.transport.not.connected.dropping.notification.from.9ee58811', {
+                error: error,
+              });
             } else {
-              logger.error(`Failed to send notification from ${name}: ${formatNotificationError(error)}`);
+              logger.error('notificationHandlers.failed.to.send.notification.from.5fd1ccf3', { error: error });
             }
           }
         }, `Error handling client notification from ${name}`),

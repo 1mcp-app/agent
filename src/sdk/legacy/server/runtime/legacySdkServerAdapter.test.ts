@@ -5,7 +5,12 @@ import { OneMcpProtocolError } from '@src/sdk/contracts/oneMcpProtocolError.js';
 import { Client } from '@src/sdk/legacy/client/index.js';
 import { Server } from '@src/sdk/legacy/server/index.js';
 import type { Transport } from '@src/sdk/legacy/shared/transport.js';
-import { CallToolRequestSchema, ListRootsRequestSchema, McpError } from '@src/sdk/legacy/types.js';
+import {
+  CallToolRequestSchema,
+  ListRootsRequestSchema,
+  LoggingMessageNotificationSchema,
+  McpError,
+} from '@src/sdk/legacy/types.js';
 
 import { describe, expect, it, vi } from 'vitest';
 
@@ -139,6 +144,38 @@ describe('LegacySdkServerAdapter', () => {
       params: { nested: { value: 'original' } },
     });
     expect(transport.close).toHaveBeenCalledOnce();
+  });
+
+  it('strips only reserved baggage from raw SDK notifications at the transport boundary', async () => {
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const server = new Server({ name: 'server', version: '1' }, { capabilities: { logging: {} } });
+    const client = new Client({ name: 'client', version: '1' });
+    const delivered = vi.fn();
+    client.setNotificationHandler(LoggingMessageNotificationSchema, delivered);
+    const adapter = new LegacySdkServerAdapter('notification' as LegacyConnectionId, server, serverTransport);
+    const params = {
+      level: 'info' as const,
+      data: { baggage: 'business' },
+      _meta: { baggage: 'private-carrier', other: 'preserved', traceparent: 'unchanged' },
+    };
+    try {
+      await adapter.start();
+      await client.connect(clientTransport);
+      await server.notification({ method: 'notifications/message', params });
+      await vi.waitFor(() => expect(delivered).toHaveBeenCalledOnce());
+      expect(delivered.mock.calls[0][0]).toEqual({
+        method: 'notifications/message',
+        params: {
+          level: 'info',
+          data: { baggage: 'business' },
+          _meta: { other: 'preserved', traceparent: 'unchanged' },
+        },
+      });
+      expect(params._meta.baggage).toBe('private-carrier');
+    } finally {
+      await client.close();
+      await adapter.close();
+    }
   });
 
   it('rejects notification params that are not JSON objects', async () => {

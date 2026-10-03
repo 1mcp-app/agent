@@ -438,9 +438,7 @@ vi.mock('./serverManager.js', () => {
 
           if (conflictingServers.length > 0) {
             const logger = (await import('@src/logger/logger.js')).default;
-            logger.warn(
-              `Ignoring ${conflictingServers.length} static server(s) that conflict with template servers: ${conflictingServers.join(', ')}`,
-            );
+            logger.warn('configManager.ignoring.static.server.s.that.conflict.with.template.servers.fbf7b8aa');
             // Remove conflicting static servers so they won't be connected
             for (const serverName of conflictingServers) {
               delete this.serverConfigData.mcpServers[serverName];
@@ -453,7 +451,9 @@ vi.mock('./serverManager.js', () => {
       if ((transport as any)._shouldReject) {
         // Log error before throwing (matching real behavior)
         const logger = (await import('@src/logger/logger.js')).default;
-        logger.error(`Failed to connect transport for session ${sessionId}: Connection failed`);
+        logger.error('connectionManager.failed.to.connect.transport.for.session.06b49e4e', {
+          error: new Error('Connection failed'),
+        });
         throw new Error('Connection failed');
       }
 
@@ -493,7 +493,7 @@ vi.mock('./serverManager.js', () => {
 
       // Log successful connection
       const logger = (await import('@src/logger/logger.js')).default;
-      logger.info(`Connected transport for session ${sessionId}`);
+      logger.info('connectionManager.connected.transport.for.session.8c692c82');
 
       this.inboundConns.set(sessionId, serverInfo);
     }
@@ -705,7 +705,7 @@ describe('ServerManager', () => {
       expect(enhanceServerWithLogging).toHaveBeenCalledWith(mockServer);
       expect(setupCapabilities).toHaveBeenCalled();
       expect(mockServer.connect).toHaveBeenCalledWith(mockTransport);
-      expect(logger.info).toHaveBeenCalledWith(`Connected transport for session ${sessionId}`);
+      expect(logger.info).toHaveBeenCalledWith('connectionManager.connected.transport.for.session.8c692c82');
     });
 
     it('should handle connection errors', async () => {
@@ -1261,13 +1261,10 @@ describe('ServerManager', () => {
         const warnCalls = (logger.warn as any).mock.calls;
         const conflictWarning = warnCalls.find(
           (call: any[]) =>
-            call[0]?.includes?.('Ignoring') &&
-            call[0]?.includes?.('static server') &&
-            call[0]?.includes?.('conflict with template servers'),
+            call[0] === 'configManager.ignoring.static.server.s.that.conflict.with.template.servers.fbf7b8aa',
         );
 
         expect(conflictWarning).toBeDefined();
-        expect(conflictWarning[0]).toContain('conflicting-server');
       });
 
       it('should remove conflicting static servers from mcpServers', async () => {
@@ -1309,7 +1306,10 @@ describe('ServerManager', () => {
 
         // Verify the warning
         const warnCalls = (logger.warn as any).mock.calls;
-        const conflictWarning = warnCalls.find((call: any[]) => call[0]?.includes?.('Ignoring 1 static server'));
+        const conflictWarning = warnCalls.find(
+          (call: any[]) =>
+            call[0] === 'configManager.ignoring.static.server.s.that.conflict.with.template.servers.fbf7b8aa',
+        );
 
         expect(conflictWarning).toBeDefined();
       });
@@ -1375,12 +1375,12 @@ describe('ServerManager', () => {
 
         // Should warn about 2 conflicting servers
         const warnCalls = (logger.warn as any).mock.calls;
-        const conflictWarning = warnCalls.find((call: any[]) => call[0]?.includes?.('Ignoring 2 static server'));
+        const conflictWarning = warnCalls.find(
+          (call: any[]) =>
+            call[0] === 'configManager.ignoring.static.server.s.that.conflict.with.template.servers.fbf7b8aa',
+        );
 
         expect(conflictWarning).toBeDefined();
-        expect(conflictWarning[0]).toContain('conflict-1');
-        expect(conflictWarning[0]).toContain('conflict-2');
-        expect(conflictWarning[0]).not.toContain('static-3');
       });
     });
   });

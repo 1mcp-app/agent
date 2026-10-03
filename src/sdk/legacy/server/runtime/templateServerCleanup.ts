@@ -31,10 +31,7 @@ export async function cleanupTemplateServersForSession(
   context.persistentSessions.delete(sessionId);
 
   const instancesToCleanup = context.clientTemplateTracker.removeClient(sessionId);
-  logger.info(`Removing client from ${instancesToCleanup.length} template instances`, {
-    sessionId,
-    instancesToCleanup,
-  });
+  logger.info('templateServerCleanup.removing.client.from.template.instances.5ecc2955', { sessionId: sessionId });
 
   for (const instanceKey of instancesToCleanup) {
     const [templateName, ...instanceParts] = instanceKey.split(':');
@@ -62,16 +59,9 @@ export async function cleanupTemplateServersForSession(
       }
 
       debugIf(() => ({
-        message: `TemplateServerManager.cleanupTemplateServers: Successfully removed client from client instance`,
-        meta: {
-          sessionId,
-          templateName,
-          instanceId,
-          instanceKey,
-          outboundKey,
-          isShareable,
-          renderedHash: renderedHash?.substring(0, 8),
-        },
+        message:
+          'templateServerCleanup.templateservermanager.cleanuptemplateservers.successfully.removed.client.fr.69ab5186',
+        meta: { sessionId: sessionId },
       }));
 
       const remainingClients = context.clientTemplateTracker.getClientCount(templateName, instanceId);
@@ -82,18 +72,14 @@ export async function cleanupTemplateServersForSession(
       cleanupTransportIfUnused(transports, instanceId, remainingClients);
       logInstanceRetention(templateName, instanceId, outboundKey, remainingClients);
     } catch (error) {
-      logger.warn(`Failed to cleanup client instance ${instanceKey}:`, {
-        error,
-        sessionId,
-        templateName,
-        instanceId,
+      logger.warn('templateServerCleanup.failed.to.cleanup.client.instance.795b730f', {
+        error: error,
+        sessionId: sessionId,
       });
     }
   }
 
-  logger.info(`Cleaned up template client instances for session ${sessionId}`, {
-    instancesCleaned: instancesToCleanup.length,
-  });
+  logger.info('templateServerCleanup.cleaned.up.template.client.instances.for.session.61999099');
 }
 
 export async function cleanupExpiredEphemeralClients(
@@ -144,15 +130,8 @@ export async function cleanupExpiredEphemeralClients(
 
       clients.delete(templateName);
       debugIf(() => ({
-        message: 'Expired ephemeral template client',
-        meta: {
-          sessionId,
-          templateName,
-          instanceId: trackedClient.instanceId,
-          instanceKey: trackedClient.instanceKey,
-          idleTime,
-          instanceFound: Boolean(instance),
-        },
+        message: 'templateServerCleanup.expired.ephemeral.template.client.17c64c77',
+        meta: { sessionId: sessionId },
       }));
     }
 
@@ -191,7 +170,7 @@ function cleanupOutboundConnection(
   if (isShareable && remainingClients === 0) {
     const removed = outboundConns.delete(outboundKey);
     if (removed) {
-      logger.debug(`Removed shareable template server from outbound connections: ${outboundKey}`);
+      logger.debug('templateServerCleanup.removed.shareable.template.server.from.outbound.connections.45ac528c');
     }
     return;
   }
@@ -199,14 +178,13 @@ function cleanupOutboundConnection(
   if (!isShareable) {
     const removed = outboundConns.delete(outboundKey);
     if (removed) {
-      logger.debug(`Removed template server from outbound connections: ${outboundKey}`);
+      logger.debug('templateServerCleanup.removed.template.server.from.outbound.connections.705ab981');
     }
     return;
   }
 
   debugIf(() => ({
-    message: `Shareable template server still has clients, keeping connection`,
-    meta: { outboundKey, remainingClients },
+    message: 'templateServerCleanup.shareable.template.server.still.has.clients.keeping.connection.f619a95b',
   }));
 }
 
@@ -217,7 +195,7 @@ function cleanupTransportIfUnused(
 ): void {
   if (remainingClients === 0 && instanceId) {
     delete transports[instanceId];
-    logger.debug(`Removed transport for instance: ${instanceId}`);
+    logger.debug('templateServerCleanup.removed.transport.for.instance.29f67138');
   }
 }
 
@@ -228,17 +206,14 @@ function logInstanceRetention(
   remainingClients: number,
 ): void {
   if (remainingClients === 0) {
-    logger.debug(`Client instance ${instanceId} has no more clients, marking as idle for cleanup after timeout`, {
-      templateName,
-      instanceId,
-      idleTimeout: 5 * 60 * 1000,
-    });
+    logger.debug(
+      'templateServerCleanup.client.instance.has.no.more.clients.marking.as.idle.for.cleanup.after.timeo.f1e0ff23',
+    );
     return;
   }
 
   debugIf(() => ({
-    message: `Client instance ${instanceId} still has ${remainingClients} clients, keeping connection open`,
-    meta: { instanceId, outboundKey, remainingClients },
+    message: 'templateServerCleanup.client.instance.still.has.clients.keeping.connection.open.31b49148',
   }));
 }
 

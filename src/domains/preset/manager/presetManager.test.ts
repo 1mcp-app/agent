@@ -122,10 +122,7 @@ describe('PresetManager', () => {
 
       expect(mockFs.mkdir).toHaveBeenCalledWith('/mock/home/.config/1mcp', { recursive: true });
       expect(mockFs.readFile).toHaveBeenCalledWith('/mock/home/.config/1mcp/presets.json', 'utf-8');
-      expect(logger.info).toHaveBeenCalledWith('PresetManager initialized successfully', {
-        presetsLoaded: 1,
-        configPath: '/mock/home/.config/1mcp/presets.json',
-      });
+      expect(logger.info).toHaveBeenCalledWith('presetManager.presetmanager.initialized.successfully.2a672d11');
     });
 
     it('should create empty preset file if none exists', async () => {

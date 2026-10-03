@@ -1,5 +1,5 @@
 import { captureJson } from '@src/core/validation/schemaPolicy.js';
-import { injectTraceContext, stripBaggage } from '@src/observability/tracing/context.js';
+import { captureTraceContext, injectTraceContext, stripBaggage } from '@src/observability/tracing/context.js';
 
 import {
   createEffectiveRequestAuthority,
@@ -122,12 +122,21 @@ export class ModernOutboundEraAdapter implements OutboundEraAdapter {
           )
             throw new TypeError('Invalid interaction kind');
         }
+        const runTrace = captureTraceContext();
         const tracedInputs = Object.fromEntries(
-          entries.map(([key, input]) => {
-            const request = input as unknown as GatewayInteractionRequest;
-            const params = injectTraceContext(request.params);
-            return [key, { ...request, ...(params === undefined ? {} : { params }) }];
-          }),
+          await Promise.all(
+            entries.map(([key, input]) => {
+              const request = input as unknown as GatewayInteractionRequest;
+              return runTrace(
+                async () => {
+                  const params = injectTraceContext(request.params);
+                  return [key, { ...request, ...(params === undefined ? {} : { params }) }] as const;
+                },
+                undefined,
+                request.params,
+              );
+            }),
+          ),
         );
         let responses: Record<string, ImmutableJsonValue> = {};
         if (entries.length && options?.interactionRound) {
@@ -138,7 +147,7 @@ export class ModernOutboundEraAdapter implements OutboundEraAdapter {
         } else {
           for (const [key, input] of Object.entries(tracedInputs)) {
             Object.defineProperty(responses, key, {
-              value: stripBaggage(await options!.interaction!(input as unknown as GatewayInteractionRequest)),
+              value: stripBaggage(await runTrace(() => options!.interaction!(input), undefined, input.params)),
               enumerable: true,
             });
           }

@@ -47,7 +47,7 @@ export async function registryStatusCommand(argv: RegistryStatusCommandArgs): Pr
 
     const registryOptions = registryOptionsFromArgv(argv);
 
-    logger.info('Getting MCP registry status...');
+    logger.info('status.getting.mcp.registry.status.9fc5a43f');
     const result = await handleGetRegistryStatus(statusArgs, registryOptions);
 
     if (argv.json) {
@@ -96,7 +96,7 @@ export async function registryStatusCommand(argv: RegistryStatusCommandArgs): Pr
       }
     }
   } catch (error) {
-    logger.error('Registry status command failed:', error);
+    logger.error('status.registry.status.command.failed.284cbbf2', { error: error });
     printer.error(`Error getting registry status: ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);
   } finally {

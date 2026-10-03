@@ -14,10 +14,7 @@ import { StreamableSessionRepository } from '@src/transport/http/storage/streama
 import { StreamableSessionLifecycle, StreamableSessionStatus } from '@src/transport/http/streamableSessionLifecycle.js';
 import { extractTemplateContextRequest } from '@src/transport/http/utils/contextExtractor.js';
 import { sendBadRequest, sendInternalError, sendNotFound } from '@src/transport/http/utils/httpErrorHandler.js';
-import {
-  authorizeRequestTemplateContext,
-  redactTemplateContextBodyForLogging,
-} from '@src/transport/http/utils/templateContextAuthority.js';
+import { authorizeRequestTemplateContext } from '@src/transport/http/utils/templateContextAuthority.js';
 import { logError, logWarn } from '@src/transport/http/utils/unifiedLogger.js';
 
 import { Request, RequestHandler, Response, Router } from 'express';
@@ -52,11 +49,8 @@ function extractProtocolVersion(body: unknown): string | null {
       return reqBody.params.protocolVersion;
     }
     return null;
-  } catch (error) {
-    logWarn('Failed to extract protocol version from request body', {
-      reason: 'Request body structure incompatible',
-      context: { error },
-    });
+  } catch (_error) {
+    logWarn('streamableHttpRoutes.failed.to.extract.protocol.version.from.request.body.3edac56e');
     return null;
   }
 }
@@ -70,25 +64,19 @@ function wrapResponseForLogging(req: Request, res: Response, sessionId: string |
   const originalJson = res.json.bind(res);
   let logged = false;
 
-  const logIfNeeded = (responseBody?: unknown) => {
+  const logIfNeeded = (_responseBody?: unknown) => {
     if (logged || res.statusCode < 400) return;
     logged = true;
 
     const level = res.statusCode >= 500 ? 'error' : 'warn';
     const logFn = level === 'error' ? logError : logWarn;
-    logFn(`HTTP error ${res.statusCode}`, {
+    logFn('http.response-error', {
       method: req.method,
-      path: req.path,
       sessionId,
       statusCode: res.statusCode,
-      reason: 'SDK request validation failed',
     });
     // Log request/response details at debug level for troubleshooting
-    logger.debug('SDK error details', {
-      sessionId,
-      requestBody: redactTemplateContextBodyForLogging(req.body),
-      responseBody,
-    });
+    logger.debug('streamableHttpRoutes.sdk.error.details.0633179d', { sessionId: sessionId });
   };
 
   // Intercept res.status() to detect when error codes are set
@@ -162,7 +150,7 @@ function setupDisconnectDetection(
 
   const cleanupTransport = () => {
     if (!responseClosed && !res.writableEnded) {
-      logger.debug(`Client disconnected for session ${sessionId}, cleaning up transport`);
+      logger.debug('streamableHttpRoutes.client.disconnected.for.session.cleaning.up.transport.eca47590');
       void lifecycle.handleAbnormalDisconnect(sessionId);
     }
   };
@@ -221,7 +209,7 @@ export function setupStreamableHttpRoutes(
       }
 
       if ('persisted' in result && !result.persisted) {
-        logger.warn(`New session ${result.sessionId} was created but not persisted: ${result.persistenceError}`);
+        logger.warn('streamableHttpRoutes.new.session.was.created.but.not.persisted.c1345354');
       }
 
       const actualSessionId = result.sessionId;
@@ -230,9 +218,8 @@ export function setupStreamableHttpRoutes(
       const protocolVersion = isInitialize ? extractProtocolVersion(req.body) : null;
 
       if ('isRestored' in transport && typeof transport.isRestored === 'function' && transport.isRestored()) {
-        logger.debug('Handling request for restored session', {
+        logger.debug('streamableHttpRoutes.handling.request.for.restored.session.3031f880', {
           sessionId: actualSessionId,
-          isInitialize,
           method: (req.body as { method?: string })?.method,
         });
       }
@@ -246,9 +233,9 @@ export function setupStreamableHttpRoutes(
             capabilities: {},
             serverInfo: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
           });
-          logger.debug(`Stored initialize response for session ${actualSessionId}`);
+          logger.debug('streamableHttpRoutes.stored.initialize.response.for.session.9fcc1c4d');
         } catch (err) {
-          logger.warn(`Failed to store initialize response for ${actualSessionId}:`, err);
+          logger.warn('streamableHttpRoutes.failed.to.store.initialize.response.for.92e5cefc', { error: err });
         }
       }
     } catch (error) {

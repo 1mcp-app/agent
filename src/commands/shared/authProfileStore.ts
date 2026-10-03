@@ -86,7 +86,10 @@ export async function saveAuthProfile(configDir: string | undefined, profile: Au
   } catch (error) {
     const code = (error as { code?: unknown } | null)?.code;
     if (typeof code === 'string' && CAPABILITY_ERROR_CODES.has(code)) {
-      logger.warn(`chmod unsupported on auth-profiles volume (${code}); profile saved without mode hardening`);
+      logger.warn(
+        'authProfileStore.chmod.unsupported.on.auth.profiles.volume.profile.saved.without.mode.harden.900ce9b1',
+        { error: error },
+      );
     } else {
       throw error;
     }
@@ -144,7 +147,9 @@ export async function listAuthProfiles(configDir?: string): Promise<AuthProfile[
             if (error instanceof InsecureFilePermissionsError) {
               // Fail-closed on consume, but do not nuke the whole listing:
               // skip this profile, keep the healthy ones visible.
-              logger.warn(`Skipping auth profile with unfixable permissions: ${error.message}`);
+              logger.warn('authProfileStore.skipping.auth.profile.with.unfixable.permissions.f5b320bf', {
+                error: error,
+              });
               return null;
             }
             return null;

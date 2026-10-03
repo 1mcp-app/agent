@@ -253,7 +253,7 @@ export class InteractiveSelector {
         tagQuery,
       };
     } catch (error) {
-      logger.error('Interactive selection failed', { error });
+      logger.error('interactiveSelector.interactive.selection.failed.57d1e632', { error: error });
       console.log(
         boxen(chalk.red.bold('❌ Selection failed - see logs for details'), {
           padding: 1,

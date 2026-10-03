@@ -71,7 +71,9 @@ describe('ClientManager late responses', () => {
     );
 
     await vi.waitFor(() => {
-      expect(logger.error).toHaveBeenCalledWith('Client slow-server received a response for an unknown message ID');
+      expect(logger.error).toHaveBeenCalledWith(
+        'clientManager.client.received.a.response.for.an.unknown.message.id.a605b144',
+      );
     });
     const diagnostics = vi
       .mocked(logger.error)

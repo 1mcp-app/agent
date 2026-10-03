@@ -362,7 +362,10 @@ describe('ConnectionManager', () => {
       const warnCalls = vi.mocked(logger.warn).mock.calls as unknown[][];
       const duplicateWarn = warnCalls.find((call: unknown[] | undefined) => {
         const message = call?.[0] as string | undefined;
-        return message?.includes('already in progress') || message?.includes('already connected');
+        return (
+          message === 'connectionManager.connection.already.in.progress.for.session.waiting.ab0b4dbd' ||
+          message === 'connectionManager.transport.already.connected.for.session.82eea7e1'
+        );
       });
 
       expect(duplicateWarn).toBeDefined();

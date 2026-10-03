@@ -109,7 +109,7 @@ export class InstructionAggregator extends EventEmitter {
    */
   public setLazyLoadingOrchestrator(orchestrator: LazyLoadingOrchestrator): void {
     this.lazyLoadingOrchestrator = orchestrator;
-    debugIf('Lazy loading orchestrator set for InstructionAggregator');
+    debugIf('instructionAggregator.lazy.loading.orchestrator.set.for.instructionaggregator.ebbc1076');
   }
 
   /**
@@ -152,20 +152,20 @@ export class InstructionAggregator extends EventEmitter {
     const hasChanges = previousInstructions !== normalizedInstructions;
     if (normalizedInstructions) {
       debugIf(() => ({
-        message: `Updated instructions for server: ${target.name}`,
+        message: 'instructionAggregator.updated.instructions.for.server.f28421b1',
         meta: { serverName: target.name },
       }));
     } else {
       this.serverInstructions.delete(target.name);
       debugIf(() => ({
-        message: `Removed instructions for server: ${target.name}`,
+        message: 'instructionAggregator.removed.instructions.for.server.f565074a',
         meta: { serverName: target.name },
       }));
     }
 
     if (!this.isInitialized) {
       this.isInitialized = true;
-      debugIf('InstructionAggregator initialized');
+      debugIf('instructionAggregator.instructionaggregator.initialized.c665e431');
     }
 
     if (
@@ -174,7 +174,7 @@ export class InstructionAggregator extends EventEmitter {
       previousTarget?.source !== target.source ||
       previousTarget?.name !== target.name
     ) {
-      logger.info(`Instructions changed. Total servers with instructions: ${this.serverInstructions.size}`);
+      logger.info('instructionAggregator.instructions.changed.total.servers.with.instructions.00d57195');
       this.emit('instructions-changed');
     }
   }
@@ -192,7 +192,7 @@ export class InstructionAggregator extends EventEmitter {
     const instructions = this.rebuildServerInstructions(target.name);
 
     if (previousInstructions !== instructions) {
-      logger.info(`Removed server instructions: ${target.name}. Remaining servers: ${this.serverInstructions.size}`);
+      logger.info('instructionAggregator.removed.server.instructions.remaining.servers.f026ca79');
       this.emit('instructions-changed');
     }
   }
@@ -244,22 +244,14 @@ export class InstructionAggregator extends EventEmitter {
     connections: OutboundConnections,
     metadata: Record<string, InstructionRenderMetadata> = {},
   ): string {
-    debugIf(() => ({
-      message: 'InstructionAggregator: Getting filtered instructions',
-      meta: {
-        filterMode: config.tagFilterMode,
-        totalConnections: connections.size,
-        totalInstructions: this.serverInstructions.size,
-        hasCustomTemplate: surface === 'initialization' && !!config.customTemplate,
-      },
-    }));
+    debugIf(() => ({ message: 'instructionAggregator.instructionaggregator.getting.filtered.instructions.91e6c103' }));
 
     // Filter connections based on client configuration
     const filteredConnections = FilteringService.getFilteredConnections(connections, config);
 
     // Get filtering summary for logging
-    const filteringSummary = FilteringService.getFilteringSummary(connections, filteredConnections, config);
-    logger.info('InstructionAggregator: Filtering applied', filteringSummary);
+
+    logger.info('instructionAggregator.instructionaggregator.filtering.applied.bff38756');
 
     const activeIdentity = this.runtimeConfiguration.activeInstructionTemplate;
     const builtInTemplate =
@@ -300,17 +292,17 @@ export class InstructionAggregator extends EventEmitter {
 
     // Legacy custom templates remain initialization-only when managed selection is absent.
     if (surface === 'initialization' && config.customTemplate) {
-      logger.info('InstructionAggregator: Trying custom template', { templateLength: config.customTemplate.length });
+      logger.info('instructionAggregator.instructionaggregator.trying.custom.template.9186cfd2');
       try {
         return this.renderTemplate(config.customTemplate, filteredConnections, config, metadata);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
 
         // Log detailed error for debugging
-        logger.error('InstructionAggregator: Custom template failed, falling back to default template', {
-          error: errorMessage,
-          templateLength: config.customTemplate.length,
-        });
+        logger.error(
+          'instructionAggregator.instructionaggregator.custom.template.failed.falling.back.to.default.templa.33a863b9',
+          { error: errorMessage },
+        );
 
         // Fall back to default template with LLM-directed notice
         const fallbackContent = this.renderTemplate(
@@ -355,11 +347,10 @@ export class InstructionAggregator extends EventEmitter {
     metadata: Record<string, InstructionRenderMetadata>,
   ): string {
     this.renderFailures[surface] = { surface, templateIdentity, error, occurredAt: new Date() };
-    logger.error('InstructionAggregator: Managed template failed, falling back to built-in variant', {
-      surface,
-      templateIdentity,
-      error,
-    });
+    logger.error(
+      'instructionAggregator.instructionaggregator.managed.template.failed.falling.back.to.built.in.vari.55809495',
+      { error: error },
+    );
     return this.renderTemplate(builtInTemplate, filteredConnections, config, metadata);
   }
 
@@ -420,7 +411,7 @@ export class InstructionAggregator extends EventEmitter {
     this.instructionTargets.clear();
 
     if (hadInstructions) {
-      debugIf('Cleared all server instructions');
+      debugIf('instructionAggregator.cleared.all.server.instructions.ae0bc22b');
       this.emit('instructions-changed');
     }
   }
@@ -516,12 +507,8 @@ export class InstructionAggregator extends EventEmitter {
     const rendered = compiledTemplate(variables);
 
     debugIf(() => ({
-      message: 'InstructionAggregator: Compiled and cached new template',
-      meta: {
-        templateLength: template.length,
-        variableCount: Object.keys(variables).length,
-        renderedLength: rendered.length,
-      },
+      message: 'instructionAggregator.instructionaggregator.compiled.and.cached.new.template.6d692dbd',
+      meta: { variableCount: Object.keys(variables).length },
     }));
 
     return rendered;
@@ -707,7 +694,7 @@ export class InstructionAggregator extends EventEmitter {
    * Should be called when the aggregator is no longer needed
    */
   public cleanup(): void {
-    debugIf('InstructionAggregator: Starting cleanup');
+    debugIf('instructionAggregator.instructionaggregator.starting.cleanup.b011a99f');
 
     // Clear all event listeners
     this.removeAllListeners();
@@ -721,6 +708,6 @@ export class InstructionAggregator extends EventEmitter {
     // Reset initialization state
     this.isInitialized = false;
 
-    logger.info('InstructionAggregator: Cleanup completed - all listeners cleared');
+    logger.info('instructionAggregator.instructionaggregator.cleanup.completed.all.listeners.cleared.61adff3f');
   }
 }

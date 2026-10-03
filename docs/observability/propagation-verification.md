@@ -1,3 +1,8 @@
+---
+title: Propagation-only verification
+description: Verify privacy-safe W3C context propagation without providers or exporters.
+---
+
 # Propagation-only verification
 
 Issue #488 does not activate providers, spans, exporters, metrics, or baggage. The launcher installs only the OpenTelemetry context manager and W3C trace propagator. SDK disable/export environment variables cannot switch this propagation off or activate network export.

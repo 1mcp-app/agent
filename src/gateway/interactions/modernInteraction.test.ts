@@ -1,3 +1,5 @@
+import { getActiveTraceCorrelation, withMcpTraceContext } from '@src/observability/tracing/context.js';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import { ModernOutboundEraAdapter } from '../adapters/modern/modernOutboundEraAdapter.js';
@@ -47,6 +49,54 @@ describe('broker-owned modern rounds', () => {
       });
     },
   );
+
+  it.each([false, true])('honors input remote context without changing the owner (round=%s)', async (round) => {
+    const owner = '00-11111111111111111111111111111111-2222222222222222-01';
+    const remote = '00-33333333333333333333333333333333-4444444444444444-01';
+    const upstream = vi.fn(async () => {
+      expect(getActiveTraceCorrelation()?.trace_id).toBe('11111111111111111111111111111111');
+      return upstream.mock.calls.length === 1
+        ? {
+            resultType: 'input_required',
+            inputRequests: {
+              root: { method: 'roots/list', params: { _meta: { traceparent: remote, baggage: 'private' } } },
+            },
+          }
+        : { resultType: 'complete', content: [] };
+    });
+    const adapter = new ModernOutboundEraAdapter({
+      revision: '2026-07-28',
+      request: upstream,
+      cancel: async () => undefined,
+    });
+    await withMcpTraceContext({ _meta: { traceparent: owner } }, () =>
+      adapter.request(
+        {
+          requestId: 'remote-parent',
+          operation: 'tools/call',
+          authority: { connectionIds: ['one'], provenance: [] },
+          deadlineUnixMs: Date.now() + 5000,
+        },
+        round
+          ? {
+              interactionRound: async (inputs) => {
+                expect(inputs.root.params).toEqual({ _meta: { traceparent: remote } });
+                expect(getActiveTraceCorrelation()?.trace_id).toBe('11111111111111111111111111111111');
+                return { root: { roots: [] } };
+              },
+            }
+          : {
+              interaction: async (input) => {
+                expect(input.params).toEqual({ _meta: { traceparent: remote } });
+                expect(getActiveTraceCorrelation()?.trace_id).toBe('33333333333333333333333333333333');
+                return { roots: [] };
+              },
+            },
+      ),
+    );
+    expect(upstream).toHaveBeenCalledTimes(2);
+    expect(getActiveTraceCorrelation()).toBeUndefined();
+  });
 
   it('does not retry after interaction or upstream uncertainty', async () => {
     const request = vi.fn(async () => ({

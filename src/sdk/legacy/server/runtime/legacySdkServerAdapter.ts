@@ -170,9 +170,14 @@ export class LegacySdkServerAdapter implements InboundConnectionAdapter {
     };
     transport.send = async (message, options) => {
       try {
-        const outgoing =
-          'method' in message && 'id' in message ? { ...message, params: injectTraceContext(message.params) } : message;
-        await send('result' in outgoing ? { ...outgoing, result: stripBaggage(outgoing.result) } : outgoing, options);
+        let outgoing = message;
+        if ('method' in message) {
+          if ('id' in message) outgoing = { ...message, params: injectTraceContext(message.params) };
+          else if (message.params !== undefined) outgoing = { ...message, params: stripBaggage(message.params) };
+        } else if ('result' in message) {
+          outgoing = { ...message, result: stripBaggage(message.result) };
+        }
+        await send(outgoing, options);
       } finally {
         if ('id' in message && !('method' in message) && message.id !== undefined) {
           this.admittedInteractions.delete(message.id);

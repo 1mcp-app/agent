@@ -73,8 +73,8 @@ export async function detectRunningServerUrl(): Promise<string | null> {
       // a TLS/DNS/abort error on a port that IS listening is diagnostic — log it
       // at debug so a misconfigured-but-present server is not invisible.
       debugIf(() => ({
-        message: `Port scan probe failed on ${port}`,
-        meta: { port, error: error instanceof Error ? error.message : String(error) },
+        message: 'urlDetection.port.scan.probe.failed.on.2076508b',
+        meta: { port: port, error: error },
       }));
     }
   }
@@ -361,8 +361,8 @@ async function validateConcreteServer1mcpUrl(
       return invalidProbeResult(probeFailureFromError(error, '/.well-known/1mcp/runtime-identity'));
     }
     debugIf(() => ({
-      message: 'Runtime identity endpoint is unavailable; trying legacy OAuth discovery',
-      meta: { error: error instanceof Error ? error.message : String(error) },
+      message: 'urlDetection.runtime.identity.endpoint.is.unavailable.trying.legacy.oauth.discovery.95d7f295',
+      meta: { error: error },
     }));
   }
 

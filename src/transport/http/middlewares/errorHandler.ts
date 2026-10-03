@@ -8,7 +8,7 @@ import { z } from 'zod';
 const protocolVersionHeaderSchema = z.string();
 
 export default function errorHandler(err: Error, req: Request, res: Response, _next: NextFunction) {
-  logger.error('Express error:', err);
+  logger.error('errorHandler.express.error.037179d1', { error: err });
   const rawClaimedVersion = req.headers?.['mcp-protocol-version'];
   const parsedVersion = protocolVersionHeaderSchema.safeParse(rawClaimedVersion);
   const claimedVersion = parsedVersion.success ? parsedVersion.data : undefined;

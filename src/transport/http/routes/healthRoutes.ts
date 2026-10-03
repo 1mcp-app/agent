@@ -74,7 +74,7 @@ export function createHealthRoutes(
    */
   const healthHandler: RequestHandler = async (req: Request, res: Response) => {
     try {
-      logger.debug('Health check requested');
+      logger.debug('healthRoutes.health.check.requested.c7d30314');
 
       const healthData = await healthService.performHealthCheck();
       const httpStatusCode = healthService.getHttpStatusCode(healthData.status);
@@ -88,11 +88,11 @@ export function createHealthRoutes(
       res.setHeader('X-Service-Version', healthData.version);
       res.setHeader('X-Uptime-Seconds', String(healthData.system.uptime));
 
-      logger.debug(`Health check completed with status: ${healthData.status}`);
+      logger.debug('healthRoutes.health.check.completed.with.status.09839ae4');
 
       res.status(httpStatusCode).json(healthData);
     } catch (error) {
-      logger.error('Health check failed:', error);
+      logger.error('healthRoutes.health.check.failed.cbb24dd0', { error: error });
 
       // Return error response with 500 status
       res.status(500).json({
@@ -154,7 +154,7 @@ export function createHealthRoutes(
         backendSupervision: healthService.serializeBackendSupervision(backendSupervision),
       });
     } catch (error) {
-      logger.error('Readiness check failed:', error);
+      logger.error('healthRoutes.readiness.check.failed.47f64368', { error: error });
 
       res.status(503).json({
         status: 'not_ready',
@@ -281,7 +281,7 @@ export function createHealthRoutes(
       const statusCode = summary.isComplete ? 200 : 202; // 202 = Accepted (still processing)
       res.status(statusCode).json(responseData);
     } catch (error) {
-      logger.error('MCP loading status check failed:', error);
+      logger.error('healthRoutes.mcp.loading.status.check.failed.a32dd491', { error: error });
 
       res.status(500).json({
         error: 'MCP loading status check failed',
@@ -412,7 +412,7 @@ export function createHealthRoutes(
 
       res.status(statusCode).json(responseData);
     } catch (error) {
-      logger.error(`Server-specific loading status check failed for ${req.params.serverName}:`, error);
+      logger.error('healthRoutes.server.specific.loading.status.check.failed.for.6b09a123', { error: error });
 
       res.status(500).json({
         error: 'Server-specific loading status check failed',

@@ -85,7 +85,7 @@ describe('logger configuration', () => {
       });
 
       expect(logger.level).toBe('error');
-      expect(mockWarn).toHaveBeenCalledWith(expect.stringContaining('LOG_LEVEL environment variable is deprecated'));
+      expect(mockWarn).toHaveBeenCalledWith('logger.deprecated-level');
       expect(mockClear).toHaveBeenCalled();
     });
 
@@ -223,7 +223,7 @@ describe('logger configuration', () => {
         transport: 'http',
       });
 
-      expect(mockWarn).toHaveBeenCalledWith(expect.stringContaining('LOG_LEVEL environment variable is deprecated'));
+      expect(mockWarn).toHaveBeenCalledWith('logger.deprecated-level');
       mockWarn.mockRestore();
     });
   });
@@ -264,9 +264,9 @@ describe('errorIf', () => {
     logger.level = 'error';
     const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => logger);
 
-    errorIf('Test error message');
+    errorIf('runtime.cli-failed');
 
-    expect(errorSpy).toHaveBeenCalledWith('Test error message');
+    expect(errorSpy).toHaveBeenCalledWith('runtime.cli-failed');
     expect(logger.isErrorEnabled()).toBe(true);
     errorSpy.mockRestore();
   });
@@ -275,7 +275,7 @@ describe('errorIf', () => {
     logger.level = 'none';
     const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => logger);
 
-    errorIf('Test error message');
+    errorIf('runtime.cli-failed');
 
     expect(errorSpy).not.toHaveBeenCalled();
     expect(logger.isErrorEnabled()).toBe(false);
@@ -285,20 +285,20 @@ describe('errorIf', () => {
   it('should execute callback and log with metadata when enabled', () => {
     logger.level = 'error';
     const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => logger);
-    const meta = { server: 'test', error: 'Test error' };
+    const meta = { error: new Error('Test error') };
 
     errorIf(() => ({
-      message: 'Test error with metadata',
+      message: 'runtime.cli-failed',
       meta,
     }));
 
-    expect(errorSpy).toHaveBeenCalledWith('Test error with metadata', meta);
+    expect(errorSpy).toHaveBeenCalledWith('runtime.cli-failed', meta);
     errorSpy.mockRestore();
   });
 
   it('should handle callback execution errors gracefully', () => {
     logger.level = 'error';
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const consoleSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
 
     expect(() => {
       errorIf(() => {
@@ -306,13 +306,13 @@ describe('errorIf', () => {
       });
     }).not.toThrow();
 
-    expect(consoleSpy).toHaveBeenCalledWith('errorIf callback failed:', 'Callback failed');
+    expect(consoleSpy).toHaveBeenCalledWith('logger.callback-failed', { error: expect.any(Error) });
     consoleSpy.mockRestore();
   });
 
   it('should handle malformed callback results', () => {
     logger.level = 'error';
-    const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => logger);
+    const errorSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
 
     expect(() => {
       errorIf(
@@ -323,12 +323,7 @@ describe('errorIf', () => {
       );
     }).not.toThrow();
 
-    expect(errorSpy).toHaveBeenCalledWith(
-      '[errorIf: Invalid callback result]',
-      expect.objectContaining({
-        callbackResult: expect.any(Object),
-      }),
-    );
+    expect(errorSpy).toHaveBeenCalledWith('logger.callback-invalid');
     errorSpy.mockRestore();
   });
 });

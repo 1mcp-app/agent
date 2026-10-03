@@ -21,7 +21,9 @@ function publishAwaitingOAuth(serverName: string, error: OneMcpProtocolError): v
     tracker.registerServer(serverName);
     tracker.updateServerState(serverName, LoadingState.AwaitingOAuth, { error });
   } catch (trackerError) {
-    logger.warn(`Failed to publish OAuth recovery state for ${serverName}`, { error: String(trackerError) });
+    logger.warn('postAuthOAuthRecovery.failed.to.publish.oauth.recovery.state.for.5048637c', {
+      error: String(trackerError),
+    });
   }
 }
 
@@ -52,10 +54,12 @@ export async function recoverPostAuthUnauthorized(
     publishAwaitingOAuth(serverName, error);
 
     await connection.adapter.close().catch((closeError) => {
-      logger.warn(`Failed to close unauthorized client ${serverName}`, { error: String(closeError) });
+      logger.warn('postAuthOAuthRecovery.failed.to.close.unauthorized.client.febffa37', { error: String(closeError) });
     });
 
-    logger.warn(`OAuth reauthorization required for ${serverName} after authenticated request returned 401`);
+    logger.warn(
+      'postAuthOAuthRecovery.oauth.reauthorization.required.for.after.authenticated.request.returned.401.87746f61',
+    );
   })();
 
   recoveries.set(connection, recovery);

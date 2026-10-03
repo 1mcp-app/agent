@@ -39,6 +39,13 @@ export interface BackendLogBrokerOptions {
   readonly measureEntry?: (entry: BackendLogEntry) => number;
 }
 
+const diagnosticEntries = new WeakSet<object>();
+
+/** Admission for the ADR 0011 local projection; caller-constructed records are not backend logs. */
+export function isBackendDiagnosticEntry(entry: unknown): entry is BackendLogEntry {
+  return typeof entry === 'object' && entry !== null && diagnosticEntries.has(entry);
+}
+
 export class BackendLogBroker {
   private readonly perSourceBytes: number;
   private readonly globalBytesLimit: number;
@@ -93,6 +100,8 @@ export class BackendLogBroker {
       ...(input.count === undefined ? {} : { count: input.count }),
       truncated: input.truncated ?? false,
     };
+    Object.freeze(entry);
+    diagnosticEntries.add(entry);
     const retained = { entry, bytes: Math.max(1, this.measureEntry(entry)), evicted: false };
     const sourceEntries = this.retainedBySource.get(source.id) ?? [];
     sourceEntries.push(retained);

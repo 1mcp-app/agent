@@ -25,10 +25,7 @@ import {
  */
 export async function handleMcpInstall(args: McpInstallToolArgs): Promise<McpInstallOutput> {
   try {
-    debugIf(() => ({
-      message: 'Executing mcp_install tool',
-      meta: { args },
-    }));
+    debugIf(() => ({ message: 'installationHandlers.executing.mcp.install.tool.ecf12fac' }));
 
     // Check if installation tools are enabled
     const flagManager = FlagManager.getInstance();
@@ -63,21 +60,12 @@ export async function handleMcpInstall(args: McpInstallToolArgs): Promise<McpIns
           const packages = (registryInfo as { packages?: unknown[] })?.packages || [];
           installationMethod = packages.length > 0 ? 'package' : 'remote';
 
-          debugIf(() => ({
-            message: 'Fetched registry information for prerequisites',
-            meta: {
-              registryId: args.registryId,
-              installationMethod,
-              hasEnvironmentVariables: prerequisiteInfo?.environmentVariables?.length || 0,
-              hasPackageArguments: prerequisiteInfo?.packageArguments?.length || 0,
-              hasDependencies: prerequisiteInfo?.dependencies?.length || 0,
-            },
-          }));
+          debugIf(() => ({ message: 'installationHandlers.fetched.registry.information.for.prerequisites.b3c68676' }));
         }
       } catch (error) {
         debugIf(() => ({
-          message: 'Failed to fetch registry information',
-          meta: { error: error instanceof Error ? error.message : String(error) },
+          message: 'installationHandlers.failed.to.fetch.registry.information.08c07f16',
+          meta: { error: error },
         }));
         // Continue without prerequisite info - registry fetch is optional
       }
@@ -134,7 +122,7 @@ export async function handleMcpInstall(args: McpInstallToolArgs): Promise<McpIns
     return McpInstallOutputSchema.parse(structuredResult);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Error in mcp_install tool handler', { error: errorMessage });
+    logger.error('installationHandlers.error.in.mcp.install.tool.handler.30691d5d', { error: errorMessage });
 
     const result = {
       name: args.name,
@@ -274,10 +262,7 @@ function extractPrerequisiteInfo(registryServer: unknown): McpInstallToolArgs['p
  */
 export async function handleMcpUninstall(args: McpUninstallToolArgs): Promise<McpUninstallOutput> {
   try {
-    debugIf(() => ({
-      message: 'Executing mcp_uninstall tool',
-      meta: { args },
-    }));
+    debugIf(() => ({ message: 'installationHandlers.executing.mcp.uninstall.tool.5c54a84b' }));
 
     // Check if installation tools are enabled
     const flagManager = FlagManager.getInstance();
@@ -318,7 +303,7 @@ export async function handleMcpUninstall(args: McpUninstallToolArgs): Promise<Mc
     return McpUninstallOutputSchema.parse(structuredResult);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Error in mcp_uninstall tool handler', { error: errorMessage });
+    logger.error('installationHandlers.error.in.mcp.uninstall.tool.handler.b174da03', { error: errorMessage });
 
     const result = {
       name: args.name,
@@ -336,10 +321,7 @@ export async function handleMcpUninstall(args: McpUninstallToolArgs): Promise<Mc
  */
 export async function handleMcpUpdate(args: McpUpdateToolArgs): Promise<McpUpdateOutput> {
   try {
-    debugIf(() => ({
-      message: 'Executing mcp_update tool',
-      meta: { args },
-    }));
+    debugIf(() => ({ message: 'installationHandlers.executing.mcp.update.tool.ff03c8a4' }));
 
     // Check if installation tools are enabled
     const flagManager = FlagManager.getInstance();
@@ -379,7 +361,7 @@ export async function handleMcpUpdate(args: McpUpdateToolArgs): Promise<McpUpdat
     return McpUpdateOutputSchema.parse(structuredResult);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Error in mcp_update tool handler', { error: errorMessage });
+    logger.error('installationHandlers.error.in.mcp.update.tool.handler.67369f38', { error: errorMessage });
 
     const result = {
       name: args.name,

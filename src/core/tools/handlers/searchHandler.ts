@@ -77,7 +77,7 @@ export async function handleSearchMCPServers(
   registryOptions?: RegistryOptions,
 ): Promise<SearchMCPServersResult> {
   const handler = withErrorHandling(async () => {
-    logger.debug('Processing search_mcp_servers request', args);
+    logger.debug('searchHandler.processing.search.mcp.servers.request.c9abe536');
 
     const client = getRegistryClient(registryOptions);
     const engine = getSearchEngine();
@@ -120,7 +120,7 @@ export async function handleSearchMCPServers(
     // Transform results for search response
     const transformedResults = filteredServers.map(transformServerForSearch);
 
-    logger.debug(`Found ${transformedResults.length} servers matching search criteria`);
+    logger.debug('searchHandler.found.servers.matching.search.criteria.84faa199');
 
     // Return with pagination metadata
     return {

@@ -93,7 +93,7 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
     initializeConfigContext(configPath, configDir);
 
     if (verbose) {
-      logger.info('Starting installation process...');
+      logger.info('install.starting.installation.process.9f68ffb6');
     }
 
     // Launch interactive wizard if no server name provided or --interactive flag set
@@ -111,7 +111,7 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
     }
 
     if (verbose) {
-      logger.info(`Parsed registry server ID: ${registryServerId}, version: ${version || 'latest'}`);
+      logger.info('install.parsed.registry.server.id.version.135a2e70');
     }
 
     // For registry installations, we need to validate the registry server ID format
@@ -122,7 +122,7 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
     const serverName = deriveLocalServerName(registryServerId);
 
     if (verbose) {
-      logger.info(`Derived local server name: ${serverName} from registry ID: ${registryServerId}`);
+      logger.info('install.derived.local.server.name.from.registry.id.552c9131');
     }
 
     const effectiveRegistryOptions = registryOptionsFromArgv(argv);
@@ -185,7 +185,7 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
       progressTracker.updateProgress(operationId, 4, 'Finalizing', 'Saving configuration');
 
       if (verbose) {
-        logger.info(`Configuration saved for server '${serverName}'`);
+        logger.info('install.configuration.saved.for.server.86522ad7');
       }
 
       // Update progress: Complete pending file-based reload for live serve processes
@@ -237,7 +237,7 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
     }
 
     if (error instanceof Error && error.stack) {
-      logger.error('Installation error stack:', error.stack);
+      logger.error('install.installation.error.stack.33a9ab69', { error: error });
     }
     throw error;
   } finally {
@@ -401,7 +401,7 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
           progressTracker.updateProgress(operationId, 4, 'Finalizing', 'Saving configuration');
 
           if (verbose) {
-            logger.info(`Configuration saved for server '${serverName}'`);
+            logger.info('install.configuration.saved.for.server.86522ad7');
           }
 
           // Update progress: Applying changes for file-based live reload
@@ -456,7 +456,7 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
         }
 
         if (error instanceof Error && error.stack) {
-          logger.error('Installation error stack:', error.stack);
+          logger.error('install.installation.error.stack.33a9ab69', { error: error });
         }
 
         if (wizardResult.installAnother) {

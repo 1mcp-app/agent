@@ -1,4 +1,4 @@
-import { getRuntimeScopeEnvironment, sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
+import { getRuntimeScopeEnvironment } from '@src/config/runtimeScopeEnv.js';
 import { createRuntimeTargetFingerprint } from '@src/config/runtimeTargetFingerprint.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { BackendStdioSupervisor, type BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
@@ -50,10 +50,7 @@ export class ClientInstancePool {
   constructor(options: Partial<ClientPoolOptions> = {}) {
     this.options = { ...DEFAULT_POOL_OPTIONS, ...options };
 
-    debugIf(() => ({
-      message: 'ClientInstancePool initialized',
-      meta: { options: this.options },
-    }));
+    debugIf(() => ({ message: 'clientInstancePool.clientinstancepool.initialized.bc827c78' }));
   }
 
   setSupervisionPublisher(
@@ -85,25 +82,13 @@ export class ClientInstancePool {
 
     // Debug logging to verify template rendering
     debugIf(() => ({
-      message: 'Template rendering details',
-      meta: {
-        templateName,
-        clientId,
-        projectPath: context.project?.path || 'undefined',
-        renderedConfig,
-        renderedHash: renderedHash.substring(0, 8) + '...',
-        hasRenderedChanges: JSON.stringify(renderedConfig) !== JSON.stringify(templateConfig),
-      },
+      message: 'clientInstancePool.template.rendering.details.9f3abae5',
+      meta: { clientId: clientId },
     }));
 
     infoIf(() => ({
-      message: 'Processing template for client instance',
-      meta: {
-        templateName,
-        clientId,
-        renderedHash: renderedHash.substring(0, 8) + '...',
-        shareable: !options?.perClient && options?.shareable !== false,
-      },
+      message: 'clientInstancePool.processing.template.for.client.instance.b0d9550d',
+      meta: { clientId: clientId },
     }));
 
     // Get template configuration with proper defaults
@@ -113,7 +98,7 @@ export class ClientInstancePool {
       renderedHash,
       templateSettings.perClient || !templateSettings.shareable ? clientId : undefined,
     );
-    logger.info(`Template ${templateName}, renderedHash: ${renderedHash}, Instance key: ${instanceKey}`);
+    logger.info('clientInstancePool.template.renderedhash.instance.key.78f982b5');
 
     while (true) {
       const runtimeFingerprint = this.createRuntimeFingerprint(renderedConfig);
@@ -180,14 +165,8 @@ export class ClientInstancePool {
           this.addToTemplateIndex(templateName, instanceKey);
 
           infoIf(() => ({
-            message: 'Created new client instance from template',
-            meta: {
-              instanceId: instance.id,
-              templateName,
-              renderedHash: renderedHash.substring(0, 8) + '...',
-              clientId,
-              shareable: templateSettings.shareable,
-            },
+            message: 'clientInstancePool.created.new.client.instance.from.template.383bd90b',
+            meta: { clientId: clientId },
           }));
           return instance;
         } finally {
@@ -220,12 +199,8 @@ export class ClientInstancePool {
       instance.status = 'active';
 
       debugIf(() => ({
-        message: 'Added client to existing client instance',
-        meta: {
-          instanceId: instance.id,
-          clientId,
-          clientCount: instance.referenceCount,
-        },
+        message: 'clientInstancePool.added.client.to.existing.client.instance.c1fc1d9e',
+        meta: { clientId: clientId, clientCount: instance.referenceCount },
       }));
     }
 
@@ -245,12 +220,8 @@ export class ClientInstancePool {
     instance.referenceCount = Math.max(0, instance.referenceCount - 1);
 
     debugIf(() => ({
-      message: 'Removed client from client instance',
-      meta: {
-        instanceId: instance.id,
-        clientId,
-        clientCount: instance.referenceCount,
-      },
+      message: 'clientInstancePool.removed.client.from.client.instance.1bece201',
+      meta: { clientId: clientId, clientCount: instance.referenceCount },
     }));
 
     // Mark as idle if no more clients
@@ -264,13 +235,7 @@ export class ClientInstancePool {
       instance.status = 'idle';
       instance.lastUsedAt = idleSince; // Set lastUsedAt to when it became idle
 
-      infoIf(() => ({
-        message: 'Client instance marked as idle',
-        meta: {
-          instanceId: instance.id,
-          templateName: instance.templateName,
-        },
-      }));
+      infoIf(() => ({ message: 'clientInstancePool.client.instance.marked.as.idle.11131bab' }));
     }
   }
 
@@ -387,12 +352,8 @@ export class ClientInstancePool {
     }
 
     infoIf(() => ({
-      message: 'Removed client instance from pool',
-      meta: {
-        instanceId: instance.id,
-        templateName: instance.templateName,
-        clientCount: instance.referenceCount,
-      },
+      message: 'clientInstancePool.removed.client.instance.from.pool.0595d1e2',
+      meta: { clientCount: instance.referenceCount },
     }));
   }
 
@@ -416,18 +377,8 @@ export class ClientInstancePool {
 
     if (instancesToRemove.length > 0) {
       infoIf(() => ({
-        message: 'Cleaning up idle client instances',
-        meta: {
-          count: instancesToRemove.length,
-          instances: instancesToRemove.map((key) => {
-            const instance = this.instances.get(key);
-            return {
-              instanceId: instance?.id,
-              templateName: instance?.templateName,
-              idleTime: instance ? now.getTime() - instance.lastUsedAt.getTime() : 0,
-            };
-          }),
-        },
+        message: 'clientInstancePool.cleaning.up.idle.client.instances.e51e9e32',
+        meta: { count: instancesToRemove.length },
       }));
 
       await Promise.all(instancesToRemove.map((key) => this.removeInstance(key)));
@@ -450,8 +401,6 @@ export class ClientInstancePool {
   private async performShutdown(): Promise<void> {
     await Promise.allSettled(Array.from(this.pendingCreations.values(), ({ promise }) => promise));
 
-    const instanceCount = this.instances.size;
-
     await Promise.allSettled(
       Array.from(this.instances, ([instanceKey, instance]) => this.scheduleRemoval(instanceKey, instance)),
     );
@@ -464,12 +413,7 @@ export class ClientInstancePool {
     this.reservedCreationCount = 0;
     this.removalOperations.clear();
 
-    debugIf(() => ({
-      message: 'ClientInstancePool shutdown complete',
-      meta: {
-        instancesRemoved: instanceCount,
-      },
-    }));
+    debugIf(() => ({ message: 'clientInstancePool.clientinstancepool.shutdown.complete.929283e2' }));
   }
 
   private assertActive(): void {
@@ -489,13 +433,13 @@ export class ClientInstancePool {
   private async disposeInstance(instance: PooledClientInstance): Promise<void> {
     try {
       await instance.client.close();
-    } catch (error) {
-      logger.warn(`Error closing client for instance ${instance.id}:`, sanitizeRuntimeScopeError(error));
+    } catch (_error) {
+      logger.warn('clientInstancePool.error.closing.client.for.instance.55a390b9', { error: _error });
     }
     try {
       await instance.transport.close();
-    } catch (error) {
-      logger.warn(`Error closing transport for instance ${instance.id}:`, sanitizeRuntimeScopeError(error));
+    } catch (_error) {
+      logger.warn('clientInstancePool.error.closing.transport.for.instance.312c23b4', { error: _error });
     }
   }
 
@@ -522,8 +466,8 @@ export class ClientInstancePool {
           currentClient.onclose = undefined;
           try {
             await currentClient.close();
-          } catch (error) {
-            debugIf(() => ({ message: `Could not close template instance ${instance.id}: ${error}` }));
+          } catch (_error) {
+            debugIf(() => ({ message: 'clientInstancePool.could.not.close.template.instance.879417ae' }));
           }
           if (signal.aborted || instance.status === 'terminating') {
             throw new Error(`Template recovery cancelled for ${instance.id}`);
@@ -563,15 +507,9 @@ export class ClientInstancePool {
           if (snapshot.state === 'crash-loop') instance.status = 'crash-loop';
           if (snapshot.state === 'connected') instance.status = instance.referenceCount > 0 ? 'active' : 'idle';
           if (snapshot.state === 'stopped') instance.status = 'terminating';
-          logger.info(`Template backend stdio supervision state changed for ${instance.templateName}`, {
-            instanceId: instance.id,
-            state: snapshot.state,
+          logger.info('clientInstancePool.template.backend.stdio.supervision.state.changed.for.841a0aba', {
             attempt: snapshot.attempt,
-            limit: snapshot.limit,
-            nextRetryAt: snapshot.nextRetryAt,
-            lastExit: snapshot.lastExit,
-            currentPid: snapshot.currentPid,
-            error: snapshot.lastError?.message,
+            error: snapshot.lastError,
           });
           this.supervisionPublisher?.(instance, snapshot);
         },
@@ -585,7 +523,9 @@ export class ClientInstancePool {
       if (instance.referenceCount === 0) {
         instance.status = 'terminating';
         void this.removeInstance(instance.instanceKey).catch((error) => {
-          logger.warn(`Failed to remove idle template instance ${instance.id} after child exit:`, error);
+          logger.warn('clientInstancePool.failed.to.remove.idle.template.instance.after.child.exit.ab6feca9', {
+            error: error,
+          });
         });
         return;
       }

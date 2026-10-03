@@ -79,7 +79,9 @@ function publishAwaitingOAuth(serverName: string, error: StreamableHTTPError): v
     tracker.registerServer(serverName);
     tracker.updateServerState(serverName, LoadingState.AwaitingOAuth, { error });
   } catch (trackerError) {
-    logger.warn(`Failed to publish OAuth recovery state for ${serverName}`, { error: String(trackerError) });
+    logger.warn('legacySdkClientAdapter.failed.to.publish.oauth.recovery.state.for.ff1647d0', {
+      error: String(trackerError),
+    });
   }
 }
 
@@ -198,7 +200,7 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
     try {
       await staleTransport.oauthProvider?.invalidateCredentials('tokens');
     } catch (invalidationError) {
-      logger.warn(`Failed to invalidate OAuth credentials for ${serverName ?? 'legacy backend'}`, {
+      logger.warn('legacySdkClientAdapter.failed.to.invalidate.oauth.credentials.for.648dfbe1', {
         error: String(invalidationError),
       });
     }
@@ -207,9 +209,7 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
     try {
       await staleClient.close();
     } catch (closeError) {
-      logger.warn(`Failed to close unauthorized client ${serverName ?? 'legacy backend'}`, {
-        error: String(closeError),
-      });
+      logger.warn('legacySdkClientAdapter.failed.to.close.unauthorized.client.1a04864e', { error: String(closeError) });
     }
 
     const freshTransport = this.recreateHttpTransport(staleTransport, serverName);
@@ -221,7 +221,7 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
       connection.requiresOAuth = Boolean(freshTransport.oauthProvider);
     }
     logger.warn(
-      `OAuth reauthorization required for ${serverName ?? 'legacy backend'} after authenticated request returned 401`,
+      'legacySdkClientAdapter.oauth.reauthorization.required.for.after.authenticated.request.returned.401.852cc6fa',
     );
   }
 
@@ -231,7 +231,7 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
 
   async notify(notification: LegacySdkNotification): Promise<void> {
     try {
-      const params = notification.params === undefined ? undefined : toJsonValue(notification.params);
+      const params = notification.params === undefined ? undefined : toJsonValue(stripBaggage(notification.params));
       await this.handles.client.notification({
         method: notification.method,
         ...(params === undefined ? {} : { params }),

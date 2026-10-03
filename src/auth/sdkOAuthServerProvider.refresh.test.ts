@@ -13,6 +13,7 @@ import { RefreshTokenFamilyDataSchema } from '@src/auth/sessionTypes.js';
 import { AUTH_CONFIG } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import logger from '@src/logger/logger.js';
+import { normalizeEvent } from '@src/observability/events/normalize.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -444,13 +445,22 @@ describe('authorization-code-atomic (goiabada#77 double-spend)', () => {
     // Attempting to delete triggers the failure path
     expect(() => provider.oauthStorage.authCodeRepository.delete(code)).toThrow();
 
-    const allLoggedErrors = [...errorSpy.mock.calls, ...warnSpy.mock.calls]
-      .map((call) => JSON.stringify(call))
+    const normalizedErrors = [...errorSpy.mock.calls, ...warnSpy.mock.calls].map(([event, fields]) =>
+      normalizeEvent(event, fields),
+    );
+    const allLoggedErrors = normalizedErrors
+      .map((event) => JSON.stringify(event))
       .join('\n');
 
     expect(allLoggedErrors).not.toContain(code);
     expect(allLoggedErrors).not.toMatch(/auth_code_code-[0-9a-f-]+/i);
-    expect(allLoggedErrors).toContain('[REDACTED]');
+    expect(normalizedErrors).toContainEqual(
+      expect.objectContaining({
+        event: 'fileStorageService.failed.to.delete.data.for.391c9b0b',
+        error_code: 'EACCES',
+      }),
+    );
+    expect(allLoggedErrors).toContain('<private>');
     expect(allLoggedErrors).toContain('EACCES');
 
     fs.unlinkSync = realUnlinkSync;
@@ -475,13 +485,18 @@ describe('authorization-code-atomic (goiabada#77 double-spend)', () => {
     const cleanedCount = provider.oauthStorage.fileStorage.cleanupExpiredData();
     expect(cleanedCount).toBeGreaterThanOrEqual(1);
 
-    const allLogged = [...debugSpy.mock.calls, ...infoSpy.mock.calls, ...warnSpy.mock.calls, ...errorSpy.mock.calls]
-      .map((call) => JSON.stringify(call))
+    const normalizedLogs = [...debugSpy.mock.calls, ...infoSpy.mock.calls, ...warnSpy.mock.calls, ...errorSpy.mock.calls].map(
+      ([event, fields]) => normalizeEvent(event, fields),
+    );
+    const allLogged = normalizedLogs
+      .map((event) => JSON.stringify(event))
       .join('\n');
 
     expect(allLogged).not.toContain(code);
     expect(allLogged).not.toMatch(/auth_code_code-[0-9a-f-]+/i);
-    expect(allLogged).toContain('auth_code_[REDACTED].json');
+    expect(normalizedLogs).toContainEqual(
+      expect.objectContaining({ event: 'fileStorageService.cleaned.up.expired.file.c453faef' }),
+    );
   });
 
   it('failure when cleaning temporary files for sensitive codes does not log plaintext codes or paths', async () => {
@@ -511,11 +526,19 @@ describe('authorization-code-atomic (goiabada#77 double-spend)', () => {
     try {
       provider.oauthStorage.fileStorage.cleanupExpiredData();
 
-      const allLogged = [...warnSpy.mock.calls, ...errorSpy.mock.calls].map((call) => JSON.stringify(call)).join('\n');
+      const normalizedLogs = [...warnSpy.mock.calls, ...errorSpy.mock.calls].map(([event, fields]) =>
+        normalizeEvent(event, fields),
+      );
+      const allLogged = normalizedLogs.map((event) => JSON.stringify(event)).join('\n');
 
       expect(allLogged).not.toContain('code-11112222-3333-4444-5555-666677778888');
       expect(allLogged).not.toMatch(/auth_code_code-[0-9a-f-]+/i);
-      expect(allLogged).toContain('auth_code_[REDACTED].tmp');
+      expect(normalizedLogs).toContainEqual(
+        expect.objectContaining({
+          event: 'fileStorageService.failed.to.clean.temporary.file.48c7fb76',
+          error_code: 'EACCES',
+        }),
+      );
       expect(allLogged).toContain('EACCES');
     } finally {
       fs.unlinkSync = realUnlinkSync;

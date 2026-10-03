@@ -250,7 +250,9 @@ describe('TemplateConfigurationManager', () => {
       // Assert - should still be in initial state
       expect(templateConfigurationManager.isTemplateProcessingDisabled()).toBe(false);
       expect(templateConfigurationManager.getErrorCount()).toBe(0);
-      expect(mockLogger.info).toHaveBeenCalledWith('Circuit breaker reset - template processing re-enabled');
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        'templateConfigurationManager.circuit.breaker.reset.template.processing.re.enabled.19a7d7e5',
+      );
     });
 
     it('should check template processing disabled state', () => {

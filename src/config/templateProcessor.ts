@@ -23,7 +23,7 @@ export class TemplateProcessor {
       config = mcpServerConfigSchema.parse(rawConfig);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(`Failed to parse configuration: ${errorMessage}`);
+      logger.error('templateProcessor.failed.to.parse.configuration.7d302e75', { error: error });
       return {
         staticServers: {},
         templateServers: {},
@@ -75,9 +75,7 @@ export class TemplateProcessor {
     }
 
     if (conflictingServers.length > 0) {
-      logger.warn(
-        `Ignoring ${conflictingServers.length} static server(s) that conflict with template servers: ${conflictingServers.join(', ')}`,
-      );
+      logger.warn('templateProcessor.ignoring.static.server.s.that.conflict.with.template.servers.fdc50eb5');
     }
 
     return { staticServers, templateServers, errors };
@@ -98,13 +96,13 @@ export class TemplateProcessor {
         processedServers[serverName] = processedConfig;
 
         debugIf(() => ({
-          message: 'Template processed successfully',
-          meta: { serverName },
+          message: 'templateProcessor.template.processed.successfully.5c8ba5e8',
+          meta: { serverName: serverName },
         }));
       } catch (error) {
         const errorMsg = `Template processing failed for ${serverName}: ${error instanceof Error ? error.message : String(error)}`;
         errors.push(errorMsg);
-        logger.error(errorMsg);
+        logger.error('templateProcessor.processtemplates.diagnostic.f6c39737', { error: error });
 
         if (settings?.failureMode === 'graceful') {
           processedServers[serverName] = templateConfig;
