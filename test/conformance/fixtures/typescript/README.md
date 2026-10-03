@@ -61,6 +61,6 @@ It reads `MCP_CONFORMANCE_SCENARIO`, `MCP_CONFORMANCE_CONTEXT`, and `MCP_CONFORM
 
 ## Modern protocol limitation
 
-The pinned v2 client uses `server/discover`, not `initialize`, for the `2026-07-28` lifecycle. Its public `ping()` method rejects modern calls with `METHOD_NOT_SUPPORTED_BY_PROTOCOL_VERSION` because `ping` is not in that wire era. A modern probe therefore performs real discovery, `tools/list`, and `tools/call`, but returns `ok: false` with explicit `unsupported-operation` entries for `initialize` and `ping`; it does not simulate either operation.
+The pinned v2 client uses `server/discover`, not `initialize`, for the `2026-07-28` lifecycle. Its public `ping()` method rejects modern calls with `METHOD_NOT_SUPPORTED_BY_PROTOCOL_VERSION` because `ping` is not in that wire era. A modern probe therefore performs real discovery, `tools/list`, and `tools/call`, reports `ok: true` only when the tool call succeeds, and omits the inapplicable `initialize`/`ping` fields; it does not simulate either operation.
 
 The pinned v1 client hard-codes `2025-11-25` as its initial proposal. `MCP_CONFORMANCE_PROTOCOL_VERSION` selects modern versus legacy fixture behavior, but cannot force v1's public client to propose an older retained revision. The official runner permits hard-coded SDK clients to ignore that value; older revisions require server-side negotiation or a different peer.

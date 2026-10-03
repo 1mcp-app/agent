@@ -96,18 +96,11 @@ async def probe(
                 if (protocol_era == "modern") != (negotiated_revision == "2026-07-28"):
                     raise FixtureError("protocol-era-mismatch")
                 operations = ["server/discover" if protocol_era == "modern" else "initialize"]
-                unsupported: list[dict[str, str]] = []
-                initialized = protocol_era == "legacy"
-                ping = True
-                if protocol_era == "modern":
-                    unsupported.append({"operation": "initialize", "reason": "modern-uses-server-discover"})
                 try:
                     await client.session.send_ping()
                 except MCPError as error:
                     if protocol_era != "modern" or error.code != -32601:
                         raise
-                    ping = False
-                    unsupported.append({"operation": "ping", "reason": "not-in-2026-07-28"})
                 else:
                     if protocol_era == "modern":
                         raise FixtureError("removed-operation-mismatch")
@@ -132,22 +125,21 @@ async def probe(
     except Exception as error:
         raise FixtureError("protocol-probe-failed") from error
 
-    emit(
-        {
-            "callError": result.is_error,
-            **({"classification": "unsupported-operation"} if unsupported else {}),
-            "fixtureId": FIXTURE_ID,
-            "initialized": initialized,
-            "negotiatedRevision": negotiated_revision,
-            "ok": not unsupported,
-            "operations": operations,
-            "ping": ping,
-            "protocolEra": protocol_era,
-            "toolsCount": len(tools.tools),
-            "transport": transport_name,
-            **({"unsupported": unsupported} if unsupported else {}),
-        }
-    )
+    call_error = result.is_error
+    output = {
+        "callError": call_error,
+        **({"classification": "tools-call-failed"} if call_error else {}),
+        "fixtureId": FIXTURE_ID,
+        "negotiatedRevision": negotiated_revision,
+        "ok": not call_error,
+        "operations": operations,
+        "protocolEra": protocol_era,
+        "toolsCount": len(tools.tools),
+        "transport": transport_name,
+    }
+    if not call_error and protocol_era == "legacy":
+        output.update({"initialized": True, "ping": True})
+    emit(output)
 
 
 async def serve_streamable_http(protocol_era: str) -> None:
