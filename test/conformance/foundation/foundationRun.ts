@@ -166,6 +166,7 @@ const profileEvidenceSchema = z
         .object({
           outcome: z.literal('completed'),
           fixtureId: z.literal('typescript-v1'),
+          protocolEra: z.literal('legacy'),
           transport: z.enum(['sse', 'stdio', 'streamable-http']),
           initialized: z.literal(true),
           ping: z.literal(true),
@@ -394,17 +395,17 @@ async function requirementCatalog(root: string, integrity: Awaited<ReturnType<ty
   ).flat();
 }
 
-async function verifyProfileProofs(
+export async function verifyProfileProofs(
   root: string,
   outputDirectory: string,
   proofs: z.infer<typeof profileProofFileSchema>,
 ): Promise<boolean> {
   try {
     for (const proof of proofs.profileProofs) {
-      const evidence = profileEvidenceSchema.parse(
-        JSON.parse(await readFile(join(outputDirectory, proof.artifactId), 'utf8')),
-      );
-      const { digest: recordedDigest, ...payload } = evidence;
+      const rawEvidence: unknown = JSON.parse(await readFile(join(outputDirectory, proof.artifactId), 'utf8'));
+      const evidence = profileEvidenceSchema.parse(rawEvidence);
+      // Validate first, then hash the emitted key order rather than Zod's reconstructed object.
+      const { digest: recordedDigest, ...payload } = rawEvidence as z.infer<typeof profileEvidenceSchema>;
       const computedDigest = `sha256:${createHash('sha256').update(JSON.stringify(payload)).digest('hex')}`;
       if (
         recordedDigest !== computedDigest ||
