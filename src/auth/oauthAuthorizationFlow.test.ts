@@ -42,6 +42,14 @@ describe('OAuth Authorization Flow', () => {
     };
   };
 
+  it('rejects a callback without owner-bound state before sending its code', async () => {
+    const completeOAuthAndReconnect = vi.fn();
+    const { flow } = createFlow({ clientRuntime: { completeOAuthAndReconnect } });
+    const result = await flow.completeBackendOAuthCallback({ serverName: 'same-name', code: 'sensitive-code' });
+    expect(result.status).toBe('callback_failed');
+    expect(completeOAuthAndReconnect).not.toHaveBeenCalled();
+  });
+
   it('should approve consent with selected valid scopes and return a redirect outcome', async () => {
     const { flow, storage } = createFlow({
       storage: {
@@ -265,11 +273,15 @@ describe('OAuth Authorization Flow', () => {
 
     const result = await flow.completeBackendOAuthCallback({
       serverName: 'github',
+      state: 'state-123',
       code: 'auth-code-123',
     });
 
     expect(result).toEqual({ status: 'completed' });
-    expect(completeOAuthAndReconnect).toHaveBeenCalledWith('github', 'auth-code-123');
+    expect(completeOAuthAndReconnect).toHaveBeenCalledWith(
+      'github',
+      new URLSearchParams({ state: 'state-123', code: 'auth-code-123' }),
+    );
     expect(markReady).toHaveBeenCalledWith('github');
   });
 
@@ -280,18 +292,27 @@ describe('OAuth Authorization Flow', () => {
     expect(
       await flow.completeBackendOAuthCallback({
         serverName: 'github',
+        state: 'state-123',
         code: 'auth-code-123',
         iss: 'https://issuer.example',
+        redirectUri: 'https://proxy.example/oauth/callback/github',
       }),
     ).toEqual({ status: 'completed' });
     expect(completeOAuthAndReconnect).toHaveBeenCalledWith(
       'github',
-      new URLSearchParams({ code: 'auth-code-123', iss: 'https://issuer.example' }),
+      new URLSearchParams({
+        state: 'state-123',
+        code: 'auth-code-123',
+        iss: 'https://issuer.example',
+        redirect_uri: 'https://proxy.example/oauth/callback/github',
+      }),
     );
   });
 
-  it('should map backend OAuth callback provider and input errors without reconnecting', async () => {
-    const completeOAuthAndReconnect = vi.fn();
+  it('should delegate provider and input errors to the durable callback runtime', async () => {
+    const completeOAuthAndReconnect = vi.fn(async (_serverName: string, response: URLSearchParams) => {
+      if (response.has('error') || !response.has('code')) throw new Error('callback rejected');
+    });
     const markReady = vi.fn();
     const { flow } = createFlow({
       clientRuntime: {
@@ -305,22 +326,33 @@ describe('OAuth Authorization Flow', () => {
     await expect(
       flow.completeBackendOAuthCallback({
         serverName: 'github',
+        state: 'denied-state',
         error: 'access_denied',
       }),
     ).resolves.toEqual({
-      status: 'provider_error',
-      errorDescription: 'access_denied',
+      status: 'callback_failed',
+      errorDescription: 'OAuth callback rejected; start authorization again',
     });
     await expect(
       flow.completeBackendOAuthCallback({
         serverName: 'github',
+        state: 'missing-code-state',
       }),
     ).resolves.toEqual({
-      status: 'missing_code',
-      errorDescription: 'Missing authorization code',
+      status: 'callback_failed',
+      errorDescription: 'OAuth callback rejected; start authorization again',
     });
 
-    expect(completeOAuthAndReconnect).not.toHaveBeenCalled();
+    expect(completeOAuthAndReconnect).toHaveBeenNthCalledWith(
+      1,
+      'github',
+      new URLSearchParams({ state: 'denied-state', error: 'access_denied' }),
+    );
+    expect(completeOAuthAndReconnect).toHaveBeenNthCalledWith(
+      2,
+      'github',
+      new URLSearchParams({ state: 'missing-code-state' }),
+    );
     expect(markReady).not.toHaveBeenCalled();
   });
 
@@ -338,12 +370,13 @@ describe('OAuth Authorization Flow', () => {
 
     const result = await flow.completeBackendOAuthCallback({
       serverName: 'github',
+      state: 'state-123',
       code: 'auth-code-123',
     });
 
     expect(result).toEqual({
       status: 'callback_failed',
-      errorDescription: 'Failed to complete OAuth callback',
+      errorDescription: 'OAuth callback rejected; start authorization again',
     });
     expect(markReady).not.toHaveBeenCalled();
   });
@@ -419,83 +452,62 @@ describe('OAuth Authorization Flow', () => {
     });
     expect(getClients).toHaveBeenCalledWith();
   });
-  it('binds concurrent Admin returns to single-use expiring transactions without changing redirect_uri', async () => {
-    const url =
-      'https://provider.example/authorize?redirect_uri=https%3A%2F%2Fcallback.example%2Fregistered&state=provider-state';
+  it('binds Admin returns to durable provider state without changing the authorization URL', async () => {
+    const firstUrl =
+      'https://provider.example/authorize?redirect_uri=https%3A%2F%2Fcallback.example%2Fregistered&state=provider-state-1';
+    const secondUrl =
+      'https://provider.example/authorize?redirect_uri=https%3A%2F%2Fcallback.example%2Fregistered&state=provider-state-2';
+    const getClient = vi
+      .fn()
+      .mockReturnValueOnce({ authorizationUrl: firstUrl })
+      .mockReturnValueOnce({ authorizationUrl: secondUrl });
+    const bindOAuthReturn = vi.fn().mockResolvedValue(undefined);
     const completeOAuthAndReconnect = vi.fn().mockResolvedValue(undefined);
-    const { flow } = createFlow({
-      serverRuntime: { getClient: vi.fn().mockReturnValue({ authorizationUrl: url }) },
-      clientRuntime: { completeOAuthAndReconnect },
-    });
-    const start = async (origin: string) => {
-      const result = await flow.startBackendOAuth({ serverName: 'github', adminReturnOrigin: origin });
-      if (result.status !== 'redirect') throw new Error('Expected redirect');
-      const parsed = new URL(result.redirectUrl);
-      expect(parsed.searchParams.get('redirect_uri')).toBe('https://callback.example/registered');
-      return parsed.searchParams.get('state')!;
-    };
-    const first = await start('http://localhost:3050');
-    const second = await start('http://127.0.0.1:3050');
-    expect(first).not.toBe(second);
-    expect(
-      await flow.completeBackendOAuthCallback({ serverName: 'github', state: second, error: 'access_denied' }),
-    ).toMatchObject({ adminReturnOrigin: 'http://127.0.0.1:3050', status: 'provider_error' });
-    expect(await flow.completeBackendOAuthCallback({ serverName: 'github', state: first, code: 'code' })).toMatchObject(
-      { adminReturnOrigin: 'http://localhost:3050', status: 'completed' },
+    const getOAuthReturn = vi.fn((_serverName: string, state: string) =>
+      state === 'provider-state-2' ? 'http://127.0.0.1:3050' : 'http://localhost:3050',
     );
+    const { flow } = createFlow({
+      serverRuntime: { getClient },
+      clientRuntime: { bindOAuthReturn, completeOAuthAndReconnect, getOAuthReturn },
+    });
+
+    await expect(
+      flow.startBackendOAuth({ serverName: 'github', adminReturnOrigin: 'http://localhost:3050' }),
+    ).resolves.toEqual({ status: 'redirect', redirectUrl: firstUrl });
+    await expect(
+      flow.startBackendOAuth({ serverName: 'github', adminReturnOrigin: 'http://127.0.0.1:3050' }),
+    ).resolves.toEqual({ status: 'redirect', redirectUrl: secondUrl });
+    expect(bindOAuthReturn).toHaveBeenNthCalledWith(1, 'github', 'provider-state-1', 'http://localhost:3050');
+    expect(bindOAuthReturn).toHaveBeenNthCalledWith(2, 'github', 'provider-state-2', 'http://127.0.0.1:3050');
+
+    expect(
+      await flow.completeBackendOAuthCallback({ serverName: 'github', state: 'provider-state-2', code: 'code' }),
+    ).toEqual({ adminReturnOrigin: 'http://127.0.0.1:3050', status: 'completed' });
     expect(completeOAuthAndReconnect).toHaveBeenCalledWith(
       'github',
-      new URLSearchParams({ code: 'code', state: 'provider-state' }),
+      new URLSearchParams({ state: 'provider-state-2', code: 'code' }),
     );
-    expect(
-      await flow.completeBackendOAuthCallback({ serverName: 'github', state: first, code: 'must-not-exchange' }),
-    ).not.toHaveProperty('adminReturnOrigin');
-    const expired = await start('http://localhost:3050');
-    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 600_001);
-    expect(
-      await flow.completeBackendOAuthCallback({ serverName: 'github', state: expired, code: 'must-not-exchange' }),
-    ).not.toHaveProperty('adminReturnOrigin');
-    now.mockRestore();
-    expect(completeOAuthAndReconnect).toHaveBeenCalledTimes(1);
-    const wrongServer = await start('http://localhost:3050');
-    expect(
-      await flow.completeBackendOAuthCallback({ serverName: 'other', state: wrongServer, code: 'must-not-exchange' }),
-    ).not.toHaveProperty('adminReturnOrigin');
-    expect(completeOAuthAndReconnect).toHaveBeenCalledTimes(1);
+    expect(getOAuthReturn).toHaveBeenCalledWith('github', 'provider-state-2');
   });
+
   it.each(['startBackendOAuth', 'restartBackendOAuth'] as const)(
-    'fails closed at return capacity and recovers after expiry for %s',
+    'fails closed when %s cannot bind an Admin return to provider state',
     async (operation) => {
       const client = {
         status: 'awaiting_oauth',
-        authorizationUrl: 'https://provider.example/authorize?state=original',
+        authorizationUrl: 'https://provider.example/authorize',
       };
       const { flow } = createFlow({
         serverRuntime: { getClient: vi.fn().mockReturnValue(client) },
         clientRuntime: {
           initiateOAuth: vi.fn(async () => {
-            client.authorizationUrl = 'https://provider.example/authorize?state=original';
+            client.authorizationUrl = 'https://provider.example/authorize';
           }),
         },
       });
-      const input = { serverName: 'github', adminReturnOrigin: 'http://localhost:3050' };
-      for (let i = 0; i < 1000; i++) {
-        expect(await flow.startBackendOAuth(input)).toMatchObject({ status: 'redirect' });
-      }
-      expect(await flow[operation](input)).toEqual({
-        status: 'oauth_url_unavailable',
-        errorDescription: 'Too many pending Admin OAuth return transactions',
-      });
-      const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 600_001);
-      try {
-        const recovered = await flow[operation](input);
-        expect(recovered.status).toBe(operation === 'startBackendOAuth' ? 'redirect' : 'restarted');
-        if (!('redirectUrl' in recovered) || !recovered.redirectUrl)
-          throw new Error('Expected bound provider redirect');
-        expect(new URL(recovered.redirectUrl).searchParams.get('state')).toMatch(/^admin_return_/);
-      } finally {
-        clock.mockRestore();
-      }
+
+      const result = await flow[operation]({ serverName: 'github', adminReturnOrigin: 'http://localhost:3050' });
+      expect(result.status).toBe('oauth_url_unavailable');
     },
   );
 });

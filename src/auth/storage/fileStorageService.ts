@@ -292,6 +292,8 @@ export class FileStorageService {
    * Validates ID format for security
    */
   private isValidId(id: string, filePrefix?: string): boolean {
+    if (filePrefix && ['oauth-bound-', 'oauth-context-', 'oauth-quarantine-'].includes(filePrefix))
+      return /^[a-f0-9]{64}$/.test(id);
     // Check minimum length (prefix + content)
     if (!id || id.length < 8) {
       return false;
@@ -358,11 +360,13 @@ export class FileStorageService {
 
   private static getSensitivePrefixes(): readonly string[] {
     return [
+      'oauth-',
+      AUTH_CONFIG?.CLIENT?.SESSION?.FILE_PREFIX ?? 'client_session_',
       AUTH_CONFIG?.SERVER?.AUTH_CODE?.FILE_PREFIX ?? 'auth_code_',
       AUTH_CONFIG?.SERVER?.AUTH_CODE?.ID_PREFIX ?? 'code-',
       AUTH_CONFIG?.SERVER?.AUTH_REQUEST?.FILE_PREFIX ?? 'auth_request_',
       AUTH_CONFIG?.SERVER?.AUTH_REQUEST?.ID_PREFIX ?? 'req-',
-    ];
+    ].filter((prefix) => prefix.length > 0);
   }
 
   /**

@@ -13,6 +13,7 @@ import { MCP_CLIENT_CAPABILITIES } from '@src/constants.js';
 import { ClientStatus, OutboundConnection } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 import { getLegacyClient, getLegacyTransport } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
+import type { AuthProviderTransport } from '@src/sdk/legacy/client/runtime/legacyTransport.js';
 
 import { afterEach, beforeEach, describe, expect, it, MockInstance, vi } from 'vitest';
 
@@ -73,6 +74,9 @@ describe('OAuthFlowHandler', () => {
       oauthProvider: {
         getAuthorizationUrl: vi.fn().mockReturnValue('https://example.com/oauth/authorize'),
         token: 'test-token',
+        withAuthorizationCallback: vi.fn(async (_response: URLSearchParams, operation: () => Promise<unknown>) =>
+          operation(),
+        ),
       },
       finishAuth: vi.fn().mockResolvedValue(undefined),
       close: vi.fn().mockResolvedValue(undefined),
@@ -198,6 +202,9 @@ describe('OAuthFlowHandler', () => {
       );
 
       expect(mockTransport.finishAuth).toHaveBeenCalledWith('auth-code-123');
+      expect(
+        (mockTransport as unknown as AuthProviderTransport).oauthProvider?.withAuthorizationCallback,
+      ).toHaveBeenCalledWith(new URLSearchParams({ code: 'auth-code-123' }), expect.any(Function));
       expect(mockTransport.close).toHaveBeenCalled();
       expect(mockClient.connect).toHaveBeenCalled();
       expect(mockClient.getServerCapabilities).toHaveBeenCalled();
@@ -254,6 +261,7 @@ describe('OAuthFlowHandler', () => {
         redirectToAuthorization: vi.fn(),
         saveCodeVerifier: vi.fn(),
         codeVerifier: () => 'verifier',
+        withAuthorizationCallback: async (_response: URLSearchParams, operation: () => Promise<unknown>) => operation(),
         discoveryState: () => ({
           authorizationServerUrl: issuer,
           resourceMetadata: { resource: 'https://example.com/mcp' },
@@ -271,6 +279,7 @@ describe('OAuthFlowHandler', () => {
         authProvider: provider,
         fetch: fetchToken,
       });
+      (transport as typeof transport & { oauthProvider: typeof provider }).oauthProvider = provider;
       const callback = new URLSearchParams({ code: 'auth-code-123' });
       if (iss !== undefined) callback.set('iss', iss);
 
@@ -307,6 +316,30 @@ describe('OAuthFlowHandler', () => {
       );
 
       expect(mockTransport.finishAuth).toHaveBeenCalledWith('auth-code-123');
+    });
+
+    it('rejects an invalid durable callback before invoking the SDK transport', async () => {
+      const callbackError = Object.assign(new Error('OAuth callback rejected'), {
+        kind: 'authorization_response',
+      });
+      (
+        (mockTransport as unknown as AuthProviderTransport).oauthProvider
+          ?.withAuthorizationCallback as unknown as MockInstance
+      ).mockRejectedValueOnce(callbackError);
+
+      await expect(
+        oauthFlowHandler.completeOAuthAndReconnect(
+          'test-server',
+          mockTransport as never,
+          mockTransport as never,
+          new URLSearchParams({ state: 'wrong-state', code: 'must-not-exchange' }),
+          existingConnection,
+        ),
+      ).rejects.toBe(callbackError);
+
+      expect(mockTransport.finishAuth).not.toHaveBeenCalled();
+      expect(mockTransport.close).not.toHaveBeenCalled();
+      expect(mockClient.connect).not.toHaveBeenCalled();
     });
 
     it('recreates from durable OAuth state only after the callback exchange', async () => {
@@ -353,6 +386,9 @@ describe('OAuthFlowHandler', () => {
         oauthProvider: {
           getAuthorizationUrl: vi.fn().mockReturnValue('https://example.com/oauth/authorize'),
           token: 'test-token',
+          withAuthorizationCallback: vi.fn(async (_response: URLSearchParams, operation: () => Promise<unknown>) =>
+            operation(),
+          ),
         },
         finishAuth: vi.fn().mockResolvedValue(undefined),
         close: vi.fn().mockResolvedValue(undefined),
@@ -408,7 +444,7 @@ describe('OAuthFlowHandler', () => {
         ),
       ).rejects.toThrow('Connection failed');
 
-      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('OAuth reconnection failed'), error);
+      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('OAuth reconnection failed'));
     });
 
     it('should preserve existing instructions', async () => {

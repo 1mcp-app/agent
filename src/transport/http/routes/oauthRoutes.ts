@@ -116,6 +116,7 @@ export function createOAuthRoutes(
       const result = await oauthFlow.completeBackendOAuthCallback({
         serverName,
         ...callback,
+        redirectUri: `${req.protocol}://${req.get('host')}${req.baseUrl}${req.path}`,
       });
       if (result.status !== 'completed') {
         logger.error(`OAuth callback failed for ${serverName}:`, result.errorDescription);
@@ -133,8 +134,8 @@ export function createOAuthRoutes(
       res.redirect(
         result.adminReturnOrigin ? `${result.adminReturnOrigin}/oauth/return?success=1` : '/admin/oauth?success=1',
       );
-    } catch (error) {
-      logger.error(`Error handling OAuth callback for ${serverName}:`, error);
+    } catch {
+      logger.error(`Error handling OAuth callback for ${serverName}`);
       res.redirect('/admin/oauth?error=callback_failed');
     }
   });
@@ -238,6 +239,9 @@ function getOAuthFlow(
       getClients: () => ServerManager.current.getClients(),
     },
     clientRuntime: {
+      bindOAuthReturn: (serverName, state, origin) =>
+        ClientManager.getOrCreateInstance().bindOAuthReturn(serverName, state, origin),
+      getOAuthReturn: (serverName, state) => ClientManager.getOrCreateInstance().getOAuthReturn(serverName, state),
       initiateOAuth: (serverName) => ClientManager.getOrCreateInstance().initiateOAuth(serverName),
       completeOAuthAndReconnect: (serverName, authorizationCode) =>
         ClientManager.getOrCreateInstance().completeOAuthAndReconnect(serverName, authorizationCode),

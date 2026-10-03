@@ -226,6 +226,14 @@ export interface StdioTransportConfig extends BaseTransportConfig {
  * Zod schema for OAuth configuration
  */
 export const oAuthConfigSchema = z.object({
+  issuer: z.url().optional().describe('Exact approved upstream authorization-server issuer'),
+  clientMetadataUrl: z.url().optional().describe('HTTPS Client ID Metadata Document URL'),
+  credentialAuthority: z
+    .string()
+    .min(1)
+    .max(256)
+    .optional()
+    .describe('Explicit configured authority shared by compatible template instances'),
   clientId: z.string().optional().describe('OAuth client ID for authentication'),
   clientSecret: z.string().optional().describe('OAuth client secret for authentication'),
   scopes: z.array(z.string()).optional().describe('OAuth scopes to request'),

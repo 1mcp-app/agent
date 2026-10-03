@@ -1,617 +1,318 @@
-import { randomUUID } from 'node:crypto';
-
-import type { OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
+import { createHash, randomBytes } from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { OAuthClientConfig, SDKOAuthClientProvider } from './sdkOAuthClientProvider.js';
-import { ClientSessionData } from './sessionTypes.js';
+import { authoritySlot, OAUTH_ATTEMPT_TTL_MS, oauthDigest } from './oauthAuthority.js';
+import { type OAuthClientConfig, SDKOAuthClientProvider } from './sdkOAuthClientProvider.js';
 import { ClientSessionRepository } from './storage/clientSessionRepository.js';
 import { FileStorageService } from './storage/fileStorageService.js';
 
-// Mock dependencies
-vi.mock('node:crypto');
-vi.mock('./storage/clientSessionRepository.js');
-vi.mock('./storage/fileStorageService.js');
-vi.mock('@src/logger/logger.js', () => ({
-  default: {
-    info: vi.fn(),
-    error: vi.fn(),
-    warn: vi.fn(),
-    debug: vi.fn(),
+let dir: string;
+const providers: SDKOAuthClientProvider[] = [];
+const issuer = 'https://issuer.example';
+const config: OAuthClientConfig = {
+  redirectUrl: 'https://proxy.example/oauth/callback/backend',
+  scopes: ['read'],
+  authority: {
+    owner: 'runtime-a',
+    source: 'configured-source',
+    route: { kind: 'http', connectionKey: 'backend', url: 'https://resource.example/mcp' },
+    configuration: 'security-configuration-a',
   },
-}));
+};
+const discovery = {
+  authorizationServerUrl: issuer,
+  resourceMetadata: { resource: 'https://resource.example/mcp', authorization_servers: [issuer] },
+  authorizationServerMetadata: {
+    issuer,
+    authorization_endpoint: issuer + '/authorize',
+    token_endpoint: issuer + '/token',
+    registration_endpoint: issuer + '/register',
+    response_types_supported: ['code'],
+    authorization_response_iss_parameter_supported: true,
+  },
+};
+function provider(changes: Partial<OAuthClientConfig> = {}, name = 'backend') {
+  const result = new SDKOAuthClientProvider(name, { ...config, ...changes }, dir);
+  providers.push(result);
+  return result;
+}
+async function bound(changes: Partial<OAuthClientConfig> = {}) {
+  const result = provider(changes);
+  await result.saveDiscoveryState(discovery);
+  return result;
+}
+async function attempt(target: SDKOAuthClientProvider) {
+  const state = await target.state();
+  const verifier = randomBytes(32).toString('base64url');
+  target.saveCodeVerifier(verifier);
+  const url = new URL(issuer + '/authorize');
+  url.search = new URLSearchParams({
+    state,
+    code_challenge: createHash('sha256').update(verifier).digest('base64url'),
+    redirect_uri: config.redirectUrl,
+    resource: config.authority!.route.url,
+    scope: 'read',
+  }).toString();
+  await target.redirectToAuthorization(url);
+  return { state, verifier, response: new URLSearchParams({ state, code: 'private-code', iss: issuer }) };
+}
+beforeEach(() => {
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bound-provider-'));
+});
+afterEach(() => {
+  vi.restoreAllMocks();
+  for (const instance of providers.splice(0)) instance.shutdown();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
 
-vi.mock('@src/constants.js', () => ({
-  AUTH_CONFIG: {
-    CLIENT: {
-      OAUTH: {
-        TTL_MS: 30 * 24 * 60 * 60 * 1000, // 30 days
-        DEFAULT_SCOPES: [],
-      },
-      SESSION: {
-        SUBDIR: 'client',
-      },
+describe('SDKOAuthClientProvider authority persistence', () => {
+  it('joins an identical first cold claim even when its migration completes after activation', async () => {
+    const original = ClientSessionRepository.prototype.quarantine;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let count = 0;
+    vi.spyOn(ClientSessionRepository.prototype, 'quarantine').mockImplementation(async function (
+      this: ClientSessionRepository,
+      name,
+    ) {
+      if (++count === 2) await held;
+      return original.call(this, name);
+    });
+    const first = provider();
+    const second = provider();
+    await first.saveDiscoveryState(discovery);
+    release();
+    await expect(second.saveDiscoveryState(discovery)).resolves.toBeUndefined();
+    expect(second.clientInformation()).toBeUndefined();
+  });
+  it('preserves configured metadata and public client defaults', async () => {
+    const target = await bound({ clientId: 'configured' });
+    expect(target.redirectUrl).toBe(config.redirectUrl);
+    expect(target.clientMetadata).toMatchObject({
+      scope: 'read',
+      token_endpoint_auth_method: 'none',
+      redirect_uris: [config.redirectUrl],
+      grant_types: ['authorization_code', 'refresh_token'],
+    });
+    expect(target.clientInformation()).toMatchObject({ client_id: 'configured', issuer });
+    expect(target.tokens()).toBeUndefined();
+    expect(target.getAuthorizationUrl()).toBeUndefined();
+  });
+  it('persists dynamic registration under exact authority and configured registration wins', async () => {
+    const target = await bound();
+    const storage = new FileStorageService(dir, 'client');
+    const repository = new ClientSessionRepository(storage);
+    const slot = authoritySlot(config.authority!);
+    await repository.updateBound(slot, repository.getBound(slot)!.generation, (record) => {
+      record.clientInfo = JSON.stringify({ ...target.clientMetadata, client_id: 'dynamic' });
+    });
+    storage.shutdown();
+    expect(provider().clientInformation()).toMatchObject({ client_id: 'dynamic', issuer });
+    const configured = await bound({ clientId: 'configured', clientSecret: 'private-secret' });
+    await configured.saveClientInformation({ ...target.clientMetadata, client_id: 'ignored-dynamic' });
+    expect(configured.clientInformation()).toMatchObject({ client_id: 'configured', client_secret: 'private-secret' });
+  });
+  it.each(['https://issuer.example/', 'https://other.example'])(
+    'rejects mismatched issuer context %s',
+    async (wrong) => {
+      const target = await bound();
+      expect(() => target.tokens({ issuer: wrong })).toThrow(/OAuth authority/);
+      expect(() => target.clientInformation({ issuer: wrong })).toThrow(/OAuth authority/);
+      await expect(
+        target.saveTokens({ access_token: 'opaque', token_type: 'Bearer' }, { issuer: wrong }),
+      ).rejects.toThrow(/OAuth authority/);
     },
-  },
-  getGlobalConfigDir: vi.fn(() => '/mock/config/dir'),
-}));
-
-describe('SDKOAuthClientProvider', () => {
-  let provider: SDKOAuthClientProvider;
-  let mockClientSessionRepository: any;
-  let mockFileStorageService: any;
-  let mockRandomUUID: any;
-
-  const mockConfig: OAuthClientConfig = {
-    clientId: 'test-client-id',
-    clientSecret: 'test-client-secret',
-    scopes: ['read', 'write'],
-    redirectUrl: 'http://localhost:3000/callback',
-  };
-
-  const mockClientInfo: OAuthClientInformationFull = {
-    client_id: 'test-client-id',
-    client_secret: 'test-client-secret',
-    redirect_uris: ['http://localhost:3000/callback'],
-    grant_types: ['authorization_code', 'refresh_token'],
-    response_types: ['code'],
-    token_endpoint_auth_method: 'client_secret_post',
-    scope: 'read write',
-  };
-
-  const mockTokens: OAuthTokens = {
-    access_token: 'test-access-token',
-    refresh_token: 'test-refresh-token',
-    token_type: 'Bearer',
-    expires_in: 3600,
-    scope: 'read write',
-  };
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-
-    // Mock FileStorageService
-    mockFileStorageService = {
-      writeData: vi.fn(),
-      readData: vi.fn(),
-      deleteData: vi.fn(),
-      listFiles: vi.fn(),
-      shutdown: vi.fn(),
-    } as any;
-
-    (FileStorageService as any).mockImplementation(function () {
-      return mockFileStorageService;
-    });
-
-    // Mock ClientSessionRepository
-    mockClientSessionRepository = {
-      get: vi.fn(),
-      save: vi.fn(),
-      delete: vi.fn(),
-      list: vi.fn(),
-    } as any;
-
-    (ClientSessionRepository as any).mockImplementation(function () {
-      return mockClientSessionRepository;
-    });
-
-    // Mock randomUUID
-    mockRandomUUID = randomUUID as any;
-    mockRandomUUID.mockReturnValue('mock-uuid-1234');
+  );
+  it('fails closed on incompatible configured issuer without falling through', async () => {
+    await expect(bound({ issuer: issuer + '/' })).rejects.toThrow(/OAuth authority/);
   });
-
-  afterEach(() => {
-    vi.clearAllMocks();
+  it('rejects ambiguous issuers unless a compatible approval selects exactly one', async () => {
+    const target = provider();
+    const ambiguous = {
+      ...discovery,
+      resourceMetadata: { ...discovery.resourceMetadata, authorization_servers: [issuer, 'https://other.example'] },
+    };
+    await expect(target.saveDiscoveryState(ambiguous)).rejects.toThrow(/OAuth authority/);
+    const approved = provider({ issuer });
+    await expect(approved.saveDiscoveryState(ambiguous)).resolves.toBeUndefined();
   });
-
-  describe('constructor', () => {
-    it('should initialize with basic config', () => {
-      provider = new SDKOAuthClientProvider('test-server', mockConfig);
-
-      expect(provider.redirectUrl).toBe('http://localhost:3000/callback');
-      expect(provider.clientMetadata).toEqual({
-        client_name: '1MCP Agent - test-server',
-        redirect_uris: ['http://localhost:3000/callback'],
-        grant_types: ['authorization_code', 'refresh_token'],
-        response_types: ['code'],
-        token_endpoint_auth_method: 'client_secret_post',
-        scope: 'read write',
-      });
-    });
-
-    it('should initialize with minimal config (no client secret)', () => {
-      const minimalConfig: OAuthClientConfig = {
-        redirectUrl: 'http://localhost:3000/callback',
-      };
-
-      provider = new SDKOAuthClientProvider('test-server', minimalConfig);
-
-      expect(provider.clientMetadata.token_endpoint_auth_method).toBe('none');
-      expect(provider.clientMetadata.scope).toBe('');
-    });
-
-    it('should initialize with custom session storage path', () => {
-      provider = new SDKOAuthClientProvider('test-server', mockConfig, '/custom/path');
-
-      expect(FileStorageService).toHaveBeenCalledWith('/custom/path', 'client');
-    });
-
-    it('should load persisted data on initialization', () => {
-      const mockSessionData: ClientSessionData = {
-        serverName: 'test-server',
-        clientInfo: JSON.stringify(mockClientInfo),
-        tokens: JSON.stringify(mockTokens),
-        codeVerifier: 'test-verifier',
-        state: 'test-state',
-        expires: Date.now() + 3600000,
+  it('binds metadata endpoints to authority and rejects stale discovery after endpoint change', async () => {
+    const first = await bound();
+    const old = provider();
+    const changed = {
+      ...discovery,
+      authorizationServerMetadata: {
+        ...discovery.authorizationServerMetadata,
+        token_endpoint: 'https://tokens.example/new',
+      },
+    };
+    await first.saveDiscoveryState(changed);
+    await expect(old.saveDiscoveryState(discovery)).rejects.toThrow(/OAuth authority/);
+    expect(() => old.clientInformation()).toThrow(/OAuth authority/);
+    expect(first.discoveryState()).toBeUndefined();
+  });
+  it('joins simultaneous identical cold-start claims without granting a different source', async () => {
+    const storage = new FileStorageService(dir, 'client');
+    const repository = new ClientSessionRepository(storage);
+    const slot = authoritySlot(config.authority!);
+    const [first, second] = await Promise.all([
+      repository.claimContext(slot, config.authority!, null),
+      repository.claimContext(slot, config.authority!, null),
+    ]);
+    expect(first).toBe(second);
+    await expect(repository.claimContext(slot, { ...config.authority!, configuration: 'other' }, null)).rejects.toThrow(
+      /OAuth/,
+    );
+    storage.shutdown();
+  });
+  it('a delayed first claim cannot overwrite a newer configuration claim', async () => {
+    const storage = new FileStorageService(dir, 'client');
+    const repository = new ClientSessionRepository(storage);
+    const slot = authoritySlot(config.authority!);
+    await repository.claimContext(slot, { ...config.authority!, configuration: 'newer-configuration' }, null);
+    await expect(repository.claimContext(slot, config.authority!, null)).rejects.toThrow(/OAuth authority/);
+    storage.shutdown();
+  });
+  it('superseded configuration cannot reactivate its authority', async () => {
+    const first = await bound();
+    const changed = await bound({ authority: { ...config.authority!, configuration: 'security-configuration-b' } });
+    await expect(first.saveDiscoveryState(discovery)).rejects.toThrow(/OAuth authority/);
+    expect(() => first.tokens()).toThrow(/OAuth authority/);
+    expect(changed.discoveryState()).toBeUndefined();
+  });
+  it('retains the original independently bound verifier across restart and one consumption', async () => {
+    const target = await bound();
+    const first = await attempt(target);
+    const second = await attempt(target);
+    target.shutdown();
+    const restarted = provider();
+    const exchange = vi.fn(async () => restarted.codeVerifier());
+    expect(await restarted.withAuthorizationCallback(first.response, exchange)).toBe(first.verifier);
+    await expect(provider().withAuthorizationCallback(first.response, exchange)).rejects.toThrow(/OAuth authority/);
+    expect(await restarted.withAuthorizationCallback(second.response, async () => restarted.codeVerifier())).toBe(
+      second.verifier,
+    );
+    expect(exchange).toHaveBeenCalledOnce();
+    expect(() => restarted.codeVerifier()).toThrow(/OAuth authority/);
+  });
+  it('serializes concurrent callbacks, including across repository instances', async () => {
+    const target = await bound();
+    const flow = await attempt(target);
+    const exchange = vi.fn(async () => 'exchanged');
+    const results = await Promise.allSettled([
+      target.withAuthorizationCallback(flow.response, exchange),
+      provider().withAuthorizationCallback(flow.response, exchange),
+    ]);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(exchange).toHaveBeenCalledOnce();
+  });
+  it('expires attempts at exactly fifteen minutes without sliding with other writes', async () => {
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+    const target = await bound();
+    const flow = await attempt(target);
+    clock.mockReturnValue(now + OAUTH_ATTEMPT_TTL_MS);
+    await expect(target.withAuthorizationCallback(flow.response, async () => undefined)).rejects.toThrow(
+      /OAuth authority/,
+    );
+  });
+  it('bounds pending and consumed attempt records and recovers capacity after expiry', async () => {
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+    const target = await bound();
+    for (let i = 0; i < 32; i++) await attempt(target);
+    await expect(attempt(target)).rejects.toThrow(/Too many/);
+    clock.mockReturnValue(now + OAUTH_ATTEMPT_TTL_MS);
+    await expect(attempt(target)).resolves.toHaveProperty('state');
+  });
+  it('keeps admin return with the consumed durable attempt, including restart', async () => {
+    const target = await bound();
+    const flow = await attempt(target);
+    await target.bindAdminReturn(flow.state, 'https://admin.example');
+    const restarted = provider();
+    expect(restarted.getAdminReturn(flow.state)).toBeUndefined();
+    await restarted.withAuthorizationCallback(flow.response, async () => undefined);
+    expect(provider().getAdminReturn(flow.state)).toBe('https://admin.example');
+  });
+  it('invalidation forgets attempts and cannot be undone by stale providers', async () => {
+    const target = await bound();
+    const stale = provider();
+    const flow = await attempt(target);
+    await target.invalidateCredentials('all');
+    await expect(stale.withAuthorizationCallback(flow.response, async () => undefined)).rejects.toThrow(
+      /OAuth authority/,
+    );
+    await expect(stale.saveDiscoveryState(discovery)).rejects.toThrow(/OAuth authority/);
+  });
+  it('deliberately shared configured authority works while unrelated instances remain isolated', async () => {
+    const target = await bound();
+    const flow = await attempt(target);
+    const unshared = provider(
+      { authority: { ...config.authority!, source: 'unshared-template-instance' } },
+      'same-display-name',
+    );
+    await expect(unshared.withAuthorizationCallback(flow.response, async () => undefined)).rejects.toThrow(
+      /OAuth authority/,
+    );
+    const shared = provider({}, 'another-template-instance');
+    expect(await shared.withAuthorizationCallback(flow.response, async () => shared.codeVerifier())).toBe(
+      flow.verifier,
+    );
+  });
+  it('stores only hashed state keys and protects bound records with owner-only permissions', async () => {
+    const target = await bound();
+    const flow = await attempt(target);
+    const storage = new FileStorageService(dir, 'client');
+    const filename = storage.getFilePath('oauth-bound-', authoritySlot(config.authority!));
+    const bytes = fs.readFileSync(filename, 'utf8');
+    expect(bytes).not.toContain(flow.state);
+    expect(bytes).toContain(oauthDigest(flow.state));
+    if (process.platform !== 'win32') expect(fs.statSync(filename).mode & 0o777).toBe(0o600);
+    storage.shutdown();
+  });
+  it('quarantines unbound records idempotently and never promotes their state or registration', async () => {
+    const storage = new FileStorageService(dir, 'client');
+    const repository = new ClientSessionRepository(storage);
+    repository.save(
+      'backend',
+      {
+        serverName: 'backend',
+        clientInfo: '{"client_id":"old"}',
+        tokens: '{"access_token":"private-old-token"}',
+        state: 'private-old-state',
+        codeVerifier: 'private-old-verifier',
         createdAt: Date.now(),
-      };
-
-      mockClientSessionRepository.get.mockReturnValue(mockSessionData);
-
-      provider = new SDKOAuthClientProvider('test-server', mockConfig);
-
-      expect(mockClientSessionRepository.get).toHaveBeenCalledWith('test-server');
-      expect(provider.clientInformation()).toEqual(mockClientInfo);
-      expect(provider.tokens()).toEqual(mockTokens);
-      expect(provider.codeVerifier()).toBe('test-verifier');
-    });
-
-    it('should handle missing session data gracefully', () => {
-      mockClientSessionRepository.get.mockReturnValue(null);
-
-      const dcrConfig: OAuthClientConfig = { redirectUrl: 'http://localhost:3000/callback' };
-      provider = new SDKOAuthClientProvider('test-server', dcrConfig);
-
-      expect(provider.clientInformation()).toBeUndefined();
-      expect(provider.tokens()).toBeUndefined();
-      expect(provider.codeVerifier()).toBe('');
-    });
+        expires: Date.now() + 60000,
+      },
+      60000,
+    );
+    await repository.quarantine('backend');
+    await repository.quarantine('backend');
+    expect(repository.get('backend')).toBeNull();
+    expect(fs.existsSync(storage.getFilePath('oauth-quarantine-', oauthDigest('backend')))).toBe(true);
+    const target = await bound();
+    expect(target.clientInformation()).toBeUndefined();
+    expect(target.tokens()).toBeUndefined();
+    expect(() => target.codeVerifier()).toThrow(/OAuth authority/);
+    storage.shutdown();
   });
-
-  describe('pre-registered client seeding', () => {
-    it('should seed client information from config.clientId when no persisted data exists', () => {
-      mockClientSessionRepository.get.mockReturnValue(null);
-
-      provider = new SDKOAuthClientProvider('test-server', mockConfig);
-
-      expect(provider.clientInformation()).toEqual({
-        ...provider.clientMetadata,
-        client_id: 'test-client-id',
-        client_secret: 'test-client-secret',
-      });
+  it('preserves migration source if protected rollback write fails', async () => {
+    const storage = new FileStorageService(dir, 'client');
+    const repository = new ClientSessionRepository(storage);
+    repository.save('backend', { serverName: 'backend', createdAt: Date.now(), expires: Date.now() + 60000 }, 60000);
+    vi.spyOn(storage, 'writeDataDurable').mockImplementationOnce(() => {
+      throw new Error('synthetic storage failure');
     });
-
-    it('should seed client information without client_secret when only clientId is set', () => {
-      mockClientSessionRepository.get.mockReturnValue(null);
-
-      const publicClientConfig: OAuthClientConfig = {
-        clientId: 'public-client-id',
-        scopes: ['read'],
-        redirectUrl: 'http://localhost:3000/callback',
-      };
-      provider = new SDKOAuthClientProvider('test-server', publicClientConfig);
-
-      const info = provider.clientInformation();
-      expect(info?.client_id).toBe('public-client-id');
-      expect(info?.client_secret).toBeUndefined();
-      expect(info?.token_endpoint_auth_method).toBe('none');
-    });
-
-    it('should not seed client information when config.clientId is absent (DCR path)', () => {
-      mockClientSessionRepository.get.mockReturnValue(null);
-
-      const dcrConfig: OAuthClientConfig = { redirectUrl: 'http://localhost:3000/callback' };
-      provider = new SDKOAuthClientProvider('test-server', dcrConfig);
-
-      expect(provider.clientInformation()).toBeUndefined();
-    });
-
-    it('should prefer persisted client information over config.clientId', () => {
-      const persistedClientInfo: OAuthClientInformationFull = {
-        ...mockClientInfo,
-        client_id: 'persisted-client-id',
-      };
-      const mockSessionData: ClientSessionData = {
-        serverName: 'test-server',
-        clientInfo: JSON.stringify(persistedClientInfo),
-        expires: Date.now() + 3600000,
-        createdAt: Date.now(),
-      };
-      mockClientSessionRepository.get.mockReturnValue(mockSessionData);
-
-      provider = new SDKOAuthClientProvider('test-server', mockConfig);
-
-      expect(provider.clientInformation()).toEqual(persistedClientInfo);
-    });
-
-    it('should let saveClientInformation override a seeded client', () => {
-      mockClientSessionRepository.get.mockReturnValue(null);
-      provider = new SDKOAuthClientProvider('test-server', mockConfig);
-
-      const registered: OAuthClientInformationFull = {
-        ...mockClientInfo,
-        client_id: 'registered-client-id',
-      };
-      provider.saveClientInformation(registered);
-
-      expect(provider.clientInformation()).toEqual(registered);
-    });
-  });
-
-  describe('clientInformation management', () => {
-    beforeEach(() => {
-      provider = new SDKOAuthClientProvider('test-server', mockConfig);
-    });
-
-    it('should save client information', () => {
-      provider.saveClientInformation(mockClientInfo);
-
-      expect(provider.clientInformation()).toEqual(mockClientInfo);
-      expect(mockClientSessionRepository.save).toHaveBeenCalledWith(
-        'test-server',
-        expect.objectContaining({
-          serverName: 'test-server',
-          clientInfo: JSON.stringify(mockClientInfo),
-        }),
-        expect.any(Number),
-      );
-    });
-
-    it('should return undefined when no client info is set', () => {
-      const dcrConfig: OAuthClientConfig = { redirectUrl: 'http://localhost:3000/callback' };
-      const dcrProvider = new SDKOAuthClientProvider('test-server', dcrConfig);
-      expect(dcrProvider.clientInformation()).toBeUndefined();
-    });
-  });
-
-  describe('token management', () => {
-    beforeEach(() => {
-      provider = new SDKOAuthClientProvider('test-server', mockConfig);
-    });
-
-    it('should save tokens', () => {
-      provider.saveTokens(mockTokens);
-
-      expect(provider.tokens()).toEqual(mockTokens);
-      expect(mockClientSessionRepository.save).toHaveBeenCalledWith(
-        'test-server',
-        expect.objectContaining({
-          serverName: 'test-server',
-          tokens: JSON.stringify(mockTokens),
-        }),
-        expect.any(Number),
-      );
-    });
-
-    it('should return undefined when no tokens are set', () => {
-      expect(provider.tokens()).toBeUndefined();
-    });
-
-    it('should invalidate only tokens while retaining client registration', async () => {
-      provider.saveClientInformation(mockClientInfo);
-      provider.saveTokens(mockTokens);
-      mockRandomUUID.mockReturnValueOnce('state-before-invalidation').mockReturnValueOnce('state-after-invalidation');
-      const stateBeforeInvalidation = provider.state();
-
-      await provider.invalidateCredentials?.('tokens');
-
-      expect(provider.tokens()).toBeUndefined();
-      expect(provider.clientInformation()).toEqual(mockClientInfo);
-      expect(provider.state()).not.toBe(stateBeforeInvalidation);
-      expect(mockClientSessionRepository.save).toHaveBeenLastCalledWith(
-        'test-server',
-        expect.objectContaining({
-          clientInfo: JSON.stringify(mockClientInfo),
-          state: 'state-after-invalidation',
-          tokens: undefined,
-        }),
-        expect.any(Number),
-      );
-    });
-
-    it('should handle token expiration during loading', () => {
-      const expiredTokens = { ...mockTokens, expires_in: 3600 };
-      const mockSessionData: ClientSessionData = {
-        serverName: 'test-server',
-        tokens: JSON.stringify(expiredTokens),
-        expires: Date.now() + 3600000,
-        createdAt: Date.now(),
-      };
-
-      mockClientSessionRepository.get.mockReturnValue(mockSessionData);
-
-      // Mock the private isTokenExpired method to return true
-      const testProvider = new SDKOAuthClientProvider('test-server', mockConfig);
-
-      // Since tokens are not expired by default in the implementation,
-      // we test the normal flow here
-      expect(testProvider.tokens()).toEqual(expiredTokens);
-    });
-  });
-
-  describe('authorization URL management', () => {
-    beforeEach(() => {
-      provider = new SDKOAuthClientProvider('test-server', mockConfig);
-    });
-
-    it('should store and retrieve authorization URL', () => {
-      const authUrl = new URL('https://auth.example.com/oauth/authorize?client_id=test');
-
-      provider.redirectToAuthorization(authUrl);
-      expect(provider.getAuthorizationUrl()).toBe(authUrl.toString());
-    });
-
-    it('should clear authorization URL', () => {
-      const authUrl = new URL('https://auth.example.com/oauth/authorize?client_id=test');
-
-      provider.redirectToAuthorization(authUrl);
-      provider.clearAuthorizationUrl();
-
-      expect(provider.getAuthorizationUrl()).toBeUndefined();
-    });
-
-    it('should return undefined when no authorization URL is set', () => {
-      expect(provider.getAuthorizationUrl()).toBeUndefined();
-    });
-  });
-
-  describe('code verifier management', () => {
-    beforeEach(() => {
-      provider = new SDKOAuthClientProvider('test-server', mockConfig);
-    });
-
-    it('should save code verifier', () => {
-      provider.saveCodeVerifier('test-code-verifier');
-
-      expect(provider.codeVerifier()).toBe('test-code-verifier');
-      expect(mockClientSessionRepository.save).toHaveBeenCalledWith(
-        'test-server',
-        expect.objectContaining({
-          serverName: 'test-server',
-          codeVerifier: 'test-code-verifier',
-        }),
-        expect.any(Number),
-      );
-    });
-
-    it('should return empty string when no code verifier is set', () => {
-      expect(provider.codeVerifier()).toBe('');
-    });
-  });
-
-  describe('state management', () => {
-    beforeEach(() => {
-      provider = new SDKOAuthClientProvider('test-server', mockConfig);
-    });
-
-    it('should generate and return state on first call', () => {
-      const state = provider.state();
-
-      expect(state).toBe('mock-uuid-1234');
-      expect(mockRandomUUID).toHaveBeenCalled();
-      expect(mockClientSessionRepository.save).toHaveBeenCalledWith(
-        'test-server',
-        expect.objectContaining({
-          serverName: 'test-server',
-          state: 'mock-uuid-1234',
-        }),
-        expect.any(Number),
-      );
-    });
-
-    it('should return same state on subsequent calls', () => {
-      const state1 = provider.state();
-      const state2 = provider.state();
-
-      expect(state1).toBe(state2);
-      expect(mockRandomUUID).toHaveBeenCalledTimes(1);
-    });
-
-    it('should use loaded state from session', () => {
-      const mockSessionData: ClientSessionData = {
-        serverName: 'test-server',
-        state: 'loaded-state',
-        expires: Date.now() + 3600000,
-        createdAt: Date.now(),
-      };
-
-      mockClientSessionRepository.get.mockReturnValue(mockSessionData);
-
-      const testProvider = new SDKOAuthClientProvider('test-server', mockConfig);
-      const state = testProvider.state();
-
-      expect(state).toBe('loaded-state');
-      expect(mockRandomUUID).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('resource validation', () => {
-    beforeEach(() => {
-      provider = new SDKOAuthClientProvider('test-server', mockConfig);
-    });
-
-    it('should validate resource URL with string input', async () => {
-      const result = await provider.validateResourceURL('https://api.example.com', 'https://api.example.com/data');
-
-      expect(result).toEqual(new URL('https://api.example.com'));
-    });
-
-    it('should validate resource URL with URL input', async () => {
-      const serverUrl = new URL('https://api.example.com');
-      const result = await provider.validateResourceURL(serverUrl, 'https://api.example.com/data');
-
-      expect(result).toEqual(serverUrl);
-    });
-
-    it('should return undefined for invalid resource', async () => {
-      const result = await provider.validateResourceURL('https://api.example.com', 'https://other.example.com/data');
-
-      expect(result).toBeUndefined();
-    });
-
-    it('should return URL when no resource is provided', async () => {
-      const result = await provider.validateResourceURL('https://api.example.com');
-
-      expect(result).toEqual(new URL('https://api.example.com'));
-    });
-  });
-
-  describe('data persistence', () => {
-    beforeEach(() => {
-      provider = new SDKOAuthClientProvider('test-server', mockConfig);
-    });
-
-    it('should persist all data with correct TTL calculation', () => {
-      const tokensWithExpiry = { ...mockTokens, expires_in: 7200 }; // 2 hours
-
-      provider.saveClientInformation(mockClientInfo);
-      provider.saveTokens(tokensWithExpiry);
-      provider.saveCodeVerifier('test-verifier');
-
-      const lastCall = mockClientSessionRepository.save.mock.calls.slice(-1)[0];
-      const sessionData = lastCall[1] as ClientSessionData;
-
-      expect(sessionData.serverName).toBe('test-server');
-      expect(sessionData.clientInfo).toBe(JSON.stringify(mockClientInfo));
-      expect(sessionData.tokens).toBe(JSON.stringify(tokensWithExpiry));
-      expect(sessionData.codeVerifier).toBe('test-verifier');
-
-      // Check that TTL is based on token expiry (7200 seconds = 7200000 ms)
-      const expectedTtl = 7200000; // Token TTL is longer than default
-      const actualTtl = sessionData.expires - sessionData.createdAt;
-      expect(actualTtl).toBeGreaterThanOrEqual(expectedTtl - 1000); // Allow 1s tolerance
-    });
-
-    it('should use default TTL when tokens have no expiry', () => {
-      const tokensWithoutExpiry = { ...mockTokens };
-      delete tokensWithoutExpiry.expires_in;
-
-      provider.saveTokens(tokensWithoutExpiry);
-
-      const lastCall = mockClientSessionRepository.save.mock.calls.slice(-1)[0];
-      const sessionData = lastCall[1] as ClientSessionData;
-
-      // Should use default TTL (30 days)
-      const expectedTtl = 30 * 24 * 60 * 60 * 1000;
-      const actualTtl = sessionData.expires - sessionData.createdAt;
-      expect(actualTtl).toBeGreaterThanOrEqual(expectedTtl - 1000); // Allow 1s tolerance
-    });
-  });
-
-  describe('shutdown', () => {
-    beforeEach(() => {
-      provider = new SDKOAuthClientProvider('test-server', mockConfig);
-    });
-
-    it('should clear temporary session data on shutdown', () => {
-      provider.saveCodeVerifier('test-verifier');
-      provider.state(); // Generate state
-
-      provider.shutdown();
-
-      // Should persist data without verifier and state
-      const lastCall = mockClientSessionRepository.save.mock.calls.slice(-1)[0];
-      const sessionData = lastCall[1] as ClientSessionData;
-
-      expect(sessionData.codeVerifier).toBeUndefined();
-      expect(sessionData.state).toBeUndefined();
-      expect(mockFileStorageService.shutdown).toHaveBeenCalledTimes(1);
-    });
-
-    it('should persist other data during shutdown', () => {
-      provider.saveClientInformation(mockClientInfo);
-      provider.saveTokens(mockTokens);
-
-      provider.shutdown();
-
-      const lastCall = mockClientSessionRepository.save.mock.calls.slice(-1)[0];
-      const sessionData = lastCall[1] as ClientSessionData;
-
-      expect(sessionData.clientInfo).toBe(JSON.stringify(mockClientInfo));
-      expect(sessionData.tokens).toBe(JSON.stringify(mockTokens));
-    });
-  });
-
-  describe('data loading edge cases', () => {
-    it('should throw error for corrupted client info JSON', () => {
-      const mockSessionData: ClientSessionData = {
-        serverName: 'test-server',
-        clientInfo: 'invalid-json',
-        expires: Date.now() + 3600000,
-        createdAt: Date.now(),
-      };
-
-      mockClientSessionRepository.get.mockReturnValue(mockSessionData);
-
-      // Current implementation throws on invalid JSON
-      expect(() => {
-        provider = new SDKOAuthClientProvider('test-server', mockConfig);
-      }).toThrow('Unexpected token');
-    });
-
-    it('should throw error for corrupted tokens JSON', () => {
-      const mockSessionData: ClientSessionData = {
-        serverName: 'test-server',
-        tokens: 'invalid-json',
-        expires: Date.now() + 3600000,
-        createdAt: Date.now(),
-      };
-
-      mockClientSessionRepository.get.mockReturnValue(mockSessionData);
-
-      // Current implementation throws on invalid JSON
-      expect(() => {
-        provider = new SDKOAuthClientProvider('test-server', mockConfig);
-      }).toThrow('Unexpected token');
-    });
-
-    it('should handle missing optional fields gracefully', () => {
-      const mockSessionData: ClientSessionData = {
-        serverName: 'test-server',
-        expires: Date.now() + 3600000,
-        createdAt: Date.now(),
-        // All optional fields are undefined
-      };
-
-      mockClientSessionRepository.get.mockReturnValue(mockSessionData);
-
-      const dcrConfig: OAuthClientConfig = { redirectUrl: 'http://localhost:3000/callback' };
-      provider = new SDKOAuthClientProvider('test-server', dcrConfig);
-
-      expect(provider.clientInformation()).toBeUndefined();
-      expect(provider.tokens()).toBeUndefined();
-      expect(provider.codeVerifier()).toBe('');
-    });
-  });
-
-  describe('redirectUrl getter', () => {
-    it('should return configured redirect URL', () => {
-      provider = new SDKOAuthClientProvider('test-server', mockConfig);
-      expect(provider.redirectUrl).toBe('http://localhost:3000/callback');
-    });
-
-    it('should return empty string when no redirect URL is configured', () => {
-      const configWithoutRedirect: OAuthClientConfig = {
-        redirectUrl: '',
-      };
-      provider = new SDKOAuthClientProvider('test-server', configWithoutRedirect);
-      expect(provider.redirectUrl).toBe('');
-    });
-  });
-
-  describe('clientMetadata getter', () => {
-    it('should return configured client metadata', () => {
-      provider = new SDKOAuthClientProvider('test-server', mockConfig);
-
-      const metadata = provider.clientMetadata;
-      expect(metadata.client_name).toBe('1MCP Agent - test-server');
-      expect(metadata.redirect_uris).toEqual(['http://localhost:3000/callback']);
-      expect(metadata.grant_types).toEqual(['authorization_code', 'refresh_token']);
-      expect(metadata.response_types).toEqual(['code']);
-      expect(metadata.token_endpoint_auth_method).toBe('client_secret_post');
-      expect(metadata.scope).toBe('read write');
-    });
+    await expect(repository.quarantine('backend')).rejects.toThrow('synthetic storage failure');
+    expect(repository.get('backend')).not.toBeNull();
+    await repository.quarantine('backend');
+    expect(repository.get('backend')).toBeNull();
+    storage.shutdown();
   });
 });

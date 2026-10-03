@@ -962,6 +962,9 @@ describe('ClientManager (Integration)', () => {
           oauthProvider: {
             token: 'test-token',
             getAuthorizationUrl: vi.fn().mockReturnValue('https://example.com/oauth'),
+            withAuthorizationCallback: vi.fn(async (_response: URLSearchParams, operation: () => Promise<unknown>) =>
+              operation(),
+            ),
           },
           finishAuth: vi.fn().mockResolvedValue(undefined),
           close: vi.fn().mockResolvedValue(undefined),
