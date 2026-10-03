@@ -120,6 +120,30 @@ _Avoid_: command setup, connection helper, proxy setup
 Project, user, environment, and optional transport data supplied by a caller so the **Aggregated Runtime** can resolve contextual behavior.
 _Avoid_: metadata, payload extras
 
+**Project Checkout**:
+A source tree selected as a project target for 1MCP, including a standalone repository or a linked Git worktree. Checkouts of the same repository remain distinct targets.
+_Avoid_: config root, main repository
+
+**Project Configuration Source**:
+The origin of defaults used for a **Project Checkout**. Sharing those defaults does not change which checkout is targeted.
+_Avoid_: project identity, project target
+
+**Cross-Project Work**:
+One feature or task involving multiple **Project Checkouts** in the same agent session, through separate calls, delegated agents, or a tool operation involving several checkouts.
+_Avoid_: runtime switching, shared project root
+
+**Project Set**:
+A labeled collection of **Project Checkouts** selected for **Cross-Project Work** in one agent session. Its definition may be saved for reuse.
+_Avoid_: shared project root, current runtime
+
+**Project Selection**:
+The **Project Checkout** or members of a **Project Set** chosen for one 1MCP operation. A selection containing several checkouts requires a tool with native support for that operation.
+_Avoid_: runtime target, active project
+
+**Worker Project Assignment**:
+The **Project Checkout** or **Project Set** explicitly identified for a delegated agent's work. Each worker retains its intended source targets independently of other workers.
+_Avoid_: parent working directory, global active project
+
 **Trusted Request Context**:
 A **Request Context** that the **Aggregated Runtime** has authorized for **Template Server** rendering under its current **Template Context Trust Mode**. Decoding or logging a Request Context does not make it trusted.
 _Avoid_: valid context, parsed context, authenticated client context
