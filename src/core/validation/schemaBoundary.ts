@@ -40,12 +40,24 @@ interface Slot {
   job?: Job;
 }
 
-/** Fixed workers and a single bounded FIFO. No affinity or replicated coordinator cache. */
+/** Bound on remembered compile verdicts; each entry is a short key, not a validator. */
+const COMPILED_SCHEMA_ENTRIES = 4096;
+
+/**
+ * Fixed workers and a single bounded FIFO. No affinity or replicated validator cache:
+ * the coordinator only remembers which schemas already compiled, never validators.
+ */
 export class SchemaBoundary {
   private readonly slots = new Set<Slot>();
   private readonly terminations = new Set<Promise<number>>();
   private readonly queue: Job[] = [];
   private readonly contracts = new WeakSet<SchemaContract>();
+  /**
+   * Successful compile verdicts by dialect and schema digest, in least-recently-used order.
+   * A verdict depends only on the schema, its dialect, and the fixed limits, so every
+   * catalog acquisition can re-admit an unchanged schema without another worker job.
+   */
+  private readonly compiled = new Set<string>();
   private nextId = 0;
   private closing = false;
   private replacementAfter = 0;
@@ -81,7 +93,15 @@ export class SchemaBoundary {
       routeKey: binding.routeKey,
       generation: binding.generation,
     });
-    await this.run(contract, 'compile', undefined, binding.signal);
+    const verdictKey = `${dialect}\0${contract.digest}`;
+    if (this.compiled.has(verdictKey)) {
+      if (this.closing || binding.signal?.aborted) throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
+      this.compiled.delete(verdictKey);
+    } else {
+      await this.run(contract, 'compile', undefined, binding.signal);
+      if (this.compiled.size >= COMPILED_SCHEMA_ENTRIES) this.compiled.delete(this.compiled.values().next().value!);
+    }
+    this.compiled.add(verdictKey);
     this.contracts.add(contract);
     return contract;
   }

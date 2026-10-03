@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SCHEMA_LIMITS, SchemaBoundary } from './schemaBoundary.js';
 import { captureJson } from './schemaPolicy.js';
@@ -91,6 +91,56 @@ describe('isolated schema boundary', () => {
     const results = await Promise.all(jobs);
     expect(results.every((result) => result instanceof Error)).toBe(true);
     expect(await boundary.admit({}, binding)).toHaveProperty('digest');
+  });
+  describe('compile verdict reuse', () => {
+    const workerJobs = (boundary: SchemaBoundary) =>
+      vi.spyOn(boundary as unknown as { run: (...args: unknown[]) => Promise<unknown> }, 'run');
+
+    it('re-admits an unchanged schema without another worker job', async () => {
+      const boundary = pool();
+      const jobs = workerJobs(boundary);
+      const schema = { type: 'object', properties: { query: { type: 'string' } } };
+
+      await boundary.admit(schema, binding);
+      await boundary.admit(structuredClone(schema), { routeKey: 'server/tool', generation: '2' });
+
+      expect(jobs).toHaveBeenCalledTimes(1);
+    });
+
+    it('binds each re-admitted contract to its own route and generation', async () => {
+      const boundary = pool();
+      const first = await boundary.admit({ type: 'number' }, binding);
+      const nextBinding = { routeKey: 'server/tool', generation: '2' };
+      const next = await boundary.admit({ type: 'number' }, nextBinding);
+
+      await expect(boundary.evaluate(next, 1, nextBinding)).resolves.toEqual({ valid: true });
+      await expect(boundary.evaluate(next, 'x', nextBinding)).rejects.toThrow('schema_input_invalid');
+      await expect(boundary.evaluate(first, 1, nextBinding)).rejects.toThrow('schema_invalid');
+    });
+
+    it('rejects a cancelled re-admission instead of publishing a contract', async () => {
+      const boundary = pool();
+      await boundary.admit({ type: 'number' }, binding);
+      const controller = new AbortController();
+      controller.abort();
+
+      await expect(boundary.admit({ type: 'number' }, { ...binding, signal: controller.signal })).rejects.toMatchObject(
+        { code: 'schema_evaluation_unavailable', retryable: true },
+      );
+      await expect(boundary.admit({ type: 'number' }, binding)).resolves.toHaveProperty('digest');
+    });
+
+    it('compiles again after a failure and for another dialect', async () => {
+      const boundary = pool();
+      const jobs = workerJobs(boundary);
+
+      await expect(boundary.admit({ $ref: '#/$defs/missing' }, binding)).rejects.toThrow('schema_reference_unresolved');
+      await expect(boundary.admit({ $ref: '#/$defs/missing' }, binding)).rejects.toThrow('schema_reference_unresolved');
+      await boundary.admit({ type: 'number' }, binding);
+      await boundary.admit({ type: 'number' }, { ...binding, sourceRevision: '2025-06-18' });
+
+      expect(jobs).toHaveBeenCalledTimes(4);
+    });
   });
   it('shuts down deterministically and rejects subsequent work', async () => {
     const boundary = pool();
