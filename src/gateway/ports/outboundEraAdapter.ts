@@ -1,3 +1,5 @@
+import type { JsonValueLimits } from '@src/sdk/contracts/jsonValue.js';
+
 import type {
   EffectiveRequestAuthority,
   GatewayOperation,
@@ -30,6 +32,8 @@ export type GatewayInteractionRound = Readonly<Record<string, GatewayInteraction
 export interface OutboundEraAdapter {
   readonly role: 'outbound';
   readonly pin: ProtocolEraPin;
+  /** Limits its results are validated against; defaults to those for one foreign value. */
+  readonly resultLimits?: JsonValueLimits;
   request(request: OutboundGatewayRequest, options?: GatewayRequestOptions): Promise<ImmutableJsonValue>;
   cancel(requestId: string): Promise<void>;
   close(): Promise<void>;

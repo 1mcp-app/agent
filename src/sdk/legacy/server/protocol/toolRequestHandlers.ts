@@ -17,7 +17,7 @@ import { getDisabledSourceToolError } from '@src/core/server/disabledTools.js';
 import { withRuntimeAdmission } from '@src/core/server/runtimeDrain.js';
 import { InboundConnection } from '@src/core/types/index.js';
 import { SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
-import { toJsonValue } from '@src/sdk/contracts/index.js';
+import { RESPONSE_JSON_VALUE_LIMITS, toJsonValue } from '@src/sdk/contracts/index.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
 import { type LegacyOutboundConnections } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import { revalidateLegacyRequestAuthInfo } from '@src/sdk/legacy/server/auth/requestAuthRevalidation.js';
@@ -98,7 +98,9 @@ export function registerToolHandlers(
         };
         return inboundConn.canonicalSchemaProjection
           ? listed
-          : projectLegacyTools(toJsonValue(listed) as import('@src/sdk/contracts/index.js').JsonObject);
+          : projectLegacyTools(
+              toJsonValue(listed, RESPONSE_JSON_VALUE_LIMITS) as import('@src/sdk/contracts/index.js').JsonObject,
+            );
       }),
       'Error listing tools',
     ),

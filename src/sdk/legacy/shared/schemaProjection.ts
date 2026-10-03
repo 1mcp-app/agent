@@ -1,7 +1,7 @@
 import { Server, specTypeSchemas } from '@modelcontextprotocol/server';
 
 import { SchemaBoundaryError } from '@src/core/validation/schemaPolicy.js';
-import { type JsonObject, toJsonValue } from '@src/sdk/contracts/index.js';
+import { type JsonObject, RESPONSE_JSON_VALUE_LIMITS, toJsonValue } from '@src/sdk/contracts/index.js';
 import type { Server as LegacyServer } from '@src/sdk/legacy/server/index.js';
 import { Protocol } from '@src/sdk/legacy/shared/protocol.js';
 
@@ -11,7 +11,7 @@ class LegacySchemaCodec extends Server {
     super({ name: '1mcp-schema-projection', version: '1' }, { capabilities: { tools: {} } });
   }
   projectTools(result: JsonObject): JsonObject {
-    return toJsonValue(this._wireCodec().encodeResult('tools/list', result)) as JsonObject;
+    return toJsonValue(this._wireCodec().encodeResult('tools/list', result), RESPONSE_JSON_VALUE_LIMITS) as JsonObject;
   }
 }
 // An unconnected v2 Server explicitly uses its legacy codec until negotiation.
