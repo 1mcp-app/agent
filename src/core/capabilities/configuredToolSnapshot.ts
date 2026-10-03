@@ -2,6 +2,7 @@ import { ClientStatus, type OutboundConnection, type OutboundConnections } from 
 import type { ListToolsResult, Tool } from '@src/sdk/contracts/index.js';
 
 const snapshots = new WeakMap<OutboundConnection, Tool[]>();
+const incompleteSnapshots = new WeakSet<OutboundConnection>();
 const pendingPages = new WeakMap<
   OutboundConnection,
   { nextCursor: string; tools: Tool[]; seenCursors: Set<string>; pageCount: number }
@@ -34,9 +35,10 @@ export function publishConfiguredToolSnapshot(
   complete = true,
 ): void {
   if (!complete) {
-    snapshots.delete(connection);
+    incompleteSnapshots.add(connection);
     return;
   }
+  incompleteSnapshots.delete(connection);
   const snapshot = tools.map((tool) => ({ ...tool }));
   snapshots.set(connection, snapshot);
 }
@@ -74,17 +76,33 @@ export function publishConfiguredToolPage(
   }
 }
 
+function isPartialToolDiscovery(result: ListToolsResult): boolean {
+  const status = result._meta?.['app.1mcp/capability-pagination'];
+  if (!status) return false;
+  if (typeof status !== 'object') return false;
+  if ('partial' in status && status.partial === true) return true;
+  return 'complete' in status && status.complete === false;
+}
+
 export async function collectConfiguredToolPages(
   listPage: (cursor: string | undefined) => Promise<ListToolsResult>,
 ): Promise<ListToolsResult> {
   const tools: Tool[] = [];
   const seenCursors = new Set<string>();
   let cursor: string | undefined;
+  let partialMeta: ListToolsResult['_meta'];
 
   for (let page = 0; page < MAX_TOOL_PAGES; page += 1) {
     const result = await listPage(cursor);
+    if (isPartialToolDiscovery(result)) partialMeta = result._meta;
     tools.push(...(result.tools ?? []));
-    if (result.nextCursor === undefined) return { ...result, tools };
+    if (result.nextCursor === undefined) {
+      return {
+        ...result,
+        tools,
+        ...(partialMeta ? { _meta: { ...result._meta, ...partialMeta } } : {}),
+      };
+    }
     if (seenCursors.has(result.nextCursor)) throw new Error('Tool pagination returned a repeated cursor');
     seenCursors.add(result.nextCursor);
     cursor = result.nextCursor;
@@ -93,12 +111,18 @@ export async function collectConfiguredToolPages(
   throw new Error(`Tool pagination exceeded ${MAX_TOOL_PAGES} pages`);
 }
 
+export function isConfiguredToolSnapshotComplete(connection: OutboundConnection): boolean {
+  if (!snapshots.has(connection)) return false;
+  return !incompleteSnapshots.has(connection);
+}
+
 export function readConfiguredToolSnapshot(connection: OutboundConnection): readonly Tool[] | undefined {
   return snapshots.get(connection);
 }
 
 export function clearConfiguredToolSnapshot(connection: OutboundConnection): void {
   snapshots.delete(connection);
+  incompleteSnapshots.delete(connection);
   pendingPages.delete(connection);
 }
 
@@ -185,7 +209,7 @@ export function publishCompleteConfiguredToolTargetSnapshots(connections: Outbou
     let complete = true;
     for (const connection of targetConnections) {
       const connectionTools = snapshots.get(connection);
-      if (!connectionTools) {
+      if (!connectionTools || incompleteSnapshots.has(connection)) {
         complete = false;
         break;
       }

@@ -1,3 +1,5 @@
+import { createHash, randomUUID } from 'node:crypto';
+
 import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { ConnectionResolver, type TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { getDisabledSourceToolError, isSourceToolDisabled } from '@src/core/server/disabledTools.js';
@@ -17,12 +19,17 @@ import {
 } from '@src/core/validation/toolSchemaBoundary.js';
 import { gatewayFailureFromUnknown } from '@src/gateway/contracts/gatewayFailure.js';
 import logger from '@src/logger/logger.js';
-import type { Tool } from '@src/sdk/contracts/index.js';
+import { ErrorCode, type Tool } from '@src/sdk/contracts/index.js';
+import { MCPError } from '@src/utils/core/errorTypes.js';
 
 import {
+  CAPABILITY_PAGINATION_META_KEY,
   type CapabilityKind,
   type CapabilityPage,
   type CapabilityPaginationResult,
+  getCapabilityFailureFacts,
+  getCapabilityPaginationGeneration,
+  setCapabilityFailureFacts,
   walkCapabilityPages,
 } from './capabilityPagination.js';
 import { type CapabilityVisibility, getCapabilityVisibleServerNames } from './capabilityVisibility.js';
@@ -109,11 +116,50 @@ const NEVER_REFRESH: CapabilityRefreshFacts = {
   shouldNotifyListChanged: false,
 };
 
+interface ToolListingSnapshot {
+  registry: ToolRegistry;
+  generation: string;
+  visibility: string;
+  refresh: CapabilityRefreshFacts;
+  expiresAt: number;
+  bytes: number;
+}
+
+const TOOL_LISTING_TTL_MS = 15 * 60 * 1000;
+const MAX_TOOL_LISTING_SNAPSHOTS = 1000;
+const MAX_TOOL_LISTING_BYTES = 32 * 1024 * 1024;
+interface ToolListingState {
+  listings: Map<string, ToolListingSnapshot>;
+  withheldTools: Map<
+    string,
+    {
+      attempt: number;
+      withheld: boolean;
+      registry: ToolRegistry;
+      connection?: OutboundConnection;
+      adapter?: OutboundConnection['adapter'];
+    }
+  >;
+  nextAttempt: number;
+}
+const toolListingStates = new WeakMap<OutboundConnections, ToolListingState>();
+
 export class CapabilityCatalog {
   private readonly connectionResolver: ConnectionResolver;
+  private readonly toolListings: Map<string, ToolListingSnapshot>;
+  private readonly withheldTools: ToolListingState['withheldTools'];
+  private readonly listingState: ToolListingState;
 
   constructor(private readonly deps: CapabilityCatalogDependencies) {
     this.connectionResolver = new ConnectionResolver(deps.outboundConnections, deps.templateHashProvider);
+    let state = toolListingStates.get(deps.outboundConnections);
+    if (!state) {
+      state = { listings: new Map(), withheldTools: new Map(), nextAttempt: 0 };
+      toolListingStates.set(deps.outboundConnections, state);
+    }
+    this.toolListings = state.listings;
+    this.withheldTools = state.withheldTools;
+    this.listingState = state;
   }
 
   /**
@@ -199,12 +245,50 @@ export class CapabilityCatalog {
     visibility?: CapabilityVisibility,
     queryOptions: CapabilityCatalogQueryOptions = {},
   ): Promise<VisibleToolListResult> {
+    const continuation = this.decodeToolListingCursor(options.cursor);
+    const visibilityKey = this.toolListingVisibility(visibility);
+    if (continuation) {
+      const snapshot = this.toolListings.get(continuation.walk);
+      if (
+        !snapshot ||
+        snapshot.expiresAt <= Date.now() ||
+        snapshot.visibility !== visibilityKey ||
+        snapshot.generation !== getCapabilityPaginationGeneration(this.deps.outboundConnections, 'tools') ||
+        !snapshot.registry.isCurrent()
+      ) {
+        throw new MCPError('Invalid capability pagination cursor', ErrorCode.InvalidParams);
+      }
+      return this.toolListingPage(continuation.walk, snapshot, { ...options, cursor: continuation.cursor }, visibility);
+    }
+
+    const attempt = ++this.listingState.nextAttempt;
     const refresh = await this.resolveRefreshFacts(queryOptions.refreshIntent ?? 'never', 'list');
+    const sourceRegistry = this.deps.getToolRegistry();
     const registry = this.visibleToolRegistry(visibility);
     const admitted = [];
-    for (const tool of registry.getAllTools()) {
-      try {
+    const timedOutSources: string[] = [];
+    const serverNames = Array.from(new Set(registry.getAllTools().map((tool) => tool.server))).sort();
+    const configSignature = this.toolListingConfigSignature(serverNames);
+    const currentConnections = new Map(
+      registry.getAllTools().flatMap((tool) => {
         const key = tool.connectionKey ?? tool.server;
+        const connection = this.deps.outboundConnections.get(key);
+        return connection ? [[key, connection] as const] : [];
+      }),
+    );
+    const currentAdapters = new Map(Array.from(currentConnections, ([key, connection]) => [key, connection.adapter]));
+    const isListingCurrent = () =>
+      registry.isCurrent() &&
+      this.toolListingConfigSignature(serverNames) === configSignature &&
+      Array.from(currentConnections).every(
+        ([key, connection]) =>
+          this.deps.outboundConnections.get(key) === connection &&
+          connection.adapter === currentAdapters.get(key) &&
+          connection.status === ClientStatus.Connected,
+      );
+    for (const tool of registry.getAllTools()) {
+      const key = tool.connectionKey ?? tool.server;
+      try {
         const definition =
           tool.definition ??
           this.deps.schemaCache.getIfCached(key, tool.name) ??
@@ -216,6 +300,14 @@ export class CapabilityCatalog {
           sourceRevision: this.deps.outboundConnections.get(key)?.adapter.protocolRevision,
           signal: queryOptions.signal,
         });
+        this.recordToolAdmission(
+          JSON.stringify([key, tool.name]),
+          attempt,
+          false,
+          sourceRegistry,
+          currentConnections.get(key),
+          currentAdapters.get(key),
+        );
         admitted.push({
           tool: projectToolSchemas(definition as unknown as Record<string, unknown>, contracts) as unknown as Tool,
           server: tool.server,
@@ -223,23 +315,183 @@ export class CapabilityCatalog {
           tags: tool.tags,
         });
       } catch (error) {
-        if (!(error instanceof SchemaBoundaryError) || error.retryable) throw error;
+        if (!(error instanceof SchemaBoundaryError)) throw error;
+        if (tool.route?.origin === 'internal') throw error;
+        if (!this.deps.outboundConnections.has(key)) throw error;
+        if (error.phase !== 'admission') throw error;
+        if (error.code === 'schema_evaluation_unavailable') throw error;
+        if (error.code === 'schema_evaluation_timeout') {
+          timedOutSources.push(key);
+          this.recordToolAdmission(
+            JSON.stringify([key, tool.name]),
+            attempt,
+            true,
+            sourceRegistry,
+            currentConnections.get(key),
+            currentAdapters.get(key),
+          );
+          continue;
+        }
+        if (error.retryable) throw error;
       }
     }
-    const result = ToolRegistry.fromToolsWithServer(admitted).listTools(options);
-    const tools = result.tools;
-    const servers = Array.from(new Set(tools.map((tool) => tool.server))).sort();
-    const routes = tools
-      .map((tool) => this.resolveRoute(tool, visibility))
-      .filter((route): route is CapabilityRoute => route !== undefined);
+    if (!isListingCurrent()) {
+      throw new MCPError('Capability catalog changed during listing', ErrorCode.InvalidParams);
+    }
+    const generation = getCapabilityPaginationGeneration(this.deps.outboundConnections, 'tools');
+    const meta = this.toolAdmissionMeta(registry.getListingMeta(), timedOutSources, generation);
+    const snapshot: ToolListingSnapshot = {
+      registry: ToolRegistry.fromToolsWithServer(admitted, meta).withConnections(
+        registry.getConnections(),
+        () =>
+          registry.isCurrent() &&
+          this.toolListingConfigSignature(serverNames) === configSignature &&
+          Array.from(currentConnections).every(
+            ([key, connection]) =>
+              this.deps.outboundConnections.get(key) === connection &&
+              connection.adapter === currentAdapters.get(key) &&
+              connection.status === ClientStatus.Connected,
+          ),
+      ),
+      generation,
+      visibility: visibilityKey,
+      refresh,
+      expiresAt: Date.now() + TOOL_LISTING_TTL_MS,
+      bytes: 0,
+    };
+    const walk = randomUUID();
+    for (const [id, saved] of this.toolListings) {
+      if (saved.expiresAt <= Date.now()) this.toolListings.delete(id);
+    }
+    const result = this.toolListingPage(walk, snapshot, { ...options, cursor: undefined }, visibility);
+    if (result.nextCursor) {
+      snapshot.bytes = Buffer.byteLength(JSON.stringify(snapshot.registry.getAllTools()));
+      const capturedBytes = Array.from(this.toolListings.values()).reduce((total, saved) => total + saved.bytes, 0);
+      if (capturedBytes + snapshot.bytes > MAX_TOOL_LISTING_BYTES) {
+        throw new MCPError('Capability cursor capacity exceeded', -32000);
+      }
+      if (this.toolListings.size >= MAX_TOOL_LISTING_SNAPSHOTS) {
+        throw new MCPError('Capability cursor capacity exceeded', -32000);
+      }
+      this.toolListings.set(walk, snapshot);
+    }
+    return result;
+  }
 
+  private recordToolAdmission(
+    key: string,
+    attempt: number,
+    withheld: boolean,
+    registry: ToolRegistry,
+    connection?: OutboundConnection,
+    adapter?: OutboundConnection['adapter'],
+  ): void {
+    const previous = this.withheldTools.get(key);
+    if (previous && previous.attempt > attempt) return;
+    this.withheldTools.set(key, { attempt, withheld, registry, connection, adapter });
+  }
+
+  private toolListingConfigSignature(serverNames: readonly string[]): string {
+    const configs = this.deps.getServerConfigs();
+    return createHash('sha256')
+      .update(JSON.stringify(serverNames.map((name) => [name, configs[name]])))
+      .digest('hex');
+  }
+
+  private toolListingPage(
+    walk: string,
+    snapshot: ToolListingSnapshot,
+    options: ListToolsOptions,
+    visibility?: CapabilityVisibility,
+  ): VisibleToolListResult {
+    const result = snapshot.registry.listTools(options);
+    const tools = result.tools;
     return {
       ...result,
+      ...(result.nextCursor
+        ? { nextCursor: Buffer.from(JSON.stringify({ walk, cursor: result.nextCursor })).toString('base64url') }
+        : {}),
       tools,
-      servers,
-      routes,
-      refresh,
+      servers: Array.from(new Set(tools.map((tool) => tool.server))).sort(),
+      routes: tools
+        .map((tool) => this.resolveRoute(tool, visibility))
+        .filter((route): route is CapabilityRoute => route !== undefined),
+      refresh: snapshot.refresh,
     };
+  }
+
+  private decodeToolListingCursor(cursor?: string): { walk: string; cursor: string } | undefined {
+    if (!cursor) return undefined;
+    if (cursor.length > 4096) throw new MCPError('Invalid capability pagination cursor', ErrorCode.InvalidParams);
+    try {
+      const decoded: unknown = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+      if (!decoded || typeof decoded !== 'object' || !('walk' in decoded)) {
+        throw new MCPError('Invalid capability pagination cursor', ErrorCode.InvalidParams);
+      }
+      if (typeof decoded.walk !== 'string' || !('cursor' in decoded) || typeof decoded.cursor !== 'string') {
+        throw new MCPError('Invalid capability pagination cursor', ErrorCode.InvalidParams);
+      }
+      return { walk: decoded.walk, cursor: decoded.cursor };
+    } catch (error) {
+      if (error instanceof MCPError) throw error;
+      throw new MCPError('Invalid capability pagination cursor', ErrorCode.InvalidParams);
+    }
+  }
+
+  private toolListingVisibility(visibility?: CapabilityVisibility): string {
+    const effective = visibility ?? this.deps.defaultVisibility;
+    return JSON.stringify({
+      sessionId: effective?.sessionId,
+      candidates: effective ? Array.from(effective.serverCandidates).sort(([a], [b]) => a.localeCompare(b)) : null,
+      filters: effective?.filterSelection,
+    });
+  }
+
+  public requiresToolListingRecovery(visibility?: CapabilityVisibility): boolean {
+    return this.visibleToolRegistry(visibility).getListingMeta() !== undefined;
+  }
+
+  private toolAdmissionMeta(
+    inherited: Record<string, unknown> | undefined,
+    timedOutSources: readonly string[],
+    generation: string,
+  ): Record<string, unknown> | undefined {
+    if (timedOutSources.length === 0) return inherited;
+    const facts = new Map(getCapabilityFailureFacts(inherited));
+    for (const source of timedOutSources) {
+      const previous = facts.get(source);
+      facts.set(source, {
+        ...previous,
+        upstream_tool_admission_timeout: (previous?.upstream_tool_admission_timeout ?? 0) + 1,
+      });
+    }
+    const failureCategories = { upstream_list_failed: 0, upstream_tool_admission_timeout: 0 };
+    for (const fact of facts.values()) {
+      failureCategories.upstream_list_failed += fact.upstream_list_failed ?? 0;
+      failureCategories.upstream_tool_admission_timeout += fact.upstream_tool_admission_timeout ?? 0;
+    }
+    const previous = inherited?.[CAPABILITY_PAGINATION_META_KEY] as Record<string, unknown> | undefined;
+    return setCapabilityFailureFacts(
+      {
+        ...inherited,
+        [CAPABILITY_PAGINATION_META_KEY]: {
+          ...previous,
+          partial: true,
+          complete: false,
+          generation,
+          failedSourceCount: facts.size,
+          failureCategories: {
+            ...(failureCategories.upstream_list_failed
+              ? { upstream_list_failed: failureCategories.upstream_list_failed }
+              : {}),
+            upstream_tool_admission_timeout: failureCategories.upstream_tool_admission_timeout,
+          },
+          retryable: true,
+          recovery: 'restart-walk',
+        },
+      },
+      facts,
+    );
   }
 
   public async describeVisibleTool(
@@ -517,6 +769,7 @@ export class CapabilityCatalog {
           connectionKey: tool.connectionKey,
           tags: tool.tags,
         })),
+      registry.getListingMeta(),
     ).withConnections(registry.getConnections(), () => registry.isCurrent());
   }
 
@@ -547,7 +800,8 @@ export class CapabilityCatalog {
     }
 
     const tool = visibleRegistry.getTool(args.server, args.toolName);
-    if (!tool) {
+    const withheld = tool && this.isToolWithheld(tool);
+    if (!tool || withheld) {
       const disabledError = this.isServerVisible(args.server, visibility)
         ? getDisabledSourceToolError(this.deps.getServerConfigs(), args.server, args.toolName)
         : undefined;
@@ -570,6 +824,17 @@ export class CapabilityCatalog {
     }
 
     return { route, tool, connection: visibleRegistry.getConnections()?.get(route.connectionKey) };
+  }
+
+  private isToolWithheld(tool: ToolMetadata): boolean {
+    const key = tool.connectionKey ?? tool.server;
+    const outcome = this.withheldTools.get(JSON.stringify([key, tool.name]));
+    if (!outcome?.withheld) return false;
+    if (outcome.registry !== this.deps.getToolRegistry()) return false;
+    const connection = this.deps.outboundConnections.get(key);
+    if (outcome.connection !== connection) return false;
+    if (outcome.adapter !== connection?.adapter) return false;
+    return true;
   }
 
   private isServerVisible(server: string, visibility?: CapabilityVisibility): boolean {

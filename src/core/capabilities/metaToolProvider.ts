@@ -6,7 +6,7 @@ import logger, { errorIf } from '@src/logger/logger.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
 import { zodToInputSchema, zodToOutputSchema } from '@src/utils/schemaUtils.js';
 
-import { CapabilityCatalog } from './capabilityCatalog.js';
+import { CapabilityCatalog, type CapabilityCatalogDependencies } from './capabilityCatalog.js';
 import type { CapabilityVisibility } from './capabilityVisibility.js';
 import { SchemaCache } from './schemaCache.js';
 import {
@@ -97,6 +97,7 @@ export class MetaToolProvider {
     loadSchema?: SchemaLoader,
     defaultVisibility?: CapabilityVisibility,
     templateHashProvider?: TemplateHashProvider,
+    private readonly refreshCapabilities?: CapabilityCatalogDependencies['refreshCapabilities'],
   ) {
     this.getToolRegistry = getToolRegistry;
     this.schemaCache = schemaCache;
@@ -112,6 +113,7 @@ export class MetaToolProvider {
       defaultVisibility,
       templateHashProvider,
       getServerConfigs: getConfiguredServerTargets,
+      refreshCapabilities: this.refreshCapabilities,
     });
   }
 
@@ -128,6 +130,7 @@ export class MetaToolProvider {
       defaultVisibility: visibility,
       templateHashProvider: this.templateHashProvider,
       getServerConfigs: getConfiguredServerTargets,
+      refreshCapabilities: this.refreshCapabilities,
     });
   }
 
@@ -227,7 +230,11 @@ export class MetaToolProvider {
     signal?: AbortSignal,
   ): Promise<ListToolsResult> {
     try {
-      const result = await this.capabilityCatalog.listVisibleTools(args, visibility, { signal });
+      const needsRecovery = !args.cursor && this.capabilityCatalog.requiresToolListingRecovery(visibility);
+      const result = await this.capabilityCatalog.listVisibleTools(args, visibility, {
+        signal,
+        ...(needsRecovery ? { refreshIntent: 'force' as const } : {}),
+      });
 
       // Format tools for response
       const tools = result.tools.map((tool: ToolMetadata) => ({
@@ -247,6 +254,7 @@ export class MetaToolProvider {
         servers,
         hasMore: result.hasMore,
         ...(result.nextCursor ? { nextCursor: result.nextCursor } : {}),
+        ...(result._meta ? { _meta: result._meta } : {}),
       };
 
       return response;

@@ -5,9 +5,11 @@ import { Tool } from '@src/sdk/contracts/index.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { CAPABILITY_PAGINATION_META_KEY, setCapabilityFailureFacts } from './capabilityPagination.js';
 import { capabilityVisibilityFromServerNames, createCapabilityVisibility } from './capabilityVisibility.js';
 import { MetaToolProvider } from './metaToolProvider.js';
 import { SchemaCache } from './schemaCache.js';
+import { ToolListOutputSchema } from './schemas/metaToolSchemas.js';
 import { ToolRegistry } from './toolRegistry.js';
 
 const mockGetTransportConfig = vi.fn().mockReturnValue({});
@@ -63,6 +65,93 @@ describe('MetaToolProvider', () => {
     ]);
 
     provider = new MetaToolProvider(() => toolRegistry, schemaCache, outboundConnections);
+  });
+
+  it('preserves partial metadata in tool_list output and its advertised output schema', async () => {
+    const meta = {
+      [CAPABILITY_PAGINATION_META_KEY]: {
+        partial: true,
+        complete: false,
+        failureCategories: { upstream_tool_admission_timeout: 1 },
+        retryable: true,
+        recovery: 'restart-walk',
+      },
+    };
+    toolRegistry = toolRegistry.withListingMeta(meta);
+    const result = await provider.callMetaTool('tool_list', { limit: 1 });
+    expect(result).toMatchObject({ _meta: meta, hasMore: true });
+    expect(ToolListOutputSchema.parse(result)._meta).toEqual(meta);
+  });
+
+  it('refreshes a partial registry only on fresh listing and keeps its previous walk partial', async () => {
+    const meta = {
+      [CAPABILITY_PAGINATION_META_KEY]: { partial: true, complete: false, recovery: 'restart-walk' },
+    };
+    const healthyTools = toolRegistry.getAllTools().slice(0, 2);
+    toolRegistry = ToolRegistry.fromToolsWithServer(
+      healthyTools.map((tool) => ({ tool: tool.definition!, server: tool.server })),
+      meta,
+    );
+    let recover = false;
+    const refresh = vi.fn(async () => {
+      if (recover) {
+        toolRegistry = ToolRegistry.fromToolsWithServer([
+          ...healthyTools.map((tool) => ({ tool: tool.definition!, server: tool.server })),
+          { tool: { name: 'recovered', inputSchema: { type: 'object' } }, server: 'filesystem' },
+        ]);
+      }
+      return { changed: recover };
+    });
+    provider = new MetaToolProvider(
+      () => toolRegistry,
+      schemaCache,
+      outboundConnections,
+      undefined,
+      undefined,
+      undefined,
+      refresh,
+    );
+    const first = await provider.callMetaTool('tool_list', { limit: 1 });
+    expect(first).toMatchObject({ _meta: meta, hasMore: true });
+    expect(refresh).toHaveBeenCalledWith({ intent: 'force', reason: 'list' });
+    recover = true;
+    const restarted = await provider.callMetaTool('tool_list', {});
+    expect(restarted).toMatchObject({
+      tools: expect.arrayContaining([expect.objectContaining({ name: 'recovered' })]),
+    });
+    expect('_meta' in restarted ? restarted._meta : undefined).toBeUndefined();
+    if (!('nextCursor' in first)) throw new Error('Expected tool list');
+    const last = await provider.callMetaTool('tool_list', { limit: 1, cursor: first.nextCursor });
+    expect(last).toMatchObject({ _meta: meta, hasMore: false });
+    expect(refresh).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not refresh for an admission failure outside the caller visibility', async () => {
+    const meta = setCapabilityFailureFacts(
+      {
+        [CAPABILITY_PAGINATION_META_KEY]: {
+          partial: true,
+          complete: false,
+          failedSourceCount: 1,
+          failureCategories: { upstream_tool_admission_timeout: 1 },
+        },
+      },
+      new Map([['hidden', { upstream_tool_admission_timeout: 1 }]]),
+    );
+    toolRegistry = toolRegistry.withListingMeta(meta);
+    const refresh = vi.fn().mockResolvedValue(undefined);
+    provider = new MetaToolProvider(
+      () => toolRegistry,
+      schemaCache,
+      outboundConnections,
+      undefined,
+      visibility('filesystem'),
+      undefined,
+      refresh,
+    );
+    const result = await provider.callMetaTool('tool_list', {});
+    expect('_meta' in result ? result._meta : undefined).toBeUndefined();
+    expect(refresh).not.toHaveBeenCalled();
   });
 
   describe('getMetaTools', () => {
@@ -262,22 +351,12 @@ describe('MetaToolProvider', () => {
       }
     });
 
-    it('should handle invalid cursor gracefully', async () => {
-      const result = await provider.callMetaTool('tool_list', {
-        cursor: 'invalid-cursor-value',
+    it('returns an error for an invalid cursor without starting a new walk', async () => {
+      const result = await provider.callMetaTool('tool_list', { cursor: 'invalid-cursor-value' });
+      expect(result).toMatchObject({
+        tools: [],
+        error: expect.objectContaining({ type: 'internal' }),
       });
-
-      expect(result).toBeDefined();
-      if ('error' in result && result.error) {
-        throw new Error(result.error.message);
-      }
-      // Should return results (defaulting to offset 0) rather than crashing
-      if ('tools' in result && 'totalCount' in result) {
-        expect(result.tools).toBeDefined();
-        expect(result.totalCount).toBeGreaterThan(0);
-      } else {
-        throw new Error('Expected ListToolsResult');
-      }
     });
 
     it('should return empty nextCursor when no more results', async () => {

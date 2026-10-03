@@ -1,11 +1,18 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
+import * as toolSchemaBoundary from '@src/core/validation/toolSchemaBoundary.js';
 import { executeWithPostAuthOAuthRecovery } from '@src/core/client/postAuthOAuthRecovery.js';
 import type { TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { ClientStatus, type OutboundConnections } from '@src/core/types/client.js';
+import { SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
 import { OneMcpProtocolError, type Tool } from '@src/sdk/contracts/index.js';
 
 import { CapabilityCatalog } from './capabilityCatalog.js';
+import {
+  advanceCapabilityPaginationGeneration,
+  CAPABILITY_PAGINATION_META_KEY,
+  setCapabilityFailureFacts,
+} from './capabilityPagination.js';
 import { capabilityVisibilityFromServerNames, createCapabilityVisibility } from './capabilityVisibility.js';
 import { buildCatalogGeneration } from './catalogGeneration.js';
 import { SchemaCache } from './schemaCache.js';
@@ -111,6 +118,251 @@ describe('CapabilityCatalog', () => {
       ...overrides,
     } as any);
   }
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('keeps a partial tool walk stable and retries admission on a fresh first page', async () => {
+    registry = ToolRegistry.fromToolsWithServer([
+      ...registry
+        .getAllTools()
+        .map((tool) => ({ tool: tool.definition!, server: tool.server, connectionKey: tool.connectionKey })),
+      { tool: { name: 'extra', inputSchema: { type: 'object' } }, server: 'filesystem' },
+    ]).withConnections(outboundConnections);
+    const originalAdmission = toolSchemaBoundary.admitToolSchemas;
+    let fail = true;
+    const admission = vi.spyOn(toolSchemaBoundary, 'admitToolSchemas').mockImplementation(async (tool, binding) => {
+      if (fail && tool.name === 'template_tool') throw new SchemaBoundaryError('schema_evaluation_timeout', true);
+      return originalAdmission(tool, binding);
+    });
+    const catalog = createCatalog();
+    const first = await catalog.listVisibleTools({ limit: 1 });
+    expect(first._meta?.[CAPABILITY_PAGINATION_META_KEY]).toMatchObject({
+      partial: true,
+      complete: false,
+      failureCategories: { upstream_tool_admission_timeout: 1 },
+      recovery: 'restart-walk',
+    });
+    expect(first.hasMore).toBe(true);
+    const withheld = await catalog.invokeVisibleTool({
+      server: 'template-server',
+      toolName: 'template_tool',
+      args: {},
+    });
+    expect(withheld.error?.type).toBe('not_found');
+    expect(mockClient.callTool).not.toHaveBeenCalled();
+
+    fail = false;
+    const refreshed = await catalog.listVisibleTools({});
+    expect(refreshed.tools.map((tool) => tool.name)).toContain('template_tool');
+    expect(refreshed._meta).toBeUndefined();
+    const admissionCalls = admission.mock.calls.length;
+    const last = await catalog.listVisibleTools({ limit: 1, cursor: first.nextCursor });
+    expect(last._meta).toEqual(first._meta);
+    expect(last.tools.map((tool) => tool.name)).not.toContain('template_tool');
+    expect(last.hasMore).toBe(false);
+    expect(admission).toHaveBeenCalledTimes(admissionCalls);
+  });
+
+  it('allows an explicit partial empty listing when all upstream admissions time out', async () => {
+    vi.spyOn(toolSchemaBoundary, 'admitToolSchemas').mockRejectedValue(
+      new SchemaBoundaryError('schema_evaluation_timeout', true),
+    );
+    const result = await createCatalog().listVisibleTools({});
+    expect(result.tools).toEqual([]);
+    expect(result._meta?.[CAPABILITY_PAGINATION_META_KEY]).toMatchObject({
+      partial: true,
+      failedSourceCount: 2,
+      failureCategories: { upstream_tool_admission_timeout: 2 },
+    });
+  });
+
+  it.each([
+    ['schema_evaluation_unavailable', 'admission'],
+    ['schema_evaluation_timeout', 'input'],
+  ] as const)('fails listing for shared or non-admission failures: %s/%s', async (code, phase) => {
+    vi.spyOn(toolSchemaBoundary, 'admitToolSchemas').mockRejectedValue(new SchemaBoundaryError(code, true, phase));
+    await expect(createCatalog().listVisibleTools({})).rejects.toThrow(code);
+  });
+
+  it('fails an admission timeout without an upstream connection', async () => {
+    outboundConnections.clear();
+    vi.spyOn(toolSchemaBoundary, 'admitToolSchemas').mockRejectedValue(
+      new SchemaBoundaryError('schema_evaluation_timeout', true),
+    );
+    await expect(createCatalog().listVisibleTools({})).rejects.toThrow('schema_evaluation_timeout');
+  });
+
+  it('withholds every timed-out tool while counting distinct failed sources', async () => {
+    registry = ToolRegistry.fromToolsWithServer([
+      { server: 'filesystem', tool: { name: 'one', inputSchema: { type: 'object' } } },
+      { server: 'filesystem', tool: { name: 'two', inputSchema: { type: 'object' } } },
+    ]);
+    vi.spyOn(toolSchemaBoundary, 'admitToolSchemas').mockRejectedValue(
+      new SchemaBoundaryError('schema_evaluation_timeout', true),
+    );
+    const result = await createCatalog().listVisibleTools({});
+    expect(result._meta?.[CAPABILITY_PAGINATION_META_KEY]).toMatchObject({
+      failedSourceCount: 1,
+      failureCategories: { upstream_tool_admission_timeout: 2 },
+    });
+  });
+
+  it('does not let an older timeout overwrite a newer successful admission', async () => {
+    registry = ToolRegistry.fromToolsWithServer([
+      { server: 'filesystem', tool: { name: 'unstable', inputSchema: { type: 'object' } } },
+    ]);
+    const originalAdmission = toolSchemaBoundary.admitToolSchemas;
+    let release: (error: unknown) => void = () => {};
+    let began: () => void = () => {};
+    const started = new Promise<void>((resolve) => {
+      began = resolve;
+    });
+    let first = true;
+    vi.spyOn(toolSchemaBoundary, 'admitToolSchemas').mockImplementation(async (tool, binding) => {
+      if (first) {
+        first = false;
+        began();
+        return new Promise((_, reject) => {
+          release = reject;
+        });
+      }
+      return originalAdmission(tool, binding);
+    });
+    const catalog = createCatalog();
+    const old = catalog.listVisibleTools({});
+    await started;
+    await catalog.listVisibleTools({});
+    release(new SchemaBoundaryError('schema_evaluation_timeout', true));
+    await old;
+    const invoked = await catalog.invokeVisibleTool({ server: 'filesystem', toolName: 'unstable', args: {} });
+    expect(invoked.error).toBeUndefined();
+    expect(mockClient.callTool).toHaveBeenCalledOnce();
+  });
+
+  it('rejects publication when a fallback backend is replaced during admission', async () => {
+    const originalAdmission = toolSchemaBoundary.admitToolSchemas;
+    let release: () => void = () => {};
+    let began: () => void = () => {};
+    const started = new Promise<void>((resolve) => {
+      began = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let first = true;
+    vi.spyOn(toolSchemaBoundary, 'admitToolSchemas').mockImplementation(async (tool, binding) => {
+      if (first) {
+        first = false;
+        began();
+        await held;
+      }
+      return originalAdmission(tool, binding);
+    });
+    const listing = createCatalog().listVisibleTools({});
+    await started;
+    outboundConnections.set('filesystem', createMockOutboundConnection({ name: 'filesystem' }));
+    release();
+    await expect(listing).rejects.toThrow('Capability catalog changed during listing');
+  });
+
+  it('allows invocation after an existing refresh installs a successfully admitted registry', async () => {
+    const definition: Tool = { name: 'unstable', inputSchema: { type: 'object' } };
+    registry = ToolRegistry.fromToolsWithServer([{ server: 'filesystem', tool: definition }]);
+    const originalAdmission = toolSchemaBoundary.admitToolSchemas;
+    let fail = true;
+    vi.spyOn(toolSchemaBoundary, 'admitToolSchemas').mockImplementation(async (tool, binding) => {
+      if (fail) throw new SchemaBoundaryError('schema_evaluation_timeout', true);
+      return originalAdmission(tool, binding);
+    });
+    const refreshCapabilities = vi.fn(async () => {
+      await originalAdmission(definition as unknown as Record<string, unknown>, {
+        routeKey: 'refresh',
+        generation: 'one',
+      });
+      registry = ToolRegistry.fromToolsWithServer([{ server: 'filesystem', tool: definition }]);
+    });
+    const catalog = createCatalog(undefined, { refreshCapabilities });
+    await catalog.listVisibleTools({});
+    expect(
+      (await catalog.invokeVisibleTool({ server: 'filesystem', toolName: 'unstable', args: {} })).error?.type,
+    ).toBe('not_found');
+    fail = false;
+    const result = await catalog.invokeVisibleTool(
+      { server: 'filesystem', toolName: 'unstable', args: {} },
+      undefined,
+      { refreshIntent: 'force' },
+    );
+    expect(result.error).toBeUndefined();
+    expect(refreshCapabilities).toHaveBeenCalledOnce();
+    expect(mockClient.callTool).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a continuation after a pending tool becomes disabled', async () => {
+    const configs = { filesystem: { type: 'stdio', command: 'node', disabledTools: [] as string[] } };
+    const catalog = createCatalog(undefined, { getServerConfigs: () => configs });
+    const first = await catalog.listVisibleTools({ limit: 1 });
+    configs.filesystem.disabledTools.push('write_file');
+    await expect(catalog.listVisibleTools({ cursor: first.nextCursor })).rejects.toThrow(
+      'Invalid capability pagination cursor',
+    );
+  });
+
+  it('rejects a continuation after its upstream connection is replaced', async () => {
+    const catalog = createCatalog();
+    const first = await catalog.listVisibleTools({ limit: 1 });
+    outboundConnections.set('filesystem', createMockOutboundConnection({ name: 'filesystem' }));
+    await expect(catalog.listVisibleTools({ cursor: first.nextCursor })).rejects.toThrow(
+      'Invalid capability pagination cursor',
+    );
+  });
+
+  it('scopes private failure facts to visible connections, including failed sources without tools', async () => {
+    const meta = setCapabilityFailureFacts(
+      {
+        [CAPABILITY_PAGINATION_META_KEY]: {
+          partial: true,
+          complete: false,
+          failedSourceCount: 1,
+          failureCategories: { upstream_tool_admission_timeout: 2 },
+        },
+      },
+      new Map([['template-server:rendered123', { upstream_tool_admission_timeout: 2 }]]),
+    );
+    registry = registry.withListingMeta(meta);
+    const healthy = await createCatalog().listVisibleTools({}, capabilityVisibilityFromServerNames(['filesystem']));
+    expect(healthy._meta).toBeUndefined();
+    registry = ToolRegistry.empty().withListingMeta(meta);
+    const failed = await createCatalog().listVisibleTools(
+      {},
+      createCapabilityVisibility([['template-server:rendered123', 'template-server']]),
+    );
+    expect(failed._meta?.[CAPABILITY_PAGINATION_META_KEY]).toMatchObject({ failedSourceCount: 1 });
+  });
+
+  it('keeps a tool listing snapshot across request-local catalog instances', async () => {
+    const first = await createCatalog().listVisibleTools({ limit: 1 });
+    const last = await createCatalog().listVisibleTools({ limit: 1, cursor: first.nextCursor });
+    expect(last.tools).toHaveLength(1);
+    expect(last.tools[0].name).not.toBe(first.tools[0].name);
+    expect(last.hasMore).toBe(false);
+  });
+
+  it('invalidates a retained meta-tool walk after a tools generation change', async () => {
+    const catalog = createCatalog();
+    const first = await catalog.listVisibleTools({ limit: 1 });
+    advanceCapabilityPaginationGeneration(outboundConnections, 'tools');
+    await expect(catalog.listVisibleTools({ cursor: first.nextCursor })).rejects.toThrow(
+      'Invalid capability pagination cursor',
+    );
+  });
+
+  it('preserves aggregate partial metadata through visibility filtering', async () => {
+    const meta = { [CAPABILITY_PAGINATION_META_KEY]: { partial: true, complete: false, recovery: 'restart-walk' } };
+    registry = registry.withListingMeta(meta);
+    const result = await createCatalog().listVisibleTools({}, capabilityVisibilityFromServerNames(['filesystem']));
+    expect(result._meta).toEqual(meta);
+    expect(result.tools.map((tool) => tool.name)).toEqual(['read_file']);
+  });
 
   it('lists visible tools with disabled tools omitted and clean public server names', async () => {
     const result = await createCatalog().listVisibleTools({});

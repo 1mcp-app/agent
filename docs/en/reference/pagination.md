@@ -218,12 +218,24 @@ When a provider listing fails, 1MCP continues with healthy providers and marks e
   "_meta": {
     "app.1mcp/capability-pagination": {
       "partial": true,
-      "failures": [{ "provider": "example", "code": "upstream_list_failed" }],
-      "recovery": { "action": "restart_without_cursor" }
+      "complete": false,
+      "generation": "opaque-generation",
+      "failedSourceCount": 1,
+      "failureCategories": { "upstream_list_failed": 1 },
+      "retryable": true,
+      "recovery": "restart-walk"
     }
   }
 }
 ```
+
+### Upstream Tool Admission Timeout
+
+If an individual upstream tool's schema admission times out, that tool is withheld from listing and invocation while healthy tools remain available. The metadata includes `failureCategories.upstream_tool_admission_timeout`, counting withheld tools. `failedSourceCount` counts affected sources once, including sources whose listing also failed. A timeout does not mean the schema is invalid.
+
+The partial status is retained through the final page, including an empty result when every upstream tool times out. Restart the listing without a cursor, or use an existing capability refresh, to retry admission. Continuations use the captured snapshot and do not retry withheld tools. Generation changes still invalidate cursors. Metatool `tool_list` also returns partial metadata and retries admission on a fresh listing.
+
+Partial discovery retains the last complete configured-tool inventory for inspection; that historical inventory does not permit invocation of a withheld tool. Shared validator unavailability and admission failures of 1MCP's own tools still fail the operation. Schema resource limits remain enforced.
 
 ## Configuration Examples
 

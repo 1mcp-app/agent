@@ -4,6 +4,11 @@ import {
   advanceCapabilityPaginationGeneration,
   CapabilityCursorCapacityError,
   type CapabilityKind,
+  filterCapabilityPartialMeta,
+  getCapabilityFailureFacts,
+  getCapabilityFailureSources,
+  setCapabilityFailureFacts,
+  setCapabilityFailureSources,
   walkCapabilityPages,
 } from './capabilityPagination.js';
 
@@ -12,6 +17,114 @@ const kinds: CapabilityKind[] = ['tools', 'prompts', 'resources', 'resourceTempl
 afterEach(() => vi.useRealTimers());
 
 describe('authenticated capability cursors', () => {
+  it('filters partial metadata by visible failed sources, including sources with no tools', async () => {
+    const result = await walkCapabilityPages({
+      connections: new Map(),
+      kind: 'tools',
+      enablePagination: false,
+      filterSelection: null,
+      upstreamToolAdmissionTimeouts: ['private-a', 'private-a', 'private-c'],
+      providers: [
+        {
+          id: 'private-a',
+          name: 'a',
+          list: async () => {
+            throw new Error('untrusted');
+          },
+        },
+        {
+          id: 'private-b',
+          name: 'b',
+          list: async () => ({ items: ['healthy'] }),
+        },
+        {
+          id: 'private-c',
+          name: 'c',
+          list: async () => ({ items: [] }),
+        },
+      ],
+    });
+    expect(filterCapabilityPartialMeta(result._meta, new Set(['private-b']))).toBeUndefined();
+    const unrelated = filterCapabilityPartialMeta({ ...result._meta, unrelated: true }, new Set(['private-b']));
+    // A plain copied object has no process-local provenance; attach it explicitly.
+    const copied = setCapabilityFailureFacts(
+      { ...result._meta, unrelated: true },
+      getCapabilityFailureFacts(result._meta),
+    );
+    expect(filterCapabilityPartialMeta(copied, new Set(['private-b']))).toEqual({ unrelated: true });
+    expect(unrelated).toEqual({ ...result._meta, unrelated: true });
+    const failedNoTools = filterCapabilityPartialMeta(result._meta, new Set(['private-c']));
+    expect(failedNoTools).toMatchObject({
+      'app.1mcp/capability-pagination': {
+        partial: true,
+        failedSourceCount: 1,
+        failureCategories: { upstream_tool_admission_timeout: 1 },
+      },
+    });
+    const multipleTools = filterCapabilityPartialMeta(result._meta, new Set(['private-a']));
+    expect(multipleTools).toMatchObject({
+      'app.1mcp/capability-pagination': {
+        failedSourceCount: 1,
+        failureCategories: { upstream_list_failed: 1, upstream_tool_admission_timeout: 2 },
+      },
+    });
+    expect([...getCapabilityFailureSources(multipleTools)]).toEqual(['private-a']);
+    expect(JSON.stringify(multipleTools)).not.toContain('private-a');
+    expect(JSON.stringify(multipleTools)).not.toContain('untrusted');
+  });
+
+  it('carries tool-admission failure facts through the final continuation page', async () => {
+    const options = {
+      connections: new Map(),
+      kind: 'tools' as const,
+      filterSelection: null,
+      enablePagination: true,
+      upstreamToolAdmissionTimeouts: ['private-id', 'private-id'],
+      providers: [
+        {
+          id: 'healthy',
+          name: 'healthy',
+          list: async (cursor?: string) =>
+            cursor === undefined ? { items: ['first'], nextCursor: 'next' } : { items: ['final'] },
+        },
+      ],
+    };
+    const first = await walkCapabilityPages(options);
+    const last = await walkCapabilityPages({ ...options, cursor: first.nextCursor });
+    expect(last._meta).toEqual(first._meta);
+    expect(last._meta).toMatchObject({
+      'app.1mcp/capability-pagination': {
+        failedSourceCount: 1,
+        failureCategories: { upstream_tool_admission_timeout: 2 },
+        recovery: 'restart-walk',
+      },
+    });
+    expect(JSON.stringify(last._meta)).not.toContain('private-id');
+    expect([...getCapabilityFailureSources(last._meta)]).toEqual(['private-id']);
+    expect([...getCapabilityFailureFacts(last._meta)]).toEqual([
+      ['private-id', { upstream_tool_admission_timeout: 2 }],
+    ]);
+    const filteredMeta = { ...last._meta };
+    const facts = new Map([['other-private-id', { upstream_list_failed: 1, upstream_tool_admission_timeout: 2 }]]);
+    expect(setCapabilityFailureFacts(filteredMeta, facts)).toBe(filteredMeta);
+    facts.get('other-private-id')!.upstream_tool_admission_timeout = 99;
+    facts.clear();
+    expect([...getCapabilityFailureFacts(filteredMeta)]).toEqual([
+      ['other-private-id', { upstream_list_failed: 1, upstream_tool_admission_timeout: 2 }],
+    ]);
+    expect([...getCapabilityFailureSources(filteredMeta)]).toEqual(['other-private-id']);
+    expect(JSON.stringify(filteredMeta)).not.toContain('other-private-id');
+    expect(getCapabilityFailureFacts(undefined).size).toBe(0);
+    const copied = { ...last._meta };
+    const sources = new Set(['other-private-id']);
+    expect(setCapabilityFailureSources(copied, sources)).toBe(copied);
+    sources.clear();
+    expect([...getCapabilityFailureSources(copied)]).toEqual(['other-private-id']);
+    expect(JSON.stringify(copied)).not.toContain('other-private-id');
+    expect(getCapabilityFailureSources(undefined).size).toBe(0);
+    expect(last.nextCursor).toBeUndefined();
+  });
+
   it.each(kinds)('binds %s continuation to scope, kind, generation and expiry', async (kind) => {
     vi.useFakeTimers();
     const connections = new Map();

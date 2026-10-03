@@ -42,6 +42,20 @@ describe('ToolRegistry', () => {
     }
   });
 
+  it('retains partial metadata through registry scoping and every page', () => {
+    const meta = { partial: true, complete: false };
+    const scoped = registry
+      .withListingMeta(meta)
+      .filterByServerCandidates(new Map([['filesystem', 'filesystem']]))
+      .withConnections(new Map());
+    const first = scoped.listTools({ limit: 1, pattern: '*file*' });
+    const last = scoped.listTools({ limit: 1, cursor: first.nextCursor });
+    expect(first._meta).toEqual(meta);
+    expect(last._meta).toEqual(meta);
+    expect(last.tools.map((tool) => tool.name)).toEqual(['write_file']);
+    expect(last.hasMore).toBe(false);
+  });
+
   describe('Basic Operations', () => {
     it('treats duplicate template names as unavailable until scoped to one instance', () => {
       const tool: Tool = { name: 'echo', inputSchema: { type: 'object' } };

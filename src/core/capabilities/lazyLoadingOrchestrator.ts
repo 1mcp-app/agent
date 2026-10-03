@@ -99,6 +99,9 @@ export class LazyLoadingOrchestrator extends EventEmitter {
         this.loadSchemaFromServer.bind(this),
         undefined,
         templateHashProvider,
+        async () => {
+          await this.refreshCapabilities();
+        },
       );
     }
 
@@ -162,6 +165,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
       new Map(Array.from(snapshot?.connections ?? [], ([key, connection]) => [key, connection.tags])),
       snapshot?.connections,
       snapshot?.isCurrent,
+      this.capabilityAggregator.getCurrentCapabilities().capabilityMeta?.tools,
     );
   }
 
@@ -287,6 +291,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
     const metaTools = this.metaToolProvider?.getMetaTools() || [];
 
     return {
+      capabilityMeta: baseCapabilities.capabilityMeta,
       tools: metaTools,
       resources: baseCapabilities.resources,
       resourceTemplates: baseCapabilities.resourceTemplates,
@@ -338,6 +343,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
     );
 
     return {
+      capabilityMeta: baseCapabilities.capabilityMeta,
       tools: metaTools,
       resources: filteredResources as unknown as AggregatedCapabilities['resources'],
       resourceTemplates: filteredTemplates as unknown as AggregatedCapabilities['resourceTemplates'],

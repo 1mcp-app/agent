@@ -45,6 +45,7 @@ export const ToolListOutputSchema = z.object({
   servers: z.array(z.string()),
   hasMore: z.boolean(),
   nextCursor: z.string().optional(),
+  _meta: z.record(z.string(), z.unknown()).optional(),
   error: z
     .object({
       type: z.enum(['validation', 'upstream', 'not_found', 'internal']),
