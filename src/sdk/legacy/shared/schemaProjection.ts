@@ -1,7 +1,14 @@
 import { Server, specTypeSchemas } from '@modelcontextprotocol/server';
 
 import { SchemaBoundaryError } from '@src/core/validation/schemaPolicy.js';
-import { type JsonObject, toJsonValue } from '@src/sdk/contracts/index.js';
+import {
+  type JsonObject,
+  type JsonValue,
+  type JsonValueCost,
+  measureJsonValue,
+  RESPONSE_JSON_VALUE_LIMITS,
+  toJsonValue,
+} from '@src/sdk/contracts/index.js';
 import type { Server as LegacyServer } from '@src/sdk/legacy/server/index.js';
 import { Protocol } from '@src/sdk/legacy/shared/protocol.js';
 
@@ -11,13 +18,18 @@ class LegacySchemaCodec extends Server {
     super({ name: '1mcp-schema-projection', version: '1' }, { capabilities: { tools: {} } });
   }
   projectTools(result: JsonObject): JsonObject {
-    return toJsonValue(this._wireCodec().encodeResult('tools/list', result)) as JsonObject;
+    return toJsonValue(this._wireCodec().encodeResult('tools/list', result), RESPONSE_JSON_VALUE_LIMITS) as JsonObject;
   }
 }
 // An unconnected v2 Server explicitly uses its legacy codec until negotiation.
 const codec = new LegacySchemaCodec();
 export function projectLegacyTools(result: JsonObject): JsonObject {
   return codec.projectTools(result);
+}
+/** What one tool spends from a response budget once {@link projectLegacyTools} projects it. */
+export function measureProjectedLegacyTool(tool: unknown): JsonValueCost {
+  const projected = codec.projectTools({ tools: [toJsonValue(tool, RESPONSE_JSON_VALUE_LIMITS)] });
+  return measureJsonValue((projected.tools as JsonValue[])[0], RESPONSE_JSON_VALUE_LIMITS);
 }
 export function projectLegacyToolResult(result: unknown, outputSchema?: Readonly<Record<string, unknown>>): JsonObject {
   assertCanonicalToolResult(result);

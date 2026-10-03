@@ -1,12 +1,16 @@
 import { UriTemplate } from '@modelcontextprotocol/sdk/shared/uriTemplate.js';
 
-import { type JsonValue, toJsonValue } from '@src/sdk/contracts/index.js';
+import { JSON_VALUE_LIMITS, type JsonValue, type JsonValueLimits, toJsonValue } from '@src/sdk/contracts/index.js';
 
 import { assertCanonicalToolResult } from './schemaProjection.js';
 
 /** Keep malformed template syntax local to one catalog source capability. */
-export function captureCapabilityListResult(method: string, result: unknown): JsonValue {
-  const captured = toJsonValue(result);
+export function captureCapabilityListResult(
+  method: string,
+  result: unknown,
+  limits: JsonValueLimits = JSON_VALUE_LIMITS,
+): JsonValue {
+  const captured = toJsonValue(result, limits);
   if (method === 'tools/call') assertCanonicalToolResult(captured);
   if (
     method !== 'resources/templates/list' ||

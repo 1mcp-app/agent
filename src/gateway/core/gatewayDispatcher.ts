@@ -123,7 +123,7 @@ export class GatewayDispatcher {
     this.active.set(request.requestId, outbound);
     this.dispatched.add(request);
     try {
-      return gatewaySuccess(toImmutableJsonValue(await outbound.request(outboundRequest)));
+      return gatewaySuccess(toImmutableJsonValue(await outbound.request(outboundRequest), outbound.resultLimits));
     } catch (error) {
       const failure = gatewayFailureFromUnknown(error, 'transport');
       return gatewayFailure(

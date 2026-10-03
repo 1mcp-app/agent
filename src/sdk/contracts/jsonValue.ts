@@ -5,12 +5,35 @@ export interface JsonObject {
 }
 export type JsonValue = JsonPrimitive | JsonArray | JsonObject;
 
-/** Finite resource budgets applied while validating and cloning foreign values. */
-export const JSON_VALUE_LIMITS = Object.freeze({
+export interface JsonValueLimits {
+  readonly maxDepth: number;
+  readonly maxNodes: number;
+  readonly maxTotalStringLength: number;
+}
+
+/** Finite resource budgets applied while validating and cloning one foreign value. */
+export const JSON_VALUE_LIMITS: JsonValueLimits = Object.freeze({
   maxDepth: 64,
   maxNodes: 10_000,
   maxTotalStringLength: 1_000_000,
 });
+
+/**
+ * Budgets for one response the gateway assembles from many upstream values, such as
+ * an aggregated capability list. Response assembly pages its items against these
+ * limits, so every response it sends fits them.
+ */
+export const RESPONSE_JSON_VALUE_LIMITS: JsonValueLimits = Object.freeze({
+  maxDepth: JSON_VALUE_LIMITS.maxDepth,
+  maxNodes: 1_000_000,
+  maxTotalStringLength: 32 * 1024 * 1024,
+});
+
+/** What a value spends from a {@link JsonValueLimits} budget. */
+export interface JsonValueCost {
+  readonly nodes: number;
+  readonly stringLength: number;
+}
 
 export class InvalidJsonValueError extends TypeError {
   constructor(
@@ -23,6 +46,7 @@ export class InvalidJsonValueError extends TypeError {
 }
 
 interface CloneState {
+  readonly limits: JsonValueLimits;
   nodes: number;
   stringLength: number;
   readonly ancestors: WeakSet<object>;
@@ -34,15 +58,15 @@ function fail(path: string, reason: string): never {
 
 function consumeNode(state: CloneState, path: string): void {
   state.nodes += 1;
-  if (state.nodes > JSON_VALUE_LIMITS.maxNodes) {
-    fail(path, `node limit of ${JSON_VALUE_LIMITS.maxNodes} exceeded`);
+  if (state.nodes > state.limits.maxNodes) {
+    fail(path, `node limit of ${state.limits.maxNodes} exceeded`);
   }
 }
 
 function consumeString(state: CloneState, path: string, value: string): void {
   state.stringLength += value.length;
-  if (state.stringLength > JSON_VALUE_LIMITS.maxTotalStringLength) {
-    fail(path, `total string length limit of ${JSON_VALUE_LIMITS.maxTotalStringLength} exceeded`);
+  if (state.stringLength > state.limits.maxTotalStringLength) {
+    fail(path, `total string length limit of ${state.limits.maxTotalStringLength} exceeded`);
   }
 }
 
@@ -99,8 +123,8 @@ function cloneObject(value: object, path: string, depth: number, state: CloneSta
 }
 
 function cloneValue(value: unknown, path: string, depth: number, state: CloneState): JsonValue {
-  if (depth > JSON_VALUE_LIMITS.maxDepth) {
-    fail(path, `depth limit of ${JSON_VALUE_LIMITS.maxDepth} exceeded`);
+  if (depth > state.limits.maxDepth) {
+    fail(path, `depth limit of ${state.limits.maxDepth} exceeded`);
   }
   consumeNode(state, path);
 
@@ -125,9 +149,20 @@ function cloneValue(value: unknown, path: string, depth: number, state: CloneSta
   }
 }
 
+function newCloneState(limits: JsonValueLimits): CloneState {
+  return { limits, ancestors: new WeakSet(), nodes: 0, stringLength: 0 };
+}
+
 /** Validates an unknown boundary value and returns a detached plain JSON clone. */
-export function toJsonValue(value: unknown): JsonValue {
-  return cloneValue(value, '$', 0, { ancestors: new WeakSet(), nodes: 0, stringLength: 0 });
+export function toJsonValue(value: unknown, limits: JsonValueLimits = JSON_VALUE_LIMITS): JsonValue {
+  return cloneValue(value, '$', 0, newCloneState(limits));
+}
+
+/** Validates a value against `limits` and reports the budget it spends, using the same accounting. */
+export function measureJsonValue(value: unknown, limits: JsonValueLimits): JsonValueCost {
+  const state = newCloneState(limits);
+  cloneValue(value, '$', 0, state);
+  return { nodes: state.nodes, stringLength: state.stringLength };
 }
 
 export function isJsonValue(value: unknown): value is JsonValue {
