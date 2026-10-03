@@ -12,8 +12,12 @@ import { AsyncLoadingOrchestratorEvent } from './asyncLoadingOrchestratorEvent.j
 import { AggregatedCapabilities, CapabilityAggregator } from './capabilityAggregator.js';
 import { type CapabilityVisibility, getCapabilityVisibleServerNames } from './capabilityVisibility.js';
 import { MetaToolProvider } from './metaToolProvider.js';
+import type { RuntimeCapabilitySnapshot } from './runtimeCapabilityCatalog.js';
 import { SchemaCache, SchemaCacheConfig } from './schemaCache.js';
 import { ToolRegistry } from './toolRegistry.js';
+
+/** Minimum delay before retrying a registry build that some backend failed to enumerate. */
+const FAILED_SOURCE_RETRY_MS = 30_000;
 
 /**
  * Lazy loading statistics for monitoring
@@ -55,6 +59,9 @@ export class LazyLoadingOrchestrator extends EventEmitter {
   private outboundConnections: OutboundConnections;
   private config: AgentConfigManager;
   private toolRegistry: ToolRegistry;
+  private registrySnapshot?: RuntimeCapabilitySnapshot;
+  private registryBuiltAt = 0;
+  private registryRefresh?: Promise<void>;
   private schemaCache: SchemaCache;
   private metaToolProvider?: MetaToolProvider;
   private capabilityAggregator: CapabilityAggregator;
@@ -93,7 +100,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
     // Initialize meta-tool provider if lazy loading is enabled
     if (lazyConfig.enabled) {
       this.metaToolProvider = new MetaToolProvider(
-        () => this.toolRegistry,
+        () => this.getCurrentToolRegistry(),
         this.schemaCache,
         outboundConnections,
         this.loadSchemaFromServer.bind(this),
@@ -157,12 +164,44 @@ export class LazyLoadingOrchestrator extends EventEmitter {
    */
   private async buildToolRegistry(): Promise<void> {
     const snapshot = this.capabilityAggregator.getCatalogSnapshot();
-    this.toolRegistry = ToolRegistry.fromGeneration(
-      this.capabilityAggregator.getCatalogGeneration(),
-      new Map(Array.from(snapshot?.connections ?? [], ([key, connection]) => [key, connection.tags])),
-      snapshot?.connections,
-      snapshot?.isCurrent,
-    );
+    this.registrySnapshot = snapshot;
+    this.registryBuiltAt = Date.now();
+    this.toolRegistry = snapshot ? ToolRegistry.fromCapabilitySnapshot(snapshot) : ToolRegistry.empty();
+  }
+
+  /**
+   * Get a tool registry that reflects the current backends.
+   *
+   * The registry is built from one Capability Snapshot. That snapshot stops being current
+   * when a backend reconnects or its catalog scope expires, and it misses servers that
+   * connected later or failed to enumerate tools. Rebuild it on demand in those cases
+   * instead of serving an empty or partial registry until the next loading cycle.
+   */
+  public async getCurrentToolRegistry(): Promise<ToolRegistry> {
+    if (!this.isEnabled() || !this.toolRegistryNeedsRefresh()) return this.toolRegistry;
+    this.registryRefresh ??= this.refreshCapabilities()
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        errorIf(() => ({
+          message: 'Failed to rebuild stale tool registry',
+          meta: { error: error instanceof Error ? error.message : String(error) },
+        }));
+      })
+      .finally(() => {
+        this.registryRefresh = undefined;
+      });
+    await this.registryRefresh;
+    return this.toolRegistry;
+  }
+
+  private toolRegistryNeedsRefresh(): boolean {
+    const snapshot = this.registrySnapshot;
+    if (!snapshot?.isCurrent()) return true;
+    for (const [key, connection] of this.outboundConnections) {
+      if (connection.status === ClientStatus.Connected && !snapshot.connections.has(key)) return true;
+    }
+    if (!snapshot.hasFailedSources('tools')) return false;
+    return Date.now() - this.registryBuiltAt >= FAILED_SOURCE_RETRY_MS;
   }
 
   /**
@@ -451,18 +490,20 @@ export class LazyLoadingOrchestrator extends EventEmitter {
    * @param name - Meta-tool name
    * @param args - Meta-tool arguments
    * @param visibility - Request-scoped Filter Selection and Server Candidate Set
+   * @param toolRegistry - Registry built from the caller's own snapshot; defaults to the shared registry
    */
   public async callMetaTool(
     name: string,
     args: unknown,
     visibility?: CapabilityVisibility,
     signal?: AbortSignal,
+    toolRegistry?: ToolRegistry,
   ): Promise<unknown> {
     if (!this.metaToolProvider) {
       throw new Error('Meta-tool provider not initialized');
     }
 
-    return this.metaToolProvider.callMetaTool(name, args, visibility, signal);
+    return this.metaToolProvider.callMetaTool(name, args, visibility, signal, toolRegistry);
   }
 
   /**
@@ -473,9 +514,11 @@ export class LazyLoadingOrchestrator extends EventEmitter {
   }
 
   /**
-   * Get the tool registry
+   * Get the tool registry as last built. A stale registry starts a background rebuild;
+   * callers that can wait should use getCurrentToolRegistry().
    */
   public getToolRegistry(): ToolRegistry {
+    if (this.isEnabled() && this.toolRegistryNeedsRefresh()) void this.getCurrentToolRegistry();
     return this.toolRegistry;
   }
 

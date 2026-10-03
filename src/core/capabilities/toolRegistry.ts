@@ -3,6 +3,7 @@ import logger, { errorIf } from '@src/logger/logger.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
 
 import { buildCatalogGeneration, type CapabilityRoute, type CatalogGeneration } from './catalogGeneration.js';
+import type { RuntimeCapabilitySnapshot } from './runtimeCapabilityCatalog.js';
 
 /**
  * Lightweight tool metadata used for discovery and routing.
@@ -150,6 +151,18 @@ export class ToolRegistry {
         }),
       connections,
       isCurrent,
+    );
+  }
+
+  /** Build a registry that stays bound to the backends a Capability Snapshot captured. */
+  public static fromCapabilitySnapshot(
+    snapshot: Pick<RuntimeCapabilitySnapshot, 'generation' | 'connections' | 'isCurrent'>,
+  ): ToolRegistry {
+    return ToolRegistry.fromGeneration(
+      snapshot.generation,
+      new Map(Array.from(snapshot.connections, ([key, connection]) => [key, connection.tags ?? []])),
+      snapshot.connections,
+      snapshot.isCurrent,
     );
   }
 

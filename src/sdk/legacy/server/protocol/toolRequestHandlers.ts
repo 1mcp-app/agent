@@ -5,6 +5,7 @@ import {
   acquireRuntimeCapabilityCatalog,
   type PreparedToolCall,
 } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
+import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { executeWithPostAuthOAuthRecovery } from '@src/core/client/postAuthOAuthRecovery.js';
 import {
@@ -40,10 +41,12 @@ export function registerToolHandlers(
 ): void {
   const sessionId = getRequestSession(inboundConn);
   const lazy = lazyLoadingOrchestrator?.isEnabled() ?? false;
-  const acquire = async (cursor?: string, signal?: AbortSignal) => {
-    const visibility = lazy
+  const acquire = async (cursor?: string, signal?: AbortSignal, { upstream = true } = {}) => {
+    const resolved = lazy
       ? resolveLazyCapabilityVisibility(outboundConns, inboundConn, sessionId)
       : resolveCapabilityVisibility(outboundConns, inboundConn, sessionId, 'tools');
+    // Lazy discovery lists only gateway tools, so it must not wait on upstream enumeration.
+    const visibility = upstream ? resolved : { ...resolved, serverCandidates: new Map<string, string>() };
     const provider = InternalCapabilitiesProvider.getInstance();
     await provider.initialize();
     const internalTools = provider.getAvailableTools();
@@ -81,7 +84,7 @@ export function registerToolHandlers(
           bindOwnedNotificationAuthorization(outboundConns, inboundConn, () =>
             revalidateLegacyRequestAuthInfo(extra.authInfo),
           );
-        const { snapshot } = await acquire(request.params?.cursor, extra?.signal);
+        const { snapshot } = await acquire(request.params?.cursor, extra?.signal, { upstream: !lazy });
         const result = await snapshot.list<Tool>('tools', {
           cursor: request.params?.cursor,
           enablePagination: inboundConn.enablePagination ?? false,
@@ -157,6 +160,9 @@ export function registerToolHandlers(
                   request.params.arguments,
                   visibility,
                   extra?.signal,
+                  // This request already enumerated its visible backends; answer from that
+                  // snapshot rather than a shared registry that may be stale or partial.
+                  ToolRegistry.fromCapabilitySnapshot(snapshot),
                 ),
               ),
             );

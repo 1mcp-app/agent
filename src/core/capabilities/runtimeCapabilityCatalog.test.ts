@@ -2,6 +2,7 @@ import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js'
 
 import type { OutboundConnections } from '@src/core/types/index.js';
 import { schemaBoundary } from '@src/core/validation/schemaBoundary.js';
+import { ErrorCode, OneMcpProtocolError } from '@src/sdk/contracts/index.js';
 
 import { CapabilityCursorCapacityError } from './capabilityPagination.js';
 import { createCapabilityVisibility } from './capabilityVisibility.js';
@@ -325,6 +326,34 @@ describe('runtime capability catalog', () => {
     expect(snapshot.generation.entries).toHaveLength(5);
     expect(snapshot.resolve('tools', 'tool_list')?.entry.route.origin).toBe('internal');
     expect(snapshot.resolve('resourceTemplates', 'server_1mcp_file:///{id}')).toBeDefined();
+  });
+
+  it('treats an unimplemented resource template listing as no templates', async () => {
+    const connection = fixture('server', (method) => {
+      if (method === 'resources/templates/list')
+        throw new OneMcpProtocolError(ErrorCode.MethodNotFound, 'Method not found');
+      if (method === 'resources/list') return { resources: [{ name: 'r', uri: 'file:///one' }] };
+      return { tools: [tool('echo')] };
+    });
+    connection.capabilities = { tools: {}, resources: {} };
+    const snapshot = await acquireRuntimeCapabilityCatalog(new Map([['server', connection]]));
+
+    const templates = await snapshot.list('resourceTemplates', { enablePagination: false });
+    expect(templates).toEqual({ items: [] });
+    expect(snapshot.hasFailedSources('resourceTemplates')).toBe(false);
+  });
+
+  it('still reports other resource template listing failures as partial', async () => {
+    const connection = fixture('server', (method) => {
+      if (method === 'resources/templates/list') throw new OneMcpProtocolError(ErrorCode.InternalError, 'boom');
+      if (method === 'resources/list') return { resources: [] };
+      return { tools: [tool('echo')] };
+    });
+    connection.capabilities = { tools: {}, resources: {} };
+    const snapshot = await acquireRuntimeCapabilityCatalog(new Map([['server', connection]]));
+
+    expect(snapshot.hasFailedSources('resourceTemplates')).toBe(true);
+    expect(snapshot.hasFailedSources('tools')).toBe(false);
   });
 
   it('does not publish an older concurrent refresh over a newer completed observation', async () => {
