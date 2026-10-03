@@ -2,7 +2,14 @@ import { JSONRPCMessageSchema as V2JSONRPCMessageSchema } from '@modelcontextpro
 
 import { CallToolRequestSchema as V1CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
-import { isJsonValue, JSON_VALUE_LIMITS, type JsonValue, toJsonValue } from './jsonValue.js';
+import {
+  isJsonValue,
+  JSON_VALUE_LIMITS,
+  type JsonValue,
+  measureJsonValue,
+  RESPONSE_JSON_VALUE_LIMITS,
+  toJsonValue,
+} from './jsonValue.js';
 
 function expectInvalid(value: unknown, reason: string, path?: string): void {
   const expected =
@@ -135,6 +142,35 @@ describe('toJsonValue', () => {
     expectInvalid(
       Array.from({ length: JSON_VALUE_LIMITS.maxNodes }, () => null),
       'node limit',
+    );
+  });
+
+  it('accepts an aggregated tool list only under the response limits', () => {
+    const property = { type: 'string', description: 'A documented parameter' };
+    const tool = (index: number) => ({
+      name: `tool_${index}`,
+      description: 'An upstream tool',
+      inputSchema: {
+        type: 'object',
+        properties: Object.fromEntries(Array.from({ length: 40 }, (_, key) => [`param_${key}`, property])),
+      },
+    });
+    const listed = { tools: Array.from({ length: 150 }, (_, index) => tool(index)) };
+
+    expectInvalid(listed, 'node limit');
+    expect(toJsonValue(listed, RESPONSE_JSON_VALUE_LIMITS)).toEqual(listed);
+  });
+
+  it('measures a value with the accounting it enforces', () => {
+    const value = { key: ['xy', 1] };
+    const cost = measureJsonValue(value, JSON_VALUE_LIMITS);
+
+    expect(cost).toEqual({ nodes: 4, stringLength: 5 });
+    const exact = { ...JSON_VALUE_LIMITS, maxNodes: cost.nodes, maxTotalStringLength: cost.stringLength };
+    expect(measureJsonValue(value, exact)).toEqual(cost);
+    expect(() => measureJsonValue(value, { ...exact, maxNodes: cost.nodes - 1 })).toThrow('node limit');
+    expect(() => measureJsonValue(value, { ...exact, maxTotalStringLength: cost.stringLength - 1 })).toThrow(
+      'string length limit',
     );
   });
 

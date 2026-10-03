@@ -9,7 +9,7 @@ import type { InboundConnectionConfig } from '@src/core/types/index.js';
 import { LegacyOutboundEraAdapter } from '@src/gateway/adapters/legacy/legacyOutboundEraAdapter.js';
 import type { ImmutableJsonValue } from '@src/gateway/contracts/index.js';
 import type { GatewayInteractionRequest } from '@src/gateway/ports/outboundEraAdapter.js';
-import { toJsonValue } from '@src/sdk/contracts/index.js';
+import { RESPONSE_JSON_VALUE_LIMITS, toJsonValue } from '@src/sdk/contracts/index.js';
 import { Client } from '@src/sdk/legacy/client/index.js';
 import { LegacySdkClientAdapter } from '@src/sdk/legacy/client/runtime/legacySdkClientAdapter.js';
 import {
@@ -144,7 +144,12 @@ export async function createModernInboundLegacyBridge(
       await client.subscribeResource({ uri }, { signal });
     },
     prepareSubscriptions: async () => ({ ...acceptedCatalogFilter }),
-    outbound: new LegacyOutboundEraAdapter(legacy, { era: 'legacy', revision: LEGACY_REVISION }),
+    // Results come from this gateway's own handlers, so they are assembled responses.
+    outbound: new LegacyOutboundEraAdapter(
+      legacy,
+      { era: 'legacy', revision: LEGACY_REVISION },
+      { resultLimits: RESPONSE_JSON_VALUE_LIMITS },
+    ),
     close: () =>
       (closePromise ??= Promise.resolve()
         .then(() => {
