@@ -72,7 +72,7 @@ export function registerToolHandlers(
           }
         : undefined,
     });
-    return { snapshot, visibility, provider, serverConfigs };
+    return { snapshot, visibility: resolved, provider, serverConfigs };
   };
   const server = getLegacyInboundServer(inboundConn);
   server.setRequestHandler(
@@ -110,7 +110,16 @@ export function registerToolHandlers(
     CallToolRequestSchema,
     withErrorHandling(
       withRuntimeAdmission(async (request, extra) => {
-        const { snapshot, visibility, provider, serverConfigs } = await acquire(undefined, extra?.signal);
+        const args = request.params.arguments;
+        const toolListContinuation =
+          lazy &&
+          request.params.name === 'tool_list' &&
+          args &&
+          typeof args === 'object' &&
+          typeof args.cursor === 'string';
+        const { snapshot, visibility, provider, serverConfigs } = await acquire(undefined, extra?.signal, {
+          upstream: !toolListContinuation,
+        });
         const resolved = snapshot.resolve('tools', request.params.name);
         if (!resolved) {
           const entry = snapshot.generation.resolve('tools', request.params.name);
@@ -162,7 +171,7 @@ export function registerToolHandlers(
                   extra?.signal,
                   // This request already enumerated its visible backends; answer from that
                   // snapshot rather than a shared registry that may be stale or partial.
-                  ToolRegistry.fromCapabilitySnapshot(snapshot),
+                  toolListContinuation ? undefined : ToolRegistry.fromCapabilitySnapshot(snapshot),
                 ),
               ),
             );

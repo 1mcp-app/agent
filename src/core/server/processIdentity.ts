@@ -2,6 +2,8 @@ import childProcess from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 
+import logger from '@src/logger/logger.js';
+
 import { z } from 'zod';
 
 export const processIdentitySchema = z.discriminatedUnion('platform', [
@@ -22,9 +24,48 @@ export const processIdentitySchema = z.discriminatedUnion('platform', [
 export type ProcessIdentity = z.infer<typeof processIdentitySchema>;
 export type ProcessIdentityStatus = 'alive' | 'dead' | 'unknown';
 
+interface IdentityAcquisitionFailure {
+  platform: typeof process.platform;
+  pid: number;
+  elapsedMs: number;
+  code: string;
+}
+
+interface IdentityAcquisition {
+  identity?: ProcessIdentity;
+  failure?: IdentityAcquisitionFailure;
+}
+
+function acquisitionFailureCode(error: unknown): string {
+  if (error instanceof z.ZodError) return 'MALFORMED_PROCESS_EVIDENCE';
+  if (typeof error !== 'object' || error === null || !('code' in error)) return 'PROCESS_EVIDENCE_UNAVAILABLE';
+  const knownCodes = ['ETIMEDOUT', 'ENOENT', 'EACCES', 'EPERM', 'ESRCH', 'EIO', 'ENOTDIR'];
+  return typeof error.code === 'string' && knownCodes.includes(error.code)
+    ? error.code
+    : 'PROCESS_EVIDENCE_UNAVAILABLE';
+}
+
+function acquisitionFailureReason(failure?: IdentityAcquisitionFailure): string {
+  if (!failure) return '';
+  const details = `platform=${failure.platform}, lookup PID=${failure.pid}, elapsedMs=${failure.elapsedMs}, code=${failure.code}`;
+  if (failure.code === 'ETIMEDOUT') return ` (${details}; retry after reducing system load)`;
+  if (failure.code === 'ENOENT' && failure.platform === 'win32')
+    return ` (${details}; check the platform process-inspection tool is available)`;
+  if (failure.code === 'EACCES' || failure.code === 'EPERM')
+    return ` (${details}; check process-inspection permissions)`;
+  if (failure.code === 'MALFORMED_PROCESS_EVIDENCE')
+    return ` (${details}; the process-inspection result was malformed)`;
+  return ` (${details})`;
+}
+
 /** Capture kernel process birth evidence; unavailable evidence is never a PID-only match. */
 export function readProcessIdentity(pid: number): ProcessIdentity | undefined {
-  if (!Number.isSafeInteger(pid) || pid <= 0) return undefined;
+  return acquireProcessIdentity(pid).identity;
+}
+
+function acquireProcessIdentity(pid: number): IdentityAcquisition {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return {};
+  const startedAt = performance.now();
   try {
     if (process.platform === 'linux') {
       const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
@@ -33,13 +74,15 @@ export function readProcessIdentity(pid: number): ProcessIdentity | undefined {
         .slice(stat.lastIndexOf(')') + 2)
         .trim()
         .split(/\s+/);
-      if (fields[0] === 'Z' || fields[0] === 'X') return undefined;
-      return processIdentitySchema.parse({
-        platform: 'linux',
-        bootId: fs.readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim(),
-        pidNamespace: fs.readlinkSync(`/proc/${pid}/ns/pid`),
-        startTime: fields[19],
-      });
+      if (fields[0] === 'Z' || fields[0] === 'X') return {};
+      return {
+        identity: processIdentitySchema.parse({
+          platform: 'linux',
+          bootId: fs.readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim(),
+          pidNamespace: fs.readlinkSync(`/proc/${pid}/ns/pid`),
+          startTime: fields[19],
+        }),
+      };
     }
     if (process.platform === 'darwin') {
       // macOS ps exposes birth time at second precision; see the lifecycle platform contract.
@@ -57,7 +100,9 @@ export function readProcessIdentity(pid: number): ProcessIdentity | undefined {
           stdio: ['ignore', 'pipe', 'ignore'],
         })
         .trim();
-      return processIdentitySchema.parse({ platform: 'darwin', hostname: os.hostname(), bootId, startTime });
+      return {
+        identity: processIdentitySchema.parse({ platform: 'darwin', hostname: os.hostname(), bootId, startTime }),
+      };
     }
     if (process.platform === 'win32') {
       const startTime = childProcess
@@ -76,12 +121,20 @@ export function readProcessIdentity(pid: number): ProcessIdentity | undefined {
           },
         )
         .trim();
-      return processIdentitySchema.parse({ platform: 'win32', hostname: os.hostname(), startTime });
+      return { identity: processIdentitySchema.parse({ platform: 'win32', hostname: os.hostname(), startTime }) };
     }
-  } catch {
-    // Permission errors, disappearing processes, malformed procfs, and missing platform tools are uncertain.
+  } catch (error) {
+    const failure = {
+      platform: process.platform,
+      pid,
+      elapsedMs: Math.round(performance.now() - startedAt),
+      code: acquisitionFailureCode(error),
+    };
+    // Windows has a subprocess acquisition path; retain only safe diagnostic fields.
+    if (process.platform === 'win32') logger.warn('Process birth evidence acquisition failed', failure);
+    return { failure };
   }
-  return undefined;
+  return {};
 }
 
 interface IdentityDependencies {
@@ -126,23 +179,33 @@ function inspectIdentity(
   dependencies: IdentityDependencies,
 ): IdentityInspection {
   if (!identity) return { status: 'unknown', reason: 'the record has no process birth evidence (legacy format)' };
-  const readIdentity = dependencies.readIdentity ?? readProcessIdentity;
-  const context = readIdentity(process.pid);
+  const readIdentity = (pid: number): IdentityAcquisition =>
+    dependencies.readIdentity ? { identity: dependencies.readIdentity(pid) } : acquireProcessIdentity(pid);
+  const contextResult = readIdentity(process.pid);
+  const context = contextResult.identity;
   if (!context)
     return {
       status: 'unknown',
-      reason: 'OS process evidence is unavailable to this CLI (permissions or platform tools)',
+      reason:
+        'OS process evidence is unavailable to this CLI (permissions or platform tools)' +
+        acquisitionFailureReason(contextResult.failure),
     };
   const mismatch = contextMismatch(identity, context);
   if (mismatch) return { status: 'unknown', reason: mismatch };
-  const observed = readIdentity(pid);
+  const observedResult = readIdentity(pid);
+  const observed = observedResult.identity;
   if (observed) {
     const mismatch = contextMismatch(identity, observed);
     if (mismatch) return { status: 'unknown', reason: mismatch };
     return { status: observed.startTime === identity.startTime ? 'alive' : 'dead' };
   }
   if (!(dependencies.processAlive ?? processExists)(pid)) return { status: 'dead' };
-  return { status: 'unknown', reason: 'the process may still exist, but its birth evidence could not be read' };
+  return {
+    status: 'unknown',
+    reason:
+      'the process may still exist, but its birth evidence could not be read' +
+      acquisitionFailureReason(observedResult.failure),
+  };
 }
 
 /** Numeric PIDs are meaningful only within the recorded execution context. */

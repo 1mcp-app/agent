@@ -1,12 +1,20 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
 import type { OutboundConnections } from '@src/core/types/index.js';
-import { schemaBoundary } from '@src/core/validation/schemaBoundary.js';
+import { schemaBoundary, SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
 import { ErrorCode, OneMcpProtocolError } from '@src/sdk/contracts/index.js';
 
-import { CapabilityCursorCapacityError } from './capabilityPagination.js';
+import {
+  CapabilityCursorCapacityError,
+  CapabilityProvidersUnavailableError,
+  getCapabilityFailureFacts,
+} from './capabilityPagination.js';
 import { createCapabilityVisibility } from './capabilityVisibility.js';
-import { readConfiguredToolSnapshot } from './configuredToolSnapshot.js';
+import {
+  isConfiguredToolSnapshotComplete,
+  readConfiguredToolSnapshot,
+  readLastConfiguredToolSnapshot,
+} from './configuredToolSnapshot.js';
 import { acquireRuntimeCapabilityCatalog, evictRuntimeCapabilityCatalogSession } from './runtimeCapabilityCatalog.js';
 
 const tool = (name: string) => ({ name, inputSchema: { type: 'object' } });
@@ -24,6 +32,304 @@ function fixture(
 }
 
 describe('runtime capability catalog', () => {
+  it.each(['listing', 'admission'] as const)(
+    'exposes synchronous captured %s failure facts before any listing walk',
+    async (failure) => {
+      const connection = fixture('snapshot-meta', () => {
+        if (failure === 'listing') throw new Error('untrusted provider details');
+        return { tools: [tool('echo')] };
+      });
+      const admit = schemaBoundary.admit.bind(schemaBoundary);
+      const admission = vi.spyOn(schemaBoundary, 'admit').mockImplementation(async (schema, binding) => {
+        if (failure === 'admission') throw new SchemaBoundaryError('schema_evaluation_timeout', true, 'admission');
+        return admit(schema, binding);
+      });
+      try {
+        const snapshot = await acquireRuntimeCapabilityCatalog(new Map([['private-capture-key', connection]]));
+        const category = failure === 'listing' ? 'upstream_list_failed' : 'upstream_tool_admission_timeout';
+        expect(snapshot.capabilityMeta?.tools).toMatchObject({
+          'app.1mcp/capability-pagination': {
+            partial: true,
+            complete: false,
+            generation: String(snapshot.generation.id),
+            failedSourceCount: 1,
+            failureCategories: { [category]: 1 },
+            retryable: true,
+            recovery: 'restart-walk',
+          },
+        });
+        expect([...getCapabilityFailureFacts(snapshot.capabilityMeta?.tools)]).toEqual([
+          ['private-capture-key', { [category]: 1 }],
+        ]);
+        expect(snapshot.capabilityMeta?.resources).toBeUndefined();
+        expect(JSON.stringify(snapshot.capabilityMeta)).not.toContain('private-capture-key');
+        expect(JSON.stringify(snapshot.capabilityMeta)).not.toContain('untrusted');
+        if (failure === 'listing') {
+          await expect(snapshot.list('tools', { enablePagination: false })).rejects.toBeInstanceOf(
+            CapabilityProvidersUnavailableError,
+          );
+        }
+      } finally {
+        admission.mockRestore();
+      }
+    },
+  );
+
+  it('omits captured failure metadata for a complete healthy observation', async () => {
+    const snapshot = await acquireRuntimeCapabilityCatalog(new Map([['server', fixture()]]));
+    expect(snapshot.capabilityMeta).toBeUndefined();
+  });
+
+  it('blocks old calls when a timeout completes behind a newer pending acquisition', async () => {
+    const connection = fixture('overlap');
+    const connections = new Map([['overlap', connection]]);
+    const original = await acquireRuntimeCapabilityCatalog(connections);
+    const prepared = await original.prepareToolCall('overlap_1mcp_echo', {});
+    let rejectAdmission!: (reason: unknown) => void;
+    const admission = vi.spyOn(schemaBoundary, 'admit').mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectAdmission = reject;
+        }),
+    );
+    try {
+      const older = acquireRuntimeCapabilityCatalog(connections);
+      await vi.waitFor(() => expect(rejectAdmission).toBeDefined());
+      let rejectListing!: (reason: unknown) => void;
+      vi.mocked(connection.adapter.request).mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectListing = reject;
+          }),
+      );
+      const newer = acquireRuntimeCapabilityCatalog(connections);
+      expect(rejectListing).toBeDefined();
+      rejectAdmission(new SchemaBoundaryError('schema_evaluation_timeout', true, 'admission'));
+      const partial = await older;
+      expect((await partial.list('tools', { enablePagination: false }))._meta).toMatchObject({
+        'app.1mcp/capability-pagination': { partial: true },
+      });
+      await expect(original.prepareToolCall('overlap_1mcp_echo', {})).rejects.toMatchObject({
+        code: 'schema_evaluation_timeout',
+        retryable: true,
+        phase: 'admission',
+      });
+      expect(() => prepared.assertCurrent()).toThrow('schema_evaluation_timeout');
+      expect(isConfiguredToolSnapshotComplete(connection)).toBe(false);
+      rejectListing(new Error('listing unavailable'));
+      await newer;
+      await expect(original.prepareToolCall('overlap_1mcp_echo', {})).rejects.toThrow('schema_evaluation_timeout');
+      const recovered = await acquireRuntimeCapabilityCatalog(connections);
+      const validation = await recovered.prepareToolCall('overlap_1mcp_echo', {});
+      await expect(validation({ content: [] })).resolves.toBeUndefined();
+      expect(isConfiguredToolSnapshotComplete(connection)).toBe(true);
+    } finally {
+      admission.mockRestore();
+    }
+  });
+
+  it('does not let an older timeout overwrite a newer successful admission', async () => {
+    const connection = fixture('ordered');
+    const connections = new Map([['ordered', connection]]);
+    const original = await acquireRuntimeCapabilityCatalog(connections);
+    const prepared = await original.prepareToolCall('ordered_1mcp_echo', {});
+    let rejectAdmission!: (reason: unknown) => void;
+    const admission = vi.spyOn(schemaBoundary, 'admit').mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectAdmission = reject;
+        }),
+    );
+    try {
+      const older = acquireRuntimeCapabilityCatalog(connections);
+      await vi.waitFor(() => expect(rejectAdmission).toBeDefined());
+      const newer = await acquireRuntimeCapabilityCatalog(connections);
+      rejectAdmission(new SchemaBoundaryError('schema_evaluation_timeout', true, 'admission'));
+      const partial = await older;
+      expect(partial.resolve('tools', 'ordered_1mcp_echo')).toBeUndefined();
+      expect(() => prepared.assertCurrent()).not.toThrow();
+      const validation = await original.prepareToolCall('ordered_1mcp_echo', {});
+      await expect(validation({ content: [] })).resolves.toBeUndefined();
+      await expect(newer.prepareToolCall('ordered_1mcp_echo', {})).resolves.toBeDefined();
+      expect(isConfiguredToolSnapshotComplete(connection)).toBe(true);
+    } finally {
+      admission.mockRestore();
+    }
+  });
+
+  it.each([true, false])(
+    'isolates upstream admission timeout and preserves discovery with pagination=%s',
+    async (enablePagination) => {
+      const connection = fixture('server', () => ({ tools: [tool('healthy'), tool('slow')] }));
+      const connections = new Map([['server', connection]]);
+      const previous = await acquireRuntimeCapabilityCatalog(connections);
+      const inventory = readConfiguredToolSnapshot(connection);
+      const completeTarget = readLastConfiguredToolSnapshot('server');
+      const admit = schemaBoundary.admit.bind(schemaBoundary);
+      const admission = vi.spyOn(schemaBoundary, 'admit').mockImplementation(async (schema, binding) => {
+        if (JSON.parse(binding.routeKey)[1] === 'slow') {
+          throw new SchemaBoundaryError('schema_evaluation_timeout', true, 'admission');
+        }
+        return admit(schema, binding);
+      });
+      try {
+        const partial = await acquireRuntimeCapabilityCatalog(connections);
+        const result = await partial.list<{ name: string }>('tools', { enablePagination });
+        expect(result.items.map(({ name }) => name)).toEqual(['server_1mcp_healthy']);
+        expect(result._meta).toMatchObject({
+          'app.1mcp/capability-pagination': {
+            partial: true,
+            complete: false,
+            failedSourceCount: 1,
+            failureCategories: { upstream_tool_admission_timeout: 1 },
+            retryable: true,
+            recovery: 'restart-walk',
+          },
+        });
+        expect(partial.resolve('tools', 'server_1mcp_slow')).toBeUndefined();
+        await expect(partial.prepareToolCall('server_1mcp_slow', {})).rejects.toThrow('schema_invalid');
+        await expect(previous.prepareToolCall('server_1mcp_slow', {})).rejects.toThrow('schema_evaluation_timeout');
+        const validate = await partial.prepareToolCall('server_1mcp_healthy', {});
+        await expect(validate({ content: [] })).resolves.toBeUndefined();
+        expect(readConfiguredToolSnapshot(connection)).toBe(inventory);
+        expect(readLastConfiguredToolSnapshot('server')).toBe(completeTarget);
+      } finally {
+        admission.mockRestore();
+      }
+      const recovered = await acquireRuntimeCapabilityCatalog(connections);
+      expect((await recovered.list('tools', { enablePagination: false }))._meta).toBeUndefined();
+      expect(recovered.resolve('tools', 'server_1mcp_slow')).toBeDefined();
+    },
+  );
+
+  it.each([true, false])(
+    'returns explicit partial emptiness when every upstream tool times out with pagination=%s',
+    async (enablePagination) => {
+      const connection = fixture('all-timeout', () => ({ tools: [tool('one'), tool('two')] }));
+      const admission = vi
+        .spyOn(schemaBoundary, 'admit')
+        .mockRejectedValue(new SchemaBoundaryError('schema_evaluation_timeout', true, 'admission'));
+      try {
+        const snapshot = await acquireRuntimeCapabilityCatalog(new Map([['all-timeout', connection]]));
+        const result = await snapshot.list('tools', { enablePagination });
+        expect(result.items).toEqual([]);
+        expect(result.nextCursor).toBeUndefined();
+        expect(result._meta).toMatchObject({
+          'app.1mcp/capability-pagination': {
+            complete: false,
+            failedSourceCount: 1,
+            failureCategories: { upstream_tool_admission_timeout: 2 },
+          },
+        });
+        expect(readConfiguredToolSnapshot(connection)).toBeUndefined();
+      } finally {
+        admission.mockRestore();
+      }
+    },
+  );
+
+  it.each([
+    new SchemaBoundaryError('schema_evaluation_unavailable', true, 'admission'),
+    new SchemaBoundaryError('schema_evaluation_unavailable', false, 'admission'),
+    new SchemaBoundaryError('schema_evaluation_timeout', true, 'input'),
+    new SchemaBoundaryError('schema_evaluation_timeout', true, 'output'),
+    new SchemaBoundaryError('schema_evaluation_timeout', false, 'input'),
+    new SchemaBoundaryError('schema_evaluation_timeout', false, 'output'),
+    new Error('unexpected admission failure'),
+  ])('keeps shared and non-admission failures fatal: %s', async (error) => {
+    const admission = vi.spyOn(schemaBoundary, 'admit').mockRejectedValueOnce(error);
+    try {
+      await expect(acquireRuntimeCapabilityCatalog(new Map([['server', fixture()]]))).rejects.toBe(error);
+    } finally {
+      admission.mockRestore();
+    }
+  });
+
+  it.each(['internalTools', 'unprefixedTools'] as const)(
+    'keeps runtime-owned %s admission failure fatal',
+    async (key) => {
+      const error = new SchemaBoundaryError('schema_evaluation_timeout', true, 'admission');
+      const admission = vi.spyOn(schemaBoundary, 'admit').mockRejectedValueOnce(error);
+      try {
+        await expect(acquireRuntimeCapabilityCatalog(new Map(), undefined, { [key]: [tool('internal')] })).rejects.toBe(
+          error,
+        );
+      } finally {
+        admission.mockRestore();
+      }
+    },
+  );
+
+  it('keeps an admission-partial continuation pinned without retrying, then retries a fresh walk', async () => {
+    const connection = fixture('server', () => ({ tools: [tool('a'), tool('b'), tool('slow')] }));
+    const connections = new Map([['server', connection]]);
+    const admit = schemaBoundary.admit.bind(schemaBoundary);
+    const admission = vi.spyOn(schemaBoundary, 'admit').mockImplementation(async (schema, binding) => {
+      if (JSON.parse(binding.routeKey)[1] === 'slow') throw new SchemaBoundaryError('schema_evaluation_timeout', true);
+      return admit(schema, binding);
+    });
+    try {
+      const snapshot = await acquireRuntimeCapabilityCatalog(connections);
+      const first = await snapshot.list<{ name: string }>('tools', { enablePagination: true, pageSize: 1 });
+      const admissionCalls = admission.mock.calls.length;
+      const continued = await acquireRuntimeCapabilityCatalog(connections, undefined, {
+        continuation: { kind: 'tools', cursor: first.nextCursor!, enablePagination: true, pageSize: 1 },
+      });
+      const final = await continued.list<{ name: string }>('tools', {
+        enablePagination: true,
+        pageSize: 1,
+        cursor: first.nextCursor,
+      });
+      expect(continued).toBe(snapshot);
+      expect(final.items.map(({ name }) => name)).toEqual(['server_1mcp_b']);
+      expect(final.nextCursor).toBeUndefined();
+      expect(final._meta).toEqual(first._meta);
+      expect(admission).toHaveBeenCalledTimes(admissionCalls);
+      expect(connection.adapter.request).toHaveBeenCalledTimes(1);
+      admission.mockRestore();
+      const recovered = await acquireRuntimeCapabilityCatalog(connections);
+      expect(recovered.resolve('tools', 'server_1mcp_slow')).toBeDefined();
+      await recovered.list('tools', { enablePagination: true, pageSize: 1 });
+      await expect(
+        snapshot.list('tools', { enablePagination: true, pageSize: 1, cursor: first.nextCursor }),
+      ).rejects.toMatchObject({
+        data: { reason: 'stale_generation' },
+      });
+    } finally {
+      admission.mockRestore();
+    }
+  });
+
+  it('reports independent listing and tool admission failures together', async () => {
+    const failed = fixture('failed', () => {
+      throw new Error('untrusted backend details');
+    });
+    const healthy = fixture('healthy', () => ({ tools: [tool('ok'), tool('slow')] }));
+    const admit = schemaBoundary.admit.bind(schemaBoundary);
+    const admission = vi.spyOn(schemaBoundary, 'admit').mockImplementation(async (schema, binding) => {
+      if (JSON.parse(binding.routeKey)[1] === 'slow') throw new SchemaBoundaryError('schema_evaluation_timeout', true);
+      return admit(schema, binding);
+    });
+    try {
+      const snapshot = await acquireRuntimeCapabilityCatalog(
+        new Map([
+          ['failed', failed],
+          ['healthy', healthy],
+        ]),
+      );
+      const result = await snapshot.list('tools', { enablePagination: false });
+      expect(result._meta).toMatchObject({
+        'app.1mcp/capability-pagination': {
+          failedSourceCount: 2,
+          failureCategories: { upstream_list_failed: 1, upstream_tool_admission_timeout: 1 },
+        },
+      });
+      expect(JSON.stringify(result._meta)).not.toContain('untrusted backend details');
+    } finally {
+      admission.mockRestore();
+    }
+  });
+
   it.each(['reject', 'resolve'] as const)('preserves published tools when a cancelled refresh %ss', async (outcome) => {
     const connection = fixture();
     const connections = new Map([['server', connection]]);

@@ -114,6 +114,58 @@ describe('RuntimeConfiguredToolInspectionService', () => {
     expect(listTools).toHaveBeenCalledTimes(2);
   });
 
+  it('retains the last complete inventory when an earlier inspection page is partial', async () => {
+    let partial = false;
+    const listTools = vi.fn(async (params?: { cursor?: string }) => {
+      if (!partial) return { tools: [tool('last-complete')] };
+      if (params?.cursor) return { tools: [tool('healthy-second')] };
+      return {
+        tools: [tool('healthy-first')],
+        nextCursor: 'page-2',
+        _meta: {
+          'app.1mcp/capability-pagination': {
+            partial: true,
+            complete: false,
+            failureCategories: { upstream_tool_admission_timeout: 1 },
+            recovery: 'restart-walk',
+          },
+        },
+      };
+    });
+    const outbound = connection('partial-inspection', listTools);
+    const service = runtime(new Map([['partial-inspection', outbound]]));
+    const input = { targetName: 'partial-inspection', source: 'mcpServers' as const, config };
+    await service.refresh(input);
+    partial = true;
+    const result = await service.refresh(input);
+    expect(result.inspection).toMatchObject({ status: 'failed', retryable: true });
+    expect(result.rows.map((row) => row.name)).toEqual(['last-complete']);
+    expect(readConfiguredToolSnapshot(outbound)?.map((entry) => entry.name)).toEqual(['last-complete']);
+    const retained = await service.read(input);
+    expect(retained.inspection).toMatchObject({ status: 'unavailable', retryable: true });
+    expect(retained.rows.map((row) => [row.name, row.stale])).toEqual([['last-complete', true]]);
+    const passive = await createConfiguredToolInventory({
+      ...input,
+      connections: new Map([['partial-inspection', outbound]]),
+    });
+    expect(passive.inspection?.status).toBe('unavailable');
+    expect(passive.rows[0]?.stale).toBe(true);
+  });
+
+  it('keeps ordinary runtime discovery rows stale on the first admin read after partial admission', async () => {
+    const outbound = connection('runtime-discovery', vi.fn());
+    publishConfiguredToolSnapshot(outbound, [tool('historical')]);
+    publishConfiguredToolSnapshot(outbound, [], false);
+    const clients = new Map([['runtime-discovery', outbound]]);
+    const input = { targetName: 'runtime-discovery', source: 'mcpServers' as const, config };
+    const read = await runtime(clients).read(input);
+    expect(read.inspection).toMatchObject({ status: 'unavailable', retryable: true });
+    expect(read.rows.map((row) => [row.name, row.stale, row.observed])).toEqual([['historical', true, false]]);
+    const passive = await createConfiguredToolInventory({ ...input, connections: clients });
+    expect(passive.inspection?.status).toBe('unavailable');
+    expect(passive.rows.map((row) => [row.name, row.stale])).toEqual([['historical', true]]);
+  });
+
   it('bounds the total duration of a paginated inspection', async () => {
     vi.useFakeTimers();
     try {

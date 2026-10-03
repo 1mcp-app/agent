@@ -7,7 +7,7 @@ import { MCPError } from '@src/utils/core/errorTypes.js';
 import { clearConfiguredToolSnapshot } from './configuredToolSnapshot.js';
 
 export class CapabilityProvidersUnavailableError extends MCPError {
-  constructor() {
+  constructor(public readonly _meta?: Record<string, unknown>) {
     super('Capability providers are unavailable', -32000);
     Object.setPrototypeOf(this, CapabilityProvidersUnavailableError.prototype);
   }
@@ -24,6 +24,79 @@ export class CapabilityCursorCapacityError extends MCPError {
 
 /** MCP result metadata key used to describe a partial aggregate walk. */
 export const CAPABILITY_PAGINATION_META_KEY = 'app.1mcp/capability-pagination';
+
+const capabilityFailureSources = new WeakMap<Record<string, unknown>, ReadonlySet<string>>();
+
+export interface CapabilityFailureFact {
+  upstream_list_failed?: number;
+  upstream_tool_admission_timeout?: number;
+}
+
+const capabilityFailureFacts = new WeakMap<Record<string, unknown>, ReadonlyMap<string, CapabilityFailureFact>>();
+
+/** Clone private facts so consumers can filter visibility without exposing provider identities. */
+export function getCapabilityFailureFacts(
+  meta: Record<string, unknown> | undefined,
+): ReadonlyMap<string, CapabilityFailureFact> {
+  return new Map(
+    Array.from(meta ? (capabilityFailureFacts.get(meta) ?? []) : [], ([source, fact]) => [source, { ...fact }]),
+  );
+}
+
+export function setCapabilityFailureFacts(
+  meta: Record<string, unknown>,
+  facts: ReadonlyMap<string, CapabilityFailureFact>,
+): Record<string, unknown> {
+  capabilityFailureFacts.set(meta, new Map(Array.from(facts, ([source, fact]) => [source, { ...fact }])));
+  return setCapabilityFailureSources(meta, facts.keys());
+}
+
+/** Restrict locally known partial facts to the caller's visible backend candidates. */
+export function filterCapabilityPartialMeta(
+  meta: Record<string, unknown> | undefined,
+  connectionKeys: ReadonlySet<string>,
+): Record<string, unknown> | undefined {
+  if (!meta) return undefined;
+  const facts = getCapabilityFailureFacts(meta);
+  if (facts.size === 0) return meta;
+  const status = meta[CAPABILITY_PAGINATION_META_KEY];
+  if (!status) return meta;
+  if (typeof status !== 'object') return meta;
+  const visible = new Map(Array.from(facts).filter(([source]) => connectionKeys.has(source)));
+  const filtered = { ...meta };
+  if (visible.size === 0) {
+    delete filtered[CAPABILITY_PAGINATION_META_KEY];
+    if (Object.keys(filtered).length === 0) return undefined;
+    return setCapabilityFailureFacts(filtered, visible);
+  }
+  const failureCategories: CapabilityFailureFact = {};
+  for (const fact of visible.values()) {
+    for (const category of ['upstream_list_failed', 'upstream_tool_admission_timeout'] as const) {
+      const count = fact[category];
+      if (count === undefined) continue;
+      failureCategories[category] = (failureCategories[category] ?? 0) + count;
+    }
+  }
+  filtered[CAPABILITY_PAGINATION_META_KEY] = {
+    ...status,
+    failedSourceCount: visible.size,
+    failureCategories,
+  };
+  return setCapabilityFailureFacts(filtered, visible);
+}
+
+/** Process-local failure provenance; provider identities never become public metadata. */
+export function getCapabilityFailureSources(meta: Record<string, unknown> | undefined): ReadonlySet<string> {
+  return new Set(meta ? capabilityFailureSources.get(meta) : undefined);
+}
+
+export function setCapabilityFailureSources(
+  meta: Record<string, unknown>,
+  sources: Iterable<string>,
+): Record<string, unknown> {
+  capabilityFailureSources.set(meta, new Set(sources));
+  return meta;
+}
 
 /** Capability collections supported by aggregate pagination. */
 export type CapabilityKind = 'tools' | 'resources' | 'resourceTemplates' | 'prompts';
@@ -369,19 +442,50 @@ function decodeCursor(value: string): CapabilityPaginationCursor {
   return cursor as CapabilityPaginationCursor;
 }
 
-function partialMeta(failurePositions: number[], generation: string): Record<string, unknown> | undefined {
-  if (failurePositions.length === 0) return undefined;
-  return {
-    [CAPABILITY_PAGINATION_META_KEY]: {
-      partial: true,
-      complete: false,
-      generation,
-      failedSourceCount: failurePositions.length,
-      failureCategories: { upstream_list_failed: failurePositions.length },
-      retryable: true,
-      recovery: 'restart-walk',
+/** Construct captured partial facts without walking providers or exposing provider identities. */
+export function createCapabilityPartialMeta(
+  generation: string,
+  failedProviderIds: readonly string[],
+  admissionTimeouts: readonly string[] = [],
+): Record<string, unknown> | undefined {
+  if (failedProviderIds.length === 0 && admissionTimeouts.length === 0) return undefined;
+  const failedProviders = new Set(failedProviderIds);
+  const facts = new Map<string, CapabilityFailureFact>();
+  for (const source of failedProviders) facts.set(source, { upstream_list_failed: 1 });
+  for (const source of admissionTimeouts) {
+    const fact = facts.get(source) ?? {};
+    facts.set(source, { ...fact, upstream_tool_admission_timeout: (fact.upstream_tool_admission_timeout ?? 0) + 1 });
+  }
+  return setCapabilityFailureFacts(
+    {
+      [CAPABILITY_PAGINATION_META_KEY]: {
+        partial: true,
+        complete: false,
+        generation,
+        failedSourceCount: facts.size,
+        failureCategories: {
+          ...(failedProviders.size > 0 ? { upstream_list_failed: failedProviders.size } : {}),
+          ...(admissionTimeouts.length > 0 ? { upstream_tool_admission_timeout: admissionTimeouts.length } : {}),
+        },
+        retryable: true,
+        recovery: 'restart-walk',
+      },
     },
-  };
+    facts,
+  );
+}
+
+function partialMeta(
+  failurePositions: number[],
+  generation: string,
+  providers: readonly CapabilityPageProvider<unknown>[],
+  admissionTimeouts: readonly string[],
+): Record<string, unknown> | undefined {
+  return createCapabilityPartialMeta(
+    generation,
+    failurePositions.map((position) => providers[position].id),
+    admissionTimeouts,
+  );
 }
 
 function encodeFailurePositions(positions: number[], providerCount: number): string | undefined {
@@ -414,13 +518,17 @@ export async function walkCapabilityPages<T>(options: {
   extraGenerationSignature?: unknown;
   enablePagination: boolean;
   failedProviderIds?: readonly string[];
+  /** Provider identity for each withheld tool; repeated identities count distinct tool failures. */
+  upstreamToolAdmissionTimeouts?: readonly string[];
 }): Promise<CapabilityPaginationResult<T>> {
   const providers = [...options.providers].sort(
     (left, right) => compareCodePoints(left.name, right.name) || compareCodePoints(left.id, right.id),
   );
+  const admissionTimeouts = options.upstreamToolAdmissionTimeouts ?? [];
   const generation = observeGeneration(options.connections, options.kind, {
     providers: providers.map(({ id, name }) => ({ id, name })),
     extra: options.extraGenerationSignature,
+    admissionTimeouts,
   });
   const filter = digest({ selection: options.filterSelection, enablePagination: options.enablePagination });
   const runtimeNonce = getRuntimeState(options.connections).nonce;
@@ -480,9 +588,9 @@ export async function walkCapabilityPages<T>(options: {
       }
     }
     if (providers.length > 0 && failures.length === providers.length && items.length === 0) {
-      throw new CapabilityProvidersUnavailableError();
+      throw new CapabilityProvidersUnavailableError(partialMeta(failures, generation, providers, admissionTimeouts));
     }
-    return { items, _meta: partialMeta(failures, generation) };
+    return { items, _meta: partialMeta(failures, generation, providers, admissionTimeouts) };
   }
 
   while (providerIndex < providers.length) {
@@ -509,7 +617,11 @@ export async function walkCapabilityPages<T>(options: {
         : undefined;
 
       if (page.items.length > 0 || page.nextCursor !== undefined) {
-        return { items: page.items, nextCursor, _meta: partialMeta(failures, generation) };
+        return {
+          items: page.items,
+          nextCursor,
+          _meta: partialMeta(failures, generation, providers, admissionTimeouts),
+        };
       }
       providerIndex += 1;
       upstreamCursor = undefined;
@@ -522,7 +634,7 @@ export async function walkCapabilityPages<T>(options: {
   }
 
   if (options.cursor === undefined && providers.length > 0 && failures.length === providers.length) {
-    throw new CapabilityProvidersUnavailableError();
+    throw new CapabilityProvidersUnavailableError(partialMeta(failures, generation, providers, admissionTimeouts));
   }
-  return { items: [], _meta: partialMeta(failures, generation) };
+  return { items: [], _meta: partialMeta(failures, generation, providers, admissionTimeouts) };
 }

@@ -66,6 +66,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
   private metaToolProvider?: MetaToolProvider;
   private capabilityAggregator: CapabilityAggregator;
   private isInitialized: boolean = false;
+  private recoveryRefreshInFlight?: Promise<AggregatedCapabilities>;
   private asyncOrchestrator?: AsyncLoadingOrchestrator;
   private connectionResolver: ConnectionResolver;
 
@@ -106,6 +107,9 @@ export class LazyLoadingOrchestrator extends EventEmitter {
         this.loadSchemaFromServer.bind(this),
         undefined,
         templateHashProvider,
+        async () => {
+          await this.refreshCapabilitiesForRecovery();
+        },
       );
     }
 
@@ -166,7 +170,13 @@ export class LazyLoadingOrchestrator extends EventEmitter {
     const snapshot = this.capabilityAggregator.getCatalogSnapshot();
     this.registrySnapshot = snapshot;
     this.registryBuiltAt = Date.now();
-    this.toolRegistry = snapshot ? ToolRegistry.fromCapabilitySnapshot(snapshot) : ToolRegistry.empty();
+    this.toolRegistry = ToolRegistry.fromGeneration(
+      this.capabilityAggregator.getCatalogGeneration(),
+      new Map(Array.from(snapshot?.connections ?? [], ([key, connection]) => [key, connection.tags])),
+      snapshot?.connections,
+      snapshot?.isCurrent,
+      this.capabilityAggregator.getCurrentCapabilities().capabilityMeta?.tools,
+    );
   }
 
   /**
@@ -186,6 +196,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
           message: 'Failed to rebuild stale tool registry',
           meta: { error: error instanceof Error ? error.message : String(error) },
         }));
+        throw error;
       })
       .finally(() => {
         this.registryRefresh = undefined;
@@ -326,6 +337,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
     const metaTools = this.metaToolProvider?.getMetaTools() || [];
 
     return {
+      capabilityMeta: baseCapabilities.capabilityMeta,
       tools: metaTools,
       resources: baseCapabilities.resources,
       resourceTemplates: baseCapabilities.resourceTemplates,
@@ -377,6 +389,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
     );
 
     return {
+      capabilityMeta: baseCapabilities.capabilityMeta,
       tools: metaTools,
       resources: filteredResources as unknown as AggregatedCapabilities['resources'],
       resourceTemplates: filteredTemplates as unknown as AggregatedCapabilities['resourceTemplates'],
@@ -404,6 +417,14 @@ export class LazyLoadingOrchestrator extends EventEmitter {
   /**
    * Refresh capabilities from all servers
    */
+  public refreshCapabilitiesForRecovery(): Promise<AggregatedCapabilities> {
+    if (this.recoveryRefreshInFlight) return this.recoveryRefreshInFlight;
+    this.recoveryRefreshInFlight = this.refreshCapabilities().finally(() => {
+      this.recoveryRefreshInFlight = undefined;
+    });
+    return this.recoveryRefreshInFlight;
+  }
+
   public async refreshCapabilities(): Promise<AggregatedCapabilities> {
     await this.capabilityAggregator.updateCapabilities();
 
@@ -518,7 +539,10 @@ export class LazyLoadingOrchestrator extends EventEmitter {
    * callers that can wait should use getCurrentToolRegistry().
    */
   public getToolRegistry(): ToolRegistry {
-    if (this.isEnabled() && this.toolRegistryNeedsRefresh()) void this.getCurrentToolRegistry();
+    if (this.isEnabled() && this.toolRegistryNeedsRefresh()) {
+      // The synchronous accessor starts a background refresh; awaited request access propagates failures.
+      void this.getCurrentToolRegistry().catch(() => undefined);
+    }
     return this.toolRegistry;
   }
 
