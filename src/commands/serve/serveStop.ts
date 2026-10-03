@@ -536,8 +536,8 @@ async function terminateProcess(pid: number, label: string, options: TerminatePr
   const sameProcessAlive = () => options.inspectIdentity(pid, options.identity) !== 'dead';
   try {
     options.kill(pid, 'SIGTERM');
-  } catch (error) {
-    logger.warn(`Failed to send SIGTERM to ${label} PID ${pid}: ${error}`);
+  } catch (_error) {
+    logger.warn('serveStop.failed.to.send.sigterm.to.pid.bb13a763', { error: _error });
   }
 
   let exited = await options.waitForExit(pid, {
@@ -550,11 +550,11 @@ async function terminateProcess(pid: number, label: string, options: TerminatePr
 
   const beforeKill = options.inspectIdentity(pid, options.identity);
   if (beforeKill !== 'alive') return beforeKill === 'dead';
-  logger.warn(`${label} (PID ${pid}) did not exit after SIGTERM; escalating to SIGKILL`);
+  logger.warn('serveStop.pid.did.not.exit.after.sigterm.escalating.to.sigkill.554205a0');
   try {
     options.kill(pid, 'SIGKILL');
-  } catch (error) {
-    logger.warn(`Failed to send SIGKILL to ${label} PID ${pid}: ${error}`);
+  } catch (_error) {
+    logger.warn('serveStop.failed.to.send.sigkill.to.pid.0e48ebe1', { error: _error });
   }
   return options.waitForExit(pid, { timeoutMs: 2000, isAlive: sameProcessAlive });
 }

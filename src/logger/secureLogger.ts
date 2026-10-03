@@ -238,41 +238,14 @@ export function sanitizeForLogging(data: unknown): unknown {
   try {
     return sanitize(data);
   } catch {
-    // Log safe static marker to stderr without exposing dynamic error.message (preventing throwing getter bypasses)
-    console.error('Sanitization error occurred');
+    // The failure itself is typed instrumentation; never include the failed value.
+    logger.error('logger.sanitization-failed');
     return '[SANITIZATION_ERROR]';
   }
 }
 
-/**
- * Create a secure logger method for a specific log level
- */
-function createLoggerMethod(level: 'debug' | 'info' | 'warn' | 'error') {
-  return (message: string, data?: unknown) => {
-    const sanitizedMessage = sanitizeForLogging(message);
-    const sanitizedMessageStr = typeof sanitizedMessage === 'string' ? sanitizedMessage : String(sanitizedMessage);
-
-    if (data !== undefined) {
-      // Type-safe assertion that the logger method exists and is callable
-      const loggerMethod = logger[level] as (message: string, ...args: unknown[]) => void;
-      loggerMethod(sanitizedMessageStr, sanitizeForLogging(data));
-    } else {
-      // Type-safe assertion that the logger method exists and is callable
-      const loggerMethod = logger[level] as (message: string, ...args: unknown[]) => void;
-      loggerMethod(sanitizedMessageStr);
-    }
-  };
-}
-
-/**
- * Safe logger that automatically sanitizes sensitive data
- */
-export const secureLogger = {
-  debug: createLoggerMethod('debug'),
-  info: createLoggerMethod('info'),
-  warn: createLoggerMethod('warn'),
-  error: createLoggerMethod('error'),
-};
+/** Runtime instrumentation uses the same strict registry; sanitizer stays diagnostic-only. */
+export const secureLogger: typeof logger = logger;
 
 /**
  * Utility function to redact OAuth server details from lists

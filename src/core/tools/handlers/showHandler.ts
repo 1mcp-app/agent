@@ -30,14 +30,14 @@ export async function handleShowMCPServer(
   registryOptions?: RegistryOptions,
 ): Promise<RegistryServer> {
   const handler = withErrorHandling(async () => {
-    logger.debug('Processing show_mcp_server request', args);
+    logger.debug('showHandler.processing.show.mcp.server.request.9e99dce7');
 
     const client = getRegistryClient(registryOptions);
 
     // Get server details
     const server = await client.getServerById(args.serverId, args.version);
 
-    logger.debug(`Successfully fetched server details for: ${args.serverId}`);
+    logger.debug('showHandler.successfully.fetched.server.details.for.c555d231');
     return server;
   }, `Failed to show MCP server: ${args.serverId}`);
 

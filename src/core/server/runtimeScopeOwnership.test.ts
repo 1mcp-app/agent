@@ -290,7 +290,9 @@ describe('Runtime Scope ownership', () => {
 
     const owner = claimRuntimeScope(configDir, { kind: 'foreground-http' });
 
-    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/candidate cleanup failed.*\.candidate.*denied/i));
+    expect(warn).toHaveBeenCalledWith('runtimeScopeOwnership.runtime.ownership.candidate.cleanup.failed.f3f3f24d', {
+      error: expect.objectContaining({ code: 'EACCES', message: 'denied' }),
+    });
     owner.release();
   });
 

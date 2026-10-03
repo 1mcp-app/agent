@@ -128,14 +128,9 @@ describe('MCP Logging Enhancer', () => {
       mockServer.notification(testNotification);
 
       // Should log the notification
-      expect(mockLogger.info).toHaveBeenCalledWith(
-        'MCP Notification',
-        expect.objectContaining({
-          method: 'test/notification',
-          params: JSON.stringify({ data: 'test' }),
-          timestamp: expect.any(String),
-        }),
-      );
+      expect(mockLogger.info).toHaveBeenCalledWith('mcpLoggingEnhancer.mcp.notification.867bb301', {
+        method: 'test/notification',
+      });
     });
 
     it('should handle notification sending with connection errors', () => {
@@ -156,7 +151,9 @@ describe('MCP Logging Enhancer', () => {
         mockServer.notification(testNotification);
       }).not.toThrow();
 
-      expect(mockLogger.warn).toHaveBeenCalledWith('Attempted to send notification on disconnected transport');
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        'mcpLoggingEnhancer.attempted.to.send.notification.on.disconnected.transport.244c8d91',
+      );
     });
 
     it('should re-throw non-connection errors', () => {
@@ -260,7 +257,7 @@ describe('MCP Logging Enhancer', () => {
   });
 
   describe('Logging Context', () => {
-    it('should generate unique request IDs', () => {
+    it('should emit the registered notification event', () => {
       enhanceServerWithLogging(mockServer);
 
       const testNotification = {
@@ -271,15 +268,12 @@ describe('MCP Logging Enhancer', () => {
       mockServer.notification(testNotification);
 
       // The notification should be logged (UUID is used internally)
-      expect(mockLogger.info).toHaveBeenCalledWith(
-        'MCP Notification',
-        expect.objectContaining({
-          method: 'test/notification',
-        }),
-      );
+      expect(mockLogger.info).toHaveBeenCalledWith('mcpLoggingEnhancer.mcp.notification.867bb301', {
+        method: 'test/notification',
+      });
     });
 
-    it('should include timestamps in logs', () => {
+    it('should leave timestamp generation to the output adapter', () => {
       enhanceServerWithLogging(mockServer);
 
       const testNotification = {
@@ -289,15 +283,12 @@ describe('MCP Logging Enhancer', () => {
 
       mockServer.notification(testNotification);
 
-      expect(mockLogger.info).toHaveBeenCalledWith(
-        'MCP Notification',
-        expect.objectContaining({
-          timestamp: expect.any(String),
-        }),
-      );
+      expect(mockLogger.info).toHaveBeenCalledWith('mcpLoggingEnhancer.mcp.notification.867bb301', {
+        method: 'test/notification',
+      });
     });
 
-    it('should serialize params as JSON', () => {
+    it('should exclude params from the event fields', () => {
       enhanceServerWithLogging(mockServer);
 
       const complexParams = {
@@ -313,12 +304,9 @@ describe('MCP Logging Enhancer', () => {
 
       mockServer.notification(testNotification);
 
-      expect(mockLogger.info).toHaveBeenCalledWith(
-        'MCP Notification',
-        expect.objectContaining({
-          params: JSON.stringify(complexParams),
-        }),
-      );
+      expect(mockLogger.info).toHaveBeenCalledWith('mcpLoggingEnhancer.mcp.notification.867bb301', {
+        method: 'test/notification',
+      });
     });
   });
 
@@ -355,12 +343,9 @@ describe('MCP Logging Enhancer', () => {
         mockServer.notification(testNotification);
       }).not.toThrow();
 
-      expect(mockLogger.info).toHaveBeenCalledWith(
-        'MCP Notification',
-        expect.objectContaining({
-          params: undefined,
-        }),
-      );
+      expect(mockLogger.info).toHaveBeenCalledWith('mcpLoggingEnhancer.mcp.notification.867bb301', {
+        method: 'test/notification',
+      });
     });
 
     it('should handle notification method without params', () => {

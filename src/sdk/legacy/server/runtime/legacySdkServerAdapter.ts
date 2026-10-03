@@ -1,4 +1,5 @@
 import type { InboundConnectionAdapter } from '@src/core/types/server.js';
+import { injectTraceContext, stripBaggage, withMcpTraceContext } from '@src/observability/tracing/context.js';
 import { type JsonObject, toJsonValue } from '@src/sdk/contracts/jsonValue.js';
 import type {
   LegacyConnectionId,
@@ -169,7 +170,14 @@ export class LegacySdkServerAdapter implements InboundConnectionAdapter {
     };
     transport.send = async (message, options) => {
       try {
-        await send(message, options);
+        let outgoing = message;
+        if ('method' in message) {
+          if ('id' in message) outgoing = { ...message, params: injectTraceContext(message.params) };
+          else if (message.params !== undefined) outgoing = { ...message, params: stripBaggage(message.params) };
+        } else if ('result' in message) {
+          outgoing = { ...message, result: stripBaggage(message.result) };
+        }
+        await send(outgoing, options);
       } finally {
         if ('id' in message && !('method' in message) && message.id !== undefined) {
           this.admittedInteractions.delete(message.id);
@@ -196,4 +204,13 @@ export function getLegacyServerTransportHandle(adapter: LegacySdkServerAdapter):
 
 export function isLegacyServerConnected(adapter: LegacySdkServerAdapter): boolean {
   return adapter.state === 'running' && getHandles(adapter).server.transport !== undefined;
+}
+
+/** Install before registering runtime handlers so each request owns its async context. */
+export function installLegacyRequestTracing(server: Server): void {
+  const register = server.setRequestHandler.bind(server);
+  server.setRequestHandler = (schema, handler) =>
+    register(schema, (request, extra) =>
+      withMcpTraceContext(request.params, async () => handler(request, extra), extra.signal),
+    );
 }

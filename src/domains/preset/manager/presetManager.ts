@@ -55,7 +55,7 @@ export class PresetManager {
   public static resetInstance(): void {
     if (PresetManager.instance) {
       PresetManager.instance.cleanup().catch((error) => {
-        logger.warn('Failed to cleanup PresetManager during reset:', error);
+        logger.warn('presetManager.failed.to.cleanup.presetmanager.during.reset.601df09b', { error: error });
       });
       PresetManager.instance = null;
     }
@@ -68,12 +68,9 @@ export class PresetManager {
     try {
       await this.loadPresets();
       await this.startWatching();
-      logger.info('PresetManager initialized successfully', {
-        presetsLoaded: this.presets.size,
-        configPath: this.configPath,
-      });
+      logger.info('presetManager.presetmanager.initialized.successfully.2a672d11');
     } catch (error) {
-      logger.error('Failed to initialize PresetManager', { error });
+      logger.error('presetManager.failed.to.initialize.presetmanager.bbdee411', { error: error });
       throw error;
     }
   }
@@ -123,10 +120,7 @@ export class PresetManager {
           this.presets.set(name, config);
         }
 
-        logger.debug('Presets loaded from file', {
-          presetCount: this.presets.size,
-          presetNames: Array.from(this.presets.keys()),
-        });
+        logger.debug('presetManager.presets.loaded.from.file.e0a97eb0', { presetCount: this.presets.size });
 
         // Initialize change detector with current server lists
         if (!skipChangeDetectorInit) {
@@ -137,7 +131,7 @@ export class PresetManager {
           const errorCode = (error as Error & { code?: string }).code;
           if (errorCode === 'ENOENT') {
             // File doesn't exist, start with empty presets
-            logger.info('No preset file found, starting with empty presets');
+            logger.info('presetManager.no.preset.file.found.starting.with.empty.presets.9d07f410');
             await this.savePresets();
           } else {
             throw error;
@@ -147,7 +141,7 @@ export class PresetManager {
         }
       }
     } catch (error) {
-      logger.error('Failed to load presets', { error });
+      logger.error('presetManager.failed.to.load.presets.af6c702e', { error: error });
       PresetErrorHandler.throwError(
         `Failed to load presets: ${error instanceof Error ? error.message : 'Unknown error'}`,
         { context: 'preset loading', exitCode: 2 },
@@ -166,7 +160,7 @@ export class PresetManager {
         const testResult = await this.testPreset(presetName);
         previousServerLists.set(presetName, testResult.servers);
       } catch (error) {
-        logger.warn('Failed to get server list before reload', { presetName, error });
+        logger.warn('presetManager.failed.to.get.server.list.before.reload.6bc286a6', { error: error });
         previousServerLists.set(presetName, []);
       }
     }
@@ -184,20 +178,13 @@ export class PresetManager {
 
         // Manually check for changes by comparing server lists
         const previousSet = new Set(previousServers);
-        const currentSet = new Set(newTestResult.servers);
 
         const hasChanged =
           previousServers.length !== newTestResult.servers.length ||
           !newTestResult.servers.every((server) => previousSet.has(server));
 
         if (hasChanged) {
-          const added = newTestResult.servers.filter((s) => !previousSet.has(s));
-          const removed = previousServers.filter((s) => !currentSet.has(s));
-
-          logger.info('Detected server list changes for preset', {
-            presetName,
-            added,
-            removed,
+          logger.info('presetManager.detected.server.list.changes.for.preset.eb9e7825', {
             previousCount: previousServers.length,
             currentCount: newTestResult.servers.length,
           });
@@ -209,16 +196,10 @@ export class PresetManager {
         try {
           this.changeDetector.updateServerList(presetName, newTestResult.servers);
         } catch (error) {
-          logger.error('Failed to update change detector for preset', {
-            presetName,
-            error: error instanceof Error ? error.message : 'Unknown error',
-          });
+          logger.error('presetManager.failed.to.update.change.detector.for.preset.a442171c', { error: error });
         }
       } catch (error) {
-        logger.error('Failed to check for preset changes', {
-          presetName,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        });
+        logger.error('presetManager.failed.to.check.for.preset.changes.08d8b540', { error: error });
       }
     }
 
@@ -228,7 +209,7 @@ export class PresetManager {
 
     for (const trackedPresetName of trackedPresetNames) {
       if (!currentPresetNames.has(trackedPresetName)) {
-        logger.info('Preset was deleted, cleaning up tracking', { presetName: trackedPresetName });
+        logger.info('presetManager.preset.was.deleted.cleaning.up.tracking.40235f8d');
         this.changeDetector.removePreset(trackedPresetName);
         // Note: We don't need to notify for deleted presets as clients will get errors
         // when trying to use them and will handle gracefully
@@ -237,16 +218,13 @@ export class PresetManager {
 
     // Notify clients for presets with server list changes
     if (changedPresets.length > 0) {
-      logger.info('Notifying clients of preset changes', {
-        changedPresets,
-        totalChangedPresets: changedPresets.length,
-      });
+      logger.info('presetManager.notifying.clients.of.preset.changes.64b339ca');
 
       for (const presetName of changedPresets) {
         await this.notifyPresetChange(presetName);
       }
     } else {
-      logger.debug('No preset server list changes detected, skipping notifications');
+      logger.debug('presetManager.no.preset.server.list.changes.detected.skipping.notifications.fc7805c7');
     }
   }
 
@@ -258,15 +236,11 @@ export class PresetManager {
       try {
         const testResult = await this.testPreset(presetName);
         this.changeDetector.updateServerList(presetName, testResult.servers);
-        logger.debug('Initialized change detector for preset', {
-          presetName,
+        logger.debug('presetManager.initialized.change.detector.for.preset.7c64c2ab', {
           serverCount: testResult.servers.length,
         });
       } catch (error) {
-        logger.warn('Failed to initialize change detector for preset', {
-          presetName,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        });
+        logger.warn('presetManager.failed.to.initialize.change.detector.for.preset.7fa4da23', { error: error });
         this.changeDetector.updateServerList(presetName, []);
       }
     }
@@ -278,12 +252,9 @@ export class PresetManager {
   private async savePresets(): Promise<void> {
     try {
       await writePresetStorage(this.configPath, this.presets, this.configDirOption);
-      logger.debug('Presets saved to file', {
-        presetCount: this.presets.size,
-        configPath: this.configPath,
-      });
+      logger.debug('presetManager.presets.saved.to.file.88dc37af', { presetCount: this.presets.size });
     } catch (error) {
-      logger.error('Failed to save presets', { error });
+      logger.error('presetManager.failed.to.save.presets.e0270919', { error: error });
       PresetErrorHandler.throwError(
         `Failed to save presets: ${error instanceof Error ? error.message : 'Unknown error'}`,
         { context: 'preset saving', exitCode: 3 },
@@ -302,7 +273,7 @@ export class PresetManager {
     try {
       this.watcher = watch(resolveWatchPath(this.configPath), { persistent: false }, async (eventType) => {
         if (eventType === 'change') {
-          logger.debug('Preset file changed, scheduling reload...');
+          logger.debug('presetManager.preset.file.changed.scheduling.reload.80da3c96');
 
           // Clear any existing debounce timeout
           if (this.reloadTimeout) {
@@ -313,9 +284,9 @@ export class PresetManager {
           this.reloadTimeout = setTimeout(async () => {
             try {
               await this.reloadAndNotifyChanges();
-              logger.info('Presets reloaded successfully');
+              logger.info('presetManager.presets.reloaded.successfully.dd2471d7');
             } catch (error) {
-              logger.error('Failed to reload presets', { error });
+              logger.error('presetManager.failed.to.reload.presets.6d7c844a', { error: error });
             } finally {
               this.reloadTimeout = null;
             }
@@ -323,9 +294,9 @@ export class PresetManager {
         }
       });
 
-      logger.debug('Started watching preset file', { path: this.configPath, debounceDelay: this.DEBOUNCE_DELAY });
+      logger.debug('presetManager.started.watching.preset.file.28e8837e');
     } catch (error) {
-      logger.warn('Failed to start preset file watching', { error });
+      logger.warn('presetManager.failed.to.start.preset.file.watching.7ed8d6dc', { error: error });
     }
   }
 
@@ -372,11 +343,7 @@ export class PresetManager {
     // Notify clients of preset change
     await this.notifyPresetChange(name);
 
-    logger.info('Preset saved successfully', {
-      name,
-      strategy: config.strategy,
-      tagQuery: config.tagQuery,
-    });
+    logger.info('presetManager.preset.saved.successfully.2cfdc0b1');
   }
 
   /**
@@ -409,7 +376,7 @@ export class PresetManager {
     this.presets.delete(name);
     await this.savePresets();
 
-    logger.info('Preset deleted successfully', { name });
+    logger.info('presetManager.preset.deleted.successfully.1f4ef783');
     return true;
   }
 
@@ -429,7 +396,7 @@ export class PresetManager {
   public resolvePresetToExpression(name: string): string | null {
     const preset = this.presets.get(name);
     if (!preset) {
-      logger.warn('Attempted to resolve non-existent preset', { name });
+      logger.warn('presetManager.attempted.to.resolve.non.existent.preset.bed33632');
       return null;
     }
 
@@ -438,17 +405,13 @@ export class PresetManager {
       const expression = TagQueryEvaluator.queryToString(preset.tagQuery);
 
       if (!expression || expression.trim() === '') {
-        logger.warn('Preset resolved to empty expression', { name, tagQuery: preset.tagQuery });
+        logger.warn('presetManager.preset.resolved.to.empty.expression.3df23610');
         return null;
       }
 
       return expression;
     } catch (error) {
-      logger.error('Failed to resolve preset to expression', {
-        name,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        tagQuery: preset.tagQuery,
-      });
+      logger.error('presetManager.failed.to.resolve.preset.to.expression.c273c525', { error: error });
       return null;
     }
   }
@@ -471,13 +434,12 @@ export class PresetManager {
   private async notifyPresetChange(presetName: string): Promise<void> {
     const promises = Array.from(this.notificationCallbacks).map((callback) =>
       callback(presetName).catch((error: unknown) => {
-        logger.error('Preset change notification failed', { presetName, error });
+        logger.error('presetManager.preset.change.notification.failed.f4c5d0fc', { error: error });
       }),
     );
 
     await Promise.all(promises);
-    logger.debug('Preset change notifications sent', {
-      presetName,
+    logger.debug('presetManager.preset.change.notifications.sent.c08156b1', {
       callbackCount: this.notificationCallbacks.size,
     });
   }

@@ -1,4 +1,4 @@
-import { warnIf } from '@src/logger/logger.js';
+import { writeBackendDiagnostic } from '@src/logger/logger.js';
 import { ManagedStdioStderrEvent } from '@src/transport/managedStdioStderrEvent.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,7 +7,7 @@ import { BackendLogBroker } from './backendLogBroker.js';
 import { createBackendLogProjection } from './backendLogProjection.js';
 import { staticBackendLogSource } from './backendLogSource.js';
 
-vi.mock('@src/logger/logger.js', () => ({ warnIf: vi.fn() }));
+vi.mock('@src/logger/logger.js', () => ({ writeBackendDiagnostic: vi.fn() }));
 
 describe('createBackendLogProjection', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -40,7 +40,7 @@ describe('createBackendLogProjection', () => {
       false,
       4,
     ],
-  ] as const)('prefixes and structures %s output', (event, facts, message, content, kind, truncated, count) => {
+  ] as const)('prefixes and structures %s output', (event, facts, _message, content, kind, truncated, count) => {
     const broker = new BackendLogBroker();
     const source = staticBackendLogSource('filesystem');
     broker.registerSource(source);
@@ -48,16 +48,15 @@ describe('createBackendLogProjection', () => {
 
     project(event, { serverName: 'filesystem', source: 'backend-stderr', ...facts });
 
-    expect(warnIf).toHaveBeenCalledOnce();
-    expect(vi.mocked(warnIf).mock.calls[0][0]).toBeTypeOf('function');
-    expect((vi.mocked(warnIf).mock.calls[0][0] as () => unknown)()).toEqual({
-      message,
-      meta: expect.objectContaining({
-        serverName: 'filesystem',
-        backendLogEventKind: kind,
-        backendLogSourceId: 'static:filesystem',
+    expect(writeBackendDiagnostic).toHaveBeenCalledOnce();
+    expect(vi.mocked(writeBackendDiagnostic).mock.calls[0][0]).toEqual(
+      expect.objectContaining({
+        content,
+        canonicalName: 'filesystem',
+        sourceId: 'static:filesystem',
+        kind,
       }),
-    });
+    );
     expect(broker.snapshot().entries).toContainEqual(
       expect.objectContaining({ content, kind, truncated, ...(count === undefined ? {} : { count }) }),
     );

@@ -49,10 +49,7 @@ export class RestartableStdioTransport implements Transport {
     private readonly restartConfig: RestartableTransportConfig,
     private readonly managedStderr?: ManagedStdioStderr,
   ) {
-    debugIf(() => ({
-      message: `Creating RestartableStdioTransport for command: ${serverParams.command}`,
-      meta: { command: serverParams.command },
-    }));
+    debugIf(() => ({ message: 'restartableStdioTransport.creating.restartablestdiotransport.for.command.47f816cd' }));
   }
 
   /**
@@ -93,7 +90,7 @@ export class RestartableStdioTransport implements Transport {
    * Handles transport error events
    */
   private handleTransportError(error: Error): void {
-    logger.error(`Transport error: ${error.message}`);
+    logger.error('restartableStdioTransport.transport.error.206094be');
     this.onerror?.(error);
   }
 
@@ -114,7 +111,7 @@ export class RestartableStdioTransport implements Transport {
 
     const maxRestarts = this.restartConfig.maxRestarts;
     if (maxRestarts !== undefined && this._restartCount >= maxRestarts) {
-      logger.error(`Max restart limit reached (${maxRestarts}), stopping transport`);
+      logger.error('restartableStdioTransport.max.restart.limit.reached.stopping.transport.9801e607');
       this.onerror?.(new Error(`Transport failed after ${maxRestarts} restart attempts`));
       return;
     }
@@ -122,15 +119,15 @@ export class RestartableStdioTransport implements Transport {
     this._restartCount++;
     const restartDelay = this.restartConfig.restartDelay ?? 1000;
 
-    logger.info(`Attempting transport restart ${this._restartCount} in ${restartDelay}ms...`);
+    logger.info('restartableStdioTransport.attempting.transport.restart.in.ms.9f524f64');
 
     this._restartTimer = setTimeout(async () => {
       this._restartTimer = null;
       try {
         await this.restartTransport();
-        logger.info(`Transport restarted successfully (attempt ${this._restartCount})`);
+        logger.info('restartableStdioTransport.transport.restarted.successfully.attempt.471bf3a9');
       } catch (error) {
-        logger.error(`Transport restart failed: ${error}`);
+        logger.error('restartableStdioTransport.transport.restart.failed.9ee7466c', { error: error });
         this.onerror?.(error instanceof Error ? error : new Error(String(error)));
       }
     }, restartDelay);
@@ -174,7 +171,7 @@ export class RestartableStdioTransport implements Transport {
     try {
       this._currentTransport = this.createTransport();
       await this._currentTransport.start();
-      debugIf('RestartableStdioTransport started successfully');
+      debugIf('restartableStdioTransport.restartablestdiotransport.started.successfully.4b4aa2ac');
     } finally {
       this._isStarting = false;
     }
@@ -225,7 +222,7 @@ export class RestartableStdioTransport implements Transport {
 
     await this.managedStderr?.close();
 
-    debugIf('RestartableStdioTransport closed');
+    debugIf('restartableStdioTransport.restartablestdiotransport.closed.9292005e');
   }
 
   /**

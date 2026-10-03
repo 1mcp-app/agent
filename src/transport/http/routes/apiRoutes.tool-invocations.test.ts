@@ -6,6 +6,7 @@ import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { runtimeAdmission } from '@src/core/server/runtimeDrain.js';
 import { ClientStatus, type OutboundConnections } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
+import { normalizeEvent } from '@src/observability/events/normalize.js';
 import { type JsonValue, OneMcpProtocolError, toJsonValue, toProtocolTool } from '@src/sdk/contracts/index.js';
 
 import type { Request, RequestHandler, Response } from 'express';
@@ -248,7 +249,13 @@ describe('apiRoutes /api/tool-invocations', () => {
     await invokeInspectRoute(handler, { body: { tool: 'server/tool' } }, res);
 
     expect(res.statusCode).toBe(502);
-    expect(JSON.stringify(vi.mocked(logger.error).mock.calls)).not.toContain('SECRET480-DIRECT');
+    const normalizedLogs = vi.mocked(logger.error).mock.calls.map(([event, fields]) =>
+      normalizeEvent(event, fields),
+    );
+    expect(normalizedLogs).toContainEqual(
+      expect.objectContaining({ event: 'toolRoutes.direct.tool.invocation.error.ba32e1c5' }),
+    );
+    expect(JSON.stringify(normalizedLogs)).not.toContain('SECRET480-DIRECT');
     expect(res.body).toMatchObject({
       status: 502,
       error: 'Gateway transport failure',
@@ -687,7 +694,13 @@ describe('apiRoutes /api/tool-invocations', () => {
     expect(lazyOrchestrator.callMetaTool).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(502);
     expect(JSON.stringify(res.body)).not.toContain('SECRET480');
-    expect(JSON.stringify(vi.mocked(logger.error).mock.calls)).not.toContain('SECRET480');
+    const normalizedLogs = vi.mocked(logger.error).mock.calls.map(([event, fields]) =>
+      normalizeEvent(event, fields),
+    );
+    expect(normalizedLogs).toContainEqual(
+      expect.objectContaining({ event: 'capabilityCatalog.tool.invocation.failed.828dabfb' }),
+    );
+    expect(JSON.stringify(normalizedLogs)).not.toContain('SECRET480');
   });
 
   it('rechecks a contract replaced between asynchronous validation and direct REST dispatch', async () => {

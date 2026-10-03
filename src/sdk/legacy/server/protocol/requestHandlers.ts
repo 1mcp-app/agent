@@ -51,13 +51,13 @@ export function registerRequestHandlers(
     PingRequestSchema,
     withErrorHandling(async () => {
       // Health check all connected upstream clients
-      const healthCheckPromises = Array.from(outboundConns.entries()).map(async ([clientName, outboundConn]) => {
+      const healthCheckPromises = Array.from(outboundConns.entries()).map(async ([_clientName, outboundConn]) => {
         if (outboundConn.status === ClientStatus.Connected) {
           try {
             await requestLegacyOutbound(outboundConn, 'ping');
-            logger.info(`Health check successful for client: ${clientName}`);
-          } catch (error) {
-            logger.warn(`Health check failed for client ${clientName}: ${error}`);
+            logger.info('requestHandlers.health.check.successful.for.client.e172fbf8');
+          } catch (_error) {
+            logger.warn('requestHandlers.health.check.failed.for.client.36ff3103', { error: _error });
           }
         }
       });

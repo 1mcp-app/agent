@@ -5,6 +5,7 @@ import path from 'path';
 import { ExpirableData } from '@src/auth/sessionTypes.js';
 import { AUTH_CONFIG } from '@src/constants.js';
 import logger from '@src/logger/logger.js';
+import { normalizeEvent } from '@src/observability/events/normalize.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -766,19 +767,15 @@ describe('FileStorageService', () => {
 
       expect(vi.mocked(logger.debug)).toHaveBeenCalled();
       const calls = vi.mocked(logger.debug).mock.calls as unknown as Array<[unknown, unknown?]>;
-      for (const [message, meta] of calls) {
-        const messageStr = String(message);
-        expect(messageStr).toContain('[REDACTED]');
-        expect(messageStr).not.toContain('sensitive-secret-token-value');
-        expect(messageStr).not.toContain(sensitiveId);
-
-        if (meta && typeof meta === 'object' && 'error' in meta) {
-          const errorValue = String((meta as { error: unknown }).error);
-          expect(errorValue).toContain('[REDACTED]');
-          expect(errorValue).not.toContain('sensitive-secret-token-value');
-          expect(errorValue).not.toContain(sensitiveId);
-        }
-      }
+      const normalizedCalls = calls.map(([event, fields]) => normalizeEvent(event, fields));
+      expect(normalizedCalls).toContainEqual(
+        expect.objectContaining({
+          event: 'fileStorageService.extractuuidpart.failed.for.id.prefix.69442aa5',
+          error_kind: 'other',
+        }),
+      );
+      expect(JSON.stringify(normalizedCalls)).not.toContain('sensitive-secret-token-value');
+      expect(JSON.stringify(normalizedCalls)).not.toContain(sensitiveId);
     });
   });
 });

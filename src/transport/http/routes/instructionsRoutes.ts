@@ -117,7 +117,7 @@ export function createInstructionsHandler(serverManager: ServerManager): Request
       });
       res.json(response);
     } catch (error) {
-      logger.error('API instructions handler error:', error);
+      logger.error('instructionsRoutes.api.instructions.handler.error.cbd7a545', { error: error });
       res.status(500).json({ error: 'Internal server error' });
     }
   };

@@ -36,7 +36,7 @@ export async function deleteCommand(argv: DeleteArguments): Promise<void> {
 
     await deletePreset(argv.name, presetManager, selector);
   } catch (error) {
-    logger.error('Preset delete command failed', { error });
+    logger.error('delete.preset.delete.command.failed.2bcfe514', { error: error });
     printer.error(`Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     process.exit(1);
   }

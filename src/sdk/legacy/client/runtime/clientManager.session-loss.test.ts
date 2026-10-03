@@ -212,7 +212,9 @@ describe('ClientManager session-loss recovery over a real Streamable HTTP upstre
       await requestLegacyOutbound(before!, 'tools/list').catch(() => undefined);
       await vi.waitFor(
         () => {
-          expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Session for http-upstream was lost'));
+          expect(logger.warn).toHaveBeenCalledWith(
+            'clientManager.session.for.was.lost.backend.likely.restarted.reconnecting.with.a.fresh.ses.11164b75',
+          );
         },
         { timeout: 8000 },
       );

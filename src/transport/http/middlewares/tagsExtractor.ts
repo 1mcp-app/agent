@@ -48,7 +48,7 @@ export default function tagsExtractor(req: Request, res: Response, next: NextFun
 
     if (!result.ok) {
       if (result.error.code === 'invalid_preset') {
-        logger.error('Failed to process preset tag query', result.error.details);
+        logger.error('tagsExtractor.failed.to.process.preset.tag.query.0a4eeb36');
       }
 
       const details =
@@ -70,7 +70,7 @@ export default function tagsExtractor(req: Request, res: Response, next: NextFun
 
     next();
   } catch (error) {
-    logger.error('Filter selection failed', { error });
+    logger.error('tagsExtractor.filter.selection.failed.95a9f552', { error: error });
     res.status(500).json({
       error: {
         code: ErrorCode.InternalError,

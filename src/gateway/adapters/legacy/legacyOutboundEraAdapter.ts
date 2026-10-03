@@ -1,3 +1,4 @@
+import { stripBaggage } from '@src/observability/tracing/context.js';
 import {
   createLegacyTimeoutMs,
   type LegacyRequestId,
@@ -74,7 +75,7 @@ export class LegacyOutboundEraAdapter implements OutboundEraAdapter {
         ...(params === undefined ? {} : { params }),
         timeoutMs: createLegacyTimeoutMs(remainingMs),
       });
-      return toImmutableJsonValue(result);
+      return toImmutableJsonValue(stripBaggage(result));
     } catch (error) {
       throw gatewayFailureFromUnknown(error, 'transport');
     } finally {

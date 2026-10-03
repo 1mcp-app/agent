@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { types } from 'node:util';
 
 import { captureJson } from '@src/core/validation/schemaPolicy.js';
+import { captureTraceContext, stripBaggage } from '@src/observability/tracing/context.js';
 
 import { createGatewayFailure, type ImmutableJsonValue, toImmutableJsonValue } from '../contracts/index.js';
 import type { GatewayInteractionRequest, GatewayInteractionRound } from '../ports/outboundEraAdapter.js';
@@ -91,15 +92,18 @@ export class InteractionBroker {
       { once: true },
     );
     if (callerSignal?.aborted) abort();
+    const runTrace = captureTraceContext();
     void Promise.resolve()
-      .then(() => {
-        flow.signal.throwIfAborted();
-        return invoke(
-          (input) => this.interact(flow, input),
-          flow.signal,
-          (inputs) => this.interactRound(flow, inputs),
-        );
-      })
+      .then(() =>
+        runTrace(async () => {
+          flow.signal.throwIfAborted();
+          return invoke(
+            (input) => this.interact(flow, input),
+            flow.signal,
+            (inputs) => this.interactRound(flow, inputs),
+          );
+        }, flow.signal),
+      )
       .then(
         (value) => this.complete(flow, { value }),
         (error: unknown) => this.complete(flow, { error }),
@@ -142,7 +146,7 @@ export class InteractionBroker {
         if (Object.hasOwn(current.responses, key) || !Object.hasOwn(record, key)) continue;
         await this.options.validate(request, record[key], binding, flow.signal);
         Object.defineProperty(accepted, key, {
-          value: record[key],
+          value: stripBaggage(record[key]),
           enumerable: true,
           configurable: true,
         });

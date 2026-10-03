@@ -53,7 +53,7 @@ export async function versionsCommand(argv: VersionsCommandCliArgs): Promise<voi
 
     const registryOptions = registryOptionsFromArgv(argv);
 
-    logger.info(`Fetching versions for MCP server: ${versionsArgs.serverId}`);
+    logger.info('versions.fetching.versions.for.mcp.server.0c6fcd0e');
     const versionsResponse = await handleListMCPServerVersions(versionsArgs, registryOptions);
 
     // Format and display the versions
@@ -68,7 +68,7 @@ export async function versionsCommand(argv: VersionsCommandCliArgs): Promise<voi
       printer.raw(output);
     }
   } catch (error) {
-    logger.error('Versions command failed:', error);
+    logger.error('versions.versions.command.failed.508dbd17', { error: error });
 
     // Check if it's a 404 error and provide helpful message
     if (error instanceof Error && error.message.includes('404')) {

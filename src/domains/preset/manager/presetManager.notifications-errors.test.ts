@@ -204,12 +204,8 @@ describe('PresetManager', () => {
         expect(result.tags).toEqual(['api', 'database', 'frontend', 'sql', 'web']);
 
         // Should log warning about failed evaluation
-        expect(logger.warn).toHaveBeenCalledWith('Failed to evaluate preset against server', {
-          preset: 'error-preset',
-          server: expect.any(String),
-          error: 'Invalid advanced query',
-          tagQuery: { $advanced: 'invalid_expression' },
-          serverTags: expect.any(Array),
+        expect(logger.warn).toHaveBeenCalledWith('presetTesting.failed.to.evaluate.preset.against.server.cf37abcb', {
+          error: expect.objectContaining({ message: 'Invalid advanced query' }),
         });
       });
 
@@ -230,12 +226,8 @@ describe('PresetManager', () => {
         expect(result.servers).toEqual(['server1', 'server3']);
 
         // Should log warning for failed server evaluation
-        expect(logger.warn).toHaveBeenCalledWith('Failed to evaluate preset against server', {
-          preset: 'valid-preset',
-          server: 'server2',
-          error: 'Evaluation error on server2',
-          tagQuery: { $or: [{ tag: 'web' }, { tag: 'api' }] },
-          serverTags: ['database', 'sql'],
+        expect(logger.warn).toHaveBeenCalledWith('presetTesting.failed.to.evaluate.preset.against.server.cf37abcb', {
+          error: expect.objectContaining({ message: 'Evaluation error on server2' }),
         });
       });
     });
@@ -244,9 +236,7 @@ describe('PresetManager', () => {
       it('should handle non-existent preset gracefully', () => {
         const result = presetManager.resolvePresetToExpression('non-existent');
         expect(result).toBeNull();
-        expect(logger.warn).toHaveBeenCalledWith('Attempted to resolve non-existent preset', {
-          name: 'non-existent',
-        });
+        expect(logger.warn).toHaveBeenCalledWith('presetManager.attempted.to.resolve.non.existent.preset.bed33632');
       });
 
       it('should handle TagQueryEvaluator.queryToString errors', () => {
@@ -257,10 +247,8 @@ describe('PresetManager', () => {
         const result = presetManager.resolvePresetToExpression('valid-preset');
         expect(result).toBeNull();
 
-        expect(logger.error).toHaveBeenCalledWith('Failed to resolve preset to expression', {
-          name: 'valid-preset',
-          error: 'Query to string conversion failed',
-          tagQuery: { $or: [{ tag: 'web' }, { tag: 'api' }] },
+        expect(logger.error).toHaveBeenCalledWith('presetManager.failed.to.resolve.preset.to.expression.c273c525', {
+          error: expect.objectContaining({ message: 'Query to string conversion failed' }),
         });
       });
 
@@ -270,10 +258,7 @@ describe('PresetManager', () => {
         const result = presetManager.resolvePresetToExpression('empty-query-preset');
         expect(result).toBeNull();
 
-        expect(logger.warn).toHaveBeenCalledWith('Preset resolved to empty expression', {
-          name: 'empty-query-preset',
-          tagQuery: {},
-        });
+        expect(logger.warn).toHaveBeenCalledWith('presetManager.preset.resolved.to.empty.expression.3df23610');
       });
 
       it('should handle whitespace-only query expressions', () => {
@@ -282,10 +267,7 @@ describe('PresetManager', () => {
         const result = presetManager.resolvePresetToExpression('valid-preset');
         expect(result).toBeNull();
 
-        expect(logger.warn).toHaveBeenCalledWith('Preset resolved to empty expression', {
-          name: 'valid-preset',
-          tagQuery: { $or: [{ tag: 'web' }, { tag: 'api' }] },
-        });
+        expect(logger.warn).toHaveBeenCalledWith('presetManager.preset.resolved.to.empty.expression.3df23610');
       });
     });
 
@@ -312,9 +294,8 @@ describe('PresetManager', () => {
         // Trigger a file change to test error handling
         await (presetManager as any).reloadAndNotifyChanges();
 
-        expect(logger.error).toHaveBeenCalledWith('Failed to update change detector for preset', {
-          presetName: 'valid-preset',
-          error: 'Change detector update failed',
+        expect(logger.error).toHaveBeenCalledWith('presetManager.failed.to.update.change.detector.for.preset.a442171c', {
+          error: expect.objectContaining({ message: 'Change detector update failed' }),
         });
       });
     });

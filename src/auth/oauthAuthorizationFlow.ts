@@ -410,7 +410,7 @@ export function createOAuthAuthorizationFlow(dependencies: OAuthAuthorizationFlo
         dependencies.loadingRuntime?.markReady(input.serverName);
         return { status: 'completed', ...returnContext };
       } catch (error) {
-        logger.error(`OAuth callback completion failed for ${input.serverName}`, { error });
+        logger.error('oauthAuthorizationFlow.oauth.callback.completion.failed.for.758a88bb', { error: error });
         return {
           ...returnContext,
           status: 'callback_failed',

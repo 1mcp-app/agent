@@ -779,7 +779,9 @@ describe('ClientManager (Integration)', () => {
       expect(() => registeredClient.onerror?.(new Error('Session not found'))).not.toThrow();
 
       await Promise.resolve();
-      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Cannot recover stdio-client'));
+      expect(logger.error).toHaveBeenCalledWith('clientManager.cannot.recover.from.session.loss.9b3fa9e8', {
+        error: expect.any(Error),
+      });
       expect(clientManager.getTransport('stdio-client')).toBe(stdioTransport);
     });
 
@@ -1293,9 +1295,7 @@ describe('ClientManager (Integration)', () => {
       await Promise.resolve();
 
       expect(availabilityHandler).toHaveBeenCalledTimes(1);
-      expect(logger.warn).toHaveBeenCalledWith(
-        'Failed to publish backend availability for supervised: notification failed',
-      );
+      expect(logger.warn).toHaveBeenCalledWith('clientManager.failed.to.publish.backend.availability.for.9f2d28de');
     });
 
     it('withdraws an exited backend and reconnects a fresh MCP client after the configured delay', async () => {

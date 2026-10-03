@@ -35,6 +35,7 @@ import {
 } from './legacyInboundConnection.js';
 import {
   getLegacyServerTransportHandle,
+  installLegacyRequestTracing,
   isLegacyServerConnected,
   LegacySdkServerAdapter,
 } from './legacySdkServerAdapter.js';
@@ -108,14 +109,14 @@ export class ConnectionManager {
     // Check if a connection is already in progress for this session
     const existingConnection = this.connectionSemaphore.get(sessionId);
     if (existingConnection) {
-      logger.warn(`Connection already in progress for session ${sessionId}, waiting...`);
+      logger.warn('connectionManager.connection.already.in.progress.for.session.waiting.ab0b4dbd');
       await existingConnection;
       return;
     }
 
     // Check if transport is already connected
     if (this.inboundConns.has(sessionId)) {
-      logger.warn(`Transport already connected for session ${sessionId}`);
+      logger.warn('connectionManager.transport.already.connected.for.session.82eea7e1');
       return;
     }
 
@@ -161,7 +162,7 @@ export class ConnectionManager {
           try {
             await connection.adapter.close();
           } catch (error) {
-            logger.error(`Error closing transport for session ${sessionId}:`, error);
+            logger.error('connectionManager.error.closing.transport.for.session.03d80826', { error: error });
           }
         }
 
@@ -169,10 +170,13 @@ export class ConnectionManager {
         const notificationService = PresetNotificationService.getInstance();
         notificationService.untrackClient(sessionId);
         unregisterCapabilityPaginationForwarder(this.outboundConns, connection);
-        debugIf(() => ({ message: 'Untracked client from preset notifications', meta: { sessionId } }));
+        debugIf(() => ({
+          message: 'connectionManager.untracked.client.from.preset.notifications.6a97d47f',
+          meta: { sessionId: sessionId },
+        }));
 
         this.inboundConns.delete(sessionId);
-        logger.info(`Disconnected transport for session ${sessionId}`);
+        logger.info('connectionManager.disconnected.transport.for.session.9a08187a');
         if (resourceCleanupError !== undefined) throw resourceCleanupError;
       } finally {
         this.disconnectingIds.delete(sessionId);
@@ -272,7 +276,7 @@ export class ConnectionManager {
         connection.lastError = toInboundConnectionError(error);
       }
 
-      logger.error(`Failed to connect transport for session ${sessionId}:`, error);
+      logger.error('connectionManager.failed.to.connect.transport.for.session.06b49e4e', { error: error });
       throw error;
     }
   }
@@ -319,6 +323,7 @@ export class ConnectionManager {
     };
 
     // Enhance server with logging middleware
+    installLegacyRequestTracing(server);
     enhanceServerWithLogging(server);
 
     if (
@@ -369,7 +374,7 @@ export class ConnectionManager {
       await this.registerClientForPresets(sessionId, opts.presetName, serverInfo);
     }
 
-    logger.info(`Connected transport for session ${sessionId}`);
+    logger.info('connectionManager.connected.transport.for.session.8c692c82');
   }
 
   /**
@@ -391,15 +396,21 @@ export class ConnectionManager {
               method,
               params: toJsonValue(params || {}),
             });
-            debugIf(() => ({ message: 'Sent notification to client', meta: { sessionId, method } }));
+            debugIf(() => ({
+              message: 'connectionManager.sent.notification.to.client.615bc0d2',
+              meta: { sessionId: sessionId, method: method },
+            }));
           } else {
-            logger.warn('Cannot send notification to disconnected client', { sessionId, method });
+            logger.warn('connectionManager.cannot.send.notification.to.disconnected.client.9715f96c', {
+              sessionId: sessionId,
+              method: method,
+            });
           }
         } catch (error) {
-          logger.error('Failed to send notification to client', {
-            sessionId,
-            method,
-            error: error instanceof Error ? error.message : 'Unknown error',
+          logger.error('connectionManager.failed.to.send.notification.to.client.e18f96b7', {
+            sessionId: sessionId,
+            method: method,
+            error: error,
           });
           throw error;
         }
@@ -408,10 +419,7 @@ export class ConnectionManager {
     };
 
     notificationService.trackClient(clientConnection, presetName);
-    logger.info('Registered client for preset notifications', {
-      sessionId,
-      presetName,
-    });
+    logger.info('connectionManager.registered.client.for.preset.notifications.81bba02b', { sessionId: sessionId });
   }
 
   /**

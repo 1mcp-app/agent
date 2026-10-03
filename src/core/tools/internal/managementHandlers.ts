@@ -31,10 +31,7 @@ import {
  */
 export async function handleMcpEnable(args: McpEnableToolArgs): Promise<McpEnableOutput> {
   try {
-    debugIf(() => ({
-      message: 'Executing mcp_enable tool',
-      meta: { args },
-    }));
+    debugIf(() => ({ message: 'managementHandlers.executing.mcp.enable.tool.4920bb7d' }));
 
     // Check if management tools are enabled
     const flagManager = FlagManager.getInstance();
@@ -71,7 +68,7 @@ export async function handleMcpEnable(args: McpEnableToolArgs): Promise<McpEnabl
     return McpEnableOutputSchema.parse(structuredResult);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Error in mcp_enable tool handler', { error: errorMessage });
+    logger.error('managementHandlers.error.in.mcp.enable.tool.handler.205318b6', { error: errorMessage });
 
     const result = {
       name: args.name,
@@ -89,10 +86,7 @@ export async function handleMcpEnable(args: McpEnableToolArgs): Promise<McpEnabl
  */
 export async function handleMcpDisable(args: McpDisableToolArgs): Promise<McpDisableOutput> {
   try {
-    debugIf(() => ({
-      message: 'Executing mcp_disable tool',
-      meta: { args },
-    }));
+    debugIf(() => ({ message: 'managementHandlers.executing.mcp.disable.tool.83f96ae3' }));
 
     // Check if management tools are enabled
     const flagManager = FlagManager.getInstance();
@@ -129,7 +123,7 @@ export async function handleMcpDisable(args: McpDisableToolArgs): Promise<McpDis
     return McpDisableOutputSchema.parse(structuredResult);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Error in mcp_disable tool handler', { error: errorMessage });
+    logger.error('managementHandlers.error.in.mcp.disable.tool.handler.2e682256', { error: errorMessage });
 
     const result = {
       name: args.name,
@@ -147,10 +141,7 @@ export async function handleMcpDisable(args: McpDisableToolArgs): Promise<McpDis
  */
 export async function handleMcpList(args: McpListToolArgs): Promise<McpListOutput> {
   try {
-    debugIf(() => ({
-      message: 'Executing mcp_list tool',
-      meta: { args },
-    }));
+    debugIf(() => ({ message: 'managementHandlers.executing.mcp.list.tool.e7515613' }));
 
     // Check if management tools are enabled
     const flagManager = FlagManager.getInstance();
@@ -200,7 +191,7 @@ export async function handleMcpList(args: McpListToolArgs): Promise<McpListOutpu
     return McpListOutputSchema.parse(result);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Error in mcp_list tool handler', { error: errorMessage });
+    logger.error('managementHandlers.error.in.mcp.list.tool.handler.1824402f', { error: errorMessage });
 
     const result = {
       servers: [],
@@ -222,10 +213,7 @@ export async function handleMcpList(args: McpListToolArgs): Promise<McpListOutpu
  */
 export async function handleMcpStatus(args: McpStatusToolArgs): Promise<McpStatusOutput> {
   try {
-    debugIf(() => ({
-      message: 'Executing mcp_status tool',
-      meta: { args },
-    }));
+    debugIf(() => ({ message: 'managementHandlers.executing.mcp.status.tool.470b2cef' }));
 
     // Check if management tools are enabled
     const flagManager = FlagManager.getInstance();
@@ -290,7 +278,7 @@ export async function handleMcpStatus(args: McpStatusToolArgs): Promise<McpStatu
     return McpStatusOutputSchema.parse(schemaResult);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Error in mcp_status tool handler', { error: errorMessage });
+    logger.error('managementHandlers.error.in.mcp.status.tool.handler.4280f319', { error: errorMessage });
 
     const result = {
       servers: [],
@@ -312,10 +300,7 @@ export async function handleMcpStatus(args: McpStatusToolArgs): Promise<McpStatu
  */
 export async function handleMcpReload(args: McpReloadToolArgs): Promise<McpReloadOutput> {
   try {
-    debugIf(() => ({
-      message: 'Executing mcp_reload tool',
-      meta: { args },
-    }));
+    debugIf(() => ({ message: 'managementHandlers.executing.mcp.reload.tool.2a0b92c6' }));
 
     // Check if management tools are enabled
     const flagManager = FlagManager.getInstance();
@@ -355,7 +340,7 @@ export async function handleMcpReload(args: McpReloadToolArgs): Promise<McpReloa
     return McpReloadOutputSchema.parse(structuredResult);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Error in mcp_reload tool handler', { error: errorMessage });
+    logger.error('managementHandlers.error.in.mcp.reload.tool.handler.15a62ac4', { error: errorMessage });
 
     const result = {
       target: (args.server ? 'server' : 'config') as 'server' | 'config' | 'all',

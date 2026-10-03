@@ -30,14 +30,14 @@ export async function handleListMCPServerVersions(
   registryOptions?: RegistryOptions,
 ): Promise<ServerVersionsResponse> {
   const handler = withErrorHandling(async () => {
-    logger.debug('Processing list_mcp_server_versions request', args);
+    logger.debug('versionsHandler.processing.list.mcp.server.versions.request.42d0b98c');
 
     const client = getRegistryClient(registryOptions);
 
     // Get server versions
     const versions = await client.getServerVersions(args.serverId);
 
-    logger.debug(`Successfully fetched ${versions.versions.length} versions for: ${args.serverId}`);
+    logger.debug('versionsHandler.successfully.fetched.versions.for.d9069ff0');
     return versions;
   }, `Failed to list versions for MCP server: ${args.serverId}`);
 

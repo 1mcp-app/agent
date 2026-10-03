@@ -67,9 +67,9 @@ async function previewChanges(
 
     return changes;
   } catch (error) {
-    logger.error('Error previewing configuration changes', {
-      error: error instanceof Error ? error.message : 'Unknown error',
-      serverName,
+    logger.error('toolHandlers.error.previewing.configuration.changes.cd32dd5c', {
+      error: error,
+      serverName: serverName,
     });
     throw error;
   }
@@ -88,10 +88,7 @@ export async function handleMcpEdit(args: McpEditToolArgs): Promise<McpEditOutpu
   };
 
   try {
-    debugIf(() => ({
-      message: 'Executing mcp_edit tool',
-      meta: { args: normalizedArgs },
-    }));
+    debugIf(() => ({ message: 'toolHandlers.executing.mcp.edit.tool.c0f5fd45' }));
 
     // Check if edit tools are enabled
     const flagManager = FlagManager.getInstance();
@@ -137,8 +134,8 @@ export async function handleMcpEdit(args: McpEditToolArgs): Promise<McpEditOutpu
     if (normalizedArgs.backup) {
       // Backup would be handled by the adapter
       debugIf(() => ({
-        message: 'Creating backup before editing server configuration',
-        meta: { serverName: normalizedArgs.name, backup: normalizedArgs.backup },
+        message: 'toolHandlers.creating.backup.before.editing.server.configuration.e7527acc',
+        meta: { serverName: normalizedArgs.name },
       }));
     }
 
@@ -163,7 +160,10 @@ export async function handleMcpEdit(args: McpEditToolArgs): Promise<McpEditOutpu
     return McpEditOutputSchema.parse(structuredResult);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Error in mcp_edit tool handler', { error: errorMessage, serverName: normalizedArgs.name });
+    logger.error('toolHandlers.error.in.mcp.edit.tool.handler.189d9093', {
+      error: errorMessage,
+      serverName: normalizedArgs.name,
+    });
 
     const result = {
       success: false,

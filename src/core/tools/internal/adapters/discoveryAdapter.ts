@@ -88,10 +88,7 @@ export class RegistryDiscoveryAdapter implements DiscoveryAdapter {
    * Search for servers in the registry
    */
   async searchServers(query: string, options: SearchOptions = {}): Promise<RegistryServer[]> {
-    debugIf(() => ({
-      message: 'Adapter: Searching servers in registry',
-      meta: { query, options },
-    }));
+    debugIf(() => ({ message: 'discoveryAdapter.adapter.searching.servers.in.registry.ee1ac44f' }));
 
     try {
       const result = await this.registryClient.searchServers({
@@ -106,7 +103,7 @@ export class RegistryDiscoveryAdapter implements DiscoveryAdapter {
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('Registry search failed', { error: errorMessage });
+      logger.error('discoveryAdapter.registry.search.failed.1fecc7fb', { error: errorMessage });
       throw new Error(`Registry search failed: ${errorMessage}`);
     }
   }
@@ -115,17 +112,14 @@ export class RegistryDiscoveryAdapter implements DiscoveryAdapter {
    * Get server details by ID
    */
   async getServerById(id: string, version?: string): Promise<RegistryServer | null> {
-    debugIf(() => ({
-      message: 'Adapter: Getting server by ID from registry',
-      meta: { id, version },
-    }));
+    debugIf(() => ({ message: 'discoveryAdapter.adapter.getting.server.by.id.from.registry.54161885' }));
 
     try {
       const result = await this.registryClient.getServerById(id, version);
       return result || null;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('Registry get server failed', { error: errorMessage, id, version });
+      logger.error('discoveryAdapter.registry.get.server.failed.d571a1d0', { error: errorMessage });
 
       // Return null for not found errors, throw for others
       if (errorMessage.includes('not found') || errorMessage.includes('No versions found')) {
@@ -152,10 +146,7 @@ export class RegistryDiscoveryAdapter implements DiscoveryAdapter {
     };
     github_client_id?: string;
   }> {
-    debugIf(() => ({
-      message: 'Adapter: Getting registry status',
-      meta: { includeStats },
-    }));
+    debugIf(() => ({ message: 'discoveryAdapter.adapter.getting.registry.status.e84bf5f0' }));
 
     try {
       const result = await this.registryClient.getRegistryStatus(includeStats);
@@ -165,7 +156,7 @@ export class RegistryDiscoveryAdapter implements DiscoveryAdapter {
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('Registry status check failed', { error: errorMessage });
+      logger.error('discoveryAdapter.registry.status.check.failed.445d98cb', { error: errorMessage });
       throw new Error(`Registry status check failed: ${errorMessage}`);
     }
   }
@@ -184,9 +175,7 @@ export class RegistryDiscoveryAdapter implements DiscoveryAdapter {
     }>;
     manualOnly: string[];
   }> {
-    debugIf(() => ({
-      message: 'Adapter: Discovering installed apps',
-    }));
+    debugIf(() => ({ message: 'discoveryAdapter.adapter.discovering.installed.apps.d997f6b6' }));
 
     try {
       const result = await discoverInstalledApps();
@@ -196,7 +185,7 @@ export class RegistryDiscoveryAdapter implements DiscoveryAdapter {
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('App discovery failed', { error: errorMessage });
+      logger.error('discoveryAdapter.app.discovery.failed.966f8a82', { error: errorMessage });
       throw new Error(`App discovery failed: ${errorMessage}`);
     }
   }
@@ -224,10 +213,7 @@ export class RegistryDiscoveryAdapter implements DiscoveryAdapter {
       error?: string;
     }>;
   }> {
-    debugIf(() => ({
-      message: 'Adapter: Discovering app configs',
-      meta: { appName },
-    }));
+    debugIf(() => ({ message: 'discoveryAdapter.adapter.discovering.app.configs.b3ecb728' }));
 
     try {
       const result = await discoverAppConfigs(appName);
@@ -237,7 +223,7 @@ export class RegistryDiscoveryAdapter implements DiscoveryAdapter {
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('App config discovery failed', { error: errorMessage, appName });
+      logger.error('discoveryAdapter.app.config.discovery.failed.87c4904c', { error: errorMessage });
       throw new Error(`App config discovery failed: ${errorMessage}`);
     }
   }
@@ -252,10 +238,7 @@ export class RegistryDiscoveryAdapter implements DiscoveryAdapter {
     originalServers?: number;
     message?: string;
   }> {
-    debugIf(() => ({
-      message: 'Adapter: Checking app consolidation status',
-      meta: { appName },
-    }));
+    debugIf(() => ({ message: 'discoveryAdapter.adapter.checking.app.consolidation.status.09a6a361' }));
 
     try {
       const result = await checkConsolidationStatus(appName);
@@ -265,7 +248,7 @@ export class RegistryDiscoveryAdapter implements DiscoveryAdapter {
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('App consolidation status check failed', { error: errorMessage, appName });
+      logger.error('discoveryAdapter.app.consolidation.status.check.failed.6bd497dd', { error: errorMessage });
       throw new Error(`App consolidation status check failed: ${errorMessage}`);
     }
   }

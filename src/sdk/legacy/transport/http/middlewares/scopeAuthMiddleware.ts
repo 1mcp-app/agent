@@ -213,7 +213,7 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
 
       next();
     } catch (error) {
-      logger.error('Scope auth middleware error:', error);
+      logger.error('scopeAuthMiddleware.scope.auth.middleware.error.8db4aa86', { error: error });
       res.status(500).json({
         error: 'server_error',
         error_description: 'Internal server error',

@@ -104,7 +104,7 @@ export async function interactiveCommand(argv: InteractiveArguments): Promise<vo
       }
     }
   } catch (error) {
-    logger.error('Preset interactive command failed', { error });
+    logger.error('interactive.preset.interactive.command.failed.162730ed', { error: error });
     printer.error(`Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     process.exit(1);
   }

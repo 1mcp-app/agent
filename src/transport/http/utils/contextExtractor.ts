@@ -135,16 +135,13 @@ export function extractContextFromMeta(req: Request): ContextData | null {
     // Validate that the context has the correct structure
     const parsed = contextDataSchema.safeParse(contextData);
     if (!parsed.success) {
-      logger.warn('Invalid context structure in _meta field, ignoring context');
+      logger.warn('contextExtractor.invalid.context.structure.in.meta.field.ignoring.context.1c280335');
       return null;
     }
 
     return parsed.data;
-  } catch (error) {
-    logger.error(
-      'Failed to extract context from _meta field:',
-      error instanceof Error ? error : new Error(String(error)),
-    );
+  } catch (_error) {
+    logger.error('contextExtractor.failed.to.extract.context.from.meta.field.aac6295e', { error: _error });
     return null;
   }
 }
@@ -167,16 +164,13 @@ export function extractContextFromQuery(req: Request): ContextData | null {
 
     const context = contextDataSchema.safeParse(parsed);
     if (!context.success) {
-      logger.warn('Invalid context structure in request query, ignoring context');
+      logger.warn('contextExtractor.invalid.context.structure.in.request.query.ignoring.context.3abfbf58');
       return null;
     }
 
     return context.data;
-  } catch (error) {
-    logger.error(
-      'Failed to extract context from request query:',
-      error instanceof Error ? error : new Error(String(error)),
-    );
+  } catch (_error) {
+    logger.error('contextExtractor.failed.to.extract.context.from.request.query.24bc92b4', { error: _error });
     return null;
   }
 }

@@ -316,7 +316,9 @@ describe('cli setup file writers', () => {
 
     expect(results.find((result) => result.path === settingsPath)?.changed).toBe(false);
     expect(await readFile(settingsPath, 'utf8')).toBe(original);
-    expect(loggerState.warn).toHaveBeenCalledWith(expect.stringContaining('Skipping managed update'));
+    expect(loggerState.warn).toHaveBeenCalledWith(
+      'setupFiles.skipping.managed.update.for.because.the.file.contains.json.comments.0409427c',
+    );
   });
 
   it('formats a concise summary', () => {

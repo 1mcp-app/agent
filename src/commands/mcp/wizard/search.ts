@@ -102,7 +102,7 @@ export async function searchServers(
         cancelled: false,
       };
     } catch (error) {
-      logger.error('Search failed', { searchTerm, error });
+      logger.error('search.search.failed.755851da', { error: error });
       printer.raw(
         boxen(chalk.red.bold('❌ Search failed - please try again'), {
           padding: 1,

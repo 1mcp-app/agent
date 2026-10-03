@@ -63,27 +63,29 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
    */
   public async initialize(startupPolicy: BackendStartupPolicy = 'configured'): Promise<void> {
     if (this.isInitialized) {
-      logger.warn('AsyncLoadingOrchestrator already initialized');
+      logger.warn('asyncLoadingOrchestrator.asyncloadingorchestrator.already.initialized.8b366424');
       return;
     }
 
     if (!this.agentConfig.get('asyncLoading').enabled && startupPolicy === 'configured') {
-      logger.info('Async loading disabled - AsyncLoadingOrchestrator skipping initialization');
+      logger.info(
+        'asyncLoadingOrchestrator.async.loading.disabled.asyncloadingorchestrator.skipping.initialization.e7bfe337',
+      );
       return;
     }
 
-    logger.info('Initializing AsyncLoadingOrchestrator...');
+    logger.info('asyncLoadingOrchestrator.initializing.asyncloadingorchestrator.c18c24fd');
 
     // Initialize 1mcp capabilities provider
     const internalProvider = InternalCapabilitiesProvider.getInstance();
     await internalProvider.initialize();
-    logger.info('1mcp capabilities provider initialized');
+    logger.info('asyncLoadingOrchestrator.1mcp.capabilities.provider.initialized.76a4df74');
 
     // Wire up the event chain: LoadingManager -> CapabilityAggregator
     this.setupEventChain();
 
     this.isInitialized = true;
-    logger.info('AsyncLoadingOrchestrator initialized successfully');
+    logger.info('asyncLoadingOrchestrator.asyncloadingorchestrator.initialized.successfully.f6981563');
     this.emit(AsyncLoadingOrchestratorEvent.OrchestratorReady);
   }
 
@@ -92,7 +94,7 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
    */
   public initializeNotifications(inboundConnection: InboundConnection): void {
     if (this.notificationManager) {
-      logger.warn('NotificationManager already initialized');
+      logger.warn('asyncLoadingOrchestrator.notificationmanager.already.initialized.9b4a7b4f');
       return;
     }
 
@@ -111,7 +113,7 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
     // Wire up notification events
     this.setupNotificationEvents();
 
-    logger.info('AsyncLoadingOrchestrator notification manager initialized');
+    logger.info('asyncLoadingOrchestrator.asyncloadingorchestrator.notification.manager.initialized.132f1042');
   }
 
   /**
@@ -124,15 +126,15 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
 
       this.serverManager.recordMcpServerReady(serverName);
       debugIf(() => ({
-        message: `Server ${serverName} became ready, waiting for loading cycle completion`,
-        meta: { serverName },
+        message: 'asyncLoadingOrchestrator.server.became.ready.waiting.for.loading.cycle.completion.153e87d5',
+        meta: { serverName: serverName },
       }));
     });
 
     this.loadingManager.on(McpLoadingEvent.LoadingComplete, () => {
       if (this.isShuttingDown) return;
 
-      debugIf('Loading cycle completed, publishing capability snapshot');
+      debugIf('asyncLoadingOrchestrator.loading.cycle.completed.publishing.capability.snapshot.dc43dc0b');
       void this.handleLoadingComplete();
     });
 
@@ -140,11 +142,11 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
     this.capabilityAggregator.on('capabilities-changed', (changes: CapabilityChanges) => {
       if (this.isShuttingDown) return;
 
-      debugIf('Capabilities changed, processing notifications');
+      debugIf('asyncLoadingOrchestrator.capabilities.changed.processing.notifications.b9b52ad8');
       this.handleCapabilityChanges(changes);
     });
 
-    debugIf('Event chain setup completed');
+    debugIf('asyncLoadingOrchestrator.event.chain.setup.completed.5d5b6001');
   }
 
   /**
@@ -156,18 +158,18 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
     }
 
     // 3. Listen for notification events from NotificationManager
-    this.notificationManager.on('batch-sent', (notifications: string[], clientCount: number) => {
+    this.notificationManager.on('batch-sent', (notifications: string[], _clientCount: number) => {
       if (this.isShuttingDown) return;
 
-      logger.info(`Sent listChanged notifications to ${clientCount} clients: [${notifications.join(', ')}]`);
+      logger.info('asyncLoadingOrchestrator.sent.listchanged.notifications.to.clients.5d7a03f6');
       this.emit(AsyncLoadingOrchestratorEvent.NotificationsSent, notifications);
     });
 
-    this.notificationManager.on('notification-failed', (type: string, error: Error) => {
-      logger.error(`Failed to send ${type} listChanged notification: ${error.message}`);
+    this.notificationManager.on('notification-failed', (_type: string, _error: Error) => {
+      logger.error('asyncLoadingOrchestrator.failed.to.send.listchanged.notification.3ae391c3');
     });
 
-    debugIf('Notification event handlers setup completed');
+    debugIf('asyncLoadingOrchestrator.notification.event.handlers.setup.completed.13932b2d');
   }
 
   /**
@@ -179,16 +181,15 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
       const changes = await this.capabilityAggregator.updateCapabilities();
 
       if (changes.hasChanges) {
-        logger.info(
-          `Loading cycle complete: ${changes.current.tools.length} tools, ${changes.current.resources.length} resources, ${changes.current.prompts.length} prompts now available`,
-        );
+        logger.info('asyncLoadingOrchestrator.loading.cycle.complete.tools.resources.prompts.now.available.e121d7b3');
         this.emit(AsyncLoadingOrchestratorEvent.CapabilitySnapshotPublished, changes);
       } else {
-        debugIf('Loading cycle completed with no capability changes');
+        debugIf('asyncLoadingOrchestrator.loading.cycle.completed.with.no.capability.changes.8c5f89f2');
       }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(`Failed to publish capabilities after loading completed: ${errorMessage}`);
+    } catch (_error) {
+      logger.error('asyncLoadingOrchestrator.failed.to.publish.capabilities.after.loading.completed.6544b04e', {
+        error: _error,
+      });
     }
   }
 
@@ -204,12 +205,14 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
     if (this.notificationManager) {
       this.notificationManager.handleCapabilityChanges(changes);
     } else {
-      debugIf('Capability changes detected but no notification manager available yet');
+      debugIf(
+        'asyncLoadingOrchestrator.capability.changes.detected.but.no.notification.manager.available.yet.ee3e218b',
+      );
     }
 
     // Log the changes for visibility
-    const summary = this.capabilityAggregator.getCapabilitiesSummary();
-    logger.info(`Capability update complete: ${summary}`);
+
+    logger.info('asyncLoadingOrchestrator.capability.update.complete.1b45dc6f');
   }
 
   /**
@@ -238,24 +241,23 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
    */
   public async refreshCapabilities(): Promise<CapabilityRefreshResult> {
     if (!this.isInitialized || this.isShuttingDown) {
-      logger.warn('Cannot refresh capabilities - orchestrator not ready');
+      logger.warn('asyncLoadingOrchestrator.cannot.refresh.capabilities.orchestrator.not.ready.d8def3cc');
       return { changed: false, shouldNotifyListChanged: false };
     }
 
     try {
-      logger.info('Manually refreshing capabilities...');
+      logger.info('asyncLoadingOrchestrator.manually.refreshing.capabilities.f27cec15');
       const changes = await this.capabilityAggregator.updateCapabilities();
 
       if (changes.hasChanges) {
         this.handleCapabilityChanges(changes);
-        logger.info('Manual capability refresh completed with changes');
+        logger.info('asyncLoadingOrchestrator.manual.capability.refresh.completed.with.changes.ed9d1da6');
       } else {
-        logger.info('Manual capability refresh completed - no changes detected');
+        logger.info('asyncLoadingOrchestrator.manual.capability.refresh.completed.no.changes.detected.291b35c5');
       }
       return { changed: changes.hasChanges, shouldNotifyListChanged: changes.toolsChanged };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(`Failed to refresh capabilities: ${errorMessage}`);
+    } catch (_error) {
+      logger.error('asyncLoadingOrchestrator.failed.to.refresh.capabilities.9ab02978', { error: _error });
       return { changed: false, shouldNotifyListChanged: false };
     }
   }
@@ -276,7 +278,7 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
       };
 
       this.notificationManager.updateConfig(notificationConfig);
-      debugIf('AsyncLoadingOrchestrator configuration updated');
+      debugIf('asyncLoadingOrchestrator.asyncloadingorchestrator.configuration.updated.9dcb695c');
     }
   }
 
@@ -303,7 +305,7 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
     }
 
     this.isShuttingDown = true;
-    logger.info('Shutting down AsyncLoadingOrchestrator...');
+    logger.info('asyncLoadingOrchestrator.shutting.down.asyncloadingorchestrator.0f1e2941');
 
     try {
       // Flush any pending notifications
@@ -319,10 +321,11 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
         this.notificationManager.removeAllListeners();
       }
 
-      logger.info('AsyncLoadingOrchestrator shutdown complete');
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(`Error during AsyncLoadingOrchestrator shutdown: ${errorMessage}`);
+      logger.info('asyncLoadingOrchestrator.asyncloadingorchestrator.shutdown.complete.82ee1abf');
+    } catch (_error) {
+      logger.error('asyncLoadingOrchestrator.error.during.asyncloadingorchestrator.shutdown.95ead01e', {
+        error: _error,
+      });
     }
   }
 }

@@ -25,7 +25,7 @@ export class ClientDataRepository {
     };
 
     this.storage.writeData(AUTH_CONFIG.SERVER.SESSION.FILE_PREFIX, clientId, clientData);
-    logger.info(`Saved client data: ${clientId}`);
+    logger.info('clientDataRepository.saved.client.data.a2a30621');
     return clientId;
   }
 
@@ -43,7 +43,7 @@ export class ClientDataRepository {
   delete(clientId: string): boolean {
     const result = this.storage.deleteData(AUTH_CONFIG.SERVER.SESSION.FILE_PREFIX, clientId);
     if (result) {
-      logger.info(`Deleted client data: ${clientId}`);
+      logger.info('clientDataRepository.deleted.client.data.26bb95c1');
     }
     return result;
   }

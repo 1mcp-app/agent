@@ -121,7 +121,7 @@ describe('CapabilityManager', () => {
 
       expect(result).toEqual(mockCapabilities);
       expect(clientInfo.capabilities).toEqual(mockCapabilities);
-      expect(logger.debug).toHaveBeenCalledWith(`Capabilities from client1: ${JSON.stringify(mockCapabilities)}`);
+      expect(logger.debug).toHaveBeenCalledWith('capabilityManager.capabilities.from.8e853808');
     });
 
     it('should merge capabilities from multiple clients without conflicts', async () => {
@@ -180,17 +180,12 @@ describe('CapabilityManager', () => {
       });
 
       // Should log conflicts
+      expect(logger.warn).toHaveBeenCalledTimes(2);
       expect(logger.warn).toHaveBeenCalledWith(
-        'Capability conflict in resources.subscribe: client client2 overriding existing value',
+        'capabilityManager.capability.conflict.in.client.overriding.existing.value.fadeac61',
       );
-      expect(logger.warn).toHaveBeenCalledWith(
-        'Capability conflict in resources.listChanged: client client2 overriding existing value',
-      );
-      expect(logger.debug).toHaveBeenCalledWith('Existing: true, New: false');
-      expect(logger.debug).toHaveBeenCalledWith('Existing: true, New: false');
-      expect(logger.info).toHaveBeenCalledWith(
-        'Client client2 has 2 resources capability conflicts: subscribe, listChanged',
-      );
+      expect(logger.debug).toHaveBeenCalledWith('capabilityManager.existing.new.9c54d92e');
+      expect(logger.info).toHaveBeenCalledWith('capabilityManager.client.has.capability.conflicts.439d33df');
     });
 
     it('should handle notification capabilities without logging conflicts', async () => {
@@ -259,7 +254,9 @@ describe('CapabilityManager', () => {
         tools: { listChanged: true },
       });
 
-      expect(logger.error).toHaveBeenCalledWith(`Failed to get capabilities from client1: ${error}`);
+      expect(logger.error).toHaveBeenCalledWith('capabilityManager.failed.to.get.capabilities.from.93e25efc', {
+        error,
+      });
     });
 
     it('should handle complex nested capability merging', async () => {
@@ -313,14 +310,12 @@ describe('CapabilityManager', () => {
       });
 
       // Should log conflicts for subscribe and feature1
+      expect(logger.warn).toHaveBeenCalledTimes(2);
       expect(logger.warn).toHaveBeenCalledWith(
-        'Capability conflict in resources.subscribe: client client2 overriding existing value',
+        'capabilityManager.capability.conflict.in.client.overriding.existing.value.fadeac61',
       );
-      expect(logger.warn).toHaveBeenCalledWith(
-        'Capability conflict in experimental.feature1: client client2 overriding existing value',
-      );
-      expect(logger.info).toHaveBeenCalledWith('Client client2 has 1 resources capability conflicts: subscribe');
-      expect(logger.info).toHaveBeenCalledWith('Client client2 has 1 experimental capability conflicts: feature1');
+      expect(logger.info).toHaveBeenCalledWith('capabilityManager.client.has.capability.conflicts.439d33df');
+      expect(logger.info).toHaveBeenCalledTimes(2);
     });
 
     it('should handle three-way capability conflicts', async () => {
@@ -354,7 +349,7 @@ describe('CapabilityManager', () => {
 
       // Should log conflict for client2 only (client3 doesn't conflict due to OR logic)
       expect(logger.warn).toHaveBeenCalledWith(
-        'Capability conflict in tools.listChanged: client client2 overriding existing value',
+        'capabilityManager.capability.conflict.in.client.overriding.existing.value.fadeac61',
       );
       // Note: client3 doesn't log conflict because current value is already true (OR logic)
     });
@@ -385,11 +380,9 @@ describe('CapabilityManager', () => {
       });
 
       // Should detect conflicts between null/undefined and actual values
+      expect(logger.warn).toHaveBeenCalledTimes(2);
       expect(logger.warn).toHaveBeenCalledWith(
-        'Capability conflict in resources.listChanged: client client2 overriding existing value',
-      );
-      expect(logger.warn).toHaveBeenCalledWith(
-        'Capability conflict in tools.listChanged: client client2 overriding existing value',
+        'capabilityManager.capability.conflict.in.client.overriding.existing.value.fadeac61',
       );
     });
 

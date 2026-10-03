@@ -50,7 +50,7 @@ describe('operationExecution', () => {
 
       expect(result).toBe('result');
       expect(operation).toHaveBeenCalledTimes(2);
-      expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('Retrying operation'));
+      expect(logger.info).toHaveBeenCalledWith('operationExecution.retrying.operation.on.after.ms.983be1ef');
     });
 
     it('should throw error after max retries', async () => {

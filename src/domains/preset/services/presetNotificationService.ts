@@ -51,13 +51,9 @@ export class PresetNotificationService extends EventEmitter {
       // Update client's preset association
       client.presetName = presetName;
 
-      logger.debug('Client tracked for preset', {
-        clientId: client.id,
-        presetName,
-        totalClientsForPreset: clientSet.size,
-      });
+      logger.debug('presetNotificationService.client.tracked.for.preset.675ef187', { clientId: client.id });
     } else {
-      logger.debug('Client tracked without preset', { clientId: client.id });
+      logger.debug('presetNotificationService.client.tracked.without.preset.353291d9', { clientId: client.id });
     }
 
     this.emit('client_tracked', { client, presetName });
@@ -86,11 +82,7 @@ export class PresetNotificationService extends EventEmitter {
           this.clientsByPreset.delete(client.presetName);
         }
 
-        logger.debug('Client untracked from preset', {
-          clientId,
-          presetName: client.presetName,
-          remainingClientsForPreset: clientSet.size,
-        });
+        logger.debug('presetNotificationService.client.untracked.from.preset.51d05737', { clientId: clientId });
       }
     }
 
@@ -103,7 +95,9 @@ export class PresetNotificationService extends EventEmitter {
   public updateClientPreset(clientId: string, newPresetName?: string): void {
     const client = this.clientsById.get(clientId);
     if (!client) {
-      logger.warn('Attempted to update preset for unknown client', { clientId });
+      logger.warn('presetNotificationService.attempted.to.update.preset.for.unknown.client.802e49d3', {
+        clientId: clientId,
+      });
       return;
     }
 
@@ -131,11 +125,7 @@ export class PresetNotificationService extends EventEmitter {
     // Update client association
     client.presetName = newPresetName;
 
-    logger.debug('Client preset updated', {
-      clientId,
-      oldPresetName,
-      newPresetName,
-    });
+    logger.debug('presetNotificationService.client.preset.updated.853efb4d', { clientId: clientId });
 
     this.emit('client_preset_updated', { clientId, oldPresetName, newPresetName });
   }
@@ -147,22 +137,18 @@ export class PresetNotificationService extends EventEmitter {
     const clients = this.clientsByPreset.get(presetName) || new Set();
 
     if (clients.size === 0) {
-      logger.debug('No clients to notify for preset change', { presetName });
+      logger.debug('presetNotificationService.no.clients.to.notify.for.preset.change.a177ae84');
       return;
     }
 
-    logger.info('Sending preset change notifications', {
-      presetName,
+    logger.info('presetNotificationService.sending.preset.change.notifications.56dd5eb7', {
       clientCount: clients.size,
     });
 
     // Send notifications in parallel
     const notifications = Array.from(clients).map(async (client) => {
       if (!client.isConnected()) {
-        logger.debug('Skipping disconnected client', {
-          clientId: client.id,
-          presetName,
-        });
+        logger.debug('presetNotificationService.skipping.disconnected.client.de17d19f', { clientId: client.id });
         return;
       }
 
@@ -174,15 +160,13 @@ export class PresetNotificationService extends EventEmitter {
           client.sendNotification('notifications/prompts/listChanged'),
         ]);
 
-        logger.debug('Preset change notifications sent to client', {
+        logger.debug('presetNotificationService.preset.change.notifications.sent.to.client.ca4b0ff4', {
           clientId: client.id,
-          presetName,
         });
       } catch (error: unknown) {
-        logger.error('Failed to send preset change notification to client', {
+        logger.error('presetNotificationService.failed.to.send.preset.change.notification.to.client.2f24f6f0', {
           clientId: client.id,
-          presetName,
-          error,
+          error: error,
         });
 
         // If client is no longer reachable, untrack it
@@ -194,8 +178,7 @@ export class PresetNotificationService extends EventEmitter {
 
     await Promise.allSettled(notifications);
 
-    logger.info('Preset change notifications completed', {
-      presetName,
+    logger.info('presetNotificationService.preset.change.notifications.completed.05952580', {
       clientCount: clients.size,
     });
 
@@ -237,7 +220,7 @@ export class PresetNotificationService extends EventEmitter {
     }
 
     if (removedCount > 0) {
-      logger.info('Cleaned up disconnected clients', { removedCount });
+      logger.info('presetNotificationService.cleaned.up.disconnected.clients.6ee227f9', { removedCount: removedCount });
     }
 
     return removedCount;

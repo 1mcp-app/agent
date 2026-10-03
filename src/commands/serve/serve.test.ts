@@ -383,7 +383,9 @@ describe('serveCommand - config-dir session isolation', () => {
         // downstream mocks throw; we only care about the pre-server startup log.
       }
 
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('SECURITY WARNING'));
+      expect(warnSpy).toHaveBeenCalledWith(
+        'serve.security.warning.authentication.is.disabled.but.scope.validation.is.enabled.cc1337b3',
+      );
       expect(updateConfigSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           features: expect.objectContaining({

@@ -30,7 +30,7 @@ export async function listCommand(argv?: ListArguments): Promise<void> {
     const selector = new InteractiveSelector();
     await listPresets(presetManager, selector);
   } catch (error) {
-    logger.error('Preset list command failed', { error });
+    logger.error('list.preset.list.command.failed.55721a78', { error: error });
     printer.error(`Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     process.exit(1);
   }

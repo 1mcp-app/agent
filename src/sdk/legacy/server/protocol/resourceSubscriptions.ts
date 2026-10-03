@@ -173,7 +173,7 @@ async function detach(watch: Watch): Promise<void> {
   try {
     await closeUpstreamWatch(watch);
   } catch (error) {
-    logger.warn('Resource subscription cleanup incomplete', { failedWatches: 1 });
+    logger.warn('resourceSubscriptions.resource.subscription.cleanup.incomplete.0640deca', { error: error });
     throw error;
   }
 }

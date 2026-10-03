@@ -492,8 +492,10 @@ async function createLocalTemplateContextProof<TOptions extends ResolvableServeT
       storageDir: localScope.storagePath,
       runtimeScopeId: localScope.runtimeScopeId,
     }).read({ readOnly: true });
-  } catch (error) {
-    logger.warn(`Template context capability unreadable, proceeding without proof: ${error}`);
+  } catch (_error) {
+    logger.warn('clientSurfaceAttachment.template.context.capability.unreadable.proceeding.without.proof.a0e180f0', {
+      error: _error,
+    });
     return undefined;
   }
 

@@ -43,14 +43,8 @@ export class ClientTemplateTracker {
     options: { shareable?: boolean; perClient?: boolean } = {},
   ): void {
     debugIf(() => ({
-      message: `ClientTemplateTracker.addClientTemplate: Adding client ${clientId} to template ${templateName}:${instanceId}`,
-      meta: {
-        clientId,
-        templateName,
-        instanceId,
-        shareable: options.shareable,
-        perClient: options.perClient,
-      },
+      message: 'clientTemplateTracker.clienttemplatetracker.addclienttemplate.adding.client.to.template.3b944b87',
+      meta: { clientId: clientId },
     }));
 
     const instanceKey = `${templateName}:${instanceId}`;
@@ -96,13 +90,8 @@ export class ClientTemplateTracker {
     }
 
     debugIf(() => ({
-      message: `ClientTemplateTracker.addClientTemplate: Added relationship`,
-      meta: {
-        instanceKey,
-        clientCount: instanceInfo.clientIds.size,
-        referenceCount: instanceInfo.referenceCount,
-        totalRelationships: relationships.length,
-      },
+      message: 'clientTemplateTracker.clienttemplatetracker.addclienttemplate.added.relationship.6e3cc259',
+      meta: { clientCount: instanceInfo.clientIds.size, referenceCount: instanceInfo.referenceCount },
     }));
   }
 
@@ -111,13 +100,13 @@ export class ClientTemplateTracker {
    */
   public removeClient(clientId: string): string[] {
     debugIf(() => ({
-      message: `ClientTemplateTracker.removeClient: Removing client ${clientId}`,
-      meta: { clientId },
+      message: 'clientTemplateTracker.clienttemplatetracker.removeclient.removing.client.f6a946c8',
+      meta: { clientId: clientId },
     }));
 
     const relationships = this.clientRelationships.get(clientId);
     if (!relationships) {
-      debugIf(`ClientTemplateTracker.removeClient: No relationships found for client ${clientId}`);
+      debugIf('clientTemplateTracker.clienttemplatetracker.removeclient.no.relationships.found.for.client.16c74540');
       return [];
     }
 
@@ -133,12 +122,8 @@ export class ClientTemplateTracker {
         instanceInfo.referenceCount--;
 
         debugIf(() => ({
-          message: `ClientTemplateTracker.removeClient: Removed client from instance ${instanceKey}`,
-          meta: {
-            instanceKey,
-            remainingClients: instanceInfo.clientIds.size,
-            referenceCount: instanceInfo.referenceCount,
-          },
+          message: 'clientTemplateTracker.clienttemplatetracker.removeclient.removed.client.from.instance.58d9bdb7',
+          meta: { referenceCount: instanceInfo.referenceCount },
         }));
 
         // If no more clients, mark for cleanup
@@ -152,11 +137,7 @@ export class ClientTemplateTracker {
     this.clientRelationships.delete(clientId);
 
     debugIf(() => ({
-      message: `ClientTemplateTracker.removeClient: Client ${clientId} removal completed`,
-      meta: {
-        relationshipsRemoved: relationships.length,
-        instancesToCleanup: instancesToCleanup.length,
-      },
+      message: 'clientTemplateTracker.clienttemplatetracker.removeclient.client.removal.completed.5ff8e26e',
     }));
 
     return instancesToCleanup;
@@ -189,13 +170,8 @@ export class ClientTemplateTracker {
     }
 
     debugIf(() => ({
-      message: `ClientTemplateTracker.removeClientFromInstance: Removed client ${clientId} from ${instanceKey}`,
-      meta: {
-        instanceKey,
-        remainingClients: instanceInfo.clientIds.size,
-        referenceCount: instanceInfo.referenceCount,
-        shouldCleanup: instanceInfo.referenceCount === 0,
-      },
+      message: 'clientTemplateTracker.clienttemplatetracker.removeclientfrominstance.removed.client.from.e7cd2997',
+      meta: { referenceCount: instanceInfo.referenceCount },
     }));
 
     return instanceInfo.referenceCount === 0; // Return true if should cleanup
@@ -376,11 +352,7 @@ export class ClientTemplateTracker {
       this.instanceKeys.delete(instanceId);
 
       debugIf(() => ({
-        message: `ClientTemplateTracker.cleanupInstance: Cleaned up instance ${instanceKey}`,
-        meta: {
-          instanceKey,
-          clientsRemoved: instanceInfo.clientIds.size,
-        },
+        message: 'clientTemplateTracker.clienttemplatetracker.cleanupinstance.cleaned.up.instance.43a082e0',
       }));
     }
   }

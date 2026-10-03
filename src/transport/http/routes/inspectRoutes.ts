@@ -129,7 +129,7 @@ export async function buildServerSummaries(
           toolCountByServer[cleanName] = Math.max(toolCountByServer[cleanName] ?? 0, visibleTools.length);
         } catch (error) {
           const cleanName = name.includes(':') ? name.split(':')[0] : name;
-          logger.warn(`Failed to fetch tool count for server '${cleanName}':`, error);
+          logger.warn('inspectRoutes.failed.to.fetch.tool.count.for.server.dd730669', { error: error });
           toolCountByServer[cleanName] = Math.max(toolCountByServer[cleanName] ?? 0, 0);
         }
       }),
@@ -217,7 +217,7 @@ export function createServersHandler(serverManager: ServerManager): RequestHandl
       const payload: InspectServersPayload = { kind: 'servers', servers };
       res.json(payload);
     } catch (error) {
-      logger.error('API servers handler error:', error);
+      logger.error('inspectRoutes.api.servers.handler.error.3f8f6a2f', { error: error });
       res.status(500).json({ error: 'Internal server error' });
     }
   };
@@ -627,7 +627,7 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       };
       res.json(payload);
     } catch (error) {
-      logger.error('API inspect handler error:', error);
+      logger.error('inspectRoutes.api.inspect.handler.error.82182dae', { error: error });
       res.status(500).json({ error: 'Internal server error' });
     }
   };

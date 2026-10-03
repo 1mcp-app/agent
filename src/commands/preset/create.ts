@@ -139,7 +139,7 @@ export async function createCommand(argv: CreateArguments): Promise<void> {
       ...(argv.description ? { Description: argv.description } : {}),
     });
   } catch (error) {
-    logger.error('Preset create command failed', { error });
+    logger.error('create.preset.create.command.failed.bb4c6462', { error: error });
     PresetErrorHandler.handleCliError(error, 'preset create');
   }
 }

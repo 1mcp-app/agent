@@ -77,8 +77,8 @@ export class ConfigManager extends EventEmitter {
 
   private setupWatcherEvents(): void {
     this.watcher.on('reload', () => {
-      this.handleConfigChange().catch((error) => {
-        logger.error(`Error handling config change: ${error}`);
+      this.handleConfigChange().catch((_error) => {
+        logger.error('configManager.error.handling.config.change.f7e1f29f');
       });
     });
   }
@@ -91,10 +91,10 @@ export class ConfigManager extends EventEmitter {
         if (generation === this.reloadGeneration) this.watcher.startWatching();
       };
       if (!deferUntilRuntimeActivation(startWatching)) startWatching();
-      logger.info('ConfigManager initialized');
+      logger.info('configManager.configmanager.initialized.6ad9fb75');
     } catch (error) {
       const errorMsg = `Failed to initialize ConfigManager: ${error instanceof Error ? error.message : String(error)}`;
-      logger.error(errorMsg);
+      logger.error('configManager.initialize.diagnostic.5eee141c', { error: error });
       throw new Error(errorMsg);
     }
   }
@@ -104,7 +104,7 @@ export class ConfigManager extends EventEmitter {
     this.cancelDeferredReload?.();
     this.cancelDeferredReload = undefined;
     this.watcher.stopWatching();
-    logger.info('ConfigManager stopped');
+    logger.info('configManager.configmanager.stopped.2e54597f');
   }
   private loadConfig(): void {
     const runtimeEnvSignature = this.loader.captureRuntimeEnvSignature();
@@ -118,13 +118,10 @@ export class ConfigManager extends EventEmitter {
       this.templateRuntimeFingerprints = this.createRuntimeFingerprints(declared.templateServers, runtimeEnvironment);
       this.loader.markRuntimeEnvObserved(runtimeEnvSignature);
 
-      const agentConfig = AgentConfigManager.getInstance();
-      const features = agentConfig.get('features');
-      const substitutionStatus = features.envSubstitution ? 'with' : 'without';
-      logger.info(`Configuration loaded successfully ${substitutionStatus} environment variable substitution`);
+      logger.info('configManager.configuration.loaded.successfully.environment.variable.substitution.c04b8bbe');
     } catch (error) {
       const errorMsg = `Failed to load configuration: ${error instanceof Error ? error.message : String(error)}`;
-      logger.error(errorMsg);
+      logger.error('configManager.loadconfig.diagnostic.891dc011', { error: error });
       throw new Error(errorMsg);
     }
   }
@@ -148,7 +145,7 @@ export class ConfigManager extends EventEmitter {
       config = mcpServerConfigSchema.parse(rawConfig);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(`Failed to parse configuration: ${errorMessage}`);
+      logger.error('configManager.failed.to.parse.configuration.f51f3faf', { error: error });
       // Return empty config on schema validation errors
       return {
         staticServers: {},
@@ -164,10 +161,8 @@ export class ConfigManager extends EventEmitter {
       try {
         const mergedConfig = mergeGlobalAndServerConfig(serverDefaults, serverConfig);
         staticServers[serverName] = this.validateServerConfig(serverName, mergedConfig);
-      } catch (error) {
-        logger.error(
-          `Static server validation failed for ${serverName}: ${error instanceof Error ? error.message : String(error)}`,
-        );
+      } catch (_error) {
+        logger.error('configManager.static.server.validation.failed.for.142a3b32', { error: _error });
         // Skip invalid static server configurations
       }
     }
@@ -202,7 +197,7 @@ export class ConfigManager extends EventEmitter {
               );
             } catch (error) {
               const message = error instanceof Error ? error.message : String(error);
-              logger.error(`Template server validation failed for ${serverName}: ${message}`);
+              logger.error('configManager.template.server.validation.failed.for.b189fd8d', { error: error });
               errors.push(`${serverName}: ${message}`);
             }
           }
@@ -232,9 +227,7 @@ export class ConfigManager extends EventEmitter {
     }
 
     if (conflictingServers.length > 0) {
-      logger.warn(
-        `Ignoring ${conflictingServers.length} static server(s) that conflict with template servers: ${conflictingServers.join(', ')}`,
-      );
+      logger.warn('configManager.ignoring.static.server.s.that.conflict.with.template.servers.fbf7b8aa');
     }
 
     return { staticServers, templateServers, errors };
@@ -258,7 +251,7 @@ export class ConfigManager extends EventEmitter {
       config = mcpServerConfigSchema.parse(rawConfig);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(`Failed to parse configuration: ${errorMessage}`);
+      logger.error('configManager.failed.to.parse.configuration.f51f3faf', { error: error });
       return {
         ...this.copyLastValidDeclaredServerConfigs(),
         errors: [`Configuration parsing failed: ${errorMessage}`],
@@ -272,7 +265,7 @@ export class ConfigManager extends EventEmitter {
         staticServers[serverName] = this.validateServerConfig(serverName, serverConfig);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        logger.error(`Static server validation failed for ${serverName}: ${message}`);
+        logger.error('configManager.static.server.validation.failed.for.142a3b32', { error: error });
         errors.push(`${serverName}: ${message}`);
       }
     }
@@ -287,7 +280,7 @@ export class ConfigManager extends EventEmitter {
           );
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          logger.error(`Template server validation failed for ${serverName}: ${message}`);
+          logger.error('configManager.template.server.validation.failed.for.b189fd8d', { error: error });
           errors.push(`${serverName}: ${message}`);
         }
       }
@@ -348,15 +341,15 @@ export class ConfigManager extends EventEmitter {
         processedServers[serverName] = processedConfig;
 
         debugIf(() => ({
-          message: 'Template processed successfully',
-          meta: { serverName },
+          message: 'configManager.template.processed.successfully.eb1c3b11',
+          meta: { serverName: serverName },
         }));
       } catch (error) {
         const errorMsg = `Template processing failed for ${serverName}: ${error instanceof Error ? error.message : String(error)}`;
         errors.push(errorMsg);
 
         // According to user requirement: Fail fast, log errors, return to client
-        logger.error(errorMsg);
+        logger.error('configManager.processtemplates.diagnostic.d12a569b', { error: error });
 
         // For graceful mode, include raw config for debugging
         if (settings?.failureMode === 'graceful') {
@@ -477,7 +470,7 @@ export class ConfigManager extends EventEmitter {
       this.cancelDeferredReload?.();
       this.cancelDeferredReload = undefined;
       void this.handleConfigChange().catch((error: unknown) => {
-        logger.error('Failed to apply deferred configuration reload', error);
+        logger.error('configManager.failed.to.apply.deferred.configuration.reload.6fe22f1a', { error: error });
       });
     };
     if (!runtimeAdmission.snapshot().closed) {
@@ -492,7 +485,7 @@ export class ConfigManager extends EventEmitter {
   private async applyConfigChange(): Promise<ConfigReloadAttempt> {
     if (getFrozenRuntimeBootstrap(this.loader.getConfigFilePath())) return { status: 'disabled' };
     if (!this.isReloadEnabled()) {
-      logger.info('Configuration hot-reload is disabled, ignoring file changes');
+      logger.info('configManager.configuration.hot.reload.is.disabled.ignoring.file.changes.6fd262e2');
       return { status: 'disabled' };
     }
 
@@ -509,9 +502,7 @@ export class ConfigManager extends EventEmitter {
       declaredTemplates = declared.templateServers;
     } catch (error) {
       this.loader.markRuntimeEnvAttempted(runtimeEnvSignature);
-      logger.error(
-        `Failed to load or validate configuration: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      logger.error('configManager.failed.to.load.or.validate.configuration.9145e701', { error: error });
       this.emit(CONFIG_EVENTS.VALIDATION_ERROR, error);
       return { status: 'rejected', error };
     }
@@ -538,7 +529,7 @@ export class ConfigManager extends EventEmitter {
     McpConfigManager.getInstance(this.loader.getConfigFilePath()).reloadConfig();
     this.loader.markRuntimeEnvObserved(runtimeEnvSignature);
 
-    logger.info(`Detected ${changes.length} configuration changes`);
+    logger.info('configManager.detected.configuration.changes.ffd1172b');
     this.emit(CONFIG_EVENTS.CONFIG_CHANGED, changes);
     if (runtimeEnvironmentChanged) {
       this.emit(CONFIG_EVENTS.RUNTIME_ENVIRONMENT_CHANGED, environmentChange);

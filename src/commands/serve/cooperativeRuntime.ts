@@ -67,6 +67,7 @@ import { z } from 'zod';
 import { resolveServeConfigPaths } from './runtimeScope.js';
 import type { ServeOptions } from './serve.js';
 import { defaultBackgroundLogFile, resolveSelfInvocation } from './serveBackground.js';
+import { markServeLifecycleFailure } from './serveLifecycleError.js';
 import { parseInternalToolsList } from './serveOptions.js';
 import { resolveTemplateContextTrust } from './templateContextTrust.js';
 
@@ -151,8 +152,11 @@ function assertEmptyScope(scope: string): void {
     'runtime-control.json',
   ]) {
     if (fs.existsSync(path.join(scope, name)))
-      throw new Error(
-        'A runtime already owns this Runtime Scope or ownership is uncertain. Use serve --status and the original CLI or service manager for explicit migration/recovery; no takeover was attempted.',
+      throw markServeLifecycleFailure(
+        'ownership',
+        new Error(
+          'A runtime already owns this Runtime Scope or ownership is uncertain. Use serve --status and the original CLI or service manager for explicit migration/recovery; no takeover was attempted.',
+        ),
       );
   }
 }
@@ -170,7 +174,8 @@ function prepare(
   });
   const effective = { ...options, ...prepared.effectiveOptions };
   const app = prepared.snapshot.appConfig;
-  if ((effective.transport ?? app.transport) === 'stdio') throw new Error('Background runtime requires HTTP transport');
+  if ((effective.transport ?? app.transport) === 'stdio')
+    throw markServeLifecycleFailure('transport', new Error('Background runtime requires HTTP transport'));
   resolveTemplateContextTrust({
     cliTrust: effective['template-context-trust'],
     configTrust: app.templateContext?.trust,
@@ -197,7 +202,7 @@ export async function launchCooperativeRuntime(
   prepared ??= prepare(options);
   const effective = { ...options, ...prepared.effectiveOptions, config: configFilePath, 'config-dir': runtimeScope };
   if ((effective.transport ?? prepared.snapshot.appConfig.transport) === 'stdio')
-    throw new Error('Background runtime requires HTTP transport');
+    throw markServeLifecycleFailure('transport', new Error('Background runtime requires HTTP transport'));
   effective.transport = 'http';
   effective['log-file'] ??=
     prepared.snapshot.appConfig.logging?.file ??
@@ -222,19 +227,28 @@ export async function launchCooperativeRuntime(
     const activated = activationSchema.parse(await waitForChildActivation(child, bootstrap));
     const owner = readRuntimeScopeOwnership(runtimeScope);
     if (!matchesSupervisorActivation(activated, bootstrap, owner, child.pid))
-      throw new Error('Runtime activation did not match the spawned generation');
-    if (child.exitCode !== null || child.signalCode !== null) throw new Error('Supervisor exited during activation');
+      throw markServeLifecycleFailure(
+        'activation',
+        new Error('Runtime activation did not match the spawned generation'),
+      );
+    if (child.exitCode !== null || child.signalCode !== null)
+      throw markServeLifecycleFailure('activation', new Error('Supervisor exited during activation'));
     const summary = await probeLoadingSummary(activated.runtime);
     const control = await connectRuntimeControl(runtimeScope);
     const current = await control?.request<RuntimeControlDescription>('describe');
     if (!matchesRunningActivation(current, activated, control?.descriptor.claimId))
-      throw new Error('Worker exited or changed during activation verification');
+      throw markServeLifecycleFailure(
+        'activation',
+        new Error('Worker exited or changed during activation verification'),
+      );
     if (child.exitCode !== null || child.signalCode !== null)
-      throw new Error('Supervisor exited during activation verification');
+      throw markServeLifecycleFailure('activation', new Error('Supervisor exited during activation verification'));
     process.stdout.write(
       `Runtime activated (version ${activated.version}).\nBackground runtime started.\nSupervisor PID: ${child.pid}\nRuntime PID: ${activated.runtime.pid}\nGeneration: ${activated.claimId}\nConfiguration: ${activated.digest}\nURL: ${activated.runtime.url}\nBackend health: ${summary ? JSON.stringify(summary) : 'loading or unavailable; see serve --status'}\n`,
     );
     process.exitCode = 0;
+  } catch (error) {
+    throw markServeLifecycleFailure('activation', error);
   } finally {
     if (child.connected) child.disconnect();
     child.unref();
@@ -259,8 +273,11 @@ async function restartStaleCooperativeRuntime(options: ServeOptions, expectedCla
   try {
     await launchCooperativeRuntime(options, prepared);
   } catch (error) {
-    throw new Error(
-      `Runtime activation failed after stale recovery. Retry: ${scopedServeCommand(runtimeScope)} --restart. Cause: ${error instanceof Error ? error.message : 'launch failure'}`,
+    throw markServeLifecycleFailure(
+      'activation',
+      new Error(
+        `Runtime activation failed after stale recovery. Retry: ${scopedServeCommand(runtimeScope)} --restart. Cause: ${error instanceof Error ? error.message : 'launch failure'}`,
+      ),
     );
   }
   return true;
@@ -283,13 +300,19 @@ export async function restartCooperativeRuntime(options: ServeOptions): Promise<
     description = await client.request<RuntimeControlDescription>('describe');
   } catch (error) {
     if (await restartStaleCooperativeRuntime(options, client.descriptor.claimId)) return;
-    throw new Error(
-      `Runtime control is unavailable and process absence could not be confirmed; ownership retained. Try: ${recoveryCommand} --stop. If processes remain alive or recovery is refused, stop them through the original CLI or service manager. Cause: ${error instanceof Error ? error.message : 'control failure'}`,
+    throw markServeLifecycleFailure(
+      'recovery',
+      new Error(
+        `Runtime control is unavailable and process absence could not be confirmed; ownership retained. Try: ${recoveryCommand} --stop. If processes remain alive or recovery is refused, stop them through the original CLI or service manager. Cause: ${error instanceof Error ? error.message : 'control failure'}`,
+      ),
     );
   }
   if (!explicitLaunchInputsSchema.safeParse(description.explicitInputs).success)
-    throw new Error(
-      'Incompatible runtime: explicit launch provenance is missing. Stop with the original CLI or service manager before activating this installation.',
+    throw markServeLifecycleFailure(
+      'recovery',
+      new Error(
+        'Incompatible runtime: explicit launch provenance is missing. Stop with the original CLI or service manager before activating this installation.',
+      ),
     );
   const prepared = prepare(options, description.explicitInputs);
   const timeoutMs = (options['drain-timeout'] ?? 30) * 1000;
@@ -310,15 +333,21 @@ export async function restartCooperativeRuntime(options: ServeOptions): Promise<
   }
   if (operation.state === 'aborted') {
     if (Date.now() < operation.deadlineUnixMs)
-      throw new Error(
-        `Runtime replacement aborted before the drain deadline; no stop was requested. Inspect: ${recoveryCommand} --status`,
+      throw markServeLifecycleFailure(
+        'drain-aborted',
+        new Error(
+          `Runtime replacement aborted before the drain deadline; no stop was requested. Inspect: ${recoveryCommand} --status`,
+        ),
       );
     const remaining = `${operation.active} request${operation.active === 1 ? '' : 's'} remain${operation.active === 1 ? 's' : ''} unresolved`;
     if (onDrainTimeout === 'abort')
-      throw new Error(
-        `Runtime restart aborted at the drain deadline after ${timeoutMs / 1000}s; ${remaining}. ` +
-          `The old runtime was asked to resume admission. Inspect: ${recoveryCommand} --status. ` +
-          `Allow more time with --drain-timeout, or interrupt unfinished calls: ${recoveryCommand} --restart --on-drain-timeout restart. Calls will not be replayed.`,
+      throw markServeLifecycleFailure(
+        'drain-timeout',
+        new Error(
+          `Runtime restart aborted at the drain deadline after ${timeoutMs / 1000}s; ${remaining}. ` +
+            `The old runtime was asked to resume admission. Inspect: ${recoveryCommand} --status. ` +
+            `Allow more time with --drain-timeout, or interrupt unfinished calls: ${recoveryCommand} --restart --on-drain-timeout restart. Calls will not be replayed.`,
+        ),
       );
     process.stderr.write(
       `Drain deadline reached after ${timeoutMs / 1000}s; ${remaining}.\n` +
@@ -343,28 +372,38 @@ export async function restartCooperativeRuntime(options: ServeOptions): Promise<
         process.stderr.write('Commit response unavailable; waiting for observed owner retirement.\n');
       }
       if (reconciled && reconciled.state !== 'committing')
-        throw new Error(
-          `Runtime commit was not accepted; existing owner retained. Inspect: ${recoveryCommand} --status`,
+        throw markServeLifecycleFailure(
+          'recovery',
+          new Error(`Runtime commit was not accepted; existing owner retained. Inspect: ${recoveryCommand} --status`),
         );
     }
   }
   const until = Date.now() + 30_000;
   while (fs.existsSync(getRuntimeScopeOwnershipPath(runtimeScope)) && Date.now() < until) {
     if (readRuntimeScopeOwnership(runtimeScope)?.claimId !== client.descriptor.claimId)
-      throw new Error(`Another runtime won ownership; replacement not started. Inspect: ${recoveryCommand} --status`);
+      throw markServeLifecycleFailure(
+        'ownership',
+        new Error(`Another runtime won ownership; replacement not started. Inspect: ${recoveryCommand} --status`),
+      );
     await sleep(100);
   }
   if (fs.existsSync(getRuntimeScopeOwnershipPath(runtimeScope)))
-    throw new Error(
-      `Old runtime retirement was not confirmed within 30s; ownership retained and replacement not started. ` +
-        `Inspect: ${recoveryCommand} --status. If the old runtime is still running, stop it with ${recoveryCommand} --stop, ` +
-        `then retry ${recoveryCommand} --restart. If control is unreachable, use the original service manager; do not delete ownership records.`,
+    throw markServeLifecycleFailure(
+      'recovery',
+      new Error(
+        `Old runtime retirement was not confirmed within 30s; ownership retained and replacement not started. ` +
+          `Inspect: ${recoveryCommand} --status. If the old runtime is still running, stop it with ${recoveryCommand} --stop, ` +
+          `then retry ${recoveryCommand} --restart. If control is unreachable, use the original service manager; do not delete ownership records.`,
+      ),
     );
   try {
     await launchCooperativeRuntime(options, prepared);
   } catch (error) {
-    throw new Error(
-      `Runtime activation failed after the old runtime retired; no rollback was attempted. Inspect: ${recoveryCommand} --status. After resolving the cause, retry: ${recoveryCommand} --restart. Cause: ${error instanceof Error ? error.message : 'launch failure'}`,
+    throw markServeLifecycleFailure(
+      'activation',
+      new Error(
+        `Runtime activation failed after the old runtime retired; no rollback was attempted. Inspect: ${recoveryCommand} --status. After resolving the cause, retry: ${recoveryCommand} --restart. Cause: ${error instanceof Error ? error.message : 'launch failure'}`,
+      ),
     );
   }
 }
@@ -377,7 +416,10 @@ function readCurrentBackendSnapshot(snapshot: RuntimeReplacementSnapshot): Runti
       runtimeEnvironment: loadRuntimeScopeEnvironment(snapshot.configFilePath),
     };
   } catch {
-    throw new Error('Runtime backend configuration is invalid; correct the selected scope before restarting');
+    throw markServeLifecycleFailure(
+      'configuration',
+      new Error('Runtime backend configuration is invalid; correct the selected scope before restarting'),
+    );
   }
 }
 
@@ -688,7 +730,10 @@ export async function stopCooperativeRuntime(scope: string): Promise<boolean> {
     }
     await sleep(100);
   }
-  throw new Error('Runtime did not retire; ownership retained. Use explicit recovery after inspecting status');
+  throw markServeLifecycleFailure(
+    'recovery',
+    new Error('Runtime did not retire; ownership retained. Use explicit recovery after inspecting status'),
+  );
 }
 
 export async function cooperativeRuntimeStatus(

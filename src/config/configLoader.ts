@@ -62,7 +62,7 @@ function getValidationErrorMessage(context: string, error: unknown): string {
   return `${context}: ${error instanceof Error ? error.message : String(error)}`;
 }
 
-function warnIfLegacyAppConfig(rawConfig: unknown, configFilePath: string): void {
+function warnIfLegacyAppConfig(rawConfig: unknown, _configFilePath: string): void {
   if (!rawConfig || typeof rawConfig !== 'object') {
     return;
   }
@@ -72,14 +72,10 @@ function warnIfLegacyAppConfig(rawConfig: unknown, configFilePath: string): void
     return;
   }
 
-  const tomlPath = path.join(path.dirname(configFilePath), 'config.toml');
-  logger.warn(
-    `The "app" key in mcp.json is deprecated. Please move your app settings to ${tomlPath}. ` +
-      `The "app" key in mcp.json will be ignored.`,
-  );
+  logger.warn('configLoader.the.app.key.in.mcp.json.is.deprecated.please.move.your.app.settings.to.the..973af260');
 }
 
-function warnForLegacyLazyLoadingConfig(rawConfig: unknown, tomlPath: string): void {
+function warnForLegacyLazyLoadingConfig(rawConfig: unknown, _tomlPath: string): void {
   if (!rawConfig || typeof rawConfig !== 'object') {
     return;
   }
@@ -89,10 +85,7 @@ function warnForLegacyLazyLoadingConfig(rawConfig: unknown, tomlPath: string): v
     return;
   }
 
-  logger.warn(
-    `The [lazyLoading].mode setting in ${tomlPath} is deprecated and ignored. ` +
-      'Lazy loading is controlled only by [lazyLoading] enabled = true. Remove mode because it does not change runtime behavior.',
-  );
+  logger.warn('configLoader.the.lazyloading.mode.setting.in.is.deprecated.and.ignored.lazy.loading.is.c.21f87e57');
 }
 
 function warnForUnknownGlobalConfigKeys(rawGlobal: unknown): void {
@@ -101,7 +94,7 @@ function warnForUnknownGlobalConfigKeys(rawGlobal: unknown): void {
     return;
   }
 
-  logger.warn(`Unknown properties in global MCP configuration were ignored: ${unknownGlobalKeys.join(', ')}`);
+  logger.warn('configLoader.unknown.properties.in.global.mcp.configuration.were.ignored.b3b38387');
 }
 
 function normalizeRawServerConfigs(rawServers: unknown): Record<string, MCPServerParams> {
@@ -135,11 +128,9 @@ export function loadAppConfigFromTomlPath(tomlPath: string): ApplicationConfig {
     return applicationConfigSchema.parse(parsed);
   } catch (error) {
     if (error instanceof ZodError) {
-      logger.error(`Invalid app configuration in config.toml (ignored): ${formatZodIssues(error)}`);
+      logger.error('configLoader.invalid.app.configuration.in.config.toml.ignored.1d694a3c', { error: error });
     } else {
-      logger.error(
-        `Failed to load app configuration from ${tomlPath}: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      logger.error('configLoader.failed.to.load.app.configuration.from.7e70a1f8', { error: error });
     }
     return {};
   }
@@ -164,15 +155,15 @@ export class ConfigLoader {
       const configDir = path.dirname(this.configFilePath);
       if (!fs.existsSync(configDir)) {
         fs.mkdirSync(configDir, { recursive: true });
-        logger.info(`Created config directory: ${configDir}`);
+        logger.info('configLoader.created.config.directory.fbb7f778');
       }
 
       if (!fs.existsSync(this.configFilePath)) {
         fs.writeFileSync(this.configFilePath, JSON.stringify(DEFAULT_CONFIG, null, 2));
-        logger.info(`Created default config file: ${this.configFilePath}`);
+        logger.info('configLoader.created.default.config.file.06a17671');
       }
     } catch (error) {
-      logger.error(`Failed to ensure config exists: ${error instanceof Error ? error.message : String(error)}`);
+      logger.error('configLoader.failed.to.ensure.config.exists.927bf77f', { error: error });
       throw error;
     }
   }
@@ -229,10 +220,10 @@ export class ConfigLoader {
       // when file doesn't exist or can't be accessed - there's nothing to compare
       const errorCode = (error as ErrnoException).code;
       if (errorCode === 'ENOENT' || errorCode === 'EACCES') {
-        logger.debug(`Cannot check file modification time for ${this.configFilePath}: ${errorCode}`);
+        logger.debug('configLoader.cannot.check.file.modification.time.for.59fe199f');
         return false;
       }
-      logger.warn(`Failed to check file modification time: ${error instanceof Error ? error.message : String(error)}`);
+      logger.warn('configLoader.failed.to.check.file.modification.time.bdf720cd', { error: error });
       return false;
     }
   }
@@ -254,22 +245,12 @@ export class ConfigLoader {
         schemaInjected = true;
 
         // Log the enhancement for debugging and transparency
-        debugIf(() => ({
-          message: `Added $schema property to config for IDE autocompletion`,
-          meta: {
-            configPath: this.configFilePath,
-            schemaUrl: MCP_CONFIG_SCHEMA_URL,
-          },
-        }));
+        debugIf(() => ({ message: 'configLoader.added.schema.property.to.config.for.ide.autocompletion.6c801f82' }));
       }
 
       return { config, lastModified, schemaInjected };
     } catch (error) {
-      const message = `Failed to load configuration from '${this.configFilePath}': ${error instanceof Error ? error.message : String(error)}`;
-      logger.error(message, {
-        configPath: this.configFilePath,
-        error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
-      });
+      logger.error('configLoader.loadrawconfigresult.diagnostic.3af0e367', { error: error });
       throw error;
     }
   }
@@ -306,8 +287,8 @@ export class ConfigLoader {
     // Check for legacy app key in mcp.json and warn
     try {
       warnIfLegacyAppConfig(this.loadRawConfig(), this.configFilePath);
-    } catch (error) {
-      logger.debug(`Could not check for legacy "app" key: ${error instanceof Error ? error.message : String(error)}`);
+    } catch (_error) {
+      logger.debug('configLoader.could.not.check.for.legacy.app.key.5cb7a5d5');
     }
 
     return this.loadAppConfigFromToml();
@@ -324,7 +305,7 @@ export class ConfigLoader {
       rawResult = this.loadRawConfigResult();
     } catch (error) {
       const errorMsg = `Failed to load raw configuration: ${error instanceof Error ? error.message : String(error)}`;
-      logger.error(errorMsg);
+      logger.error('configLoader.loadparsedconfig.diagnostic.9ed41a05', { error: error });
       throw new Error(errorMsg, { cause: error });
     }
 
@@ -332,7 +313,7 @@ export class ConfigLoader {
 
     if (!processedConfig || typeof processedConfig !== 'object') {
       const errorMsg = 'Invalid configuration format';
-      logger.error(errorMsg);
+      logger.error('configLoader.loadparsedconfig.diagnostic.9ed41a05');
       throw new Error(errorMsg);
     }
 
@@ -343,10 +324,8 @@ export class ConfigLoader {
     if (rawGlobal !== undefined) {
       try {
         globalConfig = this.validateGlobalConfig(rawGlobal);
-      } catch (error) {
-        logger.warn(
-          `Ignoring invalid serverDefaults configuration: ${error instanceof Error ? error.message : String(error)}`,
-        );
+      } catch (_error) {
+        logger.warn('configLoader.ignoring.invalid.serverdefaults.configuration.56393432', { error: _error });
       }
     }
 
@@ -365,11 +344,11 @@ export class ConfigLoader {
         const mergedConfig = mergeGlobalAndServerConfig(globalConfig, validatedServerConfig);
         validatedServers[serverName] = this.validateServerConfig(serverName, mergedConfig);
         debugIf(() => ({
-          message: `Validated configuration for server: ${serverName}`,
-          meta: { serverName },
+          message: 'configLoader.validated.configuration.for.server.190b0b32',
+          meta: { serverName: serverName },
         }));
-      } catch (error) {
-        logger.error(`Configuration validation failed: ${error instanceof Error ? error.message : String(error)}`);
+      } catch (_error) {
+        logger.error('configLoader.configuration.validation.failed.fdd8b126', { error: _error });
       }
     }
 
@@ -382,9 +361,7 @@ export class ConfigLoader {
     }
 
     if (conflictingServers.length > 0) {
-      logger.warn(
-        `Ignoring ${conflictingServers.length} static server(s) that conflict with template servers: ${conflictingServers.join(', ')}`,
-      );
+      logger.warn('configLoader.ignoring.static.server.s.that.conflict.with.template.servers.18d2369c');
     }
 
     return {

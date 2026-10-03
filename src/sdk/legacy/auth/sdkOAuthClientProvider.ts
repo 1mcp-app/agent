@@ -55,9 +55,7 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
       scope: config.scopes?.join(' ') || AUTH_CONFIG.CLIENT.OAUTH.DEFAULT_SCOPES.join(' '),
     };
 
-    logger.debug(
-      `OAuth client configured for ${this.serverName} with redirect URL configured: ${!!this._clientMetadata.redirect_uris?.[0]}`,
-    );
+    logger.debug('sdkOAuthClientProvider.oauth.client.configured.for.with.redirect.url.configured.f624fff1');
 
     // Load existing client info and tokens if available
     this.loadPersistedData();
@@ -95,7 +93,7 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
   saveClientInformation(clientInfo: OAuthClientInformationFull): void {
     this._clientInfo = clientInfo;
     this.persistAllData();
-    logger.info(`OAuth client registered for ${this.serverName}: ${clientInfo.client_id}`);
+    logger.info('sdkOAuthClientProvider.oauth.client.registered.for.a7d64162');
   }
 
   /**
@@ -111,7 +109,7 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
   saveTokens(tokens: OAuthTokens): void {
     this._tokens = tokens;
     this.persistAllData();
-    logger.info(`OAuth tokens saved for ${this.serverName}`);
+    logger.info('sdkOAuthClientProvider.oauth.tokens.saved.for.22916b52');
   }
 
   /**
@@ -142,7 +140,7 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
     }
 
     this.persistAllData();
-    logger.info(`OAuth credentials invalidated for ${this.serverName}: ${scope}`);
+    logger.info('sdkOAuthClientProvider.oauth.credentials.invalidated.for.a8274c9f');
   }
 
   /**
@@ -222,7 +220,7 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
 
         // Check if tokens are expired
         if (this._tokens && this.isTokenExpired(this._tokens)) {
-          logger.warn(`OAuth tokens expired for ${this.serverName}, clearing`);
+          logger.warn('sdkOAuthClientProvider.oauth.tokens.expired.for.clearing.aa3cd964');
           this._tokens = undefined;
           this.persistAllData();
         }

@@ -1,8 +1,6 @@
 import { ChildProcess, spawn } from 'child_process';
 import { EventEmitter } from 'events';
 
-import logger from '@src/logger/logger.js';
-
 export interface ProcessConfig {
   command: string;
   args?: string[];
@@ -56,24 +54,24 @@ export class TestProcessManager extends EventEmitter {
 
     // Set up event handlers
     childProcess.on('error', (error) => {
-      logger.error(`Process ${id} error:`, error);
+      console.error(`Process ${id} error:`, error);
       this.emit('processError', id, error);
     });
 
     childProcess.on('exit', (code, signal) => {
-      logger.info(`Process ${id} exited with code ${code}, signal ${signal}`);
+      console.info(`Process ${id} exited with code ${code}, signal ${signal}`);
       this.processes.delete(id);
       this.emit('processExit', id, code, signal);
     });
 
     // Capture stderr for debugging
     childProcess.stderr?.on('data', (data) => {
-      logger.error(`Process ${id} stderr:`, data.toString());
+      console.error(`Process ${id} stderr:`, data.toString());
     });
 
     // Capture stdout for debugging
     childProcess.stdout?.on('data', (data) => {
-      logger.info(`Process ${id} stdout:`, data.toString());
+      console.info(`Process ${id} stdout:`, data.toString());
     });
 
     // Handle timeout

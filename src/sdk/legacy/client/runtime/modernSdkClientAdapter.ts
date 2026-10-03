@@ -15,6 +15,7 @@ import {
   validateInteractionResponse,
 } from '@src/gateway/interactions/validateInteractionResponse.js';
 import type { OutboundEraAdapter } from '@src/gateway/ports/outboundEraAdapter.js';
+import { injectTraceContext, stripBaggage } from '@src/observability/tracing/context.js';
 import {
   createLegacyTimeoutMs,
   type JsonValue,
@@ -330,6 +331,7 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
           },
         };
       }
+      message.params = injectTraceContext(message.params);
       observeBackendDispatchLifetime(this.handles.transport);
       const options = {
         signal: controller.signal,
@@ -350,7 +352,7 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
       ) {
         return toJsonValue(captureJson(result, false, true).value);
       }
-      return captureCapabilityListResult(request.method, result);
+      return stripBaggage(captureCapabilityListResult(request.method, result));
     } catch (error) {
       throw toProtocolError(error);
     } finally {

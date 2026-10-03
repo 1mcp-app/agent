@@ -145,23 +145,13 @@ export class ClientManager extends EventEmitter {
       }
 
       if (instructions?.trim()) {
-        debugIf(() => ({
-          message: `Cached instructions for ${cleanName}: ${instructions.length} characters`,
-          meta: { name: cleanName, instructionLength: instructions.length },
-        }));
+        debugIf(() => ({ message: 'clientManager.cached.instructions.for.characters.60751cf8' }));
       } else {
-        debugIf(() => ({ message: `No instructions available for ${cleanName}`, meta: { name: cleanName } }));
+        debugIf(() => ({ message: 'clientManager.no.instructions.available.for.ee166e39' }));
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.warn(`Failed to extract instructions from ${name}: ${errorMessage}`, {
-        error: errorMessage,
-        clientName: name,
-        transportType: this.outboundConns.has(name)
-          ? getLegacyTransport(this.outboundConns.get(name)!).constructor.name
-          : undefined,
-        connectionStatus: this.outboundConns.get(name)?.status,
-      });
+      logger.warn('clientManager.failed.to.extract.instructions.from.05217e1a', { error: errorMessage });
     }
   }
 
@@ -195,16 +185,16 @@ export class ClientManager extends EventEmitter {
       // Use cleanName for removal to match the key used during caching
       const cleanName = clientInfo?.name || name;
       this.instructionAggregator?.removeServer({ source: 'mcpServers', name: cleanName }, name);
-      logger.info(`Client ${name} disconnected`);
+      logger.info('clientManager.client.disconnected.827fca0a');
     };
 
     client.onerror = (error) => {
       if (isUnknownMessageIdError(error)) {
-        logger.error(`Client ${name} received a response for an unknown message ID`);
+        logger.error('clientManager.client.received.a.response.for.an.unknown.message.id.a605b144');
         return;
       }
       const safeError = sanitizeRuntimeScopeError(error);
-      logger.error(`Client ${name} error: ${safeError}`);
+      logger.error('clientManager.client.error.775bd985');
 
       if (isSessionLostError(safeError)) {
         this.recoverFromSessionLoss(name, client);
@@ -246,27 +236,23 @@ export class ClientManager extends EventEmitter {
     }
     this.sessionLossRecoveries.add(name);
 
-    logger.warn(`Session for ${name} was lost (backend likely restarted) — reconnecting with a fresh session`);
+    logger.warn('clientManager.session.for.was.lost.backend.likely.restarted.reconnecting.with.a.fresh.ses.11164b75');
 
     const staleTransport = this.transports[name] ?? getLegacyTransport(clientInfo);
     let freshTransport: AuthProviderTransport;
     try {
       freshTransport = this.transportRecreator.recreateForSessionLoss(staleTransport, name);
-    } catch (error) {
+    } catch (_error) {
       // recreateForSessionLoss only supports HTTP/SSE transports; a session-loss-shaped
       // error message from some other transport kind must not escape client.onerror.
-      logger.error(
-        `Cannot recover ${name} from session loss: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      logger.error('clientManager.cannot.recover.from.session.loss.9b3fa9e8', { error: _error });
       this.sessionLossRecoveries.delete(name);
       return;
     }
 
     void this.createSingleClient(name, freshTransport)
-      .catch((error) => {
-        logger.error(
-          `Failed to recover ${name} after session loss: ${error instanceof Error ? error.message : String(error)}`,
-        );
+      .catch((_error) => {
+        logger.error('clientManager.failed.to.recover.after.session.loss.501b50bc');
       })
       .finally(() => {
         this.sessionLossRecoveries.delete(name);
@@ -300,7 +286,6 @@ export class ClientManager extends EventEmitter {
 
     const executor = new ParallelExecutor<[string, AuthProviderTransport], void>();
     const serverEntries = Object.entries(transports);
-    const initialCount = serverEntries.length;
 
     const bulkOperation = executor.execute(
       serverEntries,
@@ -335,7 +320,7 @@ export class ClientManager extends EventEmitter {
     }
 
     if (failedClientCount > 0) {
-      logger.error(`Some clients failed to initialize: ${failedClientCount}/${initialCount}`);
+      logger.error('clientManager.some.clients.failed.to.initialize.cc2bd21d');
     }
 
     let oauthClientCount = 0;
@@ -346,7 +331,7 @@ export class ClientManager extends EventEmitter {
     }
 
     if (oauthClientCount > 0) {
-      logger.info(`Clients awaiting OAuth authorization: ${oauthClientCount}/${initialCount}`);
+      logger.info('clientManager.clients.awaiting.oauth.authorization.cb150b25');
     }
 
     return this.outboundConns;
@@ -357,7 +342,7 @@ export class ClientManager extends EventEmitter {
     transport: AuthProviderTransport,
     preserveHealthyConnection = false,
   ): Promise<void> {
-    logger.info(`Creating client for ${name}`);
+    logger.info('clientManager.creating.client.for.744dd700');
     if (this.isShuttingDown) {
       return;
     }
@@ -394,8 +379,8 @@ export class ClientManager extends EventEmitter {
         if (!(error instanceof OAuthRequiredError) || (error.transport && error.transport !== transport)) {
           await transport.close().catch(() => undefined);
         }
-        const safeError = sanitizeRuntimeScopeError(error);
-        logger.warn(`Keeping healthy client ${name} after replacement failed: ${safeError.message}`);
+
+        logger.warn('clientManager.keeping.healthy.client.after.replacement.failed.fe11642b', { error: error });
         return;
       }
       this.handleClientCreationError(name, transport, sanitizeRuntimeScopeError(error));
@@ -405,12 +390,7 @@ export class ClientManager extends EventEmitter {
   private handleClientCreationError(name: string, transport: AuthProviderTransport, error: unknown): void {
     if (error instanceof OAuthRequiredError) {
       const activeTransport = error.transport ?? transport;
-      logger.info(`OAuth authorization required for ${name}`, {
-        reason: error.message,
-        hasAuthorizationUrl: !!this.oauthFlowHandler.extractAuthorizationUrl(activeTransport),
-        clientName: name,
-        transportType: activeTransport.constructor.name,
-      });
+      logger.info('clientManager.oauth.authorization.required.for.c0a14ccd');
       const authorizationUrl = this.oauthFlowHandler.extractAuthorizationUrl(activeTransport);
       this.outboundConns.set(
         name,
@@ -425,13 +405,7 @@ export class ClientManager extends EventEmitter {
       );
     } else {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(`Failed to create client for ${name}: ${errorMessage}`, {
-        error: errorMessage,
-        clientName: name,
-        transportType: transport.constructor.name,
-        connectionStatus: this.outboundConns.get(name)?.status,
-        stack: error instanceof Error ? error.stack : undefined,
-      });
+      logger.error('clientManager.failed.to.create.client.for.a61aad6b', { error: errorMessage });
       this.outboundConns.set(
         name,
         createLegacyOutboundConnection({
@@ -488,7 +462,7 @@ export class ClientManager extends EventEmitter {
     transport: AuthProviderTransport,
     abortSignal?: AbortSignal,
   ): Promise<void> {
-    logger.info(`Creating client for ${name}`);
+    logger.info('clientManager.creating.client.for.744dd700');
     const attemptTransport = this.prepareTransportForAttempt(name, transport);
     this.transports[name] = attemptTransport;
 
@@ -552,7 +526,7 @@ export class ClientManager extends EventEmitter {
         supervision,
       }),
     );
-    logger.info(`Client created for ${name}`);
+    logger.info('clientManager.client.created.for.44950b76');
     this.extractAndCacheInstructions(name, connected.client);
     this.setupConnectionHandlers(name, connected.client);
 
@@ -572,21 +546,15 @@ export class ClientManager extends EventEmitter {
     getLegacyClient(superseded).onclose = undefined;
     try {
       await superseded.adapter.close();
-    } catch (error) {
-      const safeError = sanitizeRuntimeScopeError(error);
-      logger.warn(`Could not close superseded client ${name}: ${safeError.message}`);
+    } catch (_error) {
+      logger.warn('clientManager.could.not.close.superseded.client.3029a8f0', { error: _error });
     }
   }
 
   private handleSingleClientError(name: string, transport: AuthProviderTransport, error: unknown): void {
     if (error instanceof OAuthRequiredError) {
       const activeTransport = error.transport ?? transport;
-      logger.info(`OAuth authorization required for ${name}`, {
-        reason: error.message,
-        hasAuthorizationUrl: !!this.oauthFlowHandler.extractAuthorizationUrl(activeTransport),
-        clientName: name,
-        transportType: activeTransport.constructor.name,
-      });
+      logger.info('clientManager.oauth.authorization.required.for.c0a14ccd');
       const authorizationUrl = this.oauthFlowHandler.extractAuthorizationUrl(activeTransport);
       this.outboundConns.set(
         name,
@@ -601,13 +569,7 @@ export class ClientManager extends EventEmitter {
       );
     } else {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(`Failed to create client for ${name}: ${errorMessage}`, {
-        error: errorMessage,
-        clientName: name,
-        transportType: transport.constructor.name,
-        connectionStatus: this.outboundConns.get(name)?.status,
-        stack: error instanceof Error ? error.stack : undefined,
-      });
+      logger.error('clientManager.failed.to.create.client.for.a61aad6b', { error: errorMessage });
       this.outboundConns.set(
         name,
         createLegacyOutboundConnection({
@@ -625,7 +587,7 @@ export class ClientManager extends EventEmitter {
     this.assertActive();
     this.transports = transports;
     this.outboundConns.clear();
-    logger.info(`Initialized client storage for ${Object.keys(transports).length} transports`);
+    logger.info('clientManager.initialized.client.storage.for.transports.6bd3aa3d');
     return this.outboundConns;
   }
 
@@ -759,7 +721,7 @@ export class ClientManager extends EventEmitter {
       return;
     }
 
-    logger.info(`Removing client ${name}...`);
+    logger.info('clientManager.removing.client.833781e6');
 
     try {
       const supervisor = this.backendSupervisors.get(name);
@@ -774,11 +736,7 @@ export class ClientManager extends EventEmitter {
           await transport.close();
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
-          logger.warn(`Error closing transport for ${name}: ${errorMessage}`, {
-            error: errorMessage,
-            clientName: name,
-            transportType: transport.constructor.name,
-          });
+          logger.warn('clientManager.error.closing.transport.for.76ac70c0', { error: errorMessage });
         }
       }
 
@@ -786,14 +744,10 @@ export class ClientManager extends EventEmitter {
       delete this.transports[name];
       this.instructionAggregator?.removeServer({ source: 'mcpServers', name: clientInfo.name || name }, name);
 
-      logger.info(`Client ${name} removed successfully`);
+      logger.info('clientManager.client.removed.successfully.0f36fffb');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(`Error removing client ${name}: ${errorMessage}`, {
-        error: errorMessage,
-        clientName: name,
-        stack: error instanceof Error ? error.stack : undefined,
-      });
+      logger.error('clientManager.error.removing.client.df5d67cc', { error: errorMessage });
       throw error;
     }
   }
@@ -851,9 +805,8 @@ export class ClientManager extends EventEmitter {
       connections.map(async ([name, connection]) => {
         try {
           await connection.adapter.close();
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          logger.warn(`Error closing client during shutdown for ${name}: ${errorMessage}`);
+        } catch (_error) {
+          logger.warn('clientManager.error.closing.client.during.shutdown.for.2f1b1528', { error: _error });
           await getLegacyTransport(connection)
             .close()
             .catch(() => undefined);
@@ -867,7 +820,7 @@ export class ClientManager extends EventEmitter {
     this.connectionSemaphore.clear();
     this.bulkConnectionOperations.clear();
     this.backendAvailabilityHandler = undefined;
-    logger.info('ClientManager shutdown complete');
+    logger.info('clientManager.clientmanager.shutdown.complete.30a0c3d8');
   }
 
   private getOrCreateBackendSupervisor(name: string, metadata: StdioSupervisionMetadata): BackendStdioSupervisor {
@@ -900,9 +853,8 @@ export class ClientManager extends EventEmitter {
       getLegacyClient(current).onclose = undefined;
       try {
         await current.adapter.close();
-      } catch (error) {
-        const safeError = sanitizeRuntimeScopeError(error);
-        debugIf(() => ({ message: `Could not close previous supervised client ${name}: ${safeError}` }));
+      } catch (_error) {
+        debugIf(() => ({ message: 'clientManager.could.not.close.previous.supervised.client.b79e7fcc' }));
       }
     }
 
@@ -955,15 +907,9 @@ export class ClientManager extends EventEmitter {
     const connection = this.outboundConns.get(name);
     if (connection) {
       connection.supervision = snapshotSupervision(snapshot);
-      logger.info(`Backend stdio supervision state changed for ${name}`, {
-        backendId: snapshot.backendId,
-        state: snapshot.state,
+      logger.info('clientManager.backend.stdio.supervision.state.changed.for.3a724099', {
         attempt: snapshot.attempt,
-        limit: snapshot.limit,
-        nextRetryAt: snapshot.nextRetryAt,
-        lastExit: snapshot.lastExit,
-        currentPid: snapshot.currentPid,
-        error: snapshot.lastError?.message,
+        error: snapshot.lastError,
       });
       if (snapshot.state === 'restarting') {
         connection.status = ClientStatus.Restarting;
@@ -985,13 +931,11 @@ export class ClientManager extends EventEmitter {
     }
     this.emit(ClientManagerEvent.BackendSupervisionStateChanged, name, snapshot);
     try {
-      void Promise.resolve(this.backendAvailabilityHandler?.(name, snapshot)).catch((error) => {
-        const message = error instanceof Error ? error.message : String(error);
-        logger.warn(`Failed to publish backend availability for ${name}: ${message}`);
+      void Promise.resolve(this.backendAvailabilityHandler?.(name, snapshot)).catch((_error) => {
+        logger.warn('clientManager.failed.to.publish.backend.availability.for.9f2d28de');
       });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      logger.warn(`Failed to publish backend availability for ${name}: ${message}`);
+    } catch (_error) {
+      logger.warn('clientManager.failed.to.publish.backend.availability.for.9f2d28de', { error: _error });
     }
   }
 

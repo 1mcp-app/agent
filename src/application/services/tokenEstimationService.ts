@@ -69,17 +69,19 @@ export class TokenEstimationService {
 
       // Initialize encoder for the specified model
       this.encoder = encoding_for_model(this.model);
-      logger.debug(`TokenEstimationService initialized with tiktoken ${this.model} encoding`);
+      logger.debug('tokenEstimationService.tokenestimationservice.initialized.with.tiktoken.encoding.55c8678d');
     } catch (error) {
-      logger.error(`Failed to initialize tiktoken encoder for model ${model}:`, error);
-      logger.warn(`Falling back to gpt-4o encoding`);
+      logger.error('tokenEstimationService.failed.to.initialize.tiktoken.encoder.for.model.e520fc7e', { error: error });
+      logger.warn('tokenEstimationService.falling.back.to.gpt.4o.encoding.f5140ee5', { error: error });
 
       // Fallback to gpt-4o if the provided model fails
       try {
         this.model = 'gpt-4o';
         this.encoder = encoding_for_model(this.model);
-      } catch (fallbackError) {
-        logger.error('Failed to initialize fallback encoder:', fallbackError);
+      } catch (_fallbackError) {
+        logger.error('tokenEstimationService.failed.to.initialize.fallback.encoder.6faf4f79', {
+          error: _fallbackError,
+        });
         this.encoder = null;
         this.model = 'gpt-4o'; // Keep default for logging purposes
       }
@@ -108,7 +110,7 @@ export class TokenEstimationService {
         return Math.ceil(toolJson.length / TokenEstimationService.FALLBACK_CHARS_PER_TOKEN);
       }
     } catch (error) {
-      logger.warn(`Error estimating tokens for tool ${tool.name}:`, error);
+      logger.warn('tokenEstimationService.error.estimating.tokens.for.tool.a7a9df4e', { error: error });
       // Fallback estimation based on typical tool size
       return 150;
     }
@@ -137,7 +139,7 @@ export class TokenEstimationService {
         return Math.ceil(resourceJson.length / TokenEstimationService.FALLBACK_CHARS_PER_TOKEN);
       }
     } catch (error) {
-      logger.warn(`Error estimating tokens for resource ${resource.uri}:`, error);
+      logger.warn('tokenEstimationService.error.estimating.tokens.for.resource.72f3626b', { error: error });
       // Fallback estimation based on typical resource size
       return 50;
     }
@@ -176,7 +178,7 @@ export class TokenEstimationService {
 
       return totalTokens;
     } catch (error) {
-      logger.warn(`Error estimating tokens for prompt ${prompt.name}:`, error);
+      logger.warn('tokenEstimationService.error.estimating.tokens.for.prompt.0f2738c2', { error: error });
       // Fallback estimation based on typical prompt size
       return 100;
     }
@@ -193,7 +195,7 @@ export class TokenEstimationService {
     connected: boolean = true,
   ): ServerTokenEstimate {
     try {
-      logger.debug(`Estimating tokens for server: ${serverName}`);
+      logger.debug('tokenEstimationService.estimating.tokens.for.server.0753edf6');
 
       // Calculate token breakdown by capability type
       const toolTokens: ToolTokenInfo[] = tools.map((tool) => ({
@@ -236,7 +238,7 @@ export class TokenEstimationService {
         breakdown,
       };
     } catch (error) {
-      logger.error(`Error estimating tokens for server ${serverName}:`, error);
+      logger.error('tokenEstimationService.error.estimating.tokens.for.server.c1c0cb53', { error: error });
       return {
         serverName,
         connected,
@@ -266,7 +268,7 @@ export class TokenEstimationService {
         return Math.ceil(argumentsJson.length / TokenEstimationService.FALLBACK_CHARS_PER_TOKEN);
       }
     } catch (error) {
-      logger.warn('Error estimating tokens for prompt arguments:', error);
+      logger.warn('tokenEstimationService.error.estimating.tokens.for.prompt.arguments.c1865a79', { error: error });
       return 25; // Conservative fallback
     }
   }
@@ -303,9 +305,9 @@ export class TokenEstimationService {
     if (this.encoder && typeof this.encoder.free === 'function') {
       try {
         this.encoder.free();
-        logger.debug('TokenEstimationService encoder disposed');
+        logger.debug('tokenEstimationService.tokenestimationservice.encoder.disposed.ff22bb9f');
       } catch (error) {
-        logger.warn('Error disposing tiktoken encoder:', error);
+        logger.warn('tokenEstimationService.error.disposing.tiktoken.encoder.ac89ffbd', { error: error });
       }
     }
   }

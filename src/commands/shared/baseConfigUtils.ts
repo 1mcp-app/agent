@@ -208,7 +208,7 @@ export function saveConfig(config: ServerConfig): void {
     // Write configuration with pretty formatting
     fs.writeFileSync(filePath, JSON.stringify(config, null, 2));
 
-    logger.info(`Configuration saved to: ${filePath}`);
+    logger.info('baseConfigUtils.configuration.saved.to.16509b4b');
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     throw new Error(`Failed to save configuration to ${filePath}: ${errorMessage}`);
@@ -247,7 +247,7 @@ export function getServer(serverName: string): MCPServerParams | null {
     const config = loadConfig();
     return config.mcpServers[serverName] || null;
   } catch (error) {
-    logger.warn(`Failed to get server '${serverName}': ${error instanceof Error ? error.message : String(error)}`);
+    logger.warn('baseConfigUtils.failed.to.get.server.d63f7d69', { error: error });
     if (isMissingConfigError(error)) {
       return null;
     }
@@ -262,9 +262,7 @@ export function resolveServerTarget(serverName: string): ResolvedServerTarget | 
   try {
     return resolveServerTargetFromConfig(loadConfig(), serverName);
   } catch (error) {
-    logger.warn(
-      `Failed to resolve server target '${serverName}': ${error instanceof Error ? error.message : String(error)}`,
-    );
+    logger.warn('baseConfigUtils.failed.to.resolve.server.target.79c0e848', { error: error });
     if (isMissingConfigError(error)) {
       return null;
     }
@@ -280,7 +278,7 @@ export function getGlobalConfig(): GlobalTransportConfig {
     const config = loadConfig();
     return config.serverDefaults || {};
   } catch (error) {
-    logger.warn(`Failed to get global config: ${error instanceof Error ? error.message : String(error)}`);
+    logger.warn('baseConfigUtils.failed.to.get.global.config.093f0ef1', { error: error });
     if (isMissingConfigError(error)) {
       return {};
     }
@@ -305,9 +303,7 @@ export function getEffectiveServerConfig(serverName: string): MCPServerParams | 
       serverConfig,
     });
   } catch (error) {
-    logger.warn(
-      `Failed to get effective server config for '${serverName}': ${error instanceof Error ? error.message : String(error)}`,
-    );
+    logger.warn('baseConfigUtils.failed.to.get.effective.server.config.for.b3e07967', { error: error });
     if (isMissingConfigError(error)) {
       return null;
     }
@@ -330,9 +326,7 @@ export function getEffectiveServerTargetConfig(serverName: string): MCPServerPar
 
     return getMergedResolvedServerTargetConfig(config, effectiveServers, target);
   } catch (error) {
-    logger.warn(
-      `Failed to get effective server target config for '${serverName}': ${error instanceof Error ? error.message : String(error)}`,
-    );
+    logger.warn('baseConfigUtils.failed.to.get.effective.server.target.config.for.13be43bf', { error: error });
     if (isMissingConfigError(error)) {
       return null;
     }
@@ -418,7 +412,7 @@ export function getAllServers(): Record<string, MCPServerParams> {
     const config = loadConfig();
     return config.mcpServers;
   } catch (error) {
-    logger.warn(`Failed to get all servers: ${error instanceof Error ? error.message : String(error)}`);
+    logger.warn('baseConfigUtils.failed.to.get.all.servers.bcf50cf6', { error: error });
     if (isMissingConfigError(error)) {
       return {};
     }
@@ -437,7 +431,7 @@ export function getAllServerTargets(): Record<string, MCPServerParams> {
       ...(config.mcpTemplates || {}),
     };
   } catch (error) {
-    logger.warn(`Failed to get all server targets: ${error instanceof Error ? error.message : String(error)}`);
+    logger.warn('baseConfigUtils.failed.to.get.all.server.targets.5caa4107', { error: error });
     if (isMissingConfigError(error)) {
       return {};
     }
@@ -452,7 +446,7 @@ export function getAllEffectiveServers(): Record<string, MCPServerParams> {
   try {
     return loadSharedConfigState().effectiveServers;
   } catch (error) {
-    logger.warn(`Failed to get all effective servers: ${error instanceof Error ? error.message : String(error)}`);
+    logger.warn('baseConfigUtils.failed.to.get.all.effective.servers.6fd05cce', { error: error });
     if (isMissingConfigError(error)) {
       return {};
     }
@@ -471,8 +465,8 @@ export function reloadMcpConfig(): void {
     // Get the config manager instance and reload it
     const configManager = McpConfigManager.getInstance(filePath);
     configManager.reloadConfig();
-    logger.info('MCP configuration reloaded');
-  } catch (error) {
-    logger.warn(`Failed to reload MCP configuration: ${error instanceof Error ? error.message : String(error)}`);
+    logger.info('baseConfigUtils.mcp.configuration.reloaded.53167346');
+  } catch (_error) {
+    logger.warn('baseConfigUtils.failed.to.reload.mcp.configuration.ef37d781', { error: _error });
   }
 }

@@ -176,7 +176,7 @@ async function writeManagedJson(
   const existingContent = await readExistingFile(filePath);
   const parsed = parseJsonConfig(existingContent);
   if (hasJsonComments(existingContent)) {
-    logger.warn(`Skipping managed update for ${filePath} because the file contains JSON comments.`);
+    logger.warn('setupFiles.skipping.managed.update.for.because.the.file.contains.json.comments.0409427c');
     return {
       ...resultInfo,
       path: filePath,
