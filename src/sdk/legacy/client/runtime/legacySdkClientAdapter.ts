@@ -5,6 +5,7 @@ import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
 import { assertInteractionRoute } from '@src/gateway/interactions/interactionRoute.js';
 import logger from '@src/logger/logger.js';
+import { injectTraceContext, stripBaggage } from '@src/observability/tracing/context.js';
 import {
   type JsonValue,
   type LegacyConnectionId,
@@ -139,7 +140,7 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
     try {
       if (this.lifecycleState === 'idle') await this.start();
       const result = await this.requestWithRecovery(request, controller);
-      return captureCapabilityListResult(request.method, result);
+      return stripBaggage(captureCapabilityListResult(request.method, result));
     } catch (error) {
       throw toProtocolError(error);
     } finally {
@@ -152,7 +153,7 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
   private async requestWithRecovery(request: LegacySdkRequest, controller: AbortController): Promise<unknown> {
     const requestClient = this.handles.client;
     observeBackendDispatchLifetime(this.handles.transport);
-    const params = request.params === undefined ? undefined : toJsonValue(request.params);
+    const params = injectTraceContext(request.params === undefined ? undefined : toJsonValue(request.params));
     try {
       return await requestClient.request(
         { method: request.method, ...(params === undefined ? {} : { params }) } as never,

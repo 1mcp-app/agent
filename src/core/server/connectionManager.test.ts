@@ -20,6 +20,7 @@ let _mockServerTransport: any = undefined;
 vi.mock('@modelcontextprotocol/sdk/server/index.js', () => ({
   Server: vi.fn().mockImplementation(function () {
     return {
+      setRequestHandler: vi.fn(),
       connect: vi.fn().mockImplementation(async (transport: any) => {
         // Store the transport so we can verify it later
         _mockServerTransport = transport;
@@ -377,6 +378,7 @@ describe('ConnectionManager', () => {
       // Mock Server.connect to reject
       vi.mocked(Server).mockImplementationOnce(function () {
         return {
+          setRequestHandler: vi.fn(),
           connect: vi.fn().mockRejectedValue(new Error('Connection failed')),
           transport: undefined,
         } as unknown as Server;

@@ -1,4 +1,5 @@
 import { captureJson } from '@src/core/validation/schemaPolicy.js';
+import { injectTraceContext, stripBaggage } from '@src/observability/tracing/context.js';
 
 import {
   createEffectiveRequestAuthority,
@@ -9,11 +10,7 @@ import {
   toImmutableJsonValue,
 } from '../../contracts/index.js';
 import type { OutboundEraAdapter, OutboundGatewayRequest } from '../../ports/index.js';
-import type {
-  GatewayInteractionRequest,
-  GatewayInteractionRound,
-  GatewayRequestOptions,
-} from '../../ports/outboundEraAdapter.js';
+import type { GatewayInteractionRequest, GatewayRequestOptions } from '../../ports/outboundEraAdapter.js';
 import { requireModernPin } from './modernPin.js';
 
 function isRecord(value: unknown): value is { readonly [key: string]: ImmutableJsonValue } {
@@ -87,7 +84,9 @@ export class ModernOutboundEraAdapter implements OutboundEraAdapter {
             message: 'Interaction expired or cancelled',
           });
         }
-        const result = toImmutableJsonValue(captureJson(await this.#callbacks.request(frame), false, true).value);
+        const result = toImmutableJsonValue(
+          captureJson(stripBaggage(await this.#callbacks.request(frame)), false, true).value,
+        );
         if (!isRecord(result) || result.resultType !== 'input_required') return result;
         if (!['tools/call', 'prompts/get', 'resources/read'].includes(request.operation) || round >= 10) {
           throw createGatewayFailure({
@@ -123,19 +122,23 @@ export class ModernOutboundEraAdapter implements OutboundEraAdapter {
           )
             throw new TypeError('Invalid interaction kind');
         }
+        const tracedInputs = Object.fromEntries(
+          entries.map(([key, input]) => {
+            const request = input as unknown as GatewayInteractionRequest;
+            const params = injectTraceContext(request.params);
+            return [key, { ...request, ...(params === undefined ? {} : { params }) }];
+          }),
+        );
         let responses: Record<string, ImmutableJsonValue> = {};
         if (entries.length && options?.interactionRound) {
-          const received = captureJson(
-            await options.interactionRound(inputs as unknown as GatewayInteractionRound),
-            false,
-          ).value;
+          const received = captureJson(await options.interactionRound(tracedInputs), false).value;
           if (!isRecord(received) || entries.some(([key]) => !Object.hasOwn(received, key)))
             throw new TypeError('Incomplete interaction round');
-          responses = Object.fromEntries(entries.map(([key]) => [key, received[key]]));
+          responses = Object.fromEntries(entries.map(([key]) => [key, stripBaggage(received[key])]));
         } else {
-          for (const [key, input] of entries) {
+          for (const [key, input] of Object.entries(tracedInputs)) {
             Object.defineProperty(responses, key, {
-              value: await options!.interaction!(input as unknown as GatewayInteractionRequest),
+              value: stripBaggage(await options!.interaction!(input as unknown as GatewayInteractionRequest)),
               enumerable: true,
             });
           }

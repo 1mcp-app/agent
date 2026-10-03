@@ -41,6 +41,16 @@ import rateLimit from 'express-rate-limit';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
+const traceparent = '00-12345678901234567890123456789012-1234567890123456-01';
+const tracingMeta = { traceparent, tracestate: 'vendor=opaque', baggage: 'credential=must-not-forward' };
+function expectTrace(params: unknown, label = '') {
+  const meta = (params as { _meta?: Record<string, unknown> } | undefined)?._meta;
+  expect(meta?.traceparent, label).toBe(traceparent);
+  expect(meta?.tracestate).toBe('vendor=opaque');
+  expect(meta).not.toHaveProperty('baggage');
+  expect(meta).not.toHaveProperty('contextProof');
+}
+
 const serverCapabilities = { tools: {}, prompts: {}, resources: {}, completions: {} };
 const clientCapabilities = { roots: {}, sampling: {}, elicitation: { form: {} } };
 function selectedCapabilities(method: string) {
@@ -156,7 +166,8 @@ describe('real gateway interaction peers across protocol eras', () => {
                   : result,
               );
             for (const operation of operations)
-              backend.setRequestHandler(operation.schema, async () => {
+              backend.setRequestHandler(operation.schema, async (request) => {
+                expectTrace(request.params, request.method);
                 if (privatePeer) expect(backend.getClientCapabilities()).toEqual(selectedCapabilities(selected.method));
                 upstreamExecutions++;
                 // A side effect before parking must never be repeated by a continuation.
@@ -194,6 +205,7 @@ describe('real gateway interaction peers across protocol eras', () => {
                 backend.setRequestHandler(schema.shape.method.value, async () => result as never);
               for (const operation of operations)
                 backend.setRequestHandler(operation.method, async (_request, context) => {
+                  expectTrace(_request.params, _request.method);
                   upstreamExecutions++;
                   if (context.mcpReq.requestState() === undefined)
                     return {
@@ -251,6 +263,7 @@ describe('real gateway interaction peers across protocol eras', () => {
           const client = new LegacyClient({ name: 'inbound', version: '1' }, { capabilities: clientCapabilities });
           for (const interaction of interactions)
             client.setRequestHandler(interaction.schema, async (request) => {
+              expectTrace(request.params, request.method);
               expect(request.method).toBe(selected.method);
               expect(request.params ?? {}).toMatchObject(selected.params);
               answers++;
@@ -297,6 +310,7 @@ describe('real gateway interaction peers across protocol eras', () => {
           );
           for (const interaction of interactions)
             client.setRequestHandler(interaction.method, async (request) => {
+              // Client 2.0.0 strips sampling/elicitation _meta during handler parsing; assert the wire below.
               expect(request.method).toBe(selected.method);
               expect(request.params ?? {}).toMatchObject(selected.params);
               answers++;
@@ -304,15 +318,34 @@ describe('real gateway interaction peers across protocol eras', () => {
             });
           await client.connect(
             new StreamableHTTPClientTransport(await listen(http), {
-              requestInit: { headers: { Authorization: 'Bearer interaction-fixture' } },
+              requestInit: {
+                headers: {
+                  Authorization: 'Bearer interaction-fixture',
+                  traceparent: '00-abcdefabcdefabcdefabcdefabcdefab-abcdefabcdefabcd-00',
+                  baggage: 'http=forbidden',
+                },
+              },
               fetch: async (input, init) => {
+                if (typeof init?.body === 'string') {
+                  const body = JSON.parse(init.body);
+                  if (body.params?.requestState !== undefined) {
+                    body.params._meta.traceparent = '00-abcdefabcdefabcdefabcdefabcdefab-abcdefabcdefabcd-00';
+                    init = { ...init, body: JSON.stringify(body) };
+                  }
+                }
                 const response = await fetch(input, init);
                 const frame = await response
                   .clone()
                   .json()
                   .catch(() => undefined);
-                if (frame?.result?.resultType === 'input_required')
+                if (frame?.result?.resultType === 'input_required') {
+                  for (const input of Object.values(frame.result.inputRequests) as Array<{
+                    params: unknown;
+                    method: string;
+                  }>)
+                    expectTrace(input.params, 'wire:' + input.method);
                   downstreamBatchSizes.push(Object.keys(frame.result.inputRequests).length);
+                }
                 return response;
               },
             }),
@@ -324,7 +357,10 @@ describe('real gateway interaction peers across protocol eras', () => {
                 method,
                 params: {
                   ...params,
-                  _meta: { 'io.modelcontextprotocol/clientCapabilities': selectedCapabilities(selected.method) },
+                  _meta: {
+                    ...tracingMeta,
+                    'io.modelcontextprotocol/clientCapabilities': selectedCapabilities(selected.method),
+                  },
                 },
               } as never,
               z.looseObject({}),
@@ -335,7 +371,10 @@ describe('real gateway interaction peers across protocol eras', () => {
           for (const interaction of interactions) {
             selected = interaction;
             const before = { upstreamExecutions, sideEffects, answers, batches: downstreamBatchSizes.length };
-            const result = await request(operation.method, operation.params);
+            const result = await request(operation.method, {
+              ...operation.params,
+              _meta: { ...tracingMeta, contextProof: { signature: 'must-not-forward' } },
+            });
             expect(result, `${operation.method} / ${interaction.method}`).toMatchObject(
               operation.method === 'resources/read' ? { contents: [{ text: 'done' }] } : operation.result,
             );

@@ -95,7 +95,7 @@ export default [
   },
   // CLI entry point - allow console for error output
   {
-    files: ['src/index.ts'],
+    files: ['src/index.ts', 'src/cli.ts'],
     rules: {
       'no-console': 'off',
     },

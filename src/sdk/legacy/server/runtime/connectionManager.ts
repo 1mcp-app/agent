@@ -35,6 +35,7 @@ import {
 } from './legacyInboundConnection.js';
 import {
   getLegacyServerTransportHandle,
+  installLegacyRequestTracing,
   isLegacyServerConnected,
   LegacySdkServerAdapter,
 } from './legacySdkServerAdapter.js';
@@ -319,6 +320,7 @@ export class ConnectionManager {
     };
 
     // Enhance server with logging middleware
+    installLegacyRequestTracing(server);
     enhanceServerWithLogging(server);
 
     if (

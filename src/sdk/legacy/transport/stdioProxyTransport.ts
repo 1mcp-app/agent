@@ -10,6 +10,7 @@ import {
   type ProtocolEraPin,
 } from '@src/gateway/contracts/index.js';
 import logger from '@src/logger/logger.js';
+import { injectTraceContext, stripBaggage, withMcpTraceContext } from '@src/observability/tracing/context.js';
 import { toProtocolJSONRPCMessage } from '@src/sdk/contracts/index.js';
 import { StdioServerTransport } from '@src/sdk/legacy/server/stdio.js';
 import { JSONRPCMessage } from '@src/sdk/legacy/types.js';
@@ -143,16 +144,20 @@ export class StdioProxyTransport {
    */
   private setupHttpTransportMessageHandlers(): void {
     // Forward messages from HTTP server to STDIO client
-    this.httpTransport.onmessage = async (message: JSONRPCMessage) => {
-      try {
-        this.observeUpstreamFrame(message);
-        // Forward to STDIO client
-        await this.stdioTransport.send(message as never);
-      } catch (error) {
-        logger.error(`Error forwarding HTTP message to STDIO: ${error}`);
-        if (this.isProtocolFailure(error)) await this.failProtocolFrame(message, error);
-      }
-    };
+    this.httpTransport.onmessage = async (message: JSONRPCMessage) =>
+      withMcpTraceContext('params' in message ? message.params : undefined, async () => {
+        try {
+          this.observeUpstreamFrame(message);
+          if ('result' in message) message = { ...message, result: stripBaggage(message.result) };
+          // Forward to STDIO client
+          await this.stdioTransport.send(
+            ('method' in message ? { ...message, params: injectTraceContext(message.params) } : message) as never,
+          );
+        } catch (error) {
+          logger.error(`Error forwarding HTTP message to STDIO: ${error}`);
+          if (this.isProtocolFailure(error)) await this.failProtocolFrame(message, error);
+        }
+      });
 
     // Handle errors from HTTP transport
     this.httpTransport.onerror = (error: Error) => {
@@ -171,40 +176,44 @@ export class StdioProxyTransport {
    */
   private setupMessageForwarding(): void {
     // Forward messages from STDIO client to HTTP server
-    this.stdioTransport.onmessage = async (message: JSONRPCMessage) => {
-      try {
-        this.classifyDownstreamFrame(message);
-        // Check for initialize request to extract client info
-        if (!this.initializeIntercepted) {
-          const clientInfo = ClientInfoExtractor.extractFromInitializeRequest(toProtocolJSONRPCMessage(message));
-          if (clientInfo) {
-            this.clientInfo = clientInfo;
-            this.initializeIntercepted = true;
+    this.stdioTransport.onmessage = async (message: JSONRPCMessage) =>
+      withMcpTraceContext('params' in message ? message.params : undefined, async () => {
+        try {
+          this.classifyDownstreamFrame(message);
+          if ('result' in message) message = { ...message, result: stripBaggage(message.result) };
+          // Check for initialize request to extract client info
+          if (!this.initializeIntercepted) {
+            const clientInfo = ClientInfoExtractor.extractFromInitializeRequest(toProtocolJSONRPCMessage(message));
+            if (clientInfo) {
+              this.clientInfo = clientInfo;
+              this.initializeIntercepted = true;
 
-            logger.info('🔍 Extracted client info from initialize request', {
-              clientName: clientInfo.name,
-              clientVersion: clientInfo.version,
-              clientTitle: clientInfo.title,
-            });
+              logger.info('🔍 Extracted client info from initialize request', {
+                clientName: clientInfo.name,
+                clientVersion: clientInfo.version,
+                clientTitle: clientInfo.title,
+              });
 
-            // Client info is now available - custom fetch will dynamically inject
-            // the updated User-Agent header for all subsequent HTTP requests
-            logger.info('✅ Client info extracted - User-Agent will be updated for all requests', {
-              userAgent: this.buildUserAgent(),
-            });
+              // Client info is now available - custom fetch will dynamically inject
+              // the updated User-Agent header for all subsequent HTTP requests
+              logger.info('✅ Client info extracted - User-Agent will be updated for all requests', {
+                userAgent: this.buildUserAgent(),
+              });
+            }
           }
+
+          // Add context metadata to message _meta field
+          const enhancedMessage = await this.addContextMeta(
+            'method' in message ? { ...message, params: injectTraceContext(message.params) } : message,
+          );
+
+          // Forward to HTTP server
+          await this.httpTransport.send(enhancedMessage as never);
+        } catch (error) {
+          logger.error(`Error forwarding STDIO message to HTTP: ${error}`);
+          if (this.isProtocolFailure(error)) await this.failProtocolFrame(message, error);
         }
-
-        // Add context metadata to message _meta field
-        const enhancedMessage = await this.addContextMeta(message);
-
-        // Forward to HTTP server
-        await this.httpTransport.send(enhancedMessage as never);
-      } catch (error) {
-        logger.error(`Error forwarding STDIO message to HTTP: ${error}`);
-        if (this.isProtocolFailure(error)) await this.failProtocolFrame(message, error);
-      }
-    };
+      });
 
     // Set up HTTP transport message handlers
     this.setupHttpTransportMessageHandlers();
