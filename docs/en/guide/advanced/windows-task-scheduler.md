@@ -68,6 +68,32 @@ if (-not (Test-Path "$configDir\mcp.json")) {
 
 ## Step 2: Register the Scheduled Task
 
+### Installer (recommended)
+
+From a checkout of this repository, run the installer in an elevated PowerShell session. It prompts for the task account password and starts the foreground runtime immediately:
+
+```powershell
+# Default: startup and immediate failure retries only
+.\scripts\install-windows-task.ps1 -BinaryPath 'C:\Program Files\1mcp\1mcp.exe'
+
+# Optional scheduled recovery; 60 minutes is an example, not a default
+.\scripts\install-windows-task.ps1 -BinaryPath 'C:\Program Files\1mcp\1mcp.exe' -RecoveryIntervalMinutes 60
+.\scripts\install-windows-task.ps1 -UseNpm -RecoveryIntervalMinutes 60
+
+# Preview without changing directories, permissions, task state or registration
+.\scripts\install-windows-task.ps1 -UseNpm -RecoveryIntervalMinutes 60 -WhatIf
+```
+
+`-RecoveryIntervalMinutes` accepts whole minutes from 1 through 44,640 (31 days). Omission adds no recurrence; explicitly supplied zero, negative, fractional or out-of-range values fail before changing an existing task.
+
+Opt-in retains the startup trigger and adds a separate `Once` trigger with indefinite repetition. Its first scheduled launch is one interval after registration; the installer still starts the task immediately. Missed intervals do not produce a burst of catch-up launches. `IgnoreNew` prevents another scheduled instance while the task is running.
+
+Any stopped, enabled task is eligible: failure after immediate retries are exhausted, a clean exit, or a manual stop. This does not detect or kill an unhealthy running runtime. Every launch still uses normal Runtime Scope ownership checks; recurrence cannot take over another owner or remove ownership metadata.
+
+To replace a task, rerun the installer with `-Force` and the desired interval. Omit the interval to remove prior recurrence. Replacement and uninstall disable automatic launches before stopping and verify shutdown within 30 seconds. If maintenance fails, retained registration stays disabled; follow the failure recovery steps below.
+
+The manual registration examples below show the default task configuration for **initial registration only**. Use the installer for replacement and removal so shutdown is verified.
+
 ### Primary path: standalone binary
 
 Download the standalone binary from the [releases page](https://github.com/1mcp-app/agent/releases) and save it to a stable absolute path, for example `C:\Program Files\1mcp\1mcp.exe`.
@@ -118,8 +144,7 @@ Register-ScheduledTask `
     -Settings $settings `
     -Description '1MCP aggregated MCP runtime' `
     -User $taskAccount `
-    -Password $plainPassword `
-    -Force
+    -Password $plainPassword
 ```
 
 ### Secondary path: npm installation
@@ -170,23 +195,37 @@ Because the scheduled task runs in Session 0 under `LogonType Password`, the dae
 ```powershell
 $taskName = '1mcp-daemon'
 
-# Start the daemon now (without waiting for next boot)
+# Start now without waiting for the next trigger
 Start-ScheduledTask -TaskName $taskName
 
-# Stop the daemon gracefully
+# Temporary stop: an enabled recurring task can start at the next interval
 Stop-ScheduledTask -TaskName $taskName
 
-# Stop first, then prevent automatic restart on reboot
-Stop-ScheduledTask -TaskName $taskName
+# Durable maintenance: disable BEFORE stopping to prevent scheduled launches
 Disable-ScheduledTask -TaskName $taskName
-
-# Re-enable automatic restart
-Enable-ScheduledTask -TaskName $taskName
-
-# Stop first, then remove the task entirely
 Stop-ScheduledTask -TaskName $taskName
-Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+
+# Confirm shutdown; do not proceed with maintenance while instances remain
+(Get-ScheduledTask -TaskName $taskName).State
+# Expected: Disabled; also verify that the task's runtime process has exited
+$scheduler = New-Object -ComObject 'Schedule.Service'
+$scheduler.Connect()
+$scheduler.GetFolder('\').GetTask($taskName).GetInstances(0).Count
+# Expected: 0. Disabled alone does not prove shutdown.
+
+# Explicitly resume after maintenance, once ownership and configuration are checked
+Enable-ScheduledTask -TaskName $taskName
+Start-ScheduledTask -TaskName $taskName
+
+# Remove using bounded, verified shutdown
+.\scripts\install-windows-task.ps1 -Uninstall -TaskName $taskName
 ```
+
+### Recovering from failed maintenance
+
+If maintenance fails after disabling, the installer returns failure and reports whether registration remains and whether shutdown was confirmed. Credential cancellation and input validation happen before disabling, so those failures leave the existing task unchanged. It never silently re-enables or restarts a retained task after failed replacement or uninstall. Keep it disabled until you have inspected the error, task state, task instances and runtime ownership. Do not remove `server.pid` or force takeover to bypass uncertain ownership.
+
+For a stop timeout, confirm that the old task's process has exited before retrying replacement or uninstall. For cancelled credentials, permission or registration failures, correct the reported problem and rerun the installer with the desired interval and `-Force` (or `-Uninstall`). If the old registration remains usable and you explicitly choose to resume it, use `Enable-ScheduledTask` followed by `Start-ScheduledTask` only after confirming shutdown and the intended Runtime Scope.
 
 ## Post-Registration Verification
 
@@ -224,6 +263,29 @@ Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:3050/health/ready' | Select
 Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:3050/health/mcp' | Select-Object StatusCode
 # Expected: 200 (all servers loaded) or 202 (still loading)
 ```
+
+### Verify scheduled recovery on Windows
+
+Export the registered configuration and inspect both triggers and settings:
+
+```powershell
+Export-ScheduledTask -TaskName $taskName | Set-Content -Encoding Unicode '.\1mcp-task.xml'
+```
+
+With recurrence enabled, expect a `BootTrigger` plus a `TimeTrigger`, the selected repetition interval, no repetition `Duration` or trigger `EndBoundary`, foreground `serve`, `IgnoreNew`, unlimited execution and five two-minute failure retries. Without the parameter, expect only `BootTrigger`. Microsoft documents the [interval bounds](https://learn.microsoft.com/en-us/windows/win32/taskschd/taskschedulerschema-interval-repetitiontype-element) and [indefinite repetition when duration is omitted](https://learn.microsoft.com/en-us/windows/win32/taskschd/taskschedulerschema-duration-repetitiontype-element).
+
+In a dedicated test Runtime Scope, validate binary and npm installations separately on Windows PowerShell 5.1 and PowerShell 7. Record exported XML, task history, process identity and timestamps for these cases:
+
+- Controlled failures exhausting immediate retries, followed by a later recurring launch.
+- Clean exit and manual stop while enabled, followed by recurrence.
+- A running task across a recurrence boundary with only one task instance.
+- Another process owning the same Runtime Scope: the scheduled launch must refuse ownership.
+- Disable-then-stop across a recurrence boundary with no launch.
+- Replacement enabling, changing and removing recurrence; uninstall removing registration after verified shutdown.
+- Stop timeout, stop failure and registration/removal failure retaining a disabled task, with accurate output.
+- `-WhatIf` preserving task state, XML and filesystem permissions.
+
+Mocked installer tests and exported XML alone do not prove live runtime recovery. Complete the observed lifecycle checks before treating a Windows deployment as verified.
 
 ## Troubleshooting
 

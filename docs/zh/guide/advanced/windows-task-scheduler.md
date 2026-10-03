@@ -62,6 +62,32 @@ if (-not (Test-Path "$configDir\mcp.json")) {
 
 ## 第二步：注册计划任务
 
+### 安装脚本（推荐）
+
+在本仓库的检出目录中，通过管理员 PowerShell 会话运行安装脚本。脚本提示输入任务账户密码，并立即启动前台运行时：
+
+```powershell
+# 默认仅保留开机启动和即时失败重试
+.\scripts\install-windows-task.ps1 -BinaryPath 'C:\Program Files\1mcp\1mcp.exe'
+
+# 可选的定时恢复；60 分钟只是示例，不是默认值
+.\scripts\install-windows-task.ps1 -BinaryPath 'C:\Program Files\1mcp\1mcp.exe' -RecoveryIntervalMinutes 60
+.\scripts\install-windows-task.ps1 -UseNpm -RecoveryIntervalMinutes 60
+
+# 预览不修改目录、权限、任务状态或注册
+.\scripts\install-windows-task.ps1 -UseNpm -RecoveryIntervalMinutes 60 -WhatIf
+```
+
+`-RecoveryIntervalMinutes` 接受 1 至 44,640（31 天）之间的整数分钟。不传该参数就不增加周期触发；显式传入零、负数、小数或超范围值，会在修改已有任务之前失败。
+
+启用后保留开机触发器，另加独立的 `Once` 触发器，无限期重复。首次定时启动在注册后的一个间隔发生，安装脚本仍会立即启动任务。错过的间隔不会集中补发启动；任务运行期间，`IgnoreNew` 阻止另一个计划实例启动。
+
+所有已停止且启用的任务都可能再次启动，包括即时重试耗尽后的失败退出、正常退出和手动停止。这不检测或终止仍在运行但不健康的运行时。每次启动仍遵守运行时范围的所有权检查，不会接管其他所有者或删除所有权元数据。
+
+替换任务时，用 `-Force` 重新运行脚本，并指定所需间隔；省略间隔会移除原有周期触发。替换和卸载都会先禁用自动启动，再停止任务，并在 30 秒内验证停止完成。维护失败时，保留的任务注册仍处于禁用状态；请按下方步骤恢复。
+
+下方手动注册示例展示默认配置，**仅用于首次注册**。替换和删除请使用安装脚本，以验证停止完成。
+
 ### 主路径：独立二进制文件
 
 从 [releases 页面](https://github.com/1mcp-app/agent/releases)下载独立二进制文件，保存到稳定的绝对路径，例如 `C:\Program Files\1mcp\1mcp.exe`。
@@ -111,8 +137,7 @@ Register-ScheduledTask `
     -Settings $settings `
     -Description '1MCP 聚合 MCP 运行时' `
     -User $taskAccount `
-    -Password $plainPassword `
-    -Force
+    -Password $plainPassword
 ```
 
 ### 次路径：npm 安装
@@ -163,23 +188,37 @@ $action = New-ScheduledTaskAction `
 ```powershell
 $taskName = '1mcp-daemon'
 
-# 立即启动守护进程（无需等待下次开机触发）
+# 立即启动，无需等待下一个触发器
 Start-ScheduledTask -TaskName $taskName
 
-# 停止守护进程
+# 临时停止：启用中的周期任务可能在下一个间隔再次启动
 Stop-ScheduledTask -TaskName $taskName
 
-# 先停止，再阻止重启后自动启动
-Stop-ScheduledTask -TaskName $taskName
+# 持久维护：必须先禁用，再停止，防止计划触发
 Disable-ScheduledTask -TaskName $taskName
-
-# 重新启用自动启动
-Enable-ScheduledTask -TaskName $taskName
-
-# 先停止，再完全删除任务
 Stop-ScheduledTask -TaskName $taskName
-Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+
+# 确认已停止；仍有实例时不可继续维护
+(Get-ScheduledTask -TaskName $taskName).State
+# 预期：Disabled；还须确认该任务的运行时进程已退出
+$scheduler = New-Object -ComObject 'Schedule.Service'
+$scheduler.Connect()
+$scheduler.GetFolder('\').GetTask($taskName).GetInstances(0).Count
+# 预期：0。仅 Disabled 状态不能证明实例已停止。
+
+# 检查所有权和配置后，由操作员明确恢复
+Enable-ScheduledTask -TaskName $taskName
+Start-ScheduledTask -TaskName $taskName
+
+# 使用有界、经过停止验证的卸载流程
+.\scripts\install-windows-task.ps1 -Uninstall -TaskName $taskName
 ```
+
+### 维护失败后的恢复
+
+禁用后维护失败时，安装脚本返回失败，并报告任务注册是否保留、停止是否已确认。凭据取消和输入校验发生在禁用之前，此类失败保持已有任务不变。替换或卸载失败后，不会静默重新启用或启动保留的任务。检查错误、任务状态、任务实例及运行时所有权之前，请保持禁用。不要删除 `server.pid` 或强制接管以绕过不确定的所有权。
+
+停止超时时，先确认旧任务进程已退出，再重试替换或卸载。凭据取消、权限或注册失败时，修复报告的问题，携带所需间隔和 `-Force`（或 `-Uninstall`）重新运行安装脚本。如果旧注册仍可用，且明确决定恢复它，应先确认停止完成及目标运行时范围，再执行 `Enable-ScheduledTask` 和 `Start-ScheduledTask`。
 
 ## 注册后验证清单
 
@@ -217,6 +256,29 @@ Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:3050/health/ready' | Select
 Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:3050/health/mcp' | Select-Object StatusCode
 # 预期：200（全部加载完成）或 202（仍在加载中）
 ```
+
+### 在 Windows 上验证定时恢复
+
+导出注册配置，检查两个触发器和设置：
+
+```powershell
+Export-ScheduledTask -TaskName $taskName | Set-Content -Encoding Unicode '.\1mcp-task.xml'
+```
+
+启用周期触发时，应包含 `BootTrigger` 和 `TimeTrigger`、指定的重复间隔，不包含重复 `Duration` 或触发器 `EndBoundary`，并保留前台 `serve`、`IgnoreNew`、无限执行时间及五次两分钟失败重试。不传该参数时仅有 `BootTrigger`。微软文档说明了[间隔范围](https://learn.microsoft.com/en-us/windows/win32/taskschd/taskschedulerschema-interval-repetitiontype-element)及[省略持续时间时无限重复](https://learn.microsoft.com/en-us/windows/win32/taskschd/taskschedulerschema-duration-repetitiontype-element)。
+
+在专用测试运行时范围中，分别验证二进制和 npm 安装，并覆盖 Windows PowerShell 5.1 和 PowerShell 7。为以下场景记录导出 XML、任务历史、进程身份和时间戳：
+
+- 可控失败耗尽即时重试后，在后续周期再次启动。
+- 启用期间正常退出或手动停止后，按周期再次启动。
+- 运行中的任务跨过周期边界，仅有一个任务实例。
+- 其他进程拥有同一运行时范围时，计划启动必须拒绝接管。
+- 先禁用再停止，跨过周期边界仍无启动。
+- 替换能启用、修改和移除周期触发；卸载确认停止后移除注册。
+- 停止超时、停止失败及注册或移除失败时，保留禁用任务并准确报告。
+- `-WhatIf` 保持任务状态、XML 和文件系统权限不变。
+
+安装脚本的模拟测试和导出 XML 本身不能证明真实运行时恢复。完成生命周期观测后，才能认为 Windows 部署已经验证。
 
 ## 故障排查
 
