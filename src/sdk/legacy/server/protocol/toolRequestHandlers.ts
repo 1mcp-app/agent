@@ -24,6 +24,7 @@ import { revalidateLegacyRequestAuthInfo } from '@src/sdk/legacy/server/auth/req
 import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
 import {
   canonicalBridgeToolRegistrar,
+  measureProjectedLegacyTool,
   projectCanonicalToolResult,
   projectLegacyToolResult,
   projectLegacyTools,
@@ -90,6 +91,10 @@ export function registerToolHandlers(
           enablePagination: inboundConn.enablePagination ?? false,
           filterSelection: { lazy },
           internalOnly: lazy,
+          responseBudget: {
+            limits: RESPONSE_JSON_VALUE_LIMITS,
+            ...(inboundConn.canonicalSchemaProjection ? {} : { measure: measureProjectedLegacyTool }),
+          },
         });
         const listed = {
           tools: result.items,
