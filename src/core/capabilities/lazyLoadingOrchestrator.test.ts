@@ -589,6 +589,86 @@ describe('LazyLoadingOrchestrator', () => {
   });
 
   describe('refreshCapabilities', () => {
+    it('shares concurrent recovery refreshes and allows a later fresh recovery', async () => {
+      orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
+      const aggregator = orchestrator.getCapabilityAggregator();
+      const original = aggregator.updateCapabilities.bind(aggregator);
+      let release!: () => void;
+      const pending = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const update = vi.spyOn(aggregator, 'updateCapabilities').mockImplementationOnce(async () => {
+        await pending;
+        return original();
+      });
+      const first = orchestrator.refreshCapabilitiesForRecovery();
+      const second = orchestrator.refreshCapabilitiesForRecovery();
+      expect(second).toBe(first);
+      expect(update).toHaveBeenCalledTimes(1);
+      release();
+      await Promise.all([first, second]);
+      await orchestrator.refreshCapabilitiesForRecovery();
+      expect(update).toHaveBeenCalledTimes(2);
+    });
+
+    it('shares a failed refresh and permits another attempt after rejection', async () => {
+      orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
+      const aggregator = orchestrator.getCapabilityAggregator();
+      let reject!: (error: Error) => void;
+      const pending = new Promise<never>((_resolve, fail) => {
+        reject = fail;
+      });
+      const update = vi.spyOn(aggregator, 'updateCapabilities').mockImplementationOnce(() => pending);
+      const first = orchestrator.refreshCapabilitiesForRecovery();
+      const second = orchestrator.refreshCapabilitiesForRecovery();
+      const observed = Promise.allSettled([first, second]);
+      reject(new Error('shared validator unavailable'));
+      const results = await observed;
+      expect(results.map((result) => result.status)).toEqual(['rejected', 'rejected']);
+      expect(update).toHaveBeenCalledTimes(1);
+      await orchestrator.refreshCapabilitiesForRecovery();
+      expect(update).toHaveBeenCalledTimes(2);
+    });
+
+    it('preserves a new backend publication while a recovery refresh is pending', async () => {
+      orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
+      const aggregator = orchestrator.getCapabilityAggregator();
+      const original = aggregator.updateCapabilities.bind(aggregator);
+      let release!: () => void;
+      const pending = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const update = vi.spyOn(aggregator, 'updateCapabilities').mockImplementationOnce(async () => {
+        await pending;
+        return original();
+      });
+      const recovery = orchestrator.refreshCapabilitiesForRecovery();
+      mockOutboundConnections.set(
+        'newly-ready',
+        connectionFromClient('newly-ready', {
+          listTools: vi.fn().mockResolvedValue({ tools: [{ name: 'new-tool', inputSchema: { type: 'object' } }] }),
+          getServerCapabilities: () => ({ tools: {} }),
+        }),
+      );
+      // Publication listeners use the normal refresh path, independently of recovery coalescing.
+      await orchestrator.refreshCapabilities();
+      expect(update).toHaveBeenCalledTimes(2);
+      expect(
+        orchestrator
+          .getToolRegistry()
+          .getAllTools()
+          .some((entry) => entry.name === 'new-tool'),
+      ).toBe(true);
+      release();
+      await recovery;
+      expect(
+        orchestrator
+          .getToolRegistry()
+          .getAllTools()
+          .some((entry) => entry.name === 'new-tool'),
+      ).toBe(true);
+    });
+
     it('should refresh and rebuild registry', async () => {
       mockAgentConfig.get.mockImplementation((key: string) => {
         if (key === 'lazyLoading') {

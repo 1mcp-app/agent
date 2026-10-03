@@ -142,12 +142,30 @@ function hasCatalogAccess(lazyOrchestrator: unknown): lazyOrchestrator is {
   getSchemaCache: () => never;
   callMetaTool: (...args: never[]) => Promise<unknown>;
   refreshCapabilities?: () => Promise<void>;
+  refreshCapabilitiesForRecovery?: () => Promise<void>;
 } {
   return (
     !!lazyOrchestrator &&
     typeof (lazyOrchestrator as { getToolRegistry?: unknown }).getToolRegistry === 'function' &&
     typeof (lazyOrchestrator as { getSchemaCache?: unknown }).getSchemaCache === 'function'
   );
+}
+
+function recoveryRefreshCallback(orchestrator: {
+  refreshCapabilitiesForRecovery?: () => Promise<unknown>;
+  refreshCapabilities?: () => Promise<unknown>;
+}): (() => Promise<void>) | undefined {
+  if (orchestrator.refreshCapabilitiesForRecovery) {
+    return async () => {
+      await orchestrator.refreshCapabilitiesForRecovery!();
+    };
+  }
+  if (orchestrator.refreshCapabilities) {
+    return async () => {
+      await orchestrator.refreshCapabilities!();
+    };
+  }
+  return undefined;
 }
 
 export function createToolsHandler(serverManager: ServerManager): RequestHandler {
@@ -195,11 +213,7 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
           outboundConnections: serverManager.getClients(),
           getServerConfigs,
           templateHashProvider: getTemplateHashProvider(serverManager),
-          refreshCapabilities: lazyOrchestrator.refreshCapabilities
-            ? async () => {
-                await lazyOrchestrator.refreshCapabilities!();
-              }
-            : undefined,
+          refreshCapabilities: recoveryRefreshCallback(lazyOrchestrator),
         });
         const catalogResult = await catalog.listVisibleTools(
           {

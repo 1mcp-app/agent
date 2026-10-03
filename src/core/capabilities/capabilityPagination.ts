@@ -7,7 +7,7 @@ import { MCPError } from '@src/utils/core/errorTypes.js';
 import { clearConfiguredToolSnapshot } from './configuredToolSnapshot.js';
 
 export class CapabilityProvidersUnavailableError extends MCPError {
-  constructor() {
+  constructor(public readonly _meta?: Record<string, unknown>) {
     super('Capability providers are unavailable', -32000);
     Object.setPrototypeOf(this, CapabilityProvidersUnavailableError.prototype);
   }
@@ -574,7 +574,7 @@ export async function walkCapabilityPages<T>(options: {
       }
     }
     if (providers.length > 0 && failures.length === providers.length && items.length === 0) {
-      throw new CapabilityProvidersUnavailableError();
+      throw new CapabilityProvidersUnavailableError(partialMeta(failures, generation, providers, admissionTimeouts));
     }
     return { items, _meta: partialMeta(failures, generation, providers, admissionTimeouts) };
   }
@@ -620,7 +620,7 @@ export async function walkCapabilityPages<T>(options: {
   }
 
   if (options.cursor === undefined && providers.length > 0 && failures.length === providers.length) {
-    throw new CapabilityProvidersUnavailableError();
+    throw new CapabilityProvidersUnavailableError(partialMeta(failures, generation, providers, admissionTimeouts));
   }
   return { items: [], _meta: partialMeta(failures, generation, providers, admissionTimeouts) };
 }

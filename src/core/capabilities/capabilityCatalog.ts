@@ -128,18 +128,23 @@ interface ToolListingSnapshot {
 const TOOL_LISTING_TTL_MS = 15 * 60 * 1000;
 const MAX_TOOL_LISTING_SNAPSHOTS = 1000;
 const MAX_TOOL_LISTING_BYTES = 32 * 1024 * 1024;
-interface ToolListingState {
-  listings: Map<string, ToolListingSnapshot>;
-  withheldTools: Map<
-    string,
-    {
+const MAX_VISIBILITY_TOOL_LISTINGS = 250;
+const MAX_VISIBILITY_TOOL_LISTING_BYTES = 8 * 1024 * 1024;
+const MAX_ACTIVE_TOOL_ADMISSIONS = 1000;
+const MAX_TOOL_ADMISSION_OUTCOMES = 32768;
+type ToolAdmissionOutcome =
+  | { attempt: number; withheld: false }
+  | {
       attempt: number;
-      withheld: boolean;
+      withheld: true;
       registry: ToolRegistry;
       connection?: OutboundConnection;
       adapter?: OutboundConnection['adapter'];
-    }
-  >;
+    };
+interface ToolListingState {
+  listings: Map<string, ToolListingSnapshot>;
+  withheldTools: Map<string, ToolAdmissionOutcome>;
+  activeAttempts: Set<number>;
   nextAttempt: number;
 }
 const toolListingStates = new WeakMap<OutboundConnections, ToolListingState>();
@@ -154,7 +159,7 @@ export class CapabilityCatalog {
     this.connectionResolver = new ConnectionResolver(deps.outboundConnections, deps.templateHashProvider);
     let state = toolListingStates.get(deps.outboundConnections);
     if (!state) {
-      state = { listings: new Map(), withheldTools: new Map(), nextAttempt: 0 };
+      state = { listings: new Map(), withheldTools: new Map(), activeAttempts: new Set(), nextAttempt: 0 };
       toolListingStates.set(deps.outboundConnections, state);
     }
     this.toolListings = state.listings;
@@ -245,6 +250,7 @@ export class CapabilityCatalog {
     visibility?: CapabilityVisibility,
     queryOptions: CapabilityCatalogQueryOptions = {},
   ): Promise<VisibleToolListResult> {
+    this.pruneToolAdmissionOutcomes();
     const continuation = this.decodeToolListingCursor(options.cursor);
     const visibilityKey = this.toolListingVisibility(visibility);
     if (continuation) {
@@ -261,121 +267,163 @@ export class CapabilityCatalog {
       return this.toolListingPage(continuation.walk, snapshot, { ...options, cursor: continuation.cursor }, visibility);
     }
 
+    if (this.listingState.activeAttempts.size >= MAX_ACTIVE_TOOL_ADMISSIONS) {
+      throw new MCPError('Capability admission capacity exceeded', -32000);
+    }
     const attempt = ++this.listingState.nextAttempt;
-    const refresh = await this.resolveRefreshFacts(queryOptions.refreshIntent ?? 'never', 'list');
-    const sourceRegistry = this.deps.getToolRegistry();
-    const registry = this.visibleToolRegistry(visibility);
-    const admitted = [];
-    const timedOutSources: string[] = [];
-    const serverNames = Array.from(new Set(registry.getAllTools().map((tool) => tool.server))).sort();
-    const configSignature = this.toolListingConfigSignature(serverNames);
-    const currentConnections = new Map(
-      registry.getAllTools().flatMap((tool) => {
-        const key = tool.connectionKey ?? tool.server;
-        const connection = this.deps.outboundConnections.get(key);
-        return connection ? [[key, connection] as const] : [];
-      }),
-    );
-    const currentAdapters = new Map(Array.from(currentConnections, ([key, connection]) => [key, connection.adapter]));
-    const isListingCurrent = () =>
-      registry.isCurrent() &&
-      this.toolListingConfigSignature(serverNames) === configSignature &&
-      Array.from(currentConnections).every(
-        ([key, connection]) =>
-          this.deps.outboundConnections.get(key) === connection &&
-          connection.adapter === currentAdapters.get(key) &&
-          connection.status === ClientStatus.Connected,
+    this.listingState.activeAttempts.add(attempt);
+    try {
+      const refresh = await this.resolveRefreshFacts(queryOptions.refreshIntent ?? 'never', 'list');
+      const sourceRegistry = this.deps.getToolRegistry();
+      const registry = this.visibleToolRegistry(visibility);
+      const admitted = [];
+      const timedOutSources: string[] = [];
+      const serverNames = Array.from(new Set(registry.getAllTools().map((tool) => tool.server))).sort();
+      const configSignature = this.toolListingConfigSignature(serverNames);
+      const currentConnections = new Map(
+        registry.getAllTools().flatMap((tool) => {
+          const key = tool.connectionKey ?? tool.server;
+          const connection = this.deps.outboundConnections.get(key);
+          return connection ? [[key, connection] as const] : [];
+        }),
       );
-    for (const tool of registry.getAllTools()) {
-      const key = tool.connectionKey ?? tool.server;
-      try {
-        const definition =
-          tool.definition ??
-          this.deps.schemaCache.getIfCached(key, tool.name) ??
-          (this.deps.loadSchema ? await this.deps.loadSchema(key, tool.name, queryOptions.signal) : undefined);
-        if (!definition) continue;
-        const contracts = await admitToolSchemas(definition as unknown as Record<string, unknown>, {
-          routeKey: JSON.stringify([key, tool.name]),
-          generation: this.deps.outboundConnections.get(key)?.adapter.connectionId ?? 'internal',
-          sourceRevision: this.deps.outboundConnections.get(key)?.adapter.protocolRevision,
-          signal: queryOptions.signal,
-        });
-        this.recordToolAdmission(
-          JSON.stringify([key, tool.name]),
-          attempt,
-          false,
-          sourceRegistry,
-          currentConnections.get(key),
-          currentAdapters.get(key),
+      const currentAdapters = new Map(Array.from(currentConnections, ([key, connection]) => [key, connection.adapter]));
+      const isListingCurrent = () =>
+        registry.isCurrent() &&
+        this.toolListingConfigSignature(serverNames) === configSignature &&
+        Array.from(currentConnections).every(
+          ([key, connection]) =>
+            this.deps.outboundConnections.get(key) === connection &&
+            connection.adapter === currentAdapters.get(key) &&
+            connection.status === ClientStatus.Connected,
         );
-        admitted.push({
-          tool: projectToolSchemas(definition as unknown as Record<string, unknown>, contracts) as unknown as Tool,
-          server: tool.server,
-          connectionKey: key,
-          tags: tool.tags,
-        });
-      } catch (error) {
-        if (!(error instanceof SchemaBoundaryError)) throw error;
-        if (tool.route?.origin === 'internal') throw error;
-        if (!this.deps.outboundConnections.has(key)) throw error;
-        if (error.phase !== 'admission') throw error;
-        if (error.code === 'schema_evaluation_unavailable') throw error;
-        if (error.code === 'schema_evaluation_timeout') {
-          timedOutSources.push(key);
+      for (const tool of registry.getAllTools()) {
+        const key = tool.connectionKey ?? tool.server;
+        try {
+          const definition =
+            tool.definition ??
+            this.deps.schemaCache.getIfCached(key, tool.name) ??
+            (this.deps.loadSchema ? await this.deps.loadSchema(key, tool.name, queryOptions.signal) : undefined);
+          if (!definition) continue;
+          const contracts = await admitToolSchemas(definition as unknown as Record<string, unknown>, {
+            routeKey: JSON.stringify([key, tool.name]),
+            generation: this.deps.outboundConnections.get(key)?.adapter.connectionId ?? 'internal',
+            sourceRevision: this.deps.outboundConnections.get(key)?.adapter.protocolRevision,
+            signal: queryOptions.signal,
+          });
           this.recordToolAdmission(
             JSON.stringify([key, tool.name]),
             attempt,
-            true,
+            false,
             sourceRegistry,
             currentConnections.get(key),
             currentAdapters.get(key),
           );
-          continue;
+          admitted.push({
+            tool: projectToolSchemas(definition as unknown as Record<string, unknown>, contracts) as unknown as Tool,
+            server: tool.server,
+            connectionKey: key,
+            tags: tool.tags,
+          });
+        } catch (error) {
+          if (!(error instanceof SchemaBoundaryError)) throw error;
+          if (tool.route?.origin === 'internal') throw error;
+          if (!this.deps.outboundConnections.has(key)) throw error;
+          if (error.phase !== 'admission') throw error;
+          if (error.code === 'schema_evaluation_unavailable') throw error;
+          if (error.code === 'schema_evaluation_timeout') {
+            timedOutSources.push(key);
+            this.recordToolAdmission(
+              JSON.stringify([key, tool.name]),
+              attempt,
+              true,
+              sourceRegistry,
+              currentConnections.get(key),
+              currentAdapters.get(key),
+            );
+            continue;
+          }
+          if (error.retryable) throw error;
         }
-        if (error.retryable) throw error;
+      }
+      if (!isListingCurrent()) {
+        throw new MCPError('Capability catalog changed during listing', ErrorCode.InvalidParams);
+      }
+      const generation = getCapabilityPaginationGeneration(this.deps.outboundConnections, 'tools');
+      const meta = this.toolAdmissionMeta(registry.getListingMeta(), timedOutSources, generation);
+      const snapshot: ToolListingSnapshot = {
+        registry: ToolRegistry.fromToolsWithServer(admitted, meta).withConnections(
+          registry.getConnections(),
+          () =>
+            registry.isCurrent() &&
+            this.toolListingConfigSignature(serverNames) === configSignature &&
+            Array.from(currentConnections).every(
+              ([key, connection]) =>
+                this.deps.outboundConnections.get(key) === connection &&
+                connection.adapter === currentAdapters.get(key) &&
+                connection.status === ClientStatus.Connected,
+            ),
+        ),
+        generation,
+        visibility: visibilityKey,
+        refresh,
+        expiresAt: Date.now() + TOOL_LISTING_TTL_MS,
+        bytes: 0,
+      };
+      const walk = randomUUID();
+      for (const [id, saved] of this.toolListings) {
+        if (saved.expiresAt <= Date.now()) this.toolListings.delete(id);
+      }
+      const result = this.toolListingPage(walk, snapshot, { ...options, cursor: undefined }, visibility);
+      if (result.nextCursor) {
+        snapshot.bytes = Buffer.byteLength(JSON.stringify(snapshot.registry.getAllTools()));
+        const visibilityListings = Array.from(this.toolListings.values()).filter(
+          (saved) => saved.visibility === visibilityKey,
+        );
+        const visibilityBytes = visibilityListings.reduce((total, saved) => total + saved.bytes, 0);
+        if (visibilityListings.length >= MAX_VISIBILITY_TOOL_LISTINGS) {
+          throw new MCPError('Capability cursor capacity exceeded', -32000);
+        }
+        if (visibilityBytes + snapshot.bytes > MAX_VISIBILITY_TOOL_LISTING_BYTES) {
+          throw new MCPError('Capability cursor capacity exceeded', -32000);
+        }
+        const capturedBytes = Array.from(this.toolListings.values()).reduce((total, saved) => total + saved.bytes, 0);
+        if (capturedBytes + snapshot.bytes > MAX_TOOL_LISTING_BYTES) {
+          throw new MCPError('Capability cursor capacity exceeded', -32000);
+        }
+        if (this.toolListings.size >= MAX_TOOL_LISTING_SNAPSHOTS) {
+          throw new MCPError('Capability cursor capacity exceeded', -32000);
+        }
+        this.toolListings.set(walk, snapshot);
+      }
+      return result;
+    } finally {
+      this.listingState.activeAttempts.delete(attempt);
+      this.pruneToolAdmissionOutcomes();
+    }
+  }
+
+  private pruneToolAdmissionOutcomes(): void {
+    const currentRegistry = this.deps.getToolRegistry();
+    const oldestAttempt = Math.min(...this.listingState.activeAttempts);
+    for (const [key, outcome] of this.withheldTools) {
+      if (!outcome.withheld) {
+        if (outcome.attempt <= oldestAttempt) this.withheldTools.delete(key);
+        continue;
+      }
+      const [connectionKey] = JSON.parse(key) as [string, string];
+      const connection = this.deps.outboundConnections.get(connectionKey);
+      const obsolete =
+        outcome.registry !== currentRegistry ||
+        outcome.connection !== connection ||
+        outcome.adapter !== connection?.adapter;
+      if (!obsolete) continue;
+      if (outcome.attempt > oldestAttempt) {
+        this.withheldTools.set(key, { attempt: outcome.attempt, withheld: false });
+      } else {
+        this.withheldTools.delete(key);
       }
     }
-    if (!isListingCurrent()) {
-      throw new MCPError('Capability catalog changed during listing', ErrorCode.InvalidParams);
-    }
-    const generation = getCapabilityPaginationGeneration(this.deps.outboundConnections, 'tools');
-    const meta = this.toolAdmissionMeta(registry.getListingMeta(), timedOutSources, generation);
-    const snapshot: ToolListingSnapshot = {
-      registry: ToolRegistry.fromToolsWithServer(admitted, meta).withConnections(
-        registry.getConnections(),
-        () =>
-          registry.isCurrent() &&
-          this.toolListingConfigSignature(serverNames) === configSignature &&
-          Array.from(currentConnections).every(
-            ([key, connection]) =>
-              this.deps.outboundConnections.get(key) === connection &&
-              connection.adapter === currentAdapters.get(key) &&
-              connection.status === ClientStatus.Connected,
-          ),
-      ),
-      generation,
-      visibility: visibilityKey,
-      refresh,
-      expiresAt: Date.now() + TOOL_LISTING_TTL_MS,
-      bytes: 0,
-    };
-    const walk = randomUUID();
-    for (const [id, saved] of this.toolListings) {
-      if (saved.expiresAt <= Date.now()) this.toolListings.delete(id);
-    }
-    const result = this.toolListingPage(walk, snapshot, { ...options, cursor: undefined }, visibility);
-    if (result.nextCursor) {
-      snapshot.bytes = Buffer.byteLength(JSON.stringify(snapshot.registry.getAllTools()));
-      const capturedBytes = Array.from(this.toolListings.values()).reduce((total, saved) => total + saved.bytes, 0);
-      if (capturedBytes + snapshot.bytes > MAX_TOOL_LISTING_BYTES) {
-        throw new MCPError('Capability cursor capacity exceeded', -32000);
-      }
-      if (this.toolListings.size >= MAX_TOOL_LISTING_SNAPSHOTS) {
-        throw new MCPError('Capability cursor capacity exceeded', -32000);
-      }
-      this.toolListings.set(walk, snapshot);
-    }
-    return result;
   }
 
   private recordToolAdmission(
@@ -388,7 +436,23 @@ export class CapabilityCatalog {
   ): void {
     const previous = this.withheldTools.get(key);
     if (previous && previous.attempt > attempt) return;
-    this.withheldTools.set(key, { attempt, withheld, registry, connection, adapter });
+    const [connectionKey] = JSON.parse(key) as [string, string];
+    if (registry !== this.deps.getToolRegistry()) return;
+    const currentConnection = this.deps.outboundConnections.get(connectionKey);
+    if (connection !== currentConnection || adapter !== currentConnection?.adapter) return;
+    if (!withheld && !Array.from(this.listingState.activeAttempts).some((active) => active < attempt)) {
+      this.withheldTools.delete(key);
+      return;
+    }
+    this.pruneToolAdmissionOutcomes();
+    if (!this.withheldTools.has(key) && this.withheldTools.size >= MAX_TOOL_ADMISSION_OUTCOMES) {
+      throw new MCPError('Capability admission capacity exceeded', -32000);
+    }
+    if (!withheld) {
+      this.withheldTools.set(key, { attempt, withheld: false });
+      return;
+    }
+    this.withheldTools.set(key, { attempt, withheld: true, registry, connection, adapter });
   }
 
   private toolListingConfigSignature(serverNames: readonly string[]): string {
@@ -827,6 +891,7 @@ export class CapabilityCatalog {
   }
 
   private isToolWithheld(tool: ToolMetadata): boolean {
+    this.pruneToolAdmissionOutcomes();
     const key = tool.connectionKey ?? tool.server;
     const outcome = this.withheldTools.get(JSON.stringify([key, tool.name]));
     if (!outcome?.withheld) return false;

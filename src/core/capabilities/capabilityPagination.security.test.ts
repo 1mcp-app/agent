@@ -4,6 +4,7 @@ import {
   advanceCapabilityPaginationGeneration,
   CapabilityCursorCapacityError,
   type CapabilityKind,
+  CapabilityProvidersUnavailableError,
   filterCapabilityPartialMeta,
   getCapabilityFailureFacts,
   getCapabilityFailureSources,
@@ -17,6 +18,64 @@ const kinds: CapabilityKind[] = ['tools', 'prompts', 'resources', 'resourceTempl
 afterEach(() => vi.useRealTimers());
 
 describe('authenticated capability cursors', () => {
+  it.each([true, false])(
+    'preserves sanitized failure metadata when every provider fails with pagination=%s',
+    async (enablePagination) => {
+      const error = await walkCapabilityPages({
+        connections: new Map(),
+        kind: 'tools',
+        enablePagination,
+        filterSelection: null,
+        upstreamToolAdmissionTimeouts: ['private-a', 'private-a'],
+        providers: [
+          {
+            id: 'private-a',
+            name: 'a',
+            list: async () => {
+              throw new Error('untrusted error with credentials');
+            },
+          },
+          {
+            id: 'private-b',
+            name: 'b',
+            list: async () => {
+              throw new Error('another untrusted error');
+            },
+          },
+        ],
+      }).catch((error: unknown) => error);
+      expect(error).toBeInstanceOf(CapabilityProvidersUnavailableError);
+      if (!(error instanceof CapabilityProvidersUnavailableError)) throw error;
+      expect(error.code).toBe(-32000);
+      expect(error._meta).toMatchObject({
+        'app.1mcp/capability-pagination': {
+          partial: true,
+          complete: false,
+          generation: expect.any(String),
+          failedSourceCount: 2,
+          failureCategories: { upstream_list_failed: 2, upstream_tool_admission_timeout: 2 },
+          retryable: true,
+          recovery: 'restart-walk',
+        },
+      });
+      expect([...getCapabilityFailureSources(error._meta)]).toEqual(['private-a', 'private-b']);
+      expect([...getCapabilityFailureFacts(error._meta)]).toEqual([
+        ['private-a', { upstream_list_failed: 1, upstream_tool_admission_timeout: 2 }],
+        ['private-b', { upstream_list_failed: 1 }],
+      ]);
+      expect(filterCapabilityPartialMeta(error._meta, new Set(['private-b']))).toMatchObject({
+        'app.1mcp/capability-pagination': {
+          failedSourceCount: 1,
+          failureCategories: { upstream_list_failed: 1 },
+        },
+      });
+      const serialized = JSON.stringify(error._meta);
+      expect(serialized).not.toContain('private');
+      expect(serialized).not.toContain('untrusted');
+      expect(serialized).not.toContain('credentials');
+    },
+  );
+
   it('filters partial metadata by visible failed sources, including sources with no tools', async () => {
     const result = await walkCapabilityPages({
       connections: new Map(),

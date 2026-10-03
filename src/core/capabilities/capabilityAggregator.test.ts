@@ -267,6 +267,31 @@ describe('CapabilityAggregator', () => {
       vi.restoreAllMocks();
     });
 
+    it('retains all-listing-failure metadata and visibility provenance through background publication', async () => {
+      const { CAPABILITY_PAGINATION_META_KEY, filterCapabilityPartialMeta } = await import('./capabilityPagination.js');
+      mockConnections.set(
+        'all-lists-failed',
+        connectionFromClient('all-lists-failed', {
+          listTools: vi.fn().mockRejectedValue(new Error('private upstream error')),
+          getServerCapabilities: () => ({ tools: {} }),
+        }),
+      );
+      const partial = await aggregator.refreshCapabilities();
+      expect(partial.tools).toEqual([]);
+      expect(partial.capabilityMeta?.tools).toMatchObject({
+        [CAPABILITY_PAGINATION_META_KEY]: {
+          partial: true,
+          complete: false,
+          failedSourceCount: 1,
+          failureCategories: { upstream_list_failed: 1 },
+          retryable: true,
+          recovery: 'restart-walk',
+        },
+      });
+      expect(filterCapabilityPartialMeta(partial.capabilityMeta?.tools, new Set(['other']))).toBeUndefined();
+      expect(JSON.stringify(partial.capabilityMeta)).not.toContain('private upstream error');
+    });
+
     it('should return no changes when no servers are connected', async () => {
       const changes = await aggregator.updateCapabilities();
 

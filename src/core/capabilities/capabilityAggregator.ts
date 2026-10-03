@@ -88,7 +88,7 @@ export class CapabilityAggregator extends EventEmitter {
       const backgroundView = <T>(listing: Promise<{ items: T[]; _meta?: Record<string, unknown> }>) =>
         listing.catch((error: unknown) => {
           if (!(error instanceof CapabilityProvidersUnavailableError)) throw error;
-          return { items: [] as T[], _meta: undefined };
+          return { items: [] as T[], _meta: error._meta };
         });
       const [tools, resources, resourceTemplates, prompts] = await Promise.all([
         backgroundView(snapshot.list<Tool>('tools', { enablePagination: false })),

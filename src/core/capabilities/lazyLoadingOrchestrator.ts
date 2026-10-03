@@ -59,6 +59,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
   private metaToolProvider?: MetaToolProvider;
   private capabilityAggregator: CapabilityAggregator;
   private isInitialized: boolean = false;
+  private recoveryRefreshInFlight?: Promise<AggregatedCapabilities>;
   private asyncOrchestrator?: AsyncLoadingOrchestrator;
   private connectionResolver: ConnectionResolver;
 
@@ -100,7 +101,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
         undefined,
         templateHashProvider,
         async () => {
-          await this.refreshCapabilities();
+          await this.refreshCapabilitiesForRecovery();
         },
       );
     }
@@ -371,6 +372,14 @@ export class LazyLoadingOrchestrator extends EventEmitter {
   /**
    * Refresh capabilities from all servers
    */
+  public refreshCapabilitiesForRecovery(): Promise<AggregatedCapabilities> {
+    if (this.recoveryRefreshInFlight) return this.recoveryRefreshInFlight;
+    this.recoveryRefreshInFlight = this.refreshCapabilities().finally(() => {
+      this.recoveryRefreshInFlight = undefined;
+    });
+    return this.recoveryRefreshInFlight;
+  }
+
   public async refreshCapabilities(): Promise<AggregatedCapabilities> {
     await this.capabilityAggregator.updateCapabilities();
 

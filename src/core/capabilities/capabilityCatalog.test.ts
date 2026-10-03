@@ -121,6 +121,74 @@ describe('CapabilityCatalog', () => {
 
   afterEach(() => vi.restoreAllMocks());
 
+  it('keeps per-visibility snapshot count capacity available to another caller', async () => {
+    registry = ToolRegistry.fromToolsWithServer([
+      { server: 'filesystem', tool: { name: 'one', inputSchema: { type: 'object' } } },
+      { server: 'filesystem', tool: { name: 'two', inputSchema: { type: 'object' } } },
+    ]);
+    const catalog = createCatalog();
+    const firstVisibility = createCapabilityVisibility([['filesystem', 'filesystem']], 'first-client');
+    const secondVisibility = createCapabilityVisibility([['filesystem', 'filesystem']], 'second-client');
+    const first = await catalog.listVisibleTools({ limit: 1 }, firstVisibility);
+    for (let index = 1; index < 250; index += 1) {
+      await catalog.listVisibleTools({ limit: 1 }, firstVisibility);
+    }
+    await expect(catalog.listVisibleTools({ limit: 1 }, firstVisibility)).rejects.toThrow(
+      'Capability cursor capacity exceeded',
+    );
+    const other = await catalog.listVisibleTools({ limit: 1 }, secondVisibility);
+    expect(other.nextCursor).toBeDefined();
+    const continued = await catalog.listVisibleTools({ limit: 1, cursor: first.nextCursor }, firstVisibility);
+    expect(continued.tools).toHaveLength(1);
+    expect(continued.hasMore).toBe(false);
+  });
+
+  it('keeps per-visibility snapshot bytes available to another caller', async () => {
+    registry = ToolRegistry.fromToolsWithServer(
+      Array.from({ length: 15 }, (_, index) => ({
+        server: 'filesystem',
+        tool: { name: `large_${index}`, description: 'x'.repeat(180_000), inputSchema: { type: 'object' as const } },
+      })),
+    );
+    const catalog = createCatalog();
+    const firstVisibility = createCapabilityVisibility([['filesystem', 'filesystem']], 'first-client');
+    const secondVisibility = createCapabilityVisibility([['filesystem', 'filesystem']], 'second-client');
+    await catalog.listVisibleTools({ limit: 1 }, firstVisibility);
+    await expect(catalog.listVisibleTools({ limit: 1 }, firstVisibility)).rejects.toThrow(
+      'Capability cursor capacity exceeded',
+    );
+    expect((await catalog.listVisibleTools({ limit: 1 }, secondVisibility)).nextCursor).toBeDefined();
+  });
+
+  it('releases timeout references for removed connections and replaced registries', async () => {
+    vi.spyOn(toolSchemaBoundary, 'admitToolSchemas').mockRejectedValue(
+      new SchemaBoundaryError('schema_evaluation_timeout', true),
+    );
+    const catalog = createCatalog();
+    const outcomes = (catalog as unknown as { withheldTools: Map<string, unknown> }).withheldTools;
+    await catalog.listVisibleTools({});
+    expect(outcomes.size).toBe(2);
+    outboundConnections.delete('filesystem');
+    await catalog.describeVisibleTool({ server: 'filesystem', toolName: 'read_file' });
+    expect(outcomes.has(JSON.stringify(['filesystem', 'read_file']))).toBe(false);
+    expect(outcomes.size).toBe(1);
+    registry = ToolRegistry.empty();
+    await catalog.listVisibleTools({});
+    expect(outcomes.size).toBe(0);
+  });
+
+  it('does not retain admission outcome references after an ordinary successful listing', async () => {
+    const catalog = createCatalog();
+    await catalog.listVisibleTools({});
+    const state = (
+      catalog as unknown as {
+        listingState: { withheldTools: Map<string, unknown>; activeAttempts: Set<number> };
+      }
+    ).listingState;
+    expect(state.withheldTools.size).toBe(0);
+    expect(state.activeAttempts.size).toBe(0);
+  });
+
   it('keeps a partial tool walk stable and retries admission on a fresh first page', async () => {
     registry = ToolRegistry.fromToolsWithServer([
       ...registry
@@ -232,8 +300,11 @@ describe('CapabilityCatalog', () => {
     const old = catalog.listVisibleTools({});
     await started;
     await catalog.listVisibleTools({});
+    const outcomes = (catalog as unknown as { withheldTools: Map<string, unknown> }).withheldTools;
+    expect(outcomes.get(JSON.stringify(['filesystem', 'unstable']))).toEqual({ attempt: 2, withheld: false });
     release(new SchemaBoundaryError('schema_evaluation_timeout', true));
     await old;
+    expect(outcomes.size).toBe(0);
     const invoked = await catalog.invokeVisibleTool({ server: 'filesystem', toolName: 'unstable', args: {} });
     expect(invoked.error).toBeUndefined();
     expect(mockClient.callTool).toHaveBeenCalledOnce();
