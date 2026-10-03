@@ -12,6 +12,8 @@ import type { JSONRPCMessage, RequestId } from '@modelcontextprotocol/sdk/types.
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
+import { verifyProfileProofs } from '../foundation/foundationRun.js';
+
 const root = resolve(__dirname, '../../..');
 const cliEntrypoint = join(root, 'build/index.js');
 const fixtureEntrypoint = join(root, 'test/conformance/fixtures/typescript/src/fixture.mjs');
@@ -29,6 +31,7 @@ type Profile =
 interface CompletedProbeObservation {
   outcome: 'completed';
   fixtureId: 'typescript-v1';
+  protocolEra: 'legacy';
   transport: 'sse' | 'stdio' | 'streamable-http';
   initialized: true;
   ping: true;
@@ -281,6 +284,7 @@ async function runProbe(
   const observation = JSON.parse(stdout.join('')) as Omit<CompletedProbeObservation, 'outcome'>;
   expect(observation).toMatchObject({
     fixtureId: 'typescript-v1',
+    protocolEra: 'legacy',
     initialized: true,
     ping: true,
     negotiatedRevision: '2025-11-25',
@@ -381,6 +385,7 @@ async function runProxyProbe(endpoint: string, configPath: string, home: string)
     return {
       outcome: 'completed',
       fixtureId: 'typescript-v1',
+      protocolEra: 'legacy',
       transport: 'stdio',
       initialized: true,
       ping: true,
@@ -456,6 +461,7 @@ async function emitProfileProof(
 
   const persisted = JSON.parse(await readFile(join(outputDirectory, artifactId), 'utf8')) as Record<string, unknown>;
   const { digest, ...persistedPayload } = persisted;
+  expect(await verifyProfileProofs(root, outputDirectory, manifest)).toBe(true);
   expect(digest).toBe(evidenceDigest);
   expect(`sha256:${createHash('sha256').update(JSON.stringify(persistedPayload)).digest('hex')}`).toBe(evidenceDigest);
 }

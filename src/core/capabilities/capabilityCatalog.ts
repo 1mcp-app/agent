@@ -66,6 +66,8 @@ export interface CapabilityRefreshResult {
 export interface CapabilityCatalogQueryOptions {
   refreshIntent?: CapabilityRefreshIntent;
   signal?: AbortSignal;
+  /** Request-scoped registry, e.g. built from the snapshot the request already captured. */
+  toolRegistry?: ToolRegistry;
 }
 
 export interface CapabilityRoute extends CatalogRoute {
@@ -82,7 +84,7 @@ export interface VisibleToolListResult extends RegistryListToolsResult {
 }
 
 export interface CapabilityCatalogDependencies {
-  getToolRegistry: () => ToolRegistry;
+  getToolRegistry: () => ToolRegistry | Promise<ToolRegistry>;
   schemaCache: SchemaCache;
   outboundConnections: OutboundConnections;
   getServerConfigs: () => Record<string, MCPServerParams>;
@@ -250,7 +252,6 @@ export class CapabilityCatalog {
     visibility?: CapabilityVisibility,
     queryOptions: CapabilityCatalogQueryOptions = {},
   ): Promise<VisibleToolListResult> {
-    this.pruneToolAdmissionOutcomes();
     const continuation = this.decodeToolListingCursor(options.cursor);
     const visibilityKey = this.toolListingVisibility(visibility);
     if (continuation) {
@@ -267,6 +268,7 @@ export class CapabilityCatalog {
       return this.toolListingPage(continuation.walk, snapshot, { ...options, cursor: continuation.cursor }, visibility);
     }
 
+    await this.pruneToolAdmissionOutcomes(queryOptions.toolRegistry);
     if (this.listingState.activeAttempts.size >= MAX_ACTIVE_TOOL_ADMISSIONS) {
       throw new MCPError('Capability admission capacity exceeded', -32000);
     }
@@ -274,8 +276,8 @@ export class CapabilityCatalog {
     this.listingState.activeAttempts.add(attempt);
     try {
       const refresh = await this.resolveRefreshFacts(queryOptions.refreshIntent ?? 'never', 'list');
-      const sourceRegistry = this.deps.getToolRegistry();
-      const registry = this.visibleToolRegistry(visibility);
+      const sourceRegistry = queryOptions.toolRegistry ?? (await this.deps.getToolRegistry());
+      const registry = await this.visibleToolRegistry(visibility, sourceRegistry);
       const admitted = [];
       const timedOutSources: string[] = [];
       const serverNames = Array.from(new Set(registry.getAllTools().map((tool) => tool.server))).sort();
@@ -399,12 +401,12 @@ export class CapabilityCatalog {
       return result;
     } finally {
       this.listingState.activeAttempts.delete(attempt);
-      this.pruneToolAdmissionOutcomes();
+      await this.pruneToolAdmissionOutcomes(queryOptions.toolRegistry);
     }
   }
 
-  private pruneToolAdmissionOutcomes(): void {
-    const currentRegistry = this.deps.getToolRegistry();
+  private async pruneToolAdmissionOutcomes(requestRegistry?: ToolRegistry): Promise<void> {
+    const currentRegistry = requestRegistry ?? (await this.deps.getToolRegistry());
     const oldestAttempt = Math.min(...this.listingState.activeAttempts);
     for (const [key, outcome] of this.withheldTools) {
       if (!outcome.withheld) {
@@ -437,14 +439,12 @@ export class CapabilityCatalog {
     const previous = this.withheldTools.get(key);
     if (previous && previous.attempt > attempt) return;
     const [connectionKey] = JSON.parse(key) as [string, string];
-    if (registry !== this.deps.getToolRegistry()) return;
     const currentConnection = this.deps.outboundConnections.get(connectionKey);
     if (connection !== currentConnection || adapter !== currentConnection?.adapter) return;
     if (!withheld && !Array.from(this.listingState.activeAttempts).some((active) => active < attempt)) {
       this.withheldTools.delete(key);
       return;
     }
-    this.pruneToolAdmissionOutcomes();
     if (!this.withheldTools.has(key) && this.withheldTools.size >= MAX_TOOL_ADMISSION_OUTCOMES) {
       throw new MCPError('Capability admission capacity exceeded', -32000);
     }
@@ -511,8 +511,8 @@ export class CapabilityCatalog {
     });
   }
 
-  public requiresToolListingRecovery(visibility?: CapabilityVisibility): boolean {
-    return this.visibleToolRegistry(visibility).getListingMeta() !== undefined;
+  public async requiresToolListingRecovery(visibility?: CapabilityVisibility): Promise<boolean> {
+    return (await this.visibleToolRegistry(visibility)).getListingMeta() !== undefined;
   }
 
   private toolAdmissionMeta(
@@ -564,7 +564,7 @@ export class CapabilityCatalog {
     queryOptions: CapabilityCatalogQueryOptions = {},
   ): Promise<DescribeVisibleToolResult> {
     const refresh = await this.resolveRefreshFacts(queryOptions.refreshIntent ?? 'never', 'describe');
-    const access = this.resolveVisibleToolAccess(args, visibility);
+    const access = await this.resolveVisibleToolAccess(args, visibility, queryOptions.toolRegistry);
     if (access.error) {
       return { schema: {}, error: access.error, refresh };
     }
@@ -670,7 +670,7 @@ export class CapabilityCatalog {
     queryOptions: CapabilityCatalogQueryOptions = {},
   ): Promise<InvokeVisibleToolResult> {
     const refresh = await this.resolveRefreshFacts(queryOptions.refreshIntent ?? 'never', 'invoke');
-    const access = this.resolveVisibleToolAccess(args, visibility);
+    const access = await this.resolveVisibleToolAccess(args, visibility, queryOptions.toolRegistry);
     if (access.error) {
       return {
         result: {},
@@ -718,7 +718,7 @@ export class CapabilityCatalog {
       };
       const contracts = await admitToolSchemas(definition as unknown as Record<string, unknown>, binding);
       const validateOutput = await prepareToolValidation(contracts, args.args, binding);
-      const current = this.resolveVisibleToolAccess(args, visibility);
+      const current = await this.resolveVisibleToolAccess(args, visibility, queryOptions.toolRegistry);
       if (
         queryOptions.signal?.aborted ||
         current.error ||
@@ -797,8 +797,11 @@ export class CapabilityCatalog {
     };
   }
 
-  private visibleToolRegistry(visibility?: CapabilityVisibility): ToolRegistry {
-    let registry = this.deps.getToolRegistry();
+  private async visibleToolRegistry(
+    visibility?: CapabilityVisibility,
+    requestRegistry?: ToolRegistry,
+  ): Promise<ToolRegistry> {
+    let registry = requestRegistry ?? (await this.deps.getToolRegistry());
     if (registry.isCurrent?.() === false) return ToolRegistry.empty();
     const effectiveVisibility = visibility ?? this.deps.defaultVisibility;
     if (effectiveVisibility !== undefined) {
@@ -837,12 +840,14 @@ export class CapabilityCatalog {
     ).withConnections(registry.getConnections(), () => registry.isCurrent());
   }
 
-  private resolveVisibleToolAccess(
+  private async resolveVisibleToolAccess(
     args: { server?: string; toolName?: string },
     visibility?: CapabilityVisibility,
-  ):
+    requestRegistry?: ToolRegistry,
+  ): Promise<
     | { route: CapabilityRoute; tool: ToolMetadata; connection?: OutboundConnection; error?: never }
-    | { route?: never; tool?: never; connection?: never; error: CapabilityAccessError } {
+    | { route?: never; tool?: never; connection?: never; error: CapabilityAccessError }
+  > {
     if (!args.server || !args.toolName) {
       return {
         error: {
@@ -852,7 +857,9 @@ export class CapabilityCatalog {
       };
     }
 
-    const visibleRegistry = this.visibleToolRegistry(visibility);
+    const sourceRegistry = requestRegistry ?? (await this.deps.getToolRegistry());
+    await this.pruneToolAdmissionOutcomes(sourceRegistry);
+    const visibleRegistry = await this.visibleToolRegistry(visibility, sourceRegistry);
     if (typeof visibleRegistry.getTool !== 'function') {
       return {
         error: {
@@ -864,7 +871,7 @@ export class CapabilityCatalog {
     }
 
     const tool = visibleRegistry.getTool(args.server, args.toolName);
-    const withheld = tool && this.isToolWithheld(tool);
+    const withheld = tool && this.isToolWithheld(tool, sourceRegistry);
     if (!tool || withheld) {
       const disabledError = this.isServerVisible(args.server, visibility)
         ? getDisabledSourceToolError(this.deps.getServerConfigs(), args.server, args.toolName)
@@ -890,12 +897,11 @@ export class CapabilityCatalog {
     return { route, tool, connection: visibleRegistry.getConnections()?.get(route.connectionKey) };
   }
 
-  private isToolWithheld(tool: ToolMetadata): boolean {
-    this.pruneToolAdmissionOutcomes();
+  private isToolWithheld(tool: ToolMetadata, registry: ToolRegistry): boolean {
     const key = tool.connectionKey ?? tool.server;
     const outcome = this.withheldTools.get(JSON.stringify([key, tool.name]));
     if (!outcome?.withheld) return false;
-    if (outcome.registry !== this.deps.getToolRegistry()) return false;
+    if (outcome.registry !== registry) return false;
     const connection = this.deps.outboundConnections.get(key);
     if (outcome.connection !== connection) return false;
     if (outcome.adapter !== connection?.adapter) return false;

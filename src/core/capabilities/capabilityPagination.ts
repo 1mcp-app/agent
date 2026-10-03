@@ -442,15 +442,16 @@ function decodeCursor(value: string): CapabilityPaginationCursor {
   return cursor as CapabilityPaginationCursor;
 }
 
-function partialMeta(
-  failurePositions: number[],
+/** Construct captured partial facts without walking providers or exposing provider identities. */
+export function createCapabilityPartialMeta(
   generation: string,
-  providers: readonly CapabilityPageProvider<unknown>[],
-  admissionTimeouts: readonly string[],
+  failedProviderIds: readonly string[],
+  admissionTimeouts: readonly string[] = [],
 ): Record<string, unknown> | undefined {
-  if (failurePositions.length === 0 && admissionTimeouts.length === 0) return undefined;
+  if (failedProviderIds.length === 0 && admissionTimeouts.length === 0) return undefined;
+  const failedProviders = new Set(failedProviderIds);
   const facts = new Map<string, CapabilityFailureFact>();
-  for (const position of failurePositions) facts.set(providers[position].id, { upstream_list_failed: 1 });
+  for (const source of failedProviders) facts.set(source, { upstream_list_failed: 1 });
   for (const source of admissionTimeouts) {
     const fact = facts.get(source) ?? {};
     facts.set(source, { ...fact, upstream_tool_admission_timeout: (fact.upstream_tool_admission_timeout ?? 0) + 1 });
@@ -463,7 +464,7 @@ function partialMeta(
         generation,
         failedSourceCount: facts.size,
         failureCategories: {
-          ...(failurePositions.length > 0 ? { upstream_list_failed: failurePositions.length } : {}),
+          ...(failedProviders.size > 0 ? { upstream_list_failed: failedProviders.size } : {}),
           ...(admissionTimeouts.length > 0 ? { upstream_tool_admission_timeout: admissionTimeouts.length } : {}),
         },
         retryable: true,
@@ -471,6 +472,19 @@ function partialMeta(
       },
     },
     facts,
+  );
+}
+
+function partialMeta(
+  failurePositions: number[],
+  generation: string,
+  providers: readonly CapabilityPageProvider<unknown>[],
+  admissionTimeouts: readonly string[],
+): Record<string, unknown> | undefined {
+  return createCapabilityPartialMeta(
+    generation,
+    failurePositions.map((position) => providers[position].id),
+    admissionTimeouts,
   );
 }
 

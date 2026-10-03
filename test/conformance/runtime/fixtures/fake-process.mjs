@@ -21,6 +21,7 @@ if (mode === 'invalid-probe' || mode === 'crash-probe' || mode === 'mismatched-r
       `${JSON.stringify({
         fixtureId: 'mismatched-revision',
         transport: 'streamable-http',
+        protocolEra: 'legacy',
         initialized: true,
         ping: true,
         negotiatedRevision: '2024-11-05',

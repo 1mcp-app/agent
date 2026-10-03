@@ -5,10 +5,12 @@ import { type JsonValue, Tool } from '@src/sdk/contracts/index.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { capabilityVisibilityFromServerNames } from './capabilityVisibility.js';
+import { capabilityVisibilityFromServerNames, createCapabilityVisibility } from './capabilityVisibility.js';
 import { buildCatalogGeneration } from './catalogGeneration.js';
 import { readConfiguredToolSnapshot, readLastConfiguredToolSnapshot } from './configuredToolSnapshot.js';
 import { LazyLoadingOrchestrator } from './lazyLoadingOrchestrator.js';
+import { acquireRuntimeCapabilityCatalog } from './runtimeCapabilityCatalog.js';
+import { ToolRegistry } from './toolRegistry.js';
 
 describe('LazyLoadingOrchestrator', () => {
   let orchestrator: LazyLoadingOrchestrator;
@@ -496,6 +498,89 @@ describe('LazyLoadingOrchestrator', () => {
     });
   });
 
+  describe('self-healing tool registry', () => {
+    const listedTools = async (visibleServers: string[], toolRegistry?: ToolRegistry) => {
+      const result = (await orchestrator.callMetaTool(
+        'tool_list',
+        {},
+        capabilityVisibilityFromServerNames(visibleServers),
+        undefined,
+        toolRegistry,
+      )) as { tools: Array<{ name: string; server: string }> };
+      return result.tools.map((tool) => `${tool.server}:${tool.name}`).sort();
+    };
+
+    it('rebuilds a registry whose snapshot no longer matches a reconnected backend', async () => {
+      orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
+      await orchestrator.initialize();
+      const filesystem = mockOutboundConnections.get('filesystem')!;
+      Object.assign(filesystem, { adapter: connectionFromClient('filesystem', mockClient).adapter });
+
+      expect(await listedTools(['filesystem'])).toEqual([
+        'filesystem:read_file',
+        'filesystem:search',
+        'filesystem:write_file',
+      ]);
+    });
+
+    it('adds a server that connected after the registry was built', async () => {
+      mockOutboundConnections.delete('database');
+      orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
+      await orchestrator.initialize();
+      mockOutboundConnections.set('database', connectionFromClient('database', mockClient));
+
+      expect(await listedTools(['database'])).toEqual(['database:read_file', 'database:search', 'database:write_file']);
+    });
+
+    it('keeps serving tools after its catalog scope expires', async () => {
+      vi.useFakeTimers();
+      try {
+        mockOutboundConnections.delete('database');
+        orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
+        await orchestrator.initialize();
+        vi.advanceTimersByTime(15 * 60 * 1000);
+        // Any later acquisition reclaims expired scopes, including the registry's own.
+        await acquireRuntimeCapabilityCatalog(
+          mockOutboundConnections,
+          createCapabilityVisibility([['filesystem', 'filesystem']], 'other-session'),
+        );
+
+        expect(await listedTools(['filesystem'])).toHaveLength(3);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('retries a backend that failed to enumerate tools once the retry delay passes', async () => {
+      vi.useFakeTimers();
+      try {
+        mockOutboundConnections.delete('database');
+        mockClient.listTools.mockRejectedValueOnce(new Error('Request timed out'));
+        orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
+        await orchestrator.initialize();
+
+        expect((await orchestrator.getCurrentToolRegistry()).getAllTools()).toEqual([]);
+        vi.advanceTimersByTime(30_000);
+        expect((await orchestrator.getCurrentToolRegistry()).getAllTools()).toHaveLength(3);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('answers from a request-scoped registry instead of the shared one', async () => {
+      orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
+      await orchestrator.initialize();
+      const requestRegistry = ToolRegistry.fromToolsWithServer([
+        {
+          tool: { name: 'request_only', description: 'Request only', inputSchema: { type: 'object' } },
+          server: 'filesystem',
+        },
+      ]);
+
+      expect(await listedTools(['filesystem'], requestRegistry)).toEqual(['filesystem:request_only']);
+    });
+  });
+
   describe('callMetaTool', () => {
     beforeEach(async () => {
       mockAgentConfig.get.mockImplementation((key: string) => {
@@ -609,6 +694,14 @@ describe('LazyLoadingOrchestrator', () => {
       await Promise.all([first, second]);
       await orchestrator.refreshCapabilitiesForRecovery();
       expect(update).toHaveBeenCalledTimes(2);
+    });
+
+    it('propagates awaited registry refresh failures and permits recovery', async () => {
+      orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
+      const aggregator = orchestrator.getCapabilityAggregator();
+      vi.spyOn(aggregator, 'updateCapabilities').mockRejectedValueOnce(new Error('shared validator unavailable'));
+      await expect(orchestrator.getCurrentToolRegistry()).rejects.toThrow('shared validator unavailable');
+      await expect(orchestrator.getCurrentToolRegistry()).resolves.toBeDefined();
     });
 
     it('shares a failed refresh and permits another attempt after rejection', async () => {

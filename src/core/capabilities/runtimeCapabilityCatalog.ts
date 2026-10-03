@@ -17,7 +17,7 @@ import {
   projectToolSchemas,
   type ToolSchemaContracts,
 } from '@src/core/validation/toolSchemaBoundary.js';
-import { ErrorCode, type Tool } from '@src/sdk/contracts/index.js';
+import { ErrorCode, OneMcpProtocolError, type Tool } from '@src/sdk/contracts/index.js';
 import { MCPError } from '@src/utils/core/errorTypes.js';
 
 import {
@@ -26,6 +26,7 @@ import {
   type CapabilityPageProvider,
   type CapabilityPaginationResult,
   compareCodePoints,
+  createCapabilityPartialMeta,
   registerCapabilityPaginationNotifications,
   unregisterCapabilityPaginationConnections,
   walkCapabilityPages,
@@ -92,9 +93,13 @@ export interface PreparedToolCall {
 
 export interface RuntimeCapabilitySnapshot {
   readonly generation: CatalogGeneration;
+  /** Synchronous completeness facts from this captured observation, independent of pagination walks. */
+  readonly capabilityMeta?: Partial<Record<CapabilityKind, Record<string, unknown>>>;
   prepareToolCall(identity: string, args: unknown, signal?: AbortSignal): Promise<PreparedToolCall>;
   readonly connections: ReadonlyMap<string, OutboundConnection>;
   isCurrent(): boolean;
+  /** Whether a captured backend failed to enumerate this kind, leaving the snapshot partial. */
+  hasFailedSources(kind: CapabilityKind): boolean;
   /** Issue a session-scoped, backend-bound route for a resource absent from discovery. */
   projectUnlistedResource(connectionKey: string, upstreamIdentity: string): string;
   resolve(
@@ -334,6 +339,10 @@ async function collectRuntimeCapabilityCatalog(
             } while (cursor !== undefined);
           } catch (error) {
             signal?.throwIfAborted();
+            if (provider.pages.size === 0 && isUnimplementedResourceTemplates(kind, error)) {
+              provider.pages.set(undefined, { items: [] });
+              return;
+            }
             provider.error = error;
             // Retain every captured page, but never replay the failed or looping continuation.
             const lastPage = [...provider.pages.values()].at(-1);
@@ -546,8 +555,18 @@ async function collectRuntimeCapabilityCatalog(
     }
     return lastSignature;
   };
+  const capabilityMeta: Partial<Record<CapabilityKind, Record<string, unknown>>> = {};
+  for (const kind of Object.keys(METHODS) as CapabilityKind[]) {
+    const meta = createCapabilityPartialMeta(
+      String(generation.id),
+      sourcePages.filter((provider) => provider.kind === kind && provider.error).map((provider) => provider.key),
+      kind === 'tools' ? admissionTimeouts : [],
+    );
+    if (meta) capabilityMeta[kind] = meta;
+  }
   const snapshot: RuntimeCapabilitySnapshot = Object.freeze({
     generation,
+    ...(Object.keys(capabilityMeta).length > 0 ? { capabilityMeta: Object.freeze(capabilityMeta) } : {}),
     async prepareToolCall(identity: string, args: unknown, signal?: AbortSignal) {
       const resolved = snapshot.resolve('tools', identity);
       if (!resolved) throw new SchemaBoundaryError('schema_invalid');
@@ -583,6 +602,9 @@ async function collectRuntimeCapabilityCatalog(
     },
     connections: readonlyConnections(captured),
     isCurrent,
+    hasFailedSources(kind: CapabilityKind) {
+      return sourcePages.some((provider) => provider.kind === kind && provider.error !== undefined);
+    },
     projectUnlistedResource(connectionKey: string, upstreamIdentity: string) {
       assertCurrent();
       const connection = captured.get(connectionKey);
@@ -767,6 +789,16 @@ async function collectRuntimeCapabilityCatalog(
     publishCompleteConfiguredToolTargetSnapshots(connections);
   }
   return snapshot;
+}
+
+/**
+ * Template listing shares the `resources` capability, and some servers that declare it
+ * only implement `resources/list`. Their "method not found" means "no templates".
+ */
+function isUnimplementedResourceTemplates(kind: CapabilityKind, error: unknown): boolean {
+  return (
+    kind === 'resourceTemplates' && error instanceof OneMcpProtocolError && error.code === ErrorCode.MethodNotFound
+  );
 }
 
 function getCapabilityIdentity(kind: CapabilityKind, value: Record<string, unknown>): unknown {

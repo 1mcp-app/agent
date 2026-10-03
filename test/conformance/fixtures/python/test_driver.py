@@ -68,7 +68,7 @@ def test_stdio_probe_exercises_protocol_without_payload_output() -> None:
     }
 
 
-def test_modern_stdio_probe_reports_removed_operations() -> None:
+def test_modern_stdio_probe_accepts_applicable_operations() -> None:
     command = json.dumps(
         [sys.executable, str(DRIVER), "server", "--transport", "stdio"]
     )
@@ -83,20 +83,13 @@ def test_modern_stdio_probe_reports_removed_operations() -> None:
     )
     assert facts == {
         "callError": False,
-        "classification": "unsupported-operation",
         "fixtureId": "python-sdk",
-        "initialized": False,
         "negotiatedRevision": "2026-07-28",
-        "ok": False,
+        "ok": True,
         "operations": ["server/discover", "tools/list", "tools/call"],
-        "ping": False,
         "protocolEra": "modern",
         "toolsCount": 1,
         "transport": "stdio",
-        "unsupported": [
-            {"operation": "initialize", "reason": "modern-uses-server-discover"},
-            {"operation": "ping", "reason": "not-in-2026-07-28"},
-        ],
     }
 
 
@@ -155,7 +148,7 @@ def test_streamable_http_probe_and_owned_teardown() -> None:
         stop_server(server)
 
 
-def test_modern_streamable_http_probe_reports_removed_operations() -> None:
+def test_modern_streamable_http_probe_accepts_applicable_operations() -> None:
     server = subprocess.Popen(
         [
             sys.executable,
@@ -187,20 +180,13 @@ def test_modern_streamable_http_probe_reports_removed_operations() -> None:
         assert ready["endpoint"] not in json.dumps(facts)
         assert facts == {
             "callError": False,
-            "classification": "unsupported-operation",
             "fixtureId": "python-sdk",
-            "initialized": False,
             "negotiatedRevision": "2026-07-28",
-            "ok": False,
+            "ok": True,
             "operations": ["server/discover", "tools/list", "tools/call"],
-            "ping": False,
             "protocolEra": "modern",
             "toolsCount": 1,
             "transport": "streamable-http",
-            "unsupported": [
-                {"operation": "initialize", "reason": "modern-uses-server-discover"},
-                {"operation": "ping", "reason": "not-in-2026-07-28"},
-            ],
         }
     finally:
         stop_server(server)

@@ -2,8 +2,13 @@ import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js'
 
 import type { OutboundConnections } from '@src/core/types/index.js';
 import { schemaBoundary, SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
+import { ErrorCode, OneMcpProtocolError } from '@src/sdk/contracts/index.js';
 
-import { CapabilityCursorCapacityError } from './capabilityPagination.js';
+import {
+  CapabilityCursorCapacityError,
+  CapabilityProvidersUnavailableError,
+  getCapabilityFailureFacts,
+} from './capabilityPagination.js';
 import { createCapabilityVisibility } from './capabilityVisibility.js';
 import {
   isConfiguredToolSnapshotComplete,
@@ -27,6 +32,54 @@ function fixture(
 }
 
 describe('runtime capability catalog', () => {
+  it.each(['listing', 'admission'] as const)(
+    'exposes synchronous captured %s failure facts before any listing walk',
+    async (failure) => {
+      const connection = fixture('snapshot-meta', () => {
+        if (failure === 'listing') throw new Error('untrusted provider details');
+        return { tools: [tool('echo')] };
+      });
+      const admit = schemaBoundary.admit.bind(schemaBoundary);
+      const admission = vi.spyOn(schemaBoundary, 'admit').mockImplementation(async (schema, binding) => {
+        if (failure === 'admission') throw new SchemaBoundaryError('schema_evaluation_timeout', true, 'admission');
+        return admit(schema, binding);
+      });
+      try {
+        const snapshot = await acquireRuntimeCapabilityCatalog(new Map([['private-capture-key', connection]]));
+        const category = failure === 'listing' ? 'upstream_list_failed' : 'upstream_tool_admission_timeout';
+        expect(snapshot.capabilityMeta?.tools).toMatchObject({
+          'app.1mcp/capability-pagination': {
+            partial: true,
+            complete: false,
+            generation: String(snapshot.generation.id),
+            failedSourceCount: 1,
+            failureCategories: { [category]: 1 },
+            retryable: true,
+            recovery: 'restart-walk',
+          },
+        });
+        expect([...getCapabilityFailureFacts(snapshot.capabilityMeta?.tools)]).toEqual([
+          ['private-capture-key', { [category]: 1 }],
+        ]);
+        expect(snapshot.capabilityMeta?.resources).toBeUndefined();
+        expect(JSON.stringify(snapshot.capabilityMeta)).not.toContain('private-capture-key');
+        expect(JSON.stringify(snapshot.capabilityMeta)).not.toContain('untrusted');
+        if (failure === 'listing') {
+          await expect(snapshot.list('tools', { enablePagination: false })).rejects.toBeInstanceOf(
+            CapabilityProvidersUnavailableError,
+          );
+        }
+      } finally {
+        admission.mockRestore();
+      }
+    },
+  );
+
+  it('omits captured failure metadata for a complete healthy observation', async () => {
+    const snapshot = await acquireRuntimeCapabilityCatalog(new Map([['server', fixture()]]));
+    expect(snapshot.capabilityMeta).toBeUndefined();
+  });
+
   it('blocks old calls when a timeout completes behind a newer pending acquisition', async () => {
     const connection = fixture('overlap');
     const connections = new Map([['overlap', connection]]);
@@ -579,6 +632,34 @@ describe('runtime capability catalog', () => {
     expect(snapshot.generation.entries).toHaveLength(5);
     expect(snapshot.resolve('tools', 'tool_list')?.entry.route.origin).toBe('internal');
     expect(snapshot.resolve('resourceTemplates', 'server_1mcp_file:///{id}')).toBeDefined();
+  });
+
+  it('treats an unimplemented resource template listing as no templates', async () => {
+    const connection = fixture('server', (method) => {
+      if (method === 'resources/templates/list')
+        throw new OneMcpProtocolError(ErrorCode.MethodNotFound, 'Method not found');
+      if (method === 'resources/list') return { resources: [{ name: 'r', uri: 'file:///one' }] };
+      return { tools: [tool('echo')] };
+    });
+    connection.capabilities = { tools: {}, resources: {} };
+    const snapshot = await acquireRuntimeCapabilityCatalog(new Map([['server', connection]]));
+
+    const templates = await snapshot.list('resourceTemplates', { enablePagination: false });
+    expect(templates).toEqual({ items: [] });
+    expect(snapshot.hasFailedSources('resourceTemplates')).toBe(false);
+  });
+
+  it('still reports other resource template listing failures as partial', async () => {
+    const connection = fixture('server', (method) => {
+      if (method === 'resources/templates/list') throw new OneMcpProtocolError(ErrorCode.InternalError, 'boom');
+      if (method === 'resources/list') return { resources: [] };
+      return { tools: [tool('echo')] };
+    });
+    connection.capabilities = { tools: {}, resources: {} };
+    const snapshot = await acquireRuntimeCapabilityCatalog(new Map([['server', connection]]));
+
+    expect(snapshot.hasFailedSources('resourceTemplates')).toBe(true);
+    expect(snapshot.hasFailedSources('tools')).toBe(false);
   });
 
   it('does not publish an older concurrent refresh over a newer completed observation', async () => {
