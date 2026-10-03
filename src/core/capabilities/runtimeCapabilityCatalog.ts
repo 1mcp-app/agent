@@ -25,6 +25,7 @@ import {
   type CapabilityPage,
   type CapabilityPageProvider,
   type CapabilityPaginationResult,
+  type CapabilityResponseBudget,
   compareCodePoints,
   registerCapabilityPaginationNotifications,
   unregisterCapabilityPaginationConnections,
@@ -111,6 +112,8 @@ export interface RuntimeCapabilitySnapshot {
       internalOnly?: boolean;
       visibility?: CapabilityVisibility;
       serverConfigs?: Record<string, MCPServerParams>;
+      /** Set when the page becomes a client response; see {@link CapabilityResponseBudget}. */
+      responseBudget?: CapabilityResponseBudget<T>;
     },
   ): Promise<CapabilityPaginationResult<T>>;
 }
@@ -603,6 +606,7 @@ async function collectRuntimeCapabilityCatalog(
         internalOnly?: boolean;
         visibility?: CapabilityVisibility;
         serverConfigs?: Record<string, MCPServerParams>;
+        responseBudget?: CapabilityResponseBudget<T>;
       },
     ) {
       if (state.scopes.get(scope) !== scopedState) {
