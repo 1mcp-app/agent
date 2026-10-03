@@ -281,6 +281,8 @@ jobs:
         shell: [powershell, pwsh]
     permissions:
       contents: read
+    env:
+      INSTALLER_POWERSHELL: ${{ matrix.shell }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -289,12 +291,12 @@ jobs:
       - name: Test Windows scheduled-task installer
         shell: pwsh
         run: |
-          & '${{ matrix.shell }}' -NoProfile -NonInteractive -File ./scripts/test-install-windows-task.ps1
+          & $env:INSTALLER_POWERSHELL -NoProfile -NonInteractive -File ./scripts/test-install-windows-task.ps1
           exit $LASTEXITCODE
       - name: Validate exported Windows task configuration
         shell: pwsh
         run: |
-          & '${{ matrix.shell }}' -NoProfile -NonInteractive -File ./scripts/test-install-windows-task-xml.ps1 -OutputPath .tmp/windows-installer-task.xml
+          & $env:INSTALLER_POWERSHELL -NoProfile -NonInteractive -File ./scripts/test-install-windows-task-xml.ps1 -OutputPath .tmp/windows-installer-task.xml
           exit $LASTEXITCODE
       - name: Upload exported Windows task configuration
         uses: actions/upload-artifact@v6
