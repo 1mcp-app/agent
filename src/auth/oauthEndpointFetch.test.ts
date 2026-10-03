@@ -73,6 +73,32 @@ describe('OAuth network boundary', () => {
       validateOAuthEndpoint('https://user:secret@public.example/token', 'https://resource.example/mcp'),
     ).toThrow(/OAuth/);
   });
+  it('permits only the explicitly pinned local issuer origin and still pins its DNS socket', async () => {
+    let requests = 0;
+    const base = await endpoint((_req, res) => {
+      requests++;
+      res.end('{}');
+    });
+    const issuer = base.replace('127.0.0.1', 'localhost');
+    const resource = 'http://127.0.0.1:1/mcp';
+    const lookup = vi.mocked(dns.lookup);
+    lookup.mockResolvedValueOnce([{ address: '127.0.0.1', family: 4 }] as never);
+    lookup.mockResolvedValueOnce([{ address: '127.0.0.2', family: 4 }] as never);
+    const pin = vi.fn(async () => undefined);
+    const fetch = guarded(resource, { issuer, pinDestination: pin });
+    await fetch(issuer + '/token');
+    expect(pin).toHaveBeenCalledWith(new URL(issuer).host, '127.0.0.1', expect.any(Object));
+    await expect(fetch(issuer + '/token')).rejects.toThrow(/OAuth/);
+    expect(requests).toBe(1);
+    for (const target of [base + '/token', 'http://localhost:2/token', 'http://127.0.0.2:1/token']) {
+      expect(() => validateOAuthEndpoint(target, resource, undefined, issuer)).toThrow(/OAuth/);
+    }
+    expect(() => validateOAuthEndpoint(issuer + '/token', resource)).toThrow(/OAuth/);
+    lookup.mockResolvedValue([{ address: '127.0.0.1', family: 4 }] as never);
+    await expect(
+      guarded(resource, { issuer: 'https://public.example' })('https://public.example/token'),
+    ).rejects.toThrow(/OAuth/);
+  });
   it('does not follow metadata or token redirects', async () => {
     let secretEndpoint = 0;
     const base = await endpoint((req, res) => {

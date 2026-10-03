@@ -98,6 +98,7 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
     void this.migration.catch(() => undefined);
     this.fetch = createOAuthEndpointFetch({
       resource: this.context?.route.url ?? 'https://invalid.invalid/',
+      issuer: this.config.issuer,
       isResource: (url) => url.href === this.context?.route.url || url.href === this.sseEndpoint,
       acceptSseEndpoint:
         this.context?.route.kind === 'sse'
@@ -368,15 +369,30 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
   }
 
   async validateResourceURL(serverUrl: string | URL, resource?: string): Promise<URL> {
-    const configured = new URL(this.context?.route.url ?? serverUrl);
-    configured.hash = '';
-    configured.search = '';
-    const requested = new URL(serverUrl);
-    requested.hash = '';
-    requested.search = '';
-    if (requested.href !== configured.href) throw oauthAuthorityError();
-    if (resource !== undefined && resource !== configured.href) throw oauthAuthorityError();
-    return configured;
+    return this.selectResourceURL(serverUrl, resource);
+  }
+
+  private selectResourceURL(serverUrl: string | URL, resource?: string): URL {
+    try {
+      const configured = new URL(this.context?.route.url ?? serverUrl);
+      configured.hash = '';
+      const requested = new URL(serverUrl);
+      requested.hash = '';
+      if (requested.href !== configured.href) throw oauthAuthorityError();
+      if (resource === undefined) return configured;
+      const advertised = new URL(resource);
+      if (advertised.username || advertised.password || resource.includes('#')) throw oauthAuthorityError();
+      if (advertised.origin !== configured.origin || advertised.search !== configured.search)
+        throw oauthAuthorityError();
+      // Resource Indicators may describe a parent resource; the transport route remains exact.
+      const resourcePath = advertised.pathname.endsWith('/') ? advertised.pathname : advertised.pathname + '/';
+      const routePath = configured.pathname.endsWith('/') ? configured.pathname : configured.pathname + '/';
+      if (configured.pathname.length < advertised.pathname.length || !routePath.startsWith(resourcePath))
+        throw oauthAuthorityError();
+      return advertised;
+    } catch {
+      throw oauthAuthorityError();
+    }
   }
 
   discoveryState(): OAuthDiscoveryState | undefined {
@@ -421,7 +437,7 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
     } else if (!this.config.legacy && !this.config.issuer) {
       throw oauthAuthorityError();
     }
-    const issuerUrl = validateOAuthEndpoint(issuer, this.context.route.url);
+    const issuerUrl = validateOAuthEndpoint(issuer, this.context.route.url, undefined, this.config.issuer);
     if (issuerUrl.search || issuerUrl.hash) throw oauthAuthorityError();
     const fallback = this.config.legacy && issuerUrl.origin === new URL(this.context.route.url).origin;
     if (!metadata && !fallback) throw oauthAuthorityError();
@@ -432,6 +448,7 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
         value ?? new URL(pathname, issuerUrl).href,
         this.context!.route.url,
         value ? undefined : issuerUrl.origin,
+        this.config.issuer,
       ).href;
     };
     let registrationEndpoint: string | undefined;
@@ -494,13 +511,15 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
       const issuers = value.authorization_servers;
       if (!issuers.length || issuers.length > 16 || issuers.some((issuer) => typeof issuer !== 'string'))
         throw oauthAuthorityError();
-      for (const issuer of issuers) validateOAuthEndpoint(String(issuer), this.context.route.url);
+      for (const issuer of issuers)
+        validateOAuthEndpoint(String(issuer), this.context.route.url, undefined, this.config.issuer);
       const approved = this.config.issuer ?? this.record?.authority.issuer;
       let selected: string | undefined;
       if (approved && issuers.includes(approved)) selected = approved;
       else if (issuers.length === 1) selected = String(issuers[0]);
       if (!selected || (this.config.issuer && selected !== this.config.issuer)) throw oauthAuthorityError();
-      if (value.resource !== new URL(this.context.route.url).href.split(/[?#]/)[0]) throw oauthAuthorityError();
+      if (typeof value.resource !== 'string') throw oauthAuthorityError();
+      this.selectResourceURL(this.context.route.url, value.resource);
       return {
         ...value,
         authorization_servers: [selected],
@@ -508,11 +527,12 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
       };
     }
     if (typeof value.issuer === 'string') {
-      const issuer = validateOAuthEndpoint(value.issuer, this.context.route.url);
+      const issuer = validateOAuthEndpoint(value.issuer, this.context.route.url, undefined, this.config.issuer);
       if (issuer.origin !== url.origin || (this.config.issuer && value.issuer !== this.config.issuer))
         throw oauthAuthorityError();
       for (const key of ['authorization_endpoint', 'token_endpoint', 'registration_endpoint', 'jwks_uri']) {
-        if (value[key] !== undefined) validateOAuthEndpoint(String(value[key]), this.context.route.url);
+        if (value[key] !== undefined)
+          validateOAuthEndpoint(String(value[key]), this.context.route.url, undefined, this.config.issuer);
       }
     }
     return value;

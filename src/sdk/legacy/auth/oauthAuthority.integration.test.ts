@@ -30,6 +30,7 @@ async function fixture(legacy: boolean, overrides: Partial<OAuthClientConfig> = 
   let base = '';
   const behavior: {
     issuers?: string[];
+    resource?: string;
     metadataPatch?: Record<string, unknown>;
     metadataStatus?: number;
     corruptMetadata?: boolean;
@@ -49,7 +50,7 @@ async function fixture(legacy: boolean, overrides: Partial<OAuthClientConfig> = 
     if (req.url?.includes('oauth-protected-resource'))
       return res.end(
         JSON.stringify({
-          resource: base + '/mcp',
+          resource: behavior.resource ?? base + '/mcp',
           authorization_servers: behavior.issuers ?? [base],
           scopes_supported: ['read'],
         }),
@@ -142,6 +143,46 @@ async function fixture(legacy: boolean, overrides: Partial<OAuthClientConfig> = 
 
 for (const legacy of [true, false])
   describe(`${legacy ? 'legacy' : 'modern'} released SDK authority contract`, () => {
+    it('accepts a root Resource Indicator with an explicitly pinned separate local issuer', async () => {
+      const resource = await fixture(legacy);
+      const issuer = await fixture(legacy);
+      resource.behavior.issuers = [issuer.base];
+      resource.behavior.resource = resource.base;
+      const provider = resource.create({ issuer: issuer.base });
+      expect(await resource.authorize(provider)).toBe('REDIRECT');
+      const redirect = new URL(provider.getAuthorizationUrl()!);
+      expect(redirect.origin).toBe(issuer.base);
+      expect(redirect.searchParams.get('resource')).toBe(resource.base + '/');
+      const callback = new URLSearchParams({
+        state: redirect.searchParams.get('state')!,
+        code: 'synthetic-code',
+        iss: issuer.base,
+      });
+      expect(await resource.finish(provider, callback)).toBe('AUTHORIZED');
+      expect(await resource.authorize(provider)).toBe('AUTHORIZED');
+      const tokenRequests = issuer.requests.filter((request) => request.path === '/token');
+      expect(tokenRequests).toHaveLength(2);
+      for (const request of tokenRequests)
+        expect(new URLSearchParams(request.body).get('resource')).toBe(resource.base + '/');
+      expect(resource.requests.some((request) => request.path === '/token' || request.path === '/register')).toBe(
+        false,
+      );
+      const wrongRoute = resource.create({
+        issuer: issuer.base,
+        authority: {
+          ...resource.config.authority!,
+          route: { ...resource.config.authority!.route, url: resource.base + '/other' },
+        },
+      });
+      expect(wrongRoute.tokens()).toBeUndefined();
+    });
+    it('rejects a discovered separate local issuer unless it is explicitly configured', async () => {
+      const resource = await fixture(legacy);
+      const issuer = await fixture(legacy);
+      resource.behavior.issuers = [issuer.base];
+      await expect(resource.authorize()).rejects.toThrow(/OAuth/);
+      expect(issuer.requests).toHaveLength(0);
+    });
     it('uses discovery, DCR, independent PKCE attempts and restart-safe single-use callback', async () => {
       const f = await fixture(legacy);
       expect(await f.authorize()).toBe('REDIRECT');

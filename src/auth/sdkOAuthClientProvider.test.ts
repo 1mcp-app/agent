@@ -70,6 +70,34 @@ afterEach(() => {
 });
 
 describe('SDKOAuthClientProvider authority persistence', () => {
+  it('accepts segment ancestors and preserves Resource Indicator query without broadening the route', async () => {
+    const route = 'https://resource.example/team/mcp?transport=1';
+    const target = provider({ authority: { ...config.authority!, route: { ...config.authority!.route, url: route } } });
+    expect((await target.validateResourceURL(route)).href).toBe(route);
+    expect((await target.validateResourceURL(route, 'https://resource.example/team?transport=1')).href).toBe(
+      'https://resource.example/team?transport=1',
+    );
+    expect((await target.validateResourceURL(route, 'https://resource.example?transport=1')).href).toBe(
+      'https://resource.example/?transport=1',
+    );
+    for (const resource of [
+      'https://resource.example/team?tenant=2',
+      'https://resource.example/team',
+      'https://resource.example/tea?transport=1',
+      'https://resource.example/team%2Fmcp?transport=1',
+      'https://resource.example/other?transport=1',
+      'https://resource.example/team/mcp/child?transport=1',
+      'https://other.example/team?transport=1',
+      'https://resource.example:444/team?transport=1',
+      'https://resource.example/team?transport=1#fragment',
+      'https://user:pass@resource.example/team?transport=1',
+    ]) {
+      await expect(target.validateResourceURL(route, resource)).rejects.toThrow(/OAuth/);
+    }
+    await expect(
+      target.validateResourceURL('https://resource.example/team/other', 'https://resource.example'),
+    ).rejects.toThrow(/OAuth/);
+  });
   it('joins an identical first cold claim even when its migration completes after activation', async () => {
     const original = ClientSessionRepository.prototype.quarantine;
     let release!: () => void;
