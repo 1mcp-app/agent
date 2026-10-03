@@ -73,18 +73,23 @@ export class OAuthFlowHandler {
 
     try {
       const configuredOldTransport = oldTransport as AuthProviderTransport;
-      if (
-        oldTransport instanceof ModernStreamableHTTPClientTransport ||
-        oldTransport instanceof ModernSSEClientTransport
-      ) {
-        const callback =
-          typeof authorizationCode === 'string' ? new URLSearchParams({ code: authorizationCode }) : authorizationCode;
-        await oldTransport.finishAuth(callback);
-      } else {
-        const code = typeof authorizationCode === 'string' ? authorizationCode : authorizationCode.get('code');
-        if (!code) throw new Error('Missing authorization code');
-        await oldTransport.finishAuth(code);
-      }
+      const callback =
+        typeof authorizationCode === 'string' ? new URLSearchParams({ code: authorizationCode }) : authorizationCode;
+      const finish = async () => {
+        if (
+          oldTransport instanceof ModernStreamableHTTPClientTransport ||
+          oldTransport instanceof ModernSSEClientTransport
+        ) {
+          await oldTransport.finishAuth(callback);
+        } else {
+          const code = callback.get('code');
+          if (!code) throw new Error('Missing authorization code');
+          await oldTransport.finishAuth(code);
+        }
+      };
+      const provider = configuredOldTransport.oauthProvider;
+      if (!provider) throw new Error('OAuth authorization provider is unavailable');
+      await provider.withAuthorizationCallback(callback, finish);
       await oldTransport.close();
 
       let reconnectTransport = newTransport;
@@ -115,7 +120,7 @@ export class OAuthFlowHandler {
       logger.info(`OAuth reconnection completed successfully for ${name}`);
       return updatedInfo;
     } catch (error) {
-      logger.error(`OAuth reconnection failed for ${name}:`, error);
+      logger.error(`OAuth reconnection failed for ${name}`);
       throw error;
     }
   }

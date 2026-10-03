@@ -17,6 +17,14 @@ vi.mock('@src/auth/sdkOAuthClientProvider.js', () => ({
   SDKOAuthClientProvider: class {},
 }));
 
+vi.mock('@src/core/runtime/runtimeIdentityService.js', () => ({
+  RuntimeIdentityService: class {
+    getRuntimeScopeId(): string {
+      return 'scope_transport_factory_recreation';
+    }
+  },
+}));
+
 vi.mock('@src/core/server/agentConfig.js', () => ({
   AgentConfigManager: {
     getInstance: () => ({

@@ -71,47 +71,47 @@ The agent supports three configuration methods, applied in this order of precede
 
 All available command-line options and their corresponding environment variables:
 
-| Option (CLI)                    | Environment Variable                  | Description                                                                                     |  Default   |
-| :------------------------------ | :------------------------------------ | :---------------------------------------------------------------------------------------------- | :--------: |
-| `--transport`, `-t`             | `ONE_MCP_TRANSPORT`                   | Choose transport type ("stdio", "http", or "sse")                                               |   "http"   |
-| `--config`, `-c`                | `ONE_MCP_CONFIG`                      | Use a specific config file                                                                      |            |
-| `--config-dir`, `-d`            | `ONE_MCP_CONFIG_DIR`                  | Path to the config directory (overrides default config location)                                |            |
-| `--cli-session-cache-path`      | `ONE_MCP_CLI_SESSION_CACHE_PATH`      | Path template for the `run`/`inspect` CLI session cache file, supports `{pid}` and `{scope}`    |            |
-| `--port`, `-P`                  | `ONE_MCP_PORT`                        | Change HTTP port                                                                                |    3050    |
-| `--host`, `-H`                  | `ONE_MCP_HOST`                        | Change HTTP host                                                                                | localhost  |
-| `--external-url`, `-u`          | `ONE_MCP_EXTERNAL_URL`                | External URL for OAuth callbacks and public URLs (e.g., https://example.com)                    |            |
-| `--trust-proxy`                 | `ONE_MCP_TRUST_PROXY`                 | Trust proxy configuration for client IP detection (boolean, IP, CIDR, preset)                   | "loopback" |
-| `--filter`, `-f`                | `ONE_MCP_FILTER`                      | Filter servers exposed by the runtime (simple comma-separated tags or advanced boolean logic)   |            |
-| `--pagination`, `-p`            | `ONE_MCP_PAGINATION`                  | Enable pagination for client/server lists (boolean)                                             |   false    |
-| `--enable-auth`                 | `ONE_MCP_ENABLE_AUTH`                 | Enable authentication (OAuth 2.1)                                                               |   false    |
-| `--enable-scope-validation`     | `ONE_MCP_ENABLE_SCOPE_VALIDATION`     | Enable tag-based scope validation (boolean)                                                     |    true    |
-| `--enable-enhanced-security`    | `ONE_MCP_ENABLE_ENHANCED_SECURITY`    | Enable enhanced security middleware (boolean)                                                   |   false    |
-| `--session-ttl`                 | `ONE_MCP_SESSION_TTL`                 | Session expiry time in minutes (number)                                                         |    1440    |
-| `--session-storage-path`        | `ONE_MCP_SESSION_STORAGE_PATH`        | Custom session storage directory path (string)                                                  |            |
-| `--rate-limit-window`           | `ONE_MCP_RATE_LIMIT_WINDOW`           | OAuth rate limit window in minutes (number)                                                     |     15     |
-| `--rate-limit-max`              | `ONE_MCP_RATE_LIMIT_MAX`              | Maximum requests per OAuth rate limit window (number)                                           |    100     |
-| `--enable-async-loading`        | `ONE_MCP_ENABLE_ASYNC_LOADING`        | Enable asynchronous MCP server loading(boolean)                                                 |   false    |
-| `--async-max-concurrent-loads`  | `ONE_MCP_ASYNC_MAX_CONCURRENT_LOADS`  | Maximum concurrent backend loads                                                                |     5      |
-| `--async-max-retries`           | `ONE_MCP_ASYNC_MAX_RETRIES`           | Foreground retries after the initial attempt                                                     |     3      |
-| `--async-retry-delay`           | `ONE_MCP_ASYNC_RETRY_DELAY`           | Initial exponential-backoff delay in milliseconds                                                |    2000    |
-| `--async-background-retry`      | `ONE_MCP_ASYNC_BACKGROUND_RETRY`      | Enable periodic retries for retryable backend failures                                           |    true    |
-| `--async-background-retry-interval` | `ONE_MCP_ASYNC_BACKGROUND_RETRY_INTERVAL` | Background retry interval in milliseconds                                                   |   60000    |
-| `--async-background-retry-max-servers` | `ONE_MCP_ASYNC_BACKGROUND_RETRY_MAX_SERVERS` | Maximum failed backends selected per cycle                                              |     3      |
-| `--enable-lazy-loading`         | `ONE_MCP_ENABLE_LAZY_LOADING`         | Enable meta-tool exposure for progressive tool discovery (boolean)                              |   false    |
-| `--enable-config-reload`        | `ONE_MCP_ENABLE_CONFIG_RELOAD`        | Enable configuration file hot-reload (boolean)                                                  |    true    |
-| `--config-reload-debounce`      | `ONE_MCP_CONFIG_RELOAD_DEBOUNCE`      | Configuration reload debounce time in milliseconds (number)                                     |    500     |
-| `--enable-env-substitution`     | `ONE_MCP_ENABLE_ENV_SUBSTITUTION`     | Enable environment variable substitution in config files (boolean)                              |    true    |
-| `--enable-session-persistence`  | `ONE_MCP_ENABLE_SESSION_PERSISTENCE`  | Enable HTTP session persistence (boolean)                                                       |    true    |
-| `--session-persist-requests`    | `ONE_MCP_SESSION_PERSIST_REQUESTS`    | Session persistence request threshold (number)                                                  |    100     |
-| `--session-persist-interval`    | `ONE_MCP_SESSION_PERSIST_INTERVAL`    | Session persistence interval in minutes (number)                                                |     5      |
-| `--session-background-flush`    | `ONE_MCP_SESSION_BACKGROUND_FLUSH`    | Session background flush interval in seconds (number)                                           |     60     |
-| `--enable-client-notifications` | `ONE_MCP_ENABLE_CLIENT_NOTIFICATIONS` | Enable real-time client notifications (boolean)                                                 |    true    |
-| `--enable-internal-tools`       | `ONE_MCP_ENABLE_INTERNAL_TOOLS`       | Enable ALL MCP internal tools for AI assistants (boolean)                                       |   false    |
-| `--internal-tools`              | `ONE_MCP_INTERNAL_TOOLS`              | Enable specific internal tool categories (discovery,installation,management,safe)               |            |
-| `--health-info-level`           | `ONE_MCP_HEALTH_INFO_LEVEL`           | Health endpoint information detail level ("full", "basic", "minimal")                           | "minimal"  |
-| `--log-level`                   | `ONE_MCP_LOG_LEVEL`                   | Set the log level ("debug", "info", "warn", "error")                                            |   "info"   |
-| `--log-file`                    | `ONE_MCP_LOG_FILE`                    | Write logs to a file in addition to console (disables console logging only for stdio transport) |            |
-| `--help`, `-h`                  |                                       | Show help                                                                                       |            |
+| Option (CLI)                           | Environment Variable                         | Description                                                                                     |  Default   |
+| :------------------------------------- | :------------------------------------------- | :---------------------------------------------------------------------------------------------- | :--------: |
+| `--transport`, `-t`                    | `ONE_MCP_TRANSPORT`                          | Choose transport type ("stdio", "http", or "sse")                                               |   "http"   |
+| `--config`, `-c`                       | `ONE_MCP_CONFIG`                             | Use a specific config file                                                                      |            |
+| `--config-dir`, `-d`                   | `ONE_MCP_CONFIG_DIR`                         | Path to the config directory (overrides default config location)                                |            |
+| `--cli-session-cache-path`             | `ONE_MCP_CLI_SESSION_CACHE_PATH`             | Path template for the `run`/`inspect` CLI session cache file, supports `{pid}` and `{scope}`    |            |
+| `--port`, `-P`                         | `ONE_MCP_PORT`                               | Change HTTP port                                                                                |    3050    |
+| `--host`, `-H`                         | `ONE_MCP_HOST`                               | Change HTTP host                                                                                | localhost  |
+| `--external-url`, `-u`                 | `ONE_MCP_EXTERNAL_URL`                       | External URL for OAuth callbacks and public URLs (e.g., https://example.com)                    |            |
+| `--trust-proxy`                        | `ONE_MCP_TRUST_PROXY`                        | Trust proxy configuration for client IP detection (boolean, IP, CIDR, preset)                   | "loopback" |
+| `--filter`, `-f`                       | `ONE_MCP_FILTER`                             | Filter servers exposed by the runtime (simple comma-separated tags or advanced boolean logic)   |            |
+| `--pagination`, `-p`                   | `ONE_MCP_PAGINATION`                         | Enable pagination for client/server lists (boolean)                                             |   false    |
+| `--enable-auth`                        | `ONE_MCP_ENABLE_AUTH`                        | Enable authentication (OAuth 2.1)                                                               |   false    |
+| `--enable-scope-validation`            | `ONE_MCP_ENABLE_SCOPE_VALIDATION`            | Enable tag-based scope validation (boolean)                                                     |    true    |
+| `--enable-enhanced-security`           | `ONE_MCP_ENABLE_ENHANCED_SECURITY`           | Enable enhanced security middleware (boolean)                                                   |   false    |
+| `--session-ttl`                        | `ONE_MCP_SESSION_TTL`                        | Session expiry time in minutes (number)                                                         |    1440    |
+| `--session-storage-path`               | `ONE_MCP_SESSION_STORAGE_PATH`               | Custom session storage directory path (string)                                                  |            |
+| `--rate-limit-window`                  | `ONE_MCP_RATE_LIMIT_WINDOW`                  | OAuth rate limit window in minutes (number)                                                     |     15     |
+| `--rate-limit-max`                     | `ONE_MCP_RATE_LIMIT_MAX`                     | Maximum requests per OAuth rate limit window (number)                                           |    100     |
+| `--enable-async-loading`               | `ONE_MCP_ENABLE_ASYNC_LOADING`               | Enable asynchronous MCP server loading(boolean)                                                 |   false    |
+| `--async-max-concurrent-loads`         | `ONE_MCP_ASYNC_MAX_CONCURRENT_LOADS`         | Maximum concurrent backend loads                                                                |     5      |
+| `--async-max-retries`                  | `ONE_MCP_ASYNC_MAX_RETRIES`                  | Foreground retries after the initial attempt                                                    |     3      |
+| `--async-retry-delay`                  | `ONE_MCP_ASYNC_RETRY_DELAY`                  | Initial exponential-backoff delay in milliseconds                                               |    2000    |
+| `--async-background-retry`             | `ONE_MCP_ASYNC_BACKGROUND_RETRY`             | Enable periodic retries for retryable backend failures                                          |    true    |
+| `--async-background-retry-interval`    | `ONE_MCP_ASYNC_BACKGROUND_RETRY_INTERVAL`    | Background retry interval in milliseconds                                                       |   60000    |
+| `--async-background-retry-max-servers` | `ONE_MCP_ASYNC_BACKGROUND_RETRY_MAX_SERVERS` | Maximum failed backends selected per cycle                                                      |     3      |
+| `--enable-lazy-loading`                | `ONE_MCP_ENABLE_LAZY_LOADING`                | Enable meta-tool exposure for progressive tool discovery (boolean)                              |   false    |
+| `--enable-config-reload`               | `ONE_MCP_ENABLE_CONFIG_RELOAD`               | Enable configuration file hot-reload (boolean)                                                  |    true    |
+| `--config-reload-debounce`             | `ONE_MCP_CONFIG_RELOAD_DEBOUNCE`             | Configuration reload debounce time in milliseconds (number)                                     |    500     |
+| `--enable-env-substitution`            | `ONE_MCP_ENABLE_ENV_SUBSTITUTION`            | Enable environment variable substitution in config files (boolean)                              |    true    |
+| `--enable-session-persistence`         | `ONE_MCP_ENABLE_SESSION_PERSISTENCE`         | Enable HTTP session persistence (boolean)                                                       |    true    |
+| `--session-persist-requests`           | `ONE_MCP_SESSION_PERSIST_REQUESTS`           | Session persistence request threshold (number)                                                  |    100     |
+| `--session-persist-interval`           | `ONE_MCP_SESSION_PERSIST_INTERVAL`           | Session persistence interval in minutes (number)                                                |     5      |
+| `--session-background-flush`           | `ONE_MCP_SESSION_BACKGROUND_FLUSH`           | Session background flush interval in seconds (number)                                           |     60     |
+| `--enable-client-notifications`        | `ONE_MCP_ENABLE_CLIENT_NOTIFICATIONS`        | Enable real-time client notifications (boolean)                                                 |    true    |
+| `--enable-internal-tools`              | `ONE_MCP_ENABLE_INTERNAL_TOOLS`              | Enable ALL MCP internal tools for AI assistants (boolean)                                       |   false    |
+| `--internal-tools`                     | `ONE_MCP_INTERNAL_TOOLS`                     | Enable specific internal tool categories (discovery,installation,management,safe)               |            |
+| `--health-info-level`                  | `ONE_MCP_HEALTH_INFO_LEVEL`                  | Health endpoint information detail level ("full", "basic", "minimal")                           | "minimal"  |
+| `--log-level`                          | `ONE_MCP_LOG_LEVEL`                          | Set the log level ("debug", "info", "warn", "error")                                            |   "info"   |
+| `--log-file`                           | `ONE_MCP_LOG_FILE`                           | Write logs to a file in addition to console (disables console logging only for stdio transport) |            |
+| `--help`, `-h`                         |                                              | Show help                                                                                       |            |
 
 ---
 
@@ -292,6 +292,37 @@ npx -y @1mcp/agent --trust-proxy 10.0.0.0/8
 For detailed trust proxy configuration, see the **[Trust Proxy Reference](/reference/trust-proxy)**.
 
 For the recommended public HTTPS path with Caddy, Admin Console access, and local CLI Runtime Target setup, see **[Cloud Deployment with Caddy](/guide/advanced/cloud-deployment)**.
+
+### Upstream OAuth authority
+
+HTTP and SSE upstreams use the same OAuth authority rules in both protocol eras. Configure registration and issuer selection in the server's `oauth` object:
+
+```json
+{
+  "mcpServers": {
+    "reports": {
+      "type": "http",
+      "url": "https://reports.example/mcp",
+      "oauth": {
+        "issuer": "https://login.example",
+        "clientId": "registered-client-id",
+        "redirectUrl": "https://gateway.example/oauth/callback/reports",
+        "scopes": ["reports.read"]
+      }
+    }
+  }
+}
+```
+
+`issuer` is an exact approved issuer identifier, including its trailing slash. Without a pin, a compatible previous approval or the sole advertised issuer is selected; an ambiguous list requires configuring `issuer`. Configured `clientId`/`clientSecret` take precedence over persisted dynamic registration. If no client is configured, `clientMetadataUrl` enables advertised HTTPS Client ID Metadata Documents, followed by advertised Dynamic Client Registration. `autoRegister: false` disables DCR. Only the legacy upstream adapter permits inferred same-origin registration when authorization-server metadata is absent. Authentication failures never authorize an era downgrade.
+
+Credentials belong to the Runtime Scope, configured source, structured upstream destination, exact issuer and resource, and security-relevant configuration. Changing those inputs requires fresh authorization. Template instances remain separate unless they deliberately use the same `oauth.credentialAuthority`; sharing also requires identical destination, registration, scopes, and registered redirect URI. This setting does not grant an incoming client permission to use the upstream: existing per-operation authorization remains required.
+
+Each authorization attempt has its own state and PKCE verifier, expires after fifteen minutes, survives restart, and can be consumed once. At most 32 attempt records are retained per authority during that window. Start authorization again after an expired, rejected, or interrupted callback. Old server-name-keyed credentials are quarantined in owner-only client storage and are never automatically promoted; authorize again after upgrading. Quarantine data remains protected rollback material and is not included in configuration exports. Restoring it does not make unbound credentials eligible.
+
+OAuth metadata, registration, and token responses are limited to 1 MiB and ten seconds total. OAuth redirects are rejected. Discovered endpoints must use public HTTPS; only the exact explicitly configured local resource origin or local `oauth.issuer` origin permits HTTP/private destinations. A separate local authorization server must be explicitly pinned with `oauth.issuer`; advertising another localhost port or address does not approve it. For server network requests, DNS answers are checked and pinned into the actual connection, and changed answers make credentials ineligible until the authority is re-established. Endpoint URLs and scopes are validated before credentials are sent. A Resource Indicator may identify a same-origin parent path (for example, `/api` for `/api/mcp`), with matching query parameters and no fragment. The selected Resource Indicator is retained as the token audience; credentials remain bound to the exact configured upstream route. Upstream resource headers are not forwarded to discovery, registration, or token endpoints. MCP SSE streams retain their normal streaming lifetime. Browser authorization navigation uses the exact validated advertised HTTPS URL (with the configured local-origin exception); the browser controls its own DNS and network connection, which 1MCP does not pin.
+
+Access tokens may be opaque. 1MCP binds the token exchange and Resource Indicator to validated authority; it does not decode arbitrary token claims and claim to verify their signatures. The protected resource remains responsible for cryptographic access-token validation.
 
 ### Server Filtering
 
@@ -481,10 +512,10 @@ trust = "verified"
 
 The equivalent CLI option is `--template-context-trust verified`; CLI input takes precedence over `config.toml`.
 
-| Mode       | Behavior |
-| ---------- | -------- |
-| `verified` | First-party local context with a Runtime Scope proof renders templates. Unsigned clients use static servers only. |
-| `disabled` | Request context never renders templates. |
+| Mode       | Behavior                                                                                                               |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `verified` | First-party local context with a Runtime Scope proof renders templates. Unsigned clients use static servers only.      |
+| `disabled` | Request context never renders templates.                                                                               |
 | `legacy`   | Unsigned local or remote context renders templates, reopening control of template `command`, `args`, `cwd`, and `env`. |
 
 Using `legacy` with a non-loopback HTTP host also requires `--confirm-untrusted-template-context`. GET REST clients keep the existing base64url `context` query format. The runtime decodes it into a structured redacted audit entry and never prints the raw base64 value or proof signature in general request logs.

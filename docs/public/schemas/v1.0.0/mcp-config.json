@@ -54,6 +54,22 @@
           "description": "OAuth configuration for authentication",
           "type": "object",
           "properties": {
+            "issuer": {
+              "description": "Exact approved upstream authorization-server issuer",
+              "type": "string",
+              "format": "uri"
+            },
+            "clientMetadataUrl": {
+              "description": "HTTPS Client ID Metadata Document URL",
+              "type": "string",
+              "format": "uri"
+            },
+            "credentialAuthority": {
+              "description": "Explicit configured authority shared by compatible template instances",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
             "clientId": {
               "description": "OAuth client ID for authentication",
               "type": "string"
@@ -190,6 +206,22 @@
             "description": "OAuth configuration for authentication",
             "type": "object",
             "properties": {
+              "issuer": {
+                "description": "Exact approved upstream authorization-server issuer",
+                "type": "string",
+                "format": "uri"
+              },
+              "clientMetadataUrl": {
+                "description": "HTTPS Client ID Metadata Document URL",
+                "type": "string",
+                "format": "uri"
+              },
+              "credentialAuthority": {
+                "description": "Explicit configured authority shared by compatible template instances",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
               "clientId": {
                 "description": "OAuth client ID for authentication",
                 "type": "string"
@@ -429,6 +461,22 @@
             "description": "OAuth configuration for authentication",
             "type": "object",
             "properties": {
+              "issuer": {
+                "description": "Exact approved upstream authorization-server issuer",
+                "type": "string",
+                "format": "uri"
+              },
+              "clientMetadataUrl": {
+                "description": "HTTPS Client ID Metadata Document URL",
+                "type": "string",
+                "format": "uri"
+              },
+              "credentialAuthority": {
+                "description": "Explicit configured authority shared by compatible template instances",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
               "clientId": {
                 "description": "OAuth client ID for authentication",
                 "type": "string"

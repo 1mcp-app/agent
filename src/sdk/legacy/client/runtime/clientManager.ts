@@ -637,6 +637,16 @@ export class ClientManager extends EventEmitter {
     return Object.keys(this.transports);
   }
 
+  public async bindOAuthReturn(serverName: string, state: string, origin: string): Promise<void> {
+    const provider = getLegacyTransport(this.getClient(serverName)).oauthProvider;
+    if (!provider) throw new Error('OAuth authorization provider is unavailable');
+    await provider.bindAdminReturn(state, origin);
+  }
+
+  public getOAuthReturn(serverName: string, state: string): string | undefined {
+    return getLegacyTransport(this.getClient(serverName)).oauthProvider?.getAdminReturn(state);
+  }
+
   public async completeOAuthAndReconnect(
     serverName: string,
     authorizationCode: string | URLSearchParams,
@@ -703,6 +713,9 @@ export class ClientManager extends EventEmitter {
   public async initiateOAuth(serverName: string): Promise<void> {
     this.assertActive();
     const connection = this.getClient(serverName);
+    // An explicit new authorization abandons prior attempts/refresh work and
+    // releases old DNS approvals while retaining compatible client registration.
+    await getLegacyTransport(connection).oauthProvider?.invalidateCredentials?.('tokens');
     const superseded = { ...connection };
     const transport = this.transportRecreator.recreateHttpTransport(getLegacyTransport(connection), serverName, {
       preserveSessionId: false,

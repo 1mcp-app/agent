@@ -1,7 +1,23 @@
+import { randomUUID } from 'node:crypto';
+
+import {
+  type BoundClientSession,
+  BoundClientSessionSchema,
+  OAUTH_AUTHORITY_TTL_MS,
+  OAUTH_MAX_ATTEMPTS,
+  type OAuthAttempt,
+  type OAuthAuthority,
+  type OAuthAuthorityContext,
+  oauthAuthorityError,
+  oauthDigest,
+  sameAuthority,
+} from '@src/auth/oauthAuthority.js';
 import { ClientSessionData } from '@src/auth/sessionTypes.js';
 import { AUTH_CONFIG } from '@src/constants.js';
 import logger from '@src/logger/logger.js';
 import { sanitizeServerName } from '@src/utils/validation/sanitization.js';
+
+import { z } from 'zod';
 
 import { FileStorageService } from './fileStorageService.js';
 
@@ -38,6 +54,190 @@ import { FileStorageService } from './fileStorageService.js';
  */
 export class ClientSessionRepository {
   constructor(private storage: FileStorageService) {}
+
+  claimContext(slot: string, context: OAuthAuthorityContext, observedGeneration: string | null): Promise<string> {
+    return this.storage.withExclusiveLock(`oauth-${slot}`, () => {
+      const current = this.getClaim(slot);
+      const fingerprint = oauthDigest(context);
+      const joiningInitial =
+        observedGeneration === null && current?.joinable === true && current.fingerprint === fingerprint;
+      if (!joiningInitial && (current?.generation ?? null) !== observedGeneration) throw oauthAuthorityError();
+      if (current?.fingerprint === fingerprint) return current.generation;
+      const generation = randomUUID();
+      this.storage.writeDataDurable('oauth-context-', slot, {
+        fingerprint,
+        generation,
+        destinations: {},
+        requestVersion: 0,
+        joinable: current === null,
+        createdAt: Date.now(),
+        expires: Date.now() + OAUTH_AUTHORITY_TTL_MS,
+      });
+      return generation;
+    });
+  }
+
+  getClaim(slot: string) {
+    return this.storage.readData(
+      'oauth-context-',
+      slot,
+      z.object({
+        requestVersion: z.number().int().nonnegative().default(0),
+        joinable: z.boolean().default(false),
+        fingerprint: z.string(),
+        generation: z.string(),
+        destinations: z.record(z.string(), z.string()).default({}),
+        createdAt: z.number(),
+        expires: z.number(),
+      }),
+    );
+  }
+
+  async reserveRequest(slot: string, generation: string): Promise<number> {
+    return this.storage.withExclusiveLock(`oauth-${slot}`, () => {
+      const claim = this.getClaim(slot);
+      if (!claim || claim.generation !== generation) throw oauthAuthorityError();
+      return claim.requestVersion;
+    });
+  }
+
+  async pinDestination(slot: string, generation: string, host: string, addresses: string): Promise<void> {
+    await this.storage.withExclusiveLock(`oauth-${slot}`, () => {
+      const claim = this.getClaim(slot);
+      if (!claim || claim.generation !== generation) throw oauthAuthorityError();
+      if (claim.destinations[host] && claim.destinations[host] !== addresses) throw oauthAuthorityError();
+      if (!claim.destinations[host] && Object.keys(claim.destinations).length >= 32) throw oauthAuthorityError();
+      claim.destinations[host] = addresses;
+      this.storage.writeDataDurable('oauth-context-', slot, claim);
+    });
+  }
+
+  getBound(slot: string): BoundClientSession | null {
+    return this.storage.readData('oauth-bound-', slot, BoundClientSessionSchema);
+  }
+
+  async activate(
+    slot: string,
+    authority: OAuthAuthority,
+    discovery: string,
+    claim: string,
+    requestVersion?: number,
+  ): Promise<BoundClientSession> {
+    return this.storage.withExclusiveLock(`oauth-${slot}`, () => {
+      const authorityClaim = this.getClaim(slot);
+      if (authorityClaim?.generation !== claim) throw oauthAuthorityError();
+      if (requestVersion !== undefined && authorityClaim.requestVersion !== requestVersion) throw oauthAuthorityError();
+      authorityClaim.requestVersion++;
+      this.storage.writeDataDurable('oauth-context-', slot, authorityClaim);
+      const current = this.getBound(slot);
+      if (current && current.generation === claim && sameAuthority(current.authority, authority)) {
+        current.discovery = discovery;
+        this.storage.writeDataDurable('oauth-bound-', slot, current);
+        return current;
+      }
+      let generation = claim;
+      if (current && current.generation === claim) {
+        generation = randomUUID();
+        this.storage.writeDataDurable('oauth-context-', slot, { ...this.getClaim(slot)!, generation, joinable: false });
+      }
+      const record: BoundClientSession = {
+        authority,
+        discovery,
+        generation,
+        revision: 0,
+        attempts: {},
+        createdAt: Date.now(),
+        expires: Date.now() + OAUTH_AUTHORITY_TTL_MS,
+      };
+      this.storage.writeDataDurable('oauth-bound-', slot, record);
+      return record;
+    });
+  }
+
+  async updateBound(
+    slot: string,
+    generation: string,
+    operation: (record: BoundClientSession) => void,
+    requestVersion?: number,
+  ): Promise<BoundClientSession> {
+    return this.storage.withExclusiveLock(`oauth-${slot}`, () => {
+      const record = this.getBound(slot);
+      if (!record || record.generation !== generation || this.getClaim(slot)?.generation !== generation)
+        throw oauthAuthorityError();
+      if (requestVersion !== undefined && this.getClaim(slot)?.requestVersion !== requestVersion)
+        throw oauthAuthorityError();
+      operation(record);
+      if (requestVersion !== undefined) {
+        const claim = this.getClaim(slot)!;
+        this.storage.writeDataDurable('oauth-context-', slot, { ...claim, requestVersion: claim.requestVersion + 1 });
+      }
+      if (record.generation !== generation) {
+        const claim = this.getClaim(slot)!;
+        this.storage.writeDataDurable('oauth-context-', slot, {
+          ...claim,
+          generation: record.generation,
+          destinations: {},
+          joinable: false,
+        });
+      }
+      this.storage.writeDataDurable('oauth-bound-', slot, record);
+      return record;
+    });
+  }
+
+  async addAttempt(
+    slot: string,
+    generation: string,
+    state: string,
+    attempt: OAuthAttempt,
+    requestVersion?: number,
+  ): Promise<void> {
+    await this.updateBound(
+      slot,
+      generation,
+      (record) => {
+        for (const [key, value] of Object.entries(record.attempts)) {
+          if (value.expires <= Date.now()) delete record.attempts[key];
+        }
+        if (Object.keys(record.attempts).length >= OAUTH_MAX_ATTEMPTS)
+          throw new Error('Too many pending OAuth authorizations; wait fifteen minutes');
+        const key = oauthDigest(state);
+        if (record.attempts[key]) throw oauthAuthorityError();
+        record.attempts[key] = attempt;
+      },
+      requestVersion,
+    );
+  }
+
+  async consumeAttempt(
+    slot: string,
+    generation: string,
+    state: string,
+    validate: (attempt: OAuthAttempt) => void,
+  ): Promise<OAuthAttempt> {
+    let consumed: OAuthAttempt | undefined;
+    await this.updateBound(slot, generation, (record) => {
+      const attempt = record.attempts[oauthDigest(state)];
+      if (!attempt || attempt.consumed || attempt.expires <= Date.now()) throw oauthAuthorityError();
+      validate(attempt);
+      consumed = structuredClone(attempt);
+      attempt.consumed = true;
+      // Keep a durable tombstone; never retain PKCE after consumption.
+      attempt.verifier = 'x'.repeat(43);
+    });
+    return consumed!;
+  }
+
+  async quarantine(serverName: string): Promise<void> {
+    const key = oauthDigest(serverName);
+    await this.storage.withExclusiveLock(`oauth-migration-${key}`, () => {
+      const old = this.get(serverName);
+      if (!old) return;
+      // Write protected rollback data before deleting the old source; retry is idempotent.
+      this.storage.writeDataDurable('oauth-quarantine-', key, old);
+      this.delete(serverName);
+    });
+  }
 
   /**
    * Saves or updates a client session.

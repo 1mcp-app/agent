@@ -96,6 +96,10 @@ describe('OAuth Routes', () => {
       params: {},
       query: {},
       body: {},
+      protocol: 'https',
+      get: vi.fn((header: string) => (header === 'host' ? 'proxy.example' : undefined)),
+      baseUrl: '/oauth',
+      path: '/callback/test-server',
     };
 
     mockResponse = {
@@ -468,7 +472,7 @@ describe('OAuth Routes', () => {
   describe('Callback Handling', () => {
     it('should handle successful OAuth callback', async () => {
       mockRequest.params = { serverName: 'test-server' };
-      mockRequest.query = { code: 'auth-code-123' };
+      mockRequest.query = { state: 'state-123', code: 'auth-code-123' };
       mockOAuthProvider.oauthFlow.completeBackendOAuthCallback.mockResolvedValue({ status: 'completed' });
 
       const router = createOAuthRoutes(mockOAuthProvider);
@@ -480,14 +484,16 @@ describe('OAuth Routes', () => {
 
       expect(mockOAuthProvider.oauthFlow.completeBackendOAuthCallback).toHaveBeenCalledWith({
         serverName: 'test-server',
+        state: 'state-123',
         code: 'auth-code-123',
+        redirectUri: 'https://proxy.example/oauth/callback/test-server',
       });
       expect(mockResponse.redirect).toHaveBeenCalledWith('/admin/oauth?success=1');
     });
 
     it('forwards the callback issuer without normalizing it', async () => {
       mockRequest.params = { serverName: 'test-server' };
-      mockRequest.query = { code: 'auth-code-123', iss: 'https://issuer.example/' };
+      mockRequest.query = { state: 'state-123', code: 'auth-code-123', iss: 'https://issuer.example/' };
       mockOAuthProvider.oauthFlow.completeBackendOAuthCallback.mockResolvedValue({ status: 'completed' });
       const router = createOAuthRoutes(mockOAuthProvider);
       const route = router.stack.find((layer: any) => layer.route?.path === '/callback/:serverName');
@@ -496,8 +502,10 @@ describe('OAuth Routes', () => {
 
       expect(mockOAuthProvider.oauthFlow.completeBackendOAuthCallback).toHaveBeenCalledWith({
         serverName: 'test-server',
+        state: 'state-123',
         code: 'auth-code-123',
         iss: 'https://issuer.example/',
+        redirectUri: 'https://proxy.example/oauth/callback/test-server',
       });
     });
 
@@ -519,7 +527,7 @@ describe('OAuth Routes', () => {
 
     it('should delegate loading-ready callback handling to the OAuth flow', async () => {
       mockRequest.params = { serverName: 'test-server' };
-      mockRequest.query = { code: 'auth-code-123' };
+      mockRequest.query = { state: 'state-123', code: 'auth-code-123' };
       mockOAuthProvider.oauthFlow.completeBackendOAuthCallback.mockResolvedValue({ status: 'completed' });
 
       // Mock loading manager with state tracker
@@ -540,7 +548,9 @@ describe('OAuth Routes', () => {
 
       expect(mockOAuthProvider.oauthFlow.completeBackendOAuthCallback).toHaveBeenCalledWith({
         serverName: 'test-server',
+        state: 'state-123',
         code: 'auth-code-123',
+        redirectUri: 'https://proxy.example/oauth/callback/test-server',
       });
       expect(mockStateTracker.updateServerState).not.toHaveBeenCalled();
       expect(mockResponse.redirect).toHaveBeenCalledWith('/admin/oauth?success=1');
@@ -548,10 +558,10 @@ describe('OAuth Routes', () => {
 
     it('should handle OAuth error', async () => {
       mockRequest.params = { serverName: 'test-server' };
-      mockRequest.query = { error: 'access_denied' };
+      mockRequest.query = { state: 'state-123', error: 'access_denied' };
       mockOAuthProvider.oauthFlow.completeBackendOAuthCallback.mockResolvedValue({
-        status: 'provider_error',
-        errorDescription: 'access_denied',
+        status: 'callback_failed',
+        errorDescription: 'OAuth callback rejected; start authorization again',
       });
 
       const router = createOAuthRoutes(mockOAuthProvider);
@@ -563,9 +573,11 @@ describe('OAuth Routes', () => {
 
       expect(mockOAuthProvider.oauthFlow.completeBackendOAuthCallback).toHaveBeenCalledWith({
         serverName: 'test-server',
+        state: 'state-123',
         error: 'access_denied',
+        redirectUri: 'https://proxy.example/oauth/callback/test-server',
       });
-      expect(mockResponse.redirect).toHaveBeenCalledWith('/admin/oauth?error=access_denied');
+      expect(mockResponse.redirect).toHaveBeenCalledWith('/admin/oauth?error=callback_failed');
     });
   });
 });

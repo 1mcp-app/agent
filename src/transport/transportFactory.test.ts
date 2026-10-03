@@ -214,6 +214,7 @@ describe('TransportFactory', () => {
         'sse-server': {
           type: 'sse',
           url: 'http://localhost:3001/sse',
+          protocolVersion: 'legacy',
           oauth: {
             clientId: 'test-client-id',
           },
@@ -233,19 +234,41 @@ describe('TransportFactory', () => {
       expect(SDKOAuthClientProvider).toHaveBeenCalledTimes(2);
       expect(SDKOAuthClientProvider).toHaveBeenCalledWith(
         'sse-server',
-        {
+        expect.objectContaining({
           autoRegister: true,
           redirectUrl: 'http://localhost:3000/oauth/callback/sse-server',
           clientId: 'test-client-id',
-        },
+          legacy: true,
+          authority: expect.objectContaining({
+            owner: expect.any(String),
+            source: 'sse-server',
+            route: {
+              kind: 'sse',
+              connectionKey: 'sse-server',
+              url: 'http://localhost:3001/sse',
+            },
+            configuration: expect.any(String),
+          }),
+        }),
         undefined,
       );
       expect(SDKOAuthClientProvider).toHaveBeenCalledWith(
         'http-server',
-        {
+        expect.objectContaining({
           autoRegister: true,
           redirectUrl: 'http://localhost:3000/oauth/callback/http-server',
-        },
+          legacy: false,
+          authority: expect.objectContaining({
+            owner: expect.any(String),
+            source: 'http-server',
+            route: {
+              kind: 'http',
+              connectionKey: 'http-server',
+              url: 'http://localhost:3002/mcp',
+            },
+            configuration: expect.any(String),
+          }),
+        }),
         undefined,
       );
 
@@ -398,10 +421,19 @@ describe('TransportFactory', () => {
       expect(Object.keys(transports)).toEqual(['streamable-http']);
       expect(SDKOAuthClientProvider).toHaveBeenCalledWith(
         'streamable-http',
-        {
+        expect.objectContaining({
           autoRegister: true,
           redirectUrl: 'http://localhost:3000/oauth/callback/streamable-http',
-        },
+          legacy: false,
+          authority: expect.objectContaining({
+            source: 'streamable-http',
+            route: {
+              kind: 'http',
+              connectionKey: 'streamable-http',
+              url: 'http://localhost:3002/mcp',
+            },
+          }),
+        }),
         undefined,
       );
     });
