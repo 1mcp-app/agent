@@ -333,7 +333,11 @@ describe('CapabilityCatalog', () => {
     await started;
     outboundConnections.set('filesystem', createMockOutboundConnection({ name: 'filesystem' }));
     release();
-    await expect(listing).rejects.toThrow('Capability catalog changed during listing');
+    await expect(listing).rejects.toMatchObject({
+      message: 'Capability catalog changed during listing',
+      code: -32000,
+      data: { retryable: true },
+    });
   });
 
   it('allows invocation after an existing refresh installs a successfully admitted registry', async () => {

@@ -349,7 +349,7 @@ export class CapabilityCatalog {
         }
       }
       if (!isListingCurrent()) {
-        throw new MCPError('Capability catalog changed during listing', ErrorCode.InvalidParams);
+        throw new MCPError('Capability catalog changed during listing', -32000, { retryable: true });
       }
       const generation = getCapabilityPaginationGeneration(this.deps.outboundConnections, 'tools');
       const meta = this.toolAdmissionMeta(registry.getListingMeta(), timedOutSources, generation);
