@@ -1,5 +1,6 @@
 import { ConfigBuilder, TestProcessManager } from '@test/e2e/utils/index.js';
 
+import { OAuthAuthorizationDeniedError } from '@src/auth/oauthAuthority.js';
 import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 // Import after mocking to ensure mock is applied
 import { createOAuthRoutes } from '@src/transport/http/routes/oauthRoutes.js';
@@ -16,9 +17,15 @@ const mockLoadingManager = {
 };
 
 // Mock ClientManager before any imports
-const mockCompleteOAuthAndReconnect = vi.fn().mockResolvedValue(undefined);
+const mockCompleteOAuthAndReconnect = vi.fn(async (_serverName: string, callback: URLSearchParams) => {
+  if (callback.get('error') === 'access_denied') throw new OAuthAuthorizationDeniedError('access_denied');
+});
+const mockBindOAuthReturn = vi.fn().mockResolvedValue(undefined);
+const mockGetOAuthReturn = vi.fn().mockReturnValue(undefined);
 const mockClientManagerInstance = {
   completeOAuthAndReconnect: mockCompleteOAuthAndReconnect,
+  bindOAuthReturn: mockBindOAuthReturn,
+  getOAuthReturn: mockGetOAuthReturn,
 };
 vi.mock('../../../src/core/client/clientManager.js', () => ({
   ClientManager: {
@@ -33,7 +40,11 @@ describe('HTTP OAuth Notifications E2E', () => {
   // Test utilities
   const createMockRequest = (serverName: string, queryParams: Record<string, string>) => ({
     params: { serverName },
-    query: queryParams,
+    query: { state: 'fixture-state', ...queryParams },
+    protocol: 'http',
+    get: vi.fn((name: string) => (name === 'host' ? '127.0.0.1:3050' : undefined)),
+    baseUrl: '/oauth',
+    path: `/callback/${serverName}`,
   });
 
   const createMockResponse = () => ({
@@ -66,6 +77,8 @@ describe('HTTP OAuth Notifications E2E', () => {
 
     // Reset the ClientManager mock
     mockCompleteOAuthAndReconnect.mockClear();
+    mockBindOAuthReturn.mockClear();
+    mockGetOAuthReturn.mockClear();
   });
 
   afterEach(async () => {
@@ -87,7 +100,14 @@ describe('HTTP OAuth Notifications E2E', () => {
     await callbackRoute.route.stack[0].handle(mockRequest, mockResponse, mockNext);
 
     // Assert
-    expect(mockCompleteOAuthAndReconnect).toHaveBeenCalledWith('test-oauth-server', 'auth-code-123');
+    expect(mockCompleteOAuthAndReconnect).toHaveBeenCalledWith(
+      'test-oauth-server',
+      new URLSearchParams({
+        state: 'fixture-state',
+        code: 'auth-code-123',
+        redirect_uri: 'http://127.0.0.1:3050/oauth/callback/test-oauth-server',
+      }),
+    );
     expect(mockResponse.redirect).toHaveBeenCalledWith('/admin/oauth?success=1');
     expect(mockLoadingManager.getStateTracker).toHaveBeenCalled();
     expect(mockUpdateServerState).toHaveBeenCalledWith('test-oauth-server', LoadingState.Ready);
@@ -107,6 +127,14 @@ describe('HTTP OAuth Notifications E2E', () => {
     await callbackRoute.route.stack[0].handle(mockRequest, mockResponse, mockNext);
 
     // Assert
+    expect(mockCompleteOAuthAndReconnect).toHaveBeenCalledWith(
+      'test-oauth-server',
+      new URLSearchParams({
+        state: 'fixture-state',
+        error: 'access_denied',
+        redirect_uri: 'http://127.0.0.1:3050/oauth/callback/test-oauth-server',
+      }),
+    );
     expect(mockResponse.redirect).toHaveBeenCalledWith('/admin/oauth?error=access_denied');
     expect(mockUpdateServerState).not.toHaveBeenCalled();
   });
@@ -125,7 +153,14 @@ describe('HTTP OAuth Notifications E2E', () => {
     await callbackRoute.route.stack[0].handle(mockRequest, mockResponse, mockNext);
 
     // Assert
-    expect(mockCompleteOAuthAndReconnect).toHaveBeenCalledWith('test-oauth-server', 'auth-code-123');
+    expect(mockCompleteOAuthAndReconnect).toHaveBeenCalledWith(
+      'test-oauth-server',
+      new URLSearchParams({
+        state: 'fixture-state',
+        code: 'auth-code-123',
+        redirect_uri: 'http://127.0.0.1:3050/oauth/callback/test-oauth-server',
+      }),
+    );
     expect(mockResponse.redirect).toHaveBeenCalledWith('/admin/oauth?success=1');
     expect(mockLoadingManager.getStateTracker).not.toHaveBeenCalled();
   });

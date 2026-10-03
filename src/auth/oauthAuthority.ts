@@ -51,6 +51,9 @@ export const BoundClientSessionSchema = z.object({
 });
 export type BoundClientSession = z.infer<typeof BoundClientSessionSchema>;
 export function oauthDigest(value: unknown): string {
+  // This deterministic digest identifies durable OAuth authority/configuration state
+  // and correlates opaque protocol values; it does not store or verify passwords.
+  // codeql[js/insufficient-password-hash]
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 export function authoritySlot(context: OAuthAuthorityContext): string {
