@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 
 import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { isSourceToolDisabled } from '@src/core/server/disabledTools.js';
+import { parseTemplateConnectionKey } from '@src/core/server/templateIdentity.js';
 import { applySourceToolDescription } from '@src/core/server/toolDescriptionOverrides.js';
 import {
   ClientStatus,
@@ -126,7 +127,12 @@ interface RuntimeScope {
   paginationConnections: OutboundConnections;
   resourceRoutes: Map<
     string,
-    { entry: CatalogEntry; connection: OutboundConnection; adapter: OutboundConnection['adapter'] }
+    {
+      entry: CatalogEntry;
+      connection: OutboundConnection;
+      adapter: OutboundConnection['adapter'];
+      sessionId?: string;
+    }
   >;
 }
 
@@ -143,6 +149,9 @@ export function evictRuntimeCapabilityCatalogSession(connections: OutboundConnec
   const state = states.get(connections);
   if (!state) return;
   for (const [key, scope] of state.scopes) {
+    for (const [identity, route] of scope.resourceRoutes) {
+      if (route.sessionId === sessionId) scope.resourceRoutes.delete(identity);
+    }
     if (scope.sessionId !== sessionId) continue;
     state.scopes.delete(key);
     unregisterCapabilityPaginationConnections(scope.paginationConnections);
@@ -195,12 +204,13 @@ async function collectRuntimeCapabilityCatalog(
   const capturedAdapters = new Map(Array.from(captured, ([key, connection]) => [key, connection.adapter]));
   const { continuation, signal, ...catalogOptions } = options;
   signal?.throwIfAborted();
+  const scopeSessionId = isSessionIndependent(visibility) ? undefined : visibility?.sessionId;
   const scope = createHash('sha256')
     .update(
       JSON.stringify(
         [
           Array.from(captured.keys()).sort(),
-          visibility?.sessionId,
+          scopeSessionId,
           visibility?.filterSelection,
           catalogOptions,
           visibility ? Array.from(visibility.serverCandidates).sort(([a], [b]) => compareCodePoints(a, b)) : null,
@@ -242,7 +252,7 @@ async function collectRuntimeCapabilityCatalog(
   if (!currentScope) {
     if (state.scopes.size >= 256) throw new CapabilityCursorCapacityError();
     currentScope = {
-      sessionId: visibility?.sessionId,
+      sessionId: scopeSessionId,
       latestStarted: started,
       lastAccess: Date.now(),
       paginationConnections: new Map(captured),
@@ -560,6 +570,7 @@ async function collectRuntimeCapabilityCatalog(
       if (!connection) throw new Error('Unknown resource backend');
       for (const [identity, route] of scopedState.resourceRoutes) {
         if (
+          route.sessionId === visibility?.sessionId &&
           route.entry.route.connectionKey === connectionKey &&
           route.entry.route.upstreamIdentity === upstreamIdentity
         )
@@ -581,12 +592,18 @@ async function collectRuntimeCapabilityCatalog(
         sourceObject: Object.freeze({ name: upstreamIdentity, uri: upstreamIdentity }),
         publicObject: Object.freeze({ name: upstreamIdentity, uri: identity }),
       });
-      scopedState.resourceRoutes.set(identity, { entry, connection, adapter: connection.adapter });
+      scopedState.resourceRoutes.set(identity, {
+        entry,
+        connection,
+        adapter: connection.adapter,
+        sessionId: visibility?.sessionId,
+      });
       return identity;
     },
     resolve(kind: CapabilityKind, identity: string) {
       assertCurrent();
-      const issued = kind === 'resources' ? scopedState.resourceRoutes.get(identity) : undefined;
+      const routed = kind === 'resources' ? scopedState.resourceRoutes.get(identity) : undefined;
+      const issued = routed?.sessionId === visibility?.sessionId ? routed : undefined;
       const entry =
         generation.resolve(kind, identity, keys) ??
         (issued &&
@@ -746,6 +763,19 @@ function isUnimplementedResourceTemplates(kind: CapabilityKind, error: unknown):
   return (
     kind === 'resourceTemplates' && error instanceof OneMcpProtocolError && error.code === ErrorCode.MethodNotFound
   );
+}
+
+/**
+ * Static servers look the same to every session, so their catalog scope can be shared.
+ * Stateless inbound requests run each page in a fresh session; a shared scope lets the
+ * next request resume a cursor. Session-scoped template instances keep their own scope.
+ */
+function isSessionIndependent(visibility: CapabilityVisibility | undefined): boolean {
+  if (!visibility) return true;
+  for (const key of visibility.serverCandidates.keys()) {
+    if (parseTemplateConnectionKey(key).kind !== 'static') return false;
+  }
+  return true;
 }
 
 function getCapabilityIdentity(kind: CapabilityKind, value: Record<string, unknown>): unknown {
