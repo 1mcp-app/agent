@@ -1,11 +1,28 @@
 import { TestFixtures } from '@test/e2e/fixtures/TestFixtures.js';
-import { CliTestRunner, CommandTestEnvironment } from '@test/e2e/utils/index.js';
+import { CliTestRunner, type CommandResult, CommandTestEnvironment } from '@test/e2e/utils/index.js';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 describe('Registry Versions Command E2E', () => {
   let environment: CommandTestEnvironment;
   let runner: CliTestRunner;
+
+  const assertBoundedFailure = (result: CommandResult, serverId: string): void => {
+    runner.assertFailure(result);
+    runner.assertOutputContains(result, 'event="versions.versions.command.failed.508dbd17"');
+    runner.assertOutputContains(result, 'error_kind="other"');
+    runner.assertOutputContains(result, 'error_code="other"');
+    runner.assertOutputContains(result, `Server not found: ${serverId}`.trimEnd(), true);
+    runner.assertOutputContains(result, 'Make sure the server ID is correct and the server exists in the registry.');
+    runner.assertOutputContains(result, 'Use "registry search" to find available servers.');
+
+    const retainedEvents = result.stdout
+      .split('\n')
+      .filter((line) => line.includes(' event="'))
+      .join('\n');
+    expect(retainedEvents).not.toContain('Failed to fetch versions for server with ID:');
+    if (serverId) expect(retainedEvents).not.toContain(serverId);
+  };
 
   beforeEach(async () => {
     environment = new CommandTestEnvironment({
@@ -29,7 +46,7 @@ describe('Registry Versions Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch versions for server with ID: file-system');
+      assertBoundedFailure(result, 'file-system');
     });
 
     it('should handle 404 error in table format (default)', async () => {
@@ -40,7 +57,7 @@ describe('Registry Versions Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch versions for server with ID: file-system');
+      assertBoundedFailure(result, 'file-system');
     });
 
     it('should handle 404 error in detailed format', async () => {
@@ -51,7 +68,7 @@ describe('Registry Versions Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch versions for server with ID: file-system');
+      assertBoundedFailure(result, 'file-system');
     });
 
     it('should handle 404 error in JSON format', async () => {
@@ -62,7 +79,7 @@ describe('Registry Versions Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch versions for server with ID: file-system');
+      assertBoundedFailure(result, 'file-system');
     });
   });
 
@@ -75,7 +92,7 @@ describe('Registry Versions Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch versions for server with ID: file-system');
+      assertBoundedFailure(result, 'file-system');
     });
 
     it('should handle 404 error for semantic version numbers', async () => {
@@ -86,7 +103,7 @@ describe('Registry Versions Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch versions for server with ID: file-system');
+      assertBoundedFailure(result, 'file-system');
     });
 
     it('should handle 404 error for release dates', async () => {
@@ -97,7 +114,7 @@ describe('Registry Versions Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch versions for server with ID: file-system');
+      assertBoundedFailure(result, 'file-system');
     });
 
     it('should handle 404 error for download statistics', async () => {
@@ -108,7 +125,7 @@ describe('Registry Versions Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch versions for server with ID: file-system');
+      assertBoundedFailure(result, 'file-system');
     });
   });
 
@@ -121,7 +138,7 @@ describe('Registry Versions Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch versions for server with ID: file-system');
+      assertBoundedFailure(result, 'file-system');
     });
 
     it('should handle 404 error for detailed output', async () => {
@@ -132,7 +149,7 @@ describe('Registry Versions Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch versions for server with ID: file-system');
+      assertBoundedFailure(result, 'file-system');
     });
 
     it('should handle 404 error for JSON output', async () => {
@@ -143,7 +160,7 @@ describe('Registry Versions Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch versions for server with ID: file-system');
+      assertBoundedFailure(result, 'file-system');
     });
 
     it('should handle 404 error across multiple format requests', async () => {
@@ -161,8 +178,8 @@ describe('Registry Versions Command E2E', () => {
       runner.assertFailure(resultTable);
       runner.assertFailure(resultJson);
 
-      runner.assertOutputContains(resultTable, 'Failed to fetch versions for server with ID: file-system');
-      runner.assertOutputContains(resultJson, 'Failed to fetch versions for server with ID: file-system');
+      assertBoundedFailure(resultTable, 'file-system');
+      assertBoundedFailure(resultJson, 'file-system');
     });
   });
 
@@ -175,7 +192,7 @@ describe('Registry Versions Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch versions for server with ID: file-system');
+      assertBoundedFailure(result, 'file-system');
     });
 
     it('should handle 404 error for latest version identification', async () => {
@@ -186,7 +203,7 @@ describe('Registry Versions Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch versions for server with ID: file-system');
+      assertBoundedFailure(result, 'file-system');
     });
   });
 
@@ -199,7 +216,7 @@ describe('Registry Versions Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch versions for server with ID: non-existent-server-xyz-12345');
+      assertBoundedFailure(result, 'non-existent-server-xyz-12345');
     });
 
     it('should handle empty server ID', async () => {
@@ -210,7 +227,7 @@ describe('Registry Versions Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch versions for server with ID: ');
+      assertBoundedFailure(result, '');
     });
 
     it('should handle missing server ID', async () => {
@@ -244,7 +261,7 @@ describe('Registry Versions Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch versions for server with ID: file-system');
+      assertBoundedFailure(result, 'file-system');
     });
 
     it('should handle special characters in server ID', async () => {
@@ -255,7 +272,7 @@ describe('Registry Versions Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch versions for server with ID: test@#$%^&*()');
+      assertBoundedFailure(result, 'test@#$%^&*()');
       // Should handle gracefully without crashing
       expect(result.exitCode !== 0).toBe(true);
     });
@@ -297,7 +314,7 @@ describe('Registry Versions Command E2E', () => {
       // All should fail with consistent error messages
       results.forEach((result) => {
         expect(result.exitCode).not.toBe(0);
-        runner.assertOutputContains(result, 'Failed to fetch versions for server with ID: file-system');
+        assertBoundedFailure(result, 'file-system');
       });
       expect(environment.getMockRegistryRequests()).toEqual([
         { method: 'GET', pathname: '/v0.1/servers/file-system/versions', search: '' },
@@ -314,7 +331,7 @@ describe('Registry Versions Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch versions for server with ID: file-system');
+      assertBoundedFailure(result, 'file-system');
 
       // Output should contain error message but not be excessive
       expect(result.stdout.length).toBeGreaterThan(10);
@@ -331,7 +348,7 @@ describe('Registry Versions Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch versions for server with ID: file-system');
+      assertBoundedFailure(result, 'file-system');
     });
 
     it('should handle 404 error for release date validation', async () => {
@@ -342,7 +359,7 @@ describe('Registry Versions Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch versions for server with ID: file-system');
+      assertBoundedFailure(result, 'file-system');
     });
 
     it('should handle 404 error for download count validation', async () => {
@@ -353,7 +370,7 @@ describe('Registry Versions Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch versions for server with ID: file-system');
+      assertBoundedFailure(result, 'file-system');
     });
 
     it('should handle 404 error for latest version flag validation', async () => {
@@ -364,7 +381,7 @@ describe('Registry Versions Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch versions for server with ID: file-system');
+      assertBoundedFailure(result, 'file-system');
     });
   });
 });
