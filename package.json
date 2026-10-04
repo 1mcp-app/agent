@@ -88,7 +88,7 @@
     "test:e2e:watch": "vitest --config vitest.e2e.config.ts",
     "test:e2e:coverage": "vitest run --config vitest.e2e.config.ts --coverage",
     "test:e2e:performance": "node scripts/test-e2e-performance.js",
-    "test:conformance": "pnpm build && node scripts/run-conformance.mjs",
+    "test:conformance": "node scripts/run-conformance.mjs",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs && node scripts/validate-docs-seo.mjs",
     "docs:preview": "vitepress preview docs",

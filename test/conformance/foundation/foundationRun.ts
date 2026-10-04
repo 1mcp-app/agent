@@ -86,6 +86,7 @@ type TransportProfile = (typeof REQUIRED_TRANSPORT_PROFILES)[number];
 // Git is the source of truth for repository-owned artifacts; no duplicated checksum pins.
 const FOUNDATION_ARTIFACTS = [
   { id: 'command-runner', path: 'scripts/run-conformance.mjs' },
+  { id: 'preparation-runner', path: 'scripts/conformance-preparation.mjs' },
   { id: 'vitest-conformance', path: 'vitest.conformance.config.ts' },
   { id: 'vitest-transports', path: 'vitest.conformance-transports.config.ts' },
   { id: 'baseline', path: 'test/conformance/baseline/baseline.ts' },

@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { runConformancePreparation } from './conformance-preparation.mjs';
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 let mode = 'baseline';
@@ -74,15 +76,29 @@ async function waitForStableCleanSource() {
   return false;
 }
 
-const fixtureChecks = [
-  ['pnpm', ['check'], path.join(root, 'test', 'conformance', 'fixtures', 'typescript')],
-  ['uv', ['run', '--frozen', 'pytest', '-q'], path.join(root, 'test', 'conformance', 'fixtures', 'python')],
-];
+const preparationStatuses = await runConformancePreparation([
+  // Preserve the build's ordinary environment; protocol fixtures remain sanitized.
+  { name: 'build', command: 'pnpm', args: ['build'], cwd: root, env: process.env },
+  {
+    name: 'TypeScript fixtures',
+    command: 'pnpm',
+    args: ['check'],
+    cwd: path.join(root, 'test', 'conformance', 'fixtures', 'typescript'),
+    env: environment,
+  },
+  {
+    name: 'Python fixtures',
+    command: 'uv',
+    args: ['run', '--frozen', 'pytest', '-q'],
+    cwd: path.join(root, 'test', 'conformance', 'fixtures', 'python'),
+    env: environment,
+  },
+]);
+const preparationFailure = preparationStatuses.find((status) => status !== 0);
+if (preparationFailure !== undefined) process.exit(preparationFailure);
 
-for (const [command, commandArgs, cwd] of fixtureChecks) {
-  const status = run(command, commandArgs, cwd);
-  if (status !== 0) process.exit(status);
-}
+const preparationTestStatus = run(process.execPath, ['--test', 'test/conformance/runner/preparation.test.mjs']);
+if (preparationTestStatus !== 0) process.exit(preparationTestStatus);
 
 const vitest = path.join(root, 'node_modules', 'vitest', 'vitest.mjs');
 const transportStatus = run(process.execPath, [
