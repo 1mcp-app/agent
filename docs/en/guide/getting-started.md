@@ -26,7 +26,7 @@ If you want the shortest agent-focused path, start with [Quick Start](/guide/qui
 - **Maximum compatibility**: the [Proxy command](/commands/proxy) for stdio clients that need project context.
 - **Protected runtime**: [Authentication](/guide/advanced/authentication) for OAuth 2.1 and scope configuration.
 - **Shared or public deployment**: [Cloud Deployment with Caddy](/guide/advanced/cloud-deployment).
-- **Persistent Windows deployment**: [Windows Task Scheduler](/guide/advanced/windows-task-scheduler) for boot startup, restart-on-failure, and non-interactive supervision.
+- **Persistent Windows deployment**: [Windows Task Scheduler](/guide/advanced/windows-task-scheduler) for boot startup, Task Scheduler's native restart policy for eligible task-action failures, optional scheduled recovery, and non-interactive supervision.
 
 ## Prerequisites
 

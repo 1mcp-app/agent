@@ -271,3 +271,36 @@ jobs:
           npm pack --pack-destination .tmp/npm-artifact --ignore-scripts
           npm install --prefix .tmp/installed-runtime ./.tmp/npm-artifact/*.tgz --ignore-scripts --omit=dev --no-audit --no-fund
           node scripts/test/runtime-legacy-upgrade.mjs .tmp/legacy-runtime/node_modules/@1mcp/agent/build/index.js .tmp/installed-runtime/node_modules/@1mcp/agent/build/index.js direct
+
+  test-windows-installer:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        shell: [powershell, pwsh]
+    permissions:
+      contents: read
+    env:
+      INSTALLER_POWERSHELL: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.checkout_ref || github.ref }}
+          persist-credentials: false
+      - name: Test Windows scheduled-task installer
+        shell: pwsh
+        run: |
+          & $env:INSTALLER_POWERSHELL -NoProfile -NonInteractive -File ./scripts/test-install-windows-task.ps1
+          exit $LASTEXITCODE
+      - name: Validate exported Windows task configuration
+        shell: pwsh
+        run: |
+          & $env:INSTALLER_POWERSHELL -NoProfile -NonInteractive -File ./scripts/test-install-windows-task-xml.ps1 -OutputPath .tmp/windows-installer-task.xml
+          exit $LASTEXITCODE
+      - name: Upload exported Windows task configuration
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-installer-${{ matrix.shell }}-${{ github.sha }}
+          path: .tmp/windows-installer-task.xml
+          if-no-files-found: error
