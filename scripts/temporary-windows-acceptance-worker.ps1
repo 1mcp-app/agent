@@ -422,6 +422,153 @@ function Invoke-NativeLaunchProbe {
     Complete-Step $name 'Bounded native launch-failure observation captured and scope restored; full retry exhaustion remains unverified'
 }
 
+function Invoke-NativeRetryGate {
+    $name = 'native-retries-and-recurrence'
+    $script:step = $name
+    $held = Join-Path $Root 'scope-held'
+    $moved = $false
+    $report = @{ nativeLaunchFailureOnly = $true; fullRetryGatePassed = $false }
+    function Get-NativeRuntimeProcesses {
+        @(Get-CimInstance Win32_Process | Where-Object {
+            $_.Name -in @('node.exe', '1mcp.exe', 'cmd.exe') -and $_.CommandLine -and
+            $_.CommandLine.Contains($Root) -and $_.CommandLine.Contains('serve --transport http')
+        })
+    }
+    function Get-NativeEvents {
+        @(Get-TaskEvents | Where-Object {
+            $_.recordId -gt $cursor -and [DateTime]::Parse($_.time).ToUniversalTime() -ge $launchedAt
+        } | Sort-Object recordId)
+    }
+    function Assert-NativeFailureWindow {
+        $events = @(Get-NativeEvents)
+        Assert-True ([DateTime]::UtcNow -lt $boundary) 'Recurrence boundary entered before exhaustion proof'
+        Assert-True (@($events | Where-Object { $_.id -in @(107, 200) }).Count -eq 0) 'Independent recurrence or action start contaminated native retries'
+        Assert-True (-not (Test-Path $scope) -and @(Get-NativeRuntimeProcesses).Count -eq 0) 'Absent working-directory fixture did not prevent runtime launch'
+        $attempts = @($events | Where-Object id -eq 203)
+        Assert-True ($attempts.Count -le 6) 'More than five native retries occurred'
+        foreach ($attempt in $attempts) {
+            Assert-True ($attempt.data.ActionName -eq $expectedAction -and [long]$attempt.data.ResultCode -eq 2147942667) 'Unexpected native failure action or error code'
+            Assert-True (-not [string]::IsNullOrEmpty($attempt.data.TaskInstanceId)) 'Native failure lacks task instance identity'
+        }
+        Assert-True (@($attempts | ForEach-Object { $_.data.TaskInstanceId } | Select-Object -Unique).Count -eq $attempts.Count) 'Duplicate failed-launch instance counted'
+        return $attempts
+    }
+    function Restore-NativeScope {
+        if (-not $moved) { return }
+        if (Test-Path $scope) {
+            $unexpected = Join-Path $Root ('scope-unexpected-' + [Guid]::NewGuid().ToString('N'))
+            Move-Item -LiteralPath $scope -Destination $unexpected
+            $report.unexpectedScopePreservedAt = $unexpected
+        }
+        Move-Item -LiteralPath $held -Destination $scope
+        Assert-True ((Test-Path $scope) -and -not (Test-Path $held)) 'Native gate scope restoration failed'
+        $report.scopeRestored = $true
+    }
+    try {
+        Assert-True (-not (Test-Path $held)) 'Held private scope already exists'
+        Install-Task -Interval 15 -Force | Out-Null
+        Assert-TaskXml -Interval 15
+        Wait-Until { Test-Healthy } -Description 'healthy original action before native retry gate'
+        $priorIdentity = Read-Runtime
+        $originalXml = Export-ScheduledTask -TaskName $taskName
+        [xml]$definition = $originalXml
+        $boundary = [DateTime]::Parse($definition.Task.Triggers.TimeTrigger.StartBoundary).ToUniversalTime()
+        $expectedAction = [string]$definition.Task.Actions.Exec.Command
+        $report.originalBoundary = $boundary.ToString('o')
+        $report.priorRuntime = $priorIdentity
+        Save-Snapshot ($name + '-original')
+        Disable-And-Stop
+        Wait-Until { @(Get-NativeRuntimeProcesses).Count -eq 0 } -Seconds 45 -Description 'original action process tree exited'
+        Move-Item -LiteralPath $scope -Destination $held
+        $moved = $true
+        $cursor = [long](@(Get-TaskEvents | Sort-Object recordId -Descending | Select-Object -First 1)[0].recordId)
+        Enable-ScheduledTask -TaskName $taskName | Out-Null
+        $launchedAt = [DateTime]::UtcNow
+        $report.cursor = $cursor
+        $report.launchedAt = $launchedAt.ToString('o')
+        try { Start-ScheduledTask -TaskName $taskName } catch { $report.startRequestError = $_.Exception.Message }
+        Wait-Until { @(Assert-NativeFailureWindow).Count -ge 1 } -Seconds 45 -Description 'initial native working-directory launch failure'
+        Wait-Until { @(Assert-NativeFailureWindow).Count -eq 6 -and (Get-Instances) -eq 0 } -Seconds 720 -Description 'initial native failure plus five actual two-minute retries'
+        $attempts = @(Assert-NativeFailureWindow)
+        $origins = @(Get-NativeEvents | Where-Object id -eq 110)
+        Assert-True ($origins.Count -eq 1 -and $origins[0].data.InstanceId -eq $attempts[0].data.TaskInstanceId) 'Native sequence requires exactly one correlated demand start'
+        $intervals = @()
+        for ($index = 1; $index -lt 6; $index++) {
+            $delay = ([DateTime]::Parse($attempts[$index].time) - [DateTime]::Parse($attempts[$index - 1].time)).TotalSeconds
+            $intervals += $delay
+            Assert-True ($delay -ge 115 -and $delay -le 135) "Native retry interval outside bounded two-minute tolerance: $delay"
+        }
+        $report.attempts = $attempts
+        $report.intervalsSeconds = $intervals
+        $report.idleStartedAt = [DateTime]::UtcNow.ToString('o')
+        Assert-True ([DateTime]::UtcNow.AddSeconds(180) -lt $boundary) 'Insufficient time for idle proof and safe restoration before recurrence'
+        Save-Snapshot ($name + '-six-attempts')
+        $idleUntil = [DateTime]::UtcNow.AddSeconds(150)
+        while ([DateTime]::UtcNow -lt $idleUntil) {
+            Assert-True (@(Assert-NativeFailureWindow).Count -eq 6 -and (Get-Instances) -eq 0) 'Native task did not remain idle after six attempts'
+            Start-Sleep -Seconds 2
+        }
+        $report.idleCompletedAt = [DateTime]::UtcNow.ToString('o')
+        $report.eventsBeforeRestoration = @(Get-NativeEvents)
+        Save-Snapshot ($name + '-exhaustion-idle')
+        $report.disabledAt = [DateTime]::UtcNow.ToString('o')
+        Disable-ScheduledTask -TaskName $taskName | Out-Null
+        Stop-ScheduledTask -TaskName $taskName
+        Wait-Until { (Get-Instances) -eq 0 -and @(Get-NativeRuntimeProcesses).Count -eq 0 } -Seconds 45 -Description 'stopped fixture before exact scope restoration'
+        Restore-NativeScope
+        $moved = $false
+        Assert-True ([DateTime]::UtcNow -lt $boundary.AddSeconds(-30)) 'Restoration missed safe margin before original recurrence'
+        Enable-ScheduledTask -TaskName $taskName | Out-Null
+        $report.enabledAt = [DateTime]::UtcNow.ToString('o')
+        Assert-True ((Export-ScheduledTask -TaskName $taskName) -eq $originalXml) 'Task definition changed during native retry fixture'
+        Wait-Until {
+            $events = @(Get-NativeEvents)
+            Assert-True (@($events | Where-Object id -eq 203).Count -eq 6) 'An additional failed launch occurred after exhaustion'
+            Assert-True (@($events | Where-Object id -eq 110).Count -eq 1) 'Recovery used another demand start'
+            $starts = @($events | Where-Object id -eq 200)
+            $triggers = @($events | Where-Object id -eq 107)
+            Assert-True ($starts.Count -le 1 -and $triggers.Count -le 1) 'Unexpected extra recovery launch or recurrence'
+            foreach ($event in @($starts) + @($triggers)) {
+                Assert-True ([DateTime]::Parse($event.time).ToUniversalTime() -ge $boundary) 'Recovery preceded original recurrence boundary'
+            }
+            if ($starts.Count -eq 0 -or $triggers.Count -eq 0) {
+                Assert-True ((Get-Instances) -eq 0 -or [DateTime]::UtcNow -ge $boundary) 'Runtime resumed before original recurrence'
+                return $false
+            }
+            Assert-True ($starts[0].data.TaskInstanceId -eq $triggers[0].data.InstanceId -and $starts[0].data.ActionName -eq $expectedAction) 'Scheduled recovery action does not match trigger or original action'
+            if (-not (Test-Healthy)) { return $false }
+            $runtime = Read-Runtime
+            Assert-True ($runtime.pid -ne $priorIdentity.pid -or $runtime.creationDate -ne $priorIdentity.creationDate) 'Recovery retained original runtime identity'
+            Assert-True ((Get-Instances) -eq 1) 'Recovery requires exactly one scheduled instance'
+            $report.recovery = @{ trigger = $triggers[0]; action = $starts[0]; runtime = $runtime }
+            return $true
+        } -Seconds 420 -Description 'healthy scheduled recovery at unchanged original recurrence boundary'
+        Assert-True ((Export-ScheduledTask -TaskName $taskName) -eq $originalXml) 'Recovered task XML differs from original definition'
+        $report.fullRetryGatePassed = $true
+        Save-Snapshot ($name + '-recovered')
+    } catch {
+        $report.error = $_.Exception.Message
+        throw
+    } finally {
+        try {
+            Disable-ScheduledTask -TaskName $taskName | Out-Null
+            Stop-ScheduledTask -TaskName $taskName
+            Wait-Until { (Get-Instances) -eq 0 -and @(Get-NativeRuntimeProcesses).Count -eq 0 } -Seconds 45 -Description 'native retry gate final shutdown'
+            Restore-NativeScope
+            Assert-True (-not (Get-ScheduledTask -TaskName $taskName).Settings.Enabled) 'Native gate cleanup left task enabled'
+            $report.cleanupVerified = $true
+        } catch {
+            $report.fullRetryGatePassed = $false
+            $report.cleanupError = $_.Exception.Message
+            throw
+        } finally {
+            $report | ConvertTo-Json -Depth 18 | Set-Content (Join-Path $evidence ($name + '-result.json'))
+            Save-Snapshot ($name + '-final')
+        }
+    }
+    Complete-Step $name 'Six distinct native launch failures at two-minute intervals, 150 seconds idle, exact scope restored, then healthy original scheduled recurrence; cleanup verified'
+}
+
 try {
     $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
     Assert-True ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) 'Installer harness needs elevated token'
@@ -600,10 +747,13 @@ try {
         Invoke-Case 'diagnostic-legacy-demand' { Invoke-RetryDiagnostic 'diagnostic-legacy-demand' $false 'demand' }
         Invoke-Case 'diagnostic-legacy-scheduled' { Invoke-RetryDiagnostic 'diagnostic-legacy-scheduled' $false 'scheduled' }
     }
+    if ($settings.scenario -eq 'native-retries') {
+        Invoke-Case 'native-retries-and-recurrence' { Invoke-NativeRetryGate }
+    }
     if ($settings.scenario -eq 'native-probe') {
         Invoke-Case 'native-action-launch-probe' { Invoke-NativeLaunchProbe }
     }
-    if ($settings.scenario -ne 'native-probe') {
+    if ($settings.scenario -notin @('native-probe', 'native-retries')) {
     Invoke-Case 'successful-uninstall' {
     Install-Task -Force | Out-Null
     Wait-Until { Test-Healthy } -Description 'runtime before successful uninstall'

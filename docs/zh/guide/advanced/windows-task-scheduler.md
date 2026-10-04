@@ -15,12 +15,12 @@ head:
 
 # Windows：任务计划程序
 
-本页适用于以下场景：你在 Windows 上，需要 `1mcp serve` 在开机时自动启动并在崩溃后自动恢复，任务计划程序作为唯一的进程监管者。
+当你希望 `1mcp serve` 在 Windows 开机时自动启动，并由任务计划程序作为唯一监管者、按需提供定时恢复时，请使用本页。
 
 **适合阅读本页的情况：**
 
 - 你在 Windows 上，需要等价于 Linux systemd 服务的持久守护进程
-- 你需要开机自动启动并支持崩溃重启
+- 你需要开机自动启动、任务计划程序针对符合条件的任务操作失败执行原生重试，并可选启用定时恢复
 - 你使用独立二进制文件或通过 npm 安装的 `1mcp`
 
 ## 前置条件
@@ -67,7 +67,7 @@ if (-not (Test-Path "$configDir\mcp.json")) {
 在本仓库的检出目录中，通过管理员 PowerShell 会话运行安装脚本。脚本提示输入任务账户密码，并立即启动前台运行时：
 
 ```powershell
-# 默认仅保留开机启动和即时失败重试
+# 默认：开机启动，以及任务计划程序针对符合条件的任务操作失败执行原生重试
 .\scripts\install-windows-task.ps1 -BinaryPath 'C:\Program Files\1mcp\1mcp.exe'
 
 # 可选的定时恢复；60 分钟只是示例，不是默认值
@@ -82,7 +82,9 @@ if (-not (Test-Path "$configDir\mcp.json")) {
 
 启用后保留开机触发器，另加独立的 `Once` 触发器，无限期重复。首次定时启动在注册后的一个间隔发生，安装脚本仍会立即启动任务。错过的间隔不会集中补发启动；任务运行期间，`IgnoreNew` 阻止另一个计划实例启动。
 
-所有已停止且启用的任务都可能再次启动，包括即时重试耗尽后的失败退出、正常退出和手动停止。这不检测或终止仍在运行但不健康的运行时。每次启动仍遵守运行时范围的所有权检查，不会接管其他所有者或删除所有权元数据。
+任务设置请求任务计划程序在其将任务操作失败判定为符合原生重试条件时，最多重试五次，间隔两分钟。这一边界属于任务计划程序策略，不保证每个应用程序非零退出都会触发重试。
+
+周期触发与原生重试策略彼此独立。每个周期到达时，已停止且启用的任务都可以重新计划启动，包括发生失败、正常退出或手动停止之后。周期触发不会检测或终止仍在运行但不健康的运行时；已有实例运行时，`IgnoreNew` 会阻止新增计划实例。每次启动仍遵守运行时范围的所有权检查，不会接管其他所有者或删除所有权元数据。
 
 替换任务时，用 `-Force` 重新运行脚本，并指定所需间隔；省略间隔会移除原有周期触发。替换和卸载都会先禁用自动启动，再停止任务，并在 30 秒内验证停止完成。维护失败时，保留的任务注册仍处于禁用状态；请按下方步骤恢复。
 
@@ -165,7 +167,7 @@ $action = New-ScheduledTaskAction `
 | ---------------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `MultipleInstances`                | `IgnoreNew`         | 快速重启后若上一个实例尚未退出，阻止第二个守护进程启动                                                           |
 | `ExecutionTimeLimit`               | `PT0S`（零=无限制） | 防止默认 72 小时执行上限将运行中的守护进程强制终止                                                               |
-| `RestartCount` / `RestartInterval` | 5 次 × 2 分钟       | 给瞬时故障留出恢复时间，避免立即循环重启                                                                         |
+| `RestartCount` / `RestartInterval` | 5 次 × 2 分钟       | 针对任务计划程序判定为符合原生重试条件的失败，请求最多五次重试、间隔两分钟；不保证每个应用程序非零退出都会重试     |
 | `StartWhenAvailable`               | `true`              | 仅为错过的基于时间的计划启动保留。**不**适用于 `AtStartup` 启动恢复（该触发器每次开机都会触发）。                |
 | `RunLevel`                         | `Limited`           | 以非提升权限运行，使用所需的最小权限                                                                             |
 | `LogonType`                        | `Password`          | 通过 Session 0 在开机时运行（无桌面窗口）。密码通过 `Get-Credential` 提示输入，加密存储在 Windows 凭据管理器中。 |
@@ -265,11 +267,11 @@ Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:3050/health/mcp' | Select-O
 Export-ScheduledTask -TaskName $taskName | Set-Content -Encoding Unicode '.\1mcp-task.xml'
 ```
 
-启用周期触发时，应包含 `BootTrigger` 和 `TimeTrigger`、指定的重复间隔，不包含重复 `Duration` 或触发器 `EndBoundary`，并保留前台 `serve`、`IgnoreNew`、无限执行时间及五次两分钟失败重试。不传该参数时仅有 `BootTrigger`。微软文档说明了[间隔范围](https://learn.microsoft.com/en-us/windows/win32/taskschd/taskschedulerschema-interval-repetitiontype-element)及[省略持续时间时无限重复](https://learn.microsoft.com/en-us/windows/win32/taskschd/taskschedulerschema-duration-repetitiontype-element)。
+启用周期触发时，应包含 `BootTrigger` 和 `TimeTrigger`、指定的重复间隔，不包含重复 `Duration` 或触发器 `EndBoundary`，并保留前台 `serve`、`IgnoreNew`、无限执行时间，以及针对符合条件的任务操作失败请求最多五次、间隔两分钟的原生重试策略。不传该参数时仅有 `BootTrigger`。微软文档说明了[间隔范围](https://learn.microsoft.com/en-us/windows/win32/taskschd/taskschedulerschema-interval-repetitiontype-element)及[省略持续时间时无限重复](https://learn.microsoft.com/en-us/windows/win32/taskschd/taskschedulerschema-duration-repetitiontype-element)。
 
 在专用测试运行时范围中，分别验证二进制和 npm 安装，并覆盖 Windows PowerShell 5.1 和 PowerShell 7。为以下场景记录导出 XML、任务历史、进程身份和时间戳：
 
-- 可控失败耗尽即时重试后，在后续周期再次启动。
+- 一个符合条件的任务操作失败，随后观察到首次启动失败及五次原生启动重试；重试耗尽后先保持空闲，再由周期触发健康启动。在相应字段和事件可用时，按任务计划程序的失败事件、时间戳和实例标识关联这些启动；预启动失败可能不会产生操作开始或操作完成事件。
 - 启用期间正常退出或手动停止后，按周期再次启动。
 - 运行中的任务跨过周期边界，仅有一个任务实例。
 - 其他进程拥有同一运行时范围时，计划启动必须拒绝接管。

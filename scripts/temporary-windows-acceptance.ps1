@@ -1,7 +1,7 @@
 param(
     [ValidateSet('binary', 'npm')][string]$Mode,
     [ValidateSet('powershell', 'pwsh')][string]$Shell,
-    [ValidateSet('maintenance', 'retries', 'diagnostic', 'native-probe')][string]$Scenario,
+    [ValidateSet('maintenance', 'retries', 'diagnostic', 'native-probe', 'native-retries')][string]$Scenario,
     [switch]$CleanupOnly
 )
 $ErrorActionPreference = 'Stop'
