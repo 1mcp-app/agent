@@ -267,7 +267,7 @@ describe('test-and-validate workflow', () => {
     expect(ciJob).toContain('test "$STATIC_RESULT" = success && test "$TEST_RESULT" = success');
     expect(packageJson.scripts['test:e2e:shardable']).toContain('**/cooperative-runtime.test.ts');
     for (const file of ['capability-catalog-eras.test.ts', 'admin-spa-package.e2e.test.ts']) {
-      expect(packageJson.scripts['test:e2e:shardable']).toContain(`**/${file}`);
+      expect(packageJson.scripts['test:e2e:shardable']).toContain(`--exclude "**/${file}"`);
       expect(nonBrowserJob).toContain(`test/e2e/${file}`);
     }
     expect(nonBrowserJob).toContain('if: matrix.shard == 4');
