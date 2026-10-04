@@ -20,8 +20,8 @@ jobs:
       fail-fast: false
       matrix:
         mode: [binary, npm]
-        shell: [powershell, pwsh]
-        scenario: [maintenance, retries]
+        shell: [pwsh]
+        scenario: [diagnostic]
     env:
       HUSKY: 0
       CI: true

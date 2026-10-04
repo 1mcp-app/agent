@@ -195,6 +195,116 @@ function Start-DirectOwner {
         -RedirectStandardError (Join-Path $evidence 'owner.stderr.log')
 }
 
+function Invoke-RetryDiagnostic {
+    param([string]$Name, [bool]$UnifiedEngine, [ValidateSet('demand', 'scheduled')][string]$Launch)
+    $script:step = $Name
+    $timeline = New-Object 'System.Collections.Generic.List[object]'
+    $report = @{ scenario = $Name; diagnosticOnly = $true; unifiedEngine = $UnifiedEngine; launch = $Launch; retryObserved = $false }
+    try {
+        Disable-And-Stop
+        $script:owner = Start-DirectOwner
+        Wait-Until { Test-Healthy } -Description "$Name independent owner"
+        $identity = Read-Runtime
+        $metadata = Get-Content (Join-Path $scope 'runtime.owner\owner.json') -Raw
+        Install-Task -Interval 15 -Force | Out-Null
+        Assert-TaskXml -Interval 15
+        Save-Snapshot ($Name + '-production-definition')
+        # Stop only task instances: the independent owner must remain running.
+        Disable-ScheduledTask -TaskName $taskName | Out-Null
+        Stop-ScheduledTask -TaskName $taskName
+        Wait-Until { (Get-Instances) -eq 0 } -Seconds 45 -Description "$Name preparation task stop"
+        $task = Get-ScheduledTask -TaskName $taskName
+        $task.Settings.UseUnifiedSchedulingEngine = $UnifiedEngine
+        $timeTrigger = @($task.Triggers | Where-Object { $_.CimClass.CimClassName -eq 'MSFT_TaskTimeTrigger' })
+        Assert-True ($timeTrigger.Count -eq 1) 'Diagnostic requires one existing recurrence trigger'
+        $boundary = (Get-Date).AddMinutes(15)
+        if ($Launch -eq 'scheduled') { $boundary = (Get-Date).AddSeconds(30) }
+        $timeTrigger[0].StartBoundary = $boundary.ToString('yyyy-MM-ddTHH:mm:sszzz')
+        $diagnosticSecret = Get-Content (Join-Path $Root 'credential.json') -Raw | ConvertFrom-Json
+        try {
+            Register-ScheduledTask -TaskName $taskName -InputObject $task -User $diagnosticSecret.account -Password $diagnosticSecret.password -Force | Out-Null
+        } finally { $diagnosticSecret = $null }
+        Assert-TaskXml -Interval 15
+        Assert-True ((Get-ScheduledTask -TaskName $taskName).Settings.UseUnifiedSchedulingEngine -eq $UnifiedEngine) 'Diagnostic engine setting did not apply'
+        [xml]$appliedXml = Export-ScheduledTask -TaskName $taskName
+        $appliedBoundary = [DateTime]::Parse($appliedXml.Task.Triggers.TimeTrigger.StartBoundary).ToUniversalTime()
+        Assert-True ([Math]::Abs(($appliedBoundary - $boundary.ToUniversalTime()).TotalSeconds) -lt 1) 'Diagnostic trigger boundary did not apply'
+        Save-Snapshot ($Name + '-diagnostic-definition')
+        $cursor = [long](@(Get-TaskEvents | Sort-Object recordId -Descending | Select-Object -First 1)[0].recordId)
+        $timeline.Add(@{ phase = 'enable'; utc = [DateTime]::UtcNow.ToString('o'); cursor = $cursor; boundary = $boundary.ToUniversalTime().ToString('o') })
+        Enable-ScheduledTask -TaskName $taskName | Out-Null
+        if ($Launch -eq 'demand') { Start-ScheduledTask -TaskName $taskName }
+        Wait-Until {
+            Assert-IndependentOwner $identity $metadata
+            $pairs = @(Get-CompletedActions $cursor)
+            if ($pairs.Count -eq 0) { return $false }
+            Assert-True ([long]$pairs[0].completion.data.ResultCode -ne 0) 'Diagnostic initial runtime action exited zero'
+            return $true
+        } -Seconds 60 -Description "$Name initial correlated nonzero exit"
+        $first = @(Get-CompletedActions $cursor)[0]
+        $originId = 110
+        if ($Launch -eq 'scheduled') { $originId = 107 }
+        Wait-Until {
+            @(Get-TaskEvents | Where-Object { $_.recordId -gt $cursor -and $_.id -eq $originId -and $_.data.InstanceId -eq $first.instanceId }).Count -eq 1
+        } -Seconds 15 -Description "$Name correlated launch origin"
+        $report.initial = $first
+        $timeline.Add(@{ phase = 'initial-failure-observed'; utc = [DateTime]::UtcNow.ToString('o') })
+        $deadline = [DateTime]::UtcNow.AddSeconds(180)
+        do {
+            Assert-IndependentOwner $identity $metadata
+            $starts = @(Get-TaskEvents | Where-Object { $_.recordId -gt $cursor -and $_.id -eq 200 } | Sort-Object recordId)
+            if ($starts.Count -gt 1) {
+                $report.retryObserved = $true
+                $report.secondAction = $starts[1]
+                $report.delaySeconds = ([DateTime]::Parse($starts[1].time) - [DateTime]::Parse($first.completion.time)).TotalSeconds
+                Wait-Until { @(Get-CompletedActions $cursor).Count -ge 2 } -Seconds 45 -Description "$Name second action completion"
+                $report.secondCompletion = @(Get-CompletedActions $cursor)[1].completion
+                Assert-True ([long]$report.secondCompletion.data.ResultCode -ne 0) 'Diagnostic retry exited zero'
+                break
+            }
+            Start-Sleep -Seconds 2
+        } while ([DateTime]::UtcNow -lt $deadline)
+        $report.observationCompleted = $true
+        $timeline.Add(@{ phase = 'observation-complete'; utc = [DateTime]::UtcNow.ToString('o'); retryObserved = $report.retryObserved })
+        Save-Snapshot ($Name + '-observed')
+    } catch {
+        $report.error = $_.Exception.Message
+        throw
+    } finally {
+        $taskCleanupConfirmed = $false
+        $ownerCleanupConfirmed = $false
+        try {
+            Disable-ScheduledTask -TaskName $taskName | Out-Null
+            Stop-ScheduledTask -TaskName $taskName
+            Wait-Until { (Get-Instances) -eq 0 } -Seconds 45 -Description "$Name diagnostic task cleanup"
+            $taskCleanupConfirmed = $true
+        } finally {
+            try {
+                if ($script:owner) {
+                    & $settings.cli serve --stop --config-dir $scope *> (Join-Path $evidence ($Name + '-owner-stop.log'))
+                    Assert-True ($LASTEXITCODE -eq 0) 'Diagnostic owner stop failed'
+                    Assert-True ($script:owner.WaitForExit(45000)) 'Diagnostic owner wrapper retained'
+                    Wait-Until { -not (Read-Runtime) } -Seconds 15 -Description "$Name owner exit"
+                    $script:owner = $null
+                }
+                $ownerCleanupConfirmed = $true
+            } finally {
+                $report.cleanupCompleted = $taskCleanupConfirmed -and $ownerCleanupConfirmed
+                if ($report.cleanupCompleted) {
+                    $timeline.Add(@{ phase = 'cleanup-finished'; utc = [DateTime]::UtcNow.ToString('o') })
+                } else {
+                    $report.cleanupError = 'Task or owner cleanup was not confirmed; see case failure record'
+                    $timeline.Add(@{ phase = 'cleanup-failed'; utc = [DateTime]::UtcNow.ToString('o') })
+                }
+                $report.timeline = @($timeline.ToArray())
+                $report | ConvertTo-Json -Depth 15 | Set-Content (Join-Path $evidence ($Name + '-diagnostic-result.json'))
+                Save-Snapshot ($Name + '-final')
+            }
+        }
+    }
+    Complete-Step $Name "Diagnostic observation and cleanup completed; retryObserved=$($report.retryObserved); this is not production retry acceptance"
+}
+
 try {
     $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
     Assert-True ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) 'Installer harness needs elevated token'
@@ -367,6 +477,11 @@ try {
     } -Seconds 420 -Description 'separate recurrence and healthy new runtime after exhausted retries'
     Complete-Step $step 'Six correlated nonzero exits at measured two-minute intervals, 150 seconds idle, then separate scheduled recurrence recovered'
 
+    }
+    if ($settings.scenario -eq 'diagnostic') {
+        Invoke-Case 'diagnostic-unified-scheduled' { Invoke-RetryDiagnostic 'diagnostic-unified-scheduled' $true 'scheduled' }
+        Invoke-Case 'diagnostic-legacy-demand' { Invoke-RetryDiagnostic 'diagnostic-legacy-demand' $false 'demand' }
+        Invoke-Case 'diagnostic-legacy-scheduled' { Invoke-RetryDiagnostic 'diagnostic-legacy-scheduled' $false 'scheduled' }
     }
     Invoke-Case 'successful-uninstall' {
     Install-Task -Force | Out-Null

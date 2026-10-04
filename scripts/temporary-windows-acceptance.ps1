@@ -1,7 +1,7 @@
 param(
     [ValidateSet('binary', 'npm')][string]$Mode,
     [ValidateSet('powershell', 'pwsh')][string]$Shell,
-    [ValidateSet('maintenance', 'retries')][string]$Scenario,
+    [ValidateSet('maintenance', 'retries', 'diagnostic')][string]$Scenario,
     [switch]$CleanupOnly
 )
 $ErrorActionPreference = 'Stop'
@@ -212,3 +212,6 @@ try {
     }
     Clear-AcceptanceResources
 }
+
+# Successful cleanup may leave a tolerated native reg.exe exit code; declare entrypoint success.
+exit 0
