@@ -116,7 +116,7 @@
     "@modelcontextprotocol/server-legacy": "2.0.0",
     "@opentelemetry/api": "1.9.0",
     "@opentelemetry/context-async-hooks": "2.2.0",
-    "@opentelemetry/core": "2.2.0",
+    "@opentelemetry/core": "2.11.0",
     "@toon-format/toon": "^4.1.0",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
@@ -200,7 +200,7 @@
     "vite-tsconfig-paths": "^6.1.1",
     "vitepress": "^1.6.3",
     "vitepress-plugin-mermaid": "^2.0.17",
-    "vitest": "^4.1.8",
+    "vitest": "^5.0.3",
     "yaml": "2.9.1"
   }
 }
