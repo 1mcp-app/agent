@@ -182,7 +182,7 @@ function Fail-TaskAction {
     $tree = New-Object 'System.Collections.Generic.List[object]'
     function Add-ActionTree {
         param($Process)
-        $tree.Add($Process)
+        if ($Process.CommandLine -and $Process.CommandLine.Contains($Root)) { $tree.Add($Process) }
         foreach ($child in $all | Where-Object ParentProcessId -eq $Process.ProcessId) { Add-ActionTree $child }
     }
     Add-ActionTree $action

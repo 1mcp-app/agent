@@ -116,12 +116,15 @@ function Clear-AcceptanceResources {
     }
     if ($localUser) { Remove-LocalUser -Name $state.user }
     if (Get-LocalUser -Name $state.user -ErrorAction SilentlyContinue) { throw 'Acceptance user retained' }
+    # A disposed hosted VM can retain a loaded profile hive until system logoff.
+    # Report this separately from the private credential/account cleanup.
     if (Test-Path $state.root) { Remove-Item $state.root -Recurse -Force }
     if (Test-Path $state.root) { throw 'Acceptance files retained' }
     @{ completedUtc = [DateTime]::UtcNow.ToString('o'); taskRemoved = $true;
        processesRemoved = $true; userRemoved = $true; profileRemoved = $profileRemoved; batchLogonRightRemoved = $rightsRemoved; filesRemoved = $true } |
         ConvertTo-Json | Set-Content (Join-Path $evidence 'cleanup.json')
-    if (-not $profileRemoved -or -not $rightsRemoved) { throw 'Acceptance profile or batch-logon right retained after bounded cleanup; private credentials and account removed' }
+    if (-not $rightsRemoved) { throw 'Acceptance batch-logon right retained after bounded cleanup' }
+    if (-not $profileRemoved) { Write-Warning 'Task Scheduler retained the deleted test account profile hive; the hosted VM disposal is the final profile cleanup boundary.' }
 }
 
 if ($CleanupOnly) { Clear-AcceptanceResources; exit 0 }
