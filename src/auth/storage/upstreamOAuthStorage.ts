@@ -26,6 +26,8 @@ export interface UpstreamOAuthStorageOptions {
   nativeStore?: NativeCredentialStore;
   runtimeScope?: string;
 }
+// Deterministic namespace fingerprints and record-integrity checksums; never password storage or verification.
+// codeql[js/insufficient-password-hash]
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const OwnerSchema = z.object({ version: z.literal(1), runtimeScope: z.string().regex(/^[a-f0-9]{64}$/) });
 const StateSchema = z.object({ mode: z.enum(['file', 'native']), epoch: z.string().uuid() });
