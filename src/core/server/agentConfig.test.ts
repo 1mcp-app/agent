@@ -85,6 +85,9 @@ describe('AgentConfigManager', () => {
           oauthCodeTtlMs: 60000,
           oauthTokenTtlMs: 86400000,
         },
+        cloudflareAccess: {
+          groupTagMap: {},
+        },
         rateLimit: {
           windowMs: 900000,
           max: 100,
