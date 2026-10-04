@@ -22,6 +22,7 @@ concurrency:
 env:
   HUSKY: 0
   CI: true
+  ACCEPTANCE_PR_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
 
 jobs:
   lifecycle:
@@ -53,6 +54,20 @@ jobs:
       - name: Verify cooperative lifecycle with Node
         run: pnpm test:e2e test/e2e/commands/cooperative-runtime.test.ts --retry=0
 
+      - name: Install packed Node artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/acceptance-package" "$RUNNER_TEMP/acceptance-install"
+          pnpm pack --pack-destination "$RUNNER_TEMP/acceptance-package"
+          echo "ACCEPTANCE_PACKAGE_SHA256=$(sha256sum "$RUNNER_TEMP"/acceptance-package/*.tgz | cut -d ' ' -f1)" >> "$GITHUB_ENV"
+          npm install --prefix "$RUNNER_TEMP/acceptance-install" --ignore-scripts --no-audit --no-fund "$RUNNER_TEMP"/acceptance-package/*.tgz
+          echo "ONE_MCP_TEST_NODE_CLI=$RUNNER_TEMP/acceptance-install/node_modules/@1mcp/agent/build/index.js" >> "$GITHUB_ENV"
+
+      - name: Verify synthetic Windows acceptance with Node artifact
+        if: runner.os == 'Windows'
+        run: pnpm test:e2e test/e2e/commands/windows-acceptance.test.ts --retry=0
+
       # Keep builds and process tests sequential: SEA writes shared build artifacts.
       - name: Build SEA bundle
         run: pnpm sea:build
@@ -69,3 +84,22 @@ jobs:
         env:
           ONE_MCP_TEST_BINARY: ${{ github.workspace }}/${{ matrix.binary }}
         run: pnpm test:e2e test/e2e/commands/cooperative-runtime.test.ts --retry=0
+
+      - name: Verify synthetic Windows acceptance with packaged executable
+        if: runner.os == 'Windows'
+        env:
+          ONE_MCP_TEST_BINARY: ${{ github.workspace }}/${{ matrix.binary }}
+        run: pnpm test:e2e test/e2e/commands/windows-acceptance.test.ts --retry=0
+
+      - name: Verify Windows schema and identity regressions
+        if: runner.os == 'Windows'
+        run: pnpm test:unit src/core/validation/schemaBoundary.test.ts src/core/server/processIdentity.test.ts src/core/capabilities/runtimeCapabilityCatalog.test.ts src/core/capabilities/capabilityCatalog.test.ts src/core/capabilities/capabilityAggregator.test.ts src/core/capabilities/metaToolProvider.test.ts src/core/capabilities/configuredToolSnapshot.test.ts src/core/capabilities/toolRegistry.test.ts --retry=0
+
+      - name: Upload bounded acceptance diagnostics
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-acceptance-${{ github.sha }}
+          path: test-results/windows-acceptance/*.json
+          if-no-files-found: warn
+          retention-days: 7
