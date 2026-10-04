@@ -183,6 +183,8 @@ try {
     $step = 'exhausted-retries-and-recurrence'
     Disable-And-Stop
     $listener = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback, $port)
+    # Windows permits port sharing unless the fixture explicitly owns the socket.
+    $listener.ExclusiveAddressUse = $true
     $listener.Start()
     $failureStart = Get-Date
     Install-Task -Interval 15 -Force | Out-Null

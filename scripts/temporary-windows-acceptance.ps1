@@ -63,21 +63,34 @@ function Clear-AcceptanceResources {
             Unregister-ScheduledTask -TaskName $name -Confirm:$false
         }
     }
-    # Match the exact private root in executable/arguments; never trust stored PIDs.
-    $owned = @(Get-CimInstance Win32_Process | Where-Object {
-        $_.ProcessId -ne $PID -and
-        (($_.ExecutablePath -and $_.ExecutablePath.StartsWith($state.root + '\', [StringComparison]::OrdinalIgnoreCase)) -or
-         ($_.CommandLine -and $_.CommandLine.Contains($state.root)))
-    })
+    # Match the private root, plus every process belonging to this disposable SID.
+    # CIM providers can hold the account profile without mentioning the fixture path.
+    $localUser = Get-LocalUser -Name $state.user -ErrorAction SilentlyContinue
+    $userSid = $state.sid
+    if ($localUser) { $userSid = $localUser.SID.Value }
+    function Get-FixtureProcesses {
+        foreach ($process in Get-CimInstance Win32_Process) {
+            if ($process.ProcessId -eq $PID) { continue }
+            $matched = ($process.ExecutablePath -and $process.ExecutablePath.StartsWith($state.root + '\', [StringComparison]::OrdinalIgnoreCase)) -or
+                ($process.CommandLine -and $process.CommandLine.Contains($state.root))
+            if (-not $matched -and $userSid) {
+                try {
+                    $owner = Invoke-CimMethod -InputObject $process -MethodName GetOwnerSid -ErrorAction Stop
+                    $matched = $owner.ReturnValue -eq 0 -and $owner.Sid -eq $userSid
+                } catch { }
+            }
+            if ($matched) { $process }
+        }
+    }
+    $owned = @(Get-FixtureProcesses)
+    $owned | Select-Object ProcessId, ParentProcessId, ExecutablePath, CommandLine |
+        ConvertTo-Json | Set-Content (Join-Path $evidence 'cleanup-processes.json')
     foreach ($process in $owned) { Invoke-CimMethod -InputObject $process -MethodName Terminate | Out-Null }
-    Start-Sleep -Seconds 2
+    Start-Sleep -Seconds 5
     foreach ($name in @($state.task, ($state.task + '-bootstrap'))) {
         if (Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue) { throw 'Acceptance task retained' }
     }
-    $remaining = @(Get-CimInstance Win32_Process | Where-Object {
-        $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.Contains($state.root)
-    })
-    if ($remaining.Count -gt 0) { throw 'Acceptance processes retained' }
+    if (@(Get-FixtureProcesses).Count -gt 0) { throw 'Acceptance account processes retained' }
     $localUser = Get-LocalUser -Name $state.user -ErrorAction SilentlyContinue
     $userSid = $state.sid
     if ($localUser) { $userSid = $localUser.SID.Value }
@@ -85,6 +98,13 @@ function Clear-AcceptanceResources {
     $rightsRemoved = $true
     if ($userSid) {
         try { [AcceptanceAccountRights]::SetBatchLogon($userSid, $false) } catch { $rightsRemoved = $false }
+        # Release only this test user's registry hives after all of its processes
+        # and tasks have ended. Never unload a shared or unrelated user profile.
+        foreach ($hive in @($userSid + '_Classes', $userSid)) {
+            if (Test-Path ("Registry::HKEY_USERS\" + $hive)) {
+                & reg.exe unload ("HKU\" + $hive) *> (Join-Path $evidence ("unload-" + $hive + '.log'))
+            }
+        }
         # Task Scheduler can release a finished batch profile asynchronously.
         $profileDeadline = (Get-Date).AddSeconds(120)
         do {
