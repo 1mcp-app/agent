@@ -14,6 +14,8 @@ import { pipeline } from 'node:stream/promises';
 
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION, STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
+import { ClientStatus } from '@src/core/types/index.js';
+import { ConfiguredServerEventsProvider } from '@src/gateway/adapters/configuredServerEventsProvider.js';
 import { ModernInboundEraAdapter } from '@src/gateway/adapters/modern/modernInboundEraAdapter.js';
 import { createEffectiveRequestAuthority } from '@src/gateway/contracts/effectiveRequestAuthority.js';
 import { type GatewayOperation, gatewayOperationSchema } from '@src/gateway/contracts/gatewayRequest.js';
@@ -30,8 +32,13 @@ import {
 } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
 
 import type { NextFunction, Request, RequestHandler, Response, Router } from 'express';
+import { z } from 'zod';
 
 const DEFAULT_MODERN_REQUEST_TIMEOUT_MS = 60_000;
+const EVENTS_PROVIDER_NAME = 'agent-offload';
+const EVENTS_OPERATIONS = ['events/list', 'events/subscribe', 'events/unsubscribe'] as const;
+type EventsOperation = (typeof EVENTS_OPERATIONS)[number];
+const DEFAULT_EVENTS_PROVIDER_PIN = Object.freeze({ era: 'legacy' as const, revision: '2025-11-25' });
 
 export interface ModernInboundBridge {
   readonly targetConnectionId: string;
@@ -114,6 +121,19 @@ function gatewayFailureError(failure: GatewayFailure): ProtocolError {
   return new ProtocolError(Number.isSafeInteger(numericCode) ? numericCode : fallback, failure.message, failure.data);
 }
 
+function getEventsProvider(serverManager: ServerManager) {
+  try {
+    const provider = serverManager.getClient(EVENTS_PROVIDER_NAME);
+    return provider?.status === ClientStatus.Connected ? provider : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isEventsOperation(method: GatewayOperation): method is EventsOperation {
+  return (EVENTS_OPERATIONS as readonly string[]).includes(method);
+}
+
 async function dispatchGateway(
   method: GatewayOperation,
   params: unknown,
@@ -124,9 +144,24 @@ async function dispatchGateway(
   deadlineUnixMs: number,
 ): Promise<ImmutableJsonValue> {
   signal.throwIfAborted();
-  const bridge = await createBridge(serverManager, config);
+  if (isEventsOperation(method) && !config.tags.includes(EVENTS_PROVIDER_NAME)) {
+    throw new ProtocolError(-32_001, `Events access requires the '${EVENTS_PROVIDER_NAME}' tag`);
+  }
+  const eventsProvider = isEventsOperation(method) ? getEventsProvider(serverManager) : undefined;
+  if (isEventsOperation(method) && !eventsProvider) {
+    throw new ProtocolError(-32_601, `Configured Events provider '${EVENTS_PROVIDER_NAME}' is unavailable`);
+  }
+  const bridge = eventsProvider ? undefined : await createBridge(serverManager, config);
+  const targetConnectionId = eventsProvider?.name ?? bridge!.targetConnectionId;
+  const outbound = eventsProvider
+    ? new ConfiguredServerEventsProvider(
+        EVENTS_PROVIDER_NAME,
+        eventsProvider.adapter,
+        eventsProvider.adapter.protocolPin ?? DEFAULT_EVENTS_PROVIDER_PIN,
+      )
+    : bridge!.outbound;
   const dispatcher = new GatewayDispatcher({
-    resolveOutbound: (id) => (id === bridge.targetConnectionId ? bridge.outbound : undefined),
+    resolveOutbound: (id) => (id === targetConnectionId ? outbound : undefined),
   });
   const session = new GatewaySession(dispatcher);
   const correlationId = randomUUID();
@@ -158,12 +193,12 @@ async function dispatchGateway(
         },
         requestContext: () => ({
           requestId: `modern-${randomUUID()}`,
-          targetConnectionId: bridge.targetConnectionId,
+          targetConnectionId,
           authority: createEffectiveRequestAuthority({
-            connectionIds: [bridge.targetConnectionId],
+            connectionIds: [targetConnectionId],
             provenance: ['authenticated-http-admission'],
           }),
-          outbound: bridge.outbound.pin,
+          outbound: outbound.pin,
           deadlineUnixMs,
         }),
         respond: async (frame) => {
@@ -185,7 +220,7 @@ async function dispatchGateway(
   } finally {
     settle('done');
     signal.removeEventListener('abort', abort);
-    await bridge.close();
+    await bridge?.close();
   }
 }
 
@@ -284,6 +319,8 @@ export function setupModernHttpRoutes(
       }
 
       const config = buildConfig(req, res);
+      const eventsProviderAvailable =
+        config.tags.includes(EVENTS_PROVIDER_NAME) && getEventsProvider(serverManager) !== undefined;
       const accepted = (req.get('accept') ?? '').split(',').map((value) => value.trim());
       const responseMode =
         accepted.includes('text/event-stream') && !accepted.includes('application/json') ? 'sse' : 'auto';
@@ -291,9 +328,18 @@ export function setupModernHttpRoutes(
         () => {
           const server = new Server(
             { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
-            { capabilities: { tools: {}, prompts: {}, resources: {}, completions: {} } },
+            {
+              capabilities: {
+                tools: {},
+                prompts: {},
+                resources: {},
+                completions: {},
+                ...(eventsProviderAvailable ? { events: {} } : {}),
+              } as never,
+            },
           );
           for (const operation of gatewayOperationSchema.options) {
+            if (isEventsOperation(operation)) continue;
             server.setRequestHandler(
               operation,
               async (message, context: ServerContext) =>
@@ -307,6 +353,24 @@ export function setupModernHttpRoutes(
                   Date.now() + requestTimeoutMs,
                 )) as never,
             );
+          }
+          if (eventsProviderAvailable) {
+            for (const operation of EVENTS_OPERATIONS) {
+              server.setRequestHandler(
+                operation,
+                { params: z.looseObject({}).optional() },
+                async (params, context) =>
+                  (await dispatchGateway(
+                    operation,
+                    params,
+                    context.mcpReq.signal,
+                    serverManager,
+                    config,
+                    createBridge,
+                    Date.now() + requestTimeoutMs,
+                  )) as never,
+              );
+            }
           }
           return server;
         },

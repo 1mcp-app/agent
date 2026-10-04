@@ -76,6 +76,8 @@ export type LegacySdkResponse = LegacySdkSuccessResponse | LegacySdkErrorRespons
 /** SDK-free interface implemented inside the complete current-runtime legacy island. */
 export interface LegacySdkAdapter {
   readonly connectionId: LegacyConnectionId;
+  /** Negotiated protocol era for the underlying outbound connection, when known. */
+  readonly protocolPin?: { readonly era: 'legacy' | 'modern'; readonly revision: string };
   readonly state: LegacySdkLifecycleState;
   start(): Promise<void>;
   nextEvent(): Promise<LegacySdkEvent>;
