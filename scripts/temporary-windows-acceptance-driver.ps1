@@ -15,4 +15,10 @@ switch ($call.fault) {
     'registration-error' { function Register-ScheduledTask { throw 'Acceptance injected registration failure' } }
     'removal-error' { function Unregister-ScheduledTask { throw 'Acceptance injected removal failure' } }
 }
-& (Join-Path $Root 'install-windows-task.ps1') @parameters
+try {
+    & (Join-Path $Root 'install-windows-task.ps1') @parameters
+    exit 0
+} catch {
+    Write-Error $_ -ErrorAction Continue
+    exit 1
+}

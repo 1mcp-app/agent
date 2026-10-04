@@ -101,13 +101,14 @@ function Invoke-Installer {
             ('"' + (Join-Path $Root 'temporary-windows-acceptance-driver.ps1') + '"'),
             '-Root', ('"' + $Root + '"'), '-Request', ('"' + $request + '"')) `
         -RedirectStandardOutput $out -RedirectStandardError $err
+    $null = $child.Handle
     if (-not $child.WaitForExit(90000)) { $child.Kill(); throw 'Installer exceeded 90 seconds' }
     $child.WaitForExit()
     $output = (Get-Content $out -Raw -ErrorAction SilentlyContinue) + (Get-Content $err -Raw -ErrorAction SilentlyContinue)
     if ($ExpectFailure) {
         Assert-True ($child.ExitCode -ne 0) 'Expected installer failure'
         Assert-True ($output -match 'Registration remains: yes' -and $output -match 'Task enabled: no' -and $output -match 'Recovery:') 'Failure must report retained disabled registration and recovery'
-    } else { Assert-True ($child.ExitCode -eq 0) "Installer failed: $output" }
+    } else { Assert-True ($child.ExitCode -eq 0) "Installer failed with exit $($child.ExitCode): $output" }
     return $output
 }
 function Install-Task {

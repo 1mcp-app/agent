@@ -36,7 +36,8 @@ public static class AcceptanceAccountRights {
             var attributes = new Attributes(); attributes.Length = (uint)Marshal.SizeOf(typeof(Attributes));
             uint status = LsaOpenPolicy(IntPtr.Zero, ref attributes, 0x810, out handle);
             if (status != 0) throw new Win32Exception((int)LsaNtStatusToWinError(status));
-            var right = new UnicodeString { Length = 32, MaximumLength = 34, Buffer = buffer };
+            var length = (ushort)("SeBatchLogonRight".Length * 2);
+            var right = new UnicodeString { Length = length, MaximumLength = (ushort)(length + 2), Buffer = buffer };
             status = grant ? LsaAddAccountRights(handle, pin.AddrOfPinnedObject(), ref right, 1)
                 : LsaRemoveAccountRights(handle, pin.AddrOfPinnedObject(), 0, ref right, 1);
             if (status != 0 && !(status == 0xc0000034 && !grant))
@@ -81,8 +82,9 @@ function Clear-AcceptanceResources {
     $userSid = $state.sid
     if ($localUser) { $userSid = $localUser.SID.Value }
     $profileRemoved = $true
+    $rightsRemoved = $true
     if ($userSid) {
-        [AcceptanceAccountRights]::SetBatchLogon($userSid, $false)
+        try { [AcceptanceAccountRights]::SetBatchLogon($userSid, $false) } catch { $rightsRemoved = $false }
         # Task Scheduler can release a finished batch profile asynchronously.
         $profileDeadline = (Get-Date).AddSeconds(120)
         do {
@@ -97,9 +99,9 @@ function Clear-AcceptanceResources {
     if (Test-Path $state.root) { Remove-Item $state.root -Recurse -Force }
     if (Test-Path $state.root) { throw 'Acceptance files retained' }
     @{ completedUtc = [DateTime]::UtcNow.ToString('o'); taskRemoved = $true;
-       processesRemoved = $true; userRemoved = $true; profileRemoved = $profileRemoved; batchLogonRightRemoved = $true; filesRemoved = $true } |
+       processesRemoved = $true; userRemoved = $true; profileRemoved = $profileRemoved; batchLogonRightRemoved = $rightsRemoved; filesRemoved = $true } |
         ConvertTo-Json | Set-Content (Join-Path $evidence 'cleanup.json')
-    if (-not $profileRemoved) { throw 'Acceptance profile retained after bounded cleanup; private credentials and account removed' }
+    if (-not $profileRemoved -or -not $rightsRemoved) { throw 'Acceptance profile or batch-logon right retained after bounded cleanup; private credentials and account removed' }
 }
 
 if ($CleanupOnly) { Clear-AcceptanceResources; exit 0 }
