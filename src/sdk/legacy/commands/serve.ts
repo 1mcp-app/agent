@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
+import { parseCloudflareAccessGroupTagMap } from '@src/auth/cloudflareAccessJwt.js';
 import { resolveAsyncLoadingOptions } from '@src/commands/serve/asyncLoadingOptions.js';
 import { resolveServeConfigPaths } from '@src/commands/serve/runtimeScope.js';
 import {
@@ -71,6 +72,9 @@ export interface ServeOptions {
   auth?: boolean;
   'enable-auth'?: boolean;
   'enable-scope-validation'?: boolean;
+  'cloudflare-access-issuer'?: string;
+  'cloudflare-access-audience'?: string;
+  'cloudflare-access-group-tag-map'?: string;
   'enable-enhanced-security'?: boolean;
   'session-ttl'?: number;
   'session-storage-path'?: string;
@@ -409,6 +413,19 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
 
     // Handle backward compatibility for auth flag
     const authEnabled = parsedArgv['enable-auth'] ?? parsedArgv['auth'] ?? appConfig.auth?.enabled ?? false;
+    const cloudflareAccessIssuer = parsedArgv['cloudflare-access-issuer'] ?? appConfig.auth?.cloudflareAccessIssuer;
+    const cloudflareAccessAudience =
+      parsedArgv['cloudflare-access-audience'] ?? appConfig.auth?.cloudflareAccessAudience;
+    if (Boolean(cloudflareAccessIssuer) !== Boolean(cloudflareAccessAudience)) {
+      throw new Error('Cloudflare Access requires both issuer and audience settings');
+    }
+    const cloudflareAccessGroupTagMap = parseCloudflareAccessGroupTagMap(
+      parsedArgv['cloudflare-access-group-tag-map'] ??
+        (appConfig.auth?.cloudflareAccessGroupTagMap
+          ? JSON.stringify(appConfig.auth.cloudflareAccessGroupTagMap)
+          : undefined),
+    );
+    const cloudflareAccessEnabled = Boolean(cloudflareAccessIssuer && cloudflareAccessAudience);
 
     // Display logo with runtime information (skip for stdio or when logging to file)
     const effectiveTransport = parsedArgv.transport ?? appConfig.transport ?? 'http';
@@ -464,7 +481,10 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     // Configure server settings from CLI arguments (CLI args take precedence over appConfig)
     const serverConfigManager = AgentConfigManager.getInstance();
     const scopeValidationExplicit = parsedArgv['enable-scope-validation'] ?? appConfig.auth?.enableScopeValidation;
-    const scopeValidationEnabled = scopeValidationExplicit ?? (authEnabled ? true : false);
+    const scopeValidationEnabled = scopeValidationExplicit ?? (authEnabled || cloudflareAccessEnabled);
+    if (cloudflareAccessEnabled && !scopeValidationEnabled) {
+      throw new Error('Cloudflare Access requires scope validation so verified groups retain tag-level permissions');
+    }
     const enhancedSecurityEnabled =
       parsedArgv['enable-enhanced-security'] ?? appConfig.auth?.enableEnhancedSecurity ?? false;
 
@@ -475,7 +495,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     // fail-open caused by config corruption. Policy: WARN and continue (fail-open
     // preserved for backward compatibility); users can silence by disabling
     // --enable-scope-validation when --enable-auth is off. CWE-862 / CWE-636.
-    if (!authEnabled && scopeValidationExplicit === true) {
+    if (!authEnabled && !cloudflareAccessEnabled && scopeValidationExplicit === true) {
       logger.warn(
         '⚠️  SECURITY WARNING: authentication is DISABLED but scope validation is ENABLED. ' +
           'Requests will be served without a verified identity, so authorization cannot be ' +
@@ -548,6 +568,11 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         sessionStoragePath,
         oauthCodeTtlMs: 60 * 1000, // 1 minute
         oauthTokenTtlMs: sessionTtlMinutes * 60 * 1000,
+      },
+      cloudflareAccess: {
+        issuer: cloudflareAccessIssuer,
+        audience: cloudflareAccessAudience,
+        groupTagMap: cloudflareAccessGroupTagMap,
       },
       rateLimit: {
         windowMs: (parsedArgv['rate-limit-window'] ?? appConfig.auth?.rateLimitWindow ?? 15) * 60 * 1000,

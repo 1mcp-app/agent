@@ -1,3 +1,7 @@
+import {
+  type CloudflareAccessTokenVerifier,
+  createCloudflareAccessTokenVerifier,
+} from '@src/auth/cloudflareAccessJwt.js';
 import { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
 import type { FilterSelection } from '@src/core/filtering/filterSelection.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
@@ -71,9 +75,21 @@ export interface AuthInfo {
  */
 export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider) {
   const serverConfig = AgentConfigManager.getInstance();
+  const accessConfig = serverConfig.get('cloudflareAccess');
+  if (Boolean(accessConfig.issuer) !== Boolean(accessConfig.audience)) {
+    throw new Error('Cloudflare Access requires both issuer and audience settings');
+  }
+  const accessVerifier: CloudflareAccessTokenVerifier | undefined =
+    accessConfig.issuer && accessConfig.audience
+      ? createCloudflareAccessTokenVerifier({
+          issuer: accessConfig.issuer,
+          audience: accessConfig.audience,
+          groupTagMap: accessConfig.groupTagMap,
+        })
+      : undefined;
 
   // If scope validation is disabled, return a pass-through middleware
-  if (!serverConfig.get('features').scopeValidation) {
+  if (!serverConfig.get('features').scopeValidation && !accessVerifier) {
     return (_req: Request, res: Response, next: NextFunction): void => {
       res.locals.validatedTags = getRequestedTagsForScope(res);
       next();
@@ -81,31 +97,57 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
   }
 
   // If scope validation is enabled but auth is disabled, allow all tags
-  if (!serverConfig.get('features').auth) {
+  if (!serverConfig.get('features').auth && !accessVerifier) {
     return (_req: Request, res: Response, next: NextFunction): void => {
       res.locals.validatedTags = getRequestedTagsForScope(res);
       next();
     };
   }
 
-  const provider = oauthProvider || new SDKOAuthServerProvider();
+  const provider = accessVerifier ? undefined : oauthProvider || new SDKOAuthServerProvider();
 
   // Create the SDK's bearer auth middleware
-  const bearerAuthMiddleware = requireBearerAuth({
-    verifier: provider,
-    resourceMetadataUrl: `${AgentConfigManager.getInstance().getUrl()}/.well-known/oauth-protected-resource`,
-  });
+  const bearerAuthMiddleware = accessVerifier
+    ? undefined
+    : requireBearerAuth({
+        verifier: provider!,
+        resourceMetadataUrl: `${AgentConfigManager.getInstance().getUrl()}/.well-known/oauth-protected-resource`,
+      });
 
   // Return a combined middleware that does both auth and scope validation
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      // First run the SDK's bearer auth middleware
-      await new Promise<void>((resolve, reject) => {
-        bearerAuthMiddleware(req, res, (err?: unknown) => {
-          if (err) reject(err);
-          else resolve();
+      if (accessVerifier) {
+        const assertion = req.get('cf-access-jwt-assertion');
+        if (!assertion) {
+          res
+            .status(401)
+            .json({ error: 'invalid_token', error_description: 'Cloudflare Access assertion is required' });
+          return;
+        }
+        let identity;
+        try {
+          identity = await accessVerifier(assertion);
+        } catch {
+          res.status(401).json({ error: 'invalid_token', error_description: 'Cloudflare Access assertion is invalid' });
+          return;
+        }
+        req.auth = {
+          token: assertion,
+          clientId: identity.subject,
+          scopes: [...identity.scopes],
+          expiresAt: identity.expiresAt,
+          extra: { ...(identity.email ? { email: identity.email } : {}), identityProvider: 'cloudflare-access' },
+        };
+      } else {
+        // First run the SDK's bearer auth middleware
+        await new Promise<void>((resolve, reject) => {
+          bearerAuthMiddleware!(req, res, (err?: unknown) => {
+            if (err) reject(err);
+            else resolve();
+          });
         });
-      });
+      }
 
       // If we get here, auth succeeded and req.auth is populated
       const authInfo = req.auth;
@@ -157,7 +199,11 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
 
       // Provide authentication context to downstream handlers via res.locals
       const authHeader = req.headers.authorization;
-      const token = typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+      const token = accessVerifier
+        ? (req.get('cf-access-jwt-assertion') ?? '')
+        : typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
+          ? authHeader.slice(7)
+          : '';
 
       const authContext: AuthInfo = {
         token,

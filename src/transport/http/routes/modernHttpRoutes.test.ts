@@ -4,6 +4,9 @@ import { EventEmitter } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import { Writable } from 'node:stream';
 
+import { ClientStatus } from '@src/core/types/index.js';
+import type { LegacySdkAdapter } from '@src/sdk/contracts/index.js';
+
 import express from 'express';
 import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -31,12 +34,27 @@ const loopbackPolicy: ModernHttpRequestPolicy = {
   allowsOrigin: (origin) => origin === undefined || /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/u.test(origin),
 };
 
-function app(policy: ModernHttpRequestPolicy = loopbackPolicy) {
+function app(
+  policy: ModernHttpRequestPolicy = loopbackPolicy,
+  serverManager: object = {},
+  validatedTags: string[] = [],
+) {
   const instance = express();
   instance.use(express.json());
   instance.use(errorHandler);
   const router = express.Router();
-  setupModernHttpRoutes(router, {} as never, [(_req, _res, next) => next()], createBridge, policy);
+  setupModernHttpRoutes(
+    router,
+    serverManager as never,
+    [
+      (_req, res, next) => {
+        res.locals.validatedTags = validatedTags;
+        next();
+      },
+    ],
+    createBridge,
+    policy,
+  );
   router.post('/mcp', (_req, res) => res.status(299).json({ legacy: true }));
   instance.use(router);
   return instance;
@@ -137,6 +155,104 @@ describe('modern HTTP admission', () => {
     expect(response.body.result.capabilities.extensions).toBeUndefined();
     expect(response.body.result.capabilities.resources.subscribe).toBeUndefined();
     expect(response.body.result.capabilities.resources.listChanged).toBeUndefined();
+    expect(createBridge).not.toHaveBeenCalled();
+  });
+
+  it('advertises and routes the bounded Events surface only to connected agent-offload', async () => {
+    const providerAdapter = {
+      connectionId: 'agent-offload-connection',
+      protocolPin: { era: 'legacy', revision: '2025-11-25' },
+      state: 'running',
+      start: vi.fn(async () => undefined),
+      nextEvent: vi.fn(),
+      respond: vi.fn(async () => undefined),
+      request: vi.fn(async (request: { method: string; params?: unknown }) => {
+        if (request.method === 'events/list') return { events: [{ name: 'delegation.completed' }] };
+        if (request.method === 'events/subscribe') return { subscriptionId: 'sub-1' };
+        return { unsubscribed: true };
+      }),
+      cancel: vi.fn(async () => undefined),
+      notify: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+    } as unknown as LegacySdkAdapter;
+    const getClient = vi.fn((name: string) =>
+      name === 'agent-offload' ? { name, status: ClientStatus.Connected, adapter: providerAdapter } : undefined,
+    );
+    const serverManager = { getClient };
+
+    const discovery = await modernPost(app(loopbackPolicy, serverManager, ['agent-offload']), {
+      jsonrpc: '2.0',
+      id: 40,
+      method: 'server/discover',
+      params: { _meta: modernMeta },
+    });
+    expect(discovery.body.result.capabilities.events).toEqual({});
+
+    const cases = [
+      ['events/list', undefined, { events: [{ name: 'delegation.completed' }] }],
+      [
+        'events/subscribe',
+        { event: 'delegation.completed', callbackUrl: 'https://callback.example' },
+        { subscriptionId: 'sub-1' },
+      ],
+      ['events/unsubscribe', { subscriptionId: 'sub-1' }, { unsubscribed: true }],
+    ] as const;
+    for (const [index, [method, params, result]] of cases.entries()) {
+      const response = await modernPost(app(loopbackPolicy, serverManager, ['agent-offload']), {
+        jsonrpc: '2.0',
+        id: 41 + index,
+        method,
+        params: { ...(params ?? {}), _meta: modernMeta },
+      });
+      expect(response.status).toBe(200);
+      expect(response.body.result).toMatchObject(result);
+      expect(providerAdapter.request).toHaveBeenLastCalledWith(
+        expect.objectContaining({ method, ...(params === undefined ? {} : { params }) }),
+      );
+    }
+    expect(createBridge).not.toHaveBeenCalled();
+    expect(getClient).toHaveBeenCalledWith('agent-offload');
+  });
+
+  it('does not advertise Events or dispatch them while agent-offload is unavailable', async () => {
+    const serverManager = { getClient: vi.fn(() => undefined) };
+    const discovery = await modernPost(app(loopbackPolicy, serverManager, ['agent-offload']), {
+      jsonrpc: '2.0',
+      id: 50,
+      method: 'server/discover',
+      params: { _meta: modernMeta },
+    });
+    expect(discovery.body.result.capabilities.events).toBeUndefined();
+
+    const response = await modernPost(app(loopbackPolicy, serverManager, ['agent-offload']), {
+      jsonrpc: '2.0',
+      id: 51,
+      method: 'events/list',
+      params: { _meta: modernMeta },
+    });
+    expect(response.body.error).toMatchObject({ code: -32601 });
+    expect(createBridge).not.toHaveBeenCalled();
+  });
+
+  it('does not advertise or register Events without the agent-offload tag', async () => {
+    const provider = { name: 'agent-offload', status: ClientStatus.Connected, adapter: {} };
+    const serverManager = { getClient: vi.fn(() => provider) };
+    const instance = app(loopbackPolicy, serverManager);
+    const discovery = await modernPost(instance, {
+      jsonrpc: '2.0',
+      id: 60,
+      method: 'server/discover',
+      params: { _meta: modernMeta },
+    });
+    expect(discovery.body.result.capabilities.events).toBeUndefined();
+
+    const response = await modernPost(instance, {
+      jsonrpc: '2.0',
+      id: 61,
+      method: 'events/list',
+      params: { _meta: modernMeta },
+    });
+    expect(response.body.error).toMatchObject({ code: -32601 });
     expect(createBridge).not.toHaveBeenCalled();
   });
 
