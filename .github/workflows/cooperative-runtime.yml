@@ -55,6 +55,9 @@ jobs:
 
       - name: Verify cooperative lifecycle with Node
         if: matrix.runtime == 'Node'
+        env:
+          # Reuse bytecode across CLI launches within this job; each runner starts cold.
+          NODE_COMPILE_CACHE: ${{ runner.temp }}/lifecycle-node-compile-cache
         run: pnpm test:e2e test/e2e/commands/cooperative-runtime.test.ts --retry=0
 
       # Each runtime has its own runner; SEA cannot overwrite the Node job artifacts.
