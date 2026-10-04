@@ -136,13 +136,22 @@ jobs:
         run: |
           started_at=$(date +%s)
           set +e
-          pnpm test:e2e:shardable --shard="$MATRIX_SHARD/$E2E_SHARD_COUNT" --reporter=minimal
+          pnpm test:e2e:shardable --shard="$MATRIX_SHARD/$E2E_SHARD_COUNT" --reporter=minimal --reporter=json --outputFile.json=".tmp/e2e-shard-$MATRIX_SHARD.json"
           test_status=$?
           set -e
           finished_at=$(date +%s)
           duration=$((finished_at - started_at))
           echo "E2E shard $MATRIX_SHARD/$E2E_SHARD_COUNT took ${duration}s" >> "$GITHUB_STEP_SUMMARY"
           exit "$test_status"
+
+      - name: Upload E2E timing report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-timings-shard-${{ matrix.shard }}-${{ github.sha }}
+          path: .tmp/e2e-shard-${{ matrix.shard }}.json
+          retention-days: 7
+          if-no-files-found: warn
 
       # Schema worker startup has a strict deadline; packaging scans build/.
       # Give these tests the runner after ordinary shard workers have exited.
