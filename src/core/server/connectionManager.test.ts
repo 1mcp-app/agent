@@ -94,10 +94,11 @@ describe('ConnectionManager', () => {
 
   it('evicts catalog scopes using the inbound context session identity on disconnect', async () => {
     await connectionManager.connectTransport(mockTransport, 'transport-id', { context: { sessionId: 'context-id' } });
-    mockOutboundConns.set('backend', createMockOutboundConnection({ capabilities: {} }));
+    // A session-scoped template instance gives the session its own catalog scope.
+    mockOutboundConns.set('backend:instance', createMockOutboundConnection({ capabilities: {} }));
     const snapshot = await acquireRuntimeCapabilityCatalog(
       mockOutboundConns,
-      createCapabilityVisibility([['backend', 'backend']], 'context-id'),
+      createCapabilityVisibility([['backend:instance', 'backend']], 'context-id'),
     );
     await connectionManager.disconnectTransport('transport-id');
     expect(snapshot.isCurrent()).toBe(false);

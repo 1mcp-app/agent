@@ -1,3 +1,5 @@
+import { RESPONSE_JSON_VALUE_LIMITS } from '@src/sdk/contracts/jsonValue.js';
+
 import {
   createGatewayCancellation,
   createGatewayFailure,
@@ -57,7 +59,7 @@ function copyResponse(response: InboundGatewayResponse): InboundGatewayResponse 
     return Object.freeze({
       type: 'success',
       requestId: response.requestId,
-      result: toImmutableJsonValue(response.result),
+      result: toImmutableJsonValue(response.result, RESPONSE_JSON_VALUE_LIMITS),
     });
   }
   return Object.freeze({

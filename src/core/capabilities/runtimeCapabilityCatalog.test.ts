@@ -464,13 +464,14 @@ describe('runtime capability catalog', () => {
 
   it('evicts every session scope and prevents in-flight work from republishing after teardown', async () => {
     const connection = fixture();
-    const connections = new Map([['server', connection]]);
-    const visibility = createCapabilityVisibility([['server', 'server']], 'closed');
+    // A session-scoped template instance keeps its catalog scope private to the session.
+    const connections = new Map([['server:instance', connection]]);
+    const visibility = createCapabilityVisibility([['server:instance', 'server']], 'closed');
     const first = await acquireRuntimeCapabilityCatalog(connections, visibility);
     const extra = await acquireRuntimeCapabilityCatalog(connections, visibility, { internalResources: [] });
     const other = await acquireRuntimeCapabilityCatalog(
       connections,
-      createCapabilityVisibility([['server', 'server']], 'other'),
+      createCapabilityVisibility([['server:instance', 'server']], 'other'),
     );
     let finish!: (value: unknown) => void;
     vi.mocked(connection.adapter.request).mockImplementationOnce(
@@ -746,27 +747,59 @@ describe('runtime capability catalog', () => {
   it('reclaims expired scope capacity without retaining authority after expiry', async () => {
     vi.useFakeTimers();
     try {
-      const connections = new Map([['server', fixture()]]);
-      const original = await acquireRuntimeCapabilityCatalog(
-        connections,
-        createCapabilityVisibility([['server', 'server']], 'session-0'),
-      );
+      const connections = new Map([['server:instance', fixture()]]);
+      const visibility = (sessionId: string) => createCapabilityVisibility([['server:instance', 'server']], sessionId);
+      const original = await acquireRuntimeCapabilityCatalog(connections, visibility('session-0'));
       for (let index = 1; index < 256; index++)
-        await acquireRuntimeCapabilityCatalog(
-          connections,
-          createCapabilityVisibility([['server', 'server']], `session-${index}`),
-        );
-      await expect(
-        acquireRuntimeCapabilityCatalog(connections, createCapabilityVisibility([['server', 'server']], 'overflow')),
-      ).rejects.toThrow('capacity');
+        await acquireRuntimeCapabilityCatalog(connections, visibility(`session-${index}`));
+      await expect(acquireRuntimeCapabilityCatalog(connections, visibility('overflow'))).rejects.toThrow('capacity');
       vi.advanceTimersByTime(15 * 60 * 1000);
-      await expect(
-        acquireRuntimeCapabilityCatalog(connections, createCapabilityVisibility([['server', 'server']], 'recovered')),
-      ).resolves.toBeDefined();
+      await expect(acquireRuntimeCapabilityCatalog(connections, visibility('recovered'))).resolves.toBeDefined();
       expect(original.isCurrent()).toBe(false);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('resumes a static-server cursor from a fresh stateless session after the first one closes', async () => {
+    const connections = new Map([
+      ['a', fixture('a')],
+      ['b', fixture('b')],
+    ]);
+    const visibility = (sessionId: string) =>
+      createCapabilityVisibility(
+        [
+          ['a', 'a'],
+          ['b', 'b'],
+        ],
+        sessionId,
+      );
+    const first = await acquireRuntimeCapabilityCatalog(connections, visibility('request-1'));
+    const page = await first.list<{ name: string }>('tools', { enablePagination: true });
+    evictRuntimeCapabilityCatalogSession(connections, 'request-1');
+
+    const resumed = await acquireRuntimeCapabilityCatalog(connections, visibility('request-2'), {
+      continuation: { kind: 'tools', cursor: page.nextCursor!, enablePagination: true },
+    });
+    const last = await resumed.list<{ name: string }>('tools', { cursor: page.nextCursor, enablePagination: true });
+
+    expect(page.items.map((item) => item.name)).toEqual(['a_1mcp_echo']);
+    expect(last.items.map((item) => item.name)).toEqual(['b_1mcp_echo']);
+  });
+
+  it('keeps unlisted resource routes private to the session that received them', async () => {
+    const connection = fixture('server');
+    const connections = new Map([['server', connection]]);
+    const visibility = (sessionId: string) => createCapabilityVisibility([['server', 'server']], sessionId);
+    const owner = await acquireRuntimeCapabilityCatalog(connections, visibility('owner'));
+    const identity = owner.projectUnlistedResource('server', 'file:///hidden');
+    const other = await acquireRuntimeCapabilityCatalog(connections, visibility('other'));
+
+    expect(owner.resolve('resources', identity)).toBeDefined();
+    expect(other.resolve('resources', identity)).toBeUndefined();
+    expect(other.projectUnlistedResource('server', 'file:///hidden')).not.toBe(identity);
+    evictRuntimeCapabilityCatalogSession(connections, 'owner');
+    expect(owner.resolve('resources', identity)).toBeUndefined();
   });
 
   it('invalidates a cursor when upstream page positions change despite identical objects', async () => {
