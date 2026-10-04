@@ -20,7 +20,7 @@ head:
 - **最大兼容性**：为需要项目上下文的 stdio 客户端使用 [Proxy 命令](/zh/commands/proxy)。
 - **受保护的运行时**：通过[身份验证](/zh/guide/advanced/authentication)配置 OAuth 2.1 和作用域。
 - **共享或公网部署**：阅读 [使用 Caddy 的云部署](/zh/guide/advanced/cloud-deployment)。
-- **Windows 持久部署**：使用 [Windows 任务计划程序](/zh/guide/advanced/windows-task-scheduler)实现开机启动、失败重启和非交互式监管。
+- **Windows 持久部署**：使用 [Windows 任务计划程序](/zh/guide/advanced/windows-task-scheduler)实现开机启动、任务计划程序针对符合条件的任务操作失败执行原生重试、可选的定时恢复及非交互式监管。
 
 ## 先决条件
 
