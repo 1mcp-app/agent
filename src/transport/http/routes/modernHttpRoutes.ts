@@ -36,6 +36,7 @@ import {
   validateInteractionResponse,
 } from '@src/gateway/interactions/validateInteractionResponse.js';
 import type { GatewayInteractionRequest } from '@src/gateway/ports/outboundEraAdapter.js';
+import { withMcpTraceContext } from '@src/observability/tracing/context.js';
 import {
   getAuthInfo,
   getPresetName,
@@ -392,135 +393,145 @@ export function setupModernHttpRoutes(
             },
           );
           for (const operation of gatewayOperationSchema.options) {
-            server.setRequestHandler(operation, async (message, context: ServerContext) => {
-              if (activeModernRequests >= MAX_ACTIVE_MODERN_REQUESTS) {
-                throw new ProtocolError(-32000, 'Gateway request capacity exceeded', {
-                  'app.1mcp/failure': {
-                    kind: 'transport',
-                    code: 'gateway_overloaded',
-                  },
-                });
-              }
-              activeModernRequests++;
-              try {
-                const capabilities =
-                  (context.mcpReq.envelope as Record<string, unknown> | undefined)?.[
-                    'io.modelcontextprotocol/clientCapabilities'
-                  ] ?? {};
-                const logLevel = (context.mcpReq.envelope as Record<string, unknown> | undefined)?.[
-                  'io.modelcontextprotocol/logLevel'
-                ] as NonNullable<Parameters<ModernInboundBridgeFactory>[2]>['logLevel'];
-                const binding = await createModernInteractionBinding(
-                  serverManager,
-                  config,
-                  operation,
-                  stripInboundRequestMeta(message.params),
-                  getAuthInfo(res),
-                  capabilities,
-                  context.mcpReq.signal,
-                );
-                const requestState = context.mcpReq.requestState();
-                if (requestState !== undefined) {
-                  if (!binding || typeof requestState !== 'string')
-                    throw new ProtocolError(-32602, 'Interaction continuation rejected');
-                  return (await interactions.resume(
-                    requestState,
-                    binding,
-                    context.mcpReq.inputResponses,
-                    context.mcpReq.signal,
-                    async () =>
-                      JSON.stringify(binding) ===
-                        JSON.stringify(
-                          await createModernInteractionBinding(
-                            serverManager,
-                            config,
-                            operation,
-                            stripInboundRequestMeta(message.params),
-                            getAuthInfo(res),
-                            capabilities,
-                            context.mcpReq.signal,
-                          ),
-                        ) &&
-                      (await revalidateAuthInfo(getAuthInfo(res))) &&
-                      isModernInteractionBindingCurrent(binding),
-                  )) as never;
-                }
-                const deadline = Date.now() + requestTimeoutMs;
-                if (binding) {
-                  const verifyBinding = async (signal: AbortSignal) => {
-                    const current = await createModernInteractionBinding(
+            server.setRequestHandler(operation, async (message, context: ServerContext) =>
+              withMcpTraceContext(
+                (req.body as { params?: unknown } | undefined)?.params,
+                async () => {
+                  if (activeModernRequests >= MAX_ACTIVE_MODERN_REQUESTS) {
+                    throw new ProtocolError(-32000, 'Gateway request capacity exceeded', {
+                      'app.1mcp/failure': {
+                        kind: 'transport',
+                        code: 'gateway_overloaded',
+                      },
+                    });
+                  }
+                  activeModernRequests++;
+                  try {
+                    const capabilities =
+                      (context.mcpReq.envelope as Record<string, unknown> | undefined)?.[
+                        'io.modelcontextprotocol/clientCapabilities'
+                      ] ?? {};
+                    const logLevel = (context.mcpReq.envelope as Record<string, unknown> | undefined)?.[
+                      'io.modelcontextprotocol/logLevel'
+                    ] as NonNullable<Parameters<ModernInboundBridgeFactory>[2]>['logLevel'];
+                    const binding = await createModernInteractionBinding(
                       serverManager,
                       config,
                       operation,
                       stripInboundRequestMeta(message.params),
                       getAuthInfo(res),
                       capabilities,
-                      signal,
+                      context.mcpReq.signal,
                     );
-                    if (JSON.stringify(current) !== JSON.stringify(binding)) {
-                      interactions.invalidate(binding);
-                      throw new ProtocolError(-32602, 'Interaction route or authority changed');
-                    }
-                  };
-                  return (await interactions.start(
-                    binding,
-                    deadline,
-                    async (interaction, signal, interactionRound) => {
-                      const unwatch = watchModernInteractionBinding(binding, () => interactions.invalidate(binding));
-                      try {
-                        await verifyBinding(signal);
-                        return await withModernInteractionBinding(binding, () =>
-                          withNativeInteractionRound(
-                            async (inputs) => {
-                              await verifyBinding(signal);
-                              if (
-                                !Object.values(inputs).every((input) => hasInteractionCapability(capabilities, input))
-                              )
-                                throw new ProtocolError(-32021, 'Interaction capability required');
-                              return interactionRound(inputs);
-                            },
-                            () =>
-                              dispatchGateway(
-                                operation,
-                                message.params,
-                                signal,
+                    const requestState = context.mcpReq.requestState();
+                    if (requestState !== undefined) {
+                      if (!binding || typeof requestState !== 'string')
+                        throw new ProtocolError(-32602, 'Interaction continuation rejected');
+                      return (await interactions.resume(
+                        requestState,
+                        binding,
+                        context.mcpReq.inputResponses,
+                        context.mcpReq.signal,
+                        async () =>
+                          JSON.stringify(binding) ===
+                            JSON.stringify(
+                              await createModernInteractionBinding(
                                 serverManager,
                                 config,
-                                createBridge,
-                                deadline,
-                                {
-                                  capabilities: toImmutableJsonValue(capabilities),
-                                  logLevel,
-                                  interaction: async (input) => {
-                                    await verifyBinding(signal);
-                                    if (!hasInteractionCapability(capabilities, input))
-                                      throw new ProtocolError(-32021, 'Interaction capability required');
-                                    return interaction(input);
-                                  },
-                                },
+                                operation,
+                                stripInboundRequestMeta(message.params),
+                                getAuthInfo(res),
+                                capabilities,
+                                context.mcpReq.signal,
                               ),
-                          ),
+                            ) &&
+                          (await revalidateAuthInfo(getAuthInfo(res))) &&
+                          isModernInteractionBindingCurrent(binding),
+                      )) as never;
+                    }
+                    const deadline = Date.now() + requestTimeoutMs;
+                    if (binding) {
+                      const verifyBinding = async (signal: AbortSignal) => {
+                        const current = await createModernInteractionBinding(
+                          serverManager,
+                          config,
+                          operation,
+                          stripInboundRequestMeta(message.params),
+                          getAuthInfo(res),
+                          capabilities,
+                          signal,
                         );
-                      } finally {
-                        unwatch();
-                      }
-                    },
-                    context.mcpReq.signal,
-                  )) as never;
-                }
-                return (await dispatchGateway(
-                  operation,
-                  message.params,
-                  context.mcpReq.signal,
-                  serverManager,
-                  config,
-                  createBridge,
-                  Date.now() + requestTimeoutMs,
-                )) as never;
-              } finally {
-                activeModernRequests--;
-              }
-            });
+                        if (JSON.stringify(current) !== JSON.stringify(binding)) {
+                          interactions.invalidate(binding);
+                          throw new ProtocolError(-32602, 'Interaction route or authority changed');
+                        }
+                      };
+                      return (await interactions.start(
+                        binding,
+                        deadline,
+                        async (interaction, signal, interactionRound) => {
+                          const unwatch = watchModernInteractionBinding(binding, () =>
+                            interactions.invalidate(binding),
+                          );
+                          try {
+                            await verifyBinding(signal);
+                            return await withModernInteractionBinding(binding, () =>
+                              withNativeInteractionRound(
+                                async (inputs) => {
+                                  await verifyBinding(signal);
+                                  if (
+                                    !Object.values(inputs).every((input) =>
+                                      hasInteractionCapability(capabilities, input),
+                                    )
+                                  )
+                                    throw new ProtocolError(-32021, 'Interaction capability required');
+                                  return interactionRound(inputs);
+                                },
+                                () =>
+                                  dispatchGateway(
+                                    operation,
+                                    message.params,
+                                    signal,
+                                    serverManager,
+                                    config,
+                                    createBridge,
+                                    deadline,
+                                    {
+                                      capabilities: toImmutableJsonValue(capabilities),
+                                      logLevel,
+                                      interaction: async (input) => {
+                                        await verifyBinding(signal);
+                                        if (!hasInteractionCapability(capabilities, input))
+                                          throw new ProtocolError(-32021, 'Interaction capability required');
+                                        return interaction(input);
+                                      },
+                                    },
+                                  ),
+                              ),
+                            );
+                          } finally {
+                            unwatch();
+                          }
+                        },
+                        context.mcpReq.signal,
+                      )) as never;
+                    }
+                    return (await dispatchGateway(
+                      operation,
+                      message.params,
+                      context.mcpReq.signal,
+                      serverManager,
+                      config,
+                      createBridge,
+                      Date.now() + requestTimeoutMs,
+                    )) as never;
+                  } finally {
+                    activeModernRequests--;
+                  }
+                },
+                context.mcpReq.signal,
+              ),
+            );
           }
           return server;
         },

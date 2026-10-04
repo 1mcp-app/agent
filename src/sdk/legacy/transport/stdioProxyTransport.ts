@@ -10,6 +10,7 @@ import {
   type ProtocolEraPin,
 } from '@src/gateway/contracts/index.js';
 import logger from '@src/logger/logger.js';
+import { injectTraceContext, stripBaggage, withMcpTraceContext } from '@src/observability/tracing/context.js';
 import { toProtocolJSONRPCMessage } from '@src/sdk/contracts/index.js';
 import { StdioServerTransport } from '@src/sdk/legacy/server/stdio.js';
 import { JSONRPCMessage } from '@src/sdk/legacy/types.js';
@@ -75,11 +76,7 @@ export class StdioProxyTransport {
         sessionId: generateMcpSessionId(),
       });
 
-    logger.info('🔍 Detected proxy context', {
-      projectPath: this.context.project.path,
-      projectName: this.context.project.name,
-      sessionId: this.context.sessionId,
-    });
+    logger.info('stdioProxyTransport.detected.proxy.context.2cbf19e3', { sessionId: this.context.sessionId });
 
     // Create STDIO server transport (for client communication)
     this.stdioTransport = new StdioServerTransport();
@@ -96,10 +93,7 @@ export class StdioProxyTransport {
       this.serverUrl.searchParams.set('tags', this.options.tags.join(','));
     }
 
-    logger.info('📡 Proxy connecting with _meta field approach', {
-      url: this.serverUrl.toString(),
-      contextProvided: true,
-    });
+    logger.info('stdioProxyTransport.proxy.connecting.with.meta.field.approach.7b806ac5');
 
     // Create HTTP transport with custom fetch that dynamically injects User-Agent
     // Note: sessionId is passed as a parameter, SDK will handle adding it to headers
@@ -122,16 +116,16 @@ export class StdioProxyTransport {
       this.httpStarted = true;
       await this.httpTransport.start();
 
-      logger.info('Connected to 1MCP HTTP server');
+      logger.info('stdioProxyTransport.connected.to.1mcp.http.server.a68b24a9');
 
       // Start STDIO transport
       this.stdioStarted = true;
       await this.stdioTransport.start();
       this.isConnected = true;
 
-      logger.info('STDIO proxy started successfully');
+      logger.info('stdioProxyTransport.stdio.proxy.started.successfully.a07d7f6c');
     } catch (error) {
-      logger.error(`Failed to start STDIO proxy: ${error}`);
+      logger.error('stdioProxyTransport.failed.to.start.stdio.proxy.4f7542ea', { error: error });
       await this.close();
       throw error;
     }
@@ -143,25 +137,29 @@ export class StdioProxyTransport {
    */
   private setupHttpTransportMessageHandlers(): void {
     // Forward messages from HTTP server to STDIO client
-    this.httpTransport.onmessage = async (message: JSONRPCMessage) => {
-      try {
-        this.observeUpstreamFrame(message);
-        // Forward to STDIO client
-        await this.stdioTransport.send(message as never);
-      } catch (error) {
-        logger.error(`Error forwarding HTTP message to STDIO: ${error}`);
-        if (this.isProtocolFailure(error)) await this.failProtocolFrame(message, error);
-      }
-    };
+    this.httpTransport.onmessage = async (message: JSONRPCMessage) =>
+      withMcpTraceContext('params' in message ? message.params : undefined, async () => {
+        try {
+          this.observeUpstreamFrame(message);
+          if ('result' in message) message = { ...message, result: stripBaggage(message.result) };
+          // Forward to STDIO client
+          await this.stdioTransport.send(
+            ('method' in message ? { ...message, params: injectTraceContext(message.params) } : message) as never,
+          );
+        } catch (error) {
+          logger.error('stdioProxyTransport.error.forwarding.http.message.to.stdio.8ee2e23a', { error });
+          if (this.isProtocolFailure(error)) await this.failProtocolFrame(message, error);
+        }
+      });
 
     // Handle errors from HTTP transport
-    this.httpTransport.onerror = (error: Error) => {
-      logger.error(`HTTP transport error: ${error.message}`);
+    this.httpTransport.onerror = (_error: Error) => {
+      logger.error('stdioProxyTransport.http.transport.error.f0ffb32a');
     };
 
     // Handle HTTP transport close
     this.httpTransport.onclose = async () => {
-      logger.warn('HTTP server connection closed');
+      logger.warn('stdioProxyTransport.http.server.connection.closed.18f12143');
       await this.close();
     };
   }
@@ -171,52 +169,52 @@ export class StdioProxyTransport {
    */
   private setupMessageForwarding(): void {
     // Forward messages from STDIO client to HTTP server
-    this.stdioTransport.onmessage = async (message: JSONRPCMessage) => {
-      try {
-        this.classifyDownstreamFrame(message);
-        // Check for initialize request to extract client info
-        if (!this.initializeIntercepted) {
-          const clientInfo = ClientInfoExtractor.extractFromInitializeRequest(toProtocolJSONRPCMessage(message));
-          if (clientInfo) {
-            this.clientInfo = clientInfo;
-            this.initializeIntercepted = true;
+    this.stdioTransport.onmessage = async (message: JSONRPCMessage) =>
+      withMcpTraceContext('params' in message ? message.params : undefined, async () => {
+        try {
+          this.classifyDownstreamFrame(message);
+          if ('result' in message) message = { ...message, result: stripBaggage(message.result) };
+          // Check for initialize request to extract client info
+          if (!this.initializeIntercepted) {
+            const clientInfo = ClientInfoExtractor.extractFromInitializeRequest(toProtocolJSONRPCMessage(message));
+            if (clientInfo) {
+              this.clientInfo = clientInfo;
+              this.initializeIntercepted = true;
 
-            logger.info('🔍 Extracted client info from initialize request', {
-              clientName: clientInfo.name,
-              clientVersion: clientInfo.version,
-              clientTitle: clientInfo.title,
-            });
+              logger.info('stdioProxyTransport.extracted.client.info.from.initialize.request.3006194b');
 
-            // Client info is now available - custom fetch will dynamically inject
-            // the updated User-Agent header for all subsequent HTTP requests
-            logger.info('✅ Client info extracted - User-Agent will be updated for all requests', {
-              userAgent: this.buildUserAgent(),
-            });
+              // Client info is now available - custom fetch will dynamically inject
+              // the updated User-Agent header for all subsequent HTTP requests
+              logger.info(
+                'stdioProxyTransport.client.info.extracted.user.agent.will.be.updated.for.all.requests.0f9d91f0',
+              );
+            }
           }
+
+          // Add context metadata to message _meta field
+          const enhancedMessage = await this.addContextMeta(
+            'method' in message ? { ...message, params: injectTraceContext(message.params) } : message,
+          );
+
+          // Forward to HTTP server
+          await this.httpTransport.send(enhancedMessage as never);
+        } catch (error) {
+          logger.error('stdioProxyTransport.error.forwarding.stdio.message.to.http.a4e22130', { error });
+          if (this.isProtocolFailure(error)) await this.failProtocolFrame(message, error);
         }
-
-        // Add context metadata to message _meta field
-        const enhancedMessage = await this.addContextMeta(message);
-
-        // Forward to HTTP server
-        await this.httpTransport.send(enhancedMessage as never);
-      } catch (error) {
-        logger.error(`Error forwarding STDIO message to HTTP: ${error}`);
-        if (this.isProtocolFailure(error)) await this.failProtocolFrame(message, error);
-      }
-    };
+      });
 
     // Set up HTTP transport message handlers
     this.setupHttpTransportMessageHandlers();
 
     // Handle errors from STDIO transport
-    this.stdioTransport.onerror = (error: Error) => {
-      logger.error(`STDIO transport error: ${error.message}`);
+    this.stdioTransport.onerror = (_error: Error) => {
+      logger.error('stdioProxyTransport.stdio.transport.error.c61c2ede');
     };
 
     // Handle STDIO transport close
     this.stdioTransport.onclose = async () => {
-      logger.info('STDIO transport closed');
+      logger.info('stdioProxyTransport.stdio.transport.closed.6ca9f513');
       await this.close();
     };
   }
@@ -432,9 +430,9 @@ export class StdioProxyTransport {
       this.stdioStarted = false;
       const outcomes = await Promise.allSettled(closers);
       for (const outcome of outcomes) {
-        if (outcome.status === 'rejected') logger.error(`Error closing STDIO proxy: ${outcome.reason}`);
+        if (outcome.status === 'rejected') logger.error('stdioProxyTransport.error.closing.stdio.proxy.7c69038d');
       }
-      logger.info('STDIO proxy closed');
+      logger.info('stdioProxyTransport.stdio.proxy.closed.abcc8556');
     })();
     return this.closePromise;
   }

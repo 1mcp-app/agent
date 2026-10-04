@@ -28,13 +28,15 @@ export class ConfigChangeHandler {
       runtimeAdmission
         .run(() => this.handleConfigChanges(changes))
         .catch((error: unknown) => {
-          logger.error('Failed to apply configuration changes', error);
+          logger.error('configChangeHandler.failed.to.apply.configuration.changes.c04a8608', { error: error });
         });
     this.runtimeEnvironmentListener = (change) =>
       runtimeAdmission
         .run(() => this.handleRuntimeEnvironmentChange(change))
         .catch((error: unknown) => {
-          logger.error('Failed to apply Runtime Scope environment changes', error);
+          logger.error('configChangeHandler.failed.to.apply.runtime.scope.environment.changes.81abbdd0', {
+            error: error,
+          });
         });
 
     // Listen to config changes
@@ -76,7 +78,7 @@ export class ConfigChangeHandler {
       this.configManager = ConfigManager.getInstance();
     }
 
-    logger.info('ConfigChangeHandler initialized');
+    logger.info('configChangeHandler.configchangehandler.initialized.f312d3c9');
   }
 
   /**
@@ -92,7 +94,7 @@ export class ConfigChangeHandler {
       return;
     }
 
-    logger.info(`Processing ${changes.length} configuration changes`);
+    logger.info('configChangeHandler.processing.configuration.changes.76003a4f');
 
     // Get the latest configuration for all operations
     const newConfig = this.configManager.getTransportConfig();
@@ -103,8 +105,8 @@ export class ConfigChangeHandler {
         if (await this.processChange(change, newConfig)) {
           appliedChanges.push(change);
         }
-      } catch (error) {
-        logger.error(`Failed to process change for server ${change.serverName}: ${error}`);
+      } catch (_error) {
+        logger.error('configChangeHandler.failed.to.process.change.for.server.ba4a3660', { error: _error });
       }
     }
 
@@ -121,7 +123,9 @@ export class ConfigChangeHandler {
     try {
       await serverManager.reloadTemplatesForRuntimeEnvironment(change.templateServerNames);
     } catch (error) {
-      logger.error('Failed to reload templates after Runtime Scope environment change', error);
+      logger.error('configChangeHandler.failed.to.reload.templates.after.runtime.scope.environment.change.ac9ce5e9', {
+        error: error,
+      });
     }
   }
 
@@ -138,7 +142,9 @@ export class ConfigChangeHandler {
 
     const { templateServers, errors } = this.configManager.loadDeclaredServerConfigs();
     if (errors.length > 0) {
-      logger.warn('Skipping template reconciliation because the declared configuration is invalid', { errors });
+      logger.warn(
+        'configChangeHandler.skipping.template.reconciliation.because.the.declared.configuration.is.inva.f0aafc7d',
+      );
       return false;
     }
     return (
@@ -152,18 +158,16 @@ export class ConfigChangeHandler {
    */
   private async processChange(change: ConfigChange, newConfig: Record<string, MCPServerParams>): Promise<boolean> {
     // Access fieldsChanged only for 'modified' type using type guard
-    const fieldsChanged = change.type === 'modified' ? change.fieldsChanged : undefined;
 
-    debugIf(() => ({
-      message: `Processing ${change.type} change for server ${change.serverName}`,
-      meta: { change, fieldsChanged },
-    }));
+    debugIf(() => ({ message: 'configChangeHandler.processing.change.for.server.ea2503b1' }));
 
     switch (change.type) {
       case ConfigChangeType.ADDED: {
         const config = newConfig[change.serverName];
         if (!config) {
-          logger.warn(`Skipping added server ${change.serverName}: server configuration is missing after reload`);
+          logger.warn(
+            'configChangeHandler.skipping.added.server.server.configuration.is.missing.after.reload.76945545',
+          );
           return false;
         }
 
@@ -183,7 +187,9 @@ export class ConfigChangeHandler {
       case ConfigChangeType.MODIFIED: {
         const config = newConfig[change.serverName];
         if (!config) {
-          logger.warn(`Skipping modified server ${change.serverName}: server configuration is missing after reload`);
+          logger.warn(
+            'configChangeHandler.skipping.modified.server.server.configuration.is.missing.after.reload.7b99998e',
+          );
           return false;
         }
 
@@ -193,7 +199,7 @@ export class ConfigChangeHandler {
 
       default: {
         const _exhaustive: never = change;
-        logger.warn(`Unknown change type: ${String(_exhaustive)}`);
+        logger.warn('configChangeHandler.unknown.change.type.c3ca2270');
         return false;
       }
     }
@@ -207,7 +213,7 @@ export class ConfigChangeHandler {
    * the loading pipeline and lifecycle/status tracking.
    */
   private async handleServerAdded(serverName: string, config: MCPServerParams): Promise<void> {
-    logger.info(`Starting new server: ${serverName}`);
+    logger.info('configChangeHandler.starting.new.server.9b90716d');
     await this.getServerManager().loadMcpServer(serverName, config);
   }
 
@@ -216,7 +222,7 @@ export class ConfigChangeHandler {
    * entry is cleared (no ghost in /health/mcp).
    */
   private async handleServerRemoved(serverName: string): Promise<void> {
-    logger.info(`Stopping server: ${serverName}`);
+    logger.info('configChangeHandler.stopping.server.2e863e16');
     await this.getServerManager().unloadMcpServer(serverName);
   }
 
@@ -233,35 +239,27 @@ export class ConfigChangeHandler {
 
     if (config.disabled) {
       // Server was disabled
-      logger.info(`Stopping server (disabled): ${serverName}`);
+      logger.info('configChangeHandler.stopping.server.disabled.f7c2723e');
       await this.getServerManager().unloadMcpServer(serverName);
       return;
     }
 
     if (disabledChanged && !config.disabled) {
       // Server was re-enabled
-      logger.info(`Starting server (re-enabled): ${serverName}`, {
-        config: {
-          command: config.command,
-          url: config.url,
-          type: config.type,
-          args: config.args,
-          disabled: config.disabled,
-        },
-      });
+      logger.info('configChangeHandler.starting.server.re.enabled.c42cea8d');
       await this.getServerManager().loadMcpServer(serverName, config);
       return;
     }
 
     // Business logic: determine if this requires server restart
     if (this.requiresServerRestart(fieldsChanged)) {
-      logger.info(`Restarting server (functional changes): ${serverName}`);
+      logger.info('configChangeHandler.restarting.server.functional.changes.b0a6f31f');
       // loadMcpServer is idempotent: ServerManager coordinates unload/reload
       // through the canonical loading pipeline and lifecycle registry.
       await this.getServerManager().loadMcpServer(serverName, config);
     } else {
       // Only tags changed - update metadata without restart
-      logger.info(`Updating server metadata only (no restart needed): ${serverName}`);
+      logger.info('configChangeHandler.updating.server.metadata.only.no.restart.needed.519c8615');
       await this.updateServerMetadata(serverName, config);
       await this.notifyClientsOfMetadataChange(serverName);
     }
@@ -284,10 +282,7 @@ export class ConfigChangeHandler {
    */
   private async updateServerMetadata(serverName: string, config: MCPServerParams): Promise<void> {
     try {
-      debugIf(() => ({
-        message: `Updating metadata for server ${serverName}`,
-        meta: { newTags: config.tags },
-      }));
+      debugIf(() => ({ message: 'configChangeHandler.updating.metadata.for.server.cb80b3e8' }));
 
       // Update server metadata in ServerManager if server is running
       if (this.getServerManager().isMcpServerRunning(serverName)) {
@@ -300,12 +295,9 @@ export class ConfigChangeHandler {
       // Emit event for other components that might need to update their state
       this.configManager.emit(CONFIG_EVENTS.METADATA_UPDATED, { serverName, config });
 
-      debugIf(() => ({
-        message: `Successfully updated metadata for server ${serverName}`,
-        meta: { newTags: config.tags },
-      }));
+      debugIf(() => ({ message: 'configChangeHandler.successfully.updated.metadata.for.server.6116c209' }));
     } catch (error) {
-      logger.error(`Failed to update metadata for server ${serverName}:`, error);
+      logger.error('configChangeHandler.failed.to.update.metadata.for.server.56841692', { error: error });
       throw error;
     }
   }
@@ -319,11 +311,12 @@ export class ConfigChangeHandler {
       await this.getServerManager().updateServerMetadata(serverName, config);
 
       debugIf(() => ({
-        message: `Successfully updated metadata in ServerManager for server ${serverName}`,
-        meta: { newConfig: config },
+        message: 'configChangeHandler.successfully.updated.metadata.in.servermanager.for.server.4a7bf709',
       }));
     } catch (error) {
-      logger.warn(`Failed to update server metadata in ServerManager for ${serverName}:`, error);
+      logger.warn('configChangeHandler.failed.to.update.server.metadata.in.servermanager.for.48d0cff4', {
+        error: error,
+      });
       // Don't throw here, metadata updates should be non-critical
     }
   }
@@ -340,13 +333,10 @@ export class ConfigChangeHandler {
       if (connection) {
         connection.tags = [...(config.tags ?? [])];
 
-        debugIf(() => ({
-          message: `Updated outbound connection metadata for server ${serverName}`,
-          meta: { connectionName: connection.name, newTags: config.tags },
-        }));
+        debugIf(() => ({ message: 'configChangeHandler.updated.outbound.connection.metadata.for.server.bb5d2dc5' }));
       }
     } catch (error) {
-      logger.warn(`Failed to update outbound connection metadata for ${serverName}:`, error);
+      logger.warn('configChangeHandler.failed.to.update.outbound.connection.metadata.for.a4a71b6b', { error: error });
       // Don't throw here, metadata updates should be non-critical
     }
   }
@@ -354,12 +344,12 @@ export class ConfigChangeHandler {
   /**
    * Notify clients about metadata changes (e.g., tag changes)
    */
-  private async notifyClientsOfMetadataChange(serverName: string): Promise<void> {
+  private async notifyClientsOfMetadataChange(_serverName: string): Promise<void> {
     try {
       // Send listChanged notifications since capabilities might have changed due to tag modifications
       await this.sendListChangedNotifications();
-    } catch (error) {
-      logger.error(`Failed to notify clients of metadata change for ${serverName}: ${error}`);
+    } catch (_error) {
+      logger.error('configChangeHandler.failed.to.notify.clients.of.metadata.change.for.73b5b124', { error: _error });
     }
   }
 
@@ -402,7 +392,7 @@ export class ConfigChangeHandler {
 
       const agentConfig = AgentConfigManager.getInstance();
       if (!agentConfig.get('features').clientNotifications) {
-        debugIf('Client notifications disabled, skipping listChanged notifications');
+        debugIf('configChangeHandler.client.notifications.disabled.skipping.listchanged.notifications.9b90cbc2');
         return;
       }
 
@@ -415,17 +405,10 @@ export class ConfigChangeHandler {
       const notificationFacts = createCapabilityNotificationFacts(changes);
 
       if (changes.hasChanges) {
-        debugIf(() => ({
-          message: 'Sending listChanged notifications to clients',
-          meta: {
-            toolsChanged: notificationFacts.refresh.shouldNotifyListChanged,
-            resourcesChanged: notificationFacts.resourcesChanged,
-            promptsChanged: notificationFacts.promptsChanged,
-          },
-        }));
+        debugIf(() => ({ message: 'configChangeHandler.sending.listchanged.notifications.to.clients.a8865155' }));
 
         // Send notifications to all inbound connections
-        for (const [sessionId, inboundConnection] of inboundConnections) {
+        for (const [_sessionId, inboundConnection] of inboundConnections) {
           try {
             const notificationManager = new NotificationManager(inboundConnection);
             notificationManager.handleCapabilityChanges({
@@ -439,13 +422,15 @@ export class ConfigChangeHandler {
               current: changes.current,
               previous: changes.previous,
             });
-          } catch (error) {
-            logger.error(`Failed to send listChanged notification for session ${sessionId}: ${error}`);
+          } catch (_error) {
+            logger.error('configChangeHandler.failed.to.send.listchanged.notification.for.session.26cbafe5', {
+              error: _error,
+            });
           }
         }
       }
-    } catch (error) {
-      logger.error(`Failed to send listChanged notifications: ${error}`);
+    } catch (_error) {
+      logger.error('configChangeHandler.failed.to.send.listchanged.notifications.2b1028b3', { error: _error });
     }
   }
 
@@ -455,6 +440,6 @@ export class ConfigChangeHandler {
   public async stop(): Promise<void> {
     this.configManager.off(CONFIG_EVENTS.CONFIG_CHANGED, this.configChangesListener);
     this.configManager.off(CONFIG_EVENTS.RUNTIME_ENVIRONMENT_CHANGED, this.runtimeEnvironmentListener);
-    logger.info('ConfigChangeHandler stopped');
+    logger.info('configChangeHandler.configchangehandler.stopped.6b441a59');
   }
 }

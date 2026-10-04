@@ -90,7 +90,7 @@ export async function editCommand(argv: EditArguments): Promise<void> {
     const url = urlGenerator.generatePresetUrl(argv.name);
     selector.showSaveSuccess(argv.name, url);
   } catch (error) {
-    logger.error('Preset edit command failed', { error });
+    logger.error('edit.preset.edit.command.failed.b7193133', { error: error });
     printer.error(`Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     process.exit(1);
   }

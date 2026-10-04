@@ -128,11 +128,11 @@ export class MCPRegistryClient {
 
             // Validate remotes and warn if missing
             if (!server.remotes || server.remotes.length === 0) {
-              logger.warn(`Server ${id} has no remotes defined - installation methods may be limited`);
-            } else {
-              logger.debug(
-                `Server ${id} has ${server.remotes.length} remotes: ${server.remotes.map((r) => r.type).join(', ')}`,
+              logger.warn(
+                'mcpRegistryClient.server.has.no.remotes.defined.installation.methods.may.be.limited.b5075669',
               );
+            } else {
+              logger.debug('mcpRegistryClient.server.has.remotes.de7a9fb7');
             }
 
             return server;
@@ -250,7 +250,7 @@ export class MCPRegistryClient {
             return registryStatus;
           } catch (error) {
             const responseTime = Date.now() - startTime;
-            logger.warn('Registry status check failed:', error);
+            logger.warn('mcpRegistryClient.registry.status.check.failed.872c5a93', { error: error });
             return {
               available: false,
               url: this.baseUrl,
@@ -313,7 +313,7 @@ export class MCPRegistryClient {
     cacheKeyParams: Record<string, unknown> | undefined,
     apiCall: () => Promise<T>,
     ttl: number,
-    debugDescription: string,
+    _debugDescription: string,
   ): Promise<T> {
     const cacheKey = cacheKeyParams
       ? this.cache.generateKey(cacheKeyPath, cacheKeyParams)
@@ -322,7 +322,7 @@ export class MCPRegistryClient {
     // Try cache first
     const cached = await this.cache.get<T>(cacheKey);
     if (cached) {
-      logger.debug(`Cache hit for ${debugDescription}: ${cacheKey}`);
+      logger.debug('mcpRegistryClient.cache.hit.for.ae19459f');
       return cached;
     }
 
@@ -408,9 +408,9 @@ export class MCPRegistryClient {
           };
         }
 
-        logger.debug(`Using proxy: ${proxyConfig.url}`);
-      } catch (proxyError) {
-        logger.warn(`Failed to configure proxy, proceeding without: ${proxyError}`);
+        logger.debug('mcpRegistryClient.using.proxy.3d6295e7');
+      } catch (_proxyError) {
+        logger.warn('mcpRegistryClient.failed.to.configure.proxy.proceeding.without.71d2dae0', { error: _proxyError });
       }
     }
 
@@ -422,9 +422,9 @@ export class MCPRegistryClient {
    */
   private async makeRequest<T>(url: string): Promise<T> {
     try {
-      logger.debug(`Making request to: ${url}`);
+      logger.debug('mcpRegistryClient.making.request.to.391745be');
       const response = await this.axiosInstance.get<T>(url);
-      logger.debug(`Request successful: ${url}`);
+      logger.debug('mcpRegistryClient.request.successful.45a5ba8a');
       return response.data;
     } catch (error: unknown) {
       if (axios.isAxiosError(error)) {
@@ -494,7 +494,7 @@ export class MCPRegistryClient {
 
       return config;
     } catch (_error) {
-      logger.warn(`Invalid proxy URL: ${proxyUrl}`);
+      logger.warn('mcpRegistryClient.invalid.proxy.url.fbb97db1', { error: _error });
       return undefined;
     }
   }

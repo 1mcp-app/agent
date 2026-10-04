@@ -61,9 +61,9 @@ export class StreamableSessionRepository {
     const agentConfig = AgentConfigManager.getInstance();
     if (agentConfig.get('features').sessionPersistence) {
       this.storage.writeData(AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX, sessionId, sessionData);
-      logger.info(`Created streamable session with persistence: ${sessionId}`);
+      logger.info('streamableSessionRepository.created.streamable.session.with.persistence.557ffb00');
     } else {
-      logger.info(`Created streamable session (memory-only): ${sessionId}`);
+      logger.info('streamableSessionRepository.created.streamable.session.memory.only.177edf2d');
     }
   }
 
@@ -136,7 +136,7 @@ export class StreamableSessionRepository {
           tagExpression = parsed as TagExpression;
         }
       } catch (error) {
-        logger.warn(`Failed to parse tagExpression for session ${sessionId}:`, error);
+        logger.warn('streamableSessionRepository.failed.to.parse.tagexpression.for.session.3062cdba', { error: error });
       }
     }
 
@@ -149,7 +149,7 @@ export class StreamableSessionRepository {
           tagQuery = parsed as TagQuery;
         }
       } catch (error) {
-        logger.warn(`Failed to parse tagQuery for session ${sessionId}:`, error);
+        logger.warn('streamableSessionRepository.failed.to.parse.tagquery.for.session.e2fdea72', { error: error });
       }
     }
 
@@ -241,13 +241,10 @@ export class StreamableSessionRepository {
               this.inMemorySessions.set(sessionId, diskData);
             }
           } catch (readError) {
-            logError('Failed to read session from disk for initialize response storage', {
-              method: 'storeInitializeResponse',
-              path: 'streamableSessionRepository',
-              sessionId,
-              phase: 'disk read',
-              error: readError,
-            });
+            logError(
+              'streamableSessionRepository.failed.to.read.session.from.disk.for.initialize.response.storage.53a45f52',
+              { method: 'storeInitializeResponse', sessionId: sessionId, error: readError },
+            );
             return;
           }
         }
@@ -262,33 +259,26 @@ export class StreamableSessionRepository {
           try {
             this.storage.writeData(AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX, sessionId, sessionData);
           } catch (writeError) {
-            logError('Failed to persist initialize response to disk', {
+            logError('streamableSessionRepository.failed.to.persist.initialize.response.to.disk.1670d212', {
               method: 'storeInitializeResponse',
-              path: 'streamableSessionRepository',
-              sessionId,
-              phase: 'disk write',
+              sessionId: sessionId,
               error: writeError,
             });
             // Session is in memory, so continue with warning
           }
         }
-        logger.debug(`Stored initialize response for session ${sessionId}`);
+        logger.debug('streamableSessionRepository.stored.initialize.response.for.session.0bb8db59');
       } else {
-        logError('Session not found for storing initialize response', {
+        logError('streamableSessionRepository.session.not.found.for.storing.initialize.response.953c2a35', {
           method: 'storeInitializeResponse',
-          path: 'streamableSessionRepository',
-          sessionId,
-          phase: 'session lookup',
-          context: { reason: 'Session not in memory or on disk' },
+          sessionId: sessionId,
         });
       }
     } catch (error) {
-      logError('Unexpected error storing initialize response', {
+      logError('streamableSessionRepository.unexpected.error.storing.initialize.response.c53c0757', {
         method: 'storeInitializeResponse',
-        path: 'streamableSessionRepository',
-        sessionId,
-        phase: 'unknown',
-        error,
+        sessionId: sessionId,
+        error: error,
       });
     }
   }
@@ -309,11 +299,11 @@ export class StreamableSessionRepository {
     if (agentConfig.get('features').sessionPersistence) {
       const result = this.storage.deleteData(AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX, sessionId);
       if (result) {
-        logger.info(`Deleted streamable session: ${sessionId}`);
+        logger.info('streamableSessionRepository.deleted.streamable.session.3753f41c');
       }
       return result;
     } else {
-      logger.info(`Deleted streamable session from memory: ${sessionId}`);
+      logger.info('streamableSessionRepository.deleted.streamable.session.from.memory.b7e93c14');
       return true;
     }
   }
@@ -351,7 +341,7 @@ export class StreamableSessionRepository {
       this.requestCounts.set(sessionId, 0);
       this.dirtySessionIds.delete(sessionId);
 
-      logger.debug(`Persisted access time for streamable session: ${sessionId}`);
+      logger.debug('streamableSessionRepository.persisted.access.time.for.streamable.session.014d887e');
     }
   }
 
@@ -377,18 +367,16 @@ export class StreamableSessionRepository {
         try {
           this.persistSessionAccess(sessionId, lastAccess);
         } catch (error) {
-          logError('Failed to persist background session access', {
+          logError('streamableSessionRepository.failed.to.persist.background.session.access.f1b04c62', {
             method: 'flushDirtySessions',
-            path: 'streamableSessionRepository',
-            sessionId,
-            phase: 'disk write',
-            error,
+            sessionId: sessionId,
+            error: error,
           });
         }
       }
     }
 
-    logger.debug(`Flushed ${sessionsToFlush.length} dirty sessions`);
+    logger.debug('streamableSessionRepository.flushed.dirty.sessions.a83d53f1');
   }
 
   /**
@@ -419,6 +407,6 @@ export class StreamableSessionRepository {
 
     // Final flush of all dirty sessions
     this.flushDirtySessions();
-    logger.info('Stopped periodic flush and flushed remaining dirty sessions');
+    logger.info('streamableSessionRepository.stopped.periodic.flush.and.flushed.remaining.dirty.sessions.8bacd338');
   }
 }

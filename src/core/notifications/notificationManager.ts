@@ -83,7 +83,9 @@ export class NotificationManager extends EventEmitter {
     // Check if client notifications are globally enabled
     const agentConfig = AgentConfigManager.getInstance();
     if (!agentConfig.get('features').clientNotifications) {
-      debugIf('Client notifications are globally disabled, skipping capability change notifications');
+      debugIf(
+        'notificationManager.client.notifications.are.globally.disabled.skipping.capability.change.notif.ea3cab66',
+      );
       return;
     }
 
@@ -92,13 +94,11 @@ export class NotificationManager extends EventEmitter {
     }
 
     if (!changes.hasChanges) {
-      debugIf('No capability changes detected, skipping notifications');
+      debugIf('notificationManager.no.capability.changes.detected.skipping.notifications.9fd8c6a7');
       return;
     }
 
-    logger.info(
-      `Handling capability changes: tools=${changes.toolsChanged}, resources=${changes.resourcesChanged}, prompts=${changes.promptsChanged}`,
-    );
+    logger.info('notificationManager.handling.capability.changes.tools.resources.prompts.8e887fc2');
 
     if (this.config.batchNotifications) {
       this.scheduleBatchedNotification(changes);
@@ -136,7 +136,7 @@ export class NotificationManager extends EventEmitter {
     }, this.config.batchDelayMs);
 
     debugIf(() => ({
-      message: `Scheduled batched notifications to be sent in ${this.config.batchDelayMs}ms`,
+      message: 'notificationManager.scheduled.batched.notifications.to.be.sent.in.ms.c0439ae6',
       meta: { delayMs: this.config.batchDelayMs },
     }));
   }
@@ -171,7 +171,7 @@ export class NotificationManager extends EventEmitter {
     }
 
     if (notifications.length > 0) {
-      logger.info(`Sent batched listChanged notifications: [${notifications.join(', ')}]`);
+      logger.info('notificationManager.sent.batched.listchanged.notifications.f6c2e7de');
       this.emit('batch-sent', notifications, this.getClientCount());
     }
   }
@@ -230,7 +230,7 @@ export class NotificationManager extends EventEmitter {
     try {
       // Check if server is connected
       if (this.inboundConn.status !== ServerStatus.Connected) {
-        logger.warn(`Cannot send ${type} listChanged notification - server not connected`);
+        logger.warn('notificationManager.cannot.send.listchanged.notification.server.not.connected.48052ee3');
         return;
       }
 
@@ -240,7 +240,7 @@ export class NotificationManager extends EventEmitter {
       );
       void Promise.resolve(delivery).catch((error: unknown) => this.handleNotificationFailure(type, error));
 
-      debugIf(() => ({ message: `Sent ${type} listChanged notification to client`, meta: { type } }));
+      debugIf(() => ({ message: 'notificationManager.sent.listchanged.notification.to.client.dca498ab' }));
       this.emit('notification-sent', type, this.getClientCount());
     } catch (error) {
       this.handleNotificationFailure(type, error);
@@ -250,11 +250,11 @@ export class NotificationManager extends EventEmitter {
   private handleNotificationFailure(type: 'tools' | 'resources' | 'prompts', error: unknown): void {
     const failure: InboundConnectionError =
       error instanceof Error ? { name: error.name, message: error.message } : { name: 'Error', message: String(error) };
-    logger.error(`Failed to send ${type} listChanged notification: ${failure.message}`);
+    logger.error('notificationManager.failed.to.send.listchanged.notification.1bc97c1f');
     this.emit('notification-failed', type, failure);
 
     if (failure.message.includes('Not connected')) {
-      logger.warn('Client connection lost during notification sending');
+      logger.warn('notificationManager.client.connection.lost.during.notification.sending.a2a42f8d');
     }
   }
 
@@ -280,7 +280,7 @@ export class NotificationManager extends EventEmitter {
    */
   public updateConfig(newConfig: Partial<NotificationConfig>): void {
     this.config = { ...this.config, ...newConfig };
-    debugIf('NotificationManager configuration updated');
+    debugIf('notificationManager.notificationmanager.configuration.updated.cb79b63c');
   }
 
   /**
@@ -316,6 +316,6 @@ export class NotificationManager extends EventEmitter {
     // Send any pending notifications before shutdown
     this.flushPendingNotifications();
 
-    debugIf('NotificationManager shutdown complete');
+    debugIf('notificationManager.notificationmanager.shutdown.complete.9fe87097');
   }
 }

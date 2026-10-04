@@ -119,9 +119,9 @@ export function writePidFile(configDir: string, serverInfo: ServerPidInfo): void
     fs.writeFileSync(tempFilePath, content, { encoding: 'utf-8' });
     fs.renameSync(tempFilePath, pidFilePath);
 
-    logger.info(`PID file written: ${pidFilePath}`);
+    logger.info('pidFileManager.pid.file.written.41a5471a');
   } catch (error) {
-    logger.error(`Failed to write PID file: ${error}`);
+    logger.error('pidFileManager.failed.to.write.pid.file.a3c738c2', { error: error });
     throw error;
   }
 }
@@ -151,7 +151,7 @@ export function readPidFile(configDir: string): ServerPidInfo | null {
     if (error instanceof Error && 'code' in error && (error as { code: string }).code === 'ENOENT') {
       return null;
     }
-    logger.error(`PID file present but unreadable (${pidFilePath}): ${error}`);
+    logger.error('pidFileManager.pid.file.present.but.unreadable.cddec101', { error: error });
     throw new PidFileReadError(pidFilePath, error);
   }
 
@@ -160,7 +160,7 @@ export function readPidFile(configDir: string): ServerPidInfo | null {
   // can never drive the signal paths to a negative (process-group) PID.
   const parsed = serverPidInfoSchema.safeParse(safeJsonParse(content));
   if (!parsed.success) {
-    logger.warn(`Invalid PID file format (${pidFilePath}): ${parsed.error.issues.map((i) => i.message).join('; ')}`);
+    logger.warn('pidFileManager.invalid.pid.file.format.d7ae7117');
     return null;
   }
 
@@ -188,13 +188,13 @@ export function cleanupPidFile(configDir: string): boolean {
 
   try {
     fs.unlinkSync(pidFilePath);
-    logger.info(`PID file cleaned up: ${pidFilePath}`);
+    logger.info('pidFileManager.pid.file.cleaned.up.b559389a');
     return true;
   } catch (error) {
     if (error instanceof Error && 'code' in error && (error as { code: string }).code === 'ENOENT') {
       return true;
     }
-    logger.error(`Failed to cleanup PID file: ${error}`);
+    logger.error('pidFileManager.failed.to.cleanup.pid.file.f7696569', { error: error });
     return false;
   }
 }

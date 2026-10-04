@@ -50,9 +50,7 @@ export class ProgressTrackingService extends EventEmitter {
     this.operations.set(operationId, progress);
     this.emit('operation-started', progress);
 
-    logger.info(
-      `🚀 ${operationType.charAt(0).toUpperCase() + operationType.slice(1)} operation started: ${operationId}`,
-    );
+    logger.info('progressTrackingService.operation.started.ba75ab0a');
   }
 
   /**
@@ -61,7 +59,7 @@ export class ProgressTrackingService extends EventEmitter {
   updateProgress(operationId: string, currentStep: number, stepName: string, message?: string): void {
     const progress = this.operations.get(operationId);
     if (!progress) {
-      logger.warn(`No progress tracked for operation: ${operationId}`);
+      logger.warn('progressTrackingService.no.progress.tracked.for.operation.60f790b6');
       return;
     }
 
@@ -75,10 +73,7 @@ export class ProgressTrackingService extends EventEmitter {
 
     this.emit('progress-updated', progress);
 
-    const progressPercentage = Math.max(0, Math.min(100, newProgress));
-    const progressBarWidth = Math.floor(progressPercentage / 5);
-    const progressBar = '█'.repeat(Math.max(0, progressBarWidth)) + '░'.repeat(Math.max(0, 20 - progressBarWidth));
-    logger.info(`   [${progressBar}] ${progressPercentage}% - ${stepName}`);
+    logger.info('progressTrackingService.diagnostic.d29253aa');
   }
 
   /**
@@ -87,7 +82,7 @@ export class ProgressTrackingService extends EventEmitter {
   completeOperation(operationId: string, result?: OperationResult): void {
     const progress = this.operations.get(operationId);
     if (!progress) {
-      logger.warn(`No progress tracked for operation: ${operationId}`);
+      logger.warn('progressTrackingService.no.progress.tracked.for.operation.60f790b6');
       return;
     }
 
@@ -103,7 +98,7 @@ export class ProgressTrackingService extends EventEmitter {
     this.emit('operation-completed', operationResult);
     this.operations.delete(operationId);
 
-    logger.info(`✅ Operation completed in ${duration}ms: ${operationId}`);
+    logger.info('progressTrackingService.operation.completed.in.ms.15793588');
   }
 
   /**
@@ -112,7 +107,7 @@ export class ProgressTrackingService extends EventEmitter {
   failOperation(operationId: string, error: Error): void {
     const progress = this.operations.get(operationId);
     if (!progress) {
-      logger.warn(`No progress tracked for operation: ${operationId}`);
+      logger.warn('progressTrackingService.no.progress.tracked.for.operation.60f790b6');
       return;
     }
 
@@ -129,7 +124,7 @@ export class ProgressTrackingService extends EventEmitter {
     this.emit('operation-failed', operationResult);
     this.operations.delete(operationId);
 
-    logger.error(`❌ Operation failed after ${duration}ms: ${operationId} - ${error.message}`);
+    logger.error('progressTrackingService.operation.failed.after.ms.54534b3f');
   }
 
   /**

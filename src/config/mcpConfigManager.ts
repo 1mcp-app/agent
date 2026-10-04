@@ -86,7 +86,6 @@ export class McpConfigManager extends EventEmitter {
   private loadConfig(): boolean {
     try {
       const loadedConfig = this.loader.loadParsedConfigWithEnvSubstitution();
-      const features = AgentConfigManager.getInstance().get('features');
 
       this.lastModified = loadedConfig.lastModified;
       this.globalConfig = loadedConfig.globalConfig;
@@ -101,11 +100,11 @@ export class McpConfigManager extends EventEmitter {
             ]),
           )
         : {};
-      const substitutionStatus = features.envSubstitution ? 'with' : 'without';
-      logger.info(`Configuration loaded successfully ${substitutionStatus} environment variable substitution`);
+
+      logger.info('mcpConfigManager.configuration.loaded.successfully.environment.variable.substitution.f9e03cc4');
       return true;
-    } catch (error) {
-      logger.error(`Failed to load configuration: ${error instanceof Error ? error.message : String(error)}`);
+    } catch (_error) {
+      logger.error('mcpConfigManager.failed.to.load.configuration.4035e97b', { error: _error });
       this.globalConfig = {};
       this.appConfig = {};
       this.transportConfig = {};
@@ -128,8 +127,8 @@ export class McpConfigManager extends EventEmitter {
       }
 
       return false;
-    } catch (error) {
-      logger.error(`Failed to check file modification time: ${error instanceof Error ? error.message : String(error)}`);
+    } catch (_error) {
+      logger.error('mcpConfigManager.failed.to.check.file.modification.time.09e698e9', { error: _error });
       return false;
     }
   }
@@ -149,7 +148,7 @@ export class McpConfigManager extends EventEmitter {
     const agentConfig = AgentConfigManager.getInstance();
     const features = agentConfig.get('features');
     if (!features.configReload) {
-      logger.info('Configuration hot-reload is disabled, skipping file watcher setup');
+      logger.info('mcpConfigManager.configuration.hot.reload.is.disabled.skipping.file.watcher.setup.a71d49d7');
       return;
     }
 
@@ -164,10 +163,7 @@ export class McpConfigManager extends EventEmitter {
       // Watch the directory instead of the file to handle atomic operations like vim's :x
       const watchedDir = resolveWatchPath(configDir);
       this.configWatcher = fs.watch(watchedDir, (eventType: fs.WatchEventType, filename: string | null) => {
-        debugIf(() => ({
-          message: 'Directory change detected',
-          meta: { eventType, filename, configDir, configFileName },
-        }));
+        debugIf(() => ({ message: 'mcpConfigManager.directory.change.detected.4c6feb9e' }));
 
         // Check if the change is related to our config file
         // Handle both direct changes and atomic renames affecting our config file
@@ -178,37 +174,34 @@ export class McpConfigManager extends EventEmitter {
 
         if (isConfigFileEvent) {
           debugIf(() => ({
-            message: 'Configuration file change detected, checking modification time',
-            meta: { eventType, filename, isConfigFileEvent },
+            message: 'mcpConfigManager.configuration.file.change.detected.checking.modification.time.948657e8',
           }));
 
           // Double-check by comparing modification times to handle vim's atomic saves
           if (this.checkFileModified()) {
-            debugIf('File modification confirmed, debouncing reload');
+            debugIf('mcpConfigManager.file.modification.confirmed.debouncing.reload.0c3de65e');
             this.debouncedReloadConfig();
           } else {
-            debugIf('File modification time unchanged, ignoring event');
+            debugIf('mcpConfigManager.file.modification.time.unchanged.ignoring.event.dfe2f587');
           }
         } else {
           // For debugging: check if file was actually modified despite not matching our criteria
           if (this.checkFileModified()) {
             debugIf(() => ({
-              message: 'File was modified but event did not match criteria, debouncing reload anyway',
-              meta: { eventType, filename, configFileName },
+              message:
+                'mcpConfigManager.file.was.modified.but.event.did.not.match.criteria.debouncing.reload.anyway.a0941437',
             }));
             this.debouncedReloadConfig();
           }
         }
       });
       this.configWatcher.on('error', (error) => {
-        logger.warn('Configuration file watcher failed', { error });
+        logger.warn('mcpConfigManager.configuration.file.watcher.failed.c4b39877', { error: error });
         this.stopWatching();
       });
-      logger.info(`Started watching configuration directory: ${configDir} for file: ${configFileName}`);
-    } catch (error) {
-      logger.error(
-        `Failed to start watching configuration file: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      logger.info('mcpConfigManager.started.watching.configuration.directory.for.file.6cfd05eb');
+    } catch (_error) {
+      logger.error('mcpConfigManager.failed.to.start.watching.configuration.file.00929ce9', { error: _error });
     }
   }
 
@@ -222,7 +215,7 @@ export class McpConfigManager extends EventEmitter {
     if (this.configWatcher) {
       this.configWatcher.close();
       this.configWatcher = null;
-      logger.info('Stopped watching configuration file');
+      logger.info('mcpConfigManager.stopped.watching.configuration.file.d4dd37a7');
     }
 
     // Clear any pending debounce timer
@@ -248,7 +241,7 @@ export class McpConfigManager extends EventEmitter {
 
     // Set new timer
     this.debounceTimer = setTimeout(() => {
-      logger.info('Debounce period completed, reloading configuration...');
+      logger.info('mcpConfigManager.debounce.period.completed.reloading.configuration.0f648a97');
       this.reloadConfig();
       this.debounceTimer = null;
     }, debounceDelayMs);
@@ -266,7 +259,7 @@ export class McpConfigManager extends EventEmitter {
           if (generation === this.reloadGeneration) this.deferReloadUntilResume();
           return;
         }
-        logger.error('Failed to apply configuration reload', error);
+        logger.error('mcpConfigManager.failed.to.apply.configuration.reload.8f06d810', { error: error });
       });
   }
 
@@ -295,11 +288,11 @@ export class McpConfigManager extends EventEmitter {
 
       // Emit event for transport configuration changes
       if (loadedSuccessfully && JSON.stringify(oldConfig) !== JSON.stringify(this.transportConfig)) {
-        logger.info('Transport configuration changed, emitting event');
+        logger.info('mcpConfigManager.transport.configuration.changed.emitting.event.bf5828e5');
         this.emit(ConfigChangeEvent.TRANSPORT_CONFIG_CHANGED, this.transportConfig);
       }
-    } catch (error) {
-      logger.error(`Failed to reload configuration: ${error instanceof Error ? error.message : String(error)}`);
+    } catch (_error) {
+      logger.error('mcpConfigManager.failed.to.reload.configuration.2a029532', { error: _error });
     }
   }
 

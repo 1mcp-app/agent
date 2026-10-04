@@ -114,7 +114,7 @@ export class SchemaCache {
     if (oldestKey) {
       this.cache.delete(oldestKey);
       this.stats.evictions++;
-      debugIf(() => ({ message: `Evicted oldest cache entry: ${oldestKey}` }));
+      debugIf(() => ({ message: 'schemaCache.evicted.oldest.cache.entry.c2dbf641' }));
     }
   }
 
@@ -149,14 +149,14 @@ export class SchemaCache {
     const cached = this.cache.get(cacheKey);
     if (cached && !this.isExpired(cached)) {
       this.stats.hits++;
-      debugIf(() => ({ message: `Cache hit: ${cacheKey}` }));
+      debugIf(() => ({ message: 'schemaCache.cache.hit.77e8d34e' }));
       return cached.tool;
     }
 
     // Remove expired entry if exists
     if (cached && this.isExpired(cached)) {
       this.cache.delete(cacheKey);
-      debugIf(() => ({ message: `Cache entry expired: ${cacheKey}` }));
+      debugIf(() => ({ message: 'schemaCache.cache.entry.expired.a16e883b' }));
     }
 
     // Check for in-flight request (coalescing)
@@ -206,7 +206,7 @@ export class SchemaCache {
           bytes,
         });
 
-        debugIf(() => ({ message: `Loaded and cached: ${cacheKey}` }));
+        debugIf(() => ({ message: 'schemaCache.loaded.and.cached.88beceec' }));
         return tool;
       })
       .finally(() => {
@@ -292,7 +292,7 @@ export class SchemaCache {
       bytes,
     });
 
-    debugIf(() => ({ message: `Manually cached: ${cacheKey}` }));
+    debugIf(() => ({ message: 'schemaCache.manually.cached.8852f2e0' }));
   }
 
   /**
@@ -308,10 +308,9 @@ export class SchemaCache {
    * Clear all cached schemas
    */
   public clear(): void {
-    const size = this.cache.size;
     this.cache.clear();
     this.inflightRequests.clear();
-    logger.info(`Cleared ${size} tool schemas from cache`);
+    logger.info('schemaCache.cleared.tool.schemas.from.cache.7851056d');
   }
 
   /**
@@ -363,13 +362,10 @@ export class SchemaCache {
    * @param forceLog - Force logging even if debug mode is off
    */
   public logStats(forceLog = false): void {
-    const stats = this.getStats();
-    const message = `SchemaCache stats: size=${this.cache.size}/${this.config.maxEntries}, hits=${stats.hits}, misses=${stats.misses}, hitRate=${stats.hitRate.toFixed(1)}%, coalesced=${stats.coalesced}, evictions=${stats.evictions}`;
-
     if (forceLog) {
-      logger.info(message);
+      logger.info('schemaCache.logstats.diagnostic.70e920b8');
     } else {
-      debugIf(message);
+      debugIf('schemaCache.logstats.diagnostic.70e920b8');
     }
   }
 
@@ -381,7 +377,7 @@ export class SchemaCache {
     tools: Array<{ server: string; toolName: string }>,
     loader: (server: string, toolName: string, signal?: AbortSignal) => Promise<Tool>,
   ): Promise<{ loaded: number; failed: Array<{ server: string; toolName: string; error: string }> }> {
-    debugIf(() => ({ message: `Preloading ${tools.length} tool schemas` }));
+    debugIf(() => ({ message: 'schemaCache.preloading.tool.schemas.6330dc45' }));
 
     const failed: Array<{ server: string; toolName: string; error: string }> = [];
 
@@ -390,7 +386,7 @@ export class SchemaCache {
       tools.map(({ server, toolName }) =>
         this.getOrLoad(server, toolName, loader).catch((error) => {
           const errorMessage = error instanceof Error ? error.message : String(error);
-          logger.warn(`Failed to preload tool schema ${server}:${toolName}: ${errorMessage}`);
+          logger.warn('schemaCache.failed.to.preload.tool.schema.2e407572');
           failed.push({ server, toolName, error: errorMessage });
         }),
       ),
@@ -399,10 +395,10 @@ export class SchemaCache {
     const loaded = tools.length - failed.length;
 
     if (failed.length > 0) {
-      logger.warn(`Preload completed with ${failed.length} failures out of ${tools.length} tools`, { failed });
+      logger.warn('schemaCache.preload.completed.with.failures.out.of.tools.8c2ef121');
     }
 
-    logger.info(`Preloaded ${loaded} tool schemas, cache size: ${this.cache.size}`);
+    logger.info('schemaCache.preloaded.tool.schemas.cache.size.49445ca5');
 
     return { loaded, failed };
   }

@@ -245,7 +245,10 @@ describe('owned legacy resource subscriptions', () => {
     await subscribeOwnedResource(connections, first, 'public:file:///a');
     mocks.request.mockRejectedValueOnce(new Error('Private provider error'));
     await expect(cleanupOwnedResources(first)).rejects.toThrow('Resource subscription cleanup incomplete');
-    expect(logger.warn).toHaveBeenCalledWith('Resource subscription cleanup incomplete', { failedWatches: 1 });
+    expect(logger.warn).toHaveBeenCalledWith(
+      'resourceSubscriptions.resource.subscription.cleanup.incomplete.0640deca',
+      { error: expect.objectContaining({ message: 'Private provider error' }) },
+    );
     const second = fixture();
     await subscribeOwnedResource(connections, second, 'public:file:///a');
     expect(mocks.request.mock.calls.filter(([, method]) => method === 'resources/subscribe')).toHaveLength(2);
@@ -272,9 +275,10 @@ describe('owned legacy resource subscriptions', () => {
     await expect(subscribeOwnedResource(connections, owner, 'public:file:///a', undefined, authorize)).rejects.toThrow(
       'authorization lost',
     );
-    expect(logger.warn).toHaveBeenCalledExactlyOnceWith('Resource subscription cleanup incomplete', {
-      failedWatches: 1,
-    });
+    expect(logger.warn).toHaveBeenCalledExactlyOnceWith(
+      'resourceSubscriptions.resource.subscription.cleanup.incomplete.0640deca',
+      { error: expect.objectContaining({ message: 'Private teardown error' }) },
+    );
     await subscribeOwnedResource(connections, fixture(), 'public:file:///a');
   });
 
@@ -289,9 +293,10 @@ describe('owned legacy resource subscriptions', () => {
     blocked.resolve();
     await rejected;
     await vi.waitFor(() =>
-      expect(logger.warn).toHaveBeenCalledExactlyOnceWith('Resource subscription cleanup incomplete', {
-        failedWatches: 1,
-      }),
+      expect(logger.warn).toHaveBeenCalledExactlyOnceWith(
+        'resourceSubscriptions.resource.subscription.cleanup.incomplete.0640deca',
+        { error: expect.objectContaining({ message: 'Private teardown error' }) },
+      ),
     );
     await subscribeOwnedResource(connections, fixture(), 'public:file:///a');
   });

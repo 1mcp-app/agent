@@ -35,7 +35,7 @@ export class TemplateServerAdapter implements ServerAdapter {
     const sessionId = context?.sessionId;
     if (!sessionId) {
       debugIf(() => ({
-        message: 'TemplateServerAdapter: No sessionId provided in context',
+        message: 'TemplateServerAdapter.templateserveradapter.no.sessionid.provided.in.context.3f3a2fab',
         meta: { serverName: this.name },
       }));
       return undefined;
@@ -50,8 +50,8 @@ export class TemplateServerAdapter implements ServerAdapter {
     }
 
     debugIf(() => ({
-      message: 'TemplateServerAdapter: No connection found for template server',
-      meta: { serverName: this.name, sessionId },
+      message: 'TemplateServerAdapter.templateserveradapter.no.connection.found.for.template.server.5614d119',
+      meta: { serverName: this.name, sessionId: sessionId },
     }));
 
     return undefined;

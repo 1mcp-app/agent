@@ -1,4 +1,10 @@
-import type { JsonValue, LegacyRequestId, LegacySdkAdapter } from '@src/sdk/contracts/index.js';
+import {
+  JSON_VALUE_LIMITS,
+  type JsonValue,
+  type LegacyRequestId,
+  type LegacySdkAdapter,
+  RESPONSE_JSON_VALUE_LIMITS,
+} from '@src/sdk/contracts/index.js';
 
 import {
   createEffectiveRequestAuthority,
@@ -37,6 +43,26 @@ function legacyAdapter(result: ImmutableJsonValue = { tools: [] }) {
 }
 
 describe('LegacyOutboundEraAdapter', () => {
+  it('strips reserved baggage while preserving the assembled response budget', async () => {
+    const result = {
+      _meta: { baggage: 'private', other: 'preserved' },
+      structuredContent: { baggage: 'business', items: Array.from({ length: JSON_VALUE_LIMITS.maxNodes }, () => 0) },
+    };
+    const legacy = legacyAdapter(result);
+    const adapter = new LegacyOutboundEraAdapter(legacy, LEGACY_PIN, {
+      now: () => 1_000,
+      resultLimits: RESPONSE_JSON_VALUE_LIMITS,
+    });
+
+    await expect(adapter.request(request())).resolves.toEqual({
+      _meta: { other: 'preserved' },
+      structuredContent: result.structuredContent,
+    });
+    const upstreamAdapter = new LegacyOutboundEraAdapter(legacy, LEGACY_PIN, { now: () => 1_000 });
+    await expect(upstreamAdapter.request(request())).rejects.toMatchObject({ kind: 'transport' });
+    expect(result._meta.baggage).toBe('private');
+  });
+
   it('maps the gateway request id and remaining absolute deadline to the legacy adapter', async () => {
     const legacy = legacyAdapter();
     const adapter = new LegacyOutboundEraAdapter(legacy, LEGACY_PIN, { now: () => 1_250 });

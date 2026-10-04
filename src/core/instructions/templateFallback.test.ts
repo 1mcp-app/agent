@@ -75,10 +75,9 @@ describe('InstructionAggregator - Template Fallback Behavior', () => {
 
       // Verify logger.error was called with template failure message
       expect(logger.error).toHaveBeenCalledWith(
-        'InstructionAggregator: Custom template failed, falling back to default template',
+        'instructionAggregator.instructionaggregator.custom.template.failed.falling.back.to.default.templa.33a863b9',
         expect.objectContaining({
           error: expect.stringContaining('Parse error on line 1'),
-          templateLength: expect.any(Number),
         }),
       );
 
@@ -96,10 +95,9 @@ describe('InstructionAggregator - Template Fallback Behavior', () => {
       instructionAggregator.getFilteredInstructions(config, mockOutboundConnections);
 
       expect(logger.error).toHaveBeenCalledWith(
-        'InstructionAggregator: Custom template failed, falling back to default template',
+        'instructionAggregator.instructionaggregator.custom.template.failed.falling.back.to.default.templa.33a863b9',
         expect.objectContaining({
           error: expect.stringContaining('Parse error'),
-          templateLength: expect.any(Number),
         }),
       );
     });
@@ -113,10 +111,9 @@ describe('InstructionAggregator - Template Fallback Behavior', () => {
       instructionAggregator.getFilteredInstructions(config, mockOutboundConnections);
 
       expect(logger.error).toHaveBeenCalledWith(
-        'InstructionAggregator: Custom template failed, falling back to default template',
+        'instructionAggregator.instructionaggregator.custom.template.failed.falling.back.to.default.templa.33a863b9',
         expect.objectContaining({
           error: expect.stringContaining('Must pass iterator'),
-          templateLength: expect.any(Number),
         }),
       );
     });
@@ -199,10 +196,9 @@ describe('InstructionAggregator - Template Fallback Behavior', () => {
       instructionAggregator.getFilteredInstructions(config, mockOutboundConnections);
 
       expect(logger.error).toHaveBeenCalledWith(
-        'InstructionAggregator: Custom template failed, falling back to default template',
+        'instructionAggregator.instructionaggregator.custom.template.failed.falling.back.to.default.templa.33a863b9',
         expect.objectContaining({
           error: expect.stringContaining('Must pass iterator'),
-          templateLength: expect.any(Number),
         }),
       );
     });

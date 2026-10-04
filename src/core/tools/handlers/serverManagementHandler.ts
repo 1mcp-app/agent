@@ -159,7 +159,7 @@ export async function handleInstallMCPServer(args: McpInstallToolArgs) {
       `Handlebars template syntax detected in server configuration. Templates are not allowed in mcpServers section. ` +
       `Please move template-based servers to the mcpTemplates section in your configuration.`;
 
-    logger.error(errorMessage);
+    logger.error('serverManagementHandler.handleinstallmcpserver.diagnostic.57984dd1');
     throw new Error(errorMessage);
   }
 
@@ -167,8 +167,8 @@ export async function handleInstallMCPServer(args: McpInstallToolArgs) {
   setServer(args.name, serverConfig);
 
   debugIf(() => ({
-    message: 'MCP server added to configuration',
-    meta: { serverName: args.name, config: serverConfig },
+    message: 'serverManagementHandler.mcp.server.added.to.configuration.b73ab254',
+    meta: { serverName: args.name },
   }));
 
   return {
@@ -195,7 +195,7 @@ export async function handleUninstallMCPServer(args: McpUninstallToolArgs) {
   removeServer(args.name);
 
   debugIf(() => ({
-    message: 'MCP server removed from configuration',
+    message: 'serverManagementHandler.mcp.server.removed.from.configuration.ab2a57e1',
     meta: { serverName: args.name },
   }));
 
@@ -228,8 +228,8 @@ export async function handleUpdateMCPServer(args: McpUpdateToolArgs) {
   }
 
   debugIf(() => ({
-    message: 'MCP server configuration updated',
-    meta: { serverName: args.name, updates: args },
+    message: 'serverManagementHandler.mcp.server.configuration.updated.74d96044',
+    meta: { serverName: args.name },
   }));
 
   return {
@@ -257,10 +257,7 @@ export async function handleEnableMCPServer(args: McpEnableToolArgs) {
   config.mcpServers[args.name].disabled = false;
   saveConfig(config);
 
-  debugIf(() => ({
-    message: 'MCP server enabled',
-    meta: { serverName: args.name, restart: args.restart },
-  }));
+  debugIf(() => ({ message: 'serverManagementHandler.mcp.server.enabled.608ba8f9', meta: { serverName: args.name } }));
 
   return {
     serverName: args.name,
@@ -287,10 +284,7 @@ export async function handleDisableMCPServer(args: McpDisableToolArgs) {
   config.mcpServers[args.name].disabled = true;
   saveConfig(config);
 
-  debugIf(() => ({
-    message: 'MCP server disabled',
-    meta: { serverName: args.name, graceful: args.graceful },
-  }));
+  debugIf(() => ({ message: 'serverManagementHandler.mcp.server.disabled.a8cc95d6', meta: { serverName: args.name } }));
 
   return {
     serverName: args.name,
@@ -551,10 +545,7 @@ interface ExtendedMcpReloadToolArgs extends McpReloadToolArgs {
  * Handler for reload operations
  */
 export async function handleReloadOperation(args: McpReloadToolArgs) {
-  debugIf(() => ({
-    message: 'Reload operation requested',
-    meta: { args },
-  }));
+  debugIf(() => ({ message: 'serverManagementHandler.reload.operation.requested.5d2c1ff7' }));
 
   const configManager = ConfigManager.getInstance();
 
@@ -596,7 +587,7 @@ export async function handleReloadOperation(args: McpReloadToolArgs) {
 
   // If a specific server is requested, reload it
   if (reloadTarget === 'server' && serverName) {
-    logger.info(`Restarting server: ${serverName}`);
+    logger.info('serverManagementHandler.restarting.server.f83b9622');
     try {
       const restartService = new RuntimeServerManagerBackendRestartService({
         serverManager: ServerManager.current,
@@ -616,7 +607,7 @@ export async function handleReloadOperation(args: McpReloadToolArgs) {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(`Failed to restart server ${serverName}: ${errorMessage}`);
+      logger.error('serverManagementHandler.failed.to.restart.server.75045aa2', { error: error });
       return {
         target: 'server',
         serverName: serverName,

@@ -90,7 +90,7 @@ export function isValidTagScope(scope: string): boolean {
  */
 export function extractTagFromScope(scope: string): string | null {
   if (!isValidTagScope(scope)) {
-    logger.warn(`Invalid tag scope format: ${scope}`);
+    logger.warn('scopeValidation.invalid.tag.scope.format.1dccb63c');
     return null;
   }
 
@@ -230,7 +230,7 @@ export function validateScopesAgainstAvailableTags(
 export function hasRequiredScopes(grantedScopes: string[], requestedTags: string[]): boolean {
   // Fail-secure: deny if inputs are invalid
   if (!grantedScopes || !Array.isArray(grantedScopes) || !requestedTags || !Array.isArray(requestedTags)) {
-    logger.warn('Invalid input to hasRequiredScopes', { grantedScopes, requestedTags });
+    logger.warn('scopeValidation.invalid.input.to.hasrequiredscopes.d06735c9');
     return false;
   }
 
@@ -248,11 +248,7 @@ export function hasRequiredScopes(grantedScopes: string[], requestedTags: string
   const hasAllTags = requestedTags.every((tag) => grantedTags.includes(tag));
 
   if (!hasAllTags) {
-    logger.warn('Insufficient scopes for requested tags', {
-      grantedTags,
-      requestedTags,
-      missing: requestedTags.filter((tag) => !grantedTags.includes(tag)),
-    });
+    logger.warn('scopeValidation.insufficient.scopes.for.requested.tags.bbdd46f0');
   }
 
   return hasAllTags;
@@ -299,13 +295,9 @@ export function auditScopeOperation(
     error?: string;
   },
 ): void {
-  logger.info(`Scope operation: ${operation}`, {
-    operation,
+  logger.info('scopeValidation.scope.operation.614ee0e5', {
     clientId: context.clientId,
-    requestedScopes: context.requestedScopes,
-    grantedScopes: context.grantedScopes,
     success: context.success,
     error: context.error,
-    timestamp: new Date().toISOString(),
   });
 }

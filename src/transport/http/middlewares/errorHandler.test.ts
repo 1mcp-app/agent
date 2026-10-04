@@ -42,7 +42,7 @@ describe('errorHandler', () => {
 
       errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
 
-      expect(logger.error).toHaveBeenCalledWith('Express error:', error);
+      expect(logger.error).toHaveBeenCalledWith('errorHandler.express.error.037179d1', { error });
     });
 
     it('should return 500 status code', () => {
@@ -71,7 +71,7 @@ describe('errorHandler', () => {
 
       errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
 
-      expect(logger.error).toHaveBeenCalledWith('Express error:', error);
+      expect(logger.error).toHaveBeenCalledWith('errorHandler.express.error.037179d1', { error });
       expect(mockResponse.status).toHaveBeenCalledWith(500);
       expect(mockResponse.json).toHaveBeenCalledWith({
         error: {
@@ -86,7 +86,7 @@ describe('errorHandler', () => {
 
       errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
 
-      expect(logger.error).toHaveBeenCalledWith('Express error:', error);
+      expect(logger.error).toHaveBeenCalledWith('errorHandler.express.error.037179d1', { error });
       expect(mockResponse.status).toHaveBeenCalledWith(500);
     });
 
@@ -99,7 +99,7 @@ describe('errorHandler', () => {
 
       errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
 
-      expect(logger.error).toHaveBeenCalledWith('Express error:', error);
+      expect(logger.error).toHaveBeenCalledWith('errorHandler.express.error.037179d1', { error });
       expect(mockResponse.status).toHaveBeenCalledWith(500);
     });
 
@@ -119,7 +119,7 @@ describe('errorHandler', () => {
 
       errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
 
-      expect(logger.error).toHaveBeenCalledWith('Express error:', error);
+        expect(logger.error).toHaveBeenCalledWith('errorHandler.express.error.037179d1', { error });
       expect(mockResponse.status).toHaveBeenCalledWith(500);
     });
 
@@ -129,7 +129,7 @@ describe('errorHandler', () => {
 
       errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
 
-      expect(logger.error).toHaveBeenCalledWith('Express error:', error);
+      expect(logger.error).toHaveBeenCalledWith('errorHandler.express.error.037179d1', { error });
       expect(mockResponse.status).toHaveBeenCalledWith(500);
     });
 
@@ -142,7 +142,7 @@ describe('errorHandler', () => {
 
       errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
 
-      expect(logger.error).toHaveBeenCalledWith('Express error:', error);
+      expect(logger.error).toHaveBeenCalledWith('errorHandler.express.error.037179d1', { error });
       expect(mockResponse.status).toHaveBeenCalledWith(500);
     });
   });
@@ -167,7 +167,7 @@ describe('errorHandler', () => {
         errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
       }).toThrow('Response status failed');
 
-      expect(logger.error).toHaveBeenCalledWith('Express error:', error);
+      expect(logger.error).toHaveBeenCalledWith('errorHandler.express.error.037179d1', { error });
     });
 
     it('should use correct MCP error code', () => {
@@ -190,7 +190,7 @@ describe('errorHandler', () => {
 
       errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
 
-      expect(logger.error).toHaveBeenCalledWith('Express error:', error);
+      expect(logger.error).toHaveBeenCalledWith('errorHandler.express.error.037179d1', { error });
       expect(mockResponse.status).toHaveBeenCalledWith(500);
     });
 
@@ -199,7 +199,7 @@ describe('errorHandler', () => {
 
       errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
 
-      expect(logger.error).toHaveBeenCalledWith('Express error:', error);
+      expect(logger.error).toHaveBeenCalledWith('errorHandler.express.error.037179d1', { error });
       expect(mockResponse.status).toHaveBeenCalledWith(500);
     });
 
@@ -208,7 +208,7 @@ describe('errorHandler', () => {
 
       errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
 
-      expect(logger.error).toHaveBeenCalledWith('Express error:', error);
+      expect(logger.error).toHaveBeenCalledWith('errorHandler.express.error.037179d1', { error });
       expect(mockResponse.status).toHaveBeenCalledWith(500);
     });
   });

@@ -81,11 +81,8 @@ export class FilterCache {
       this.stats.expressions.hits++;
 
       debugIf(() => ({
-        message: `FilterCache.getOrParseExpression: Cache hit for expression: ${expression}`,
-        meta: {
-          expression,
-          accessCount: cached.accessCount,
-        },
+        message: 'filterCache.filtercache.getorparseexpression.cache.hit.for.expression.97482bac',
+        meta: { accessCount: cached.accessCount },
       }));
 
       return cached.value;
@@ -98,16 +95,12 @@ export class FilterCache {
       this.stats.expressions.misses++;
 
       debugIf(() => ({
-        message: `FilterCache.getOrParseExpression: Parsed and cached expression: ${expression}`,
-        meta: { expression },
+        message: 'filterCache.filtercache.getorparseexpression.parsed.and.cached.expression.1b592373',
       }));
 
       return parsed;
     } catch (error) {
-      logger.warn(`FilterCache.getOrParseExpression: Failed to parse expression: ${expression}`, {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        expression,
-      });
+      logger.warn('filterCache.filtercache.getorparseexpression.failed.to.parse.expression.791a4828', { error: error });
       return null;
     }
   }
@@ -125,12 +118,8 @@ export class FilterCache {
       this.stats.results.hits++;
 
       debugIf(() => ({
-        message: `FilterCache.getCachedResults: Cache hit for key: ${cacheKey}`,
-        meta: {
-          cacheKey,
-          resultCount: cached.value.length,
-          accessCount: cached.accessCount,
-        },
+        message: 'filterCache.filtercache.getcachedresults.cache.hit.for.key.55c01014',
+        meta: { resultCount: cached.value.length, accessCount: cached.accessCount },
       }));
 
       return cached.value;
@@ -159,12 +148,8 @@ export class FilterCache {
     this.stats.results.size = this.resultCache.size;
 
     debugIf(() => ({
-      message: `FilterCache.setCachedResults: Cached results for key: ${cacheKey}`,
-      meta: {
-        cacheKey,
-        resultCount: results.length,
-        cacheSize: this.resultCache.size,
-      },
+      message: 'filterCache.filtercache.setcachedresults.cached.results.for.key.f6cc34cf',
+      meta: { resultCount: results.length },
     }));
   }
 
@@ -341,12 +326,8 @@ export class FilterCache {
 
     if (expiredCount > 0) {
       debugIf(() => ({
-        message: `FilterCache.clearExpired: Cleared ${expiredCount} expired entries`,
-        meta: {
-          expiredCount,
-          expressionCacheSize: this.expressionCache.size,
-          resultCacheSize: this.resultCache.size,
-        },
+        message: 'filterCache.filtercache.clearexpired.cleared.expired.entries.1698e9ef',
+        meta: { expiredCount: expiredCount },
       }));
     }
   }
@@ -414,7 +395,7 @@ export class FilterCache {
       totalRequests: 0,
     };
 
-    debugIf('FilterCache.clear: Cleared all cache entries');
+    debugIf('filterCache.filtercache.clear.cleared.all.cache.entries.788c852b');
   }
 
   /**
@@ -422,7 +403,7 @@ export class FilterCache {
    */
   public warmup(expressions: string[]): void {
     debugIf(() => ({
-      message: `FilterCache.warmup: Warming up cache with ${expressions.length} expressions`,
+      message: 'filterCache.filtercache.warmup.warming.up.cache.with.expressions.5008759d',
       meta: { expressionCount: expressions.length },
     }));
 
@@ -430,7 +411,7 @@ export class FilterCache {
       this.getOrParseExpression(expression);
     }
 
-    debugIf(`FilterCache.warmup: Warmup completed, ${this.expressionCache.size} expressions cached`);
+    debugIf('filterCache.filtercache.warmup.warmup.completed.expressions.cached.611395cd');
   }
 }
 

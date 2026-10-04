@@ -465,11 +465,11 @@ describe('ConfigLoader', () => {
         type: 'stdio',
         command: 'node',
       });
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining(
-          'Ignoring invalid serverDefaults configuration: Invalid global configuration: timeout: Invalid input: expected number, received string',
-        ),
-      );
+      expect(warnSpy).toHaveBeenCalledWith('configLoader.ignoring.invalid.serverdefaults.configuration.56393432', {
+        error: expect.objectContaining({
+          message: 'Invalid global configuration: timeout: Invalid input: expected number, received string',
+        }),
+      });
     });
   });
 });

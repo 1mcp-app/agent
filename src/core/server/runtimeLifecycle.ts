@@ -154,7 +154,7 @@ export async function discoverScopedRuntime(
     info = readPidFile(configDir);
   } catch (error) {
     if (error instanceof PidFileReadError) {
-      logger.error(error.message);
+      logger.error('runtimeLifecycle.discoverscopedruntime.diagnostic.ef8b70e8', { error: error });
       return { status: 'error', info: null, error: error.message };
     }
     throw error;
@@ -180,7 +180,7 @@ export async function discoverScopedRuntime(
   }
   if (identityStatus === 'dead') {
     if (options.cleanupStale !== false) {
-      logger.warn(`PID file points to dead process (PID: ${info.pid}); removing stale PID file`);
+      logger.warn('runtimeLifecycle.pid.file.points.to.dead.process.pid.removing.stale.pid.file.6a7b9b92');
       cleanupPidFileIfMatches(configDir, info);
     }
     return { status: 'not-running', info: null };

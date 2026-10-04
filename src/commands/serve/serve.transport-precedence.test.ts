@@ -213,8 +213,12 @@ describe('serveCommand - config-dir session isolation', () => {
         // Ignore errors from mocked dependencies.
       }
 
-      expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('--lazy-mode is ignored'));
-      expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('--lazy-direct-expose is ignored'));
+      expect(logger.warn).toHaveBeenCalledWith(
+        'serve.deprecation.warning.lazy.mode.is.ignored.lazy.loading.is.controlled.only.by.9d79d3a4',
+      );
+      expect(logger.warn).toHaveBeenCalledWith(
+        'serve.deprecation.warning.lazy.direct.expose.is.ignored.lazy.loading.exposes.only.bac35051',
+      );
       expect(updateConfigSpy).toHaveBeenCalledWith(
         expect.objectContaining({ lazyLoading: expect.objectContaining({ enabled: false }) }),
       );

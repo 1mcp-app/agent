@@ -2,6 +2,7 @@ import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 
 import { SchemaBoundaryError } from '@src/core/validation/schemaPolicy.js';
 import logger from '@src/logger/logger.js';
+import { normalizeEvent } from '@src/observability/events/normalize.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -51,10 +52,17 @@ describe('withErrorHandling', () => {
       message: 'Tool request failed',
       data: { 'app.1mcp/failure': { code: 'gateway_internal_error' } },
     });
-    expect(logger.error).toHaveBeenCalledWith('Tool request failed', {
-      failure: { kind: 'internal', code: 'gateway_internal_error', message: 'Gateway internal failure' },
-    });
-    expect(JSON.stringify(vi.mocked(logger.error).mock.calls)).not.toContain('SECRET480');
+    expect(logger.error).toHaveBeenCalledWith('errorHandling.witherrorhandling.diagnostic.02762c34', { error });
+    const normalizedLogs = vi.mocked(logger.error).mock.calls.map(([event, fields]) =>
+      normalizeEvent(event, fields),
+    );
+    expect(normalizedLogs).toContainEqual(
+      expect.objectContaining({
+        event: 'errorHandling.witherrorhandling.diagnostic.02762c34',
+        error_kind: 'other',
+      }),
+    );
+    expect(JSON.stringify(normalizedLogs)).not.toContain('SECRET480');
   });
 
   it('should return successful function result', async () => {

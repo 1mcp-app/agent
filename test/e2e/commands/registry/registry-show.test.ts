@@ -1,11 +1,28 @@
 import { TestFixtures } from '@test/e2e/fixtures/TestFixtures.js';
-import { CliTestRunner, CommandTestEnvironment } from '@test/e2e/utils/index.js';
+import { CliTestRunner, type CommandResult, CommandTestEnvironment } from '@test/e2e/utils/index.js';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 describe('Registry Show Command E2E', () => {
   let environment: CommandTestEnvironment;
   let runner: CliTestRunner;
+
+  const assertBoundedFailure = (result: CommandResult, serverId: string): void => {
+    runner.assertFailure(result);
+    runner.assertOutputContains(result, 'event="show.show.command.failed.82926490"');
+    runner.assertOutputContains(result, 'error_kind="other"');
+    runner.assertOutputContains(result, 'error_code="other"');
+    runner.assertOutputContains(result, `Server not found: ${serverId}`.trimEnd(), true);
+    runner.assertOutputContains(result, 'Make sure the server ID is correct and the server exists in the registry.');
+
+    const retainedEvents = result.stdout
+      .split('\n')
+      .filter((line) => line.includes(' event="'))
+      .join('\n');
+    expect(retainedEvents).not.toContain('Failed to fetch server with ID:');
+    expect(retainedEvents).not.toContain('HTTP 404: Not Found');
+    if (serverId) expect(retainedEvents).not.toContain(serverId);
+  };
 
   beforeEach(async () => {
     environment = new CommandTestEnvironment({
@@ -31,8 +48,7 @@ describe('Registry Show Command E2E', () => {
 
       runner.assertFailure(result);
       // Should show appropriate error message
-      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
-      runner.assertOutputContains(result, 'HTTP 404: Not Found');
+      assertBoundedFailure(result, 'file-system');
     });
 
     it('should handle detailed format request gracefully', async () => {
@@ -44,7 +60,7 @@ describe('Registry Show Command E2E', () => {
 
       runner.assertFailure(result);
       // Should show error message instead of server details
-      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
+      assertBoundedFailure(result, 'file-system');
     });
 
     it('should handle table format request gracefully', async () => {
@@ -56,7 +72,7 @@ describe('Registry Show Command E2E', () => {
 
       runner.assertFailure(result);
       // Should show error message instead of table
-      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
+      assertBoundedFailure(result, 'file-system');
     });
 
     it('should handle JSON format request gracefully', async () => {
@@ -68,7 +84,7 @@ describe('Registry Show Command E2E', () => {
 
       runner.assertFailure(result);
       // Should show error message instead of JSON
-      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
+      assertBoundedFailure(result, 'file-system');
     });
   });
 
@@ -81,8 +97,7 @@ describe('Registry Show Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
-      runner.assertOutputContains(result, 'HTTP 404: Not Found');
+      assertBoundedFailure(result, 'file-system');
     });
 
     it('should handle specific version request with -v alias', async () => {
@@ -93,7 +108,7 @@ describe('Registry Show Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
+      assertBoundedFailure(result, 'file-system');
     });
 
     it('should handle version request in different output formats', async () => {
@@ -104,7 +119,7 @@ describe('Registry Show Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
+      assertBoundedFailure(result, 'file-system');
     });
 
     it('should default to latest version when version not specified', async () => {
@@ -121,8 +136,8 @@ describe('Registry Show Command E2E', () => {
 
       runner.assertFailure(result1);
       runner.assertFailure(result2);
-      runner.assertOutputContains(result1, 'Failed to fetch server with ID: file-system');
-      runner.assertOutputContains(result2, 'Failed to fetch server with ID: file-system');
+      assertBoundedFailure(result1, 'file-system');
+      assertBoundedFailure(result2, 'file-system');
     });
   });
 
@@ -135,8 +150,7 @@ describe('Registry Show Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
-      runner.assertOutputContains(result, 'HTTP 404: Not Found');
+      assertBoundedFailure(result, 'file-system');
     });
 
     it('should show package information details', async () => {
@@ -147,8 +161,7 @@ describe('Registry Show Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
-      runner.assertOutputContains(result, 'HTTP 404: Not Found');
+      assertBoundedFailure(result, 'file-system');
     });
 
     it('should show installation instructions', async () => {
@@ -159,8 +172,7 @@ describe('Registry Show Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
-      runner.assertOutputContains(result, 'HTTP 404: Not Found');
+      assertBoundedFailure(result, 'file-system');
     });
   });
 
@@ -173,8 +185,7 @@ describe('Registry Show Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
-      runner.assertOutputContains(result, 'HTTP 404: Not Found');
+      assertBoundedFailure(result, 'file-system');
     });
 
     it('should format table output properly', async () => {
@@ -185,8 +196,7 @@ describe('Registry Show Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
-      runner.assertOutputContains(result, 'HTTP 404: Not Found');
+      assertBoundedFailure(result, 'file-system');
     });
 
     it('should format JSON output with proper structure', async () => {
@@ -197,8 +207,7 @@ describe('Registry Show Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
-      runner.assertOutputContains(result, 'HTTP 404: Not Found');
+      assertBoundedFailure(result, 'file-system');
     });
   });
 
@@ -211,8 +220,7 @@ describe('Registry Show Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch server with ID: non-existent-server-xyz-12345');
-      runner.assertOutputContains(result, 'HTTP 404: Not Found');
+      assertBoundedFailure(result, 'non-existent-server-xyz-12345');
     });
 
     it('should handle non-existent version', async () => {
@@ -223,8 +231,7 @@ describe('Registry Show Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
-      runner.assertOutputContains(result, 'HTTP 404: Not Found');
+      assertBoundedFailure(result, 'file-system');
     });
 
     it('should handle malformed version number', async () => {
@@ -235,8 +242,7 @@ describe('Registry Show Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
-      runner.assertOutputContains(result, 'HTTP 404: Not Found');
+      assertBoundedFailure(result, 'file-system');
     });
 
     it('should handle invalid output format', async () => {
@@ -271,8 +277,7 @@ describe('Registry Show Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
-      runner.assertOutputContains(result, 'HTTP 404: Not Found');
+      assertBoundedFailure(result, 'file-system');
     });
   });
 
@@ -310,12 +315,11 @@ describe('Registry Show Command E2E', () => {
       // All should fail and have consistent error messages
       results.forEach((result) => {
         expect(result.exitCode).not.toBe(0);
-        runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
-        runner.assertOutputContains(result, 'HTTP 404: Not Found');
+        assertBoundedFailure(result, 'file-system');
       });
     });
 
-    it('should preserve each server ID across independent failures', async () => {
+    it('should emit bounded failures for independent server IDs', async () => {
       const serverIds = ['file-system', 'missing-git', 'missing-database'];
       const results = [];
 
@@ -333,11 +337,10 @@ describe('Registry Show Command E2E', () => {
       const failureCount = results.filter((r) => r.exitCode !== 0).length;
       expect(failureCount).toBe(serverIds.length);
 
-      // All should have error messages with their respective server IDs
+      // CLI errors keep the requested ID, while retained events omit it.
       results.forEach((result, index) => {
         const serverId = serverIds[index];
-        runner.assertOutputContains(result, `Failed to fetch server with ID: ${serverId}`);
-        runner.assertOutputContains(result, 'HTTP 404: Not Found');
+        assertBoundedFailure(result, serverId);
       });
 
       expect(environment.getMockRegistryRequests()).toEqual(

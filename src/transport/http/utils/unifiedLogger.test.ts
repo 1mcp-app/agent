@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { logError, logJsonRpc, logWarn } from './unifiedLogger.js';
 
-// Mock the logger module - the actual logger takes a single object parameter
 vi.mock('@src/logger/logger.js', () => ({
   default: {
     debug: vi.fn(),
@@ -24,82 +23,67 @@ describe('unifiedLogger', () => {
       const error = new Error('Test error');
       error.stack = 'Error: Test error\n    at test.js:10:15';
 
-      logError('Test message', {
-        method: 'POST',
-        path: '/test',
+      logError('errorHandler.express.error.037179d1', {
         error,
       });
 
-      expect(logger.error).toHaveBeenCalled();
+      expect(logger.error).toHaveBeenCalledWith('errorHandler.express.error.037179d1', { error });
     });
 
     it('should log non-Error objects with errorType and errorContext', () => {
       const error = { code: 'TEST_ERROR', details: 'Some details' };
 
-      logError('Test message', {
-        method: 'POST',
-        path: '/test',
+      logError('errorHandler.express.error.037179d1', {
         error,
       });
 
-      expect(logger.error).toHaveBeenCalled();
+      expect(logger.error).toHaveBeenCalledWith('errorHandler.express.error.037179d1', { error });
     });
 
     it('should log string errors', () => {
       const error = 'String error message';
 
-      logError('Test message', {
-        method: 'POST',
-        path: '/test',
+      logError('errorHandler.express.error.037179d1', {
         error,
       });
 
-      expect(logger.error).toHaveBeenCalled();
+      expect(logger.error).toHaveBeenCalledWith('errorHandler.express.error.037179d1', { error });
     });
 
     it('should log number errors', () => {
       const error = 404;
 
-      logError('Test message', {
-        method: 'POST',
-        path: '/test',
+      logError('errorHandler.express.error.037179d1', {
         error,
       });
 
-      expect(logger.error).toHaveBeenCalled();
+      expect(logger.error).toHaveBeenCalledWith('errorHandler.express.error.037179d1', { error });
     });
   });
 
   describe('logJsonRpc', () => {
     it('should use error level when errorCode is present', () => {
-      logJsonRpc('warn', 'JSON-RPC message', {
-        errorCode: -32700,
-        errorMessage: 'Parse error',
-        sessionId: 'test-session',
+      logJsonRpc('error', 'loggingSseTransport.json.rpc.error.response.6ba80f1a', {
+        error: { code: -32700, message: 'Parse error' },
       });
 
-      expect(logger.error).toHaveBeenCalled();
+      expect(logger.error).toHaveBeenCalledWith('loggingSseTransport.json.rpc.error.response.6ba80f1a', {
+        error: { code: -32700, message: 'Parse error' },
+      });
     });
 
     it('should use specified level when errorCode is absent', () => {
-      logJsonRpc('info', 'JSON-RPC message', {
-        sessionId: 'test-session',
-      });
+      logJsonRpc('info', 'server.instruction.aggregator.initialized.e753c4c6');
 
-      expect(logger.info).toHaveBeenCalled();
+      expect(logger.info).toHaveBeenCalledWith('server.instruction.aggregator.initialized.e753c4c6', undefined);
     });
   });
 
   describe('logWarn', () => {
     it('should log warnings without error parameter', () => {
-      logWarn('Test warning', {
-        method: 'GET',
-        path: '/test',
-        statusCode: 400,
-        reason: 'Invalid input',
-      });
+      logWarn('serve.deprecated-sse');
 
-      expect(logger.warn).toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalledWith('serve.deprecated-sse', undefined);
     });
   });
 });

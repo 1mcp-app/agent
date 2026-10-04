@@ -3,6 +3,7 @@ import path from 'path';
 
 import { resolveAsyncLoadingOptions } from '@src/commands/serve/asyncLoadingOptions.js';
 import { resolveServeConfigPaths } from '@src/commands/serve/runtimeScope.js';
+import { describeServeLifecycleFailure } from '@src/commands/serve/serveLifecycleError.js';
 import {
   parseCommaSeparatedList,
   parseInternalToolsList,
@@ -18,7 +19,7 @@ import {
   type TemplateContextTrustMode,
 } from '@src/core/context/templateContextTrust.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
-import { formatValidationError, validateTemplateContent } from '@src/core/instructions/templateValidator.js';
+import { validateTemplateContent } from '@src/core/instructions/templateValidator.js';
 import { LoadingSummary } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
@@ -148,52 +149,46 @@ function loadInstructionsTemplate(templatePath?: string, configDir?: string): st
       const validation = validateTemplateContent(templateContent, templateFilePath);
 
       if (!validation.valid) {
-        const errorMessage = formatValidationError(validation);
-        logger.error(`Invalid instructions template: ${errorMessage}`);
+        logger.error('serve.invalid.instructions.template.811a8b70');
 
         // For explicit template paths, this is a hard error
         if (templatePath) {
-          logger.error('Template validation failed. Server will use built-in template.');
+          logger.error('serve.template.validation.failed.server.will.use.built.in.template.7078ba5c');
         }
 
         return undefined;
       }
 
-      logger.info(`Loaded and validated custom instructions template from: ${templateFilePath}`);
-      debugIf(() => ({
-        message: 'Template length details',
-        meta: { templateLength: templateContent.length, templateFilePath },
-      }));
+      logger.info('serve.loaded.and.validated.custom.instructions.template.from.3751f580');
+      debugIf(() => ({ message: 'serve.template.length.details.9ac93eda' }));
       return templateContent;
     } else {
       if (templatePath) {
         // If user explicitly provided a template path, warn about missing file
-        logger.warn(`Custom instructions template file not found: ${templateFilePath}`);
-        logger.info('Template file resolution:');
-        logger.info(`  • Check that the file path is correct`);
-        logger.info(`  • Ensure the file has read permissions`);
-        logger.info(`  • Use absolute paths or paths relative to current directory`);
-        logger.info(`  • Server will use built-in template as fallback`);
+        logger.warn('serve.custom.instructions.template.file.not.found.659ae3c3');
+        logger.info('serve.template.file.resolution.606e9dfc');
+        logger.info('serve.check.that.the.file.path.is.correct.cc805876');
+        logger.info('serve.ensure.the.file.has.read.permissions.d3e15e7b');
+        logger.info('serve.use.absolute.paths.or.paths.relative.to.current.directory.6a968d90');
+        logger.info('serve.server.will.use.built.in.template.as.fallback.5dd65ea9');
       } else {
         // If using default path, just log debug (it's optional)
         debugIf(() => ({
-          message: 'Default instructions template file not found, using built-in template',
-          meta: { templateFilePath, usingBuiltIn: true },
+          message: 'serve.default.instructions.template.file.not.found.using.built.in.template.3fd48023',
         }));
       }
       return undefined;
     }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logger.error(`Failed to load instructions template from ${templateFilePath}: ${errorMessage}`);
+  } catch (_error) {
+    logger.error('serve.failed.to.load.instructions.template.from.cf604d83', { error: _error });
 
     // Provide helpful troubleshooting guidance
-    logger.info('Template loading failed. Troubleshooting steps:');
-    logger.info(`  • Verify file exists and has read permissions`);
-    logger.info(`  • Check file encoding (should be UTF-8)`);
-    logger.info(`  • Ensure no other process is locking the file`);
-    logger.info(`  • Try using an absolute file path`);
-    logger.info(`  • Server will use built-in template as fallback`);
+    logger.info('serve.template.loading.failed.troubleshooting.steps.d7a3ed11');
+    logger.info('serve.verify.file.exists.and.has.read.permissions.04b2cb6d');
+    logger.info('serve.check.file.encoding.should.be.utf.8.347ababb');
+    logger.info('serve.ensure.no.other.process.is.locking.the.file.e98e6671');
+    logger.info('serve.try.using.an.absolute.file.path.7145b186');
+    logger.info('serve.server.will.use.built.in.template.as.fallback.5dd65ea9');
 
     return undefined;
   }
@@ -201,17 +196,11 @@ function loadInstructionsTemplate(templatePath?: string, configDir?: string): st
 
 function warnForLegacyLazyLoadingOptions(parsedArgv: ServeOptions): void {
   if (parsedArgv['lazy-mode'] !== undefined) {
-    logger.warn(
-      'DEPRECATION WARNING: --lazy-mode is ignored. Lazy loading is controlled only by --enable-lazy-loading; ' +
-        'for a persistent setting, use [lazyLoading] enabled = true in config.toml. Remove --lazy-mode because it does not change runtime behavior.',
-    );
+    logger.warn('serve.deprecation.warning.lazy.mode.is.ignored.lazy.loading.is.controlled.only.by.9d79d3a4');
   }
 
   if (parsedArgv['lazy-direct-expose'] !== undefined) {
-    logger.warn(
-      'DEPRECATION WARNING: --lazy-direct-expose is ignored. Lazy loading exposes only meta-tools when enabled; ' +
-        'for a persistent setting, use [lazyLoading] enabled = true in config.toml. Remove --lazy-direct-expose because it does not change runtime behavior.',
-    );
+    logger.warn('serve.deprecation.warning.lazy.direct.expose.is.ignored.lazy.loading.exposes.only.bac35051');
   }
 }
 
@@ -233,7 +222,7 @@ export function setupGracefulShutdown(
     }
 
     shutdownPromise = (async () => {
-      logger.info('Shutting down server...');
+      logger.info('serve.shutting.down.server.7bd0e75c');
 
       // Stop the configuration reload service
       // Config reload handled by ConfigManager singleton
@@ -242,47 +231,43 @@ export function setupGracefulShutdown(
       if (loadingManager && typeof loadingManager.shutdown === 'function') {
         try {
           loadingManager.shutdown();
-          logger.info('Loading manager shutdown complete');
-        } catch (error) {
-          logger.error(
-            `Error shutting down loading manager: ${error instanceof Error ? error.message : String(error)}`,
-          );
+          logger.info('serve.loading.manager.shutdown.complete.0bedfd3f');
+        } catch (_error) {
+          logger.error('serve.error.shutting.down.loading.manager.ecaf9547', { error: _error });
         }
       }
 
       try {
         await ClientManager.shutdownCurrent();
-        logger.info('ClientManager shutdown complete');
-      } catch (error) {
-        logger.error(`Error shutting down ClientManager: ${error instanceof Error ? error.message : String(error)}`);
+        logger.info('serve.clientmanager.shutdown.complete.6185d545');
+      } catch (_error) {
+        logger.error('serve.error.shutting.down.clientmanager.c3553270', { error: _error });
       }
 
       try {
         await serverManager.cleanup();
-        logger.info('ServerManager cleanup complete');
-      } catch (error) {
-        logger.error(`Error cleaning up ServerManager: ${error instanceof Error ? error.message : String(error)}`);
+        logger.info('serve.servermanager.cleanup.complete.7aa4ec75');
+      } catch (_error) {
+        logger.error('serve.error.cleaning.up.servermanager.b2e3ed7d', { error: _error });
       }
 
       // Shutdown ExpressServer if it exists
       if (expressServer) {
         try {
           expressServer.shutdown();
-          logger.info('ExpressServer shutdown complete');
-        } catch (error) {
-          logger.error(`Error shutting down ExpressServer: ${error instanceof Error ? error.message : String(error)}`);
+          logger.info('serve.expressserver.shutdown.complete.83758030');
+        } catch (_error) {
+          logger.error('serve.error.shutting.down.expressserver.582eaa65', { error: _error });
         }
       }
 
       // Close all transports
-      for (const [sessionId, transport] of serverManager.getTransports().entries()) {
+      for (const [_sessionId, transport] of serverManager.getTransports().entries()) {
         try {
           transport?.close();
-          logger.info(`Closed transport: ${sessionId}`);
-        } catch (error) {
-          logger.error(
-            `Error closing transport ${sessionId}: ${error instanceof Error ? error.message : String(error)}`,
-          );
+          logger.info('serve.closed.transport.0211d5c5');
+        } catch (_error) {
+          logger.error('serve.error.closing.transport.7d2d3d15', { error: _error });
         }
       }
 
@@ -290,11 +275,9 @@ export function setupGracefulShutdown(
       if (instructionAggregator && typeof instructionAggregator.cleanup === 'function') {
         try {
           instructionAggregator.cleanup();
-          logger.info('InstructionAggregator cleanup complete');
-        } catch (error) {
-          logger.error(
-            `Error cleaning up InstructionAggregator: ${error instanceof Error ? error.message : String(error)}`,
-          );
+          logger.info('serve.instructionaggregator.cleanup.complete.efba68f2');
+        } catch (_error) {
+          logger.error('serve.error.cleaning.up.instructionaggregator.46768b4e', { error: _error });
         }
       }
 
@@ -304,25 +287,25 @@ export function setupGracefulShutdown(
         const presetManager = PresetManager.getInstance();
         if (presetManager && typeof presetManager.cleanup === 'function') {
           await presetManager.cleanup();
-          logger.info('PresetManager cleanup complete');
+          logger.info('serve.presetmanager.cleanup.complete.b9467741');
         }
-      } catch (error) {
-        logger.error(`Error cleaning up PresetManager: ${error instanceof Error ? error.message : String(error)}`);
+      } catch (_error) {
+        logger.error('serve.error.cleaning.up.presetmanager.55eb9b77', { error: _error });
       }
 
       // Cleanup PID file if configDir is available
       if (configDir) {
         try {
           cleanupPidFileOnExit(configDir);
-          logger.info('PID file cleanup complete');
-        } catch (error) {
-          logger.error(`Error cleaning up PID file: ${error instanceof Error ? error.message : String(error)}`);
+          logger.info('serve.pid.file.cleanup.complete.85339e55');
+        } catch (_error) {
+          logger.error('serve.error.cleaning.up.pid.file.336e4ac3', { error: _error });
         }
       }
 
       runtimeOwnership?.release();
 
-      logger.info('Server shutdown complete');
+      logger.info('serve.server.shutdown.complete.fad6a0b9');
       process.exit(0);
     })();
 
@@ -466,12 +449,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       effectiveTransport,
     );
     if (deprecatedLoggingKeys.length > 0) {
-      logger.warn(
-        `⚠️  DEPRECATION WARNING: config keys ${deprecatedLoggingKeys
-          .map((key) => `\`${key}\``)
-          .join(' and ')} are deprecated. Use the structured \`logging\` block ` +
-          '(logging.level / logging.file) instead. The flat keys still work but will be removed in a future release.',
-      );
+      logger.warn('serve.deprecation.warning.config.keys.are.deprecated.use.the.structured.logging.b.600bd41d');
     }
     const effectiveLogFile = resolvedLogging.file;
     if (effectiveTransport !== 'stdio' && !effectiveLogFile) {
@@ -501,13 +479,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     // preserved for backward compatibility); users can silence by disabling
     // --enable-scope-validation when --enable-auth is off. CWE-862 / CWE-636.
     if (!authEnabled && scopeValidationExplicit === true) {
-      logger.warn(
-        '⚠️  SECURITY WARNING: authentication is DISABLED but scope validation is ENABLED. ' +
-          'Requests will be served without a verified identity, so authorization cannot be ' +
-          'enforced (fail-open, CWE-862 / CWE-636). ' +
-          'Action: either enable authentication via `--enable-auth`, or disable scope ' +
-          'validation via `--enable-scope-validation=false`. Test/local use only.',
-      );
+      logger.warn('serve.security.warning.authentication.is.disabled.but.scope.validation.is.enabled.cc1337b3');
     }
 
     // Handle trust proxy configuration (convert 'true'/'false' strings to boolean)
@@ -527,8 +499,8 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     const preloadPatterns = parseCommaSeparatedList(parsedArgv['lazy-preload']);
     const preloadKeywords = parseCommaSeparatedList(parsedArgv['lazy-preload-keywords']);
     const sessionTtlMinutes = parsedArgv['session-ttl'] ?? appConfig.auth?.sessionTtl ?? 1440;
-    const asyncLoading = resolveAsyncLoadingOptions(parsedArgv, appConfig.asyncLoading, (warning) =>
-      logger.warn(warning),
+    const asyncLoading = resolveAsyncLoadingOptions(parsedArgv, appConfig.asyncLoading, (_warning) =>
+      logger.warn('serve.asyncloading.diagnostic.912acccb'),
     );
 
     serverConfigManager.updateConfig({
@@ -642,9 +614,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         throw error;
       }
       if (templateContextTrust === 'legacy') {
-        logger.warn(
-          'Template context trust is LEGACY: unverified clients may render command, args, cwd, and env templates',
-        );
+        logger.warn('serve.template.context.trust.is.legacy.unverified.clients.may.render.command.args.867a89a9');
       }
     }
 
@@ -676,14 +646,14 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     switch (effectiveTransport) {
       case 'stdio': {
         // DEPRECATION WARNING
-        logger.warn('⚠️  DEPRECATION WARNING: `serve --transport stdio` is deprecated');
-        logger.warn('⚠️  Please use `1mcp proxy` instead for better compatibility');
-        logger.warn('⚠️  This mode may be removed in a future major version');
-        logger.warn('');
-        logger.warn('Migration guide:');
-        logger.warn('  1. Start HTTP server: 1mcp serve');
-        logger.warn('  2. Use proxy command: 1mcp proxy');
-        logger.warn('');
+        logger.warn('serve.deprecation.warning.serve.transport.stdio.is.deprecated.a3288aee');
+        logger.warn('serve.please.use.1mcp.proxy.instead.for.better.compatibility.9caa3485');
+        logger.warn('serve.this.mode.may.be.removed.in.a.future.major.version.9f1100ff');
+        logger.warn('serve.diagnostic.c82ead89');
+        logger.warn('serve.migration.guide.a032bb4f');
+        logger.warn('serve.1.start.http.server.1mcp.serve.5c75ce98');
+        logger.warn('serve.2.use.proxy.command.1mcp.proxy.75b19e38');
+        logger.warn('serve.diagnostic.c82ead89');
 
         // Use stdio transport
         const transport = new StdioServerTransport();
@@ -704,15 +674,15 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
           const inboundConnection = serverManager.getServer('stdio');
           if (inboundConnection) {
             asyncOrchestrator.initializeNotifications(inboundConnection);
-            logger.info('Async loading notifications initialized for stdio transport');
+            logger.info('serve.async.loading.notifications.initialized.for.stdio.transport.2f38a5e7');
           }
         }
 
-        logger.info('Server started with stdio transport');
+        logger.info('serve.server.started.with.stdio.transport.ea94ea8d');
         break;
       }
       case 'sse': {
-        logger.warning('sse option is deprecated, use http instead');
+        logger.warn('serve.deprecated-sse');
       }
       // Reason: Intentional fallthrough from deprecated 'sse' to 'http' case for backward compatibility
       // eslint-disable-next-line no-fallthrough
@@ -746,7 +716,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         break;
       }
       default:
-        logger.error(`Invalid transport: ${effectiveTransport}`);
+        logger.error('serve.invalid.transport.1860e43c');
         process.exit(1);
     }
 
@@ -761,22 +731,18 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     );
 
     // Log MCP loading progress (non-blocking)
-    loadingManager.on('loading-progress', (summary: LoadingSummary) => {
-      logger.info(
-        `MCP loading progress: ${summary.ready}/${summary.totalServers} servers ready (${summary.loading} loading, ${summary.failed} failed)`,
-      );
+    loadingManager.on('loading-progress', (_summary: LoadingSummary) => {
+      logger.info('serve.mcp.loading.progress.servers.ready.loading.failed.90307638');
     });
 
-    loadingManager.on('loading-complete', (summary: LoadingSummary) => {
-      logger.info(
-        `MCP loading complete: ${summary.ready}/${summary.totalServers} servers ready (${Number(summary.successRate).toFixed(1)}% success rate)`,
-      );
+    loadingManager.on('loading-complete', (_summary: LoadingSummary) => {
+      logger.info('serve.mcp.loading.complete.servers.ready.success.rate.0a0fdab1');
     });
-  } catch (error) {
+  } catch (_error) {
     runtimeOwnership?.release();
     if (parsedArgv.background || parsedArgv.restart)
-      process.stderr.write(`Error: ${error instanceof Error ? error.message : String(error)}\n`);
-    else logger.error(`Server error: ${error instanceof Error ? error.message : String(error)}`);
+      process.stderr.write(`Error: ${describeServeLifecycleFailure(_error)}\n`);
+    logger.error('serve.server.error.a68bf449', { error: _error });
     process.exit(1);
   }
 }

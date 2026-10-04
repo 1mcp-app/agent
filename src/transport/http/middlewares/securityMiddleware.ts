@@ -63,14 +63,7 @@ export function createSensitiveOperationLimiter(
       return req.path === '/health' || req.path === '/';
     },
     handler: (req: Request, res: Response) => {
-      const logData: Record<string, unknown> = {
-        ip: req.ip,
-        userAgent: req.get('User-Agent'),
-        path: req.path,
-        method: req.method,
-        timestamp: new Date().toISOString(),
-      };
-      logger.warn(`Rate limit exceeded for sensitive operation`, logData);
+      logger.warn('securityMiddleware.rate.limit.exceeded.for.sensitive.operation.a7edd8d0');
 
       res.status(429).json({
         error: 'rate_limit_exceeded',
@@ -99,18 +92,10 @@ export function inputValidation(req: Request, res: Response, next: NextFunction)
     /exec\s*\(/i, // Code execution
   ];
 
-  const checkForMaliciousContent = (value: string, location: string): boolean => {
+  const checkForMaliciousContent = (value: string, _location: string): boolean => {
     return suspiciousPatterns.some((pattern) => {
       if (pattern.test(value)) {
-        const logData: Record<string, unknown> = {
-          value: value.substring(0, 100), // Log only first 100 chars
-          pattern: pattern.toString(),
-          ip: req.ip,
-          userAgent: req.get('User-Agent'),
-          path: req.path,
-          timestamp: new Date().toISOString(),
-        };
-        logger.warn(`Suspicious content detected in ${location}`, logData);
+        logger.warn('securityMiddleware.suspicious.content.detected.in.ead2ecd1');
         return true;
       }
       return false;
@@ -188,34 +173,17 @@ export function securityAuditLogger(req: Request, res: Response, next: NextFunct
     req.method === 'DELETE';
 
   if (isSecurityRelevant) {
-    const logData: Record<string, unknown> = {
-      method: req.method,
-      path: req.path,
-      ip: req.ip,
-      userAgent: req.get('User-Agent'),
-      contentType: req.get('Content-Type'),
-      timestamp: new Date().toISOString(),
-      sessionId: req.headers['mcp-session-id'] as string | undefined,
-      authorization: req.headers.authorization ? 'Bearer [REDACTED]' : undefined,
-    };
-    logger.info('Security-relevant request', logData);
+    logger.info('securityMiddleware.security.relevant.request.0633a217', { method: req.method });
   }
 
   // Capture response details
   const originalSend = res.send.bind(res);
   res.send = function (this: Response, body: unknown) {
-    const duration = Date.now() - startTime;
-
     if (isSecurityRelevant) {
-      const logData: Record<string, unknown> = {
-        method: req.method,
-        path: req.path,
+      logger.info('securityMiddleware.security.relevant.response.9de4a676', {
         statusCode: res.statusCode,
-        duration,
-        ip: req.ip,
-        timestamp: new Date().toISOString(),
-      };
-      logger.info('Security-relevant response', logData);
+        duration: Date.now() - startTime,
+      });
     }
 
     return originalSend.call(this, body);

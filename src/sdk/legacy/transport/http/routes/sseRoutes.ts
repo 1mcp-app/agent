@@ -58,7 +58,7 @@ export function setupSseRoutes(
         const inboundConnection = serverManager.getServer(transport.sessionId);
         if (inboundConnection) {
           asyncOrchestrator.initializeNotifications(inboundConnection);
-          logger.debug(`Async loading notifications initialized for SSE session ${transport.sessionId}`);
+          logger.debug('sseRoutes.async.loading.notifications.initialized.for.sse.session.2bbc6561');
         }
       }
 
@@ -69,7 +69,7 @@ export function setupSseRoutes(
           res.write(': heartbeat\n\n');
         } catch (_error) {
           // If write fails, the connection is likely broken
-          logger.debug(`SSE heartbeat failed for session ${transport.sessionId}, closing connection`);
+          logger.debug('sseRoutes.sse.heartbeat.failed.for.session.closing.connection.e0165d88', { error: _error });
           clearInterval(heartbeatInterval);
           serverManager.disconnectTransport(transport.sessionId);
         }
@@ -83,11 +83,11 @@ export function setupSseRoutes(
 
       transport.onerror = (error) => {
         clearInterval(heartbeatInterval);
-        logger.error(`SSE transport error for session ${transport.sessionId}:`, error);
+        logger.error('sseRoutes.sse.transport.error.for.session.d3add0c1', { error: error });
         serverManager.recordInboundConnectionError(transport.sessionId, error);
       };
     } catch (error) {
-      logger.error('SSE connection error:', error);
+      logger.error('sseRoutes.sse.connection.error.b6fc4ad6', { error: error });
       res.status(500).end();
     }
   });
@@ -119,7 +119,7 @@ export function setupSseRoutes(
         },
       });
     } catch (error) {
-      logger.error('Message handling error:', error);
+      logger.error('sseRoutes.message.handling.error.353d0f66', { error: error });
       res.status(500).json({
         error: {
           code: ErrorCode.InternalError,

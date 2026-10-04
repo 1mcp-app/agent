@@ -89,11 +89,7 @@ function validateToolArgs<T extends z.ZodType>(schema: T, args: unknown, toolNam
     if (error instanceof z.ZodError) {
       const errorMessages = error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join(', ');
 
-      logger.error(`Tool argument validation failed for ${toolName}`, {
-        toolName,
-        errors: error.issues,
-        receivedArgs: args,
-      });
+      logger.error('internalCapabilitiesProvider.tool.argument.validation.failed.for.f4d97f37', { error: error });
 
       throw new Error(
         `Invalid arguments for ${toolName}: ${errorMessages}. ` +
@@ -101,11 +97,7 @@ function validateToolArgs<T extends z.ZodType>(schema: T, args: unknown, toolNam
       );
     }
 
-    logger.error(`Unexpected validation error for ${toolName}`, {
-      toolName,
-      error: error instanceof Error ? error.message : String(error),
-      receivedArgs: args,
-    });
+    logger.error('internalCapabilitiesProvider.unexpected.validation.error.for.a09d9f5f', { error: error });
 
     throw new Error(`Validation failed for ${toolName}: ${error}`);
   }
@@ -163,7 +155,7 @@ export class InternalCapabilitiesProvider extends EventEmitter {
    */
   public getAvailableTools(): Tool[] {
     if (!this.isInitialized) {
-      logger.warn('Internal capabilities provider not initialized');
+      logger.warn('internalCapabilitiesProvider.internal.capabilities.provider.not.initialized.5f95d660');
       return [];
     }
 
@@ -241,7 +233,7 @@ export class InternalCapabilitiesProvider extends EventEmitter {
             break;
 
           default:
-            logger.warn(`Unknown internal tool: ${toolName}`);
+            logger.warn('internalCapabilitiesProvider.unknown.internal.tool.a138631e');
             break;
         }
       }
@@ -375,7 +367,7 @@ export class InternalCapabilitiesProvider extends EventEmitter {
 
   public getAvailableResources(): Resource[] {
     if (!this.isInitialized) {
-      logger.warn('Internal capabilities provider not initialized');
+      logger.warn('internalCapabilitiesProvider.internal.capabilities.provider.not.initialized.5f95d660');
       return [];
     }
 
@@ -385,7 +377,7 @@ export class InternalCapabilitiesProvider extends EventEmitter {
 
   public getAvailablePrompts(): Prompt[] {
     if (!this.isInitialized) {
-      logger.warn('Internal capabilities provider not initialized');
+      logger.warn('internalCapabilitiesProvider.internal.capabilities.provider.not.initialized.5f95d660');
       return [];
     }
 

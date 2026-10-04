@@ -565,9 +565,9 @@ export class ExpressServer {
 
     // Log authentication status
     if (this.configManager.get('features').auth) {
-      logger.info('Authentication enabled - OAuth 2.1 endpoints available via SDK');
+      logger.info('server.authentication.enabled.oauth.2.1.endpoints.available.via.sdk.2d8726c6');
     } else {
-      logger.info('Authentication disabled - all endpoints accessible without auth');
+      logger.info('server.authentication.disabled.all.endpoints.accessible.without.auth.1dd4346d');
     }
   }
 
@@ -583,9 +583,8 @@ export class ExpressServer {
   public start(onListening?: () => void): void {
     const { port, host } = this.configManager.getConfig();
     this.app.listen(port, host, () => {
-      const authStatus = this.configManager.get('features').auth ? 'with authentication' : 'without authentication';
-      logger.info(`Server is running on port ${port} with HTTP/SSE and Streamable HTTP transport ${authStatus}`);
-      logger.info(`📋 OAuth Management Dashboard: ${this.configManager.getUrl()}/oauth`);
+      logger.info('server.server.is.running.on.port.with.http.sse.and.streamable.http.transport.b730b0c1');
+      logger.info('server.oauth.management.dashboard.oauth.4eaf12e9');
       onListening?.();
     });
   }

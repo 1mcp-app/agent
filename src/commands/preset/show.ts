@@ -42,7 +42,7 @@ export async function showCommand(argv: ShowArguments): Promise<void> {
 
     await showPresetDetails(argv.name, presetManager, selector, urlGenerator);
   } catch (error) {
-    logger.error('Preset show command failed', { error });
+    logger.error('show.preset.show.command.failed.a1b0efd1', { error: error });
     printer.error(`Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     process.exit(1);
   }

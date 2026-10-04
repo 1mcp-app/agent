@@ -96,7 +96,7 @@ export function backupConfig(): string {
 
   try {
     fs.copyFileSync(filePath, backupPath);
-    logger.info(`Configuration backed up to: ${backupPath}`);
+    logger.info('configParsingUtils.configuration.backed.up.to.35558042');
     return backupPath;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);

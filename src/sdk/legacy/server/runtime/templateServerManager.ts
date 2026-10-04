@@ -134,7 +134,7 @@ export class TemplateServerManager {
       try {
         await this.cleanupIdleInstances();
       } catch (error) {
-        logger.error('Error during idle instance cleanup:', error);
+        logger.error('templateServerManager.error.during.idle.instance.cleanup.0cf54b4e', { error: error });
       }
     }, cleanupInterval);
 
@@ -143,10 +143,7 @@ export class TemplateServerManager {
       this.cleanupTimer.unref();
     }
 
-    debugIf(() => ({
-      message: 'TemplateServerManager cleanup timer started',
-      meta: { interval: cleanupInterval },
-    }));
+    debugIf(() => ({ message: 'templateServerManager.templateservermanager.cleanup.timer.started.cd54a757' }));
   }
 
   /**
@@ -171,9 +168,7 @@ export class TemplateServerManager {
     // Get template servers that match the client's tags/preset
     const templateConfigs = this.getMatchingTemplateConfigs(opts, serverConfigData);
 
-    logger.info(`Creating ${templateConfigs.length} template-based servers for session ${sessionId}`, {
-      templates: templateConfigs.map(([name]) => name),
-    });
+    logger.info('templateServerManager.creating.template.based.servers.for.session.63a3dddd');
 
     // Create client instances from templates
     for (const [templateName, templateConfig] of templateConfigs) {
@@ -225,13 +220,12 @@ export class TemplateServerManager {
               outboundKey,
             );
             if (instructions?.trim()) {
-              debugIf(() => ({
-                message: `Cached instructions for template server: ${templateName}`,
-                meta: { templateName, instructionLength: instructions.length },
-              }));
+              debugIf(() => ({ message: 'templateServerManager.cached.instructions.for.template.server.ee449e76' }));
             }
-          } catch (error) {
-            logger.warn(`Failed to extract instructions from template server ${templateName}: ${error}`);
+          } catch (_error) {
+            logger.warn('templateServerManager.failed.to.extract.instructions.from.template.server.07ebbee8', {
+              error: _error,
+            });
           }
         }
 
@@ -261,28 +255,18 @@ export class TemplateServerManager {
         }
 
         debugIf(() => ({
-          message: `TemplateServerManager.createTemplateBasedServers: Tracked client-template relationship`,
-          meta: {
-            sessionId,
-            templateName,
-            outboundKey,
-            instanceId: instance.id,
-            referenceCount: instance.referenceCount,
-            shareable: identityMode === 'rendered',
-            perClient: templateConfig.template?.perClient,
-            renderedHash: renderedHash.substring(0, 8),
-            registeredInOutbound: true,
-          },
+          message:
+            'templateServerManager.templateservermanager.createtemplatebasedservers.tracked.client.template.re.b792872d',
+          meta: { sessionId: sessionId, referenceCount: instance.referenceCount },
         }));
 
-        logger.info(`Connected to template client instance: ${templateName} (${instance.id})`, {
-          sessionId,
+        logger.info('templateServerManager.connected.to.template.client.instance.871228b8', {
+          sessionId: sessionId,
           clientCount: instance.referenceCount,
-          registeredInCapabilities: true,
         });
       } catch (error) {
         const safeError = sanitizeRuntimeScopeError(error);
-        logger.error(`Failed to create client instance from template ${templateName}:`, safeError);
+        logger.error('templateServerManager.failed.to.create.client.instance.from.template.eac81d4e', { error: error });
 
         // Track the failure
         this.failedTemplates.push({
@@ -389,13 +373,9 @@ export class TemplateServerManager {
       return config && typeof config === 'object' && 'command' in config;
     }) as Array<[string, MCPServerParams]>;
 
-    logger.info('TemplateServerManager.getMatchingTemplateConfigs: Using enhanced filtering', {
-      totalTemplates: templates.length,
-      filterMode: opts.tagFilterMode,
-      tags: opts.tags,
-      presetName: opts.presetName,
-      templateNames: templates.map(([name]) => name),
-    });
+    logger.info(
+      'templateServerManager.templateservermanager.getmatchingtemplateconfigs.using.enhanced.filtering.f761ab86',
+    );
 
     return TemplateFilteringService.getMatchingTemplates(templates, opts);
   }
@@ -568,14 +548,14 @@ export class TemplateServerManager {
         this.clientTemplateTracker.cleanupInstance(templateName, instanceId);
 
         cleanedUp++;
-        logger.info(`Cleaned up idle client instance: ${templateName}:${instanceId}`);
+        logger.info('templateServerManager.cleaned.up.idle.client.instance.e6d1bdd9');
       } catch (error) {
-        logger.warn(`Failed to cleanup idle client instance ${templateName}:${instanceId}:`, error);
+        logger.warn('templateServerManager.failed.to.cleanup.idle.client.instance.3f56809c', { error: error });
       }
     }
 
     if (cleanedUp > 0) {
-      logger.info(`Cleaned up ${cleanedUp} idle client instances`);
+      logger.info('templateServerManager.cleaned.up.idle.client.instances.dbdf5f7d');
     }
 
     return cleanedUp;
@@ -621,7 +601,7 @@ export class TemplateServerManager {
       this.templateToolMetadataHashes.set(templateName, nextToolMetadataHash);
     }
     this.templateIndex.buildIndex(templates);
-    logger.info('Template index rebuilt');
+    logger.info('templateServerManager.template.index.rebuilt.6dc6c57a');
     return { toolMetadataChanged };
   }
 
@@ -681,7 +661,7 @@ export class TemplateServerManager {
         }
       })
       .catch((error) => {
-        logger.warn(`Failed to retire template instances for ${templateName}:`, error);
+        logger.warn('templateServerManager.failed.to.retire.template.instances.for.8a4fcc86', { error: error });
       });
 
     return retirement;
@@ -713,10 +693,7 @@ export class TemplateServerManager {
     }
     this.templateSessionMap?.delete(templateName);
     if (instances.length > 0) {
-      logger.info(`Retired ${instances.length} template instance(s) after configuration replacement`, {
-        templateName,
-        instanceIds: instances.map((instance) => instance.id),
-      });
+      logger.info('templateServerManager.retired.template.instance.s.after.configuration.replacement.a1e75268');
     }
   }
 
@@ -802,7 +779,7 @@ export class TemplateServerManager {
 
   public cleanup(): void {
     this.shutdown().catch((error) => {
-      logger.warn('Failed to clean up template server manager:', error);
+      logger.warn('templateServerManager.failed.to.clean.up.template.server.manager.3b6ac013', { error: error });
     });
   }
 }

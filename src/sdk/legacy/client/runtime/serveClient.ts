@@ -310,7 +310,7 @@ export async function readCliSessionCache(
 
     return parsed;
   } catch (error) {
-    logger.debug('Failed to read CLI session cache, starting fresh:', { error });
+    logger.debug('serveClient.failed.to.read.cli.session.cache.starting.fresh.6f5bbc92', { error: error });
     return null;
   }
 }

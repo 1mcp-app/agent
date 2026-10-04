@@ -164,13 +164,18 @@ describe('ModernSdkClientAdapter', () => {
         params: {
           progressToken: 'one',
           progress: 1,
+          data: { baggage: 'business' },
           _meta: {
+            baggage: 'private',
             'io.modelcontextprotocol/protocolVersion': '2025-11-25',
             'io.modelcontextprotocol/clientInfo': { name: 'inbound', version: '1' },
           },
         },
       });
-      expect(notify).toHaveBeenCalledWith({ method, params: { progressToken: 'one', progress: 1 } });
+      expect(notify).toHaveBeenCalledWith({
+        method,
+        params: { progressToken: 'one', progress: 1, data: { baggage: 'business' } },
+      });
     },
   );
 

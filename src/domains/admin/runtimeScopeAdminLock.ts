@@ -149,10 +149,9 @@ function removeLockOwnedBy(filePath: string, ownerToken: string): boolean {
   }
 }
 
-function logUnverifiableLock(filePath: string): void {
+function logUnverifiableLock(_filePath: string): void {
   logger.warn(
-    `Runtime Scope Admin Lock is legacy, corrupt, or unreadable: ${filePath}. ` +
-      'Stop every runtime for this scope, verify that no 1mcp process owns it, then remove this lock file manually.',
+    'runtimeScopeAdminLock.runtime.scope.admin.lock.is.legacy.corrupt.or.unreadable.stop.every.runtime.42d0a1b0',
   );
 }
 

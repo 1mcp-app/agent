@@ -20,6 +20,7 @@ import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { activateRuntimeScopeEnvironment } from '@src/config/runtimeScopeEnv.js';
 import { CONNECTION_RETRY, MCP_SERVER_NAME } from '@src/constants.js';
 import logger from '@src/logger/logger.js';
+import { normalizeEvent } from '@src/observability/events/normalize.js';
 import { AuthProviderTransport } from '@src/sdk/legacy/client/runtime/legacyTransport.js';
 
 import { afterEach, beforeEach, describe, expect, it, MockInstance, vi } from 'vitest';
@@ -162,7 +163,16 @@ describe('ConnectionHandler', () => {
       const thrown = await connectPromise.catch((connectionError: unknown) => connectionError);
 
       expect(`${String(thrown)}\n${(thrown as Error).stack}\n${JSON.stringify(thrown)}`).not.toContain(secret);
-      expect(JSON.stringify(vi.mocked(logger.error).mock.calls)).not.toContain(secret);
+      const normalizedLogs = vi.mocked(logger.error).mock.calls.map(([event, fields]) =>
+        normalizeEvent(event, fields),
+      );
+      expect(normalizedLogs).toContainEqual(
+        expect.objectContaining({
+          event: 'connectionHandler.failed.to.connect.to.d9f2b821',
+          error_code: 'ECONNREFUSED',
+        }),
+      );
+      expect(JSON.stringify(normalizedLogs)).not.toContain(secret);
       expect((thrown as Error).name).toBe('ClientConnectionError');
     });
 
@@ -234,7 +244,9 @@ describe('ConnectionHandler', () => {
         connectionHandler.connectWithRetry(mockClient as Client, mockTransport, 'test-client'),
       ).rejects.toThrow(OAuthRequiredError);
 
-      expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('OAuth authorization required'));
+      expect(logger.info).toHaveBeenCalledWith(
+        'connectionHandler.oauth.authorization.required.for.visit.oauth.to.authorize.875e3320',
+      );
     });
 
     it('treats v2 authentication failure as terminal rather than era evidence', async () => {

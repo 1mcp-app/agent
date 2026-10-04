@@ -100,7 +100,7 @@ export async function searchCommand(argv: SearchCommandArgs): Promise<void> {
 
     const registryOptions = registryOptionsFromArgv(argv);
 
-    logger.info('Searching MCP registry...', searchArgs);
+    logger.info('search.searching.mcp.registry.7ad666a2');
     const results = await handleSearchMCPServers(searchArgs, registryOptions);
 
     // Determine output format
@@ -127,7 +127,7 @@ export async function searchCommand(argv: SearchCommandArgs): Promise<void> {
     // Show common footer
     displayFooter(results, searchArgs);
   } catch (error) {
-    logger.error('Search command failed:', error);
+    logger.error('search.search.command.failed.3c7f64d2', { error: error });
     printer.error(`Error searching MCP registry: ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);
   } finally {

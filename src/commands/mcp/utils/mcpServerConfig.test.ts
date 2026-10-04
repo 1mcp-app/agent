@@ -124,7 +124,9 @@ describe('mcpServerConfig - Installation Metadata Functions', () => {
       setInstallationMetadata(serverName, metadata);
 
       // Assert
-      expect(mockLoggerWarn).toHaveBeenCalledWith('Cannot set metadata for non-existent server: non-existent-server');
+      expect(mockLoggerWarn).toHaveBeenCalledWith(
+        'mcpServerConfig.cannot.set.metadata.for.non.existent.server.6b7bd7a4',
+      );
       expect(mockSetServer).not.toHaveBeenCalled();
     });
 
@@ -194,7 +196,7 @@ describe('mcpServerConfig - Installation Metadata Functions', () => {
 
       // Assert
       expect(mockLoggerWarn).toHaveBeenCalledWith(
-        'Cannot update metadata for non-existent server: non-existent-server',
+        'mcpServerConfig.cannot.update.metadata.for.non.existent.server.baf4ecbd',
       );
       expect(mockSetServer).not.toHaveBeenCalled();
     });
@@ -213,7 +215,7 @@ describe('mcpServerConfig - Installation Metadata Functions', () => {
       updateInstallationMetadata(serverName, updates);
 
       // Assert
-      expect(mockLoggerWarn).toHaveBeenCalledWith('No metadata found for server: test-server');
+      expect(mockLoggerWarn).toHaveBeenCalledWith('mcpServerConfig.no.metadata.found.for.server.f6c7e306');
       expect(mockSetServer).not.toHaveBeenCalled();
     });
 
@@ -341,7 +343,8 @@ describe('mcpServerConfig - Installation Metadata Functions', () => {
       // Assert
       expect(result).toBeNull();
       expect(mockLoggerError).toHaveBeenCalledWith(
-        'Failed to get installation metadata for test-server: Error: Unexpected error',
+        'mcpServerConfig.failed.to.get.installation.metadata.for.509a9169',
+        { error: expect.objectContaining({ message: 'Unexpected error' }) },
       );
     });
   });

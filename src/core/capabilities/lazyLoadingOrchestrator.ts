@@ -113,12 +113,12 @@ export class LazyLoadingOrchestrator extends EventEmitter {
     if (asyncOrchestrator) {
       asyncOrchestrator.on(AsyncLoadingOrchestratorEvent.CapabilitySnapshotPublished, async () => {
         try {
-          debugIf('Completed capability snapshot published, refreshing tool registry');
+          debugIf('lazyLoadingOrchestrator.completed.capability.snapshot.published.refreshing.tool.registry.45a92b60');
           await this.refreshCapabilities();
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
           errorIf(() => ({
-            message: 'Failed to refresh tool registry after capability publication',
+            message: 'lazyLoadingOrchestrator.failed.to.refresh.tool.registry.after.capability.publication.e9fa75b7',
             meta: { error: errorMessage },
           }));
         }
@@ -133,7 +133,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
    */
   public async initialize(): Promise<void> {
     if (this.isInitialized) {
-      debugIf('LazyLoadingOrchestrator already initialized');
+      debugIf('lazyLoadingOrchestrator.lazyloadingorchestrator.already.initialized.f99932cd');
       return;
     }
 
@@ -151,9 +151,9 @@ export class LazyLoadingOrchestrator extends EventEmitter {
         await this.preloadTools();
       }
 
-      logger.info(`LazyLoadingOrchestrator initialized with ${this.toolRegistry.size()} tools`);
+      logger.info('lazyLoadingOrchestrator.lazyloadingorchestrator.initialized.with.tools.241342ee');
     } else {
-      logger.info('LazyLoadingOrchestrator initialized in full mode (disabled)');
+      logger.info('lazyLoadingOrchestrator.lazyloadingorchestrator.initialized.in.full.mode.disabled.b540cc45');
     }
 
     this.isInitialized = true;
@@ -183,8 +183,8 @@ export class LazyLoadingOrchestrator extends EventEmitter {
       .then(() => undefined)
       .catch((error: unknown) => {
         errorIf(() => ({
-          message: 'Failed to rebuild stale tool registry',
-          meta: { error: error instanceof Error ? error.message : String(error) },
+          message: 'lazyLoadingOrchestrator.failed.to.rebuild.stale.tool.registry.e3259fed',
+          meta: { error: error },
         }));
       })
       .finally(() => {
@@ -232,8 +232,8 @@ export class LazyLoadingOrchestrator extends EventEmitter {
           return regex.test(tool.server);
         } catch (error) {
           errorIf(() => ({
-            message: 'Invalid pattern in preload configuration',
-            meta: { pattern, error },
+            message: 'lazyLoadingOrchestrator.invalid.pattern.in.preload.configuration.0be109eb',
+            meta: { error: error },
           }));
           return false;
         }
@@ -251,18 +251,18 @@ export class LazyLoadingOrchestrator extends EventEmitter {
     }
 
     if (toolsToPreload.length === 0) {
-      debugIf('No tools matched preload patterns');
+      debugIf('lazyLoadingOrchestrator.no.tools.matched.preload.patterns.b01649c3');
       return;
     }
 
-    debugIf(() => ({ message: `Preloading ${toolsToPreload.length} tools` }));
+    debugIf(() => ({ message: 'lazyLoadingOrchestrator.preloading.tools.d9e5a23c' }));
 
     // Preload schemas
     await this.schemaCache.preload(toolsToPreload, async (server, toolName, signal) => {
       return this.loadSchemaFromServer(server, toolName, signal);
     });
 
-    logger.info(`Preloaded ${toolsToPreload.length} tool schemas`);
+    logger.info('lazyLoadingOrchestrator.preloaded.tool.schemas.83afb0f7');
   }
 
   /**
@@ -296,18 +296,18 @@ export class LazyLoadingOrchestrator extends EventEmitter {
    */
   public async preloadToolsList(tools: Array<{ server: string; toolName: string }>): Promise<void> {
     if (tools.length === 0) {
-      debugIf('No tools to preload');
+      debugIf('lazyLoadingOrchestrator.no.tools.to.preload.0f255fe3');
       return;
     }
 
-    debugIf(() => ({ message: `Preloading ${tools.length} specific tools` }));
+    debugIf(() => ({ message: 'lazyLoadingOrchestrator.preloading.specific.tools.5316dabc' }));
 
     // Preload schemas
     await this.schemaCache.preload(tools, async (server, toolName, signal) => {
       return this.loadSchemaFromServer(server, toolName, signal);
     });
 
-    logger.info(`Preloaded ${tools.length} tool schemas`);
+    logger.info('lazyLoadingOrchestrator.preloaded.tool.schemas.83afb0f7');
   }
 
   /**
@@ -610,23 +610,10 @@ export class LazyLoadingOrchestrator extends EventEmitter {
    * @param forceLog - Force logging even if debug mode is off
    */
   public logStatistics(forceLog = false): void {
-    const stats = this.getStatistics();
-    const health = this.getHealthStatus();
-
-    const message =
-      `LazyLoading stats: ` +
-      `enabled=${stats.enabled}, ` +
-      `tools=${stats.registeredToolCount}, cached=${stats.cachedToolCount}, ` +
-      `tokenSavings=${stats.tokenSavings.savingsPercentage.toFixed(1)}%, ` +
-      `cacheHitRate=${stats.cacheHitRate.toFixed(1)}%, ` +
-      `coalesced=${health.stats.coalescedRequests}, ` +
-      `health=${health.healthy ? 'OK' : 'WARN'}` +
-      (health.issues.length > 0 ? ` [${health.issues.join(', ')}]` : '');
-
     if (forceLog) {
-      logger.info(message);
+      logger.info('lazyLoadingOrchestrator.logstatistics.diagnostic.f3e28cfb');
     } else {
-      debugIf(message);
+      debugIf('lazyLoadingOrchestrator.logstatistics.diagnostic.f3e28cfb');
     }
   }
 }

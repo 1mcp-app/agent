@@ -9,6 +9,7 @@ import {
   validateInteractionResponse,
 } from '@src/gateway/interactions/validateInteractionResponse.js';
 import type { GatewayInteractionRequest } from '@src/gateway/ports/outboundEraAdapter.js';
+import { captureTraceContext, injectTraceContext, stripBaggage } from '@src/observability/tracing/context.js';
 import { withLegacyInteractionLease } from '@src/sdk/legacy/client/runtime/legacyInteractionLease.js';
 import { setOutboundRequestHandler } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
@@ -33,6 +34,7 @@ interface Scope {
   readonly adapter: OutboundConnection['adapter'];
   readonly extra: Extra;
   readonly callbacks: { pending: number };
+  readonly runTrace: ReturnType<typeof captureTraceContext>;
   readonly abort: AbortController;
   readonly assertCurrent?: () => void;
 }
@@ -173,7 +175,18 @@ export async function withRequestInteractionScope<T>(
               scope.extra.signal.throwIfAborted();
               assertCapability();
               assertRoute();
-              const response = await scope.extra.sendRequest(request, resultSchema, { signal: scope.extra.signal });
+              const response = await scope.runTrace(
+                () =>
+                  scope.extra.sendRequest(
+                    { ...request, params: injectTraceContext(request.params) } as ServerRequest,
+                    resultSchema,
+                    {
+                      signal: scope.extra.signal,
+                    },
+                  ),
+                scope.extra.signal,
+                request.params,
+              );
               await validateInteractionResponse(input, response, binding, scope.extra.signal);
               assertCapability();
               assertRoute();
@@ -184,7 +197,7 @@ export async function withRequestInteractionScope<T>(
                 scope.adapter !== installedAdapter
               )
                 throw new McpError(-32000, 'interaction_lost');
-              return response;
+              return stripBaggage(response);
             } finally {
               scope.callbacks.pending--;
             }
@@ -210,6 +223,7 @@ export async function withRequestInteractionScope<T>(
           extra: scopedExtra,
           adapter: connection.adapter,
           callbacks: { pending: 0 },
+          runTrace: captureTraceContext(),
           abort,
           assertCurrent,
         });

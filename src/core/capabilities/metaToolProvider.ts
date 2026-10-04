@@ -254,10 +254,7 @@ export class MetaToolProvider {
       return response;
     } catch (error) {
       const failure = gatewayFailureFromUnknown(error);
-      errorIf(() => ({
-        message: 'Error in tool_list meta-tool',
-        meta: { failure },
-      }));
+      errorIf(() => ({ message: 'metaToolProvider.error.in.tool.list.meta.tool.eff4b338' }));
 
       return {
         tools: [],
@@ -307,10 +304,7 @@ export class MetaToolProvider {
       };
     } catch (error) {
       const failure = gatewayFailureFromUnknown(error);
-      errorIf(() => ({
-        message: 'Error in tool_schema meta-tool',
-        meta: { failure },
-      }));
+      errorIf(() => ({ message: 'metaToolProvider.error.in.tool.schema.meta.tool.4ec3a241' }));
 
       return {
         schema: {},
@@ -360,7 +354,7 @@ export class MetaToolProvider {
       };
     } catch (error) {
       const failure = gatewayFailureFromUnknown(error, 'transport');
-      logger.error('Meta-tool invocation failed', { failure });
+      logger.error('metaToolProvider.meta.tool.invocation.failed.aaeb1f9d', { error: error });
 
       return {
         result: {},

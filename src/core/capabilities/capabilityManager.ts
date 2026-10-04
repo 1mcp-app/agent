@@ -54,7 +54,7 @@ function collectCapabilities(clients: OutboundConnections): ServerCapabilitiesSn
   for (const [name, clientInfo] of clients.entries()) {
     try {
       const serverCapabilities = (clientInfo.capabilities as ServerCapabilitiesSnapshot | undefined) || {};
-      logger.debug(`Capabilities from ${name}: ${JSON.stringify(serverCapabilities)}`);
+      logger.debug('capabilityManager.capabilities.from.8e853808');
 
       // Store capabilities per client
       // Aggregate capabilities with conflict handling
@@ -90,8 +90,8 @@ function collectCapabilities(clients: OutboundConnections): ServerCapabilitiesSn
       if (serverCapabilities.logging) {
         capabilities.logging = serverCapabilities.logging;
       }
-    } catch (error) {
-      logger.error(`Failed to get capabilities from ${name}: ${error}`);
+    } catch (_error) {
+      logger.error('capabilityManager.failed.to.get.capabilities.from.93e25efc', { error: _error });
     }
   }
 
@@ -145,12 +145,8 @@ function mergeCapabilities<T extends Record<string, unknown>>(
           JSON.stringify((existing as Record<string, unknown>)[key]) !== JSON.stringify(value)
         ) {
           conflicts.push(key);
-          logger.warn(
-            `Capability conflict in ${capabilityType}.${key}: client ${clientName} overriding existing value`,
-          );
-          logger.debug(
-            `Existing: ${JSON.stringify((existing as Record<string, unknown>)[key])}, New: ${JSON.stringify(value)}`,
-          );
+          logger.warn('capabilityManager.capability.conflict.in.client.overriding.existing.value.fadeac61');
+          logger.debug('capabilityManager.existing.new.9c54d92e');
         }
 
         // Use OR logic for boolean notification capabilities
@@ -165,19 +161,15 @@ function mergeCapabilities<T extends Record<string, unknown>>(
       // Check if values are different (potential conflict)
       if (JSON.stringify((existing as Record<string, unknown>)[key]) !== JSON.stringify(value)) {
         conflicts.push(key);
-        logger.warn(`Capability conflict in ${capabilityType}.${key}: client ${clientName} overriding existing value`);
-        logger.debug(
-          `Existing: ${JSON.stringify((existing as Record<string, unknown>)[key])}, New: ${JSON.stringify(value)}`,
-        );
+        logger.warn('capabilityManager.capability.conflict.in.client.overriding.existing.value.fadeac61');
+        logger.debug('capabilityManager.existing.new.9c54d92e');
       }
     }
     (merged as Record<string, unknown>)[key] = value;
   }
 
   if (conflicts.length > 0) {
-    logger.info(
-      `Client ${clientName} has ${conflicts.length} ${capabilityType} capability conflicts: ${conflicts.join(', ')}`,
-    );
+    logger.info('capabilityManager.client.has.capability.conflicts.439d33df');
   }
 
   return merged;

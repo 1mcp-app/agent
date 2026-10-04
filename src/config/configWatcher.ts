@@ -29,12 +29,12 @@ export class ConfigWatcher extends EventEmitter {
 
   public startWatching(): void {
     if (!this.loader.isReloadEnabled()) {
-      logger.info('Configuration hot-reload is disabled, skipping file watcher setup');
+      logger.info('configWatcher.configuration.hot.reload.is.disabled.skipping.file.watcher.setup.03b1b0a9');
       return;
     }
 
     if (this.configWatcher) {
-      logger.warn('File watcher already started, ignoring duplicate call');
+      logger.warn('configWatcher.file.watcher.already.started.ignoring.duplicate.call.ad93bddf');
       return;
     }
 
@@ -53,14 +53,15 @@ export class ConfigWatcher extends EventEmitter {
         this.handleWatchEvent(eventType, filename, configDir, configFileName, runtimeEnvFileName);
       });
       this.configWatcher.on('error', (error) => {
-        logger.warn('Configuration file watcher failed; falling back to polling', { error });
+        logger.warn('configWatcher.configuration.file.watcher.failed.falling.back.to.polling.c2323c67', {
+          error: error,
+        });
         this.startPolling({ closeWatcher: true });
       });
       this.startPolling();
-      logger.info(`Started watching configuration directory: ${configDir} for file: ${configFileName}`);
-    } catch (error) {
-      const errorMsg = `Failed to start watching configuration file: ${error instanceof Error ? error.message : String(error)}`;
-      logger.error(errorMsg);
+      logger.info('configWatcher.started.watching.configuration.directory.for.file.dfe83f83');
+    } catch (_error) {
+      logger.error('configWatcher.startwatching.diagnostic.55a6d834', { error: _error });
       this.startPolling({ closeWatcher: true });
     }
   }
@@ -68,7 +69,7 @@ export class ConfigWatcher extends EventEmitter {
   public stopWatching(): void {
     this.configWatcher?.close();
     this.configWatcher = null;
-    logger.info('Stopped watching configuration file');
+    logger.info('configWatcher.stopped.watching.configuration.file.bf006a6f');
 
     if (this.pollTimer) {
       clearInterval(this.pollTimer);
@@ -88,10 +89,7 @@ export class ConfigWatcher extends EventEmitter {
     configFileName: string,
     runtimeEnvFileName: string,
   ): void {
-    debugIf(() => ({
-      message: 'Directory change detected',
-      meta: { eventType, filename, configDir, configFileName },
-    }));
+    debugIf(() => ({ message: 'configWatcher.directory.change.detected.f4b0d074' }));
 
     const isConfigFileEvent = filename === configFileName;
     const isRuntimeEnvEvent = filename === runtimeEnvFileName && this.loader.checkRuntimeEnvModified();
@@ -102,10 +100,7 @@ export class ConfigWatcher extends EventEmitter {
       this.loader.checkFileModified() ||
       this.loader.checkRuntimeEnvModified()
     ) {
-      debugIf(() => ({
-        message: 'Configuration file change detected, debouncing reload',
-        meta: { eventType, filename },
-      }));
+      debugIf(() => ({ message: 'configWatcher.configuration.file.change.detected.debouncing.reload.80faa869' }));
       this.debouncedReloadConfig();
     }
   }
@@ -122,7 +117,7 @@ export class ConfigWatcher extends EventEmitter {
 
     this.pollTimer = setInterval(() => {
       if (this.loader.checkFileModified() || this.loader.checkRuntimeEnvModified()) {
-        debugIf('Configuration file modification detected by polling, debouncing reload');
+        debugIf('configWatcher.configuration.file.modification.detected.by.polling.debouncing.reload.994934b4');
         this.debouncedReloadConfig();
       }
     }, 1000);
@@ -137,7 +132,7 @@ export class ConfigWatcher extends EventEmitter {
     const debounceDelayMs = agentConfig.get('configReload').debounceMs;
 
     this.debounceTimer = setTimeout(() => {
-      logger.info('Debounce period completed, reloading configuration...');
+      logger.info('configWatcher.debounce.period.completed.reloading.configuration.94659153');
       this.emit('reload');
       this.debounceTimer = null;
     }, debounceDelayMs);

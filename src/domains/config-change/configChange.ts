@@ -1138,10 +1138,8 @@ class DefaultConfigChangeService implements ConfigChangeService {
         keepLatest: readPositiveInteger(configured?.keepLatest, DEFAULT_BACKUP_RETENTION.keepLatest),
         maxAgeDays: readPositiveInteger(configured?.maxAgeDays, DEFAULT_BACKUP_RETENTION.maxAgeDays),
       };
-    } catch (error) {
-      logger.warn(
-        `Failed to read config backup retention from ${tomlPath}: ${error instanceof Error ? error.message : String(error)}`,
-      );
+    } catch (_error) {
+      logger.warn('configChange.failed.to.read.config.backup.retention.from.565ac585', { error: _error });
       return DEFAULT_BACKUP_RETENTION;
     }
   }
@@ -1179,7 +1177,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
       return { status: 'observed' };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.warn('Failed to reload MCP configuration after config change', { configPath, error });
+      logger.warn('configChange.failed.to.reload.mcp.configuration.after.config.change.b788dd7a', { error: error });
       return {
         status: 'failed',
         error: errorMessage,

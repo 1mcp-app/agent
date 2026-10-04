@@ -6,6 +6,7 @@ import { TemplateFilteringService } from '@src/core/filtering/index.js';
 import type { BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
 import { ClientStatus } from '@src/core/types/client.js';
 import logger from '@src/logger/logger.js';
+import { normalizeEvent } from '@src/observability/events/normalize.js';
 import { HandlebarsTemplateRenderer } from '@src/template/handlebarsTemplateRenderer.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -308,7 +309,16 @@ describe('TemplateServerManager', () => {
         {},
       );
 
-      expect(JSON.stringify(vi.mocked(logger.error).mock.calls)).not.toContain(secret);
+      const normalizedLogs = vi.mocked(logger.error).mock.calls.map(([event, fields]) =>
+        normalizeEvent(event, fields),
+      );
+      expect(normalizedLogs).toContainEqual(
+        expect.objectContaining({
+          event: 'templateServerManager.failed.to.create.client.instance.from.template.eac81d4e',
+          error_code: 'ENOENT',
+        }),
+      );
+      expect(JSON.stringify(normalizedLogs)).not.toContain(secret);
       expect(JSON.stringify(manager.failedTemplates)).not.toContain(secret);
       expect(manager.failedTemplates).toMatchObject([
         { templateName: 'test-template', sessionId: 'client-a', error: expect.stringContaining('[REDACTED]') },

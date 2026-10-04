@@ -41,13 +41,7 @@ function matchesPreset(name: string, preset: PresetConfig, serverName: string, s
 
     return TagQueryEvaluator.evaluate(jsonQuery, serverTags);
   } catch (error) {
-    logger.warn('Failed to evaluate preset against server', {
-      preset: name,
-      server: serverName,
-      error: error instanceof Error ? error.message : 'Unknown error',
-      tagQuery: preset.tagQuery,
-      serverTags,
-    });
+    logger.warn('presetTesting.failed.to.evaluate.preset.against.server.cf37abcb', { error: error });
     return false;
   }
 }

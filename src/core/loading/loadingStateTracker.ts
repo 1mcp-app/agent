@@ -121,7 +121,7 @@ export class LoadingStateTracker extends EventEmitter {
       });
     }
 
-    logger.info(`Started tracking loading for ${serverNames.length} servers`);
+    logger.info('loadingStateTracker.started.tracking.loading.for.servers.156f137b');
     this.emitProgress();
   }
 
@@ -138,7 +138,7 @@ export class LoadingStateTracker extends EventEmitter {
       state: LoadingState.Pending,
       retryCount: 0,
     });
-    debugIf(() => ({ message: `Registered server for loading tracker: ${name}` }));
+    debugIf(() => ({ message: 'loadingStateTracker.registered.server.for.loading.tracker.e72049be' }));
     this.emitProgress();
   }
 
@@ -152,7 +152,7 @@ export class LoadingStateTracker extends EventEmitter {
   ): void {
     const existing = this.servers.get(name);
     if (!existing) {
-      logger.warn(`Attempted to update unknown server: ${name}`);
+      logger.warn('loadingStateTracker.attempted.to.update.unknown.server.7788f6f5');
       return;
     }
 
@@ -199,10 +199,7 @@ export class LoadingStateTracker extends EventEmitter {
 
     this.servers.set(name, info);
 
-    const stateDescription = state === LoadingState.AwaitingOAuth ? 'requiring authorization' : state;
-    secureLogger.debug(
-      `Server ${name} state changed to ${stateDescription}${updates.progress ? ` (${updates.progress.phase})` : ''}`,
-    );
+    secureLogger.debug('loadingStateTracker.server.state.changed.to.ebef067f');
 
     // Emit specific events
     this.emit(LoadingStateEvent.ServerStateChanged, name, info);
@@ -234,7 +231,7 @@ export class LoadingStateTracker extends EventEmitter {
         lastRetryTime: new Date(),
       };
       this.servers.set(name, updated);
-      debugIf(() => ({ message: `Server ${name} retry count: ${updated.retryCount}` }));
+      debugIf(() => ({ message: 'loadingStateTracker.server.retry.count.40156781' }));
     }
   }
 
@@ -321,7 +318,7 @@ export class LoadingStateTracker extends EventEmitter {
   public removeServer(name: string): boolean {
     const existed = this.servers.delete(name);
     if (existed) {
-      debugIf(() => ({ message: `Removed server from loading tracker: ${name}` }));
+      debugIf(() => ({ message: 'loadingStateTracker.removed.server.from.loading.tracker.b2043257' }));
       this.emitProgress();
     }
     return existed;
@@ -334,7 +331,7 @@ export class LoadingStateTracker extends EventEmitter {
     this.servers.clear();
     this.loadingStarted = false;
     this.globalStartTime = new Date();
-    logger.info('Loading state tracker reset');
+    logger.info('loadingStateTracker.loading.state.tracker.reset.a8410c7a');
   }
 
   /**
@@ -347,9 +344,7 @@ export class LoadingStateTracker extends EventEmitter {
     this.emit(LoadingStateEvent.LoadingProgress, summary);
 
     if (summary.isComplete) {
-      logger.info(
-        `Loading complete: ${summary.ready}/${summary.totalServers} servers ready (${summary.successRate.toFixed(1)}% success rate)`,
-      );
+      logger.info('loadingStateTracker.loading.complete.servers.ready.success.rate.16c0dd6f');
       this.emit(LoadingStateEvent.LoadingComplete, summary);
     }
   }

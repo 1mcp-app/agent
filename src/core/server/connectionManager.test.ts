@@ -20,6 +20,7 @@ let _mockServerTransport: any = undefined;
 vi.mock('@modelcontextprotocol/sdk/server/index.js', () => ({
   Server: vi.fn().mockImplementation(function () {
     return {
+      setRequestHandler: vi.fn(),
       connect: vi.fn().mockImplementation(async (transport: any) => {
         // Store the transport so we can verify it later
         _mockServerTransport = transport;
@@ -362,7 +363,10 @@ describe('ConnectionManager', () => {
       const warnCalls = vi.mocked(logger.warn).mock.calls as unknown[][];
       const duplicateWarn = warnCalls.find((call: unknown[] | undefined) => {
         const message = call?.[0] as string | undefined;
-        return message?.includes('already in progress') || message?.includes('already connected');
+        return (
+          message === 'connectionManager.connection.already.in.progress.for.session.waiting.ab0b4dbd' ||
+          message === 'connectionManager.transport.already.connected.for.session.82eea7e1'
+        );
       });
 
       expect(duplicateWarn).toBeDefined();
@@ -378,6 +382,7 @@ describe('ConnectionManager', () => {
       // Mock Server.connect to reject
       vi.mocked(Server).mockImplementationOnce(function () {
         return {
+          setRequestHandler: vi.fn(),
           connect: vi.fn().mockRejectedValue(new Error('Connection failed')),
           transport: undefined,
         } as unknown as Server;

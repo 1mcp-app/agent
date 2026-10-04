@@ -49,26 +49,22 @@ async function pathExists(targetPath: string): Promise<boolean> {
 
 async function readProjectConfig(configPath: string): Promise<ProjectConfig | null> {
   try {
-    logger.debug(`Loading project config from ${configPath}`);
+    logger.debug('projectConfigLoader.loading.project.config.from.fb26173f');
 
     const content = await readFile(configPath, 'utf-8');
     const data = JSON5.parse(content) as unknown;
     const config = validateProjectConfig(data);
 
-    logger.info(`📄 Loaded configuration from ${PROJECT_CONFIG_FILE}`, {
-      preset: config.preset,
-      tags: config.tags,
-      filter: config.filter,
-    });
+    logger.info('projectConfigLoader.loaded.configuration.from.278ccfdb');
 
     return config;
   } catch (error) {
     if (error instanceof SyntaxError) {
-      logger.warn(`Invalid JSON in ${PROJECT_CONFIG_FILE}: ${error.message}`);
+      logger.warn('projectConfigLoader.invalid.json.in.db426689', { error: error });
     } else if (error instanceof Error) {
-      logger.warn(`Failed to load ${PROJECT_CONFIG_FILE}: ${error.message}`);
+      logger.warn('projectConfigLoader.failed.to.load.470dad92', { error: error });
     } else {
-      logger.warn(`Failed to load ${PROJECT_CONFIG_FILE}: Unknown error`);
+      logger.warn('projectConfigLoader.failed.to.load.unknown.error.8b999c8e', { error: error });
     }
     return null;
   }
@@ -92,7 +88,7 @@ export async function resolveProjectContext(cwd: string = process.cwd()): Promis
 
   const repoRoot = await findNearestAncestorContaining(resolvedCwd, GIT_DIRECTORY_NAME);
   if (repoRoot) {
-    logger.debug(`No ${PROJECT_CONFIG_FILE} found for ${resolvedCwd}, using repository root ${repoRoot}`);
+    logger.debug('projectConfigLoader.no.found.for.using.repository.root.413dc0c6');
     return {
       cwd: resolvedCwd,
       projectRoot: repoRoot,
@@ -102,7 +98,7 @@ export async function resolveProjectContext(cwd: string = process.cwd()): Promis
     };
   }
 
-  logger.debug(`No ${PROJECT_CONFIG_FILE} or repository root found for ${resolvedCwd}, using cwd`);
+  logger.debug('projectConfigLoader.no.or.repository.root.found.for.using.cwd.51d43561');
   return {
     cwd: resolvedCwd,
     projectRoot: resolvedCwd,

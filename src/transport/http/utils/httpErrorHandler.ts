@@ -18,13 +18,7 @@ import { logError, logWarn } from './unifiedLogger.js';
  */
 export function sendBadRequest(res: Response, message: string, details?: Record<string, unknown>): void {
   const req = res.req;
-  logWarn('HTTP error 400', {
-    method: req?.method,
-    path: req?.path,
-    statusCode: 400,
-    reason: message,
-    context: details,
-  });
+  logWarn('httpErrorHandler.http.error.400.13c3edd2', { method: req?.method, statusCode: 400 });
 
   // Build response object - include details if they should be part of the response
   const response: { error: { code: typeof ErrorCode.InvalidParams; message: string; [key: string]: unknown } } = {
@@ -49,15 +43,9 @@ export function sendBadRequest(res: Response, message: string, details?: Record<
  * @param message - Error message describing what was not found
  * @param details - Optional additional context for debugging
  */
-export function sendNotFound(res: Response, message: string, details?: Record<string, unknown>): void {
+export function sendNotFound(res: Response, message: string, _details?: Record<string, unknown>): void {
   const req = res.req;
-  logWarn('HTTP error 404', {
-    method: req?.method,
-    path: req?.path,
-    statusCode: 404,
-    reason: message,
-    context: details,
-  });
+  logWarn('httpErrorHandler.http.error.404.663a1410', { method: req?.method, statusCode: 404 });
 
   res.status(404).json({
     error: {
@@ -80,13 +68,11 @@ export function sendInternalError(
   error: unknown,
   context: { method: string; path: string; sessionId?: string; phase?: string },
 ): void {
-  logError('HTTP error 500', {
+  logError('httpErrorHandler.http.error.500.a81f1c79', {
     method: context.method,
-    path: context.path,
     sessionId: context.sessionId,
     statusCode: 500,
-    phase: context.phase,
-    error,
+    error: error,
   });
 
   res.status(500).json({

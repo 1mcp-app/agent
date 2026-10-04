@@ -53,10 +53,7 @@ describe('UrlGenerator', () => {
       const url = urlGenerator.generatePresetUrl('development');
 
       expect(url).toBe('http://localhost:3050/mcp?preset=development');
-      expect(logger.debug).toHaveBeenCalledWith('Generated preset URL', {
-        presetName: 'development',
-        url: 'http://localhost:3050/mcp?preset=development',
-      });
+      expect(logger.debug).toHaveBeenCalledWith('urlGenerator.generated.preset.url.9f63d187');
     });
 
     it('should handle preset names with special characters', () => {
@@ -70,10 +67,7 @@ describe('UrlGenerator', () => {
       const url = urlGenerator.generateTagFilterUrl('web+api-test');
 
       expect(url).toBe('http://localhost:3050/?tag-filter=web%2Bapi-test');
-      expect(logger.debug).toHaveBeenCalledWith('Generated tag filter URL', {
-        tagFilter: 'web+api-test',
-        url: 'http://localhost:3050/?tag-filter=web%2Bapi-test',
-      });
+      expect(logger.debug).toHaveBeenCalledWith('urlGenerator.generated.tag.filter.url.5064cfdf');
     });
   });
 
@@ -82,10 +76,7 @@ describe('UrlGenerator', () => {
       const url = urlGenerator.generateTagsUrl(['web', 'api', 'database']);
 
       expect(url).toBe('http://localhost:3050/mcp?tags=web%2Capi%2Cdatabase');
-      expect(logger.debug).toHaveBeenCalledWith('Generated tags URL (deprecated)', {
-        tags: ['web', 'api', 'database'],
-        url: 'http://localhost:3050/mcp?tags=web%2Capi%2Cdatabase',
-      });
+      expect(logger.debug).toHaveBeenCalledWith('urlGenerator.generated.tags.url.deprecated.3e28188a');
     });
 
     it('should handle empty tags array', () => {
@@ -169,11 +160,7 @@ describe('UrlGenerator', () => {
 
       urlGenerator.generateUrl(options);
 
-      expect(logger.debug).toHaveBeenCalledWith('Generated URL', {
-        options,
-        url: 'http://localhost:3050/mcp?preset=development&debug=true',
-        baseUrl: 'http://localhost:3050/mcp',
-      });
+      expect(logger.debug).toHaveBeenCalledWith('urlGenerator.generated.url.9d390e38');
     });
   });
 
@@ -271,8 +258,8 @@ describe('UrlGenerator', () => {
       });
 
       expect(logger.error).toHaveBeenCalledWith(
-        'URL validation and generation failed',
-        expect.objectContaining({ presetName: 'error' }),
+        'urlGenerator.url.validation.and.generation.failed.9dfb7037',
+        { error: expect.objectContaining({ message: 'Unexpected error' }) },
       );
     });
   });
@@ -321,8 +308,8 @@ describe('UrlGenerator', () => {
       });
 
       expect(logger.error).toHaveBeenCalledWith(
-        'Failed to parse URL',
-        expect.objectContaining({ url: 'not-a-valid-url' }),
+        'urlGenerator.failed.to.parse.url.e2366536',
+        { error: expect.objectContaining({ code: 'ERR_INVALID_URL' }) },
       );
     });
 
