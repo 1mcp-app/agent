@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, scryptSync } from 'node:crypto';
 
 import { z } from 'zod';
 
@@ -53,9 +53,19 @@ export type BoundClientSession = z.infer<typeof BoundClientSessionSchema>;
 export function oauthDigest(value: unknown): string {
   // This deterministic digest identifies durable OAuth authority/configuration state
   // and correlates opaque protocol values; it does not store or verify passwords.
-  // codeql[js/insufficient-password-hash]
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
+/** Secret-bearing configuration fingerprints must resist offline guessing. */
+export function oauthConfigurationFingerprint(value: unknown, scope: unknown): string {
+  // Stable scope salt preserves restart identity while separating configured authorities.
+  return scryptSync(JSON.stringify(value), JSON.stringify(['1mcp-oauth-config-v1', scope]), 32, {
+    N: 32768,
+    r: 8,
+    p: 1,
+    maxmem: 64 * 1024 * 1024,
+  }).toString('hex');
+}
+
 export function authoritySlot(context: OAuthAuthorityContext): string {
   return oauthDigest([context.owner, context.source, context.route.connectionKey]);
 }

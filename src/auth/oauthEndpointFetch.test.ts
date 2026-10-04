@@ -43,6 +43,26 @@ function guarded(resource: string, overrides: Partial<Parameters<typeof createOA
   });
 }
 describe('OAuth network boundary', () => {
+  it('connects to an exact configured internal HTTP hostname but rejects its discovered OAuth endpoint', async () => {
+    const base = await endpoint((_req, res) => res.end('resource-ok'));
+    const resource = base.replace('127.0.0.1', 'mcp-server') + '/mcp';
+    vi.mocked(dns.lookup).mockResolvedValue([{ address: '127.0.0.1', family: 4 }] as never);
+    const fetch = guarded(resource);
+    expect(await (await fetch(resource)).text()).toBe('resource-ok');
+    await expect(fetch(resource.replace('/mcp', '/metadata'))).rejects.toThrow(/OAuth/);
+  });
+
+  it('permits only the accepted same-origin SSE endpoint as another resource', async () => {
+    const base = await endpoint((_req, res) => res.end('sse-ok'));
+    const origin = base.replace('127.0.0.1', 'mcp-server');
+    vi.mocked(dns.lookup).mockResolvedValue([{ address: '127.0.0.1', family: 4 }] as never);
+    const fetch = guarded(origin + '/sse', {
+      isResource: (url) => url.href === origin + '/sse' || url.href === origin + '/messages?session=1',
+    });
+    expect(await (await fetch(origin + '/messages?session=1', { method: 'POST' })).text()).toBe('sse-ok');
+    await expect(fetch(origin + '/messages?session=2', { method: 'POST' })).rejects.toThrow(/OAuth/);
+  });
+
   it.each([
     '0.0.0.0',
     '127.0.0.1',
@@ -83,13 +103,17 @@ describe('OAuth network boundary', () => {
     const resource = 'http://127.0.0.1:1/mcp';
     const lookup = vi.mocked(dns.lookup);
     lookup.mockResolvedValueOnce([{ address: '127.0.0.1', family: 4 }] as never);
-    lookup.mockResolvedValueOnce([{ address: '127.0.0.2', family: 4 }] as never);
+    lookup.mockResolvedValueOnce([
+      { address: '127.0.0.1', family: 4 },
+      { address: '127.0.0.2', family: 4 },
+    ] as never);
     const pin = vi.fn(async () => undefined);
     const fetch = guarded(resource, { issuer, pinDestination: pin });
     await fetch(issuer + '/token');
     expect(pin).toHaveBeenCalledWith(new URL(issuer).host, '127.0.0.1', expect.any(Object));
-    await expect(fetch(issuer + '/token')).rejects.toThrow(/OAuth/);
-    expect(requests).toBe(1);
+    await fetch(issuer + '/token');
+    expect(requests).toBe(2);
+    expect(pin).toHaveBeenLastCalledWith(new URL(issuer).host, '127.0.0.1,127.0.0.2', expect.any(Object));
     for (const target of [base + '/token', 'http://localhost:2/token', 'http://127.0.0.2:1/token']) {
       expect(() => validateOAuthEndpoint(target, resource, undefined, issuer)).toThrow(/OAuth/);
     }
@@ -130,7 +154,7 @@ describe('OAuth network boundary', () => {
     await guarded(base + '/mcp')(request);
     expect(received).toEqual({ method: 'POST', header: 'yes', body: 'payload' });
   });
-  it('pins the resolved socket and rejects a changed DNS answer before another request', async () => {
+  it('pins each resolved socket and permits changed DNS answers', async () => {
     let requests = 0;
     const base = await endpoint((_req, res) => {
       requests++;
@@ -139,11 +163,14 @@ describe('OAuth network boundary', () => {
     const url = base.replace('127.0.0.1', 'localhost');
     const lookup = vi.mocked(dns.lookup);
     lookup.mockResolvedValueOnce([{ address: '127.0.0.1', family: 4 }] as never);
-    lookup.mockResolvedValueOnce([{ address: '127.0.0.2', family: 4 }] as never);
+    lookup.mockResolvedValueOnce([
+      { address: '127.0.0.1', family: 4 },
+      { address: '127.0.0.2', family: 4 },
+    ] as never);
     const fetch = guarded(url + '/mcp');
     await fetch(url + '/metadata');
-    await expect(fetch(url + '/metadata')).rejects.toThrow(/OAuth/);
-    expect(requests).toBe(1);
+    await fetch(url + '/metadata');
+    expect(requests).toBe(2);
   });
   it('rejects private DNS answers for public configured hosts without connecting', async () => {
     vi.mocked(dns.lookup).mockResolvedValue([{ address: '127.0.0.1', family: 4 }] as never);

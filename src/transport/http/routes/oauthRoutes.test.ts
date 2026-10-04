@@ -473,6 +473,8 @@ describe('OAuth Routes', () => {
     it('should handle successful OAuth callback', async () => {
       mockRequest.params = { serverName: 'test-server' };
       mockRequest.query = { state: 'state-123', code: 'auth-code-123' };
+      // A reverse proxy may rewrite Host; callback identity comes from the stored attempt.
+      mockRequest.get = vi.fn(() => '127.0.0.1:3050');
       mockOAuthProvider.oauthFlow.completeBackendOAuthCallback.mockResolvedValue({ status: 'completed' });
 
       const router = createOAuthRoutes(mockOAuthProvider);
@@ -486,7 +488,6 @@ describe('OAuth Routes', () => {
         serverName: 'test-server',
         state: 'state-123',
         code: 'auth-code-123',
-        redirectUri: 'https://proxy.example/oauth/callback/test-server',
       });
       expect(mockResponse.redirect).toHaveBeenCalledWith('/admin/oauth?success=1');
     });
@@ -505,7 +506,6 @@ describe('OAuth Routes', () => {
         state: 'state-123',
         code: 'auth-code-123',
         iss: 'https://issuer.example/',
-        redirectUri: 'https://proxy.example/oauth/callback/test-server',
       });
     });
 
@@ -528,6 +528,8 @@ describe('OAuth Routes', () => {
     it('should delegate loading-ready callback handling to the OAuth flow', async () => {
       mockRequest.params = { serverName: 'test-server' };
       mockRequest.query = { state: 'state-123', code: 'auth-code-123' };
+      // A reverse proxy may rewrite Host; callback identity comes from the stored attempt.
+      mockRequest.get = vi.fn(() => '127.0.0.1:3050');
       mockOAuthProvider.oauthFlow.completeBackendOAuthCallback.mockResolvedValue({ status: 'completed' });
 
       // Mock loading manager with state tracker
@@ -550,7 +552,6 @@ describe('OAuth Routes', () => {
         serverName: 'test-server',
         state: 'state-123',
         code: 'auth-code-123',
-        redirectUri: 'https://proxy.example/oauth/callback/test-server',
       });
       expect(mockStateTracker.updateServerState).not.toHaveBeenCalled();
       expect(mockResponse.redirect).toHaveBeenCalledWith('/admin/oauth?success=1');
@@ -575,7 +576,6 @@ describe('OAuth Routes', () => {
         serverName: 'test-server',
         state: 'state-123',
         error: 'access_denied',
-        redirectUri: 'https://proxy.example/oauth/callback/test-server',
       });
       expect(mockResponse.redirect).toHaveBeenCalledWith('/admin/oauth?error=callback_failed');
     });

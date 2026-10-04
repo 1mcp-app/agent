@@ -116,7 +116,6 @@ export function createOAuthRoutes(
       const result = await oauthFlow.completeBackendOAuthCallback({
         serverName,
         ...callback,
-        redirectUri: `${req.protocol}://${req.get('host')}${req.baseUrl}${req.path}`,
       });
       if (result.status !== 'completed') {
         logger.error(`OAuth callback failed for ${serverName}:`, result.errorDescription);

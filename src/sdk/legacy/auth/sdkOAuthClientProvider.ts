@@ -557,6 +557,8 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
       });
       return request;
     }
+    // Resource requests need the generation check in pinDestination, not credential loading.
+    if (url.href === resource.href || url.href === this.sseEndpoint) return { ...init, redirect: 'error' };
     const record = this.current();
     const isToken = record?.authority.tokenEndpoint === url.href;
     const isRegistration = record?.authority.registrationEndpoint === url.href;
@@ -597,9 +599,7 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
       });
       return request;
     }
-    if (url.href !== resource.href && url.href !== this.sseEndpoint) throw oauthAuthorityError();
-    // Upstream resource headers never accompany discovery or OAuth endpoint requests.
-    return { ...init, redirect: 'error' };
+    throw oauthAuthorityError();
   }
 
   private responseMap(kind: 'token' | 'registration' | 'discovery'): Map<string, OAuthResponseTicket> {

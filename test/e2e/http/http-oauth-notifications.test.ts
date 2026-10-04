@@ -105,7 +105,6 @@ describe('HTTP OAuth Notifications E2E', () => {
       new URLSearchParams({
         state: 'fixture-state',
         code: 'auth-code-123',
-        redirect_uri: 'http://127.0.0.1:3050/oauth/callback/test-oauth-server',
       }),
     );
     expect(mockResponse.redirect).toHaveBeenCalledWith('/admin/oauth?success=1');
@@ -132,7 +131,6 @@ describe('HTTP OAuth Notifications E2E', () => {
       new URLSearchParams({
         state: 'fixture-state',
         error: 'access_denied',
-        redirect_uri: 'http://127.0.0.1:3050/oauth/callback/test-oauth-server',
       }),
     );
     expect(mockResponse.redirect).toHaveBeenCalledWith('/admin/oauth?error=access_denied');
@@ -158,7 +156,6 @@ describe('HTTP OAuth Notifications E2E', () => {
       new URLSearchParams({
         state: 'fixture-state',
         code: 'auth-code-123',
-        redirect_uri: 'http://127.0.0.1:3050/oauth/callback/test-oauth-server',
       }),
     );
     expect(mockResponse.redirect).toHaveBeenCalledWith('/admin/oauth?success=1');

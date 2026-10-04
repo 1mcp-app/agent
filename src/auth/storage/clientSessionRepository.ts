@@ -105,9 +105,17 @@ export class ClientSessionRepository {
     await this.storage.withExclusiveLock(`oauth-${slot}`, () => {
       const claim = this.getClaim(slot);
       if (!claim || claim.generation !== generation) throw oauthAuthorityError();
-      if (claim.destinations[host] && claim.destinations[host] !== addresses) throw oauthAuthorityError();
+      const renewBefore = Date.now() + OAUTH_AUTHORITY_TTL_MS - 24 * 60 * 60 * 1000;
+      const record = this.getBound(slot);
+      if (record?.generation === generation && record.expires <= renewBefore) {
+        record.expires = Date.now() + OAUTH_AUTHORITY_TTL_MS;
+        this.storage.writeDataDurable('oauth-bound-', slot, record);
+      }
+      if (claim.destinations[host] === addresses && claim.expires > renewBefore) return;
       if (!claim.destinations[host] && Object.keys(claim.destinations).length >= 32) throw oauthAuthorityError();
+      // Each request validates DNS and pins its own socket; public answers may rotate.
       claim.destinations[host] = addresses;
+      claim.expires = Date.now() + OAUTH_AUTHORITY_TTL_MS;
       this.storage.writeDataDurable('oauth-context-', slot, claim);
     });
   }
@@ -128,10 +136,12 @@ export class ClientSessionRepository {
       if (authorityClaim?.generation !== claim) throw oauthAuthorityError();
       if (requestVersion !== undefined && authorityClaim.requestVersion !== requestVersion) throw oauthAuthorityError();
       authorityClaim.requestVersion++;
+      authorityClaim.expires = Date.now() + OAUTH_AUTHORITY_TTL_MS;
       this.storage.writeDataDurable('oauth-context-', slot, authorityClaim);
       const current = this.getBound(slot);
       if (current && current.generation === claim && sameAuthority(current.authority, authority)) {
         current.discovery = discovery;
+        current.expires = Date.now() + OAUTH_AUTHORITY_TTL_MS;
         this.storage.writeDataDurable('oauth-bound-', slot, current);
         return current;
       }
@@ -162,24 +172,19 @@ export class ClientSessionRepository {
   ): Promise<BoundClientSession> {
     return this.storage.withExclusiveLock(`oauth-${slot}`, () => {
       const record = this.getBound(slot);
-      if (!record || record.generation !== generation || this.getClaim(slot)?.generation !== generation)
-        throw oauthAuthorityError();
-      if (requestVersion !== undefined && this.getClaim(slot)?.requestVersion !== requestVersion)
-        throw oauthAuthorityError();
+      const claim = this.getClaim(slot);
+      if (!record || record.generation !== generation || claim?.generation !== generation) throw oauthAuthorityError();
+      if (requestVersion !== undefined && claim.requestVersion !== requestVersion) throw oauthAuthorityError();
       operation(record);
-      if (requestVersion !== undefined) {
-        const claim = this.getClaim(slot)!;
-        this.storage.writeDataDurable('oauth-context-', slot, { ...claim, requestVersion: claim.requestVersion + 1 });
-      }
+      if (requestVersion !== undefined) claim.requestVersion++;
       if (record.generation !== generation) {
-        const claim = this.getClaim(slot)!;
-        this.storage.writeDataDurable('oauth-context-', slot, {
-          ...claim,
-          generation: record.generation,
-          destinations: {},
-          joinable: false,
-        });
+        claim.generation = record.generation;
+        claim.destinations = {};
+        claim.joinable = false;
       }
+      claim.expires = Date.now() + OAUTH_AUTHORITY_TTL_MS;
+      record.expires = claim.expires;
+      this.storage.writeDataDurable('oauth-context-', slot, claim);
       this.storage.writeDataDurable('oauth-bound-', slot, record);
       return record;
     });

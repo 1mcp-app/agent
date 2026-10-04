@@ -82,14 +82,16 @@ export function createOAuthEndpointFetch(options: {
   response: (value: Record<string, unknown>, url: URL, init: RequestInit) => void;
   metadata: (value: Record<string, unknown>, url: URL, init: RequestInit) => Record<string, unknown>;
 }): typeof fetch {
-  const destinations = new Map<string, string>();
   return async (input, init) => {
     let resourceRequest = false;
     try {
       const request = input instanceof Request ? input : undefined;
-      const url = validateOAuthEndpoint(request?.url ?? String(input), options.resource, undefined, options.issuer);
+      const target = new URL(request?.url ?? String(input));
       const resource = new URL(options.resource);
-      const isResource = options.isResource(url);
+      const isResource = options.isResource(target);
+      const url = isResource ? target : validateOAuthEndpoint(target.href, options.resource, undefined, options.issuer);
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash)
+        throw oauthAuthorityError();
       resourceRequest = isResource;
       const deadline = AbortSignal.timeout(OAUTH_FETCH_TIMEOUT_MS);
       const signal = init?.signal ?? request?.signal;
@@ -112,16 +114,13 @@ export function createOAuthEndpointFetch(options: {
               boundedSignal.addEventListener('abort', () => reject(oauthAuthorityError()), { once: true }),
             ),
           ]);
-      const localException = isConfiguredLocalOrigin(url, options.resource, options.issuer);
+      const localException = isResource || isConfiguredLocalOrigin(url, options.resource, options.issuer);
       if (!addresses.length || (!localException && addresses.some((item) => isPrivateOAuthAddress(item.address))))
         throw oauthAuthorityError();
       const resolved = addresses
         .map((item) => item.address)
         .sort()
         .join(',');
-      const previous = destinations.get(url.host);
-      if (previous && previous !== resolved) throw oauthAuthorityError();
-      destinations.set(url.host, resolved);
       await options.pinDestination(url.host, resolved, safeInit);
       if (boundedSignal.aborted) throw oauthAuthorityError();
       const headers = new Headers(safeInit.headers);

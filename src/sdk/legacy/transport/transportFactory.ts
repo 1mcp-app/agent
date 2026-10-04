@@ -8,7 +8,7 @@ import type { EventEmitter } from 'node:events';
 import type { Readable } from 'node:stream';
 import path from 'path';
 
-import { oauthDigest } from '@src/auth/oauthAuthority.js';
+import { oauthConfigurationFingerprint } from '@src/auth/oauthAuthority.js';
 import { OAuthClientConfig, SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
 import { processEnvironment, substituteEnvVars } from '@src/config/envProcessor.js';
 import { getRuntimeParentEnvironment } from '@src/config/runtimeBootstrap.js';
@@ -111,18 +111,21 @@ function createOAuthProvider(name: string, validatedTransport: ValidatedTranspor
       connectionKey: source,
       url: validatedTransport.url!,
     },
-    configuration: oauthDigest({
-      url: validatedTransport.url,
-      headers: validatedTransport.headers,
-      issuer: oauthConfig.issuer,
-      clientId: oauthConfig.clientId,
-      clientSecret: oauthConfig.clientSecret,
-      scopes: oauthConfig.scopes,
-      redirect: oauthConfig.redirectUrl,
-      clientMetadataUrl: oauthConfig.clientMetadataUrl,
-      autoRegister: oauthConfig.autoRegister,
-      legacy: oauthConfig.legacy,
-    }),
+    configuration: oauthConfigurationFingerprint(
+      {
+        url: validatedTransport.url,
+        headers: validatedTransport.headers,
+        issuer: oauthConfig.issuer,
+        clientId: oauthConfig.clientId,
+        clientSecret: oauthConfig.clientSecret,
+        scopes: oauthConfig.scopes,
+        redirect: oauthConfig.redirectUrl,
+        clientMetadataUrl: oauthConfig.clientMetadataUrl,
+        autoRegister: oauthConfig.autoRegister,
+        legacy: oauthConfig.legacy,
+      },
+      [owner, source, validatedTransport.type, validatedTransport.url],
+    ),
   };
   logger.info(`Creating OAuth client provider for transport: ${name}`);
   return new SDKOAuthClientProvider(name, oauthConfig, clientSessionPath);
