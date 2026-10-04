@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -26,9 +26,15 @@ export interface UpstreamOAuthStorageOptions {
   nativeStore?: NativeCredentialStore;
   runtimeScope?: string;
 }
-// Deterministic namespace fingerprints and record-integrity checksums; never password storage or verification.
+// Deterministic namespace fingerprints of non-secret identity metadata; never credential contents.
 // codeql[js/insufficient-password-hash]
-const hash = (value: string) => createHash('sha256').update(value).digest('hex');
+const namespaceDigest = (value: string) => createHash('sha256').update(value).digest('hex');
+const nativeDigest = (encoded: string, nonce: string) =>
+  createHmac('sha256', Buffer.from(nonce, 'base64url')).update(encoded).digest('hex');
+// Only explicit, confirmed export creates this journal beside an intentionally plaintext
+// destination. The checksum detects changed destinations after native chunks are deleted;
+// it is not a credential-protection mechanism and is removed after export cleanup.
+const exportedPlaintextChecksum = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const OwnerSchema = z.object({ version: z.literal(1), runtimeScope: z.string().regex(/^[a-f0-9]{64}$/) });
 const StateSchema = z.object({ mode: z.enum(['file', 'native']), epoch: z.string().uuid() });
 const ReferenceSchema = z.object({
@@ -44,21 +50,21 @@ const ReferenceSchema = z.object({
   retired: z.boolean().default(false),
 });
 type Reference = z.infer<typeof ReferenceSchema>;
-const IntentSchema = z.object({
-  next: ReferenceSchema,
-  previous: ReferenceSchema.optional(),
-  sourceDigest: z
-    .string()
-    .regex(/^[a-f0-9]{64}$/)
-    .optional(),
-  fileSuperseded: z.boolean().optional(),
-});
+const IntentSchema = z
+  .object({
+    next: ReferenceSchema,
+    previous: ReferenceSchema.optional(),
+    migrationSource: z.boolean().optional(),
+    fileSuperseded: z.boolean().optional(),
+  })
+  .strict();
 type Intent = z.infer<typeof IntentSchema>;
 const ExportSchema = z.object({ reference: ReferenceSchema, digest: z.string().regex(/^[a-f0-9]{64}$/) });
 const EnvelopeSchema = z.object({
   scope: z.string(),
   record: z.string(),
   revision: z.string(),
+  nonce: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
   payload: z.unknown(),
 });
 
@@ -114,8 +120,8 @@ export class UpstreamOAuthStorage extends FileStorageService {
     this.metadataDir = path.join(this.getStorageDir(), '.native-oauth');
     fs.mkdirSync(this.metadataDir, { recursive: true, mode: 0o700 });
     assertOwnerOnlyDirPermissions(this.metadataDir);
-    this.runtimeScope = hash(canonicalPath(options.runtimeScope ?? options.baseDir ?? getGlobalConfigDir()));
-    this.scope = hash(JSON.stringify([fs.realpathSync(this.getStorageDir()), this.runtimeScope]));
+    this.runtimeScope = namespaceDigest(canonicalPath(options.runtimeScope ?? options.baseDir ?? getGlobalConfigDir()));
+    this.scope = namespaceDigest(JSON.stringify([fs.realpathSync(this.getStorageDir()), this.runtimeScope]));
     const existing = activations.get(this.getActivationKey());
     if (!this.nativeStore && existing) this.nativeStore = existing.storage.nativeStore;
     if (existing?.storage.initialized && existing.storage.mode === this.mode) {
@@ -303,7 +309,9 @@ export class UpstreamOAuthStorage extends FileStorageService {
             continue;
           }
           const value = this.readNative(reference);
-          const digest = hash(JSON.stringify(value));
+          // The user authorized plaintext export; retain destination provenance only until
+          // native cleanup succeeds, including retries after partial chunk deletion.
+          const digest = exportedPlaintextChecksum(value);
           this.atomic(this.meta(reference.record, 'export'), { reference, digest });
           this.atomic(destination, value);
           this.finishExport(reference, digest);
@@ -329,7 +337,7 @@ export class UpstreamOAuthStorage extends FileStorageService {
     const destination = this.sourcePath(reference);
     const current = this.readJson(destination);
     if (current === null) this.atomic(destination, this.readNative(reference));
-    if (hash(JSON.stringify(this.readJson(destination))) !== digest) {
+    if (exportedPlaintextChecksum(this.readJson(destination)) !== digest) {
       throw new UpstreamOAuthStorageError(
         'Export destination changed. Native recovery records were retained; resolve the conflict before retrying.',
       );
@@ -350,7 +358,7 @@ export class UpstreamOAuthStorage extends FileStorageService {
         const source = path.join(directory, file);
         const value = this.readJson(source);
         if (value === null) continue;
-        this.storeNative(location, file, value, hash(JSON.stringify(value)));
+        this.storeNative(location, file, value, true);
       }
     }
   }
@@ -381,12 +389,22 @@ export class UpstreamOAuthStorage extends FileStorageService {
     );
   }
 
-  private storeNative(location: Reference['location'], file: string, payload: unknown, sourceDigest?: string): void {
+  private storeNative(
+    location: Reference['location'],
+    file: string,
+    payload: unknown,
+    migrationSource?: boolean,
+  ): void {
     const record = this.recordKey(location, file);
     if (this.readJson(this.meta(record, 'intent'))) throw new UpstreamOAuthStorageError();
     const previous = this.reference(record) ?? undefined;
     const revision = randomUUID();
-    const encoded = Buffer.from(JSON.stringify({ scope: this.scope, record, revision, payload })).toString('base64');
+    // Keep the random nonce only in the OS store: readable reference digests must not
+    // provide an offline oracle for guessing low-entropy client-registration secrets.
+    const nonce = randomBytes(32).toString('base64url');
+    const encoded = Buffer.from(JSON.stringify({ scope: this.scope, record, revision, nonce, payload })).toString(
+      'base64',
+    );
     const next: Reference = {
       version: 1,
       scope: this.scope,
@@ -395,11 +413,11 @@ export class UpstreamOAuthStorage extends FileStorageService {
       location,
       revision,
       chunks: Math.ceil(encoded.length / 1800),
-      digest: hash(encoded),
+      digest: nativeDigest(encoded, nonce),
       epoch: this.epoch ?? this.state()?.epoch ?? randomUUID(),
       retired: false,
     };
-    const intent: Intent = { next, previous, sourceDigest };
+    const intent: Intent = { next, previous, migrationSource };
     this.atomic(this.meta(record, 'intent'), intent);
     for (let index = 0; index < next.chunks; index++)
       this.native.write(this.chunkKey(next, index), encoded.slice(index * 1800, (index + 1) * 1800));
@@ -436,11 +454,11 @@ export class UpstreamOAuthStorage extends FileStorageService {
   }
 
   private finishIntent(intent: Intent): void {
-    if (intent.sourceDigest && !intent.fileSuperseded) {
+    if (intent.migrationSource && !intent.fileSuperseded) {
       const source = this.sourcePath(intent.next);
       const value = this.readJson(source);
       if (value !== null) {
-        if (hash(JSON.stringify(value)) !== intent.sourceDigest)
+        if (JSON.stringify(value) !== JSON.stringify(this.readNative(intent.next)))
           throw new UpstreamOAuthStorageError(
             'Migration source changed; credentials are retained for recovery. Restart to reconcile before OAuth use.',
           );
@@ -459,8 +477,8 @@ export class UpstreamOAuthStorage extends FileStorageService {
       if (!value || value.length > 1800 || !/^[A-Za-z0-9+/]+={0,2}$/.test(value)) throw new UpstreamOAuthStorageError();
       encoded += value;
     }
-    if (hash(encoded) !== reference.digest) throw new UpstreamOAuthStorageError();
     const envelope = EnvelopeSchema.parse(JSON.parse(Buffer.from(encoded, 'base64').toString('utf8')));
+    if (nativeDigest(encoded, envelope.nonce) !== reference.digest) throw new UpstreamOAuthStorageError();
     if (
       envelope.scope !== this.scope ||
       envelope.record !== reference.record ||
@@ -478,7 +496,7 @@ export class UpstreamOAuthStorage extends FileStorageService {
     return `https://oauth.1mcp.invalid/${this.scope}/${reference.record}/${reference.revision}/${index}`;
   }
   private recordKey(location: Reference['location'], file: string): string {
-    return hash(`${location}/${file}`);
+    return namespaceDigest(`${location}/${file}`);
   }
   private sourcePath(reference: Reference): string {
     this.validateReference(reference);

@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -455,5 +455,93 @@ describe('upstream native record persistence', () => {
       throw new NativeCredentialStoreError('helper_unavailable');
     });
     await expect(storage(base, 'native', native).activate()).rejects.toThrow(/Install the helper on PATH/);
+  });
+  it('keeps a fresh random nonce only in native envelopes and commits identical payloads differently', async () => {
+    const base = directory();
+    const native = new MemoryStore();
+    const target = storage(base, 'native', native);
+    await target.activate();
+    const value = data('guessable-registration-secret');
+    const metadata = path.join(target.getStorageDir(), '.native-oauth');
+    const snapshots: { nonce: string; digest: string }[] = [];
+    for (let iteration = 0; iteration < 2; iteration++) {
+      await target.withExclusiveLock('oauth-test', () => target.writeDataDurable('oauth-bound-', slot, value));
+      const encoded = [...native.entries.values()].join('');
+      const envelope = JSON.parse(Buffer.from(encoded, 'base64').toString('utf8')) as Record<string, unknown>;
+      const nonce = String(envelope.nonce);
+      expect(nonce).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(Buffer.from(nonce, 'base64url')).toHaveLength(32);
+      expect(envelope.payload).toEqual(value);
+      const referenceFile = fs.readdirSync(metadata).find((file) => file.endsWith('.ref'))!;
+      const reference = JSON.parse(fs.readFileSync(path.join(metadata, referenceFile), 'utf8')) as { digest: string };
+      expect(reference.digest).toBe(
+        createHmac('sha256', Buffer.from(nonce, 'base64url')).update(encoded).digest('hex'),
+      );
+      expect(files(base)).not.toContain(nonce);
+      const { nonce: _nonce, ...publiclyReconstructable } = envelope;
+      const withoutNonce = Buffer.from(JSON.stringify(publiclyReconstructable)).toString('base64');
+      expect(reference.digest).not.toBe(createHash('sha256').update(withoutNonce).digest('hex'));
+      snapshots.push({ nonce, digest: reference.digest });
+    }
+    expect(snapshots[0].nonce).not.toBe(snapshots[1].nonce);
+    expect(snapshots[0].digest).not.toBe(snapshots[1].digest);
+  });
+
+  it('rejects native envelopes without the required nonce instead of accepting a public checksum', async () => {
+    const base = directory();
+    const native = new MemoryStore();
+    const target = storage(base, 'native', native);
+    await target.activate();
+    await target.withExclusiveLock('oauth-test', () => target.writeDataDurable('oauth-bound-', slot, data()));
+    expect(native.entries.size).toBe(1);
+    const key = [...native.entries.keys()][0];
+    const envelope = JSON.parse(Buffer.from(native.entries.get(key)!, 'base64').toString('utf8')) as Record<
+      string,
+      unknown
+    >;
+    delete envelope.nonce;
+    const encoded = Buffer.from(JSON.stringify(envelope)).toString('base64');
+    native.entries.set(key, encoded);
+    const metadata = path.join(target.getStorageDir(), '.native-oauth');
+    const referencePath = path.join(
+      metadata,
+      fs.readdirSync(metadata).find((file) => file.endsWith('.ref'))!,
+    );
+    const reference = JSON.parse(fs.readFileSync(referencePath, 'utf8')) as Record<string, unknown>;
+    reference.digest = createHash('sha256').update(encoded).digest('hex');
+    fs.writeFileSync(referencePath, JSON.stringify(reference), { mode: 0o600 });
+    expect(() => target.readData('oauth-bound-', slot)).toThrow(/incomplete/);
+  });
+
+  it('journals no plaintext commitment and preserves a changed migration source until reconciled', async () => {
+    const base = directory();
+    const native = new MemoryStore();
+    const original = data('guessable-registration-secret');
+    const source = plaintext(base, original);
+    const target = storage(base, 'native', native);
+    const unlink = fs.unlinkSync;
+    vi.spyOn(fs, 'unlinkSync').mockImplementation((file) => {
+      if (String(file) === source) throw new Error('permission denied');
+      unlink(file);
+    });
+    await expect(target.activate()).rejects.toThrow();
+    const metadata = path.join(target.getStorageDir(), '.native-oauth');
+    const intentFile = fs.readdirSync(metadata).find((file) => file.endsWith('.intent'))!;
+    const intent = JSON.parse(fs.readFileSync(path.join(metadata, intentFile), 'utf8')) as Record<string, unknown>;
+    expect(intent.migrationSource).toBe(true);
+    expect(intent).not.toHaveProperty('sourceDigest');
+    expect(files(metadata)).not.toContain(createHash('sha256').update(JSON.stringify(original)).digest('hex'));
+    const chunks = [...native.entries];
+    vi.restoreAllMocks();
+    const advanced = data('newer-secret');
+    fs.writeFileSync(source, JSON.stringify(advanced), { mode: 0o600 });
+    const restarted = storage(base, 'native', native);
+    await expect(restarted.activate()).rejects.toThrow(/Migration source changed/);
+    expect(JSON.parse(fs.readFileSync(source, 'utf8'))).toEqual(advanced);
+    expect([...native.entries]).toEqual(chunks);
+    fs.writeFileSync(source, JSON.stringify(original), { mode: 0o600 });
+    await restarted.activate();
+    expect(restarted.readData('oauth-bound-', slot)).toEqual(original);
+    expect(fs.existsSync(source)).toBe(false);
   });
 });
