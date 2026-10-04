@@ -31,7 +31,7 @@ env:
   HUSKY: 0
 
 jobs:
-  ci:
+  static:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -67,11 +67,41 @@ jobs:
       - name: Security permission gate (ticket-05)
         run: pnpm test:security-permissions
 
+  unit-admin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.checkout_ref || github.ref }}
+          persist-credentials: false
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
       - name: Test Unit
         run: pnpm test:unit
+        env:
+          CI: true
 
       - name: Test Admin Console
         run: pnpm test:admin
+
+  # Preserve the existing required check and fail closed on skipped/cancelled jobs.
+  ci:
+    if: always()
+    needs: [static, unit-admin]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Require static and test success
+        env:
+          STATIC_RESULT: ${{ needs.static.result }}
+          TEST_RESULT: ${{ needs.unit-admin.result }}
+        run: test "$STATIC_RESULT" = success && test "$TEST_RESULT" = success
 
   # E2E runs concurrently with lint, typecheck, and unit tests. Browser specs
   # run separately so ordinary shards do not install Playwright dependencies.

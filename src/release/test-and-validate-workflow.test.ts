@@ -256,7 +256,30 @@ describe('test-and-validate workflow', () => {
     const browserJob = workflow.match(/\n\s{2}test-e2e-browser:\n(?<body>(?:\s{4}.*\n)+)/)?.groups?.body;
     const checkoutCount = workflow.match(/uses: actions\/checkout@v7/g)?.length ?? 0;
 
-    expect(ciJob).toMatch(/pnpm ci:static[\s\S]*pnpm test:unit[\s\S]*pnpm test:admin/);
+    const staticJob = workflow.match(/\n\s{2}static:\n(?<body>(?:\s{4}.*\n)+)/)?.groups?.body;
+    const unitJob = workflow.match(/\n\s{2}unit-admin:\n(?<body>(?:\s{4}.*\n)+)/)?.groups?.body;
+    expect(staticJob).toContain('pnpm ci:static');
+    expect(staticJob).not.toContain('needs:');
+    expect(unitJob).toMatch(/pnpm test:unit[\s\S]*pnpm test:admin/);
+    expect(unitJob).not.toContain('needs:');
+    expect(ciJob).toContain('if: always()');
+    expect(ciJob).toContain('needs: [static, unit-admin]');
+    expect(ciJob).toContain('test "$STATIC_RESULT" = success && test "$TEST_RESULT" = success');
+    expect(packageJson.scripts['test:e2e:shardable']).toContain('**/cooperative-runtime.test.ts');
+    const lifecycle = YAML.parse(readRepoFile('.github/workflows/cooperative-runtime.yml')) as {
+      jobs: Record<
+        string,
+        { strategy?: { matrix: { runtime?: string[]; os?: string[] } }; needs?: string[]; if?: string }
+      >;
+    };
+    expect(lifecycle.jobs['lifecycle-tests'].strategy?.matrix.runtime).toEqual(['Node', 'SEA']);
+    expect(lifecycle.jobs['lifecycle-tests'].strategy?.matrix.os).toEqual([
+      'ubuntu-latest',
+      'macos-latest',
+      'windows-latest',
+    ]);
+    expect(lifecycle.jobs.lifecycle.needs).toEqual(['lifecycle-tests']);
+    expect(lifecycle.jobs.lifecycle.if).toBe('always()');
     expect(packageJson.scripts['ci:static']).toContain('pnpm lint');
     expect(packageJson.scripts['ci:static']).toContain('pnpm typecheck');
     expect(packageJson.scripts['ci:static']).toContain('pnpm build');
@@ -294,10 +317,32 @@ describe('test-and-validate workflow', () => {
     expect(packageJson.scripts['test:e2e:system']).toContain('test/e2e/commands/serve-background.test.ts');
   });
 
+  it('fails aggregate gates when any required job fails, is cancelled, or is skipped', () => {
+    for (const [file, job, inputs] of [
+      ['.github/workflows/test-and-validate.yml', 'ci', ['STATIC_RESULT', 'TEST_RESULT']],
+      ['.github/workflows/cooperative-runtime.yml', 'lifecycle', ['LIFECYCLE_RESULT']],
+    ] as const) {
+      const workflow = YAML.parse(readRepoFile(file)) as {
+        jobs: Record<string, { if: string; steps: { run: string }[] }>;
+      };
+      const gate = workflow.jobs[job];
+      expect(gate.if).toBe('always()');
+      const environment = Object.fromEntries(inputs.map((input) => [input, 'success']));
+      const execute = (env: Record<string, string>) =>
+        spawnSync('bash', ['-c', gate.steps[0].run], { env: { ...process.env, ...env } }).status;
+      expect(execute(environment)).toBe(0);
+      for (const input of inputs) {
+        for (const result of ['failure', 'cancelled', 'skipped']) {
+          expect(execute({ ...environment, [input]: result })).not.toBe(0);
+        }
+      }
+    }
+  });
+
   it('installs and runs actionlint binary with pinned SHA-256 digest and shellcheck in CI pipeline', () => {
     const workflow = YAML.parse(readRepoFile('.github/workflows/test-and-validate.yml')) as {
       jobs?: {
-        ci?: {
+        static?: {
           steps?: {
             name?: string;
             env?: Record<string, string>;
@@ -306,7 +351,7 @@ describe('test-and-validate workflow', () => {
         };
       };
     };
-    const steps = workflow?.jobs?.ci?.steps;
+    const steps = workflow?.jobs?.static?.steps;
 
     expect(steps).toBeDefined();
 
