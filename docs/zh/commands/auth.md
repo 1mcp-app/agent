@@ -134,7 +134,7 @@ npx -y @1mcp/agent auth logout --context local --all-local
 1mcp auth export-upstream-credentials --config-dir ./config --confirm-plaintext-export
 ```
 
-命令会先显示准确的明文目标，再要求确认。请使用与运行时相同的 `--config`、`--config-dir`，以及已自定义的 `--session-storage-path`。必须验证运行时不存在；正在运行、无法访问或状态不明确时阻止导出。导出期间持有 Runtime Scope 所有权，防止新运行时启动。
+命令会先显示准确的当前布局与旧布局的明文目标目录，再要求确认。请使用与运行时相同的 `--config`、`--config-dir`，以及已自定义的 `--session-storage-path`。必须验证运行时不存在；正在运行、无法访问或状态不明确时阻止导出。导出期间持有 Runtime Scope 所有权，防止新运行时启动。
 
 每个文件目标完成持久化写入并验证后，才删除原生来源。部分失败会保留恢复引用并使命令失败；解锁凭据库、解决报告的冲突后，可重跑同一命令。重试不会覆盖较新的文件凭据。重启前设置 `[auth] credentialStore = "file"`，或使用 `--credential-store file`。导出成功覆盖当前受管理记录，不表示已擦除历史备份或文件系统残留。
 

@@ -296,8 +296,7 @@ export class UpstreamOAuthStorage extends FileStorageService {
         let records = this.recoverExports();
         this.recoverIntents();
         for (const reference of this.references()) {
-          const destination = this.sourcePath(reference);
-          const existing = this.readJson(destination);
+          const existing = this.readSource(reference);
           if (existing !== null) {
             // A fresh file login wins; exporting a retired native generation must never overwrite it.
             if (!reference.retired)
@@ -313,7 +312,7 @@ export class UpstreamOAuthStorage extends FileStorageService {
           // native cleanup succeeds, including retries after partial chunk deletion.
           const digest = exportedPlaintextChecksum(value);
           this.atomic(this.meta(reference.record, 'export'), { reference, digest });
-          this.atomic(destination, value);
+          this.writeSource(reference, value);
           this.finishExport(reference, digest);
           records++;
         }
@@ -334,10 +333,9 @@ export class UpstreamOAuthStorage extends FileStorageService {
 
   private finishExport(reference: Reference, digest: string): void {
     this.validateReference(reference);
-    const destination = this.sourcePath(reference);
-    const current = this.readJson(destination);
-    if (current === null) this.atomic(destination, this.readNative(reference));
-    if (exportedPlaintextChecksum(this.readJson(destination)) !== digest) {
+    const current = this.readSource(reference);
+    if (current === null) this.writeSource(reference, this.readNative(reference));
+    if (exportedPlaintextChecksum(this.readSource(reference)) !== digest) {
       throw new UpstreamOAuthStorageError(
         'Export destination changed. Native recovery records were retained; resolve the conflict before retrying.',
       );
@@ -356,7 +354,8 @@ export class UpstreamOAuthStorage extends FileStorageService {
       for (const file of fs.readdirSync(directory)) {
         if (!this.managedFile(file)) continue;
         const source = path.join(directory, file);
-        const value = this.readJson(source);
+        // Interrupted atomic writes are recovery fragments, not authoritative JSON records.
+        const value = file.endsWith('.tmp') ? this.readText(source) : this.readJson(source);
         if (value === null) continue;
         this.storeNative(location, file, value, true);
       }
@@ -456,7 +455,7 @@ export class UpstreamOAuthStorage extends FileStorageService {
   private finishIntent(intent: Intent): void {
     if (intent.migrationSource && !intent.fileSuperseded) {
       const source = this.sourcePath(intent.next);
-      const value = this.readJson(source);
+      const value = this.readSource(intent.next);
       if (value !== null) {
         if (JSON.stringify(value) !== JSON.stringify(this.readNative(intent.next)))
           throw new UpstreamOAuthStorageError(
@@ -501,6 +500,19 @@ export class UpstreamOAuthStorage extends FileStorageService {
   private sourcePath(reference: Reference): string {
     this.validateReference(reference);
     return path.join(reference.location === 'current' ? this.getStorageDir() : this.legacyDir, reference.file);
+  }
+  private readSource(reference: Reference): unknown | null {
+    const source = this.sourcePath(reference);
+    return reference.file.endsWith('.tmp') ? this.readText(source) : this.readJson(source);
+  }
+  private writeSource(reference: Reference, value: unknown): void {
+    const source = this.sourcePath(reference);
+    if (reference.file.endsWith('.tmp')) {
+      if (typeof value !== 'string') throw new UpstreamOAuthStorageError();
+      this.atomicBytes(source, value);
+      return;
+    }
+    this.atomic(source, value);
   }
   private validateReference(reference: Reference): void {
     ReferenceSchema.parse(reference);
@@ -557,6 +569,10 @@ export class UpstreamOAuthStorage extends FileStorageService {
       throw new UpstreamOAuthStorageError('OAuth storage is not ready or its backend changed. Restart the runtime.');
   }
   private readJson(file: string): unknown | null {
+    const text = this.readText(file);
+    return text === null ? null : JSON.parse(text);
+  }
+  private readText(file: string): string | null {
     if (!fs.existsSync(path.dirname(file))) return null;
     assertOwnerOnlyDirPermissions(path.dirname(file));
     let descriptor: number;
@@ -569,18 +585,28 @@ export class UpstreamOAuthStorage extends FileStorageService {
     try {
       enforceOwnerOnlyFilePermissions(descriptor, file);
       if (!fs.fstatSync(descriptor).isFile()) throw new UpstreamOAuthStorageError();
-      return JSON.parse(fs.readFileSync(descriptor, 'utf8'));
+      const bytes = fs.readFileSync(descriptor);
+      const text = bytes.toString('utf8');
+      // Never discard byte sequences through replacement decoding during migration.
+      if (!Buffer.from(text, 'utf8').equals(bytes))
+        throw new UpstreamOAuthStorageError(
+          'OAuth recovery data is not valid UTF-8. Preserve the source and repair its encoding before restarting.',
+        );
+      return text;
     } finally {
       fs.closeSync(descriptor);
     }
   }
   private atomic(file: string, value: unknown): void {
+    this.atomicBytes(file, JSON.stringify(value));
+  }
+  private atomicBytes(file: string, text: string): void {
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
     assertOwnerOnlyDirPermissions(path.dirname(file));
     const temporary = `${file}.${randomUUID()}.tmp`;
     const descriptor = fs.openSync(temporary, 'wx', 0o600);
     try {
-      fs.writeFileSync(descriptor, JSON.stringify(value), { mode: 0o600 });
+      fs.writeFileSync(descriptor, text, { mode: 0o600 });
       fs.fsyncSync(descriptor);
     } finally {
       fs.closeSync(descriptor);

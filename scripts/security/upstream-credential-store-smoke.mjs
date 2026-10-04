@@ -29,7 +29,10 @@ const metadata = path.join(directory, '.native-oauth');
 const id = randomBytes(32).toString('hex');
 const filename = `oauth-bound-${id}.json`;
 const source = path.join(directory, filename);
+const temporaryName = `${filename}.abandoned.tmp`;
+const temporarySource = path.join(directory, temporaryName);
 const secret = randomBytes(3000).toString('base64');
+const temporaryText = `{"client_secret":"${secret}"`;
 const payload = {
   createdAt: Date.now(),
   expires: Date.now() + 3600000,
@@ -101,8 +104,9 @@ async function migrate() {
   assert.ok(stopped.status === 0, 'Synthetic runtime stop failed');
   running = false;
   references = refs();
-  assert.ok(references.length === 1, 'Expected one migrated synthetic record');
+  assert.ok(references.length === 2, 'Expected synthetic record and opaque temporary');
   assert.ok(!fs.existsSync(source), 'Native startup left synthetic plaintext source');
+  assert.ok(!fs.existsSync(temporarySource), 'Native startup left truncated plaintext temporary');
   for (const name of fs.readdirSync(metadata))
     assert.ok(
       !fs.readFileSync(path.join(metadata, name), 'utf8').includes(secret),
@@ -113,15 +117,23 @@ try {
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   fs.writeFileSync(path.join(scope, 'mcp.json'), '{"mcpServers":{}}', { mode: 0o600 });
   fs.writeFileSync(source, JSON.stringify(payload), { mode: 0o600 });
+  fs.writeFileSync(temporarySource, temporaryText, { mode: 0o600 });
   stage = 'native startup';
   await migrate();
-  assert.ok(JSON.stringify(readPayload(references[0])) === JSON.stringify(payload), 'Migrated payload mismatch');
+  assert.ok(
+    JSON.stringify(readPayload(references.find((ref) => ref.file === filename))) === JSON.stringify(payload),
+    'Migrated payload mismatch',
+  );
+  assert.ok(
+    readPayload(references.find((ref) => ref.file === temporaryName)) === temporaryText,
+    'Opaque temporary mismatch',
+  );
   stage = 'newer file revision';
   payload.tokens = JSON.stringify({ access_token: `${secret}updated`, refresh_token: secret, token_type: 'Bearer' });
   fs.writeFileSync(source, JSON.stringify(payload), { mode: 0o600 });
   await migrate();
   assert.ok(
-    JSON.stringify(readPayload(references[0])) === JSON.stringify(payload),
+    JSON.stringify(readPayload(references.find((ref) => ref.file === filename))) === JSON.stringify(payload),
     'Newer file credential was not migrated',
   );
   stage = 'confirmation';
@@ -134,17 +146,22 @@ try {
     JSON.stringify(JSON.parse(fs.readFileSync(source, 'utf8'))) === JSON.stringify(payload),
     'Exported payload mismatch',
   );
+  assert.ok(fs.readFileSync(temporarySource, 'utf8') === temporaryText, 'Opaque temporary export mismatch');
   for (const ref of references)
     for (let i = 0; i < ref.chunks; i++)
       assert.ok(native.read(chunkKey(ref, i)) === null, 'Export left a native chunk');
   assert.ok(refs().length === 0, 'Export left native references');
   clean = true;
   console.log(
-    `Upstream native smoke passed: ${process.platform}, ${binary ? 'SEA' : 'Node'}, migration, multi-chunk secrets, restart, newer revision, confirmation, verified export and native cleanup.`,
+    `Upstream native smoke passed: ${process.platform}, ${binary ? 'SEA' : 'Node'}, migration, multi-chunk secrets, opaque truncated temporary, restart, newer revision, confirmation, verified export and native cleanup.`,
   );
-} catch {
+} catch (error) {
   process.exitCode = 1;
-  console.error(`Synthetic upstream native smoke failed at ${stage}. Inspect the retained synthetic scope: ${scope}`);
+  // Explicit assertion messages above are fixed diagnostics; other causes may contain secrets.
+  const reason = error instanceof assert.AssertionError && !error.generatedMessage ? `: ${error.message}` : '';
+  console.error(
+    `Synthetic upstream native smoke failed at ${stage}${reason}. Inspect the retained synthetic scope: ${scope}`,
+  );
 } finally {
   if (running) {
     const stopped = run(['serve', '--stop']);

@@ -544,4 +544,84 @@ describe('upstream native record persistence', () => {
     expect(restarted.readData('oauth-bound-', slot)).toEqual(original);
     expect(fs.existsSync(source)).toBe(false);
   });
+  it('protects empty, truncated and valid temporary fragments alongside authoritative JSON and exports exact bytes', async () => {
+    const base = directory();
+    const native = new MemoryStore();
+    const original = data();
+    const source = plaintext(base, original);
+    const fragments = ['', '{"client_secret":"fragment-private', '\ufeff { "secret": "fragment-private-中文" }\r\n'];
+    const temporaryFiles = fragments.map((value, index) => {
+      const file = `${source}.orphan-${index}.tmp`;
+      fs.writeFileSync(file, value, { mode: 0o600 });
+      return file;
+    });
+    const target = storage(base, 'native', native);
+    await target.activate();
+    expect(target.readData('oauth-bound-', slot)).toEqual(original);
+    expect(target.listFiles()).toEqual([path.basename(source)]);
+    for (const file of temporaryFiles) expect(fs.existsSync(file)).toBe(false);
+    expect(files(base)).not.toContain('fragment-private');
+    expect((await target.exportToFile()).records).toBe(4);
+    for (let index = 0; index < temporaryFiles.length; index++) {
+      expect(fs.readFileSync(temporaryFiles[index])).toEqual(Buffer.from(fragments[index], 'utf8'));
+    }
+    expect(JSON.parse(fs.readFileSync(source, 'utf8'))).toEqual(original);
+    expect(native.entries.size).toBe(0);
+  });
+
+  it('retains a temporary fragment when destination verification fails and safely resumes cleanup', async () => {
+    const base = directory();
+    const native = new MemoryStore();
+    const target = storage(base, 'native', native);
+    const temporary = path.join(target.getStorageDir(), 'oauth_fragment.json.orphan.tmp');
+    const fragment = '{"client_secret":"fragment-private';
+    fs.writeFileSync(temporary, fragment, { mode: 0o600 });
+    vi.spyOn(native, 'read').mockImplementationOnce(() => {
+      throw new Error('verification failed');
+    });
+    await expect(target.activate()).rejects.toThrow();
+    expect(fs.readFileSync(temporary, 'utf8')).toBe(fragment);
+    vi.restoreAllMocks();
+    const unlink = fs.unlinkSync;
+    vi.spyOn(fs, 'unlinkSync').mockImplementation((file) => {
+      if (String(file) === temporary) throw new Error('cleanup denied');
+      unlink(file);
+    });
+    const retry = storage(base, 'native', native);
+    await expect(retry.activate()).rejects.toThrow();
+    expect(fs.readFileSync(temporary, 'utf8')).toBe(fragment);
+    expect(native.entries.size).toBeGreaterThan(0);
+    vi.restoreAllMocks();
+    const restarted = storage(base, 'native', native);
+    await restarted.activate();
+    expect(fs.existsSync(temporary)).toBe(false);
+    expect(restarted.listFiles()).toEqual([]);
+    expect((await restarted.exportToFile()).records).toBe(1);
+    expect(fs.readFileSync(temporary, 'utf8')).toBe(fragment);
+    expect(native.entries.size).toBe(0);
+  });
+
+  it('retains malformed authoritative JSON and fails closed instead of treating it as a recovery fragment', async () => {
+    const base = directory();
+    const native = new MemoryStore();
+    const target = storage(base, 'native', native);
+    const source = target.getFilePath('oauth-bound-', slot);
+    const malformed = '{"client_secret":"authoritative-private';
+    fs.writeFileSync(source, malformed, { mode: 0o600 });
+    await expect(target.activate()).rejects.toThrow();
+    expect(fs.readFileSync(source, 'utf8')).toBe(malformed);
+    expect(native.entries.size).toBe(0);
+  });
+
+  it('preserves invalid UTF-8 bytes instead of erasing a replacement-decoded temporary fragment', async () => {
+    const base = directory();
+    const native = new MemoryStore();
+    const target = storage(base, 'native', native);
+    const temporary = path.join(target.getStorageDir(), 'oauth_fragment.json.orphan.tmp');
+    const bytes = Buffer.from([0x7b, 0x22, 0xe4, 0xb8]);
+    fs.writeFileSync(temporary, bytes, { mode: 0o600 });
+    await expect(target.activate()).rejects.toThrow(/not valid UTF-8/);
+    expect(fs.readFileSync(temporary)).toEqual(bytes);
+    expect(native.entries.size).toBe(0);
+  });
 });

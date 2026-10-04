@@ -22,7 +22,9 @@ export async function exportUpstreamCredentialsCommand(options: ExportUpstreamCr
     (options.config || options['config-dir'] ? path.join(runtimeScope, 'sessions') : undefined);
   const baseDir = resolveUpstreamOAuthStorageBaseDir(serverBaseDir) ?? runtimeScope;
   const destination = path.resolve(baseDir, 'sessions', 'client');
+  const legacyDestination = path.resolve(baseDir, 'clientSessions');
   process.stdout.write(`Plaintext upstream OAuth destination: ${destination}\n`);
+  process.stdout.write(`Legacy-layout records (if any) are restored to: ${legacyDestination}\n`);
 
   if (!options['confirm-plaintext-export']) {
     if (!process.stdin.isTTY || !process.stdout.isTTY) {

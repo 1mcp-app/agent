@@ -41,6 +41,9 @@ describe('explicit upstream plaintext export', () => {
     expect(process.stdout.write).toHaveBeenCalledWith(
       'Plaintext upstream OAuth destination: /tmp/scoped/clientSessions/sessions/client\n',
     );
+    expect(process.stdout.write).toHaveBeenCalledWith(
+      'Legacy-layout records (if any) are restored to: /tmp/scoped/clientSessions/clientSessions\n',
+    );
     expect(mocks.report).not.toHaveBeenCalled();
     expect(mocks.storage).not.toHaveBeenCalled();
   });

@@ -140,7 +140,7 @@ Explicitly reverse-migrate upstream OAuth secrets from the OS store to plaintext
 1mcp auth export-upstream-credentials --config-dir ./config --confirm-plaintext-export
 ```
 
-The command prints the exact plaintext destination before prompting. Use the same `--config`, `--config-dir`, and, if customized, `--session-storage-path` as the runtime. Runtime absence must be verified; active, unreachable, or ambiguous runtime state blocks export. A scope ownership claim prevents a new runtime from starting during export.
+The command prints both possible plaintext destination directories (current and legacy layouts) before prompting. Use the same `--config`, `--config-dir`, and, if customized, `--session-storage-path` as the runtime. Runtime absence must be verified; active, unreachable, or ambiguous runtime state blocks export. A scope ownership claim prevents a new runtime from starting during export.
 
 Each file destination is durably written and verified before the native source is deleted. Partial failures retain recovery references and fail the command; unlock the store, resolve the reported conflict, and run the same command again. A retry must not overwrite newer file credentials. Set `[auth] credentialStore = "file"` (or use `--credential-store file`) before restarting. Export success covers current managed records, not erasure of historical backups or filesystem remnants.
 

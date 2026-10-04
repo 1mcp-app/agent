@@ -496,6 +496,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       sessionStoragePath = path.join(runtimeScope, 'sessions');
     }
 
+    const credentialStore = parsedArgv['credential-store'] ?? appConfig.auth?.credentialStore ?? 'file';
     const internalToolsList = parseInternalToolsList(parsedArgv['internal-tools']);
     warnForLegacyLazyLoadingOptions(parsedArgv);
     const directExpose = parseCommaSeparatedList(parsedArgv['lazy-direct-expose']);
@@ -543,7 +544,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         cleanupIntervalMs: appConfig.templateSettings?.pool?.cleanupInterval ?? 30000,
       },
       auth: {
-        credentialStore: parsedArgv['credential-store'] ?? appConfig.auth?.credentialStore ?? 'file',
+        credentialStore,
         enabled: authEnabled,
         sessionTtlMinutes,
         sessionStoragePath,
@@ -606,7 +607,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
 
     await activateUpstreamOAuthStore({
       baseDir: resolveUpstreamOAuthStorageBaseDir(sessionStoragePath),
-      mode: parsedArgv['credential-store'] ?? appConfig.auth?.credentialStore ?? 'file',
+      mode: credentialStore,
       runtimeScope,
     });
 
