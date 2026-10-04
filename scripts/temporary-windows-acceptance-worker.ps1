@@ -211,8 +211,9 @@ try {
     $oldPid = (Read-Runtime).pid
     $cleanStart = Get-Date
     Stop-Cleanly
-    $cleanCompletions = @(Get-TaskEvents | Where-Object { $_.id -eq 201 -and [DateTime]::Parse($_.time) -ge $cleanStart -and [long]$_.data.ResultCode -eq 0 })
-    Assert-True ($cleanCompletions.Count -ge 1) 'Task action did not report a clean exit'
+    Wait-Until {
+        @(Get-TaskEvents | Where-Object { $_.id -eq 201 -and [DateTime]::Parse($_.time) -ge $cleanStart -and [long]$_.data.ResultCode -eq 0 }).Count -ge 1
+    } -Seconds 15 -Description 'Task Scheduler records clean action exit'
     Wait-Until { (Test-Healthy) -and (Read-Runtime).pid -ne $oldPid } -Seconds 150 -Description 'recurrence after clean exit'
     Complete-Step $step 'Cooperative serve --stop completed; enabled task later launched a new healthy runtime'
 
