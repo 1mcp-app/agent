@@ -313,32 +313,51 @@ jobs:
   test-windows-installer:
     runs-on: windows-latest
     timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        shell: [powershell, pwsh]
     permissions:
       contents: read
-    env:
-      INSTALLER_POWERSHELL: ${{ matrix.shell }}
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.checkout_ref || github.ref }}
           persist-credentials: false
-      - name: Test Windows scheduled-task installer
+      # These short suites share one runner; a failure must not hide the other shell.
+      - name: Test Windows scheduled-task installer (powershell)
+        if: ${{ !cancelled() }}
         shell: pwsh
         run: |
-          & $env:INSTALLER_POWERSHELL -NoProfile -NonInteractive -File ./scripts/test-install-windows-task.ps1
+          & powershell -NoProfile -NonInteractive -File ./scripts/test-install-windows-task.ps1
           exit $LASTEXITCODE
-      - name: Validate exported Windows task configuration
+      - name: Validate exported Windows task configuration (powershell)
+        id: export-powershell
+        if: ${{ !cancelled() }}
         shell: pwsh
         run: |
-          & $env:INSTALLER_POWERSHELL -NoProfile -NonInteractive -File ./scripts/test-install-windows-task-xml.ps1 -OutputPath .tmp/windows-installer-task.xml
+          & powershell -NoProfile -NonInteractive -File ./scripts/test-install-windows-task-xml.ps1 -OutputPath .tmp/windows-installer-powershell.xml
           exit $LASTEXITCODE
-      - name: Upload exported Windows task configuration
+      - name: Upload exported Windows task configuration (powershell)
+        if: ${{ !cancelled() && steps.export-powershell.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
-          name: windows-installer-${{ matrix.shell }}-${{ github.sha }}
-          path: .tmp/windows-installer-task.xml
+          name: windows-installer-powershell-${{ github.sha }}
+          path: .tmp/windows-installer-powershell.xml
+          if-no-files-found: error
+      - name: Test Windows scheduled-task installer (pwsh)
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          & pwsh -NoProfile -NonInteractive -File ./scripts/test-install-windows-task.ps1
+          exit $LASTEXITCODE
+      - name: Validate exported Windows task configuration (pwsh)
+        id: export-pwsh
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          & pwsh -NoProfile -NonInteractive -File ./scripts/test-install-windows-task-xml.ps1 -OutputPath .tmp/windows-installer-pwsh.xml
+          exit $LASTEXITCODE
+      - name: Upload exported Windows task configuration (pwsh)
+        if: ${{ !cancelled() && steps.export-pwsh.outcome == 'success' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-installer-pwsh-${{ github.sha }}
+          path: .tmp/windows-installer-pwsh.xml
           if-no-files-found: error

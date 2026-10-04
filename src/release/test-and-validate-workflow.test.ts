@@ -345,6 +345,46 @@ describe('test-and-validate workflow', () => {
     }
   });
 
+  it('covers both installer shells on one runner without skipping a shell after failure', () => {
+    const workflow = YAML.parse(readRepoFile('.github/workflows/test-and-validate.yml')) as {
+      jobs: Record<
+        string,
+        {
+          strategy?: unknown;
+          steps: {
+            name?: string;
+            id?: string;
+            if?: string;
+            run?: string;
+            'continue-on-error'?: boolean;
+            with?: { name: string; path: string; 'if-no-files-found': string };
+          }[];
+        }
+      >;
+    };
+    const job = workflow.jobs['test-windows-installer'];
+    expect(job.strategy).toBeUndefined();
+    for (const shell of ['powershell', 'pwsh']) {
+      const installer = job.steps.find((step) => step.name === `Test Windows scheduled-task installer (${shell})`);
+      const exported = job.steps.find((step) => step.id === `export-${shell}`);
+      for (const step of [installer, exported]) {
+        expect(step?.if).toBe('${{ !cancelled() }}');
+        expect(step?.run).toContain(`& ${shell} -NoProfile -NonInteractive -File`);
+        expect(step?.run).toContain('exit $LASTEXITCODE');
+        expect(step?.['continue-on-error']).not.toBe(true);
+      }
+      expect(installer?.run).toContain('./scripts/test-install-windows-task.ps1');
+      expect(exported?.run).toContain('./scripts/test-install-windows-task-xml.ps1');
+      expect(exported?.run).toContain(`-OutputPath .tmp/windows-installer-${shell}.xml`);
+      const artifact = job.steps.find(
+        (step) => step.with?.name === `windows-installer-${shell}-` + '${{ github.sha }}',
+      );
+      expect(artifact?.if).toBe(`\${{ !cancelled() && steps.export-${shell}.outcome == 'success' }}`);
+      expect(artifact?.with?.path).toBe(`.tmp/windows-installer-${shell}.xml`);
+      expect(artifact?.with?.['if-no-files-found']).toBe('error');
+    }
+  });
+
   it('installs and runs actionlint binary with pinned SHA-256 digest and shellcheck in CI pipeline', () => {
     const workflow = YAML.parse(readRepoFile('.github/workflows/test-and-validate.yml')) as {
       jobs?: {
