@@ -83,7 +83,7 @@
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "test:e2e:browser": "vitest run --config vitest.e2e.config.ts browser.e2e.test.ts",
     "test:e2e:non-browser": "vitest run --config vitest.e2e.config.ts --exclude \"**/*.browser.e2e.test.ts\"",
-    "test:e2e:shardable": "vitest run --config vitest.e2e.config.ts --exclude \"**/*.browser.e2e.test.ts\" --exclude \"**/serve-background.test.ts\" --exclude \"**/cooperative-runtime.test.ts\"",
+    "test:e2e:shardable": "vitest run --config vitest.e2e.config.ts --exclude \"**/*.browser.e2e.test.ts\" --exclude \"**/serve-background.test.ts\" --exclude \"**/cooperative-runtime.test.ts\" --exclude \"**/capability-catalog-eras.test.ts\" --exclude \"**/admin-spa-package.e2e.test.ts\"",
     "test:e2e:system": "vitest run --config vitest.e2e.config.ts test/e2e/commands/serve-background.test.ts",
     "test:e2e:watch": "vitest --config vitest.e2e.config.ts",
     "test:e2e:coverage": "vitest run --config vitest.e2e.config.ts --coverage",

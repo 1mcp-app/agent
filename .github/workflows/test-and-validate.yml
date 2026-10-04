@@ -144,6 +144,14 @@ jobs:
           echo "E2E shard $MATRIX_SHARD/$E2E_SHARD_COUNT took ${duration}s" >> "$GITHUB_STEP_SUMMARY"
           exit "$test_status"
 
+      # Schema worker startup has a strict deadline; packaging scans build/.
+      # Give these tests the runner after ordinary shard workers have exited.
+      - name: Test schema and packaging E2E without competing workers
+        if: matrix.shard == 4
+        env:
+          CI: true
+        run: pnpm test:e2e test/e2e/capability-catalog-eras.test.ts test/e2e/admin-spa-package.e2e.test.ts --maxWorkers=1 --retry=0 --reporter=minimal
+
   test-e2e-system:
     runs-on: ubuntu-latest
     timeout-minutes: 15
