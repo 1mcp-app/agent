@@ -11,7 +11,6 @@ $taskName = $settings.task
 $port = 19384
 $results = New-Object 'System.Collections.Generic.List[object]'
 $startTime = Get-Date
-$listener = $null
 $owner = $null
 $step = 'initialization'
 
@@ -121,9 +120,82 @@ function Install-Task {
     Invoke-Installer -Parameters $parameters -Fault $Fault -ExpectFailure:$ExpectFailure
 }
 function Stop-Cleanly {
-    & $settings.cli serve --stop --config-dir $scope *> (Join-Path $evidence 'clean-stop.log')
-    Assert-True ($LASTEXITCODE -eq 0) 'Cooperative clean stop failed'
+    $runtime = Read-Runtime
+    Assert-True ([bool]$runtime) 'Missing fixture runtime before clean exit'
+    $helper = @'
+param([string]$Root, [int]$RuntimePid, [int]$WorkerPid)
+$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @"
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Threading;
+public static class AcceptanceConsole {
+    [DllImport("kernel32.dll", SetLastError=true)] static extern bool FreeConsole();
+    [DllImport("kernel32.dll", SetLastError=true)] static extern bool AttachConsole(uint pid);
+    [DllImport("kernel32.dll", SetLastError=true)] static extern bool SetConsoleCtrlHandler(IntPtr handler, bool ignore);
+    [DllImport("kernel32.dll", SetLastError=true)] static extern bool GenerateConsoleCtrlEvent(uint signal, uint group);
+    [DllImport("kernel32.dll", SetLastError=true)] static extern uint GetConsoleProcessList(uint[] processes, uint count);
+    public static uint[] Attach(uint pid) {
+        FreeConsole();
+        if (!AttachConsole(pid)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        SetConsoleCtrlHandler(IntPtr.Zero, true);
+        var processes = new uint[64];
+        uint count = GetConsoleProcessList(processes, (uint)processes.Length);
+        if (count == 0 || count > processes.Length) throw new Exception("Unexpected console group size");
+        Array.Resize(ref processes, (int)count); return processes;
+    }
+    public static void Interrupt() {
+        if (!GenerateConsoleCtrlEvent(0, 0)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        Thread.Sleep(2000); FreeConsole();
+    }
+}
+"@
+$members = [AcceptanceConsole]::Attach([uint32]$RuntimePid)
+if ($members -contains $WorkerPid) { throw 'Refusing to interrupt the worker console' }
+foreach ($member in $members) {
+    if ($member -eq $PID) { continue }
+    $process = Get-CimInstance Win32_Process -Filter "ProcessId=$member"
+    if (-not $process.CommandLine -or -not $process.CommandLine.Contains($Root)) {
+        throw 'Refusing to signal a console containing a non-fixture process'
+    }
+}
+[AcceptanceConsole]::Interrupt()
+'@
+    $helperPath = Join-Path $Root 'clean-exit-helper.ps1'
+    $helper | Set-Content $helperPath
+    $child = Start-Process $settings.shellPath -PassThru -WorkingDirectory $Root -ArgumentList @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $helperPath + '"'),
+        '-Root', ('"' + $Root + '"'), '-RuntimePid', $runtime.pid, '-WorkerPid', $PID) `
+        -RedirectStandardOutput (Join-Path $evidence 'clean-exit.stdout.log') `
+        -RedirectStandardError (Join-Path $evidence 'clean-exit.stderr.log')
+    $null = $child.Handle
+    Assert-True ($child.WaitForExit(30000)) 'Console interrupt helper exceeded its bound'
+    Assert-True ($child.ExitCode -eq 0) 'Console interrupt helper failed; see clean-exit.stderr.log'
     Wait-Until { (Get-Instances) -eq 0 -and -not (Read-Runtime) } -Seconds 45 -Description 'clean shutdown'
+}
+function Fail-TaskAction {
+    param([int]$ActionPid, [int]$Attempt)
+    $action = Get-CimInstance Win32_Process -Filter "ProcessId=$ActionPid"
+    Assert-True ($action -and $action.CommandLine -and $action.CommandLine.Contains($Root)) 'Failure target is not the exact fixture action'
+    $all = @(Get-CimInstance Win32_Process)
+    $tree = New-Object 'System.Collections.Generic.List[object]'
+    function Add-ActionTree {
+        param($Process)
+        $tree.Add($Process)
+        foreach ($child in $all | Where-Object ParentProcessId -eq $Process.ProcessId) { Add-ActionTree $child }
+    }
+    Add-ActionTree $action
+    $tree | Select-Object ProcessId, ParentProcessId, CreationDate, ExecutablePath, CommandLine |
+        ConvertTo-Json -Depth 5 | Set-Content (Join-Path $evidence "controlled-failure-$Attempt.json")
+    for ($index = $tree.Count - 1; $index -ge 0; $index--) {
+        $expected = $tree[$index]
+        $live = Get-CimInstance Win32_Process -Filter "ProcessId=$($expected.ProcessId)" -ErrorAction SilentlyContinue
+        if (-not $live) { continue }
+        Assert-True ($live.CreationDate -eq $expected.CreationDate -and $live.CommandLine -and $live.CommandLine.Contains($Root)) 'Failure target identity changed'
+        $termination = Invoke-CimMethod -InputObject $live -MethodName Terminate -Arguments @{ Reason = [uint32]1 }
+        Assert-True ($termination.ReturnValue -eq 0) 'Controlled action termination failed'
+    }
 }
 function Disable-And-Stop {
     Disable-ScheduledTask -TaskName $taskName | Out-Null
@@ -180,38 +252,9 @@ try {
     Wait-Until { Test-Healthy } -Description 'default runtime healthy'
     Complete-Step $step 'Real Password account, foreground action, startup-only XML and healthy runtime'
 
-    $step = 'exhausted-retries-and-recurrence'
-    Disable-And-Stop
-    $listener = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback, $port)
-    # Windows permits port sharing unless the fixture explicitly owns the socket.
-    $listener.ExclusiveAddressUse = $true
-    $listener.Start()
-    $failureStart = Get-Date
-    Install-Task -Interval 15 -Force | Out-Null
-    Assert-TaskXml -Interval 15
-    [xml]$failureXml = Export-ScheduledTask -TaskName $taskName
-    $firstRecurrence = [DateTime]::Parse($failureXml.Task.Triggers.TimeTrigger.StartBoundary)
-    Wait-Until {
-        $failed = @(Get-TaskEvents | Where-Object { $_.id -eq 201 -and [DateTime]::Parse($_.time) -ge $failureStart -and [long]$_.data.ResultCode -ne 0 })
-        $failed.Count -eq 6 -and (Get-Instances) -eq 0
-    } -Seconds 760 -Description 'initial failure plus all five real two-minute retries'
-    Assert-True ((Get-Date) -lt $firstRecurrence) 'Retries did not exhaust before first recurrence'
-    Save-Snapshot 'retries-exhausted'
-    Start-Sleep -Seconds 30
-    $failedStarts = @(Get-TaskEvents | Where-Object { $_.id -eq 200 -and [DateTime]::Parse($_.time) -ge $failureStart })
-    Assert-True ($failedStarts.Count -eq 6 -and (Get-Instances) -eq 0) 'Immediate retries not exhausted'
-    $listener.Stop(); $listener = $null
-    Wait-Until { Test-Healthy } -Seconds 420 -Description 'real scheduled recurrence after retry exhaustion'
-    Assert-True ((Get-Date) -ge $firstRecurrence) 'Recovery happened before scheduled recurrence'
-    Complete-Step $step 'Six failed actions at production retry settings, idle after exhaustion, then scheduled healthy runtime'
-
-    $step = 'replacement-change-to-one-minute'
-    Install-Task -Interval 1 -Force | Out-Null
-    Assert-TaskXml -Interval 1
-    Wait-Until { Test-Healthy } -Description 'replacement runtime healthy'
-    Complete-Step $step 'Real disable/stop/replacement changed recurrence to one minute'
-
     $step = 'clean-exit-recurrence'
+    Install-Task -Interval 1 -Force | Out-Null
+    Wait-Until { Test-Healthy } -Description 'runtime before clean-exit fixture'
     $oldPid = (Read-Runtime).pid
     $cleanStart = Get-Date
     Stop-Cleanly
@@ -219,7 +262,40 @@ try {
         @(Get-TaskEvents | Where-Object { $_.id -eq 201 -and [DateTime]::Parse($_.time) -ge $cleanStart -and [long]$_.data.ResultCode -eq 0 }).Count -ge 1
     } -Seconds 15 -Description 'Task Scheduler records clean action exit'
     Wait-Until { (Test-Healthy) -and (Read-Runtime).pid -ne $oldPid } -Seconds 150 -Description 'recurrence after clean exit'
-    Complete-Step $step 'Cooperative serve --stop completed; enabled task later launched a new healthy runtime'
+    Complete-Step $step 'Console CTRL_C produced an observed zero-exit action; enabled task later launched a new healthy runtime'
+
+    $step = 'exhausted-retries-and-recurrence'
+    $failureStart = Get-Date
+    Install-Task -Interval 15 -Force | Out-Null
+    Assert-TaskXml -Interval 15
+    [xml]$failureXml = Export-ScheduledTask -TaskName $taskName
+    $firstRecurrence = [DateTime]::Parse($failureXml.Task.Triggers.TimeTrigger.StartBoundary)
+    for ($attempt = 0; $attempt -lt 6; $attempt++) {
+        Wait-Until { Test-Healthy } -Seconds 160 -Description "real action launch $attempt before controlled failure"
+        $action = Get-TaskEvents | Where-Object { $_.id -eq 200 -and [DateTime]::Parse($_.time) -ge $failureStart } |
+            Sort-Object recordId -Descending | Select-Object -First 1
+        Assert-True ([bool]$action) 'Missing exact action launch identity'
+        Fail-TaskAction -ActionPid ([int]$action.data.EnginePID) -Attempt $attempt
+        $expectedFailures = $attempt + 1
+        Wait-Until {
+            $failed = @(Get-TaskEvents | Where-Object { $_.id -eq 201 -and [DateTime]::Parse($_.time) -ge $failureStart -and [long]$_.data.ResultCode -ne 0 })
+            $failed.Count -eq $expectedFailures -and (Get-Instances) -eq 0 -and -not (Read-Runtime)
+        } -Seconds 45 -Description "nonzero completion for controlled failure $attempt"
+    }
+    Assert-True ((Get-Date) -lt $firstRecurrence) 'Retries did not exhaust before first recurrence'
+    Save-Snapshot 'retries-exhausted'
+    Start-Sleep -Seconds 30
+    $failedStarts = @(Get-TaskEvents | Where-Object { $_.id -eq 200 -and [DateTime]::Parse($_.time) -ge $failureStart })
+    Assert-True ($failedStarts.Count -eq 6 -and (Get-Instances) -eq 0) 'Immediate retries not exhausted'
+    Wait-Until { Test-Healthy } -Seconds 420 -Description 'real scheduled recurrence after retry exhaustion'
+    Assert-True ((Get-Date) -ge $firstRecurrence) 'Recovery happened before scheduled recurrence'
+    Complete-Step $step 'Six controlled nonzero action exits at production retry settings, idle after exhaustion, then scheduled healthy runtime'
+
+    $step = 'replacement-change-to-one-minute'
+    Install-Task -Interval 1 -Force | Out-Null
+    Assert-TaskXml -Interval 1
+    Wait-Until { Test-Healthy } -Description 'replacement runtime healthy'
+    Complete-Step $step 'Real disable/stop/replacement changed recurrence to one minute'
 
     $step = 'manual-stop-recurrence'
     $oldPid = (Read-Runtime).pid
@@ -327,7 +403,6 @@ try {
     $results | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $evidence 'results.json')
     throw
 } finally {
-    if ($listener) { $listener.Stop() }
     Save-Snapshot 'final'
     $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
     if ($task) {

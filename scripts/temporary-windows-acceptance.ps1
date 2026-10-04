@@ -100,7 +100,7 @@ function Clear-AcceptanceResources {
         try { [AcceptanceAccountRights]::SetBatchLogon($userSid, $false) } catch { $rightsRemoved = $false }
         # Release only this test user's registry hives after all of its processes
         # and tasks have ended. Never unload a shared or unrelated user profile.
-        foreach ($hive in @($userSid + '_Classes', $userSid)) {
+        foreach ($hive in @(($userSid + '_Classes'), $userSid)) {
             if (Test-Path ("Registry::HKEY_USERS\" + $hive)) {
                 & reg.exe unload ("HKU\" + $hive) *> (Join-Path $evidence ("unload-" + $hive + '.log'))
             }
