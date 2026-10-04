@@ -54,6 +54,7 @@ export interface AgentConfig {
   };
   templateInstancePool: TemplateInstancePoolPolicy;
   auth: {
+    credentialStore: 'file' | 'native';
     enabled: boolean;
     sessionTtlMinutes: number;
     sessionStoragePath?: string;
@@ -163,6 +164,7 @@ export class AgentConfigManager {
       },
       templateInstancePool: { ...DEFAULT_TEMPLATE_INSTANCE_POOL_POLICY },
       auth: {
+        credentialStore: 'file',
         enabled: AUTH_CONFIG.SERVER.DEFAULT_ENABLED,
         sessionTtlMinutes: AUTH_CONFIG.SERVER.SESSION.TTL_MINUTES,
         oauthCodeTtlMs: AUTH_CONFIG.SERVER.AUTH_CODE.TTL_MS,

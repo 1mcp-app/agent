@@ -426,6 +426,7 @@ maxSize = "ten megabytes"
       const tomlContent = `
 [auth]
 enabled = true
+credentialStore = "native"
 sessionTtl = 720
 
 [asyncLoading]
@@ -437,6 +438,7 @@ minServers = 2
       const result = loader.loadAppConfigFromToml();
       expect(result.auth?.enabled).toBe(true);
       expect(result.auth?.sessionTtl).toBe(720);
+      expect(result.auth?.credentialStore).toBe('native');
       expect(result.asyncLoading?.enabled).toBe(true);
       expect(result.asyncLoading?.minServers).toBe(2);
     });

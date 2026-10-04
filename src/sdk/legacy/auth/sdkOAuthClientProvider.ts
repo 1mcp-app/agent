@@ -15,8 +15,9 @@ import {
 } from '@src/auth/oauthAuthority.js';
 import { createOAuthEndpointFetch, validateOAuthEndpoint } from '@src/auth/oauthEndpointFetch.js';
 import { ClientSessionRepository } from '@src/auth/storage/clientSessionRepository.js';
-import { FileStorageService } from '@src/auth/storage/fileStorageService.js';
+import { createUpstreamOAuthStorage, type UpstreamOAuthStorage } from '@src/auth/storage/upstreamOAuthStorage.js';
 import { AUTH_CONFIG } from '@src/constants.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import type { OAuthClientProvider, OAuthDiscoveryState } from '@src/sdk/legacy/client/auth.js';
 import {
   type OAuthClientInformationFull,
@@ -49,7 +50,7 @@ interface OAuthResponseTicket {
 /** Shared by the released modern and legacy SDK adapters. SDK cache objects are never authority. */
 export class SDKOAuthClientProvider implements OAuthClientProvider {
   private readonly sessionRepository: ClientSessionRepository;
-  private readonly fileStorage: FileStorageService;
+  private readonly fileStorage: UpstreamOAuthStorage;
   private readonly context?: OAuthAuthorityContext;
   private readonly slot?: string;
   private record?: BoundClientSession;
@@ -82,19 +83,30 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
     private readonly config: OAuthClientConfig,
     sessionStoragePath?: string,
   ) {
-    this.fileStorage = new FileStorageService(sessionStoragePath, AUTH_CONFIG.CLIENT.SESSION.SUBDIR);
+    const runtimeScope = AgentConfigManager.getInstance().get('runtimeScopeStoragePath');
+    this.fileStorage = createUpstreamOAuthStorage({
+      baseDir: sessionStoragePath,
+      runtimeScope: typeof runtimeScope === 'string' ? runtimeScope : undefined,
+      mode: AgentConfigManager.getInstance().get('auth').credentialStore ?? 'file',
+    });
     this.sessionRepository = new ClientSessionRepository(this.fileStorage);
     this.context = config.authority;
     this.slot = this.context ? authoritySlot(this.context) : undefined;
-    if (this.slot && this.context) {
-      const stored = this.sessionRepository.getBound(this.slot);
-      if (stored && matchesAuthorityContext(stored.authority, this.context)) {
-        if (!config.issuer || config.issuer === stored.authority.issuer) this.record = stored;
+    const restore = () => {
+      if (this.slot && this.context) {
+        const stored = this.sessionRepository.getBound(this.slot);
+        if (stored && matchesAuthorityContext(stored.authority, this.context)) {
+          if (!config.issuer || config.issuer === stored.authority.issuer) this.record = stored;
+        }
       }
-    }
-    // Never import or stamp server-name-keyed secrets, including on restart after partial migration.
-    const observedGeneration = this.slot ? (this.sessionRepository.getClaim(this.slot)?.generation ?? null) : null;
-    this.migration = this.sessionRepository.quarantine(serverName).then(async () => {
+      return this.slot ? (this.sessionRepository.getClaim(this.slot)?.generation ?? null) : null;
+    };
+    const alreadyReady = this.fileStorage.isReady();
+    const observed = alreadyReady ? restore() : null;
+    this.migration = this.fileStorage.ready().then(async () => {
+      const observedGeneration = alreadyReady ? observed : restore();
+      // Quarantine preserves unbound ownership: moving secrets never grants an authority.
+      await this.sessionRepository.quarantine(serverName);
       if (this.slot && this.context)
         this.claim = await this.sessionRepository.claimContext(
           this.slot,
@@ -332,6 +344,7 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
   /** Validation and durable consumption happen before the SDK can see a code, for both eras. */
   async withAuthorizationCallback<T>(response: URLSearchParams, operation: () => Promise<T>): Promise<T> {
     const run = async (): Promise<T> => {
+      await this.migration;
       const record = this.requireCurrent();
       for (const key of ['state', 'code', 'iss', 'error', 'redirect_uri']) {
         if (response.getAll(key).length > 1) throw oauthAuthorityError();

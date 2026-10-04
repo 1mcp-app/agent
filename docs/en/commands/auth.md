@@ -28,6 +28,7 @@ npx -y @1mcp/agent auth <subcommand> [options]
 - **`login`** - Save a bearer token for a Runtime Target Context
 - **`status`** - Show the saved authentication profile for a Runtime Target Context
 - **`logout`** - Remove a saved authentication profile for a Runtime Target Context
+- **`export-upstream-credentials`** - Explicitly export native upstream secrets in a stopped local Runtime Scope
 
 ---
 
@@ -125,6 +126,23 @@ npx -y @1mcp/agent auth logout --context prod
 # Clear every local OAuth token reference without contacting a runtime
 npx -y @1mcp/agent auth logout --context local --all-local
 ```
+
+---
+
+## auth export-upstream-credentials
+
+Explicitly reverse-migrate upstream OAuth secrets from the OS store to plaintext files in one local Runtime Scope. This command does not export inbound OAuth or Admin credentials and does not use a remote `--context`.
+
+```bash
+1mcp serve --config-dir ./config --stop
+1mcp auth export-upstream-credentials --config-dir ./config
+# Explicit confirmation for noninteractive use:
+1mcp auth export-upstream-credentials --config-dir ./config --confirm-plaintext-export
+```
+
+The command prints the exact plaintext destination before prompting. Use the same `--config`, `--config-dir`, and, if customized, `--session-storage-path` as the runtime. Runtime absence must be verified; active, unreachable, or ambiguous runtime state blocks export. A scope ownership claim prevents a new runtime from starting during export.
+
+Each file destination is durably written and verified before the native source is deleted. Partial failures retain recovery references and fail the command; unlock the store, resolve the reported conflict, and run the same command again. A retry must not overwrite newer file credentials. Set `[auth] credentialStore = "file"` (or use `--credential-store file`) before restarting. Export success covers current managed records, not erasure of historical backups or filesystem remnants.
 
 ---
 

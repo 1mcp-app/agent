@@ -66,6 +66,7 @@ const BACKGROUND_STARTUP_OPTION_KEYS = [
   'enable-enhanced-security',
   'session-ttl',
   'session-storage-path',
+  'credential-store',
   'rate-limit-window',
   'rate-limit-max',
   'trust-proxy',

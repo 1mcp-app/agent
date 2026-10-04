@@ -22,6 +22,7 @@ npx -y @1mcp/agent auth <subcommand> [选项]
 - **`login`** - 为 Runtime Target Context 保存 Bearer Token
 - **`status`** - 查看指定 Runtime Target Context 的认证配置
 - **`logout`** - 删除指定 Runtime Target Context 的认证配置
+- **`export-upstream-credentials`** - 在已停止的本地 Runtime Scope 显式导出原生上游秘密
 
 ---
 
@@ -119,6 +120,23 @@ npx -y @1mcp/agent auth logout --context prod
 # 不联系运行时，清除所有本地 OAuth Token 引用
 npx -y @1mcp/agent auth logout --context local --all-local
 ```
+
+---
+
+## auth export-upstream-credentials
+
+显式将一个本地 Runtime Scope 的上游 OAuth 秘密从系统凭据库反向迁移到明文文件。不导出入站 OAuth 或 Admin 凭据，也不使用远程 `--context`。
+
+```bash
+1mcp serve --config-dir ./config --stop
+1mcp auth export-upstream-credentials --config-dir ./config
+# 非交互执行时显式确认：
+1mcp auth export-upstream-credentials --config-dir ./config --confirm-plaintext-export
+```
+
+命令会先显示准确的明文目标，再要求确认。请使用与运行时相同的 `--config`、`--config-dir`，以及已自定义的 `--session-storage-path`。必须验证运行时不存在；正在运行、无法访问或状态不明确时阻止导出。导出期间持有 Runtime Scope 所有权，防止新运行时启动。
+
+每个文件目标完成持久化写入并验证后，才删除原生来源。部分失败会保留恢复引用并使命令失败；解锁凭据库、解决报告的冲突后，可重跑同一命令。重试不会覆盖较新的文件凭据。重启前设置 `[auth] credentialStore = "file"`，或使用 `--credential-store file`。导出成功覆盖当前受管理记录，不表示已擦除历史备份或文件系统残留。
 
 ---
 
