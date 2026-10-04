@@ -133,8 +133,8 @@ export function createOAuthRoutes(
       res.redirect(
         result.adminReturnOrigin ? `${result.adminReturnOrigin}/oauth/return?success=1` : '/admin/oauth?success=1',
       );
-    } catch (error) {
-      logger.error('oauthRoutes.error.handling.oauth.callback.for.41be0569', { error: error });
+    } catch {
+      logger.error('oauthRoutes.error.handling.oauth.callback.for.41be0569');
       res.redirect('/admin/oauth?error=callback_failed');
     }
   });
@@ -238,6 +238,9 @@ function getOAuthFlow(
       getClients: () => ServerManager.current.getClients(),
     },
     clientRuntime: {
+      bindOAuthReturn: (serverName, state, origin) =>
+        ClientManager.getOrCreateInstance().bindOAuthReturn(serverName, state, origin),
+      getOAuthReturn: (serverName, state) => ClientManager.getOrCreateInstance().getOAuthReturn(serverName, state),
       initiateOAuth: (serverName) => ClientManager.getOrCreateInstance().initiateOAuth(serverName),
       completeOAuthAndReconnect: (serverName, authorizationCode) =>
         ClientManager.getOrCreateInstance().completeOAuthAndReconnect(serverName, authorizationCode),

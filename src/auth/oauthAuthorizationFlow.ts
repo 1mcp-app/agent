@@ -1,9 +1,9 @@
-import { randomUUID } from 'node:crypto';
-
 import { AUTH_CONFIG } from '@src/constants.js';
 import logger from '@src/logger/logger.js';
 import type { LegacySdkAdapter } from '@src/sdk/contracts/index.js';
 import { tagsToScopes, validateScopes } from '@src/utils/validation/scopeValidation.js';
+
+import { OAuthAuthorizationDeniedError } from './oauthAuthority.js';
 
 export type OAuthConsentAction = 'approve' | 'deny';
 
@@ -63,6 +63,8 @@ export interface OAuthBackendServerRuntime {
 
 export interface OAuthBackendClientRuntime {
   initiateOAuth(serverName: string): Promise<void>;
+  bindOAuthReturn?(serverName: string, state: string, origin: string): Promise<void>;
+  getOAuthReturn?(serverName: string, state: string): string | undefined;
   completeOAuthAndReconnect(serverName: string, authorizationCode: string | URLSearchParams): Promise<void>;
 }
 
@@ -126,6 +128,7 @@ export interface BackendOAuthCallbackInput {
   code?: string;
   error?: string;
   iss?: string;
+  redirectUri?: string;
 }
 
 export type StartBackendOAuthResult =
@@ -194,24 +197,12 @@ export interface OAuthAuthorizationFlowProvider {
 }
 
 export function createOAuthAuthorizationFlow(dependencies: OAuthAuthorizationFlowDependencies): OAuthAuthorizationFlow {
-  // Return context is short-lived, single-use and independent of Admin credentials.
-  const returns = new Map<string, { serverName: string; origin: string; providerState?: string; expiresAt: number }>();
-  function bindReturn(authorizationUrl: string, input: BackendOAuthInput): string | undefined {
+  async function bindReturn(authorizationUrl: string, input: BackendOAuthInput): Promise<string | undefined> {
     if (!input.adminReturnOrigin) return authorizationUrl;
-    for (const [key, value] of returns) {
-      if (value.expiresAt <= Date.now()) returns.delete(key);
-    }
-    if (returns.size >= 1000) return undefined;
-    const url = new URL(authorizationUrl);
-    const state = `admin_return_${randomUUID()}`;
-    returns.set(state, {
-      serverName: input.serverName,
-      origin: input.adminReturnOrigin,
-      providerState: url.searchParams.get('state') ?? undefined,
-      expiresAt: Date.now() + 600_000,
-    });
-    url.searchParams.set('state', state);
-    return url.toString();
+    const state = new URL(authorizationUrl).searchParams.get('state');
+    if (!state || !dependencies.clientRuntime?.bindOAuthReturn) return undefined;
+    await dependencies.clientRuntime.bindOAuthReturn(input.serverName, state, input.adminReturnOrigin);
+    return authorizationUrl;
   }
   return {
     createLocalhostCliToken(): LocalhostCliTokenResult {
@@ -311,11 +302,11 @@ export function createOAuthAuthorizationFlow(dependencies: OAuthAuthorizationFlo
         return started;
       }
 
-      const redirectUrl = bindReturn(started.authorizationUrl, input);
+      const redirectUrl = await bindReturn(started.authorizationUrl, input);
       if (!redirectUrl) {
         return {
           status: 'oauth_url_unavailable',
-          errorDescription: 'Too many pending Admin OAuth return transactions',
+          errorDescription: 'Unable to bind the OAuth return; start authorization again',
         };
       }
       return {
@@ -349,11 +340,11 @@ export function createOAuthAuthorizationFlow(dependencies: OAuthAuthorizationFlo
         return started;
       }
 
-      const redirectUrl = bindReturn(started.authorizationUrl, input);
+      const redirectUrl = await bindReturn(started.authorizationUrl, input);
       if (!redirectUrl) {
         return {
           status: 'oauth_url_unavailable',
-          errorDescription: 'Too many pending Admin OAuth return transactions',
+          errorDescription: 'Unable to bind the OAuth return; start authorization again',
         };
       }
       return {
@@ -363,58 +354,32 @@ export function createOAuthAuthorizationFlow(dependencies: OAuthAuthorizationFlo
     },
 
     async completeBackendOAuthCallback(input: BackendOAuthCallbackInput): Promise<CompleteBackendOAuthCallbackResult> {
-      const context = input.state ? returns.get(input.state) : undefined;
-      if (input.state) returns.delete(input.state);
-      const adminReturnOrigin =
-        context && context.serverName === input.serverName && context.expiresAt > Date.now()
-          ? context.origin
-          : undefined;
-      const returnContext = adminReturnOrigin ? { adminReturnOrigin } : {};
-      if (input.state?.startsWith('admin_return_') && !adminReturnOrigin) {
-        return { status: 'callback_failed', errorDescription: 'Invalid or expired OAuth return transaction' };
+      if (!input.state) {
+        return { status: 'callback_failed', errorDescription: 'Invalid or expired OAuth authorization attempt' };
       }
-      if (input.error) {
-        return {
-          ...returnContext,
-          status: 'provider_error',
-          errorDescription: input.error,
-        };
-      }
-
-      if (!input.code) {
-        return {
-          ...returnContext,
-          status: 'missing_code',
-          errorDescription: 'Missing authorization code',
-        };
-      }
-
       if (!dependencies.clientRuntime) {
-        return {
-          ...returnContext,
-          status: 'runtime_unavailable',
-          errorDescription: 'Backend OAuth runtime is unavailable',
-        };
+        return { status: 'runtime_unavailable', errorDescription: 'Backend OAuth runtime is unavailable' };
       }
-
+      const response = new URLSearchParams({ state: input.state });
+      if (input.code !== undefined) response.set('code', input.code);
+      if (input.error !== undefined) response.set('error', input.error);
+      if (input.iss !== undefined) response.set('iss', input.iss);
+      if (input.redirectUri !== undefined) response.set('redirect_uri', input.redirectUri);
       try {
-        const authorizationResponse =
-          input.iss === undefined && !context?.providerState
-            ? input.code
-            : new URLSearchParams({
-                code: input.code,
-                ...(input.iss ? { iss: input.iss } : {}),
-                ...(context?.providerState ? { state: context.providerState } : {}),
-              });
-        await dependencies.clientRuntime.completeOAuthAndReconnect(input.serverName, authorizationResponse);
+        await dependencies.clientRuntime.completeOAuthAndReconnect(input.serverName, response);
         dependencies.loadingRuntime?.markReady(input.serverName);
-        return { status: 'completed', ...returnContext };
+        const adminReturnOrigin = dependencies.clientRuntime.getOAuthReturn?.(input.serverName, input.state);
+        return { status: 'completed', ...(adminReturnOrigin ? { adminReturnOrigin } : {}) };
       } catch (error) {
-        logger.error('oauthAuthorizationFlow.oauth.callback.completion.failed.for.758a88bb', { error: error });
+        logger.error('oauthAuthorizationFlow.oauth.callback.completion.failed.for.758a88bb');
+        const adminReturnOrigin = dependencies.clientRuntime.getOAuthReturn?.(input.serverName, input.state);
         return {
-          ...returnContext,
-          status: 'callback_failed',
-          errorDescription: 'Failed to complete OAuth callback',
+          status: error instanceof OAuthAuthorizationDeniedError ? 'provider_error' : 'callback_failed',
+          errorDescription:
+            error instanceof OAuthAuthorizationDeniedError
+              ? error.errorCode
+              : 'OAuth callback rejected; start authorization again',
+          ...(adminReturnOrigin ? { adminReturnOrigin } : {}),
         };
       }
     },
@@ -512,13 +477,6 @@ async function initiateBackendOAuth(
     return {
       status: 'service_not_found',
       errorDescription: 'Service not found',
-    };
-  }
-
-  if (clientInfo.authorizationUrl) {
-    return {
-      status: 'started',
-      authorizationUrl: clientInfo.authorizationUrl,
     };
   }
 

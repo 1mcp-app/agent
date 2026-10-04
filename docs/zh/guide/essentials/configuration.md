@@ -65,47 +65,47 @@ Agent 支持三种配置方法，按以下优先级顺序应用：
 
 所有可用的命令行选项及其对应的环境变量：
 
-| 选项 (CLI)                      | 环境变量                              | 描述                                                              |   默认值   |
-| :------------------------------ | :------------------------------------ | :---------------------------------------------------------------- | :--------: |
-| `--transport`, `-t`             | `ONE_MCP_TRANSPORT`                   | 选择传输类型（"stdio"、"http" 或 "sse"）                          |   "http"   |
-| `--config`, `-c`                | `ONE_MCP_CONFIG`                      | 使用特定的配置文件                                                |            |
-| `--config-dir`, `-d`            | `ONE_MCP_CONFIG_DIR`                  | 配置目录路径（覆盖默认配置位置）                                  |            |
-| `--cli-session-cache-path`      | `ONE_MCP_CLI_SESSION_CACHE_PATH`      | `run` / `inspect` CLI 会话缓存路径模板，支持 `{pid}` 与 `{scope}` |            |
-| `--port`, `-P`                  | `ONE_MCP_PORT`                        | 更改 HTTP 端口                                                    |    3050    |
-| `--host`, `-H`                  | `ONE_MCP_HOST`                        | 更改 HTTP 主机                                                    | localhost  |
-| `--external-url`, `-u`          | `ONE_MCP_EXTERNAL_URL`                | OAuth 回调和公共 URL 的外部 URL（例如 https://example.com）       |            |
-| `--trust-proxy`                 | `ONE_MCP_TRUST_PROXY`                 | 客户端 IP 检测的信任代理配置（布尔值、IP、CIDR、预设）            | "loopback" |
-| `--filter`, `-f`                | `ONE_MCP_FILTER`                      | 按简单逗号分隔标签或高级布尔逻辑筛选运行时暴露的服务器            |            |
-| `--pagination`, `-p`            | `ONE_MCP_PAGINATION`                  | 为客户端/服务器列表启用分页（布尔值）                             |   false    |
-| `--enable-auth`                 | `ONE_MCP_ENABLE_AUTH`                 | 启用身份验证（OAuth 2.1）                                         |   false    |
-| `--enable-scope-validation`     | `ONE_MCP_ENABLE_SCOPE_VALIDATION`     | 启用基于标签的范围验证（布尔值）                                  |    true    |
-| `--enable-enhanced-security`    | `ONE_MCP_ENABLE_ENHANCED_SECURITY`    | 启用增强安全中间件（布尔值）                                      |   false    |
-| `--session-ttl`                 | `ONE_MCP_SESSION_TTL`                 | 会话过期时间（分钟）（数字）                                      |    1440    |
-| `--session-storage-path`        | `ONE_MCP_SESSION_STORAGE_PATH`        | 自定义会话存储目录路径（字符串）                                  |            |
-| `--rate-limit-window`           | `ONE_MCP_RATE_LIMIT_WINDOW`           | OAuth 速率限制窗口（分钟）（数字）                                |     15     |
-| `--rate-limit-max`              | `ONE_MCP_RATE_LIMIT_MAX`              | 每个 OAuth 速率限制窗口的最大请求数（数字）                       |    100     |
-| `--enable-async-loading`        | `ONE_MCP_ENABLE_ASYNC_LOADING`        | 启用异步 MCP 服务器加载（布尔值）                                 |   false    |
-| `--async-max-concurrent-loads`  | `ONE_MCP_ASYNC_MAX_CONCURRENT_LOADS`  | 最大并发后端加载数                                                  |     5      |
-| `--async-max-retries`           | `ONE_MCP_ASYNC_MAX_RETRIES`           | 首次尝试后的前台重试次数                                            |     3      |
-| `--async-retry-delay`           | `ONE_MCP_ASYNC_RETRY_DELAY`           | 指数退避初始延迟（毫秒）                                            |    2000    |
-| `--async-background-retry`      | `ONE_MCP_ASYNC_BACKGROUND_RETRY`      | 为可重试的后端失败启用周期性重试                                    |    true    |
-| `--async-background-retry-interval` | `ONE_MCP_ASYNC_BACKGROUND_RETRY_INTERVAL` | 后台重试间隔（毫秒）                                           |   60000    |
-| `--async-background-retry-max-servers` | `ONE_MCP_ASYNC_BACKGROUND_RETRY_MAX_SERVERS` | 每轮最多选择的失败后端数                                  |     3      |
-| `--enable-lazy-loading`         | `ONE_MCP_ENABLE_LAZY_LOADING`         | 启用元工具暴露以逐步发现工具（布尔值）                            |   false    |
-| `--enable-config-reload`        | `ONE_MCP_ENABLE_CONFIG_RELOAD`        | 启用配置文件热重载（布尔值）                                      |    true    |
-| `--config-reload-debounce`      | `ONE_MCP_CONFIG_RELOAD_DEBOUNCE`      | 配置重载防抖时间（毫秒）（数字）                                  |    500     |
-| `--enable-env-substitution`     | `ONE_MCP_ENABLE_ENV_SUBSTITUTION`     | 在配置文件中启用环境变量替换（布尔值）                            |    true    |
-| `--enable-session-persistence`  | `ONE_MCP_ENABLE_SESSION_PERSISTENCE`  | 启用 HTTP 会话持久化（布尔值）                                    |    true    |
-| `--session-persist-requests`    | `ONE_MCP_SESSION_PERSIST_REQUESTS`    | 会话持久化请求阈值（数字）                                        |    100     |
-| `--session-persist-interval`    | `ONE_MCP_SESSION_PERSIST_INTERVAL`    | 会话持久化间隔（分钟）（数字）                                    |     5      |
-| `--session-background-flush`    | `ONE_MCP_SESSION_BACKGROUND_FLUSH`    | 会话后台刷新间隔（秒）（数字）                                    |     60     |
-| `--enable-client-notifications` | `ONE_MCP_ENABLE_CLIENT_NOTIFICATIONS` | 启用实时客户端通知（布尔值）                                      |    true    |
-| `--enable-internal-tools`       | `ONE_MCP_ENABLE_INTERNAL_TOOLS`       | 为 AI 助手启用所有 MCP 内部工具（布尔值）                         |   false    |
-| `--internal-tools`              | `ONE_MCP_INTERNAL_TOOLS`              | 启用特定的内部工具类别（discovery,installation,management,safe）  |            |
-| `--health-info-level`           | `ONE_MCP_HEALTH_INFO_LEVEL`           | 健康端点信息详细级别（"full"、"basic"、"minimal"）                | "minimal"  |
-| `--log-level`                   | `ONE_MCP_LOG_LEVEL`                   | 设置日志级别（"debug"、"info"、"warn"、"error"）                  |   "info"   |
-| `--log-file`                    | `ONE_MCP_LOG_FILE`                    | 除控制台外还将日志写入文件（仅对 stdio 传输禁用控制台日志记录）   |            |
-| `--help`, `-h`                  |                                       | 显示帮助                                                          |            |
+| 选项 (CLI)                             | 环境变量                                     | 描述                                                              |   默认值   |
+| :------------------------------------- | :------------------------------------------- | :---------------------------------------------------------------- | :--------: |
+| `--transport`, `-t`                    | `ONE_MCP_TRANSPORT`                          | 选择传输类型（"stdio"、"http" 或 "sse"）                          |   "http"   |
+| `--config`, `-c`                       | `ONE_MCP_CONFIG`                             | 使用特定的配置文件                                                |            |
+| `--config-dir`, `-d`                   | `ONE_MCP_CONFIG_DIR`                         | 配置目录路径（覆盖默认配置位置）                                  |            |
+| `--cli-session-cache-path`             | `ONE_MCP_CLI_SESSION_CACHE_PATH`             | `run` / `inspect` CLI 会话缓存路径模板，支持 `{pid}` 与 `{scope}` |            |
+| `--port`, `-P`                         | `ONE_MCP_PORT`                               | 更改 HTTP 端口                                                    |    3050    |
+| `--host`, `-H`                         | `ONE_MCP_HOST`                               | 更改 HTTP 主机                                                    | localhost  |
+| `--external-url`, `-u`                 | `ONE_MCP_EXTERNAL_URL`                       | OAuth 回调和公共 URL 的外部 URL（例如 https://example.com）       |            |
+| `--trust-proxy`                        | `ONE_MCP_TRUST_PROXY`                        | 客户端 IP 检测的信任代理配置（布尔值、IP、CIDR、预设）            | "loopback" |
+| `--filter`, `-f`                       | `ONE_MCP_FILTER`                             | 按简单逗号分隔标签或高级布尔逻辑筛选运行时暴露的服务器            |            |
+| `--pagination`, `-p`                   | `ONE_MCP_PAGINATION`                         | 为客户端/服务器列表启用分页（布尔值）                             |   false    |
+| `--enable-auth`                        | `ONE_MCP_ENABLE_AUTH`                        | 启用身份验证（OAuth 2.1）                                         |   false    |
+| `--enable-scope-validation`            | `ONE_MCP_ENABLE_SCOPE_VALIDATION`            | 启用基于标签的范围验证（布尔值）                                  |    true    |
+| `--enable-enhanced-security`           | `ONE_MCP_ENABLE_ENHANCED_SECURITY`           | 启用增强安全中间件（布尔值）                                      |   false    |
+| `--session-ttl`                        | `ONE_MCP_SESSION_TTL`                        | 会话过期时间（分钟）（数字）                                      |    1440    |
+| `--session-storage-path`               | `ONE_MCP_SESSION_STORAGE_PATH`               | 自定义会话存储目录路径（字符串）                                  |            |
+| `--rate-limit-window`                  | `ONE_MCP_RATE_LIMIT_WINDOW`                  | OAuth 速率限制窗口（分钟）（数字）                                |     15     |
+| `--rate-limit-max`                     | `ONE_MCP_RATE_LIMIT_MAX`                     | 每个 OAuth 速率限制窗口的最大请求数（数字）                       |    100     |
+| `--enable-async-loading`               | `ONE_MCP_ENABLE_ASYNC_LOADING`               | 启用异步 MCP 服务器加载（布尔值）                                 |   false    |
+| `--async-max-concurrent-loads`         | `ONE_MCP_ASYNC_MAX_CONCURRENT_LOADS`         | 最大并发后端加载数                                                |     5      |
+| `--async-max-retries`                  | `ONE_MCP_ASYNC_MAX_RETRIES`                  | 首次尝试后的前台重试次数                                          |     3      |
+| `--async-retry-delay`                  | `ONE_MCP_ASYNC_RETRY_DELAY`                  | 指数退避初始延迟（毫秒）                                          |    2000    |
+| `--async-background-retry`             | `ONE_MCP_ASYNC_BACKGROUND_RETRY`             | 为可重试的后端失败启用周期性重试                                  |    true    |
+| `--async-background-retry-interval`    | `ONE_MCP_ASYNC_BACKGROUND_RETRY_INTERVAL`    | 后台重试间隔（毫秒）                                              |   60000    |
+| `--async-background-retry-max-servers` | `ONE_MCP_ASYNC_BACKGROUND_RETRY_MAX_SERVERS` | 每轮最多选择的失败后端数                                          |     3      |
+| `--enable-lazy-loading`                | `ONE_MCP_ENABLE_LAZY_LOADING`                | 启用元工具暴露以逐步发现工具（布尔值）                            |   false    |
+| `--enable-config-reload`               | `ONE_MCP_ENABLE_CONFIG_RELOAD`               | 启用配置文件热重载（布尔值）                                      |    true    |
+| `--config-reload-debounce`             | `ONE_MCP_CONFIG_RELOAD_DEBOUNCE`             | 配置重载防抖时间（毫秒）（数字）                                  |    500     |
+| `--enable-env-substitution`            | `ONE_MCP_ENABLE_ENV_SUBSTITUTION`            | 在配置文件中启用环境变量替换（布尔值）                            |    true    |
+| `--enable-session-persistence`         | `ONE_MCP_ENABLE_SESSION_PERSISTENCE`         | 启用 HTTP 会话持久化（布尔值）                                    |    true    |
+| `--session-persist-requests`           | `ONE_MCP_SESSION_PERSIST_REQUESTS`           | 会话持久化请求阈值（数字）                                        |    100     |
+| `--session-persist-interval`           | `ONE_MCP_SESSION_PERSIST_INTERVAL`           | 会话持久化间隔（分钟）（数字）                                    |     5      |
+| `--session-background-flush`           | `ONE_MCP_SESSION_BACKGROUND_FLUSH`           | 会话后台刷新间隔（秒）（数字）                                    |     60     |
+| `--enable-client-notifications`        | `ONE_MCP_ENABLE_CLIENT_NOTIFICATIONS`        | 启用实时客户端通知（布尔值）                                      |    true    |
+| `--enable-internal-tools`              | `ONE_MCP_ENABLE_INTERNAL_TOOLS`              | 为 AI 助手启用所有 MCP 内部工具（布尔值）                         |   false    |
+| `--internal-tools`                     | `ONE_MCP_INTERNAL_TOOLS`                     | 启用特定的内部工具类别（discovery,installation,management,safe）  |            |
+| `--health-info-level`                  | `ONE_MCP_HEALTH_INFO_LEVEL`                  | 健康端点信息详细级别（"full"、"basic"、"minimal"）                | "minimal"  |
+| `--log-level`                          | `ONE_MCP_LOG_LEVEL`                          | 设置日志级别（"debug"、"info"、"warn"、"error"）                  |   "info"   |
+| `--log-file`                           | `ONE_MCP_LOG_FILE`                           | 除控制台外还将日志写入文件（仅对 stdio 传输禁用控制台日志记录）   |            |
+| `--help`, `-h`                         |                                              | 显示帮助                                                          |            |
 
 ---
 
@@ -286,6 +286,37 @@ npx -y @1mcp/agent --trust-proxy 10.0.0.0/8
 有关详细的信任代理配置，请参阅 **[信任代理参考](/zh/reference/trust-proxy)**。
 
 如果需要推荐的 Caddy 公开 HTTPS、Admin Console 和本地 CLI Runtime Target 路径，请参阅 **[使用 Caddy 进行云端部署](/zh/guide/advanced/cloud-deployment)**。
+
+### 上游 OAuth 授权主体
+
+HTTP 和 SSE 上游在两代协议中遵循相同的 OAuth 授权主体规则。通过服务器的 `oauth` 对象配置客户端注册和 issuer 选择：
+
+```json
+{
+  "mcpServers": {
+    "reports": {
+      "type": "http",
+      "url": "https://reports.example/mcp",
+      "oauth": {
+        "issuer": "https://login.example",
+        "clientId": "registered-client-id",
+        "redirectUrl": "https://gateway.example/oauth/callback/reports",
+        "scopes": ["reports.read"]
+      }
+    }
+  }
+}
+```
+
+`issuer` 必须与获准的签发者标识完全一致，包括末尾斜杠。未显式指定时，会选择与当前配置兼容的已获准 issuer，或上游声明的唯一 issuer；如果列表中存在多个候选项，必须配置 `issuer`。配置的 `clientId`/`clientSecret` 优先于已持久化的动态注册信息。如果未配置客户端，`clientMetadataUrl` 可启用上游声明支持的 HTTPS 客户端 ID 元数据文档（CIMD），其次才是上游声明支持的动态客户端注册（DCR）。`autoRegister: false` 禁用 DCR。只有旧版上游适配器允许在缺少授权服务器元数据时推导同源注册端点。身份验证失败不会触发协议代际降级。
+
+凭据绑定到 Runtime Scope、配置来源、结构化上游目标、精确的 issuer 和资源，以及与安全相关的配置。更改这些信息后必须重新授权。模板实例之间保持隔离，除非有意使用相同的 `oauth.credentialAuthority`；共享凭据还要求目标、注册配置、权限范围和已注册的重定向 URI 完全一致。此设置不会授予入站客户端使用上游的权限：现有的逐操作授权检查仍然适用。
+
+每次授权尝试都有独立的 state 和 PKCE verifier，十五分钟后过期，可在重启后继续，但只能消费一次。在该时间窗口内，每个授权主体最多保留 32 条尝试记录。回调过期、被拒绝或中断后，应重新发起授权。旧版按服务器名称索引的凭据会被隔离到仅所有者可访问的客户端存储中，不会自动迁移为已绑定凭据；升级后需要重新授权。隔离数据仍是受保护的回滚材料，不包含在配置导出中。恢复这些数据也不会使未绑定凭据变为可用。
+
+OAuth 元数据、注册和令牌响应的大小上限为 1 MiB，总耗时上限为十秒。OAuth 请求不接受重定向。如果配置的 MCP 资源发生重定向（例如从 `/mcp` 跳转到 `/mcp/`），1MCP 会提示将上游 URL 配置为最终目标，不会通过重定向转发凭据。通过发现获得的端点必须使用公网 HTTPS；只有与显式配置的本地资源 origin 或本地 `oauth.issuer` origin 完全一致的目标才允许 HTTP/私有网络访问。独立的本地授权服务器必须通过 `oauth.issuer` 显式指定；上游声明另一个 localhost 端口或地址并不代表该目标已获准访问。精确配置的 MCP 资源路由，以及已接受的同源 SSE 消息端点，保留运维配置允许的 HTTP/私有网络访问能力；这不会批准通过发现获得的 OAuth 端点。服务器发起网络请求时，会验证每次 DNS 解析结果，并将其固定到该请求的实际连接。通过验证的地址可以在不同请求之间轮换。活跃的授权主体和凭据记录会续期其三十天的存储有效期；闲置过期的记录仍需重新授权。发送凭据前会验证端点 URL 和权限范围。资源指示符（Resource Indicator）可以指向同源父路径（例如 `/api/mcp` 对应的 `/api`），但查询参数必须一致，且不能包含片段。所选资源指示符作为令牌的受众保留；凭据仍绑定到精确配置的上游路由。上游资源请求的请求头不会转发到发现、注册或令牌端点。MCP SSE 流保持正常的流式连接生命周期。浏览器授权跳转使用经过验证的精确 HTTPS URL（显式配置的本地 origin 除外）；浏览器自行控制 DNS 和网络连接，1MCP 不会固定浏览器的连接地址。
+
+访问令牌可以是不透明令牌。1MCP 将令牌交换和资源指示符绑定到经过验证的授权主体，不会解码任意令牌声明并声称已验证其签名。受保护资源仍负责访问令牌的密码学验证。
 
 ### 服务器过滤
 
@@ -475,10 +506,10 @@ trust = "verified"
 
 对应的 CLI 参数是 `--template-context-trust verified`；CLI 输入优先于 `config.toml`。
 
-| 模式       | 行为 |
-| ---------- | ---- |
-| `verified` | 只有带 Runtime Scope 证明的第一方本地上下文可以渲染模板；未签名客户端只能使用静态服务器。 |
-| `disabled` | 请求上下文永远不能渲染模板。 |
+| 模式       | 行为                                                                                              |
+| ---------- | ------------------------------------------------------------------------------------------------- |
+| `verified` | 只有带 Runtime Scope 证明的第一方本地上下文可以渲染模板；未签名客户端只能使用静态服务器。         |
+| `disabled` | 请求上下文永远不能渲染模板。                                                                      |
 | `legacy`   | 未签名的本地或远程上下文可以渲染模板，并重新开放对模板 `command`、`args`、`cwd` 和 `env` 的控制。 |
 
 在非回环 HTTP 地址上使用 `legacy` 时，还必须提供 `--confirm-untrusted-template-context`。GET REST 客户端继续使用现有的 base64url `context` 查询格式。运行时会将其解码为结构化、已脱敏的审计日志，通用请求日志不会打印原始 base64 值或证明签名。

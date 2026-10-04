@@ -14,6 +14,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ClientManager } from './clientManager.js';
 
+vi.mock('@src/auth/oauthEndpointFetch.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@src/auth/oauthEndpointFetch.js')>();
+  return {
+    ...actual,
+    createOAuthEndpointFetch: vi.fn(
+      () => (input: RequestInfo | URL, init?: RequestInit) => globalThis.fetch(input, init),
+    ),
+  };
+});
+
 describe('OAuth reconnect with real SDK clients', () => {
   let storageDirectory: string;
 
@@ -78,6 +88,13 @@ describe('OAuth reconnect with real SDK clients', () => {
       const transport = createTransports({
         upstream: { type: 'http', url: 'https://example.com/mcp', protocolVersion, connectionTimeout: 1000 },
       }).upstream;
+      if (!transport.oauthProvider) throw new Error('Expected OAuth provider');
+      transport.oauthProvider.withAuthorizationCallback = async function <T>(
+        _response: URLSearchParams,
+        operation: () => Promise<T>,
+      ): Promise<T> {
+        return operation();
+      };
       if (recreation === 'fallback') delete transport.recreate;
       const manager = ClientManager.getOrCreateInstance();
       await manager.createSingleClient('upstream', transport);

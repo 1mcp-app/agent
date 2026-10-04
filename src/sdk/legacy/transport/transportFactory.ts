@@ -8,11 +8,13 @@ import type { EventEmitter } from 'node:events';
 import type { Readable } from 'node:stream';
 import path from 'path';
 
+import { oauthConfigurationFingerprint } from '@src/auth/oauthAuthority.js';
 import { OAuthClientConfig, SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
 import { processEnvironment, substituteEnvVars } from '@src/config/envProcessor.js';
 import { getRuntimeParentEnvironment } from '@src/config/runtimeBootstrap.js';
 import { getRuntimeScopeEnvironment, sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
 import { AUTH_CONFIG, MCP_SERVER_VERSION } from '@src/constants.js';
+import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { MCPServerParams, transportConfigSchema } from '@src/core/types/index.js';
 import { createBackendLogProjection } from '@src/domains/backend-logs/backendLogProjection.js';
@@ -80,7 +82,7 @@ function createOAuthProvider(name: string, validatedTransport: ValidatedTranspor
 
   const oauthConfig: OAuthClientConfig = {
     autoRegister: true,
-    redirectUrl: `${configManager.getUrl()}${AUTH_CONFIG.CLIENT.OAUTH.DEFAULT_CALLBACK_PATH}/${name}`,
+    redirectUrl: `${configManager.getUrl()}${AUTH_CONFIG.CLIENT.OAUTH.DEFAULT_CALLBACK_PATH}/${encodeURIComponent(name)}`,
     ...validatedTransport.oauth,
   };
 
@@ -95,6 +97,36 @@ function createOAuthProvider(name: string, validatedTransport: ValidatedTranspor
     clientSessionPath = path.join(parentDir, 'clientSessions');
   }
 
+  const configuredAuthority = validatedTransport.oauth?.credentialAuthority;
+  const source = configuredAuthority ?? name;
+  const owner = new RuntimeIdentityService({
+    storageDir: configManager.get('runtimeScopeStoragePath'),
+  }).getRuntimeScopeId();
+  oauthConfig.legacy = !usesModernClient(validatedTransport);
+  oauthConfig.authority = {
+    owner,
+    source,
+    route: {
+      kind: validatedTransport.type === 'sse' ? 'sse' : 'http',
+      connectionKey: source,
+      url: validatedTransport.url!,
+    },
+    configuration: oauthConfigurationFingerprint(
+      {
+        url: validatedTransport.url,
+        headers: validatedTransport.headers,
+        issuer: oauthConfig.issuer,
+        clientId: oauthConfig.clientId,
+        clientSecret: oauthConfig.clientSecret,
+        scopes: oauthConfig.scopes,
+        redirect: oauthConfig.redirectUrl,
+        clientMetadataUrl: oauthConfig.clientMetadataUrl,
+        autoRegister: oauthConfig.autoRegister,
+        legacy: oauthConfig.legacy,
+      },
+      [owner, source, validatedTransport.type, validatedTransport.url],
+    ),
+  };
   logger.info('transportFactory.creating.oauth.client.provider.for.transport.8f8cab56');
   return new SDKOAuthClientProvider(name, oauthConfig, clientSessionPath);
 }
@@ -165,6 +197,7 @@ function createSSETransport(name: string, validatedTransport: ValidatedTransport
 
   const oauthProvider = createOAuthProvider(name, validatedTransport);
   sseOptions.authProvider = oauthProvider;
+  sseOptions.fetch = oauthProvider.fetch;
 
   const Transport = usesModernClient(validatedTransport) ? ModernSSEClientTransport : SSEClientTransport;
   const transport = new Transport(new URL(validatedTransport.url), sseOptions as never) as AuthProviderTransport;
@@ -199,6 +232,7 @@ function createHTTPTransport(
 
   const oauthProvider = createOAuthProvider(name, validatedTransport);
   httpOptions.authProvider = oauthProvider;
+  httpOptions.fetch = oauthProvider.fetch;
 
   const Transport = usesModernClient(validatedTransport)
     ? ModernStreamableHTTPClientTransport

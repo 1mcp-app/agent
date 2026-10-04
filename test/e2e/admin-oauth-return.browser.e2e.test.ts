@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { OAuthAuthorizationDeniedError } from '@src/auth/oauthAuthority.js';
 import { createOAuthAuthorizationFlow } from '@src/auth/oauthAuthorizationFlow.js';
 import type { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
 import { AdminIdentityService } from '@src/domains/admin/adminIdentityService.js';
@@ -35,7 +36,16 @@ it('returns through a committed initiating-site document with the original Stric
   if (!address || typeof address === 'string') throw new Error('No server port');
   const callbackOrigin = `http://127.0.0.1:${address.port}`;
   const providerOrigin = `http://provider.test:${address.port}`;
-  const completeOAuthAndReconnect = vi.fn().mockResolvedValue(undefined);
+  // This fixture owns only the cross-site Strict-cookie return contract. These hooks model
+  // the durable provider mapping while authority/state validation remains covered elsewhere.
+  const returnOrigins = new Map<string, string>();
+  const bindOAuthReturn = vi.fn(async (_serverName: string, state: string, origin: string) => {
+    returnOrigins.set(state, origin);
+  });
+  const getOAuthReturn = vi.fn((_serverName: string, state: string) => returnOrigins.get(state));
+  const completeOAuthAndReconnect = vi.fn(async (_serverName: string, callback: URLSearchParams) => {
+    if (callback.get('error') === 'access_denied') throw new OAuthAuthorizationDeniedError('access_denied');
+  });
   const flow = createOAuthAuthorizationFlow({
     storage: {
       getAuthorizationRequest: vi.fn(),
@@ -52,7 +62,7 @@ it('returns through a committed initiating-site document with the original Stric
         authorizationUrl: `${providerOrigin}/provider?state=original&redirect_uri=${encodeURIComponent(callbackOrigin + '/oauth/callback/github')}`,
       }),
     },
-    clientRuntime: { initiateOAuth: vi.fn(), completeOAuthAndReconnect },
+    clientRuntime: { initiateOAuth: vi.fn(), bindOAuthReturn, getOAuthReturn, completeOAuthAndReconnect },
     createTokenId: () => '',
     getAuthConfig: () => ({ enabled: true, oauthTokenTtlMs: 60000 }),
     getAvailableTags: () => [],
@@ -147,7 +157,12 @@ it('returns through a committed initiating-site document with the original Stric
         await context.close();
       }
     }
-    expect(completeOAuthAndReconnect).toHaveBeenCalledTimes(4);
+    expect(bindOAuthReturn).toHaveBeenCalledTimes(6);
+    expect(getOAuthReturn).toHaveBeenCalledTimes(6);
+    expect(completeOAuthAndReconnect).toHaveBeenCalledTimes(6);
+    expect(
+      completeOAuthAndReconnect.mock.calls.filter(([, callback]) => callback.get('error') === 'access_denied'),
+    ).toHaveLength(2);
   } finally {
     await browser?.close();
     server.closeAllConnections();

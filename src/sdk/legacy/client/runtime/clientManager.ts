@@ -549,6 +549,10 @@ export class ClientManager extends EventEmitter {
     } catch (_error) {
       logger.warn('clientManager.could.not.close.superseded.client.3029a8f0', { error: _error });
     }
+    const provider = getLegacyTransport(superseded).oauthProvider;
+    const current = this.outboundConns.get(name);
+    if (current && getLegacyTransport(current).oauthProvider === provider) return;
+    await provider?.shutdown?.();
   }
 
   private handleSingleClientError(name: string, transport: AuthProviderTransport, error: unknown): void {
@@ -597,6 +601,16 @@ export class ClientManager extends EventEmitter {
 
   public getTransportNames(): string[] {
     return Object.keys(this.transports);
+  }
+
+  public async bindOAuthReturn(serverName: string, state: string, origin: string): Promise<void> {
+    const provider = getLegacyTransport(this.getClient(serverName)).oauthProvider;
+    if (!provider) throw new Error('OAuth authorization provider is unavailable');
+    await provider.bindAdminReturn(state, origin);
+  }
+
+  public getOAuthReturn(serverName: string, state: string): string | undefined {
+    return getLegacyTransport(this.getClient(serverName)).oauthProvider?.getAdminReturn(state);
   }
 
   public async completeOAuthAndReconnect(
@@ -665,6 +679,9 @@ export class ClientManager extends EventEmitter {
   public async initiateOAuth(serverName: string): Promise<void> {
     this.assertActive();
     const connection = this.getClient(serverName);
+    // An explicit new authorization abandons prior attempts/refresh work and
+    // releases old DNS approvals while retaining compatible client registration.
+    await getLegacyTransport(connection).oauthProvider?.invalidateCredentials?.('tokens');
     const superseded = { ...connection };
     const transport = this.transportRecreator.recreateHttpTransport(getLegacyTransport(connection), serverName, {
       preserveSessionId: false,
@@ -811,6 +828,7 @@ export class ClientManager extends EventEmitter {
             .close()
             .catch(() => undefined);
         }
+        await getLegacyTransport(connection).oauthProvider?.shutdown?.();
         this.instructionAggregator?.removeServer({ source: 'mcpServers', name: connection.name }, name);
       }),
     );
@@ -956,6 +974,7 @@ export class ClientManager extends EventEmitter {
     } catch {
       await connected.transport.close().catch(() => undefined);
     }
+    await connected.transport.oauthProvider?.shutdown?.();
   }
 }
 
