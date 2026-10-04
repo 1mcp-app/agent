@@ -24,8 +24,8 @@ import { revalidateLegacyRequestAuthInfo } from '@src/sdk/legacy/server/auth/req
 import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
 import {
   canonicalBridgeToolRegistrar,
-  measureProjectedLegacyTool,
   projectCanonicalToolResult,
+  projectLegacyTool,
   projectLegacyToolResult,
   projectLegacyTools,
 } from '@src/sdk/legacy/shared/schemaProjection.js';
@@ -93,7 +93,7 @@ export function registerToolHandlers(
           internalOnly: lazy,
           responseBudget: {
             limits: RESPONSE_JSON_VALUE_LIMITS,
-            ...(inboundConn.canonicalSchemaProjection ? {} : { measure: measureProjectedLegacyTool }),
+            ...(inboundConn.canonicalSchemaProjection ? {} : { project: projectLegacyTool }),
           },
         });
         const listed = {

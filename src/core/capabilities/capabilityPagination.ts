@@ -1,7 +1,14 @@
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 
 import type { OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
-import { ErrorCode, type JsonValueCost, type JsonValueLimits, measureJsonValue } from '@src/sdk/contracts/index.js';
+import {
+  ErrorCode,
+  InvalidJsonValueError,
+  type JsonValueCost,
+  type JsonValueLimits,
+  measureJsonValue,
+  RESPONSE_ITEM_DEPTH,
+} from '@src/sdk/contracts/index.js';
 import { MCPError } from '@src/utils/core/errorTypes.js';
 
 import { clearConfiguredToolSnapshot } from './configuredToolSnapshot.js';
@@ -71,8 +78,8 @@ export interface CapabilityPageProvider<T> {
  */
 export interface CapabilityResponseBudget<T> {
   limits: JsonValueLimits;
-  /** Cost of one item in the form it is sent; defaults to measuring the item itself. */
-  measure?: (item: T) => JsonValueCost;
+  /** One item in the form it is sent; defaults to the item itself. */
+  project?: (item: T) => unknown;
 }
 
 /** Aggregate page plus optional partial-walk metadata. */
@@ -443,7 +450,11 @@ function decodeFailurePositions(value: string | undefined, providerCount: number
   return positions;
 }
 
-/** Counts the leading items that still fit one response after `spent`, and the budget spent with them. */
+/**
+ * Counts the leading items that still fit one response after `spent`, and the budget spent with them.
+ * Items are measured at the depth they occupy in the response frame; an item that cannot fit any
+ * response ends the count like one that does not fit this one.
+ */
 function takeWithinBudget<T>(
   items: readonly T[],
   budget: CapabilityResponseBudget<T>,
@@ -452,7 +463,13 @@ function takeWithinBudget<T>(
   let { nodes, stringLength } = spent;
   let count = 0;
   for (const item of items) {
-    const cost = budget.measure ? budget.measure(item) : measureJsonValue(item, budget.limits);
+    let cost: JsonValueCost;
+    try {
+      cost = measureJsonValue(budget.project ? budget.project(item) : item, budget.limits, RESPONSE_ITEM_DEPTH);
+    } catch (error) {
+      if (error instanceof InvalidJsonValueError) break;
+      throw error;
+    }
     if (
       nodes + cost.nodes > budget.limits.maxNodes ||
       stringLength + cost.stringLength > budget.limits.maxTotalStringLength

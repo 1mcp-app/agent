@@ -19,12 +19,19 @@ export const JSON_VALUE_LIMITS: JsonValueLimits = Object.freeze({
 });
 
 /**
+ * Levels a response frame nests above one listed item: the modern frame's `result`,
+ * the list key, and the array index.
+ */
+export const RESPONSE_ITEM_DEPTH = 3;
+
+/**
  * Budgets for one response the gateway assembles from many upstream values, such as
  * an aggregated capability list. Response assembly pages its items against these
- * limits, so every response it sends fits them.
+ * limits, so every response it sends fits them. The extra depth covers the frame
+ * nesting, so a value that fit {@link JSON_VALUE_LIMITS} upstream still fits here.
  */
 export const RESPONSE_JSON_VALUE_LIMITS: JsonValueLimits = Object.freeze({
-  maxDepth: JSON_VALUE_LIMITS.maxDepth,
+  maxDepth: JSON_VALUE_LIMITS.maxDepth + RESPONSE_ITEM_DEPTH,
   maxNodes: 1_000_000,
   maxTotalStringLength: 32 * 1024 * 1024,
 });
@@ -158,10 +165,13 @@ export function toJsonValue(value: unknown, limits: JsonValueLimits = JSON_VALUE
   return cloneValue(value, '$', 0, newCloneState(limits));
 }
 
-/** Validates a value against `limits` and reports the budget it spends, using the same accounting. */
-export function measureJsonValue(value: unknown, limits: JsonValueLimits): JsonValueCost {
+/**
+ * Validates a value placed `depth` levels below the root of a value checked against
+ * `limits`, and reports the budget it spends, using the same accounting.
+ */
+export function measureJsonValue(value: unknown, limits: JsonValueLimits, depth = 0): JsonValueCost {
   const state = newCloneState(limits);
-  cloneValue(value, '$', 0, state);
+  cloneValue(value, '$', depth, state);
   return { nodes: state.nodes, stringLength: state.stringLength };
 }
 

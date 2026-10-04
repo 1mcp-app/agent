@@ -1,14 +1,7 @@
 import { Server, specTypeSchemas } from '@modelcontextprotocol/server';
 
 import { SchemaBoundaryError } from '@src/core/validation/schemaPolicy.js';
-import {
-  type JsonObject,
-  type JsonValue,
-  type JsonValueCost,
-  measureJsonValue,
-  RESPONSE_JSON_VALUE_LIMITS,
-  toJsonValue,
-} from '@src/sdk/contracts/index.js';
+import { type JsonObject, type JsonValue, RESPONSE_JSON_VALUE_LIMITS, toJsonValue } from '@src/sdk/contracts/index.js';
 import type { Server as LegacyServer } from '@src/sdk/legacy/server/index.js';
 import { Protocol } from '@src/sdk/legacy/shared/protocol.js';
 
@@ -26,10 +19,10 @@ const codec = new LegacySchemaCodec();
 export function projectLegacyTools(result: JsonObject): JsonObject {
   return codec.projectTools(result);
 }
-/** What one tool spends from a response budget once {@link projectLegacyTools} projects it. */
-export function measureProjectedLegacyTool(tool: unknown): JsonValueCost {
+/** One tool as {@link projectLegacyTools} sends it. */
+export function projectLegacyTool(tool: unknown): JsonValue {
   const projected = codec.projectTools({ tools: [toJsonValue(tool, RESPONSE_JSON_VALUE_LIMITS)] });
-  return measureJsonValue((projected.tools as JsonValue[])[0], RESPONSE_JSON_VALUE_LIMITS);
+  return (projected.tools as JsonValue[])[0];
 }
 export function projectLegacyToolResult(result: unknown, outputSchema?: Readonly<Record<string, unknown>>): JsonObject {
   assertCanonicalToolResult(result);

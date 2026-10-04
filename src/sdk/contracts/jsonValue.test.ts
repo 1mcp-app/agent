@@ -172,6 +172,9 @@ describe('toJsonValue', () => {
     expect(() => measureJsonValue(value, { ...exact, maxTotalStringLength: cost.stringLength - 1 })).toThrow(
       'string length limit',
     );
+    // The value nests two levels below its own root.
+    expect(measureJsonValue(value, { ...exact, maxDepth: 4 }, 2)).toEqual(cost);
+    expect(() => measureJsonValue(value, { ...exact, maxDepth: 4 }, 3)).toThrow('depth limit');
   });
 
   it('enforces the documented aggregate string limit across keys and values', () => {

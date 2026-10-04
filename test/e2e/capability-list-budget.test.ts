@@ -6,7 +6,7 @@ import type { AddressInfo } from 'node:net';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 import { ClientStatus } from '@src/core/types/index.js';
-import { RESPONSE_JSON_VALUE_LIMITS, toJsonValue } from '@src/sdk/contracts/index.js';
+import { JSON_VALUE_LIMITS, RESPONSE_JSON_VALUE_LIMITS, toJsonValue } from '@src/sdk/contracts/index.js';
 import { Client as LegacyClient } from '@src/sdk/legacy/client/index.js';
 import { ClientFactory } from '@src/sdk/legacy/client/runtime/clientFactory.js';
 import { createLegacyOutboundConnection } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
@@ -20,15 +20,37 @@ import express from 'express';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
-const TOOL_COUNT = 150;
-// Each tool fits one upstream page; together they exceed the aggregate node budget.
-const OPAQUE_ENTRIES = Math.ceil(RESPONSE_JSON_VALUE_LIMITS.maxNodes / TOOL_COUNT) + 100;
+interface Catalog {
+  toolCount: number;
+  meta: () => Record<string, unknown>;
+}
 
-function upstreamTool(index: number) {
+// Each tool fits one upstream page; together they exceed the aggregate node budget.
+const denseCatalog: Catalog = {
+  toolCount: 150,
+  meta: () => ({
+    'example.com/opaque': Array.from({ length: Math.ceil(RESPONSE_JSON_VALUE_LIMITS.maxNodes / 150) + 100 }, () => 0),
+  }),
+};
+
+// The upstream page nests `tools[i]._meta[key]` four levels deep, so this field reaches its depth limit.
+const nested = (levels: number): unknown => (levels === 0 ? 0 : [nested(levels - 1)]);
+const deepCatalog: Catalog = {
+  toolCount: 2,
+  meta: () => ({
+    'example.com/opaque': Array.from({ length: 6_000 }, () => 0),
+    'example.com/nested': nested(JSON_VALUE_LIMITS.maxDepth - 4),
+  }),
+};
+
+function upstreamTool(catalog: Catalog, index: number) {
+  return { name: `tool_${String(index).padStart(3, '0')}`, inputSchema: { type: 'object' }, _meta: catalog.meta() };
+}
+
+function upstreamPage(catalog: Catalog, index: number) {
   return {
-    name: `tool_${String(index).padStart(3, '0')}`,
-    inputSchema: { type: 'object' },
-    _meta: { 'example.com/opaque': Array.from({ length: OPAQUE_ENTRIES }, () => 0) },
+    tools: [upstreamTool(catalog, index)],
+    ...(index + 1 < catalog.toolCount ? { nextCursor: String(index + 1) } : {}),
   };
 }
 
@@ -48,16 +70,24 @@ describe('aggregated tools/list responses', () => {
     for (const step of cleanup.splice(0).reverse()) await step();
   });
 
-  it.each(['legacy', 'modern'] as const)(
-    'pages an oversized catalog so every %s response fits the response limits',
-    async (inboundEra) => {
+  it('builds the deep catalog at the upstream depth limit', () => {
+    expect(() => toJsonValue(upstreamPage(deepCatalog, 0))).not.toThrow();
+    const deeper = { ...deepCatalog, meta: () => ({ 'example.com/nested': nested(JSON_VALUE_LIMITS.maxDepth - 3) }) };
+    expect(() => toJsonValue(upstreamPage(deeper, 0))).toThrow('depth limit');
+  });
+
+  it.each([
+    { inboundEra: 'legacy', catalog: 'dense' },
+    { inboundEra: 'modern', catalog: 'dense' },
+    { inboundEra: 'legacy', catalog: 'deep' },
+    { inboundEra: 'modern', catalog: 'deep' },
+  ] as const)(
+    'lists a $catalog catalog so every $inboundEra response fits the response limits',
+    async ({ inboundEra, catalog: catalogName }) => {
+      const catalog = catalogName === 'dense' ? denseCatalog : deepCatalog;
       const backend = new LegacyServer({ name: 'fixture', version: '1' }, { capabilities: { tools: {} } });
       backend.setRequestHandler(ListToolsRequestSchema, async (request) => {
-        const index = request.params?.cursor === undefined ? 0 : Number(request.params.cursor);
-        return {
-          tools: [upstreamTool(index)],
-          ...(index + 1 < TOOL_COUNT ? { nextCursor: String(index + 1) } : {}),
-        };
+        return upstreamPage(catalog, request.params?.cursor === undefined ? 0 : Number(request.params.cursor));
       });
       const [upstreamClientTransport, upstreamServerTransport] = InMemoryTransport.createLinkedPair();
       const upstreamClient = new ClientFactory().createClient(upstreamClientTransport, {});
@@ -117,11 +147,11 @@ describe('aggregated tools/list responses', () => {
         names.push(...(response.tools as Array<{ name: string }>).map((tool) => tool.name));
         cursor = response.nextCursor as string | undefined;
         responses += 1;
-      } while (cursor !== undefined && responses <= TOOL_COUNT);
+      } while (cursor !== undefined && responses <= catalog.toolCount);
 
-      expect(responses).toBeGreaterThan(1);
-      expect(names).toHaveLength(TOOL_COUNT);
-      expect(new Set(names).size).toBe(TOOL_COUNT);
+      if (catalog === denseCatalog) expect(responses).toBeGreaterThan(1);
+      expect(names).toHaveLength(catalog.toolCount);
+      expect(new Set(names).size).toBe(catalog.toolCount);
     },
     60_000,
   );

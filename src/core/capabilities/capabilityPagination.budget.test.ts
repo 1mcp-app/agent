@@ -97,31 +97,58 @@ describe('capability walks with a response budget', () => {
     expect(response.nextCursor).toBeUndefined();
   });
 
-  it.each([true, false])('refuses an item larger than a whole response (pagination %s)', async (enablePagination) => {
-    await expect(
-      walkCapabilityPages<unknown>({
-        connections: new Map(),
-        providers: [{ id: 'a', name: 'a', list: async () => ({ items: [['x', 'y', 'z', 'w']] }) }],
-        kind: 'tools',
-        filterSelection: null,
-        enablePagination,
-        responseBudget: { limits },
-      }),
-    ).rejects.toBeInstanceOf(CapabilityResponseBudgetError);
+  // Items sit three levels below the response frame root: `result`, the list key, the index.
+  it.each([
+    { enablePagination: true, item: ['x', 'y', 'z', 'w'], itemLimits: limits },
+    { enablePagination: false, item: ['x', 'y', 'z', 'w'], itemLimits: limits },
+    { enablePagination: true, item: [[0]], itemLimits: { ...JSON_VALUE_LIMITS, maxDepth: 4 } },
+    { enablePagination: false, item: [[0]], itemLimits: { ...JSON_VALUE_LIMITS, maxDepth: 4 } },
+  ])(
+    'refuses an item that cannot fit any response (pagination $enablePagination, $item)',
+    async ({ enablePagination, item, itemLimits }) => {
+      await expect(
+        walkCapabilityPages<unknown>({
+          connections: new Map(),
+          providers: [{ id: 'a', name: 'a', list: async () => ({ items: [item] }) }],
+          kind: 'tools',
+          filterSelection: null,
+          enablePagination,
+          responseBudget: { limits: itemLimits },
+        }),
+      ).rejects.toBeInstanceOf(CapabilityResponseBudgetError);
+    },
+  );
+
+  it('ends a filled response before an item that cannot fit any response', async () => {
+    const options = {
+      connections: new Map(),
+      providers: [{ id: 'a', name: 'a', list: async () => ({ items: ['a1', ['a2']] }) }],
+      kind: 'tools' as const,
+      filterSelection: null,
+      enablePagination: false,
+      responseBudget: { limits: { ...JSON_VALUE_LIMITS, maxDepth: 3 } },
+    };
+    const first = await walkCapabilityPages<unknown>(options);
+
+    expect(first.items).toEqual(['a1']);
+    expect(first.nextCursor).toBeDefined();
+    await expect(walkCapabilityPages<unknown>({ ...options, cursor: first.nextCursor })).rejects.toBeInstanceOf(
+      CapabilityResponseBudgetError,
+    );
   });
 
-  it('measures items with the caller-supplied projection cost', async () => {
-    const measure = vi.fn(() => ({ nodes: 2, stringLength: 0 }));
+  it('measures items in the form the caller projects them to', async () => {
+    const project = vi.fn((item: string) => [item]);
     const responses = await walkAll({
       connections: new Map(),
       providers: [provider('a', { '': { items: ['a1', 'a2', 'a3'] } })],
       kind: 'tools',
       filterSelection: null,
       enablePagination: true,
-      responseBudget: { limits, measure },
+      responseBudget: { limits, project },
     });
 
     expect(responses.map((response) => response.items)).toEqual([['a1'], ['a2'], ['a3']]);
-    expect(measure).toHaveBeenCalledWith('a1');
+    expect(project).toHaveBeenCalledWith('a1');
   });
 });
