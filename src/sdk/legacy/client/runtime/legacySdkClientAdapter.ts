@@ -7,6 +7,7 @@ import { assertInteractionRoute } from '@src/gateway/interactions/interactionRou
 import logger from '@src/logger/logger.js';
 import { injectTraceContext, stripBaggage } from '@src/observability/tracing/context.js';
 import {
+  JSON_VALUE_LIMITS,
   type JsonValue,
   type LegacyConnectionId,
   type LegacyRequestId,
@@ -17,6 +18,7 @@ import {
   type LegacySdkRequest,
   type LegacySdkResponse,
   OneMcpProtocolError,
+  RESPONSE_JSON_VALUE_LIMITS,
   toJsonValue,
 } from '@src/sdk/contracts/index.js';
 import type { Client } from '@src/sdk/legacy/client/index.js';
@@ -142,7 +144,14 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
     try {
       if (this.lifecycleState === 'idle') await this.start();
       const result = await this.requestWithRecovery(request, controller);
-      return stripBaggage(captureCapabilityListResult(request.method, result));
+      // The interaction bridge fronts this gateway, so its results are assembled responses.
+      return stripBaggage(
+        captureCapabilityListResult(
+          request.method,
+          result,
+          this.interactionBridge ? RESPONSE_JSON_VALUE_LIMITS : JSON_VALUE_LIMITS,
+        ),
+      );
     } catch (error) {
       throw toProtocolError(error);
     } finally {

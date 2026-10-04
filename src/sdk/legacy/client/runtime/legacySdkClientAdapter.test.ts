@@ -1,5 +1,5 @@
 import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
-import { createLegacyTimeoutMs, OneMcpProtocolError } from '@src/sdk/contracts/index.js';
+import { createLegacyTimeoutMs, JSON_VALUE_LIMITS, OneMcpProtocolError } from '@src/sdk/contracts/index.js';
 import { Client } from '@src/sdk/legacy/client/index.js';
 import { StreamableHTTPError } from '@src/sdk/legacy/client/streamableHttp.js';
 import { CallToolRequestSchema, McpError } from '@src/sdk/legacy/types.js';
@@ -36,6 +36,26 @@ function createOAuthTransport(
 }
 
 describe('LegacySdkClientAdapter', () => {
+  it('strips reserved baggage from large bridge responses without loosening upstream limits', async () => {
+    const client = createClient();
+    const result = {
+      _meta: { baggage: 'private', other: 'preserved' },
+      structuredContent: { baggage: 'business', items: Array.from({ length: JSON_VALUE_LIMITS.maxNodes }, () => 0) },
+    };
+    vi.spyOn(client, 'request').mockResolvedValue(result as never);
+    const bridge = new LegacySdkClientAdapter(client, createTransport(), { interactionBridge: true });
+
+    await expect(bridge.request({ id: 'bridge' as never, method: 'tools/call' })).resolves.toEqual({
+      _meta: { other: 'preserved' },
+      structuredContent: result.structuredContent,
+    });
+    const upstream = new LegacySdkClientAdapter(client, createTransport());
+    await expect(upstream.request({ id: 'upstream' as never, method: 'tools/call' })).rejects.toBeInstanceOf(
+      OneMcpProtocolError,
+    );
+    expect(result._meta.baggage).toBe('private');
+  });
+
   it('quarantines malformed template syntax before catalog capture', async () => {
     const client = createClient();
     const healthy = { name: 'guide', uriTemplate: 'file:///{name}', unknown: [1] };
