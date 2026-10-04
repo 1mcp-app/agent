@@ -179,6 +179,7 @@ function Fail-TaskAction {
     $action = Get-CimInstance Win32_Process -Filter "ProcessId=$ActionPid"
     Assert-True ($action -and $action.CommandLine -and $action.CommandLine.Contains($Root)) 'Failure target is not the exact fixture action'
     $all = @(Get-CimInstance Win32_Process)
+    $action.CreationDate.GetType().FullName | Set-Content (Join-Path $evidence "controlled-failure-$Attempt.types.log")
     $tree = New-Object 'System.Collections.Generic.List[object]'
     function Add-ActionTree {
         param($Process)
@@ -192,7 +193,8 @@ function Fail-TaskAction {
         $expected = $tree[$index]
         $live = Get-CimInstance Win32_Process -Filter "ProcessId=$($expected.ProcessId)" -ErrorAction SilentlyContinue
         if (-not $live) { continue }
-        Assert-True ($live.CreationDate -eq $expected.CreationDate -and $live.CommandLine -and $live.CommandLine.Contains($Root)) 'Failure target identity changed'
+        @{ expected = ($expected | Select-Object ProcessId, ParentProcessId, CreationDate, CommandLine); live = ($live | Select-Object ProcessId, ParentProcessId, CreationDate, CommandLine) } | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $evidence "controlled-failure-$Attempt-$index-comparison.json")
+        Assert-True ($live.CreationDate.ToUniversalTime().Ticks -eq $expected.CreationDate.ToUniversalTime().Ticks -and $live.CommandLine -and $live.CommandLine.Contains($Root)) 'Failure target identity changed'
         $termination = Invoke-CimMethod -InputObject $live -MethodName Terminate -Arguments @{ Reason = [uint32]1 }
         Assert-True ($termination.ReturnValue -eq 0) 'Controlled action termination failed'
     }
