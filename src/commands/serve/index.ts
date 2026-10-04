@@ -101,6 +101,21 @@ export const serverOptions = {
     describe: 'Enable tag-based scope validation',
     type: 'boolean' as const,
   },
+  'cloudflare-access-issuer': {
+    describe: 'Cloudflare Access issuer URL for the protected MCP application',
+    type: 'string' as const,
+    default: undefined,
+  },
+  'cloudflare-access-audience': {
+    describe: 'Cloudflare Access Application Audience (AUD) tag for the protected MCP application',
+    type: 'string' as const,
+    default: undefined,
+  },
+  'cloudflare-access-group-tag-map': {
+    describe: 'JSON object mapping Cloudflare custom.groups values to allowed 1MCP tags',
+    type: 'string' as const,
+    default: undefined,
+  },
   'enable-enhanced-security': {
     describe: 'Enable enhanced security middleware',
     type: 'boolean' as const,

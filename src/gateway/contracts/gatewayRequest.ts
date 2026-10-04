@@ -13,6 +13,9 @@ export const gatewayOperationSchema = z.enum([
   'resources/templates/list',
   'resources/read',
   'completion/complete',
+  'events/list',
+  'events/subscribe',
+  'events/unsubscribe',
 ]);
 export type GatewayOperation = z.infer<typeof gatewayOperationSchema>;
 

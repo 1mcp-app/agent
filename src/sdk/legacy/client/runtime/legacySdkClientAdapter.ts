@@ -80,6 +80,7 @@ function publishAwaitingOAuth(serverName: string, error: StreamableHTTPError): v
 /** Concrete boundary around one legacy v1 SDK Client. */
 export class LegacySdkClientAdapter implements LegacySdkAdapter {
   readonly connectionId = randomUUID() as LegacyConnectionId;
+  readonly protocolPin = Object.freeze({ era: 'legacy' as const, revision: '2025-11-25' });
   private lifecycleState: LegacySdkLifecycleState = 'idle';
   private readonly controllers = new Map<LegacyRequestId, AbortController>();
   private readonly events: LegacySdkEvent[] = [];
