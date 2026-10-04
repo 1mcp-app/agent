@@ -23,7 +23,7 @@ pnpm test:e2e test/e2e/gateway-interactions-four-era.test.ts test/e2e/gateway-tr
 
 预先设定的风险门槛为：平均每次操作新增时间不超过 0.25 ms，p95 新增时间不超过 1 ms，显式 GC 后保留堆增长不超过 16 MiB。必须保持完成次数及业务结果一致，无操作外上下文，无出站 Baggage。相对吞吐量单独报告；此测试不代表网络延迟或完整服务吞吐量。
 
-初次验证使用 Node v26.4.0、Darwin。有效上下文平均新增约 5.3 微秒，p95 新增约 0.176 ms，吞吐量约为基线的 0.638；缺失和畸形上下文平均新增不足 1 微秒。三种情况均满足上述绝对门槛。详细数据和测量解释见[英文验证记录](../../observability/propagation-verification.md)。
+初次验证使用 Node v26.4.0、Darwin。有效上下文平均新增约 5.3 微秒，p95 新增约 0.176 ms，吞吐量约为基线的 0.638；缺失和畸形上下文平均新增不足 1 微秒。三种情况均满足上述绝对门槛。详细数据和测量解释见[英文验证记录](./propagation-verification.md)。
 
 独立子进程测试分别在 SDK 禁用变量缺失和为 true 的情况下执行，并显式配置 OTLP 地址。拦截 HTTP、HTTPS、TCP、UDP 和 fetch 后，网络创建次数均为零；无有效本地 Span，无 Baggage。现有构建后 E2E 套件会持续执行该检查。
 

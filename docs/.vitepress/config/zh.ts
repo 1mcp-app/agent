@@ -132,6 +132,7 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: '云端部署', link: '/zh/guide/advanced/cloud-deployment' },
           { text: 'Windows：任务计划程序', link: '/zh/guide/advanced/windows-task-scheduler' },
           { text: '后端日志', link: '/zh/guide/advanced/backend-logs' },
+          { text: '日志与追踪上下文', link: '/zh/guide/advanced/observability' },
           { text: '服务器过滤', link: '/zh/guide/advanced/server-filtering' },
         ],
       },
