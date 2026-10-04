@@ -1,5 +1,6 @@
 import {
   createLegacyTimeoutMs,
+  type JsonValueLimits,
   type LegacyRequestId,
   type LegacySdkAdapter,
   toJsonValue,
@@ -17,6 +18,8 @@ import { createLegacyEraPin } from './legacyEraPin.js';
 
 export interface LegacyOutboundEraAdapterOptions {
   readonly now?: () => number;
+  /** Limits for results; defaults to those for one foreign value. */
+  readonly resultLimits?: JsonValueLimits;
 }
 
 interface ActiveLegacyRequest {
@@ -35,6 +38,7 @@ export class LegacyOutboundEraAdapter implements OutboundEraAdapter {
   readonly pin: ProtocolEraPin;
 
   private readonly now: () => number;
+  readonly resultLimits?: JsonValueLimits;
   private readonly active = new Map<string, ActiveLegacyRequest>();
 
   constructor(
@@ -44,6 +48,7 @@ export class LegacyOutboundEraAdapter implements OutboundEraAdapter {
   ) {
     this.pin = createLegacyEraPin(pin);
     this.now = options.now ?? Date.now;
+    this.resultLimits = options.resultLimits;
   }
 
   async request(request: OutboundGatewayRequest): Promise<ImmutableJsonValue> {
@@ -74,7 +79,7 @@ export class LegacyOutboundEraAdapter implements OutboundEraAdapter {
         ...(params === undefined ? {} : { params }),
         timeoutMs: createLegacyTimeoutMs(remainingMs),
       });
-      return toImmutableJsonValue(result);
+      return toImmutableJsonValue(result, this.resultLimits);
     } catch (error) {
       throw gatewayFailureFromUnknown(error, 'transport');
     } finally {

@@ -1,7 +1,14 @@
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 
 import type { OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
-import { ErrorCode } from '@src/sdk/contracts/index.js';
+import {
+  ErrorCode,
+  InvalidJsonValueError,
+  type JsonValueCost,
+  type JsonValueLimits,
+  measureJsonValue,
+  RESPONSE_ITEM_DEPTH,
+} from '@src/sdk/contracts/index.js';
 import { MCPError } from '@src/utils/core/errorTypes.js';
 
 import { clearConfiguredToolSnapshot } from './configuredToolSnapshot.js';
@@ -20,6 +27,30 @@ export class CapabilityCursorCapacityError extends MCPError {
     });
     Object.setPrototypeOf(this, CapabilityCursorCapacityError.prototype);
   }
+}
+
+/** One capability item is larger than a whole response may be. */
+export class CapabilityResponseBudgetError extends MCPError {
+  constructor() {
+    super('Capability item exceeds the response limits', ErrorCode.InternalError);
+    Object.setPrototypeOf(this, CapabilityResponseBudgetError.prototype);
+  }
+}
+
+class InvalidCapabilityCursorError extends MCPError {
+  constructor(reason: string) {
+    super('Invalid capability pagination cursor', ErrorCode.InvalidParams, { reason });
+    Object.setPrototypeOf(this, InvalidCapabilityCursorError.prototype);
+  }
+}
+
+/** Errors that end a walk instead of marking one provider as failed. */
+function abortsWalk(error: unknown): boolean {
+  return (
+    error instanceof CapabilityCursorCapacityError ||
+    error instanceof CapabilityResponseBudgetError ||
+    error instanceof InvalidCapabilityCursorError
+  );
 }
 
 /** MCP result metadata key used to describe a partial aggregate walk. */
@@ -41,6 +72,16 @@ export interface CapabilityPageProvider<T> {
   list(cursor?: string): Promise<CapabilityPage<T>>;
 }
 
+/**
+ * Limits one assembled response must fit. Pages are cut at item boundaries so the
+ * items plus the response envelope stay within `limits`.
+ */
+export interface CapabilityResponseBudget<T> {
+  limits: JsonValueLimits;
+  /** One item in the form it is sent; defaults to the item itself. */
+  project?: (item: T) => unknown;
+}
+
 /** Aggregate page plus optional partial-walk metadata. */
 export interface CapabilityPaginationResult<T> extends CapabilityPage<T> {
   _meta?: Record<string, unknown>;
@@ -54,6 +95,8 @@ interface CapabilityPaginationCursor {
   f: string;
   p: string;
   u?: string;
+  /** Items of the upstream page at `u` already returned in earlier responses. */
+  o?: number;
   x?: string;
 }
 
@@ -76,6 +119,8 @@ const clientIds = new WeakMap<object, number>();
 const MAX_DISABLED_PAGINATION_PAGES = 1000;
 const CURSOR_TTL_MS = 15 * 60 * 1000;
 const MAX_CURSOR_LENGTH = 4 * 1024;
+// Room for the list key, `nextCursor` (bounded by MAX_CURSOR_LENGTH) and partial-walk `_meta`.
+const RESPONSE_ENVELOPE_RESERVE: JsonValueCost = { nodes: 64, stringLength: MAX_CURSOR_LENGTH + 4 * 1024 };
 const upstreamCursors = new Map<
   string,
   {
@@ -273,7 +318,7 @@ function observeGeneration(connections: OutboundConnections, kind: CapabilityKin
 }
 
 function invalidCursor(reason: string): never {
-  throw new MCPError('Invalid capability pagination cursor', ErrorCode.InvalidParams, { reason });
+  throw new InvalidCapabilityCursorError(reason);
 }
 
 function pruneCursorStore(state?: RuntimePaginationState): void {
@@ -356,12 +401,13 @@ function decodeCursor(value: string): CapabilityPaginationCursor {
   if (
     cursor.v !== 2 ||
     !Number.isSafeInteger(cursor.e) ||
-    Object.keys(cursor).some((key) => !['v', 'e', 'k', 'g', 'f', 'p', 'u', 'x'].includes(key)) ||
+    Object.keys(cursor).some((key) => !['v', 'e', 'k', 'g', 'f', 'p', 'u', 'o', 'x'].includes(key)) ||
     !['tools', 'resources', 'resourceTemplates', 'prompts'].includes(cursor.k ?? '') ||
     typeof cursor.g !== 'string' ||
     typeof cursor.f !== 'string' ||
     typeof cursor.p !== 'string' ||
     (cursor.u !== undefined && typeof cursor.u !== 'string') ||
+    (cursor.o !== undefined && (!Number.isSafeInteger(cursor.o) || cursor.o < 1)) ||
     (cursor.x !== undefined && (typeof cursor.x !== 'string' || !/^[A-Za-z0-9_-]+$/.test(cursor.x)))
   )
     invalidCursor('malformed');
@@ -404,6 +450,39 @@ function decodeFailurePositions(value: string | undefined, providerCount: number
   return positions;
 }
 
+/**
+ * Counts the leading items that still fit one response after `spent`, and the budget spent with them.
+ * Items are measured at the depth they occupy in the response frame; an item that cannot fit any
+ * response ends the count like one that does not fit this one.
+ */
+function takeWithinBudget<T>(
+  items: readonly T[],
+  budget: CapabilityResponseBudget<T>,
+  spent: JsonValueCost,
+): { count: number; spent: JsonValueCost } {
+  let { nodes, stringLength } = spent;
+  let count = 0;
+  for (const item of items) {
+    let cost: JsonValueCost;
+    try {
+      cost = measureJsonValue(budget.project ? budget.project(item) : item, budget.limits, RESPONSE_ITEM_DEPTH);
+    } catch (error) {
+      if (error instanceof InvalidJsonValueError) break;
+      throw error;
+    }
+    if (
+      nodes + cost.nodes > budget.limits.maxNodes ||
+      stringLength + cost.stringLength > budget.limits.maxTotalStringLength
+    ) {
+      break;
+    }
+    nodes += cost.nodes;
+    stringLength += cost.stringLength;
+    count += 1;
+  }
+  return { count, spent: { nodes, stringLength } };
+}
+
 /** Walk visible capability providers using one aggregate cursor contract. */
 export async function walkCapabilityPages<T>(options: {
   connections: OutboundConnections;
@@ -414,6 +493,8 @@ export async function walkCapabilityPages<T>(options: {
   extraGenerationSignature?: unknown;
   enablePagination: boolean;
   failedProviderIds?: readonly string[];
+  /** Cut responses to fit these limits; without it, a non-paginated walk returns every item. */
+  responseBudget?: CapabilityResponseBudget<T>;
 }): Promise<CapabilityPaginationResult<T>> {
   const providers = [...options.providers].sort(
     (left, right) => compareCodePoints(left.name, right.name) || compareCodePoints(left.id, right.id),
@@ -427,6 +508,7 @@ export async function walkCapabilityPages<T>(options: {
   const scope = digest([runtimeNonce, options.kind, filter]);
   let providerIndex = 0;
   let upstreamCursor: string | undefined;
+  let itemOffset = 0;
   let failures = providers.flatMap((provider, index) =>
     options.failedProviderIds?.includes(provider.id) ? [index] : [],
   );
@@ -454,7 +536,79 @@ export async function walkCapabilityPages<T>(options: {
       }
       upstreamCursor = upstream.value;
     }
+    itemOffset = cursor.o ?? 0;
     failures = decodeFailurePositions(cursor.x, providers.length);
+  }
+
+  const cursorAt = (position: number, upstream: string | undefined, offset: number): string | undefined =>
+    position < providers.length
+      ? encodeCursor(
+          {
+            v: 2,
+            e: expiresAt,
+            k: options.kind,
+            g: generation,
+            f: filter,
+            p: createHmac('sha256', cursorSecret).update(providers[position].id).digest('base64url'),
+            u: upstream,
+            ...(offset > 0 ? { o: offset } : {}),
+            x: encodeFailurePositions(failures, providers.length),
+          },
+          scope,
+          runtimeNonce,
+        )
+      : undefined;
+  const budget = options.responseBudget;
+
+  if (!options.enablePagination && budget) {
+    // Return as many items as fit, then continue from the exact item where this response stopped.
+    const items: T[] = [];
+    let spent = RESPONSE_ENVELOPE_RESERVE;
+    for (; providerIndex < providers.length; providerIndex += 1, upstreamCursor = undefined, itemOffset = 0) {
+      const provider = providers[providerIndex];
+      try {
+        let pages = 0;
+        const seenCursors = new Set<string>();
+        for (;;) {
+          const page = await provider.list(upstreamCursor);
+          if (itemOffset > page.items.length) invalidCursor('malformed');
+          const remaining = page.items.slice(itemOffset);
+          const taken = takeWithinBudget(remaining, budget, spent);
+          const count = taken.count;
+          if (count < remaining.length) {
+            if (items.length === 0 && count === 0) throw new CapabilityResponseBudgetError();
+            items.push(...remaining.slice(0, count));
+            return {
+              items,
+              nextCursor: cursorAt(providerIndex, upstreamCursor, itemOffset + count),
+              _meta: partialMeta(failures, generation),
+            };
+          }
+          items.push(...remaining);
+          spent = taken.spent;
+          itemOffset = 0;
+          upstreamCursor = page.nextCursor;
+          pages += 1;
+          if (upstreamCursor === undefined) break;
+          if (seenCursors.has(upstreamCursor) || pages >= MAX_DISABLED_PAGINATION_PAGES) {
+            throw new Error('Upstream pagination did not terminate');
+          }
+          seenCursors.add(upstreamCursor);
+        }
+      } catch (error) {
+        if (abortsWalk(error)) throw error;
+        if (!failures.includes(providerIndex)) failures.push(providerIndex);
+      }
+    }
+    if (
+      options.cursor === undefined &&
+      providers.length > 0 &&
+      failures.length === providers.length &&
+      items.length === 0
+    ) {
+      throw new CapabilityProvidersUnavailableError();
+    }
+    return { items, _meta: partialMeta(failures, generation) };
   }
 
   if (!options.enablePagination) {
@@ -489,35 +643,31 @@ export async function walkCapabilityPages<T>(options: {
     const provider = providers[providerIndex];
     try {
       const page = await provider.list(upstreamCursor);
-      const nextProviderIndex = page.nextCursor !== undefined ? providerIndex : providerIndex + 1;
-      const nextProvider = providers[nextProviderIndex];
-      const nextCursor = nextProvider
-        ? encodeCursor(
-            {
-              v: 2,
-              e: expiresAt,
-              k: options.kind,
-              g: generation,
-              f: filter,
-              p: createHmac('sha256', cursorSecret).update(nextProvider.id).digest('base64url'),
-              u: page.nextCursor,
-              x: encodeFailurePositions(failures, providers.length),
-            },
-            scope,
-            runtimeNonce,
-          )
-        : undefined;
+      if (itemOffset > page.items.length) invalidCursor('malformed');
+      const remaining = itemOffset === 0 ? page.items : page.items.slice(itemOffset);
+      const count = budget ? takeWithinBudget(remaining, budget, RESPONSE_ENVELOPE_RESERVE).count : remaining.length;
+      if (count === 0 && remaining.length > 0) throw new CapabilityResponseBudgetError();
+      const nextCursor =
+        count < remaining.length
+          ? cursorAt(providerIndex, upstreamCursor, itemOffset + count)
+          : cursorAt(page.nextCursor !== undefined ? providerIndex : providerIndex + 1, page.nextCursor, 0);
 
-      if (page.items.length > 0 || page.nextCursor !== undefined) {
-        return { items: page.items, nextCursor, _meta: partialMeta(failures, generation) };
+      if (remaining.length > 0 || page.nextCursor !== undefined) {
+        return {
+          items: count === remaining.length ? remaining : remaining.slice(0, count),
+          nextCursor,
+          _meta: partialMeta(failures, generation),
+        };
       }
       providerIndex += 1;
       upstreamCursor = undefined;
+      itemOffset = 0;
     } catch (error) {
-      if (error instanceof CapabilityCursorCapacityError) throw error;
+      if (abortsWalk(error)) throw error;
       if (!failures.includes(providerIndex)) failures.push(providerIndex);
       providerIndex += 1;
       upstreamCursor = undefined;
+      itemOffset = 0;
     }
   }
 

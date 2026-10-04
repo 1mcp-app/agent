@@ -1,6 +1,7 @@
 import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { getRequestSession, resolveCapabilityVisibility } from '@src/core/protocol/requestHandlerUtils.js';
 import { InboundConnection } from '@src/core/types/index.js';
+import { RESPONSE_JSON_VALUE_LIMITS } from '@src/sdk/contracts/index.js';
 import {
   type LegacyOutboundConnections,
   requestLegacyOutbound,
@@ -48,6 +49,7 @@ export function registerResourceHandlers(
       const result = await snapshot.list('resources', {
         cursor: request.params?.cursor,
         enablePagination: inboundConn.enablePagination ?? false,
+        responseBudget: { limits: RESPONSE_JSON_VALUE_LIMITS },
       });
       return {
         resources: result.items,
@@ -68,6 +70,7 @@ export function registerResourceHandlers(
       const result = await snapshot.list('resourceTemplates', {
         cursor: request.params?.cursor,
         enablePagination: inboundConn.enablePagination ?? false,
+        responseBudget: { limits: RESPONSE_JSON_VALUE_LIMITS },
       });
       return {
         resourceTemplates: result.items,

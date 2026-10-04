@@ -1,6 +1,7 @@
 import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { getRequestSession, resolveCapabilityVisibility } from '@src/core/protocol/requestHandlerUtils.js';
 import { InboundConnection } from '@src/core/types/index.js';
+import { RESPONSE_JSON_VALUE_LIMITS } from '@src/sdk/contracts/index.js';
 import {
   type LegacyOutboundConnections,
   requestLegacyOutbound,
@@ -35,7 +36,11 @@ export function registerPromptHandlers(outboundConns: LegacyOutboundConnections,
         );
       const result = await (
         await acquire(request.params?.cursor)
-      ).list('prompts', { cursor: request.params?.cursor, enablePagination: inboundConn.enablePagination ?? false });
+      ).list('prompts', {
+        cursor: request.params?.cursor,
+        enablePagination: inboundConn.enablePagination ?? false,
+        responseBudget: { limits: RESPONSE_JSON_VALUE_LIMITS },
+      });
       return {
         prompts: result.items,
         ...(result.nextCursor === undefined ? {} : { nextCursor: result.nextCursor }),
