@@ -20,6 +20,14 @@ _Avoid_: Runtime-Backed Command, remote serve command
 The long-lived control process for one **Runtime Scope** that owns at most one **Background Aggregated Runtime** and can replace it after unexpected termination. It does not expose **Client Surfaces** and is not itself an **Aggregated Runtime**.
 _Avoid_: second runtime, background runtime, watchdog
 
+**Scheduled Runtime Recovery**:
+An operator-enabled policy that periodically attempts to start a stopped **Aggregated Runtime** through its operating-system scheduled task, including after a clean exit or deliberate stop. It is distinct from **Background Runtime Supervisor** recovery and does not replace a live runtime based on health.
+_Avoid_: watchdog, health-based restart, background supervision
+
+**Scheduled Runtime Maintenance**:
+An operator-controlled period in which a runtime's scheduled task is disabled before shutdown so automatic launches remain suspended until explicitly restored.
+_Avoid_: temporary stop, crash-loop recovery
+
 **Runtime Upgrade**:
 Activation of an already-installed 1MCP version by replacing the **Background Runtime Supervisor** and its **Background Aggregated Runtime** in one **Runtime Scope**.
 _Avoid_: package installation, backend restart
@@ -119,6 +127,30 @@ _Avoid_: command setup, connection helper, proxy setup
 **Request Context**:
 Project, user, environment, and optional transport data supplied by a caller so the **Aggregated Runtime** can resolve contextual behavior.
 _Avoid_: metadata, payload extras
+
+**Project Checkout**:
+A source tree selected as a project target for 1MCP, including a standalone repository or a linked Git worktree. Checkouts of the same repository remain distinct targets.
+_Avoid_: config root, main repository
+
+**Project Configuration Source**:
+The origin of defaults used for a **Project Checkout**. Sharing those defaults does not change which checkout is targeted.
+_Avoid_: project identity, project target
+
+**Cross-Project Work**:
+One feature or task involving multiple **Project Checkouts** in the same agent session, through separate calls, delegated agents, or a tool operation involving several checkouts.
+_Avoid_: runtime switching, shared project root
+
+**Project Set**:
+A labeled collection of **Project Checkouts** selected for **Cross-Project Work** in one agent session. Its definition may be saved for reuse.
+_Avoid_: shared project root, current runtime
+
+**Project Selection**:
+The **Project Checkout** or members of a **Project Set** chosen for one 1MCP operation. A selection containing several checkouts requires a tool with native support for that operation.
+_Avoid_: runtime target, active project
+
+**Worker Project Assignment**:
+The **Project Checkout** or **Project Set** explicitly identified for a delegated agent's work. Each worker retains its intended source targets independently of other workers.
+_Avoid_: parent working directory, global active project
 
 **Trusted Request Context**:
 A **Request Context** that the **Aggregated Runtime** has authorized for **Template Server** rendering under its current **Template Context Trust Mode**. Decoding or logging a Request Context does not make it trusted.
@@ -220,7 +252,7 @@ The opaque, stateless, versioned position used to continue one **Capability Pagi
 _Avoid_: page number, stored cursor session
 
 **Partial Capability Walk**:
-A **Capability Pagination Walk** that continues past one or more provider listing failures and returns healthy capabilities with structured completeness and recovery facts.
+A **Capability Pagination Walk** that returns healthy capabilities despite provider listing failures or individual upstream tools withheld because schema admission timed out, with structured completeness and recovery facts.
 _Avoid_: successful fallback, silent skip
 
 **Capability Refresh**:
@@ -264,6 +296,22 @@ _Avoid_: static server list, template server list, filtered server type
 **OAuth Authorization Flow**:
 The security-sensitive process that turns authorization requests, consent decisions, and localhost CLI token requests into OAuth redirects, authorization codes, access tokens, and explicitly requested refresh tokens.
 _Avoid_: OAuth route logic, storage mutation, token helper
+
+**Upstream OAuth Authority**:
+The authorization identity under which a **Runtime Scope** uses credentials for a configured upstream source, validated issuer, protected resource, and destination. It is independent of display names and inbound client or session identity.
+_Avoid_: OAuth server name, incoming client token, transport credentials
+
+**Upstream Authorization Attempt**:
+One pending outbound OAuth authorization with its **Upstream OAuth Authority**, callback state, PKCE verifier, redirect, and expiry. It is distinct from inbound consent and process-local Tool interactions.
+_Avoid_: OAuth session, backend callback route, interaction continuation
+
+**Operational Telemetry**:
+Runtime-owned traces, metrics, and typed operational events describing execution health and performance through bounded, approved facts. It is distinct from product usage analytics and **Managed Backend Log** diagnosis.
+_Avoid_: analytics, backend logs, raw request logging
+
+**Typed Telemetry Event**:
+A runtime instrumentation record with a fixed message and explicitly approved, bounded attributes.
+_Avoid_: arbitrary logger metadata, sanitized payload dump, free-form error event
 
 **Refresh Token Family**:
 The sequence of rotating refresh tokens descended from one approved OAuth authorization, with at most one active member.
@@ -432,6 +480,10 @@ _Avoid_: raw wire dump, traffic log
 - **Filter Selection** provides filtering intent consumed by **Capability Visibility**.
 - Filtering applies to a **Server Candidate Set** for one **Request Session**.
 - A **Server Candidate Set** can include static servers and session-available **Template Server Instances**.
+- An **Upstream Authorization Attempt** belongs to exactly one **Upstream OAuth Authority**.
+- An **Upstream OAuth Authority** uses credentials owned by one **Runtime Scope** independently of inbound client authorization.
+- **Operational Telemetry** includes **Typed Telemetry Events** from runtime-owned instrumentation.
+- **Managed Backend Logs** remain a local diagnostic domain; their payloads and source identities do not belong to **Operational Telemetry**.
 - An **OAuth Authorization Flow** can create authorization codes or access tokens.
 - An **OAuth Authorization Flow** issues a refresh token only when the registered client requests the `refresh_token` grant.
 - A **Refresh Token Family** belongs to the registered client that received it.

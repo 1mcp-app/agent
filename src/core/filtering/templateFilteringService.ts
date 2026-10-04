@@ -38,32 +38,18 @@ export class TemplateFilteringService {
     templates: Array<[string, MCPServerParams]>,
     config: InboundConnectionConfig,
   ): Array<[string, MCPServerParams]> {
-    debugIf(() => ({
-      message: 'TemplateFilteringService: Filtering templates',
-      meta: {
-        totalTemplates: templates.length,
-        filterMode: config.tagFilterMode,
-        tags: config.tags,
-        hasTagExpression: !!config.tagExpression,
-        hasTagQuery: !!config.tagQuery,
-        presetName: config.presetName,
-      },
-    }));
+    debugIf(() => ({ message: 'templateFilteringService.templatefilteringservice.filtering.templates.2419e4ac' }));
 
     const filterOptions = this.extractFilterOptions(config);
 
     // Check for preset name filtering first (highest priority)
     if (filterOptions.presetName) {
-      debugIf(() => ({
-        message: `TemplateFilteringService: Filtering by preset: ${filterOptions.presetName}`,
-        meta: { presetName: filterOptions.presetName },
-      }));
+      debugIf(() => ({ message: 'templateFilteringService.templatefilteringservice.filtering.by.preset.e1c2a17b' }));
 
       // If we have a tagQuery from the preset, use it instead of simple preset name matching
       if (config.tagQuery) {
         debugIf(() => ({
-          message: `TemplateFilteringService: Using preset tag query for filtering`,
-          meta: { presetName: filterOptions.presetName, tagQuery: config.tagQuery },
+          message: 'templateFilteringService.templatefilteringservice.using.preset.tag.query.for.filtering.22fe77a8',
         }));
         return this.byTagQuery(config.tagQuery)(templates);
       } else {
@@ -73,7 +59,9 @@ export class TemplateFilteringService {
     }
 
     if (!filterOptions.mode || filterOptions.mode === 'none') {
-      debugIf('TemplateFilteringService: No filtering specified, returning all templates');
+      debugIf(
+        'templateFilteringService.templatefilteringservice.no.filtering.specified.returning.all.templates.72b5c81d',
+      );
       return templates;
     }
 
@@ -81,12 +69,11 @@ export class TemplateFilteringService {
     const filteredTemplates = filter(templates);
 
     debugIf(() => ({
-      message: 'TemplateFilteringService: Filtering completed',
+      message: 'templateFilteringService.templatefilteringservice.filtering.completed.33a5ef8e',
       meta: {
         originalCount: templates.length,
         filteredCount: filteredTemplates.length,
         removedCount: templates.length - filteredTemplates.length,
-        filteredNames: filteredTemplates.map(([name]) => name),
       },
     }));
 
@@ -131,19 +118,20 @@ export class TemplateFilteringService {
   public static byTags(tags?: string[]): TemplateFilter {
     return (templates: Array<[string, MCPServerParams]>) => {
       debugIf(() => ({
-        message: `TemplateFilteringService.byTags: Filtering for tags: ${tags ? tags.join(', ') : 'none'}`,
-        meta: { tags },
+        message: 'templateFilteringService.templatefilteringservice.bytags.filtering.for.tags.9f2765ca',
       }));
 
       if (!tags || tags.length === 0) {
-        debugIf('TemplateFilteringService.byTags: No tags specified, returning all templates');
+        debugIf(
+          'templateFilteringService.templatefilteringservice.bytags.no.tags.specified.returning.all.templates.5544bcda',
+        );
         return templates;
       }
 
       // Normalize the filter tags for consistent comparison
       const normalizedFilterTags = tags.map((tag) => normalizeTag(tag));
 
-      return templates.filter(([name, config]) => {
+      return templates.filter(([_name, config]) => {
         const templateTags = config.tags || [];
         // Normalize template tags for comparison
         const normalizedTemplateTags = templateTags.map((tag) => normalizeTag(tag));
@@ -151,16 +139,7 @@ export class TemplateFilteringService {
           normalizedFilterTags.includes(templateTag),
         );
 
-        debugIf(() => ({
-          message: `TemplateFilteringService.byTags: Template ${name}`,
-          meta: {
-            templateTags,
-            normalizedTemplateTags,
-            requiredTags: tags,
-            normalizedRequiredTags: normalizedFilterTags,
-            hasMatchingTags,
-          },
-        }));
+        debugIf(() => ({ message: 'templateFilteringService.templatefilteringservice.bytags.template.41ff62f8' }));
 
         return hasMatchingTags;
       });
@@ -173,22 +152,14 @@ export class TemplateFilteringService {
   public static byPreset(presetName: string): TemplateFilter {
     return (templates: Array<[string, MCPServerParams]>) => {
       debugIf(() => ({
-        message: `TemplateFilteringService.byPreset: Filtering for preset: ${presetName}`,
-        meta: { presetName },
+        message: 'templateFilteringService.templatefilteringservice.bypreset.filtering.for.preset.920b4f6f',
       }));
 
-      return templates.filter(([name, config]) => {
+      return templates.filter(([_name, config]) => {
         const templateTags = config.tags || [];
         const hasPresetTag = templateTags.includes(presetName);
 
-        debugIf(() => ({
-          message: `TemplateFilteringService.byPreset: Template ${name}`,
-          meta: {
-            templateTags,
-            presetName,
-            hasPresetTag,
-          },
-        }));
+        debugIf(() => ({ message: 'templateFilteringService.templatefilteringservice.bypreset.template.5819a00b' }));
 
         return hasPresetTag;
       });
@@ -201,8 +172,7 @@ export class TemplateFilteringService {
   public static byTagExpression(expression: TagExpression | string): TemplateFilter {
     return (templates: Array<[string, MCPServerParams]>) => {
       debugIf(() => ({
-        message: `TemplateFilteringService.byTagExpression: Filtering with expression: ${expression}`,
-        meta: { expression },
+        message: 'templateFilteringService.templatefilteringservice.bytagexpression.filtering.with.expression.262b994c',
       }));
 
       let parsedExpression;
@@ -210,27 +180,22 @@ export class TemplateFilteringService {
         try {
           parsedExpression = TagQueryParser.parseAdvanced(expression);
         } catch (error) {
-          logger.warn(`TemplateFilteringService.byTagExpression: Failed to parse expression: ${expression}`, {
-            error: error instanceof Error ? error.message : 'Unknown error',
-            expression,
-          });
+          logger.warn(
+            'templateFilteringService.templatefilteringservice.bytagexpression.failed.to.parse.expression.ff6c19a4',
+            { error: error },
+          );
           return templates; // Return all templates on parse error
         }
       } else {
         parsedExpression = expression; // Use TagExpression directly
       }
 
-      return templates.filter(([name, config]) => {
+      return templates.filter(([_name, config]) => {
         const templateTags = config.tags || [];
         const matches = TagQueryParser.evaluate(parsedExpression, templateTags);
 
         debugIf(() => ({
-          message: `TemplateFilteringService.byTagExpression: Template ${name}`,
-          meta: {
-            templateTags,
-            expression: TagQueryParser.expressionToString(parsedExpression),
-            matches,
-          },
+          message: 'templateFilteringService.templatefilteringservice.bytagexpression.template.d8360e6c',
         }));
 
         return matches;
@@ -244,32 +209,25 @@ export class TemplateFilteringService {
   public static byTagQuery(query: TagQuery): TemplateFilter {
     return (templates: Array<[string, MCPServerParams]>) => {
       debugIf(() => ({
-        message: 'TemplateFilteringService.byTagQuery: Filtering with tag query',
-        meta: { query },
+        message: 'templateFilteringService.templatefilteringservice.bytagquery.filtering.with.tag.query.e9c3aae4',
       }));
 
-      return templates.filter(([name, config]) => {
+      return templates.filter(([_name, config]) => {
         const templateTags = config.tags || [];
 
         try {
           const matches = TagQueryEvaluator.evaluate(query, templateTags);
 
           debugIf(() => ({
-            message: `TemplateFilteringService.byTagQuery: Template ${name} ${matches ? 'matches' : 'does not match'} query`,
-            meta: {
-              templateTags,
-              query,
-              matches,
-            },
+            message: 'templateFilteringService.templatefilteringservice.bytagquery.template.query.a18b625d',
           }));
 
           return matches;
         } catch (error) {
-          logger.warn(`TemplateFilteringService.byTagQuery: Failed to evaluate query for template ${name}`, {
-            error: error instanceof Error ? error.message : 'Unknown error',
-            templateTags,
-            query,
-          });
+          logger.warn(
+            'templateFilteringService.templatefilteringservice.bytagquery.failed.to.evaluate.query.for.template.c9b2438d',
+            { error: error },
+          );
           return false; // Exclude template on evaluation error
         }
       });
@@ -282,34 +240,23 @@ export class TemplateFilteringService {
   public static combineFilters(...filters: TemplateFilter[]): TemplateFilter {
     return (templates: Array<[string, MCPServerParams]>) => {
       debugIf(() => ({
-        message: `TemplateFilteringService.combineFilters: Starting with ${templates.length} templates`,
-        meta: {
-          templateNames: templates.map(([name]) => name),
-          filterCount: filters.length,
-        },
+        message: 'templateFilteringService.templatefilteringservice.combinefilters.starting.with.templates.75cef24a',
+        meta: { filterCount: filters.length },
       }));
 
-      const result = filters.reduce((remainingTemplates, filter, index) => {
-        const beforeCount = remainingTemplates.length;
+      const result = filters.reduce((remainingTemplates, filter, _index) => {
         const afterFiltering = filter(remainingTemplates);
-        const afterCount = afterFiltering.length;
 
         debugIf(() => ({
-          message: `TemplateFilteringService.combineFilters: Filter ${index} reduced templates from ${beforeCount} to ${afterCount}`,
-          meta: {
-            beforeNames: remainingTemplates.map(([name]) => name),
-            afterNames: afterFiltering.map(([name]) => name),
-          },
+          message:
+            'templateFilteringService.templatefilteringservice.combinefilters.filter.reduced.templates.from.to.9398ece6',
         }));
 
         return afterFiltering;
       }, templates);
 
       debugIf(() => ({
-        message: `TemplateFilteringService.combineFilters: Final result has ${result.length} templates`,
-        meta: {
-          finalNames: result.map(([name]) => name),
-        },
+        message: 'templateFilteringService.templatefilteringservice.combinefilters.final.result.has.templates.8bbd9345',
       }));
 
       return result;

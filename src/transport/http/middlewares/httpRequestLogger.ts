@@ -1,36 +1,13 @@
 import logger from '@src/logger/logger.js';
-import {
-  redactTemplateContextBodyForLogging,
-  redactTemplateContextQueryForLogging,
-} from '@src/transport/http/utils/templateContextAuthority.js';
-import { sanitizeHeaders } from '@src/utils/validation/sanitization.js';
 
 import { NextFunction, Request, Response } from 'express';
 
-/**
- * HTTP request logging middleware that provides comprehensive request/response logging
- *
- * Features:
- * - Logs all HTTP requests with method, URL, headers, query, and body
- * - Tracks request duration for performance monitoring
- * - Sanitizes sensitive headers for security
- * - Unified logging format replacing manual route-level logging
- *
- * @param req Express request object
- * @param res Express response object
- * @param next Express next function
- */
+/** Log request lifecycle with approved numeric facts; request payloads never enter logging. */
 export function httpRequestLogger(req: Request, res: Response, next: NextFunction): void {
   const startTime = Date.now();
 
   // Log the incoming request
-  logger.info(`[${req.method}] ${req.path}`, {
-    query: redactTemplateContextQueryForLogging(req.query),
-    body: redactTemplateContextBodyForLogging(req.body),
-    headers: sanitizeHeaders(req.headers),
-    userAgent: req.get('User-Agent'),
-    ip: req.ip,
-  });
+  logger.info('httpRequestLogger.diagnostic.ed4616ea', { method: req.method });
 
   // Capture the original end method to log response details
   const originalEnd = res.end.bind(res);
@@ -42,12 +19,8 @@ export function httpRequestLogger(req: Request, res: Response, next: NextFunctio
     const duration = Date.now() - startTime;
 
     // Log response details
-    const contentType = res.get('Content-Type');
-    logger.info(`[${req.method}] ${req.path} completed`, {
-      statusCode: res.statusCode,
-      duration: `${duration}ms`,
-      contentType: Array.isArray(contentType) ? contentType.join(', ') : contentType || undefined,
-    });
+
+    logger.info('httpRequestLogger.completed.0faf4b4c', { statusCode: res.statusCode, duration });
 
     // Call the original end method with proper argument typing
     // Reason: Express.js end method accepts variable arguments; any is required for compatibility

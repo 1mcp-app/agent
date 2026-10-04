@@ -145,7 +145,7 @@ export class HealthService {
       // Apply security configuration to sanitize response
       return this.sanitizeHealthResponse(fullResponse);
     } catch (error) {
-      logger.error('Health check failed:', error);
+      logger.error('healthService.health.check.failed.6a360f57', { error: error });
       throw error;
     }
   }
@@ -369,7 +369,7 @@ export class HealthService {
         details: serverDetails,
       };
     } catch (error) {
-      logger.error('Error getting server health:', error);
+      logger.error('healthService.error.getting.server.health.ff87a2d7', { error: error });
       return {
         total: 0,
         healthy: 0,
@@ -401,7 +401,7 @@ export class HealthService {
         transport: 'http', // Since this is the HTTP transport layer
       };
     } catch (error) {
-      logger.error('Error getting configuration health:', error);
+      logger.error('healthService.error.getting.configuration.health.dcd7cc00', { error: error });
       return {
         loaded: false,
         serverCount: 0,

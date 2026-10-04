@@ -28,7 +28,7 @@ function normalizeRegistryServerId(registryId: string): string {
     throw new Error(`Registry server ID has invalid format: ${registryId}`);
   }
 
-  logger.debug(`Registry server ID validation passed: ${trimmedId}`);
+  logger.debug('installSource.registry.server.id.validation.passed.96ae738a');
   return trimmedId;
 }
 
@@ -50,7 +50,7 @@ export function deriveLocalServerName(registryId: string): string {
     sanitized = 'server';
   }
 
-  logger.debug(`Derived local server name '${sanitized}' from registry ID '${registryId}'`);
+  logger.debug('installSource.derived.local.server.name.from.registry.id.b62d5b61');
   return sanitized;
 }
 

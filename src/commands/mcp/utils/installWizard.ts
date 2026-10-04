@@ -66,7 +66,7 @@ export class InstallWizard {
         try {
           selectedServer = await this.registryClient.getServerById(serverId);
         } catch (error) {
-          logger.error('Failed to fetch server details', { serverId, error });
+          logger.error('installWizard.failed.to.fetch.server.details.4c06cdb1', { serverId: serverId, error: error });
           printer.raw(
             boxen(chalk.red.bold(`❌ Server '${serverId}' not found in registry`), {
               padding: 1,
@@ -141,7 +141,7 @@ export class InstallWizard {
         forceOverride: config.forceOverride,
       };
     } catch (error) {
-      logger.error('Wizard failed', { error });
+      logger.error('installWizard.wizard.failed.b5b2ad8d', { error: error });
       printer.raw(
         boxen(chalk.red.bold('❌ Installation wizard failed - see logs for details'), {
           padding: 1,

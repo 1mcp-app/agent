@@ -134,7 +134,9 @@ describe('OAuthFlowHandler', () => {
       const url = oauthFlowHandler.extractAuthorizationUrl(mockTransport as any);
 
       expect(url).toBeUndefined();
-      expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Could not extract authorization URL'));
+      expect(logger.warn).toHaveBeenCalledWith('oauthFlowHandler.could.not.extract.authorization.url.f9cc0cc9', {
+        error: expect.any(Error),
+      });
     });
   });
 
@@ -444,7 +446,7 @@ describe('OAuthFlowHandler', () => {
         ),
       ).rejects.toThrow('Connection failed');
 
-      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('OAuth reconnection failed'));
+      expect(logger.error).toHaveBeenCalledWith('oauthFlowHandler.oauth.reconnection.failed.for.4dd2fa2f');
     });
 
     it('should preserve existing instructions', async () => {

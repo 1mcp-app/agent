@@ -13,7 +13,6 @@ import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import { sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
 import { CONNECTION_RETRY, MCP_SERVER_NAME } from '@src/constants.js';
-import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { ClientConnectionError, NonRetryableClientConnectionError } from '@src/utils/core/errorTypes.js';
 import { getConnectionTimeout } from '@src/utils/core/timeoutUtils.js';
@@ -77,7 +76,7 @@ export class ConnectionHandler {
           throw new ClientConnectionError(name, new Error('Aborted to prevent circular dependency'));
         }
 
-        logger.info(`Successfully connected to ${name} with server ${sv?.name} version ${sv?.version}`);
+        logger.info('connectionHandler.successfully.connected.to.with.server.version.6ee89a19');
         return { client: currentClient, transport: currentTransport as AuthProviderTransport };
       } catch (error) {
         if (
@@ -85,14 +84,13 @@ export class ConnectionHandler {
           error instanceof ModernUnauthorizedError ||
           (error instanceof SdkError && error.code === SdkErrorCode.ClientHttpAuthentication)
         ) {
-          const configManager = AgentConfigManager.getInstance();
-          logger.info(`OAuth authorization required for ${name}. Visit ${configManager.getUrl()}/oauth to authorize`);
+          logger.info('connectionHandler.oauth.authorization.required.for.visit.oauth.to.authorize.875e3320');
           throw new OAuthRequiredError(name, currentClient, currentTransport as AuthProviderTransport);
         }
 
         const nonRetryableOAuthError = isNonRetryableOAuthError(error);
         const safeError = sanitizeRuntimeScopeError(error);
-        logger.error(`Failed to connect to ${name}: ${safeError.message}`);
+        logger.error('connectionHandler.failed.to.connect.to.d9f2b821', { error: error });
 
         if (
           nonRetryableOAuthError ||
@@ -113,16 +111,15 @@ export class ConnectionHandler {
           throw new ClientConnectionError(name, safeError);
         }
 
-        logger.info(`Retrying in ${retryDelay}ms...`);
+        logger.info('connectionHandler.retrying.in.ms.0a9db4e6');
 
         if (ownsReplacementCandidate) {
           await this.disposeFailedCandidate(currentClient, currentTransport as AuthProviderTransport);
         } else {
           try {
             await currentTransport.close();
-          } catch (closeError) {
-            const safeCloseError = sanitizeRuntimeScopeError(closeError);
-            debugIf(() => ({ message: `Error closing transport during retry: ${safeCloseError}` }));
+          } catch (_closeError) {
+            debugIf(() => ({ message: 'connectionHandler.error.closing.transport.during.retry.d23eee71' }));
           }
         }
 
@@ -169,8 +166,7 @@ export class ConnectionHandler {
     const outcomes = await Promise.allSettled([client.close(), transport.close()]);
     for (const outcome of outcomes) {
       if (outcome.status === 'rejected') {
-        const safeError = sanitizeRuntimeScopeError(outcome.reason);
-        debugIf(() => ({ message: `Error closing failed retry candidate: ${safeError}` }));
+        debugIf(() => ({ message: 'connectionHandler.error.closing.failed.retry.candidate.648a7c0b' }));
       }
     }
   }

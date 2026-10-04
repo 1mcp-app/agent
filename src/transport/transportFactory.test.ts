@@ -146,7 +146,7 @@ describe('TransportFactory', () => {
       const transports = createTransports(config);
 
       expect(Object.keys(transports)).toEqual(['enabled-server']);
-      expect(debugIf).toHaveBeenCalledWith('Skipping disabled transport: disabled-server');
+      expect(debugIf).toHaveBeenCalledWith('transportFactory.skipping.disabled.transport.73e8cdef');
       expect(getBackendLogBroker().snapshot().sources).toContainEqual(
         expect.objectContaining({ id: 'static:disabled-server', lifecycle: 'ended', capture: 'managed' }),
       );
@@ -200,13 +200,14 @@ describe('TransportFactory', () => {
 
       createTransports(config);
 
-      expect(logger.warn).toHaveBeenCalledWith('Transport type is missing for stdio-inferred, inferring type...');
-      expect(logger.warn).toHaveBeenCalledWith('Transport type is missing for sse-inferred, inferring type...');
-      expect(logger.warn).toHaveBeenCalledWith('Transport type is missing for http-inferred, inferring type...');
+      expect(logger.warn).toHaveBeenCalledTimes(3);
+      expect(logger.warn).toHaveBeenCalledWith('transportFactory.transport.type.is.missing.for.inferring.type.9480baa6');
 
-      expect(logger.info).toHaveBeenCalledWith('Inferred transport type for stdio-inferred as stdio');
-      expect(logger.info).toHaveBeenCalledWith('Inferred transport type for sse-inferred as sse');
-      expect(logger.info).toHaveBeenCalledWith('Inferred transport type for http-inferred as http/streamableHttp');
+      expect(logger.info).toHaveBeenCalledWith('transportFactory.inferred.transport.type.for.as.stdio.872f7bbf');
+      expect(logger.info).toHaveBeenCalledWith('transportFactory.inferred.transport.type.for.as.sse.cb39afb8');
+      expect(logger.info).toHaveBeenCalledWith(
+        'transportFactory.inferred.transport.type.for.as.http.streamablehttp.a04e00f3',
+      );
     });
 
     it('should create OAuth providers for HTTP-based transports', () => {
@@ -329,7 +330,10 @@ describe('TransportFactory', () => {
       });
 
       expect(() => createTransports(config)).toThrow();
-      expect(logger.error).toHaveBeenCalledWith('Invalid transport configuration for invalid-server:', zodError.issues);
+      expect(logger.error).toHaveBeenCalledWith(
+        'transportFactory.invalid.transport.configuration.for.16ba9e31',
+        { error: zodError },
+      );
     });
 
     it('should handle general errors', () => {
@@ -347,7 +351,7 @@ describe('TransportFactory', () => {
       });
 
       expect(() => createTransports(config)).toThrow();
-      expect(logger.error).toHaveBeenCalledWith('Error creating transport error-server:', error);
+      expect(logger.error).toHaveBeenCalledWith('transportFactory.error.creating.transport.41b4df19', { error });
     });
 
     it('should throw error for missing URL in SSE transport', () => {
@@ -512,7 +516,7 @@ describe('TransportFactory', () => {
 
       createTransports(config);
 
-      expect(debugIf).toHaveBeenCalledWith('Created transport: test-server');
+      expect(debugIf).toHaveBeenCalledWith('transportFactory.created.transport.ceb8aba0');
     });
 
     it('should attach runtime-owned supervision with custom maxRestarts and restartDelay', () => {
@@ -538,7 +542,9 @@ describe('TransportFactory', () => {
         maxRestarts: 5,
         restartDelay: 2000,
       });
-      expect(logger.info).toHaveBeenCalledWith('Enabling runtime-owned stdio supervision for: restartable-server');
+      expect(logger.info).toHaveBeenCalledWith(
+        'transportFactory.enabling.runtime.owned.stdio.supervision.for.2c7492df',
+      );
     });
 
     it('marks a supervised stdio source active again when recreating the transport', async () => {
@@ -609,7 +615,9 @@ describe('TransportFactory', () => {
 
       expect(Object.keys(transports)).toEqual(['unlimited-restarts']);
       expect(transports['unlimited-restarts'].stdioSupervision?.policy.maxRestarts).toBeUndefined();
-      expect(logger.info).toHaveBeenCalledWith('Enabling runtime-owned stdio supervision for: unlimited-restarts');
+      expect(logger.info).toHaveBeenCalledWith(
+        'transportFactory.enabling.runtime.owned.stdio.supervision.for.2c7492df',
+      );
     });
   });
 });

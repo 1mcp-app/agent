@@ -5,20 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.39.0-beta.1] - 2026-09-27
+## [0.39.0-beta.3] - 2026-10-04
 
 ### 🚀 Features
+- Add ADRs for upstream schema timeouts, scheduled runtime recovery, project checkout identity, and operational telemetry by @xizhibei
+- Typed private events and exporter-free propagation by @xizhibei in [#585](https://github.com/1mcp-app/agent/pull/585)
+- Opt-in scheduled runtime recovery by @xizhibei in [#584](https://github.com/1mcp-app/agent/pull/584)
+- Isolate listeners and translate notifications across protocol eras by @xizhibei in [#555](https://github.com/1mcp-app/agent/pull/555)
 - Add visible tool search by @xizhibei in [#556](https://github.com/1mcp-app/agent/pull/556)
 - Support cooperative installed-version upgrades by @xizhibei in [#552](https://github.com/1mcp-app/agent/pull/552)
 - Translate bounded interactions across protocol eras by @xizhibei in [#536](https://github.com/1mcp-app/agent/pull/536)
 - Enforce isolated multi-dialect validation by @xizhibei in [#535](https://github.com/1mcp-app/agent/pull/535)
 
 ### 🐛 Bug Fixes
+- Page aggregated lists within response limits by @lenstr in [#578](https://github.com/1mcp-app/agent/pull/578)
+- Resume cursors across stateless sessions by @lenstr in [#581](https://github.com/1mcp-app/agent/pull/581)
+- Keep meta-tools working after startup and idle periods by @lenstr in [#580](https://github.com/1mcp-app/agent/pull/580)
+- Classify modern probes by protocol era by @Hasnaathussain in [#557](https://github.com/1mcp-app/agent/pull/557)
+- Allow unpinned private interaction calls by @lenstr in [#579](https://github.com/1mcp-app/agent/pull/579)
+- Recover stale cooperative runtime on restart by @xizhibei in [#574](https://github.com/1mcp-app/agent/pull/574)
+- Restart after the drain deadline by default by @xizhibei in [#567](https://github.com/1mcp-app/agent/pull/567)
 - Recover stale cooperative runtime on macOS after unclean shutdown by @xizhibei in [#563](https://github.com/1mcp-app/agent/pull/563)
 - Recover a lost session the backend reports as an unknown Mcp-Session-Id by @cq-guojia in [#550](https://github.com/1mcp-app/agent/pull/550)
 - Stabilize macOS restart and clarify lifecycle recovery by @xizhibei in [#551](https://github.com/1mcp-app/agent/pull/551)
 - Authenticate cursors and prevent duplicate dispatch by @xizhibei in [#534](https://github.com/1mcp-app/agent/pull/534)
 
+### ⚡ Performance
+- Reuse compile verdicts across acquisitions by @lenstr in [#582](https://github.com/1mcp-app/agent/pull/582)
+
+## New Contributors
+* @lenstr made their first contribution in [#578](https://github.com/1mcp-app/agent/pull/578)
+* @Hasnaathussain made their first contribution in [#557](https://github.com/1mcp-app/agent/pull/557)
 
 ## [0.38.2] - 2026-09-19
 
@@ -1197,7 +1214,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * @xizhibei made their first contribution in [#1](https://github.com/1mcp-app/agent/pull/1)
 * @dependabot[bot] made their first contribution
 
-[0.39.0-beta.1]: https://github.com/1mcp-app/agent/compare/v0.38.2..v0.39.0-beta.1
+[0.39.0-beta.3]: https://github.com/1mcp-app/agent/compare/v0.38.2..v0.39.0-beta.3
 [0.38.2]: https://github.com/1mcp-app/agent/compare/v0.38.1..v0.38.2
 [0.38.1]: https://github.com/1mcp-app/agent/compare/v0.38.0..v0.38.1
 [0.38.0]: https://github.com/1mcp-app/agent/compare/v0.37.0..v0.38.0

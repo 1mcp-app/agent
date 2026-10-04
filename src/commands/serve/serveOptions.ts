@@ -21,8 +21,8 @@ export function parseInternalToolsList(value?: string): string[] {
 
   try {
     return FlagManager.getInstance().parseToolsList(value);
-  } catch (error) {
-    logger.error(`Failed to parse internal-tools list: ${error instanceof Error ? error.message : String(error)}`);
+  } catch (_error) {
+    logger.error('serveOptions.failed.to.parse.internal.tools.list.ee9cd62e', { error: _error });
     process.exit(1);
   }
 }
@@ -38,16 +38,14 @@ export async function resolveStdioFilterConfig(parsedArgv: ServeOptions): Promis
     try {
       await presetManager.loadPresetsWithoutWatcher();
       presetLoaded = true;
-    } catch (error) {
-      logger.warn(
-        `Failed to load presets for '${parsedArgv.preset}': ${error instanceof Error ? error.message : 'Unknown error'}`,
-      );
+    } catch (_error) {
+      logger.warn('serveOptions.failed.to.load.presets.for.871e1a51', { error: _error });
     }
 
     if (presetLoaded && presetManager.hasPreset(parsedArgv.preset)) {
       selectorInput = { preset: parsedArgv.preset };
     } else if (presetLoaded) {
-      logger.warn(`Preset '${parsedArgv.preset}' not found, ignoring preset option`);
+      logger.warn('serveOptions.preset.not.found.ignoring.preset.option.78f04add');
     }
   }
 
@@ -76,32 +74,28 @@ export async function resolveStdioFilterConfig(parsedArgv: ServeOptions): Promis
     return null;
   }
 
-  for (const warning of result.selection.compatibility.tagWarnings) {
-    logger.warn(warning);
+  for (const _warning of result.selection.compatibility.tagWarnings) {
+    logger.warn('serveOptions.resolvestdiofilterconfig.diagnostic.5094434e');
   }
 
   if (result.selection.mode === 'preset') {
-    const preset = presetManager.getPreset(result.selection.presetName!);
-    logger.info(`Loaded preset '${result.selection.presetName}' for STDIO transport`, {
-      strategy: preset?.strategy,
-      tagQuery: result.selection.tagQuery,
-    });
+    logger.info('serveOptions.loaded.preset.for.stdio.transport.71846c5d');
   }
 
   return result.selection.runtimeConfig;
 }
 
 function logFilterSelectionError(error: FilterSelectionError): void {
-  logger.error(error.message);
+  logger.error('serveOptions.logfilterselectionerror.diagnostic.bf2602b0');
 
   if (error.code === 'invalid_preset' && error.details) {
-    logger.error('Preset tag query validation failed', error.details);
+    logger.error('serveOptions.preset.tag.query.validation.failed.0851ef3c');
   }
 
   if (error.code === 'invalid_selector' && error.selector === 'filter') {
-    logger.error('Examples:');
-    logger.error('  --filter "web,api,database"           # OR logic (comma-separated)');
-    logger.error('  --filter "web AND database"           # AND logic');
-    logger.error('  --filter "(web OR api) AND database"  # Complex expressions');
+    logger.error('serveOptions.examples.d9ecfb49');
+    logger.error('serveOptions.filter.web.api.database.or.logic.comma.separated.f732c461');
+    logger.error('serveOptions.filter.web.and.database.and.logic.558ce26c');
+    logger.error('serveOptions.filter.web.or.api.and.database.complex.expressions.4915f9cb');
   }
 }

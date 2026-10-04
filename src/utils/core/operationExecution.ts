@@ -25,14 +25,14 @@ export async function executeOperation<T>(
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
       if (i < retryCount) {
-        logger.info(`Retrying operation ${operation.name} on ${contextName} after ${retryDelay}ms`);
+        logger.info('operationExecution.retrying.operation.on.after.ms.983be1ef');
         await new Promise((resolve) => setTimeout(resolve, retryDelay));
       }
     }
   }
 
   // If we get here, we've exhausted all retries
-  logger.error(`Operation failed on ${contextName} after ${retryCount + 1} attempts: ${lastError}`);
+  logger.error('operationExecution.operation.failed.on.after.attempts.edadbce0');
 
   if (lastError instanceof MCPError) {
     throw lastError;

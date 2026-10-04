@@ -39,7 +39,7 @@ export async function testCommand(argv: TestArguments): Promise<void> {
 
     await previewPreset(argv.name, presetManager, selector);
   } catch (error) {
-    logger.error('Preset test command failed', { error });
+    logger.error('test.preset.test.command.failed.aa4ea1b8', { error: error });
     printer.error(`Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     process.exit(1);
   }

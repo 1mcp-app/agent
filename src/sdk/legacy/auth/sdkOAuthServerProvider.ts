@@ -44,7 +44,7 @@ function readCredential<T>(read: () => T): T {
     return read();
   } catch (error) {
     if (error instanceof InsecureFilePermissionsError) {
-      logger.error(`OAuth store refused insecure credential file: ${error.message}`);
+      logger.error('sdkOAuthServerProvider.oauth.store.refused.insecure.credential.file.49dbe688', { error: error });
       throw new ServerError('Credential storage is not owner-only and could not be repaired');
     }
     throw error;
@@ -61,7 +61,7 @@ async function readCredentialAsync<T>(read: () => Promise<T>): Promise<T> {
     return await read();
   } catch (error) {
     if (error instanceof InsecureFilePermissionsError) {
-      logger.error(`OAuth store refused insecure credential file: ${error.message}`);
+      logger.error('sdkOAuthServerProvider.oauth.store.refused.insecure.credential.file.49dbe688', { error: error });
       throw new ServerError('Credential storage is not owner-only and could not be repaired');
     }
     throw error;
@@ -100,10 +100,10 @@ class FileBasedClientsStore implements OAuthRegisteredClientsStore {
 
     try {
       this.oauthStorage.clientDataRepository.save(clientKey, client, ttlMs);
-      logger.info(`Registered OAuth client: ${client.client_id}`);
+      logger.info('sdkOAuthServerProvider.registered.oauth.client.1661d38f');
       return client;
     } catch (error) {
-      logger.error(`Failed to register client ${client.client_id}:`, error);
+      logger.error('sdkOAuthServerProvider.failed.to.register.client.6886b57e', { error: error });
       throw error;
     }
   }
@@ -140,7 +140,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
    * Handles the authorization request with scope validation and user consent
    */
   async authorize(client: OAuthClientInformationFull, params: AuthorizationParams, res: Response): Promise<void> {
-    logger.debug('Authorizing client', { clientId: client.client_id, params });
+    logger.debug('sdkOAuthServerProvider.authorizing.client.375bc6df', { clientId: client.client_id });
     try {
       // Get requested scopes (default to all available tags if none specified)
       const requestedScopes = params.scopes || [];
@@ -161,10 +161,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
           error: validation.errors.join(', '),
         });
 
-        logger.warn(`Invalid scopes requested by client ${client.client_id}`, {
-          requestedScopes: finalScopes,
-          errors: validation.errors,
-        });
+        logger.warn('sdkOAuthServerProvider.invalid.scopes.requested.by.client.cdde0cd5');
 
         res.status(400).json({
           error: 'invalid_scope',
@@ -184,7 +181,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
         await this.approveAuthorization(client, params, validation.validScopes, res);
       }
     } catch (error) {
-      logger.error('Authorization error:', error);
+      logger.error('sdkOAuthServerProvider.authorization.error.09b795f4', { error: error });
       res.status(500).json({ error: 'server_error', error_description: 'Internal server error' });
     }
   }
@@ -192,8 +189,8 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
   /**
    * Determines if user consent is required for the authorization
    */
-  private requiresUserConsent(client: OAuthClientInformationFull, scopes: string[]): boolean {
-    logger.debug('Requires user consent', { clientId: client.client_id, scopes });
+  private requiresUserConsent(client: OAuthClientInformationFull, _scopes: string[]): boolean {
+    logger.debug('sdkOAuthServerProvider.requires.user.consent.13e2955f', { clientId: client.client_id });
     // For now, always require user consent for security
     // In the future, this could be configurable based on client trust level
     return true;
@@ -236,7 +233,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
     grantedScopes: string[],
     res: Response,
   ): Promise<void> {
-    logger.debug('Approving authorization', { clientId: client.client_id, params, grantedScopes });
+    logger.debug('sdkOAuthServerProvider.approving.authorization.ff36652b', { clientId: client.client_id });
     // Create authorization code with granted scopes
     const ttlMs = this.configManager.get('auth').oauthCodeTtlMs;
     const code = this.oauthStorage.authCodeRepository.create(
@@ -262,10 +259,8 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
       success: true,
     });
 
-    logger.info(`OAuth authorization granted for client ${client.client_id}`, {
+    logger.info('sdkOAuthServerProvider.oauth.authorization.granted.for.client.d4fcb391', {
       clientId: client.client_id,
-      redirectUri: params.redirectUri,
-      grantedScopes,
     });
 
     res.redirect(redirectUrl.toString());
@@ -369,7 +364,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
    * Retrieves the PKCE challenge for an authorization code
    */
   async challengeForAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string): Promise<string> {
-    logger.debug('Challenge for authorization code', { clientId: client.client_id });
+    logger.debug('sdkOAuthServerProvider.challenge.for.authorization.code.9be5806a', { clientId: client.client_id });
 
     const codeData = readCredential(() => this.oauthStorage.authCodeRepository.get(authorizationCode));
     if (!codeData || codeData.clientId !== client.client_id) {
@@ -391,11 +386,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
     redirectUri?: string,
     resource?: URL,
   ): Promise<OAuthTokens> {
-    logger.debug('Exchanging authorization code', {
-      clientId: client.client_id,
-      redirectUri,
-      resource,
-    });
+    logger.debug('sdkOAuthServerProvider.exchanging.authorization.code.6ed093e7', { clientId: client.client_id });
 
     return this.oauthStorage.fileStorage.withExclusiveLock('auth-code-exchange', async () => {
       const codeData = readCredential(() => this.oauthStorage.authCodeRepository.get(authorizationCode));
@@ -462,10 +453,8 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
         ...(refreshFamily ? { refresh_token: refreshFamily.refreshToken } : {}),
       };
 
-      logger.info(`Exchanged authorization code for access token`, {
+      logger.info('sdkOAuthServerProvider.exchanged.authorization.code.for.access.token.f9c5dc9f', {
         clientId: client.client_id,
-        tokenId: tokenId.substring(0, 8) + '...',
-        expiresIn: tokens.expires_in,
       });
 
       return tokens;
@@ -531,7 +520,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
    * Verifies access token and returns auth info with granted scopes
    */
   async verifyAccessToken(token: string): Promise<AuthInfo> {
-    logger.debug('Verifying access token');
+    logger.debug('sdkOAuthServerProvider.verifying.access.token.ee1c29d4');
 
     if (!this.configManager.get('features').auth) {
       // Auth disabled, return minimal auth info with all available tags as scopes
@@ -578,7 +567,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
    * Revokes a token
    */
   async revokeToken(client: OAuthClientInformationFull, request: OAuthTokenRevocationRequest): Promise<void> {
-    logger.debug('Revoking OAuth token', { clientId: client.client_id });
+    logger.debug('sdkOAuthServerProvider.revoking.oauth.token.f78e2487', { clientId: client.client_id });
 
     const token = request.token;
 
@@ -604,9 +593,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
     const success = session?.clientId === client.client_id && this.oauthStorage.sessionRepository.delete(sessionId);
 
     if (success) {
-      logger.info(`Revoked access token for client ${client.client_id}`, {
-        tokenId: tokenId.substring(0, 8) + '...',
-      });
+      logger.info('sdkOAuthServerProvider.revoked.access.token.for.client.2a08dfe9');
     }
   }
 

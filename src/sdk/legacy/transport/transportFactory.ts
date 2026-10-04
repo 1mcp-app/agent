@@ -49,25 +49,25 @@ export interface TransportCreationOptions {
 /**
  * Infers transport type from configuration parameters
  */
-export function inferTransportType(params: MCPServerParams, name: string): MCPServerParams {
+export function inferTransportType(params: MCPServerParams, _name: string): MCPServerParams {
   const inferredParams = { ...params };
 
   if (inferredParams.type) {
     return inferredParams;
   }
 
-  logger.warn(`Transport type is missing for ${name}, inferring type...`);
+  logger.warn('transportFactory.transport.type.is.missing.for.inferring.type.9480baa6');
 
   if (inferredParams.command) {
     inferredParams.type = 'stdio';
-    logger.info(`Inferred transport type for ${name} as stdio`);
+    logger.info('transportFactory.inferred.transport.type.for.as.stdio.872f7bbf');
   } else if (inferredParams.url) {
     if (inferredParams.url.endsWith('mcp')) {
       inferredParams.type = 'http';
-      logger.info(`Inferred transport type for ${name} as http/streamableHttp`);
+      logger.info('transportFactory.inferred.transport.type.for.as.http.streamablehttp.a04e00f3');
     } else {
       inferredParams.type = 'sse';
-      logger.info(`Inferred transport type for ${name} as sse`);
+      logger.info('transportFactory.inferred.transport.type.for.as.sse.cb39afb8');
     }
   }
 
@@ -127,7 +127,7 @@ function createOAuthProvider(name: string, validatedTransport: ValidatedTranspor
       [owner, source, validatedTransport.type, validatedTransport.url],
     ),
   };
-  logger.info(`Creating OAuth client provider for transport: ${name}`);
+  logger.info('transportFactory.creating.oauth.client.provider.for.transport.8f8cab56');
   return new SDKOAuthClientProvider(name, oauthConfig, clientSessionPath);
 }
 
@@ -270,16 +270,7 @@ function createStdioTransport(
       ? envResult.processedEnv
       : { ...getRuntimeScopeEnvironment(), ...getRuntimeParentEnvironment(), ...envResult.processedEnv };
 
-  debugIf(() => ({
-    message: `Environment processing for ${name}:`,
-    meta: {
-      totalVariables: Object.keys(envResult.processedEnv).length,
-      sdkDefaults: envResult.sources.sdkDefaults.length,
-      inherited: envResult.sources.inherited.length,
-      custom: envResult.sources.custom.length,
-      filtered: envResult.sources.filtered.length,
-    },
-  }));
+  debugIf(() => ({ message: 'transportFactory.environment.processing.for.8d6ae20a' }));
 
   const command = substituteEnv
     ? substituteEnvVars(validatedTransport.command, referenceEnvironment)
@@ -315,7 +306,7 @@ function createStdioTransport(
 
   // The Aggregated Runtime owns restart policy above the raw transport so every
   // replacement completes a fresh MCP initialization before becoming routable.
-  debugIf(`Creating stdio transport for: ${name}`);
+  debugIf('transportFactory.creating.stdio.transport.for.5144d47e');
   const Transport = usesModernClient(validatedTransport) ? ModernStdioClientTransport : StdioClientTransport;
   const transport = new Transport(stdioParams) as AuthProviderTransport & {
     readonly stderr: Readable | null;
@@ -345,7 +336,7 @@ function createStdioTransport(
   }
   const authTransport = transport as AuthProviderTransport;
   if (validatedTransport.restartOnExit) {
-    logger.info(`Enabling runtime-owned stdio supervision for: ${name}`);
+    logger.info('transportFactory.enabling.runtime.owned.stdio.supervision.for.2c7492df');
     authTransport.stdioSupervision = {
       policy: {
         restartOnExit: true,
@@ -436,7 +427,7 @@ export function createTransports(
   for (const [name, params] of Object.entries(config)) {
     registerConfiguredStdioSource(name, params, options);
     if (params.disabled) {
-      debugIf(`Skipping disabled transport: ${name}`);
+      debugIf('transportFactory.skipping.disabled.transport.73e8cdef');
       continue;
     }
 
@@ -446,12 +437,12 @@ export function createTransports(
       const transport = createSingleTransport(name, validatedTransport, options.backendLogSources?.[name]);
 
       assignTransport(transports, name, transport, validatedTransport, options.backendLogSources?.[name]);
-      debugIf(`Created transport: ${name}`);
+      debugIf('transportFactory.created.transport.ceb8aba0');
     } catch (error) {
       if (error instanceof ZodError) {
-        logger.error(`Invalid transport configuration for ${name}:`, error.issues);
+        logger.error('transportFactory.invalid.transport.configuration.for.16ba9e31', { error: error });
       } else {
-        logger.error(`Error creating transport ${name}:`, error);
+        logger.error('transportFactory.error.creating.transport.41b4df19', { error: error });
       }
       throw error;
     }
@@ -479,7 +470,7 @@ export async function createTransportsWithContext(
   for (const [name, params] of Object.entries(config)) {
     registerConfiguredStdioSource(name, params, options);
     if (params.disabled) {
-      debugIf(`Skipping disabled transport: ${name}`);
+      debugIf('transportFactory.skipping.disabled.transport.73e8cdef');
       continue;
     }
 
@@ -489,14 +480,14 @@ export async function createTransportsWithContext(
       // Process templates if context is provided
       if (templateRenderer && context) {
         debugIf(() => ({
-          message: 'Processing templates for server',
+          message: 'transportFactory.processing.templates.for.server.2b8ad056',
           meta: { serverName: name },
         }));
 
         processedParams = templateRenderer.renderTemplate(processedParams, context);
 
         debugIf(() => ({
-          message: 'Templates processed successfully',
+          message: 'transportFactory.templates.processed.successfully.07a2246b',
           meta: { serverName: name },
         }));
       }
@@ -505,12 +496,12 @@ export async function createTransportsWithContext(
       const transport = createSingleTransport(name, validatedTransport, options.backendLogSources?.[name]);
 
       assignTransport(transports, name, transport, validatedTransport, options.backendLogSources?.[name]);
-      debugIf(`Created transport: ${name}`);
+      debugIf('transportFactory.created.transport.ceb8aba0');
     } catch (error) {
       if (error instanceof ZodError) {
-        logger.error(`Invalid transport configuration for ${name}:`, error.issues);
+        logger.error('transportFactory.invalid.transport.configuration.for.16ba9e31', { error: error });
       } else {
-        logger.error(`Error creating transport ${name}:`, error);
+        logger.error('transportFactory.error.creating.transport.41b4df19', { error: error });
       }
       throw error;
     }

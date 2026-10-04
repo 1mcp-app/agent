@@ -40,7 +40,7 @@ export function createCliTokenRoute(oauthProvider: SDKOAuthServerProvider): Requ
       return;
     }
 
-    logger.info('CLI token generated for localhost', { tokenId: result.tokenId.substring(0, 8) + '...' });
+    logger.info('cliTokenRoute.cli.token.generated.for.localhost.71ee18e2');
 
     res.json({
       authRequired: true,

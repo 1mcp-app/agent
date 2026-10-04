@@ -24,8 +24,8 @@ export class OAuthFlowHandler {
       if (oauthProvider?.getAuthorizationUrl) {
         return oauthProvider.getAuthorizationUrl();
       }
-    } catch (error) {
-      logger.warn(`Could not extract authorization URL: ${error}`);
+    } catch (_error) {
+      logger.warn('oauthFlowHandler.could.not.extract.authorization.url.f9cc0cc9', { error: _error });
     }
     return undefined;
   }
@@ -40,7 +40,7 @@ export class OAuthFlowHandler {
     _client: OutboundSdkClient,
     error: OAuthRequiredError,
   ): LegacyOutboundConnection {
-    logger.info(`OAuth authorization required for ${name}`);
+    logger.info('oauthFlowHandler.oauth.authorization.required.for.b495d670');
     const authorizationUrl = this.extractAuthorizationUrl(transport);
 
     return createLegacyOutboundConnection({
@@ -69,7 +69,7 @@ export class OAuthFlowHandler {
       throw new Error(`Transport for ${name} does not support OAuth (requires HTTP or SSE transport)`);
     }
 
-    logger.info(`Completing OAuth and reconnecting ${name}...`);
+    logger.info('oauthFlowHandler.completing.oauth.and.reconnecting.053f0a15');
 
     try {
       const configuredOldTransport = oldTransport as AuthProviderTransport;
@@ -117,10 +117,10 @@ export class OAuthFlowHandler {
         instructions: existingConnection.instructions,
       });
 
-      logger.info(`OAuth reconnection completed successfully for ${name}`);
+      logger.info('oauthFlowHandler.oauth.reconnection.completed.successfully.for.65c16552');
       return updatedInfo;
     } catch (error) {
-      logger.error(`OAuth reconnection failed for ${name}`);
+      logger.error('oauthFlowHandler.oauth.reconnection.failed.for.4dd2fa2f');
       throw error;
     }
   }

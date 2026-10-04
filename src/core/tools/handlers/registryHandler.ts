@@ -31,7 +31,7 @@ export async function handleGetRegistryStatus(
   registryOptions?: RegistryOptions,
 ): Promise<RegistryStatusResult> {
   const handler = withErrorHandling(async () => {
-    logger.debug('Processing get_registry_status request', args);
+    logger.debug('registryHandler.processing.get.registry.status.request.e955f68b');
 
     const client = getRegistryClient(registryOptions);
     const includeStats = args.include_stats || false;
@@ -39,11 +39,7 @@ export async function handleGetRegistryStatus(
     // Get registry status
     const status = await client.getRegistryStatus(includeStats);
 
-    logger.debug('Registry status retrieved successfully', {
-      available: status.available,
-      response_time: status.response_time_ms,
-      has_stats: !!status.stats,
-    });
+    logger.debug('registryHandler.registry.status.retrieved.successfully.90b05297');
 
     return status;
   }, 'Failed to get registry status');

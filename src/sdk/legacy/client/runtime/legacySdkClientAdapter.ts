@@ -5,7 +5,9 @@ import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
 import { assertInteractionRoute } from '@src/gateway/interactions/interactionRoute.js';
 import logger from '@src/logger/logger.js';
+import { injectTraceContext, stripBaggage } from '@src/observability/tracing/context.js';
 import {
+  JSON_VALUE_LIMITS,
   type JsonValue,
   type LegacyConnectionId,
   type LegacyRequestId,
@@ -16,6 +18,7 @@ import {
   type LegacySdkRequest,
   type LegacySdkResponse,
   OneMcpProtocolError,
+  RESPONSE_JSON_VALUE_LIMITS,
   toJsonValue,
 } from '@src/sdk/contracts/index.js';
 import type { Client } from '@src/sdk/legacy/client/index.js';
@@ -78,7 +81,9 @@ function publishAwaitingOAuth(serverName: string, error: StreamableHTTPError): v
     tracker.registerServer(serverName);
     tracker.updateServerState(serverName, LoadingState.AwaitingOAuth, { error });
   } catch (trackerError) {
-    logger.warn(`Failed to publish OAuth recovery state for ${serverName}`, { error: String(trackerError) });
+    logger.warn('legacySdkClientAdapter.failed.to.publish.oauth.recovery.state.for.ff1647d0', {
+      error: String(trackerError),
+    });
   }
 }
 
@@ -139,7 +144,14 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
     try {
       if (this.lifecycleState === 'idle') await this.start();
       const result = await this.requestWithRecovery(request, controller);
-      return captureCapabilityListResult(request.method, result);
+      // The interaction bridge fronts this gateway, so its results are assembled responses.
+      return stripBaggage(
+        captureCapabilityListResult(
+          request.method,
+          result,
+          this.interactionBridge ? RESPONSE_JSON_VALUE_LIMITS : JSON_VALUE_LIMITS,
+        ),
+      );
     } catch (error) {
       throw toProtocolError(error);
     } finally {
@@ -152,7 +164,7 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
   private async requestWithRecovery(request: LegacySdkRequest, controller: AbortController): Promise<unknown> {
     const requestClient = this.handles.client;
     observeBackendDispatchLifetime(this.handles.transport);
-    const params = request.params === undefined ? undefined : toJsonValue(request.params);
+    const params = injectTraceContext(request.params === undefined ? undefined : toJsonValue(request.params));
     try {
       return await requestClient.request(
         { method: request.method, ...(params === undefined ? {} : { params }) } as never,
@@ -197,7 +209,7 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
     try {
       await staleTransport.oauthProvider?.invalidateCredentials('tokens');
     } catch (invalidationError) {
-      logger.warn(`Failed to invalidate OAuth credentials for ${serverName ?? 'legacy backend'}`, {
+      logger.warn('legacySdkClientAdapter.failed.to.invalidate.oauth.credentials.for.648dfbe1', {
         error: String(invalidationError),
       });
     }
@@ -206,9 +218,7 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
     try {
       await staleClient.close();
     } catch (closeError) {
-      logger.warn(`Failed to close unauthorized client ${serverName ?? 'legacy backend'}`, {
-        error: String(closeError),
-      });
+      logger.warn('legacySdkClientAdapter.failed.to.close.unauthorized.client.1a04864e', { error: String(closeError) });
     }
 
     const freshTransport = this.recreateHttpTransport(staleTransport, serverName);
@@ -220,7 +230,7 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
       connection.requiresOAuth = Boolean(freshTransport.oauthProvider);
     }
     logger.warn(
-      `OAuth reauthorization required for ${serverName ?? 'legacy backend'} after authenticated request returned 401`,
+      'legacySdkClientAdapter.oauth.reauthorization.required.for.after.authenticated.request.returned.401.852cc6fa',
     );
   }
 
@@ -230,7 +240,7 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
 
   async notify(notification: LegacySdkNotification): Promise<void> {
     try {
-      const params = notification.params === undefined ? undefined : toJsonValue(notification.params);
+      const params = notification.params === undefined ? undefined : toJsonValue(stripBaggage(notification.params));
       await this.handles.client.notification({
         method: notification.method,
         ...(params === undefined ? {} : { params }),

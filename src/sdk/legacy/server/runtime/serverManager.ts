@@ -140,7 +140,7 @@ export class ServerManager {
     // Set up context change listener for template processing
     this.setupContextChangeListener();
 
-    debugIf('Instruction aggregator set for ServerManager');
+    debugIf('serverManager.instruction.aggregator.set.for.servermanager.628c189d');
   }
 
   /**
@@ -152,7 +152,7 @@ export class ServerManager {
     if (this.instructionAggregator) {
       this.instructionAggregator.setLazyLoadingOrchestrator(orchestrator);
     }
-    debugIf('Lazy loading orchestrator set for ServerManager');
+    debugIf('serverManager.lazy.loading.orchestrator.set.for.servermanager.5ed9fbc7');
   }
 
   /**
@@ -176,9 +176,8 @@ export class ServerManager {
     const globalContextManager = getGlobalContextManager();
 
     globalContextManager.on('context-changed', async (data: ContextChangedEventData) => {
-      logger.info('Context changed, reprocessing templates', {
+      logger.info('serverManager.context.changed.reprocessing.templates.8032c915', {
         sessionId: data.newContext?.sessionId,
-        sessionChanged: data.sessionIdChanged,
       });
 
       try {
@@ -191,19 +190,22 @@ export class ServerManager {
               (serverName) => this.unloadMcpServer(serverName),
               (serverName, config) => this.loadMcpServer(serverName, config),
             );
-          } catch (updateError) {
-            logger.error('Failed to update all servers with new config, attempting individual updates:', updateError);
+          } catch (_updateError) {
+            logger.error(
+              'serverManager.failed.to.update.all.servers.with.new.config.attempting.individual.updates.e3f92fcd',
+              { error: _updateError },
+            );
             await this.templateConfigurationManager.updateServersIndividually(newConfig, (serverName, config) =>
               this.updateServerMetadata(serverName, config),
             );
           }
         });
       } catch (error) {
-        logger.error('Failed to reprocess templates after context change:', error);
+        logger.error('serverManager.failed.to.reprocess.templates.after.context.change.6336fe5a', { error: error });
       }
     });
 
-    debugIf('Context change listener set up for ServerManager');
+    debugIf('serverManager.context.change.listener.set.up.for.servermanager.c29a6af5');
   }
 
   /**
@@ -225,16 +227,16 @@ export class ServerManager {
    */
   private updateServerInstructions(): void {
     const inboundConns = this.connectionManager.getInboundConnections();
-    logger.info(`Server instructions have changed. Active sessions: ${inboundConns.size}`);
+    logger.info('serverManager.server.instructions.have.changed.active.sessions.1b5c23dd');
 
     for (const [sessionId, _inboundConn] of inboundConns) {
       try {
         debugIf(() => ({
-          message: `Instructions changed notification for session ${sessionId}`,
-          meta: { sessionId },
+          message: 'serverManager.instructions.changed.notification.for.session.e77f51eb',
+          meta: { sessionId: sessionId },
         }));
-      } catch (error) {
-        logger.warn(`Failed to process instruction change for session ${sessionId}: ${error}`);
+      } catch (_error) {
+        logger.warn('serverManager.failed.to.process.instruction.change.for.session.7812ecda', { error: _error });
       }
     }
   }
@@ -374,10 +376,10 @@ export class ServerManager {
         if (!inboundConnection || !context) continue;
         const { templateServers, errors } = await ConfigManager.getInstance().loadConfigWithTemplates(context);
         if (errors.length > 0) {
-          logger.warn('Some templates could not be rendered during Runtime Scope environment reload', {
-            templateCount: affectedNames.size,
-            errorCount: errors.length,
-          });
+          logger.warn(
+            'serverManager.some.templates.could.not.be.rendered.during.runtime.scope.environment.reloa.8735ff3f',
+            { templateCount: affectedNames.size, errorCount: errors.length },
+          );
         }
         const affectedTemplates = Object.fromEntries(
           Object.entries(templateServers).filter(([templateName]) => affectedNames.has(templateName)),
@@ -406,9 +408,8 @@ export class ServerManager {
     if (this.lazyLoadingOrchestrator) {
       try {
         await this.lazyLoadingOrchestrator.refreshCapabilities();
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        logger.warn(`Failed to refresh lazy backend capabilities: ${message}`);
+      } catch (_error) {
+        logger.warn('serverManager.failed.to.refresh.lazy.backend.capabilities.e65163b1', { error: _error });
       }
     }
 
@@ -425,9 +426,8 @@ export class ServerManager {
             method,
             params: {},
           });
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          logger.warn(`Failed to send ${method} to an inbound client: ${message}`);
+        } catch (_error) {
+          logger.warn('serverManager.failed.to.send.to.an.inbound.client.cefdc74d', { error: _error });
         }
       }
     }
@@ -470,9 +470,7 @@ export class ServerManager {
     const loadingState = loadingManager.getStateTracker().getServerState(serverName)?.state;
     if (loadingState !== LoadingState.Ready) {
       this.untrackMcpServer(serverName);
-      debugIf(() => ({
-        message: `Skipping lifecycle tracking for ${serverName}; loading state is ${loadingState ?? 'unknown'}`,
-      }));
+      debugIf(() => ({ message: 'serverManager.skipping.lifecycle.tracking.for.loading.state.is.251276d7' }));
       return;
     }
 
@@ -499,7 +497,7 @@ export class ServerManager {
     const resolvedConfig = config ?? this.resolveMcpServerConfig(serverName);
     if (!resolvedConfig) {
       this.untrackMcpServer(serverName);
-      debugIf(() => ({ message: `No config available to track lifecycle for ${serverName}` }));
+      debugIf(() => ({ message: 'serverManager.no.config.available.to.track.lifecycle.for.aed42e6a' }));
       return;
     }
 
@@ -511,7 +509,7 @@ export class ServerManager {
     const transport = this.getConnectedMcpTransport(serverName);
     if (!transport) {
       this.untrackMcpServer(serverName);
-      debugIf(() => ({ message: `No connected transport available to track lifecycle for ${serverName}` }));
+      debugIf(() => ({ message: 'serverManager.no.connected.transport.available.to.track.lifecycle.for.a989596e' }));
       return;
     }
 
@@ -554,8 +552,8 @@ export class ServerManager {
 
     try {
       return ConfigManager.getInstance().getTransportConfig()[serverName];
-    } catch (error) {
-      debugIf(() => ({ message: `Could not resolve config for ${serverName}: ${error}` }));
+    } catch (_error) {
+      debugIf(() => ({ message: 'serverManager.could.not.resolve.config.for.1b2ab699' }));
       return undefined;
     }
   }
@@ -589,7 +587,7 @@ export class ServerManager {
 
   public clearFilterCache(): void {
     this.filterCache.clear();
-    logger.info('Filter cache cleared');
+    logger.info('serverManager.filter.cache.cleared.fa88f2ab');
   }
 
   public getIdleTemplateInstances(idleTimeoutMs: number = 10 * 60 * 1000): Array<{
@@ -632,6 +630,6 @@ export class ServerManager {
       await schemaShutdown;
     }
 
-    logger.info('ServerManager cleanup completed');
+    logger.info('serverManager.servermanager.cleanup.completed.155038e7');
   }
 }

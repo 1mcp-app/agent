@@ -9,6 +9,7 @@ import {
   type OAuthAuthority,
   type OAuthAuthorityContext,
   oauthAuthorityError,
+  oauthConfigurationFingerprint,
   oauthDigest,
   sameAuthority,
 } from '@src/auth/oauthAuthority.js';
@@ -58,7 +59,7 @@ export class ClientSessionRepository {
   claimContext(slot: string, context: OAuthAuthorityContext, observedGeneration: string | null): Promise<string> {
     return this.storage.withExclusiveLock(`oauth-${slot}`, () => {
       const current = this.getClaim(slot);
-      const fingerprint = oauthDigest(context);
+      const fingerprint = oauthConfigurationFingerprint(context, slot);
       const joiningInitial =
         observedGeneration === null && current?.joinable === true && current.fingerprint === fingerprint;
       if (!joiningInitial && (current?.generation ?? null) !== observedGeneration) throw oauthAuthorityError();
@@ -263,7 +264,7 @@ export class ClientSessionRepository {
     };
 
     this.storage.writeData(AUTH_CONFIG.CLIENT.SESSION.FILE_PREFIX, sessionId, dataWithExpiry);
-    logger.info(`Saved client session for server: ${serverName}`);
+    logger.info('clientSessionRepository.saved.client.session.for.server.7d984677');
     return sanitizedServerName;
   }
 

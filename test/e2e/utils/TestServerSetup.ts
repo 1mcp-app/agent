@@ -1,6 +1,5 @@
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
-import logger from '@src/logger/logger.js';
 import { setupServer } from '@src/server.js';
 
 export class TestServerSetup {
@@ -38,7 +37,7 @@ export class TestServerSetup {
         ServerManager.resetInstance();
         this.serverManager = null;
       } catch (error) {
-        logger.error('Error stopping server:', error);
+        console.error('Error stopping server:', error);
         // Still reset to avoid state pollution
         ServerManager.resetInstance();
         this.serverManager = null;

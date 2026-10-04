@@ -67,15 +67,15 @@ export function oauthConfigurationFingerprint(value: unknown, scope: unknown): s
 }
 
 export function authoritySlot(context: OAuthAuthorityContext): string {
-  return oauthDigest([context.owner, context.source, context.route.connectionKey]);
+  return oauthConfigurationFingerprint([context.owner, context.source, context.route.connectionKey], 'authority-slot');
 }
 export function sameAuthority(a: OAuthAuthority, b: OAuthAuthority): boolean {
-  return oauthDigest(OAuthAuthoritySchema.parse(a)) === oauthDigest(OAuthAuthoritySchema.parse(b));
+  return JSON.stringify(OAuthAuthoritySchema.parse(a)) === JSON.stringify(OAuthAuthoritySchema.parse(b));
 }
 export function matchesAuthorityContext(authority: OAuthAuthority, context: OAuthAuthorityContext): boolean {
   return (
-    oauthDigest(OAuthAuthorityContextSchema.parse(authority)) ===
-    oauthDigest(OAuthAuthorityContextSchema.parse(context))
+    JSON.stringify(OAuthAuthorityContextSchema.parse(authority)) ===
+    JSON.stringify(OAuthAuthorityContextSchema.parse(context))
   );
 }
 export function oauthAuthorityError(): Error {

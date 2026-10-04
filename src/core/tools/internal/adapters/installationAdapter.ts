@@ -51,8 +51,8 @@ export class ServerInstallationAdapter implements InstallationAdapter {
     options: InstallAdapterOptions = {},
   ): Promise<InstallAdapterResult> {
     debugIf(() => ({
-      message: 'Adapter: Installing server',
-      meta: { serverName, version, options },
+      message: 'installationAdapter.adapter.installing.server.9d3fee6f',
+      meta: { serverName: serverName },
     }));
 
     try {
@@ -115,7 +115,10 @@ export class ServerInstallationAdapter implements InstallationAdapter {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('Server installation failed', { error: errorMessage, serverName, version });
+      logger.error('installationAdapter.server.installation.failed.a296db17', {
+        error: errorMessage,
+        serverName: serverName,
+      });
       throw new Error(`Server installation failed: ${errorMessage}`);
     }
   }
@@ -137,8 +140,8 @@ export class ServerInstallationAdapter implements InstallationAdapter {
     operationId: string;
   }> {
     debugIf(() => ({
-      message: 'Adapter: Uninstalling server',
-      meta: { serverName, options },
+      message: 'installationAdapter.adapter.uninstalling.server.a0a8506b',
+      meta: { serverName: serverName },
     }));
 
     try {
@@ -176,15 +179,18 @@ export class ServerInstallationAdapter implements InstallationAdapter {
           result.warnings.push(...configChange.warnings);
 
           if (configChange.changed) {
-            logger.debug(`Removed server ${serverName} from configuration`);
+            logger.debug('installationAdapter.removed.server.from.configuration.31fddd83');
           } else {
             result.success = false;
             result.warnings.push(`Server ${serverName} not found in configuration`);
-            logger.debug(`Server ${serverName} not found in configuration`);
+            logger.debug('installationAdapter.server.not.found.in.configuration.7057fa2c');
           }
         } catch (configError) {
           const errorMessage = configError instanceof Error ? configError.message : String(configError);
-          logger.warn('Failed to remove server from configuration', { error: errorMessage, serverName });
+          logger.warn('installationAdapter.failed.to.remove.server.from.configuration.fc087b27', {
+            error: errorMessage,
+            serverName: serverName,
+          });
           result.success = false;
           result.warnings.push(`Failed to remove from configuration: ${errorMessage}`);
           result.errors.push(errorMessage);
@@ -208,7 +214,10 @@ export class ServerInstallationAdapter implements InstallationAdapter {
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('Server uninstallation failed', { error: errorMessage, serverName });
+      logger.error('installationAdapter.server.uninstallation.failed.6af2a149', {
+        error: errorMessage,
+        serverName: serverName,
+      });
       throw new Error(`Server uninstallation failed: ${errorMessage}`);
     }
   }
@@ -231,8 +240,8 @@ export class ServerInstallationAdapter implements InstallationAdapter {
     operationId: string;
   }> {
     debugIf(() => ({
-      message: 'Adapter: Updating server',
-      meta: { serverName, version, options },
+      message: 'installationAdapter.adapter.updating.server.64ff33b4',
+      meta: { serverName: serverName },
     }));
 
     try {
@@ -283,7 +292,10 @@ export class ServerInstallationAdapter implements InstallationAdapter {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('Server update failed', { error: errorMessage, serverName, version });
+      logger.error('installationAdapter.server.update.failed.bdba3e5f', {
+        error: errorMessage,
+        serverName: serverName,
+      });
       throw new Error(`Server update failed: ${errorMessage}`);
     }
   }
@@ -292,10 +304,7 @@ export class ServerInstallationAdapter implements InstallationAdapter {
    * List installed servers
    */
   async listInstalledServers(options: ListAdapterOptions = {}): Promise<string[]> {
-    debugIf(() => ({
-      message: 'Adapter: Listing installed servers',
-      meta: { options },
-    }));
+    debugIf(() => ({ message: 'installationAdapter.adapter.listing.installed.servers.12797994' }));
 
     try {
       // Convert adapter options to domain service options
@@ -324,7 +333,7 @@ export class ServerInstallationAdapter implements InstallationAdapter {
       return servers;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('Server listing failed', { error: errorMessage });
+      logger.error('installationAdapter.server.listing.failed.17ff87f1', { error: errorMessage });
       throw new Error(`Server listing failed: ${errorMessage}`);
     }
   }
@@ -333,16 +342,13 @@ export class ServerInstallationAdapter implements InstallationAdapter {
    * Validate tags format
    */
   validateTags(tags: string[]): TagsValidationResult {
-    debugIf(() => ({
-      message: 'Adapter: Validating tags',
-      meta: { tags },
-    }));
+    debugIf(() => ({ message: 'installationAdapter.adapter.validating.tags.e150fb3f' }));
 
     try {
       return validateTags(tags);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('Tag validation failed', { error: errorMessage, tags });
+      logger.error('installationAdapter.tag.validation.failed.c796a389', { error: errorMessage });
       return {
         valid: false,
         errors: [errorMessage],
@@ -354,16 +360,13 @@ export class ServerInstallationAdapter implements InstallationAdapter {
    * Parse tags from comma-separated string
    */
   parseTags(tagsString: string): string[] {
-    debugIf(() => ({
-      message: 'Adapter: Parsing tags',
-      meta: { tagsString },
-    }));
+    debugIf(() => ({ message: 'installationAdapter.adapter.parsing.tags.37a9512d' }));
 
     try {
       return parseTags(tagsString);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('Tag parsing failed', { error: errorMessage, tagsString });
+      logger.error('installationAdapter.tag.parsing.failed.3eb5e4b5', { error: errorMessage });
       throw new Error(`Tag parsing failed: ${errorMessage}`);
     }
   }
@@ -378,8 +381,8 @@ export class ServerInstallationAdapter implements InstallationAdapter {
     metadata?: Record<string, unknown>;
   } | null {
     debugIf(() => ({
-      message: 'Adapter: Getting server metadata',
-      meta: { serverName },
+      message: 'installationAdapter.adapter.getting.server.metadata.3d140a30',
+      meta: { serverName: serverName },
     }));
 
     try {
@@ -399,7 +402,10 @@ export class ServerInstallationAdapter implements InstallationAdapter {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('Failed to get server metadata', { error: errorMessage, serverName });
+      logger.error('installationAdapter.failed.to.get.server.metadata.72219710', {
+        error: errorMessage,
+        serverName: serverName,
+      });
       return null;
     }
   }
@@ -417,10 +423,7 @@ export class ServerInstallationAdapter implements InstallationAdapter {
       updateType?: 'patch' | 'minor' | 'major' | 'unknown';
     }>
   > {
-    debugIf(() => ({
-      message: 'Adapter: Checking for updates',
-      meta: { serverNames },
-    }));
+    debugIf(() => ({ message: 'installationAdapter.adapter.checking.for.updates.9ccc1c52' }));
 
     try {
       const updateResults = await this.installationService.checkForUpdates(serverNames);
@@ -440,7 +443,7 @@ export class ServerInstallationAdapter implements InstallationAdapter {
       }));
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('Update check failed', { error: errorMessage, serverNames });
+      logger.error('installationAdapter.update.check.failed.fde5c6b2', { error: errorMessage });
       throw new Error(`Update check failed: ${errorMessage}`);
     }
   }

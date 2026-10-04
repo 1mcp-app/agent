@@ -74,13 +74,11 @@ describe('LoggingSSEServerTransport', () => {
       await transport.send(errorMessage);
 
       expect(logJsonRpc).toHaveBeenCalledWith(
-        'warn',
-        'JSON-RPC error response',
+        'error',
+        'loggingSseTransport.json.rpc.error.response.6ba80f1a',
         expect.objectContaining({
-          jsonrpcVersion: '2.0',
           requestId: 'test-id',
-          errorCode: -32700,
-          errorMessage: 'Parse error',
+          sessionId: expect.any(String),
         }),
       );
     });
@@ -147,11 +145,11 @@ describe('LoggingSSEServerTransport', () => {
       await transport.send(messageWithErrorCode);
 
       expect(logJsonRpc).toHaveBeenCalledWith(
-        'warn',
-        'JSON-RPC error response',
+        'error',
+        'loggingSseTransport.json.rpc.error.response.6ba80f1a',
         expect.objectContaining({
-          errorCode: -32603,
-          errorData: 'Additional data',
+          requestId: 'test-id',
+          sessionId: expect.any(String),
         }),
       );
     });

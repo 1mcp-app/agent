@@ -275,7 +275,7 @@ export class FlagManager extends EventEmitter {
     // Watch for configuration changes and emit events
     // This would integrate with the existing config reload system
     debugIf(() => ({
-      message: 'FlagManager initialized and watching for configuration changes',
+      message: 'flagManager.flagmanager.initialized.and.watching.for.configuration.changes.ab60391e',
       meta: { categoryCount: this.toolCategories.length },
     }));
   }
@@ -284,10 +284,7 @@ export class FlagManager extends EventEmitter {
    * Emit flag change event (used by config system when flags change)
    */
   public emitFlagChange(event: FlagChangeEvent): void {
-    debugIf(() => ({
-      message: `Flag changed: ${event.category}${event.subcategory ? '.' + event.subcategory : ''}${event.tool ? '.' + event.tool : ''} from ${event.oldValue} to ${event.newValue}`,
-      meta: { source: event.source },
-    }));
+    debugIf(() => ({ message: 'flagManager.flag.changed.from.to.30850216' }));
 
     this.emit('flagChanged', event);
   }

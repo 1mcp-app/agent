@@ -30,17 +30,17 @@ export class MCPServerLifecycleManager {
     transports: Record<string, Transport>,
   ): Promise<void> {
     try {
-      logger.info(`Starting MCP server: ${serverName}`);
+      logger.info('mcpServerLifecycleManager.starting.mcp.server.c60fd61a');
 
       // Check if server is already running
       if (this.mcpServers.has(serverName)) {
-        logger.warn(`Server ${serverName} is already running`);
+        logger.warn('mcpServerLifecycleManager.server.is.already.running.67a5851c');
         return;
       }
 
       // Skip disabled servers
       if (config.disabled) {
-        logger.info(`Server ${serverName} is disabled, skipping start`);
+        logger.info('mcpServerLifecycleManager.server.is.disabled.skipping.start.ba9a2684');
         return;
       }
 
@@ -59,10 +59,10 @@ export class MCPServerLifecycleManager {
       // Create client connection to the server using ClientManager
       await this.connectToServer(serverName, transport, configWithType, outboundConns, transports);
 
-      logger.info(`Successfully started MCP server: ${serverName}`);
+      logger.info('mcpServerLifecycleManager.successfully.started.mcp.server.3355cad1');
     } catch (error) {
       const safeError = sanitizeRuntimeScopeError(error);
-      logger.error(`Failed to start MCP server ${serverName}:`, safeError);
+      logger.error('mcpServerLifecycleManager.failed.to.start.mcp.server.3fd8e8c1', { error: error });
       throw safeError;
     }
   }
@@ -76,12 +76,12 @@ export class MCPServerLifecycleManager {
     transports: Record<string, Transport>,
   ): Promise<void> {
     try {
-      logger.info(`Stopping MCP server: ${serverName}`);
+      logger.info('mcpServerLifecycleManager.stopping.mcp.server.f57921e8');
 
       // Check if server is running
       const serverInfo = this.mcpServers.get(serverName);
       if (!serverInfo) {
-        logger.warn(`Server ${serverName} is not running`);
+        logger.warn('mcpServerLifecycleManager.server.is.not.running.8e5bdcc3');
         return;
       }
 
@@ -94,17 +94,17 @@ export class MCPServerLifecycleManager {
         if (transport.close) {
           await transport.close();
         }
-      } catch (error) {
-        logger.warn(`Error closing transport for server ${serverName}:`, sanitizeRuntimeScopeError(error));
+      } catch (_error) {
+        logger.warn('mcpServerLifecycleManager.error.closing.transport.for.server.4689317f', { error: _error });
       }
 
       // Remove from tracking
       this.mcpServers.delete(serverName);
 
-      logger.info(`Successfully stopped MCP server: ${serverName}`);
+      logger.info('mcpServerLifecycleManager.successfully.stopped.mcp.server.f5e283e8');
     } catch (error) {
       const safeError = sanitizeRuntimeScopeError(error);
-      logger.error(`Failed to stop MCP server ${serverName}:`, safeError);
+      logger.error('mcpServerLifecycleManager.failed.to.stop.mcp.server.b33787bf', { error: error });
       throw safeError;
     }
   }
@@ -119,22 +119,22 @@ export class MCPServerLifecycleManager {
     transports: Record<string, Transport>,
   ): Promise<void> {
     try {
-      logger.info(`Restarting MCP server: ${serverName}`);
+      logger.info('mcpServerLifecycleManager.restarting.mcp.server.dd07115c');
 
       // Check if server is currently running and stop it
       const isCurrentlyRunning = this.mcpServers.has(serverName);
       if (isCurrentlyRunning) {
-        logger.info(`Stopping existing server ${serverName} before restart`);
+        logger.info('mcpServerLifecycleManager.stopping.existing.server.before.restart.f0a20e9f');
         await this.stopServer(serverName, outboundConns, transports);
       }
 
       // Start the server with new configuration
       await this.startServer(serverName, config, outboundConns, transports);
 
-      logger.info(`Successfully restarted MCP server: ${serverName}`);
+      logger.info('mcpServerLifecycleManager.successfully.restarted.mcp.server.c9b33cb7');
     } catch (error) {
       const safeError = sanitizeRuntimeScopeError(error);
-      logger.error(`Failed to restart MCP server ${serverName}:`, safeError);
+      logger.error('mcpServerLifecycleManager.failed.to.restart.mcp.server.8b93a852', { error: error });
       throw safeError;
     }
   }
@@ -173,8 +173,8 @@ export class MCPServerLifecycleManager {
 
     this.mcpServers.set(serverName, { transport, config });
     debugIf(() => ({
-      message: `Tracked MCP server lifecycle state: ${serverName}`,
-      meta: { serverName, tags: config.tags },
+      message: 'mcpServerLifecycleManager.tracked.mcp.server.lifecycle.state.9f4bff42',
+      meta: { serverName: serverName },
     }));
   }
 
@@ -183,7 +183,7 @@ export class MCPServerLifecycleManager {
    */
   public untrackServer(serverName: string): void {
     if (this.mcpServers.delete(serverName)) {
-      debugIf(() => ({ message: `Untracked MCP server lifecycle state: ${serverName}` }));
+      debugIf(() => ({ message: 'mcpServerLifecycleManager.untracked.mcp.server.lifecycle.state.5d6dfa5a' }));
     }
   }
 
@@ -198,17 +198,11 @@ export class MCPServerLifecycleManager {
     try {
       const serverInfo = this.mcpServers.get(serverName);
       if (!serverInfo) {
-        logger.warn(`Cannot update metadata for ${serverName}: server not running`);
+        logger.warn('mcpServerLifecycleManager.cannot.update.metadata.for.server.not.running.f11c2348');
         return;
       }
 
-      debugIf(() => ({
-        message: `Updating metadata for server ${serverName}`,
-        meta: {
-          oldConfig: serverInfo.config,
-          newConfig,
-        },
-      }));
+      debugIf(() => ({ message: 'mcpServerLifecycleManager.updating.metadata.for.server.e21816d0' }));
 
       // Update the stored configuration with new metadata
       serverInfo.config = { ...serverInfo.config, ...newConfig };
@@ -230,12 +224,9 @@ export class MCPServerLifecycleManager {
         outboundConn.tags = [...(newConfig.tags ?? [])];
       }
 
-      debugIf(() => ({
-        message: `Successfully updated metadata for server ${serverName}`,
-        meta: { newTags: newConfig.tags },
-      }));
+      debugIf(() => ({ message: 'mcpServerLifecycleManager.successfully.updated.metadata.for.server.03355998' }));
     } catch (error) {
-      logger.error(`Failed to update metadata for server ${serverName}:`, error);
+      logger.error('mcpServerLifecycleManager.failed.to.update.metadata.for.server.5f509b50', { error: error });
       throw error;
     }
   }
@@ -246,8 +237,8 @@ export class MCPServerLifecycleManager {
   private async createServerTransport(serverName: string, config: MCPServerParams): Promise<AuthProviderTransport> {
     try {
       debugIf(() => ({
-        message: `Creating transport for server ${serverName}`,
-        meta: { serverName, type: config.type, command: config.command, url: config.url },
+        message: 'mcpServerLifecycleManager.creating.transport.for.server.b7871772',
+        meta: { serverName: serverName },
       }));
 
       // Create transport using the factory pattern with context awareness
@@ -264,14 +255,14 @@ export class MCPServerLifecycleManager {
       }
 
       debugIf(() => ({
-        message: `Successfully created transport for server ${serverName}`,
-        meta: { serverName, transportType: config.type },
+        message: 'mcpServerLifecycleManager.successfully.created.transport.for.server.8226be48',
+        meta: { serverName: serverName },
       }));
 
       return transport as AuthProviderTransport;
     } catch (error) {
       const safeError = sanitizeRuntimeScopeError(error);
-      logger.error(`Failed to create transport for server ${serverName}:`, safeError);
+      logger.error('mcpServerLifecycleManager.failed.to.create.transport.for.server.98caaa0f', { error: error });
       throw safeError;
     }
   }
@@ -302,12 +293,12 @@ export class MCPServerLifecycleManager {
       }
 
       debugIf(() => ({
-        message: `Successfully connected to server ${serverName}`,
-        meta: { serverName, status: newClient?.status },
+        message: 'mcpServerLifecycleManager.successfully.connected.to.server.80d84788',
+        meta: { serverName: serverName, status: newClient?.status },
       }));
     } catch (error) {
       const safeError = sanitizeRuntimeScopeError(error);
-      logger.error(`Failed to connect to server ${serverName}:`, safeError);
+      logger.error('mcpServerLifecycleManager.failed.to.connect.to.server.143a5977', { error: error });
       throw safeError;
     }
   }
@@ -333,11 +324,11 @@ export class MCPServerLifecycleManager {
       // The actual transport cleanup happens in stopServer
 
       debugIf(() => ({
-        message: `Successfully disconnected from server ${serverName}`,
-        meta: { serverName },
+        message: 'mcpServerLifecycleManager.successfully.disconnected.from.server.7a6f427d',
+        meta: { serverName: serverName },
       }));
     } catch (error) {
-      logger.error(`Failed to disconnect from server ${serverName}:`, error);
+      logger.error('mcpServerLifecycleManager.failed.to.disconnect.from.server.98663348', { error: error });
       throw error;
     }
   }

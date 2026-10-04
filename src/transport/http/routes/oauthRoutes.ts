@@ -82,7 +82,7 @@ export function createOAuthRoutes(
 
       res.status(500).json(errorResponse);
     } catch (error) {
-      logger.error(`Error starting OAuth for ${req.params.serverName}:`, error);
+      logger.error('oauthRoutes.error.starting.oauth.for.88e8a703', { error: error });
       const errorResponse: Record<string, string> = { error: 'Failed to start OAuth flow' };
       res.status(500).json(errorResponse);
     }
@@ -118,7 +118,7 @@ export function createOAuthRoutes(
         ...callback,
       });
       if (result.status !== 'completed') {
-        logger.error(`OAuth callback failed for ${serverName}:`, result.errorDescription);
+        logger.error('oauthRoutes.oauth.callback.failed.for.e5feb0e3');
         const errorCode =
           result.status === 'provider_error' && result.errorDescription === 'access_denied'
             ? 'access_denied'
@@ -134,7 +134,7 @@ export function createOAuthRoutes(
         result.adminReturnOrigin ? `${result.adminReturnOrigin}/oauth/return?success=1` : '/admin/oauth?success=1',
       );
     } catch {
-      logger.error(`Error handling OAuth callback for ${serverName}`);
+      logger.error('oauthRoutes.error.handling.oauth.callback.for.41be0569');
       res.redirect('/admin/oauth?error=callback_failed');
     }
   });
@@ -160,7 +160,7 @@ export function createOAuthRoutes(
 
       res.status(500).json(errorResponse);
     } catch (error) {
-      logger.error(`Error restarting OAuth for ${serverName}:`, error);
+      logger.error('oauthRoutes.error.restarting.oauth.for.c39e1d9b', { error: error });
       const errorResponse: Record<string, string> = { error: 'Failed to restart OAuth flow' };
       res.status(500).json(errorResponse);
     }
@@ -198,7 +198,7 @@ export function createOAuthRoutes(
         return;
       }
 
-      logger.error('Error handling consent form:', error);
+      logger.error('oauthRoutes.error.handling.consent.form.3b43829f', { error: error });
       const errorResponse: Record<string, string> = {
         error: 'server_error',
         error_description: 'Internal server error',
@@ -250,9 +250,9 @@ function getOAuthFlow(
           markReady: (serverName) => {
             try {
               loadingManager.getStateTracker().updateServerState(serverName, LoadingState.Ready);
-              logger.debug(`Updated LoadingStateTracker: ${serverName} is now Ready after OAuth completion`);
+              logger.debug('oauthRoutes.updated.loadingstatetracker.is.now.ready.after.oauth.completion.83008138');
             } catch (stateError) {
-              logger.warn(`Could not update LoadingStateTracker for ${serverName}`, { error: stateError });
+              logger.warn('oauthRoutes.could.not.update.loadingstatetracker.for.2da895a0', { error: stateError });
             }
           },
         }

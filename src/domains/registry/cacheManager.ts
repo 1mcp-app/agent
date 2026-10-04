@@ -66,7 +66,7 @@ export class CacheManager {
     }
 
     this.cache.set(key, entry);
-    logger.debug(`Cache set: ${key} (TTL: ${ttl}s)`);
+    logger.debug('cacheManager.cache.set.ttl.s.13fedf3b');
   }
 
   /**
@@ -83,16 +83,15 @@ export class CacheManager {
     }
 
     keysToDelete.forEach((key) => this.cache.delete(key));
-    logger.debug(`Cache invalidated: ${keysToDelete.length} entries matching "${pattern}"`);
+    logger.debug('cacheManager.cache.invalidated.entries.matching.6d1f9f62');
   }
 
   /**
    * Clear all cache entries
    */
   async clear(): Promise<void> {
-    const size = this.cache.size;
     this.cache.clear();
-    logger.debug(`Cache cleared: ${size} entries removed`);
+    logger.debug('cacheManager.cache.cleared.entries.removed.33fa692a');
   }
 
   /**
@@ -180,7 +179,7 @@ export class CacheManager {
     keysToDelete.forEach((key) => this.cache.delete(key));
 
     if (keysToDelete.length > 0) {
-      logger.debug(`Cache cleanup: ${keysToDelete.length} expired entries removed`);
+      logger.debug('cacheManager.cache.cleanup.expired.entries.removed.8f0f350d');
     }
   }
 
@@ -197,7 +196,7 @@ export class CacheManager {
       this.cache.delete(key);
     }
 
-    logger.debug(`Cache eviction: ${toRemove} oldest entries removed`);
+    logger.debug('cacheManager.cache.eviction.oldest.entries.removed.8d79f505');
   }
 
   /**

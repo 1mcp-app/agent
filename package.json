@@ -1,6 +1,6 @@
 {
   "name": "@1mcp/agent",
-  "version": "0.39.0-beta.1",
+  "version": "0.39.0-beta.3",
   "description": "One MCP server to aggregate them all - A unified Model Context Protocol server implementation",
   "keywords": [
     "mcp",
@@ -103,7 +103,9 @@
     "archive": "node scripts/archive.cjs",
     "version:update": "node scripts/update-version.cjs",
     "build:binaries": "pnpm sea:build && pnpm sea:binary",
-    "build:binaries:archived": "pnpm build:binaries && pnpm archive"
+    "build:binaries:archived": "pnpm build:binaries && pnpm archive",
+    "test:tracing:disabled": "node scripts/verify-propagation-disabled.mjs",
+    "test:tracing:performance": "node --expose-gc scripts/measure-propagation.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/client": "2.0.0",
@@ -112,6 +114,9 @@
     "@modelcontextprotocol/sdk": "1.30.0",
     "@modelcontextprotocol/server": "2.0.0",
     "@modelcontextprotocol/server-legacy": "2.0.0",
+    "@opentelemetry/api": "1.9.0",
+    "@opentelemetry/context-async-hooks": "2.2.0",
+    "@opentelemetry/core": "2.2.0",
     "@toon-format/toon": "^4.1.0",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",

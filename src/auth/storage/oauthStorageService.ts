@@ -78,10 +78,8 @@ export class OAuthStorageService {
       success: true,
     });
 
-    logger.info(`OAuth authorization granted for client ${authRequest.clientId}`, {
+    logger.info('oauthStorageService.oauth.authorization.granted.for.client.25a4e31b', {
       clientId: authRequest.clientId,
-      redirectUri: authRequest.redirectUri,
-      grantedScopes: selectedScopes,
     });
 
     return { authCode, redirectUrl };
@@ -116,7 +114,7 @@ export class OAuthStorageService {
       error: 'User denied authorization',
     });
 
-    logger.info(`OAuth authorization denied by user for client ${authRequest.clientId}`);
+    logger.info('oauthStorageService.oauth.authorization.denied.by.user.for.client.29791f5d');
 
     return redirectUrl;
   }

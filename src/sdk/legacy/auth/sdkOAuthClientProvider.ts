@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 
 import {
   authoritySlot,
@@ -70,6 +70,8 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
   private readonly tokenResponses = new Map<string, OAuthResponseTicket>();
   private readonly registrationResponses = new Map<string, OAuthResponseTicket>();
   private readonly discoveryResponses = new Map<string, OAuthResponseTicket>();
+  // These tickets are process-local; a random key protects secret-bearing response correlation.
+  private readonly responseKey = randomBytes(32);
   private readonly migration: Promise<void>;
   private claim?: string;
   readonly fetch: typeof fetch;
@@ -132,10 +134,10 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
           const tokens = { ...value };
           if (tokens.refresh_token === undefined)
             tokens.refresh_token = new URLSearchParams(String(init.body ?? '')).get('refresh_token') ?? undefined;
-          const key = oauthDigest(OAuthTokensSchema.parse(tokens));
+          const key = this.responseDigest(OAuthTokensSchema.parse(tokens));
           this.recordResponse(this.responseMap('token'), key, ticket);
         } else if (ticket.kind === 'registration') {
-          const key = oauthDigest(OAuthClientInformationFullSchema.parse({ ...this.clientMetadata, ...value }));
+          const key = this.responseDigest(OAuthClientInformationFullSchema.parse({ ...this.clientMetadata, ...value }));
           this.recordResponse(this.responseMap('registration'), key, ticket);
         }
       },
@@ -197,7 +199,7 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
     if (stamped.issuer && stamped.issuer !== record.authority.issuer) throw oauthAuthorityError();
     if (this.config.clientId) return;
     const parsed = OAuthClientInformationFullSchema.parse({ ...this.clientMetadata, ...clientInfo });
-    const key = oauthDigest(parsed);
+    const key = this.responseDigest(parsed);
     const ticket = this.responseMap('registration').get(key);
     this.responseMap('registration').delete(key);
     if (!ticket && parsed.client_id !== this.config.clientMetadataUrl) throw oauthAuthorityError();
@@ -235,7 +237,7 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
     const parsed = OAuthTokensSchema.parse(tokens);
     if (this.config.scopes && parsed.scope?.split(' ').some((scope) => !this.config.scopes!.includes(scope)))
       throw oauthAuthorityError();
-    const responseKey = oauthDigest(parsed);
+    const responseKey = this.responseDigest(parsed);
     const ticket = this.responseMap('token').get(responseKey);
     this.responseMap('token').delete(responseKey);
     if (!ticket || ticket.ambiguous || ticket.generation !== record.generation) this.rejectOperation();
@@ -632,8 +634,12 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
     return requestVersion;
   }
 
+  private responseDigest(value: unknown): string {
+    return createHmac('sha256', this.responseKey).update(JSON.stringify(value)).digest('hex');
+  }
+
   private discoveryKey(metadata: Record<string, unknown>): string {
-    return oauthDigest([
+    return this.responseDigest([
       metadata.issuer,
       metadata.authorization_endpoint,
       metadata.token_endpoint,

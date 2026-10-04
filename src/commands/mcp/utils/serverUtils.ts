@@ -83,7 +83,7 @@ export function calculateServerStatus(installedVersion: string, latestVersion?: 
  * This checks if server processes are currently running or have recent connections
  */
 export function checkServerInUse(serverName: string): boolean {
-  logger.debug(`Checking if server ${serverName} is in use`);
+  logger.debug('serverUtils.checking.if.server.is.in.use.e2413145');
 
   try {
     // Get ServerManager instance if it exists
@@ -94,7 +94,7 @@ export function checkServerInUse(serverName: string): boolean {
     const connection = serverManager.getClient(serverName);
 
     if (connection) {
-      logger.debug(`Server ${serverName} has an active client connection`);
+      logger.debug('serverUtils.server.has.an.active.client.connection.9ff8127b');
       return true;
     }
 
@@ -102,14 +102,14 @@ export function checkServerInUse(serverName: string): boolean {
     // Use getClients which returns all outbound connections
     const allConnections = serverManager.getClients();
     if (allConnections && allConnections.has(serverName)) {
-      logger.debug(`Server ${serverName} is in outbound connections map`);
+      logger.debug('serverUtils.server.is.in.outbound.connections.map.e62f22e6');
       return true;
     }
 
     return false;
   } catch (_error) {
     // If ServerManager is not initialized, server is not in use
-    logger.debug(`ServerManager not initialized or not accessible`);
+    logger.debug('serverUtils.servermanager.not.initialized.or.not.accessible.985955b7');
     return false;
   }
 }

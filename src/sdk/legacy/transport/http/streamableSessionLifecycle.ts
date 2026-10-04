@@ -203,7 +203,7 @@ export class StreamableSessionLifecycle {
 
   async resolveExistingSession(sessionId: string): Promise<StreamableSessionLookupResult> {
     if (!isValidSessionId(sessionId)) {
-      logger.debug('Invalid sessionId provided to streamable lifecycle lookup');
+      logger.debug('streamableSessionLifecycle.invalid.sessionid.provided.to.streamable.lifecycle.lookup.946c0da3');
       return {
         status: StreamableSessionStatus.Missing,
         sessionId,
@@ -251,12 +251,14 @@ export class StreamableSessionLifecycle {
     try {
       const sessionData = this.sessionRepository.getSessionData(sessionId);
       if (!sessionData) {
-        logger.debug(`No persisted session found for: ${sessionId}`);
+        logger.debug('streamableSessionLifecycle.no.persisted.session.found.for.1fd9955e');
         return { transport: null, errorType: StreamableSessionRestoreErrorType.NotFound };
       }
 
       if (!sessionData.initializeResponse) {
-        logger.warn(`Session ${sessionId} exists but lacks initialize response data, cannot restore`);
+        logger.warn(
+          'streamableSessionLifecycle.session.exists.but.lacks.initialize.response.data.cannot.restore.01883ab6',
+        );
         return {
           transport: null,
           errorType: StreamableSessionRestoreErrorType.TransportFailed,
@@ -266,7 +268,7 @@ export class StreamableSessionLifecycle {
 
       const config = this.sessionRepository.get(sessionId);
       if (!config) {
-        logger.error(`Failed to parse session config for ${sessionId}`);
+        logger.error('streamableSessionLifecycle.failed.to.parse.session.config.for.db7489eb');
         return {
           transport: null,
           errorType: StreamableSessionRestoreErrorType.TransportFailed,
@@ -274,7 +276,7 @@ export class StreamableSessionLifecycle {
         };
       }
 
-      logger.info(`Restoring streamable session: ${sessionId}`);
+      logger.info('streamableSessionLifecycle.restoring.streamable.session.35290bd2');
       const transport = this.createRestorableTransportImpl(sessionId);
       const contextData = buildContextData(config, sessionId);
       const authorization = contextData
@@ -302,18 +304,15 @@ export class StreamableSessionLifecycle {
         );
       } catch (connectError) {
         const errorMessage = connectError instanceof Error ? connectError.message : String(connectError);
-        logger.error(`Failed to connect transport ${sessionId}:`, connectError);
+        logger.error('streamableSessionLifecycle.failed.to.connect.transport.90a65f89', { error: connectError });
         return { transport: null, error: errorMessage, errorType: StreamableSessionRestoreErrorType.ConnectionFailed };
       }
 
       const initialized = this.setInitializedState(transport, sessionId);
       if (!initialized) {
-        logError('Could not set initialized state during session restoration', {
+        logError('streamableSessionLifecycle.could.not.set.initialized.state.during.session.restoration.69095992', {
           method: 'restoreSession',
-          path: 'streamableSessionLifecycle',
-          sessionId,
-          phase: 'SDK initialization',
-          context: { reason: 'SDK internal structure inaccessible' },
+          sessionId: sessionId,
         });
         await this.serverManager.disconnectTransport(sessionId, true);
         return {
@@ -328,11 +327,11 @@ export class StreamableSessionLifecycle {
       this.setupTransportHandlers(transport, sessionId);
       this.sessionRepository.updateAccess(sessionId);
 
-      logger.info(`Successfully restored streamable session: ${sessionId} (restored: ${transport.isRestored()})`);
+      logger.info('streamableSessionLifecycle.successfully.restored.streamable.session.restored.9648c603');
       return { transport };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(`Failed to restore streamable session ${sessionId}:`, error);
+      logger.error('streamableSessionLifecycle.failed.to.restore.streamable.session.bf5b6a04', { error: error });
       return { transport: null, error: errorMessage, errorType: StreamableSessionRestoreErrorType.TransportFailed };
     }
   }
@@ -351,7 +350,7 @@ export class StreamableSessionLifecycle {
       transport = this.createTransportImpl(sessionId);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(`Failed to create transport for session ${sessionId}:`, error);
+      logger.error('streamableSessionLifecycle.failed.to.create.transport.for.session.9aa73ada', { error: error });
       throw new Error(`Session creation failed: transport initialization error - ${errorMessage}`);
     }
 
@@ -362,9 +361,7 @@ export class StreamableSessionLifecycle {
     const canonicalContext = validContext ?? (context ? { ...context, sessionId } : undefined);
 
     if (canonicalContext && canonicalContext.project?.name && canonicalContext.sessionId) {
-      logger.info(
-        `New session with context: ${canonicalContext.project.name} (${canonicalContext.sessionId})${providedSessionId ? ` (ID: ${providedSessionId})` : ''}`,
-      );
+      logger.info('streamableSessionLifecycle.new.session.with.context.90e138c1');
     }
 
     const configWithContext: InboundConnectionConfig & { context?: Partial<ContextData> } = {
@@ -377,7 +374,7 @@ export class StreamableSessionLifecycle {
       await this.serverManager.connectTransport(transport, sessionId, configWithContext, validContext);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(`Failed to connect transport ${sessionId}:`, error);
+      logger.error('streamableSessionLifecycle.failed.to.connect.transport.43c1f33b', { error: error });
       throw new Error(`Session creation failed: connection error - ${errorMessage}`);
     }
 
@@ -388,7 +385,7 @@ export class StreamableSessionLifecycle {
       persisted = true;
     } catch (error) {
       persistenceError = error instanceof Error ? error.message : String(error);
-      logger.warn(`Failed to persist session ${sessionId} to repository: ${persistenceError}`);
+      logger.warn('streamableSessionLifecycle.failed.to.persist.session.to.repository.b76407ee', { error: error });
     }
 
     this.initializeNotifications(sessionId);
@@ -409,13 +406,10 @@ export class StreamableSessionLifecycle {
     try {
       this.sessionRepository.delete(sessionId);
     } catch (error) {
-      logError('Session deletion failed', {
+      logError('streamableSessionLifecycle.session.deletion.failed.b8bfdce6', {
         method: 'completeExplicitDelete',
-        path: 'streamableSessionLifecycle',
-        sessionId,
-        phase: 'session cleanup',
-        error,
-        context: { reason: 'Repository delete failed - session will expire via TTL' },
+        sessionId: sessionId,
+        error: error,
       });
     }
 
@@ -434,7 +428,9 @@ export class StreamableSessionLifecycle {
     const inboundConnection = this.serverManager.getServer(sessionId);
     if (inboundConnection) {
       this.asyncOrchestrator.initializeNotifications(inboundConnection);
-      logger.debug(`Async loading notifications initialized for Streamable HTTP session ${sessionId}`);
+      logger.debug(
+        'streamableSessionLifecycle.async.loading.notifications.initialized.for.streamable.http.session.a7a97183',
+      );
     }
   }
 
@@ -444,7 +440,7 @@ export class StreamableSessionLifecycle {
     };
 
     transport.onerror = (error) => {
-      logger.error(`Streamable HTTP transport error for session ${sessionId}:`, error);
+      logger.error('streamableSessionLifecycle.streamable.http.transport.error.for.session.e5ad1f60', { error: error });
       this.serverManager.recordInboundConnectionError(sessionId, error);
     };
   }
@@ -457,12 +453,9 @@ export class StreamableSessionLifecycle {
           internals._webStandardTransport._initialized !== undefined &&
           typeof internals._webStandardTransport._initialized !== 'boolean'
         ) {
-          logError('SDK internal property _initialized is not a boolean', {
+          logError('streamableSessionLifecycle.sdk.internal.property.initialized.is.not.a.boolean.94489996', {
             method: 'setInitializedState',
-            path: 'streamableSessionLifecycle',
-            sessionId,
-            phase: 'SDK internal validation',
-            context: { property: '_initialized', type: typeof internals._webStandardTransport._initialized },
+            sessionId: sessionId,
           });
           return false;
         }
@@ -470,12 +463,9 @@ export class StreamableSessionLifecycle {
           internals._webStandardTransport.sessionId !== undefined &&
           typeof internals._webStandardTransport.sessionId !== 'string'
         ) {
-          logError('SDK internal property sessionId is not a string', {
+          logError('streamableSessionLifecycle.sdk.internal.property.sessionid.is.not.a.string.bfe837aa', {
             method: 'setInitializedState',
-            path: 'streamableSessionLifecycle',
-            sessionId,
-            phase: 'SDK internal validation',
-            context: { property: 'sessionId', type: typeof internals._webStandardTransport.sessionId },
+            sessionId: sessionId,
           });
           return false;
         }
@@ -484,21 +474,16 @@ export class StreamableSessionLifecycle {
         return true;
       }
 
-      logError('SDK internal structure changed - _webStandardTransport not found', {
+      logError('streamableSessionLifecycle.sdk.internal.structure.changed.webstandardtransport.not.found.19217e0c', {
         method: 'setInitializedState',
-        path: 'streamableSessionLifecycle',
-        sessionId,
-        phase: 'SDK internal access',
-        context: { reason: '_webStandardTransport property missing' },
+        sessionId: sessionId,
       });
       return false;
     } catch (error) {
-      logError('Failed to set initialized state', {
+      logError('streamableSessionLifecycle.failed.to.set.initialized.state.0d182a79', {
         method: 'setInitializedState',
-        path: 'streamableSessionLifecycle',
-        sessionId,
-        phase: 'SDK internal mutation',
-        error,
+        sessionId: sessionId,
+        error: error,
       });
       return false;
     }

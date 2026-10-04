@@ -591,8 +591,9 @@ maxRequests = 50
       const result = loader.loadAppConfigFromToml();
 
       expect(result.lazyLoading).toEqual({ enabled: false, mode: 'hybrid' });
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('[lazyLoading].mode'));
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('enabled = true'));
+      expect(warnSpy).toHaveBeenCalledWith(
+        'configLoader.the.lazyloading.mode.setting.in.is.deprecated.and.ignored.lazy.loading.is.c.21f87e57',
+      );
     });
 
     it('does not warn when lazy loading uses only the enabled switch', async () => {

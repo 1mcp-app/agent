@@ -15,39 +15,39 @@ export interface PresetManagerCleanupState {
 export async function cleanupPresetManagerState(
   state: PresetManagerCleanupState,
 ): Promise<{ reloadTimeout: null; watcher: null }> {
-  logger.debug('Starting PresetManager cleanup');
+  logger.debug('presetManagerCleanup.starting.presetmanager.cleanup.aa7d3c68');
 
   try {
     if (state.reloadTimeout) {
       clearTimeout(state.reloadTimeout);
-      logger.debug('Cleared pending reload timeout');
+      logger.debug('presetManagerCleanup.cleared.pending.reload.timeout.71589886');
     }
 
     if (state.watcher) {
       state.watcher.close();
-      logger.debug('Stopped watching preset file');
+      logger.debug('presetManagerCleanup.stopped.watching.preset.file.d2b94074');
     }
 
     if (state.notificationCallbacks.size > 0) {
       const callbackCount = state.notificationCallbacks.size;
       state.notificationCallbacks.clear();
-      logger.debug('Cleared notification callbacks', { count: callbackCount });
+      logger.debug('presetManagerCleanup.cleared.notification.callbacks.83aa6c0b', { count: callbackCount });
     }
 
     if (typeof state.changeDetector.clear === 'function') {
       state.changeDetector.clear();
-      logger.debug('Cleared change detector');
+      logger.debug('presetManagerCleanup.cleared.change.detector.a4b42813');
     }
 
     if (state.presets.size > 0) {
       const presetCount = state.presets.size;
       state.presets.clear();
-      logger.debug('Cleared presets from memory', { count: presetCount });
+      logger.debug('presetManagerCleanup.cleared.presets.from.memory.2a42cc3c', { count: presetCount });
     }
 
-    logger.debug('PresetManager cleanup completed successfully');
+    logger.debug('presetManagerCleanup.presetmanager.cleanup.completed.successfully.0047ca52');
   } catch (error) {
-    logger.error('Error during PresetManager cleanup', { error });
+    logger.error('presetManagerCleanup.error.during.presetmanager.cleanup.ea747462', { error: error });
   }
 
   return { reloadTimeout: null, watcher: null };

@@ -178,7 +178,7 @@ export async function cleanupInternalToolHandlers(): Promise<void> {
     }),
   ]).catch((error) => {
     // Log cleanup errors but don't throw - cleanup should be best-effort
-    logger.warn('Error during internal tool cleanup:', error);
+    logger.warn('index.error.during.internal.tool.cleanup.6b8b5420', { error: error });
   });
 
   // Clean up adapters using the AdapterFactory
@@ -187,7 +187,7 @@ export async function cleanupInternalToolHandlers(): Promise<void> {
     AdapterFactory.cleanup();
   } catch (error) {
     // Adapters module not found or other cleanup error - continue with other cleanup
-    logger.debug('Adapter cleanup skipped (module not found or other error):', error);
+    logger.debug('index.adapter.cleanup.skipped.module.not.found.or.other.error.13d05164', { error: error });
   }
 
   // Call the local cleanup functions directly
@@ -196,7 +196,7 @@ export async function cleanupInternalToolHandlers(): Promise<void> {
     cleanupInstallationHandlers();
     cleanupManagementHandlers();
   } catch (error) {
-    logger.warn('Error during local cleanup:', error);
+    logger.warn('index.error.during.local.cleanup.e1f79fe8', { error: error });
   }
 }
 

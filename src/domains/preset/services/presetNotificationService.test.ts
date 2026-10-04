@@ -180,9 +180,12 @@ describe('PresetNotificationService', () => {
     it('should handle updating non-existent client', () => {
       service.updateClientPreset('non-existent', 'new-preset');
 
-      expect(logger.warn).toHaveBeenCalledWith('Attempted to update preset for unknown client', {
+      expect(logger.warn).toHaveBeenCalledWith(
+        'presetNotificationService.attempted.to.update.preset.for.unknown.client.802e49d3',
+        {
         clientId: 'non-existent',
-      });
+        },
+      );
     });
 
     it('should emit client_preset_updated event', () => {
@@ -235,10 +238,10 @@ describe('PresetNotificationService', () => {
       await expect(service.notifyPresetChange('development')).resolves.not.toThrow();
 
       expect(logger.error).toHaveBeenCalledWith(
-        'Failed to send preset change notification to client',
+        'presetNotificationService.failed.to.send.preset.change.notification.to.client.2f24f6f0',
         expect.objectContaining({
           clientId: 'client-1',
-          presetName: 'development',
+          error: expect.any(Error),
         }),
       );
     });
@@ -257,9 +260,9 @@ describe('PresetNotificationService', () => {
     it('should handle empty preset gracefully', async () => {
       await service.notifyPresetChange('nonexistent');
 
-      expect(logger.debug).toHaveBeenCalledWith('No clients to notify for preset change', {
-        presetName: 'nonexistent',
-      });
+      expect(logger.debug).toHaveBeenCalledWith(
+        'presetNotificationService.no.clients.to.notify.for.preset.change.a177ae84',
+      );
     });
 
     it('should emit preset_notifications_sent event', async () => {
@@ -294,7 +297,9 @@ describe('PresetNotificationService', () => {
     it('should log cleanup results', async () => {
       await service.cleanup();
 
-      expect(logger.info).toHaveBeenCalledWith('Cleaned up disconnected clients', { removedCount: 1 });
+      expect(logger.info).toHaveBeenCalledWith('presetNotificationService.cleaned.up.disconnected.clients.6ee227f9', {
+        removedCount: 1,
+      });
     });
 
     it('should return 0 if no cleanup needed', async () => {
@@ -303,7 +308,10 @@ describe('PresetNotificationService', () => {
       const removedCount = await service.cleanup();
 
       expect(removedCount).toBe(0);
-      expect(logger.info).not.toHaveBeenCalledWith(expect.stringContaining('Cleaned up'), expect.anything());
+      expect(logger.info).not.toHaveBeenCalledWith(
+        'presetNotificationService.cleaned.up.disconnected.clients.6ee227f9',
+        expect.anything(),
+      );
     });
   });
 

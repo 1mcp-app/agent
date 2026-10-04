@@ -1,6 +1,6 @@
 import { Stream } from 'node:stream';
 
-import logger from '@src/logger/logger.js';
+import { writeManagedStderrDiagnostic } from '@src/logger/logger.js';
 
 import { ManagedStdioStderrEvent } from './managedStdioStderrEvent.js';
 import type { ManagedStdioStderrOptions } from './managedStdioStderrOptions.js';
@@ -83,11 +83,7 @@ export class ManagedStdioStderr {
     private readonly serverName: string,
     options: ManagedStdioStderrOptions = {},
   ) {
-    this.emit =
-      options.emit ??
-      ((message, metadata) => {
-        logger.warn(message, metadata);
-      });
+    this.emit = options.emit ?? writeManagedStderrDiagnostic;
     this.maxLineBytes = options.maxLineBytes ?? DEFAULT_MAX_LINE_BYTES;
     this.maxLinesPerWindow = options.maxLinesPerWindow ?? DEFAULT_MAX_LINES_PER_WINDOW;
     this.windowMs = options.windowMs ?? DEFAULT_WINDOW_MS;

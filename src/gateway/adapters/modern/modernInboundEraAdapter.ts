@@ -1,3 +1,5 @@
+import { RESPONSE_JSON_VALUE_LIMITS } from '@src/sdk/contracts/jsonValue.js';
+
 import {
   createGatewayCancellation,
   createGatewayFailure,
@@ -155,11 +157,14 @@ export class ModernInboundEraAdapter implements InboundEraAdapter {
     }
     const frame =
       response.type === 'success'
-        ? toImmutableJsonValue({
-            type: 'success',
-            correlationId,
-            result: response.result,
-          })
+        ? toImmutableJsonValue(
+            {
+              type: 'success',
+              correlationId,
+              result: response.result,
+            },
+            RESPONSE_JSON_VALUE_LIMITS,
+          )
         : toImmutableJsonValue({
             type: 'failure',
             correlationId,

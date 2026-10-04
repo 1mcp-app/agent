@@ -402,13 +402,13 @@ async function fetchToolInfoFromApi(
 
   if (!apiResponse.ok) {
     if (!apiResponse.ok && apiResponse.status !== 404) {
-      logger.debug('fetchToolInfoFromApi: unexpected response status', { status: apiResponse.status });
+      logger.debug('run.fetchtoolinfofromapi.unexpected.response.status.4118cbd7', { status: apiResponse.status });
     }
     return null;
   }
   const parsed = inspectToolResultSchema.safeParse(apiResponse.data);
   if (!parsed.success) {
-    logger.debug('fetchToolInfoFromApi: invalid inspect response');
+    logger.debug('run.fetchtoolinfofromapi.invalid.inspect.response.a4a8e463');
     return null;
   }
 
@@ -577,7 +577,7 @@ export async function invokeTool(options: {
     try {
       await client.close();
     } catch (closeError) {
-      logger.debug('CLI session cleanup close failed (best-effort):', { error: closeError });
+      logger.debug('run.cli.session.cleanup.close.failed.best.effort.bd4b5426', { error: closeError });
     }
   }
 }

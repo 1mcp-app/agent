@@ -185,7 +185,7 @@ function getParentEnvironment(runtimeEnv: Readonly<Record<string, string>> = {})
 
     // Skip bash functions and other potentially dangerous variables
     if (value.startsWith('()')) {
-      debugIf(() => ({ message: `Skipping dangerous environment variable: ${key}` }));
+      debugIf(() => ({ message: 'envProcessor.skipping.dangerous.environment.variable.62436294' }));
       continue;
     }
 
@@ -211,7 +211,7 @@ export function substituteEnvVars(
       const envVarName = envVar?.trim() ?? '';
       const envValue = env[envVarName];
       if (envValue === undefined) {
-        logger.warn(`Environment variable ${envVarName} not found, keeping placeholder unchanged`);
+        logger.warn('envProcessor.environment.variable.not.found.keeping.placeholder.unchanged.9e4fa714');
         return match;
       }
       return envValue;
@@ -230,7 +230,7 @@ export function processEnvironment(config: EnvProcessingConfig): ProcessedEnviro
   const sdkDefaults = getDefaultEnvironment();
   const sdkDefaultKeys = Object.keys(sdkDefaults);
 
-  debugIf(() => ({ message: `SDK default environment variables: ${sdkDefaultKeys.join(', ')}` }));
+  debugIf(() => ({ message: 'envProcessor.sdk.default.environment.variables.0a428954' }));
 
   // 2. Optionally inherit from parent process
   let inheritedEnv: Record<string, string> = {};
@@ -240,7 +240,7 @@ export function processEnvironment(config: EnvProcessingConfig): ProcessedEnviro
     const parentEnv = getParentEnvironment(config.runtimeEnv);
     inheritedEnv = { ...parentEnv };
     inheritedKeys = Object.keys(parentEnv).filter((key) => !sdkDefaultKeys.includes(key));
-    debugIf(() => ({ message: `Inheriting ${inheritedKeys.length} additional environment variables from parent` }));
+    debugIf(() => ({ message: 'envProcessor.inheriting.additional.environment.variables.from.parent.fec3533f' }));
   }
 
   // 3. Combine SDK defaults and inherited environment
@@ -252,9 +252,7 @@ export function processEnvironment(config: EnvProcessingConfig): ProcessedEnviro
     const filterResult = applyEnvPatterns(combinedEnv, config.envFilter);
     combinedEnv = filterResult.filtered;
     filteredKeys = filterResult.filteredKeys;
-    debugIf(() => ({
-      message: `Environment filtering removed ${filteredKeys.length} variables: ${filteredKeys.join(', ')}`,
-    }));
+    debugIf(() => ({ message: 'envProcessor.environment.filtering.removed.variables.43fe7eba' }));
   }
 
   // 5. Add custom environment variables
@@ -288,7 +286,7 @@ export function processEnvironment(config: EnvProcessingConfig): ProcessedEnviro
     }
 
     customKeys = Object.keys(customEnv);
-    debugIf(() => ({ message: `Adding ${customKeys.length} custom environment variables: ${customKeys.join(', ')}` }));
+    debugIf(() => ({ message: 'envProcessor.adding.custom.environment.variables.ff9cbb4f' }));
   }
 
   // 6. Final merge (custom env overrides everything)
@@ -304,6 +302,6 @@ export function processEnvironment(config: EnvProcessingConfig): ProcessedEnviro
     },
   };
 
-  debugIf(() => ({ message: `Environment processing complete. Total variables: ${Object.keys(processedEnv).length}` }));
+  debugIf(() => ({ message: 'envProcessor.environment.processing.complete.total.variables.aaf53195' }));
   return result;
 }

@@ -18,32 +18,32 @@ export async function proxyCommand(options: ProxyOptions): Promise<void> {
     const discoveredUrl = attachment.serverUrl.toString();
 
     // Auto-discover server URL
-    logger.info('🔍 Discovering running 1MCP server...');
+    logger.info('proxy.discovering.running.1mcp.server.9ae9a998');
 
     // Log discovery source
     switch (target.source) {
       case 'user':
-        logger.info(`📍 Using user-provided URL: ${discoveredUrl}`);
+        logger.info('proxy.using.user.provided.url.5d95dba1');
         break;
       case 'pidfile':
-        logger.info(`✅ Found server via PID file: ${discoveredUrl}`);
+        logger.info('proxy.found.server.via.pid.file.acea205d');
         break;
       case 'portscan':
-        logger.info(`✅ Found server via port scan: ${discoveredUrl}`);
+        logger.info('proxy.found.server.via.port.scan.4262265e');
         break;
     }
 
     // Apply priority logic: preset > filter > tags (only one will be used)
     if (mergedOptions.preset) {
-      logger.info(`📦 Using preset: ${mergedOptions.preset}`);
+      logger.info('proxy.using.preset.c16bbd2d');
     } else if (mergedOptions.filter) {
-      logger.info(`🔍 Using filter: ${mergedOptions.filter}`);
+      logger.info('proxy.using.filter.85e1ffb4');
     } else if (mergedOptions.tags && mergedOptions.tags.length > 0) {
-      logger.info(`🏷️  Using tags: ${mergedOptions.tags.join(', ')}`);
+      logger.info('proxy.using.tags.20586b71');
     }
 
     // Create and start proxy transport
-    logger.info('📡 Starting STDIO proxy...');
+    logger.info('proxy.starting.stdio.proxy.d415368c');
 
     const proxyTransport = new StdioProxyTransport({
       serverUrl: discoveredUrl,
@@ -55,13 +55,13 @@ export async function proxyCommand(options: ProxyOptions): Promise<void> {
 
     await proxyTransport.start();
 
-    logger.info(`📡 STDIO proxy running, forwarding to ${discoveredUrl}`);
+    logger.info('proxy.stdio.proxy.running.forwarding.to.b084a797');
 
     // Set up graceful shutdown
     const shutdown = async () => {
-      logger.info('Shutting down STDIO proxy...');
+      logger.info('proxy.shutting.down.stdio.proxy.0fa99376');
       await proxyTransport.close();
-      logger.info('STDIO proxy shutdown complete');
+      logger.info('proxy.stdio.proxy.shutdown.complete.eb154c73');
       process.exit(0);
     };
 
@@ -70,9 +70,9 @@ export async function proxyCommand(options: ProxyOptions): Promise<void> {
     process.on('SIGHUP', shutdown);
   } catch (error) {
     if (error instanceof Error) {
-      logger.error(error.message);
+      logger.error('proxy.proxycommand.diagnostic.de43c663', { error: error });
     } else {
-      logger.error('Failed to start STDIO proxy:', error);
+      logger.error('proxy.failed.to.start.stdio.proxy.2ee21544', { error: error });
     }
     process.exit(1);
   }

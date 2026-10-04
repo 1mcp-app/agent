@@ -38,7 +38,7 @@ export class SessionRepository {
     };
 
     this.storage.writeData(AUTH_CONFIG.SERVER.SESSION.FILE_PREFIX, sessionId, sessionData);
-    logger.info(`Created session: ${sessionId} for client: ${clientId}`);
+    logger.info('sessionRepository.created.session.for.client.1462cd8c');
     return sessionId;
   }
 
@@ -99,7 +99,7 @@ export class SessionRepository {
     } else {
       this.storage.writeData(AUTH_CONFIG.SERVER.SESSION.FILE_PREFIX, sessionId, sessionData);
     }
-    logger.info(`Created session with ID: ${sessionId} for client: ${input.clientId}`);
+    logger.info('sessionRepository.created.session.with.id.for.client.10772b23');
     return sessionId;
   }
 
@@ -116,7 +116,7 @@ export class SessionRepository {
   delete(sessionId: string): boolean {
     const result = this.storage.deleteData(AUTH_CONFIG.SERVER.SESSION.FILE_PREFIX, sessionId);
     if (result) {
-      logger.info(`Deleted session: ${sessionId}`);
+      logger.info('sessionRepository.deleted.session.52ed13ff');
     }
     return result;
   }

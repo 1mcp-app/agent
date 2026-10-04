@@ -38,7 +38,9 @@ export class TemplateConfigurationManager {
   ): Promise<void> {
     // Check if template processing is disabled due to repeated failures
     if (this.templateProcessingDisabled) {
-      logger.warn('Template processing temporarily disabled due to repeated failures');
+      logger.warn(
+        'templateConfigurationManager.template.processing.temporarily.disabled.due.to.repeated.failures.b2ad37a7',
+      );
       return;
     }
 
@@ -53,12 +55,12 @@ export class TemplateConfigurationManager {
       await updateServersCallback(newConfig);
 
       if (errors.length > 0) {
-        logger.warn(`Template reprocessing completed with ${errors.length} errors:`, { errors });
+        logger.warn('templateConfigurationManager.template.reprocessing.completed.with.errors.bd10403a');
       }
 
       const templateCount = Object.keys(templateServers).length;
       if (templateCount > 0) {
-        logger.info(`Reprocessed ${templateCount} template servers with new context`);
+        logger.info('templateConfigurationManager.reprocessed.template.servers.with.new.context.8b389171');
       }
 
       // Reset error count on success
@@ -69,25 +71,23 @@ export class TemplateConfigurationManager {
       }
     } catch (error) {
       this.templateProcessingErrors++;
-      logger.error(
-        `Failed to reprocess templates with new context (${this.templateProcessingErrors}/${this.maxTemplateProcessingErrors}):`,
-        {
-          error: error instanceof Error ? error.message : String(error),
-          context: context?.sessionId ? `session ${context.sessionId}` : 'unknown',
-        },
-      );
+      logger.error('templateConfigurationManager.failed.to.reprocess.templates.with.new.context.b78012e6', {
+        error: error,
+      });
 
       // Implement circuit breaker pattern
       if (this.templateProcessingErrors >= this.maxTemplateProcessingErrors) {
         this.templateProcessingDisabled = true;
-        logger.error(`Template processing disabled due to ${this.templateProcessingErrors} consecutive failures`);
+        logger.error('templateConfigurationManager.template.processing.disabled.due.to.consecutive.failures.cf9104c7', {
+          error: error,
+        });
 
         // Reset after 5 minutes
         this.templateProcessingResetTimeout = setTimeout(
           () => {
             this.templateProcessingDisabled = false;
             this.templateProcessingErrors = 0;
-            logger.info('Template processing re-enabled after timeout');
+            logger.info('templateConfigurationManager.template.processing.re.enabled.after.timeout.53c73a3e');
           },
           5 * 60 * 1000,
         );
@@ -106,9 +106,9 @@ export class TemplateConfigurationManager {
     const promises = Object.entries(newConfig).map(async ([serverName, config]) => {
       try {
         await updateServerCallback(serverName, config);
-        logger.debug(`Successfully updated server: ${serverName}`);
-      } catch (serverError) {
-        logger.error(`Failed to update server ${serverName}:`, serverError);
+        logger.debug('templateConfigurationManager.successfully.updated.server.d3792672');
+      } catch (_serverError) {
+        logger.error('templateConfigurationManager.failed.to.update.server.d4020326', { error: _serverError });
         // Continue with other servers even if one fails
       }
     });
@@ -132,7 +132,7 @@ export class TemplateConfigurationManager {
     // Stop servers that are no longer in the configuration
     for (const serverName of currentServerNames) {
       if (!newServerNames.has(serverName)) {
-        logger.info(`Stopping server no longer in configuration: ${serverName}`);
+        logger.info('templateConfigurationManager.stopping.server.no.longer.in.configuration.206a3906');
         await stopServerCallback(serverName);
       }
     }
@@ -144,12 +144,12 @@ export class TemplateConfigurationManager {
       if (existingConfig) {
         // Check if configuration changed
         if (this.configChanged(existingConfig, config)) {
-          logger.info(`Restarting server with updated configuration: ${serverName}`);
+          logger.info('templateConfigurationManager.restarting.server.with.updated.configuration.6c6d6977');
           await restartServerCallback(serverName, config);
         }
       } else {
         // New server, start it
-        logger.info(`Starting new server: ${serverName}`);
+        logger.info('templateConfigurationManager.starting.new.server.d11f5171');
         await startServerCallback(serverName, config);
       }
     }
@@ -186,7 +186,7 @@ export class TemplateConfigurationManager {
       clearTimeout(this.templateProcessingResetTimeout);
       this.templateProcessingResetTimeout = undefined;
     }
-    logger.info('Circuit breaker reset - template processing re-enabled');
+    logger.info('templateConfigurationManager.circuit.breaker.reset.template.processing.re.enabled.19a7d7e5');
   }
 
   /**

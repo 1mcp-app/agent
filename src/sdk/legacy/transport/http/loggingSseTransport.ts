@@ -23,19 +23,8 @@ export class LoggingSSEServerTransport extends SSEServerTransport {
 
       if (isErrorLoggingEnabled) {
         try {
-          // Sanitize errorData - only include safe primitive types
-          const rawErrorData = message.error.data;
-          const safeErrorData =
-            rawErrorData === null || ['string', 'number', 'boolean'].includes(typeof rawErrorData)
-              ? rawErrorData
-              : undefined;
-
-          logJsonRpc('warn', 'JSON-RPC error response', {
-            jsonrpcVersion: message.jsonrpc,
-            requestId: message.id,
-            errorCode: message.error.code,
-            errorMessage: message.error.message,
-            errorData: safeErrorData,
+          logJsonRpc('error', 'loggingSseTransport.json.rpc.error.response.6ba80f1a', {
+            requestId: typeof message.id === 'string' ? message.id : undefined,
             sessionId: this.sessionId,
           });
         } catch (_logError) {

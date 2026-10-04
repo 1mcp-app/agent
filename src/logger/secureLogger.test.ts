@@ -316,7 +316,7 @@ describe('secureLogger', () => {
     });
 
     it('should return [SANITIZATION_ERROR] and log static message if sanitization throws', () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const consoleErrorSpy = vi.spyOn(secureLogger, 'error').mockImplementation(() => {});
       // Create an object where property access throws sensitive message
       const throwingObj = {};
       Object.defineProperty(throwingObj, 'badProp', {
@@ -327,7 +327,7 @@ describe('secureLogger', () => {
       });
       const result = sanitizeForLogging(throwingObj);
       expect(result).toBe('[SANITIZATION_ERROR]');
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Sanitization error occurred');
+      expect(consoleErrorSpy).toHaveBeenCalledWith('logger.sanitization-failed');
       expect(consoleErrorSpy).not.toHaveBeenCalledWith(expect.stringContaining('Explosion'));
       expect(consoleErrorSpy).not.toHaveBeenCalledWith(expect.stringContaining('secret123'));
       consoleErrorSpy.mockRestore();
@@ -401,21 +401,31 @@ describe('secureLogger', () => {
     // Note: We can't easily test the actual logging output without mocking,
     // but we can verify the methods exist and don't throw errors
     it('should not throw when called with various inputs', () => {
+      // @ts-expect-error Deliberately exercise unregistered messages at the runtime admission boundary.
       expect(() => secureLogger.debug('test message')).not.toThrow();
+      // @ts-expect-error Deliberately exercise unregistered messages at the runtime admission boundary.
       expect(() => secureLogger.info('test message', { data: 'test' })).not.toThrow();
+      // @ts-expect-error Deliberately exercise unregistered messages at the runtime admission boundary.
       expect(() => secureLogger.warn('test message', { secret: 'should-be-redacted' })).not.toThrow();
+      // @ts-expect-error Deliberately exercise unregistered messages at the runtime admission boundary.
       expect(() => secureLogger.error('test message')).not.toThrow();
     });
 
     it('should handle OAuth-related messages without exposing sensitive data', () => {
+      // @ts-expect-error Deliberately exercise unregistered messages at the runtime admission boundary.
       expect(() => secureLogger.debug('OAuth client configured with scopes: openid profile email')).not.toThrow();
+      // @ts-expect-error Deliberately exercise unregistered messages at the runtime admission boundary.
       expect(() => secureLogger.info('AwaitingOAuth state', { status: 'awaiting_oauth' })).not.toThrow();
+      // @ts-expect-error Deliberately exercise unregistered messages at the runtime admission boundary.
       expect(() => secureLogger.warn('OAuth required', { oauthRequired: ['server1', 'server2'] })).not.toThrow();
     });
 
     it('should sanitize sensitive patterns in messages', () => {
+      // @ts-expect-error Deliberately exercise unregistered messages at the runtime admission boundary.
       expect(() => secureLogger.debug('Message with scope: openid profile')).not.toThrow();
+      // @ts-expect-error Deliberately exercise unregistered messages at the runtime admission boundary.
       expect(() => secureLogger.debug('Message with redirect_uris: [https://example.com]')).not.toThrow();
+      // @ts-expect-error Deliberately exercise unregistered messages at the runtime admission boundary.
       expect(() => secureLogger.debug('Message with scopes: [openid, profile]')).not.toThrow();
     });
   });

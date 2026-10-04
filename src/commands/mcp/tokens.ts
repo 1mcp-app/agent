@@ -355,7 +355,7 @@ async function collectServerCapabilities(
   const connectionHelper = new McpConnectionHelper();
 
   try {
-    logger.debug(`Connecting to ${serverConfigs.length} MCP servers for capability discovery`);
+    logger.debug('tokens.connecting.to.mcp.servers.for.capability.discovery.f8273e60');
 
     // Convert to server configuration format expected by connection helper
     const servers: Record<string, MCPServerParams> = {};
@@ -400,7 +400,7 @@ async function collectServerCapabilities(
 
     return estimates;
   } catch (error) {
-    logger.error('Error collecting server capabilities:', error);
+    logger.error('tokens.error.collecting.server.capabilities.17b0f066', { error: error });
     throw error;
   } finally {
     // Clean up connections
@@ -414,7 +414,7 @@ async function collectServerCapabilities(
  */
 export async function tokensCommand(argv: Arguments<TokensCommandArgs>): Promise<void> {
   try {
-    logger.debug('Starting tokens command with args:', argv);
+    logger.debug('tokens.starting.tokens.command.with.args.b08b694b');
 
     // Initialize config context with CLI options
     initializeConfigContext(argv.config, argv['config-dir']);
@@ -446,7 +446,7 @@ export async function tokensCommand(argv: Arguments<TokensCommandArgs>): Promise
           process.exit(1);
         }
 
-        logger.debug('Using preset for token estimation:', preset.name);
+        logger.debug('tokens.using.preset.for.token.estimation.e925577e');
         filterDescription = `preset "${argv.preset}"`;
 
         // Filter servers based on preset's TagQuery
@@ -463,7 +463,7 @@ export async function tokensCommand(argv: Arguments<TokensCommandArgs>): Promise
     } else if (argv['tag-filter']) {
       try {
         tagExpression = TagQueryParser.parseAdvanced(argv['tag-filter']);
-        logger.debug('Parsed tag filter expression:', tagExpression);
+        logger.debug('tokens.parsed.tag.filter.expression.0009d0c9');
         filterDescription = `tag filter "${argv['tag-filter']}"`;
 
         // Filter servers based on tag expression
@@ -528,7 +528,7 @@ export async function tokensCommand(argv: Arguments<TokensCommandArgs>): Promise
         break;
     }
   } catch (error) {
-    logger.error('Error in tokens command:', error);
+    logger.error('tokens.error.in.tokens.command.dba89057', { error: error });
     printer.error(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     process.exit(1);
   }

@@ -26,6 +26,7 @@ import {
 } from '@src/core/server/runtimeLifecycle.js';
 import { claimRuntimeScope, type RuntimeScopeOwnership } from '@src/core/server/runtimeScopeOwnership.js';
 import type { ApplicationConfig } from '@src/core/types/transport.js';
+import { appendSupervisorEvent } from '@src/logger/backgroundSupervisorLogger.js';
 import logger from '@src/logger/logger.js';
 import { resolveLoggingConfig } from '@src/logger/loggingConfig.js';
 import { normalizedArgv } from '@src/utils/cli/normalizedArgv.js';
@@ -515,9 +516,7 @@ export async function runServeBackgroundSupervisor(
     const { command, baseArgs } = resolveSelfInvocation();
     const workerArgs = [...baseArgs, 'serve', ...workerServeArgs];
     const runSupervisor = deps.runSupervisor ?? runBackgroundRuntimeSupervisor;
-    const appendEvent = (event: BackgroundSupervisorEvent): void => {
-      fs.appendFileSync(logFile, `${JSON.stringify(event)}\n`, 'utf8');
-    };
+    const appendEvent = (event: BackgroundSupervisorEvent): void => appendSupervisorEvent(logFile, event);
 
     await runSupervisor(
       { configDir, workerCommand: command, workerArgs },
@@ -564,8 +563,8 @@ function createCleanupMismatchError(message: string, supervisorFailure?: { error
 function defaultKillChild(pid: number): void {
   try {
     process.kill(pid, 'SIGTERM');
-  } catch (error) {
-    logger.warn(`Failed to terminate background supervisor (PID: ${pid}): ${error}`);
+  } catch (_error) {
+    logger.warn('serveBackground.failed.to.terminate.background.supervisor.pid.97588dd9', { error: _error });
   }
 }
 

@@ -44,7 +44,7 @@ export class ServerInstallationService {
     const errors: string[] = [];
 
     try {
-      logger.info(`Starting installation of ${serverName}${version ? `@${version}` : ''}`);
+      logger.info('serverInstallationService.starting.installation.of.8adb8e75');
 
       // Get server information from registry with ID resolution fallback
       const registryServer = await this.resolveServerById(serverName, version);
@@ -96,12 +96,12 @@ export class ServerInstallationService {
         operationId,
       };
 
-      logger.info(`Successfully prepared installation configuration for ${localServerName}`);
+      logger.info('serverInstallationService.successfully.prepared.installation.configuration.for.dfa3c3ff');
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       errors.push(errorMessage);
-      logger.error(`Installation failed for ${serverName}: ${errorMessage}`);
+      logger.error('serverInstallationService.installation.failed.for.cbeab30b', { error: error });
 
       throw error;
     }
@@ -153,7 +153,9 @@ export class ServerInstallationService {
       return await this.registryClient.getServerById(serverName, version);
     } catch (_error) {
       // If direct lookup fails, try search-based resolution
-      logger.debug(`Direct lookup failed for ${serverName}, trying search-based resolution`);
+      logger.debug('serverInstallationService.direct.lookup.failed.for.trying.search.based.resolution.9ef9a44a', {
+        error: _error,
+      });
 
       try {
         // Search for servers matching this name
@@ -174,7 +176,7 @@ export class ServerInstallationService {
         );
 
         if (matchedServer) {
-          logger.info(`Found server "${serverName}" as "${matchedServer.name}" in registry`);
+          logger.info('serverInstallationService.found.server.as.in.registry.ea1491e9');
           return await this.registryClient.getServerById(matchedServer.name, version);
         }
 
@@ -236,7 +238,7 @@ export class ServerInstallationService {
    * Update a server to latest or specific version
    */
   async updateServer(serverName: string, version?: string, _options?: UpdateOptions): Promise<UpdateResult> {
-    logger.info(`Updating server ${serverName}${version ? ` to ${version}` : ' to latest'}`);
+    logger.info('serverInstallationService.updating.server.3e4e4b9c');
 
     const operationId = `op_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
@@ -277,7 +279,7 @@ export class ServerInstallationService {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(`Update failed for ${serverName}: ${errorMessage}`);
+      logger.error('serverInstallationService.update.failed.for.07902538', { error: error });
 
       return {
         success: false,
@@ -296,7 +298,7 @@ export class ServerInstallationService {
    * Uninstall a server
    */
   async uninstallServer(serverName: string, _options?: UninstallOptions): Promise<UninstallResult> {
-    logger.info(`Uninstalling server ${serverName}`);
+    logger.info('serverInstallationService.uninstalling.server.0a40d156');
 
     const operationId = `op_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
@@ -317,7 +319,7 @@ export class ServerInstallationService {
    * Check for available updates
    */
   async checkForUpdates(_serverNames?: string[]): Promise<UpdateCheckResult[]> {
-    logger.info(`Checking for updates${_serverNames ? ` for ${_serverNames.length} servers` : ''}`);
+    logger.info('serverInstallationService.checking.for.updates.d6475fda');
 
     const results: UpdateCheckResult[] = [];
 
@@ -349,9 +351,9 @@ export class ServerInstallationService {
             updateType,
           });
         }
-      } catch (error) {
+      } catch (_error) {
         // Silently skip servers that can't be checked
-        logger.debug(`Could not check updates for ${serverName}: ${error}`);
+        logger.debug('serverInstallationService.could.not.check.updates.for.ddce3667');
       }
     }
 
@@ -362,7 +364,7 @@ export class ServerInstallationService {
    * List installed servers
    */
   async listInstalledServers(_options?: ListOptions): Promise<string[]> {
-    logger.info('Listing installed servers');
+    logger.info('serverInstallationService.listing.installed.servers.0b1768ea');
 
     // Import config utilities dynamically to avoid circular dependencies
     // Get all servers from configuration

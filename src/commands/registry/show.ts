@@ -60,9 +60,7 @@ export async function showCommand(argv: ShowCommandCliArgs): Promise<void> {
 
     const registryOptions = registryOptionsFromArgv(argv);
 
-    logger.info(
-      `Fetching MCP server details: ${showArgs.serverId}${showArgs.version ? ` (v${showArgs.version})` : ''}`,
-    );
+    logger.info('show.fetching.mcp.server.details.b2a7a76e');
     const server = await handleShowMCPServer(showArgs, registryOptions);
 
     // Format and display the server details
@@ -78,7 +76,7 @@ export async function showCommand(argv: ShowCommandCliArgs): Promise<void> {
       printer.raw(output);
     }
   } catch (error) {
-    logger.error('Show command failed:', error);
+    logger.error('show.show.command.failed.82926490', { error: error });
 
     // Check if it's a 404 error and provide helpful message
     if (error instanceof Error && error.message.includes('404')) {

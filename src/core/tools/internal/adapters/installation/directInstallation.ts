@@ -29,8 +29,8 @@ export async function performDirectPackageInstallation(
   const errors: string[] = [];
 
   debugIf(() => ({
-    message: 'Adapter: Starting direct package installation',
-    meta: { serverName, version, options },
+    message: 'directInstallation.adapter.starting.direct.package.installation.a906f46c',
+    meta: { serverName: serverName },
   }));
 
   try {
@@ -109,10 +109,8 @@ export async function performDirectPackageInstallation(
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     errors.push(`Direct package installation failed: ${errorMessage}`);
-    logger.error('Direct package installation error', {
-      serverName,
-      version,
-      options,
+    logger.error('directInstallation.direct.package.installation.error.8b2fff9e', {
+      serverName: serverName,
       error: errorMessage,
     });
 

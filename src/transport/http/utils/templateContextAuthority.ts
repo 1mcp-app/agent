@@ -30,8 +30,8 @@ function readCapabilityFailClosed(storagePath: string): TemplateContextCapabilit
       storageDir: storagePath,
       runtimeScopeId: new RuntimeIdentityService({ storageDir: storagePath }).getRuntimeScopeId(),
     }).getOrCreate();
-  } catch (error) {
-    warnIf(`Template context capability unreadable; denying template context trust: ${error}`);
+  } catch (_error) {
+    warnIf('templateContextAuthority.template.context.capability.unreadable.denying.template.context.trust.0baf75b3');
     return undefined;
   }
 }
@@ -53,27 +53,12 @@ export function authorizeRequestTemplateContext(
     maxAgeMs: sessionTtlMinutes * 60 * 1000,
   });
 
-  const createAudit = () => ({
-    source: input.source,
-    trustMode: mode,
-    verification: result.status,
-    reason: 'reason' in result ? result.reason : undefined,
-    provenance: 'provenance' in result ? result.provenance : undefined,
-    runtimeScopeId: result.runtimeScopeId,
-    sessionId: input.transportSessionId ?? input.context.sessionId,
-    contextHash: result.contextHash,
-    projectName: input.context.project.name,
-    projectPath: input.context.project.path,
-  });
   const auditLog = result.status === 'trusted' ? infoIf : warnIf;
-  auditLog(() => ({ message: 'Template context audit', meta: createAudit() }));
-  debugIf(() => ({
-    message: 'Template context audit detail',
-    meta: {
-      ...createAudit(),
-      context: redactContextForAudit(input.context),
-    },
+  auditLog(() => ({
+    message: 'template-context.audit',
+    meta: { sessionId: input.transportSessionId ?? input.context.sessionId },
   }));
+  debugIf(() => ({ message: 'templateContextAuthority.template.context.audit.detail.167701e4' }));
 
   return result;
 }

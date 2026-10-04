@@ -17,8 +17,8 @@ describe('ToolRegistry', () => {
     const diagnostic = vi.mocked(errorIf).mock.calls.at(-1)?.[0];
     expect(typeof diagnostic).toBe('function');
     if (typeof diagnostic !== 'function') throw new Error('Expected lazy diagnostic');
-    expect(diagnostic()).toMatchObject({
-      meta: { quarantine: [{ kind: 'tools', server: 'server', connectionKey: 'backend', reason: 'invalid-source' }] },
+    expect(diagnostic()).toEqual({
+      message: 'toolRegistry.capabilities.excluded.from.catalog.by.quarantine.06fb2156',
     });
   });
 

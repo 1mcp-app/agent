@@ -371,7 +371,7 @@ export function createOAuthAuthorizationFlow(dependencies: OAuthAuthorizationFlo
         const adminReturnOrigin = dependencies.clientRuntime.getOAuthReturn?.(input.serverName, input.state);
         return { status: 'completed', ...(adminReturnOrigin ? { adminReturnOrigin } : {}) };
       } catch (error) {
-        logger.error(`OAuth callback completion failed for ${input.serverName}`);
+        logger.error('oauthAuthorizationFlow.oauth.callback.completion.failed.for.758a88bb');
         const adminReturnOrigin = dependencies.clientRuntime.getOAuthReturn?.(input.serverName, input.state);
         return {
           status: error instanceof OAuthAuthorizationDeniedError ? 'provider_error' : 'callback_failed',

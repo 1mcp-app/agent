@@ -38,7 +38,7 @@ export async function urlCommand(argv: UrlArguments): Promise<void> {
 
     await showPresetUrl(argv.name, presetManager, selector, urlGenerator);
   } catch (error) {
-    logger.error('Preset URL command failed', { error });
+    logger.error('url.preset.url.command.failed.948ba859', { error: error });
     printer.error(`Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     process.exit(1);
   }

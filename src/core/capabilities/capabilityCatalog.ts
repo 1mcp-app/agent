@@ -338,7 +338,7 @@ export class CapabilityCatalog {
       };
     } catch (error) {
       const failure = gatewayFailureFromUnknown(error, 'transport');
-      logger.error('Failed to load upstream tool schema', { failure });
+      logger.error('capabilityCatalog.failed.to.load.upstream.tool.schema.a7409f4d', { error: error });
       return {
         schema: {},
         error: {
@@ -441,7 +441,7 @@ export class CapabilityCatalog {
           },
         };
       const failure = gatewayFailureFromUnknown(error, 'transport');
-      logger.error('Tool invocation failed', { failure });
+      logger.error('capabilityCatalog.tool.invocation.failed.828dabfb', { error: error });
 
       return {
         result: {},

@@ -90,9 +90,7 @@ async function setupServer(
 
     // Create transports from static configuration only (template servers created per-client)
     const transports = createTransports(mcpConfig);
-    logger.info(
-      `Created ${Object.keys(transports).length} static transports (template servers will be created per-client)`,
-    );
+    logger.info('server.created.static.transports.template.servers.will.be.created.per.client.c973cddd');
 
     const nonblockingStartup = asyncLoadingEnabled || startupPolicy === 'cooperative-activation';
     const setupResult = nonblockingStartup
@@ -103,18 +101,17 @@ async function setupServer(
     if (errors.length === 0) {
       setupResult.serverManager.getTemplateServerManager().rebuildTemplateIndex({ mcpTemplates: templateServers });
     } else {
-      logger.warn('Skipping initial template index because the declared configuration is invalid', { errors });
+      logger.warn('server.skipping.initial.template.index.because.the.declared.configuration.is.inval.4ec2bdfc');
     }
 
     if (nonblockingStartup) {
-      logger.info('Using async loading mode - HTTP server will start immediately, MCP servers load in background');
+      logger.info('server.using.async.loading.mode.http.server.will.start.immediately.mcp.servers.loa.d02f7566');
     } else {
-      logger.info('Using legacy synchronous loading mode - waiting for all MCP servers before starting HTTP server');
+      logger.info('server.using.legacy.synchronous.loading.mode.waiting.for.all.mcp.servers.before.st.0511e111');
     }
     return setupResult;
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logger.error(`Failed to set up server: ${errorMessage}`);
+    logger.error('server.failed.to.set.up.server.8f1b49ea', { error: error });
     throw error;
   }
 }
@@ -134,13 +131,13 @@ async function setupServerAsync(
 
   // Initialize instruction aggregator
   const instructionAggregator = new InstructionAggregator();
-  logger.info('Instruction aggregator initialized');
+  logger.info('server.instruction.aggregator.initialized.e753c4c6');
 
   // Initialize client manager without connecting (for async loading)
   const clientManager = ClientManager.getOrCreateInstance();
   clientManager.setInstructionAggregator(instructionAggregator);
   const clients = clientManager.initializeClientsAsync(transports);
-  logger.info(`Initialized storage for ${Object.keys(transports).length} MCP servers`);
+  logger.info('server.initialized.storage.for.mcp.servers.fbc15149');
 
   // Create server manager with empty clients initially
   const serverManager = ServerManager.getOrCreateInstance(
@@ -172,7 +169,7 @@ async function setupServerAsync(
     const internalProvider = InternalCapabilitiesProvider.getInstance();
     internalProvider.setLazyLoadingOrchestrator(lazyLoadingOrchestrator);
 
-    logger.info('Lazy loading orchestrator initialized');
+    logger.info('server.lazy.loading.orchestrator.initialized.630c4de5');
   }
 
   clientManager.setBackendAvailabilityHandler(async () => {
@@ -187,14 +184,13 @@ async function setupServerAsync(
     .startAsyncLoading(transports)
     .then(() => loadingManager.waitForInitialLoading())
     .then(() => {
-      logger.info('All MCP servers finished loading (successfully or failed)');
+      logger.info('server.all.mcp.servers.finished.loading.successfully.or.failed.c38ed544');
     })
-    .catch((error) => {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('MCP loading process encountered an error:', errorMessage);
+    .catch((_error) => {
+      logger.error('server.mcp.loading.process.encountered.an.error.7f0984df');
     });
 
-  logger.info('Async server setup completed - HTTP server ready, MCP servers loading in background');
+  logger.info('server.async.server.setup.completed.http.server.ready.mcp.servers.loading.in.backg.c75ae6ef');
 
   return {
     serverManager,
@@ -220,13 +216,13 @@ async function setupServerSync(
 
   // Initialize instruction aggregator
   const instructionAggregator = new InstructionAggregator();
-  logger.info('Instruction aggregator initialized');
+  logger.info('server.instruction.aggregator.initialized.e753c4c6');
 
   // Use the standard synchronous client creation
   const clientManager = ClientManager.getOrCreateInstance();
   clientManager.setInstructionAggregator(instructionAggregator);
   const clients = await clientManager.createClients(transports);
-  logger.info(`Connected to ${clients.size} MCP servers synchronously`);
+  logger.info('server.connected.to.mcp.servers.synchronously.cb5b7480');
 
   // Create server manager with connected clients
   const serverManager = ServerManager.getOrCreateInstance(
@@ -252,7 +248,7 @@ async function setupServerSync(
     const internalProvider = InternalCapabilitiesProvider.getInstance();
     internalProvider.setLazyLoadingOrchestrator(lazyLoadingOrchestrator);
 
-    logger.info('Lazy loading orchestrator initialized');
+    logger.info('server.lazy.loading.orchestrator.initialized.630c4de5');
   }
 
   // Create a dummy loading manager for compatibility
@@ -260,7 +256,7 @@ async function setupServerSync(
   const loadingPromise = Promise.resolve(); // Already loaded
   clientManager.setBackendAvailabilityHandler(() => serverManager.notifyBackendCapabilityListsChanged());
 
-  logger.info('Synchronous server setup completed - all MCP servers connected');
+  logger.info('server.synchronous.server.setup.completed.all.mcp.servers.connected.5893f787');
 
   return {
     serverManager,
@@ -285,17 +281,14 @@ async function initializePresetSystem(configDirOption?: string): Promise<void> {
 
     // Connect preset changes to client notifications
     presetManager.onPresetChange(async (presetName: string) => {
-      debugIf(() => ({
-        message: 'Preset changed, sending notifications',
-        meta: { presetName, timestamp: Date.now() },
-      }));
+      debugIf(() => ({ message: 'server.preset.changed.sending.notifications.0e9970c7' }));
       await notificationService.notifyPresetChange(presetName);
     });
 
-    logger.info('Preset management system initialized successfully');
+    logger.info('server.preset.management.system.initialized.successfully.df5fbccc');
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    logger.error('Failed to initialize preset system', { error: errorMessage });
+    logger.error('server.failed.to.initialize.preset.system.7da5a6aa', { error: errorMessage });
     throw error;
   }
 }

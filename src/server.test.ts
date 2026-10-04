@@ -240,7 +240,7 @@ describe('server', () => {
       await setupServer();
 
       expect(logger.info).toHaveBeenCalledWith(
-        'Created 2 static transports (template servers will be created per-client)',
+        'server.created.static.transports.template.servers.will.be.created.per.client.c973cddd',
       );
     });
 
@@ -253,7 +253,7 @@ describe('server', () => {
     it('should log client creation', async () => {
       await setupServer();
 
-      expect(logger.info).toHaveBeenCalledWith('Connected to 2 MCP servers synchronously');
+      expect(logger.info).toHaveBeenCalledWith('server.connected.to.mcp.servers.synchronously.cb5b7480');
     });
 
     it('should create ServerManager instance with correct parameters', async () => {
@@ -297,7 +297,9 @@ describe('server', () => {
     it('should log successful setup completion', async () => {
       await setupServer();
 
-      expect(logger.info).toHaveBeenCalledWith('Synchronous server setup completed - all MCP servers connected');
+      expect(logger.info).toHaveBeenCalledWith(
+        'server.synchronous.server.setup.completed.all.mcp.servers.connected.5893f787',
+      );
     });
 
     it('should return the ServerManager instance', async () => {
@@ -330,7 +332,7 @@ describe('server', () => {
       });
 
       await expect(setupServer()).rejects.toThrow('Transport creation failed');
-      expect(logger.error).toHaveBeenCalledWith('Failed to set up server: Transport creation failed');
+      expect(logger.error).toHaveBeenCalledWith('server.failed.to.set.up.server.8f1b49ea', { error });
     });
 
     it('should handle client creation errors gracefully with sync loading', async () => {

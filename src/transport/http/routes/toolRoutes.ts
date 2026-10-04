@@ -116,8 +116,8 @@ async function createFallbackCapabilityCatalog(
       registryTools.push(
         ...(result.tools ?? []).map((tool) => ({ tool, server: logicalServerName, connectionKey, tags })),
       );
-    } catch (err) {
-      logger.error('Failed to list tools', { failure: gatewayFailureFromUnknown(err, 'transport') });
+    } catch (_err) {
+      logger.error('toolRoutes.failed.to.list.tools.736c81c7', { error: _err });
       degradedServers.push(connectionKey);
     }
   }
@@ -238,8 +238,8 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
       }
 
       res.json(result);
-    } catch (error) {
-      logger.error('API tools handler error', { failure: gatewayFailureFromUnknown(error) });
+    } catch (_error) {
+      logger.error('toolRoutes.api.tools.handler.error.92efa583', { error: _error });
       res.status(500).json({ error: 'Internal server error' });
     }
   };
@@ -371,7 +371,7 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
                   message: error.code,
                 })
               : gatewayFailureFromUnknown(error, 'transport');
-          logger.error('Direct tool invocation error', { failure });
+          logger.error('toolRoutes.direct.tool.invocation.error.ba32e1c5', { error: error });
           const problem = gatewayFailureToProblem(failure);
           const status =
             error instanceof SchemaBoundaryError
@@ -464,8 +464,8 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
       }
 
       res.json(result);
-    } catch (error) {
-      logger.error('API tool-invocations handler error', { failure: gatewayFailureFromUnknown(error) });
+    } catch (_error) {
+      logger.error('toolRoutes.api.tool.invocations.handler.error.398a77aa', { error: _error });
       res.status(500).json({ error: 'Internal server error' });
     } finally {
       req.off?.('aborted', abort);
