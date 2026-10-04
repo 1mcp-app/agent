@@ -56,10 +56,18 @@ import { FileStorageService } from './fileStorageService.js';
 export class ClientSessionRepository {
   constructor(private storage: FileStorageService) {}
 
-  async claimContext(slot: string, context: OAuthAuthorityContext, observedGeneration: string | null): Promise<string> {
+  async claimContext(
+    slot: string,
+    context: OAuthAuthorityContext,
+    observedGeneration: string | null,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    signal?.throwIfAborted();
     // Derivation must not block the event loop or hold the cross-process slot lock.
     const fingerprint = await oauthConfigurationFingerprintAsync(context, slot);
+    signal?.throwIfAborted();
     return this.storage.withExclusiveLock(`oauth-${slot}`, () => {
+      signal?.throwIfAborted();
       const current = this.getClaim(slot);
       const joiningInitial =
         observedGeneration === null && current?.joinable === true && current.fingerprint === fingerprint;

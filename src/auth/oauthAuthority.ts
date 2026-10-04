@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomBytes, scrypt, scryptSync } from 'node:crypto';
+import { createHash, scrypt, scryptSync } from 'node:crypto';
 
 import { z } from 'zod';
 
@@ -55,51 +55,43 @@ export function oauthDigest(value: unknown): string {
   // and correlates opaque protocol values; it does not store or verify passwords.
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
-const fingerprintCache = new Map<string, string>();
-const fingerprintCacheKey = randomBytes(32);
+const authoritySlots = new Map<string, string>();
 const fingerprintOptions = { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
-
-function fingerprintInput(value: unknown, scope: unknown) {
-  const input = JSON.stringify(value);
-  const salt = JSON.stringify(['1mcp-oauth-config-v1', scope]);
-  // Cache neither raw configuration secrets nor a guessable unkeyed digest.
-  const key = createHmac('sha256', fingerprintCacheKey)
-    .update(JSON.stringify([input, salt]))
-    .digest('hex');
-  return { input, salt, key };
-}
-
-function rememberFingerprint(key: string, fingerprint: string): string {
-  if (fingerprintCache.size >= 128) fingerprintCache.delete(fingerprintCache.keys().next().value!);
-  fingerprintCache.set(key, fingerprint);
-  return fingerprint;
-}
 
 /** Secret-bearing configuration fingerprints must resist offline guessing. */
 export function oauthConfigurationFingerprint(value: unknown, scope: unknown): string {
-  const { input, salt, key } = fingerprintInput(value, scope);
-  const cached = fingerprintCache.get(key);
-  if (cached !== undefined) return cached;
-  // Stable scope salt preserves restart identity while separating configured authorities.
-  return rememberFingerprint(key, scryptSync(input, salt, 32, fingerprintOptions).toString('hex'));
+  return scryptSync(
+    JSON.stringify(value),
+    JSON.stringify(['1mcp-oauth-config-v1', scope]),
+    32,
+    fingerprintOptions,
+  ).toString('hex');
 }
 
 export async function oauthConfigurationFingerprintAsync(value: unknown, scope: unknown): Promise<string> {
-  const { input, salt, key } = fingerprintInput(value, scope);
-  const cached = fingerprintCache.get(key);
-  if (cached !== undefined) return cached;
+  const input = JSON.stringify(value);
+  const salt = JSON.stringify(['1mcp-oauth-config-v1', scope]);
   const fingerprint = await new Promise<Buffer>((resolve, reject) => {
     scrypt(input, salt, 32, fingerprintOptions, (error, result) => {
       if (error) reject(error);
       else resolve(result);
     });
   });
-  return rememberFingerprint(key, fingerprint.toString('hex'));
+  return fingerprint.toString('hex');
 }
 
 export function authoritySlot(context: OAuthAuthorityContext): string {
-  return oauthConfigurationFingerprint([context.owner, context.source, context.route.connectionKey], 'authority-slot');
+  // These stable identity labels contain no configuration credentials.
+  const identity = [context.owner, context.source, context.route.connectionKey];
+  const key = JSON.stringify(identity);
+  const cached = authoritySlots.get(key);
+  if (cached !== undefined) return cached;
+  const slot = oauthConfigurationFingerprint(identity, 'authority-slot');
+  if (authoritySlots.size >= 128) authoritySlots.delete(authoritySlots.keys().next().value!);
+  authoritySlots.set(key, slot);
+  return slot;
 }
+
 export function sameAuthority(a: OAuthAuthority, b: OAuthAuthority): boolean {
   return JSON.stringify(OAuthAuthoritySchema.parse(a)) === JSON.stringify(OAuthAuthoritySchema.parse(b));
 }

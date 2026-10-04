@@ -549,6 +549,10 @@ export class ClientManager extends EventEmitter {
     } catch (_error) {
       logger.warn('clientManager.could.not.close.superseded.client.3029a8f0', { error: _error });
     }
+    const provider = getLegacyTransport(superseded).oauthProvider;
+    const current = this.outboundConns.get(name);
+    if (current && getLegacyTransport(current).oauthProvider === provider) return;
+    await provider?.shutdown?.();
   }
 
   private handleSingleClientError(name: string, transport: AuthProviderTransport, error: unknown): void {
@@ -824,6 +828,7 @@ export class ClientManager extends EventEmitter {
             .close()
             .catch(() => undefined);
         }
+        await getLegacyTransport(connection).oauthProvider?.shutdown?.();
         this.instructionAggregator?.removeServer({ source: 'mcpServers', name: connection.name }, name);
       }),
     );
@@ -969,6 +974,7 @@ export class ClientManager extends EventEmitter {
     } catch {
       await connected.transport.close().catch(() => undefined);
     }
+    await connected.transport.oauthProvider?.shutdown?.();
   }
 }
 

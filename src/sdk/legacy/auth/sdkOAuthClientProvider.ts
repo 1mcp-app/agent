@@ -73,6 +73,7 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
   // These tickets are process-local; a random key protects secret-bearing response correlation.
   private readonly responseKey = randomBytes(32);
   private readonly migration: Promise<void>;
+  private readonly shutdownSignal = new AbortController();
   private claim?: string;
   readonly fetch: typeof fetch;
 
@@ -95,7 +96,12 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
     const observedGeneration = this.slot ? (this.sessionRepository.getClaim(this.slot)?.generation ?? null) : null;
     this.migration = this.sessionRepository.quarantine(serverName).then(async () => {
       if (this.slot && this.context)
-        this.claim = await this.sessionRepository.claimContext(this.slot, this.context, observedGeneration);
+        this.claim = await this.sessionRepository.claimContext(
+          this.slot,
+          this.context,
+          observedGeneration,
+          this.shutdownSignal.signal,
+        );
     });
     void this.migration.catch(() => undefined);
     this.fetch = createOAuthEndpointFetch({
@@ -657,7 +663,9 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
     target.set(key, ticket);
   }
 
-  shutdown(): void {
+  async shutdown(): Promise<void> {
+    this.shutdownSignal.abort();
     this.fileStorage.shutdown();
+    await this.migration.catch(() => undefined);
   }
 }

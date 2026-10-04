@@ -66,6 +66,17 @@ describe('active OAuth authority lifetime', () => {
     expect(repository.getBound(authoritySlot(authority))?.expires).toBe(Date.now() + OAUTH_AUTHORITY_TTL_MS);
   });
 
+  it('does not persist a pending claim after shutdown cancellation', async () => {
+    const controller = new AbortController();
+    const slot = authoritySlot(authority);
+    const write = vi.spyOn(storage, 'writeDataDurable');
+    const pending = repository.claimContext(slot, authority, null, controller.signal);
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(write).not.toHaveBeenCalled();
+    expect(repository.getClaim(slot)).toBeNull();
+  });
+
   it('renews both records on credential saves and same-authority activation', async () => {
     const generation = await repository.claimContext(authoritySlot(authority), authority, null);
     await repository.activate(authoritySlot(authority), authority, 'discovery', generation);
