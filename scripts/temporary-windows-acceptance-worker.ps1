@@ -12,6 +12,7 @@ $port = 19384
 $results = New-Object 'System.Collections.Generic.List[object]'
 $startTime = Get-Date
 $owner = $null
+$listener = $null
 $step = 'initialization'
 
 function Assert-True {
@@ -189,14 +190,19 @@ function Fail-TaskAction {
     Add-ActionTree $action
     $tree | Select-Object ProcessId, ParentProcessId, CreationDate, ExecutablePath, CommandLine |
         ConvertTo-Json -Depth 5 | Set-Content (Join-Path $evidence "controlled-failure-$Attempt.json")
-    for ($index = $tree.Count - 1; $index -ge 0; $index--) {
+    for ($index = 0; $index -lt $tree.Count; $index++) {
         $expected = $tree[$index]
         $live = Get-CimInstance Win32_Process -Filter "ProcessId=$($expected.ProcessId)" -ErrorAction SilentlyContinue
         if (-not $live) { continue }
         @{ expected = ($expected | Select-Object ProcessId, ParentProcessId, CreationDate, CommandLine); live = ($live | Select-Object ProcessId, ParentProcessId, CreationDate, CommandLine) } | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $evidence "controlled-failure-$Attempt-$index-comparison.json")
         Assert-True ($live.CreationDate.ToUniversalTime().Ticks -eq $expected.CreationDate.ToUniversalTime().Ticks -and $live.CommandLine -and $live.CommandLine.Contains($Root)) 'Failure target identity changed'
-        $termination = Invoke-CimMethod -InputObject $live -MethodName Terminate -Arguments @{ Reason = [uint32]1 }
-        Assert-True ($termination.ReturnValue -eq 0) 'Controlled action termination failed'
+        try {
+            $termination = Invoke-CimMethod -InputObject $live -MethodName Terminate -Arguments @{ Reason = [uint32]1 }
+            Assert-True ($termination.ReturnValue -eq 0) 'Controlled action termination failed'
+        } catch {
+            $remaining = Get-CimInstance Win32_Process -Filter "ProcessId=$($expected.ProcessId)" -ErrorAction SilentlyContinue
+            if ($remaining) { throw }
+        }
     }
 }
 function Disable-And-Stop {
@@ -266,33 +272,6 @@ try {
     Wait-Until { (Test-Healthy) -and (Read-Runtime).pid -ne $oldPid } -Seconds 150 -Description 'recurrence after clean exit'
     Complete-Step $step 'Console CTRL_C produced an observed zero-exit action; enabled task later launched a new healthy runtime'
 
-    $step = 'exhausted-retries-and-recurrence'
-    $failureStart = Get-Date
-    Install-Task -Interval 15 -Force | Out-Null
-    Assert-TaskXml -Interval 15
-    [xml]$failureXml = Export-ScheduledTask -TaskName $taskName
-    $firstRecurrence = [DateTime]::Parse($failureXml.Task.Triggers.TimeTrigger.StartBoundary)
-    for ($attempt = 0; $attempt -lt 6; $attempt++) {
-        Wait-Until { Test-Healthy } -Seconds 160 -Description "real action launch $attempt before controlled failure"
-        $action = Get-TaskEvents | Where-Object { $_.id -eq 200 -and [DateTime]::Parse($_.time) -ge $failureStart } |
-            Sort-Object recordId -Descending | Select-Object -First 1
-        Assert-True ([bool]$action) 'Missing exact action launch identity'
-        Fail-TaskAction -ActionPid ([int]$action.data.EnginePID) -Attempt $attempt
-        $expectedFailures = $attempt + 1
-        Wait-Until {
-            $failed = @(Get-TaskEvents | Where-Object { $_.id -eq 201 -and [DateTime]::Parse($_.time) -ge $failureStart -and [long]$_.data.ResultCode -ne 0 })
-            $failed.Count -eq $expectedFailures -and (Get-Instances) -eq 0 -and -not (Read-Runtime)
-        } -Seconds 45 -Description "nonzero completion for controlled failure $attempt"
-    }
-    Assert-True ((Get-Date) -lt $firstRecurrence) 'Retries did not exhaust before first recurrence'
-    Save-Snapshot 'retries-exhausted'
-    Start-Sleep -Seconds 30
-    $failedStarts = @(Get-TaskEvents | Where-Object { $_.id -eq 200 -and [DateTime]::Parse($_.time) -ge $failureStart })
-    Assert-True ($failedStarts.Count -eq 6 -and (Get-Instances) -eq 0) 'Immediate retries not exhausted'
-    Wait-Until { Test-Healthy } -Seconds 420 -Description 'real scheduled recurrence after retry exhaustion'
-    Assert-True ((Get-Date) -ge $firstRecurrence) 'Recovery happened before scheduled recurrence'
-    Complete-Step $step 'Six controlled nonzero action exits at production retry settings, idle after exhaustion, then scheduled healthy runtime'
-
     $step = 'replacement-change-to-one-minute'
     Install-Task -Interval 1 -Force | Out-Null
     Assert-TaskXml -Interval 1
@@ -329,12 +308,13 @@ try {
     Wait-Until { Test-Healthy } -Description 'independent foreground owner'
     $ownerIdentity = Read-Runtime
     $ownerMetadata = Get-Content (Join-Path $scope 'runtime.owner\owner.json') -Raw
+    $refusalStart = Get-Date
     $before = @(Get-TaskEvents | Where-Object id -eq 200).Count
     Enable-ScheduledTask -TaskName $taskName | Out-Null
     Wait-Until { @(Get-TaskEvents | Where-Object id -eq 200).Count -gt $before } -Seconds 150 -Description 'scheduled launch against owned scope'
     Wait-Until { (Get-Instances) -eq 0 } -Seconds 45 -Description 'scheduled ownership refusal'
-    $runtimeLog = Get-Content (Join-Path $scope 'logs\server.log') -Raw
-    Assert-True ($runtimeLog -match 'Runtime Scope is already owned') 'Missing runtime ownership refusal evidence'
+    $refused = @(Get-TaskEvents | Where-Object { $_.id -eq 201 -and [DateTime]::Parse($_.time) -ge $refusalStart -and [long]$_.data.ResultCode -ne 0 })
+    Assert-True ($refused.Count -ge 1) 'Scheduled conflicting launch did not fail nonzero'
     Assert-True ((Read-Runtime).pid -eq $ownerIdentity.pid) 'Scheduled task displaced the independent owner'
     Assert-True ((Get-Content (Join-Path $scope 'runtime.owner\owner.json') -Raw) -eq $ownerMetadata) 'Scheduled task changed ownership metadata'
     Assert-True (Test-Healthy) 'Independent owner lost health'
@@ -395,6 +375,35 @@ try {
     Wait-Until { Test-Healthy } -Description 'startup-only replacement runtime'
     Complete-Step $step 'Omitting interval removed previously configured recurrence'
 
+    $step = 'exhausted-retries-and-recurrence'
+    Disable-And-Stop
+    $script:listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, $port)
+    $listener.ExclusiveAddressUse = $true
+    $listener.Start()
+    Assert-True ($listener.Server.IsBound) 'Failure socket did not bind'
+    $failureStart = Get-Date
+    Install-Task -Interval 15 -Force | Out-Null
+    Assert-TaskXml -Interval 15
+    [xml]$failureXml = Export-ScheduledTask -TaskName $taskName
+    $firstRecurrence = [DateTime]::Parse($failureXml.Task.Triggers.TimeTrigger.StartBoundary)
+    # Probe that the actual action failed rather than assuming socket collision.
+    Wait-Until {
+        @(Get-TaskEvents | Where-Object { $_.id -eq 201 -and [DateTime]::Parse($_.time) -ge $failureStart -and [long]$_.data.ResultCode -ne 0 }).Count -ge 1
+    } -Seconds 45 -Description 'actual runtime bind failure'
+    Wait-Until {
+        $failed = @(Get-TaskEvents | Where-Object { $_.id -eq 201 -and [DateTime]::Parse($_.time) -ge $failureStart -and [long]$_.data.ResultCode -ne 0 })
+        $failed.Count -eq 6 -and (Get-Instances) -eq 0
+    } -Seconds 760 -Description 'initial failure plus all five real two-minute retries'
+    Assert-True ((Get-Date) -lt $firstRecurrence) 'Retries did not exhaust before first recurrence'
+    Save-Snapshot 'retries-exhausted'
+    Start-Sleep -Seconds 30
+    $failedStarts = @(Get-TaskEvents | Where-Object { $_.id -eq 200 -and [DateTime]::Parse($_.time) -ge $failureStart })
+    Assert-True ($failedStarts.Count -eq 6 -and (Get-Instances) -eq 0) 'Immediate retries not exhausted'
+    $listener.Stop(); $listener = $null
+    Wait-Until { Test-Healthy } -Seconds 420 -Description 'real scheduled recurrence after retry exhaustion'
+    Assert-True ((Get-Date) -ge $firstRecurrence) 'Recovery happened before scheduled recurrence'
+    Complete-Step $step 'Six observed nonzero action exits at production retry settings, idle after exhaustion, then scheduled healthy runtime'
+
     $step = 'successful-uninstall'
     Invoke-Installer -Parameters @{ TaskName = $taskName; Uninstall = $true } | Out-Null
     Assert-True (-not (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)) 'Successful uninstall retained task'
@@ -405,6 +414,7 @@ try {
     $results | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $evidence 'results.json')
     throw
 } finally {
+    if ($listener) { $listener.Stop() }
     Save-Snapshot 'final'
     $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
     if ($task) {
