@@ -16,11 +16,13 @@ function Clear-AcceptanceResources {
         $state.task -notmatch '^1mcp-acceptance-[a-f0-9]{12}$') {
         throw 'Refusing cleanup outside the recorded acceptance namespace'
     }
-    $task = Get-ScheduledTask -TaskName $state.task -ErrorAction SilentlyContinue
-    if ($task) {
-        Disable-ScheduledTask -TaskName $state.task | Out-Null
-        Stop-ScheduledTask -TaskName $state.task
-        Unregister-ScheduledTask -TaskName $state.task -Confirm:$false
+    foreach ($name in @($state.task, ($state.task + '-bootstrap'))) {
+        $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+        if ($task) {
+            Disable-ScheduledTask -TaskName $name | Out-Null
+            Stop-ScheduledTask -TaskName $name
+            Unregister-ScheduledTask -TaskName $name -Confirm:$false
+        }
     }
     # Match the exact private root in executable/arguments; never trust stored PIDs.
     $owned = @(Get-CimInstance Win32_Process | Where-Object {
@@ -30,7 +32,9 @@ function Clear-AcceptanceResources {
     })
     foreach ($process in $owned) { Invoke-CimMethod -InputObject $process -MethodName Terminate | Out-Null }
     Start-Sleep -Seconds 2
-    if (Get-ScheduledTask -TaskName $state.task -ErrorAction SilentlyContinue) { throw 'Acceptance task retained' }
+    foreach ($name in @($state.task, ($state.task + '-bootstrap'))) {
+        if (Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue) { throw 'Acceptance task retained' }
+    }
     $remaining = @(Get-CimInstance Win32_Process | Where-Object {
         $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.Contains($state.root)
     })
@@ -57,7 +61,6 @@ $root = "C:\1mcp-acceptance-$id"
 $user = "mcpa$id"
 $taskName = "1mcp-acceptance-$id"
 @{ root = $root; user = $user; task = $taskName } | ConvertTo-Json | Set-Content $statePath
-$child = $null
 try {
     New-Item -ItemType Directory $root | Out-Null
     $password = 'Aa1!' + [Guid]::NewGuid().ToString('N') + [Guid]::NewGuid().ToString('N')
@@ -92,21 +95,39 @@ try {
        task = $taskName; root = $root; account = $account; adminGroup = $adminGroup;
        sourceSha = $env:GITHUB_SHA; nodeVersion = (& $nodePath --version) } |
         ConvertTo-Json | Set-Content (Join-Path $root 'settings.json')
-    $credential = New-Object System.Management.Automation.PSCredential($account, $secure)
-    $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
-        ('"' + (Join-Path $root 'temporary-windows-acceptance-worker.ps1') + '"'), '-Root', ('"' + $root + '"'))
-    $child = Start-Process -FilePath $shellPath -Credential $credential -LoadUserProfile `
-        -WorkingDirectory $root -ArgumentList $arguments -PassThru `
-        -RedirectStandardOutput (Join-Path $root 'worker.stdout.log') `
-        -RedirectStandardError (Join-Path $root 'worker.stderr.log')
+    # CreateProcessWithLogonW returns a filtered token for a new administrator.
+    # An explicit Highest scheduler principal supplies the installer token instead.
+    $launcher = @'
+param([string]$Root)
+$ErrorActionPreference = 'Stop'
+try {
+    & (Join-Path $Root 'temporary-windows-acceptance-worker.ps1') -Root $Root *> (Join-Path $Root 'worker.stdout.log')
+    @{ exitCode = 0 } | ConvertTo-Json | Set-Content (Join-Path $Root 'worker.done.json')
+} catch {
+    $_ | Out-String | Set-Content (Join-Path $Root 'worker.stderr.log')
+    @{ exitCode = 1 } | ConvertTo-Json | Set-Content (Join-Path $Root 'worker.done.json')
+    exit 1
+}
+'@
+    $launcher | Set-Content (Join-Path $root 'launcher.ps1')
+    $launchArgs = '-NoProfile -ExecutionPolicy Bypass -File "{0}" -Root "{1}"' -f (Join-Path $root 'launcher.ps1'), $root
+    $launchAction = New-ScheduledTaskAction -Execute $shellPath -Argument $launchArgs -WorkingDirectory $root
+    $launchSettings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 45)
+    $launchPrincipal = New-ScheduledTaskPrincipal -UserId $account -LogonType Password -RunLevel Highest
+    $launchDefinition = New-ScheduledTask -Action $launchAction -Settings $launchSettings -Principal $launchPrincipal
+    $bootstrapName = $taskName + '-bootstrap'
+    Register-ScheduledTask -TaskName $bootstrapName -InputObject $launchDefinition -User $account -Password $password | Out-Null
+    Start-ScheduledTask -TaskName $bootstrapName
+    $donePath = Join-Path $root 'worker.done.json'
     $deadline = (Get-Date).AddMinutes(40)
-    while (-not $child.HasExited -and (Get-Date) -lt $deadline) {
+    while (-not (Test-Path $donePath) -and (Get-Date) -lt $deadline) {
         Start-Sleep -Seconds 15
-        $child.Refresh()
         Write-Host "Acceptance worker running: $Mode / $Shell / $([DateTime]::UtcNow.ToString('o'))"
     }
-    if (-not $child.HasExited) { throw 'Acceptance worker exceeded 40-minute bound' }
-    if ($child.ExitCode -ne 0) { throw "Acceptance worker failed with exit $($child.ExitCode); see evidence" }
+    if (-not (Test-Path $donePath)) { throw 'Acceptance worker exceeded 40-minute bound' }
+    $done = Get-Content $donePath -Raw | ConvertFrom-Json
+    if ($done.exitCode -ne 0) { throw "Acceptance worker failed with exit $($done.exitCode); see evidence" }
+
 } finally {
     if (Test-Path (Join-Path $root 'evidence')) {
         Copy-Item (Join-Path $root 'evidence\*') $evidence -Recurse -Force
