@@ -1,0 +1,65 @@
+name: Temporary Windows scheduled recovery acceptance
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/temporary-windows-acceptance.yml'
+      - 'scripts/temporary-windows-acceptance*.ps1'
+permissions:
+  contents: read
+concurrency:
+  group: temporary-windows-acceptance-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  acceptance:
+    if: github.event.pull_request.number == 584
+    name: Scheduled recovery / ${{ matrix.mode }} / ${{ matrix.shell }}
+    runs-on: windows-2022
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [binary, npm]
+        shell: [powershell, pwsh]
+    env:
+      HUSKY: 0
+      CI: true
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+      - name: Build exact-head npm artifact
+        shell: bash
+        run: |
+          bash scripts/build.sh
+          pnpm pack --pack-destination "$RUNNER_TEMP"
+      - name: Build exact-head executable
+        if: matrix.mode == 'binary'
+        shell: pwsh
+        run: |
+          pnpm sea:build
+          if ($LASTEXITCODE -ne 0) { throw 'SEA build failed' }
+          pnpm sea:binary
+          if ($LASTEXITCODE -ne 0) { throw 'Executable build failed' }
+      - name: Observe real Task Scheduler acceptance
+        shell: pwsh
+        env:
+          ACCEPTANCE_MODE: ${{ matrix.mode }}
+          ACCEPTANCE_SHELL: ${{ matrix.shell }}
+        run: |
+          ./scripts/temporary-windows-acceptance.ps1 -Mode $env:ACCEPTANCE_MODE -Shell $env:ACCEPTANCE_SHELL
+      - name: Verify cleanup even after failure
+        if: always()
+        shell: pwsh
+        run: ./scripts/temporary-windows-acceptance.ps1 -CleanupOnly
+      - name: Preserve bounded acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-acceptance-${{ matrix.mode }}-${{ matrix.shell }}
+          path: acceptance-evidence/
+          if-no-files-found: error
+          retention-days: 30
