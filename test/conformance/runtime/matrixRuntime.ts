@@ -2,7 +2,6 @@ import { JSONRPCMessageSchema as ModernJSONRPCMessageSchema } from '@modelcontex
 
 import { type ChildProcess, spawn } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -18,6 +17,7 @@ import {
   startHttpWireTap,
   type TrustedWireContext,
 } from '../capture/index.js';
+import { reserveLoopbackPort } from './loopbackPorts.js';
 
 const SafeIdSchema = z
   .string()
@@ -435,19 +435,6 @@ async function stopChild(child: ManagedChild, timeoutMs: number): Promise<void> 
     new Promise<false>((resolve) => setTimeout(() => resolve(false), timeoutMs)),
   ]);
   if (!killed) throw new RuntimeFault('harness', 'cleanup_failed');
-}
-
-async function reserveLoopbackPort(): Promise<number> {
-  const server = createServer();
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => resolve());
-  });
-  const address = server.address();
-  if (!address || typeof address === 'string') throw new RuntimeFault('harness', 'setup_failed');
-  const port = address.port;
-  await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
-  return port;
 }
 
 function parseLoopbackEndpoint(value: unknown): URL | null {

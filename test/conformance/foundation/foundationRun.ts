@@ -1,7 +1,6 @@
 import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { createServer } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
 
 import { parse as parseYaml } from 'yaml';
@@ -28,6 +27,7 @@ import {
   type MatrixExecutionResult,
   validateMatrixAssignments,
 } from '../runtime/index.js';
+import { reserveLoopbackPort } from '../runtime/loopbackPorts.js';
 import { runConformanceTasks } from './concurrentTasks.js';
 
 const revisionByEra = { modern: '2026-07-28', legacy: '2025-11-25' } as const;
@@ -452,20 +452,6 @@ export async function stopChild(child: ChildProcess, graceMs = 3_000): Promise<v
   if (await waitForChildExit(child, graceMs)) return;
   child.kill('SIGKILL');
   if (!(await waitForChildExit(child, graceMs))) throw new Error('child-cleanup-timeout');
-}
-
-async function reserveLoopbackPort(): Promise<number> {
-  const server = createServer();
-  await new Promise<void>((resolvePromise, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolvePromise);
-  });
-  const address = server.address();
-  if (!address || typeof address === 'string') throw new Error('port-reservation-failed');
-  await new Promise<void>((resolvePromise, reject) =>
-    server.close((error) => (error ? reject(error) : resolvePromise())),
-  );
-  return address.port;
 }
 
 async function waitForGatewayReady(child: ChildProcess, origin: string): Promise<void> {
