@@ -8,6 +8,44 @@ $evidence = Join-Path $PWD 'acceptance-evidence'
 New-Item -ItemType Directory -Force $evidence | Out-Null
 $statePath = Join-Path $evidence 'cleanup-state.json'
 
+# Assign only this disposable account's batch-logon right; never replace machine policy.
+Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Security.Principal;
+public static class AcceptanceAccountRights {
+    [StructLayout(LayoutKind.Sequential)] struct Attributes {
+        public uint Length; public IntPtr RootDirectory, ObjectName;
+        public uint Flags; public IntPtr SecurityDescriptor, SecurityQualityOfService;
+    }
+    [StructLayout(LayoutKind.Sequential)] struct UnicodeString {
+        public ushort Length, MaximumLength; public IntPtr Buffer;
+    }
+    [DllImport("advapi32.dll")] static extern uint LsaOpenPolicy(IntPtr system, ref Attributes attributes, uint access, out IntPtr handle);
+    [DllImport("advapi32.dll")] static extern uint LsaAddAccountRights(IntPtr handle, IntPtr sid, ref UnicodeString rights, uint count);
+    [DllImport("advapi32.dll")] static extern uint LsaRemoveAccountRights(IntPtr handle, IntPtr sid, byte all, ref UnicodeString rights, uint count);
+    [DllImport("advapi32.dll")] static extern uint LsaNtStatusToWinError(uint status);
+    [DllImport("advapi32.dll")] static extern uint LsaClose(IntPtr handle);
+    public static void SetBatchLogon(string sidString, bool grant) {
+        var sid = new SecurityIdentifier(sidString);
+        var bytes = new byte[sid.BinaryLength]; sid.GetBinaryForm(bytes, 0);
+        var pin = GCHandle.Alloc(bytes, GCHandleType.Pinned);
+        IntPtr handle = IntPtr.Zero, buffer = Marshal.StringToHGlobalUni("SeBatchLogonRight");
+        try {
+            var attributes = new Attributes(); attributes.Length = (uint)Marshal.SizeOf(typeof(Attributes));
+            uint status = LsaOpenPolicy(IntPtr.Zero, ref attributes, 0x810, out handle);
+            if (status != 0) throw new Win32Exception((int)LsaNtStatusToWinError(status));
+            var right = new UnicodeString { Length = 32, MaximumLength = 34, Buffer = buffer };
+            status = grant ? LsaAddAccountRights(handle, pin.AddrOfPinnedObject(), ref right, 1)
+                : LsaRemoveAccountRights(handle, pin.AddrOfPinnedObject(), 0, ref right, 1);
+            if (status != 0 && !(status == 0xc0000034 && !grant))
+                throw new Win32Exception((int)LsaNtStatusToWinError(status));
+        } finally { if (handle != IntPtr.Zero) LsaClose(handle); Marshal.FreeHGlobal(buffer); pin.Free(); }
+    }
+}
+'@
+
 function Clear-AcceptanceResources {
     if (-not (Test-Path $statePath)) { return }
     $state = Get-Content $statePath -Raw | ConvertFrom-Json
@@ -40,19 +78,28 @@ function Clear-AcceptanceResources {
     })
     if ($remaining.Count -gt 0) { throw 'Acceptance processes retained' }
     $localUser = Get-LocalUser -Name $state.user -ErrorAction SilentlyContinue
-    if ($localUser) {
-        $userSid = $localUser.SID.Value
-        $profile = Get-CimInstance Win32_UserProfile -Filter "SID='$userSid'"
-        if ($profile) { Remove-CimInstance -InputObject $profile }
-        if (Get-CimInstance Win32_UserProfile -Filter "SID='$userSid'") { throw 'Acceptance profile retained' }
-        Remove-LocalUser -Name $state.user
+    $userSid = $state.sid
+    if ($localUser) { $userSid = $localUser.SID.Value }
+    $profileRemoved = $true
+    if ($userSid) {
+        [AcceptanceAccountRights]::SetBatchLogon($userSid, $false)
+        # Task Scheduler can release a finished batch profile asynchronously.
+        $profileDeadline = (Get-Date).AddSeconds(120)
+        do {
+            $profile = Get-CimInstance Win32_UserProfile -Filter "SID='$userSid'"
+            if (-not $profile) { break }
+            try { Remove-CimInstance -InputObject $profile; break } catch { Start-Sleep -Seconds 5 }
+        } while ((Get-Date) -lt $profileDeadline)
+        $profileRemoved = -not [bool](Get-CimInstance Win32_UserProfile -Filter "SID='$userSid'")
     }
+    if ($localUser) { Remove-LocalUser -Name $state.user }
     if (Get-LocalUser -Name $state.user -ErrorAction SilentlyContinue) { throw 'Acceptance user retained' }
     if (Test-Path $state.root) { Remove-Item $state.root -Recurse -Force }
     if (Test-Path $state.root) { throw 'Acceptance files retained' }
     @{ completedUtc = [DateTime]::UtcNow.ToString('o'); taskRemoved = $true;
-       processesRemoved = $true; userRemoved = $true; profileRemoved = $true; filesRemoved = $true } |
+       processesRemoved = $true; userRemoved = $true; profileRemoved = $profileRemoved; batchLogonRightRemoved = $true; filesRemoved = $true } |
         ConvertTo-Json | Set-Content (Join-Path $evidence 'cleanup.json')
+    if (-not $profileRemoved) { throw 'Acceptance profile retained after bounded cleanup; private credentials and account removed' }
 }
 
 if ($CleanupOnly) { Clear-AcceptanceResources; exit 0 }
@@ -65,7 +112,9 @@ try {
     New-Item -ItemType Directory $root | Out-Null
     $password = 'Aa1!' + [Guid]::NewGuid().ToString('N') + [Guid]::NewGuid().ToString('N')
     $secure = ConvertTo-SecureString $password -AsPlainText -Force
-    New-LocalUser -Name $user -Password $secure -AccountNeverExpires -PasswordNeverExpires | Out-Null
+    $createdUser = New-LocalUser -Name $user -Password $secure -AccountNeverExpires -PasswordNeverExpires
+    @{ root = $root; user = $user; task = $taskName; sid = $createdUser.SID.Value } | ConvertTo-Json | Set-Content $statePath
+    [AcceptanceAccountRights]::SetBatchLogon($createdUser.SID.Value, $true)
     $adminGroup = (Get-LocalGroup -SID 'S-1-5-32-544').Name
     Add-LocalGroupMember -Group $adminGroup -Member $user
     $account = "$env:COMPUTERNAME\$user"

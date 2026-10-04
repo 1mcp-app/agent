@@ -143,7 +143,8 @@ function Assert-TaskXml {
         Assert-True (-not $timeTriggers[0].Repetition.Duration -and -not $timeTriggers[0].EndBoundary) 'Recurrence must be indefinite'
     }
     Assert-True ($xml.Task.Principals.Principal.LogonType -eq 'Password') 'Not real Password logon'
-    Assert-True ($xml.Task.Principals.Principal.RunLevel -eq 'LeastPrivilege') 'Wrong task privilege level'
+    Assert-True ((Get-ScheduledTask -TaskName $taskName).Principal.RunLevel -eq 'Limited') 'Wrong effective task privilege level'
+    Assert-True ($xml.Task.Principals.Principal.RunLevel -ne 'HighestAvailable') 'Task XML requests elevated runtime'
     Assert-True ($xml.Task.Settings.MultipleInstancesPolicy -eq 'IgnoreNew') 'Wrong duplicate policy'
     Assert-True ($xml.Task.Settings.RestartOnFailure.Count -eq '5' -and $xml.Task.Settings.RestartOnFailure.Interval -eq 'PT2M') 'Production retries changed'
     Assert-True ($xml.Task.Actions.Exec.Arguments -match 'serve --transport http' -and $xml.Task.Actions.Exec.Arguments -notmatch '--background') 'Wrong runtime action'
