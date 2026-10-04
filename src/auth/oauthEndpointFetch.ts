@@ -9,6 +9,12 @@ import { oauthAuthorityError } from './oauthAuthority.js';
 export const OAUTH_RESPONSE_LIMIT = 1024 * 1024;
 export const OAUTH_FETCH_TIMEOUT_MS = 10_000;
 
+export class OAuthResourceRedirectError extends Error {
+  constructor() {
+    super('Configured MCP resource redirects; configure the upstream URL to its final destination');
+  }
+}
+
 export function isPrivateOAuthAddress(address: string): boolean {
   const ip = address.toLowerCase().replace(/^\[|\]$/g, '');
   if (ip.includes(':')) {
@@ -149,6 +155,7 @@ export function createOAuthEndpointFetch(options: {
       const status = response.statusCode ?? 500;
       if (status >= 300 && status < 400) {
         response.destroy();
+        if (isResource) throw new OAuthResourceRedirectError();
         throw oauthAuthorityError();
       }
       const responseHeaders = new Headers();
@@ -247,8 +254,9 @@ export function createOAuthEndpointFetch(options: {
       responseHeaders.delete('content-length');
       responseHeaders.delete('content-encoding');
       return new Response(status === 204 || status === 205 ? null : text, { status, headers: responseHeaders });
-    } catch {
+    } catch (error) {
       options.onFailure(resourceRequest);
+      if (error instanceof OAuthResourceRedirectError) throw error;
       throw oauthAuthorityError();
     }
   };

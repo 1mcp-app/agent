@@ -9,6 +9,7 @@ import {
   OAUTH_AUTHORITY_TTL_MS,
   type OAuthAuthority,
   oauthConfigurationFingerprint,
+  oauthConfigurationFingerprintAsync,
 } from './oauthAuthority.js';
 import { ClientSessionRepository } from './storage/clientSessionRepository.js';
 import { FileStorageService } from './storage/fileStorageService.js';
@@ -52,8 +53,10 @@ describe('active OAuth authority lifetime', () => {
     });
     await repository.pinDestination(authoritySlot(authority), generation, 'issuer.example', '8.8.8.8');
     const write = vi.spyOn(storage, 'writeDataDurable');
+    const lock = vi.spyOn(storage, 'withExclusiveLock');
     await repository.pinDestination(authoritySlot(authority), generation, 'issuer.example', '8.8.8.8');
     expect(write).not.toHaveBeenCalled();
+    expect(lock).not.toHaveBeenCalled();
     for (let day = 0; day < 35; day++) {
       vi.setSystemTime(Date.now() + 24 * 60 * 60 * 1000);
       await repository.pinDestination(authoritySlot(authority), generation, 'issuer.example', '8.8.8.8');
@@ -90,9 +93,11 @@ describe('active OAuth authority lifetime', () => {
   });
 });
 
-it('keeps secret-bearing configuration identity stable across restarts and distinct across secrets and scopes', () => {
+it('keeps secret-bearing configuration identity stable across sync/async derivation and distinct across secrets and scopes', async () => {
   const config = { clientSecret: 'secret-a', headers: { authorization: 'Bearer secret' } };
+  const asyncDigest = await oauthConfigurationFingerprintAsync(config, ['owner', 'source']);
   const digest = oauthConfigurationFingerprint(config, ['owner', 'source']);
+  expect(digest).toBe(asyncDigest);
   expect(oauthConfigurationFingerprint(config, ['owner', 'source'])).toBe(digest);
   expect(oauthConfigurationFingerprint({ ...config, clientSecret: 'secret-b' }, ['owner', 'source'])).not.toBe(digest);
   expect(oauthConfigurationFingerprint(config, ['other-owner', 'source'])).not.toBe(digest);

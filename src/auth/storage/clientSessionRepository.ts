@@ -9,7 +9,7 @@ import {
   type OAuthAuthority,
   type OAuthAuthorityContext,
   oauthAuthorityError,
-  oauthConfigurationFingerprint,
+  oauthConfigurationFingerprintAsync,
   oauthDigest,
   sameAuthority,
 } from '@src/auth/oauthAuthority.js';
@@ -56,10 +56,11 @@ import { FileStorageService } from './fileStorageService.js';
 export class ClientSessionRepository {
   constructor(private storage: FileStorageService) {}
 
-  claimContext(slot: string, context: OAuthAuthorityContext, observedGeneration: string | null): Promise<string> {
+  async claimContext(slot: string, context: OAuthAuthorityContext, observedGeneration: string | null): Promise<string> {
+    // Derivation must not block the event loop or hold the cross-process slot lock.
+    const fingerprint = await oauthConfigurationFingerprintAsync(context, slot);
     return this.storage.withExclusiveLock(`oauth-${slot}`, () => {
       const current = this.getClaim(slot);
-      const fingerprint = oauthConfigurationFingerprint(context, slot);
       const joiningInitial =
         observedGeneration === null && current?.joinable === true && current.fingerprint === fingerprint;
       if (!joiningInitial && (current?.generation ?? null) !== observedGeneration) throw oauthAuthorityError();
@@ -103,6 +104,13 @@ export class ClientSessionRepository {
   }
 
   async pinDestination(slot: string, generation: string, host: string, addresses: string): Promise<void> {
+    const current = this.getClaim(slot);
+    if (!current || current.generation !== generation) throw oauthAuthorityError();
+    const renewBefore = Date.now() + OAUTH_AUTHORITY_TTL_MS - 24 * 60 * 60 * 1000;
+    const bound = this.getBound(slot);
+    const boundNeedsRenewal = bound ? bound.generation !== generation || bound.expires <= renewBefore : false;
+    // Read current ownership on every request; caching it would miss another process's invalidation.
+    if (current.destinations[host] === addresses && current.expires > renewBefore && !boundNeedsRenewal) return;
     await this.storage.withExclusiveLock(`oauth-${slot}`, () => {
       const claim = this.getClaim(slot);
       if (!claim || claim.generation !== generation) throw oauthAuthorityError();

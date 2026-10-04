@@ -123,6 +123,22 @@ describe('OAuth network boundary', () => {
       guarded(resource, { issuer: 'https://public.example' })('https://public.example/token'),
     ).rejects.toThrow(/OAuth/);
   });
+  it('reports how to configure redirected resource routes without forwarding credentials', async () => {
+    let finalRequests = 0;
+    const base = await endpoint((req, res) => {
+      if (req.url === '/mcp/') finalRequests++;
+      res.writeHead(307, { location: '/mcp/' });
+      res.end();
+    });
+    await expect(
+      guarded(base + '/mcp')(base + '/mcp', {
+        method: 'POST',
+        headers: { authorization: 'Bearer private-token' },
+        body: 'request',
+      }),
+    ).rejects.toThrow('configure the upstream URL to its final destination');
+    expect(finalRequests).toBe(0);
+  });
   it('does not follow metadata or token redirects', async () => {
     let secretEndpoint = 0;
     const base = await endpoint((req, res) => {

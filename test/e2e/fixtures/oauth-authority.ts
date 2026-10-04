@@ -156,6 +156,7 @@ export async function startAuthoritySurfaceFixture(): Promise<AuthoritySurfaceFi
     clientRuntime: {
       initiateOAuth: async () => {
         if (!provider) throw new Error('Upstream provider is unavailable');
+        await provider.invalidateCredentials('tokens');
         await startProviderAuthorization(provider, upstreamEra, upstreamResourceUrl);
       },
       completeOAuthAndReconnect: async (_name, callback) => {

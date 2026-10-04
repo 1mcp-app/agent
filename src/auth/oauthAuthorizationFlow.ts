@@ -480,13 +480,6 @@ async function initiateBackendOAuth(
     };
   }
 
-  if (clientInfo.authorizationUrl) {
-    return {
-      status: 'started',
-      authorizationUrl: clientInfo.authorizationUrl,
-    };
-  }
-
   if (!dependencies.clientRuntime) {
     return {
       status: 'runtime_unavailable',

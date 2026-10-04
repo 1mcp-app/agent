@@ -67,10 +67,10 @@ describe('OAuth authority across the four protocol-era cells', () => {
         const authorizationUrl = new URL(initial.getAuthorizationUrl()!);
         const page = await browser.newPage();
         const completedCallback = await openUpstreamAuthorization(page, surface);
-        expect(completedCallback.searchParams.get('state')).toBe(authorizationUrl.searchParams.get('state'));
+        expect(completedCallback.searchParams.get('state')).not.toBe(authorizationUrl.searchParams.get('state'));
         const callback = new URL(`${surface.baseUrl}/oauth/callback/same-display-name`);
         callback.search = new URLSearchParams({
-          state: authorizationUrl.searchParams.get('state')!,
+          state: completedCallback.searchParams.get('state')!,
           code: 'fixture-rejected-code',
           iss: upstream.baseUrl,
         }).toString();

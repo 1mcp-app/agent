@@ -176,24 +176,27 @@ describe('OAuth Authorization Flow', () => {
     expect(storage.createSessionWithId).not.toHaveBeenCalled();
   });
 
-  it('should reuse an existing backend authorization URL when starting OAuth', async () => {
+  it('creates a fresh authorization attempt on every start instead of reusing an expired or consumed URL', async () => {
     const clientInfo = {
       status: 'awaiting_oauth',
-      authorizationUrl: 'https://provider.example/authorize',
+      authorizationUrl: 'https://provider.example/authorize?state=expired',
       transport: {},
     };
+    let attempt = 0;
+    const initiateOAuth = vi.fn(async () => {
+      clientInfo.authorizationUrl = 'https://provider.example/authorize?state=fresh-' + ++attempt;
+    });
     const { flow } = createFlow({
-      serverRuntime: {
-        getClient: vi.fn().mockReturnValue(clientInfo),
-      },
+      serverRuntime: { getClient: vi.fn().mockReturnValue(clientInfo) },
+      clientRuntime: { initiateOAuth },
     });
-
-    const result = await flow.startBackendOAuth({ serverName: 'github' });
-
-    expect(result).toEqual({
-      status: 'redirect',
-      redirectUrl: 'https://provider.example/authorize',
-    });
+    for (const state of ['fresh-1', 'fresh-2']) {
+      await expect(flow.startBackendOAuth({ serverName: 'github' })).resolves.toEqual({
+        status: 'redirect',
+        redirectUrl: 'https://provider.example/authorize?state=' + state,
+      });
+    }
+    expect(initiateOAuth).toHaveBeenCalledTimes(2);
   });
 
   it('should initiate backend OAuth and report the generated authorization URL', async () => {
@@ -468,7 +471,12 @@ describe('OAuth Authorization Flow', () => {
     );
     const { flow } = createFlow({
       serverRuntime: { getClient },
-      clientRuntime: { bindOAuthReturn, completeOAuthAndReconnect, getOAuthReturn },
+      clientRuntime: {
+        initiateOAuth: vi.fn().mockResolvedValue(undefined),
+        bindOAuthReturn,
+        completeOAuthAndReconnect,
+        getOAuthReturn,
+      },
     });
 
     await expect(
