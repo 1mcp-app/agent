@@ -5,6 +5,7 @@ import { NotificationManager } from '@src/core/notifications/notificationManager
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { InboundConnection, OutboundConnections } from '@src/core/types/index.js';
+import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
 import { AsyncLoadingOrchestratorEvent } from './asyncLoadingOrchestratorEvent.js';
@@ -167,6 +168,7 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
 
     this.notificationManager.on('notification-failed', (_type: string, _error: Error) => {
       logger.error('asyncLoadingOrchestrator.failed.to.send.listchanged.notification.3ae391c3');
+      writeLocalDiagnostic('warn', 'capability.notification.failed', { type: _type, error: _error });
     });
 
     debugIf('asyncLoadingOrchestrator.notification.event.handlers.setup.completed.13932b2d');
@@ -176,9 +178,19 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
    * Publish capabilities after every server reaches a terminal loading state.
    */
   private async handleLoadingComplete(): Promise<void> {
+    const startedAt = Date.now();
     try {
       // Update capability aggregation
       const changes = await this.capabilityAggregator.updateCapabilities();
+      writeLocalDiagnostic('info', 'capability.snapshot.completed', () => ({
+        hasChanges: changes.hasChanges,
+        readyServers: changes.current.readyServers,
+        tools: changes.current.tools.length,
+        resources: changes.current.resources.length,
+        resourceTemplates: changes.current.resourceTemplates.length,
+        prompts: changes.current.prompts.length,
+        durationMs: Date.now() - startedAt,
+      }));
 
       if (changes.hasChanges) {
         logger.info('asyncLoadingOrchestrator.loading.cycle.complete.tools.resources.prompts.now.available.e121d7b3');
@@ -187,6 +199,11 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
         debugIf('asyncLoadingOrchestrator.loading.cycle.completed.with.no.capability.changes.8c5f89f2');
       }
     } catch (_error) {
+      writeLocalDiagnostic('error', 'capability.snapshot.failed', {
+        stage: 'aggregate',
+        durationMs: Date.now() - startedAt,
+        error: _error,
+      });
       logger.error('asyncLoadingOrchestrator.failed.to.publish.capabilities.after.loading.completed.6544b04e', {
         error: _error,
       });

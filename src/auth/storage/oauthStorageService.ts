@@ -1,5 +1,6 @@
 import { AUTH_CONFIG } from '@src/constants.js';
 import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
+import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import logger from '@src/logger/logger.js';
 import { auditScopeOperation } from '@src/utils/validation/scopeValidation.js';
 
@@ -81,6 +82,11 @@ export class OAuthStorageService {
     logger.info('oauthStorageService.oauth.authorization.granted.for.client.25a4e31b', {
       clientId: authRequest.clientId,
     });
+    writeLocalDiagnostic('info', 'oauth.consent.completed', {
+      stage: 'authorization_code_created',
+      outcome: 'approved',
+      scopeCount: selectedScopes.length,
+    });
 
     return { authCode, redirectUrl };
   }
@@ -115,6 +121,7 @@ export class OAuthStorageService {
     });
 
     logger.info('oauthStorageService.oauth.authorization.denied.by.user.for.client.29791f5d');
+    writeLocalDiagnostic('info', 'oauth.consent.completed', { stage: 'consent', outcome: 'denied' });
 
     return redirectUrl;
   }

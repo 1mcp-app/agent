@@ -13,6 +13,7 @@ import {
   MCPServerParams,
   transportConfigSchema,
 } from '@src/core/types/transport.js';
+import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
 import { parse as parseToml } from 'smol-toml';
@@ -349,6 +350,12 @@ export class ConfigLoader {
         }));
       } catch (_error) {
         logger.error('configLoader.configuration.validation.failed.fdd8b126', { error: _error });
+        writeLocalDiagnostic('warn', 'config.server.rejected', {
+          source: this.configFilePath,
+          serverName,
+          stage: 'validate',
+          errorType: _error instanceof Error ? _error.name : 'unknown',
+        });
       }
     }
 
@@ -364,6 +371,12 @@ export class ConfigLoader {
       logger.warn('configLoader.ignoring.static.server.s.that.conflict.with.template.servers.18d2369c');
     }
 
+    writeLocalDiagnostic('debug', 'config.validation.completed', () => ({
+      source: this.configFilePath,
+      declaredCount: Object.keys(rawServers).length,
+      acceptedServers: Object.keys(validatedServers),
+      conflictingServers,
+    }));
     return {
       rawConfig: rawResult.config as Record<string, unknown>,
       processedConfig: configObj,

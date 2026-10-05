@@ -1,16 +1,54 @@
+import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import { Tool } from '@src/sdk/contracts/index.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SchemaCache } from './schemaCache.js';
 
+vi.mock('@src/logger/localDiagnostics.js', () => ({ writeLocalDiagnostic: vi.fn() }));
+
 describe('SchemaCache', () => {
   let cache: SchemaCache;
   let mockLoader: any;
 
   beforeEach(() => {
+    vi.mocked(writeLocalDiagnostic).mockClear();
     cache = new SchemaCache({ maxEntries: 3, ttlMs: 1000 });
     mockLoader = vi.fn();
+  });
+
+  it('reports failed backend and tool while preserving loader rejection', async () => {
+    const error = new Error('Upstream unavailable');
+    await expect(
+      cache.getOrLoad('backend-a', 'tool-a', async () => {
+        throw error;
+      }),
+    ).rejects.toBe(error);
+    expect(writeLocalDiagnostic).toHaveBeenCalledWith(
+      'warn',
+      'schema.load.failed',
+      expect.objectContaining({
+        server: 'backend-a',
+        toolName: 'tool-a',
+        error,
+        durationMs: expect.any(Number),
+      }),
+    );
+    expect(cache.size()).toBe(0);
+  });
+
+  it('reports cache results without serializing the tool schema', async () => {
+    const tool: Tool = { name: 'tool-a', inputSchema: { type: 'object', description: 'private-schema' } };
+    await cache.getOrLoad('backend-a', 'tool-a', async () => tool);
+    await cache.getOrLoad('backend-a', 'tool-a', async () => {
+      throw new Error('Unexpected reload');
+    });
+    expect(writeLocalDiagnostic).toHaveBeenCalledWith('debug', 'schema.cache.hit', {
+      server: 'backend-a',
+      toolName: 'tool-a',
+      cacheSize: 1,
+    });
+    expect(JSON.stringify(vi.mocked(writeLocalDiagnostic).mock.calls)).not.toContain('private-schema');
   });
 
   describe('Basic Caching', () => {

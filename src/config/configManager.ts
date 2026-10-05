@@ -13,6 +13,7 @@ import {
   TemplateSettings,
   transportConfigSchema,
 } from '@src/core/types/transport.js';
+import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { HandlebarsTemplateRenderer } from '@src/template/handlebarsTemplateRenderer.js';
 import type { ContextData } from '@src/types/context.js';
@@ -119,6 +120,12 @@ export class ConfigManager extends EventEmitter {
       this.loader.markRuntimeEnvObserved(runtimeEnvSignature);
 
       logger.info('configManager.configuration.loaded.successfully.environment.variable.substitution.c04b8bbe');
+      writeLocalDiagnostic('info', 'config.loaded', () => ({
+        source: this.loader.getConfigFilePath(),
+        servers: Object.keys(this.transportConfig),
+        templateServers: Object.keys(declared.templateServers),
+        outcome: 'loaded',
+      }));
     } catch (error) {
       const errorMsg = `Failed to load configuration: ${error instanceof Error ? error.message : String(error)}`;
       logger.error('configManager.loadconfig.diagnostic.891dc011', { error: error });
@@ -459,6 +466,10 @@ export class ConfigManager extends EventEmitter {
       return await runtimeAdmission.run(() => this.applyConfigChange());
     } catch (error) {
       if (!(error instanceof RuntimeDrainingError)) throw error;
+      writeLocalDiagnostic('debug', 'config.reload.deferred', {
+        source: this.loader.getConfigFilePath(),
+        reason: 'runtime_draining',
+      });
       if (generation === this.reloadGeneration) this.deferReloadUntilResume();
       return { status: 'disabled' };
     }
@@ -483,12 +494,23 @@ export class ConfigManager extends EventEmitter {
   }
 
   private async applyConfigChange(): Promise<ConfigReloadAttempt> {
-    if (getFrozenRuntimeBootstrap(this.loader.getConfigFilePath())) return { status: 'disabled' };
+    if (getFrozenRuntimeBootstrap(this.loader.getConfigFilePath())) {
+      writeLocalDiagnostic('debug', 'config.reload.skipped', {
+        source: this.loader.getConfigFilePath(),
+        reason: 'frozen_bootstrap',
+      });
+      return { status: 'disabled' };
+    }
     if (!this.isReloadEnabled()) {
       logger.info('configManager.configuration.hot.reload.is.disabled.ignoring.file.changes.6fd262e2');
+      writeLocalDiagnostic('debug', 'config.reload.skipped', {
+        source: this.loader.getConfigFilePath(),
+        reason: 'feature_disabled',
+      });
       return { status: 'disabled' };
     }
 
+    const startedAt = Date.now();
     const oldConfig = { ...this.transportConfig };
     const runtimeEnvSignature = this.loader.captureRuntimeEnvSignature();
     let newConfig: Record<string, MCPServerParams>;
@@ -503,6 +525,13 @@ export class ConfigManager extends EventEmitter {
     } catch (error) {
       this.loader.markRuntimeEnvAttempted(runtimeEnvSignature);
       logger.error('configManager.failed.to.load.or.validate.configuration.9145e701', { error: error });
+      writeLocalDiagnostic('error', 'config.reload.rejected', {
+        source: this.loader.getConfigFilePath(),
+        stage: 'load_or_validate',
+        outcome: 'rejected',
+        durationMs: Date.now() - startedAt,
+        errorType: error instanceof Error ? error.name : 'unknown',
+      });
       this.emit(CONFIG_EVENTS.VALIDATION_ERROR, error);
       return { status: 'rejected', error };
     }
@@ -530,6 +559,20 @@ export class ConfigManager extends EventEmitter {
     this.loader.markRuntimeEnvObserved(runtimeEnvSignature);
 
     logger.info('configManager.detected.configuration.changes.ffd1172b');
+    writeLocalDiagnostic('info', 'config.reload.applied', () => ({
+      source: this.loader.getConfigFilePath(),
+      outcome: 'applied',
+      durationMs: Date.now() - startedAt,
+      changes: changes.map((change) => {
+        if (change.type === ConfigChangeType.MODIFIED) {
+          return { serverName: change.serverName, type: change.type, fieldsChanged: change.fieldsChanged };
+        }
+        return { serverName: change.serverName, type: change.type };
+      }),
+      runtimeEnvironmentChanged,
+      affectedTemplates: environmentChange.templateServerNames,
+      serverCount: Object.keys(newConfig).length,
+    }));
     this.emit(CONFIG_EVENTS.CONFIG_CHANGED, changes);
     if (runtimeEnvironmentChanged) {
       this.emit(CONFIG_EVENTS.RUNTIME_ENVIRONMENT_CHANGED, environmentChange);
