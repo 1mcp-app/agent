@@ -21,13 +21,21 @@ HTTP mode writes to the console and, when configured, the log file. Stdio mode s
 
 ## Read runtime logs
 
-Runtime log entries include a timestamp, level, a fixed message, and an event identifier. Additional fields describe the outcome, counts, or a bounded error category. Debug logging adds diagnostic events without exposing raw request payloads or exception stacks.
+Typed runtime log entries include a timestamp, level, a fixed message, and an event identifier. Additional fields describe the outcome, counts, or a bounded error category. Their debug entries omit request payloads and exception stacks; sanitized local HTTP diagnostics are described separately below.
 
 Some entries use fingerprints instead of server, session, client, or request identifiers. You can compare matching fingerprints of the same kind within one process's logs; they change after a restart and cannot be used as configuration names or request IDs.
 
 Template lifecycle entries include `templateName`, the opaque random `instanceId`, template/client counts, and pooling settings where applicable. Configured names containing only letters, numbers, dots, underscores, or hyphens are shown, up to 256 UTF-8 bytes; other names are omitted. Processing and key-resolution events also include a `templateId_fingerprint` for correlation regardless of name syntax. Rendered configuration hashes and composite instance keys remain fingerprinted because they can depend on credentials or session identity. No rendered configuration is logged.
 
 When an operation has valid incoming trace context, its runtime entries can include `trace_id`, `span_id`, and `trace_flags`. Entries without an active trace context omit those fields. Background lifecycle entries and other work outside a traced operation may therefore have no trace ID.
+
+## Inspect local HTTP diagnostics
+
+Local HTTP diagnostics use `source=http-diagnostic`. At `info`, `http.request`, `http.response-start`, and `http.response` share a generated `requestId` and report the endpoint, HTTP method, status, content type, response byte count, elapsed milliseconds, and disconnect outcome where available. Response-start entries are written when headers are sent, so open SSE connections remain visible. Query values and authentication/cookie headers are omitted.
+
+After body parsing, `http.request-context` records a recognized MCP method at `info`. At `debug`, `http.request-body` and `http.response-body` include sanitized application bodies. Request bodies are logged before authentication or backend dispatch, so pending operations can be investigated; completed JSON SSE data frames are parsed and sanitized too. Credential keys, OAuth codes/state/PKCE, session IDs, signatures/proofs, cookies, and recognizable credential strings are redacted. These local diagnostic records are separate from typed telemetry and do not receive automatic trace fields.
+
+Each serialized sanitized body is capped at 8 KiB, with a maximum snapshot depth of six and 256 nodes. Oversized, binary, compressed, invalid JSON, or incomplete response bodies use explicit omission markers. Long-running streams report their start immediately and their summary/body when they finish or disconnect. Application content can remain in debug diagnostics, so review it before sharing a log file.
 
 ## Follow trace context
 

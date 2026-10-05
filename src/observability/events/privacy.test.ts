@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -423,10 +424,16 @@ describe('typed local instrumentation privacy', () => {
     const request = Object.create(null);
     for (const key of ['path', 'headers', 'body', 'query', 'ip']) Object.defineProperty(request, key, { get: trap });
     request.method = 'POST';
-    const response = { statusCode: 200, end: vi.fn().mockReturnThis() };
+    const response = Object.assign(new EventEmitter(), {
+      statusCode: 200,
+      end: vi.fn().mockReturnThis(),
+      write: vi.fn(),
+      getHeader: vi.fn(),
+    });
     const next = vi.fn();
     expect(() => httpRequestLogger(request as Request, response as unknown as Response, next)).not.toThrow();
     response.end();
+    response.emit('finish');
     expect(next).toHaveBeenCalledOnce();
     expect(trap).not.toHaveBeenCalled();
   });
