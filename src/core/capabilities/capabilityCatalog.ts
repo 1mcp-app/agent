@@ -20,7 +20,8 @@ import {
 import { gatewayFailureFromUnknown } from '@src/gateway/contracts/gatewayFailure.js';
 import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import logger from '@src/logger/logger.js';
-import { ErrorCode, OneMcpProtocolError, type Tool } from '@src/sdk/contracts/index.js';
+import { ownData } from '@src/observability/privacy/fields.js';
+import { ErrorCode, type Tool } from '@src/sdk/contracts/index.js';
 import { MCPError } from '@src/utils/core/errorTypes.js';
 
 import {
@@ -772,8 +773,7 @@ export class CapabilityCatalog {
       phase = 'output_validation';
       await validateOutput(result);
       let outcome = 'success';
-      if (typeof result === 'object' && result !== null && 'isError' in result && result.isError === true)
-        outcome = 'upstream_error';
+      if (ownData(result, 'isError') === true) outcome = 'upstream_error';
       writeLocalDiagnostic('info', 'tool.completed', {
         ...diagnosticRoute,
         outcome,
@@ -782,9 +782,8 @@ export class CapabilityCatalog {
       writeLocalDiagnostic('debug', 'tool.result', () => ({ ...diagnosticRoute, result }));
       return { result, server: route.server, tool: route.toolName, route, refresh };
     } catch (error) {
-      const timedOut =
-        (error instanceof SchemaBoundaryError && error.code === 'schema_evaluation_timeout') ||
-        (error instanceof OneMcpProtocolError && error.code === ErrorCode.RequestTimeout);
+      const errorCode = ownData(error, 'code');
+      const timedOut = errorCode === 'schema_evaluation_timeout' || errorCode === ErrorCode.RequestTimeout;
       const failureKind = gatewayFailureFromUnknown(error, 'transport').kind;
       let outcome = 'failed';
       if (queryOptions.signal?.aborted || failureKind === 'cancelled') outcome = 'cancelled';

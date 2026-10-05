@@ -219,6 +219,59 @@ describe('CapabilityCatalog', () => {
     );
   });
 
+  it.each(['accessor', 'proxy'])(
+    'does not inspect %s result properties just to determine diagnostic outcome',
+    async (kind) => {
+      const diagnostic = vi.spyOn(localDiagnostics, 'writeLocalDiagnostic');
+      const readOutcome = vi.fn(() => {
+        throw new Error('diagnostics inspected result');
+      });
+      const value = { content: [{ type: 'text', text: 'ok' }] };
+      let upstreamResult: object;
+      if (kind === 'accessor') {
+        upstreamResult = Object.defineProperty(value, 'isError', { get: readOutcome });
+      } else {
+        upstreamResult = new Proxy(value, {
+          get(target, key, receiver) {
+            if (key === 'isError') return readOutcome();
+            return Reflect.get(target, key, receiver);
+          },
+          has(target, key) {
+            if (key === 'isError') return readOutcome();
+            return Reflect.has(target, key);
+          },
+        });
+      }
+      // Isolate diagnostic outcome inspection from the existing schema boundary,
+      // which ordinarily rejects accessor/proxy results before diagnostics run.
+      vi.spyOn(toolSchemaBoundary, 'prepareToolValidation').mockResolvedValueOnce(async () => undefined);
+      mockClient.callTool.mockResolvedValueOnce(upstreamResult);
+      const result = await createCatalog().invokeVisibleTool({ server: 'filesystem', toolName: 'read_file', args: {} });
+
+      expect(result.error).toBeUndefined();
+      expect(result.result).toBe(upstreamResult);
+      expect(readOutcome).not.toHaveBeenCalled();
+      expect(diagnostic).toHaveBeenCalledWith(
+        'info',
+        'tool.completed',
+        expect.objectContaining({ outcome: 'success' }),
+      );
+    },
+  );
+
+  it('does not invoke an error code accessor for timeout diagnostics', async () => {
+    const readCode = vi.fn(() => {
+      throw new Error('diagnostics inspected error code');
+    });
+    const error = new OneMcpProtocolError(-123, 'original upstream failure');
+    Object.defineProperty(error, 'code', { get: readCode });
+    vi.mocked(outboundConnections.get('filesystem')!.adapter.request).mockRejectedValueOnce(error);
+    const result = await createCatalog().invokeVisibleTool({ server: 'filesystem', toolName: 'read_file', args: {} });
+
+    expect(result.error).toMatchObject({ type: 'upstream', message: 'Gateway transport failure' });
+    expect(readCode).not.toHaveBeenCalled();
+  });
+
   it('records input validation failure without dispatching to the upstream', async () => {
     const diagnostic = vi.spyOn(localDiagnostics, 'writeLocalDiagnostic').mockImplementation(() => undefined);
     const error = new SchemaBoundaryError('schema_input_invalid', false, 'input');
