@@ -273,9 +273,28 @@ export class ClientManager extends EventEmitter {
 
     void this.createSingleClient(name, freshTransport)
       .then(() => {
-        writeLocalDiagnostic('info', 'backend.session.recovery.connected', () => ({
+        const recovered = this.outboundConns.get(name);
+        if (recovered?.status === ClientStatus.Connected) {
+          writeLocalDiagnostic('info', 'backend.session.recovery.connected', () => ({
+            serverName: name,
+            transportType: freshTransport.constructor.name,
+          }));
+          return;
+        }
+        if (recovered?.status === ClientStatus.AwaitingOAuth) {
+          writeLocalDiagnostic('info', 'oauth.session.recovery.pending', () => ({
+            serverName: name,
+            transportType: freshTransport.constructor.name,
+            status: recovered.status,
+          }));
+          return;
+        }
+        writeLocalDiagnostic('warn', 'backend.session.recovery.failed', () => ({
           serverName: name,
           transportType: freshTransport.constructor.name,
+          phase: 'published-status',
+          status: recovered?.status ?? 'removed',
+          error: recovered?.lastError,
         }));
       })
       .catch((_error) => {

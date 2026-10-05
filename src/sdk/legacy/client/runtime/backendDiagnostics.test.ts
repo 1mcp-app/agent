@@ -6,6 +6,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { InvalidClientMetadataError } from '@modelcontextprotocol/sdk/server/auth/errors.js';
 
 import { CONNECTION_RETRY } from '@src/constants.js';
+import { ClientStatus } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 import { NonRetryableClientConnectionError } from '@src/utils/core/errorTypes.js';
 
@@ -206,6 +207,35 @@ describe('backend and OAuth local diagnostics', () => {
     });
     expect(JSON.stringify(entries)).not.toContain('private-code');
     expect(JSON.stringify(entries)).not.toContain('private-state');
+  });
+
+  it.each([
+    { status: ClientStatus.Error, event: 'backend.session.recovery.failed' },
+    { status: ClientStatus.AwaitingOAuth, event: 'oauth.session.recovery.pending' },
+  ])('reports resolved recovery status $status without claiming connection success', async ({ status, event }) => {
+    const manager = ClientManager.getOrCreateInstance();
+    const transport = makeTransport();
+    const freshTransport = makeTransport();
+    transport.recreate = () => freshTransport;
+    await manager.createSingleClient('search', transport);
+    const error = new Error('Recovery could not connect');
+    vi.spyOn(manager, 'createSingleClient').mockImplementation(async () => {
+      const connection = manager.getClient('search');
+      connection.status = status;
+      connection.lastError = error;
+    });
+    factoryState.client.onerror?.(new Error('Session not found'));
+    await vi.waitFor(() => {
+      expect(entries.some((entry) => entry.message === event)).toBe(true);
+    });
+    expect(details(event)).toMatchObject({ serverName: 'search', status });
+    if (status === ClientStatus.Error) {
+      expect(details(event)).toMatchObject({
+        phase: 'published-status',
+        error: { message: 'Recovery could not connect' },
+      });
+    }
+    expect(entries.some((entry) => entry.message === 'backend.session.recovery.connected')).toBe(false);
   });
 
   it('reports disconnects and session recovery failures with backend identity and actual errors', async () => {
