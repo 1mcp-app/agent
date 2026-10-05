@@ -4,6 +4,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 
 import * as runtimeBootstrap from '@src/config/runtimeBootstrap.js';
+import { ConfigLoader } from '@src/config/configLoader.js';
 import { CONFIG_EVENTS, ConfigChangeType, ConfigManager } from '@src/config/configManager.js';
 import { getRuntimeScopeEnvironment } from '@src/config/runtimeScopeEnv.js';
 import { runtimeAdmission, RuntimeReplacementDrain } from '@src/core/server/runtimeDrain.js';
@@ -254,7 +255,10 @@ describe('ConfigManager (Integration)', () => {
       await fsPromises.writeFile(configFilePath, '{"private-config-value": broken}');
       await expect(configManager.reloadConfig()).rejects.toThrow();
       expect(configManager.getTransportConfig()).toEqual(before);
-      expect(writeLocalDiagnostic).toHaveBeenCalledWith('error', 'config.reload.rejected', {
+      const fields = vi
+        .mocked(writeLocalDiagnostic)
+        .mock.calls.find(([, event]) => event === 'config.reload.rejected')![2];
+      expect(typeof fields === 'function' ? fields() : fields).toEqual({
         source: configFilePath,
         stage: 'load_or_validate',
         outcome: 'rejected',
@@ -264,7 +268,35 @@ describe('ConfigManager (Integration)', () => {
       const calls = vi
         .mocked(writeLocalDiagnostic)
         .mock.calls.filter(([, event]) => event === 'config.reload.rejected');
-      expect(JSON.stringify(calls)).not.toContain('private-config-value');
+      expect(
+        JSON.stringify(calls.map(([, , fields]) => (typeof fields === 'function' ? fields() : fields))),
+      ).not.toContain('private-config-value');
+    });
+
+    it('preserves rejected reload and active config without reading error name accessors', async () => {
+      const before = configManager.getTransportConfig();
+      const error = new Error('Configuration rejected');
+      const getName = vi.fn(() => {
+        throw new Error('name accessed');
+      });
+      Object.defineProperty(error, 'name', { get: getName });
+      const load = vi.spyOn(ConfigLoader.prototype, 'loadConfigWithEnvSubstitution').mockImplementation(() => {
+        throw error;
+      });
+      try {
+        await expect(configManager.reloadConfig()).rejects.toBe(error);
+        expect(configManager.getTransportConfig()).toEqual(before);
+        const fields = vi
+          .mocked(writeLocalDiagnostic)
+          .mock.calls.find(([, event]) => event === 'config.reload.rejected')![2];
+        expect(typeof fields === 'function' ? fields() : fields).toMatchObject({
+          outcome: 'rejected',
+          errorType: 'Error',
+        });
+        expect(getName).not.toHaveBeenCalled();
+      } finally {
+        load.mockRestore();
+      }
     });
 
     it('reports reload changes without configuration or environment values', async () => {

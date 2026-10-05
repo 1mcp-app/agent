@@ -525,13 +525,13 @@ export class ConfigManager extends EventEmitter {
     } catch (error) {
       this.loader.markRuntimeEnvAttempted(runtimeEnvSignature);
       logger.error('configManager.failed.to.load.or.validate.configuration.9145e701', { error: error });
-      writeLocalDiagnostic('error', 'config.reload.rejected', {
+      writeLocalDiagnostic('error', 'config.reload.rejected', () => ({
         source: this.loader.getConfigFilePath(),
         stage: 'load_or_validate',
         outcome: 'rejected',
         durationMs: Date.now() - startedAt,
-        errorType: error instanceof Error ? error.name : 'unknown',
-      });
+        errorType: error instanceof Error ? 'Error' : 'unknown',
+      }));
       this.emit(CONFIG_EVENTS.VALIDATION_ERROR, error);
       return { status: 'rejected', error };
     }

@@ -350,12 +350,12 @@ export class ConfigLoader {
         }));
       } catch (_error) {
         logger.error('configLoader.configuration.validation.failed.fdd8b126', { error: _error });
-        writeLocalDiagnostic('warn', 'config.server.rejected', {
+        writeLocalDiagnostic('warn', 'config.server.rejected', () => ({
           source: this.configFilePath,
           serverName,
           stage: 'validate',
-          errorType: _error instanceof Error ? _error.name : 'unknown',
-        });
+          errorType: _error instanceof Error ? 'Error' : 'unknown',
+        }));
       }
     }
 

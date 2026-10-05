@@ -61,11 +61,11 @@ async function readProjectConfig(configPath: string): Promise<ProjectConfig | nu
 
     return config;
   } catch (error) {
-    writeLocalDiagnostic('warn', 'config.project.rejected', {
+    writeLocalDiagnostic('warn', 'config.project.rejected', () => ({
       source: configPath,
       outcome: 'ignored',
-      errorType: error instanceof Error ? error.name : 'unknown',
-    });
+      errorType: error instanceof Error ? 'Error' : 'unknown',
+    }));
     if (error instanceof SyntaxError) {
       logger.warn('projectConfigLoader.invalid.json.in.db426689', { error: error });
     } else if (error instanceof Error) {

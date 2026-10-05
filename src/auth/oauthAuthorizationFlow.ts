@@ -389,13 +389,13 @@ export function createOAuthAuthorizationFlow(dependencies: OAuthAuthorizationFlo
         return { status: 'completed', ...(adminReturnOrigin ? { adminReturnOrigin } : {}) };
       } catch (error) {
         logger.error('oauthAuthorizationFlow.oauth.callback.completion.failed.for.758a88bb');
-        writeLocalDiagnostic('warn', 'oauth.callback.failed', {
+        writeLocalDiagnostic('warn', 'oauth.callback.failed', () => ({
           serverName: input.serverName,
           stage: 'complete_and_reconnect',
           durationMs: Date.now() - startedAt,
           reason: error instanceof OAuthAuthorizationDeniedError ? 'provider_denied' : 'callback_rejected',
-          errorType: error instanceof Error ? error.name : 'unknown',
-        });
+          errorType: error instanceof Error ? 'Error' : 'unknown',
+        }));
         const adminReturnOrigin = dependencies.clientRuntime.getOAuthReturn?.(input.serverName, input.state);
         return {
           status: error instanceof OAuthAuthorizationDeniedError ? 'provider_error' : 'callback_failed',
