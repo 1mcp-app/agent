@@ -257,10 +257,9 @@ describe('UrlGenerator', () => {
         error: 'Failed to generate URL: Unexpected error',
       });
 
-      expect(logger.error).toHaveBeenCalledWith(
-        'urlGenerator.url.validation.and.generation.failed.9dfb7037',
-        { error: expect.objectContaining({ message: 'Unexpected error' }) },
-      );
+      expect(logger.error).toHaveBeenCalledWith('urlGenerator.url.validation.and.generation.failed.9dfb7037', {
+        error: expect.objectContaining({ message: 'Unexpected error' }),
+      });
     });
   });
 
@@ -307,10 +306,9 @@ describe('UrlGenerator', () => {
         otherParams: {},
       });
 
-      expect(logger.error).toHaveBeenCalledWith(
-        'urlGenerator.failed.to.parse.url.e2366536',
-        { error: expect.objectContaining({ code: 'ERR_INVALID_URL' }) },
-      );
+      expect(logger.error).toHaveBeenCalledWith('urlGenerator.failed.to.parse.url.e2366536', {
+        error: expect.objectContaining({ code: 'ERR_INVALID_URL' }),
+      });
     });
 
     it('should prioritize preset over other filtering parameters', () => {

@@ -294,9 +294,12 @@ describe('PresetManager', () => {
         // Trigger a file change to test error handling
         await (presetManager as any).reloadAndNotifyChanges();
 
-        expect(logger.error).toHaveBeenCalledWith('presetManager.failed.to.update.change.detector.for.preset.a442171c', {
-          error: expect.objectContaining({ message: 'Change detector update failed' }),
-        });
+        expect(logger.error).toHaveBeenCalledWith(
+          'presetManager.failed.to.update.change.detector.for.preset.a442171c',
+          {
+            error: expect.objectContaining({ message: 'Change detector update failed' }),
+          },
+        );
       });
     });
   });

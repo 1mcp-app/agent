@@ -448,9 +448,7 @@ describe('authorization-code-atomic (goiabada#77 double-spend)', () => {
     const normalizedErrors = [...errorSpy.mock.calls, ...warnSpy.mock.calls].map(([event, fields]) =>
       normalizeEvent(event, fields),
     );
-    const allLoggedErrors = normalizedErrors
-      .map((event) => JSON.stringify(event))
-      .join('\n');
+    const allLoggedErrors = normalizedErrors.map((event) => JSON.stringify(event)).join('\n');
 
     expect(allLoggedErrors).not.toContain(code);
     expect(allLoggedErrors).not.toMatch(/auth_code_code-[0-9a-f-]+/i);
@@ -485,12 +483,13 @@ describe('authorization-code-atomic (goiabada#77 double-spend)', () => {
     const cleanedCount = provider.oauthStorage.fileStorage.cleanupExpiredData();
     expect(cleanedCount).toBeGreaterThanOrEqual(1);
 
-    const normalizedLogs = [...debugSpy.mock.calls, ...infoSpy.mock.calls, ...warnSpy.mock.calls, ...errorSpy.mock.calls].map(
-      ([event, fields]) => normalizeEvent(event, fields),
-    );
-    const allLogged = normalizedLogs
-      .map((event) => JSON.stringify(event))
-      .join('\n');
+    const normalizedLogs = [
+      ...debugSpy.mock.calls,
+      ...infoSpy.mock.calls,
+      ...warnSpy.mock.calls,
+      ...errorSpy.mock.calls,
+    ].map(([event, fields]) => normalizeEvent(event, fields));
+    const allLogged = normalizedLogs.map((event) => JSON.stringify(event)).join('\n');
 
     expect(allLogged).not.toContain(code);
     expect(allLogged).not.toMatch(/auth_code_code-[0-9a-f-]+/i);
