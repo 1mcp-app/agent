@@ -1,11 +1,13 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
 import * as toolSchemaBoundary from '@src/core/validation/toolSchemaBoundary.js';
+import * as localDiagnostics from '@src/logger/localDiagnostics.js';
+import logger, * as loggerModule from '@src/logger/logger.js';
 import { executeWithPostAuthOAuthRecovery } from '@src/core/client/postAuthOAuthRecovery.js';
 import type { TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { ClientStatus, type OutboundConnections } from '@src/core/types/client.js';
 import { SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
-import { OneMcpProtocolError, type Tool } from '@src/sdk/contracts/index.js';
+import { ErrorCode, OneMcpProtocolError, type Tool } from '@src/sdk/contracts/index.js';
 
 import { CapabilityCatalog } from './capabilityCatalog.js';
 import {
@@ -120,6 +122,168 @@ describe('CapabilityCatalog', () => {
   }
 
   afterEach(() => vi.restoreAllMocks());
+
+  it('records the selected route and duration while keeping debug payload capture lazy', async () => {
+    const diagnostic = vi.spyOn(localDiagnostics, 'writeLocalDiagnostic').mockImplementation(() => undefined);
+    const args = { message: 'hi', token: 'private-token' };
+    const result = await createCatalog().invokeVisibleTool({
+      server: 'template-server',
+      toolName: 'template_tool',
+      args,
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(diagnostic).toHaveBeenCalledWith(
+      'info',
+      'tool.routed',
+      expect.objectContaining({
+        requestedServer: 'template-server',
+        requestedTool: 'template_tool',
+        server: 'template-server',
+        tool: 'template_tool',
+        callId: expect.any(String),
+      }),
+    );
+    expect(diagnostic).toHaveBeenCalledWith(
+      'info',
+      'tool.completed',
+      expect.objectContaining({
+        outcome: 'success',
+        durationMs: expect.any(Number),
+      }),
+    );
+    expect(diagnostic).toHaveBeenCalledWith('debug', 'tool.arguments', expect.any(Function));
+    expect(diagnostic).toHaveBeenCalledWith('debug', 'tool.result', expect.any(Function));
+    const infoFields = diagnostic.mock.calls.filter(([level]) => level !== 'debug').map(([, , fields]) => fields);
+    expect(JSON.stringify(infoFields)).not.toContain('private-token');
+  });
+
+  it('writes sanitized arguments and results through the real debug diagnostics API', async () => {
+    const write = vi.spyOn(loggerModule, 'writeLocalDiagnosticRecord').mockImplementation(() => undefined);
+    const previousLevel = logger.level;
+    logger.level = 'debug';
+    const args = { message: 'hello', apiKey: 'private-input' };
+    mockClient.callTool.mockResolvedValueOnce({ content: [{ type: 'text', text: 'ok' }], token: 'private-result' });
+    try {
+      await createCatalog().invokeVisibleTool({ server: 'template-server', toolName: 'template_tool', args });
+      const records = write.mock.calls.map(([record]) => record);
+      expect(records).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ event: 'tool.arguments' }),
+          expect.objectContaining({ event: 'tool.result' }),
+        ]),
+      );
+      expect(JSON.stringify(records)).not.toContain('private-input');
+      expect(JSON.stringify(records)).not.toContain('private-result');
+      expect(JSON.stringify(records)).not.toContain('rendered123');
+      expect(JSON.stringify(records)).toContain('hello');
+      expect(args.apiKey).toBe('private-input');
+    } finally {
+      logger.level = previousLevel;
+    }
+  });
+
+  it.each([
+    ['failed', new Error('upstream connection refused')],
+    ['timeout', new OneMcpProtocolError(ErrorCode.RequestTimeout, 'upstream deadline elapsed')],
+  ])('preserves the actual upstream error for local %s diagnostics', async (outcome, error) => {
+    const diagnostic = vi.spyOn(localDiagnostics, 'writeLocalDiagnostic').mockImplementation(() => undefined);
+    mockClient.callTool.mockRejectedValue(error);
+    const result = await createCatalog().invokeVisibleTool({ server: 'filesystem', toolName: 'read_file', args: {} });
+
+    expect(result.error).toMatchObject({ type: 'upstream', message: 'Gateway transport failure' });
+    expect(diagnostic).toHaveBeenCalledWith(
+      'warn',
+      'tool.failed',
+      expect.objectContaining({
+        phase: 'upstream',
+        outcome,
+        error,
+        durationMs: expect.any(Number),
+      }),
+    );
+  });
+
+  it('records an upstream tool error result without converting it to a transport failure', async () => {
+    const diagnostic = vi.spyOn(localDiagnostics, 'writeLocalDiagnostic').mockImplementation(() => undefined);
+    const upstreamResult = { isError: true, content: [{ type: 'text', text: 'upstream tool failed' }] };
+    mockClient.callTool.mockResolvedValueOnce(upstreamResult);
+    const result = await createCatalog().invokeVisibleTool({ server: 'filesystem', toolName: 'read_file', args: {} });
+
+    expect(result.error).toBeUndefined();
+    expect(result.result).toEqual(upstreamResult);
+    expect(diagnostic).toHaveBeenCalledWith(
+      'info',
+      'tool.completed',
+      expect.objectContaining({ outcome: 'upstream_error' }),
+    );
+  });
+
+  it('records input validation failure without dispatching to the upstream', async () => {
+    const diagnostic = vi.spyOn(localDiagnostics, 'writeLocalDiagnostic').mockImplementation(() => undefined);
+    const error = new SchemaBoundaryError('schema_input_invalid', false, 'input');
+    vi.spyOn(toolSchemaBoundary, 'prepareToolValidation').mockRejectedValueOnce(error);
+    const result = await createCatalog().invokeVisibleTool({ server: 'filesystem', toolName: 'read_file', args: {} });
+
+    expect(result.result).toMatchObject({ isError: true });
+    expect(mockClient.callTool).not.toHaveBeenCalled();
+    expect(diagnostic).toHaveBeenCalledWith(
+      'warn',
+      'tool.failed',
+      expect.objectContaining({
+        phase: 'input_validation',
+        outcome: 'validation_failed',
+        error,
+      }),
+    );
+  });
+
+  it('records output validation failures after dispatch', async () => {
+    const diagnostic = vi.spyOn(localDiagnostics, 'writeLocalDiagnostic').mockImplementation(() => undefined);
+    const error = new SchemaBoundaryError('schema_output_invalid', false, 'output');
+    vi.spyOn(toolSchemaBoundary, 'prepareToolValidation').mockResolvedValueOnce(async () => {
+      throw error;
+    });
+    const result = await createCatalog().invokeVisibleTool({ server: 'filesystem', toolName: 'read_file', args: {} });
+
+    expect(result.error).toMatchObject({ type: 'upstream', message: 'schema_output_invalid' });
+    expect(mockClient.callTool).toHaveBeenCalledOnce();
+    expect(diagnostic).toHaveBeenCalledWith(
+      'warn',
+      'tool.failed',
+      expect.objectContaining({
+        phase: 'output_validation',
+        outcome: 'validation_failed',
+        error,
+      }),
+    );
+  });
+
+  it('records cancellation during dispatch without changing the returned error', async () => {
+    const diagnostic = vi.spyOn(localDiagnostics, 'writeLocalDiagnostic').mockImplementation(() => undefined);
+    const controller = new AbortController();
+    const error = new Error('Request cancelled');
+    mockClient.callTool.mockImplementationOnce(async () => {
+      controller.abort();
+      throw error;
+    });
+    const result = await createCatalog().invokeVisibleTool(
+      { server: 'filesystem', toolName: 'read_file', args: {} },
+      undefined,
+      { signal: controller.signal },
+    );
+
+    expect(result.error).toMatchObject({ type: 'upstream', message: 'Gateway transport failure' });
+    expect(diagnostic).toHaveBeenCalledWith(
+      'warn',
+      'tool.failed',
+      expect.objectContaining({
+        phase: 'upstream',
+        outcome: 'cancelled',
+        error,
+      }),
+    );
+  });
 
   it('keeps per-visibility snapshot count capacity available to another caller', async () => {
     registry = ToolRegistry.fromToolsWithServer([

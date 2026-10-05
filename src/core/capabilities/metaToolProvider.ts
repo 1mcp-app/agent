@@ -2,6 +2,7 @@ import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.
 import { TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { OutboundConnections } from '@src/core/types/index.js';
 import { gatewayFailureFromUnknown } from '@src/gateway/contracts/gatewayFailure.js';
+import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import logger, { errorIf } from '@src/logger/logger.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
 import { zodToInputSchema, zodToOutputSchema } from '@src/utils/schemaUtils.js';
@@ -160,6 +161,12 @@ export class MetaToolProvider {
       case 'tool_list': {
         const parsed = ToolListInputSchema.safeParse(args);
         if (!parsed.success) {
+          writeLocalDiagnostic('warn', 'tool.meta-validation-failed', {
+            requestedTool: name,
+            phase: 'meta_input_validation',
+            outcome: 'validation_failed',
+            error: parsed.error,
+          });
           return {
             tools: [],
             totalCount: 0,
@@ -176,6 +183,12 @@ export class MetaToolProvider {
       case 'tool_schema': {
         const parsed = ToolSchemaInputSchema.safeParse(args);
         if (!parsed.success) {
+          writeLocalDiagnostic('warn', 'tool.meta-validation-failed', {
+            requestedTool: name,
+            phase: 'meta_input_validation',
+            outcome: 'validation_failed',
+            error: parsed.error,
+          });
           return {
             schema: {},
             error: {
@@ -189,6 +202,12 @@ export class MetaToolProvider {
       case 'tool_invoke': {
         const parsed = ToolInvokeInputSchema.safeParse(args);
         if (!parsed.success) {
+          writeLocalDiagnostic('warn', 'tool.meta-validation-failed', {
+            requestedTool: name,
+            phase: 'meta_input_validation',
+            outcome: 'validation_failed',
+            error: parsed.error,
+          });
           return {
             result: {},
             server: '',
@@ -349,6 +368,7 @@ export class MetaToolProvider {
     visibility?: CapabilityVisibility,
     query: CapabilityCatalogQueryOptions = {},
   ): Promise<CallToolResult> {
+    const startedAt = performance.now();
     try {
       const result = await this.capabilityCatalog.invokeVisibleTool(args, visibility, query);
       if (result.error) {
@@ -368,6 +388,15 @@ export class MetaToolProvider {
     } catch (error) {
       const failure = gatewayFailureFromUnknown(error, 'transport');
       logger.error('metaToolProvider.meta.tool.invocation.failed.aaeb1f9d', { error: error });
+      writeLocalDiagnostic('warn', 'tool.meta-failed', {
+        requestedTool: 'tool_invoke',
+        server: args.server,
+        tool: args.toolName,
+        outcome: query.signal?.aborted ? 'cancelled' : 'failed',
+        durationMs: performance.now() - startedAt,
+        error,
+      });
+      writeLocalDiagnostic('debug', 'tool.meta-failure-details', () => ({ error }));
 
       return {
         result: {},
