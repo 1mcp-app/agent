@@ -11,6 +11,7 @@ import chalk from 'chalk';
 import winston from 'winston';
 
 import type { HttpDiagnosticEvent, HttpDiagnosticFields } from './httpDiagnostics.js';
+import { isLocalDiagnosticRecord, type LocalDiagnosticRecord } from './localDiagnostics.js';
 
 // Map MCP log levels to Winston log levels
 const MCP_TO_WINSTON_LEVEL: Record<string, string> = {
@@ -220,6 +221,7 @@ const logger = {
   isInfoEnabled: () => sink.isInfoEnabled(),
   isWarnEnabled: () => sink.isWarnEnabled(),
   isErrorEnabled: () => sink.isErrorEnabled(),
+  isLevelEnabled: (level: 'info' | 'debug' | 'warn' | 'error') => sink.isLevelEnabled(level),
   get level() {
     return sink.level;
   },
@@ -291,6 +293,12 @@ export function writeHttpDiagnostic(
 ): void {
   if (!sink.isLevelEnabled(level)) return;
   sink.log({ level, message: event, source: 'http-diagnostic', ...fields });
+}
+
+/** Only sanitizer-admitted records reach this local console/file diagnostic sink. */
+export function writeLocalDiagnosticRecord(record: LocalDiagnosticRecord): void {
+  if (!isLocalDiagnosticRecord(record) || !sink.isLevelEnabled(record.level)) return;
+  sink.log({ level: record.level, message: record.event, source: 'local-diagnostic', details: record.details });
 }
 
 /** ADR 0011 local diagnostic projection. Never normalize or correlate backend records. */
