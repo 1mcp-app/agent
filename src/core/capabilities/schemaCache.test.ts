@@ -17,7 +17,7 @@ describe('SchemaCache', () => {
     mockLoader = vi.fn();
   });
 
-  it('reports failed backend and tool while preserving loader rejection', async () => {
+  it('reports a local load ID and tool while preserving loader rejection', async () => {
     const error = new Error('Upstream unavailable');
     await expect(
       cache.getOrLoad('backend-a', 'tool-a', async () => {
@@ -28,7 +28,7 @@ describe('SchemaCache', () => {
       'warn',
       'schema.load.failed',
       expect.objectContaining({
-        server: 'backend-a',
+        loadId: expect.any(String),
         toolName: 'tool-a',
         error,
         durationMs: expect.any(Number),
@@ -44,11 +44,44 @@ describe('SchemaCache', () => {
       throw new Error('Unexpected reload');
     });
     expect(writeLocalDiagnostic).toHaveBeenCalledWith('debug', 'schema.cache.hit', {
-      server: 'backend-a',
+      loadId: expect.any(String),
       toolName: 'tool-a',
       cacheSize: 1,
     });
     expect(JSON.stringify(vi.mocked(writeLocalDiagnostic).mock.calls)).not.toContain('private-schema');
+  });
+
+  it('never reports composite connection identity and correlates cache events by a random load ID', async () => {
+    const connectionKey = 'template-rendered-hash-private-session-id';
+    const tool: Tool = { name: 'tool-a', inputSchema: { type: 'object' } };
+    const expiring = new SchemaCache({ maxEntries: 3, ttlMs: 1 });
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1000);
+    try {
+      await expiring.getOrLoad(connectionKey, tool.name, async () => tool);
+      await expiring.getOrLoad(connectionKey, tool.name, async () => tool);
+      now.mockReturnValue(1001);
+      await expect(
+        expiring.getOrLoad(connectionKey, tool.name, async () => {
+          throw new Error('Unavailable');
+        }),
+      ).rejects.toThrow('Unavailable');
+      const calls = vi.mocked(writeLocalDiagnostic).mock.calls;
+      const completed = calls.find(([, event]) => event === 'schema.load.completed')![2];
+      const hit = calls.find(([, event]) => event === 'schema.cache.hit')![2];
+      const expired = calls.find(([, event]) => event === 'schema.cache.expired')![2];
+      const failed = calls.find(([, event]) => event === 'schema.load.failed')![2];
+      for (const fields of [completed, hit, expired, failed]) {
+        expect(fields).not.toHaveProperty('server');
+        expect(fields).not.toHaveProperty('connectionKey');
+      }
+      expect(completed).toMatchObject({ loadId: expect.any(String) });
+      expect(hit).toMatchObject({ loadId: (completed as Record<string, unknown>).loadId });
+      expect(expired).toMatchObject({ loadId: (completed as Record<string, unknown>).loadId });
+      expect(failed).not.toMatchObject({ loadId: (completed as Record<string, unknown>).loadId });
+      expect(JSON.stringify(calls)).not.toContain(connectionKey);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   describe('Basic Caching', () => {

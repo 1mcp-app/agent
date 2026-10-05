@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
@@ -35,6 +37,7 @@ interface CacheEntry {
   tool: Tool;
   timestamp: number;
   bytes: number;
+  diagnosticLoadId: string;
 }
 
 /**
@@ -151,7 +154,11 @@ export class SchemaCache {
     if (cached && !this.isExpired(cached)) {
       this.stats.hits++;
       debugIf(() => ({ message: 'schemaCache.cache.hit.77e8d34e' }));
-      writeLocalDiagnostic('debug', 'schema.cache.hit', { server, toolName, cacheSize: this.cache.size });
+      writeLocalDiagnostic('debug', 'schema.cache.hit', {
+        loadId: cached.diagnosticLoadId,
+        toolName,
+        cacheSize: this.cache.size,
+      });
       return cached.tool;
     }
 
@@ -159,7 +166,11 @@ export class SchemaCache {
     if (cached && this.isExpired(cached)) {
       this.cache.delete(cacheKey);
       debugIf(() => ({ message: 'schemaCache.cache.entry.expired.a16e883b' }));
-      writeLocalDiagnostic('debug', 'schema.cache.expired', { server, toolName, ttlMs: this.config.ttlMs });
+      writeLocalDiagnostic('debug', 'schema.cache.expired', {
+        loadId: cached.diagnosticLoadId,
+        toolName,
+        ttlMs: this.config.ttlMs,
+      });
     }
 
     // Check for in-flight request (coalescing)
@@ -177,6 +188,8 @@ export class SchemaCache {
     this.stats.misses++;
     this.activeLoads++;
     const startedAt = Date.now();
+    // Connection keys can embed rendered template or session identity; never log them.
+    const loadId = randomUUID();
     const controller = new AbortController();
     const load = Promise.resolve()
       .then(() => {
@@ -208,11 +221,12 @@ export class SchemaCache {
           tool,
           timestamp: Date.now(),
           bytes,
+          diagnosticLoadId: loadId,
         });
 
         debugIf(() => ({ message: 'schemaCache.loaded.and.cached.88beceec' }));
         writeLocalDiagnostic('debug', 'schema.load.completed', {
-          server,
+          loadId,
           toolName,
           durationMs: Date.now() - startedAt,
           bytes,
@@ -222,7 +236,7 @@ export class SchemaCache {
       })
       .catch((error: unknown) => {
         writeLocalDiagnostic('warn', 'schema.load.failed', {
-          server,
+          loadId,
           toolName,
           durationMs: Date.now() - startedAt,
           error,
@@ -310,6 +324,7 @@ export class SchemaCache {
       tool,
       timestamp: Date.now(),
       bytes,
+      diagnosticLoadId: randomUUID(),
     });
 
     debugIf(() => ({ message: 'schemaCache.manually.cached.8852f2e0' }));
