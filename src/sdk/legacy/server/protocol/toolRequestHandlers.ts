@@ -19,7 +19,6 @@ import { getDisabledSourceToolError } from '@src/core/server/disabledTools.js';
 import { withRuntimeAdmission } from '@src/core/server/runtimeDrain.js';
 import { InboundConnection } from '@src/core/types/index.js';
 import { SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
-import { gatewayFailureFromUnknown } from '@src/gateway/contracts/gatewayFailure.js';
 import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import { ownData } from '@src/observability/privacy/fields.js';
 import { ErrorCode, RESPONSE_JSON_VALUE_LIMITS, toJsonValue } from '@src/sdk/contracts/index.js';
@@ -129,7 +128,7 @@ export function registerToolHandlers(
         const reportFailure = (error: unknown) => {
           const fields = () => {
             const code = ownData(error, 'code');
-            const failureKind = gatewayFailureFromUnknown(error, 'transport').kind;
+            const failureKind = ownData(error, 'kind') ?? ownData(ownData(error, 'data'), 'kind');
             let outcome = 'failed';
             if (extra?.signal?.aborted || failureKind === 'cancelled') outcome = 'cancelled';
             else if (
