@@ -168,7 +168,10 @@ export class TemplateServerManager {
     // Get template servers that match the client's tags/preset
     const templateConfigs = this.getMatchingTemplateConfigs(opts, serverConfigData);
 
-    logger.info('templateServerManager.creating.template.based.servers.for.session.63a3dddd');
+    logger.info('templateServerManager.creating.template.based.servers.for.session.63a3dddd', {
+      templateCount: templateConfigs.length,
+      sessionId,
+    });
 
     // Create client instances from templates
     for (const [templateName, templateConfig] of templateConfigs) {
@@ -220,10 +223,15 @@ export class TemplateServerManager {
               outboundKey,
             );
             if (instructions?.trim()) {
-              debugIf(() => ({ message: 'templateServerManager.cached.instructions.for.template.server.ee449e76' }));
+              debugIf(() => ({
+                message: 'templateServerManager.cached.instructions.for.template.server.ee449e76',
+                meta: { templateName, instanceId: instance.id },
+              }));
             }
           } catch (_error) {
             logger.warn('templateServerManager.failed.to.extract.instructions.from.template.server.07ebbee8', {
+              templateName,
+              instanceId: instance.id,
               error: _error,
             });
           }
@@ -257,16 +265,33 @@ export class TemplateServerManager {
         debugIf(() => ({
           message:
             'templateServerManager.templateservermanager.createtemplatebasedservers.tracked.client.template.re.b792872d',
-          meta: { sessionId: sessionId, referenceCount: instance.referenceCount },
+          meta: {
+            sessionId,
+            referenceCount: instance.referenceCount,
+            templateName,
+            instanceId: instance.id,
+            instanceKey: instance.instanceKey,
+          },
         }));
 
         logger.info('templateServerManager.connected.to.template.client.instance.871228b8', {
-          sessionId: sessionId,
+          templateName,
+          instanceId: instance.id,
+          instanceKey: instance.instanceKey,
+          renderedHash,
+          shareable: templateConfig.template?.shareable !== false,
+          perClient: templateConfig.template?.perClient ?? false,
+          sessionId,
           clientCount: instance.referenceCount,
         });
       } catch (error) {
         const safeError = sanitizeRuntimeScopeError(error);
-        logger.error('templateServerManager.failed.to.create.client.instance.from.template.eac81d4e', { error: error });
+        logger.error('templateServerManager.failed.to.create.client.instance.from.template.eac81d4e', {
+          templateName,
+          templateId: templateName,
+          sessionId,
+          error,
+        });
 
         // Track the failure
         this.failedTemplates.push({

@@ -25,6 +25,8 @@ Runtime log entries include a timestamp, level, a fixed message, and an event id
 
 Some entries use fingerprints instead of server, session, client, or request identifiers. You can compare matching fingerprints of the same kind within one process's logs; they change after a restart and cannot be used as configuration names or request IDs.
 
+Template lifecycle entries include `templateName`, the opaque random `instanceId`, template/client counts, and pooling settings where applicable. Configured names containing only letters, numbers, dots, underscores, or hyphens are shown, up to 256 UTF-8 bytes; other names are omitted. Processing and key-resolution events also include a `templateId_fingerprint` for correlation regardless of name syntax. Rendered configuration hashes and composite instance keys remain fingerprinted because they can depend on credentials or session identity. No rendered configuration is logged.
+
 When an operation has valid incoming trace context, its runtime entries can include `trace_id`, `span_id`, and `trace_flags`. Entries without an active trace context omit those fields. Background lifecycle entries and other work outside a traced operation may therefore have no trace ID.
 
 ## Follow trace context

@@ -88,7 +88,7 @@ export class ClientInstancePool {
 
     infoIf(() => ({
       message: 'clientInstancePool.processing.template.for.client.instance.b0d9550d',
-      meta: { clientId: clientId },
+      meta: { clientId, templateName, templateId: templateName },
     }));
 
     // Get template configuration with proper defaults
@@ -98,7 +98,15 @@ export class ClientInstancePool {
       renderedHash,
       templateSettings.perClient || !templateSettings.shareable ? clientId : undefined,
     );
-    logger.info('clientInstancePool.template.renderedhash.instance.key.78f982b5');
+    logger.info('clientInstancePool.template.renderedhash.instance.key.78f982b5', {
+      templateName,
+      templateId: templateName,
+      renderedHash,
+      instanceKey,
+      shareable: templateSettings.shareable,
+      perClient: templateSettings.perClient,
+      idleTimeout: templateSettings.idleTimeout,
+    });
 
     while (true) {
       const runtimeFingerprint = this.createRuntimeFingerprint(renderedConfig);
@@ -166,7 +174,7 @@ export class ClientInstancePool {
 
           infoIf(() => ({
             message: 'clientInstancePool.created.new.client.instance.from.template.383bd90b',
-            meta: { clientId: clientId },
+            meta: { clientId, templateName, instanceId: instance.id, instanceKey },
           }));
           return instance;
         } finally {
@@ -200,7 +208,13 @@ export class ClientInstancePool {
 
       debugIf(() => ({
         message: 'clientInstancePool.added.client.to.existing.client.instance.c1fc1d9e',
-        meta: { clientId: clientId, clientCount: instance.referenceCount },
+        meta: {
+          clientId,
+          clientCount: instance.referenceCount,
+          templateName: instance.templateName,
+          instanceId: instance.id,
+          instanceKey: instance.instanceKey,
+        },
       }));
     }
 
@@ -221,7 +235,13 @@ export class ClientInstancePool {
 
     debugIf(() => ({
       message: 'clientInstancePool.removed.client.from.client.instance.1bece201',
-      meta: { clientId: clientId, clientCount: instance.referenceCount },
+      meta: {
+        clientId,
+        clientCount: instance.referenceCount,
+        templateName: instance.templateName,
+        instanceId: instance.id,
+        instanceKey: instance.instanceKey,
+      },
     }));
 
     // Mark as idle if no more clients
@@ -235,7 +255,15 @@ export class ClientInstancePool {
       instance.status = 'idle';
       instance.lastUsedAt = idleSince; // Set lastUsedAt to when it became idle
 
-      infoIf(() => ({ message: 'clientInstancePool.client.instance.marked.as.idle.11131bab' }));
+      infoIf(() => ({
+        message: 'clientInstancePool.client.instance.marked.as.idle.11131bab',
+        meta: {
+          templateName: instance.templateName,
+          instanceId: instance.id,
+          instanceKey,
+          idleTimeout: instance.idleTimeout,
+        },
+      }));
     }
   }
 

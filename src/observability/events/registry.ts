@@ -4162,22 +4162,38 @@ export const EVENT_REGISTRY = {
   'clientInstancePool.processing.template.for.client.instance.b0d9550d': {
     message: 'Processing template for client instance',
     fields: {
+      templateName: 'configured-name',
+      templateId: 'identity:server',
       clientId: 'identity:client',
     },
   },
   'clientInstancePool.template.renderedhash.instance.key.78f982b5': {
-    message: 'Template <private>, renderedHash: <private>, Instance key: <private>',
-    fields: {},
+    message: 'Resolved template instance key',
+    fields: {
+      templateName: 'configured-name',
+      templateId: 'identity:server',
+      renderedHash: 'identity:server',
+      instanceKey: 'identity:server',
+      shareable: 'boolean',
+      perClient: 'boolean',
+      idleTimeout: 'number',
+    },
   },
   'clientInstancePool.created.new.client.instance.from.template.383bd90b': {
     message: 'Created new client instance from template',
     fields: {
+      templateName: 'configured-name',
+      instanceId: 'instance-id',
+      instanceKey: 'identity:server',
       clientId: 'identity:client',
     },
   },
   'clientInstancePool.added.client.to.existing.client.instance.c1fc1d9e': {
     message: 'Added client to existing client instance',
     fields: {
+      templateName: 'configured-name',
+      instanceId: 'instance-id',
+      instanceKey: 'identity:server',
       clientId: 'identity:client',
       clientCount: 'number',
     },
@@ -4185,13 +4201,21 @@ export const EVENT_REGISTRY = {
   'clientInstancePool.removed.client.from.client.instance.1bece201': {
     message: 'Removed client from client instance',
     fields: {
+      templateName: 'configured-name',
+      instanceId: 'instance-id',
+      instanceKey: 'identity:server',
       clientId: 'identity:client',
       clientCount: 'number',
     },
   },
   'clientInstancePool.client.instance.marked.as.idle.11131bab': {
     message: 'Client instance marked as idle',
-    fields: {},
+    fields: {
+      templateName: 'configured-name',
+      instanceId: 'instance-id',
+      instanceKey: 'identity:server',
+      idleTimeout: 'number',
+    },
   },
   'clientInstancePool.removed.client.instance.from.pool.0595d1e2': {
     message: 'Removed client instance from pool',
@@ -4634,36 +4658,56 @@ export const EVENT_REGISTRY = {
     fields: {},
   },
   'templateServerManager.creating.template.based.servers.for.session.63a3dddd': {
-    message: 'Creating <private> template-based servers for session <private>',
-    fields: {},
+    message: 'Creating template-based servers for session',
+    fields: {
+      templateCount: 'number',
+      sessionId: 'identity:session',
+    },
   },
   'templateServerManager.cached.instructions.for.template.server.ee449e76': {
-    message: 'Cached instructions for template server: <private>',
-    fields: {},
+    message: 'Cached instructions for template server',
+    fields: {
+      templateName: 'configured-name',
+      instanceId: 'instance-id',
+    },
   },
   'templateServerManager.failed.to.extract.instructions.from.template.server.07ebbee8': {
-    message: 'Failed to extract instructions from template server <private>: <private>',
+    message: 'Failed to extract instructions from template server',
     fields: {
+      templateName: 'configured-name',
+      instanceId: 'instance-id',
       error: 'error',
     },
   },
   'templateServerManager.templateservermanager.createtemplatebasedservers.tracked.client.template.re.b792872d': {
-    message: 'TemplateServerManager.createTemplateBasedServers: Tracked client-template relationship',
+    message: 'Tracked client-template relationship',
     fields: {
+      templateName: 'configured-name',
+      instanceId: 'instance-id',
+      instanceKey: 'identity:server',
       sessionId: 'identity:session',
       referenceCount: 'number',
     },
   },
   'templateServerManager.connected.to.template.client.instance.871228b8': {
-    message: 'Connected to template client instance: <private> (<private>)',
+    message: 'Connected to template client instance',
     fields: {
+      templateName: 'configured-name',
+      instanceId: 'instance-id',
+      instanceKey: 'identity:server',
+      renderedHash: 'identity:server',
+      shareable: 'boolean',
+      perClient: 'boolean',
       sessionId: 'identity:session',
       clientCount: 'number',
     },
   },
   'templateServerManager.failed.to.create.client.instance.from.template.eac81d4e': {
-    message: 'Failed to create client instance from template <private>:',
+    message: 'Failed to create client instance from template',
     fields: {
+      templateName: 'configured-name',
+      templateId: 'identity:server',
+      sessionId: 'identity:session',
       error: 'error',
     },
   },
