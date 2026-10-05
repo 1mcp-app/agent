@@ -184,7 +184,7 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
       const changes = await this.capabilityAggregator.updateCapabilities();
       writeLocalDiagnostic('info', 'capability.snapshot.completed', () => ({
         hasChanges: changes.hasChanges,
-        readyServers: changes.current.readyServers,
+        readyServerCount: changes.current.readyServers.length,
         tools: changes.current.tools.length,
         resources: changes.current.resources.length,
         resourceTemplates: changes.current.resourceTemplates.length,

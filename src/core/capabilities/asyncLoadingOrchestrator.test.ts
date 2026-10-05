@@ -1,6 +1,7 @@
 import { McpLoadingEvent } from '@src/core/loading/mcpLoadingManager.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { InboundConnection, ServerStatus } from '@src/core/types/index.js';
+import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -8,6 +9,7 @@ import { AsyncLoadingOrchestrator } from './asyncLoadingOrchestrator.js';
 import { AsyncLoadingOrchestratorEvent } from './asyncLoadingOrchestratorEvent.js';
 
 // Mock modules
+vi.mock('@src/logger/localDiagnostics.js', () => ({ writeLocalDiagnostic: vi.fn() }));
 vi.mock('../server/agentConfig.js', () => ({
   AgentConfigManager: {
     getInstance: vi.fn(),
@@ -23,6 +25,7 @@ describe('AsyncLoadingOrchestrator', () => {
   let mockInboundConnection: InboundConnection;
 
   beforeEach(() => {
+    vi.mocked(writeLocalDiagnostic).mockClear();
     mockConnections = new Map();
 
     mockServerManager = {
@@ -222,6 +225,47 @@ describe('AsyncLoadingOrchestrator', () => {
 
       await vi.waitFor(() => expect(mockAggregator.updateCapabilities).toHaveBeenCalledOnce());
       expect(capabilitiesUpdated).toHaveBeenCalledOnce();
+    });
+
+    it('reports readiness counts without exposing template or session connection keys', async () => {
+      const readyServers = ['template-private-rendered-hash', 'session-private-session-id'];
+      const current = {
+        tools: [],
+        resources: [],
+        resourceTemplates: [],
+        prompts: [],
+        readyServers,
+        timestamp: new Date(),
+      };
+      vi.spyOn(orchestrator.getCapabilityAggregator(), 'updateCapabilities').mockResolvedValue({
+        hasChanges: false,
+        toolsChanged: false,
+        resourcesChanged: false,
+        resourceTemplatesChanged: false,
+        promptsChanged: false,
+        addedServers: [],
+        removedServers: [],
+        previous: current,
+        current,
+      });
+      const loadingCompleteHandler = mockLoadingManager.on.mock.calls.find(
+        (call: any) => call[0] === McpLoadingEvent.LoadingComplete,
+      )[1];
+      loadingCompleteHandler();
+      await vi.waitFor(() =>
+        expect(writeLocalDiagnostic).toHaveBeenCalledWith(
+          'info',
+          'capability.snapshot.completed',
+          expect.any(Function),
+        ),
+      );
+      const fields = vi
+        .mocked(writeLocalDiagnostic)
+        .mock.calls.find(([, event]) => event === 'capability.snapshot.completed')![2];
+      const snapshot = typeof fields === 'function' ? fields() : fields;
+      expect(snapshot).toMatchObject({ readyServerCount: 2, tools: 0, resources: 0, prompts: 0 });
+      expect(snapshot).not.toHaveProperty('readyServers');
+      for (const connectionKey of readyServers) expect(JSON.stringify(snapshot)).not.toContain(connectionKey);
     });
 
     it('should register a loading-complete publication handler', () => {
