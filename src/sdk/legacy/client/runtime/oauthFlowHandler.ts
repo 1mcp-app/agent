@@ -7,6 +7,7 @@ import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 import { ClientStatus } from '@src/core/types/index.js';
+import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import logger from '@src/logger/logger.js';
 import { getConnectionTimeout } from '@src/utils/core/timeoutUtils.js';
 
@@ -18,7 +19,7 @@ import { OAuthRequiredError } from './types.js';
 
 export class OAuthFlowHandler {
   private readonly clientFactory = new ClientFactory();
-  public extractAuthorizationUrl(transport: AuthProviderTransport): string | undefined {
+  public extractAuthorizationUrl(transport: AuthProviderTransport, serverName?: string): string | undefined {
     try {
       const oauthProvider = transport.oauthProvider;
       if (oauthProvider?.getAuthorizationUrl) {
@@ -26,6 +27,11 @@ export class OAuthFlowHandler {
       }
     } catch (_error) {
       logger.warn('oauthFlowHandler.could.not.extract.authorization.url.f9cc0cc9', { error: _error });
+      writeLocalDiagnostic('warn', 'oauth.authorization.url.extraction.failed', () => ({
+        serverName,
+        transportType: transport.constructor.name,
+        error: _error,
+      }));
     }
     return undefined;
   }
@@ -41,7 +47,11 @@ export class OAuthFlowHandler {
     error: OAuthRequiredError,
   ): LegacyOutboundConnection {
     logger.info('oauthFlowHandler.oauth.authorization.required.for.b495d670');
-    const authorizationUrl = this.extractAuthorizationUrl(transport);
+    writeLocalDiagnostic('info', 'oauth.authorization.required', () => ({
+      serverName: name,
+      transportType: transport.constructor.name,
+    }));
+    const authorizationUrl = this.extractAuthorizationUrl(transport, name);
 
     return createLegacyOutboundConnection({
       name,
@@ -70,6 +80,11 @@ export class OAuthFlowHandler {
     }
 
     logger.info('oauthFlowHandler.completing.oauth.and.reconnecting.053f0a15');
+    writeLocalDiagnostic('info', 'oauth.reconnection.started', () => ({
+      serverName: name,
+      transportType: newTransport.constructor.name,
+      connectionTimeoutMs: getConnectionTimeout(newTransport),
+    }));
 
     try {
       const configuredOldTransport = oldTransport as AuthProviderTransport;
@@ -118,9 +133,19 @@ export class OAuthFlowHandler {
       });
 
       logger.info('oauthFlowHandler.oauth.reconnection.completed.successfully.for.65c16552');
+      writeLocalDiagnostic('info', 'oauth.reconnection.connected', () => ({
+        serverName: name,
+        transportType: reconnectTransport.constructor.name,
+        connectionTimeoutMs: timeout,
+      }));
       return updatedInfo;
     } catch (error) {
       logger.error('oauthFlowHandler.oauth.reconnection.failed.for.4dd2fa2f');
+      writeLocalDiagnostic('error', 'oauth.reconnection.failed', () => ({
+        serverName: name,
+        transportType: newTransport.constructor.name,
+        error,
+      }));
       throw error;
     }
   }

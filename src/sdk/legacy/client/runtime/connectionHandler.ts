@@ -13,6 +13,7 @@ import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import { sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
 import { CONNECTION_RETRY, MCP_SERVER_NAME } from '@src/constants.js';
+import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { ClientConnectionError, NonRetryableClientConnectionError } from '@src/utils/core/errorTypes.js';
 import { getConnectionTimeout } from '@src/utils/core/timeoutUtils.js';
@@ -65,6 +66,13 @@ export class ConnectionHandler {
 
         const authTransport = currentTransport as AuthProviderTransport;
         const timeout = getConnectionTimeout(authTransport);
+        writeLocalDiagnostic('debug', 'backend.connection.attempt', () => ({
+          serverName: name,
+          transportType: currentTransport.constructor.name,
+          attempt: i + 1,
+          maxAttempts: CONNECTION_RETRY.MAX_ATTEMPTS,
+          connectionTimeoutMs: timeout,
+        }));
         if (isModernSdkClient(currentClient)) {
           await currentClient.connect(currentTransport as never, timeout ? { timeout } : undefined);
         } else {
@@ -77,6 +85,14 @@ export class ConnectionHandler {
         }
 
         logger.info('connectionHandler.successfully.connected.to.with.server.version.6ee89a19');
+        writeLocalDiagnostic('info', 'backend.connection.connected', () => ({
+          serverName: name,
+          transportType: currentTransport.constructor.name,
+          attempt: i + 1,
+          serverVersion: sv?.version,
+          serverImplementation: sv?.name,
+          connectionTimeoutMs: timeout,
+        }));
         return { client: currentClient, transport: currentTransport as AuthProviderTransport };
       } catch (error) {
         if (
@@ -85,12 +101,24 @@ export class ConnectionHandler {
           (error instanceof SdkError && error.code === SdkErrorCode.ClientHttpAuthentication)
         ) {
           logger.info('connectionHandler.oauth.authorization.required.for.visit.oauth.to.authorize.875e3320');
+          writeLocalDiagnostic('info', 'oauth.authorization.required', () => ({
+            serverName: name,
+            transportType: currentTransport.constructor.name,
+            attempt: i + 1,
+          }));
           throw new OAuthRequiredError(name, currentClient, currentTransport as AuthProviderTransport);
         }
 
         const nonRetryableOAuthError = isNonRetryableOAuthError(error);
         const safeError = sanitizeRuntimeScopeError(error);
         logger.error('connectionHandler.failed.to.connect.to.d9f2b821', { error: error });
+        writeLocalDiagnostic('error', 'backend.connection.failed', () => ({
+          serverName: name,
+          transportType: currentTransport.constructor.name,
+          attempt: i + 1,
+          connectionTimeoutMs: getConnectionTimeout(currentTransport as AuthProviderTransport),
+          error,
+        }));
 
         if (
           nonRetryableOAuthError ||
@@ -99,27 +127,53 @@ export class ConnectionHandler {
           (error instanceof SdkError && TERMINAL_MODERN_CONNECT_ERRORS.has(error.code))
         ) {
           if (ownsReplacementCandidate) {
-            await this.disposeFailedCandidate(currentClient, currentTransport as AuthProviderTransport);
+            await this.disposeFailedCandidate(currentClient, currentTransport as AuthProviderTransport, name);
           }
+          writeLocalDiagnostic('warn', 'backend.connection.terminal', () => ({
+            serverName: name,
+            transportType: currentTransport.constructor.name,
+            attempt: i + 1,
+            reason: 'non-retryable',
+            error,
+          }));
           throw new NonRetryableClientConnectionError(name, safeError);
         }
 
         if (i >= CONNECTION_RETRY.MAX_ATTEMPTS - 1) {
           if (ownsReplacementCandidate) {
-            await this.disposeFailedCandidate(currentClient, currentTransport as AuthProviderTransport);
+            await this.disposeFailedCandidate(currentClient, currentTransport as AuthProviderTransport, name);
           }
+          writeLocalDiagnostic('error', 'backend.connection.exhausted', () => ({
+            serverName: name,
+            transportType: currentTransport.constructor.name,
+            attempt: i + 1,
+            maxAttempts: CONNECTION_RETRY.MAX_ATTEMPTS,
+            error,
+          }));
           throw new ClientConnectionError(name, safeError);
         }
 
         logger.info('connectionHandler.retrying.in.ms.0a9db4e6');
+        writeLocalDiagnostic('info', 'backend.connection.retry.scheduled', () => ({
+          serverName: name,
+          transportType: currentTransport.constructor.name,
+          attempt: i + 2,
+          maxAttempts: CONNECTION_RETRY.MAX_ATTEMPTS,
+          retryDelayMs: retryDelay,
+        }));
 
         if (ownsReplacementCandidate) {
-          await this.disposeFailedCandidate(currentClient, currentTransport as AuthProviderTransport);
+          await this.disposeFailedCandidate(currentClient, currentTransport as AuthProviderTransport, name);
         } else {
           try {
             await currentTransport.close();
           } catch (_closeError) {
             debugIf(() => ({ message: 'connectionHandler.error.closing.transport.during.retry.d23eee71' }));
+            writeLocalDiagnostic('debug', 'backend.connection.retry.cleanup.failed', () => ({
+              serverName: name,
+              transportType: currentTransport.constructor.name,
+              error: _closeError,
+            }));
           }
         }
 
@@ -161,12 +215,21 @@ export class ConnectionHandler {
     });
   }
 
-  private async disposeFailedCandidate(client: OutboundSdkClient, transport: AuthProviderTransport): Promise<void> {
+  private async disposeFailedCandidate(
+    client: OutboundSdkClient,
+    transport: AuthProviderTransport,
+    name: string,
+  ): Promise<void> {
     client.onclose = undefined;
     const outcomes = await Promise.allSettled([client.close(), transport.close()]);
     for (const outcome of outcomes) {
       if (outcome.status === 'rejected') {
         debugIf(() => ({ message: 'connectionHandler.error.closing.failed.retry.candidate.648a7c0b' }));
+        writeLocalDiagnostic('debug', 'backend.connection.retry.cleanup.failed', () => ({
+          serverName: name,
+          transportType: transport.constructor.name,
+          error: outcome.reason,
+        }));
       }
     }
   }
