@@ -4,9 +4,9 @@ import logger, * as loggerModule from '@src/logger/logger.js';
 import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
 import type { LocalDiagnosticRecord } from '@src/logger/localDiagnostics.js';
-import { ErrorCode, OneMcpProtocolError } from '@src/sdk/contracts/index.js';
+import { ErrorCode, type JsonValue, type LegacySdkRequest, OneMcpProtocolError } from '@src/sdk/contracts/index.js';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 
 import { registerToolHandlers } from './toolRequestHandlers.js';
 
@@ -38,7 +38,7 @@ describe('normal tool request local diagnostics', () => {
     extra: { signal: AbortSignal },
   ) => Promise<unknown>;
   let handler: Handler;
-  let request: ReturnType<typeof vi.fn>;
+  let request: Mock<(request: LegacySdkRequest) => Promise<JsonValue>>;
   let validateOutput: ReturnType<typeof vi.fn>;
   let prepare: ReturnType<typeof vi.fn>;
   let records: LocalDiagnosticRecord[];
@@ -51,7 +51,9 @@ describe('normal tool request local diagnostics', () => {
     vi.spyOn(loggerModule, 'writeLocalDiagnosticRecord').mockImplementation((record) => {
       records.push(record);
     });
-    request = vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] });
+    request = vi
+      .fn<(request: LegacySdkRequest) => Promise<JsonValue>>()
+      .mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] });
     const connection = createMockOutboundConnection({ name: 'backend', requestTimeoutMs: 1500, adapter: { request } });
     validateOutput = Object.assign(vi.fn().mockResolvedValue(undefined), { assertCurrent: vi.fn() });
     prepare = vi.fn().mockResolvedValue(validateOutput);
