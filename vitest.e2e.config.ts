@@ -1,5 +1,7 @@
-import { defineConfig } from 'vitest/config';
 import tsconfigPaths from 'vite-tsconfig-paths';
+import { defineConfig } from 'vitest/config';
+
+import DurationSequencer from './test/e2e/setup/duration-sequencer.js';
 
 export default defineConfig({
   plugins: [tsconfigPaths()],
@@ -14,6 +16,7 @@ export default defineConfig({
     // Enable file-level parallelism for faster execution
     fileParallelism: true,
     maxConcurrency: 2,
+    sequence: { sequencer: DurationSequencer },
 
     // Retry failed tests once (flaky network/timing issues)
     retry: 1,

@@ -24,13 +24,15 @@ env:
   CI: true
 
 jobs:
-  lifecycle:
-    name: Lifecycle / ${{ matrix.os }} / Node and SEA
+  lifecycle-tests:
+    name: Lifecycle / ${{ matrix.os }} / ${{ matrix.runtime }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
+        runtime: [Node, SEA]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         include:
           - os: ubuntu-latest
             binary: 1mcp
@@ -47,25 +49,49 @@ jobs:
         uses: ./.github/actions/setup-node-pnpm
 
       - name: Build Node installation
+        if: matrix.runtime == 'Node'
         shell: bash
         run: bash scripts/build.sh
 
       - name: Verify cooperative lifecycle with Node
+        if: matrix.runtime == 'Node'
+        env:
+          # Reuse bytecode across CLI launches within this job; each runner starts cold.
+          NODE_COMPILE_CACHE: ${{ runner.temp }}/lifecycle-node-compile-cache
         run: pnpm test:e2e test/e2e/commands/cooperative-runtime.test.ts --retry=0
 
-      # Keep builds and process tests sequential: SEA writes shared build artifacts.
+      # Each runtime has its own runner; SEA cannot overwrite the Node job artifacts.
       - name: Build SEA bundle
+        if: matrix.runtime == 'SEA'
         run: pnpm sea:build
 
       - name: Build packaged executable
+        if: matrix.runtime == 'SEA'
         run: pnpm sea:binary
 
       # SEA compilation rewrites build/ before bundling; restore runnable Node fixtures.
       - name: Restore Node fixture installation
+        if: matrix.runtime == 'SEA'
         shell: bash
         run: bash scripts/build.sh
 
       - name: Verify cooperative lifecycle with packaged executable
+        if: matrix.runtime == 'SEA'
         env:
           ONE_MCP_TEST_BINARY: ${{ github.workspace }}/${{ matrix.binary }}
         run: pnpm test:e2e test/e2e/commands/cooperative-runtime.test.ts --retry=0
+
+  # Keep the original branch-protection check names. All six combinations must pass.
+  lifecycle:
+    name: Lifecycle / ${{ matrix.os }} / Node and SEA
+    if: always()
+    needs: [lifecycle-tests]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Require Node and SEA lifecycle success
+        env:
+          LIFECYCLE_RESULT: ${{ needs.lifecycle-tests.result }}
+        run: test "$LIFECYCLE_RESULT" = success

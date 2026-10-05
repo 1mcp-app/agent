@@ -31,7 +31,7 @@ env:
   HUSKY: 0
 
 jobs:
-  ci:
+  static:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -67,11 +67,41 @@ jobs:
       - name: Security permission gate (ticket-05)
         run: pnpm test:security-permissions
 
+  unit-admin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.checkout_ref || github.ref }}
+          persist-credentials: false
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
       - name: Test Unit
         run: pnpm test:unit
+        env:
+          CI: true
 
       - name: Test Admin Console
         run: pnpm test:admin
+
+  # Preserve the existing required check and fail closed on skipped/cancelled jobs.
+  ci:
+    if: always()
+    needs: [static, unit-admin]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Require static and test success
+        env:
+          STATIC_RESULT: ${{ needs.static.result }}
+          TEST_RESULT: ${{ needs.unit-admin.result }}
+        run: test "$STATIC_RESULT" = success && test "$TEST_RESULT" = success
 
   # E2E runs concurrently with lint, typecheck, and unit tests. Browser specs
   # run separately so ordinary shards do not install Playwright dependencies.
@@ -106,13 +136,30 @@ jobs:
         run: |
           started_at=$(date +%s)
           set +e
-          pnpm test:e2e:shardable --shard="$MATRIX_SHARD/$E2E_SHARD_COUNT" --reporter=minimal
+          pnpm test:e2e:shardable --shard="$MATRIX_SHARD/$E2E_SHARD_COUNT" --reporter=minimal --reporter=json --outputFile.json=".tmp/e2e-shard-$MATRIX_SHARD.json"
           test_status=$?
           set -e
           finished_at=$(date +%s)
           duration=$((finished_at - started_at))
           echo "E2E shard $MATRIX_SHARD/$E2E_SHARD_COUNT took ${duration}s" >> "$GITHUB_STEP_SUMMARY"
           exit "$test_status"
+
+      - name: Upload E2E timing report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-timings-shard-${{ matrix.shard }}-${{ github.sha }}
+          path: .tmp/e2e-shard-${{ matrix.shard }}.json
+          retention-days: 7
+          if-no-files-found: warn
+
+      # Schema worker startup has a strict deadline; packaging scans build/.
+      # Give these tests the runner after ordinary shard workers have exited.
+      - name: Test schema and packaging E2E without competing workers
+        if: matrix.shard == 4
+        env:
+          CI: true
+        run: pnpm test:e2e test/e2e/capability-catalog-eras.test.ts test/e2e/admin-spa-package.e2e.test.ts --maxWorkers=1 --retry=0 --reporter=minimal
 
   test-e2e-system:
     runs-on: ubuntu-latest
@@ -275,32 +322,51 @@ jobs:
   test-windows-installer:
     runs-on: windows-latest
     timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        shell: [powershell, pwsh]
     permissions:
       contents: read
-    env:
-      INSTALLER_POWERSHELL: ${{ matrix.shell }}
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.checkout_ref || github.ref }}
           persist-credentials: false
-      - name: Test Windows scheduled-task installer
+      # These short suites share one runner; a failure must not hide the other shell.
+      - name: Test Windows scheduled-task installer (powershell)
+        if: ${{ !cancelled() }}
         shell: pwsh
         run: |
-          & $env:INSTALLER_POWERSHELL -NoProfile -NonInteractive -File ./scripts/test-install-windows-task.ps1
+          & powershell -NoProfile -NonInteractive -File ./scripts/test-install-windows-task.ps1
           exit $LASTEXITCODE
-      - name: Validate exported Windows task configuration
+      - name: Validate exported Windows task configuration (powershell)
+        id: export-powershell
+        if: ${{ !cancelled() }}
         shell: pwsh
         run: |
-          & $env:INSTALLER_POWERSHELL -NoProfile -NonInteractive -File ./scripts/test-install-windows-task-xml.ps1 -OutputPath .tmp/windows-installer-task.xml
+          & powershell -NoProfile -NonInteractive -File ./scripts/test-install-windows-task-xml.ps1 -OutputPath .tmp/windows-installer-powershell.xml
           exit $LASTEXITCODE
-      - name: Upload exported Windows task configuration
+      - name: Upload exported Windows task configuration (powershell)
+        if: ${{ !cancelled() && steps.export-powershell.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
-          name: windows-installer-${{ matrix.shell }}-${{ github.sha }}
-          path: .tmp/windows-installer-task.xml
+          name: windows-installer-powershell-${{ github.sha }}
+          path: .tmp/windows-installer-powershell.xml
+          if-no-files-found: error
+      - name: Test Windows scheduled-task installer (pwsh)
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          & pwsh -NoProfile -NonInteractive -File ./scripts/test-install-windows-task.ps1
+          exit $LASTEXITCODE
+      - name: Validate exported Windows task configuration (pwsh)
+        id: export-pwsh
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          & pwsh -NoProfile -NonInteractive -File ./scripts/test-install-windows-task-xml.ps1 -OutputPath .tmp/windows-installer-pwsh.xml
+          exit $LASTEXITCODE
+      - name: Upload exported Windows task configuration (pwsh)
+        if: ${{ !cancelled() && steps.export-pwsh.outcome == 'success' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-installer-pwsh-${{ github.sha }}
+          path: .tmp/windows-installer-pwsh.xml
           if-no-files-found: error
