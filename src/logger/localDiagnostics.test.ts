@@ -1,8 +1,11 @@
 import { Writable } from 'node:stream';
 
+import { activateRuntimeScopeEnvironment } from '@src/config/runtimeScopeEnv.js';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import winston from 'winston';
 
+import { sanitizeHttpBody } from './httpDiagnostics.js';
 import { writeLocalDiagnostic } from './localDiagnostics.js';
 import logger, { writeLocalDiagnosticRecord } from './logger.js';
 
@@ -28,6 +31,7 @@ describe('bounded local investigation diagnostics', () => {
     logger.clear();
     logger.level = 'info';
     vi.restoreAllMocks();
+    activateRuntimeScopeEnvironment({});
   });
 
   it('retains investigation facts and actual errors while redacting credentials and omitting trace context', () => {
@@ -106,6 +110,46 @@ describe('bounded local investigation diagnostics', () => {
     expect(entries[1].details).toBe('[OMITTED: body exceeds 8192 bytes]');
   });
 
+  it('redacts session identifiers in upstream error prose and credentials in non-HTTP URLs', () => {
+    writeLocalDiagnostic('error', 'backend.session-lost', {
+      error: new Error(
+        "Could not find session ID 'opaque-session-value'; redis://user:password@host.test/db?auth=opaque-query",
+      ),
+    });
+    const details = JSON.parse(entries[0].details as string);
+    expect(details.error.message).toContain('Could not find [REDACTED IDENTIFIER]');
+    expect(details.error.message).toContain('redis://host.test/db');
+    expect(JSON.stringify(entries)).not.toMatch(/opaque-session-value|password|opaque-query/);
+    writeLocalDiagnostic('warn', 'oauth.failed', {
+      error: new Error('Unknown Mcp-Session-Id header: opaque-header; authorization code opaque-code has expired'),
+    });
+    expect(JSON.stringify(entries)).not.toMatch(/opaque-header|opaque-code/);
+    writeLocalDiagnostic('error', 'backend.failed', {
+      error: Object.assign(new Error('safe'), {
+        code: 'redis://bob:opaque-code-password@host.test/db?auth=opaque-code-query',
+      }),
+    });
+    expect(JSON.parse(entries[2].details as string).error.errorCode).toBe('redis://host.test/db');
+    expect(JSON.stringify(entries)).not.toMatch(/opaque-code-password|opaque-code-query/);
+    writeLocalDiagnostic('error', 'backend.failed', {
+      error: new Error('Failed to connect to client search:opaque-session-value: timed out'),
+    });
+    expect(JSON.stringify(entries)).not.toContain('opaque-session-value');
+    writeLocalDiagnostic('error', 'backend.failed', {
+      error: new Error('Failed to connect to client 搜索 工具:opaque-unicode-session: timed out'),
+    });
+    expect(JSON.stringify(entries)).not.toContain('opaque-unicode-session');
+    writeLocalDiagnostic('error', 'backend.failed', {
+      error: Object.assign(new Error('Failed to connect to client search: timed out'), {
+        data: { cause: new Error("Client '搜索 工具:opaque-quoted-session' not found") },
+      }),
+    });
+    const last = JSON.parse(entries.at(-1)?.details as string);
+    expect(last.error.message).toBe('Failed to connect to client search: timed out');
+    expect(last.error.cause.message).toContain('not found');
+    expect(JSON.stringify(entries)).not.toContain('opaque-quoted-session');
+  });
+
   it('rejects caller-forged sink records and fails open when instrumentation fails', () => {
     writeLocalDiagnosticRecord({ level: 'error', event: 'tool.failed', details: 'unsanitized' });
     expect(entries).toHaveLength(0);
@@ -118,5 +162,21 @@ describe('bounded local investigation diagnostics', () => {
       throw new Error('logger unavailable');
     });
     expect(() => writeLocalDiagnostic('info', 'config.reload', {})).not.toThrow();
+  });
+
+  it('redacts opaque active Runtime Scope values in errors, causes, codes, payloads and field names', () => {
+    activateRuntimeScopeEnvironment({ API_KEY: 'opaque-scope-value' });
+    writeLocalDiagnostic('error', 'backend.failed', {
+      error: Object.assign(new Error('endpoint refused opaque-scope-value'), {
+        cause: new Error('opaque-scope-value unavailable'),
+        code: 'opaque-scope-value',
+      }),
+    });
+    writeLocalDiagnostic('debug', 'tool.arguments', {
+      arguments: { 'opaque-scope-value': 'value', query: 'opaque-scope-value' },
+    });
+    expect(JSON.stringify(entries)).not.toContain('opaque-scope-value');
+    expect(JSON.stringify(entries)).toContain('[REDACTED]');
+    expect(sanitizeHttpBody({ query: 'opaque-scope-value' })).not.toContain('opaque-scope-value');
   });
 });

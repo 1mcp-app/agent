@@ -2,6 +2,7 @@ import { types } from 'node:util';
 
 import { ownData } from '@src/observability/privacy/fields.js';
 
+import { redactRuntimeScopeDiagnosticText } from './diagnosticRedaction.js';
 import { sanitizeForLogging } from './secureLogger.js';
 
 export const HTTP_BODY_CAPTURE_BYTES = 8192;
@@ -41,7 +42,7 @@ export function sanitizeHttpBody(value: unknown): string {
     if (input === null || input === undefined) return input ?? null;
     if (typeof input === 'string') {
       if (Buffer.byteLength(input) > MAX_INPUT_STRING_BYTES) return '[OMITTED: oversized string]';
-      return sanitizeForLogging(input);
+      return sanitizeForLogging(redactRuntimeScopeDiagnosticText(input));
     }
     if (typeof input === 'number') return Number.isFinite(input) ? input : null;
     if (typeof input === 'boolean') return input;
@@ -62,7 +63,8 @@ export function sanitizeHttpBody(value: unknown): string {
         break;
       }
       const data = ownData(input, key);
-      const sanitizedKey = Buffer.byteLength(key) > 1024 ? '[OVERSIZED_KEY]' : sanitizeForLogging(key);
+      const sanitizedKey =
+        Buffer.byteLength(key) > 1024 ? '[OVERSIZED_KEY]' : sanitizeForLogging(redactRuntimeScopeDiagnosticText(key));
       const safeKey = typeof sanitizedKey === 'string' ? sanitizedKey : '[KEY]';
       const numericErrorCode = key === 'code' && typeof data === 'number' && data < 0;
       if (SENSITIVE_KEY.test(key) && !numericErrorCode) {

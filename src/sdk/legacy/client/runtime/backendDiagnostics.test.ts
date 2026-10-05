@@ -233,6 +233,9 @@ describe('backend and OAuth local diagnostics', () => {
     expect(details('backend.supervision.recovery.error').serverName).toBe('search');
     expect(details('backend.availability.publish.failed').serverName).toBe('search');
     expect(details('backend.connection.connected').serverName).toBe('search');
+    await manager.removeClient(outboundKey);
+    expect(details('backend.client.removing').serverName).toBe('search');
+    expect(details('backend.client.removed').serverName).toBe('search');
     const diagnostics = JSON.stringify(entries.filter((entry) => entry.source === 'local-diagnostic'));
     expect(diagnostics).not.toContain(outboundKey);
     expect(diagnostics).not.toContain('private-session-id');

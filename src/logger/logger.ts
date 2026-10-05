@@ -11,7 +11,7 @@ import chalk from 'chalk';
 import winston from 'winston';
 
 import type { HttpDiagnosticEvent, HttpDiagnosticFields } from './httpDiagnostics.js';
-import { isLocalDiagnosticRecord, type LocalDiagnosticRecord } from './localDiagnostics.js';
+import { isLocalDiagnosticRecord, type LocalDiagnosticRecord } from './localDiagnosticRecord.js';
 
 // Map MCP log levels to Winston log levels
 const MCP_TO_WINSTON_LEVEL: Record<string, string> = {

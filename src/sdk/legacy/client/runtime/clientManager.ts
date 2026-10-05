@@ -856,7 +856,7 @@ export class ClientManager extends EventEmitter {
     }
 
     logger.info('clientManager.removing.client.833781e6');
-    writeLocalDiagnostic('info', 'backend.client.removing', () => ({ serverName: name }));
+    writeLocalDiagnostic('info', 'backend.client.removing', () => ({ serverName: diagnosticServerName(name) }));
 
     try {
       const supervisor = this.backendSupervisors.get(name);
@@ -885,7 +885,7 @@ export class ClientManager extends EventEmitter {
       this.instructionAggregator?.removeServer({ source: 'mcpServers', name: clientInfo.name || name }, name);
 
       logger.info('clientManager.client.removed.successfully.0f36fffb');
-      writeLocalDiagnostic('info', 'backend.client.removed', () => ({ serverName: name }));
+      writeLocalDiagnostic('info', 'backend.client.removed', () => ({ serverName: diagnosticServerName(name) }));
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error('clientManager.error.removing.client.df5d67cc', { error: errorMessage });

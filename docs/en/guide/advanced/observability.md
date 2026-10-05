@@ -21,7 +21,7 @@ HTTP mode writes to the console and, when configured, the log file. Stdio mode s
 
 ## Read runtime logs
 
-Typed runtime log entries include a timestamp, level, a fixed message, and an event identifier. Additional fields describe the outcome, counts, or a bounded error category. Their debug entries omit request payloads and exception stacks; sanitized local HTTP diagnostics are described separately below.
+Typed runtime log entries include a timestamp, level, a fixed message, and an event identifier. Additional fields describe the outcome, counts, or a bounded error category. Their debug entries omit request payloads and exception stacks; sanitized local investigation and HTTP diagnostics are described separately below.
 
 Some entries use fingerprints instead of server, session, client, or request identifiers. You can compare matching fingerprints of the same kind within one process's logs; they change after a restart and cannot be used as configuration names or request IDs.
 
@@ -36,6 +36,22 @@ Local HTTP diagnostics use `source=http-diagnostic`. At `info`, `http.request`, 
 After body parsing, `http.request-context` records a recognized MCP method at `info`. At `debug`, `http.request-body` and `http.response-body` include sanitized application bodies. Request bodies are logged before authentication or backend dispatch, so pending operations can be investigated; completed JSON SSE data frames are parsed and sanitized too. Credential keys, OAuth codes/state/PKCE, session IDs, signatures/proofs, cookies, and recognizable credential strings are redacted. These local diagnostic records are separate from typed telemetry and do not receive automatic trace fields.
 
 Each serialized sanitized body is capped at 8 KiB, with a maximum snapshot depth of six and 256 nodes. Oversized, binary, compressed, invalid JSON, or incomplete response bodies use explicit omission markers. Long-running streams report their start immediately and their summary/body when they finish or disconnect. Application content can remain in debug diagnostics, so review it before sharing a log file.
+
+## Inspect connection and operation diagnostics
+
+Local investigation entries use `source=local-diagnostic` and keep sanitized facts in `details`. They supplement the typed events:
+
+| Events                     | Investigation details                                                                                                                                   |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend.*`                | Configured server when safely identifiable, transport, negotiated version, connection timeout, retry attempt and delay, disconnect and recovery outcome |
+| `tool.*`                   | Requested and selected backend/tool, local call correlation, phase, elapsed milliseconds, timeout, cancellation, validation failure or upstream result  |
+| `config.*`                 | Configuration source, affected servers, added/removed/modified field names and reload outcome; configuration and environment values are omitted         |
+| `schema.*`, `capability.*` | Schema cache/load outcome, tool name, independent load correlation, loading counts and failure reasons                                                  |
+| `oauth.*`, `session.*`     | Authorization stage, relevant backend when available, success/failure, session lifetime and counts; raw session IDs and authorization URLs are omitted  |
+
+Connection and tool failures retain bounded sanitized error messages, codes, and causes. Configuration parse failures retain the error type because parser messages can echo configuration values. Debug entries can include safely readable data-property stacks and sanitized tool arguments/results. Accessor stacks and other caller getters are not evaluated; a missing stack does not mean no exception occurred. Disabled debug callbacks do not snapshot tool payloads.
+
+The same 8 KiB, six-level, and 256-node snapshot limits apply. Credential-bearing fields and recognizable credential strings are redacted; credential URLs lose user information, query values, and fragments. OAuth/session identifiers in error prose and exact active Runtime Scope values are redacted too. Diagnostic failures do not affect operations. These records stay in the local console/file sinks, receive no automatic trace fields, and are excluded from typed telemetry/exporters. Sanitized debug content can still contain application data; inspect it before sharing.
 
 ## Follow trace context
 
@@ -60,7 +76,7 @@ This support carries existing context; 1MCP does not generate spans, collect met
 
 ## Privacy and backend diagnostics
 
-1MCP runtime events omit raw tool arguments, response payloads, headers, URLs, paths, error messages, and stacks. Request and result `_meta.baggage` is removed rather than forwarded. Application data with a field named `baggage`, such as a tool argument or `structuredContent.baggage`, remains unchanged.
+1MCP typed runtime events omit raw tool arguments, response payloads, headers, URLs, paths, error messages, and stacks. Request and result `_meta.baggage` is removed rather than forwarded. Application data with a field named `baggage`, such as a tool argument or `structuredContent.baggage`, remains unchanged.
 
 Managed backend stderr is available separately in the Admin Console's [Backend Logs](/guide/advanced/backend-logs) workspace. Those entries contain sanitized backend diagnostics and have their own retention limits. They do not receive 1MCP trace correlation fields. Review backend diagnostic content before sharing a log file that contains it.
 
@@ -69,4 +85,4 @@ Managed backend stderr is available separately in the Admin Console's [Backend L
 - **No runtime logs with stdio:** set `--log-file`; runtime console logging is suppressed in this mode.
 - **No trace IDs in logs:** check that the MCP client sends valid `params._meta.traceparent`. An HTTP header alone is insufficient.
 - **No traces in your collector:** context propagation does not enable telemetry export. Check the tracing configuration of the client or backend that creates spans.
-- **An error lacks upstream details:** inspect the managed server's Backend Logs in the Admin Console, or the remote backend's own logs. Runtime events report bounded error facts.
+- **An error lacks upstream details:** inspect the managed server's Backend Logs in the Admin Console, or the remote backend's own logs. Typed events report bounded error facts; local diagnostics retain sanitized connection and tool failure details.

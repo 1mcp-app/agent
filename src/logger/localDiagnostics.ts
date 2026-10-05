@@ -2,29 +2,23 @@ import { types } from 'node:util';
 
 import { ownData } from '@src/observability/privacy/fields.js';
 
+import { redactRuntimeScopeDiagnosticText } from './diagnosticRedaction.js';
 import { sanitizeHttpBody } from './httpDiagnostics.js';
+import {
+  admitLocalDiagnosticRecord,
+  type LocalDiagnosticEvent,
+  type LocalDiagnosticLevel,
+  type LocalDiagnosticRecord,
+} from './localDiagnosticRecord.js';
 import logger, { writeLocalDiagnosticRecord } from './logger.js';
 
-export type LocalDiagnosticLevel = 'info' | 'debug' | 'warn' | 'error';
-export type LocalDiagnosticEvent =
-  `${'backend' | 'tool' | 'config' | 'schema' | 'capability' | 'oauth' | 'session'}.${string}`;
-export interface LocalDiagnosticRecord {
-  readonly level: LocalDiagnosticLevel;
-  readonly event: LocalDiagnosticEvent;
-  readonly details: string;
-}
-const admittedRecords = new WeakSet<object>();
-
-/** Only records produced by the bounded sanitizer may reach the local sink. */
-export function isLocalDiagnosticRecord(record: LocalDiagnosticRecord): boolean {
-  return admittedRecords.has(record);
-}
+export type { LocalDiagnosticEvent, LocalDiagnosticLevel, LocalDiagnosticRecord } from './localDiagnosticRecord.js';
 
 function diagnosticText(value: string): string {
   if (Buffer.byteLength(value) > 32768) return '[OMITTED: oversized string]';
   // Error text may contain credential URLs or headers, even outside structured fields.
-  return value
-    .replace(/\bhttps?:\/\/[^\s<>"']+/gi, (url) => {
+  return redactRuntimeScopeDiagnosticText(value)
+    .replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s<>"']+/gi, (url) => {
       try {
         const parsed = new URL(url);
         parsed.username = '';
@@ -36,7 +30,16 @@ function diagnosticText(value: string): string {
         return '[OMITTED: invalid URL]';
       }
     })
-    .replace(/\b(?:authorization|(?:set-)?cookie)\s*[:=][^\r\n]*/gi, '[REDACTED HEADER]');
+    .replace(/\b(?:authorization|(?:set-)?cookie)\s*[:=][^\r\n]*/gi, '[REDACTED HEADER]')
+    .replace(
+      /\b(?:session[\s_-]*(?:id|identifier)|(?:oauth|authorization)[\s_-]*(?:code|state))(?:\s+header)?\s*(?:[:=]\s*)?(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;:)]+)/gi,
+      '[REDACTED IDENTIFIER]',
+    )
+    .replace(/\b(client|server|backend|template)\s+([^:\r\n]+):[^:\r\n]+(?=:)/gi, '$1 $2:[REDACTED IDENTIFIER]')
+    .replace(
+      /\b(client|server|backend|template)\s+(['"])([^:'"\r\n]+):[^'"\r\n]+\2/gi,
+      '$1 $2$3:[REDACTED IDENTIFIER]$2',
+    );
 }
 
 function errorSnapshot(error: unknown, debug: boolean, depth = 0): unknown {
@@ -54,8 +57,9 @@ function errorSnapshot(error: unknown, debug: boolean, depth = 0): unknown {
   const message = ownData(error, 'message');
   if (typeof message === 'string') result.message = diagnosticText(message);
   const code = ownData(error, 'code');
-  if (typeof code === 'string' || typeof code === 'number') result.errorCode = code;
-  const cause = ownData(error, 'cause');
+  if (typeof code === 'string') result.errorCode = diagnosticText(code);
+  else if (typeof code === 'number') result.errorCode = code;
+  const cause = ownData(error, 'cause') ?? ownData(ownData(error, 'data'), 'cause');
   if (cause !== undefined) result.cause = errorSnapshot(cause, debug, depth + 1);
   if (debug) {
     const stack = ownData(error, 'stack');
@@ -102,7 +106,7 @@ export function writeLocalDiagnostic(
       event,
       details: sanitizeHttpBody(snapshot(input, 0)),
     });
-    admittedRecords.add(record);
+    admitLocalDiagnosticRecord(record);
     writeLocalDiagnosticRecord(record);
   } catch {
     // Diagnostic failures must never change request, recovery, or reload behavior.
