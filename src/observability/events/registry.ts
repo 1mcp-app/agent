@@ -2,6 +2,15 @@ import type { FieldRule } from '../privacy/fields.js';
 
 /** Registered local instrumentation only; backend diagnostics are isolated. */
 export const EVENT_REGISTRY = {
+  'processIdentity.acquisition-failed': {
+    message: 'Process birth evidence acquisition failed',
+    fields: {
+      platform: 'processPlatform',
+      pid: 'number',
+      elapsedMs: 'number',
+      code: 'processEvidenceCode',
+    },
+  },
   'logger.sanitization-failed': {
     message: 'Sanitization error occurred',
     fields: {},

@@ -131,7 +131,7 @@ function acquireProcessIdentity(pid: number): IdentityAcquisition {
       code: acquisitionFailureCode(error),
     };
     // Windows has a subprocess acquisition path; retain only safe diagnostic fields.
-    if (process.platform === 'win32') logger.warn('Process birth evidence acquisition failed', failure);
+    if (process.platform === 'win32') logger.warn('processIdentity.acquisition-failed', failure);
     return { failure };
   }
   return {};
