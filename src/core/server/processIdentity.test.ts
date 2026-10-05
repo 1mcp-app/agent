@@ -194,7 +194,7 @@ describe('platform identity capture', () => {
     });
     const recorded: ProcessIdentity = { platform: 'win32', hostname: os.hostname(), startTime: '123' };
     expect(readProcessIdentity(123)).toBeUndefined();
-    expect(warn).toHaveBeenCalledWith('Process birth evidence acquisition failed', {
+    expect(warn).toHaveBeenCalledWith('processIdentity.acquisition-failed', {
       platform: 'win32',
       pid: 123,
       elapsedMs: 3000,
