@@ -211,12 +211,24 @@ sequenceDiagram
   "_meta": {
     "app.1mcp/capability-pagination": {
       "partial": true,
-      "failures": [{ "provider": "example", "code": "upstream_list_failed" }],
-      "recovery": { "action": "restart_without_cursor" }
+      "complete": false,
+      "generation": "opaque-generation",
+      "failedSourceCount": 1,
+      "failureCategories": { "upstream_list_failed": 1 },
+      "retryable": true,
+      "recovery": "restart-walk"
     }
   }
 }
 ```
+
+### 上游工具 Schema 准入超时
+
+单个上游工具的 Schema 准入超时时，该工具不会出现在列表中，也不能被调用；健康工具仍可使用。`failureCategories.upstream_tool_admission_timeout` 表示被暂时隐藏的工具数量，`failedSourceCount` 按受影响的来源去重。超时不代表 Schema 无效。
+
+部分结果状态会保留到最后一页，即使所有上游工具都超时而返回空列表。重新从第一页发起列表请求（不带 cursor），或使用现有能力刷新入口，可以重试准入。续页使用原有快照，不重试被隐藏的工具；能力代际变化仍会使 cursor 失效。元工具 `tool_list` 同样返回部分结果元数据，并在新一轮列表请求中重试。
+
+部分发现结果保留最近一次完整的配置工具清单供检查，但历史清单不能授权调用被隐藏的工具。共享验证器不可用或 1MCP 自有工具准入失败仍会使操作失败，Schema 资源限制继续生效。
 
 ## 配置示例
 

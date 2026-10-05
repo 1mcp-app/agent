@@ -227,6 +227,71 @@ describe('CapabilityAggregator', () => {
       expect(slowListTools).toHaveBeenCalledTimes(3);
     });
 
+    it('keeps admission-timeout metadata through refresh and clears it after recovery', async () => {
+      const { schemaBoundary, SchemaBoundaryError } = await import('@src/core/validation/schemaBoundary.js');
+      const admit = schemaBoundary.admit.bind(schemaBoundary);
+      let timeout = true;
+      vi.spyOn(schemaBoundary, 'admit').mockImplementation(async (schema, binding) => {
+        if (timeout && binding.routeKey.includes('withheld')) {
+          throw new SchemaBoundaryError('schema_evaluation_timeout', true, 'admission');
+        }
+        return admit(schema, binding);
+      });
+      const listTools = vi.fn().mockResolvedValue({
+        tools: [
+          { ...mockTool, name: 'healthy' },
+          { ...mockTool, name: 'withheld' },
+        ],
+      });
+      mockConnections.set(
+        'admission-partial',
+        connectionFromClient('admission-partial', {
+          listTools,
+          getServerCapabilities: () => ({ tools: {} }),
+        }),
+      );
+      const partial = await aggregator.refreshCapabilities();
+      expect(partial.tools.map((tool) => tool.name)).toEqual(['admission-partial_1mcp_healthy']);
+      expect(partial.capabilityMeta?.tools).toMatchObject({
+        'app.1mcp/capability-pagination': {
+          partial: true,
+          complete: false,
+          failureCategories: { upstream_tool_admission_timeout: 1 },
+          recovery: 'restart-walk',
+        },
+      });
+      timeout = false;
+      const recovered = await aggregator.refreshCapabilities();
+      expect(recovered.tools).toHaveLength(2);
+      expect(recovered.capabilityMeta?.tools).toBeUndefined();
+      vi.restoreAllMocks();
+    });
+
+    it('retains all-listing-failure metadata and visibility provenance through background publication', async () => {
+      const { CAPABILITY_PAGINATION_META_KEY, filterCapabilityPartialMeta } = await import('./capabilityPagination.js');
+      mockConnections.set(
+        'all-lists-failed',
+        connectionFromClient('all-lists-failed', {
+          listTools: vi.fn().mockRejectedValue(new Error('private upstream error')),
+          getServerCapabilities: () => ({ tools: {} }),
+        }),
+      );
+      const partial = await aggregator.refreshCapabilities();
+      expect(partial.tools).toEqual([]);
+      expect(partial.capabilityMeta?.tools).toMatchObject({
+        [CAPABILITY_PAGINATION_META_KEY]: {
+          partial: true,
+          complete: false,
+          failedSourceCount: 1,
+          failureCategories: { upstream_list_failed: 1 },
+          retryable: true,
+          recovery: 'restart-walk',
+        },
+      });
+      expect(filterCapabilityPartialMeta(partial.capabilityMeta?.tools, new Set(['other']))).toBeUndefined();
+      expect(JSON.stringify(partial.capabilityMeta)).not.toContain('private upstream error');
+    });
+
     it('should return no changes when no servers are connected', async () => {
       const changes = await aggregator.updateCapabilities();
 

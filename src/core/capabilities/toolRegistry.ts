@@ -2,6 +2,7 @@ import type { OutboundConnection } from '@src/core/types/index.js';
 import logger, { errorIf } from '@src/logger/logger.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
 
+import { filterCapabilityPartialMeta } from './capabilityPagination.js';
 import { buildCatalogGeneration, type CapabilityRoute, type CatalogGeneration } from './catalogGeneration.js';
 import type { RuntimeCapabilitySnapshot } from './runtimeCapabilityCatalog.js';
 
@@ -38,6 +39,7 @@ export interface ListToolsResult {
   totalCount: number;
   hasMore: boolean;
   nextCursor?: string;
+  _meta?: Record<string, unknown>;
 }
 
 /**
@@ -78,6 +80,7 @@ export class ToolRegistry {
     tools: ToolMetadata[],
     private readonly connections?: ReadonlyMap<string, OutboundConnection>,
     private readonly current?: () => boolean,
+    private readonly listingMeta?: Record<string, unknown>,
   ) {
     this.tools = tools;
   }
@@ -106,6 +109,7 @@ export class ToolRegistry {
    */
   public static fromToolsWithServer(
     toolsWithServer: Array<{ tool: Tool; server: string; connectionKey?: string; tags?: string[] }>,
+    listingMeta?: Record<string, unknown>,
   ): ToolRegistry {
     const generation = buildCatalogGeneration(
       0,
@@ -118,7 +122,7 @@ export class ToolRegistry {
       { allowTemplateInstances: true },
     );
     const tags = new Map(toolsWithServer.map((item) => [item.connectionKey ?? item.server, item.tags ?? []]));
-    return ToolRegistry.fromGeneration(generation, tags);
+    return ToolRegistry.fromGeneration(generation, tags, undefined, undefined, listingMeta);
   }
 
   public static fromGeneration(
@@ -126,6 +130,7 @@ export class ToolRegistry {
     tags: ReadonlyMap<string, readonly string[]> = new Map(),
     connections?: ReadonlyMap<string, OutboundConnection>,
     isCurrent?: () => boolean,
+    listingMeta?: Record<string, unknown>,
   ): ToolRegistry {
     if (generation.quarantine.length) {
       errorIf(() => ({ message: 'toolRegistry.capabilities.excluded.from.catalog.by.quarantine.06fb2156' }));
@@ -148,18 +153,20 @@ export class ToolRegistry {
         }),
       connections,
       isCurrent,
+      listingMeta,
     );
   }
 
   /** Build a registry that stays bound to the backends a Capability Snapshot captured. */
   public static fromCapabilitySnapshot(
-    snapshot: Pick<RuntimeCapabilitySnapshot, 'generation' | 'connections' | 'isCurrent'>,
+    snapshot: Pick<RuntimeCapabilitySnapshot, 'generation' | 'connections' | 'isCurrent' | 'capabilityMeta'>,
   ): ToolRegistry {
     return ToolRegistry.fromGeneration(
       snapshot.generation,
       new Map(Array.from(snapshot.connections, ([key, connection]) => [key, connection.tags ?? []])),
       snapshot.connections,
       snapshot.isCurrent,
+      snapshot.capabilityMeta?.tools,
     );
   }
 
@@ -171,11 +178,19 @@ export class ToolRegistry {
     return this.current?.() ?? true;
   }
 
+  public getListingMeta(): Record<string, unknown> | undefined {
+    return this.listingMeta;
+  }
+
+  public withListingMeta(listingMeta?: Record<string, unknown>): ToolRegistry {
+    return new ToolRegistry(this.tools, this.connections, this.current, listingMeta);
+  }
+
   public withConnections(
     connections?: ReadonlyMap<string, OutboundConnection>,
     isCurrent?: () => boolean,
   ): ToolRegistry {
-    return new ToolRegistry(this.tools, connections, isCurrent);
+    return new ToolRegistry(this.tools, connections, isCurrent, this.listingMeta);
   }
 
   /**
@@ -192,6 +207,15 @@ export class ToolRegistry {
    * @returns Filtered and paginated tool list
    */
   public listTools(options: ListToolsOptions = {}): ListToolsResult {
+    if (options.cursor) {
+      const decoded = ToolRegistry.decodeCursor(options.cursor);
+      options = {
+        ...options,
+        server: options.server ?? decoded.server,
+        pattern: options.pattern ?? decoded.pattern,
+        tag: options.tag ?? decoded.tag,
+      };
+    }
     let filtered = [...this.tools];
 
     // Apply filters
@@ -267,6 +291,7 @@ export class ToolRegistry {
       totalCount,
       hasMore,
       nextCursor,
+      ...(this.listingMeta ? { _meta: this.listingMeta } : {}),
     };
   }
 
@@ -359,7 +384,12 @@ export class ToolRegistry {
    */
   public filterByConnectionKeys(connectionKeys: ReadonlySet<string>): ToolRegistry {
     const filteredTools = this.tools.filter((tool) => connectionKeys.has(tool.connectionKey ?? tool.server));
-    return new ToolRegistry(filteredTools, this.connections, this.current);
+    return new ToolRegistry(
+      filteredTools,
+      this.connections,
+      this.current,
+      filterCapabilityPartialMeta(this.listingMeta, connectionKeys),
+    );
   }
 
   /** Filter by exact connection identity, with clean-name fallback for legacy metadata only. */
@@ -369,7 +399,12 @@ export class ToolRegistry {
     const filteredTools = this.tools.filter((tool) =>
       tool.connectionKey ? connectionKeys.has(tool.connectionKey) : publicServerNames.has(tool.server),
     );
-    return new ToolRegistry(filteredTools, this.connections, this.current);
+    return new ToolRegistry(
+      filteredTools,
+      this.connections,
+      this.current,
+      filterCapabilityPartialMeta(this.listingMeta, connectionKeys),
+    );
   }
 
   /**

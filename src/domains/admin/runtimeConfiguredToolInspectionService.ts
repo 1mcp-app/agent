@@ -1,7 +1,9 @@
+import { CAPABILITY_PAGINATION_META_KEY } from '@src/core/capabilities/capabilityPagination.js';
 import {
   collectConfiguredToolPages,
+  isConfiguredToolSnapshotComplete,
   publishCompleteConfiguredToolInspection,
-  readConfiguredToolSnapshot,
+  publishConfiguredToolSnapshot,
 } from '@src/core/capabilities/configuredToolSnapshot.js';
 import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
@@ -73,7 +75,7 @@ export class RuntimeConfiguredToolInspectionService {
     } else {
       const instanceFacts = resolution.candidates.map(({ instanceId, connection }) => ({
         instanceId,
-        status: readConfiguredToolSnapshot(connection) === undefined ? ('unavailable' as const) : ('complete' as const),
+        status: isConfiguredToolSnapshotComplete(connection) ? ('complete' as const) : ('unavailable' as const),
       }));
       const complete =
         instanceFacts.length === resolution.activeInstanceIds.length &&
@@ -228,16 +230,24 @@ export class RuntimeConfiguredToolInspectionService {
     }, totalTimeout);
 
     try {
-      return (
-        await collectConfiguredToolPages((cursor) =>
-          requestLegacyAdapter<{ tools: Tool[]; nextCursor?: string }>(
-            candidate.connection.adapter,
-            'tools/list',
-            cursor === undefined ? undefined : { cursor },
-            { timeoutMs: requestTimeout, signal: controller.signal },
-          ),
-        )
-      ).tools;
+      const result = await collectConfiguredToolPages((cursor) =>
+        requestLegacyAdapter<{ tools: Tool[]; nextCursor?: string }>(
+          candidate.connection.adapter,
+          'tools/list',
+          cursor === undefined ? undefined : { cursor },
+          { timeoutMs: requestTimeout, signal: controller.signal },
+        ),
+      );
+      const pagination = result._meta?.[CAPABILITY_PAGINATION_META_KEY];
+      const partial =
+        pagination && typeof pagination === 'object' && 'partial' in pagination && pagination.partial === true;
+      const incomplete =
+        pagination && typeof pagination === 'object' && 'complete' in pagination && pagination.complete === false;
+      if (partial || incomplete) {
+        for (const connection of candidate.connections) publishConfiguredToolSnapshot(connection, [], false);
+        throw new Error('Tool inspection is incomplete; restart listing from the first page');
+      }
+      return result.tools;
     } finally {
       clearTimeout(deadline);
     }

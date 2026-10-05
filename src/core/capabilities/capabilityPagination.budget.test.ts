@@ -84,6 +84,67 @@ describe('capability walks with a response budget', () => {
     });
   });
 
+  it.each([true, false])(
+    'retains admission failures across budget continuations (pagination %s)',
+    async (enablePagination) => {
+      const responses = await walkAll({
+        connections: new Map(),
+        providers: [provider('a', { '': { items: ['a1', 'a2', 'a3', 'a4', 'a5'] } })],
+        kind: 'tools',
+        filterSelection: null,
+        enablePagination,
+        responseBudget: { limits },
+        upstreamToolAdmissionTimeouts: ['a', 'a'],
+      });
+
+      expect(responses.map((response) => response.items)).toEqual([
+        ['a1', 'a2', 'a3'],
+        ['a4', 'a5'],
+      ]);
+      for (const response of responses) {
+        expect(response._meta).toMatchObject({
+          'app.1mcp/capability-pagination': {
+            partial: true,
+            complete: false,
+            failedSourceCount: 1,
+            failureCategories: { upstream_tool_admission_timeout: 2 },
+            retryable: true,
+          },
+        });
+      }
+    },
+  );
+
+  it('retains admission and provider failures when all budgeted providers fail', async () => {
+    await expect(
+      walkCapabilityPages<string>({
+        connections: new Map(),
+        providers: [
+          {
+            id: 'a',
+            name: 'a',
+            list: async () => {
+              throw new Error('down');
+            },
+          },
+        ],
+        kind: 'tools',
+        filterSelection: null,
+        enablePagination: false,
+        responseBudget: { limits },
+        upstreamToolAdmissionTimeouts: ['a'],
+      }),
+    ).rejects.toMatchObject({
+      _meta: {
+        'app.1mcp/capability-pagination': {
+          partial: true,
+          failedSourceCount: 1,
+          failureCategories: { upstream_list_failed: 1, upstream_tool_admission_timeout: 1 },
+        },
+      },
+    });
+  });
+
   it('keeps returning every item when no budget is given', async () => {
     const response = await walkCapabilityPages<string>({
       connections: new Map(),
