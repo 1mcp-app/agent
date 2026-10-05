@@ -7,6 +7,7 @@ import { registerCapabilityPaginationNotifications } from '@src/core/capabilitie
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import { ParallelExecutor } from '@src/core/loading/parallelExecutor.js';
 import { BackendStdioSupervisor, type BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
+import { parseTemplateConnectionKey } from '@src/core/server/templateIdentity.js';
 import { ClientStatus, OperationOptions, OutboundConnections, ServerCapability } from '@src/core/types/index.js';
 import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import logger, { debugIf } from '@src/logger/logger.js';
@@ -69,6 +70,12 @@ function isSessionLostError(error: unknown): boolean {
 }
 
 type StdioSupervisionMetadata = NonNullable<AuthProviderTransport['stdioSupervision']>;
+
+function diagnosticServerName(name: string | undefined): string | undefined {
+  if (!name) return undefined;
+  const identity = parseTemplateConnectionKey(name);
+  return identity.kind === 'invalid' ? undefined : identity.templateName;
+}
 
 export class ClientManager extends EventEmitter {
   private static instance: ClientManager;
@@ -153,7 +160,10 @@ export class ClientManager extends EventEmitter {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.warn('clientManager.failed.to.extract.instructions.from.05217e1a', { error: errorMessage });
-      writeLocalDiagnostic('warn', 'backend.instructions.extraction.failed', () => ({ serverName: name, error }));
+      writeLocalDiagnostic('warn', 'backend.instructions.extraction.failed', () => ({
+        serverName: diagnosticServerName(name),
+        error,
+      }));
     }
   }
 
@@ -170,7 +180,7 @@ export class ClientManager extends EventEmitter {
 
       const transport = getLegacyTransport(clientInfo);
       writeLocalDiagnostic('info', 'backend.connection.disconnected', () => ({
-        serverName: name,
+        serverName: diagnosticServerName(name),
         transportType: transport.constructor.name,
         supervised: !!transport.stdioSupervision,
       }));
@@ -199,12 +209,15 @@ export class ClientManager extends EventEmitter {
     client.onerror = (error) => {
       if (isUnknownMessageIdError(error)) {
         logger.error('clientManager.client.received.a.response.for.an.unknown.message.id.a605b144');
-        writeLocalDiagnostic('error', 'backend.client.response.unknown', () => ({ serverName: name, error }));
+        writeLocalDiagnostic('error', 'backend.client.response.unknown', () => ({
+          serverName: diagnosticServerName(name),
+          error,
+        }));
         return;
       }
       const safeError = sanitizeRuntimeScopeError(error);
       logger.error('clientManager.client.error.775bd985');
-      writeLocalDiagnostic('error', 'backend.client.error', () => ({ serverName: name, error }));
+      writeLocalDiagnostic('error', 'backend.client.error', () => ({ serverName: diagnosticServerName(name), error }));
 
       if (isSessionLostError(safeError)) {
         this.recoverFromSessionLoss(name, client);
@@ -250,7 +263,7 @@ export class ClientManager extends EventEmitter {
 
     const staleTransport = this.transports[name] ?? getLegacyTransport(clientInfo);
     writeLocalDiagnostic('warn', 'backend.session.recovery.started', () => ({
-      serverName: name,
+      serverName: diagnosticServerName(name),
       transportType: staleTransport.constructor.name,
       reason: 'session-lost',
     }));
@@ -262,7 +275,7 @@ export class ClientManager extends EventEmitter {
       // error message from some other transport kind must not escape client.onerror.
       logger.error('clientManager.cannot.recover.from.session.loss.9b3fa9e8', { error: _error });
       writeLocalDiagnostic('error', 'backend.session.recovery.failed', () => ({
-        serverName: name,
+        serverName: diagnosticServerName(name),
         transportType: staleTransport.constructor.name,
         phase: 'transport-recreation',
         error: _error,
@@ -276,21 +289,21 @@ export class ClientManager extends EventEmitter {
         const recovered = this.outboundConns.get(name);
         if (recovered?.status === ClientStatus.Connected) {
           writeLocalDiagnostic('info', 'backend.session.recovery.connected', () => ({
-            serverName: name,
+            serverName: diagnosticServerName(name),
             transportType: freshTransport.constructor.name,
           }));
           return;
         }
         if (recovered?.status === ClientStatus.AwaitingOAuth) {
           writeLocalDiagnostic('info', 'oauth.session.recovery.pending', () => ({
-            serverName: name,
+            serverName: diagnosticServerName(name),
             transportType: freshTransport.constructor.name,
             status: recovered.status,
           }));
           return;
         }
         writeLocalDiagnostic('warn', 'backend.session.recovery.failed', () => ({
-          serverName: name,
+          serverName: diagnosticServerName(name),
           transportType: freshTransport.constructor.name,
           phase: 'published-status',
           status: recovered?.status ?? 'removed',
@@ -300,7 +313,7 @@ export class ClientManager extends EventEmitter {
       .catch((_error) => {
         logger.error('clientManager.failed.to.recover.after.session.loss.501b50bc');
         writeLocalDiagnostic('error', 'backend.session.recovery.failed', () => ({
-          serverName: name,
+          serverName: diagnosticServerName(name),
           transportType: freshTransport.constructor.name,
           phase: 'connection',
           error: _error,
@@ -401,7 +414,7 @@ export class ClientManager extends EventEmitter {
   ): Promise<void> {
     logger.info('clientManager.creating.client.for.744dd700');
     writeLocalDiagnostic('info', 'backend.client.creating', () => ({
-      serverName: name,
+      serverName: diagnosticServerName(name),
       transportType: transport.constructor.name,
       connectionTimeoutMs: getConnectionTimeout(transport),
       requestTimeoutMs: transport.requestTimeout,
@@ -445,7 +458,7 @@ export class ClientManager extends EventEmitter {
 
         logger.warn('clientManager.keeping.healthy.client.after.replacement.failed.fe11642b', { error: error });
         writeLocalDiagnostic('warn', 'backend.replacement.failed', () => ({
-          serverName: name,
+          serverName: diagnosticServerName(name),
           transportType: transport.constructor.name,
           outcome: 'healthy-connection-retained',
           error,
@@ -461,7 +474,7 @@ export class ClientManager extends EventEmitter {
       const activeTransport = error.transport ?? transport;
       logger.info('clientManager.oauth.authorization.required.for.c0a14ccd');
       writeLocalDiagnostic('info', 'oauth.authorization.required', () => ({
-        serverName: name,
+        serverName: diagnosticServerName(name),
         transportType: activeTransport.constructor.name,
       }));
       const authorizationUrl = this.oauthFlowHandler.extractAuthorizationUrl(activeTransport, name);
@@ -480,7 +493,7 @@ export class ClientManager extends EventEmitter {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error('clientManager.failed.to.create.client.for.a61aad6b', { error: errorMessage });
       writeLocalDiagnostic('error', 'backend.client.creation.failed', () => ({
-        serverName: name,
+        serverName: diagnosticServerName(name),
         transportType: transport.constructor.name,
         error,
       }));
@@ -542,7 +555,7 @@ export class ClientManager extends EventEmitter {
   ): Promise<void> {
     logger.info('clientManager.creating.client.for.744dd700');
     writeLocalDiagnostic('info', 'backend.client.creating', () => ({
-      serverName: name,
+      serverName: diagnosticServerName(name),
       transportType: transport.constructor.name,
       connectionTimeoutMs: getConnectionTimeout(transport),
       requestTimeoutMs: transport.requestTimeout,
@@ -612,7 +625,7 @@ export class ClientManager extends EventEmitter {
     );
     logger.info('clientManager.client.created.for.44950b76');
     writeLocalDiagnostic('info', 'backend.client.created', () => ({
-      serverName: name,
+      serverName: diagnosticServerName(name),
       transportType: connected.transport.constructor.name,
     }));
     this.extractAndCacheInstructions(name, connected.client);
@@ -636,7 +649,10 @@ export class ClientManager extends EventEmitter {
       await superseded.adapter.close();
     } catch (_error) {
       logger.warn('clientManager.could.not.close.superseded.client.3029a8f0', { error: _error });
-      writeLocalDiagnostic('warn', 'backend.replacement.cleanup.failed', () => ({ serverName: name, error: _error }));
+      writeLocalDiagnostic('warn', 'backend.replacement.cleanup.failed', () => ({
+        serverName: diagnosticServerName(name),
+        error: _error,
+      }));
     }
     const provider = getLegacyTransport(superseded).oauthProvider;
     const current = this.outboundConns.get(name);
@@ -649,7 +665,7 @@ export class ClientManager extends EventEmitter {
       const activeTransport = error.transport ?? transport;
       logger.info('clientManager.oauth.authorization.required.for.c0a14ccd');
       writeLocalDiagnostic('info', 'oauth.authorization.required', () => ({
-        serverName: name,
+        serverName: diagnosticServerName(name),
         transportType: activeTransport.constructor.name,
       }));
       const authorizationUrl = this.oauthFlowHandler.extractAuthorizationUrl(activeTransport, name);
@@ -668,7 +684,7 @@ export class ClientManager extends EventEmitter {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error('clientManager.failed.to.create.client.for.a61aad6b', { error: errorMessage });
       writeLocalDiagnostic('error', 'backend.client.creation.failed', () => ({
-        serverName: name,
+        serverName: diagnosticServerName(name),
         transportType: transport.constructor.name,
         error,
       }));
@@ -857,7 +873,7 @@ export class ClientManager extends EventEmitter {
           const errorMessage = error instanceof Error ? error.message : String(error);
           logger.warn('clientManager.error.closing.transport.for.76ac70c0', { error: errorMessage });
           writeLocalDiagnostic('warn', 'backend.transport.close.failed', () => ({
-            serverName: name,
+            serverName: diagnosticServerName(name),
             transportType: transport.constructor.name,
             error,
           }));
@@ -873,7 +889,10 @@ export class ClientManager extends EventEmitter {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error('clientManager.error.removing.client.df5d67cc', { error: errorMessage });
-      writeLocalDiagnostic('error', 'backend.client.removal.failed', () => ({ serverName: name, error }));
+      writeLocalDiagnostic('error', 'backend.client.removal.failed', () => ({
+        serverName: diagnosticServerName(name),
+        error,
+      }));
       throw error;
     }
   }
@@ -933,7 +952,10 @@ export class ClientManager extends EventEmitter {
           await connection.adapter.close();
         } catch (_error) {
           logger.warn('clientManager.error.closing.client.during.shutdown.for.2f1b1528', { error: _error });
-          writeLocalDiagnostic('warn', 'backend.shutdown.cleanup.failed', () => ({ serverName: name, error: _error }));
+          writeLocalDiagnostic('warn', 'backend.shutdown.cleanup.failed', () => ({
+            serverName: diagnosticServerName(name),
+            error: _error,
+          }));
           await getLegacyTransport(connection)
             .close()
             .catch(() => undefined);
@@ -985,7 +1007,7 @@ export class ClientManager extends EventEmitter {
       } catch (_error) {
         debugIf(() => ({ message: 'clientManager.could.not.close.previous.supervised.client.b79e7fcc' }));
         writeLocalDiagnostic('debug', 'backend.supervision.cleanup.failed', () => ({
-          serverName: name,
+          serverName: diagnosticServerName(name),
           error: _error,
         }));
       }
@@ -1015,8 +1037,8 @@ export class ClientManager extends EventEmitter {
       client = this.clientFactory.createClient(transport);
       const timeout = getConnectionTimeout(transport);
       writeLocalDiagnostic('info', 'backend.supervision.recovery.connecting', () => ({
-        serverName: name,
-        transportType: transport.constructor.name,
+        serverName: diagnosticServerName(name),
+        transportType: transport?.constructor.name,
         connectionTimeoutMs: timeout,
       }));
       await client.connect(transport, timeout ? { timeout } : undefined);
@@ -1035,7 +1057,7 @@ export class ClientManager extends EventEmitter {
         activate: () => {
           this.recordConnectedClient(name, { client: recoveredClient, transport: recoveredTransport });
           writeLocalDiagnostic('info', 'backend.supervision.recovery.connected', () => ({
-            serverName: name,
+            serverName: diagnosticServerName(name),
             transportType: recoveredTransport.constructor.name,
             serverVersion: serverVersion?.version,
             serverImplementation: serverVersion?.name,
@@ -1044,7 +1066,10 @@ export class ClientManager extends EventEmitter {
         dispose,
       };
     } catch (error) {
-      writeLocalDiagnostic('error', 'backend.supervision.recovery.failed', () => ({ serverName: name, error }));
+      writeLocalDiagnostic('error', 'backend.supervision.recovery.failed', () => ({
+        serverName: diagnosticServerName(name),
+        error,
+      }));
       await dispose();
       throw sanitizeRuntimeScopeError(error);
     }
@@ -1055,8 +1080,8 @@ export class ClientManager extends EventEmitter {
     if (connection) {
       connection.supervision = snapshotSupervision(snapshot);
       writeLocalDiagnostic('info', 'backend.supervision.state.changed', () => ({
-        serverName: name,
-        state: snapshot.state,
+        serverName: diagnosticServerName(name),
+        supervisionStatus: snapshot.state,
         attempt: snapshot.attempt,
         maxAttempts: snapshot.limit,
         nextRetryAt: snapshot.nextRetryAt?.toISOString(),
@@ -1065,8 +1090,8 @@ export class ClientManager extends EventEmitter {
       }));
       if (snapshot.lastError) {
         writeLocalDiagnostic('warn', 'backend.supervision.recovery.error', () => ({
-          serverName: name,
-          state: snapshot.state,
+          serverName: diagnosticServerName(name),
+          supervisionStatus: snapshot.state,
           attempt: snapshot.attempt,
           error: snapshot.lastError,
         }));
@@ -1098,13 +1123,16 @@ export class ClientManager extends EventEmitter {
       void Promise.resolve(this.backendAvailabilityHandler?.(name, snapshot)).catch((_error) => {
         logger.warn('clientManager.failed.to.publish.backend.availability.for.9f2d28de');
         writeLocalDiagnostic('warn', 'backend.availability.publish.failed', () => ({
-          serverName: name,
+          serverName: diagnosticServerName(name),
           error: _error,
         }));
       });
     } catch (_error) {
       logger.warn('clientManager.failed.to.publish.backend.availability.for.9f2d28de', { error: _error });
-      writeLocalDiagnostic('warn', 'backend.availability.publish.failed', () => ({ serverName: name, error: _error }));
+      writeLocalDiagnostic('warn', 'backend.availability.publish.failed', () => ({
+        serverName: diagnosticServerName(name),
+        error: _error,
+      }));
     }
   }
 

@@ -209,6 +209,35 @@ describe('backend and OAuth local diagnostics', () => {
     expect(JSON.stringify(entries)).not.toContain('private-state');
   });
 
+  it('projects composite template supervision keys to the configured name in the actual sink', async () => {
+    const manager = ClientManager.getOrCreateInstance();
+    const outboundKey = 'search:private-session-id';
+    await manager.createSingleClient(outboundKey, makeTransport());
+    manager.setBackendAvailabilityHandler(() => {
+      throw new Error('Availability handler failed');
+    });
+    manager.publishBackendSupervisionState(outboundKey, {
+      backendId: `template:${outboundKey}`,
+      state: 'crash-loop',
+      attempt: 3,
+      limit: 3,
+      nextRetryAt: null,
+      lastExit: null,
+      lastError: new Error('Backend restart failed'),
+      currentPid: null,
+    });
+    expect(details('backend.supervision.state.changed')).toMatchObject({
+      serverName: 'search',
+      supervisionStatus: 'crash-loop',
+    });
+    expect(details('backend.supervision.recovery.error').serverName).toBe('search');
+    expect(details('backend.availability.publish.failed').serverName).toBe('search');
+    expect(details('backend.connection.connected').serverName).toBe('search');
+    const diagnostics = JSON.stringify(entries.filter((entry) => entry.source === 'local-diagnostic'));
+    expect(diagnostics).not.toContain(outboundKey);
+    expect(diagnostics).not.toContain('private-session-id');
+  });
+
   it.each([
     { status: ClientStatus.Error, event: 'backend.session.recovery.failed' },
     { status: ClientStatus.AwaitingOAuth, event: 'oauth.session.recovery.pending' },

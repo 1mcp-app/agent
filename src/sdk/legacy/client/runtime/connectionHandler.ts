@@ -13,6 +13,7 @@ import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import { sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
 import { CONNECTION_RETRY, MCP_SERVER_NAME } from '@src/constants.js';
+import { parseTemplateConnectionKey } from '@src/core/server/templateIdentity.js';
 import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { ClientConnectionError, NonRetryableClientConnectionError } from '@src/utils/core/errorTypes.js';
@@ -44,6 +45,12 @@ function isNonRetryableOAuthError(error: unknown): error is OAuthError {
   return !RETRYABLE_OAUTH_ERROR_CODES.has(error.errorCode);
 }
 
+function diagnosticServerName(name: string | undefined): string | undefined {
+  if (!name) return undefined;
+  const identity = parseTemplateConnectionKey(name);
+  return identity.kind === 'invalid' ? undefined : identity.templateName;
+}
+
 export class ConnectionHandler {
   public async connectWithRetry(
     client: OutboundSdkClient,
@@ -67,7 +74,7 @@ export class ConnectionHandler {
         const authTransport = currentTransport as AuthProviderTransport;
         const timeout = getConnectionTimeout(authTransport);
         writeLocalDiagnostic('debug', 'backend.connection.attempt', () => ({
-          serverName: name,
+          serverName: diagnosticServerName(name),
           transportType: currentTransport.constructor.name,
           attempt: i + 1,
           maxAttempts: CONNECTION_RETRY.MAX_ATTEMPTS,
@@ -86,7 +93,7 @@ export class ConnectionHandler {
 
         logger.info('connectionHandler.successfully.connected.to.with.server.version.6ee89a19');
         writeLocalDiagnostic('info', 'backend.connection.connected', () => ({
-          serverName: name,
+          serverName: diagnosticServerName(name),
           transportType: currentTransport.constructor.name,
           attempt: i + 1,
           serverVersion: sv?.version,
@@ -102,7 +109,7 @@ export class ConnectionHandler {
         ) {
           logger.info('connectionHandler.oauth.authorization.required.for.visit.oauth.to.authorize.875e3320');
           writeLocalDiagnostic('info', 'oauth.authorization.required', () => ({
-            serverName: name,
+            serverName: diagnosticServerName(name),
             transportType: currentTransport.constructor.name,
             attempt: i + 1,
           }));
@@ -113,7 +120,7 @@ export class ConnectionHandler {
         const safeError = sanitizeRuntimeScopeError(error);
         logger.error('connectionHandler.failed.to.connect.to.d9f2b821', { error: error });
         writeLocalDiagnostic('error', 'backend.connection.failed', () => ({
-          serverName: name,
+          serverName: diagnosticServerName(name),
           transportType: currentTransport.constructor.name,
           attempt: i + 1,
           connectionTimeoutMs: getConnectionTimeout(currentTransport as AuthProviderTransport),
@@ -130,7 +137,7 @@ export class ConnectionHandler {
             await this.disposeFailedCandidate(currentClient, currentTransport as AuthProviderTransport, name);
           }
           writeLocalDiagnostic('warn', 'backend.connection.terminal', () => ({
-            serverName: name,
+            serverName: diagnosticServerName(name),
             transportType: currentTransport.constructor.name,
             attempt: i + 1,
             reason: 'non-retryable',
@@ -144,7 +151,7 @@ export class ConnectionHandler {
             await this.disposeFailedCandidate(currentClient, currentTransport as AuthProviderTransport, name);
           }
           writeLocalDiagnostic('error', 'backend.connection.exhausted', () => ({
-            serverName: name,
+            serverName: diagnosticServerName(name),
             transportType: currentTransport.constructor.name,
             attempt: i + 1,
             maxAttempts: CONNECTION_RETRY.MAX_ATTEMPTS,
@@ -155,7 +162,7 @@ export class ConnectionHandler {
 
         logger.info('connectionHandler.retrying.in.ms.0a9db4e6');
         writeLocalDiagnostic('info', 'backend.connection.retry.scheduled', () => ({
-          serverName: name,
+          serverName: diagnosticServerName(name),
           transportType: currentTransport.constructor.name,
           attempt: i + 2,
           maxAttempts: CONNECTION_RETRY.MAX_ATTEMPTS,
@@ -170,7 +177,7 @@ export class ConnectionHandler {
           } catch (_closeError) {
             debugIf(() => ({ message: 'connectionHandler.error.closing.transport.during.retry.d23eee71' }));
             writeLocalDiagnostic('debug', 'backend.connection.retry.cleanup.failed', () => ({
-              serverName: name,
+              serverName: diagnosticServerName(name),
               transportType: currentTransport.constructor.name,
               error: _closeError,
             }));
@@ -226,7 +233,7 @@ export class ConnectionHandler {
       if (outcome.status === 'rejected') {
         debugIf(() => ({ message: 'connectionHandler.error.closing.failed.retry.candidate.648a7c0b' }));
         writeLocalDiagnostic('debug', 'backend.connection.retry.cleanup.failed', () => ({
-          serverName: name,
+          serverName: diagnosticServerName(name),
           transportType: transport.constructor.name,
           error: outcome.reason,
         }));
