@@ -42,7 +42,8 @@ vi.mock('@src/core/validation/CustomJsonSchemaValidator.js', () => ({
   }),
 }));
 
-vi.mock('@src/constants.js', () => ({
+vi.mock('@src/constants.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@src/constants.js')>()),
   MCP_SERVER_NAME: '1mcp-test',
   MCP_SERVER_VERSION: '1.0.0',
   MCP_CLIENT_CAPABILITIES: {

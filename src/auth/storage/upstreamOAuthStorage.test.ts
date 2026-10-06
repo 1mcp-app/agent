@@ -47,6 +47,8 @@ function directory() {
 }
 function storage(baseDir: string, mode: 'file' | 'native', nativeStore: MemoryStore) {
   const result = new UpstreamOAuthStorage({ baseDir, mode, nativeStore });
+  // Initialization is deferred to activation so denied storage access is contained per domain.
+  fs.mkdirSync(result.getStorageDir(), { recursive: true, mode: 0o700 });
   storages.push(result);
   return result;
 }
@@ -190,6 +192,27 @@ describe('upstream native record persistence', () => {
     expect(target.readData('oauth-bound-', slot)).toBeNull();
     expect(target.readData('oauth-quarantine-', slot)).toBeNull();
     expect(fs.existsSync(temporary)).toBe(false);
+  });
+
+  it('migrates a newer authoritative upstream file revision written while the runtime is stopped', async () => {
+    const base = directory();
+    const native = new MemoryStore();
+    const source = plaintext(base, data('original-native-secret'));
+    const first = storage(base, 'native', native);
+    await first.activate();
+    const originalKeys = [...native.entries.keys()];
+    first.shutdown();
+    const newer = { ...data('newer-stopped-runtime-secret'), revision: 11 };
+    fs.writeFileSync(source, JSON.stringify(newer), { mode: 0o600 });
+    const restarted = storage(base, 'native', native);
+    await restarted.activate();
+    expect(restarted.readData('oauth-bound-', slot)).toEqual(newer);
+    expect(fs.existsSync(source)).toBe(false);
+    expect(originalKeys.every((key) => !native.entries.has(key))).toBe(true);
+    expect(files(base)).not.toContain('newer-stopped-runtime-secret');
+    expect(files(base)).not.toContain('original-native-secret');
+    await restarted.activate();
+    expect(restarted.readData('oauth-bound-', slot)).toEqual(newer);
   });
 
   it('file switching requires fresh login and native reselection cannot resurrect older credentials', async () => {

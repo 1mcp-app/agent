@@ -110,7 +110,7 @@ export const serverOptions = {
     type: 'boolean' as const,
   },
   'credential-store': {
-    describe: 'Upstream OAuth secret storage (file or native OS store); restart required',
+    describe: 'Inbound and upstream OAuth credential storage (file or native OS store); restart required',
     type: 'string' as const,
     choices: ['file', 'native'] as const,
   },

@@ -361,7 +361,7 @@ describe('Runtime Scope ownership', () => {
   it('rolls back a published stop lock when ownership inspection fails', () => {
     const owner = claimRuntimeScope(configDir, { kind: 'background-supervisor' });
     const originalReadFileSync = fs.readFileSync;
-    vi.spyOn(fs, 'readFileSync').mockImplementation(((file, ...args: unknown[]) => {
+    vi.spyOn(fs, 'readFileSync').mockImplementation(((file: fs.PathOrFileDescriptor, ...args: unknown[]) => {
       if (file === ownerRecordPath && fs.existsSync(stopLockPath)) {
         throw Object.assign(new Error('denied'), { code: 'EACCES' });
       }
@@ -416,7 +416,7 @@ describe('Runtime Scope ownership', () => {
 
   it('fails closed when ownership metadata is unreadable', () => {
     const originalReadFileSync = fs.readFileSync;
-    vi.spyOn(fs, 'readFileSync').mockImplementation(((file, ...args: unknown[]) => {
+    vi.spyOn(fs, 'readFileSync').mockImplementation(((file: fs.PathOrFileDescriptor, ...args: unknown[]) => {
       if (file === ownerRecordPath) {
         throw Object.assign(new Error('denied'), { code: 'EACCES' });
       }
@@ -723,7 +723,7 @@ describe('Runtime Scope ownership', () => {
     const originalReadFileSync = fs.readFileSync;
     let stopLock: ReturnType<typeof acquireRuntimeScopeStopLock> | undefined;
     let interleaved = false;
-    vi.spyOn(fs, 'readFileSync').mockImplementation(((file, ...args: unknown[]) => {
+    vi.spyOn(fs, 'readFileSync').mockImplementation(((file: fs.PathOrFileDescriptor, ...args: unknown[]) => {
       const result = originalReadFileSync(file, ...(args as []));
       if (file === ownerRecordPath && !interleaved) {
         interleaved = true;

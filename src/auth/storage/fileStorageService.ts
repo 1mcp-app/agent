@@ -19,6 +19,12 @@ import { z, type ZodType } from 'zod';
 // src/utils/filePermissions.ts, shared by all credential stores.
 export { InsecureFilePermissionsError };
 
+export class StorageLockBusyError extends Error {
+  constructor() {
+    super('OAuth storage is busy; retry the request.');
+  }
+}
+
 const StorageLockOwnerSchema = z.object({
   operationId: z.string().min(1),
   pid: z.number().int().positive(),
@@ -42,14 +48,18 @@ export class FileStorageService {
   private storageDir: string;
   private cleanupInterval: ReturnType<typeof setInterval> | null = null;
 
-  constructor(baseDir?: string, subDir?: string, options: { manageLifecycle?: boolean } = {}) {
+  constructor(
+    baseDir?: string,
+    subDir?: string,
+    options: { manageLifecycle?: boolean; initializeDirectory?: boolean } = {},
+  ) {
     const configDir = baseDir || getGlobalConfigDir();
     const sessionsDir = AUTH_CONFIG.SERVER.STORAGE.DIR;
 
     // If subDir provided, use sessions/subDir/, otherwise just sessions/
     this.storageDir = subDir ? path.join(configDir, sessionsDir, subDir) : path.join(configDir, sessionsDir);
 
-    this.ensureDirectory();
+    if (options.initializeDirectory !== false) this.ensureDirectory();
     if (options.manageLifecycle !== false) {
       this.migrateOldFilesIfNeeded();
       this.startPeriodicCleanup();
@@ -600,6 +610,19 @@ export class FileStorageService {
 
     try {
       return await operation();
+    } finally {
+      this.releaseLock(lockPath, operationId);
+    }
+  }
+
+  /** Synchronous callers cannot wait on a suspended async owner; fail busy and retry. */
+  withExclusiveLockSync<T>(lockName: string, operation: () => T): T {
+    if (!/^[a-z0-9-]+$/.test(lockName)) throw new Error('Invalid storage lock name');
+    const lockPath = path.join(this.storageDir, `.${lockName}.lock`);
+    const operationId = randomUUID();
+    if (!this.tryAcquireLock(lockPath, operationId)) throw new StorageLockBusyError();
+    try {
+      return operation();
     } finally {
       this.releaseLock(lockPath, operationId);
     }
