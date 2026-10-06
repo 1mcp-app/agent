@@ -56,6 +56,7 @@ const ReferenceSchema = z.object({
   scope: z.string().regex(/^[a-f0-9]{64}$/),
   record: z.string().regex(/^[a-f0-9]{64}$/),
   file: z.string().regex(/^[A-Za-z0-9_.-]+$/),
+  category: z.string().max(64).optional(),
   location: z.enum(['current', 'legacy']),
   revision: z.string().uuid(),
   chunks: z.number().int().positive().max(100000),
@@ -175,6 +176,7 @@ export class ProtectedRecordStorage extends FileStorageService {
   private readonly layout: ProtectedRecordLayout;
   private constructionFailed = false;
   private expirationTimer?: ReturnType<typeof setInterval>;
+  private verifiedCategories = new Map<string, { revision: string; category: string }>();
 
   constructor(options: ProtectedRecordStorageOptions) {
     super(options.baseDir, options.layout.subDir, { manageLifecycle: false, initializeDirectory: false });
@@ -200,6 +202,7 @@ export class ProtectedRecordStorage extends FileStorageService {
     this.scope = namespaceDigest(JSON.stringify(identity));
     const existing = activations.get(this.getActivationKey());
     if (!this.nativeStore && existing) this.nativeStore = existing.storage.nativeStore;
+    if (existing) this.verifiedCategories = existing.storage.verifiedCategories;
     if (existing)
       this.activation = existing.promise.then(() => {
         if (existing.storage.mode !== this.mode)
@@ -296,6 +299,7 @@ export class ProtectedRecordStorage extends FileStorageService {
   private initialize(): void {
     this.assertOwner(true);
     this.failed = false;
+    this.verifiedCategories.clear();
     failedScopes.delete(this.scope);
     const previous = this.state();
     // A committed mutation is always completed before changing its generation or storage mode.
@@ -313,6 +317,7 @@ export class ProtectedRecordStorage extends FileStorageService {
       this.recoverExports();
       this.recoverIntents();
       this.migrateInventory();
+      this.backfillReferenceCategories();
     } else {
       this.migrateLegacyFiles();
     }
@@ -596,7 +601,10 @@ export class ProtectedRecordStorage extends FileStorageService {
       this.assertEpoch();
       if (this.mode === 'file') return super.listFiles(prefix);
       return this.references()
-        .filter((reference) => !reference.retired && reference.location === 'current')
+        .filter(
+          (reference) => !reference.retired && reference.location === 'current' && reference.file.endsWith('.json'),
+        )
+        .filter((reference) => this.matchesCategory(reference, prefix))
         .map((reference) => this.logicalFile(reference))
         .filter((file) => file.endsWith('.json') && (!prefix || file.startsWith(prefix)));
     });
@@ -826,6 +834,7 @@ export class ProtectedRecordStorage extends FileStorageService {
       scope: this.scope,
       record,
       file: this.layout.opaqueFileNames ? `${record}${file.endsWith('.tmp') ? '.tmp' : '.json'}` : file,
+      category: this.fileCategory(file),
       location,
       revision,
       chunks: Math.ceil(encoded.length / 1800),
@@ -921,6 +930,8 @@ export class ProtectedRecordStorage extends FileStorageService {
       )
         throw new ProtectedRecordStorageError();
     }
+    const category = this.fileCategory(this.layout.opaqueFileNames ? envelope.file! : reference.file);
+    if (reference.category !== undefined && reference.category !== category) throw new ProtectedRecordStorageError();
     return envelope;
   }
   private readNative(reference: Reference): unknown {
@@ -928,6 +939,33 @@ export class ProtectedRecordStorage extends FileStorageService {
   }
   private logicalFile(reference: Reference): string {
     return this.layout.opaqueFileNames ? this.nativeEnvelope(reference).file! : reference.file;
+  }
+
+  private fileCategory(file: string): string {
+    if (!this.managedFile(file)) throw new ProtectedRecordStorageError();
+    if (file.endsWith('.tmp')) return 'temporary';
+    const prefix = this.layout.prefixes.find((prefix) => file.startsWith(prefix));
+    if (prefix === undefined) throw new ProtectedRecordStorageError();
+    return prefix;
+  }
+
+  private matchesCategory(reference: Reference, prefix?: string): boolean {
+    if (!prefix) return true;
+    if (!this.layout.opaqueFileNames) return reference.file.startsWith(prefix);
+    if (reference.category === undefined) throw new ProtectedRecordStorageError();
+    // Public callers may use a partial category or a more specific filename prefix.
+    return reference.category.startsWith(prefix) || prefix.startsWith(reference.category);
+  }
+
+  private backfillReferenceCategories(): void {
+    for (const reference of this.references()) {
+      const envelope = this.nativeEnvelope(reference);
+      const category = this.fileCategory(this.layout.opaqueFileNames ? envelope.file! : reference.file);
+      if (reference.category === undefined) {
+        reference.category = category;
+        this.writeReference(reference);
+      }
+    }
   }
 
   private deleteChunks(reference: Reference): void {
@@ -976,6 +1014,12 @@ export class ProtectedRecordStorage extends FileStorageService {
   private validateReference(reference: Reference): void {
     ReferenceSchema.parse(reference);
     if (
+      reference.category !== undefined &&
+      reference.category !== 'temporary' &&
+      !this.layout.prefixes.includes(reference.category)
+    )
+      throw new ProtectedRecordStorageError();
+    if (
       reference.scope !== this.scope ||
       reference.record !==
         (this.layout.opaqueFileNames
@@ -993,6 +1037,9 @@ export class ProtectedRecordStorage extends FileStorageService {
     const reference = ReferenceSchema.parse(value);
     this.validateReference(reference);
     if (reference.record !== record) throw new ProtectedRecordStorageError();
+    const verified = this.verifiedCategories.get(record);
+    if (verified && (verified.revision !== reference.revision || verified.category !== reference.category))
+      throw new ProtectedRecordStorageError();
     return reference;
   }
   private references(): Reference[] {
@@ -1003,6 +1050,9 @@ export class ProtectedRecordStorage extends FileStorageService {
   }
   private writeReference(reference: Reference): void {
     this.atomic(this.meta(reference.record, 'ref'), reference);
+    if (reference.retired) this.verifiedCategories.delete(reference.record);
+    else if (reference.category !== undefined)
+      this.verifiedCategories.set(reference.record, { revision: reference.revision, category: reference.category });
   }
   private meta(key: string, extension = 'meta'): string {
     return path.join(this.metadataDir, `${key}.${extension}`);
@@ -1093,6 +1143,8 @@ export class ProtectedRecordStorage extends FileStorageService {
       throw error;
     }
     this.flush(path.dirname(file));
+    if (path.dirname(file) === this.metadataDir && /^[a-f0-9]{64}\.ref$/.test(path.basename(file)))
+      this.verifiedCategories.delete(path.basename(file).slice(0, -4));
     return true;
   }
   private flush(directory: string): void {

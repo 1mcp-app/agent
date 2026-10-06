@@ -445,6 +445,141 @@ describe('inbound shared protected storage', () => {
     expect(target.readData('auth_code_', expired)).toBeNull();
   });
 
+  it('filters native categories before opening unrelated envelopes while preserving prefix queries', async () => {
+    const base = makeDirectory();
+    const native = new MemoryStore();
+    const plain = new FileStorageService(base, 'server', { manageLifecycle: false });
+    storages.push(plain);
+    const records = [
+      ['session_', identifier('sess-')],
+      ['session_', 'cli_client-filter'],
+      ['auth_code_', identifier()],
+      ['auth_request_', identifier()],
+      ['refresh_family_', identifier('rf-')],
+      ['refresh_lookup_', 'rtl-' + 'b'.repeat(64)],
+    ];
+    for (const [prefix, id] of records) plain.writeDataDurable(prefix, id, value());
+    const temporary = plain.getFilePath('auth_code_', records[2][1]) + '.orphan.tmp';
+    fs.writeFileSync(temporary, 'temporary-category-secret', { mode: 0o600 });
+    const target = store(base, native);
+    await target.activate();
+    const refs = fs
+      .readdirSync(path.join(target.getStorageDir(), '.native-oauth'))
+      .filter((file) => file.endsWith('.ref'))
+      .map(
+        (file) =>
+          JSON.parse(fs.readFileSync(path.join(target.getStorageDir(), '.native-oauth', file), 'utf8')) as {
+            category: string;
+            record: string;
+            chunks: number;
+          },
+      );
+    const read = vi.spyOn(native, 'read');
+    const assertReadsOnly = (categories: string[]) => {
+      const selected = refs.filter((reference) => categories.includes(reference.category));
+      expect(read).toHaveBeenCalledTimes(selected.reduce((count, reference) => count + reference.chunks, 0));
+      expect(
+        read.mock.calls.every(([key]) => selected.some((reference) => key.includes(`/${reference.record}/`))),
+      ).toBe(true);
+    };
+    expect(target.listFiles('refresh_family_')).toEqual([`refresh_family_${records[4][1]}.json`]);
+    assertReadsOnly(['refresh_family_']);
+    read.mockClear();
+    expect(target.listFiles('refresh_')).toHaveLength(2);
+    assertReadsOnly(['refresh_family_', 'refresh_lookup_']);
+    read.mockClear();
+    expect(target.listFiles('session_cli_')).toEqual(['session_cli_client-filter.json']);
+    assertReadsOnly(['session_']);
+    read.mockClear();
+    expect(target.listFiles()).toHaveLength(records.length);
+    expect(
+      read.mock.calls.every(
+        ([key]) =>
+          !refs
+            .filter((reference) => reference.category === 'temporary')
+            .some((reference) => key.includes(`/${reference.record}/`)),
+      ),
+    ).toBe(true);
+    expect(disk(base)).not.toContain('temporary-category-secret');
+  });
+
+  it('backfills legacy category metadata during activation and shares validation with recreated instances', async () => {
+    const base = makeDirectory();
+    const native = new MemoryStore();
+    const options = { baseDir: base, nativeStore: native, mode: 'native' as const };
+    await activateInboundOAuthStore(options);
+    const target = store(base, native);
+    await target.ready();
+    const code = identifier();
+    const family = identifier('rf-');
+    target.writeDataDurable('auth_code_', code, value());
+    target.writeDataDurable('refresh_family_', family, value());
+    const metadata = path.join(target.getStorageDir(), '.native-oauth');
+    for (const file of fs.readdirSync(metadata).filter((file) => file.endsWith('.ref'))) {
+      const reference = JSON.parse(fs.readFileSync(path.join(metadata, file), 'utf8')) as { category?: string };
+      delete reference.category;
+      fs.writeFileSync(path.join(metadata, file), JSON.stringify(reference), { mode: 0o600 });
+    }
+    const read = vi.spyOn(native, 'read');
+    await activateInboundOAuthStore(options);
+    expect(getInboundOAuthStoreReadiness(options).ready).toBe(true);
+    expect(read.mock.calls.filter(([key]) => !key.endsWith('/readiness')).length).toBeGreaterThan(1);
+    const refs = fs
+      .readdirSync(metadata)
+      .filter((file) => file.endsWith('.ref'))
+      .map(
+        (file) =>
+          JSON.parse(fs.readFileSync(path.join(metadata, file), 'utf8')) as {
+            category: string;
+            record: string;
+            chunks: number;
+          },
+      );
+    expect(refs.map((reference) => reference.category).sort()).toEqual(['auth_code_', 'refresh_family_']);
+    const recreated = store(base, native);
+    await recreated.ready();
+    read.mockClear();
+    expect(recreated.listFiles('refresh_family_')).toEqual([`refresh_family_${family}.json`]);
+    const selected = refs.find((reference) => reference.category === 'refresh_family_')!;
+    expect(read).toHaveBeenCalledTimes(selected.chunks);
+    expect(read.mock.calls.every(([key]) => key.includes(`/${selected.record}/`))).toBe(true);
+    recreated.writeDataDurable('refresh_family_', family, value('replacement'));
+    expect(recreated.listFiles('refresh_family_')).toHaveLength(1);
+    recreated.deleteData('refresh_family_', family);
+    expect(recreated.listFiles('refresh_family_')).toEqual([]);
+    recreated.writeDataDurable('refresh_family_', family, value('recreated'));
+    expect(recreated.listFiles('refresh_family_')).toHaveLength(1);
+  });
+
+  it.each(['auth_code_', 'unapproved-category'] as const)(
+    'fails closed on tampered native category %s before selection and after restart',
+    async (category) => {
+      const base = makeDirectory();
+      const native = new MemoryStore();
+      const options = { baseDir: base, nativeStore: native, mode: 'native' as const };
+      await activateInboundOAuthStore(options);
+      const target = store(base, native);
+      await target.ready();
+      const family = identifier('rf-');
+      target.writeDataDurable('refresh_family_', family, value());
+      const metadata = path.join(target.getStorageDir(), '.native-oauth');
+      const file = fs.readdirSync(metadata).find((file) => file.endsWith('.ref'))!;
+      const reference = JSON.parse(fs.readFileSync(path.join(metadata, file), 'utf8')) as { category: string };
+      reference.category = category;
+      fs.writeFileSync(path.join(metadata, file), JSON.stringify(reference), { mode: 0o600 });
+      const recreated = store(base, native);
+      await recreated.ready();
+      const read = vi.spyOn(native, 'read');
+      expect(() => recreated.listFiles('refresh_family_')).toThrow(/incomplete/);
+      expect(read).not.toHaveBeenCalled();
+      expect(recreated.isReady()).toBe(false);
+      await activateInboundOAuthStore(options);
+      expect(getInboundOAuthStoreReadiness(options).ready).toBe(false);
+      const restarted = store(base, native);
+      await expect(restarted.ready()).rejects.toThrow(/incomplete/);
+    },
+  );
+
   it('captures empty-store native helper failure and cached readiness without constructor failure', async () => {
     const base = makeDirectory();
     const native = new MemoryStore();
