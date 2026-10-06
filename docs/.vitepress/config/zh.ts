@@ -150,10 +150,7 @@ function sidebar(): DefaultTheme.Sidebar {
       },
       {
         text: '开发',
-        items: [
-          { text: '开发指南', link: '/zh/guide/development' },
-          { text: '发布负责人操作与恢复', link: '/zh/guide/releasing' },
-        ],
+        items: [{ text: '开发指南', link: '/zh/guide/development' }],
       },
     ],
     '/zh/commands/': [

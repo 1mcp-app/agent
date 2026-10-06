@@ -1,15 +1,10 @@
----
-title: 发布负责人操作与恢复
-description: 对最终版本提交执行检查，在非默认渠道演练，并安全恢复部分发布。
----
+# 维护者发布操作手册
 
-# 发布负责人操作与恢复
-
-本页供负责 1MCP 版本发布的维护者使用。入口仍是手动 **Release Pipeline**。[#474](https://github.com/1mcp-app/agent/issues/474) 负责发布批准；[#485](https://github.com/1mcp-app/agent/issues/485) 负责兼容性、性能、金丝雀和回滚标准。工作流引用已批准的证据，不自行制定这些标准。
+本手册供负责 1MCP 版本发布的维护者使用。通过手动 **Release Pipeline** 发起发布。[#474](https://github.com/1mcp-app/agent/issues/474) 负责发布批准；[#485](https://github.com/1mcp-app/agent/issues/485) 负责兼容性、性能、金丝雀和回滚标准。工作流引用已批准的证据，不自行制定这些标准。
 
 ## 发起前
 
-- 使用包含最终 SHA 发布实现的工作流版本。`target_ref` 必须是 `main` 或版本对应的 `release-MAJOR.MINOR` 分支；新发布必须使用尚未发布的新版本。
+- 使用当前获批的 Release Pipeline 工作流版本。`target_ref` 必须是 `main` 或版本对应的 `release-MAJOR.MINOR` 分支；新发布必须使用尚未发布的新版本。
 - 新发布前确认源码分支的 `.github/actions/setup-node-pnpm/action.yml` 与 dispatch 版本中的 action 字节完全一致。版本更新和候选解析在调用候选代码前拒绝旧版或不同的本地 action，因为旧 action 可能忽略缓存关闭参数。准备新候选前先对齐分支策略；不要修改、重建或替换已存在的恢复候选来通过此检查。历史候选不兼容时停止并由负责人核对。
 - 提供发布负责人批准链接，以及该候选版本已获批准的 #485 就绪证据链接。两者均为本仓库 issue/PR URL，可包含评论锚点。记录 URL 不等于验证批准内容：负责人必须确认决定、范围、版本和源码身份。
 - 确认现有 `release` environment、仓库权限和 npm trusted publisher 配置适用。工作流保留该 environment，不新增人工审核人或修改保护规则。
@@ -88,4 +83,4 @@ gh workflow run release-pipeline.yml --repo 1mcp-app/agent --ref main   -f targe
 | 产物身份/冒烟         | 安装后的 npm CLI、每个支持的 SEA 平台、basic/extended OCI amd64/arm64 通过版本冒烟；保留并读回压缩包/digest。                                                              |
 | 外部策略/就绪         | 负责人提供适用兼容性/安全/金丝雀要求的已批准 #485 引用。仓库托管策略检查与此手动 run 分开。                                                                                |
 
-既有 OCI 配置保持 `provenance: false`、`sbom: false`，这些发布工作流没有 scanner 步骤；SEA 压缩包不新增签名。本次保持既有设置，不宣称扫描、SBOM 或额外 attestation 覆盖。增加供应链策略需要独立负责人决定。参见[安全模型](/zh/reference/security)与[开发指南](/zh/guide/development)。
+既有 OCI 配置保持 `provenance: false`、`sbom: false`，这些发布工作流没有 scanner 步骤；发布工作流不签署 SEA 压缩包。这些设置不提供扫描、SBOM 或额外 attestation 覆盖。增加供应链策略需要独立负责人决定。参见[安全模型](https://docs.1mcp.app/zh/reference/security)与[开发指南](https://docs.1mcp.app/zh/guide/development)。

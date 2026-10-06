@@ -1,15 +1,10 @@
----
-title: Owner release and recovery
-description: Run a checked final-SHA release, rehearse on a prerelease channel, and recover partial publication safely.
----
+# Maintainer release runbook
 
-# Owner release and recovery
-
-Use this page when you own publication of a 1MCP version. The manual **Release Pipeline** remains the entry point. Publication approval belongs to [#474](https://github.com/1mcp-app/agent/issues/474); compatibility, performance, canary and rollback decisions belong to [#485](https://github.com/1mcp-app/agent/issues/485). This workflow consumes their approved evidence; it does not establish those decisions itself.
+This runbook is for maintainers publishing 1MCP. Use the manual **Release Pipeline** entry point. Publication approval belongs to [#474](https://github.com/1mcp-app/agent/issues/474); compatibility, performance, canary and rollback decisions belong to [#485](https://github.com/1mcp-app/agent/issues/485). This workflow consumes their approved evidence; it does not establish those decisions itself.
 
 ## Before dispatch
 
-- Use a workflow revision containing the final-SHA release implementation. `target_ref` must be `main` or the matching `release-MAJOR.MINOR` branch. Use a new, unpublished version.
+- Use the current approved Release Pipeline revision. `target_ref` must be `main` or the matching `release-MAJOR.MINOR` branch. Use a new, unpublished version.
 - Before a new release, ensure the source branch’s `.github/actions/setup-node-pnpm/action.yml` is byte-identical to the dispatch revision’s action. Version update and candidate resolution reject older or divergent local actions before invoking candidate code, because older actions may ignore cache opt-outs. Align the branch policy before preparing a new candidate; do not modify, rebuild or replace an existing recovery candidate to make this check pass. An incompatible historical candidate stops for owner reconciliation.
 - Obtain an owner publication approval URL and a URL to the approved #485 readiness evidence for this candidate. Both inputs are repository issue/PR URLs, including comment anchors. Recording a URL does not verify approval semantics: the owner must check the referenced decision, scope, version and source.
 - Verify the existing `release` environment, repository permissions and npm trusted publisher are appropriate. The workflow preserves that environment; it does not install required reviewers or change its protection rules.
@@ -88,4 +83,4 @@ Configured release checks, version updates, artifact builds and publication neit
 | Artifact identity/smoke        | Installed npm CLI, every supported SEA platform and basic/extended OCI amd64/arm64 pass version smoke; archives/digests are retained and read back.                                                                                                            |
 | External policy/readiness      | Owner supplies approved #485 references for applicable compatibility/security/canary requirements. Repository-hosted policy checks are distinct from this manual run.                                                                                          |
 
-Existing OCI build configuration has `provenance: false` and `sbom: false`, and no scanner step in these release workflows. SEA archives are not newly signed. This change preserves those baseline settings; it does not claim scanning, SBOM or additional attestation coverage. Additional supply-chain policy requires a separate owner decision. See the [security model](/reference/security) and [development guide](/guide/development).
+Existing OCI build configuration has `provenance: false` and `sbom: false`, and no scanner step in these release workflows. The release workflow does not sign SEA archives. These settings do not provide scanning, SBOM or additional attestation coverage. Additional supply-chain policy requires a separate owner decision. See the [security model](https://docs.1mcp.app/reference/security) and [development guide](https://docs.1mcp.app/guide/development).
