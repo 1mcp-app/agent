@@ -125,6 +125,8 @@ async function startConformanceMock(protocolVersion, options = {}) {
             ...(message.params.name === 'test_mrtr_echo_state' ? { requestState: 'opaque-state' } : {}),
           };
         }
+        if (options.continuationResult && message.params.inputResponses) result = options.continuationResult;
+        if (options.failedTool === message.params.name) result = { resultType: 'complete', isError: true, content: [] };
         if (options.missingResultTypeTool === message.params.name) delete result.resultType;
       } else if (message.method === 'resources/list') {
         result = {
@@ -263,6 +265,59 @@ test('official schema dispatch preserves and echoes the advertised input schema'
   assert.equal(result.code, 0, result.stderr);
   const call = mock.requests.find(({ message }) => message.method === 'tools/call');
   assert.deepEqual(call?.message.params.arguments.schema, inputSchema);
+});
+
+test('unfinished and error MRTR continuations stop before the final probe', async (t) => {
+  const names = ['test_mrtr_echo_state', 'test_mrtr_no_state', 'test_mrtr_unrelated', 'test_mrtr_no_result_type'];
+  for (const continuationResult of [
+    { resultType: 'input_required', inputRequests: { confirmation: { method: 'elicitation/create', params: {} } } },
+    { resultType: 'complete', isError: true, content: [{ type: 'text', text: 'synthetic-error' }] },
+  ]) {
+    const mock = await startConformanceMock('2026-07-28', {
+      tools: names.map((name) => ({ name, inputSchema: { type: 'object' } })),
+      requestState: true,
+      continuationResult,
+    });
+    t.after(() => mock.close());
+    const result = await runOfficialClient(mock.endpoint, 'sep-2322-client-request-state', '2026-07-28');
+    assert.equal(result.code, 1);
+    assert.deepEqual(JSON.parse(result.stderr), {
+      kind: 'conformance-client',
+      ok: false,
+      classification: 'gateway-rejected',
+    });
+    const calls = mock.requests.filter(({ message }) => message.method === 'tools/call');
+    assert.deepEqual(
+      calls.map(({ message }) => message.params.name),
+      ['test_mrtr_echo_state', 'test_mrtr_unrelated', 'test_mrtr_echo_state'],
+    );
+    assert.deepEqual(calls[2].message.params.inputResponses, {
+      confirmation: { action: 'accept', content: { confirmed: true } },
+    });
+    assert.equal(calls[2].message.params.requestState, 'opaque-state');
+  }
+});
+
+test('unrelated and final MRTR tool errors remain failures', async (t) => {
+  const names = ['test_mrtr_echo_state', 'test_mrtr_no_state', 'test_mrtr_unrelated', 'test_mrtr_no_result_type'];
+  for (const failedTool of ['test_mrtr_unrelated', 'test_mrtr_no_result_type']) {
+    const mock = await startConformanceMock('2026-07-28', {
+      tools: names.map((name) => ({ name, inputSchema: { type: 'object' } })),
+      requestState: true,
+      failedTool,
+    });
+    t.after(() => mock.close());
+    const result = await runOfficialClient(mock.endpoint, 'sep-2322-client-request-state', '2026-07-28');
+    assert.equal(result.code, 1);
+    assert.deepEqual(JSON.parse(result.stderr), {
+      kind: 'conformance-client',
+      ok: false,
+      classification: 'gateway-rejected',
+    });
+    const calls = mock.requests.filter(({ message }) => message.method === 'tools/call');
+    assert.equal(calls.at(-1).message.params.name, failedTool);
+    if (failedTool === 'test_mrtr_unrelated') assert.equal(calls.length, 2);
+  }
 });
 
 test('only the final known SDK resultType rejection is a fixture defect', async (t) => {

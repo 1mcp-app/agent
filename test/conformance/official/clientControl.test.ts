@@ -131,4 +131,81 @@ describe('pinned official direct client controls', () => {
       await new Promise<void>((done, reject) => server.close((error) => (error ? reject(error) : done())));
     }
   });
+
+  it('rejects unfinished and error direct continuations before the final probe', async () => {
+    const module = await import(pathToFileURL(control).href);
+    for (const [stage, continuation, reason] of [
+      ['continuation', { resultType: 'input_required', inputRequests: {} }, 'CONTROL_CONTINUATION_INCOMPLETE'],
+      ['continuation', { resultType: 'complete', isError: true }, 'CONTROL_CONTINUATION_TOOL_ERROR'],
+      ['continuation', { resultType: 'bogus' }, 'CONTROL_RESULT_INVALID'],
+      ['unrelated', { resultType: 'complete', isError: true }, 'CONTROL_CONTINUATION_TOOL_ERROR'],
+      ['final', { isError: true }, 'CONTROL_CONTINUATION_TOOL_ERROR'],
+      ['final', null, 'CONTROL_RESULT_INVALID'],
+      ['final', undefined, 'CONTROL_RESULT_INVALID'],
+      ['final', [], 'CONTROL_RESULT_INVALID'],
+    ]) {
+      const calls: string[] = [];
+      const retries: { inputResponses: unknown; requestState?: string }[] = [];
+      const server = createServer((req, res) => {
+        const chunks: Buffer[] = [];
+        req.on('data', (chunk: Buffer) => chunks.push(chunk));
+        req.on('end', () => {
+          const message = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          let result;
+          if (message.method === 'tools/list') {
+            result = {
+              tools: [
+                'test_mrtr_echo_state',
+                'test_mrtr_unrelated',
+                'test_mrtr_no_state',
+                'test_mrtr_no_result_type',
+              ].map((name) => ({ name })),
+            };
+          } else {
+            calls.push(message.params.name);
+            if (message.params.inputResponses) {
+              retries.push(message.params);
+              result = stage === 'continuation' ? continuation : { resultType: 'complete' };
+            } else if (message.params.name === 'test_mrtr_unrelated')
+              result = stage === 'unrelated' ? continuation : { resultType: 'complete' };
+            else if (message.params.name === 'test_mrtr_no_result_type') result = continuation;
+            else
+              result = {
+                resultType: 'input_required',
+                inputRequests: { confirmation: { method: 'elicitation/create' } },
+                ...(message.params.name === 'test_mrtr_echo_state' ? { requestState: 'opaque-state' } : {}),
+              };
+          }
+          res
+            .writeHead(200, { 'content-type': 'application/json' })
+            .end(JSON.stringify({ jsonrpc: '2.0', id: message.id, result }));
+        });
+      });
+      await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+      try {
+        const address = server.address();
+        if (!address || typeof address === 'string') throw new Error('control-listen-failed');
+        await expect(module.runRequestStateControl(`http://127.0.0.1:${address.port}/mcp`)).rejects.toThrow(reason);
+        if (stage === 'continuation') {
+          expect(calls).toEqual(['test_mrtr_echo_state', 'test_mrtr_unrelated', 'test_mrtr_echo_state']);
+          expect(retries).toEqual([
+            {
+              name: 'test_mrtr_echo_state',
+              arguments: {},
+              inputResponses: { confirmation: { action: 'accept', content: { confirmed: true } } },
+              requestState: 'opaque-state',
+              _meta: expect.any(Object),
+            },
+          ]);
+        } else if (stage === 'unrelated') {
+          expect(calls).toEqual(['test_mrtr_echo_state', 'test_mrtr_unrelated']);
+        } else {
+          expect(calls.at(-1)).toBe('test_mrtr_no_result_type');
+          expect(retries).toHaveLength(2);
+        }
+      } finally {
+        await new Promise<void>((done, reject) => server.close((error) => (error ? reject(error) : done())));
+      }
+    }
+  });
 });

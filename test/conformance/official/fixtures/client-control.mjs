@@ -110,6 +110,16 @@ export async function runClientControl(endpoint, scenario) {
 
 // Mirrors the pinned suite's runMRTRClient: fulfill input_required and retry with
 // a fresh JSON-RPC id while keeping requestState scoped to that logical request.
+function assertCompleted(result) {
+  if (result === null) throw new Error('CONTROL_RESULT_INVALID');
+  if (typeof result !== 'object') throw new Error('CONTROL_RESULT_INVALID');
+  if (Array.isArray(result)) throw new Error('CONTROL_RESULT_INVALID');
+  if (result?.resultType === 'input_required') throw new Error('CONTROL_CONTINUATION_INCOMPLETE');
+  if (result?.isError === true) throw new Error('CONTROL_CONTINUATION_TOOL_ERROR');
+  if (result.resultType === undefined) return;
+  if (result.resultType !== 'complete') throw new Error('CONTROL_RESULT_INVALID');
+}
+
 export async function runRequestStateControl(endpoint) {
   const url = loopbackUrl(endpoint);
   let id = 0;
@@ -156,13 +166,14 @@ export async function runRequestStateControl(endpoint) {
       if (request.method !== 'elicitation/create') throw new Error('CONTROL_INPUT_METHOD_UNSUPPORTED');
       inputResponses[key] = { action: 'accept', content: { confirmed: true } };
     }
-    if (name === 'test_mrtr_echo_state') await call('test_mrtr_unrelated');
-    await call(name, {
+    if (name === 'test_mrtr_echo_state') assertCompleted(await call('test_mrtr_unrelated'));
+    const continued = await call(name, {
       inputResponses,
       ...(result.requestState !== undefined ? { requestState: result.requestState } : {}),
     });
+    assertCompleted(continued);
   }
-  await call('test_mrtr_no_result_type');
+  assertCompleted(await call('test_mrtr_no_result_type'));
   return {
     ok: true,
     phases: ['input-required', 'unrelated-isolated', 'fresh-id-retry', 'no-state-omitted', 'default-complete'],

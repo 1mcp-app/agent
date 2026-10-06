@@ -304,6 +304,11 @@ async function runOfficialConformanceClient(endpoint) {
 
 class FixtureSdkResultTypeError extends Error {}
 
+function assertCompleted(result) {
+  if (result?.resultType === 'input_required') throw new Error('CONTINUATION_INCOMPLETE');
+  if (result?.isError === true) throw new Error('CONTINUATION_TOOL_ERROR');
+}
+
 async function runSdkRequestState(client, callTool, toolName) {
   const call = async (name, continuation = {}) => {
     const resolved = toolName(name);
@@ -323,14 +328,15 @@ async function runSdkRequestState(client, callTool, toolName) {
       if (request.method !== 'elicitation/create') throw new Error('INPUT_METHOD_UNSUPPORTED');
       inputResponses[key] = { action: 'accept', content: { confirmed: true } };
     }
-    if (name === 'test_mrtr_echo_state') await callTool('test_mrtr_unrelated');
-    await call(name, {
+    if (name === 'test_mrtr_echo_state') assertCompleted(await callTool('test_mrtr_unrelated'));
+    const continued = await call(name, {
       inputResponses,
       ...(result.requestState !== undefined ? { requestState: result.requestState } : {}),
     });
+    assertCompleted(continued);
   }
   try {
-    await callTool('test_mrtr_no_result_type');
+    assertCompleted(await callTool('test_mrtr_no_result_type'));
   } catch (error) {
     if (error?.code === 'INVALID_RESULT' && error?.data?.violation === 'missing-resultType') {
       throw new FixtureSdkResultTypeError();
