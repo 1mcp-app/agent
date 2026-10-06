@@ -1,0 +1,42 @@
+--- everything-server.mjs
++++ everything-server.mjs
+@@ -1,5 +1,5 @@
+ // Mechanically transpiled from modelcontextprotocol/conformance at c321dd32035556e6769d3724a8ee97d87c3faaac.
+-// See provenance.json and LICENSE. No behavioral edits.
++// See provenance.json, fixture.patch, and LICENSE for bounded scenario corrections.
+ import {
+   McpServer,
+   ResourceTemplate
+@@ -904,6 +904,7 @@
+   );
+   mcpServer.server.setRequestHandler(
+     z.object({ method: z.literal("completion/complete") }).passthrough(),
++    // eslint-disable-next-line no-unused-vars -- retain the upstream handler signature
+     async (_request) => {
+       return {
+         completion: {
+@@ -1385,6 +1386,15 @@
+         });
+       }
+       if (name === "test_input_required_result_elicitation") {
++        if (inputResponses !== undefined) {
++          const parsed = z.record(z.string(), z.object({
++            action: z.enum(["accept", "decline", "cancel"]),
++            content: z.record(z.string(), z.unknown()).optional()
++          })).safeParse(inputResponses);
++          if (!parsed.success) {
++            return res.status(400).json({ jsonrpc: "2.0", id, error: { code: -32602, message: "Invalid inputResponses" } });
++          }
++        }
+         if (inputResponses?.["user_name"]) {
+           const userName = getMrtInputText(inputResponses["user_name"], "name");
+           return sendStatelessJson(res, method, {
+@@ -1868,7 +1878,7 @@
+           ResultSchema
+         );
+         for (const n of dispatch.drainNotifications()) write(n);
+-        write({ jsonrpc: "2.0", id, result });
++        write({ jsonrpc: "2.0", id, result: { ...result, resultType: "complete" } });
+       } catch (e) {
+         for (const n of dispatch.drainNotifications()) write(n);
+         write({
