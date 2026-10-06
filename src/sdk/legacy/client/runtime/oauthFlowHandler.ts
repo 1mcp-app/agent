@@ -93,8 +93,10 @@ export class OAuthFlowHandler {
       connectionTimeoutMs: getConnectionTimeout(newTransport),
     }));
 
+    const configuredOldTransport = oldTransport as AuthProviderTransport;
+    let reconnectTransport = newTransport;
+    let retainedProvider = configuredOldTransport.oauthProvider;
     try {
-      const configuredOldTransport = oldTransport as AuthProviderTransport;
       const callback =
         typeof authorizationCode === 'string' ? new URLSearchParams({ code: authorizationCode }) : authorizationCode;
       const finish = async () => {
@@ -114,7 +116,6 @@ export class OAuthFlowHandler {
       await provider.withAuthorizationCallback(callback, finish);
       await oldTransport.close();
 
-      let reconnectTransport = newTransport;
       if (configuredOldTransport.recreate) {
         await newTransport.close().catch(() => undefined);
         reconnectTransport = configuredOldTransport.recreate({ preserveSessionId: false });
@@ -145,6 +146,7 @@ export class OAuthFlowHandler {
         transportType: reconnectTransport.constructor.name,
         connectionTimeoutMs: timeout,
       }));
+      retainedProvider = reconnectTransport.oauthProvider;
       return updatedInfo;
     } catch (error) {
       logger.error('oauthFlowHandler.oauth.reconnection.failed.for.4dd2fa2f');
@@ -154,6 +156,17 @@ export class OAuthFlowHandler {
         error,
       }));
       throw error;
+    } finally {
+      // Closing an SDK transport does not stop its OAuth provider's storage
+      // initialization. Drain every discarded provider before returning, but
+      // preserve providers shared with the active connection (fallback mode).
+      const providers = new Set([
+        configuredOldTransport.oauthProvider,
+        newTransport.oauthProvider,
+        reconnectTransport.oauthProvider,
+      ]);
+      providers.delete(retainedProvider);
+      await Promise.allSettled(Array.from(providers, async (provider) => provider?.shutdown?.()));
     }
   }
 }
