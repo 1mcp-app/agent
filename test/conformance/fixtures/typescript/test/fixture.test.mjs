@@ -5,6 +5,8 @@ import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
+import { JSONRPCMessageSchema } from '@modelcontextprotocol/sdk/types.js';
+
 import test from 'node:test';
 
 const fixture = fileURLToPath(new URL('../src/fixture.mjs', import.meta.url));
@@ -324,6 +326,46 @@ async function stopServer(server) {
   const [code, signal] = await once(server.child, 'exit');
   assert.equal(code === 0 || signal === 'SIGTERM', true, server.errors.join(''));
 }
+
+test('a rejected modern probe is a pre-negotiation legacy peer error, not an accepted result', async (t) => {
+  const server = await startHttpServer('v1');
+  t.after(() => stopServer(server));
+  const response = await fetch(server.endpoint, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      accept: 'application/json, text/event-stream',
+      'mcp-protocol-version': '2026-07-28',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'server/discover',
+      params: { _meta: { 'io.modelcontextprotocol/protocolVersion': '2026-07-28' } },
+    }),
+  });
+  const envelope = await response.json();
+  assert.equal(response.status, 400);
+  assert.equal(envelope.id, null);
+  assert.equal(envelope.error.code, -32000);
+  assert.equal('result' in envelope, false);
+  // Keep the strict invalid-envelope verdict even when legacy fallback succeeds.
+  assert.equal(JSONRPCMessageSchema.safeParse(envelope).success, false);
+  const { output } = await runFixture([
+    'probe',
+    '--sdk-era',
+    'v2',
+    '--protocol-era',
+    'legacy',
+    '--transport',
+    'streamable-http',
+    '--endpoint',
+    server.endpoint,
+  ]);
+  assert.equal(output.ok, true);
+  assert.equal(output.operations.initialize, true);
+  assert.equal(output.operations.ping, true);
+});
 
 test('--self-check verifies exact package versions and required public exports', async () => {
   const { output } = await runFixture(['--self-check']);

@@ -7,6 +7,8 @@ import { serveStdio } from '@modelcontextprotocol/server/stdio';
 
 import { createServer as createHttpServer } from 'node:http';
 
+import { z } from 'zod';
+
 import { TOOL_NAME, TOOL_RESULT_SENTINEL } from '../constants.mjs';
 
 const legacyProtocolVersions = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07'];
@@ -24,9 +26,13 @@ export function createV2Server(protocolEra) {
       supportedProtocolVersions,
     },
   );
-  server.registerTool(TOOL_NAME, { description: 'Acknowledges a synthetic conformance request.' }, async () => ({
-    content: [{ type: 'text', text: TOOL_RESULT_SENTINEL }],
-  }));
+  server.registerTool(
+    TOOL_NAME,
+    { description: 'Acknowledges a synthetic conformance request.', inputSchema: { marker: z.string() } },
+    async () => ({
+      content: [{ type: 'text', text: TOOL_RESULT_SENTINEL }],
+    }),
+  );
   return server;
 }
 

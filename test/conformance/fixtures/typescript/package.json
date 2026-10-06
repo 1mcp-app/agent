@@ -13,7 +13,8 @@
     "@modelcontextprotocol/node": "2.0.0",
     "@modelcontextprotocol/sdk": "1.30.0",
     "@modelcontextprotocol/server": "2.0.0",
-    "@modelcontextprotocol/server-legacy": "2.0.0"
+    "@modelcontextprotocol/server-legacy": "2.0.0",
+    "zod": "4.4.3"
   },
   "engines": {
     "node": ">=20.19.0"

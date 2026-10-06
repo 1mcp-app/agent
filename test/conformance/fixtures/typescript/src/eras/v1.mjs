@@ -9,6 +9,8 @@ import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 
+import { z } from 'zod';
+
 import { TOOL_NAME, TOOL_RESULT_SENTINEL } from '../constants.mjs';
 
 class ConformanceClient extends Client {
@@ -29,9 +31,13 @@ class ConformanceClient extends Client {
 
 export function createV1Server() {
   const server = new McpServer({ name: '1mcp-conformance-v1', version: '1.0.0' });
-  server.registerTool(TOOL_NAME, { description: 'Acknowledges a synthetic conformance request.' }, async () => ({
-    content: [{ type: 'text', text: TOOL_RESULT_SENTINEL }],
-  }));
+  server.registerTool(
+    TOOL_NAME,
+    { description: 'Acknowledges a synthetic conformance request.', inputSchema: { marker: z.string() } },
+    async () => ({
+      content: [{ type: 'text', text: TOOL_RESULT_SENTINEL }],
+    }),
+  );
   return server;
 }
 
