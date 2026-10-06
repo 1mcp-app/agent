@@ -3,6 +3,31 @@ import { ConfigChangeHandler } from '@src/core/configChangeHandler.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('@src/core/notifications/notificationManager.js', () => ({
+  NotificationManager: vi.fn(function () {
+    return { handleCapabilityChanges: vi.fn() };
+  }),
+}));
+
+vi.mock('@src/core/capabilities/capabilityAggregator.js', () => ({
+  CapabilityAggregator: vi.fn(function () {
+    return {
+      updateCapabilities: vi.fn().mockResolvedValue({
+        hasChanges: true,
+        current: { tools: [], resources: [], prompts: [] },
+        addedServers: [],
+        removedServers: [],
+      }),
+    };
+  }),
+}));
+
+vi.mock('@src/core/server/agentConfig.js', () => ({
+  AgentConfigManager: {
+    getInstance: () => ({ get: () => ({ clientNotifications: true }) }),
+  },
+}));
+
 // Mock modules at top level to avoid hoisting issues
 vi.mock('@src/core/server/serverManager.js', () => ({
   ServerManager: {
@@ -262,34 +287,6 @@ describe('ConfigChangeHandler', () => {
       };
 
       mockConfigManager.getTransportConfig = vi.fn(() => newConfig);
-
-      // Mock the notification methods to avoid async complexity
-      const mockNotificationManager = {
-        handleCapabilityChanges: vi.fn(),
-      };
-
-      vi.mock('@src/core/notifications/notificationManager.js', () => ({
-        NotificationManager: vi.fn(() => mockNotificationManager),
-      }));
-
-      vi.mock('@src/core/capabilities/capabilityAggregator.js', () => ({
-        CapabilityAggregator: vi.fn().mockImplementation(() => ({
-          updateCapabilities: vi.fn().mockResolvedValue({
-            hasChanges: true,
-            current: { tools: [], resources: [], prompts: [] },
-            addedServers: [],
-            removedServers: [],
-          }),
-        })),
-      }));
-
-      vi.mock('@src/core/server/agentConfig.js', () => ({
-        AgentConfigManager: {
-          getInstance: () => ({
-            get: () => ({ clientNotifications: true }),
-          }),
-        },
-      }));
 
       // Simulate config change event
       const changeHandler = (mockConfigManager.on as any).mock.calls[0][1];
