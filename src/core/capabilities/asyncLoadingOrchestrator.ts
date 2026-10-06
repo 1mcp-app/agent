@@ -193,7 +193,13 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
       }));
 
       if (changes.hasChanges) {
-        logger.info('asyncLoadingOrchestrator.loading.cycle.complete.tools.resources.prompts.now.available.e121d7b3');
+        logger.info('asyncLoadingOrchestrator.loading.cycle.complete.tools.resources.prompts.now.available.e121d7b3', {
+          tools: changes.current.tools.length,
+          resources: changes.current.resources.length,
+          resourceTemplates: changes.current.resourceTemplates.length,
+          prompts: changes.current.prompts.length,
+          readyServerCount: changes.current.readyServers.length,
+        });
         this.emit(AsyncLoadingOrchestratorEvent.CapabilitySnapshotPublished, changes);
       } else {
         debugIf('asyncLoadingOrchestrator.loading.cycle.completed.with.no.capability.changes.8c5f89f2');
@@ -229,7 +235,13 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
 
     // Log the changes for visibility
 
-    logger.info('asyncLoadingOrchestrator.capability.update.complete.1b45dc6f');
+    logger.info('asyncLoadingOrchestrator.capability.update.complete.1b45dc6f', {
+      tools: changes.current.tools.length,
+      resources: changes.current.resources.length,
+      resourceTemplates: changes.current.resourceTemplates.length,
+      prompts: changes.current.prompts.length,
+      readyServerCount: changes.current.readyServers.length,
+    });
   }
 
   /**

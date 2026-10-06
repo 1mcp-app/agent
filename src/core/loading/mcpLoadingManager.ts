@@ -400,7 +400,11 @@ export class McpLoadingManager extends EventEmitter {
 
         // Success!
         this.stateTracker.updateServerState(name, LoadingState.Ready);
-        logger.info('mcpLoadingManager.successfully.loaded.mcp.server.retries.30f53981');
+        logger.info('mcpLoadingManager.successfully.loaded.mcp.server.retries.30f53981', {
+          serverName: name,
+          serverId: name,
+          retryCount,
+        });
         return;
       } catch (error) {
         // If the operation was cancelled, exit cleanly without marking Failed.
@@ -412,7 +416,7 @@ export class McpLoadingManager extends EventEmitter {
         lastError = sanitizeRuntimeScopeError(error);
         // Handle OAuth case specially
         if (lastError.name === 'OAuthRequiredError') {
-          logger.info('mcpLoadingManager.oauth.required.for.143d2b37');
+          logger.info('mcpLoadingManager.oauth.required.for.143d2b37', { serverName: name, serverId: name });
           const authorizationUrl = this.extractAuthorizationUrl(name, transport);
           this.stateTracker.updateServerState(name, LoadingState.AwaitingOAuth, {
             error: lastError,

@@ -558,7 +558,7 @@ export class ConfigManager extends EventEmitter {
     McpConfigManager.getInstance(this.loader.getConfigFilePath()).reloadConfig();
     this.loader.markRuntimeEnvObserved(runtimeEnvSignature);
 
-    logger.info('configManager.detected.configuration.changes.ffd1172b');
+    logger.info('configManager.detected.configuration.changes.ffd1172b', { changeCount: changes.length });
     writeLocalDiagnostic('info', 'config.reload.applied', () => ({
       source: this.loader.getConfigFilePath(),
       outcome: 'applied',

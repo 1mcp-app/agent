@@ -227,7 +227,9 @@ export class ServerManager {
    */
   private updateServerInstructions(): void {
     const inboundConns = this.connectionManager.getInboundConnections();
-    logger.info('serverManager.server.instructions.have.changed.active.sessions.1b5c23dd');
+    logger.info('serverManager.server.instructions.have.changed.active.sessions.1b5c23dd', {
+      activeSessionCount: inboundConns.size,
+    });
 
     for (const [sessionId, _inboundConn] of inboundConns) {
       try {

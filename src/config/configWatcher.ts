@@ -59,7 +59,9 @@ export class ConfigWatcher extends EventEmitter {
         this.startPolling({ closeWatcher: true });
       });
       this.startPolling();
-      logger.info('configWatcher.started.watching.configuration.directory.for.file.dfe83f83');
+      logger.info('configWatcher.started.watching.configuration.directory.for.file.dfe83f83', {
+        configFile: this.configFilePath,
+      });
     } catch (_error) {
       logger.error('configWatcher.startwatching.diagnostic.55a6d834', { error: _error });
       this.startPolling({ closeWatcher: true });

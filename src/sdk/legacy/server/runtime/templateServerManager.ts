@@ -573,14 +573,14 @@ export class TemplateServerManager {
         this.clientTemplateTracker.cleanupInstance(templateName, instanceId);
 
         cleanedUp++;
-        logger.info('templateServerManager.cleaned.up.idle.client.instance.e6d1bdd9');
+        logger.info('templateServerManager.cleaned.up.idle.client.instance.e6d1bdd9', { templateName, instanceId });
       } catch (error) {
         logger.warn('templateServerManager.failed.to.cleanup.idle.client.instance.3f56809c', { error: error });
       }
     }
 
     if (cleanedUp > 0) {
-      logger.info('templateServerManager.cleaned.up.idle.client.instances.dbdf5f7d');
+      logger.info('templateServerManager.cleaned.up.idle.client.instances.dbdf5f7d', { cleanedUpCount: cleanedUp });
     }
 
     return cleanedUp;
