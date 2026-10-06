@@ -39,6 +39,12 @@ describe('validateReleaseInputs', () => {
     });
   });
 
+  it.each(['latest', 'lite', 'v1', 'v1-lite', 'v12'])('rejects reserved prerelease channel %s', (channel) => {
+    expect(() =>
+      validateReleaseInputs({ targetRef: 'main', version: `1.2.3-${channel}.1`, tagExists: () => false }),
+    ).toThrow('reserved for stable');
+  });
+
   it('rejects invalid release channels without catastrophic backtracking', () => {
     const startedAt = Date.now();
 

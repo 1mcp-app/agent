@@ -140,7 +140,10 @@ function sidebar(): DefaultTheme.Sidebar {
       },
       {
         text: 'Development',
-        items: [{ text: 'Development Guide', link: '/guide/development' }],
+        items: [
+          { text: 'Development Guide', link: '/guide/development' },
+          { text: 'Owner Release and Recovery', link: '/guide/releasing' },
+        ],
       },
     ],
     '/commands/': [

@@ -22,10 +22,15 @@ on:
         description: Ref to check out for reusable CI runs.
         required: false
         type: string
+      release_gate:
+        description: Require decisive product conformance for a release candidate.
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ inputs.checkout_ref || github.ref }}
+  cancel-in-progress: ${{ !inputs.release_gate }}
 
 env:
   HUSKY: 0
@@ -61,6 +66,9 @@ jobs:
 
       - name: Validate static checks
         run: pnpm ci:static
+
+      - name: Test bounded release failure and recovery fixtures (no publication)
+        run: node --test test/release/*.test.cjs
 
       # AUTH-07 gate: credential-file permission invariants (0600 files / 0700
       # dirs, fail-closed read+write) as a named, separately inspectable step.
@@ -108,7 +116,7 @@ jobs:
   test-e2e-parallel:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: github.ref_type != 'tag'
+    if: inputs.release_gate || github.ref_type != 'tag'
     env:
       E2E_SHARD_COUNT: 4
     strategy:
@@ -164,7 +172,7 @@ jobs:
   test-e2e-system:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: github.ref_type != 'tag'
+    if: inputs.release_gate || github.ref_type != 'tag'
     permissions:
       contents: read
     steps:
@@ -196,7 +204,7 @@ jobs:
   test-conformance:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    if: github.ref_type != 'tag'
+    if: inputs.release_gate || github.ref_type != 'tag'
     permissions:
       contents: read
     steps:
@@ -233,13 +241,14 @@ jobs:
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Run no-retry conformance baseline and focused transports
-        run: pnpm test:conformance -- --reporter=minimal
+        run: pnpm test:conformance -- --mode "$CONFORMANCE_MODE" --reporter=minimal
         env:
           CI: true
           GITHUB_SHA: ${{ steps.conformance-source.outputs.sha }}
+          CONFORMANCE_MODE: ${{ inputs.release_gate && 'gate' || 'baseline' }}
 
       - name: Upload exact-source conformance evidence
-        if: success()
+        if: always()
         uses: actions/upload-artifact@v6
         with:
           name: conformance-${{ steps.conformance-source.outputs.sha }}
@@ -258,7 +267,7 @@ jobs:
   test-e2e-browser:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: github.ref_type != 'tag'
+    if: inputs.release_gate || github.ref_type != 'tag'
     container:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
       options: --ipc=host
@@ -369,4 +378,60 @@ jobs:
         with:
           name: windows-installer-pwsh-${{ github.sha }}
           path: .tmp/windows-installer-pwsh.xml
+          if-no-files-found: error
+
+  release-lifecycle:
+    if: inputs.release_gate
+    uses: ./.github/workflows/cooperative-runtime.yml
+    with:
+      checkout_ref: ${{ inputs.checkout_ref }}
+    permissions:
+      contents: read
+
+  release-result:
+    if: ${{ always() && inputs.release_gate }}
+    needs:
+      [
+        static,
+        unit-admin,
+        test-e2e-parallel,
+        test-e2e-system,
+        test-e2e-browser,
+        test-conformance,
+        test-legacy-upgrade,
+        test-windows-installer,
+        release-lifecycle,
+      ]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-pnpm
+      - uses: actions/download-artifact@v8
+        with:
+          name: conformance-${{ inputs.checkout_ref }}
+          path: conformance-evidence
+      - name: Require every applicable gate and exact-source product verdict
+        env:
+          CHECK_RESULTS: ${{ toJSON(needs) }}
+          RELEASE_SHA: ${{ inputs.checkout_ref }}
+        run: |
+          RELEASE_CONFORMANCE_DIR=conformance-evidence pnpm test:unit src/release/release-conformance-gate.test.ts
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const results = JSON.parse(process.env.CHECK_RESULTS);
+          if (Object.values(results).some(job => job.result !== 'success')) throw new Error('Release checks failed or skipped');
+          const baseline = JSON.parse(fs.readFileSync('conformance-evidence/conformance-baseline.json'));
+          if (baseline.sourceSha !== process.env.RELEASE_SHA || baseline.mode !== 'gate' || baseline.infrastructureVerdict !== 'green' || baseline.productVerdict !== 'green') throw new Error('Exact-source product conformance is not green');
+          fs.writeFileSync('release-gates.json', JSON.stringify({ sha: process.env.RELEASE_SHA, ci: 'success', infrastructureVerdict: baseline.infrastructureVerdict, productVerdict: baseline.productVerdict, checks: results }) + '\n');
+          NODE
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-gates
+          path: release-gates.json
+          retention-days: 30
           if-no-files-found: error

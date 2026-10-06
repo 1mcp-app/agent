@@ -23,7 +23,7 @@ on:
 
 concurrency:
   group: binaries-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   HUSKY: 0
@@ -96,6 +96,14 @@ jobs:
           ref: ${{ inputs.release_sha || format('refs/heads/{0}', inputs.release_ref || 'main') }}
           persist-credentials: false
 
+      - name: Check candidate source and version
+        if: inputs.release_sha != ''
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          VERSION: ${{ inputs.version }}
+        run: node scripts/release-artifacts.cjs candidate
+
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node-pnpm
 
@@ -124,6 +132,19 @@ jobs:
           .\scripts\test-binary-windows.ps1 -BinaryPath ".\1mcp.exe" -Platform "$env:PLATFORM"
         shell: powershell
 
+      - name: Verify exact candidate binary version
+        if: inputs.version != ''
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          binary=./1mcp
+          if [[ "$PLATFORM" == win32-* ]]; then binary=./1mcp.exe; fi
+          observed=$("$binary" --version)
+          test "$observed" = "$VERSION"
+
       - name: Rename binary for platform-specific archive
         env:
           ARTIFACT_NAME: ${{ matrix.artifact }}
@@ -139,6 +160,15 @@ jobs:
       - name: Create compressed archive
         run: pnpm archive
 
+      - name: Record tested archive identity
+        if: inputs.release_sha != ''
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          VERSION: ${{ inputs.version }}
+          ARTIFACT_KIND: sea-${{ matrix.platform }}
+        run: node scripts/release-artifacts.cjs record .
+
       - name: Upload compressed archive artifact
         uses: actions/upload-artifact@v7
         with:
@@ -146,5 +176,6 @@ jobs:
           path: |
             *.tar.gz
             *.zip
+            sea-*.json
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 30

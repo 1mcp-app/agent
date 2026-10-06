@@ -29,7 +29,7 @@ on:
         type: boolean
 concurrency:
   group: docker-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   docker:
@@ -127,28 +127,6 @@ jobs:
           ref: ${{ inputs.release_sha }}
           persist-credentials: false
 
-      - name: Resolve Docker raw tag
-        id: raw-tag
-        env:
-          IS_PRERELEASE: ${{ inputs.is_prerelease }}
-          DOCKER_RAW_TAG: ${{ inputs.docker_raw_tag }}
-          MATRIX_RAW_TAG: ${{ matrix.raw_tag }}
-        run: |
-          set -euo pipefail
-
-          if [[ "$IS_PRERELEASE" == "true" ]]; then
-            if [[ "$MATRIX_RAW_TAG" == "latest" ]]; then
-              echo "docker_tag=${DOCKER_RAW_TAG}" >> "$GITHUB_OUTPUT"
-              echo "publish_raw_tag=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "docker_tag=${MATRIX_RAW_TAG}" >> "$GITHUB_OUTPUT"
-              echo "publish_raw_tag=false" >> "$GITHUB_OUTPUT"
-            fi
-          else
-            echo "docker_tag=${MATRIX_RAW_TAG}" >> "$GITHUB_OUTPUT"
-            echo "publish_raw_tag=true" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Log in to the Container registry
         uses: docker/login-action@v4
         with:
@@ -162,10 +140,16 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=raw,value=${{ steps.raw-tag.outputs.docker_tag }},enable=${{ steps.raw-tag.outputs.publish_raw_tag == 'true' }}
-            type=semver,pattern=v{{version}}${{ matrix.suffix }},value=${{ inputs.version_tag }}
-            type=semver,pattern=v{{major}}.{{minor}}${{ matrix.suffix }},value=${{ inputs.version_tag }},enable=${{ !inputs.is_prerelease }}
-            type=semver,pattern=v{{major}}${{ matrix.suffix }},value=${{ inputs.version_tag }},enable=${{ !inputs.is_prerelease }}
+            type=raw,value=${{ inputs.version_tag }}${{ matrix.suffix }}
+          labels: |
+            org.opencontainers.image.revision=${{ inputs.release_sha }}
+            org.opencontainers.image.version=${{ inputs.version }}
+
+      - name: Check candidate source and version
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          VERSION: ${{ inputs.version }}
+        run: node scripts/release-artifacts.cjs candidate
 
       - name: Read Node.js version
         id: node-version
@@ -191,89 +175,29 @@ jobs:
           provenance: false
           sbom: false
 
-      - name: Export Docker build metadata
+      - name: Smoke the retained platform digest
         env:
-          META_TAGS: ${{ steps.meta.outputs.tags }}
+          IMAGE: ghcr.io/${{ github.repository }}
           BUILD_DIGEST: ${{ steps.build.outputs.digest }}
-          TARGET: ${{ matrix.target }}
-          PLATFORM_NAME: ${{ matrix.platform_name }}
+          VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          mkdir -p "docker-metadata/$TARGET/tags" "docker-metadata/$TARGET/digests"
-          printf '%s\n' "$META_TAGS" > "docker-metadata/$TARGET/tags/$PLATFORM_NAME.txt"
-          digest="$BUILD_DIGEST"
-          touch "docker-metadata/$TARGET/digests/${digest#sha256:}"
+          docker pull "$IMAGE@$BUILD_DIGEST"
+          observed=$(docker run --rm "$IMAGE@$BUILD_DIGEST" node index.js --version)
+          test "$observed" = "$VERSION"
+
+      - name: Export tested Docker identity
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          VERSION: ${{ inputs.version }}
+          BUILD_DIGEST: ${{ steps.build.outputs.digest }}
+          ARTIFACT_KIND: oci-${{ matrix.target }}-${{ matrix.platform_name }}
+        run: node scripts/release-artifacts.cjs record-digest docker-metadata
 
       - name: Upload Docker metadata
         uses: actions/upload-artifact@v7
         with:
           name: docker-${{ matrix.target }}-${{ matrix.platform_name }}
-          path: docker-metadata/${{ matrix.target }}
-          if-no-files-found: error
-          retention-days: 1
-
-  docker-manifest:
-    name: docker manifest (${{ matrix.target }})
-    runs-on: ubuntu-latest
-    needs: docker
-    environment: release
-    permissions:
-      contents: read
-      packages: write
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: basic
-          - target: extended
-
-    steps:
-      - name: Download Docker metadata
-        uses: actions/download-artifact@v8
-        with:
-          pattern: docker-${{ matrix.target }}-*
           path: docker-metadata
-          merge-multiple: true
-
-      - name: Log in to the Container registry
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Create multi-platform Docker manifests
-        env:
-          IMAGE: ghcr.io/${{ github.repository }}
-          TARGET: ${{ matrix.target }}
-        run: |
-          set -euo pipefail
-
-          mapfile -t tags < <(cat docker-metadata/tags/*.txt | sort -u)
-          if (( ${#tags[@]} == 0 )); then
-            echo "::error::No Docker tags were produced for $TARGET"
-            exit 1
-          fi
-
-          mapfile -t digests < <(find docker-metadata/digests -maxdepth 1 -type f -print | sort)
-          if (( ${#digests[@]} == 0 )); then
-            echo "::error::No Docker digests were produced for $TARGET"
-            exit 1
-          fi
-
-          sources=()
-          for digest_file in "${digests[@]}"; do
-            digest="$(basename "$digest_file")"
-            sources+=("${IMAGE}@sha256:${digest}")
-          done
-
-          tag_args=()
-          for tag in "${tags[@]}"; do
-            tag_args+=("--tag" "$tag")
-          done
-
-          docker buildx imagetools create "${tag_args[@]}" "${sources[@]}"
+          if-no-files-found: error
+          retention-days: 30

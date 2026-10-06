@@ -92,6 +92,10 @@ function validateReleaseInputs({ targetRef, version, tagExists = defaultTagExist
     throw new Error('prerelease channel must start with a letter so it can be used as an npm dist-tag.');
   }
 
+  if (releaseChannel === 'latest' || releaseChannel === 'lite' || /^v[0-9]+(?:-lite)?$/.test(releaseChannel || '')) {
+    throw new Error('prerelease channel is reserved for stable release aliases.');
+  }
+
   if (targetRef !== 'main' && targetRef !== expectedReleaseBranch) {
     const releaseType = isPrerelease ? 'Prerelease' : 'Stable';
     throw new Error(`${releaseType} release ${version} must run from main or ${expectedReleaseBranch}.`);
@@ -127,7 +131,11 @@ if (require.main === module) {
   }
 
   try {
-    const outputs = validateReleaseInputs({ targetRef, version });
+    const outputs = validateReleaseInputs({
+      targetRef,
+      version,
+      ...(process.env.RECOVERY_RUN_ID ? { tagExists: () => false } : {}),
+    });
     const githubOutput = process.env.GITHUB_OUTPUT;
 
     if (githubOutput) {
