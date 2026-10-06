@@ -190,6 +190,8 @@ describe('OAuthFlowHandler', () => {
     });
 
     it('should complete OAuth and reconnect successfully', async () => {
+      const shutdown = vi.fn();
+      (mockTransport as unknown as AuthProviderTransport).oauthProvider!.shutdown = shutdown;
       (mockClient.connect as unknown as MockInstance).mockResolvedValue(undefined);
       (mockClient.getServerCapabilities as unknown as MockInstance).mockReturnValue({
         tools: {},
@@ -219,6 +221,7 @@ describe('OAuthFlowHandler', () => {
       expect(result.capabilities).toEqual({ tools: {}, resources: {} });
       expect(result.instructions).toBe('test instructions');
       expect(result.lastError).toBeUndefined();
+      expect(shutdown).not.toHaveBeenCalled();
     });
 
     it.each([ModernStreamableHTTPClientTransport, ModernSSEClientTransport])(
@@ -345,216 +348,6 @@ describe('OAuthFlowHandler', () => {
       expect(mockClient.connect).not.toHaveBeenCalled();
     });
 
-    it('awaits discarded provider shutdown before publishing a recreated connection', async () => {
-      let releaseShutdown!: () => void;
-      let signalShutdown!: () => void;
-      const shutdownStarted = new Promise<string>((resolve) => {
-        signalShutdown = () => resolve('shutdown');
-      });
-      const shutdownGate = new Promise<void>((resolve) => {
-        releaseShutdown = resolve;
-      });
-      const shutdown = vi.fn(async () => {
-        signalShutdown();
-        await shutdownGate;
-      });
-      const prebuiltTransport = {
-        close: vi.fn().mockResolvedValue(undefined),
-        oauthProvider: { shutdown },
-      } as unknown as AuthProviderTransport;
-      const authenticatedTransport = {
-        close: vi.fn().mockResolvedValue(undefined),
-      } as unknown as AuthProviderTransport;
-      (mockTransport as unknown as AuthProviderTransport).recreate = vi.fn(() => authenticatedTransport);
-      const complete = oauthFlowHandler.completeOAuthAndReconnect(
-        'test-server',
-        mockTransport as never,
-        prebuiltTransport,
-        'auth-code',
-        existingConnection,
-      );
-      try {
-        expect(await Promise.race([shutdownStarted, complete.then(() => 'completed')])).toBe('shutdown');
-        expect(mockClient.connect).not.toHaveBeenCalled();
-        expect(prebuiltTransport.close).toHaveBeenCalledOnce();
-      } finally {
-        releaseShutdown();
-        await complete;
-      }
-      expect(shutdown).toHaveBeenCalledOnce();
-      expect(mockClient.connect).toHaveBeenCalledWith(authenticatedTransport, undefined);
-    });
-
-    it.each(['old', 'replacement'] as const)(
-      'retains a discarded transport provider shared with the %s connection',
-      async (sharedWith) => {
-        const shutdown = vi.fn().mockResolvedValue(undefined);
-        const originalProvider = (mockTransport as unknown as AuthProviderTransport).oauthProvider!;
-        Object.assign(originalProvider, { shutdown });
-        const replacementProvider = { shutdown: vi.fn().mockResolvedValue(undefined) };
-        const prebuiltTransport = {
-          close: vi.fn().mockResolvedValue(undefined),
-          oauthProvider: sharedWith === 'old' ? originalProvider : replacementProvider,
-        } as unknown as AuthProviderTransport;
-        const authenticatedTransport = {
-          close: vi.fn().mockResolvedValue(undefined),
-          oauthProvider: replacementProvider,
-        } as unknown as AuthProviderTransport;
-        (mockTransport as unknown as AuthProviderTransport).recreate = vi.fn(() => authenticatedTransport);
-        const result = await oauthFlowHandler.completeOAuthAndReconnect(
-          'test-server',
-          mockTransport as never,
-          prebuiltTransport,
-          'auth-code',
-          existingConnection,
-        );
-        expect(getLegacyTransport(result)).toBe(authenticatedTransport);
-        expect(prebuiltTransport.close).toHaveBeenCalledOnce();
-        expect(authenticatedTransport.close).not.toHaveBeenCalled();
-        expect(shutdown).not.toHaveBeenCalled();
-        expect(replacementProvider.shutdown).not.toHaveBeenCalled();
-      },
-    );
-
-    it.each(['callback', 'recreate', 'connect'] as const)(
-      'disposes unpublished candidates after a %s failure',
-      async (phase) => {
-        const error = new Error(`Failed ${phase}`);
-        const originalProvider = (mockTransport as unknown as AuthProviderTransport).oauthProvider!;
-        Object.assign(originalProvider, { shutdown: vi.fn().mockResolvedValue(undefined) });
-        const prebuiltTransport = {
-          close: vi.fn().mockResolvedValue(undefined),
-          oauthProvider: { shutdown: vi.fn().mockResolvedValue(undefined) },
-        } as unknown as AuthProviderTransport;
-        const authenticatedTransport = {
-          close: vi.fn().mockResolvedValue(undefined),
-          oauthProvider: { shutdown: vi.fn().mockResolvedValue(undefined) },
-        } as unknown as AuthProviderTransport;
-        (mockTransport as unknown as AuthProviderTransport).recreate = vi.fn(() => {
-          if (phase === 'recreate') throw error;
-          return authenticatedTransport;
-        });
-        if (phase === 'callback') vi.mocked(originalProvider.withAuthorizationCallback).mockRejectedValueOnce(error);
-        if (phase === 'connect') vi.mocked(mockClient.connect!).mockRejectedValueOnce(error);
-        await expect(
-          oauthFlowHandler.completeOAuthAndReconnect(
-            'test-server',
-            mockTransport as never,
-            prebuiltTransport,
-            'auth-code',
-            existingConnection,
-          ),
-        ).rejects.toBe(error);
-        expect(prebuiltTransport.close).toHaveBeenCalledOnce();
-        expect(prebuiltTransport.oauthProvider!.shutdown).toHaveBeenCalledOnce();
-        expect(originalProvider.shutdown).not.toHaveBeenCalled();
-        if (phase === 'connect') {
-          expect(authenticatedTransport.close).toHaveBeenCalledOnce();
-          expect(authenticatedTransport.oauthProvider!.shutdown).toHaveBeenCalledOnce();
-        } else {
-          expect(authenticatedTransport.close).not.toHaveBeenCalled();
-          expect(authenticatedTransport.oauthProvider!.shutdown).not.toHaveBeenCalled();
-        }
-      },
-    );
-
-    it('awaits provider cleanup after candidate close failure and preserves the callback error', async () => {
-      const callbackError = new Error('callback failed');
-      const originalProvider = (mockTransport as unknown as AuthProviderTransport).oauthProvider!;
-      vi.mocked(originalProvider.withAuthorizationCallback).mockRejectedValueOnce(callbackError);
-      const candidate = {
-        close: vi.fn().mockRejectedValue(new Error('close failed')),
-        oauthProvider: { shutdown: vi.fn().mockResolvedValue(undefined) },
-      } as unknown as AuthProviderTransport;
-      await expect(
-        oauthFlowHandler.completeOAuthAndReconnect(
-          'test-server',
-          mockTransport as never,
-          candidate,
-          'auth-code',
-          existingConnection,
-        ),
-      ).rejects.toBe(callbackError);
-      expect(candidate.oauthProvider!.shutdown).toHaveBeenCalledOnce();
-    });
-
-    it('does not dispose a borrowed old transport or provider on callback failure', async () => {
-      const error = new Error('callback failed');
-      const transport = mockTransport as unknown as AuthProviderTransport;
-      Object.assign(transport.oauthProvider!, { shutdown: vi.fn() });
-      vi.mocked(transport.oauthProvider!.withAuthorizationCallback).mockRejectedValueOnce(error);
-      await expect(
-        oauthFlowHandler.completeOAuthAndReconnect(
-          'test-server',
-          transport,
-          transport,
-          'auth-code',
-          existingConnection,
-        ),
-      ).rejects.toBe(error);
-      expect(transport.close).not.toHaveBeenCalled();
-      expect(transport.oauthProvider!.shutdown).not.toHaveBeenCalled();
-    });
-
-    it('disposes a reused candidate exactly once when reconnect fails', async () => {
-      const error = new Error('connect failed');
-      const candidate = {
-        close: vi.fn().mockResolvedValue(undefined),
-        oauthProvider: { shutdown: vi.fn().mockResolvedValue(undefined) },
-      } as unknown as AuthProviderTransport;
-      (mockTransport as unknown as AuthProviderTransport).recreate = vi.fn(() => candidate);
-      vi.mocked(mockClient.connect!).mockRejectedValueOnce(error);
-      await expect(
-        oauthFlowHandler.completeOAuthAndReconnect(
-          'test-server',
-          mockTransport as never,
-          candidate,
-          'auth-code',
-          existingConnection,
-        ),
-      ).rejects.toBe(error);
-      expect(candidate.close).toHaveBeenCalledOnce();
-      expect(candidate.oauthProvider!.shutdown).toHaveBeenCalledOnce();
-    });
-
-    it('preserves the callback failure when owned provider shutdown also fails', async () => {
-      const error = new Error('callback failed');
-      const candidate = {
-        close: vi.fn().mockResolvedValue(undefined),
-        oauthProvider: { shutdown: vi.fn().mockRejectedValue(new Error('shutdown failed')) },
-      } as unknown as AuthProviderTransport;
-      vi.mocked(
-        (mockTransport as unknown as AuthProviderTransport).oauthProvider!.withAuthorizationCallback,
-      ).mockRejectedValueOnce(error);
-      await expect(
-        oauthFlowHandler.completeOAuthAndReconnect(
-          'test-server',
-          mockTransport as never,
-          candidate,
-          'auth-code',
-          existingConnection,
-        ),
-      ).rejects.toBe(error);
-      expect(candidate.oauthProvider!.shutdown).toHaveBeenCalledOnce();
-      expect(logger.warn).toHaveBeenCalledWith('oauthFlowHandler.oauth.reconnection.failed.for.4dd2fa2f', {
-        error: 'candidate-provider-shutdown',
-      });
-    });
-
-    it('disposes an owned provisional transport when the old transport cannot support OAuth', async () => {
-      const candidate = {
-        close: vi.fn().mockResolvedValue(undefined),
-        oauthProvider: { shutdown: vi.fn().mockResolvedValue(undefined) },
-      } as unknown as AuthProviderTransport;
-      const old = { close: vi.fn() } as unknown as AuthProviderTransport;
-      await expect(
-        oauthFlowHandler.completeOAuthAndReconnect('test-server', old, candidate, 'auth-code', existingConnection),
-      ).rejects.toThrow('does not support OAuth');
-      expect(candidate.close).toHaveBeenCalledOnce();
-      expect(candidate.oauthProvider!.shutdown).toHaveBeenCalledOnce();
-      expect(old.close).not.toHaveBeenCalled();
-    });
-
     it('recreates from durable OAuth state only after the callback exchange', async () => {
       const order: string[] = [];
       const prebuiltTransport = {
@@ -588,10 +381,62 @@ describe('OAuthFlowHandler', () => {
         existingConnection,
       );
 
-      expect(order).toEqual(['finish-auth', 'recreate', 'discard-prebuilt', 'connect']);
+      expect(order).toEqual(['finish-auth', 'discard-prebuilt', 'recreate', 'connect']);
       expect(getLegacyTransport(result)).toBe(authenticatedTransport);
       expect(recreate).toHaveBeenCalledExactlyOnceWith({ preserveSessionId: false });
     });
+
+    it.each(['success', 'callback-failure', 'connect-failure'] as const)(
+      'drains discarded OAuth providers on %s while retaining the active provider',
+      async (outcome) => {
+        let releaseShutdown!: () => void;
+        const shutdownGate = new Promise<void>((resolve) => {
+          releaseShutdown = resolve;
+        });
+        const oldShutdown = vi.fn(() => shutdownGate);
+        const prebuiltShutdown = vi.fn(() => shutdownGate);
+        const authenticatedShutdown = vi.fn(() => shutdownGate);
+        const old = mockTransport as unknown as AuthProviderTransport;
+        old.oauthProvider!.shutdown = oldShutdown;
+        const prebuilt = {
+          close: vi.fn().mockResolvedValue(undefined),
+          oauthProvider: { shutdown: prebuiltShutdown },
+        } as unknown as AuthProviderTransport;
+        const authenticated = {
+          close: vi.fn().mockResolvedValue(undefined),
+          oauthProvider: { shutdown: authenticatedShutdown },
+        } as unknown as AuthProviderTransport;
+        old.recreate = vi.fn(() => authenticated);
+        const failure = new Error('reconnect failed');
+        if (outcome === 'callback-failure') {
+          vi.mocked(old.oauthProvider!.withAuthorizationCallback).mockRejectedValueOnce(failure);
+        }
+        if (outcome === 'connect-failure') {
+          vi.mocked(mockClient.connect!).mockRejectedValueOnce(failure);
+        }
+        let settled = false;
+        const reconnect = oauthFlowHandler
+          .completeOAuthAndReconnect('test-server', old, prebuilt, 'auth-code', existingConnection)
+          .then(
+            (connection) => ({ connection, error: undefined }),
+            (error: unknown) => ({ connection: undefined, error }),
+          )
+          .finally(() => {
+            settled = true;
+          });
+        try {
+          await vi.waitFor(() => expect(prebuiltShutdown).toHaveBeenCalledExactlyOnceWith());
+          expect(settled).toBe(false);
+          expect(oldShutdown).toHaveBeenCalledTimes(outcome === 'success' ? 1 : 0);
+          expect(authenticatedShutdown).toHaveBeenCalledTimes(outcome === 'connect-failure' ? 1 : 0);
+        } finally {
+          releaseShutdown();
+        }
+        const result = await reconnect;
+        if (outcome === 'success') expect(getLegacyTransport(result.connection!)).toBe(authenticated);
+        else expect(result.error).toBe(failure);
+      },
+    );
 
     it('should handle SSE transport', async () => {
       const mockSseTransport = {

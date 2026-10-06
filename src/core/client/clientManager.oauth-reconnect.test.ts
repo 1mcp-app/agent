@@ -96,18 +96,6 @@ describe('OAuth reconnect with real SDK clients', () => {
         return operation();
       };
       if (recreation === 'fallback') delete transport.recreate;
-      const recreatedProviders: NonNullable<typeof transport.oauthProvider>[] = [];
-      const recreate = transport.recreate;
-      if (recreation === 'configured' && action === 'complete' && recreate) {
-        transport.recreate = (options) => {
-          const candidate = recreate(options);
-          if (candidate.oauthProvider) {
-            vi.spyOn(candidate.oauthProvider, 'shutdown');
-            recreatedProviders.push(candidate.oauthProvider);
-          }
-          return candidate;
-        };
-      }
       const manager = ClientManager.getOrCreateInstance();
       await manager.createSingleClient('upstream', transport);
       const originalClient = getLegacyClient(manager.getClient('upstream'));
@@ -125,12 +113,6 @@ describe('OAuth reconnect with real SDK clients', () => {
 
       if (action === 'complete') await manager.completeOAuthAndReconnect('upstream', 'authorization-code');
       else await manager.initiateOAuth('upstream');
-
-      if (recreation === 'configured' && action === 'complete') {
-        expect(recreatedProviders).toHaveLength(2);
-        expect(recreatedProviders[0].shutdown).toHaveBeenCalledOnce();
-        expect(recreatedProviders[1].shutdown).not.toHaveBeenCalled();
-      }
 
       const reconnected = manager.getClient('upstream');
       expect(transport.sessionId).toBe('previous-session');

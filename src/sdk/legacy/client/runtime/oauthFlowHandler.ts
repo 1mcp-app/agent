@@ -77,40 +77,26 @@ export class OAuthFlowHandler {
     authorizationCode: string | URLSearchParams,
     existingConnection: LegacyOutboundConnection,
   ): Promise<LegacyOutboundConnection> {
-    const candidates = new Set([newTransport]);
-    const stoppedProviders = new Set<NonNullable<AuthProviderTransport['oauthProvider']>>();
-    const disposeCandidate = async (transport: AuthProviderTransport, retained: readonly AuthProviderTransport[]) => {
-      if (retained.includes(transport)) return;
-      candidates.delete(transport);
-      await transport.close().catch(() => {
-        logger.warn('oauthFlowHandler.oauth.reconnection.failed.for.4dd2fa2f', { error: 'candidate-transport-close' });
-      });
-      const provider = transport.oauthProvider;
-      if (!provider) return;
-      if (retained.some((connection) => connection.oauthProvider === provider)) return;
-      if (stoppedProviders.has(provider)) return;
-      stoppedProviders.add(provider);
-      await provider.shutdown?.();
-    };
+    if (
+      !(oldTransport instanceof StreamableHTTPClientTransport) &&
+      !(oldTransport instanceof SSEClientTransport) &&
+      !(oldTransport instanceof ModernStreamableHTTPClientTransport) &&
+      !(oldTransport instanceof ModernSSEClientTransport)
+    ) {
+      throw new Error(`Transport for ${name} does not support OAuth (requires HTTP or SSE transport)`);
+    }
 
+    logger.info('oauthFlowHandler.completing.oauth.and.reconnecting.053f0a15');
+    writeLocalDiagnostic('info', 'oauth.reconnection.started', () => ({
+      serverName: diagnosticServerName(name),
+      transportType: newTransport.constructor.name,
+      connectionTimeoutMs: getConnectionTimeout(newTransport),
+    }));
+
+    const configuredOldTransport = oldTransport as AuthProviderTransport;
+    let reconnectTransport = newTransport;
+    let retainedProvider = configuredOldTransport.oauthProvider;
     try {
-      if (
-        !(oldTransport instanceof StreamableHTTPClientTransport) &&
-        !(oldTransport instanceof SSEClientTransport) &&
-        !(oldTransport instanceof ModernStreamableHTTPClientTransport) &&
-        !(oldTransport instanceof ModernSSEClientTransport)
-      ) {
-        throw new Error(`Transport for ${name} does not support OAuth (requires HTTP or SSE transport)`);
-      }
-
-      logger.info('oauthFlowHandler.completing.oauth.and.reconnecting.053f0a15');
-      writeLocalDiagnostic('info', 'oauth.reconnection.started', () => ({
-        serverName: diagnosticServerName(name),
-        transportType: newTransport.constructor.name,
-        connectionTimeoutMs: getConnectionTimeout(newTransport),
-      }));
-
-      const configuredOldTransport = oldTransport as AuthProviderTransport;
       const callback =
         typeof authorizationCode === 'string' ? new URLSearchParams({ code: authorizationCode }) : authorizationCode;
       const finish = async () => {
@@ -130,11 +116,9 @@ export class OAuthFlowHandler {
       await provider.withAuthorizationCallback(callback, finish);
       await oldTransport.close();
 
-      let reconnectTransport = newTransport;
       if (configuredOldTransport.recreate) {
+        await newTransport.close().catch(() => undefined);
         reconnectTransport = configuredOldTransport.recreate({ preserveSessionId: false });
-        candidates.add(reconnectTransport);
-        await disposeCandidate(newTransport, [oldTransport, reconnectTransport]);
       }
       const newClient = this.createClientForOAuth(reconnectTransport);
       const timeout = getConnectionTimeout(reconnectTransport);
@@ -162,18 +146,9 @@ export class OAuthFlowHandler {
         transportType: reconnectTransport.constructor.name,
         connectionTimeoutMs: timeout,
       }));
+      retainedProvider = reconnectTransport.oauthProvider;
       return updatedInfo;
     } catch (error) {
-      const cleanup = await Promise.allSettled(
-        [...candidates].map((transport) => disposeCandidate(transport, [oldTransport])),
-      );
-      for (const result of cleanup) {
-        if (result.status === 'rejected') {
-          logger.warn('oauthFlowHandler.oauth.reconnection.failed.for.4dd2fa2f', {
-            error: 'candidate-provider-shutdown',
-          });
-        }
-      }
       logger.error('oauthFlowHandler.oauth.reconnection.failed.for.4dd2fa2f');
       writeLocalDiagnostic('error', 'oauth.reconnection.failed', () => ({
         serverName: diagnosticServerName(name),
@@ -181,6 +156,17 @@ export class OAuthFlowHandler {
         error,
       }));
       throw error;
+    } finally {
+      // Closing an SDK transport does not stop its OAuth provider's storage
+      // initialization. Drain every discarded provider before returning, but
+      // preserve providers shared with the active connection (fallback mode).
+      const providers = new Set([
+        configuredOldTransport.oauthProvider,
+        newTransport.oauthProvider,
+        reconnectTransport.oauthProvider,
+      ]);
+      providers.delete(retainedProvider);
+      await Promise.allSettled(Array.from(providers, async (provider) => provider?.shutdown?.()));
     }
   }
 }
