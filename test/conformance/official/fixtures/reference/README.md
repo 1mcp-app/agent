@@ -35,6 +35,8 @@ source SHA256 to `sourceSha256`. Retain the upstream `LICENSE` verbatim.
 The patch corrects two reference-example defects: draft SSE tool results need
 the same `resultType: "complete"` discriminant as JSON tool results, and malformed
 elicitation `inputResponses` must be rejected before returning complete results.
+It also binds the fixture listener explicitly to `127.0.0.1` so local controls
+do not expose their synthetic server on other interfaces.
 It does not activate tasks or implement the excluded draft header scenarios.
 
 Run controls on Node 24, matching CI. Node 26.4.0 triggers an unhandled rejection

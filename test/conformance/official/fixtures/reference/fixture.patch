@@ -40,3 +40,12 @@
        } catch (e) {
          for (const n of dispatch.drainNotifications()) write(n);
          write({
+@@ -2039,7 +2049,7 @@
+   }
+ });
+ const PORT = process.env.PORT || 3e3;
+-app.listen(PORT, () => {
++app.listen(PORT, "127.0.0.1", () => {
+   console.log(
+     `MCP Conformance Test Server running on http://localhost:${PORT}`
+   );

@@ -2049,7 +2049,7 @@ app.delete("/mcp", async (req, res) => {
   }
 });
 const PORT = process.env.PORT || 3e3;
-app.listen(PORT, () => {
+app.listen(PORT, "127.0.0.1", () => {
   console.log(
     `MCP Conformance Test Server running on http://localhost:${PORT}`
   );
