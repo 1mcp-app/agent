@@ -114,6 +114,17 @@ async function startConformanceMock(protocolVersion, options = {}) {
           ...(protocolVersion === '2026-07-28' ? { resultType: 'complete' } : {}),
           content: [{ type: 'text', text: 'synthetic-result' }],
         };
+        if (
+          options.requestState &&
+          ['test_mrtr_echo_state', 'test_mrtr_no_state'].includes(message.params.name) &&
+          !message.params.inputResponses
+        ) {
+          result = {
+            resultType: 'input_required',
+            inputRequests: { confirmation: { method: 'elicitation/create', params: {} } },
+            ...(message.params.name === 'test_mrtr_echo_state' ? { requestState: 'opaque-state' } : {}),
+          };
+        }
       } else if (message.method === 'resources/list') {
         result = {
           ...(protocolVersion === '2026-07-28' ? { resultType: 'complete', ttlMs: 0, cacheScope: 'private' } : {}),
@@ -262,14 +273,31 @@ test('official request-state and legacy extension dispatch call every advertised
   ];
   const modern = await startConformanceMock('2026-07-28', {
     tools: requestStateTools.map((name) => ({ name, inputSchema: { type: 'object' } })),
+    requestState: true,
   });
   t.after(() => modern.close());
   const modernResult = await runOfficialClient(modern.endpoint, 'sep-2322-client-request-state', '2026-07-28');
   assert.equal(modernResult.code, 0, modernResult.stderr);
   assert.deepEqual(
     modern.requests.filter(({ message }) => message.method === 'tools/call').map(({ message }) => message.params.name),
-    requestStateTools,
+    [
+      'test_mrtr_echo_state',
+      'test_mrtr_unrelated',
+      'test_mrtr_echo_state',
+      'test_mrtr_no_state',
+      'test_mrtr_no_state',
+      'test_mrtr_no_result_type',
+    ],
   );
+  const calls = modern.requests.filter(({ message }) => message.method === 'tools/call');
+  assert.notEqual(calls[0].message.id, calls[2].message.id);
+  assert.equal(calls[2].message.params.requestState, 'opaque-state');
+  assert.deepEqual(calls[2].message.params.inputResponses, {
+    confirmation: { action: 'accept', content: { confirmed: true } },
+  });
+  assert.equal('requestState' in calls[1].message.params, false);
+  assert.equal('inputResponses' in calls[1].message.params, false);
+  assert.equal('requestState' in calls[4].message.params, false);
 
   const legacy = await startConformanceMock('2025-11-25', {
     tools: [{ name: 'test_client_elicitation_defaults', inputSchema: { type: 'object' } }],

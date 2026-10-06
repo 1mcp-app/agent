@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
 
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+
 import { officialClientScenarioFamily } from '../../../foundation/officialClientScenarioCatalog.mjs';
+import { runRequestStateControl } from '../../../official/fixtures/client-control.mjs';
 import { PROFILES, TOOL_INPUT_SENTINEL, TOOL_NAME } from './constants.mjs';
 import { createV1Client, createV1ClientTransport, serveV1Http, serveV1Stdio } from './eras/v1.mjs';
 import { createV2Client, createV2ClientTransport, serveV2Http, serveV2Stdio } from './eras/v2.mjs';
@@ -232,7 +236,7 @@ async function runOfficialConformanceClient(endpoint) {
   if (!context || typeof context !== 'object' || Array.isArray(context)) throw new Error('INVALID_CONTEXT');
   const serverEndpoint = requireLoopbackEndpoint(endpoint);
 
-  const client = modern ? createV2Client('modern', { roots: {}, sampling: {}, elicitation: {} }) : createV1Client();
+  const client = createOfficialClient(modern, family);
   const transport = modern
     ? createV2ClientTransport('streamable-http', { endpoint: serverEndpoint })
     : createV1ClientTransport('streamable-http', { endpoint: serverEndpoint });
@@ -285,14 +289,7 @@ async function runOfficialConformanceClient(endpoint) {
         await attempt(() => client.getPrompt({ name: prompts.prompts[0].name }));
       }
     } else if (family === 'request-state') {
-      for (const name of [
-        'test_mrtr_echo_state',
-        'test_mrtr_no_state',
-        'test_mrtr_unrelated',
-        'test_mrtr_no_result_type',
-      ]) {
-        await attempt(() => callTool(name));
-      }
+      await attempt(() => runRequestStateControl(serverEndpoint));
     } else if (family === 'schema' && scenario === 'json-schema-2020-12-preservation') {
       const focal = listed?.tools.find(
         (tool) => tool.name === 'json_schema_2020_12_tool' || tool.name.endsWith('_1mcp_json_schema_2020_12_tool'),
@@ -304,6 +301,19 @@ async function runOfficialConformanceClient(endpoint) {
   } finally {
     await client.close();
   }
+}
+
+function createOfficialClient(modern, family) {
+  if (modern) return createV2Client('modern', { roots: {}, sampling: {}, elicitation: {} });
+  if (family !== 'elicitation') return createV1Client();
+  const client = new Client(
+    { name: '1mcp-conformance-client-v1', version: '1.0.0' },
+    {
+      capabilities: { elicitation: { form: { applyDefaults: true } } },
+    },
+  );
+  client.setRequestHandler(ElicitRequestSchema, async () => ({ action: 'accept', content: {} }));
+  return client;
 }
 
 async function main() {
