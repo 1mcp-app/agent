@@ -6,6 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { serveCommand, ServeOptions } from './serve.js';
 
+vi.mock('@src/auth/storage/upstreamOAuthStorage.js', () => ({
+  activateUpstreamOAuthStore: vi.fn().mockResolvedValue(undefined),
+}));
+
 // Mock dependencies
 vi.mock('@src/logger/configureGlobalLogger.js');
 vi.mock('@src/config/configManager.js', () => ({

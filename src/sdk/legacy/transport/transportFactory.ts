@@ -6,10 +6,10 @@ import { StdioClientTransport as ModernStdioClientTransport } from '@modelcontex
 
 import type { EventEmitter } from 'node:events';
 import type { Readable } from 'node:stream';
-import path from 'path';
 
 import { oauthConfigurationFingerprint } from '@src/auth/oauthAuthority.js';
 import { OAuthClientConfig, SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
+import { resolveUpstreamOAuthStorageBaseDir } from '@src/auth/storage/upstreamOAuthStoragePath.js';
 import { processEnvironment, substituteEnvVars } from '@src/config/envProcessor.js';
 import { getRuntimeParentEnvironment } from '@src/config/runtimeBootstrap.js';
 import { getRuntimeScopeEnvironment, sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
@@ -86,16 +86,7 @@ function createOAuthProvider(name: string, validatedTransport: ValidatedTranspor
     ...validatedTransport.oauth,
   };
 
-  // Derive client session storage path from server session storage path
-  // This ensures config-dir isolation applies to client sessions as well
-  let clientSessionPath: string | undefined;
-  const serverSessionPath = configManager.get('auth').sessionStoragePath;
-  if (serverSessionPath) {
-    // If server uses custom session path, derive client path from the same parent
-    // e.g., if server uses '.tmp-test/sessions', client uses '.tmp-test/clientSessions'
-    const parentDir = path.dirname(serverSessionPath);
-    clientSessionPath = path.join(parentDir, 'clientSessions');
-  }
+  const clientSessionPath = resolveUpstreamOAuthStorageBaseDir(configManager.get('auth').sessionStoragePath);
 
   const configuredAuthority = validatedTransport.oauth?.credentialAuthority;
   const source = configuredAuthority ?? name;

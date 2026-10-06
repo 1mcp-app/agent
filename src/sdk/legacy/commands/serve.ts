@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 
+import { activateUpstreamOAuthStore } from '@src/auth/storage/upstreamOAuthStorage.js';
+import { resolveUpstreamOAuthStorageBaseDir } from '@src/auth/storage/upstreamOAuthStoragePath.js';
 import { resolveAsyncLoadingOptions } from '@src/commands/serve/asyncLoadingOptions.js';
 import { resolveServeConfigPaths } from '@src/commands/serve/runtimeScope.js';
 import { describeServeLifecycleFailure } from '@src/commands/serve/serveLifecycleError.js';
@@ -79,6 +81,7 @@ export interface ServeOptions {
   'enable-enhanced-security'?: boolean;
   'session-ttl'?: number;
   'session-storage-path'?: string;
+  'credential-store'?: 'file' | 'native';
   'rate-limit-window'?: number;
   'rate-limit-max'?: number;
   'trust-proxy'?: string;
@@ -493,6 +496,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       sessionStoragePath = path.join(runtimeScope, 'sessions');
     }
 
+    const credentialStore = parsedArgv['credential-store'] ?? appConfig.auth?.credentialStore ?? 'file';
     const internalToolsList = parseInternalToolsList(parsedArgv['internal-tools']);
     warnForLegacyLazyLoadingOptions(parsedArgv);
     const directExpose = parseCommaSeparatedList(parsedArgv['lazy-direct-expose']);
@@ -540,6 +544,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         cleanupIntervalMs: appConfig.templateSettings?.pool?.cleanupInterval ?? 30000,
       },
       auth: {
+        credentialStore,
         enabled: authEnabled,
         sessionTtlMinutes,
         sessionStoragePath,
@@ -598,6 +603,12 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         persistIntervalMinutes: parsedArgv['session-persist-interval'],
         backgroundFlushSeconds: parsedArgv['session-background-flush'],
       },
+    });
+
+    await activateUpstreamOAuthStore({
+      baseDir: resolveUpstreamOAuthStorageBaseDir(sessionStoragePath),
+      mode: credentialStore,
+      runtimeScope,
     });
 
     if (effectiveTransport !== 'stdio') {

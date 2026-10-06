@@ -318,6 +318,33 @@ OAuth 元数据、注册和令牌响应的大小上限为 1 MiB，总耗时上�
 
 访问令牌可以是不透明令牌。1MCP 将令牌交换和资源指示符绑定到经过验证的授权主体，不会解码任意令牌声明并声称已验证其签名。受保护资源仍负责访问令牌的密码学验证。
 
+### 上游 OAuth 原生凭据存储
+
+文件存储仍为默认值。要将上游 OAuth 秘密放入系统凭据库，请在 `config.toml` 中设置以下内容，然后重启对应的 Runtime Scope：
+
+```toml
+[auth]
+credentialStore = "native"
+```
+
+`--credential-store native` 或 `ONE_MCP_CREDENTIAL_STORE=native` 会覆盖当前进程的文件设置。此选项作用于整个 Runtime Scope，并在启动时捕获；修改设置不会切换正在运行的实例。入站 OAuth 凭据和 Admin 会话不在此功能范围内。
+
+将对应平台的 [Docker credential helper](https://github.com/docker/docker-credential-helpers/releases) 安装到运行时可信的可执行文件搜索路径：
+
+| 平台    | 必需 helper                       | 前提                                                                  |
+| ------- | --------------------------------- | --------------------------------------------------------------------- |
+| macOS   | `docker-credential-osxkeychain`   | 可访问且已解锁的 Keychain                                             |
+| Windows | `docker-credential-wincred.exe`   | 运行账号能够访问 Credential Manager                                   |
+| Linux   | `docker-credential-secretservice` | 用户 D-Bus 会话，以及已解锁的 Secret Service 集合，例如 GNOME Keyring |
+
+无需安装 Docker 本身。npm 和独立二进制均需要这些外部 helper，1MCP 不会自动安装。无桌面服务和容器需要显式提供可访问的 Secret Service 会话。helper 缺失、凭据库锁定、访问被拒绝、响应格式错误或持久化失败时，上游 OAuth 会被阻止并给出可操作的错误；不会自动回退到明文，无关后端仍可使用。
+
+native 模式启动时会保护现有上游记录，包括令牌和注册数据、待完成授权的 PKCE，以及受管理的旧凭据隔离/回滚记录。只有验证原生存储目标后才清理明文来源。中断的迁移会保留恢复引用并报告未完成；解锁凭据库并重启后可继续。未绑定的旧凭据仍需重新授权，移动它们不会建立授权身份。存储身份保留 Runtime Scope 与配置的上游授权主体隔离。不同 Runtime Scope 不能共享同一上游凭据目录；启动时会拒绝此配置。
+
+切回 `file` 需要重启并重新登录上游，不会静默导出原生秘密，也不会复用迁移残留。要有意执行反向迁移，先停止运行时，再使用 [auth export-upstream-credentials](/zh/commands/auth#auth-export-upstream-credentials)。命令会显示当前布局与旧布局的明文目标目录并要求确认。重复导出会保护较新的凭据，并报告未完成的清理。
+
+成功迁移会删除受管理的明文副本及恢复残留，但不会安全擦除历史备份、外部副本、文件系统快照或已删除的磁盘块；这些需要单独保护和处理。系统凭据库改善静态存储，但不能全面防御以相同系统用户身份运行的任意代码。
+
 ### 服务器过滤
 
 控制运行时暴露哪些后端 MCP 服务器。

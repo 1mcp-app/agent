@@ -60,6 +60,29 @@ describe('setupServeCommand', () => {
     expect(serveCommandMock).not.toHaveBeenCalled();
   });
 
+  it('accepts native storage without overriding omitted configuration', async () => {
+    await setupServeCommand(yargs([]).exitProcess(false).help(false).version(false)).parseAsync([
+      'serve',
+      '--credential-store',
+      'native',
+    ]);
+    expect(serveCommandMock).toHaveBeenCalledWith(expect.objectContaining({ 'credential-store': 'native' }));
+    vi.clearAllMocks();
+    await setupServeCommand(yargs([]).exitProcess(false).help(false).version(false)).parseAsync(['serve']);
+    expect(serveCommandMock.mock.calls[0]?.[0]).not.toHaveProperty('credential-store');
+  });
+
+  it('rejects unsupported credential backends before startup', () => {
+    expect(() =>
+      setupServeCommand(yargs([]).exitProcess(false).showHelpOnFail(false).help(false).version(false)).parseSync([
+        'serve',
+        '--credential-store',
+        'vault',
+      ]),
+    ).toThrow('Invalid values');
+    expect(serveCommandMock).not.toHaveBeenCalled();
+  });
+
   it('passes the CLI transport through when explicitly provided', async () => {
     await setupServeCommand(yargs([]).exitProcess(false).help(false).version(false)).parseAsync([
       'serve',

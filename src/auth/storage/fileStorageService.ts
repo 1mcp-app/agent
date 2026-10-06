@@ -42,7 +42,7 @@ export class FileStorageService {
   private storageDir: string;
   private cleanupInterval: ReturnType<typeof setInterval> | null = null;
 
-  constructor(baseDir?: string, subDir?: string) {
+  constructor(baseDir?: string, subDir?: string, options: { manageLifecycle?: boolean } = {}) {
     const configDir = baseDir || getGlobalConfigDir();
     const sessionsDir = AUTH_CONFIG.SERVER.STORAGE.DIR;
 
@@ -50,8 +50,10 @@ export class FileStorageService {
     this.storageDir = subDir ? path.join(configDir, sessionsDir, subDir) : path.join(configDir, sessionsDir);
 
     this.ensureDirectory();
-    this.migrateOldFilesIfNeeded();
-    this.startPeriodicCleanup();
+    if (options.manageLifecycle !== false) {
+      this.migrateOldFilesIfNeeded();
+      this.startPeriodicCleanup();
+    }
   }
 
   /**

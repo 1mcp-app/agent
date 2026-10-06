@@ -324,6 +324,33 @@ OAuth metadata, registration, and token responses are limited to 1 MiB and ten s
 
 Access tokens may be opaque. 1MCP binds the token exchange and Resource Indicator to validated authority; it does not decode arbitrary token claims and claim to verify their signatures. The protected resource remains responsible for cryptographic access-token validation.
 
+### Native upstream OAuth credential storage
+
+File storage remains the default. To move upstream OAuth secrets to the OS credential store, set this in `config.toml` and restart the selected Runtime Scope:
+
+```toml
+[auth]
+credentialStore = "native"
+```
+
+`--credential-store native` or `ONE_MCP_CREDENTIAL_STORE=native` overrides the file setting for the process. The setting applies to the whole Runtime Scope and is captured at startup; editing it does not switch an active runtime. It does not change inbound OAuth credentials or Admin sessions.
+
+Install the platform's [Docker credential helper](https://github.com/docker/docker-credential-helpers/releases) on the runtime's trusted executable search path:
+
+| Platform | Required helper                   | Prerequisites                                                                         |
+| -------- | --------------------------------- | ------------------------------------------------------------------------------------- |
+| macOS    | `docker-credential-osxkeychain`   | An accessible, unlocked Keychain                                                      |
+| Windows  | `docker-credential-wincred.exe`   | Credential Manager access for the runtime account                                     |
+| Linux    | `docker-credential-secretservice` | A user D-Bus session and an unlocked Secret Service collection, such as GNOME Keyring |
+
+Docker itself is not required. These external helpers are required for both npm and standalone installations; 1MCP does not install them automatically. Headless services and containers must supply an accessible Secret Service session explicitly. Missing helpers, locked stores, denied operations, malformed responses, or failed persistence block upstream OAuth access with an actionable error. There is no automatic plaintext fallback; unrelated backends remain usable.
+
+On native startup, 1MCP protects existing upstream records, including token and registration data, pending PKCE attempts, and managed legacy quarantine/rollback records. It verifies the native destination before cleaning the plaintext source. Interrupted migration retains recovery references, remains incomplete, and can resume after the store is unlocked and the runtime restarted. Unbound legacy credentials still require authorization; moving them does not establish authority. Storage identities preserve Runtime Scope and configured upstream authority isolation. Different Runtime Scopes cannot share the same upstream credential directory; startup rejects that configuration.
+
+Switching to `file` requires restart and fresh upstream login. It does not silently export native secrets or reuse leftover migration sources. For deliberate reverse migration, stop the runtime and use [auth export-upstream-credentials](/commands/auth#auth-export-upstream-credentials), which displays both current-layout and legacy-layout plaintext destinations and requires confirmation. Repeated export preserves newer credentials and reports unfinished cleanup.
+
+Successful migration removes managed plaintext copies, including managed recovery remnants; it does not securely erase historical backups, external copies, filesystem snapshots, or deleted disk blocks. Review and protect those separately. OS storage improves at-rest handling but is not a universal defense against arbitrary code running as the same OS user.
+
 ### Server Filtering
 
 Control which backend MCP servers the runtime exposes.

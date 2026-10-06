@@ -109,6 +109,11 @@ export const serverOptions = {
     describe: 'Enable authentication (OAuth 2.1) - deprecated, use --enable-auth',
     type: 'boolean' as const,
   },
+  'credential-store': {
+    describe: 'Upstream OAuth secret storage (file or native OS store); restart required',
+    type: 'string' as const,
+    choices: ['file', 'native'] as const,
+  },
   'enable-auth': {
     describe: 'Enable authentication (OAuth 2.1)',
     type: 'boolean' as const,

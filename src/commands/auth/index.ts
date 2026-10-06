@@ -84,7 +84,27 @@ export function setupAuthCommands(yargs: Argv): Argv {
             await runCliCommand(argv as Parameters<typeof authLogoutCommand>[0], authLogoutCommand);
           },
         )
-        .demandCommand(1, 'Specify a subcommand: login, status, or logout');
+        .command(
+          'export-upstream-credentials',
+          'Explicitly export native upstream OAuth credentials to plaintext files in a stopped local Runtime Scope',
+          (sub) =>
+            sub
+              .options(globalOptions || {})
+              .option('session-storage-path', { type: 'string', describe: 'Session storage base used by the runtime' })
+              .option('confirm-plaintext-export', {
+                type: 'boolean',
+                default: false,
+                describe: 'Confirm writing secrets to the displayed plaintext destination without a prompt',
+              }),
+          async (argv) => {
+            const { exportUpstreamCredentialsCommand } = await import('./exportUpstreamCredentials.js');
+            await runCliCommand(
+              argv as Parameters<typeof exportUpstreamCredentialsCommand>[0],
+              exportUpstreamCredentialsCommand,
+            );
+          },
+        )
+        .demandCommand(1, 'Specify a subcommand: login, status, logout, or export-upstream-credentials');
     },
   );
 }

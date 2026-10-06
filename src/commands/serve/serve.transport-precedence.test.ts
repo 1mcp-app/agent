@@ -235,6 +235,7 @@ describe('serveCommand - config-dir session isolation', () => {
           logLevel: 'debug',
           logFile: '/tmp/1mcp.log',
           auth: {
+            credentialStore: 'native',
             enabled: true,
             sessionTtl: 60,
             rateLimitWindow: 2,
@@ -302,6 +303,7 @@ describe('serveCommand - config-dir session isolation', () => {
           port: 4180,
           trustProxy: 'uniquelocal',
           auth: expect.objectContaining({
+            credentialStore: 'native',
             enabled: true,
             sessionTtlMinutes: 60,
             oauthTokenTtlMs: 60 * 60 * 1000,

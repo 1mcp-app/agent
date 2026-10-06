@@ -80,6 +80,7 @@ describe('AgentConfigManager', () => {
           cleanupIntervalMs: 30000,
         },
         auth: {
+          credentialStore: 'file',
           enabled: false,
           sessionTtlMinutes: 1440,
           oauthCodeTtlMs: 60000,
