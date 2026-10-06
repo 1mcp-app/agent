@@ -121,6 +121,7 @@ const FOUNDATION_ARTIFACTS = [
   { id: 'legacy-server-adapter', path: 'src/sdk/legacy/server/runtime/legacySdkServerAdapter.ts' },
   { id: 'sdk-topology-runtime', path: 'scripts/sdk-boundary/topology.mjs' },
   { id: 'official-client-bridge', path: 'test/conformance/foundation/officialClientBridge.mjs' },
+  { id: 'official-client-direct-fixture', path: 'test/conformance/official/fixtures/client-control.mjs' },
   { id: 'official-client-scenario-catalog', path: 'test/conformance/foundation/officialClientScenarioCatalog.mjs' },
   { id: 'typescript-manifest', path: 'test/conformance/fixtures/typescript/package.json' },
   { id: 'typescript-lock', path: 'test/conformance/fixtures/typescript/pnpm-lock.yaml' },
