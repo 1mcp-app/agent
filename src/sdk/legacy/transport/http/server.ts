@@ -32,7 +32,7 @@ import logger from '@src/logger/logger.js';
 import { mcpAuthRouter } from '@src/sdk/legacy/server/auth/router.js';
 import { createModernInboundLegacyBridge } from '@src/sdk/legacy/transport/http/modernInboundLegacyBridge.js';
 import errorHandler from '@src/transport/http/middlewares/errorHandler.js';
-import { httpRequestLogger } from '@src/transport/http/middlewares/httpRequestLogger.js';
+import { httpRequestBodyLogger, httpRequestLogger } from '@src/transport/http/middlewares/httpRequestLogger.js';
 import { createMcpAvailabilityMiddleware } from '@src/transport/http/middlewares/mcpAvailabilityMiddleware.js';
 import { createScopeAuthMiddleware } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
 import { setupSecurityMiddleware } from '@src/transport/http/middlewares/securityMiddleware.js';
@@ -358,6 +358,7 @@ export class ExpressServer {
     );
     this.app.use(bodyParser.json());
     this.app.use(bodyParser.urlencoded({ extended: true }));
+    this.app.use(httpRequestBodyLogger);
 
     // Add error handling middleware
     this.app.use(errorHandler);

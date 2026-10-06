@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 
 import { TokenEstimationService } from '@src/application/services/tokenEstimationService.js';
 import {
+  isConfiguredToolSnapshotComplete,
   publishCompleteConfiguredToolInspection,
   readCompleteConfiguredToolTargetSnapshot,
   readConfiguredToolSnapshot,
@@ -87,6 +88,7 @@ export async function createConfiguredToolInventory(input: {
   const toolsByName = new Map<string, { tool: Tool; instances: Set<string>; live: boolean }>();
   const canUseLiveSnapshots = input.inspection?.status !== 'failed' && input.inspection?.status !== 'unavailable';
   const currentInstanceSnapshots = (canUseLiveSnapshots ? matchingConnections : [])
+    .filter(([, connection]) => isConfiguredToolSnapshotComplete(connection))
     .map(([instanceId, connection]) => ({ instanceId, connection, tools: readConfiguredToolSnapshot(connection) }))
     .filter(
       (instance): instance is { instanceId: string; connection: OutboundConnection; tools: readonly Tool[] } =>
@@ -99,6 +101,13 @@ export async function createConfiguredToolInventory(input: {
       const existing = toolsByName.get(tool.name);
       if (existing) existing.instances.add(instanceId);
       else toolsByName.set(tool.name, { tool, instances: new Set([instanceId]), live: true });
+    }
+  }
+  // Retained connection observations remain inspectable even before any admin target inspection.
+  for (const [, connection] of matchingConnections) {
+    if (isConfiguredToolSnapshotComplete(connection)) continue;
+    for (const tool of readConfiguredToolSnapshot(connection) ?? []) {
+      if (!toolsByName.has(tool.name)) toolsByName.set(tool.name, { tool, instances: new Set(), live: false });
     }
   }
   // Passive construction promotes a fully observed current set into retained state.

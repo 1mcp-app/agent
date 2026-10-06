@@ -2,11 +2,16 @@ import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.
 import { TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { OutboundConnections } from '@src/core/types/index.js';
 import { gatewayFailureFromUnknown } from '@src/gateway/contracts/gatewayFailure.js';
+import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import logger, { errorIf } from '@src/logger/logger.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
 import { zodToInputSchema, zodToOutputSchema } from '@src/utils/schemaUtils.js';
 
-import { CapabilityCatalog, type CapabilityCatalogQueryOptions } from './capabilityCatalog.js';
+import {
+  CapabilityCatalog,
+  type CapabilityCatalogDependencies,
+  type CapabilityCatalogQueryOptions,
+} from './capabilityCatalog.js';
 import type { CapabilityVisibility } from './capabilityVisibility.js';
 import { SchemaCache } from './schemaCache.js';
 import {
@@ -97,6 +102,7 @@ export class MetaToolProvider {
     loadSchema?: SchemaLoader,
     defaultVisibility?: CapabilityVisibility,
     templateHashProvider?: TemplateHashProvider,
+    private readonly refreshCapabilities?: CapabilityCatalogDependencies['refreshCapabilities'],
   ) {
     this.getToolRegistry = getToolRegistry;
     this.schemaCache = schemaCache;
@@ -112,6 +118,7 @@ export class MetaToolProvider {
       defaultVisibility,
       templateHashProvider,
       getServerConfigs: getConfiguredServerTargets,
+      refreshCapabilities: this.refreshCapabilities,
     });
   }
 
@@ -128,6 +135,7 @@ export class MetaToolProvider {
       defaultVisibility: visibility,
       templateHashProvider: this.templateHashProvider,
       getServerConfigs: getConfiguredServerTargets,
+      refreshCapabilities: this.refreshCapabilities,
     });
   }
 
@@ -148,11 +156,17 @@ export class MetaToolProvider {
     signal?: AbortSignal,
     toolRegistry?: ToolRegistry,
   ): Promise<ListToolsResult | DescribeToolResult | CallToolResult> {
-    const query = { signal, toolRegistry };
+    const query: CapabilityCatalogQueryOptions = { signal, ...(toolRegistry ? { toolRegistry } : {}) };
     switch (name) {
       case 'tool_list': {
         const parsed = ToolListInputSchema.safeParse(args);
         if (!parsed.success) {
+          writeLocalDiagnostic('warn', 'tool.meta-validation-failed', {
+            requestedTool: name,
+            phase: 'meta_input_validation',
+            outcome: 'validation_failed',
+            error: parsed.error,
+          });
           return {
             tools: [],
             totalCount: 0,
@@ -169,6 +183,12 @@ export class MetaToolProvider {
       case 'tool_schema': {
         const parsed = ToolSchemaInputSchema.safeParse(args);
         if (!parsed.success) {
+          writeLocalDiagnostic('warn', 'tool.meta-validation-failed', {
+            requestedTool: name,
+            phase: 'meta_input_validation',
+            outcome: 'validation_failed',
+            error: parsed.error,
+          });
           return {
             schema: {},
             error: {
@@ -182,6 +202,12 @@ export class MetaToolProvider {
       case 'tool_invoke': {
         const parsed = ToolInvokeInputSchema.safeParse(args);
         if (!parsed.success) {
+          writeLocalDiagnostic('warn', 'tool.meta-validation-failed', {
+            requestedTool: name,
+            phase: 'meta_input_validation',
+            outcome: 'validation_failed',
+            error: parsed.error,
+          });
           return {
             result: {},
             server: '',
@@ -229,7 +255,12 @@ export class MetaToolProvider {
     query: CapabilityCatalogQueryOptions = {},
   ): Promise<ListToolsResult> {
     try {
-      const result = await this.capabilityCatalog.listVisibleTools(args, visibility, query);
+      const needsRecovery =
+        !args.cursor && !query.toolRegistry && (await this.capabilityCatalog.requiresToolListingRecovery(visibility));
+      const result = await this.capabilityCatalog.listVisibleTools(args, visibility, {
+        ...query,
+        ...(needsRecovery ? { refreshIntent: 'force' as const } : {}),
+      });
 
       // Format tools for response
       const tools = result.tools.map((tool: ToolMetadata) => ({
@@ -249,6 +280,7 @@ export class MetaToolProvider {
         servers,
         hasMore: result.hasMore,
         ...(result.nextCursor ? { nextCursor: result.nextCursor } : {}),
+        ...(result._meta ? { _meta: result._meta } : {}),
       };
 
       return response;
@@ -336,6 +368,7 @@ export class MetaToolProvider {
     visibility?: CapabilityVisibility,
     query: CapabilityCatalogQueryOptions = {},
   ): Promise<CallToolResult> {
+    const startedAt = performance.now();
     try {
       const result = await this.capabilityCatalog.invokeVisibleTool(args, visibility, query);
       if (result.error) {
@@ -355,6 +388,15 @@ export class MetaToolProvider {
     } catch (error) {
       const failure = gatewayFailureFromUnknown(error, 'transport');
       logger.error('metaToolProvider.meta.tool.invocation.failed.aaeb1f9d', { error: error });
+      writeLocalDiagnostic('warn', 'tool.meta-failed', {
+        requestedTool: 'tool_invoke',
+        server: args.server,
+        tool: args.toolName,
+        outcome: query.signal?.aborted ? 'cancelled' : 'failed',
+        durationMs: performance.now() - startedAt,
+        error,
+      });
+      writeLocalDiagnostic('debug', 'tool.meta-failure-details', () => ({ error }));
 
       return {
         result: {},

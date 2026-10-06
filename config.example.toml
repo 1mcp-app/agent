@@ -1,0 +1,22 @@
+# Copy to config.toml in the selected 1MCP configuration directory.
+# Backend MCP servers belong in mcp.json, not this file.
+# CLI flags and ONE_MCP_* environment variables override these runtime settings.
+
+[auth]
+# Upstream OAuth credential storage: "file" (default) or "native".
+credentialStore = "file"
+# Native storage requires restart and the platform helper on PATH:
+# macOS: docker-credential-osxkeychain (unlocked Keychain)
+# Windows: docker-credential-wincred.exe (Credential Manager access)
+# Linux: docker-credential-secretservice (user D-Bus and unlocked Secret Service)
+# Docker Engine is not required. Native storage fails closed; no plaintext fallback.
+# Native startup migrates existing upstream credentials after verifying persistence.
+# This setting does not change inbound OAuth credentials or Admin sessions.
+# Returning to file storage requires restart and fresh upstream authorization, or
+# a stopped-runtime `1mcp auth export-upstream-credentials` with explicit confirmation.
+# See https://docs.1mcp.app/guide/essentials/configuration
+
+[asyncLoading]
+enabled = true
+batchNotifications = true
+batchDelay = 250

@@ -183,7 +183,7 @@ describe('PresetNotificationService', () => {
       expect(logger.warn).toHaveBeenCalledWith(
         'presetNotificationService.attempted.to.update.preset.for.unknown.client.802e49d3',
         {
-        clientId: 'non-existent',
+          clientId: 'non-existent',
         },
       );
     });

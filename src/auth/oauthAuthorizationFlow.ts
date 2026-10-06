@@ -1,4 +1,5 @@
 import { AUTH_CONFIG } from '@src/constants.js';
+import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import logger from '@src/logger/logger.js';
 import type { LegacySdkAdapter } from '@src/sdk/contracts/index.js';
 import { tagsToScopes, validateScopes } from '@src/utils/validation/scopeValidation.js';
@@ -355,9 +356,19 @@ export function createOAuthAuthorizationFlow(dependencies: OAuthAuthorizationFlo
 
     async completeBackendOAuthCallback(input: BackendOAuthCallbackInput): Promise<CompleteBackendOAuthCallbackResult> {
       if (!input.state) {
+        writeLocalDiagnostic('warn', 'oauth.callback.rejected', {
+          serverName: input.serverName,
+          stage: 'validate_state',
+          reason: 'missing_state',
+        });
         return { status: 'callback_failed', errorDescription: 'Invalid or expired OAuth authorization attempt' };
       }
       if (!dependencies.clientRuntime) {
+        writeLocalDiagnostic('warn', 'oauth.callback.rejected', {
+          serverName: input.serverName,
+          stage: 'runtime',
+          reason: 'runtime_unavailable',
+        });
         return { status: 'runtime_unavailable', errorDescription: 'Backend OAuth runtime is unavailable' };
       }
       const response = new URLSearchParams({ state: input.state });
@@ -365,13 +376,26 @@ export function createOAuthAuthorizationFlow(dependencies: OAuthAuthorizationFlo
       if (input.error !== undefined) response.set('error', input.error);
       if (input.iss !== undefined) response.set('iss', input.iss);
       if (input.redirectUri !== undefined) response.set('redirect_uri', input.redirectUri);
+      const startedAt = Date.now();
       try {
         await dependencies.clientRuntime.completeOAuthAndReconnect(input.serverName, response);
         dependencies.loadingRuntime?.markReady(input.serverName);
+        writeLocalDiagnostic('info', 'oauth.callback.completed', {
+          serverName: input.serverName,
+          stage: 'reconnected',
+          durationMs: Date.now() - startedAt,
+        });
         const adminReturnOrigin = dependencies.clientRuntime.getOAuthReturn?.(input.serverName, input.state);
         return { status: 'completed', ...(adminReturnOrigin ? { adminReturnOrigin } : {}) };
       } catch (error) {
         logger.error('oauthAuthorizationFlow.oauth.callback.completion.failed.for.758a88bb');
+        writeLocalDiagnostic('warn', 'oauth.callback.failed', () => ({
+          serverName: input.serverName,
+          stage: 'complete_and_reconnect',
+          durationMs: Date.now() - startedAt,
+          reason: error instanceof OAuthAuthorizationDeniedError ? 'provider_denied' : 'callback_rejected',
+          errorType: error instanceof Error ? 'Error' : 'unknown',
+        }));
         const adminReturnOrigin = dependencies.clientRuntime.getOAuthReturn?.(input.serverName, input.state);
         return {
           status: error instanceof OAuthAuthorizationDeniedError ? 'provider_error' : 'callback_failed',

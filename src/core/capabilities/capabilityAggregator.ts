@@ -6,7 +6,7 @@ import type { OutboundConnections } from '@src/core/types/index.js';
 import type { Prompt, Resource, ResourceTemplate, Tool } from '@src/sdk/contracts/index.js';
 
 import { CapabilityProvidersUnavailableError } from './capabilityPagination.js';
-import { buildCatalogGeneration, type CatalogGeneration } from './catalogGeneration.js';
+import { buildCatalogGeneration, type CapabilityKind, type CatalogGeneration } from './catalogGeneration.js';
 import {
   acquireRuntimeCapabilityCatalog,
   type RuntimeCapabilitySnapshot,
@@ -19,6 +19,8 @@ export interface AggregatedCapabilities {
   readonly resourceTemplates: readonly ResourceTemplate[];
   readonly prompts: readonly Prompt[];
   readonly readyServers: readonly string[];
+  /** Listing metadata retained per capability kind, including partial discovery and recovery. */
+  readonly capabilityMeta?: Readonly<Partial<Record<CapabilityKind, Record<string, unknown>>>>;
   readonly timestamp: Date;
 }
 
@@ -83,10 +85,10 @@ export class CapabilityAggregator extends EventEmitter {
       });
       // Background readiness must survive one unavailable kind. Request-facing snapshot.list
       // still fails that kind explicitly, and every new acquisition retries enumeration.
-      const backgroundView = <T>(listing: Promise<{ items: T[] }>) =>
+      const backgroundView = <T>(listing: Promise<{ items: T[]; _meta?: Record<string, unknown> }>) =>
         listing.catch((error: unknown) => {
           if (!(error instanceof CapabilityProvidersUnavailableError)) throw error;
-          return { items: [] as T[] };
+          return { items: [] as T[], _meta: error._meta };
         });
       const [tools, resources, resourceTemplates, prompts] = await Promise.all([
         backgroundView(snapshot.list<Tool>('tools', { enablePagination: false })),
@@ -110,6 +112,12 @@ export class CapabilityAggregator extends EventEmitter {
       resourceTemplates: Object.freeze(resourceTemplates.items),
       prompts: Object.freeze(prompts.items),
       readyServers: Object.freeze([...readyServers].sort()),
+      capabilityMeta: Object.freeze({
+        ...(tools._meta ? { tools: tools._meta } : {}),
+        ...(resources._meta ? { resources: resources._meta } : {}),
+        ...(resourceTemplates._meta ? { resourceTemplates: resourceTemplates._meta } : {}),
+        ...(prompts._meta ? { prompts: prompts._meta } : {}),
+      }),
       timestamp: new Date(),
     });
     const changes = this.detectChanges(previous, current);
@@ -128,7 +136,9 @@ export class CapabilityAggregator extends EventEmitter {
     const changed = (before: readonly unknown[], after: readonly unknown[]) =>
       JSON.stringify(before.map((item) => JSON.stringify(item)).sort()) !==
       JSON.stringify(after.map((item) => JSON.stringify(item)).sort());
-    const toolsChanged = changed(previous.tools, current.tools);
+    const toolsChanged =
+      changed(previous.tools, current.tools) ||
+      JSON.stringify(previous.capabilityMeta?.tools) !== JSON.stringify(current.capabilityMeta?.tools);
     const resourceTemplatesChanged = changed(previous.resourceTemplates, current.resourceTemplates);
     const resourcesChanged = changed(previous.resources, current.resources) || resourceTemplatesChanged;
     const promptsChanged = changed(previous.prompts, current.prompts);

@@ -201,7 +201,9 @@ describe('TransportFactory', () => {
       createTransports(config);
 
       expect(logger.warn).toHaveBeenCalledTimes(3);
-      expect(logger.warn).toHaveBeenCalledWith('transportFactory.transport.type.is.missing.for.inferring.type.9480baa6');
+      expect(logger.warn).toHaveBeenCalledWith(
+        'transportFactory.transport.type.is.missing.for.inferring.type.9480baa6',
+      );
 
       expect(logger.info).toHaveBeenCalledWith('transportFactory.inferred.transport.type.for.as.stdio.872f7bbf');
       expect(logger.info).toHaveBeenCalledWith('transportFactory.inferred.transport.type.for.as.sse.cb39afb8');
@@ -330,10 +332,9 @@ describe('TransportFactory', () => {
       });
 
       expect(() => createTransports(config)).toThrow();
-      expect(logger.error).toHaveBeenCalledWith(
-        'transportFactory.invalid.transport.configuration.for.16ba9e31',
-        { error: zodError },
-      );
+      expect(logger.error).toHaveBeenCalledWith('transportFactory.invalid.transport.configuration.for.16ba9e31', {
+        error: zodError,
+      });
     });
 
     it('should handle general errors', () => {

@@ -256,7 +256,36 @@ describe('test-and-validate workflow', () => {
     const browserJob = workflow.match(/\n\s{2}test-e2e-browser:\n(?<body>(?:\s{4}.*\n)+)/)?.groups?.body;
     const checkoutCount = workflow.match(/uses: actions\/checkout@v7/g)?.length ?? 0;
 
-    expect(ciJob).toMatch(/pnpm ci:static[\s\S]*pnpm test:unit[\s\S]*pnpm test:admin/);
+    const staticJob = workflow.match(/\n\s{2}static:\n(?<body>(?:\s{4}.*\n)+)/)?.groups?.body;
+    const unitJob = workflow.match(/\n\s{2}unit-admin:\n(?<body>(?:\s{4}.*\n)+)/)?.groups?.body;
+    expect(staticJob).toContain('pnpm ci:static');
+    expect(staticJob).not.toContain('needs:');
+    expect(unitJob).toMatch(/pnpm test:unit[\s\S]*pnpm test:admin/);
+    expect(unitJob).not.toContain('needs:');
+    expect(ciJob).toContain('if: always()');
+    expect(ciJob).toContain('needs: [static, unit-admin]');
+    expect(ciJob).toContain('test "$STATIC_RESULT" = success && test "$TEST_RESULT" = success');
+    expect(packageJson.scripts['test:e2e:shardable']).toContain('**/cooperative-runtime.test.ts');
+    for (const file of ['capability-catalog-eras.test.ts', 'admin-spa-package.e2e.test.ts']) {
+      expect(packageJson.scripts['test:e2e:shardable']).toContain(`--exclude "**/${file}"`);
+      expect(nonBrowserJob).toContain(`test/e2e/${file}`);
+    }
+    expect(nonBrowserJob).toContain('if: matrix.shard == 4');
+    expect(nonBrowserJob).toContain('--maxWorkers=1 --retry=0');
+    const lifecycle = YAML.parse(readRepoFile('.github/workflows/cooperative-runtime.yml')) as {
+      jobs: Record<
+        string,
+        { strategy?: { matrix: { runtime?: string[]; os?: string[] } }; needs?: string[]; if?: string }
+      >;
+    };
+    expect(lifecycle.jobs['lifecycle-tests'].strategy?.matrix.runtime).toEqual(['Node', 'SEA']);
+    expect(lifecycle.jobs['lifecycle-tests'].strategy?.matrix.os).toEqual([
+      'ubuntu-latest',
+      'macos-latest',
+      'windows-latest',
+    ]);
+    expect(lifecycle.jobs.lifecycle.needs).toEqual(['lifecycle-tests']);
+    expect(lifecycle.jobs.lifecycle.if).toBe('always()');
     expect(packageJson.scripts['ci:static']).toContain('pnpm lint');
     expect(packageJson.scripts['ci:static']).toContain('pnpm typecheck');
     expect(packageJson.scripts['ci:static']).toContain('pnpm build');
@@ -294,10 +323,72 @@ describe('test-and-validate workflow', () => {
     expect(packageJson.scripts['test:e2e:system']).toContain('test/e2e/commands/serve-background.test.ts');
   });
 
+  it('fails aggregate gates when any required job fails, is cancelled, or is skipped', () => {
+    for (const [file, job, inputs] of [
+      ['.github/workflows/test-and-validate.yml', 'ci', ['STATIC_RESULT', 'TEST_RESULT']],
+      ['.github/workflows/cooperative-runtime.yml', 'lifecycle', ['LIFECYCLE_RESULT']],
+    ] as const) {
+      const workflow = YAML.parse(readRepoFile(file)) as {
+        jobs: Record<string, { if: string; steps: { run: string }[] }>;
+      };
+      const gate = workflow.jobs[job];
+      expect(gate.if).toBe('always()');
+      const environment = Object.fromEntries(inputs.map((input) => [input, 'success']));
+      const execute = (env: Record<string, string>) =>
+        spawnSync('bash', ['-c', gate.steps[0].run], { env: { ...process.env, ...env } }).status;
+      expect(execute(environment)).toBe(0);
+      for (const input of inputs) {
+        for (const result of ['failure', 'cancelled', 'skipped']) {
+          expect(execute({ ...environment, [input]: result })).not.toBe(0);
+        }
+      }
+    }
+  });
+
+  it('covers both installer shells on one runner without skipping a shell after failure', () => {
+    const workflow = YAML.parse(readRepoFile('.github/workflows/test-and-validate.yml')) as {
+      jobs: Record<
+        string,
+        {
+          strategy?: unknown;
+          steps: {
+            name?: string;
+            id?: string;
+            if?: string;
+            run?: string;
+            'continue-on-error'?: boolean;
+            with?: { name: string; path: string; 'if-no-files-found': string };
+          }[];
+        }
+      >;
+    };
+    const job = workflow.jobs['test-windows-installer'];
+    expect(job.strategy).toBeUndefined();
+    for (const shell of ['powershell', 'pwsh']) {
+      const installer = job.steps.find((step) => step.name === `Test Windows scheduled-task installer (${shell})`);
+      const exported = job.steps.find((step) => step.id === `export-${shell}`);
+      for (const step of [installer, exported]) {
+        expect(step?.if).toBe('${{ !cancelled() }}');
+        expect(step?.run).toContain(`& ${shell} -NoProfile -NonInteractive -File`);
+        expect(step?.run).toContain('exit $LASTEXITCODE');
+        expect(step?.['continue-on-error']).not.toBe(true);
+      }
+      expect(installer?.run).toContain('./scripts/test-install-windows-task.ps1');
+      expect(exported?.run).toContain('./scripts/test-install-windows-task-xml.ps1');
+      expect(exported?.run).toContain(`-OutputPath .tmp/windows-installer-${shell}.xml`);
+      const artifact = job.steps.find(
+        (step) => step.with?.name === `windows-installer-${shell}-` + '${{ github.sha }}',
+      );
+      expect(artifact?.if).toBe(`\${{ !cancelled() && steps.export-${shell}.outcome == 'success' }}`);
+      expect(artifact?.with?.path).toBe(`.tmp/windows-installer-${shell}.xml`);
+      expect(artifact?.with?.['if-no-files-found']).toBe('error');
+    }
+  });
+
   it('installs and runs actionlint binary with pinned SHA-256 digest and shellcheck in CI pipeline', () => {
     const workflow = YAML.parse(readRepoFile('.github/workflows/test-and-validate.yml')) as {
       jobs?: {
-        ci?: {
+        static?: {
           steps?: {
             name?: string;
             env?: Record<string, string>;
@@ -306,7 +397,7 @@ describe('test-and-validate workflow', () => {
         };
       };
     };
-    const steps = workflow?.jobs?.ci?.steps;
+    const steps = workflow?.jobs?.static?.steps;
 
     expect(steps).toBeDefined();
 

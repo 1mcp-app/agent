@@ -174,7 +174,9 @@ export class InstructionAggregator extends EventEmitter {
       previousTarget?.source !== target.source ||
       previousTarget?.name !== target.name
     ) {
-      logger.info('instructionAggregator.instructions.changed.total.servers.with.instructions.00d57195');
+      logger.info('instructionAggregator.instructions.changed.total.servers.with.instructions.00d57195', {
+        serverCount: this.serverInstructions.size,
+      });
       this.emit('instructions-changed');
     }
   }

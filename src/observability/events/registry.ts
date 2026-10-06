@@ -2,6 +2,15 @@ import type { FieldRule } from '../privacy/fields.js';
 
 /** Registered local instrumentation only; backend diagnostics are isolated. */
 export const EVENT_REGISTRY = {
+  'processIdentity.acquisition-failed': {
+    message: 'Process birth evidence acquisition failed',
+    fields: {
+      platform: 'processPlatform',
+      pid: 'number',
+      elapsedMs: 'number',
+      code: 'processEvidenceCode',
+    },
+  },
   'logger.sanitization-failed': {
     message: 'Sanitization error occurred',
     fields: {},
@@ -1116,8 +1125,8 @@ export const EVENT_REGISTRY = {
     },
   },
   'configManager.detected.configuration.changes.ffd1172b': {
-    message: 'Detected <private> configuration changes',
-    fields: {},
+    message: 'Detected configuration changes',
+    fields: { changeCount: 'number' },
   },
   'configWatcher.configuration.hot.reload.is.disabled.skipping.file.watcher.setup.03b1b0a9': {
     message: 'Configuration hot-reload is disabled, skipping file watcher setup',
@@ -1134,8 +1143,8 @@ export const EVENT_REGISTRY = {
     },
   },
   'configWatcher.started.watching.configuration.directory.for.file.dfe83f83': {
-    message: 'Started watching configuration directory: <private> for file: <private>',
-    fields: {},
+    message: 'Started watching configuration file',
+    fields: { configFile: 'identity:server' },
   },
   'configWatcher.startwatching.diagnostic.55a6d834': {
     message: 'startWatching diagnostic',
@@ -1168,8 +1177,8 @@ export const EVENT_REGISTRY = {
     fields: {},
   },
   'envProcessor.environment.variable.not.found.keeping.placeholder.unchanged.9e4fa714': {
-    message: 'Environment variable <private> not found, keeping placeholder unchanged',
-    fields: {},
+    message: 'Environment variable not found; keeping placeholder unchanged',
+    fields: { variableName: 'configured-name' },
   },
   'envProcessor.sdk.default.environment.variables.0a428954': {
     message: 'SDK default environment variables: <private>',
@@ -1192,8 +1201,8 @@ export const EVENT_REGISTRY = {
     fields: {},
   },
   'mcpConfigManager.configuration.loaded.successfully.environment.variable.substitution.f9e03cc4': {
-    message: 'Configuration loaded successfully <private> environment variable substitution',
-    fields: {},
+    message: 'Configuration loaded with environment variable substitution',
+    fields: { serverCount: 'number', templateCount: 'number' },
   },
   'mcpConfigManager.failed.to.load.configuration.4035e97b': {
     message: 'Failed to load configuration: <private>',
@@ -1386,8 +1395,14 @@ export const EVENT_REGISTRY = {
     fields: {},
   },
   'asyncLoadingOrchestrator.loading.cycle.complete.tools.resources.prompts.now.available.e121d7b3': {
-    message: 'Loading cycle complete: <private> tools, <private> resources, <private> prompts now available',
-    fields: {},
+    message: 'Loading cycle complete; capabilities now available',
+    fields: {
+      tools: 'number',
+      resources: 'number',
+      resourceTemplates: 'number',
+      prompts: 'number',
+      readyServerCount: 'number',
+    },
   },
   'asyncLoadingOrchestrator.loading.cycle.completed.with.no.capability.changes.8c5f89f2': {
     message: 'Loading cycle completed with no capability changes',
@@ -1404,8 +1419,14 @@ export const EVENT_REGISTRY = {
     fields: {},
   },
   'asyncLoadingOrchestrator.capability.update.complete.1b45dc6f': {
-    message: 'Capability update complete: <private>',
-    fields: {},
+    message: 'Capability update complete',
+    fields: {
+      tools: 'number',
+      resources: 'number',
+      resourceTemplates: 'number',
+      prompts: 'number',
+      readyServerCount: 'number',
+    },
   },
   'asyncLoadingOrchestrator.cannot.refresh.capabilities.orchestrator.not.ready.d8def3cc': {
     message: 'Cannot refresh capabilities - orchestrator not ready',
@@ -2204,8 +2225,8 @@ export const EVENT_REGISTRY = {
     fields: {},
   },
   'instructionAggregator.instructions.changed.total.servers.with.instructions.00d57195': {
-    message: 'Instructions changed. Total servers with instructions: <private>',
-    fields: {},
+    message: 'Instructions changed',
+    fields: { serverCount: 'number' },
   },
   'instructionAggregator.removed.server.instructions.remaining.servers.f026ca79': {
     message: 'Removed server instructions: <private>. Remaining servers: <private>',
@@ -2254,8 +2275,8 @@ export const EVENT_REGISTRY = {
     fields: {},
   },
   'loadingStateTracker.started.tracking.loading.for.servers.156f137b': {
-    message: 'Started tracking loading for <private> servers',
-    fields: {},
+    message: 'Started tracking server loading',
+    fields: { totalServers: 'number' },
   },
   'loadingStateTracker.registered.server.for.loading.tracker.e72049be': {
     message: 'Registered server for loading tracker: <private>',
@@ -2282,8 +2303,15 @@ export const EVENT_REGISTRY = {
     fields: {},
   },
   'loadingStateTracker.loading.complete.servers.ready.success.rate.16c0dd6f': {
-    message: 'Loading complete: <private>/<private> servers ready (<private>% success rate)',
-    fields: {},
+    message: 'Loading complete',
+    fields: {
+      totalServers: 'number',
+      ready: 'number',
+      failed: 'number',
+      awaitingOAuth: 'number',
+      cancelled: 'number',
+      successRate: 'number',
+    },
   },
   'mcpLoadingManager.no.mcp.servers.to.load.c3b2be31': {
     message: 'No MCP servers to load',
@@ -2324,16 +2352,16 @@ export const EVENT_REGISTRY = {
     fields: {},
   },
   'mcpLoadingManager.successfully.loaded.mcp.server.retries.30f53981': {
-    message: 'Successfully loaded MCP server: <private> (<private> retries)',
-    fields: {},
+    message: 'MCP server loaded',
+    fields: { serverName: 'configured-name', serverId: 'identity:server', retryCount: 'number' },
   },
   'mcpLoadingManager.loadsingleserver.operation.cancelled.for.27923175': {
     message: 'loadSingleServer: operation cancelled for <private>',
     fields: {},
   },
   'mcpLoadingManager.oauth.required.for.143d2b37': {
-    message: 'OAuth required for <private>',
-    fields: {},
+    message: 'MCP server requires OAuth authorization',
+    fields: { serverName: 'configured-name', serverId: 'identity:server' },
   },
   'mcpLoadingManager.failed.to.load.non.retryable.24de04a0': {
     message: 'Failed to load <private>: <private> (non-retryable)',
@@ -3710,7 +3738,7 @@ export const EVENT_REGISTRY = {
     fields: {},
   },
   'clientManager.creating.client.for.744dd700': {
-    message: 'Creating client for <private>',
+    message: 'Creating backend client',
     fields: {},
   },
   'clientManager.keeping.healthy.client.after.replacement.failed.fe11642b': {
@@ -3720,7 +3748,7 @@ export const EVENT_REGISTRY = {
     },
   },
   'clientManager.oauth.authorization.required.for.c0a14ccd': {
-    message: 'OAuth authorization required for <private>',
+    message: 'Backend requires OAuth authorization',
     fields: {},
   },
   'clientManager.failed.to.create.client.for.a61aad6b': {
@@ -3730,7 +3758,7 @@ export const EVENT_REGISTRY = {
     },
   },
   'clientManager.client.created.for.44950b76': {
-    message: 'Client created for <private>',
+    message: 'Backend client created',
     fields: {},
   },
   'clientManager.could.not.close.superseded.client.3029a8f0': {
@@ -3791,11 +3819,11 @@ export const EVENT_REGISTRY = {
     },
   },
   'connectionHandler.successfully.connected.to.with.server.version.6ee89a19': {
-    message: 'Successfully connected to <private> with server <private> version <private>',
+    message: 'Connected to backend server',
     fields: {},
   },
   'connectionHandler.oauth.authorization.required.for.visit.oauth.to.authorize.875e3320': {
-    message: 'OAuth authorization required for <private>. Visit <private>/oauth to authorize',
+    message: 'Backend requires OAuth authorization; use the local /oauth endpoint',
     fields: {},
   },
   'connectionHandler.failed.to.connect.to.d9f2b821': {
@@ -4095,12 +4123,27 @@ export const EVENT_REGISTRY = {
     fields: {},
   },
   'serve.mcp.loading.progress.servers.ready.loading.failed.90307638': {
-    message: 'MCP loading progress: <private>/<private> servers ready (<private> loading, <private> failed)',
-    fields: {},
+    message: 'MCP loading progress',
+    fields: {
+      totalServers: 'number',
+      pending: 'number',
+      loading: 'number',
+      ready: 'number',
+      failed: 'number',
+      awaitingOAuth: 'number',
+      cancelled: 'number',
+    },
   },
   'serve.mcp.loading.complete.servers.ready.success.rate.0a0fdab1': {
-    message: 'MCP loading complete: <private>/<private> servers ready (<private>% success rate)',
-    fields: {},
+    message: 'MCP loading complete',
+    fields: {
+      totalServers: 'number',
+      ready: 'number',
+      failed: 'number',
+      awaitingOAuth: 'number',
+      cancelled: 'number',
+      successRate: 'number',
+    },
   },
   'serve.server.error.a68bf449': {
     message: 'Server error: <private>',
@@ -4153,22 +4196,38 @@ export const EVENT_REGISTRY = {
   'clientInstancePool.processing.template.for.client.instance.b0d9550d': {
     message: 'Processing template for client instance',
     fields: {
+      templateName: 'configured-name',
+      templateId: 'identity:server',
       clientId: 'identity:client',
     },
   },
   'clientInstancePool.template.renderedhash.instance.key.78f982b5': {
-    message: 'Template <private>, renderedHash: <private>, Instance key: <private>',
-    fields: {},
+    message: 'Resolved template instance key',
+    fields: {
+      templateName: 'configured-name',
+      templateId: 'identity:server',
+      renderedHash: 'identity:server',
+      instanceKey: 'identity:server',
+      shareable: 'boolean',
+      perClient: 'boolean',
+      idleTimeout: 'number',
+    },
   },
   'clientInstancePool.created.new.client.instance.from.template.383bd90b': {
     message: 'Created new client instance from template',
     fields: {
+      templateName: 'configured-name',
+      instanceId: 'instance-id',
+      instanceKey: 'identity:server',
       clientId: 'identity:client',
     },
   },
   'clientInstancePool.added.client.to.existing.client.instance.c1fc1d9e': {
     message: 'Added client to existing client instance',
     fields: {
+      templateName: 'configured-name',
+      instanceId: 'instance-id',
+      instanceKey: 'identity:server',
       clientId: 'identity:client',
       clientCount: 'number',
     },
@@ -4176,13 +4235,21 @@ export const EVENT_REGISTRY = {
   'clientInstancePool.removed.client.from.client.instance.1bece201': {
     message: 'Removed client from client instance',
     fields: {
+      templateName: 'configured-name',
+      instanceId: 'instance-id',
+      instanceKey: 'identity:server',
       clientId: 'identity:client',
       clientCount: 'number',
     },
   },
   'clientInstancePool.client.instance.marked.as.idle.11131bab': {
     message: 'Client instance marked as idle',
-    fields: {},
+    fields: {
+      templateName: 'configured-name',
+      instanceId: 'instance-id',
+      instanceKey: 'identity:server',
+      idleTimeout: 'number',
+    },
   },
   'clientInstancePool.removed.client.instance.from.pool.0595d1e2': {
     message: 'Removed client instance from pool',
@@ -4503,8 +4570,8 @@ export const EVENT_REGISTRY = {
     fields: {},
   },
   'serverManager.server.instructions.have.changed.active.sessions.1b5c23dd': {
-    message: 'Server instructions have changed. Active sessions: <private>',
-    fields: {},
+    message: 'Server instructions changed',
+    fields: { activeSessionCount: 'number' },
   },
   'serverManager.instructions.changed.notification.for.session.e77f51eb': {
     message: 'Instructions changed notification for session <private>',
@@ -4625,36 +4692,56 @@ export const EVENT_REGISTRY = {
     fields: {},
   },
   'templateServerManager.creating.template.based.servers.for.session.63a3dddd': {
-    message: 'Creating <private> template-based servers for session <private>',
-    fields: {},
+    message: 'Creating template-based servers for session',
+    fields: {
+      templateCount: 'number',
+      sessionId: 'identity:session',
+    },
   },
   'templateServerManager.cached.instructions.for.template.server.ee449e76': {
-    message: 'Cached instructions for template server: <private>',
-    fields: {},
+    message: 'Cached instructions for template server',
+    fields: {
+      templateName: 'configured-name',
+      instanceId: 'instance-id',
+    },
   },
   'templateServerManager.failed.to.extract.instructions.from.template.server.07ebbee8': {
-    message: 'Failed to extract instructions from template server <private>: <private>',
+    message: 'Failed to extract instructions from template server',
     fields: {
+      templateName: 'configured-name',
+      instanceId: 'instance-id',
       error: 'error',
     },
   },
   'templateServerManager.templateservermanager.createtemplatebasedservers.tracked.client.template.re.b792872d': {
-    message: 'TemplateServerManager.createTemplateBasedServers: Tracked client-template relationship',
+    message: 'Tracked client-template relationship',
     fields: {
+      templateName: 'configured-name',
+      instanceId: 'instance-id',
+      instanceKey: 'identity:server',
       sessionId: 'identity:session',
       referenceCount: 'number',
     },
   },
   'templateServerManager.connected.to.template.client.instance.871228b8': {
-    message: 'Connected to template client instance: <private> (<private>)',
+    message: 'Connected to template client instance',
     fields: {
+      templateName: 'configured-name',
+      instanceId: 'instance-id',
+      instanceKey: 'identity:server',
+      renderedHash: 'identity:server',
+      shareable: 'boolean',
+      perClient: 'boolean',
       sessionId: 'identity:session',
       clientCount: 'number',
     },
   },
   'templateServerManager.failed.to.create.client.instance.from.template.eac81d4e': {
-    message: 'Failed to create client instance from template <private>:',
+    message: 'Failed to create client instance from template',
     fields: {
+      templateName: 'configured-name',
+      templateId: 'identity:server',
+      sessionId: 'identity:session',
       error: 'error',
     },
   },
@@ -4663,8 +4750,8 @@ export const EVENT_REGISTRY = {
     fields: {},
   },
   'templateServerManager.cleaned.up.idle.client.instance.e6d1bdd9': {
-    message: 'Cleaned up idle client instance: <private>:<private>',
-    fields: {},
+    message: 'Cleaned up idle client instance',
+    fields: { templateName: 'configured-name', instanceId: 'instance-id' },
   },
   'templateServerManager.failed.to.cleanup.idle.client.instance.3f56809c': {
     message: 'Failed to cleanup idle client instance <private>:<private>:',
@@ -4673,8 +4760,8 @@ export const EVENT_REGISTRY = {
     },
   },
   'templateServerManager.cleaned.up.idle.client.instances.dbdf5f7d': {
-    message: 'Cleaned up <private> idle client instances',
-    fields: {},
+    message: 'Cleaned up idle client instances',
+    fields: { cleanedUpCount: 'number' },
   },
   'templateServerManager.template.index.rebuilt.6dc6c57a': {
     message: 'Template index rebuilt',

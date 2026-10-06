@@ -3,6 +3,7 @@ import { tmpdir } from 'os';
 import path from 'path';
 
 import { AUTH_CONFIG } from '@src/constants.js';
+import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -19,12 +20,15 @@ vi.mock('@src/logger/logger.js', () => ({
   },
 }));
 
+vi.mock('@src/logger/localDiagnostics.js', () => ({ writeLocalDiagnostic: vi.fn() }));
+
 describe('SessionRepository', () => {
   let repository: SessionRepository;
   let storage: FileStorageService;
   let tempDir: string;
 
   beforeEach(() => {
+    vi.mocked(writeLocalDiagnostic).mockClear();
     // Create a temporary directory for testing
     tempDir = path.join(tmpdir(), `session-repo-test-${Date.now()}`);
     storage = new FileStorageService(tempDir);
@@ -36,6 +40,38 @@ describe('SessionRepository', () => {
     // Clean up temp directory
     if (fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('reports lifecycle metadata without identifiers, resources or scopes', () => {
+    const sessionId = repository.createWithId(
+      '99999999-1234-4abc-89de-123456789012',
+      'private-client',
+      'private-resource',
+      ['private-scope'],
+      60000,
+    );
+    repository.delete(sessionId);
+    expect(writeLocalDiagnostic).toHaveBeenCalledWith('debug', 'session.created', {
+      stage: 'persisted',
+      ttlMs: 60000,
+      scopeCount: 1,
+      durable: false,
+      refreshFamily: false,
+    });
+    expect(writeLocalDiagnostic).toHaveBeenCalledWith('debug', 'session.deleted', {
+      stage: 'removed',
+      outcome: 'deleted',
+    });
+    const diagnostics = JSON.stringify(vi.mocked(writeLocalDiagnostic).mock.calls);
+    for (const secret of [
+      sessionId,
+      '99999999-1234-4abc-89de-123456789012',
+      'private-client',
+      'private-resource',
+      'private-scope',
+    ]) {
+      expect(diagnostics).not.toContain(secret);
     }
   });
 

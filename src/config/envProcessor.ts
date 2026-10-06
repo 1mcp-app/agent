@@ -211,7 +211,9 @@ export function substituteEnvVars(
       const envVarName = envVar?.trim() ?? '';
       const envValue = env[envVarName];
       if (envValue === undefined) {
-        logger.warn('envProcessor.environment.variable.not.found.keeping.placeholder.unchanged.9e4fa714');
+        logger.warn('envProcessor.environment.variable.not.found.keeping.placeholder.unchanged.9e4fa714', {
+          variableName: envVarName,
+        });
         return match;
       }
       return envValue;

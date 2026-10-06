@@ -1,3 +1,7 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 import { resolveServeTarget } from '@src/commands/shared/serveTargetResolver.js';
 import type { ResolvedProjectContext } from '@src/config/projectConfigLoader.js';
 
@@ -23,7 +27,10 @@ vi.mock('@src/core/server/runtimeLifecycle.js', async () => {
 });
 
 describe('resolveServeTarget port-scan composition', () => {
+  let configDir: string;
+
   beforeEach(() => {
+    configDir = fs.mkdtempSync(path.join(os.tmpdir(), '1mcp-portscan-test-'));
     mockedResolveProjectContext.mockResolvedValue({
       cwd: '/tmp/project',
       projectRoot: '/tmp/project',
@@ -35,6 +42,7 @@ describe('resolveServeTarget port-scan composition', () => {
   });
 
   afterEach(() => {
+    fs.rmSync(configDir, { recursive: true, force: true });
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -56,7 +64,7 @@ describe('resolveServeTarget port-scan composition', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const result = await resolveServeTarget(
-      { context: 'local' },
+      { context: 'local', 'config-dir': configDir },
       {
         runtimeTargetStore: {
           inspect: vi.fn().mockReturnValue({ name: 'local', kind: 'local', synthetic: true, current: true }),

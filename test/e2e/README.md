@@ -4,15 +4,15 @@ The E2E suite verifies built 1MCP behavior across process, protocol, HTTP, and b
 
 ## Test Lanes
 
-| Lane            | Boundary                                                        | Command                     |
-| --------------- | --------------------------------------------------------------- | --------------------------- |
-| Non-browser E2E | Built CLI/server, subprocess, filesystem, MCP, or loopback HTTP | `pnpm test:e2e:non-browser` |
-| Shardable E2E   | Non-browser tests except the background-runtime lifecycle       | `pnpm test:e2e:shardable`   |
-| System E2E      | Background supervisor and runtime lifecycle                     | `pnpm test:e2e:system`      |
-| Browser E2E     | Packaged Admin SPA or OAuth consent in Chromium                 | `pnpm test:e2e:browser`     |
-| Full E2E        | Browser and non-browser lanes                                   | `pnpm test:e2e`             |
+| Lane            | Boundary                                                            | Command                     |
+| --------------- | ------------------------------------------------------------------- | --------------------------- |
+| Non-browser E2E | Built CLI/server, subprocess, filesystem, MCP, or loopback HTTP     | `pnpm test:e2e:non-browser` |
+| Shardable E2E   | Ordinary non-browser tests; resource-sensitive tests run separately | `pnpm test:e2e:shardable`   |
+| System E2E      | Background supervisor and runtime lifecycle                         | `pnpm test:e2e:system`      |
+| Browser E2E     | Packaged Admin SPA or OAuth consent in Chromium                     | `pnpm test:e2e:browser`     |
+| Full E2E        | Browser and non-browser lanes                                       | `pnpm test:e2e`             |
 
-Browser files use the `*.browser.e2e.test.ts` suffix. CI runs them in the Playwright container, runs the long background-runtime lifecycle in a dedicated system lane, and shards the remaining files separately.
+Browser files use the `*.browser.e2e.test.ts` suffix. CI runs them in the Playwright container, runs the long background-runtime lifecycle in a dedicated system lane, runs cooperative lifecycle on Node and SEA in the dedicated cross-platform workflow, and shards the remaining files separately. Shard 4 then runs capability-catalog and package-artifact tests sequentially with one worker: schema-worker startup deadlines need an uncontended runner, and packaging must not scan build files while other tests modify temporary directories.
 
 ## Running Tests
 

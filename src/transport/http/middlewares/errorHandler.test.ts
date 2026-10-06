@@ -119,7 +119,7 @@ describe('errorHandler', () => {
 
       errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
 
-        expect(logger.error).toHaveBeenCalledWith('errorHandler.express.error.037179d1', { error });
+      expect(logger.error).toHaveBeenCalledWith('errorHandler.express.error.037179d1', { error });
       expect(mockResponse.status).toHaveBeenCalledWith(500);
     });
 

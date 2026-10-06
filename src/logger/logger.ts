@@ -10,6 +10,9 @@ import type { ManagedStdioStderrMetadata } from '@src/transport/managedStdioStde
 import chalk from 'chalk';
 import winston from 'winston';
 
+import type { HttpDiagnosticEvent, HttpDiagnosticFields } from './httpDiagnostics.js';
+import { isLocalDiagnosticRecord, type LocalDiagnosticRecord } from './localDiagnosticRecord.js';
+
 // Map MCP log levels to Winston log levels
 const MCP_TO_WINSTON_LEVEL: Record<string, string> = {
   debug: 'debug',
@@ -218,6 +221,7 @@ const logger = {
   isInfoEnabled: () => sink.isInfoEnabled(),
   isWarnEnabled: () => sink.isWarnEnabled(),
   isErrorEnabled: () => sink.isErrorEnabled(),
+  isLevelEnabled: (level: 'info' | 'debug' | 'warn' | 'error') => sink.isLevelEnabled(level),
   get level() {
     return sink.level;
   },
@@ -279,6 +283,22 @@ export function errorIf<E extends EventName>(input: E | (() => LazyEvent<E>)): v
 }
 export function isErrorEnabled(): boolean {
   return sink.isErrorEnabled();
+}
+
+/** Bounded sanitized HTTP diagnostics stay local, outside typed telemetry and trace injection. */
+export function writeHttpDiagnostic(
+  level: 'info' | 'debug',
+  event: HttpDiagnosticEvent,
+  fields: HttpDiagnosticFields,
+): void {
+  if (!sink.isLevelEnabled(level)) return;
+  sink.log({ level, message: event, source: 'http-diagnostic', ...fields });
+}
+
+/** Only sanitizer-admitted records reach this local console/file diagnostic sink. */
+export function writeLocalDiagnosticRecord(record: LocalDiagnosticRecord): void {
+  if (!isLocalDiagnosticRecord(record) || !sink.isLevelEnabled(record.level)) return;
+  sink.log({ level: record.level, message: record.event, source: 'local-diagnostic', details: record.details });
 }
 
 /** ADR 0011 local diagnostic projection. Never normalize or correlate backend records. */

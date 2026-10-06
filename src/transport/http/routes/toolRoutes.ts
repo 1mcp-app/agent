@@ -141,12 +141,31 @@ function hasCatalogAccess(lazyOrchestrator: unknown): lazyOrchestrator is {
   getToolRegistry: () => ToolRegistry;
   getSchemaCache: () => never;
   callMetaTool: (...args: never[]) => Promise<unknown>;
+  refreshCapabilities?: () => Promise<void>;
+  refreshCapabilitiesForRecovery?: () => Promise<void>;
 } {
   return (
     !!lazyOrchestrator &&
     typeof (lazyOrchestrator as { getToolRegistry?: unknown }).getToolRegistry === 'function' &&
     typeof (lazyOrchestrator as { getSchemaCache?: unknown }).getSchemaCache === 'function'
   );
+}
+
+function recoveryRefreshCallback(orchestrator: {
+  refreshCapabilitiesForRecovery?: () => Promise<unknown>;
+  refreshCapabilities?: () => Promise<unknown>;
+}): (() => Promise<void>) | undefined {
+  if (orchestrator.refreshCapabilitiesForRecovery) {
+    return async () => {
+      await orchestrator.refreshCapabilitiesForRecovery!();
+    };
+  }
+  if (orchestrator.refreshCapabilities) {
+    return async () => {
+      await orchestrator.refreshCapabilities!();
+    };
+  }
+  return undefined;
 }
 
 export function createToolsHandler(serverManager: ServerManager): RequestHandler {
@@ -179,6 +198,7 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
           totalCount: result.totalCount,
           hasMore: result.hasMore,
           ...(result.nextCursor ? { nextCursor: result.nextCursor } : {}),
+          ...(result._meta ? { _meta: result._meta } : {}),
           servers: result.servers,
           ...(degradedServers.length > 0 ? { degradedServers } : {}),
         });
@@ -193,6 +213,7 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
           outboundConnections: serverManager.getClients(),
           getServerConfigs,
           templateHashProvider: getTemplateHashProvider(serverManager),
+          refreshCapabilities: recoveryRefreshCallback(lazyOrchestrator),
         });
         const catalogResult = await catalog.listVisibleTools(
           {
@@ -202,13 +223,15 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
             cursor,
           },
           visibility,
+          !cursor && (await catalog.requiresToolListingRecovery(visibility)) ? { refreshIntent: 'force' } : {},
         );
-        if (catalogResult.tools.length > 0 || catalogResult.totalCount > 0) {
+        if (catalogResult.tools.length > 0 || catalogResult.totalCount > 0 || catalogResult._meta) {
           res.json({
             tools: catalogResult.tools,
             totalCount: catalogResult.totalCount,
             hasMore: catalogResult.hasMore,
             ...(catalogResult.nextCursor ? { nextCursor: catalogResult.nextCursor } : {}),
+            ...(catalogResult._meta ? { _meta: catalogResult._meta } : {}),
             servers: catalogResult.servers,
           });
           return;

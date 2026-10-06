@@ -1,5 +1,6 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
+import { CAPABILITY_PAGINATION_META_KEY } from '@src/core/capabilities/capabilityPagination.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 
 import type { Request, RequestHandler, Response } from 'express';
@@ -130,21 +131,19 @@ describe('apiRoutes /api/tools', () => {
   });
 
   it('paginates fallback tool lists with cursor support when lazy orchestrator is unavailable', async () => {
+    const clients = new Map([
+      [
+        'alpha',
+        connectionWithTools('alpha', [
+          { name: 'alpha_one', description: 'First', inputSchema: { type: 'object' } },
+          { name: 'alpha_two', description: 'Second', inputSchema: { type: 'object' } },
+          { name: 'alpha_three', description: 'Third', inputSchema: { type: 'object' } },
+        ]),
+      ],
+    ]);
     const serverManager = {
       getLazyLoadingOrchestrator: vi.fn(() => undefined),
-      getClients: vi.fn(
-        () =>
-          new Map([
-            [
-              'alpha',
-              connectionWithTools('alpha', [
-                { name: 'alpha_one', description: 'First', inputSchema: { type: 'object' } },
-                { name: 'alpha_two', description: 'Second', inputSchema: { type: 'object' } },
-                { name: 'alpha_three', description: 'Third', inputSchema: { type: 'object' } },
-              ]),
-            ],
-          ]),
-      ),
+      getClients: vi.fn(() => clients),
     };
     const handler = createToolsHandler(serverManager as never);
 
@@ -368,6 +367,32 @@ describe('apiRoutes /api/tools', () => {
       servers: ['alpha'],
     });
     expect(refreshCapabilities).not.toHaveBeenCalled();
+    expect(callMetaTool).not.toHaveBeenCalled();
+  });
+
+  it('returns explicit partial empty catalogs and refreshes only the fresh HTTP listing', async () => {
+    const meta = {
+      [CAPABILITY_PAGINATION_META_KEY]: { partial: true, complete: false, recovery: 'restart-walk' },
+    };
+    const registry = ToolRegistry.empty().withListingMeta(meta);
+    const refreshCapabilities = vi.fn().mockResolvedValue(undefined);
+    const callMetaTool = vi.fn();
+    const serverManager = {
+      getLazyLoadingOrchestrator: vi.fn(() => ({
+        getToolRegistry: () => registry,
+        getSchemaCache: () => ({}),
+        refreshCapabilities,
+        callMetaTool,
+      })),
+      getClients: vi.fn(() => new Map()),
+    };
+    const handler = createToolsHandler(serverManager as never);
+    const res = createMockResponse();
+    await invokeInspectRoute(scopeAuthMiddleware, { query: {} }, res);
+    await invokeInspectRoute(handler, { query: {} }, res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ tools: [], _meta: meta });
+    expect(refreshCapabilities).toHaveBeenCalledOnce();
     expect(callMetaTool).not.toHaveBeenCalled();
   });
 

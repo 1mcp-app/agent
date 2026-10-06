@@ -1,11 +1,20 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
+import * as toolSchemaBoundary from '@src/core/validation/toolSchemaBoundary.js';
+import * as localDiagnostics from '@src/logger/localDiagnostics.js';
+import logger, * as loggerModule from '@src/logger/logger.js';
 import { executeWithPostAuthOAuthRecovery } from '@src/core/client/postAuthOAuthRecovery.js';
 import type { TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { ClientStatus, type OutboundConnections } from '@src/core/types/client.js';
-import { OneMcpProtocolError, type Tool } from '@src/sdk/contracts/index.js';
+import { SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
+import { ErrorCode, OneMcpProtocolError, type Tool } from '@src/sdk/contracts/index.js';
 
 import { CapabilityCatalog } from './capabilityCatalog.js';
+import {
+  advanceCapabilityPaginationGeneration,
+  CAPABILITY_PAGINATION_META_KEY,
+  setCapabilityFailureFacts,
+} from './capabilityPagination.js';
 import { capabilityVisibilityFromServerNames, createCapabilityVisibility } from './capabilityVisibility.js';
 import { buildCatalogGeneration } from './catalogGeneration.js';
 import { SchemaCache } from './schemaCache.js';
@@ -111,6 +120,541 @@ describe('CapabilityCatalog', () => {
       ...overrides,
     } as any);
   }
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('records the selected route and duration while keeping debug payload capture lazy', async () => {
+    const diagnostic = vi.spyOn(localDiagnostics, 'writeLocalDiagnostic').mockImplementation(() => undefined);
+    const args = { message: 'hi', token: 'private-token' };
+    const result = await createCatalog().invokeVisibleTool({
+      server: 'template-server',
+      toolName: 'template_tool',
+      args,
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(diagnostic).toHaveBeenCalledWith(
+      'info',
+      'tool.routed',
+      expect.objectContaining({
+        requestedServer: 'template-server',
+        requestedTool: 'template_tool',
+        server: 'template-server',
+        tool: 'template_tool',
+        callId: expect.any(String),
+      }),
+    );
+    expect(diagnostic).toHaveBeenCalledWith(
+      'info',
+      'tool.completed',
+      expect.objectContaining({
+        outcome: 'success',
+        durationMs: expect.any(Number),
+      }),
+    );
+    expect(diagnostic).toHaveBeenCalledWith('debug', 'tool.arguments', expect.any(Function));
+    expect(diagnostic).toHaveBeenCalledWith('debug', 'tool.result', expect.any(Function));
+    const infoFields = diagnostic.mock.calls.filter(([level]) => level !== 'debug').map(([, , fields]) => fields);
+    expect(JSON.stringify(infoFields)).not.toContain('private-token');
+  });
+
+  it('writes sanitized arguments and results through the real debug diagnostics API', async () => {
+    const write = vi.spyOn(loggerModule, 'writeLocalDiagnosticRecord').mockImplementation(() => undefined);
+    const previousLevel = logger.level;
+    logger.level = 'debug';
+    const args = { message: 'hello', apiKey: 'private-input' };
+    mockClient.callTool.mockResolvedValueOnce({ content: [{ type: 'text', text: 'ok' }], token: 'private-result' });
+    try {
+      await createCatalog().invokeVisibleTool({ server: 'template-server', toolName: 'template_tool', args });
+      const records = write.mock.calls.map(([record]) => record);
+      expect(records).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ event: 'tool.arguments' }),
+          expect.objectContaining({ event: 'tool.result' }),
+        ]),
+      );
+      expect(JSON.stringify(records)).not.toContain('private-input');
+      expect(JSON.stringify(records)).not.toContain('private-result');
+      expect(JSON.stringify(records)).not.toContain('rendered123');
+      expect(JSON.stringify(records)).toContain('hello');
+      expect(args.apiKey).toBe('private-input');
+    } finally {
+      logger.level = previousLevel;
+    }
+  });
+
+  it.each([
+    ['failed', new Error('upstream connection refused')],
+    ['timeout', new OneMcpProtocolError(ErrorCode.RequestTimeout, 'upstream deadline elapsed')],
+  ])('preserves the actual upstream error for local %s diagnostics', async (outcome, error) => {
+    const diagnostic = vi.spyOn(localDiagnostics, 'writeLocalDiagnostic').mockImplementation(() => undefined);
+    mockClient.callTool.mockRejectedValue(error);
+    const result = await createCatalog().invokeVisibleTool({ server: 'filesystem', toolName: 'read_file', args: {} });
+
+    expect(result.error).toMatchObject({ type: 'upstream', message: 'Gateway transport failure' });
+    expect(diagnostic).toHaveBeenCalledWith(
+      'warn',
+      'tool.failed',
+      expect.objectContaining({
+        phase: 'upstream',
+        outcome,
+        error,
+        durationMs: expect.any(Number),
+      }),
+    );
+  });
+
+  it('records an upstream tool error result without converting it to a transport failure', async () => {
+    const diagnostic = vi.spyOn(localDiagnostics, 'writeLocalDiagnostic').mockImplementation(() => undefined);
+    const upstreamResult = { isError: true, content: [{ type: 'text', text: 'upstream tool failed' }] };
+    mockClient.callTool.mockResolvedValueOnce(upstreamResult);
+    const result = await createCatalog().invokeVisibleTool({ server: 'filesystem', toolName: 'read_file', args: {} });
+
+    expect(result.error).toBeUndefined();
+    expect(result.result).toEqual(upstreamResult);
+    expect(diagnostic).toHaveBeenCalledWith(
+      'info',
+      'tool.completed',
+      expect.objectContaining({ outcome: 'upstream_error' }),
+    );
+  });
+
+  it.each(['accessor', 'proxy'])(
+    'does not inspect %s result properties just to determine diagnostic outcome',
+    async (kind) => {
+      const diagnostic = vi.spyOn(localDiagnostics, 'writeLocalDiagnostic');
+      const readOutcome = vi.fn(() => {
+        throw new Error('diagnostics inspected result');
+      });
+      const value = { content: [{ type: 'text', text: 'ok' }] };
+      let upstreamResult: object;
+      if (kind === 'accessor') {
+        upstreamResult = Object.defineProperty(value, 'isError', { get: readOutcome });
+      } else {
+        upstreamResult = new Proxy(value, {
+          get(target, key, receiver) {
+            if (key === 'isError') return readOutcome();
+            return Reflect.get(target, key, receiver);
+          },
+          has(target, key) {
+            if (key === 'isError') return readOutcome();
+            return Reflect.has(target, key);
+          },
+        });
+      }
+      // Isolate diagnostic outcome inspection from the existing schema boundary,
+      // which ordinarily rejects accessor/proxy results before diagnostics run.
+      vi.spyOn(toolSchemaBoundary, 'prepareToolValidation').mockResolvedValueOnce(async () => undefined);
+      mockClient.callTool.mockResolvedValueOnce(upstreamResult);
+      const result = await createCatalog().invokeVisibleTool({ server: 'filesystem', toolName: 'read_file', args: {} });
+
+      expect(result.error).toBeUndefined();
+      expect(result.result).toBe(upstreamResult);
+      expect(readOutcome).not.toHaveBeenCalled();
+      expect(diagnostic).toHaveBeenCalledWith(
+        'info',
+        'tool.completed',
+        expect.objectContaining({ outcome: 'success' }),
+      );
+    },
+  );
+
+  it('does not invoke an error code accessor for timeout diagnostics', async () => {
+    const readCode = vi.fn(() => {
+      throw new Error('diagnostics inspected error code');
+    });
+    const error = new OneMcpProtocolError(-123, 'original upstream failure');
+    Object.defineProperty(error, 'code', { get: readCode });
+    vi.mocked(outboundConnections.get('filesystem')!.adapter.request).mockRejectedValueOnce(error);
+    const result = await createCatalog().invokeVisibleTool({ server: 'filesystem', toolName: 'read_file', args: {} });
+
+    expect(result.error).toMatchObject({ type: 'upstream', message: 'Gateway transport failure' });
+    expect(readCode).not.toHaveBeenCalled();
+  });
+
+  it('records input validation failure without dispatching to the upstream', async () => {
+    const diagnostic = vi.spyOn(localDiagnostics, 'writeLocalDiagnostic').mockImplementation(() => undefined);
+    const error = new SchemaBoundaryError('schema_input_invalid', false, 'input');
+    vi.spyOn(toolSchemaBoundary, 'prepareToolValidation').mockRejectedValueOnce(error);
+    const result = await createCatalog().invokeVisibleTool({ server: 'filesystem', toolName: 'read_file', args: {} });
+
+    expect(result.result).toMatchObject({ isError: true });
+    expect(mockClient.callTool).not.toHaveBeenCalled();
+    expect(diagnostic).toHaveBeenCalledWith(
+      'warn',
+      'tool.failed',
+      expect.objectContaining({
+        phase: 'input_validation',
+        outcome: 'validation_failed',
+        error,
+      }),
+    );
+  });
+
+  it('records output validation failures after dispatch', async () => {
+    const diagnostic = vi.spyOn(localDiagnostics, 'writeLocalDiagnostic').mockImplementation(() => undefined);
+    const error = new SchemaBoundaryError('schema_output_invalid', false, 'output');
+    vi.spyOn(toolSchemaBoundary, 'prepareToolValidation').mockResolvedValueOnce(async () => {
+      throw error;
+    });
+    const result = await createCatalog().invokeVisibleTool({ server: 'filesystem', toolName: 'read_file', args: {} });
+
+    expect(result.error).toMatchObject({ type: 'upstream', message: 'schema_output_invalid' });
+    expect(mockClient.callTool).toHaveBeenCalledOnce();
+    expect(diagnostic).toHaveBeenCalledWith(
+      'warn',
+      'tool.failed',
+      expect.objectContaining({
+        phase: 'output_validation',
+        outcome: 'validation_failed',
+        error,
+      }),
+    );
+  });
+
+  it('records cancellation during dispatch without changing the returned error', async () => {
+    const diagnostic = vi.spyOn(localDiagnostics, 'writeLocalDiagnostic').mockImplementation(() => undefined);
+    const controller = new AbortController();
+    const error = new Error('Request cancelled');
+    mockClient.callTool.mockImplementationOnce(async () => {
+      controller.abort();
+      throw error;
+    });
+    const result = await createCatalog().invokeVisibleTool(
+      { server: 'filesystem', toolName: 'read_file', args: {} },
+      undefined,
+      { signal: controller.signal },
+    );
+
+    expect(result.error).toMatchObject({ type: 'upstream', message: 'Gateway transport failure' });
+    expect(diagnostic).toHaveBeenCalledWith(
+      'warn',
+      'tool.failed',
+      expect.objectContaining({
+        phase: 'upstream',
+        outcome: 'cancelled',
+        error,
+      }),
+    );
+  });
+
+  it('keeps per-visibility snapshot count capacity available to another caller', async () => {
+    registry = ToolRegistry.fromToolsWithServer([
+      { server: 'filesystem', tool: { name: 'one', inputSchema: { type: 'object' } } },
+      { server: 'filesystem', tool: { name: 'two', inputSchema: { type: 'object' } } },
+    ]);
+    const catalog = createCatalog();
+    const firstVisibility = createCapabilityVisibility([['filesystem', 'filesystem']], 'first-client');
+    const secondVisibility = createCapabilityVisibility([['filesystem', 'filesystem']], 'second-client');
+    const first = await catalog.listVisibleTools({ limit: 1 }, firstVisibility);
+    for (let index = 1; index < 250; index += 1) {
+      await catalog.listVisibleTools({ limit: 1 }, firstVisibility);
+    }
+    await expect(catalog.listVisibleTools({ limit: 1 }, firstVisibility)).rejects.toThrow(
+      'Capability cursor capacity exceeded',
+    );
+    const other = await catalog.listVisibleTools({ limit: 1 }, secondVisibility);
+    expect(other.nextCursor).toBeDefined();
+    const continued = await catalog.listVisibleTools({ limit: 1, cursor: first.nextCursor }, firstVisibility);
+    expect(continued.tools).toHaveLength(1);
+    expect(continued.hasMore).toBe(false);
+  });
+
+  it('keeps per-visibility snapshot bytes available to another caller', async () => {
+    registry = ToolRegistry.fromToolsWithServer(
+      Array.from({ length: 15 }, (_, index) => ({
+        server: 'filesystem',
+        tool: { name: `large_${index}`, description: 'x'.repeat(180_000), inputSchema: { type: 'object' as const } },
+      })),
+    );
+    const catalog = createCatalog();
+    const firstVisibility = createCapabilityVisibility([['filesystem', 'filesystem']], 'first-client');
+    const secondVisibility = createCapabilityVisibility([['filesystem', 'filesystem']], 'second-client');
+    await catalog.listVisibleTools({ limit: 1 }, firstVisibility);
+    await expect(catalog.listVisibleTools({ limit: 1 }, firstVisibility)).rejects.toThrow(
+      'Capability cursor capacity exceeded',
+    );
+    expect((await catalog.listVisibleTools({ limit: 1 }, secondVisibility)).nextCursor).toBeDefined();
+  });
+
+  it('releases timeout references for removed connections and replaced registries', async () => {
+    vi.spyOn(toolSchemaBoundary, 'admitToolSchemas').mockRejectedValue(
+      new SchemaBoundaryError('schema_evaluation_timeout', true),
+    );
+    const catalog = createCatalog();
+    const outcomes = (catalog as unknown as { withheldTools: Map<string, unknown> }).withheldTools;
+    await catalog.listVisibleTools({});
+    expect(outcomes.size).toBe(2);
+    outboundConnections.delete('filesystem');
+    await catalog.describeVisibleTool({ server: 'filesystem', toolName: 'read_file' });
+    expect(outcomes.has(JSON.stringify(['filesystem', 'read_file']))).toBe(false);
+    expect(outcomes.size).toBe(1);
+    registry = ToolRegistry.empty();
+    await catalog.listVisibleTools({});
+    expect(outcomes.size).toBe(0);
+  });
+
+  it('does not retain admission outcome references after an ordinary successful listing', async () => {
+    const catalog = createCatalog();
+    await catalog.listVisibleTools({});
+    const state = (
+      catalog as unknown as {
+        listingState: { withheldTools: Map<string, unknown>; activeAttempts: Set<number> };
+      }
+    ).listingState;
+    expect(state.withheldTools.size).toBe(0);
+    expect(state.activeAttempts.size).toBe(0);
+  });
+
+  it('keeps a partial tool walk stable and retries admission on a fresh first page', async () => {
+    registry = ToolRegistry.fromToolsWithServer([
+      ...registry
+        .getAllTools()
+        .map((tool) => ({ tool: tool.definition!, server: tool.server, connectionKey: tool.connectionKey })),
+      { tool: { name: 'extra', inputSchema: { type: 'object' } }, server: 'filesystem' },
+    ]).withConnections(outboundConnections);
+    const originalAdmission = toolSchemaBoundary.admitToolSchemas;
+    let fail = true;
+    const admission = vi.spyOn(toolSchemaBoundary, 'admitToolSchemas').mockImplementation(async (tool, binding) => {
+      if (fail && tool.name === 'template_tool') throw new SchemaBoundaryError('schema_evaluation_timeout', true);
+      return originalAdmission(tool, binding);
+    });
+    const catalog = createCatalog();
+    const first = await catalog.listVisibleTools({ limit: 1 });
+    expect(first._meta?.[CAPABILITY_PAGINATION_META_KEY]).toMatchObject({
+      partial: true,
+      complete: false,
+      failureCategories: { upstream_tool_admission_timeout: 1 },
+      recovery: 'restart-walk',
+    });
+    expect(first.hasMore).toBe(true);
+    const withheld = await catalog.invokeVisibleTool({
+      server: 'template-server',
+      toolName: 'template_tool',
+      args: {},
+    });
+    expect(withheld.error?.type).toBe('not_found');
+    expect(mockClient.callTool).not.toHaveBeenCalled();
+
+    fail = false;
+    const refreshed = await catalog.listVisibleTools({});
+    expect(refreshed.tools.map((tool) => tool.name)).toContain('template_tool');
+    expect(refreshed._meta).toBeUndefined();
+    const admissionCalls = admission.mock.calls.length;
+    const last = await catalog.listVisibleTools({ limit: 1, cursor: first.nextCursor });
+    expect(last._meta).toEqual(first._meta);
+    expect(last.tools.map((tool) => tool.name)).not.toContain('template_tool');
+    expect(last.hasMore).toBe(false);
+    expect(admission).toHaveBeenCalledTimes(admissionCalls);
+  });
+
+  it('allows an explicit partial empty listing when all upstream admissions time out', async () => {
+    vi.spyOn(toolSchemaBoundary, 'admitToolSchemas').mockRejectedValue(
+      new SchemaBoundaryError('schema_evaluation_timeout', true),
+    );
+    const result = await createCatalog().listVisibleTools({});
+    expect(result.tools).toEqual([]);
+    expect(result._meta?.[CAPABILITY_PAGINATION_META_KEY]).toMatchObject({
+      partial: true,
+      failedSourceCount: 2,
+      failureCategories: { upstream_tool_admission_timeout: 2 },
+    });
+  });
+
+  it.each([
+    ['schema_evaluation_unavailable', 'admission'],
+    ['schema_evaluation_timeout', 'input'],
+  ] as const)('fails listing for shared or non-admission failures: %s/%s', async (code, phase) => {
+    vi.spyOn(toolSchemaBoundary, 'admitToolSchemas').mockRejectedValue(new SchemaBoundaryError(code, true, phase));
+    await expect(createCatalog().listVisibleTools({})).rejects.toThrow(code);
+  });
+
+  it('fails an admission timeout without an upstream connection', async () => {
+    outboundConnections.clear();
+    vi.spyOn(toolSchemaBoundary, 'admitToolSchemas').mockRejectedValue(
+      new SchemaBoundaryError('schema_evaluation_timeout', true),
+    );
+    await expect(createCatalog().listVisibleTools({})).rejects.toThrow('schema_evaluation_timeout');
+  });
+
+  it('withholds every timed-out tool while counting distinct failed sources', async () => {
+    registry = ToolRegistry.fromToolsWithServer([
+      { server: 'filesystem', tool: { name: 'one', inputSchema: { type: 'object' } } },
+      { server: 'filesystem', tool: { name: 'two', inputSchema: { type: 'object' } } },
+    ]);
+    vi.spyOn(toolSchemaBoundary, 'admitToolSchemas').mockRejectedValue(
+      new SchemaBoundaryError('schema_evaluation_timeout', true),
+    );
+    const result = await createCatalog().listVisibleTools({});
+    expect(result._meta?.[CAPABILITY_PAGINATION_META_KEY]).toMatchObject({
+      failedSourceCount: 1,
+      failureCategories: { upstream_tool_admission_timeout: 2 },
+    });
+  });
+
+  it('does not let an older timeout overwrite a newer successful admission', async () => {
+    registry = ToolRegistry.fromToolsWithServer([
+      { server: 'filesystem', tool: { name: 'unstable', inputSchema: { type: 'object' } } },
+    ]);
+    const originalAdmission = toolSchemaBoundary.admitToolSchemas;
+    let release: (error: unknown) => void = () => {};
+    let began: () => void = () => {};
+    const started = new Promise<void>((resolve) => {
+      began = resolve;
+    });
+    let first = true;
+    vi.spyOn(toolSchemaBoundary, 'admitToolSchemas').mockImplementation(async (tool, binding) => {
+      if (first) {
+        first = false;
+        began();
+        return new Promise((_, reject) => {
+          release = reject;
+        });
+      }
+      return originalAdmission(tool, binding);
+    });
+    const catalog = createCatalog();
+    const old = catalog.listVisibleTools({});
+    await started;
+    await catalog.listVisibleTools({});
+    const outcomes = (catalog as unknown as { withheldTools: Map<string, unknown> }).withheldTools;
+    expect(outcomes.get(JSON.stringify(['filesystem', 'unstable']))).toEqual({ attempt: 2, withheld: false });
+    release(new SchemaBoundaryError('schema_evaluation_timeout', true));
+    await old;
+    expect(outcomes.size).toBe(0);
+    const invoked = await catalog.invokeVisibleTool({ server: 'filesystem', toolName: 'unstable', args: {} });
+    expect(invoked.error).toBeUndefined();
+    expect(mockClient.callTool).toHaveBeenCalledOnce();
+  });
+
+  it('rejects publication when a fallback backend is replaced during admission', async () => {
+    const originalAdmission = toolSchemaBoundary.admitToolSchemas;
+    let release: () => void = () => {};
+    let began: () => void = () => {};
+    const started = new Promise<void>((resolve) => {
+      began = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let first = true;
+    vi.spyOn(toolSchemaBoundary, 'admitToolSchemas').mockImplementation(async (tool, binding) => {
+      if (first) {
+        first = false;
+        began();
+        await held;
+      }
+      return originalAdmission(tool, binding);
+    });
+    const listing = createCatalog().listVisibleTools({});
+    await started;
+    outboundConnections.set('filesystem', createMockOutboundConnection({ name: 'filesystem' }));
+    release();
+    await expect(listing).rejects.toMatchObject({
+      message: 'Capability catalog changed during listing',
+      code: -32000,
+      data: { retryable: true },
+    });
+  });
+
+  it('allows invocation after an existing refresh installs a successfully admitted registry', async () => {
+    const definition: Tool = { name: 'unstable', inputSchema: { type: 'object' } };
+    registry = ToolRegistry.fromToolsWithServer([{ server: 'filesystem', tool: definition }]);
+    const originalAdmission = toolSchemaBoundary.admitToolSchemas;
+    let fail = true;
+    vi.spyOn(toolSchemaBoundary, 'admitToolSchemas').mockImplementation(async (tool, binding) => {
+      if (fail) throw new SchemaBoundaryError('schema_evaluation_timeout', true);
+      return originalAdmission(tool, binding);
+    });
+    const refreshCapabilities = vi.fn(async () => {
+      await originalAdmission(definition as unknown as Record<string, unknown>, {
+        routeKey: 'refresh',
+        generation: 'one',
+      });
+      registry = ToolRegistry.fromToolsWithServer([{ server: 'filesystem', tool: definition }]);
+    });
+    const catalog = createCatalog(undefined, { refreshCapabilities });
+    await catalog.listVisibleTools({});
+    expect(
+      (await catalog.invokeVisibleTool({ server: 'filesystem', toolName: 'unstable', args: {} })).error?.type,
+    ).toBe('not_found');
+    fail = false;
+    const result = await catalog.invokeVisibleTool(
+      { server: 'filesystem', toolName: 'unstable', args: {} },
+      undefined,
+      { refreshIntent: 'force' },
+    );
+    expect(result.error).toBeUndefined();
+    expect(refreshCapabilities).toHaveBeenCalledOnce();
+    expect(mockClient.callTool).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a continuation after a pending tool becomes disabled', async () => {
+    const configs = { filesystem: { type: 'stdio', command: 'node', disabledTools: [] as string[] } };
+    const catalog = createCatalog(undefined, { getServerConfigs: () => configs });
+    const first = await catalog.listVisibleTools({ limit: 1 });
+    configs.filesystem.disabledTools.push('write_file');
+    await expect(catalog.listVisibleTools({ cursor: first.nextCursor })).rejects.toThrow(
+      'Invalid capability pagination cursor',
+    );
+  });
+
+  it('rejects a continuation after its upstream connection is replaced', async () => {
+    const catalog = createCatalog();
+    const first = await catalog.listVisibleTools({ limit: 1 });
+    outboundConnections.set('filesystem', createMockOutboundConnection({ name: 'filesystem' }));
+    await expect(catalog.listVisibleTools({ cursor: first.nextCursor })).rejects.toThrow(
+      'Invalid capability pagination cursor',
+    );
+  });
+
+  it('scopes private failure facts to visible connections, including failed sources without tools', async () => {
+    const meta = setCapabilityFailureFacts(
+      {
+        [CAPABILITY_PAGINATION_META_KEY]: {
+          partial: true,
+          complete: false,
+          failedSourceCount: 1,
+          failureCategories: { upstream_tool_admission_timeout: 2 },
+        },
+      },
+      new Map([['template-server:rendered123', { upstream_tool_admission_timeout: 2 }]]),
+    );
+    registry = registry.withListingMeta(meta);
+    const healthy = await createCatalog().listVisibleTools({}, capabilityVisibilityFromServerNames(['filesystem']));
+    expect(healthy._meta).toBeUndefined();
+    registry = ToolRegistry.empty().withListingMeta(meta);
+    const failed = await createCatalog().listVisibleTools(
+      {},
+      createCapabilityVisibility([['template-server:rendered123', 'template-server']]),
+    );
+    expect(failed._meta?.[CAPABILITY_PAGINATION_META_KEY]).toMatchObject({ failedSourceCount: 1 });
+  });
+
+  it('keeps a tool listing snapshot across request-local catalog instances', async () => {
+    const first = await createCatalog().listVisibleTools({ limit: 1 });
+    const last = await createCatalog().listVisibleTools({ limit: 1, cursor: first.nextCursor });
+    expect(last.tools).toHaveLength(1);
+    expect(last.tools[0].name).not.toBe(first.tools[0].name);
+    expect(last.hasMore).toBe(false);
+  });
+
+  it('invalidates a retained meta-tool walk after a tools generation change', async () => {
+    const catalog = createCatalog();
+    const first = await catalog.listVisibleTools({ limit: 1 });
+    advanceCapabilityPaginationGeneration(outboundConnections, 'tools');
+    await expect(catalog.listVisibleTools({ cursor: first.nextCursor })).rejects.toThrow(
+      'Invalid capability pagination cursor',
+    );
+  });
+
+  it('preserves aggregate partial metadata through visibility filtering', async () => {
+    const meta = { [CAPABILITY_PAGINATION_META_KEY]: { partial: true, complete: false, recovery: 'restart-walk' } };
+    registry = registry.withListingMeta(meta);
+    const result = await createCatalog().listVisibleTools({}, capabilityVisibilityFromServerNames(['filesystem']));
+    expect(result._meta).toEqual(meta);
+    expect(result.tools.map((tool) => tool.name)).toEqual(['read_file']);
+  });
 
   it('lists visible tools with disabled tools omitted and clean public server names', async () => {
     const result = await createCatalog().listVisibleTools({});

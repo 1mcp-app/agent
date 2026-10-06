@@ -7,6 +7,7 @@ import {
   clearCompleteConfiguredToolTargetSnapshot,
   clearLastConfiguredToolSnapshot,
   collectConfiguredToolPages,
+  isConfiguredToolSnapshotComplete,
   publishCompleteConfiguredToolInspection,
   publishCompleteConfiguredToolTargetSnapshots,
   publishConfiguredToolPage,
@@ -26,6 +27,45 @@ function connection(name: string): OutboundConnection {
 }
 
 describe('configured tool snapshots', () => {
+  it('retains the last complete connection inventory without promoting a partial refresh', () => {
+    const outbound = connection('admission-partial');
+    const original = [{ name: 'old', inputSchema: { type: 'object' as const } }];
+    publishConfiguredToolSnapshot(outbound, original);
+    const connections = new Map([['admission-partial', outbound]]);
+    publishCompleteConfiguredToolTargetSnapshots(connections);
+    expect(isConfiguredToolSnapshotComplete(outbound)).toBe(true);
+    const retained = readConfiguredToolSnapshot(outbound);
+    const target = readLastConfiguredToolSnapshot('admission-partial');
+    publishConfiguredToolSnapshot(outbound, [], false);
+    expect(isConfiguredToolSnapshotComplete(outbound)).toBe(false);
+    publishCompleteConfiguredToolTargetSnapshots(connections);
+    expect(readConfiguredToolSnapshot(outbound)).toBe(retained);
+    expect(readLastConfiguredToolSnapshot('admission-partial')).toBe(target);
+    publishConfiguredToolSnapshot(outbound, [{ name: 'new', inputSchema: { type: 'object' } }]);
+    publishCompleteConfiguredToolTargetSnapshots(connections);
+    expect(readLastConfiguredToolSnapshot('admission-partial').map(({ name }) => name)).toEqual(['new']);
+    expect(isConfiguredToolSnapshotComplete(outbound)).toBe(true);
+    expect(isConfiguredToolSnapshotComplete(connection('unknown'))).toBe(false);
+  });
+
+  it('preserves partial discovery metadata from an earlier page through final collection', async () => {
+    const partialMeta = {
+      'app.1mcp/capability-pagination': {
+        partial: true,
+        complete: false,
+        failureCategories: { upstream_tool_admission_timeout: 1 },
+        recovery: 'restart-walk',
+      },
+    };
+    const result = await collectConfiguredToolPages(async (cursor) =>
+      cursor === undefined
+        ? { tools: [{ name: 'first', inputSchema: { type: 'object' } }], nextCursor: 'next', _meta: partialMeta }
+        : { tools: [{ name: 'second', inputSchema: { type: 'object' } }], _meta: { final: true } },
+    );
+    expect(result.tools.map(({ name }) => name)).toEqual(['first', 'second']);
+    expect(result._meta).toEqual({ final: true, ...partialMeta });
+  });
+
   it('evicts a durable target snapshot only when its definition is removed', () => {
     const outbound = connection('removed-target');
     publishConfiguredToolSnapshot(outbound, [{ name: 'old', inputSchema: { type: 'object' } }]);

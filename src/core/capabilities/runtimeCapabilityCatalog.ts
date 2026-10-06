@@ -28,6 +28,7 @@ import {
   type CapabilityPaginationResult,
   type CapabilityResponseBudget,
   compareCodePoints,
+  createCapabilityPartialMeta,
   registerCapabilityPaginationNotifications,
   unregisterCapabilityPaginationConnections,
   walkCapabilityPages,
@@ -94,6 +95,8 @@ export interface PreparedToolCall {
 
 export interface RuntimeCapabilitySnapshot {
   readonly generation: CatalogGeneration;
+  /** Synchronous completeness facts from this captured observation, independent of pagination walks. */
+  readonly capabilityMeta?: Partial<Record<CapabilityKind, Record<string, unknown>>>;
   prepareToolCall(identity: string, args: unknown, signal?: AbortSignal): Promise<PreparedToolCall>;
   readonly connections: ReadonlyMap<string, OutboundConnection>;
   isCurrent(): boolean;
@@ -127,6 +130,7 @@ interface RuntimeScope {
   lastAccess: number;
   snapshot?: RuntimeCapabilitySnapshot;
   observedTools?: { started: number; fingerprints: ReadonlyMap<string, string | null> };
+  admissionOutcomes: Map<string, { started: number; connectionKey: string; error?: SchemaBoundaryError }>;
   paginationConnections: OutboundConnections;
   resourceRoutes: Map<
     string,
@@ -260,6 +264,7 @@ async function collectRuntimeCapabilityCatalog(
       lastAccess: Date.now(),
       paginationConnections: new Map(captured),
       resourceRoutes: new Map(),
+      admissionOutcomes: new Map(),
     };
     state.scopes.set(scope, currentScope);
   }
@@ -443,8 +448,26 @@ async function collectRuntimeCapabilityCatalog(
   }
   if (!scopedState.observedTools || started > scopedState.observedTools.started) {
     scopedState.observedTools = { started, fingerprints: sourceFingerprints };
+    for (const [routeKey, outcome] of scopedState.admissionOutcomes) {
+      if (sourceFingerprints.has(routeKey)) continue;
+      const provider = sourcePages.find((page) => page.kind === 'tools' && page.key === outcome.connectionKey);
+      // Failed listing does not prove a previously observed tool was removed.
+      if (provider?.error) continue;
+      scopedState.admissionOutcomes.delete(routeKey);
+    }
   }
+  const recordAdmission = (routeKey: string, connectionKey: string, error?: SchemaBoundaryError) => {
+    if (!scopedState.observedTools?.fingerprints.has(routeKey)) return;
+    const previous = scopedState.admissionOutcomes.get(routeKey);
+    if (previous && previous.started > started) return;
+    if (!previous && scopedState.admissionOutcomes.size >= 100000) throw new CapabilityCursorCapacityError();
+    scopedState.admissionOutcomes.set(routeKey, { started, connectionKey, error });
+    if (!error) return;
+    const connection = captured.get(connectionKey);
+    if (connection) publishConfiguredToolSnapshot(connection, [], false);
+  };
   const schemaContracts = new Map<string, ToolSchemaContracts>();
+  const admissionTimeouts: string[] = [];
   for (let index = 0; index < sources.length;) {
     const source = sources[index];
     if (source.kind !== 'tools') {
@@ -464,10 +487,24 @@ async function collectRuntimeCapabilityCatalog(
         }),
       );
       signal?.throwIfAborted();
+      recordAdmission(routeKey, source.connectionKey);
       index++;
     } catch (error) {
       signal?.throwIfAborted();
-      if (!(error instanceof SchemaBoundaryError) || error.retryable) throw error;
+      recordAdmission(
+        routeKey,
+        source.connectionKey,
+        error instanceof SchemaBoundaryError ? error : new SchemaBoundaryError('schema_invalid'),
+      );
+      if (!(error instanceof SchemaBoundaryError)) throw error;
+      if (source.origin === 'internal') throw error;
+      if (error.phase !== 'admission') throw error;
+      if (error.code === 'schema_evaluation_unavailable') throw error;
+      if (error.code === 'schema_evaluation_timeout') {
+        admissionTimeouts.push(source.connectionKey);
+      } else if (error.retryable) {
+        throw error;
+      }
       sources.splice(index, 1);
     }
   }
@@ -513,6 +550,7 @@ async function collectRuntimeCapabilityCatalog(
     }
   const entriesJson = JSON.stringify([
     generation.entries,
+    admissionTimeouts,
     sourcePages.map((provider) => ({
       kind: provider.kind,
       key: provider.key,
@@ -530,8 +568,18 @@ async function collectRuntimeCapabilityCatalog(
     }
     return lastSignature;
   };
+  const capabilityMeta: Partial<Record<CapabilityKind, Record<string, unknown>>> = {};
+  for (const kind of Object.keys(METHODS) as CapabilityKind[]) {
+    const meta = createCapabilityPartialMeta(
+      String(generation.id),
+      sourcePages.filter((provider) => provider.kind === kind && provider.error).map((provider) => provider.key),
+      kind === 'tools' ? admissionTimeouts : [],
+    );
+    if (meta) capabilityMeta[kind] = meta;
+  }
   const snapshot: RuntimeCapabilitySnapshot = Object.freeze({
     generation,
+    ...(Object.keys(capabilityMeta).length > 0 ? { capabilityMeta: Object.freeze(capabilityMeta) } : {}),
     async prepareToolCall(identity: string, args: unknown, signal?: AbortSignal) {
       const resolved = snapshot.resolve('tools', identity);
       if (!resolved) throw new SchemaBoundaryError('schema_invalid');
@@ -540,6 +588,9 @@ async function collectRuntimeCapabilityCatalog(
       if (!contract) throw new SchemaBoundaryError('schema_invalid');
       const assertContractCurrent = () => {
         assertCurrent();
+        // Admission outcomes invalidate routes even when a newer pending read suppresses publication.
+        const failure = scopedState.admissionOutcomes.get(routeKey)?.error;
+        if (failure) throw new SchemaBoundaryError(failure.code, failure.retryable, failure.phase);
         // A known changed/removed source invalidates just this route, including an
         // admission that fails. Starting an otherwise identical read does not.
         if (scopedState.observedTools?.fingerprints.get(routeKey) !== sourceFingerprints.get(routeKey))
@@ -734,6 +785,7 @@ async function collectRuntimeCapabilityCatalog(
         failedProviderIds: sourcePages
           .filter((provider) => provider.kind === kind && provider.error)
           .map((provider) => provider.key),
+        upstreamToolAdmissionTimeouts: kind === 'tools' ? admissionTimeouts : undefined,
         extraGenerationSignature: signature(listOptions.serverConfigs ?? options.serverConfigs),
         providers,
       });
@@ -752,6 +804,7 @@ async function collectRuntimeCapabilityCatalog(
           generation.entries
             .filter((entry) => entry.route.kind === 'tools' && entry.route.connectionKey === key)
             .map((entry) => entry.sourceObject as unknown as Tool),
+          !admissionTimeouts.includes(key),
         );
     }
     publishCompleteConfiguredToolTargetSnapshots(connections);

@@ -129,6 +129,19 @@ export const CLOSED_VALUES = {
     'roots/list',
     'other',
   ],
+  processPlatform: ['linux', 'darwin', 'win32', 'other'],
+  processEvidenceCode: [
+    'ETIMEDOUT',
+    'ENOENT',
+    'EACCES',
+    'EPERM',
+    'ESRCH',
+    'EIO',
+    'ENOTDIR',
+    'MALFORMED_PROCESS_EVIDENCE',
+    'PROCESS_EVIDENCE_UNAVAILABLE',
+    'other',
+  ],
   transport: ['stdio', 'http', 'sse', 'streamable-http', 'other'],
   status: [
     'pending',
@@ -150,7 +163,14 @@ export const CLOSED_VALUES = {
 } as const;
 
 export type FieldRule =
-  'number' | 'boolean' | 'error' | `identity:${IdentityType}` | keyof typeof CLOSED_VALUES | 'methods';
+  | 'number'
+  | 'boolean'
+  | 'error'
+  | `identity:${IdentityType}`
+  | keyof typeof CLOSED_VALUES
+  | 'methods'
+  | 'configured-name'
+  | 'instance-id';
 
 export function normalizeField(rule: FieldRule, value: unknown): string | number | boolean | string[] | undefined {
   if (rule === 'number')
@@ -158,6 +178,15 @@ export function normalizeField(rule: FieldRule, value: unknown): string | number
       ? value
       : undefined;
   if (rule === 'boolean') return typeof value === 'boolean' ? value : undefined;
+  // Local operational labels only, never URLs, commands, request text, or rendered configuration.
+  if (rule === 'configured-name')
+    return typeof value === 'string' &&
+      Buffer.byteLength(value) <= MAX_STRING_BYTES &&
+      /^[\p{L}\p{N}_.-]+$/u.test(value)
+      ? value
+      : undefined;
+  // Opaque random instance IDs are not credentials or hashes of configuration.
+  if (rule === 'instance-id') return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value) ? value : undefined;
   if (rule.startsWith('identity:')) return privateFingerprint(rule.slice(9) as IdentityType, value);
   if (rule === 'methods') {
     if (types.isProxy(value) || !Array.isArray(value)) return undefined;

@@ -101,7 +101,10 @@ export class McpConfigManager extends EventEmitter {
           )
         : {};
 
-      logger.info('mcpConfigManager.configuration.loaded.successfully.environment.variable.substitution.f9e03cc4');
+      logger.info('mcpConfigManager.configuration.loaded.successfully.environment.variable.substitution.f9e03cc4', {
+        serverCount: Object.keys(this.transportConfig).length,
+        templateCount: Object.keys(this.templateConfig).length,
+      });
       return true;
     } catch (_error) {
       logger.error('mcpConfigManager.failed.to.load.configuration.4035e97b', { error: _error });

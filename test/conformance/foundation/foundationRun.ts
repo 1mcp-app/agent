@@ -1,7 +1,6 @@
 import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { createServer } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
 
 import { parse as parseYaml } from 'yaml';
@@ -28,6 +27,8 @@ import {
   type MatrixExecutionResult,
   validateMatrixAssignments,
 } from '../runtime/index.js';
+import { reserveLoopbackPort } from '../runtime/loopbackPorts.js';
+import { runConformanceTasks } from './concurrentTasks.js';
 
 const revisionByEra = { modern: '2026-07-28', legacy: '2025-11-25' } as const;
 const streamableProfile = {
@@ -85,6 +86,7 @@ type TransportProfile = (typeof REQUIRED_TRANSPORT_PROFILES)[number];
 // Git is the source of truth for repository-owned artifacts; no duplicated checksum pins.
 const FOUNDATION_ARTIFACTS = [
   { id: 'command-runner', path: 'scripts/run-conformance.mjs' },
+  { id: 'preparation-runner', path: 'scripts/conformance-preparation.mjs' },
   { id: 'vitest-conformance', path: 'vitest.conformance.config.ts' },
   { id: 'vitest-transports', path: 'vitest.conformance-transports.config.ts' },
   { id: 'baseline', path: 'test/conformance/baseline/baseline.ts' },
@@ -453,20 +455,6 @@ export async function stopChild(child: ChildProcess, graceMs = 3_000): Promise<v
   if (!(await waitForChildExit(child, graceMs))) throw new Error('child-cleanup-timeout');
 }
 
-async function reserveLoopbackPort(): Promise<number> {
-  const server = createServer();
-  await new Promise<void>((resolvePromise, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolvePromise);
-  });
-  const address = server.address();
-  if (!address || typeof address === 'string') throw new Error('port-reservation-failed');
-  await new Promise<void>((resolvePromise, reject) =>
-    server.close((error) => (error ? reject(error) : resolvePromise())),
-  );
-  return address.port;
-}
-
 async function waitForGatewayReady(child: ChildProcess, origin: string): Promise<void> {
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
@@ -709,8 +697,7 @@ async function runOfficialPeers(root: string, outputDirectory: string): Promise<
   const fixture = join(root, 'test/conformance/fixtures/typescript/src/fixture.mjs');
   const bridge = join(root, 'test/conformance/foundation/officialClientBridge.mjs');
   const builtEntryPath = join(root, 'build/index.js');
-  const results: OfficialConformanceResult[] = [];
-  for (const revision of ['2025-11-25', '2026-07-28'] as const) {
+  const results = await runConformanceTasks(['2025-11-25', '2026-07-28'] as const, async (revision) => {
     const statusDirectory = await mkdtemp(join(outputDirectory, `official-client-${revision}-`));
     const command = [process.execPath, bridge, fixture, builtEntryPath, statusDirectory].map(shellArgument).join(' ');
     let clientResult = await runOfficialConformance({
@@ -733,7 +720,6 @@ async function runOfficialPeers(root: string, outputDirectory: string): Promise<
     } catch {
       clientResult = { classification: 'harness', role: 'client', revision, reason: 'cleanup-failure' };
     }
-    results.push(clientResult);
 
     let server: Awaited<ReturnType<typeof startTypescriptServer>> | undefined;
     let gateway: Awaited<ReturnType<typeof startOfficialGateway>> | undefined;
@@ -774,9 +760,9 @@ async function runOfficialPeers(root: string, outputDirectory: string): Promise<
     if (cleanupFailed) {
       serverResult = { classification: 'harness', role: 'server', revision, reason: 'cleanup-failure' };
     }
-    results.push(serverResult);
-  }
-  return results;
+    return [clientResult, serverResult];
+  });
+  return results.flat();
 }
 
 function typescriptPeer(root: string, era: Era, role: 'inbound' | 'upstream'): PeerCommand {
@@ -854,8 +840,7 @@ async function runMatrix(
 }> {
   const entries = matrixPlan();
   const plan = validateMatrixAssignments(entries.map((entry) => entry.descriptor));
-  const results: MatrixExecutionResult[] = [];
-  for (const entry of entries) {
+  const results = await runConformanceTasks(entries, async (entry) => {
     const { descriptor } = entry;
     const inbound = peer(root, entry.inboundLanguage, descriptor.inboundEra, 'inbound');
     const upstream = peer(root, entry.upstreamLanguage, descriptor.upstreamEra, 'upstream');
@@ -881,7 +866,6 @@ async function runMatrix(
       timeouts: { startupMs: 20_000, probeMs: 20_000, shutdownMs: 3_000 },
     };
     const result = await executeMatrixAssignment(options);
-    results.push(result);
     if (result.kind === 'product') {
       const evidenceDirectory = join(outputDirectory, 'evidence');
       await mkdir(evidenceDirectory, { recursive: true, mode: 0o700 });
@@ -890,7 +874,8 @@ async function runMatrix(
         writeEvidence(join(evidenceDirectory, `${descriptor.assignmentId}.upstream.json`), result.evidence.upstream),
       ]);
     }
-  }
+    return result;
+  });
   return { plan, results };
 }
 

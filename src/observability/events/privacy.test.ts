@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -112,6 +113,29 @@ describe('typed local instrumentation privacy', () => {
       expect(Object.isFrozen(definition)).toBe(true);
       expect(Object.isFrozen(definition.fields)).toBe(true);
     }
+  });
+
+  it('retains bounded process acquisition facts and rejects arbitrary diagnostic text', () => {
+    expect(
+      normalizeEvent('processIdentity.acquisition-failed', {
+        platform: 'win32',
+        pid: 123,
+        elapsedMs: 3000,
+        code: 'ETIMEDOUT',
+        message: forbidden[0],
+        stderr: forbidden[1],
+      }),
+    ).toEqual({
+      event: 'processIdentity.acquisition-failed',
+      message: 'Process birth evidence acquisition failed',
+      platform: 'win32',
+      pid: 123,
+      elapsedMs: 3000,
+      code: 'ETIMEDOUT',
+    });
+    expect(
+      normalizeEvent('processIdentity.acquisition-failed', { platform: forbidden[0], code: forbidden[1] }),
+    ).toMatchObject({ platform: 'other', code: 'other' });
   });
 
   it('preserves protocol stdout when the actual file logger runs in stdio mode', async () => {
@@ -400,10 +424,16 @@ describe('typed local instrumentation privacy', () => {
     const request = Object.create(null);
     for (const key of ['path', 'headers', 'body', 'query', 'ip']) Object.defineProperty(request, key, { get: trap });
     request.method = 'POST';
-    const response = { statusCode: 200, end: vi.fn().mockReturnThis() };
+    const response = Object.assign(new EventEmitter(), {
+      statusCode: 200,
+      end: vi.fn().mockReturnThis(),
+      write: vi.fn(),
+      getHeader: vi.fn(),
+    });
     const next = vi.fn();
     expect(() => httpRequestLogger(request as Request, response as unknown as Response, next)).not.toThrow();
     response.end();
+    response.emit('finish');
     expect(next).toHaveBeenCalledOnce();
     expect(trap).not.toHaveBeenCalled();
   });

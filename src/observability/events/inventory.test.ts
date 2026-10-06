@@ -69,5 +69,23 @@ describe('instrumentation ownership inventory', () => {
       'src/logger/logger.ts',
       'src/transport/managedStdioStderr.ts',
     ]);
+    const httpDiagnosticConsumers = files
+      .filter((file) => /\bwriteHttpDiagnostic\b/.test(fs.readFileSync(file, 'utf8')))
+      .map((file) => path.relative(root, file))
+      .sort();
+    expect(httpDiagnosticConsumers).toEqual([
+      'src/logger/logger.ts',
+      'src/transport/http/middlewares/httpRequestLogger.ts',
+    ]);
+    const localSinkConsumers = files
+      .filter((file) => /\bwriteLocalDiagnosticRecord\b/.test(fs.readFileSync(file, 'utf8')))
+      .map((file) => path.relative(root, file))
+      .sort();
+    expect(localSinkConsumers).toEqual(['src/logger/localDiagnostics.ts', 'src/logger/logger.ts']);
+    const localAdmissionConsumers = files
+      .filter((file) => /\badmitLocalDiagnosticRecord\b/.test(fs.readFileSync(file, 'utf8')))
+      .map((file) => path.relative(root, file))
+      .sort();
+    expect(localAdmissionConsumers).toEqual(['src/logger/localDiagnosticRecord.ts', 'src/logger/localDiagnostics.ts']);
   });
 });
