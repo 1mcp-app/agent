@@ -62,6 +62,43 @@ def test_typescript_probe_invokes_python_peer(sdk_era: str, protocol_era: str) -
     assert "fixture-result-must-not-leak" not in completed.stdout + completed.stderr
 
 
+def test_legacy_http_profile_rejects_modern_and_allows_automatic_fallback() -> None:
+    server = subprocess.Popen(
+        [sys.executable, str(DRIVER), "server", "--transport", "streamable-http",
+         "--protocol-era", "legacy"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        assert server.stdout is not None
+        endpoint = json.loads(server.stdout.readline())["endpoint"]
+        with driver.httpx2.Client(trust_env=False) as http:
+            response = http.post(endpoint, headers={
+                "accept": "application/json, text/event-stream",
+                "mcp-protocol-version": "2026-07-28",
+            }, json={"jsonrpc": "2.0", "id": 1, "method": "server/discover",
+                     "params": {"_meta": {
+                         "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                         "io.modelcontextprotocol/clientCapabilities": {},
+                         "io.modelcontextprotocol/clientInfo": {"name": "era-test", "version": "1"},
+                     }}})
+        assert response.status_code == 400
+        envelope = response.json()
+        assert envelope["id"] == 1
+        assert envelope["error"]["code"] == -32022
+        assert "2025-11-25" in envelope["error"]["data"]["supported"]
+        assert "2026-07-28" not in envelope["error"]["data"]["supported"]
+
+        async def auto_probe() -> None:
+            async with driver.httpx2.AsyncClient(trust_env=False) as http:
+                async with Client(driver.streamable_http_client(endpoint, http_client=http)) as client:
+                    assert client.protocol_version == "2025-11-25"
+                    result = await client.call_tool("fixture.acknowledge", {"marker": "synthetic"})
+                    assert not result.is_error
+
+        asyncio.run(asyncio.wait_for(auto_probe(), DRIVER_TIMEOUT_SECONDS))
+    finally:
+        stop_server(server)
+
+
 @pytest.mark.parametrize("protocol_era", ["legacy", "modern"])
 def test_http_probe_sends_only_applicable_lifecycle(monkeypatch, capsys, protocol_era: str) -> None:
     server = subprocess.Popen(
