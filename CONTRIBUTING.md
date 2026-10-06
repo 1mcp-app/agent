@@ -721,26 +721,9 @@ All notable changes are documented in [CHANGELOG.md](CHANGELOG.md) following [Ke
 
 ### Cutting a Release
 
-Releases are cut manually from the GitHub Actions UI — there are no automatic triggers on tag pushes.
+Release publication is a maintainer operation. Follow the [maintainer release runbook](docs/runbooks/releasing.md) for approval inputs, prerelease rehearsal and partial-release recovery.
 
-1. Open **Actions → Release Pipeline → Run workflow**.
-2. Fill in the inputs:
-   - **target_ref**: `main` for the next stable/prerelease on the current line, or `release-X.Y` for a patch on an older line.
-   - **version**: `X.Y.Z` for stable, or `X.Y.Z-<prerelease>` for prereleases such as `X.Y.Z-alpha.1`, `X.Y.Z-beta1`, or `X.Y.Z-rc1`.
-3. Click **Run workflow**.
-
-The pipeline:
-
-1. **validate** — checks the inputs and that `vX.Y.Z` does not already exist. Stable `X.Y.Z` must run from `main` or its matching `release-X.Y`; prereleases follow the same rule. The first prerelease identifier becomes the npm and Docker channel (`alpha`, `beta1`, `rc1`, etc.).
-2. **ci** — runs lint, typecheck, build, and unit tests against the target branch tip.
-3. **update-version** — bumps `package.json` and `src/constants/mcp.ts`, regenerates `CHANGELOG.md`, and pushes a single metadata commit to the target branch. Its SHA (`release_sha`) is what every downstream job builds and publishes.
-4. **binaries** and **docker** — run in parallel against `release_sha`. Docker images are pushed to GHCR; binaries are uploaded as workflow artifacts.
-5. **release** — publishes to npm with the right dist-tag (`latest` or the prerelease channel) and creates the GitHub Release. The release action also creates the `vX.Y.Z` git tag pointing at `release_sha`.
-6. **finalize** — only for stable releases cut from `main`: creates the `release-X.Y` maintenance branch at `release_sha` if it does not already exist.
-
-Because the git tag is created in step 5 (not earlier), a failure in binaries/docker leaves no tag behind — fix the issue and re-dispatch the same version.
-
-If a re-dispatch is needed after step 5 succeeded, delete the tag and GitHub release manually first; otherwise `validate` will refuse the version.
+The manual Release Pipeline checks the final versioned commit and publishes retained, tested artifacts. Channel aliases move only after all required versioned publications pass identity verification. A failed or uncertain publication requires reconciliation and explicit recovery with the original candidate and artifacts; do not delete releases or tags to retry.
 
 ## License
 

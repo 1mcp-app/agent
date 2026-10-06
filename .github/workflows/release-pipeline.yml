@@ -13,12 +13,29 @@ on:
         required: true
         type: string
 
+      approval_ref:
+        description: 'Owner publication approval URL (#474); required even for recovery.'
+        required: true
+        type: string
+      readiness_ref:
+        description: 'Approved #485 compatibility/security/readiness evidence URL for this candidate.'
+        required: true
+        type: string
+      recovery_run_id:
+        description: 'Explicit owner resume: original Release Pipeline run ID; empty for new release.'
+        required: false
+        type: string
+      candidate_sha:
+        description: 'Exact original versioned SHA; required only for recovery.'
+        required: false
+        type: string
+
 permissions:
   contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.inputs.version }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   validate:
@@ -41,21 +58,20 @@ jobs:
 
       - name: Validate release inputs
         id: validate
-        run: node scripts/validate-release-inputs.cjs "$TARGET_REF" "$VERSION"
+        run: |
+          node scripts/release-recovery.cjs validate
+          node scripts/validate-release-inputs.cjs "$TARGET_REF" "$VERSION"
         env:
           TARGET_REF: ${{ inputs.target_ref }}
           VERSION: ${{ inputs.version }}
-
-  ci:
-    needs: validate
-    uses: ./.github/workflows/test-and-validate.yml
-    with:
-      checkout_ref: refs/heads/${{ needs.validate.outputs.release_ref }}
-    permissions:
-      contents: read
+          APPROVAL_REF: ${{ inputs.approval_ref }}
+          READINESS_REF: ${{ inputs.readiness_ref }}
+          RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
+          RELEASE_SHA: ${{ inputs.candidate_sha }}
 
   update-version:
-    needs: [validate, ci]
+    needs: validate
+    if: inputs.recovery_run_id == ''
     uses: ./.github/workflows/update-version.yml
     with:
       release_ref: ${{ needs.validate.outputs.release_ref }}
@@ -63,23 +79,109 @@ jobs:
     permissions:
       contents: write
 
-  binaries:
+  candidate:
     needs: [validate, update-version]
+    if: ${{ !cancelled() && needs.validate.result == 'success' && (needs.update-version.result == 'success' || inputs.recovery_run_id != '') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      release_sha: ${{ steps.identity.outputs.release_sha }}
+      artifact_run_id: ${{ steps.identity.outputs.artifact_run_id }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Run the resolver from the dispatch revision before checking out candidate code.
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate exact candidate and owner-selected recovery run
+        id: identity
+        env:
+          RELEASE_SHA: ${{ inputs.candidate_sha || needs.update-version.outputs.release_sha }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          NPM_TAG: ${{ needs.validate.outputs.npm_tag }}
+          RELEASE_REF: ${{ needs.validate.outputs.release_ref }}
+          RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-recovery.cjs candidate
+
+  ci:
+    needs: candidate
+    if: ${{ !cancelled() && needs.candidate.result == 'success' }}
+    uses: ./.github/workflows/test-and-validate.yml
+    with:
+      checkout_ref: ${{ needs.candidate.outputs.release_sha }}
+      release_gate: true
+    permissions:
+      contents: read
+
+  native-security:
+    needs: candidate
+    if: ${{ !cancelled() && needs.candidate.result == 'success' }}
+    uses: ./.github/workflows/native-credentials.yml
+    with:
+      checkout_ref: ${{ needs.candidate.outputs.release_sha }}
+    permissions:
+      contents: read
+
+  package:
+    needs: [validate, candidate, ci, native-security]
+    if: inputs.recovery_run_id == ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.candidate.outputs.release_sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-pnpm
+        with:
+          cache-deps: 'false'
+      - name: Build, pack, install and smoke retained npm archive
+        env:
+          RELEASE_SHA: ${{ needs.candidate.outputs.release_sha }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          ARTIFACT_KIND: npm
+        run: |
+          set -euo pipefail
+          node scripts/release-artifacts.cjs candidate
+          pnpm build
+          npm pkg set "gitHead=$RELEASE_SHA"
+          mkdir -p npm-artifact
+          npm pack --ignore-scripts --pack-destination npm-artifact
+          npm install --prefix "$RUNNER_TEMP/npm-smoke" ./npm-artifact/*.tgz --ignore-scripts --omit=dev --no-audit --no-fund
+          observed=$("$RUNNER_TEMP/npm-smoke/node_modules/.bin/1mcp" --version)
+          test "$observed" = "$VERSION"
+          node scripts/release-artifacts.cjs record npm-artifact
+      - uses: actions/upload-artifact@v7
+        with:
+          name: npm-candidate
+          path: npm-artifact
+          retention-days: 30
+          if-no-files-found: error
+
+  binaries:
+    needs: [validate, candidate, ci, native-security]
+    if: inputs.recovery_run_id == ''
     uses: ./.github/workflows/build-binaries.yml
     with:
       release_ref: ${{ needs.validate.outputs.release_ref }}
-      release_sha: ${{ needs.update-version.outputs.release_sha }}
+      release_sha: ${{ needs.candidate.outputs.release_sha }}
       version: ${{ needs.validate.outputs.version }}
       version_tag: ${{ needs.validate.outputs.version_tag }}
     permissions:
       contents: write
 
   docker:
-    needs: [validate, update-version]
+    needs: [validate, candidate, ci, native-security]
+    if: inputs.recovery_run_id == ''
     uses: ./.github/workflows/build-docker-images.yml
     with:
       release_ref: ${{ needs.validate.outputs.release_ref }}
-      release_sha: ${{ needs.update-version.outputs.release_sha }}
+      release_sha: ${{ needs.candidate.outputs.release_sha }}
       version: ${{ needs.validate.outputs.version }}
       version_tag: ${{ needs.validate.outputs.version_tag }}
       docker_raw_tag: ${{ needs.validate.outputs.docker_raw_tag }}
@@ -93,25 +195,32 @@ jobs:
   # Runs after binaries (artifacts attached to the release) and docker (so we don't
   # tag a release whose images failed to publish).
   release:
-    needs: [validate, update-version, binaries, docker]
+    needs: [validate, candidate, ci, native-security, package, binaries, docker]
+    if: ${{ !cancelled() && needs.ci.result == 'success' && needs.native-security.result == 'success' && (inputs.recovery_run_id != '' || (needs.package.result == 'success' && needs.binaries.result == 'success' && needs.docker.result == 'success')) }}
     uses: ./.github/workflows/publish-to-npm.yml
     with:
       release_ref: ${{ needs.validate.outputs.release_ref }}
-      release_sha: ${{ needs.update-version.outputs.release_sha }}
+      release_sha: ${{ needs.candidate.outputs.release_sha }}
       version: ${{ needs.validate.outputs.version }}
       version_tag: ${{ needs.validate.outputs.version_tag }}
       npm_tag: ${{ needs.validate.outputs.npm_tag }}
+      artifact_run_id: ${{ needs.candidate.outputs.artifact_run_id }}
+      recovery: ${{ inputs.recovery_run_id != '' }}
+      approval_ref: ${{ inputs.approval_ref }}
+      readiness_ref: ${{ inputs.readiness_ref }}
       is_prerelease: ${{ needs.validate.outputs.is_prerelease == 'true' }}
     permissions:
       contents: write
       id-token: write
+      packages: write
+      actions: read
 
   # Cuts the release-X.Y maintenance branch only after npm + docker + GitHub
   # release all succeeded. Skipped for releases that already ran from a
   # release-X.Y branch.
   finalize:
-    needs: [validate, update-version, release]
-    if: ${{ needs.validate.outputs.release_ref == 'main' }}
+    needs: [validate, candidate, release]
+    if: ${{ !cancelled() && needs.release.result == 'success' && needs.validate.outputs.release_ref == 'main' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -123,7 +232,7 @@ jobs:
 
       - name: Create release branch
         env:
-          RELEASE_SHA: ${{ needs.update-version.outputs.release_sha }}
+          RELEASE_SHA: ${{ needs.candidate.outputs.release_sha }}
           EXPECTED_RELEASE_BRANCH: ${{ needs.validate.outputs.expected_release_branch }}
         run: |
           set -euo pipefail
@@ -143,3 +252,97 @@ jobs:
             exit 1
           fi
           echo "Created ${EXPECTED_RELEASE_BRANCH} at ${RELEASE_SHA}."
+
+  summary:
+    if: always()
+    needs: [validate, update-version, candidate, ci, native-security, package, binaries, docker, release, finalize]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      github_verified: ${{ steps.summary.outputs.github_verified }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.candidate.outputs.release_sha || github.sha }}
+          persist-credentials: false
+      - name: Collect exact-source gate evidence
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: release-gates
+          path: summary-evidence/gates
+      - name: Collect partial publication and alias evidence
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          pattern: '*publication-state'
+          path: summary-evidence
+      - name: Collect retained npm identity
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: npm-candidate
+          path: summary-evidence/npm
+          run-id: ${{ needs.candidate.outputs.artifact_run_id || github.run_id }}
+          github-token: ${{ github.token }}
+      - name: Collect retained binary identities
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          pattern: 1mcp-*-*
+          path: summary-evidence/binaries
+          run-id: ${{ needs.candidate.outputs.artifact_run_id || github.run_id }}
+          github-token: ${{ github.token }}
+      - name: Collect retained OCI identities
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          pattern: docker-*
+          path: summary-evidence/docker
+          run-id: ${{ needs.candidate.outputs.artifact_run_id || github.run_id }}
+          github-token: ${{ github.token }}
+      - name: Write compact truthful release summary
+        id: summary
+        if: always()
+        env:
+          RELEASE_SHA: ${{ needs.candidate.outputs.release_sha }}
+          VERSION: ${{ inputs.version }}
+          NPM_TAG: ${{ needs.validate.outputs.npm_tag }}
+          APPROVAL_REF: ${{ inputs.approval_ref }}
+          READINESS_REF: ${{ inputs.readiness_ref }}
+          RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
+          ARTIFACT_RUN_ID: ${{ needs.candidate.outputs.artifact_run_id }}
+          JOB_RESULTS: ${{ toJSON(needs) }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-summary.cjs
+      - name: Retain summary even after partial failure
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-summary
+          path: release-summary.json
+          retention-days: 30
+          if-no-files-found: error
+
+  attach-summary:
+    if: ${{ always() && needs.summary.result == 'success' && needs.summary.outputs.github_verified == 'true' }}
+    needs: [candidate, summary]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.candidate.outputs.release_sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-summary
+      - name: Attach evidence to the verified release under the existing protection
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/attach-release-summary.cjs

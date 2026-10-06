@@ -11,13 +11,18 @@ on:
       - '**/*.md'
       - 'docs/**'
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      checkout_ref:
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: cooperative-runtime-${{ github.ref }}
-  cancel-in-progress: true
+  group: cooperative-runtime-${{ inputs.checkout_ref || github.ref }}
+  cancel-in-progress: ${{ !inputs.checkout_ref }}
 
 env:
   HUSKY: 0
@@ -43,10 +48,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.checkout_ref || github.ref }}
           persist-credentials: false
 
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node-pnpm
+        with:
+          cache-deps: ${{ !inputs.checkout_ref }}
 
       - name: Build Node installation
         if: matrix.runtime == 'Node'
