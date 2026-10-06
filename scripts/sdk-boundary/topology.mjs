@@ -16,7 +16,14 @@ const ROOT_PACKAGES = {
   zod: { placement: 'dependencies' },
 };
 
-const TRACKED_PACKAGE_NAMES = Object.keys(ROOT_PACKAGES);
+// Include transport/parser edges whose security bounds are part of SDK compatibility.
+const TRACKED_PACKAGE_NAMES = [
+  ...Object.keys(ROOT_PACKAGES),
+  'eventsource',
+  'eventsource-parser',
+  'hono',
+  '@hono/node-server',
+];
 const ROOT_SECTIONS = ['dependencies', 'devDependencies', 'optionalDependencies'];
 
 function trackedPackageForKey(key) {

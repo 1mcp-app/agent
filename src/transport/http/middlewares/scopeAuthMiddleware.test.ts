@@ -16,6 +16,7 @@ vi.mock('@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js', () => 
       clientId: 'client-1',
       scopes: ['tag:web'],
       token: 'token-1',
+      resource: new URL(AgentConfigManager.getInstance().getUrl()),
       expiresAt: 0,
     };
     next();

@@ -628,6 +628,48 @@ describe('modern HTTP admission', () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   });
+  it('isolates concurrent exchanges with the same wire id and completes them out of order', async () => {
+    const pending: Array<{
+      requestId: string;
+      authority: { connectionIds: readonly string[] };
+      release: (value: object) => void;
+    }> = [];
+    const closes: ReturnType<typeof vi.fn>[] = [];
+    createBridge.mockImplementation(async () => {
+      const targetConnectionId = `private-${closes.length}`;
+      const close = vi.fn(async () => undefined);
+      closes.push(close);
+      return {
+        targetConnectionId,
+        close,
+        outbound: {
+          role: 'outbound',
+          pin: { era: 'legacy', revision: '2025-11-25' },
+          request: (request: { requestId: string; authority: { connectionIds: readonly string[] } }) =>
+            new Promise<object>((release) => pending.push({ ...request, release })),
+          cancel: vi.fn(async () => undefined),
+          close,
+        },
+      };
+    });
+    const instance = app();
+    const body = { jsonrpc: '2.0', id: 0, method: 'tools/list', params: { _meta: modernMeta } };
+    const first = modernPost(instance, body).then((response) => response);
+    await vi.waitFor(() => expect(pending).toHaveLength(1));
+    const second = modernPost(instance, body).then((response) => response);
+    await vi.waitFor(() => expect(pending).toHaveLength(2));
+    expect(pending[0].requestId).not.toBe(pending[1].requestId);
+    expect(pending[0].authority.connectionIds).toEqual(['private-0']);
+    expect(pending[1].authority.connectionIds).toEqual(['private-1']);
+    pending[1].release({ tools: [{ name: 'second', inputSchema: { type: 'object' } }] });
+    expect((await second).body).toMatchObject({ id: 0, result: { tools: [{ name: 'second' }] } });
+    expect(closes[0]).not.toHaveBeenCalled();
+    pending[0].release({ tools: [{ name: 'first', inputSchema: { type: 'object' } }] });
+    expect((await first).body).toMatchObject({ id: 0, result: { tools: [{ name: 'first' }] } });
+    expect(closes[0]).toHaveBeenCalledOnce();
+    expect(closes[1]).toHaveBeenCalledOnce();
+  });
+
   it('bounds simultaneous HTTP exchanges before bridge allocation and releases admission', async () => {
     const instance = app();
     const server = instance.listen(0, '127.0.0.1');

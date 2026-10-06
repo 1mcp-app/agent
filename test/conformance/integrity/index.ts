@@ -13,28 +13,28 @@ export const ACCEPTED_NPM_PINS = [
   },
   {
     name: '@modelcontextprotocol/client',
-    version: '2.0.0',
-    integrity: 'sha512-8f1OghQ2rjzIOfqgUCP+8GiUWqRs89njoWLNqAe8kWmDePv3s1fZXseej+QXemssEuuOvLLmLO/kqM3IQHtISw==',
+    version: '2.3.1',
+    integrity: 'sha512-mIGZXpHsjnZ6lD+gD/WCMpR5k8yVQQ8nNFH1N0Srf7AvnwTUMYD6pvTY8ng2+He5FfV7YMZLmrjL7cLa/cc3dQ==',
   },
   {
     name: '@modelcontextprotocol/core',
-    version: '2.0.0',
-    integrity: 'sha512-pJCEwGG7Lfr/+PQp9ZTwKXNeO5wzbfKL7H3MYpCorM4oFBoQrdjnBgEoqG+RjhsvS1FKrDbKux+M1HhlnGWqcA==',
+    version: '2.3.1',
+    integrity: 'sha512-laVmIhPGpWi7rG9q+0UigblRN0Hws/Yjlb6qLFtVqryXVLkc4h+yN8z731POD2LnAGQlFe7/tXhUm7Bi0YB91g==',
   },
   {
     name: '@modelcontextprotocol/server',
-    version: '2.0.0',
-    integrity: 'sha512-YhHWdHfpFMQfd0prsEnxKeS3Qz3ytIGmsS0sth4KDjnacIT7hxk6hXHkJ9KysxlkvTM+WZAtQbbcUhdoP4Hvtw==',
+    version: '2.3.1',
+    integrity: 'sha512-e59MfWuSssj6DoQ96JCTqdW1AXT5/XtnTl0WWd6MU1Ka434fFUGGosCLJbGNySDhHGvxQWoRWK137FXYFkYNWw==',
   },
   {
     name: '@modelcontextprotocol/server-legacy',
-    version: '2.0.0',
-    integrity: 'sha512-LnffC1BSqFMHtMQxEz92lqDpHWma+ErV3ghdHDgdkCyYzVcCYKcUT5loq4kflty+Bf9C9qjJqbnphyBWyCqo8Q==',
+    version: '2.3.1',
+    integrity: 'sha512-+cuB+hl7s8DiFXIt13le3cD2wZPOeDYwlycAkRMPljqqNbOLekGRiyslx8WXfqaXSCveS1eDD8/B8rmxz9BZFQ==',
   },
   {
     name: '@modelcontextprotocol/node',
-    version: '2.0.0',
-    integrity: 'sha512-Y4hAC2XdGDUdDOCbLDOCA4+aL3NUldjsOWlDL/YwpAxrPhRm1xHd7lZ+mLacvZ9t3PaH28wgNoaLQGrIk1P2pg==',
+    version: '2.1.1',
+    integrity: 'sha512-EY92OAXN2xYL7tNS/MVsWJW1v8VHAPwl9B4Ca3pCrjmvqyC+S1C/6UHsMxF2GoFPraS5Yyg56vFz9brVpFojMA==',
   },
   {
     name: '@modelcontextprotocol/sdk',

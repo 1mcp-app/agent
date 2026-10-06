@@ -39,7 +39,13 @@ describe('native continuation authentication fence', () => {
     provider = new SDKOAuthServerProvider(directory, 'auth-fence-runtime');
     tokenId = randomUUID();
     token = AUTH_CONFIG.SERVER.TOKEN.ID_PREFIX + tokenId;
-    provider.oauthStorage.sessionRepository.createWithId(tokenId, client.client_id, '', ['tag:a', 'tag:b'], 60_000);
+    provider.oauthStorage.sessionRepository.createWithId(
+      tokenId,
+      client.client_id,
+      new URL(config.getUrl()).href,
+      ['tag:a', 'tag:b'],
+      60_000,
+    );
   });
 
   afterEach(() => {
@@ -53,7 +59,7 @@ describe('native continuation authentication fence', () => {
   let sdkAuth: Request['auth'];
 
   async function admit() {
-    const req = { headers: { authorization: `Bearer ${token}` } } as Request;
+    const req = { headers: { authorization: `Bearer ${token}`, host: 'attacker.example' } } as unknown as Request;
     const res = { locals: {}, status: vi.fn(), json: vi.fn(), set: vi.fn() } as unknown as Response;
     const next = vi.fn();
     await createScopeAuthMiddleware(provider)(req, res, next);
@@ -64,7 +70,7 @@ describe('native continuation authentication fence', () => {
     return auth;
   }
 
-  function updateGrant(update: { scopes?: string[]; clientId?: string; expires?: number }) {
+  function updateGrant(update: { scopes?: string[]; clientId?: string; expires?: number; resource?: string }) {
     const sessionId = AUTH_CONFIG.SERVER.SESSION.ID_PREFIX + tokenId;
     const session = provider.oauthStorage.sessionRepository.get(sessionId)!;
     provider.oauthStorage.fileStorage.writeData(AUTH_CONFIG.SERVER.SESSION.FILE_PREFIX, sessionId, {
@@ -72,6 +78,33 @@ describe('native continuation authentication fence', () => {
       ...update,
     });
   }
+
+  it('admits the configured stored resource independently of a spoofed Host', async () => {
+    const auth = await admit();
+    expect(await revalidateAuthInfo(auth)).toBe(true);
+  });
+
+  it.each(['', 'https://another-resource.example/', 'http://attacker.example/'])(
+    'rejects a verified token with wrong or missing resource: %s',
+    async (resource) => {
+      updateGrant({ resource });
+      const req = { headers: { authorization: `Bearer ${token}`, host: 'attacker.example' } } as unknown as Request;
+      const res = { locals: {}, status: vi.fn().mockReturnThis(), json: vi.fn(), set: vi.fn() } as unknown as Response;
+      const next = vi.fn();
+      await createScopeAuthMiddleware(provider)(req, res, next);
+      expect(next).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.set).toHaveBeenCalledWith(
+        'WWW-Authenticate',
+        `Bearer error="invalid_token", resource_metadata="${AgentConfigManager.getInstance().getUrl()}/.well-known/oauth-protected-resource"`,
+      );
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'invalid_token',
+        error_description: 'Token was not issued for this resource',
+      });
+      expect(JSON.stringify(vi.mocked(res.json).mock.calls)).not.toContain(token);
+    },
+  );
 
   it('reuses the injected provider and refuses a token revoked while validation was pending', async () => {
     const verify = vi.spyOn(provider, 'verifyAccessToken');
@@ -96,6 +129,8 @@ describe('native continuation authentication fence', () => {
     { scopes: ['tag:a'] },
     { scopes: ['tag:a', 'tag:b', 'tag:c'] },
     { clientId: 'another-owner' },
+    { resource: 'https://another-resource.example/' },
+    { resource: '' },
     { expires: Date.now() + 120_000 },
   ])('rejects a changed stored grant without trusting the original snapshot: %j', async (change) => {
     const auth = await admit();

@@ -105,10 +105,14 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
 
   const provider = oauthProvider || new SDKOAuthServerProvider();
 
+  // Match the canonical resource advertised by mcpAuthRouter, never a request Host header.
+  const expectedResource = new URL(AgentConfigManager.getInstance().getUrl()).href;
+  const resourceMetadataUrl = `${AgentConfigManager.getInstance().getUrl()}/.well-known/oauth-protected-resource`;
+
   // Create the SDK's bearer auth middleware
   const bearerAuthMiddleware = requireBearerAuth({
     verifier: provider,
-    resourceMetadataUrl: `${AgentConfigManager.getInstance().getUrl()}/.well-known/oauth-protected-resource`,
+    resourceMetadataUrl,
   });
 
   // Return a combined middleware that does both auth and scope validation
@@ -126,6 +130,13 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
       const authInfo = req.auth;
       if (!authInfo) {
         throw new Error('Authentication succeeded but req.auth is undefined');
+      }
+
+      // The retained v1 middleware verifies the opaque token but has no audience option.
+      if (authInfo.resource?.href !== expectedResource) {
+        res.set('WWW-Authenticate', `Bearer error="invalid_token", resource_metadata="${resourceMetadataUrl}"`);
+        res.status(401).json({ error: 'invalid_token', error_description: 'Token was not issued for this resource' });
+        return;
       }
 
       // Type-safe access to authInfo properties
@@ -184,6 +195,7 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
       const admittedExpires = authInfo.expiresAt;
       const revalidate = async () => {
         const current = await provider.verifyAccessToken(token);
+        if (current.resource?.href !== expectedResource) return false;
         // The native provider exposes the session repository's millisecond expiry.
         return (
           typeof current.expiresAt === 'number' &&
