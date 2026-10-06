@@ -721,7 +721,7 @@ All notable changes are documented in [CHANGELOG.md](CHANGELOG.md) following [Ke
 
 ### Cutting a Release
 
-Release publication is a maintainer operation. Follow the [maintainer release runbook](RELEASING.md) ([中文](RELEASING.zh-CN.md)) for approval inputs, prerelease rehearsal and partial-release recovery.
+Release publication is a maintainer operation. Follow the [maintainer release runbook](docs/runbooks/releasing.md) for approval inputs, prerelease rehearsal and partial-release recovery.
 
 The manual Release Pipeline checks the final versioned commit and publishes retained, tested artifacts. Channel aliases move only after all required versioned publications pass identity verification. A failed or uncertain publication requires reconciliation and explicit recovery with the original candidate and artifacts; do not delete releases or tags to retry.
 
