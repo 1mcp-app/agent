@@ -37,7 +37,10 @@ const clientId = `native-smoke-${randomUUID()}`;
 const clientKey = AUTH_CONFIG.CLIENT.PREFIXES.CLIENT + clientId;
 const verifier = randomBytes(32).toString('base64url');
 const challenge = createHash('sha256').update(verifier).digest('base64url');
-const resource = 'https://synthetic.1mcp.invalid/mcp';
+const externalUrl = 'https://synthetic.1mcp.invalid';
+const resource = new URL(externalUrl).href;
+const wrongAudienceTokenId = randomUUID();
+const wrongAudienceToken = AUTH_CONFIG.SERVER.TOKEN.ID_PREFIX + wrongAudienceTokenId;
 const redirectUri = 'http://127.0.0.1:39999/callback';
 const scopes = ['tag:synthetic'];
 const env = { ...process.env };
@@ -127,6 +130,8 @@ async function startRuntime(authEnabled, inboundReady = true) {
     String(port),
     '--host',
     '127.0.0.1',
+    '--external-url',
+    externalUrl,
   ]);
   assert.ok(started.status === 0, 'Synthetic runtime startup failed');
   const origin = `http://127.0.0.1:${port}`;
@@ -218,6 +223,9 @@ try {
     code: storage.authCodeRepository.create(clientId, redirectUri, resource, scopes, 3600000, challenge),
     consent: storage.createAuthorizationRequest(clientId, redirectUri, challenge, secret, resource, scopes),
   };
+  storage.sessionRepository.createWithId(wrongAudienceTokenId, clientId, `${resource}mcp`, scopes, 3600000);
+  protectedIdentifiers.add(wrongAudienceTokenId);
+  issuedSecrets.add(wrongAudienceToken);
   for (const identifier of Object.values(ids)) {
     protectedIdentifiers.add(identifier);
     protectedIdentifiers.add(identifier.slice(identifier.indexOf('-') + 1));
@@ -316,6 +324,17 @@ try {
     secondRedemption.status === 400 && secondRedemption.body.error === 'invalid_grant',
     'Executable revived a consumed authorization code',
   );
+  const wrongAudience = await fetch(`${origin}/mcp`, {
+    headers: { authorization: `Bearer ${wrongAudienceToken}` },
+    signal: AbortSignal.timeout(15000),
+  });
+  assert.equal(wrongAudience.status, 401, 'Executable accepted a native token issued for a different resource');
+  assert.ok(
+    wrongAudience.headers.get('www-authenticate')?.includes('resource_metadata='),
+    'Wrong-audience challenge omitted resource discovery metadata',
+  );
+  const wrongAudienceBody = await wrongAudience.text();
+  assert.ok(!wrongAudienceBody.includes(wrongAudienceToken), 'Wrong-audience rejection exposed the synthetic token');
   const beforeReplay = await fetch(`${origin}/mcp`, {
     headers: { authorization: `Bearer ${issued.body.access_token}` },
     signal: AbortSignal.timeout(15000),

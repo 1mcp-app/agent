@@ -130,7 +130,7 @@ describe('native round capability admission', () => {
         const provider = {
           verifyAccessToken: async (token: string) => {
             if (token !== 'fixture-token') throw new Error('Invalid fixture credential');
-            return { token, clientId: 'owner', scopes: [], expiresAt };
+            return { token, clientId: 'owner', scopes: [], expiresAt, resource: new URL(config.getUrl()) };
           },
         } as unknown as SDKOAuthServerProvider;
         const config = AgentConfigManager.getInstance();

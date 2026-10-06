@@ -84,8 +84,10 @@ describe('released SDK lifecycle and parser contracts', () => {
     const streamed = new Request('http://localhost/mcp', { method: 'POST', body: '123456789' });
     for (const request of [declared, streamed]) {
       expect(await readRequestBody(request, 8)).toMatchObject({ tooLarge: true });
+    }
+    for (const headers of [{ 'content-length': '8' }, undefined]) {
       const result = await readRequestBody(
-        new Request('http://localhost/mcp', { method: 'POST', body: '12345678' }),
+        new Request('http://localhost/mcp', { method: 'POST', headers, body: '12345678' }),
         8,
       );
       expect(result).toMatchObject({ text: '12345678' });
