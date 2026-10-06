@@ -732,11 +732,26 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
 
     // Log MCP loading progress (non-blocking)
     loadingManager.on('loading-progress', (_summary: LoadingSummary) => {
-      logger.info('serve.mcp.loading.progress.servers.ready.loading.failed.90307638');
+      logger.info('serve.mcp.loading.progress.servers.ready.loading.failed.90307638', {
+        totalServers: _summary.totalServers,
+        pending: _summary.pending,
+        ready: _summary.ready,
+        loading: _summary.loading,
+        failed: _summary.failed,
+        awaitingOAuth: _summary.awaitingOAuth,
+        cancelled: _summary.cancelled,
+      });
     });
 
     loadingManager.on('loading-complete', (_summary: LoadingSummary) => {
-      logger.info('serve.mcp.loading.complete.servers.ready.success.rate.0a0fdab1');
+      logger.info('serve.mcp.loading.complete.servers.ready.success.rate.0a0fdab1', {
+        totalServers: _summary.totalServers,
+        ready: _summary.ready,
+        failed: _summary.failed,
+        awaitingOAuth: _summary.awaitingOAuth,
+        cancelled: _summary.cancelled,
+        successRate: _summary.successRate,
+      });
     });
   } catch (_error) {
     runtimeOwnership?.release();

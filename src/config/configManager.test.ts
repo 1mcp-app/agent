@@ -4,9 +4,11 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 
 import * as runtimeBootstrap from '@src/config/runtimeBootstrap.js';
+import { ConfigLoader } from '@src/config/configLoader.js';
 import { CONFIG_EVENTS, ConfigChangeType, ConfigManager } from '@src/config/configManager.js';
 import { getRuntimeScopeEnvironment } from '@src/config/runtimeScopeEnv.js';
 import { runtimeAdmission, RuntimeReplacementDrain } from '@src/core/server/runtimeDrain.js';
+import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -92,6 +94,8 @@ vi.mock('./configWatcher.js', () => ({
   ConfigWatcher: watcherState.MockConfigWatcher,
 }));
 
+vi.mock('@src/logger/localDiagnostics.js', () => ({ writeLocalDiagnostic: vi.fn() }));
+
 describe('ConfigManager (Integration)', () => {
   let tempConfigDir: string;
   let configFilePath: string;
@@ -99,6 +103,7 @@ describe('ConfigManager (Integration)', () => {
   const originalContext7ApiKey = process.env.CONTEXT7_API_KEY;
 
   beforeEach(async () => {
+    vi.mocked(writeLocalDiagnostic).mockClear();
     // Create temporary config directory
     tempConfigDir = join(tmpdir(), `config-test-${randomBytes(4).toString('hex')}`);
     await fsPromises.mkdir(tempConfigDir, { recursive: true });
@@ -243,6 +248,87 @@ describe('ConfigManager (Integration)', () => {
       expect(configManager.getRuntimeInstructionConfiguration().configuredTargets.mcpServers['http-server']?.url).toBe(
         'http://127.0.0.1:${HTTP_PORT}/mcp',
       );
+    });
+
+    it('reports reload rejection without echoing malformed config and preserves the active config', async () => {
+      const before = configManager.getTransportConfig();
+      await fsPromises.writeFile(configFilePath, '{"private-config-value": broken}');
+      await expect(configManager.reloadConfig()).rejects.toThrow();
+      expect(configManager.getTransportConfig()).toEqual(before);
+      const fields = vi
+        .mocked(writeLocalDiagnostic)
+        .mock.calls.find(([, event]) => event === 'config.reload.rejected')![2];
+      expect(typeof fields === 'function' ? fields() : fields).toEqual({
+        source: configFilePath,
+        stage: 'load_or_validate',
+        outcome: 'rejected',
+        durationMs: expect.any(Number),
+        errorType: 'Error',
+      });
+      const calls = vi
+        .mocked(writeLocalDiagnostic)
+        .mock.calls.filter(([, event]) => event === 'config.reload.rejected');
+      expect(
+        JSON.stringify(calls.map(([, , fields]) => (typeof fields === 'function' ? fields() : fields))),
+      ).not.toContain('private-config-value');
+    });
+
+    it('preserves rejected reload and active config without reading error name accessors', async () => {
+      const before = configManager.getTransportConfig();
+      const error = new Error('Configuration rejected');
+      const getName = vi.fn(() => {
+        throw new Error('name accessed');
+      });
+      Object.defineProperty(error, 'name', { get: getName });
+      const load = vi.spyOn(ConfigLoader.prototype, 'loadConfigWithEnvSubstitution').mockImplementation(() => {
+        throw error;
+      });
+      try {
+        await expect(configManager.reloadConfig()).rejects.toBe(error);
+        expect(configManager.getTransportConfig()).toEqual(before);
+        const fields = vi
+          .mocked(writeLocalDiagnostic)
+          .mock.calls.find(([, event]) => event === 'config.reload.rejected')![2];
+        expect(typeof fields === 'function' ? fields() : fields).toMatchObject({
+          outcome: 'rejected',
+          errorType: 'Error',
+        });
+        expect(getName).not.toHaveBeenCalled();
+      } finally {
+        load.mockRestore();
+      }
+    });
+
+    it('reports reload changes without configuration or environment values', async () => {
+      await fsPromises.writeFile(
+        configFilePath,
+        JSON.stringify({
+          mcpServers: {
+            'test-server-1': { command: 'node', args: ['private-argument'], env: { SECRET: 'private-value' } },
+            'added-server': { command: 'node' },
+          },
+        }),
+      );
+      await configManager.reloadConfig();
+
+      const call = vi.mocked(writeLocalDiagnostic).mock.calls.find(([, event]) => event === 'config.reload.applied');
+      expect(call).toBeDefined();
+      const fields = call![2];
+      const snapshot = typeof fields === 'function' ? fields() : fields;
+      expect(snapshot).toMatchObject({ source: configFilePath, outcome: 'applied', serverCount: 2 });
+      expect(snapshot.changes).toEqual(
+        expect.arrayContaining([
+          { serverName: 'added-server', type: ConfigChangeType.ADDED },
+          { serverName: 'test-server-2', type: ConfigChangeType.REMOVED },
+          {
+            serverName: 'test-server-1',
+            type: ConfigChangeType.MODIFIED,
+            fieldsChanged: expect.arrayContaining(['args', 'env']),
+          },
+        ]),
+      );
+      expect(JSON.stringify(snapshot)).not.toContain('private-value');
+      expect(JSON.stringify(snapshot)).not.toContain('private-argument');
     });
 
     it('preserves published instruction variants across reload and restart', async () => {

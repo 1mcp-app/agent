@@ -1,16 +1,87 @@
+import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import { Tool } from '@src/sdk/contracts/index.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SchemaCache } from './schemaCache.js';
 
+vi.mock('@src/logger/localDiagnostics.js', () => ({ writeLocalDiagnostic: vi.fn() }));
+
 describe('SchemaCache', () => {
   let cache: SchemaCache;
   let mockLoader: any;
 
   beforeEach(() => {
+    vi.mocked(writeLocalDiagnostic).mockClear();
     cache = new SchemaCache({ maxEntries: 3, ttlMs: 1000 });
     mockLoader = vi.fn();
+  });
+
+  it('reports a local load ID and tool while preserving loader rejection', async () => {
+    const error = new Error('Upstream unavailable');
+    await expect(
+      cache.getOrLoad('backend-a', 'tool-a', async () => {
+        throw error;
+      }),
+    ).rejects.toBe(error);
+    expect(writeLocalDiagnostic).toHaveBeenCalledWith(
+      'warn',
+      'schema.load.failed',
+      expect.objectContaining({
+        loadId: expect.any(String),
+        toolName: 'tool-a',
+        error,
+        durationMs: expect.any(Number),
+      }),
+    );
+    expect(cache.size()).toBe(0);
+  });
+
+  it('reports cache results without serializing the tool schema', async () => {
+    const tool: Tool = { name: 'tool-a', inputSchema: { type: 'object', description: 'private-schema' } };
+    await cache.getOrLoad('backend-a', 'tool-a', async () => tool);
+    await cache.getOrLoad('backend-a', 'tool-a', async () => {
+      throw new Error('Unexpected reload');
+    });
+    expect(writeLocalDiagnostic).toHaveBeenCalledWith('debug', 'schema.cache.hit', {
+      loadId: expect.any(String),
+      toolName: 'tool-a',
+      cacheSize: 1,
+    });
+    expect(JSON.stringify(vi.mocked(writeLocalDiagnostic).mock.calls)).not.toContain('private-schema');
+  });
+
+  it('never reports composite connection identity and correlates cache events by a random load ID', async () => {
+    const connectionKey = 'template-rendered-hash-private-session-id';
+    const tool: Tool = { name: 'tool-a', inputSchema: { type: 'object' } };
+    const expiring = new SchemaCache({ maxEntries: 3, ttlMs: 1 });
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1000);
+    try {
+      await expiring.getOrLoad(connectionKey, tool.name, async () => tool);
+      await expiring.getOrLoad(connectionKey, tool.name, async () => tool);
+      now.mockReturnValue(1001);
+      await expect(
+        expiring.getOrLoad(connectionKey, tool.name, async () => {
+          throw new Error('Unavailable');
+        }),
+      ).rejects.toThrow('Unavailable');
+      const calls = vi.mocked(writeLocalDiagnostic).mock.calls;
+      const completed = calls.find(([, event]) => event === 'schema.load.completed')![2];
+      const hit = calls.find(([, event]) => event === 'schema.cache.hit')![2];
+      const expired = calls.find(([, event]) => event === 'schema.cache.expired')![2];
+      const failed = calls.find(([, event]) => event === 'schema.load.failed')![2];
+      for (const fields of [completed, hit, expired, failed]) {
+        expect(fields).not.toHaveProperty('server');
+        expect(fields).not.toHaveProperty('connectionKey');
+      }
+      expect(completed).toMatchObject({ loadId: expect.any(String) });
+      expect(hit).toMatchObject({ loadId: (completed as Record<string, unknown>).loadId });
+      expect(expired).toMatchObject({ loadId: (completed as Record<string, unknown>).loadId });
+      expect(failed).not.toMatchObject({ loadId: (completed as Record<string, unknown>).loadId });
+      expect(JSON.stringify(calls)).not.toContain(connectionKey);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   describe('Basic Caching', () => {

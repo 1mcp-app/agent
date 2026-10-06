@@ -53,9 +53,7 @@ describe('withErrorHandling', () => {
       data: { 'app.1mcp/failure': { code: 'gateway_internal_error' } },
     });
     expect(logger.error).toHaveBeenCalledWith('errorHandling.witherrorhandling.diagnostic.02762c34', { error });
-    const normalizedLogs = vi.mocked(logger.error).mock.calls.map(([event, fields]) =>
-      normalizeEvent(event, fields),
-    );
+    const normalizedLogs = vi.mocked(logger.error).mock.calls.map(([event, fields]) => normalizeEvent(event, fields));
     expect(normalizedLogs).toContainEqual(
       expect.objectContaining({
         event: 'errorHandling.witherrorhandling.diagnostic.02762c34',

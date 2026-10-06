@@ -342,10 +342,9 @@ describe('mcpServerConfig - Installation Metadata Functions', () => {
 
       // Assert
       expect(result).toBeNull();
-      expect(mockLoggerError).toHaveBeenCalledWith(
-        'mcpServerConfig.failed.to.get.installation.metadata.for.509a9169',
-        { error: expect.objectContaining({ message: 'Unexpected error' }) },
-      );
+      expect(mockLoggerError).toHaveBeenCalledWith('mcpServerConfig.failed.to.get.installation.metadata.for.509a9169', {
+        error: expect.objectContaining({ message: 'Unexpected error' }),
+      });
     });
   });
 

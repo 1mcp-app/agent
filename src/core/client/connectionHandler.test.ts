@@ -163,9 +163,7 @@ describe('ConnectionHandler', () => {
       const thrown = await connectPromise.catch((connectionError: unknown) => connectionError);
 
       expect(`${String(thrown)}\n${(thrown as Error).stack}\n${JSON.stringify(thrown)}`).not.toContain(secret);
-      const normalizedLogs = vi.mocked(logger.error).mock.calls.map(([event, fields]) =>
-        normalizeEvent(event, fields),
-      );
+      const normalizedLogs = vi.mocked(logger.error).mock.calls.map(([event, fields]) => normalizeEvent(event, fields));
       expect(normalizedLogs).toContainEqual(
         expect.objectContaining({
           event: 'connectionHandler.failed.to.connect.to.d9f2b821',

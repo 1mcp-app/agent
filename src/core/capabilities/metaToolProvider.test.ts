@@ -1,5 +1,6 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
+import * as localDiagnostics from '@src/logger/localDiagnostics.js';
 import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
 import { Tool } from '@src/sdk/contracts/index.js';
 
@@ -490,7 +491,18 @@ describe('MetaToolProvider', () => {
 
   describe('callMetaTool - tool_invoke', () => {
     it('should require server and toolName', async () => {
+      const diagnostic = vi.spyOn(localDiagnostics, 'writeLocalDiagnostic');
       const result = await provider.callMetaTool('tool_invoke', {});
+      expect(diagnostic).toHaveBeenCalledWith(
+        'warn',
+        'tool.meta-validation-failed',
+        expect.objectContaining({
+          requestedTool: 'tool_invoke',
+          phase: 'meta_input_validation',
+          outcome: 'validation_failed',
+        }),
+      );
+      diagnostic.mockRestore();
 
       expect('error' in result).toBe(true);
       expect(result.error).toBeDefined();

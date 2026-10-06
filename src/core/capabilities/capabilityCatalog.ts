@@ -18,7 +18,9 @@ import {
   schemaInputErrorResult,
 } from '@src/core/validation/toolSchemaBoundary.js';
 import { gatewayFailureFromUnknown } from '@src/gateway/contracts/gatewayFailure.js';
+import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import logger from '@src/logger/logger.js';
+import { ownData } from '@src/observability/privacy/fields.js';
 import { ErrorCode, type Tool } from '@src/sdk/contracts/index.js';
 import { MCPError } from '@src/utils/core/errorTypes.js';
 
@@ -669,9 +671,20 @@ export class CapabilityCatalog {
     visibility?: CapabilityVisibility,
     queryOptions: CapabilityCatalogQueryOptions = {},
   ): Promise<InvokeVisibleToolResult> {
+    const startedAt = performance.now();
+    const requested = { callId: randomUUID(), requestedServer: args.server, requestedTool: args.toolName };
+    writeLocalDiagnostic('info', 'tool.requested', requested);
+    writeLocalDiagnostic('debug', 'tool.arguments', () => ({ ...requested, arguments: args.args }));
     const refresh = await this.resolveRefreshFacts(queryOptions.refreshIntent ?? 'never', 'invoke');
     const access = await this.resolveVisibleToolAccess(args, visibility, queryOptions.toolRegistry);
     if (access.error) {
+      writeLocalDiagnostic('warn', 'tool.rejected', {
+        ...requested,
+        phase: 'routing',
+        outcome: queryOptions.signal?.aborted ? 'cancelled' : access.error.type,
+        error: access.error,
+        durationMs: performance.now() - startedAt,
+      });
       return {
         result: {},
         server: args.server ?? '',
@@ -683,11 +696,26 @@ export class CapabilityCatalog {
 
     const { route } = access;
     const connection = access.connection ?? this.deps.outboundConnections.get(route.connectionKey);
+    const diagnosticRoute = {
+      ...requested,
+      server: route.server,
+      tool: route.toolName,
+      origin: route.origin,
+      routingScope: (visibility?.sessionId ?? this.deps.defaultVisibility?.sessionId) ? 'session' : 'default',
+      timeoutMs: connection?.requestTimeoutMs,
+    };
+    writeLocalDiagnostic('info', 'tool.routed', diagnosticRoute);
     if (
       !connection ||
       connection.status !== ClientStatus.Connected ||
       this.deps.outboundConnections.get(route.connectionKey) !== connection
     ) {
+      writeLocalDiagnostic('warn', 'tool.rejected', {
+        ...diagnosticRoute,
+        phase: 'connection',
+        outcome: queryOptions.signal?.aborted ? 'cancelled' : 'unavailable',
+        durationMs: performance.now() - startedAt,
+      });
       return {
         result: {},
         server: route.server,
@@ -701,6 +729,7 @@ export class CapabilityCatalog {
       };
     }
 
+    let phase = 'schema_admission';
     try {
       const adapter = connection.adapter;
       const definition =
@@ -717,7 +746,9 @@ export class CapabilityCatalog {
         signal: queryOptions.signal,
       };
       const contracts = await admitToolSchemas(definition as unknown as Record<string, unknown>, binding);
+      phase = 'input_validation';
       const validateOutput = await prepareToolValidation(contracts, args.args, binding);
+      phase = 'routing_revalidation';
       const current = await this.resolveVisibleToolAccess(args, visibility, queryOptions.toolRegistry);
       if (
         queryOptions.signal?.aborted ||
@@ -728,6 +759,8 @@ export class CapabilityCatalog {
         (current.tool.definition && JSON.stringify(current.tool.definition) !== JSON.stringify(definition))
       )
         throw new SchemaBoundaryError('schema_invalid');
+      phase = 'upstream';
+      writeLocalDiagnostic('debug', 'tool.dispatch', () => ({ ...diagnosticRoute, phase }));
       const result = await requestLegacyAdapter(
         adapter,
         'tools/call',
@@ -737,9 +770,34 @@ export class CapabilityCatalog {
         },
         { signal: queryOptions.signal, timeoutMs: connection.requestTimeoutMs },
       );
+      phase = 'output_validation';
       await validateOutput(result);
+      let outcome = 'success';
+      if (ownData(result, 'isError') === true) outcome = 'upstream_error';
+      writeLocalDiagnostic('info', 'tool.completed', {
+        ...diagnosticRoute,
+        outcome,
+        durationMs: performance.now() - startedAt,
+      });
+      writeLocalDiagnostic('debug', 'tool.result', () => ({ ...diagnosticRoute, result }));
       return { result, server: route.server, tool: route.toolName, route, refresh };
     } catch (error) {
+      const errorCode = ownData(error, 'code');
+      const timedOut = errorCode === 'schema_evaluation_timeout' || errorCode === ErrorCode.RequestTimeout;
+      const failureKind = gatewayFailureFromUnknown(error, 'transport').kind;
+      let outcome = 'failed';
+      if (queryOptions.signal?.aborted || failureKind === 'cancelled') outcome = 'cancelled';
+      else if (timedOut || failureKind === 'deadline-exceeded') outcome = 'timeout';
+      else if (error instanceof SchemaBoundaryError) outcome = 'validation_failed';
+      const failureFields = {
+        ...diagnosticRoute,
+        phase,
+        outcome,
+        error,
+        durationMs: performance.now() - startedAt,
+      };
+      writeLocalDiagnostic('warn', 'tool.failed', failureFields);
+      writeLocalDiagnostic('debug', 'tool.failure-details', () => failureFields);
       if (error instanceof SchemaBoundaryError && error.code === 'schema_input_invalid')
         return { result: schemaInputErrorResult(), server: route.server, tool: route.toolName, route, refresh };
       if (error instanceof SchemaBoundaryError)

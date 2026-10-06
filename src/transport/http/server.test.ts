@@ -80,6 +80,7 @@ vi.mock('./middlewares/scopeAuthMiddleware.js', () => ({
 }));
 
 vi.mock('./middlewares/httpRequestLogger.js', () => ({
+  httpRequestBodyLogger: vi.fn((_req, _res, next) => next()),
   httpRequestLogger: vi.fn((_req, _res, next) => next()),
 }));
 

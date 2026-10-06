@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { SessionData, SessionDataSchema } from '@src/auth/sessionTypes.js';
 import { AUTH_CONFIG } from '@src/constants.js';
+import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import logger from '@src/logger/logger.js';
 
 import { FileStorageService } from './fileStorageService.js';
@@ -39,6 +40,7 @@ export class SessionRepository {
 
     this.storage.writeData(AUTH_CONFIG.SERVER.SESSION.FILE_PREFIX, sessionId, sessionData);
     logger.info('sessionRepository.created.session.for.client.1462cd8c');
+    writeLocalDiagnostic('debug', 'session.created', { stage: 'persisted', ttlMs, scopeCount: scopes.length });
     return sessionId;
   }
 
@@ -100,6 +102,13 @@ export class SessionRepository {
       this.storage.writeData(AUTH_CONFIG.SERVER.SESSION.FILE_PREFIX, sessionId, sessionData);
     }
     logger.info('sessionRepository.created.session.with.id.for.client.10772b23');
+    writeLocalDiagnostic('debug', 'session.created', {
+      stage: 'persisted',
+      ttlMs: input.ttlMs,
+      scopeCount: input.scopes.length,
+      durable,
+      refreshFamily: input.refreshFamilyId !== undefined,
+    });
     return sessionId;
   }
 
@@ -117,6 +126,7 @@ export class SessionRepository {
     const result = this.storage.deleteData(AUTH_CONFIG.SERVER.SESSION.FILE_PREFIX, sessionId);
     if (result) {
       logger.info('sessionRepository.deleted.session.52ed13ff');
+      writeLocalDiagnostic('debug', 'session.deleted', { stage: 'removed', outcome: 'deleted' });
     }
     return result;
   }

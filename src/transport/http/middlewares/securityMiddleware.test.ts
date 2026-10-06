@@ -229,9 +229,7 @@ describe('Security Middleware', () => {
 
       inputValidation(mockRequest, mockResponse, mockNext);
 
-      expect(logger.default.warn).toHaveBeenCalledWith(
-        'securityMiddleware.suspicious.content.detected.in.ead2ecd1',
-      );
+      expect(logger.default.warn).toHaveBeenCalledWith('securityMiddleware.suspicious.content.detected.in.ead2ecd1');
     });
   });
 
@@ -274,12 +272,9 @@ describe('Security Middleware', () => {
 
       securityAuditLogger(mockRequest, mockResponse, mockNext);
 
-      expect(logger.default.info).toHaveBeenCalledWith(
-        'securityMiddleware.security.relevant.request.0633a217',
-        {
-          method: 'POST',
-        },
-      );
+      expect(logger.default.info).toHaveBeenCalledWith('securityMiddleware.security.relevant.request.0633a217', {
+        method: 'POST',
+      });
       expect(mockNext).toHaveBeenCalled();
     });
 
@@ -299,10 +294,9 @@ describe('Security Middleware', () => {
 
       securityAuditLogger(mockRequest, mockResponse, mockNext);
 
-      expect(logger.default.info).toHaveBeenCalledWith(
-        'securityMiddleware.security.relevant.request.0633a217',
-        { method: 'GET' },
-      );
+      expect(logger.default.info).toHaveBeenCalledWith('securityMiddleware.security.relevant.request.0633a217', {
+        method: 'GET',
+      });
     });
 
     it('should log auth paths', async () => {
@@ -311,10 +305,9 @@ describe('Security Middleware', () => {
 
       securityAuditLogger(mockRequest, mockResponse, mockNext);
 
-      expect(logger.default.info).toHaveBeenCalledWith(
-        'securityMiddleware.security.relevant.request.0633a217',
-        { method: 'GET' },
-      );
+      expect(logger.default.info).toHaveBeenCalledWith('securityMiddleware.security.relevant.request.0633a217', {
+        method: 'GET',
+      });
     });
 
     it('should log response details for security-relevant requests', async () => {
@@ -327,13 +320,10 @@ describe('Security Middleware', () => {
       mockResponse.statusCode = 201;
       mockResponse.send('response body');
 
-      expect(logger.default.info).toHaveBeenCalledWith(
-        'securityMiddleware.security.relevant.response.9de4a676',
-        {
-          statusCode: 201,
-          duration: expect.any(Number),
-        },
-      );
+      expect(logger.default.info).toHaveBeenCalledWith('securityMiddleware.security.relevant.response.9de4a676', {
+        statusCode: 201,
+        duration: expect.any(Number),
+      });
     });
 
     it('should handle missing authorization header', async () => {
@@ -343,10 +333,9 @@ describe('Security Middleware', () => {
 
       securityAuditLogger(mockRequest, mockResponse, mockNext);
 
-      expect(logger.default.info).toHaveBeenCalledWith(
-        'securityMiddleware.security.relevant.request.0633a217',
-        { method: 'POST' },
-      );
+      expect(logger.default.info).toHaveBeenCalledWith('securityMiddleware.security.relevant.request.0633a217', {
+        method: 'POST',
+      });
     });
   });
 

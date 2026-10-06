@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto';
+
+import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
 
@@ -34,6 +37,7 @@ interface CacheEntry {
   tool: Tool;
   timestamp: number;
   bytes: number;
+  diagnosticLoadId: string;
 }
 
 /**
@@ -150,6 +154,11 @@ export class SchemaCache {
     if (cached && !this.isExpired(cached)) {
       this.stats.hits++;
       debugIf(() => ({ message: 'schemaCache.cache.hit.77e8d34e' }));
+      writeLocalDiagnostic('debug', 'schema.cache.hit', {
+        loadId: cached.diagnosticLoadId,
+        toolName,
+        cacheSize: this.cache.size,
+      });
       return cached.tool;
     }
 
@@ -157,6 +166,11 @@ export class SchemaCache {
     if (cached && this.isExpired(cached)) {
       this.cache.delete(cacheKey);
       debugIf(() => ({ message: 'schemaCache.cache.entry.expired.a16e883b' }));
+      writeLocalDiagnostic('debug', 'schema.cache.expired', {
+        loadId: cached.diagnosticLoadId,
+        toolName,
+        ttlMs: this.config.ttlMs,
+      });
     }
 
     // Check for in-flight request (coalescing)
@@ -173,6 +187,9 @@ export class SchemaCache {
     // Create new request
     this.stats.misses++;
     this.activeLoads++;
+    const startedAt = Date.now();
+    // Connection keys can embed rendered template or session identity; never log them.
+    const loadId = randomUUID();
     const controller = new AbortController();
     const load = Promise.resolve()
       .then(() => {
@@ -204,10 +221,27 @@ export class SchemaCache {
           tool,
           timestamp: Date.now(),
           bytes,
+          diagnosticLoadId: loadId,
         });
 
         debugIf(() => ({ message: 'schemaCache.loaded.and.cached.88beceec' }));
+        writeLocalDiagnostic('debug', 'schema.load.completed', {
+          loadId,
+          toolName,
+          durationMs: Date.now() - startedAt,
+          bytes,
+          cacheSize: this.cache.size,
+        });
         return tool;
+      })
+      .catch((error: unknown) => {
+        writeLocalDiagnostic('warn', 'schema.load.failed', {
+          loadId,
+          toolName,
+          durationMs: Date.now() - startedAt,
+          error,
+        });
+        throw error;
       })
       .finally(() => {
         this.waiters.get(promise)!.settled = true;
@@ -290,6 +324,7 @@ export class SchemaCache {
       tool,
       timestamp: Date.now(),
       bytes,
+      diagnosticLoadId: randomUUID(),
     });
 
     debugIf(() => ({ message: 'schemaCache.manually.cached.8852f2e0' }));
@@ -377,6 +412,7 @@ export class SchemaCache {
     tools: Array<{ server: string; toolName: string }>,
     loader: (server: string, toolName: string, signal?: AbortSignal) => Promise<Tool>,
   ): Promise<{ loaded: number; failed: Array<{ server: string; toolName: string; error: string }> }> {
+    const startedAt = Date.now();
     debugIf(() => ({ message: 'schemaCache.preloading.tool.schemas.6330dc45' }));
 
     const failed: Array<{ server: string; toolName: string; error: string }> = [];
@@ -399,6 +435,13 @@ export class SchemaCache {
     }
 
     logger.info('schemaCache.preloaded.tool.schemas.cache.size.49445ca5');
+    writeLocalDiagnostic('info', 'schema.preload.completed', {
+      requested: tools.length,
+      loaded,
+      failedCount: failed.length,
+      cacheSize: this.cache.size,
+      durationMs: Date.now() - startedAt,
+    });
 
     return { loaded, failed };
   }

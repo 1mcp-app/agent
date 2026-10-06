@@ -1,6 +1,10 @@
+import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import { createOAuthAuthorizationFlow } from './oauthAuthorizationFlow.js';
+
+vi.mock('@src/logger/localDiagnostics.js', () => ({ writeLocalDiagnostic: vi.fn() }));
 
 describe('OAuth Authorization Flow', () => {
   const createFlow = (
@@ -41,6 +45,59 @@ describe('OAuth Authorization Flow', () => {
       }),
     };
   };
+
+  it('reports callback failure stage without provider credentials or error text', async () => {
+    vi.mocked(writeLocalDiagnostic).mockClear();
+    const { flow } = createFlow({
+      clientRuntime: {
+        completeOAuthAndReconnect: vi.fn().mockRejectedValue(new Error('private-provider-token')),
+      },
+    });
+    const result = await flow.completeBackendOAuthCallback({
+      serverName: 'backend-a',
+      state: 'private-state',
+      code: 'private-code',
+      redirectUri: 'https://private.example/callback',
+    });
+    expect(result.status).toBe('callback_failed');
+    const fields = vi
+      .mocked(writeLocalDiagnostic)
+      .mock.calls.find(([, event]) => event === 'oauth.callback.failed')![2];
+    const snapshot = typeof fields === 'function' ? fields() : fields;
+    expect(snapshot).toEqual({
+      serverName: 'backend-a',
+      stage: 'complete_and_reconnect',
+      durationMs: expect.any(Number),
+      reason: 'callback_rejected',
+      errorType: 'Error',
+    });
+    const diagnostics = JSON.stringify(snapshot);
+    for (const secret of ['private-provider-token', 'private-state', 'private-code', 'private.example']) {
+      expect(diagnostics).not.toContain(secret);
+    }
+  });
+
+  it('preserves callback failure when an error has a throwing name accessor', async () => {
+    vi.mocked(writeLocalDiagnostic).mockClear();
+    const error = new Error('Provider rejected');
+    const getName = vi.fn(() => {
+      throw new Error('name accessed');
+    });
+    Object.defineProperty(error, 'name', { get: getName });
+    const { flow } = createFlow({
+      clientRuntime: {
+        completeOAuthAndReconnect: vi.fn().mockRejectedValue(error),
+      },
+    });
+    await expect(flow.completeBackendOAuthCallback({ serverName: 'backend-a', state: 'state' })).resolves.toMatchObject(
+      { status: 'callback_failed' },
+    );
+    const fields = vi
+      .mocked(writeLocalDiagnostic)
+      .mock.calls.find(([, event]) => event === 'oauth.callback.failed')![2];
+    expect(typeof fields === 'function' ? fields() : fields).toMatchObject({ errorType: 'Error' });
+    expect(getName).not.toHaveBeenCalled();
+  });
 
   it('rejects a callback without owner-bound state before sending its code', async () => {
     const completeOAuthAndReconnect = vi.fn();

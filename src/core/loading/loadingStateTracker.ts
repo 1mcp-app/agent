@@ -121,7 +121,9 @@ export class LoadingStateTracker extends EventEmitter {
       });
     }
 
-    logger.info('loadingStateTracker.started.tracking.loading.for.servers.156f137b');
+    logger.info('loadingStateTracker.started.tracking.loading.for.servers.156f137b', {
+      totalServers: this.servers.size,
+    });
     this.emitProgress();
   }
 
@@ -344,7 +346,14 @@ export class LoadingStateTracker extends EventEmitter {
     this.emit(LoadingStateEvent.LoadingProgress, summary);
 
     if (summary.isComplete) {
-      logger.info('loadingStateTracker.loading.complete.servers.ready.success.rate.16c0dd6f');
+      logger.info('loadingStateTracker.loading.complete.servers.ready.success.rate.16c0dd6f', {
+        totalServers: summary.totalServers,
+        ready: summary.ready,
+        failed: summary.failed,
+        awaitingOAuth: summary.awaitingOAuth,
+        cancelled: summary.cancelled,
+        successRate: summary.successRate,
+      });
       this.emit(LoadingStateEvent.LoadingComplete, summary);
     }
   }

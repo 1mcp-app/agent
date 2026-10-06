@@ -249,9 +249,7 @@ describe('apiRoutes /api/tool-invocations', () => {
     await invokeInspectRoute(handler, { body: { tool: 'server/tool' } }, res);
 
     expect(res.statusCode).toBe(502);
-    const normalizedLogs = vi.mocked(logger.error).mock.calls.map(([event, fields]) =>
-      normalizeEvent(event, fields),
-    );
+    const normalizedLogs = vi.mocked(logger.error).mock.calls.map(([event, fields]) => normalizeEvent(event, fields));
     expect(normalizedLogs).toContainEqual(
       expect.objectContaining({ event: 'toolRoutes.direct.tool.invocation.error.ba32e1c5' }),
     );
@@ -694,9 +692,7 @@ describe('apiRoutes /api/tool-invocations', () => {
     expect(lazyOrchestrator.callMetaTool).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(502);
     expect(JSON.stringify(res.body)).not.toContain('SECRET480');
-    const normalizedLogs = vi.mocked(logger.error).mock.calls.map(([event, fields]) =>
-      normalizeEvent(event, fields),
-    );
+    const normalizedLogs = vi.mocked(logger.error).mock.calls.map(([event, fields]) => normalizeEvent(event, fields));
     expect(normalizedLogs).toContainEqual(
       expect.objectContaining({ event: 'capabilityCatalog.tool.invocation.failed.828dabfb' }),
     );

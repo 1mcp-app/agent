@@ -286,6 +286,45 @@ describe('TemplateServerManager', () => {
   });
 
   describe('helper methods', () => {
+    it('logs distinguishable template connections and the effective default pooling policy', async () => {
+      const pool = templateServerManager.getClientInstancePool();
+      const create = vi.mocked(pool.getOrCreateClientInstance);
+      const fixture = await create('fixture', { type: 'stdio', command: 'fixture' }, {} as any, 'session');
+      Object.assign(fixture.client, { setNotificationHandler: vi.fn() });
+      create.mockResolvedValueOnce({ ...fixture, id: 'a'.repeat(64), instanceKey: 'serena:hash-a' });
+      create.mockResolvedValueOnce({ ...fixture, id: 'b'.repeat(64), instanceKey: 'codegraph:hash-b' });
+      vi.mocked(TemplateFilteringService.getMatchingTemplates).mockReturnValueOnce([
+        ['serena', { type: 'stdio', command: 'fixture' }],
+        ['codegraph', { type: 'stdio', command: 'fixture', template: { shareable: false, perClient: true } }],
+      ] as any);
+      await templateServerManager.createTemplateBasedServers(
+        'session-secret',
+        {} as any,
+        {} as any,
+        {
+          mcpTemplates: {
+            serena: { type: 'stdio', command: 'fixture' },
+            codegraph: { type: 'stdio', command: 'fixture' },
+          },
+        },
+        new Map(),
+        {},
+      );
+      const entries = vi.mocked(logger.info).mock.calls.map(([event, fields]) => normalizeEvent(event, fields));
+      expect(entries).toContainEqual(expect.objectContaining({ templateCount: 2 }));
+      const connections = entries.filter(
+        (entry) => entry?.event === 'templateServerManager.connected.to.template.client.instance.871228b8',
+      );
+      expect(connections).toMatchObject([
+        { templateName: 'serena', instanceId: 'a'.repeat(64), shareable: true, perClient: false },
+        { templateName: 'codegraph', instanceId: 'b'.repeat(64), shareable: false, perClient: true },
+      ]);
+      expect(connections[0]?.sessionId_fingerprint).toBe(connections[1]?.sessionId_fingerprint);
+      expect(connections[0]?.instanceKey_fingerprint).not.toBe(connections[1]?.instanceKey_fingerprint);
+      expect(JSON.stringify(entries)).not.toContain('session-secret');
+      expect(JSON.stringify(connections)).not.toContain('<private>');
+    });
+
     it('redacts async template spawn failures before logging or failure history', async () => {
       const secret = 'template-spawn-secret';
       const manager = templateServerManager as any;
@@ -309,9 +348,7 @@ describe('TemplateServerManager', () => {
         {},
       );
 
-      const normalizedLogs = vi.mocked(logger.error).mock.calls.map(([event, fields]) =>
-        normalizeEvent(event, fields),
-      );
+      const normalizedLogs = vi.mocked(logger.error).mock.calls.map(([event, fields]) => normalizeEvent(event, fields));
       expect(normalizedLogs).toContainEqual(
         expect.objectContaining({
           event: 'templateServerManager.failed.to.create.client.instance.from.template.eac81d4e',
