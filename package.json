@@ -108,12 +108,12 @@
     "test:tracing:performance": "node --expose-gc scripts/measure-propagation.mjs"
   },
   "dependencies": {
-    "@modelcontextprotocol/client": "2.0.0",
-    "@modelcontextprotocol/core": "2.0.0",
-    "@modelcontextprotocol/node": "2.0.0",
+    "@modelcontextprotocol/client": "2.3.1",
+    "@modelcontextprotocol/core": "2.3.1",
+    "@modelcontextprotocol/node": "2.1.1",
     "@modelcontextprotocol/sdk": "1.30.0",
-    "@modelcontextprotocol/server": "2.0.0",
-    "@modelcontextprotocol/server-legacy": "2.0.0",
+    "@modelcontextprotocol/server": "2.3.1",
+    "@modelcontextprotocol/server-legacy": "2.3.1",
     "@opentelemetry/api": "1.9.0",
     "@opentelemetry/context-async-hooks": "2.2.0",
     "@opentelemetry/core": "2.2.0",

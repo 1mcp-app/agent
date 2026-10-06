@@ -11,9 +11,9 @@
       "lockPlacements": [
         "dependencies"
       ],
-      "manifestSpecifier": "2.0.0",
-      "lockSpecifier": "2.0.0",
-      "resolved": "2.0.0"
+      "manifestSpecifier": "2.3.1",
+      "lockSpecifier": "2.3.1",
+      "resolved": "2.3.1"
     },
     "@modelcontextprotocol/conformance": {
       "placement": "devDependencies",
@@ -35,9 +35,9 @@
       "lockPlacements": [
         "dependencies"
       ],
-      "manifestSpecifier": "2.0.0",
-      "lockSpecifier": "2.0.0",
-      "resolved": "2.0.0"
+      "manifestSpecifier": "2.3.1",
+      "lockSpecifier": "2.3.1",
+      "resolved": "2.3.1"
     },
     "@modelcontextprotocol/node": {
       "placement": "dependencies",
@@ -47,9 +47,9 @@
       "lockPlacements": [
         "dependencies"
       ],
-      "manifestSpecifier": "2.0.0",
-      "lockSpecifier": "2.0.0",
-      "resolved": "2.0.0(@modelcontextprotocol/server@2.0.0)(hono@4.12.34)"
+      "manifestSpecifier": "2.1.1",
+      "lockSpecifier": "2.1.1",
+      "resolved": "2.1.1(@modelcontextprotocol/server@2.3.1)"
     },
     "@modelcontextprotocol/sdk": {
       "placement": "dependencies",
@@ -71,9 +71,9 @@
       "lockPlacements": [
         "dependencies"
       ],
-      "manifestSpecifier": "2.0.0",
-      "lockSpecifier": "2.0.0",
-      "resolved": "2.0.0"
+      "manifestSpecifier": "2.3.1",
+      "lockSpecifier": "2.3.1",
+      "resolved": "2.3.1"
     },
     "@modelcontextprotocol/server-legacy": {
       "placement": "dependencies",
@@ -83,9 +83,9 @@
       "lockPlacements": [
         "dependencies"
       ],
-      "manifestSpecifier": "2.0.0",
-      "lockSpecifier": "2.0.0",
-      "resolved": "2.0.0(express@5.2.1)"
+      "manifestSpecifier": "2.3.1",
+      "lockSpecifier": "2.3.1",
+      "resolved": "2.3.1(express@5.2.1)"
     },
     "zod": {
       "placement": "dependencies",
@@ -101,40 +101,65 @@
     }
   },
   "packages": {
-    "@modelcontextprotocol/client@2.0.0": {
+    "@hono/node-server@1.19.17": {
+      "package": "@hono/node-server",
+      "version": "1.19.17",
+      "integrity": "sha512-dSneS5qhiauZWGDCeK4o695Xd9nUNjviSZCMQrj10eetr8Uln1ucn6bbphOM6UynAMMtNIzZNSpL9vnASJwrPQ=="
+    },
+    "@hono/node-server@2.0.12": {
+      "package": "@hono/node-server",
+      "version": "2.0.12",
+      "integrity": "sha512-eWpQYr67tqJLeaSUl0Q+TquuYfUdTibpOJlUMV2FfUP7+KqCC5TufnwnlXL6mobZBJbGAYRd7ZvEBDCbLInjhg=="
+    },
+    "@modelcontextprotocol/client@2.3.1": {
       "package": "@modelcontextprotocol/client",
-      "version": "2.0.0",
-      "integrity": "sha512-8f1OghQ2rjzIOfqgUCP+8GiUWqRs89njoWLNqAe8kWmDePv3s1fZXseej+QXemssEuuOvLLmLO/kqM3IQHtISw=="
+      "version": "2.3.1",
+      "integrity": "sha512-mIGZXpHsjnZ6lD+gD/WCMpR5k8yVQQ8nNFH1N0Srf7AvnwTUMYD6pvTY8ng2+He5FfV7YMZLmrjL7cLa/cc3dQ=="
     },
     "@modelcontextprotocol/conformance@0.2.0-alpha.11": {
       "package": "@modelcontextprotocol/conformance",
       "version": "0.2.0-alpha.11",
       "integrity": "sha512-imPK9tx5gQsL6ZKQq4MrsyDYfSaIwpRmX6+ogjbeAXs9LGvxkBxWcY7KcS7TvwaBk/ZiVWl6b/naF4q83UwDRA=="
     },
-    "@modelcontextprotocol/core@2.0.0": {
+    "@modelcontextprotocol/core@2.3.1": {
       "package": "@modelcontextprotocol/core",
-      "version": "2.0.0",
-      "integrity": "sha512-pJCEwGG7Lfr/+PQp9ZTwKXNeO5wzbfKL7H3MYpCorM4oFBoQrdjnBgEoqG+RjhsvS1FKrDbKux+M1HhlnGWqcA=="
+      "version": "2.3.1",
+      "integrity": "sha512-laVmIhPGpWi7rG9q+0UigblRN0Hws/Yjlb6qLFtVqryXVLkc4h+yN8z731POD2LnAGQlFe7/tXhUm7Bi0YB91g=="
     },
-    "@modelcontextprotocol/node@2.0.0": {
+    "@modelcontextprotocol/node@2.1.1": {
       "package": "@modelcontextprotocol/node",
-      "version": "2.0.0",
-      "integrity": "sha512-Y4hAC2XdGDUdDOCbLDOCA4+aL3NUldjsOWlDL/YwpAxrPhRm1xHd7lZ+mLacvZ9t3PaH28wgNoaLQGrIk1P2pg=="
+      "version": "2.1.1",
+      "integrity": "sha512-EY92OAXN2xYL7tNS/MVsWJW1v8VHAPwl9B4Ca3pCrjmvqyC+S1C/6UHsMxF2GoFPraS5Yyg56vFz9brVpFojMA=="
     },
     "@modelcontextprotocol/sdk@1.30.0": {
       "package": "@modelcontextprotocol/sdk",
       "version": "1.30.0",
       "integrity": "sha512-xKd8OIzlqNzcqcNumGAa6g+PW2kjD5vrpcKOnfldAUPP3j7lnqMPwlTXQm8gF+UwH72z0lqaRbjr9hqGz0eITA=="
     },
-    "@modelcontextprotocol/server-legacy@2.0.0": {
+    "@modelcontextprotocol/server-legacy@2.3.1": {
       "package": "@modelcontextprotocol/server-legacy",
-      "version": "2.0.0",
-      "integrity": "sha512-LnffC1BSqFMHtMQxEz92lqDpHWma+ErV3ghdHDgdkCyYzVcCYKcUT5loq4kflty+Bf9C9qjJqbnphyBWyCqo8Q=="
+      "version": "2.3.1",
+      "integrity": "sha512-+cuB+hl7s8DiFXIt13le3cD2wZPOeDYwlycAkRMPljqqNbOLekGRiyslx8WXfqaXSCveS1eDD8/B8rmxz9BZFQ=="
     },
-    "@modelcontextprotocol/server@2.0.0": {
+    "@modelcontextprotocol/server@2.3.1": {
       "package": "@modelcontextprotocol/server",
-      "version": "2.0.0",
-      "integrity": "sha512-YhHWdHfpFMQfd0prsEnxKeS3Qz3ytIGmsS0sth4KDjnacIT7hxk6hXHkJ9KysxlkvTM+WZAtQbbcUhdoP4Hvtw=="
+      "version": "2.3.1",
+      "integrity": "sha512-e59MfWuSssj6DoQ96JCTqdW1AXT5/XtnTl0WWd6MU1Ka434fFUGGosCLJbGNySDhHGvxQWoRWK137FXYFkYNWw=="
+    },
+    "eventsource-parser@3.1.0": {
+      "package": "eventsource-parser",
+      "version": "3.1.0",
+      "integrity": "sha512-kJezFj9YFAMLeORyi7aCLxLbD5/qWMQnoMVlVPyHIll7lgRJCc3JVln9Vgl9nwQi0YkMnhdGTMNn7CkRRAptMg=="
+    },
+    "eventsource@3.0.7": {
+      "package": "eventsource",
+      "version": "3.0.7",
+      "integrity": "sha512-CRT1WTyuQoD771GW56XEZFQ/ZoSfWid1alKGDYMmkt2yl8UXrVR4pspqWNEcqKvVIzg6PAltWjxcSSPrboA4iA=="
+    },
+    "hono@4.12.34": {
+      "package": "hono",
+      "version": "4.12.34",
+      "integrity": "sha512-GqXJqY/xJkJmuloTrnV1ZEXG3fqte+VjkUqoRNZXcrUidiUOP4fMSIHHY4tsqZBK++kVyWmt/AAfSUuy57/eSA=="
     },
     "zod@4.4.3": {
       "package": "zod",
@@ -143,11 +168,27 @@
     }
   },
   "instances": {
-    "@modelcontextprotocol/client@2.0.0": {
-      "package": "@modelcontextprotocol/client",
-      "version": "2.0.0",
+    "@hono/node-server@1.19.17(hono@4.12.34)": {
+      "package": "@hono/node-server",
+      "version": "1.19.17",
       "dependencies": {
-        "@modelcontextprotocol/core": "2.0.0",
+        "hono": "4.12.34"
+      }
+    },
+    "@hono/node-server@2.0.12(hono@4.12.34)": {
+      "package": "@hono/node-server",
+      "version": "2.0.12",
+      "dependencies": {
+        "hono": "4.12.34"
+      }
+    },
+    "@modelcontextprotocol/client@2.3.1": {
+      "package": "@modelcontextprotocol/client",
+      "version": "2.3.1",
+      "dependencies": {
+        "@modelcontextprotocol/core": "2.3.1",
+        "eventsource": "3.0.7",
+        "eventsource-parser": "3.1.0",
         "zod": "4.4.3"
       }
     },
@@ -156,45 +197,69 @@
       "version": "0.2.0-alpha.11",
       "dependencies": {
         "@modelcontextprotocol/sdk": "1.30.0(zod@4.4.3)",
+        "eventsource-parser": "3.1.0",
         "zod": "4.4.3"
       }
     },
-    "@modelcontextprotocol/core@2.0.0": {
+    "@modelcontextprotocol/core@2.3.1": {
       "package": "@modelcontextprotocol/core",
-      "version": "2.0.0",
+      "version": "2.3.1",
       "dependencies": {
         "zod": "4.4.3"
       }
     },
-    "@modelcontextprotocol/node@2.0.0(@modelcontextprotocol/server@2.0.0)(hono@4.12.34)": {
+    "@modelcontextprotocol/node@2.1.1(@modelcontextprotocol/server@2.3.1)": {
       "package": "@modelcontextprotocol/node",
-      "version": "2.0.0",
+      "version": "2.1.1",
       "dependencies": {
-        "@modelcontextprotocol/server": "2.0.0"
+        "@hono/node-server": "1.19.17(hono@4.12.34)",
+        "@modelcontextprotocol/server": "2.3.1",
+        "hono": "4.12.34"
       }
     },
     "@modelcontextprotocol/sdk@1.30.0(zod@4.4.3)": {
       "package": "@modelcontextprotocol/sdk",
       "version": "1.30.0",
       "dependencies": {
+        "@hono/node-server": "2.0.12(hono@4.12.34)",
+        "eventsource": "3.0.7",
+        "eventsource-parser": "3.1.0",
+        "hono": "4.12.34",
         "zod": "4.4.3"
       }
     },
-    "@modelcontextprotocol/server-legacy@2.0.0(express@5.2.1)": {
+    "@modelcontextprotocol/server-legacy@2.3.1(express@5.2.1)": {
       "package": "@modelcontextprotocol/server-legacy",
-      "version": "2.0.0",
+      "version": "2.3.1",
       "dependencies": {
-        "@modelcontextprotocol/core": "2.0.0",
+        "@modelcontextprotocol/core": "2.3.1",
         "zod": "4.4.3"
       }
     },
-    "@modelcontextprotocol/server@2.0.0": {
+    "@modelcontextprotocol/server@2.3.1": {
       "package": "@modelcontextprotocol/server",
-      "version": "2.0.0",
+      "version": "2.3.1",
       "dependencies": {
-        "@modelcontextprotocol/core": "2.0.0",
+        "@modelcontextprotocol/core": "2.3.1",
         "zod": "4.4.3"
       }
+    },
+    "eventsource-parser@3.1.0": {
+      "package": "eventsource-parser",
+      "version": "3.1.0",
+      "dependencies": {}
+    },
+    "eventsource@3.0.7": {
+      "package": "eventsource",
+      "version": "3.0.7",
+      "dependencies": {
+        "eventsource-parser": "3.1.0"
+      }
+    },
+    "hono@4.12.34": {
+      "package": "hono",
+      "version": "4.12.34",
+      "dependencies": {}
     },
     "zod@4.4.3": {
       "package": "zod",

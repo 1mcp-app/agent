@@ -283,7 +283,13 @@ describe('real gateway interaction peers across protocol eras', () => {
           const authProvider = {
             verifyAccessToken: async (token: string) => {
               if (token !== 'interaction-fixture') throw new Error('Invalid fixture credential');
-              return { token, clientId: 'fixture', scopes: [], expiresAt };
+              return {
+                token,
+                clientId: 'fixture',
+                scopes: [],
+                expiresAt,
+                resource: new URL(AgentConfigManager.getInstance().getUrl()),
+              };
             },
           } as unknown as SDKOAuthServerProvider;
           const config = AgentConfigManager.getInstance();
