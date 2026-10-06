@@ -278,9 +278,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     if: inputs.release_gate || github.ref_type != 'tag'
-    container:
-      image: mcr.microsoft.com/playwright:v1.61.1-noble
-      options: --ipc=host
     permissions:
       contents: read
     steps:
@@ -293,6 +290,9 @@ jobs:
         uses: ./.github/actions/setup-node-pnpm
         with:
           cache-deps: ${{ !inputs.checkout_ref && !inputs.release_gate }}
+
+      - name: Install matching Chromium browser
+        run: pnpm exec playwright install --with-deps chromium
 
       - name: Build
         run: pnpm build

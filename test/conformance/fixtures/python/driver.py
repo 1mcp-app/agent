@@ -10,23 +10,28 @@ from collections.abc import Sequence
 from contextlib import AsyncExitStack
 
 import httpx2
-from mcp import Client, MCPError, StdioServerParameters, stdio_client
+from mcp import Client, StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import MCPServer
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 
 
 FIXTURE_ID = "python-sdk"
 EXPECTED_VERSION = "2.0.0"
-TOOL_NAME = "fixture_echo"
+TOOL_NAME = "fixture.acknowledge"
+TOOL_INPUT_SENTINEL = "fixture-input-must-not-leak"
+TOOL_RESULT_SENTINEL = "fixture-result-must-not-leak"
+LEGACY_REVISIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"]
 
 server = MCPServer("one-mcp-python-conformance-fixture", version="1", log_level="ERROR")
 
 
-@server.tool(name=TOOL_NAME, structured_output=True)
-def fixture_echo(marker: str) -> dict[str, str]:
-    """Return a synthetic receipt."""
+@server.tool(name=TOOL_NAME, structured_output=False)
+def fixture_acknowledge(marker: str) -> str:
+    """Acknowledges a synthetic conformance request."""
     del marker
-    return {"receipt": "synthetic-private-result"}
+    return TOOL_RESULT_SENTINEL
 
 
 def emit(value: dict[str, object]) -> None:
@@ -96,14 +101,8 @@ async def probe(
                 if (protocol_era == "modern") != (negotiated_revision == "2026-07-28"):
                     raise FixtureError("protocol-era-mismatch")
                 operations = ["server/discover" if protocol_era == "modern" else "initialize"]
-                try:
+                if protocol_era == "legacy":
                     await client.session.send_ping()
-                except MCPError as error:
-                    if protocol_era != "modern" or error.code != -32601:
-                        raise
-                else:
-                    if protocol_era == "modern":
-                        raise FixtureError("removed-operation-mismatch")
                     operations.append("ping")
                 tools = await client.list_tools(cache_mode="reload")
                 selected_tool_name = TOOL_NAME
@@ -118,7 +117,7 @@ async def probe(
                     )
                     if not selected_tool_name:
                         raise FixtureError("aggregated-tool-not-found")
-                result = await client.call_tool(selected_tool_name, {"marker": "synthetic-private-argument"})
+                result = await client.call_tool(selected_tool_name, {"marker": TOOL_INPUT_SENTINEL})
                 operations.extend(["tools/list", "tools/call"])
     except FixtureError:
         raise
@@ -142,6 +141,22 @@ async def probe(
     emit(output)
 
 
+async def legacy_only_http(request, call_next):
+    revision = request.headers.get("mcp-protocol-version")
+    if revision is None or revision in LEGACY_REVISIONS:
+        return await call_next(request)
+    try:
+        message = await request.json()
+    except ValueError:
+        message = None
+    request_id = message.get("id") if isinstance(message, dict) else None
+    return JSONResponse({
+        "jsonrpc": "2.0", "id": request_id,
+        "error": {"code": -32022, "message": "Unsupported protocol version",
+                  "data": {"supported": LEGACY_REVISIONS, "requested": revision}},
+    }, status_code=400)
+
+
 async def serve_streamable_http(protocol_era: str) -> None:
     import uvicorn
 
@@ -156,6 +171,9 @@ async def serve_streamable_http(protocol_era: str) -> None:
         stateless_http=protocol_era == "modern",
         host="127.0.0.1",
     )
+    if protocol_era == "legacy":
+        # Session statefulness alone does not restrict the SDK's modern HTTP entry.
+        app.add_middleware(BaseHTTPMiddleware, dispatch=legacy_only_http)
     config = uvicorn.Config(app, log_level="error", lifespan="on")
     http_server = uvicorn.Server(config)
     emit(

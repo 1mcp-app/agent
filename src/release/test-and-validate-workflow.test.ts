@@ -298,8 +298,11 @@ describe('test-and-validate workflow', () => {
     expect(systemJob).toContain('timeout-minutes: 15');
     expect(systemJob).not.toContain('needs: ci');
     expect(systemJob).toContain('pnpm test:e2e:system');
-    expect(browserJob).toContain('mcr.microsoft.com/playwright:v1.61.1-noble');
-    expect(browserJob).toContain('options: --ipc=host');
+    expect(browserJob).toContain('pnpm exec playwright install --with-deps chromium');
+    expect(browserJob).not.toContain('mcr.microsoft.com/playwright:');
+    expect(browserJob!.indexOf('Install matching Chromium browser')).toBeLessThan(
+      browserJob!.indexOf('Test browser E2E'),
+    );
     expect(browserJob).toContain('timeout-minutes: 15');
     expect(checkoutCount).toBeGreaterThan(0);
     expect(workflow.match(/persist-credentials: false/g)).toHaveLength(checkoutCount);

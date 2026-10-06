@@ -1,11 +1,137 @@
+import asyncio
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+import driver
+from mcp import Client, StdioServerParameters, stdio_client
+
 
 DRIVER = Path(__file__).with_name("driver.py")
 DRIVER_TIMEOUT_SECONDS = 30
+TYPESCRIPT_FIXTURE = DRIVER.parent.parent / "typescript/src/fixture.mjs"
+
+
+@pytest.mark.parametrize("peer,protocol_era", [
+    ("python", "legacy"), ("python", "modern"), ("v1", "legacy"),
+    ("v2", "legacy"), ("v2", "modern"),
+])
+def test_peer_tool_contract(protocol_era: str, peer: str) -> None:
+    command = (
+        [sys.executable, str(DRIVER), "server", "--transport", "stdio"]
+        if peer == "python"
+        else [shutil.which("node"), str(TYPESCRIPT_FIXTURE), "server", "--sdk-era", peer,
+              "--protocol-era", protocol_era, "--transport", "stdio"]
+    )
+
+    async def inspect_peer() -> None:
+        async with Client(stdio_client(StdioServerParameters(command=command[0], args=command[1:])),
+                          mode="auto" if protocol_era == "modern" else "legacy") as client:
+            tools = (await client.list_tools(cache_mode="reload")).tools
+            assert [tool.name for tool in tools] == ["fixture.acknowledge"]
+            schema = tools[0].input_schema
+            assert schema["type"] == "object"
+            assert schema["required"] == ["marker"]
+            assert schema["properties"]["marker"]["type"] == "string"
+            result = await client.call_tool("fixture.acknowledge", {"marker": "fixture-input-must-not-leak"})
+            assert not result.is_error
+            assert [(item.type, item.text) for item in result.content] == [
+                ("text", "fixture-result-must-not-leak")
+            ]
+            assert result.structured_content is None
+
+    asyncio.run(asyncio.wait_for(inspect_peer(), DRIVER_TIMEOUT_SECONDS))
+
+
+@pytest.mark.parametrize("sdk_era,protocol_era", [("v1", "legacy"), ("v2", "modern")])
+def test_typescript_probe_invokes_python_peer(sdk_era: str, protocol_era: str) -> None:
+    completed = subprocess.run(
+        [shutil.which("node"), str(TYPESCRIPT_FIXTURE), "probe", "--sdk-era", sdk_era,
+         "--protocol-era", protocol_era, "--transport", "stdio", "--command", sys.executable,
+         "--arg", str(DRIVER), "--arg", "server", "--arg=--transport", "--arg", "stdio"],
+        check=True, capture_output=True, text=True, timeout=DRIVER_TIMEOUT_SECONDS,
+    )
+    facts = json.loads(completed.stdout)
+    assert facts["ok"] is True
+    assert facts["operations"]["toolsList"] == {"count": 1, "fixtureTool": True}
+    assert facts["operations"]["toolsCall"] == {"contentTypes": ["text"], "isError": False}
+    assert "fixture-input-must-not-leak" not in completed.stdout + completed.stderr
+    assert "fixture-result-must-not-leak" not in completed.stdout + completed.stderr
+
+
+def test_legacy_http_profile_rejects_modern_and_allows_automatic_fallback() -> None:
+    server = subprocess.Popen(
+        [sys.executable, str(DRIVER), "server", "--transport", "streamable-http",
+         "--protocol-era", "legacy"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        assert server.stdout is not None
+        endpoint = json.loads(server.stdout.readline())["endpoint"]
+        with driver.httpx2.Client(trust_env=False) as http:
+            response = http.post(endpoint, headers={
+                "accept": "application/json, text/event-stream",
+                "mcp-protocol-version": "2026-07-28",
+            }, json={"jsonrpc": "2.0", "id": 1, "method": "server/discover",
+                     "params": {"_meta": {
+                         "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                         "io.modelcontextprotocol/clientCapabilities": {},
+                         "io.modelcontextprotocol/clientInfo": {"name": "era-test", "version": "1"},
+                     }}})
+        assert response.status_code == 400
+        envelope = response.json()
+        assert envelope["id"] == 1
+        assert envelope["error"]["code"] == -32022
+        assert "2025-11-25" in envelope["error"]["data"]["supported"]
+        assert "2026-07-28" not in envelope["error"]["data"]["supported"]
+
+        async def auto_probe() -> None:
+            async with driver.httpx2.AsyncClient(trust_env=False) as http:
+                async with Client(driver.streamable_http_client(endpoint, http_client=http)) as client:
+                    assert client.protocol_version == "2025-11-25"
+                    result = await client.call_tool("fixture.acknowledge", {"marker": "synthetic"})
+                    assert not result.is_error
+
+        asyncio.run(asyncio.wait_for(auto_probe(), DRIVER_TIMEOUT_SECONDS))
+    finally:
+        stop_server(server)
+
+
+@pytest.mark.parametrize("protocol_era", ["legacy", "modern"])
+def test_http_probe_sends_only_applicable_lifecycle(monkeypatch, capsys, protocol_era: str) -> None:
+    server = subprocess.Popen(
+        [sys.executable, str(DRIVER), "server", "--transport", "streamable-http",
+         "--protocol-era", protocol_era], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    methods = []
+    original_client = driver.httpx2.AsyncClient
+
+    async def record_request(request) -> None:
+        if request.method == "POST":
+            message = json.loads(request.content)
+            methods.append(message["method"])
+
+    def recording_client(**kwargs):
+        return original_client(**kwargs, event_hooks={"request": [record_request]})
+
+    monkeypatch.setattr(driver.httpx2, "AsyncClient", recording_client)
+    try:
+        assert server.stdout is not None
+        ready = json.loads(server.stdout.readline())
+        asyncio.run(driver.probe(protocol_era, "streamable-http", ready["endpoint"], None, False))
+        assert "tools/list" in methods and "tools/call" in methods
+        if protocol_era == "modern":
+            assert "server/discover" in methods
+            assert not {"initialize", "notifications/initialized", "ping"}.intersection(methods)
+        else:
+            assert {"initialize", "notifications/initialized", "ping"}.issubset(methods)
+        output = capsys.readouterr().out
+        assert "fixture-input-must-not-leak" not in output
+        assert "fixture-result-must-not-leak" not in output
+    finally:
+        stop_server(server)
 
 
 def run_driver(*args: str) -> dict[str, object]:
@@ -52,8 +178,8 @@ def test_stdio_probe_exercises_protocol_without_payload_output() -> None:
         text=True,
         timeout=DRIVER_TIMEOUT_SECONDS,
     )
-    assert "synthetic-private-argument" not in completed.stdout
-    assert "synthetic-private-result" not in completed.stdout
+    assert "fixture-input-must-not-leak" not in completed.stdout
+    assert "fixture-result-must-not-leak" not in completed.stdout
     assert json.loads(completed.stdout) == {
         "callError": False,
         "fixtureId": "python-sdk",

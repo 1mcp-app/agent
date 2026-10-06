@@ -23,6 +23,9 @@ importers:
       '@modelcontextprotocol/server-legacy':
         specifier: 2.0.0
         version: 2.0.0(express@5.2.1)
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
 
 packages:
 

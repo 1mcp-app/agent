@@ -3,10 +3,18 @@ import yargs from 'yargs';
 
 import { setupAuthCommands } from './index.js';
 
-const { authLoginCommandMock, authStatusCommandMock, authLogoutCommandMock } = vi.hoisted(() => ({
+const {
+  authLoginCommandMock,
+  authStatusCommandMock,
+  authLogoutCommandMock,
+  exportOAuthCredentialsCommandMock,
+  exportUpstreamCredentialsCommandMock,
+} = vi.hoisted(() => ({
   authLoginCommandMock: vi.fn(),
   authStatusCommandMock: vi.fn(),
   authLogoutCommandMock: vi.fn(),
+  exportOAuthCredentialsCommandMock: vi.fn(),
+  exportUpstreamCredentialsCommandMock: vi.fn(),
 }));
 
 vi.mock('./login.js', async (importOriginal) => {
@@ -33,9 +41,36 @@ vi.mock('./logout.js', async (importOriginal) => {
   };
 });
 
+vi.mock('./exportOAuthCredentials.js', () => ({ exportOAuthCredentialsCommand: exportOAuthCredentialsCommandMock }));
+vi.mock('./exportUpstreamCredentials.js', () => ({
+  exportUpstreamCredentialsCommand: exportUpstreamCredentialsCommandMock,
+}));
+
 describe('setupAuthCommands', () => {
   afterEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('routes both-domain and upstream-only exports to their own commands', async () => {
+    const parser = setupAuthCommands(yargs([]).exitProcess(false).help(false).version(false));
+    await parser.parseAsync([
+      'auth',
+      'export-oauth-credentials',
+      '--config-dir',
+      '/tmp/scoped',
+      '--confirm-plaintext-export',
+    ]);
+    expect(exportOAuthCredentialsCommandMock).toHaveBeenCalledOnce();
+    expect(exportUpstreamCredentialsCommandMock).not.toHaveBeenCalled();
+    await parser.parseAsync([
+      'auth',
+      'export-upstream-credentials',
+      '--config-dir',
+      '/tmp/scoped',
+      '--confirm-plaintext-export',
+    ]);
+    expect(exportUpstreamCredentialsCommandMock).toHaveBeenCalledOnce();
+    expect(exportOAuthCredentialsCommandMock).toHaveBeenCalledOnce();
   });
 
   it('registers context selectors for auth credential commands while preserving url for command-layer rejection', async () => {
