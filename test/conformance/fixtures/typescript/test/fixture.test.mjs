@@ -125,6 +125,7 @@ async function startConformanceMock(protocolVersion, options = {}) {
             ...(message.params.name === 'test_mrtr_echo_state' ? { requestState: 'opaque-state' } : {}),
           };
         }
+        if (options.missingResultTypeTool === message.params.name) delete result.resultType;
       } else if (message.method === 'resources/list') {
         result = {
           ...(protocolVersion === '2026-07-28' ? { resultType: 'complete', ttlMs: 0, cacheScope: 'private' } : {}),
@@ -264,6 +265,31 @@ test('official schema dispatch preserves and echoes the advertised input schema'
   assert.deepEqual(call?.message.params.arguments.schema, inputSchema);
 });
 
+test('only the final known SDK resultType rejection is a fixture defect', async (t) => {
+  const names = ['test_mrtr_echo_state', 'test_mrtr_no_state', 'test_mrtr_unrelated', 'test_mrtr_no_result_type'];
+  for (const missingResultTypeTool of ['test_mrtr_echo_state', 'test_mrtr_no_result_type']) {
+    const mock = await startConformanceMock('2026-07-28', {
+      tools: names.map((name) => ({ name, inputSchema: { type: 'object' } })),
+      requestState: true,
+      missingResultTypeTool,
+    });
+    t.after(() => mock.close());
+    const result = await runOfficialClient(mock.endpoint, 'sep-2322-client-request-state', '2026-07-28');
+    assert.equal(result.code, 1);
+    const diagnostic = JSON.parse(result.stderr);
+    if (missingResultTypeTool === 'test_mrtr_echo_state') {
+      assert.deepEqual(diagnostic, { kind: 'conformance-client', ok: false, classification: 'gateway-rejected' });
+    } else {
+      assert.deepEqual(diagnostic, {
+        kind: 'conformance-client',
+        ok: false,
+        classification: 'fixture-sdk-rejected',
+        reasonCode: 'missing-result-type',
+      });
+    }
+  }
+});
+
 test('official request-state and legacy extension dispatch call every advertised tool', async (t) => {
   const requestStateTools = [
     'test_mrtr_echo_state',
@@ -291,6 +317,11 @@ test('official request-state and legacy extension dispatch call every advertised
   );
   const calls = modern.requests.filter(({ message }) => message.method === 'tools/call');
   assert.notEqual(calls[0].message.id, calls[2].message.id);
+  assert.notEqual(calls[3].message.id, calls[4].message.id);
+  for (const { message } of modern.requests) {
+    if (message.method === 'server/discover') continue;
+    assert.equal(message.params._meta['io.modelcontextprotocol/clientInfo'].name, '1mcp-conformance-client-v2');
+  }
   assert.equal(calls[2].message.params.requestState, 'opaque-state');
   assert.deepEqual(calls[2].message.params.inputResponses, {
     confirmation: { action: 'accept', content: { confirmed: true } },

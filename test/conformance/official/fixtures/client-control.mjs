@@ -137,8 +137,9 @@ export async function runRequestStateControl(endpoint) {
         },
       }),
     });
+    if (!response.ok) throw new Error('CONTROL_RPC_REJECTED');
     const result = await response.json();
-    if (!response.ok || result.error) throw new Error('CONTROL_RPC_REJECTED');
+    if (result.error) throw new Error('CONTROL_RPC_REJECTED');
     return result.result;
   };
   const listed = await rpc('tools/list');
