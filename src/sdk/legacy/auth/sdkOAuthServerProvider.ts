@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
+import { InboundOAuthStorageError } from '@src/auth/storage/inboundOAuthStorage.js';
+import { NativeCredentialStoreError } from '@src/auth/storage/nativeCredentialStore.js';
 import { OAuthStorageService } from '@src/auth/storage/oauthStorageService.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { AUTH_CONFIG } from '@src/constants.js';
@@ -11,6 +13,7 @@ import {
   InvalidGrantError,
   InvalidScopeError,
   InvalidTargetError,
+  InvalidTokenError,
   ServerError,
 } from '@src/sdk/legacy/server/auth/errors.js';
 import type { AuthorizationParams, OAuthServerProvider } from '@src/sdk/legacy/server/auth/provider.js';
@@ -43,6 +46,9 @@ function readCredential<T>(read: () => T): T {
   try {
     return read();
   } catch (error) {
+    if (error instanceof InboundOAuthStorageError || error instanceof NativeCredentialStoreError) {
+      throw new ServerError(error.message);
+    }
     if (error instanceof InsecureFilePermissionsError) {
       logger.error('sdkOAuthServerProvider.oauth.store.refused.insecure.credential.file.49dbe688', { error: error });
       throw new ServerError('Credential storage is not owner-only and could not be repaired');
@@ -60,6 +66,9 @@ async function readCredentialAsync<T>(read: () => Promise<T>): Promise<T> {
   try {
     return await read();
   } catch (error) {
+    if (error instanceof InboundOAuthStorageError || error instanceof NativeCredentialStoreError) {
+      throw new ServerError(error.message);
+    }
     if (error instanceof InsecureFilePermissionsError) {
       logger.error('sdkOAuthServerProvider.oauth.store.refused.insecure.credential.file.49dbe688', { error: error });
       throw new ServerError('Credential storage is not owner-only and could not be repaired');
@@ -99,7 +108,7 @@ class FileBasedClientsStore implements OAuthRegisteredClientsStore {
     const ttlMs = AUTH_CONFIG.CLIENT.OAUTH.TTL_MS;
 
     try {
-      this.oauthStorage.clientDataRepository.save(clientKey, client, ttlMs);
+      readCredential(() => this.oauthStorage.clientDataRepository.save(clientKey, client, ttlMs));
       logger.info('sdkOAuthServerProvider.registered.oauth.client.1661d38f');
       return client;
     } catch (error) {
@@ -127,8 +136,11 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
   constructor(sessionStoragePath?: string, runtimeScopeId?: string) {
     const scopeId =
       runtimeScopeId ?? new RuntimeIdentityService({ storageDir: sessionStoragePath }).getRuntimeScopeId();
-    this.oauthStorage = new OAuthStorageService(sessionStoragePath, scopeId);
     this.configManager = AgentConfigManager.getInstance();
+    this.oauthStorage = new OAuthStorageService(sessionStoragePath, scopeId, {
+      credentialStore: this.configManager.get('auth').credentialStore ?? 'file',
+      runtimeScope: this.configManager.get('runtimeScopeStoragePath') ?? sessionStoragePath,
+    });
     this._clientsStore = new FileBasedClientsStore(this.oauthStorage);
   }
 
@@ -140,6 +152,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
    * Handles the authorization request with scope validation and user consent
    */
   async authorize(client: OAuthClientInformationFull, params: AuthorizationParams, res: Response): Promise<void> {
+    await readCredentialAsync(() => this.oauthStorage.ready());
     logger.debug('sdkOAuthServerProvider.authorizing.client.375bc6df', { clientId: client.client_id });
     try {
       // Get requested scopes (default to all available tags if none specified)
@@ -366,6 +379,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
   async challengeForAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string): Promise<string> {
     logger.debug('sdkOAuthServerProvider.challenge.for.authorization.code.9be5806a', { clientId: client.client_id });
 
+    await readCredentialAsync(() => this.oauthStorage.ready());
     const codeData = readCredential(() => this.oauthStorage.authCodeRepository.get(authorizationCode));
     if (!codeData || codeData.clientId !== client.client_id) {
       throw new InvalidGrantError('Invalid authorization code');
@@ -388,77 +402,80 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
   ): Promise<OAuthTokens> {
     logger.debug('sdkOAuthServerProvider.exchanging.authorization.code.6ed093e7', { clientId: client.client_id });
 
-    return this.oauthStorage.fileStorage.withExclusiveLock('auth-code-exchange', async () => {
-      const codeData = readCredential(() => this.oauthStorage.authCodeRepository.get(authorizationCode));
-      if (!codeData) {
-        throw new InvalidGrantError('Invalid or expired authorization code');
-      }
+    return readCredentialAsync(() =>
+      this.oauthStorage.fileStorage.withExclusiveLock('auth-code-exchange', async () => {
+        await readCredentialAsync(() => this.oauthStorage.ready());
+        const codeData = readCredential(() => this.oauthStorage.authCodeRepository.get(authorizationCode));
+        if (!codeData) {
+          throw new InvalidGrantError('Invalid or expired authorization code');
+        }
 
-      // Validate client ID
-      if (codeData.clientId !== client.client_id) {
-        throw new InvalidGrantError('Invalid or expired authorization code');
-      }
+        // Validate client ID
+        if (codeData.clientId !== client.client_id) {
+          throw new InvalidGrantError('Invalid or expired authorization code');
+        }
 
-      // Validate redirect URI if provided
-      if (redirectUri && codeData.redirectUri !== redirectUri) {
-        throw new InvalidGrantError('Redirect URI mismatch');
-      }
+        // Validate redirect URI if provided
+        if (redirectUri && codeData.redirectUri !== redirectUri) {
+          throw new InvalidGrantError('Redirect URI mismatch');
+        }
 
-      // Validate resource if provided
-      if (resource && codeData.resource && codeData.resource !== resource.toString()) {
-        throw new InvalidTargetError('Resource mismatch');
-      }
+        // Validate resource if provided
+        if (resource && codeData.resource && codeData.resource !== resource.toString()) {
+          throw new InvalidTargetError('Resource mismatch');
+        }
 
-      // Delete the authorization code (one-time use)
-      this.oauthStorage.authCodeRepository.delete(authorizationCode);
+        // Delete the authorization code (one-time use)
+        this.oauthStorage.authCodeRepository.delete(authorizationCode);
 
-      // Create access token
-      const tokenId = randomUUID();
-      const accessToken = AUTH_CONFIG.SERVER.TOKEN.ID_PREFIX + tokenId;
-      const ttlMs = this.configManager.get('auth').oauthTokenTtlMs;
+        // Create access token
+        const tokenId = randomUUID();
+        const accessToken = AUTH_CONFIG.SERVER.TOKEN.ID_PREFIX + tokenId;
+        const ttlMs = this.configManager.get('auth').oauthTokenTtlMs;
 
-      const refreshFamily = client.grant_types?.includes('refresh_token')
-        ? await this.oauthStorage.refreshTokenFamilyRepository.create(
-            client.client_id,
-            codeData.scopes,
-            codeData.resource || '',
+        const refreshFamily = client.grant_types?.includes('refresh_token')
+          ? await this.oauthStorage.refreshTokenFamilyRepository.create(
+              client.client_id,
+              codeData.scopes,
+              codeData.resource || '',
+              tokenId,
+              (familyId) =>
+                this.oauthStorage.sessionRepository.createRefreshFamilyAccessSession({
+                  tokenId,
+                  clientId: client.client_id,
+                  resource: codeData.resource || '',
+                  scopes: codeData.scopes,
+                  ttlMs,
+                  familyId,
+                }),
+            )
+          : undefined;
+
+        if (!refreshFamily) {
+          this.oauthStorage.sessionRepository.createWithId(
             tokenId,
-            (familyId) =>
-              this.oauthStorage.sessionRepository.createRefreshFamilyAccessSession({
-                tokenId,
-                clientId: client.client_id,
-                resource: codeData.resource || '',
-                scopes: codeData.scopes,
-                ttlMs,
-                familyId,
-              }),
-          )
-        : undefined;
+            client.client_id,
+            codeData.resource || '',
+            codeData.scopes,
+            ttlMs,
+          );
+        }
 
-      if (!refreshFamily) {
-        this.oauthStorage.sessionRepository.createWithId(
-          tokenId,
-          client.client_id,
-          codeData.resource || '',
-          codeData.scopes,
-          ttlMs,
-        );
-      }
+        const tokens: OAuthTokens = {
+          access_token: accessToken,
+          token_type: 'Bearer',
+          expires_in: Math.floor(ttlMs / 1000),
+          scope: codeData.scopes ? codeData.scopes.join(' ') : '',
+          ...(refreshFamily ? { refresh_token: refreshFamily.refreshToken } : {}),
+        };
 
-      const tokens: OAuthTokens = {
-        access_token: accessToken,
-        token_type: 'Bearer',
-        expires_in: Math.floor(ttlMs / 1000),
-        scope: codeData.scopes ? codeData.scopes.join(' ') : '',
-        ...(refreshFamily ? { refresh_token: refreshFamily.refreshToken } : {}),
-      };
+        logger.info('sdkOAuthServerProvider.exchanged.authorization.code.for.access.token.f9c5dc9f', {
+          clientId: client.client_id,
+        });
 
-      logger.info('sdkOAuthServerProvider.exchanged.authorization.code.for.access.token.f9c5dc9f', {
-        clientId: client.client_id,
-      });
-
-      return tokens;
-    });
+        return tokens;
+      }),
+    );
   }
 
   /**
@@ -470,6 +487,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
     scopes?: string[],
     resource?: URL,
   ): Promise<OAuthTokens> {
+    await readCredentialAsync(() => this.oauthStorage.ready());
     const repository = this.oauthStorage.refreshTokenFamilyRepository;
     const family = readCredential(() => repository.findByToken(refreshToken));
     if (!family || family.clientId !== client.client_id) {
@@ -533,6 +551,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
       };
     }
 
+    await readCredentialAsync(() => this.oauthStorage.ready());
     // Strip prefix if present
     const tokenId = token.startsWith(AUTH_CONFIG.SERVER.TOKEN.ID_PREFIX)
       ? token.slice(AUTH_CONFIG.SERVER.TOKEN.ID_PREFIX.length)
@@ -543,14 +562,14 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
     const sessionData = readCredential(() => this.oauthStorage.sessionRepository.get(sessionId));
 
     if (!sessionData) {
-      throw new Error('Invalid or expired access token');
+      throw new InvalidTokenError('Invalid or expired access token');
     }
 
     const refreshFamilyId = sessionData.refreshFamilyId;
     if (refreshFamilyId) {
       const family = readCredential(() => this.oauthStorage.refreshTokenFamilyRepository.findById(refreshFamilyId));
       if (!family || family.status !== 'active' || !family.accessTokenIds.includes(tokenId)) {
-        throw new Error('Invalid or expired access token');
+        throw new InvalidTokenError('Invalid or expired access token');
       }
     }
 
@@ -569,6 +588,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
   async revokeToken(client: OAuthClientInformationFull, request: OAuthTokenRevocationRequest): Promise<void> {
     logger.debug('sdkOAuthServerProvider.revoking.oauth.token.f78e2487', { clientId: client.client_id });
 
+    await readCredentialAsync(() => this.oauthStorage.ready());
     const token = request.token;
 
     const refreshFamily = readCredential(() => this.oauthStorage.refreshTokenFamilyRepository.findByToken(token));
@@ -583,6 +603,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
       return;
     }
 
+    await readCredentialAsync(() => this.oauthStorage.ready());
     // Strip prefix if present
     const tokenId = token.startsWith(AUTH_CONFIG.SERVER.TOKEN.ID_PREFIX)
       ? token.slice(AUTH_CONFIG.SERVER.TOKEN.ID_PREFIX.length)

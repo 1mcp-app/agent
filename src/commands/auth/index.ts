@@ -86,7 +86,7 @@ export function setupAuthCommands(yargs: Argv): Argv {
         )
         .command(
           'export-upstream-credentials',
-          'Explicitly export native upstream OAuth credentials to plaintext files in a stopped local Runtime Scope',
+          'Explicitly export native inbound and upstream OAuth credentials to plaintext files in a stopped local Runtime Scope',
           (sub) =>
             sub
               .options(globalOptions || {})

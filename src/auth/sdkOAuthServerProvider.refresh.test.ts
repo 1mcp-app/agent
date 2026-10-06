@@ -10,6 +10,7 @@ import {
 import type { OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
 
 import { RefreshTokenFamilyDataSchema } from '@src/auth/sessionTypes.js';
+import { activateInboundOAuthStore } from '@src/auth/storage/inboundOAuthStorage.js';
 import { AUTH_CONFIG } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import logger from '@src/logger/logger.js';
@@ -130,9 +131,9 @@ describe('SDKOAuthServerProvider refresh token families', () => {
 
   it('does not consume the current refresh token when the family commit fails', async () => {
     const initial = await exchangeAuthorizationCode(provider, CLIENT);
-    const originalWriteData = FileStorageService.prototype.writeDataDurable;
+    const originalWriteData = provider.oauthStorage.fileStorage.writeDataDurable;
     let failedFamilyCommit = false;
-    const writeData = vi.spyOn(FileStorageService.prototype, 'writeDataDurable').mockImplementation(function (
+    const writeData = vi.spyOn(provider.oauthStorage.fileStorage, 'writeDataDurable').mockImplementation(function (
       this: FileStorageService,
       filePrefix: string,
       id: string,
@@ -243,6 +244,12 @@ describe('SDKOAuthServerProvider refresh token families', () => {
       'Failed to revoke access sessions for refresh token family',
     );
     unlink.mockRestore();
+    await expect(provider.verifyAccessToken(initial.access_token)).rejects.toThrow(
+      'Native credential migration or access is incomplete',
+    );
+    provider.shutdown();
+    await activateInboundOAuthStore({ baseDir: tempDir, mode: 'file' });
+    provider = new SDKOAuthServerProvider(tempDir, 'runtime-scope-a');
     await expect(provider.verifyAccessToken(initial.access_token)).rejects.toThrow('Invalid or expired access token');
     await expect(provider.verifyAccessToken(rotated.access_token)).rejects.toThrow('Invalid or expired access token');
   });
@@ -454,7 +461,6 @@ describe('authorization-code-atomic (goiabada#77 double-spend)', () => {
     expect(allLoggedErrors).not.toMatch(/auth_code_code-[0-9a-f-]+/i);
     expect(normalizedErrors).toContainEqual(
       expect.objectContaining({
-        event: 'fileStorageService.failed.to.delete.data.for.391c9b0b',
         error_code: 'EACCES',
       }),
     );

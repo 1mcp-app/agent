@@ -1,5 +1,6 @@
 import path from 'node:path';
 
+import { InboundOAuthStorage } from '@src/auth/storage/inboundOAuthStorage.js';
 import { UpstreamOAuthStorage } from '@src/auth/storage/upstreamOAuthStorage.js';
 import { resolveUpstreamOAuthStorageBaseDir } from '@src/auth/storage/upstreamOAuthStoragePath.js';
 import { resolveServeConfigPaths } from '@src/commands/serve/runtimeScope.js';
@@ -23,6 +24,11 @@ export async function exportUpstreamCredentialsCommand(options: ExportUpstreamCr
   const baseDir = resolveUpstreamOAuthStorageBaseDir(serverBaseDir) ?? runtimeScope;
   const destination = path.resolve(baseDir, 'sessions', 'client');
   const legacyDestination = path.resolve(baseDir, 'clientSessions');
+  const inboundBaseDir = serverBaseDir ?? runtimeScope;
+  const inboundDestination = path.resolve(inboundBaseDir, 'sessions', 'server');
+  const inboundLegacyDestination = path.resolve(inboundBaseDir, 'sessions');
+  process.stdout.write(`Plaintext inbound OAuth destination: ${inboundDestination}\n`);
+  process.stdout.write(`Legacy inbound records (if any) are restored to: ${inboundLegacyDestination}\n`);
   process.stdout.write(`Plaintext upstream OAuth destination: ${destination}\n`);
   process.stdout.write(`Legacy-layout records (if any) are restored to: ${legacyDestination}\n`);
 
@@ -33,7 +39,7 @@ export async function exportUpstreamCredentialsCommand(options: ExportUpstreamCr
     const response = await prompts({
       type: 'confirm',
       name: 'confirmed',
-      message: 'Export upstream OAuth secrets to these plaintext files?',
+      message: 'Export inbound and upstream OAuth secrets to these plaintext files?',
       initial: false,
     });
     if (response.confirmed !== true) {
@@ -45,18 +51,23 @@ export async function exportUpstreamCredentialsCommand(options: ExportUpstreamCr
   const report = await getRuntimeStatusReport(runtimeScope);
   if (report.status !== 'not-running') {
     throw new Error(
-      'Stop the selected Runtime Scope before exporting upstream credentials; unresolved runtime state blocks export',
+      'Stop the selected Runtime Scope before exporting OAuth credentials; unresolved runtime state blocks export',
     );
   }
   const ownership = claimRuntimeScope(runtimeScope, { kind: 'foreground-stdio' });
   let storage: UpstreamOAuthStorage | undefined;
+  let inboundStorage: InboundOAuthStorage | undefined;
   try {
+    inboundStorage = new InboundOAuthStorage({ baseDir: inboundBaseDir, mode: 'native', runtimeScope });
+    const inboundResult = await inboundStorage.exportToFile();
+    process.stdout.write(`Exported ${inboundResult.records} inbound OAuth record(s).\n`);
     storage = new UpstreamOAuthStorage({ baseDir, mode: 'native', runtimeScope });
     const result = await storage.exportToFile();
     process.stdout.write(
       `Exported ${result.records} upstream OAuth record(s). Restart with credentialStore = "file".\n`,
     );
   } finally {
+    inboundStorage?.shutdown();
     storage?.shutdown();
     ownership.release();
   }

@@ -9,6 +9,9 @@ const mocks = vi.hoisted(() => ({
   export: vi.fn(),
   shutdown: vi.fn(),
   storage: vi.fn(),
+  inboundStorage: vi.fn(),
+  inboundExport: vi.fn(),
+  inboundShutdown: vi.fn(),
   prompt: vi.fn(),
 }));
 vi.mock('@src/auth/storage/upstreamOAuthStorage.js', () => ({
@@ -18,6 +21,15 @@ vi.mock('@src/auth/storage/upstreamOAuthStorage.js', () => ({
     }
     exportToFile = mocks.export;
     shutdown = mocks.shutdown;
+  },
+}));
+vi.mock('@src/auth/storage/inboundOAuthStorage.js', () => ({
+  InboundOAuthStorage: class {
+    constructor(options: unknown) {
+      mocks.inboundStorage(options);
+    }
+    exportToFile = mocks.inboundExport;
+    shutdown = mocks.inboundShutdown;
   },
 }));
 vi.mock('@src/commands/serve/serveStatus.js', () => ({ getRuntimeStatusReport: mocks.report }));
@@ -30,6 +42,7 @@ describe('explicit upstream plaintext export', () => {
     mocks.report.mockResolvedValue({ status: 'not-running' });
     mocks.claim.mockReturnValue({ release: mocks.release });
     mocks.export.mockResolvedValue({ records: 2 });
+    mocks.inboundExport.mockResolvedValue({ records: 3 });
     vi.spyOn(process.stdout, 'write').mockReturnValue(true);
   });
   afterEach(() => vi.restoreAllMocks());
@@ -44,6 +57,13 @@ describe('explicit upstream plaintext export', () => {
     expect(process.stdout.write).toHaveBeenCalledWith(
       'Legacy-layout records (if any) are restored to: /tmp/scoped/clientSessions/clientSessions\n',
     );
+    expect(process.stdout.write).toHaveBeenCalledWith(
+      'Plaintext inbound OAuth destination: /tmp/scoped/sessions/sessions/server\n',
+    );
+    expect(process.stdout.write).toHaveBeenCalledWith(
+      'Legacy inbound records (if any) are restored to: /tmp/scoped/sessions/sessions\n',
+    );
+    expect(mocks.inboundStorage).not.toHaveBeenCalled();
     expect(mocks.report).not.toHaveBeenCalled();
     expect(mocks.storage).not.toHaveBeenCalled();
   });
@@ -66,7 +86,14 @@ describe('explicit upstream plaintext export', () => {
       mode: 'native',
       runtimeScope: '/tmp/scoped',
     });
+    expect(mocks.inboundStorage).toHaveBeenCalledWith({
+      baseDir: '/tmp/custom',
+      mode: 'native',
+      runtimeScope: '/tmp/scoped',
+    });
+    expect(mocks.claim.mock.invocationCallOrder[0]).toBeLessThan(mocks.inboundExport.mock.invocationCallOrder[0]);
     expect(mocks.claim.mock.invocationCallOrder[0]).toBeLessThan(mocks.export.mock.invocationCallOrder[0]);
+    expect(mocks.inboundShutdown).toHaveBeenCalledOnce();
     expect(mocks.shutdown).toHaveBeenCalledOnce();
     expect(mocks.release).toHaveBeenCalledOnce();
   });
@@ -85,6 +112,15 @@ describe('explicit upstream plaintext export', () => {
       exportUpstreamCredentialsCommand({ 'config-dir': '/tmp/scoped', 'confirm-plaintext-export': true }),
     ).rejects.toThrow('incomplete');
     expect(mocks.shutdown).toHaveBeenCalledOnce();
+    expect(mocks.release).toHaveBeenCalledOnce();
+  });
+  it('retains the stopped-runtime fence and reports incomplete inbound cleanup', async () => {
+    mocks.inboundExport.mockRejectedValueOnce(new Error('Inbound cleanup incomplete'));
+    await expect(
+      exportUpstreamCredentialsCommand({ 'config-dir': '/tmp/scoped', 'confirm-plaintext-export': true }),
+    ).rejects.toThrow('Inbound cleanup incomplete');
+    expect(mocks.export).not.toHaveBeenCalled();
+    expect(mocks.inboundShutdown).toHaveBeenCalledOnce();
     expect(mocks.release).toHaveBeenCalledOnce();
   });
 });

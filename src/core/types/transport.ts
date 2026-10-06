@@ -386,7 +386,7 @@ export const applicationConfigSchema = z.object({
       credentialStore: z
         .enum(['file', 'native'])
         .optional()
-        .describe('Upstream OAuth secret storage; restart required'),
+        .describe('Inbound and upstream OAuth credential storage; restart required'),
       enabled: z.boolean().optional().describe('Enable OAuth 2.1 authentication'),
       sessionTtl: z.number().int().min(1).optional().describe('Session TTL in minutes'),
       rateLimitWindow: z.number().int().min(1).optional().describe('Rate limit window in minutes'),

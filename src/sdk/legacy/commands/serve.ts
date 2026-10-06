@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
+import { activateInboundOAuthStore } from '@src/auth/storage/inboundOAuthStorage.js';
 import { activateUpstreamOAuthStore } from '@src/auth/storage/upstreamOAuthStorage.js';
 import { resolveUpstreamOAuthStorageBaseDir } from '@src/auth/storage/upstreamOAuthStoragePath.js';
 import { resolveAsyncLoadingOptions } from '@src/commands/serve/asyncLoadingOptions.js';
@@ -605,6 +606,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       },
     });
 
+    await activateInboundOAuthStore({ baseDir: sessionStoragePath, mode: credentialStore, runtimeScope });
     await activateUpstreamOAuthStore({
       baseDir: resolveUpstreamOAuthStorageBaseDir(sessionStoragePath),
       mode: credentialStore,

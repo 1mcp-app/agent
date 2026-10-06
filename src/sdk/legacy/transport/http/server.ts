@@ -3,6 +3,9 @@ import path from 'path';
 
 import { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
 import { FileStorageService } from '@src/auth/storage/fileStorageService.js';
+import { getInboundOAuthStoreReadiness } from '@src/auth/storage/inboundOAuthStorage.js';
+import { getUpstreamOAuthStoreReadiness } from '@src/auth/storage/upstreamOAuthStorage.js';
+import { resolveUpstreamOAuthStorageBaseDir } from '@src/auth/storage/upstreamOAuthStoragePath.js';
 import { getAllServerTargets, resolveServerTarget } from '@src/commands/shared/baseConfigUtils.js';
 import ConfigContext from '@src/config/configContext.js';
 import ConfigManager from '@src/config/configManager.js';
@@ -433,7 +436,20 @@ export class ExpressServer {
     const getOAuthDashboard = createBackendOAuthDashboardProvider(this.oauthProvider, this.loadingManager, oauthFlow);
 
     // Setup health check routes (no auth required for monitoring)
-    this.app.use('/health', createHealthRoutes(this.loadingManager, this.configManager.get('health')?.rateLimit));
+    const credentialMode = this.configManager.get('auth').credentialStore ?? 'file';
+    const sessionStoragePath = this.configManager.get('auth').sessionStoragePath;
+    const runtimeScope = this.configManager.get('runtimeScopeStoragePath') ?? sessionStoragePath;
+    this.app.use(
+      '/health',
+      createHealthRoutes(this.loadingManager, this.configManager.get('health')?.rateLimit, () => ({
+        inbound: getInboundOAuthStoreReadiness({ baseDir: sessionStoragePath, mode: credentialMode, runtimeScope }),
+        upstream: getUpstreamOAuthStoreReadiness({
+          baseDir: resolveUpstreamOAuthStorageBaseDir(sessionStoragePath),
+          mode: credentialMode,
+          runtimeScope,
+        }),
+      })),
+    );
 
     const adminStorageDir =
       this.configManager.get('runtimeScopeStoragePath') ??

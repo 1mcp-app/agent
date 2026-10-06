@@ -22,6 +22,11 @@ export interface HealthRateLimitPolicy {
   maxRequests: number;
 }
 
+export interface OAuthCredentialStorageReadiness {
+  inbound: { mode: 'file' | 'native'; ready: boolean };
+  upstream: { mode: 'file' | 'native'; ready: boolean };
+}
+
 export const DEFAULT_HEALTH_RATE_LIMIT_POLICY: HealthRateLimitPolicy = {
   windowMs: 5 * 60 * 1000,
   maxRequests: 200,
@@ -33,6 +38,7 @@ export const DEFAULT_HEALTH_RATE_LIMIT_POLICY: HealthRateLimitPolicy = {
 export function createHealthRoutes(
   loadingManager?: McpLoadingManager,
   rateLimitPolicy: HealthRateLimitPolicy = DEFAULT_HEALTH_RATE_LIMIT_POLICY,
+  getCredentialStorageReadiness?: () => OAuthCredentialStorageReadiness,
 ): Router {
   const router: Router = Router();
   const healthService = HealthService.getInstance();
@@ -90,7 +96,10 @@ export function createHealthRoutes(
 
       logger.debug('healthRoutes.health.check.completed.with.status.09839ae4');
 
-      res.status(httpStatusCode).json(healthData);
+      res.status(httpStatusCode).json({
+        ...healthData,
+        ...(getCredentialStorageReadiness ? { credentialStorage: getCredentialStorageReadiness() } : {}),
+      });
     } catch (error) {
       logger.error('healthRoutes.health.check.failed.cbb24dd0', { error: error });
 
@@ -151,6 +160,7 @@ export function createHealthRoutes(
         status: isReady ? 'ready' : 'not_ready',
         timestamp: new Date().toISOString(),
         configuration: healthData.configuration,
+        ...(getCredentialStorageReadiness ? { credentialStorage: getCredentialStorageReadiness() } : {}),
         backendSupervision: healthService.serializeBackendSupervision(backendSupervision),
       });
     } catch (error) {

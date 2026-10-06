@@ -8,6 +8,8 @@ import { AuthCodeRepository } from './authCodeRepository.js';
 import { AuthRequestRepository } from './authRequestRepository.js';
 import { ClientDataRepository } from './clientDataRepository.js';
 import { FileStorageService } from './fileStorageService.js';
+import { InboundOAuthStorage } from './inboundOAuthStorage.js';
+import type { NativeCredentialStore } from './nativeCredentialStore.js';
 import { RefreshTokenFamilyRepository } from './refreshTokenFamilyRepository.js';
 import { SessionRepository } from './sessionRepository.js';
 
@@ -20,15 +22,24 @@ import { SessionRepository } from './sessionRepository.js';
  * clean APIs for route handlers.
  */
 export class OAuthStorageService {
-  private storage: FileStorageService;
+  private storage: InboundOAuthStorage;
   private sessions: SessionRepository;
   private authCodes: AuthCodeRepository;
   private authRequests: AuthRequestRepository;
   private clientData: ClientDataRepository;
   private refreshTokenFamilies: RefreshTokenFamilyRepository;
 
-  constructor(storageDir?: string, runtimeScopeId = new RuntimeIdentityService({ storageDir }).getRuntimeScopeId()) {
-    this.storage = new FileStorageService(storageDir, AUTH_CONFIG.SERVER.SESSION.SUBDIR);
+  constructor(
+    storageDir?: string,
+    runtimeScopeId = new RuntimeIdentityService({ storageDir }).getRuntimeScopeId(),
+    options: { credentialStore?: 'file' | 'native'; nativeStore?: NativeCredentialStore; runtimeScope?: string } = {},
+  ) {
+    this.storage = new InboundOAuthStorage({
+      baseDir: storageDir,
+      mode: options.credentialStore ?? 'file',
+      nativeStore: options.nativeStore,
+      runtimeScope: options.runtimeScope,
+    });
     this.sessions = new SessionRepository(this.storage);
     this.authCodes = new AuthCodeRepository(this.storage);
     this.authRequests = new AuthRequestRepository(this.storage);
@@ -46,49 +57,51 @@ export class OAuthStorageService {
     authRequestId: string,
     selectedScopes: string[],
   ): Promise<{ authCode: string; redirectUrl: URL }> {
-    const authRequest = this.authRequests.get(authRequestId);
-    if (!authRequest) {
-      throw new Error('Invalid or expired authorization request');
-    }
+    return this.storage.withExclusiveLock('oauth-consent', () => {
+      const authRequest = this.authRequests.get(authRequestId);
+      if (!authRequest) {
+        throw new Error('Invalid or expired authorization request');
+      }
 
-    // Create authorization code with selected scopes
-    const authCode = this.authCodes.create(
-      authRequest.clientId,
-      authRequest.redirectUri,
-      authRequest.resource || '',
-      selectedScopes,
-      AUTH_CONFIG.SERVER.AUTH_CODE.TTL_MS,
-      authRequest.codeChallenge,
-    );
+      // Create authorization code with selected scopes
+      const authCode = this.authCodes.create(
+        authRequest.clientId,
+        authRequest.redirectUri,
+        authRequest.resource || '',
+        selectedScopes,
+        AUTH_CONFIG.SERVER.AUTH_CODE.TTL_MS,
+        authRequest.codeChallenge,
+      );
 
-    // Clean up the temporary auth request
-    this.authRequests.delete(authRequestId);
+      // Clean up the temporary auth request
+      this.authRequests.delete(authRequestId);
 
-    // Build redirect URL
-    const redirectUrl = new URL(authRequest.redirectUri);
-    redirectUrl.searchParams.set('code', authCode);
-    if (authRequest.state) {
-      redirectUrl.searchParams.set('state', authRequest.state);
-    }
+      // Build redirect URL
+      const redirectUrl = new URL(authRequest.redirectUri);
+      redirectUrl.searchParams.set('code', authCode);
+      if (authRequest.state) {
+        redirectUrl.searchParams.set('state', authRequest.state);
+      }
 
-    // Audit the operation
-    auditScopeOperation('authorization_granted', {
-      clientId: authRequest.clientId,
-      requestedScopes: authRequest.scopes || [],
-      grantedScopes: selectedScopes,
-      success: true,
+      // Audit the operation
+      auditScopeOperation('authorization_granted', {
+        clientId: authRequest.clientId,
+        requestedScopes: authRequest.scopes || [],
+        grantedScopes: selectedScopes,
+        success: true,
+      });
+
+      logger.info('oauthStorageService.oauth.authorization.granted.for.client.25a4e31b', {
+        clientId: authRequest.clientId,
+      });
+      writeLocalDiagnostic('info', 'oauth.consent.completed', {
+        stage: 'authorization_code_created',
+        outcome: 'approved',
+        scopeCount: selectedScopes.length,
+      });
+
+      return { authCode, redirectUrl };
     });
-
-    logger.info('oauthStorageService.oauth.authorization.granted.for.client.25a4e31b', {
-      clientId: authRequest.clientId,
-    });
-    writeLocalDiagnostic('info', 'oauth.consent.completed', {
-      stage: 'authorization_code_created',
-      outcome: 'approved',
-      scopeCount: selectedScopes.length,
-    });
-
-    return { authCode, redirectUrl };
   }
 
   /**
@@ -97,33 +110,35 @@ export class OAuthStorageService {
    * Builds an error redirect URL and cleans up the temporary auth request.
    */
   async processConsentDenial(authRequestId: string): Promise<URL> {
-    const authRequest = this.authRequests.get(authRequestId);
-    if (!authRequest) {
-      throw new Error('Invalid or expired authorization request');
-    }
+    return this.storage.withExclusiveLock('oauth-consent', () => {
+      const authRequest = this.authRequests.get(authRequestId);
+      if (!authRequest) {
+        throw new Error('Invalid or expired authorization request');
+      }
 
-    // Clean up the auth request
-    this.authRequests.delete(authRequestId);
+      // Clean up the auth request
+      this.authRequests.delete(authRequestId);
 
-    // Build error redirect URL
-    const redirectUrl = new URL(authRequest.redirectUri);
-    redirectUrl.searchParams.set('error', 'access_denied');
-    redirectUrl.searchParams.set('error_description', 'User denied the request');
-    if (authRequest.state) {
-      redirectUrl.searchParams.set('state', authRequest.state);
-    }
+      // Build error redirect URL
+      const redirectUrl = new URL(authRequest.redirectUri);
+      redirectUrl.searchParams.set('error', 'access_denied');
+      redirectUrl.searchParams.set('error_description', 'User denied the request');
+      if (authRequest.state) {
+        redirectUrl.searchParams.set('state', authRequest.state);
+      }
 
-    // Audit the operation
-    auditScopeOperation('authorization_denied', {
-      clientId: authRequest.clientId,
-      success: false,
-      error: 'User denied authorization',
+      // Audit the operation
+      auditScopeOperation('authorization_denied', {
+        clientId: authRequest.clientId,
+        success: false,
+        error: 'User denied authorization',
+      });
+
+      logger.info('oauthStorageService.oauth.authorization.denied.by.user.for.client.29791f5d');
+      writeLocalDiagnostic('info', 'oauth.consent.completed', { stage: 'consent', outcome: 'denied' });
+
+      return redirectUrl;
     });
-
-    logger.info('oauthStorageService.oauth.authorization.denied.by.user.for.client.29791f5d');
-    writeLocalDiagnostic('info', 'oauth.consent.completed', { stage: 'consent', outcome: 'denied' });
-
-    return redirectUrl;
   }
 
   /**
@@ -173,6 +188,14 @@ export class OAuthStorageService {
 
   get refreshTokenFamilyRepository(): RefreshTokenFamilyRepository {
     return this.refreshTokenFamilies;
+  }
+
+  ready(): Promise<void> {
+    return this.storage.ready();
+  }
+
+  isReady(): boolean {
+    return this.storage.isReady();
   }
 
   /**
