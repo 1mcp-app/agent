@@ -190,6 +190,8 @@ describe('OAuthFlowHandler', () => {
     });
 
     it('should complete OAuth and reconnect successfully', async () => {
+      const shutdown = vi.fn();
+      (mockTransport as unknown as AuthProviderTransport).oauthProvider!.shutdown = shutdown;
       (mockClient.connect as unknown as MockInstance).mockResolvedValue(undefined);
       (mockClient.getServerCapabilities as unknown as MockInstance).mockReturnValue({
         tools: {},
@@ -219,6 +221,7 @@ describe('OAuthFlowHandler', () => {
       expect(result.capabilities).toEqual({ tools: {}, resources: {} });
       expect(result.instructions).toBe('test instructions');
       expect(result.lastError).toBeUndefined();
+      expect(shutdown).not.toHaveBeenCalled();
     });
 
     it.each([ModernStreamableHTTPClientTransport, ModernSSEClientTransport])(
@@ -382,6 +385,58 @@ describe('OAuthFlowHandler', () => {
       expect(getLegacyTransport(result)).toBe(authenticatedTransport);
       expect(recreate).toHaveBeenCalledExactlyOnceWith({ preserveSessionId: false });
     });
+
+    it.each(['success', 'callback-failure', 'connect-failure'] as const)(
+      'drains discarded OAuth providers on %s while retaining the active provider',
+      async (outcome) => {
+        let releaseShutdown!: () => void;
+        const shutdownGate = new Promise<void>((resolve) => {
+          releaseShutdown = resolve;
+        });
+        const oldShutdown = vi.fn(() => shutdownGate);
+        const prebuiltShutdown = vi.fn(() => shutdownGate);
+        const authenticatedShutdown = vi.fn(() => shutdownGate);
+        const old = mockTransport as unknown as AuthProviderTransport;
+        old.oauthProvider!.shutdown = oldShutdown;
+        const prebuilt = {
+          close: vi.fn().mockResolvedValue(undefined),
+          oauthProvider: { shutdown: prebuiltShutdown },
+        } as unknown as AuthProviderTransport;
+        const authenticated = {
+          close: vi.fn().mockResolvedValue(undefined),
+          oauthProvider: { shutdown: authenticatedShutdown },
+        } as unknown as AuthProviderTransport;
+        old.recreate = vi.fn(() => authenticated);
+        const failure = new Error('reconnect failed');
+        if (outcome === 'callback-failure') {
+          vi.mocked(old.oauthProvider!.withAuthorizationCallback).mockRejectedValueOnce(failure);
+        }
+        if (outcome === 'connect-failure') {
+          vi.mocked(mockClient.connect!).mockRejectedValueOnce(failure);
+        }
+        let settled = false;
+        const reconnect = oauthFlowHandler
+          .completeOAuthAndReconnect('test-server', old, prebuilt, 'auth-code', existingConnection)
+          .then(
+            (connection) => ({ connection, error: undefined }),
+            (error: unknown) => ({ connection: undefined, error }),
+          )
+          .finally(() => {
+            settled = true;
+          });
+        try {
+          await vi.waitFor(() => expect(prebuiltShutdown).toHaveBeenCalledExactlyOnceWith());
+          expect(settled).toBe(false);
+          expect(oldShutdown).toHaveBeenCalledTimes(outcome === 'success' ? 1 : 0);
+          expect(authenticatedShutdown).toHaveBeenCalledTimes(outcome === 'connect-failure' ? 1 : 0);
+        } finally {
+          releaseShutdown();
+        }
+        const result = await reconnect;
+        if (outcome === 'success') expect(getLegacyTransport(result.connection!)).toBe(authenticated);
+        else expect(result.error).toBe(failure);
+      },
+    );
 
     it('should handle SSE transport', async () => {
       const mockSseTransport = {
