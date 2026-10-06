@@ -251,6 +251,23 @@ describe('Health Routes', () => {
   });
 
   describe('GET /health/ready', () => {
+    it('exposes unavailable OAuth storage without removing independent runtime readiness', async () => {
+      mockHealthService.performHealthCheck.mockResolvedValue({ configuration: { loaded: true } });
+      const credentialStorage = {
+        inbound: { mode: 'native' as const, ready: false },
+        upstream: { mode: 'native' as const, ready: true },
+      };
+      const readStatus = vi.fn(() => credentialStorage);
+      const scopedApp = express();
+      scopedApp.use('/health', createHealthRoutes(undefined, undefined, readStatus));
+      const response = await request(scopedApp).get('/health/ready');
+      expect(response.status).toBe(200);
+      expect(response.body.credentialStorage).toEqual(credentialStorage);
+      expect(readStatus).toHaveBeenCalledOnce();
+      await request(scopedApp).get('/health/live').expect(200);
+      expect(readStatus).toHaveBeenCalledOnce();
+    });
+
     it('should return ready status with 200 when configuration is loaded', async () => {
       const mockHealthData = {
         configuration: {
