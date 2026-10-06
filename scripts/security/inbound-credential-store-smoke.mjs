@@ -399,10 +399,28 @@ try {
   references = refs();
 
   stage = 'unconfirmed export';
-  const refused = run(['auth', 'export-upstream-credentials']);
+  const refused = run(['auth', 'export-oauth-credentials']);
   assert.ok(refused.status !== 0 && !fs.existsSync(sessionFile), 'Unconfirmed export wrote plaintext');
+  stage = 'upstream-only export preserves inbound state';
+  const inboundMetadata = path.join(base, 'sessions', 'server', '.native-oauth');
+  const inboundReferences = () =>
+    files(inboundMetadata)
+      .filter((file) => file.endsWith('.ref'))
+      .sort()
+      .map((file) => fs.readFileSync(file, 'utf8'));
+  const beforeUpstreamExport = inboundReferences();
+  assert.ok(beforeUpstreamExport.length > 0, 'Upstream-only fixture has no inbound native records');
+  const upstreamOnly = run(['auth', 'export-upstream-credentials', '--confirm-plaintext-export']);
+  assert.ok(upstreamOnly.status === 0, 'Upstream-only export failed');
+  assert.deepEqual(inboundReferences(), beforeUpstreamExport, 'Upstream-only export changed inbound references');
+  assert.ok(!fs.existsSync(sessionFile), 'Upstream-only export wrote inbound plaintext');
+  assert.deepEqual(
+    JSON.parse(fs.readFileSync(upstreamSource, 'utf8')),
+    upstreamPayload,
+    'Upstream-only export omitted upstream state',
+  );
   stage = 'confirmed both-domain export';
-  const exported = run(['auth', 'export-upstream-credentials', '--confirm-plaintext-export']);
+  const exported = run(['auth', 'export-oauth-credentials', '--confirm-plaintext-export']);
   assert.ok(exported.status === 0, 'Confirmed synthetic export failed');
   assert.deepEqual(
     JSON.parse(fs.readFileSync(upstreamSource, 'utf8')),

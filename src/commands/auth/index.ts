@@ -85,8 +85,28 @@ export function setupAuthCommands(yargs: Argv): Argv {
           },
         )
         .command(
-          'export-upstream-credentials',
+          'export-oauth-credentials',
           'Explicitly export native inbound and upstream OAuth credentials to plaintext files in a stopped local Runtime Scope',
+          (sub) =>
+            sub
+              .options(globalOptions || {})
+              .option('session-storage-path', { type: 'string', describe: 'Session storage base used by the runtime' })
+              .option('confirm-plaintext-export', {
+                type: 'boolean',
+                default: false,
+                describe: 'Confirm writing secrets to the displayed plaintext destination without a prompt',
+              }),
+          async (argv) => {
+            const { exportOAuthCredentialsCommand } = await import('./exportOAuthCredentials.js');
+            await runCliCommand(
+              argv as Parameters<typeof exportOAuthCredentialsCommand>[0],
+              exportOAuthCredentialsCommand,
+            );
+          },
+        )
+        .command(
+          'export-upstream-credentials',
+          'Explicitly export native upstream OAuth credentials to plaintext files in a stopped local Runtime Scope',
           (sub) =>
             sub
               .options(globalOptions || {})
@@ -104,7 +124,10 @@ export function setupAuthCommands(yargs: Argv): Argv {
             );
           },
         )
-        .demandCommand(1, 'Specify a subcommand: login, status, logout, or export-upstream-credentials');
+        .demandCommand(
+          1,
+          'Specify a subcommand: login, status, logout, export-oauth-credentials, or export-upstream-credentials',
+        );
     },
   );
 }
