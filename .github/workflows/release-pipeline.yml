@@ -92,7 +92,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.candidate_sha || needs.update-version.outputs.release_sha }}
+          # Run the resolver from the dispatch revision before checking out candidate code.
+          ref: ${{ github.sha }}
+          fetch-depth: 0
           persist-credentials: false
       - name: Validate exact candidate and owner-selected recovery run
         id: identity
@@ -100,6 +102,7 @@ jobs:
           RELEASE_SHA: ${{ inputs.candidate_sha || needs.update-version.outputs.release_sha }}
           VERSION: ${{ needs.validate.outputs.version }}
           NPM_TAG: ${{ needs.validate.outputs.npm_tag }}
+          RELEASE_REF: ${{ needs.validate.outputs.release_ref }}
           RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
           GH_TOKEN: ${{ github.token }}
         run: node scripts/release-recovery.cjs candidate
@@ -133,6 +136,8 @@ jobs:
           ref: ${{ needs.candidate.outputs.release_sha }}
           persist-credentials: false
       - uses: ./.github/actions/setup-node-pnpm
+        with:
+          cache-deps: 'false'
       - name: Build, pack, install and smoke retained npm archive
         env:
           RELEASE_SHA: ${{ needs.candidate.outputs.release_sha }}

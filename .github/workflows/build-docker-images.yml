@@ -169,8 +169,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
           outputs: type=image,name=ghcr.io/${{ github.repository }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=${{ matrix.target }}-${{ matrix.platform_name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.target }}-${{ matrix.platform_name }}
+          no-cache: true
           platforms: ${{ matrix.platform }}
           provenance: false
           sbom: false

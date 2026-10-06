@@ -49,8 +49,30 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Require trusted local setup action before executing release branch code
+        env:
+          WORKFLOW_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          policy_error='Candidate setup action differs from trusted dispatch revision; owner must align the release branch cache policy before a new release. Recovery must retain the original candidate and stop for owner reconciliation.'
+          action_path=.github/actions/setup-node-pnpm/action.yml
+          if ! git show "HEAD:$action_path" > "$RUNNER_TEMP/candidate-setup-action.yml"; then
+            echo "::error::$policy_error"
+            exit 1
+          fi
+          if ! git show "$WORKFLOW_SHA:$action_path" > "$RUNNER_TEMP/trusted-setup-action.yml"; then
+            echo "::error::$policy_error"
+            exit 1
+          fi
+          if ! cmp -s "$RUNNER_TEMP/candidate-setup-action.yml" "$RUNNER_TEMP/trusted-setup-action.yml"; then
+            echo "::error::$policy_error"
+            exit 1
+          fi
+
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node-pnpm
+        with:
+          cache-deps: 'false'
 
       - name: Configure Git
         run: |

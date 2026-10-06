@@ -48,6 +48,8 @@ jobs:
 
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node-pnpm
+        with:
+          cache-deps: ${{ !inputs.checkout_ref && !inputs.release_gate }}
 
       - name: Run actionlint
         env:
@@ -88,6 +90,8 @@ jobs:
 
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node-pnpm
+        with:
+          cache-deps: ${{ !inputs.checkout_ref && !inputs.release_gate }}
 
       - name: Test Unit
         run: pnpm test:unit
@@ -133,6 +137,8 @@ jobs:
 
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node-pnpm
+        with:
+          cache-deps: ${{ !inputs.checkout_ref && !inputs.release_gate }}
 
       - name: Build
         run: pnpm build
@@ -183,6 +189,8 @@ jobs:
 
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node-pnpm
+        with:
+          cache-deps: ${{ !inputs.checkout_ref && !inputs.release_gate }}
 
       - name: Build
         run: pnpm build
@@ -215,6 +223,8 @@ jobs:
 
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node-pnpm
+        with:
+          cache-deps: ${{ !inputs.checkout_ref && !inputs.release_gate }}
 
       - name: Setup Python
         uses: actions/setup-python@v6
@@ -225,7 +235,7 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           version: '0.11.32'
-          enable-cache: true
+          enable-cache: ${{ !inputs.checkout_ref && !inputs.release_gate }}
           cache-dependency-glob: test/conformance/fixtures/python/uv.lock
 
       - name: Sync frozen Python fixture
@@ -281,6 +291,8 @@ jobs:
 
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node-pnpm
+        with:
+          cache-deps: ${{ !inputs.checkout_ref && !inputs.release_gate }}
 
       - name: Build
         run: pnpm build
@@ -315,6 +327,8 @@ jobs:
           persist-credentials: false
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node-pnpm
+        with:
+          cache-deps: ${{ !inputs.checkout_ref && !inputs.release_gate }}
       - name: Build
         run: pnpm build
       - name: Install actual legacy version
@@ -411,6 +425,8 @@ jobs:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
       - uses: ./.github/actions/setup-node-pnpm
+        with:
+          cache-deps: 'false'
       - uses: actions/download-artifact@v8
         with:
           name: conformance-${{ inputs.checkout_ref }}

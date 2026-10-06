@@ -5,7 +5,11 @@ const os = require('node:os');
 const path = require('node:path');
 const { candidate, loadArtifacts, recordArtifacts } = require('../../scripts/release-artifacts.cjs');
 const { main, aliasNames, dockerReadback, publicationDecision } = require('../../scripts/release-publications.cjs');
-const { validateOwnerInputs, verifyRecoveryRun } = require('../../scripts/release-recovery.cjs');
+const {
+  validateOwnerInputs,
+  verifyRecoveryRun,
+  resolveCandidateSource,
+} = require('../../scripts/release-recovery.cjs');
 const { summarize } = require('../../scripts/release-summary.cjs');
 const sha = 'a'.repeat(40);
 const stable = { sha, version: '1.2.3', channel: 'latest', versionTag: 'v1.2.3' };
@@ -220,6 +224,7 @@ test('owner recovery rejects stale, foreign, untested, chained and malformed can
     path: '.github/workflows/release-pipeline.yml',
     event: 'workflow_dispatch',
     status: 'completed',
+    head_branch: 'main',
   };
   const summary = { ...stable, jobs: { ci: { result: 'success' }, 'native-security': { result: 'success' } } };
   verifyRecoveryRun(run, summary, stable, '1mcp-app/agent');
@@ -316,4 +321,93 @@ test('custom prerelease channels cannot collide with stable aliases', () => {
 test('safe hyphenated prerelease channels keep their full OCI alias', () => {
   for (const channel of ['latest-preview', 'preview-internal'])
     assert.deepEqual(aliasNames({ ...stable, version: `1.2.3-${channel}.1`, channel }, 'extended'), [channel]);
+});
+
+test('trusted resolver only parses candidate data and requires approved branch ancestry before output', () => {
+  const calls = [];
+  const git = (args) => {
+    calls.push(args);
+    if (args[0] === 'rev-parse') return sha;
+    if (args[0] === 'show')
+      return args[1].endsWith(':package.json')
+        ? JSON.stringify({ version: stable.version })
+        : 'trusted cache-deps action bytes';
+    return '';
+  };
+  assert.deepEqual(
+    resolveCandidateSource({ sha, version: stable.version, npmTag: 'latest', releaseRef: 'main' }, git),
+    stable,
+  );
+  assert.deepEqual(
+    calls.map((args) => args[0]),
+    ['rev-parse', 'show', 'show', 'show', 'merge-base'],
+  );
+  assert.deepEqual(calls.at(-1), ['merge-base', '--is-ancestor', sha, 'refs/remotes/origin/main']);
+  assert.throws(() =>
+    resolveCandidateSource({ sha, version: stable.version, npmTag: 'latest', releaseRef: 'feature/untrusted' }, git),
+  );
+  assert.throws(
+    () =>
+      resolveCandidateSource({ sha, version: stable.version, npmTag: 'latest', releaseRef: 'main' }, (args) => {
+        if (args[0] === 'merge-base') throw new Error('untrusted ancestry');
+        return git(args);
+      }),
+    /ancestry/,
+  );
+});
+
+test('recovery rejects original workflows dispatched from an arbitrary feature branch', () => {
+  const run = {
+    repository: { full_name: '1mcp-app/agent' },
+    path: '.github/workflows/release-pipeline.yml',
+    event: 'workflow_dispatch',
+    status: 'completed',
+    head_branch: 'feature/untrusted',
+  };
+  const summary = { ...stable, jobs: { ci: { result: 'success' }, 'native-security': { result: 'success' } } };
+  assert.throws(() => verifyRecoveryRun(run, summary, stable, '1mcp-app/agent'));
+});
+
+test('trusted resolver rejects older or divergent setup action bytes before allowing candidate execution', () => {
+  const calls = [];
+  const git = (args) => {
+    calls.push(args);
+    if (args[0] === 'rev-parse') return sha;
+    if (args[0] === 'show' && args[1].endsWith(':package.json')) return JSON.stringify({ version: stable.version });
+    if (args[0] === 'show' && args[1].startsWith('HEAD:')) return 'trusted cache-deps action bytes';
+    if (args[0] === 'show') return 'older action ignores cache-deps';
+    throw new Error('Candidate must not proceed');
+  };
+  assert.throws(
+    () => resolveCandidateSource({ sha, version: stable.version, npmTag: 'latest', releaseRef: 'main' }, git),
+    /owner must align.*Recovery must retain/,
+  );
+  assert.ok(!calls.some((args) => args[0] === 'merge-base'));
+  assert.ok(calls.some((args) => args[1] === 'HEAD:.github/actions/setup-node-pnpm/action.yml'));
+});
+
+test('trusted resolver fails closed with actionable policy message when candidate setup action is missing', () => {
+  const git = (args) => {
+    if (args[0] === 'rev-parse') return sha;
+    if (args[0] === 'show' && args[1].endsWith(':package.json')) return JSON.stringify({ version: stable.version });
+    throw new Error('path does not exist');
+  };
+  assert.throws(
+    () => resolveCandidateSource({ sha, version: stable.version, npmTag: 'latest', releaseRef: 'main' }, git),
+    /owner must align/,
+  );
+});
+
+test('trusted resolver compares raw action bytes rather than decoded replacement characters', () => {
+  const git = (args) => {
+    if (args[0] === 'rev-parse') return sha;
+    if (args[0] === 'show' && args[1].endsWith(':package.json'))
+      return Buffer.from(JSON.stringify({ version: stable.version }));
+    if (args[0] === 'show') return args[1].startsWith('HEAD:') ? Buffer.from([0xff]) : Buffer.from([0xfe]);
+    return '';
+  };
+  assert.throws(
+    () => resolveCandidateSource({ sha, version: stable.version, npmTag: 'latest', releaseRef: 'main' }, git),
+    /owner must align/,
+  );
 });

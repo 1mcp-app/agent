@@ -10,6 +10,7 @@ description: 对最终版本提交执行检查，在非默认渠道演练，并�
 ## 发起前
 
 - 使用包含最终 SHA 发布实现的工作流版本。`target_ref` 必须是 `main` 或版本对应的 `release-MAJOR.MINOR` 分支；新发布必须使用尚未发布的新版本。
+- 新发布前确认源码分支的 `.github/actions/setup-node-pnpm/action.yml` 与 dispatch 版本中的 action 字节完全一致。版本更新和候选解析在调用候选代码前拒绝旧版或不同的本地 action，因为旧 action 可能忽略缓存关闭参数。准备新候选前先对齐分支策略；不要修改、重建或替换已存在的恢复候选来通过此检查。历史候选不兼容时停止并由负责人核对。
 - 提供发布负责人批准链接，以及该候选版本已获批准的 #485 就绪证据链接。两者均为本仓库 issue/PR URL，可包含评论锚点。记录 URL 不等于验证批准内容：负责人必须确认决定、范围、版本和源码身份。
 - 确认现有 `release` environment、仓库权限和 npm trusted publisher 配置适用。工作流保留该 environment，不新增人工审核人或修改保护规则。
 - npm trusted publishing 必须授权此工作流，并启用 **Allow npm dist-tag**。工作流安装支持 OIDC dist-tag 的 npm `11.21.0`；仅有 publish 权限不足以推进别名。凭据或 trusted publisher 配置属于负责人独立操作；失败后不要自动添加宽权限 token。
@@ -68,9 +69,11 @@ Annotated Git tag 还须查询 tag 对象并解析到提交。下载 GitHub 附�
 gh workflow run release-pipeline.yml --repo 1mcp-app/agent --ref main   -f target_ref=main -f version=1.2.3   -f recovery_run_id=ORIGINAL_RUN_ID -f candidate_sha=FINAL_40_CHARACTER_SHA   -f approval_ref=https://github.com/1mcp-app/agent/issues/474#issuecomment-RECOVERY   -f readiness_ref=https://github.com/1mcp-app/agent/issues/485#issuecomment-APPROVED
 ```
 
-恢复先验证原 run 是本仓库已结束的手动发布工作流，摘要与 SHA/版本/渠道一致，且原 CI/原生安全 gate 成功。随后重新执行最终 SHA 检查，跳过版本写入及产物构建，要求全部原始保留产物。写入任何缺失步骤前，先验证所有已存在的版本身份。匹配的 npm/OCI 内容和二进制附件直接复用；明确不存在的版本发布或附件可显式续做。只有 Git tag 而缺少匹配 release 属于不确定状态，由负责人处理。别名推进再次核查全部版本身份，跳过已匹配的别名。DNS、代理、授权错误不会推导为缺失。
+恢复先在 dispatch 工作流版本运行 resolver，尚不执行候选代码；验证原 run 是本仓库从 `main` 或匹配维护分支发起、已结束的手动发布工作流，摘要与 SHA/版本/渠道一致，且原 CI/原生安全 gate 成功。候选 package 元数据和本地 setup action 只作为数据解析；要求 action 字节与可信 dispatch 版本一致，并确认提交属于获批发布源码分支后才允许下游 checkout。随后重新执行最终 SHA 检查，跳过版本写入及产物构建，要求全部原始保留产物。写入任何缺失步骤前，先验证所有已存在的版本身份。匹配的 npm/OCI 内容和二进制附件直接复用；明确不存在的版本发布或附件可显式续做。只有 Git tag 而缺少匹配 release 属于不确定状态，由负责人处理。别名推进再次核查全部版本身份，跳过已匹配的别名。DNS、代理、授权错误不会推导为缺失。
 
 本地 fixture 不发布任何内容，模拟四类故障：发布前失败、部分版本发布、部分别名推进、已存在身份冲突/不确定。另覆盖 beta/稳定版隔离、原 run 验证和缺失/篡改产物。运行 `node --test test/release/*.test.cjs` 与 `pnpm test:unit src/release`。本地结果不能证明真实 registry、OIDC、保护配置或负责人演练成功。声明发布就绪前仍需真实负责人演练；产品一致性 baseline 红色应先由所属工作流解决。
+
+配置中的发布检查、版本更新、产物构建及发布不读取或保存共享依赖缓存。选择源码时关闭 pnpm 和一致性 uv 缓存，并显式关闭 setup-node 自动 package-manager 缓存。OCI 发布构建不使用共享 GitHub Actions 构建缓存。未选择 checkout 的常规 CI 保持既有依赖缓存。可信 resolver 在执行前将候选源码绑定到获批分支；缓存隔离进一步避免发布读取或保存共享依赖缓存。
 
 ## 必需安全检查清单
 

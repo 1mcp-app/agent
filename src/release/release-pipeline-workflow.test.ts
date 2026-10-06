@@ -8,6 +8,9 @@ describe('release-pipeline workflow', () => {
   it('checks the final version SHA with the existing full quality and native-security workflows', () => {
     expect(workflow.jobs['update-version'].needs).toBe('validate');
     expect(workflow.jobs.ci.needs).toBe('candidate');
+    expect(workflow.jobs.candidate.steps[0].with.ref).toBe('${{ github.sha }}');
+    expect(workflow.jobs.candidate.steps[0].with['fetch-depth']).toBe(0);
+    expect(workflow.jobs.candidate.steps[1].env.RELEASE_REF).toBe('${{ needs.validate.outputs.release_ref }}');
     expect(workflow.jobs.ci.with).toEqual({
       checkout_ref: '${{ needs.candidate.outputs.release_sha }}',
       release_gate: true,

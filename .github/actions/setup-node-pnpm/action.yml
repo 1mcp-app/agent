@@ -9,6 +9,10 @@ inputs:
     description: 'Whether to install dependencies'
     required: false
     default: 'true'
+  cache-deps:
+    description: 'Restore/save dependency cache; disable for selected-source release checks and publication.'
+    required: false
+    default: 'true'
 runs:
   using: composite
   steps:
@@ -17,11 +21,21 @@ runs:
       with:
         run_install: false
 
-    - name: Setup Node.js
+    - name: Setup Node.js with dependency cache
+      if: inputs.cache-deps == 'true'
       uses: actions/setup-node@v6
       with:
         node-version-file: .node-version
         cache: pnpm
+        package-manager-cache: false
+        registry-url: ${{ inputs.registry-url }}
+
+    - name: Setup Node.js without dependency cache
+      if: inputs.cache-deps != 'true'
+      uses: actions/setup-node@v6
+      with:
+        node-version-file: .node-version
+        package-manager-cache: false
         registry-url: ${{ inputs.registry-url }}
 
     - name: Install dependencies

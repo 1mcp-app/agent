@@ -53,6 +53,8 @@ jobs:
 
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node-pnpm
+        with:
+          cache-deps: ${{ !inputs.checkout_ref }}
 
       - name: Build Node installation
         if: matrix.runtime == 'Node'

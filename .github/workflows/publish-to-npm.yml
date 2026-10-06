@@ -68,6 +68,7 @@ jobs:
       - uses: ./.github/actions/setup-node-pnpm
         with:
           install-deps: 'false'
+          cache-deps: 'false'
       - name: Use npm with OIDC dist-tag support
         run: npm install --global npm@11.21.0
       - name: Validate retained candidate
@@ -174,6 +175,7 @@ jobs:
       - uses: ./.github/actions/setup-node-pnpm
         with:
           install-deps: 'false'
+          cache-deps: 'false'
       - name: Use npm with OIDC dist-tag support
         run: npm install --global npm@11.21.0
       - uses: actions/download-artifact@v8

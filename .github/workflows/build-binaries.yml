@@ -106,6 +106,8 @@ jobs:
 
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node-pnpm
+        with:
+          cache-deps: 'false'
 
       - name: Build and create SEA binary
         env:

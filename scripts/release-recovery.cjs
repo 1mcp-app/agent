@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 const fs = require('node:fs');
 const { execFileSync } = require('node:child_process');
-const { currentCandidate } = require('./release-artifacts.cjs');
+const { candidate } = require('./release-artifacts.cjs');
+const { validateReleaseInputs } = require('./validate-release-inputs.cjs');
 function validateOwnerInputs({ approval, readiness, runId, sha }) {
   for (const reference of [approval, readiness]) {
     if (
@@ -20,7 +21,12 @@ function verifyRecoveryRun(run, summary, identity, repository) {
     run.repository.full_name !== repository ||
     run.path !== '.github/workflows/release-pipeline.yml' ||
     run.event !== 'workflow_dispatch' ||
-    run.status !== 'completed'
+    run.status !== 'completed' ||
+    ![
+      'main',
+      validateReleaseInputs({ targetRef: 'main', version: identity.version, tagExists: () => false })
+        .expectedReleaseBranch,
+    ].includes(run.head_branch)
   ) {
     throw new Error('Recovery run is not a completed owner-dispatched Release Pipeline in this repository');
   }
@@ -29,6 +35,27 @@ function verifyRecoveryRun(run, summary, identity, repository) {
   if (summary.jobs.ci.result !== 'success' || summary.jobs['native-security'].result !== 'success')
     throw new Error('Original release gates did not pass');
   if (summary.recoveryRunId) throw new Error('Select original artifact-producing run, not a recovery run');
+}
+function resolveCandidateSource({ sha, version, npmTag, releaseRef }, git) {
+  const policy = validateReleaseInputs({ targetRef: releaseRef, version, tagExists: () => false });
+  if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error('Invalid candidate SHA');
+  const actualSha = git(['rev-parse', `${sha}^{commit}`]).trim();
+  // Only parse data from the candidate. Never execute its validation scripts before binding.
+  const actualVersion = JSON.parse(git(['show', `${actualSha}:package.json`])).version;
+  const actionPath = '.github/actions/setup-node-pnpm/action.yml';
+  const policyError =
+    'Candidate setup action differs from trusted dispatch revision; owner must align the release branch cache policy before a new release. Recovery must retain the original candidate and stop for owner reconciliation.';
+  let candidateAction;
+  let trustedAction;
+  try {
+    candidateAction = git(['show', `${actualSha}:${actionPath}`]);
+    trustedAction = git(['show', `HEAD:${actionPath}`]);
+  } catch {
+    throw new Error(policyError);
+  }
+  if (!Buffer.from(candidateAction).equals(Buffer.from(trustedAction))) throw new Error(policyError);
+  git(['merge-base', '--is-ancestor', actualSha, `refs/remotes/origin/${policy.targetRef}`]);
+  return candidate({ sha, actualSha, version, actualVersion, npmTag });
 }
 function gh(args) {
   return execFileSync('gh', args, { encoding: 'utf8' }).trim();
@@ -44,7 +71,13 @@ if (require.main === module) {
         sha: process.env.RELEASE_SHA,
       });
     else if (command === 'candidate') {
-      const identity = currentCandidate();
+      let identity = candidate({
+        sha: process.env.RELEASE_SHA,
+        actualSha: process.env.RELEASE_SHA,
+        version: process.env.VERSION,
+        actualVersion: process.env.VERSION,
+        npmTag: process.env.NPM_TAG,
+      });
       const runId = process.env.RECOVERY_RUN_ID;
       if (runId) {
         const run = JSON.parse(gh(['api', `repos/${process.env.GITHUB_REPOSITORY}/actions/runs/${runId}`]));
@@ -62,7 +95,13 @@ if (require.main === module) {
         ]);
         const summary = JSON.parse(fs.readFileSync('recovery-evidence/release-summary.json'));
         verifyRecoveryRun(run, summary, identity, process.env.GITHUB_REPOSITORY);
+        // Select the verified original-run identity, not the raw dispatch string.
+        identity = { ...identity, sha: summary.sha };
       }
+      identity = resolveCandidateSource(
+        { sha: identity.sha, version: identity.version, npmTag: identity.channel, releaseRef: process.env.RELEASE_REF },
+        (args) => execFileSync('git', args, { encoding: args[0] === 'show' ? null : 'utf8' }),
+      );
       fs.appendFileSync(
         process.env.GITHUB_OUTPUT,
         `release_sha=${identity.sha}\nartifact_run_id=${runId || process.env.GITHUB_RUN_ID}\n`,
@@ -73,4 +112,4 @@ if (require.main === module) {
     process.exitCode = 1;
   }
 }
-module.exports = { validateOwnerInputs, verifyRecoveryRun };
+module.exports = { validateOwnerInputs, verifyRecoveryRun, resolveCandidateSource };
