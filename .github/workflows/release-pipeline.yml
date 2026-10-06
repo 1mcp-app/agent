@@ -109,6 +109,7 @@ jobs:
 
   ci:
     needs: candidate
+    if: ${{ !cancelled() && needs.candidate.result == 'success' }}
     uses: ./.github/workflows/test-and-validate.yml
     with:
       checkout_ref: ${{ needs.candidate.outputs.release_sha }}
@@ -118,6 +119,7 @@ jobs:
 
   native-security:
     needs: candidate
+    if: ${{ !cancelled() && needs.candidate.result == 'success' }}
     uses: ./.github/workflows/native-credentials.yml
     with:
       checkout_ref: ${{ needs.candidate.outputs.release_sha }}
@@ -218,7 +220,7 @@ jobs:
   # release-X.Y branch.
   finalize:
     needs: [validate, candidate, release]
-    if: ${{ needs.validate.outputs.release_ref == 'main' }}
+    if: ${{ !cancelled() && needs.release.result == 'success' && needs.validate.outputs.release_ref == 'main' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

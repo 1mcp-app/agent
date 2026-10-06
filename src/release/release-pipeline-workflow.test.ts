@@ -1,9 +1,21 @@
 import fs from 'node:fs';
+import { runInNewContext } from 'node:vm';
 
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 
 const workflow = parse(fs.readFileSync('.github/workflows/release-pipeline.yml', 'utf8'));
+function jobRuns(
+  condition: string | undefined,
+  needs: Record<string, unknown>,
+  cancelled = false,
+  implicitSuccess = false,
+): boolean {
+  if (!condition) return implicitSuccess;
+  const expression = condition.replace(/^\$\{\{\s*|\s*\}\}$/g, '');
+  if (!/\b(?:always|cancelled|success|failure)\(/.test(expression) && !implicitSuccess) return false;
+  return Boolean(runInNewContext(expression, { needs, cancelled: () => cancelled }, { timeout: 1000 }));
+}
 describe('release-pipeline workflow', () => {
   it('checks the final version SHA with the existing full quality and native-security workflows', () => {
     expect(workflow.jobs['update-version'].needs).toBe('validate');
@@ -27,8 +39,35 @@ describe('release-pipeline workflow', () => {
     expect(workflow.on.workflow_dispatch.inputs.approval_ref.required).toBe(true);
     expect(workflow.on.workflow_dispatch.inputs.readiness_ref.required).toBe(true);
   });
+  it.each(['ci', 'native-security'])(
+    '%s checks run after successful recovery candidate despite skipped version update',
+    (job) => {
+      expect(workflow.jobs[job].if).toBe("${{ !cancelled() && needs.candidate.result == 'success' }}");
+      const needs = { candidate: { result: 'success' }, 'update-version': { result: 'skipped' } };
+      expect(jobRuns(workflow.jobs[job].if, needs)).toBe(true);
+      for (const result of ['failure', 'cancelled', 'skipped'])
+        expect(jobRuns(workflow.jobs[job].if, { candidate: { result } })).toBe(false);
+      expect(jobRuns(workflow.jobs[job].if, needs, true)).toBe(false);
+    },
+  );
+  it('finalizes successful recovery from main despite skipped ancestors and stops failed/cancelled releases', () => {
+    const needs = {
+      release: { result: 'success' },
+      validate: { outputs: { release_ref: 'main' } },
+      'update-version': { result: 'skipped' },
+    };
+    expect(jobRuns(workflow.jobs.finalize.if, needs)).toBe(true);
+    expect(jobRuns(workflow.jobs.finalize.if, needs, true)).toBe(false);
+    for (const result of ['failure', 'cancelled', 'skipped'])
+      expect(jobRuns(workflow.jobs.finalize.if, { ...needs, release: { result } })).toBe(false);
+    expect(
+      jobRuns(workflow.jobs.finalize.if, { ...needs, validate: { outputs: { release_ref: 'release-1.2' } } }),
+    ).toBe(false);
+  });
   it('creates maintenance branches for prereleases and retains always-run evidence', () => {
-    expect(workflow.jobs.finalize.if).toBe("${{ needs.validate.outputs.release_ref == 'main' }}");
+    expect(workflow.jobs.finalize.if).toBe(
+      "${{ !cancelled() && needs.release.result == 'success' && needs.validate.outputs.release_ref == 'main' }}",
+    );
     expect(workflow.jobs.summary.if).toBe('always()');
     expect(workflow.jobs.summary.permissions.contents).toBe('read');
     expect(workflow.jobs['attach-summary'].environment).toBe('release');
