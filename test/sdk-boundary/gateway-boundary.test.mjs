@@ -81,6 +81,12 @@ test('gateway production attachment is confined to explicit adapters and shared 
     'src/sdk/legacy/client/runtime/modernSdkClientAdapter.ts -> @src/gateway/interactions/interactionCapabilities.js',
     'src/sdk/legacy/server/protocol/requestInteractionScope.ts -> @src/gateway/interactions/interactionCapabilities.js',
     'src/transport/http/routes/modernHttpRoutes.ts -> @src/gateway/interactions/interactionCapabilities.js',
+    // Initial driver material crosses only the modern route, selected external handlers and adapter.
+    'src/sdk/legacy/client/runtime/modernSdkClientAdapter.ts -> @src/gateway/interactions/nativeInputResponses.js',
+    'src/sdk/legacy/server/protocol/promptRequestHandlers.ts -> @src/gateway/interactions/nativeInputResponses.js',
+    'src/sdk/legacy/server/protocol/resourceRequestHandlers.ts -> @src/gateway/interactions/nativeInputResponses.js',
+    'src/sdk/legacy/server/protocol/toolRequestHandlers.ts -> @src/gateway/interactions/nativeInputResponses.js',
+    'src/transport/http/routes/modernHttpRoutes.ts -> @src/gateway/interactions/nativeInputResponses.js',
     // Approved destination adapters consume only the SDK-free shared failure leaf.
     'src/commands/run/run.ts -> @src/gateway/contracts/gatewayFailure.js',
     'src/core/capabilities/capabilityCatalog.ts -> @src/gateway/contracts/gatewayFailure.js',
@@ -89,6 +95,7 @@ test('gateway production attachment is confined to explicit adapters and shared 
     'src/sdk/legacy/client/runtime/modernSdkClientAdapter.ts -> @src/gateway/contracts/gatewayFailure.js',
     'src/sdk/contracts/mcpParamHeaders.ts -> @src/gateway/contracts/gatewayFailure.js',
     'src/sdk/legacy/server/protocol/resourceRequestHandlers.ts -> @src/gateway/contracts/gatewayFailure.js',
+    'src/sdk/legacy/shared/resourceTemplateRouting.ts -> @src/gateway/contracts/gatewayFailure.js',
     'src/transport/http/routes/toolRoutes.ts -> @src/gateway/contracts/gatewayFailure.js',
     'src/utils/core/errorHandling.ts -> @src/gateway/contracts/gatewayFailure.js',
     // Request-local interaction attachment; SDK objects never enter these plain-data ports.

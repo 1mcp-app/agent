@@ -51,12 +51,16 @@ export class ModernOutboundEraAdapter implements OutboundEraAdapter {
   }
 
   async request(request: OutboundGatewayRequest, options?: GatewayRequestOptions): Promise<ImmutableJsonValue> {
+    const initialInputs = ['tools/call', 'prompts/get', 'resources/read'].includes(request.operation)
+      ? options?.initialInputResponses
+      : undefined;
     let frame = toImmutableJsonValue({
       requestId: request.requestId,
       operation: request.operation,
       ...(request.params === undefined ? {} : { params: request.params }),
       authority: createEffectiveRequestAuthority(request.authority),
       deadlineUnixMs: request.deadlineUnixMs,
+      ...(initialInputs === undefined ? {} : { inputResponses: initialInputs }),
     });
     if (this.#activeRequestIds.has(request.requestId)) {
       throw createGatewayFailure({

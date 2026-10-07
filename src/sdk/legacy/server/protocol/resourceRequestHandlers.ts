@@ -5,6 +5,7 @@ import {
 import { getRequestSession, resolveCapabilityVisibility } from '@src/core/protocol/requestHandlerUtils.js';
 import { InboundConnection } from '@src/core/types/index.js';
 import { createGatewayFailure } from '@src/gateway/contracts/gatewayFailure.js';
+import { withSelectedNativeInputResponses } from '@src/gateway/interactions/nativeInputResponses.js';
 import { RESPONSE_JSON_VALUE_LIMITS } from '@src/sdk/contracts/index.js';
 import {
   type LegacyOutboundConnections,
@@ -138,10 +139,17 @@ export function registerResourceHandlers(
             extra,
             route.entry,
             (selected) =>
-              requestLegacyOutbound<{ contents: Array<{ uri: string; [key: string]: unknown }> }>(
-                selected,
+              withSelectedNativeInputResponses(
+                request.params.uri,
                 'resources/read',
-                { ...params, uri: route.upstreamIdentity },
+                selected.adapter,
+                route.upstreamIdentity,
+                () =>
+                  requestLegacyOutbound<{ contents: Array<{ uri: string; [key: string]: unknown }> }>(
+                    selected,
+                    'resources/read',
+                    { ...params, uri: route.upstreamIdentity },
+                  ),
               ),
             assertResourceCurrent,
             isIssuedRuntimeResourceEntry(route.entry) ? route.entry : undefined,

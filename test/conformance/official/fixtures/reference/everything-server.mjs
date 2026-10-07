@@ -1114,6 +1114,16 @@ app.post("/mcp", async (req, res) => {
             tools: [
               ...fromServer.tools,
               {
+                name: "test_trigger_tool_change",
+                description: "Publish a tools catalog change on subscribed listeners",
+                inputSchema: { type: "object", properties: {} }
+              },
+              {
+                name: "test_trigger_prompt_change",
+                description: "Publish a prompts catalog change on subscribed listeners",
+                inputSchema: { type: "object", properties: {} }
+              },
+              {
                 name: "test_missing_capability",
                 description: "Test tool requiring sampling",
                 inputSchema: { type: "object", properties: {} }

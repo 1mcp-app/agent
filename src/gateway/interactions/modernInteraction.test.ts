@@ -6,6 +6,46 @@ import { ModernOutboundEraAdapter } from '../adapters/modern/modernOutboundEraAd
 import type { GatewayOperation, ImmutableJsonValue } from '../contracts/index.js';
 
 describe('broker-owned modern rounds', () => {
+  it('forwards initial driver material only on the first frame and replaces it with actual round replies', async () => {
+    const frames: ImmutableJsonValue[] = [];
+    const adapter = new ModernOutboundEraAdapter({
+      revision: '2026-07-28',
+      request: async (frame) => {
+        frames.push(frame);
+        if (frames.length === 1)
+          return {
+            resultType: 'input_required',
+            requestState: 'owned-state',
+            inputRequests: { root: { method: 'roots/list' } },
+          };
+        return { resultType: 'complete', content: [] };
+      },
+      cancel: async () => undefined,
+    });
+    await adapter.request(
+      {
+        requestId: 'initial-driver',
+        operation: 'tools/call',
+        params: { name: 'raw', arguments: { original: true } },
+        authority: { connectionIds: ['one'], provenance: [] },
+        deadlineUnixMs: Date.now() + 5000,
+      },
+      { initialInputResponses: { unknown: { untouched: true } }, interaction: async () => ({ roots: [] }) },
+    );
+    expect(frames[0]).toMatchObject({
+      inputResponses: { unknown: { untouched: true } },
+      params: { name: 'raw', arguments: { original: true } },
+    });
+    expect(frames[0]).not.toHaveProperty('requestState');
+    expect(frames[1]).toMatchObject({
+      inputResponses: { root: { roots: [] } },
+      requestState: 'owned-state',
+      params: { name: 'raw', arguments: { original: true } },
+    });
+    expect(frames[1]).not.toHaveProperty('inputResponses.unknown');
+    expect(frames).toHaveLength(2);
+  });
+
   it.each(['tools/call', 'prompts/get', 'resources/read'] as const)(
     'mediates %s with fresh wire ids and exact state',
     async (operation: GatewayOperation) => {

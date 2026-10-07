@@ -92,11 +92,10 @@
              method: "sampling/createMessage",
              params: {
                messages: [
-@@ -423,31 +459,11 @@
-                 }
+@@ -424,30 +460,10 @@
                ],
                maxTokens: 100
--            }
+             }
 -          },
 -          z.object({ method: z.literal("sampling/createMessage") }).passthrough()
 -        );
@@ -107,7 +106,7 @@
 -            {
 -              type: "text",
 -              text: `LLM response: ${modelResponse}`
-             }
+-            }
 -          ]
 -        };
 -      } catch (error) {
@@ -321,15 +320,16 @@
      );
    }
  }
-@@ -1054,9 +1018,14 @@
+@@ -1053,10 +1017,15 @@
+           }
          }
        });
-     }
++    }
 +    if (method === "tools/call" && params.name === CUSTOM_HEADER_TOOL_NAME) {
 +      // The public SDK receives the original headers and parsed request. Its
 +      // registered schema validates custom headers before executing the echo.
 +      return customHeaderHandler(req, res, body);
-+    }
+     }
      if (method === "subscriptions/listen") {
        res.writeHead(200, {
 -        "Content-Type": "application/json",
@@ -392,7 +392,25 @@
            },
            // Spec PR #3002: server identity lives in the result `_meta`.
            _meta: {
-@@ -1363,6 +1348,38 @@
+@@ -1128,7 +1113,17 @@
+             ...fromServer,
+             tools: [
+               ...fromServer.tools,
++              {
++                name: "test_trigger_tool_change",
++                description: "Publish a tools catalog change on subscribed listeners",
++                inputSchema: { type: "object", properties: {} }
++              },
+               {
++                name: "test_trigger_prompt_change",
++                description: "Publish a prompts catalog change on subscribed listeners",
++                inputSchema: { type: "object", properties: {} }
++              },
++              {
+                 name: "test_missing_capability",
+                 description: "Test tool requiring sampling",
+                 inputSchema: { type: "object", properties: {} }
+@@ -1363,6 +1358,38 @@
        const name = params.name;
        const inputResponses = params.inputResponses;
        const requestState = params.requestState;
@@ -431,7 +449,7 @@
        if (name === "test_missing_capability") {
          const clientCaps = meta["io.modelcontextprotocol/clientCapabilities"];
          if (!clientCaps?.sampling) {
-@@ -1385,6 +1402,15 @@
+@@ -1385,6 +1412,15 @@
          });
        }
        if (name === "test_input_required_result_elicitation") {
@@ -447,7 +465,7 @@
          if (inputResponses?.["user_name"]) {
            const userName = getMrtInputText(inputResponses["user_name"], "name");
            return sendStatelessJson(res, method, {
-@@ -1795,48 +1821,47 @@
+@@ -1795,48 +1831,47 @@
        }
        if (name === "test_streaming_elicitation") {
          res.writeHead(200, {
@@ -512,7 +530,7 @@
          );
        }
        if (name === "test_trigger_tool_change" || name === "test_trigger_prompt_change") {
-@@ -1868,7 +1893,7 @@
+@@ -1868,7 +1903,7 @@
            ResultSchema
          );
          for (const n of dispatch.drainNotifications()) write(n);
@@ -521,7 +539,7 @@
        } catch (e) {
          for (const n of dispatch.drainNotifications()) write(n);
          write({
-@@ -2039,7 +2064,7 @@
+@@ -2039,7 +2074,7 @@
    }
  });
  const PORT = process.env.PORT || 3e3;

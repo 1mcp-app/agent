@@ -1,7 +1,10 @@
+import { InvalidJsonValueError, JSON_VALUE_LIMITS } from '@src/sdk/contracts/jsonValue.js';
+
 import { describe, expect, it } from 'vitest';
 
 import {
   createGatewayFailure,
+  detachGatewayFailure,
   gatewayFailureExitCode,
   gatewayFailureFromMcpError,
   gatewayFailureFromUnknown,
@@ -11,9 +14,69 @@ import {
   MISSING_CLIENT_CAPABILITY,
   missingClientCapabilityFailure,
   missingClientCapabilityFromBridge,
+  resourceNotFoundFailure,
+  resourceNotFoundFromBridge,
+  ResourceRouteNotFoundError,
 } from './gatewayFailure.js';
 
 describe('gateway failure public projections', () => {
+  it('preserves only locally owned requested resource URI facts through normalization and detachment', () => {
+    const uri = 'test://unknown%2f?q=a%20b#part';
+    const owned = resourceNotFoundFailure(uri);
+    const error = new ResourceRouteNotFoundError(uri);
+    expect(Object.isFrozen(error)).toBe(true);
+    expect(Object.isFrozen(error.data)).toBe(true);
+    for (const value of [owned, error, detachGatewayFailure(owned), gatewayFailureFromUnknown(owned)]) {
+      const failure = gatewayFailureFromUnknown(value);
+      const modern = gatewayFailureToMcp(failure, 'modern');
+      expect(modern).toEqual({
+        code: -32602,
+        message: 'Unknown resource',
+        data: { 'app.1mcp/failure': { kind: 'protocol', code: 'resource_not_found' }, uri },
+      });
+      expect(Object.isFrozen(modern.data)).toBe(true);
+      expect(gatewayFailureToMcp(failure, 'legacy').code).toBe(-32002);
+    }
+    for (const foreign of [
+      { ...owned },
+      Object.create(owned),
+      { code: -32002, message: 'SECRET', data: { uri } },
+      Object.create(ResourceRouteNotFoundError.prototype),
+      Object.assign(Object.create(ResourceRouteNotFoundError.prototype), { code: -32002, data: { uri } }),
+      createGatewayFailure({ kind: 'protocol', code: 'resource_not_found', message: 'generic', data: { uri } }),
+    ]) {
+      const projected = gatewayFailureToMcp(gatewayFailureFromUnknown(foreign), 'modern');
+      expect(projected.data).not.toHaveProperty('uri');
+      expect(projected.message).not.toContain(uri);
+      expect(projected.message).not.toContain('SECRET');
+    }
+  });
+
+  it('inherits the shared scalar budget without recharging an owned error wrapper', () => {
+    const uri = `test://${'x'.repeat(JSON_VALUE_LIMITS.maxTotalStringLength - 7)}`;
+    const owned = resourceNotFoundFailure(uri);
+    const error = new ResourceRouteNotFoundError(uri);
+    for (const value of [owned, error, detachGatewayFailure(owned), gatewayFailureFromUnknown(owned)]) {
+      const modern = gatewayFailureToMcp(gatewayFailureFromUnknown(value), 'modern');
+      expect(modern.code).toBe(-32602);
+      expect(modern.data).toHaveProperty('uri', uri);
+    }
+    expect(() => resourceNotFoundFailure(`${uri}x`)).toThrow(InvalidJsonValueError);
+  });
+
+  it('restores bridge resource facts only for native errors and the exact expected URI', () => {
+    const uri = 'test://expected';
+    const wire = gatewayFailureToMcp(resourceNotFoundFailure(uri), 'legacy');
+    const error = Object.assign(new Error('foreign diagnostics'), wire);
+    expect(resourceNotFoundFromBridge(error, uri)).toEqual(resourceNotFoundFailure(uri));
+    expect(resourceNotFoundFromBridge(error, 'test://other')).toBeUndefined();
+    expect(resourceNotFoundFromBridge(wire, uri)).toBeUndefined();
+    expect(resourceNotFoundFromBridge(Object.create(error), uri)).toBeUndefined();
+    expect(resourceNotFoundFromBridge(Object.assign(new Error('SECRET'), wire, { code: -32602 }), uri)).toBeUndefined();
+    expect(
+      resourceNotFoundFromBridge(Object.assign(new Error('SECRET'), wire, { data: { uri } }), uri),
+    ).toBeUndefined();
+  });
   it('retains only bounded capability facts in an owned missing-capability projection', () => {
     const source = { sampling: {}, elicitation: { form: {} }, 'custom.capability': { supported: true } };
     const failure = missingClientCapabilityFailure(source)!;

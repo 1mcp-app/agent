@@ -300,7 +300,7 @@ describe('official reference fixture', () => {
     }
   }, 10_000);
 
-  it('acknowledges a live catalog subscription through the selected SDK HTTP transport', async () => {
+  it.each(['tools', 'prompts'] as const)('advertises and executes the real %s catalog mutation hook', async (kind) => {
     const server = await startOfficialReferenceServer(process.cwd(), tmpdir());
     const client = new Client(
       { name: 'subscription-control-test', version: '1' },
@@ -309,16 +309,26 @@ describe('official reference fixture', () => {
     try {
       await client.connect(new StreamableHTTPClientTransport(new URL(server.endpoint)));
       expect(client.getProtocolEra()).toBe('modern');
+      const catalog = await client.listTools();
+      for (const name of ['test_trigger_tool_change', 'test_trigger_prompt_change']) {
+        const matches = catalog.tools.filter((tool) => tool.name === name);
+        expect(matches).toHaveLength(1);
+        expect(matches[0].inputSchema).toEqual({ type: 'object', properties: {} });
+      }
       const changed = vi.fn();
-      client.setNotificationHandler('notifications/tools/list_changed', changed);
+      const method = kind === 'tools' ? 'notifications/tools/list_changed' : 'notifications/prompts/list_changed';
+      client.setNotificationHandler(method, changed);
       const subscription = await client.listen(
         { toolsListChanged: true, promptsListChanged: true },
         { timeout: 1_000 },
       );
       expect(subscription.honoredFilter).toEqual({ toolsListChanged: true, promptsListChanged: true });
-      await client.callTool({ name: 'test_trigger_tool_change', arguments: {} });
+      const hook = kind === 'tools' ? 'test_trigger_tool_change' : 'test_trigger_prompt_change';
+      expect(await client.callTool({ name: hook, arguments: {} })).toMatchObject({
+        content: [{ type: 'text', text: 'Mutation triggered' }],
+      });
       await expect.poll(() => changed.mock.calls.length).toBe(1);
-      expect(changed.mock.calls[0][0]).toMatchObject({ method: 'notifications/tools/list_changed' });
+      expect(changed.mock.calls[0][0]).toMatchObject({ method });
       await subscription.close();
       await subscription.closed;
     } finally {

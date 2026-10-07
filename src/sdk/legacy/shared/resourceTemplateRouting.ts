@@ -3,6 +3,7 @@ import { UriTemplate } from '@modelcontextprotocol/sdk/shared/uriTemplate.js';
 import type { CatalogEntry } from '@src/core/capabilities/catalogGeneration.js';
 import type { RuntimeCapabilitySnapshot } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import type { OutboundConnection } from '@src/core/types/index.js';
+import { ResourceRouteNotFoundError } from '@src/gateway/contracts/gatewayFailure.js';
 import { isValidResourceUri } from '@src/utils/core/resourceUris.js';
 
 interface ResourceRoute {
@@ -48,8 +49,8 @@ export function resolveResourceRoute(snapshot: RuntimeCapabilitySnapshot, identi
       upstreamIdentity,
     });
   }
-  if (matches.length !== 1)
-    throw new Error(matches.length ? `Ambiguous resource: ${identity}` : `Unknown resource: ${identity}`);
+  if (matches.length === 0) throw new ResourceRouteNotFoundError(identity);
+  if (matches.length !== 1) throw new Error(`Ambiguous resource: ${identity}`);
   return matches[0];
 }
 

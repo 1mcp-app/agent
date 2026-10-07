@@ -3,7 +3,7 @@
   "commit": "c321dd32035556e6769d3724a8ee97d87c3faaac",
   "path": "examples/servers/typescript/everything-server.ts",
   "sourceSha256": "488ddabf5573078dbc4c21d980701ba05033ad83316bdbde20005228151a5205",
-  "generatedSha256": "097344498a5101427eb1b3e8ce0cd9613f1629a5b4fef0b4ebaea0a89105cb80",
+  "generatedSha256": "e2f738ba0d9dda19637ae6f9719c15760c8c3ebc63a15092d49f0830b0a5738b",
   "transformation": "esbuild 0.28.2 transform: loader=ts format=esm target=node22 legalComments=inline; provenance comment prepended; redundant hashbang removed",
   "patches": [
     "fixture.patch: add draft tools/call complete discriminator; reject malformed elicitation inputResponses",
@@ -13,6 +13,7 @@
     "fixture.patch: share actual legacy callback request/result definitions with authenticated native MRTR continuations; validate sampling result schema",
     "fixture.patch: honor modern watched-resource filters and send owned URI updates; close owned update timers with listener",
     "fixture.patch: frame streaming progress/logging tool responses as schema-valid SSE",
-    "fixture.patch: align simple elicitation with the pinned username/email schema; add a callable custom-header echo tool validated by the public modern SDK"
+    "fixture.patch: align simple elicitation with the pinned username/email schema; add a callable custom-header echo tool validated by the public modern SDK",
+    "fixture.patch: advertise the existing stateless tools/prompt catalog mutation hooks with empty object schemas"
   ]
 }

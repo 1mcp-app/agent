@@ -124,7 +124,9 @@ export function createV2ClientTransport(transportName, options) {
     });
   }
   if (transportName === 'sse') return new SSEClientTransport(new URL(options.endpoint));
-  return new StreamableHTTPClientTransport(new URL(options.endpoint));
+  return new StreamableHTTPClientTransport(new URL(options.endpoint), {
+    ...(options.requestInit === undefined ? {} : { requestInit: options.requestInit }),
+  });
 }
 
 export function createV2Client(protocolEra, capabilities) {

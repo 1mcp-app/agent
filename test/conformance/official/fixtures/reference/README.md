@@ -71,6 +71,14 @@ notification fields and complete-result discriminants; no-log-without-logLevel i
 checked through the real SDK transport. These fixture corrections leave the pinned
 suite and its validators unchanged.
 
+The stateless tools catalog advertises the already implemented
+`test_trigger_tool_change` and `test_trigger_prompt_change` mutation hooks with
+empty object input schemas. Calls execute their existing notification handlers;
+advertisement does not synthesize events. A real authenticated gateway regression
+discovers both hooks, observes exactly one upstream mutation dispatch per call,
+and matches the upstream catalog notification to the event delivered on the
+inbound subscription for each catalog kind.
+
 It also binds the fixture listener explicitly to `127.0.0.1` so local controls
 do not expose their synthetic server on other interfaces.
 It does not activate tasks. The owned custom-header tool supplies the callable

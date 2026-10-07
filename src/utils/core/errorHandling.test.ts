@@ -1,7 +1,7 @@
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 
 import { SchemaBoundaryError } from '@src/core/validation/schemaPolicy.js';
-import { missingClientCapabilityFailure } from '@src/gateway/contracts/gatewayFailure.js';
+import { missingClientCapabilityFailure, ResourceRouteNotFoundError } from '@src/gateway/contracts/gatewayFailure.js';
 import logger from '@src/logger/logger.js';
 import { normalizeEvent } from '@src/observability/events/normalize.js';
 
@@ -37,6 +37,22 @@ it('projects an invalid upstream schema result through the shared MCP failure co
 });
 
 describe('withErrorHandling', () => {
+  it('preserves local resource misses without trusting foreign code or URI diagnostics', async () => {
+    const uri = 'test://unknown%2f?q=a%20b#part';
+    const owned = withErrorHandling(async () => {
+      throw new ResourceRouteNotFoundError(uri);
+    }, 'Error reading resource');
+    await expect(owned()).rejects.toMatchObject({ code: -32002, data: { uri } });
+    const normalizedLogs = vi.mocked(logger.error).mock.calls.map(([event, fields]) => normalizeEvent(event, fields));
+    expect(JSON.stringify(normalizedLogs)).not.toContain(uri);
+    const foreign = withErrorHandling(async () => {
+      throw Object.assign(new Error('SECRET'), { code: -32002, data: { uri: 'SECRET' } });
+    }, 'Error reading resource');
+    const caught: unknown = await foreign().catch((error: unknown) => error);
+    expect(caught).toMatchObject({ code: -32002 });
+    expect(JSON.stringify(caught)).not.toContain('SECRET');
+    expect(caught).not.toHaveProperty('data.uri');
+  });
   it('preserves owned missing-capability facts but never promotes a foreign numeric rejection', async () => {
     const owned = missingClientCapabilityFailure({ sampling: {} });
     const invoke = withErrorHandling(async () => {

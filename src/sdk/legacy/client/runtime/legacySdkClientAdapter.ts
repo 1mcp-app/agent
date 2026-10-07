@@ -3,7 +3,10 @@ import { randomUUID } from 'node:crypto';
 import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
-import { missingClientCapabilityFromBridge } from '@src/gateway/contracts/gatewayFailure.js';
+import {
+  missingClientCapabilityFromBridge,
+  resourceNotFoundFromBridge,
+} from '@src/gateway/contracts/gatewayFailure.js';
 import { assertInteractionRoute } from '@src/gateway/interactions/interactionRoute.js';
 import logger from '@src/logger/logger.js';
 import { injectTraceContext, stripBaggage } from '@src/observability/tracing/context.js';
@@ -41,6 +44,15 @@ import { TransportRecreator } from './transportRecreator.js';
 
 const INTERNAL_ERROR = -32_603;
 const POST_AUTH_UNAUTHORIZED_MESSAGE = 'Server returned 401 after successful authentication';
+
+function resourceFailureFromBridgeRequest(error: McpError, request: LegacySdkRequest) {
+  if (request.method !== 'resources/read') return undefined;
+  const params = request.params;
+  if (typeof params !== 'object' || params === null) return undefined;
+  if (Array.isArray(params)) return undefined;
+  if (typeof params.uri !== 'string') return undefined;
+  return resourceNotFoundFromBridge(error, params.uri);
+}
 
 export interface LegacySdkClientAdapterOptions {
   /** Trusted private gateway bridge only; the selected provider still checks the operation pin. */
@@ -157,6 +169,8 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
       );
     } catch (error) {
       if (this.interactionBridge && error instanceof McpError) {
+        const resourceFailure = resourceFailureFromBridgeRequest(error, request);
+        if (resourceFailure) throw resourceFailure;
         const failure = missingClientCapabilityFromBridge(error);
         if (failure) throw failure;
       }

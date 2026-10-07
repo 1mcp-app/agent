@@ -25,13 +25,14 @@ async function runFixture(args, env = {}) {
   return { output: JSON.parse(stdout.join('')), text: stdout.join('') + stderr.join('') };
 }
 
-async function runOfficialClient(endpoint, scenario, protocolVersion, context = {}) {
+async function runOfficialClient(endpoint, scenario, protocolVersion, context = {}, privateEnvironment = {}) {
   const child = spawn(process.execPath, [fixture, endpoint], {
     env: {
       ...process.env,
       MCP_CONFORMANCE_CONTEXT: JSON.stringify(context),
       MCP_CONFORMANCE_PROTOCOL_VERSION: protocolVersion,
       MCP_CONFORMANCE_SCENARIO: scenario,
+      ...privateEnvironment,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -42,6 +43,127 @@ async function runOfficialClient(endpoint, scenario, protocolVersion, context = 
   const [code] = await once(child, 'exit');
   return { code, stdout: stdout.join(''), stderr: stderr.join('') };
 }
+
+test('request-state uses its origin-bound private bearer on actual SDK requests without emitting it', async (t) => {
+  const names = ['test_mrtr_echo_state', 'test_mrtr_no_state', 'test_mrtr_unrelated', 'test_mrtr_no_result_type'];
+  const mock = await startConformanceMock('2026-07-28', {
+    tools: names.map((name) => ({ name, inputSchema: { type: 'object' } })),
+    requestState: true,
+  });
+  t.after(() => mock.close());
+  const token = 'owned-private-request-state-token';
+  const result = await runOfficialClient(
+    mock.endpoint,
+    'sep-2322-client-request-state',
+    '2026-07-28',
+    {},
+    {
+      ONE_MCP_CONFORMANCE_GATEWAY_TOKEN: token,
+      ONE_MCP_CONFORMANCE_GATEWAY_ORIGIN: new URL(mock.endpoint).origin,
+    },
+  );
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal((result.stdout + result.stderr).includes(token), false);
+  assert.ok(mock.requests.length > 0);
+  assert.ok(mock.requests.every(({ headers }) => headers.authorization === `Bearer ${token}`));
+  assert.deepEqual(
+    mock.requests.filter(({ message }) => message.method === 'tools/call').map(({ message }) => message.params.name),
+    [
+      'test_mrtr_echo_state',
+      'test_mrtr_unrelated',
+      'test_mrtr_echo_state',
+      'test_mrtr_no_state',
+      'test_mrtr_no_state',
+      'test_mrtr_no_result_type',
+    ],
+  );
+});
+
+test('private request-state credentials reject foreign origins, malformed tokens and other scenarios before dispatch', async (t) => {
+  const mock = await startConformanceMock('2026-07-28');
+  const foreign = await startConformanceMock('2026-07-28');
+  t.after(() => mock.close());
+  t.after(() => foreign.close());
+  const origin = new URL(mock.endpoint).origin;
+  const token = 'private-origin-bound-token';
+  const cases = [
+    { origin: new URL(foreign.endpoint).origin },
+    { origin: origin.replace('127.0.0.1', 'localhost') },
+    { origin: origin.replace('http://', 'http://user:password@') },
+    { origin: 'http://example.com' },
+    { origin: `${origin}/mcp` },
+    { token: 'private token' },
+    { token: 'private\r\nheader' },
+    { token: 'x'.repeat(4097) },
+    { scenario: 'tools_call' },
+    { token: undefined },
+    { origin: undefined },
+    { endpoint: mock.endpoint.replace('http://', 'http://user:password@') },
+  ];
+  for (const item of cases) {
+    const result = await runOfficialClient(
+      item.endpoint ?? mock.endpoint,
+      item.scenario ?? 'sep-2322-client-request-state',
+      '2026-07-28',
+      {},
+      {
+        ONE_MCP_CONFORMANCE_GATEWAY_TOKEN: Object.hasOwn(item, 'token') ? item.token : token,
+        ONE_MCP_CONFORMANCE_GATEWAY_ORIGIN: Object.hasOwn(item, 'origin') ? item.origin : origin,
+      },
+    );
+    assert.equal(result.code, 1);
+    assert.deepEqual(JSON.parse(result.stderr), {
+      kind: 'error',
+      code: item.endpoint ? 'INVALID_ARGUMENTS' : 'FIXTURE_RUNTIME_ERROR',
+    });
+    assert.equal((result.stdout + result.stderr).includes(token), false);
+  }
+  assert.equal(mock.requests.length, 0);
+  assert.equal(foreign.requests.length, 0);
+  const legacy = await runOfficialClient(
+    mock.endpoint,
+    'sep-2322-client-request-state',
+    '2025-11-25',
+    {},
+    {
+      ONE_MCP_CONFORMANCE_GATEWAY_TOKEN: token,
+      ONE_MCP_CONFORMANCE_GATEWAY_ORIGIN: origin,
+    },
+  );
+  assert.equal(legacy.code, 2);
+  assert.equal((legacy.stdout + legacy.stderr).includes(token), false);
+  assert.equal(mock.requests.length, 0);
+});
+
+test('private request-state bearer does not follow a redirect to another loopback origin', async (t) => {
+  const foreign = await startConformanceMock('2026-07-28');
+  t.after(() => foreign.close());
+  const received = [];
+  const server = createServer((request, response) => {
+    request.resume();
+    received.push(request.headers.authorization);
+    response.writeHead(307, { location: foreign.endpoint }).end();
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  const token = 'private-redirect-token';
+  const result = await runOfficialClient(
+    `${origin}/mcp`,
+    'sep-2322-client-request-state',
+    '2026-07-28',
+    {},
+    {
+      ONE_MCP_CONFORMANCE_GATEWAY_TOKEN: token,
+      ONE_MCP_CONFORMANCE_GATEWAY_ORIGIN: origin,
+    },
+  );
+  assert.equal(result.code, 1);
+  assert.ok(received.length > 0);
+  assert.ok(received.every((header) => header === `Bearer ${token}`));
+  assert.equal(foreign.requests.length, 0);
+  assert.equal((result.stdout + result.stderr).includes(token), false);
+});
 
 async function startConformanceMock(protocolVersion, options = {}) {
   if (typeof options === 'string') options = { tools: [{ name: options, inputSchema: { type: 'object' } }] };

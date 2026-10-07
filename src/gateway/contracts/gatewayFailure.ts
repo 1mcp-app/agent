@@ -1,3 +1,7 @@
+import { isNativeError } from 'node:util/types';
+
+import { JSON_VALUE_LIMITS, RESPONSE_JSON_VALUE_LIMITS } from '@src/sdk/contracts/jsonValue.js';
+
 import { z } from 'zod';
 
 import { type ImmutableJsonValue, toImmutableJsonValue } from './immutableJson.js';
@@ -15,7 +19,69 @@ const GATEWAY_FAILURE_KINDS: readonly GatewayFailureKind[] = [
   'internal',
 ];
 const knownGatewayFailures = new WeakSet<object>();
+const ownedResourceNotFoundUris = new WeakMap<object, string>();
+const ownedResourceNotFoundErrors = new WeakMap<object, GatewayFailure>();
 export const MISSING_CLIENT_CAPABILITY = 'missing_required_client_capability';
+
+/** Only the locally rejected public identity may become resource-not-found error data. */
+export function resourceNotFoundFailure(requestedUri: string): GatewayFailure {
+  const uri = toImmutableJsonValue(requestedUri, JSON_VALUE_LIMITS);
+  if (typeof uri !== 'string') throw new TypeError('Resource URI must be a string');
+  // The scalar already passed the input budget. Its owned response wrapper
+  // must not spend that same input budget again on additional field names.
+  const failure: GatewayFailure = Object.freeze({
+    kind: 'protocol',
+    code: 'resource_not_found',
+    message: 'Unknown resource',
+    data: Object.freeze({ uri }),
+  });
+  knownGatewayFailures.add(failure);
+  ownedResourceNotFoundUris.set(failure, uri);
+  return failure;
+}
+
+function resourceNotFoundMcpProjection(uri: string, era: 'legacy' | 'modern') {
+  return Object.freeze({
+    code: era === 'modern' ? -32602 : -32002,
+    message: 'Unknown resource',
+    data: Object.freeze({
+      'app.1mcp/failure': Object.freeze({ kind: 'protocol', code: 'resource_not_found' }),
+      uri,
+    }),
+  });
+}
+
+/** A numeric SDK error with a private local brand; structural lookalikes cannot preserve data. */
+export class ResourceRouteNotFoundError extends Error {
+  readonly code: number;
+  readonly data: ImmutableJsonValue;
+
+  constructor(requestedUri: string) {
+    const failure = resourceNotFoundFailure(requestedUri);
+    super(failure.message);
+    const projected = resourceNotFoundMcpProjection(requestedUri, 'legacy');
+    this.code = projected.code;
+    this.data = projected.data;
+    ownedResourceNotFoundErrors.set(this, failure);
+    Object.freeze(this);
+  }
+}
+
+/** Called only by the private aggregate bridge, never by an upstream provider adapter. */
+export function resourceNotFoundFromBridge(error: unknown, expectedUri: string): GatewayFailure | undefined {
+  if (!isNativeError(error) || ownDataValue(error, 'code') !== -32002) return undefined;
+  const data = ownDataValue(error, 'data');
+  if (typeof data !== 'object' || data === null || ownDataValue(data, 'uri') !== expectedUri) return undefined;
+  const marker = ownDataValue(data, 'app.1mcp/failure');
+  if (typeof marker !== 'object' || marker === null) return undefined;
+  if (ownDataValue(marker, 'kind') !== 'protocol' || ownDataValue(marker, 'code') !== 'resource_not_found')
+    return undefined;
+  try {
+    return resourceNotFoundFailure(expectedUri);
+  } catch {
+    return undefined;
+  }
+}
 
 /** The protocol's extensible capability object, detached under a deliberately small error budget. */
 export function missingClientCapabilityFailure(requiredCapabilities: unknown): GatewayFailure | undefined {
@@ -82,9 +148,11 @@ export function createGatewayFailure(input: {
 
 /** Detach an internal response value without converting structural lookalikes into owned failures. */
 export function detachGatewayFailure(failure: GatewayFailure): ImmutableJsonValue {
-  const detached = toImmutableJsonValue(failure);
+  const uri = ownedResourceNotFoundUris.get(failure);
+  const detached = toImmutableJsonValue(failure, uri === undefined ? undefined : RESPONSE_JSON_VALUE_LIMITS);
   if (knownGatewayFailures.has(failure) && typeof detached === 'object' && detached !== null) {
     knownGatewayFailures.add(detached);
+    if (uri !== undefined) ownedResourceNotFoundUris.set(detached, uri);
   }
   return detached;
 }
@@ -100,6 +168,10 @@ function ownDataValue(record: object, key: string): unknown {
 
 export function gatewayFailureFromUnknown(error: unknown, kind: GatewayFailureKind = 'internal'): GatewayFailure {
   const record = typeof error === 'object' && error !== null ? error : undefined;
+  const resourceError = record && ownedResourceNotFoundErrors.get(record);
+  if (resourceError) return resourceError;
+  const resourceUri = record && ownedResourceNotFoundUris.get(record);
+  if (resourceUri !== undefined) return record as GatewayFailure;
   const trustedKind = record && knownGatewayFailures.has(record) ? ownDataValue(record, 'kind') : undefined;
   const failureKind = GATEWAY_FAILURE_KINDS.includes(trustedKind as GatewayFailureKind)
     ? (trustedKind as GatewayFailureKind)
@@ -171,6 +243,10 @@ export function gatewayFailure<T = never>(failure: GatewayFailure): GatewayResul
 
 /** Public projections share sanitized facts; raw upstream diagnostics never cross these boundaries. */
 export function gatewayFailureToMcp(failure: GatewayFailure, era: 'legacy' | 'modern' = 'legacy') {
+  const uri = ownedResourceNotFoundUris.get(failure);
+  if (uri !== undefined) {
+    return resourceNotFoundMcpProjection(uri, era);
+  }
   if (knownGatewayFailures.has(failure) && failure.kind === 'protocol' && failure.code === MISSING_CLIENT_CAPABILITY) {
     const details = failure.data;
     const validated = missingClientCapabilityFailure(

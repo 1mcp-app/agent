@@ -19,6 +19,7 @@ import { getDisabledSourceToolError } from '@src/core/server/disabledTools.js';
 import { withRuntimeAdmission } from '@src/core/server/runtimeDrain.js';
 import { InboundConnection } from '@src/core/types/index.js';
 import { SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
+import { withSelectedNativeInputResponses } from '@src/gateway/interactions/nativeInputResponses.js';
 import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import { ownData } from '@src/observability/privacy/fields.js';
 import { ErrorCode, RESPONSE_JSON_VALUE_LIMITS, toJsonValue } from '@src/sdk/contracts/index.js';
@@ -299,16 +300,25 @@ export function registerToolHandlers(
                     const selectedAdapter = selected.adapter;
                     diagnosticRoute = { ...diagnosticRoute, timeoutMs: selected.requestTimeoutMs };
                     writeLocalDiagnostic('debug', 'tool.dispatch', () => ({ ...diagnosticRoute, phase }));
-                    return executeWithPostAuthOAuthRecovery(route.server, selected, () =>
-                      requestLegacyAdapter(
-                        selectedAdapter,
-                        'tools/call',
-                        toJsonValue({
-                          name: route.upstreamIdentity,
-                          ...(request.params.arguments === undefined ? {} : { arguments: request.params.arguments }),
-                        }),
-                        { signal: extra?.signal, timeoutMs: selected.requestTimeoutMs },
-                      ),
+                    return withSelectedNativeInputResponses(
+                      request.params.name,
+                      'tools/call',
+                      selectedAdapter,
+                      route.upstreamIdentity,
+                      () =>
+                        executeWithPostAuthOAuthRecovery(route.server, selected, () =>
+                          requestLegacyAdapter(
+                            selectedAdapter,
+                            'tools/call',
+                            toJsonValue({
+                              name: route.upstreamIdentity,
+                              ...(request.params.arguments === undefined
+                                ? {}
+                                : { arguments: request.params.arguments }),
+                            }),
+                            { signal: extra?.signal, timeoutMs: selected.requestTimeoutMs },
+                          ),
+                        ),
                     );
                   },
                   validateOutput.assertCurrent,

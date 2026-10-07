@@ -3,6 +3,7 @@ import {
   gatewayFailureFromUnknown,
   gatewayFailureToMcp,
   missingClientCapabilityFailure,
+  resourceNotFoundFailure,
 } from '@src/gateway/contracts/gatewayFailure.js';
 import { createLegacyTimeoutMs, JSON_VALUE_LIMITS, OneMcpProtocolError } from '@src/sdk/contracts/index.js';
 import { withRequestProgress } from '@src/sdk/contracts/requestProgress.js';
@@ -42,6 +43,32 @@ function createOAuthTransport(
 }
 
 describe('LegacySdkClientAdapter', () => {
+  it('restores owned resource misses only on the private read bridge for the same public URI', async () => {
+    const uri = 'test://unknown%2f?q=a%20b#part';
+    const projection = gatewayFailureToMcp(resourceNotFoundFailure(uri));
+    for (const [interactionBridge, method, requestedUri, foreign] of [
+      [true, 'resources/read', uri, false],
+      [false, 'resources/read', uri, false],
+      [true, 'resources/read', 'test://other', false],
+      [true, 'tools/call', uri, false],
+      [true, 'resources/read', uri, true],
+    ] as const) {
+      const client = createClient();
+      const error = new McpError(projection.code, projection.message, projection.data);
+      const fake = Object.assign(Object.create(McpError.prototype), projection);
+      vi.spyOn(client, 'request').mockRejectedValue(foreign ? fake : error);
+      const adapter = new LegacySdkClientAdapter(client, createTransport(), { interactionBridge });
+      const caught = await adapter
+        .request({ id: 'resource' as never, method, params: { uri: requestedUri } })
+        .catch((value: unknown) => value);
+      const projected = gatewayFailureToMcp(gatewayFailureFromUnknown(caught, 'transport'), 'modern');
+      if (interactionBridge && method === 'resources/read' && requestedUri === uri && !foreign) {
+        expect(projected).toMatchObject({ code: -32602, data: { uri } });
+      } else {
+        expect(projected.data).not.toHaveProperty('uri');
+      }
+    }
+  });
   it('restores owned capability semantics only on the private aggregate bridge', async () => {
     const client = createClient();
     const projection = gatewayFailureToMcp(missingClientCapabilityFailure({ sampling: {} })!);

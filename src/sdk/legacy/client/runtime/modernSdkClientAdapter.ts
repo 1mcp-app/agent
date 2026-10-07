@@ -17,6 +17,7 @@ import { type GatewayOperation, gatewayOperationSchema } from '@src/gateway/cont
 import { toImmutableJsonValue } from '@src/gateway/contracts/immutableJson.js';
 import { hasInteractionCapability } from '@src/gateway/interactions/interactionCapabilities.js';
 import { assertInteractionRoute, currentNativeInteractionRound } from '@src/gateway/interactions/interactionRoute.js';
+import { takeNativeInitialInputResponses } from '@src/gateway/interactions/nativeInputResponses.js';
 import {
   validateInteractionRequest,
   validateInteractionResponse,
@@ -213,6 +214,8 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
     try {
       const timeoutMs = request.timeoutMs ?? createLegacyTimeoutMs(60_000);
       const nativeRound = currentNativeInteractionRound();
+      const initialInputResponses =
+        this.protocol.era === 'modern' ? takeNativeInitialInputResponses(this, request.method, params) : undefined;
       return toJsonValue(
         await this.outbound.request(
           {
@@ -226,6 +229,7 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
             deadlineUnixMs: Date.now() + timeoutMs,
           },
           {
+            ...(initialInputResponses === undefined ? {} : { initialInputResponses }),
             interactionRound: nativeRound
               ? async (inputs) => {
                   if (

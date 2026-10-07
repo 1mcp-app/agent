@@ -5,6 +5,7 @@ import {
   acquireRuntimeCapabilityCatalog,
   evictRuntimeCapabilityCatalogSession,
 } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
+import { gatewayFailureFromUnknown, gatewayFailureToMcp } from '@src/gateway/contracts/gatewayFailure.js';
 import { buildPublicResourceUri, isValidResourceUri } from '@src/utils/core/resourceUris.js';
 
 import { projectResourceUri, resolveResourceRoute } from './resourceTemplateRouting.js';
@@ -23,6 +24,25 @@ async function snapshot(templates: unknown[], resources: unknown[] = [], server 
 }
 
 describe('catalog resource template routing', () => {
+  it('classifies a valid unowned URI without selecting or dispatching an upstream route', async () => {
+    const catalog = await snapshot([{ name: 'r', uriTemplate: 'file:///{id}' }]);
+    const uri = 'test://unknown%2f?q=a%20b#part';
+    let error: unknown;
+    try {
+      resolveResourceRoute(catalog, uri);
+    } catch (caught) {
+      error = caught;
+    }
+    expect(gatewayFailureToMcp(gatewayFailureFromUnknown(error), 'modern')).toMatchObject({
+      code: -32602,
+      data: { uri },
+    });
+    for (const connection of catalog.connections.values()) {
+      expect(
+        vi.mocked(connection.adapter.request).mock.calls.some(([request]) => request.method === 'resources/read'),
+      ).toBe(false);
+    }
+  });
   it('derives a template namespace from its stored public identity and rejects inconsistent aliases', async () => {
     const original = await snapshot([{ name: 'r', uriTemplate: 'file:///{id}' }]);
     const entry = original.generation.entries[0];

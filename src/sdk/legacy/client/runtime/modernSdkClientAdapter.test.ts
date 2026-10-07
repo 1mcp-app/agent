@@ -14,6 +14,11 @@ import {
 } from '@src/core/capabilities/capabilityPagination.js';
 import { ClientStatus, type OutboundConnections } from '@src/core/types/index.js';
 import { gatewayFailureFromUnknown, gatewayFailureToMcp } from '@src/gateway/contracts/gatewayFailure.js';
+import {
+  captureNativeInitialInputResponses,
+  runWithNativeInitialInputResponses,
+  withSelectedNativeInputResponses,
+} from '@src/gateway/interactions/nativeInputResponses.js';
 import { withRequestProgress } from '@src/sdk/contracts/requestProgress.js';
 
 import { describe, expect, it, vi } from 'vitest';
@@ -23,6 +28,38 @@ import type { AuthProviderTransport } from './legacyTransport.js';
 import { ModernSdkClientAdapter, setModernSdkTransport } from './modernSdkClientAdapter.js';
 
 describe('ModernSdkClientAdapter', () => {
+  it.each(['modern', 'legacy'] as const)(
+    'forwards selected initial driver material only for negotiated %s',
+    async (era) => {
+      const client = new Client({ name: 'configured-client', version: '2' });
+      vi.spyOn(client, 'getProtocolEra').mockReturnValue(era);
+      vi.spyOn(client, 'getNegotiatedProtocolVersion').mockReturnValue(era === 'modern' ? '2026-07-28' : '2025-11-25');
+      const request = vi.spyOn(client, 'request').mockResolvedValue({ content: [] } as never);
+      const adapter = new ModernSdkClientAdapter(client, {} as AuthProviderTransport);
+      const inputs = { extra: { preserved: true } };
+      await runWithNativeInitialInputResponses(
+        captureNativeInitialInputResponses('tools/call', { name: 'public' }, inputs),
+        () =>
+          withSelectedNativeInputResponses('public', 'tools/call', adapter, 'raw', async () => {
+            await adapter.request({ id: 'catalog' as never, method: 'tools/list', params: {} });
+            await adapter.request({
+              id: 'selected' as never,
+              method: 'tools/call',
+              params: { name: 'raw', arguments: { original: true } },
+            });
+            await adapter.request({ id: 'second' as never, method: 'tools/call', params: { name: 'raw' } });
+          }),
+      );
+      expect(request).toHaveBeenCalledTimes(3);
+      expect(request.mock.calls[0][0].params).not.toHaveProperty('inputResponses');
+      expect(request.mock.calls[1][0].params).toMatchObject({ name: 'raw', arguments: { original: true } });
+      if (era === 'modern') expect(request.mock.calls[1][0].params).toHaveProperty('inputResponses', inputs);
+      else expect(request.mock.calls[1][0].params).not.toHaveProperty('inputResponses');
+      expect(request.mock.calls[2][0].params).not.toHaveProperty('inputResponses');
+      expect(request.mock.calls[1][0].params).not.toHaveProperty('requestState');
+    },
+  );
+
   it('retains the shared lease when the modern SDK negotiated the legacy protocol', async () => {
     const client = new Client({ name: 'configured-client', version: '2' });
     vi.spyOn(client, 'getProtocolEra').mockReturnValue('legacy');

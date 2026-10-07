@@ -1,6 +1,7 @@
 import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { getRequestSession, resolveCapabilityVisibility } from '@src/core/protocol/requestHandlerUtils.js';
 import { InboundConnection } from '@src/core/types/index.js';
+import { withSelectedNativeInputResponses } from '@src/gateway/interactions/nativeInputResponses.js';
 import { RESPONSE_JSON_VALUE_LIMITS } from '@src/sdk/contracts/index.js';
 import {
   type LegacyOutboundConnections,
@@ -63,7 +64,14 @@ export function registerPromptHandlers(outboundConns: LegacyOutboundConnections,
         request.params._meta?.progressToken,
         () =>
           withPrivateInteractionConnection(route.connection!, inboundConn, extra, route.entry, (selected) =>
-            requestLegacyOutbound(selected, 'prompts/get', { ...params, name: route.entry.route.upstreamIdentity }),
+            withSelectedNativeInputResponses(
+              request.params.name,
+              'prompts/get',
+              selected.adapter,
+              route.entry.route.upstreamIdentity,
+              () =>
+                requestLegacyOutbound(selected, 'prompts/get', { ...params, name: route.entry.route.upstreamIdentity }),
+            ),
           ),
       );
     }, 'Error getting prompt'),

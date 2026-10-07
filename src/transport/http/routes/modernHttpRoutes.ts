@@ -51,6 +51,10 @@ import { InteractionBroker } from '@src/gateway/interactions/interactionBroker.j
 import { hasInteractionCapability } from '@src/gateway/interactions/interactionCapabilities.js';
 import { withNativeInteractionRound } from '@src/gateway/interactions/interactionRoute.js';
 import {
+  captureNativeInitialInputResponses,
+  runWithNativeInitialInputResponses,
+} from '@src/gateway/interactions/nativeInputResponses.js';
+import {
   validateInteractionRequest,
   validateInteractionResponse,
 } from '@src/gateway/interactions/validateInteractionResponse.js';
@@ -548,6 +552,14 @@ export function setupModernHttpRoutes(
                       }
                       activeModernRequests++;
                       try {
+                        const initialInputs =
+                          context.mcpReq.requestState() === undefined
+                            ? captureNativeInitialInputResponses(
+                                operation,
+                                message.params,
+                                context.mcpReq.inputResponses,
+                              )
+                            : undefined;
                         const resourceOwner =
                           operation === 'resources/read' ? resourceOwnerFor(getAuthInfo(res)) : undefined;
                         // Enabled lazy mode reserves this unprefixed operation for the internal
@@ -581,11 +593,13 @@ export function setupModernHttpRoutes(
                             );
                         const dispatch = (...args: Parameters<typeof dispatchGateway>) => {
                           const execute = () => dispatchGateway(...args);
-                          if (!headerRegistry) return execute();
-                          return headerRegistry.run(
-                            execute,
-                            () => !binding || isModernInteractionBindingCurrent(binding),
-                          );
+                          return runWithNativeInitialInputResponses(initialInputs, () => {
+                            if (!headerRegistry) return execute();
+                            return headerRegistry.run(
+                              execute,
+                              () => !binding || isModernInteractionBindingCurrent(binding),
+                            );
+                          });
                         };
                         const requestState = context.mcpReq.requestState();
                         if (requestState !== undefined) {

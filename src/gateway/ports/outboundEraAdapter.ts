@@ -21,6 +21,8 @@ export interface GatewayInteractionRequest {
 }
 
 export interface GatewayRequestOptions {
+  /** Already validated native driver material for the first selected modern frame only. */
+  readonly initialInputResponses?: Readonly<Record<string, ImmutableJsonValue>>;
   readonly interaction?: (input: GatewayInteractionRequest) => Promise<ImmutableJsonValue>;
   readonly interactionRound?: (
     inputs: GatewayInteractionRound,
