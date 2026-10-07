@@ -2,11 +2,39 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { describe, expect, it, vi } from 'vitest';
 
 import { startOfficialReferenceServer } from './referenceServer.js';
 
 describe('official reference fixture', () => {
+  it('acknowledges a live catalog subscription through the selected SDK HTTP transport', async () => {
+    const server = await startOfficialReferenceServer(process.cwd(), tmpdir());
+    const client = new Client(
+      { name: 'subscription-control-test', version: '1' },
+      { capabilities: {}, versionNegotiation: { mode: 'auto' } },
+    );
+    try {
+      await client.connect(new StreamableHTTPClientTransport(new URL(server.endpoint)));
+      expect(client.getProtocolEra()).toBe('modern');
+      const changed = vi.fn();
+      client.setNotificationHandler('notifications/tools/list_changed', changed);
+      const subscription = await client.listen(
+        { toolsListChanged: true, promptsListChanged: true },
+        { timeout: 1_000 },
+      );
+      expect(subscription.honoredFilter).toEqual({ toolsListChanged: true, promptsListChanged: true });
+      await client.callTool({ name: 'test_trigger_tool_change', arguments: {} });
+      await expect.poll(() => changed.mock.calls.length).toBe(1);
+      expect(changed.mock.calls[0][0]).toMatchObject({ method: 'notifications/tools/list_changed' });
+      await subscription.close();
+      await subscription.closed;
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it('exposes canonical scenario names and schema-valid draft tool results, then closes its listener', async () => {
     const server = await startOfficialReferenceServer(process.cwd(), tmpdir());
     try {

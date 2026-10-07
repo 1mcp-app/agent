@@ -32,9 +32,16 @@ shasum -a 256 everything-server.mjs
 Compare the final SHA256 to `generatedSha256` in `provenance.json` and the original
 source SHA256 to `sourceSha256`. Retain the upstream `LICENSE` verbatim.
 
-The patch corrects two reference-example defects: draft SSE tool results need
+The patch corrects reference-example defects: draft SSE tool results need
 the same `resultType: "complete"` discriminant as JSON tool results, and malformed
 elicitation `inputResponses` must be rejected before returning complete results.
+Modern subscription acknowledgements and subsequent catalog notifications use
+`text/event-stream` and SSE framing, as required by the pinned 2026-07-28 HTTP
+transport contract. The upstream example sent newline-delimited JSON with
+`application/json` and kept the response open; the selected SDK waited for EOF
+and timed out before legacy gateway initialization could complete. A real SDK
+HTTP subscription regression checks acknowledgement and catalog notification
+delivery without changing the suite, dependency pins or production transport.
 It also binds the fixture listener explicitly to `127.0.0.1` so local controls
 do not expose their synthetic server on other interfaces.
 It does not activate tasks or implement the excluded draft header scenarios.

@@ -958,7 +958,7 @@ function notifyListenStreams(type, notificationMethod) {
     const wants = type === "tools" ? stream.wantsTools : stream.wantsPrompts;
     if (!wants) continue;
     stream.res.write(
-      JSON.stringify({
+      "event: message\ndata: " + JSON.stringify({
         jsonrpc: "2.0",
         method: notificationMethod,
         params: {
@@ -966,7 +966,7 @@ function notifyListenStreams(type, notificationMethod) {
             "io.modelcontextprotocol/subscriptionId": stream.subscriptionId
           }
         }
-      }) + "\n"
+      }) + "\n\n"
     );
   }
 }
@@ -1057,7 +1057,7 @@ app.post("/mcp", async (req, res) => {
     }
     if (method === "subscriptions/listen") {
       res.writeHead(200, {
-        "Content-Type": "application/json",
+        "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
         Connection: "keep-alive",
         "Transfer-Encoding": "chunked"
@@ -1077,7 +1077,7 @@ app.post("/mcp", async (req, res) => {
           }
         }
       };
-      res.write(JSON.stringify(ackFrame) + "\n");
+      res.write("event: message\ndata: " + JSON.stringify(ackFrame) + "\n\n");
       const stream = {
         res,
         subscriptionId: trackingSubId,
