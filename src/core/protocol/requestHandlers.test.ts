@@ -79,7 +79,8 @@ const mockTemplateServerManager = {
   getAllRenderedHashesForSession: mockGetAllRenderedHashesForSession,
 };
 
-vi.mock('@src/utils/core/parsing.js', () => ({
+vi.mock('@src/utils/core/parsing.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@src/utils/core/parsing.js')>()),
   parseUri: mockParseUri,
   buildUri: vi.fn((name, resource) => `${name}_1mcp_${resource}`),
 }));
