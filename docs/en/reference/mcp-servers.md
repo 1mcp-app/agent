@@ -271,6 +271,8 @@ Use `disabledTools` when a server should stay enabled but selected tools should 
 }
 ```
 
+Tool names returned by `tools/list` are authoritative. The usual `{server}_1mcp_{tool}` name is preserved when it contains only ASCII letters, digits, underscores, dots, and hyphens and fits within 64 characters. Otherwise, 1MCP returns a stable compact name derived from the server and upstream tool identity. Copy that advertised name when calling a tool; do not reconstruct it. Per-server disables and description overrides accept the upstream name, the usual qualified name, or the advertised compact name.
+
 Disabled tools are per-server only. Use logical server-local names such as `write_file`; runtime filtering also recognizes qualified names like `filesystem_1mcp_write_file`, but logical names are easier to maintain.
 
 `toolDescriptionOverrides` changes the description exposed through full `tools/list`, lazy tool discovery and schema inspection, REST capability views, and Admin. It does not mutate the upstream server or change the tool input schema, annotations, or execution route. Remove a key, or use **Reset** in Admin, to inherit the upstream description again. Empty names and blank descriptions are rejected.

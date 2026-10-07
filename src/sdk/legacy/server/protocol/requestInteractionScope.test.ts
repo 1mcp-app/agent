@@ -475,6 +475,14 @@ describe('legacy operation interaction ownership', () => {
     });
     expect(extra.sendNotification).toHaveBeenCalledTimes(1);
   });
+  it('suppresses uncorrelated progress even during an active interaction lease', async () => {
+    const { inbound, connection, extra } = fixture();
+    const note = { method: 'notifications/progress', params: { progressToken: 'foreign', progress: 1 } };
+    await withRequestInteractionScope(connection, inbound, extra, () => forwardScopedNotification(connection, note));
+    await forwardScopedNotification(connection, note);
+    expect(extra.sendNotification).not.toHaveBeenCalled();
+  });
+
   it('keeps thresholds isolated between sessions sharing an upstream', async () => {
     const first = fixture();
     const second = fixture();

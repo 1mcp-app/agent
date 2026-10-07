@@ -12,6 +12,11 @@ import type { SanitizedWireCapture, WireDirection, WireHop } from './sanitizedWi
 const INSPECTION_LIMIT = 1_048_576;
 const CREDENTIAL_HEADERS = new Set(['authorization', 'cookie', 'proxy-authorization']);
 
+/** Trusted denial-only hook for an owned authenticated target; carries no credential value. */
+export interface AuthenticatedWireTarget {
+  rejectCredentialConflict(): void;
+}
+
 export interface HttpWireTap {
   url: string;
   close(): Promise<void>;
@@ -96,6 +101,7 @@ export async function startHttpWireTap(options: {
   capture: SanitizedWireCapture;
   contextId: string;
   hop: Exclude<WireHop, 'stdio'>;
+  authenticatedTarget?: AuthenticatedWireTarget;
 }): Promise<HttpWireTap> {
   let target: URL;
   try {
@@ -122,6 +128,17 @@ export async function startHttpWireTap(options: {
       incoming.resume();
       outgoing.writeHead(400, { 'content-type': 'text/plain' });
       outgoing.end('wire tap destination rejected');
+      return;
+    }
+
+    if (
+      options.authenticatedTarget &&
+      Object.keys(incoming.headers).some((name) => CREDENTIAL_HEADERS.has(name.toLowerCase()))
+    ) {
+      options.authenticatedTarget.rejectCredentialConflict();
+      incoming.resume();
+      outgoing.writeHead(400, { 'content-type': 'text/plain' });
+      outgoing.end('wire tap credential conflict');
       return;
     }
 

@@ -35,6 +35,7 @@ import {
 } from '@src/sdk/legacy/types.js';
 import { createScopeAuthMiddleware } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
 import { setupModernHttpRoutes } from '@src/transport/http/routes/modernHttpRoutes.js';
+import { buildPublicResourceUri } from '@src/utils/core/resourceUris.js';
 
 import express from 'express';
 import rateLimit from 'express-rate-limit';
@@ -103,7 +104,7 @@ const operations = [
   {
     method: 'resources/read',
     schema: ReadResourceRequestSchema,
-    params: { uri: 'fixture_1mcp_file:///value' },
+    params: { uri: buildPublicResourceUri('fixture', 'file:///value') },
     result: { contents: [{ uri: 'file:///value', text: 'done' }] },
   },
 ] as const;
@@ -142,11 +143,14 @@ describe('real gateway interaction peers across protocol eras', () => {
       let legacyConnections = 0;
       let privateSchemaChanged = false;
       let privateRevisionChanged = false;
+      let interactiveUnlisted = false;
+      const resourceReads: Array<{ peer: number; uri: string }> = [];
       try {
         let connection;
         if (upstreamEra === 'legacy') {
           const recreate = (): AuthProviderTransport => {
             legacyConnections++;
+            const peerId = legacyConnections;
             const privatePeer = legacyConnections > 1;
             const backend = new LegacyServer({ name: 'fixture', version: '1' }, { capabilities: serverCapabilities });
             if (privatePeer && privateRevisionChanged)
@@ -172,11 +176,19 @@ describe('real gateway interaction peers across protocol eras', () => {
                 upstreamExecutions++;
                 // A side effect before parking must never be repeated by a continuation.
                 sideEffects++;
+                if (request.method === 'resources/read') resourceReads.push({ peer: peerId, uri: request.params.uri });
                 const response = await backend.request(
                   { method: selected.method, params: selected.params },
                   ResultSchema,
                 );
                 expect(response).toMatchObject(selected.response);
+                if (interactiveUnlisted && request.method === 'resources/read')
+                  return {
+                    contents: [
+                      { uri: 'file:///value', text: 'done' },
+                      { uri: 'urn:fixture:unlisted', text: 'opaque' },
+                    ],
+                  };
                 return operation.result;
               });
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -392,6 +404,34 @@ describe('real gateway interaction peers across protocol eras', () => {
         }
         if (upstreamEra === 'legacy') expect(legacyConnections).toBe(inboundEra === 'modern' ? 10 : 1);
         if (upstreamEra === 'legacy' && inboundEra === 'modern') {
+          selected = interactions[0];
+          interactiveUnlisted = true;
+          const initial = {
+            legacyConnections,
+            upstreamExecutions,
+            sideEffects,
+            answers,
+            batches: downstreamBatchSizes.length,
+            reads: resourceReads.length,
+          };
+          const issued = (await request('resources/read', operations[2].params)) as {
+            contents: Array<{ uri: string }>;
+          };
+          const opaqueUri = issued.contents[1].uri;
+          expect(opaqueUri).toMatch(/^urn:1mcp:resource:/u);
+          const reread = (await request('resources/read', { uri: opaqueUri })) as { contents: Array<{ uri: string }> };
+          expect(reread.contents[1].uri).toBe(opaqueUri);
+          expect(resourceReads.slice(initial.reads)).toEqual([
+            { peer: initial.legacyConnections + 1, uri: 'file:///value' },
+            { peer: initial.legacyConnections + 2, uri: 'urn:fixture:unlisted' },
+          ]);
+          expect(legacyConnections - initial.legacyConnections).toBe(2);
+          expect(upstreamExecutions - initial.upstreamExecutions).toBe(2);
+          expect(sideEffects - initial.sideEffects).toBe(2);
+          expect(answers - initial.answers).toBe(2);
+          expect(downstreamBatchSizes.slice(initial.batches)).toEqual([1, 1]);
+          expect(manager.getInboundConnections().size).toBe(0);
+          interactiveUnlisted = false;
           const before = sideEffects;
           const transport = getLegacyTransport(connection);
           const recreate = transport.recreate;

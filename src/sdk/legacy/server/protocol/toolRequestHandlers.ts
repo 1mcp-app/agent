@@ -37,6 +37,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@src/sdk/legacy/t
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 
 import { withPrivateInteractionConnection } from './privateInteractionConnection.js';
+import { withProviderRequestProgress } from './requestProviderProgress.js';
 import { bindOwnedCatalogConnections, bindOwnedNotificationAuthorization } from './resourceSubscriptions.js';
 
 export function registerToolHandlers(
@@ -282,27 +283,36 @@ export function registerToolHandlers(
           }
           phase = 'upstream';
           return await finish(
-            await withPrivateInteractionConnection(
+            await withProviderRequestProgress(
+              outboundConns,
               connection,
-              inboundConn,
-              extra,
               resolved.entry,
-              (selected) => {
-                const selectedAdapter = selected.adapter;
-                diagnosticRoute = { ...diagnosticRoute, timeoutMs: selected.requestTimeoutMs };
-                writeLocalDiagnostic('debug', 'tool.dispatch', () => ({ ...diagnosticRoute, phase }));
-                return executeWithPostAuthOAuthRecovery(route.server, selected, () =>
-                  requestLegacyAdapter(
-                    selectedAdapter,
-                    'tools/call',
-                    toJsonValue({
-                      name: route.upstreamIdentity,
-                      ...(request.params.arguments === undefined ? {} : { arguments: request.params.arguments }),
-                    }),
-                    { signal: extra?.signal, timeoutMs: selected.requestTimeoutMs },
-                  ),
-                );
-              },
+              extra,
+              request.params._meta?.progressToken,
+              () =>
+                withPrivateInteractionConnection(
+                  connection,
+                  inboundConn,
+                  extra,
+                  resolved.entry,
+                  (selected) => {
+                    const selectedAdapter = selected.adapter;
+                    diagnosticRoute = { ...diagnosticRoute, timeoutMs: selected.requestTimeoutMs };
+                    writeLocalDiagnostic('debug', 'tool.dispatch', () => ({ ...diagnosticRoute, phase }));
+                    return executeWithPostAuthOAuthRecovery(route.server, selected, () =>
+                      requestLegacyAdapter(
+                        selectedAdapter,
+                        'tools/call',
+                        toJsonValue({
+                          name: route.upstreamIdentity,
+                          ...(request.params.arguments === undefined ? {} : { arguments: request.params.arguments }),
+                        }),
+                        { signal: extra?.signal, timeoutMs: selected.requestTimeoutMs },
+                      ),
+                    );
+                  },
+                  validateOutput.assertCurrent,
+                ),
               validateOutput.assertCurrent,
             ),
           );

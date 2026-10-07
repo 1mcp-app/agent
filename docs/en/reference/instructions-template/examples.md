@@ -64,7 +64,7 @@ Web server instructions for frontend development
 
 ## Usage
 
-All tools are available using the pattern: `{server}_1mcp_{tool}`
+Most tool names follow `{server}_1mcp_{tool}`. Use the exact name returned by `tools/list`; names outside the protocol limits use a stable compact form.
 
 Example tools:
 - `filesystem_1mcp_read_file` - Read files through filesystem server

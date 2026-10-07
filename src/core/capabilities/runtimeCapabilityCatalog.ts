@@ -29,11 +29,16 @@ import {
   type CapabilityResponseBudget,
   compareCodePoints,
   createCapabilityPartialMeta,
+  getCapabilityPaginationGeneration,
   registerCapabilityPaginationNotifications,
   unregisterCapabilityPaginationConnections,
   walkCapabilityPages,
 } from './capabilityPagination.js';
-import type { CapabilityVisibility } from './capabilityVisibility.js';
+import {
+  type CapabilityVisibility,
+  isResourceRouteOwnerActive,
+  type ResourceRouteOwner,
+} from './capabilityVisibility.js';
 import {
   buildCatalogGeneration,
   type CapabilityKind,
@@ -98,11 +103,13 @@ export interface RuntimeCapabilitySnapshot {
   /** Synchronous completeness facts from this captured observation, independent of pagination walks. */
   readonly capabilityMeta?: Partial<Record<CapabilityKind, Record<string, unknown>>>;
   prepareToolCall(identity: string, args: unknown, signal?: AbortSignal): Promise<PreparedToolCall>;
+  /** The same admitted schema projection used by tools/list, with its captured source fence. */
+  getToolDefinition(identity: string): { tool: Record<string, unknown>; assertCurrent(): void } | undefined;
   readonly connections: ReadonlyMap<string, OutboundConnection>;
   isCurrent(): boolean;
   /** Whether a captured backend failed to enumerate this kind, leaving the snapshot partial. */
   hasFailedSources(kind: CapabilityKind): boolean;
-  /** Issue a session-scoped, backend-bound route for a resource absent from discovery. */
+  /** Issue an owner- or session-scoped, backend-bound route for a resource absent from discovery. */
   projectUnlistedResource(connectionKey: string, upstreamIdentity: string): string;
   resolve(
     kind: CapabilityKind,
@@ -124,6 +131,17 @@ export interface RuntimeCapabilitySnapshot {
   ): Promise<CapabilityPaginationResult<T>>;
 }
 
+interface RuntimeResourceRoute {
+  entry: CatalogEntry;
+  connection: OutboundConnection;
+  adapter: OutboundConnection['adapter'];
+  sessionId?: string;
+  owner?: ResourceRouteOwner;
+  expiresAt: number;
+  resourcesEpoch: string;
+  templatesEpoch: string;
+}
+
 interface RuntimeScope {
   sessionId?: string;
   latestStarted: number;
@@ -132,15 +150,8 @@ interface RuntimeScope {
   observedTools?: { started: number; fingerprints: ReadonlyMap<string, string | null> };
   admissionOutcomes: Map<string, { started: number; connectionKey: string; error?: SchemaBoundaryError }>;
   paginationConnections: OutboundConnections;
-  resourceRoutes: Map<
-    string,
-    {
-      entry: CatalogEntry;
-      connection: OutboundConnection;
-      adapter: OutboundConnection['adapter'];
-      sessionId?: string;
-    }
-  >;
+  resourceSources: Map<string, OutboundConnections>;
+  resourceRoutes: Map<string, RuntimeResourceRoute>;
 }
 
 interface RuntimeState {
@@ -148,8 +159,64 @@ interface RuntimeState {
   scopes: Map<string, RuntimeScope>;
 }
 const states = new WeakMap<OutboundConnections, RuntimeState>();
+const issuedResourceEntries = new WeakSet<CatalogEntry>();
+
+/** Provenance alone grants no authority: each read must also assert its current owner and route. */
+export function isIssuedRuntimeResourceEntry(entry: CatalogEntry): boolean {
+  return issuedResourceEntries.has(entry);
+}
+
 let activeAcquisitions = 0;
 const MAX_ACTIVE_ACQUISITIONS = 256;
+export const RUNTIME_CATALOG_SCOPE_TTL_MS = 15 * 60 * 1000;
+export const MAX_RUNTIME_CATALOG_SCOPES = 256;
+
+function resourceRouteIsCurrent(scope: RuntimeScope, route: RuntimeResourceRoute): boolean {
+  if (Date.now() >= route.expiresAt) return false;
+  if (route.owner && !isResourceRouteOwnerActive(route.owner)) return false;
+  const source = scope.resourceSources.get(route.entry.route.connectionKey);
+  return (
+    !!source &&
+    getCapabilityPaginationGeneration(source, 'resources') === route.resourcesEpoch &&
+    getCapabilityPaginationGeneration(source, 'resourceTemplates') === route.templatesEpoch
+  );
+}
+
+function pruneResourceRoutes(scope: RuntimeScope, connections: OutboundConnections): void {
+  const retainedSources = new Set<string>();
+  for (const [identity, route] of scope.resourceRoutes) {
+    const key = route.entry.route.connectionKey;
+    if (
+      !resourceRouteIsCurrent(scope, route) ||
+      connections.get(key) !== route.connection ||
+      route.connection.adapter !== route.adapter ||
+      route.connection.status !== ClientStatus.Connected
+    ) {
+      scope.resourceRoutes.delete(identity);
+    } else retainedSources.add(key);
+  }
+  for (const [key, source] of scope.resourceSources) {
+    if (retainedSources.has(key)) continue;
+    unregisterCapabilityPaginationConnections(source);
+    scope.resourceSources.delete(key);
+  }
+}
+
+function releaseResourceRoutes(scope: RuntimeScope): void {
+  scope.resourceRoutes.clear();
+  for (const source of scope.resourceSources.values()) unregisterCapabilityPaginationConnections(source);
+  scope.resourceSources.clear();
+}
+
+function resourceRouteOwnedBy(route: RuntimeResourceRoute, visibility: CapabilityVisibility | undefined): boolean {
+  if (visibility?.resourceOwner) return route.owner === visibility.resourceOwner;
+  return route.owner === undefined && route.sessionId === visibility?.sessionId;
+}
+
+/** Reclaim revoked listener owners without changing legacy session or cursor ownership. */
+export function pruneRuntimeResourceRoutes(connections: OutboundConnections): void {
+  for (const scope of states.get(connections)?.scopes.values() ?? []) pruneResourceRoutes(scope, connections);
+}
 
 /** Release all visibility variants and in-flight publications owned by a disconnected session. */
 export function evictRuntimeCapabilityCatalogSession(connections: OutboundConnections, sessionId: string): void {
@@ -157,13 +224,14 @@ export function evictRuntimeCapabilityCatalogSession(connections: OutboundConnec
   if (!state) return;
   for (const [key, scope] of state.scopes) {
     for (const [identity, route] of scope.resourceRoutes) {
-      if (route.sessionId === sessionId) scope.resourceRoutes.delete(identity);
+      if (!route.owner && route.sessionId === sessionId) scope.resourceRoutes.delete(identity);
     }
+    pruneResourceRoutes(scope, connections);
     if (scope.sessionId !== sessionId) continue;
     state.scopes.delete(key);
     unregisterCapabilityPaginationConnections(scope.paginationConnections);
     scope.paginationConnections.clear();
-    scope.resourceRoutes.clear();
+    releaseResourceRoutes(scope);
   }
 }
 
@@ -196,11 +264,12 @@ async function collectRuntimeCapabilityCatalog(
     states.set(connections, state);
   }
   for (const [key, retained] of state.scopes) {
-    if (Date.now() - retained.lastAccess < 15 * 60 * 1000) continue;
+    pruneResourceRoutes(retained, connections);
+    if (Date.now() - retained.lastAccess < RUNTIME_CATALOG_SCOPE_TTL_MS) continue;
     state.scopes.delete(key);
     unregisterCapabilityPaginationConnections(retained.paginationConnections);
     retained.paginationConnections.clear();
-    retained.resourceRoutes.clear();
+    releaseResourceRoutes(retained);
   }
   const captured = new Map(
     Array.from(connections).filter(
@@ -257,13 +326,14 @@ async function collectRuntimeCapabilityCatalog(
   const started = state.nextId++;
   let currentScope = state.scopes.get(scope);
   if (!currentScope) {
-    if (state.scopes.size >= 256) throw new CapabilityCursorCapacityError();
+    if (state.scopes.size >= MAX_RUNTIME_CATALOG_SCOPES) throw new CapabilityCursorCapacityError();
     currentScope = {
       sessionId: scopeSessionId,
       latestStarted: started,
       lastAccess: Date.now(),
       paginationConnections: new Map(captured),
       resourceRoutes: new Map(),
+      resourceSources: new Map(),
       admissionOutcomes: new Map(),
     };
     state.scopes.set(scope, currentScope);
@@ -580,9 +650,9 @@ async function collectRuntimeCapabilityCatalog(
   const snapshot: RuntimeCapabilitySnapshot = Object.freeze({
     generation,
     ...(Object.keys(capabilityMeta).length > 0 ? { capabilityMeta: Object.freeze(capabilityMeta) } : {}),
-    async prepareToolCall(identity: string, args: unknown, signal?: AbortSignal) {
+    getToolDefinition(identity: string) {
       const resolved = snapshot.resolve('tools', identity);
-      if (!resolved) throw new SchemaBoundaryError('schema_invalid');
+      if (!resolved) return undefined;
       const routeKey = JSON.stringify([resolved.entry.route.connectionKey, resolved.entry.route.upstreamIdentity]);
       const contract = schemaContracts.get(routeKey);
       if (!contract) throw new SchemaBoundaryError('schema_invalid');
@@ -605,13 +675,24 @@ async function collectRuntimeCapabilityCatalog(
           throw new SchemaBoundaryError('schema_invalid');
       };
       assertContractCurrent();
+      return Object.freeze({
+        tool: Object.freeze(projectToolSchemas(resolved.entry.publicObject as Record<string, unknown>, contract)),
+        assertCurrent: assertContractCurrent,
+      });
+    },
+    async prepareToolCall(identity: string, args: unknown, signal?: AbortSignal) {
+      const definition = snapshot.getToolDefinition(identity);
+      if (!definition) throw new SchemaBoundaryError('schema_invalid');
+      const resolved = snapshot.resolve('tools', identity)!;
+      const routeKey = JSON.stringify([resolved.entry.route.connectionKey, resolved.entry.route.upstreamIdentity]);
+      const contract = schemaContracts.get(routeKey)!;
       const validateOutput = await prepareToolValidation(contract, args, {
         routeKey,
         generation: String(started),
         signal,
       });
-      assertContractCurrent();
-      return Object.freeze(Object.assign(validateOutput, { assertCurrent: assertContractCurrent }));
+      definition.assertCurrent();
+      return Object.freeze(Object.assign(validateOutput, { assertCurrent: definition.assertCurrent }));
     },
     connections: readonlyConnections(captured),
     isCurrent,
@@ -620,18 +701,27 @@ async function collectRuntimeCapabilityCatalog(
     },
     projectUnlistedResource(connectionKey: string, upstreamIdentity: string) {
       assertCurrent();
+      if (visibility?.resourceOwner && !isResourceRouteOwnerActive(visibility.resourceOwner))
+        throw new Error('Resource route owner is unavailable');
+      pruneResourceRoutes(scopedState, connections);
       const connection = captured.get(connectionKey);
       if (!connection) throw new Error('Unknown resource backend');
       for (const [identity, route] of scopedState.resourceRoutes) {
         if (
-          route.sessionId === visibility?.sessionId &&
+          resourceRouteOwnedBy(route, visibility) &&
           route.entry.route.connectionKey === connectionKey &&
           route.entry.route.upstreamIdentity === upstreamIdentity
         )
           return identity;
       }
       if (scopedState.resourceRoutes.size >= 1000) throw new Error('Resource route capacity exceeded');
-      // This namespace cannot collide with canonical identities, which always contain the MCP separator.
+      let source = scopedState.resourceSources.get(connectionKey);
+      if (!source) {
+        source = new Map([[connectionKey, connection]]);
+        scopedState.resourceSources.set(connectionKey, source);
+        registerCapabilityPaginationNotifications(source, connection);
+      }
+      // Generated resource identities use a scheme extension; retained legacy identities contain the MCP separator.
       const identity = `urn:1mcp:resource:${randomUUID()}`;
       const server = visibility?.serverCandidates.get(connectionKey) ?? connection.name ?? connectionKey;
       const entry: CatalogEntry = Object.freeze({
@@ -646,18 +736,25 @@ async function collectRuntimeCapabilityCatalog(
         sourceObject: Object.freeze({ name: upstreamIdentity, uri: upstreamIdentity }),
         publicObject: Object.freeze({ name: upstreamIdentity, uri: identity }),
       });
+      issuedResourceEntries.add(entry);
       scopedState.resourceRoutes.set(identity, {
         entry,
         connection,
         adapter: connection.adapter,
-        sessionId: visibility?.sessionId,
+        ...(visibility?.resourceOwner ? { owner: visibility.resourceOwner } : { sessionId: visibility?.sessionId }),
+        expiresAt: Date.now() + RUNTIME_CATALOG_SCOPE_TTL_MS,
+        resourcesEpoch: getCapabilityPaginationGeneration(source, 'resources'),
+        templatesEpoch: getCapabilityPaginationGeneration(source, 'resourceTemplates'),
       });
       return identity;
     },
     resolve(kind: CapabilityKind, identity: string) {
       assertCurrent();
       const routed = kind === 'resources' ? scopedState.resourceRoutes.get(identity) : undefined;
-      const issued = routed?.sessionId === visibility?.sessionId ? routed : undefined;
+      const issued =
+        routed && resourceRouteOwnedBy(routed, visibility) && resourceRouteIsCurrent(scopedState, routed)
+          ? routed
+          : undefined;
       const entry =
         generation.resolve(kind, identity, keys) ??
         (issued &&

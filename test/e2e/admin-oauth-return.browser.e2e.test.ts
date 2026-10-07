@@ -66,6 +66,7 @@ it('returns through a committed initiating-site document with the original Stric
     createTokenId: () => '',
     getAuthConfig: () => ({ enabled: true, oauthTokenTtlMs: 60000 }),
     getAvailableTags: () => [],
+    getResourceUrl: () => callbackOrigin,
   });
   app.use('/oauth', createOAuthRoutes({} as SDKOAuthServerProvider, undefined, flow));
   // A minimal browser document exercises the real session API after the return landing page.

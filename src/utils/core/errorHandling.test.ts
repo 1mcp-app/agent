@@ -1,6 +1,7 @@
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 
 import { SchemaBoundaryError } from '@src/core/validation/schemaPolicy.js';
+import { missingClientCapabilityFailure } from '@src/gateway/contracts/gatewayFailure.js';
 import logger from '@src/logger/logger.js';
 import { normalizeEvent } from '@src/observability/events/normalize.js';
 
@@ -36,6 +37,17 @@ it('projects an invalid upstream schema result through the shared MCP failure co
 });
 
 describe('withErrorHandling', () => {
+  it('preserves owned missing-capability facts but never promotes a foreign numeric rejection', async () => {
+    const owned = missingClientCapabilityFailure({ sampling: {} });
+    const invoke = withErrorHandling(async () => {
+      throw owned;
+    }, 'Tool failed');
+    await expect(invoke()).rejects.toMatchObject({ code: -32021, data: { requiredCapabilities: { sampling: {} } } });
+    const foreign = withErrorHandling(async () => {
+      throw { code: -32021, message: 'SECRET', data: { requiredCapabilities: { sampling: {} } } };
+    }, 'Tool failed');
+    await expect(foreign()).rejects.toMatchObject({ code: -32603 });
+  });
   beforeEach(() => {
     vi.clearAllMocks();
   });

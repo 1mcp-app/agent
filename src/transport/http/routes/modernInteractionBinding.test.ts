@@ -1,5 +1,8 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
+import { bindResourceRouteOwner, createResourceRouteOwner } from '@src/core/capabilities/capabilityVisibility.js';
+import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
+import { resolveCapabilityVisibility } from '@src/core/protocol/requestHandlerUtils.js';
 import { assertInteractionRoute } from '@src/gateway/interactions/interactionRoute.js';
 import type { LegacySdkEvent } from '@src/sdk/contracts/index.js';
 import type { AuthInfo } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
@@ -11,8 +14,12 @@ import {
 } from './modernInteractionBinding.js';
 
 vi.mock('@src/config/configuredServerTargets.js', () => ({ getConfiguredServerTargets: () => ({}) }));
-vi.mock('@src/core/protocol/requestHandlerUtils.js', () => ({
-  filterConnectionsForSession: (connections: unknown) => connections,
+vi.mock('@src/core/server/serverManager.js', () => ({
+  ServerManager: {
+    get current() {
+      return { getTemplateServerManager: () => undefined };
+    },
+  },
 }));
 
 const auth: AuthInfo = {
@@ -45,6 +52,71 @@ function fixture() {
 }
 
 describe('modern interaction route binding', () => {
+  it('uses the same canonical resource visibility as the bridge before resolving an opaque handle', async () => {
+    const owner = createResourceRouteOwner();
+    const context = { sessionId: 'private' };
+    bindResourceRouteOwner(context, owner);
+    const config = { tags: ['test'], tagFilterMode: 'simple-or' as const, enablePagination: false };
+    const connection = createMockOutboundConnection({
+      name: 'server',
+      tags: ['test'],
+      capabilities: { resources: {} },
+      adapter: { request: vi.fn(async () => ({ resources: [] })) },
+    });
+    const connections = new Map([['server', connection]]);
+    const snapshot = await acquireRuntimeCapabilityCatalog(
+      connections,
+      resolveCapabilityVisibility(connections, { ...config, context }, context.sessionId, 'resources'),
+    );
+    const uri = snapshot.projectUnlistedResource('server', 'custom:///hidden%2f');
+    const manager = { getClients: () => connections };
+    const binding = await createModernInteractionBinding(
+      manager,
+      config,
+      'resources/read',
+      { uri },
+      auth,
+      {},
+      undefined,
+      owner,
+    );
+    expect(binding).toBeDefined();
+    await withModernInteractionBinding(binding!, async () => {
+      expect(() =>
+        assertInteractionRoute(connection.adapter, 'resources/read', { uri: 'custom:///hidden%2f' }),
+      ).not.toThrow();
+    });
+    const readsBeforeRejection = vi
+      .mocked(connection.adapter.request)
+      .mock.calls.filter(([request]) => request.method === 'resources/read').length;
+    await expect(
+      createModernInteractionBinding(
+        manager,
+        config,
+        'resources/read',
+        { uri },
+        auth,
+        {},
+        undefined,
+        createResourceRouteOwner(),
+      ),
+    ).rejects.toThrow('Unknown resource');
+    await expect(
+      createModernInteractionBinding(
+        manager,
+        { ...config, tags: ['disabled'] },
+        'resources/read',
+        { uri },
+        auth,
+        {},
+        undefined,
+        owner,
+      ),
+    ).rejects.toThrow('Unknown resource');
+    expect(
+      vi.mocked(connection.adapter.request).mock.calls.filter(([request]) => request.method === 'resources/read'),
+    ).toHaveLength(readsBeforeRejection);
+  });
   it('cancels upstream enumeration when binding acquisition is interrupted', async () => {
     const { manager, connection } = fixture();
     let rejectList!: (reason: unknown) => void;

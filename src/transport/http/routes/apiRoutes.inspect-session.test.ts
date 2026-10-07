@@ -2,6 +2,7 @@ import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js'
 
 import { type ServerAdapter, ServerStatus, ServerType } from '@src/core/server/adapters/types.js';
 import { ClientStatus, type OutboundConnections } from '@src/core/types/index.js';
+import { buildPublicToolName } from '@src/utils/core/toolNames.js';
 
 import type { Request, RequestHandler, Response } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -198,6 +199,37 @@ describe('apiRoutes inspect', () => {
 
     inspectHandler = createInspectHandler(serverManager as never);
   });
+
+  it.each(['raw', 'qualified', 'public'] as const)(
+    'keeps compact tool inspection and listing consistent for %s description overrides',
+    async (referenceKind) => {
+      const server = 'context7';
+      const name = `long-tool_${'x'.repeat(80)}`;
+      const publicIdentity = buildPublicToolName(server, name);
+      const references = { raw: name, qualified: `${server}_1mcp_${name}`, public: publicIdentity };
+      mockedGetTransportConfig.mockReturnValue({
+        [server]: {
+          type: 'stdio',
+          command: 'node',
+          toolDescriptionOverrides: { [references[referenceKind]]: 'custom' },
+        },
+      });
+      outboundConnections.set(
+        server,
+        connectionWithTools(server, [server], [{ name, description: 'upstream', inputSchema: { type: 'object' } }]),
+      );
+      const listed = createMockResponse();
+      await invokeInspectRoute(inspectHandler, { query: { target: server } }, listed);
+      expect(listed.statusCode).toBe(200);
+      expect(listed.body).toMatchObject({
+        tools: [{ tool: name, qualifiedName: publicIdentity, description: 'custom' }],
+      });
+      const inspected = createMockResponse();
+      await invokeInspectRoute(inspectHandler, { query: { target: `${server}/${name}` } }, inspected);
+      expect(inspected.statusCode).toBe(200);
+      expect(inspected.body).toMatchObject({ tool: name, qualifiedName: publicIdentity, description: 'custom' });
+    },
+  );
 
   it('touches an existing REST template session instead of creating another template instance', async () => {
     mockedLoadConfigWithTemplates.mockResolvedValue({

@@ -47,6 +47,7 @@ describe('createCliTokenRoute', () => {
 
   it('should reject non-localhost requests before token creation', async () => {
     mockRequest.socket.remoteAddress = '203.0.113.5';
+    mockRequest.headers = { 'x-forwarded-for': '127.0.0.1', host: 'localhost' };
     const handler = createCliTokenRoute(mockOAuthProvider);
 
     await handler(mockRequest, mockResponse, next);

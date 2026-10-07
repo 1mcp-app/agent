@@ -279,7 +279,7 @@ When working with many tools, use pagination:
 ## How 1MCP Works
 
 - **Unified Access**: Connect to multiple MCP servers through one proxy
-- **Tool Aggregation**: All tools are available with the naming pattern \`{{toolPattern}}\`
+- **Tool Aggregation**: Most tool names follow the naming pattern \`{{toolPattern}}\`. Use the exact names returned by tools/list; names outside the protocol limits use a stable compact form.
 - **Resource Sharing**: Access files, data, and capabilities across different servers
 - **Intelligent Routing**: Your requests are automatically routed to the appropriate servers
 {{/if}}
@@ -296,7 +296,7 @@ When working with many tools, use pagination:
 {{#unless lazyLoading.enabled}}
 ## Available Capabilities
 
-All tools from connected servers are accessible using the format: \`{{toolPattern}}\`
+Most tool names from connected servers follow the format: \`{{toolPattern}}\`. Use the exact names returned by tools/list; names outside the protocol limits use a stable compact form.
 
 Examples:
 {{#each examples}}
@@ -344,7 +344,7 @@ No MCP servers are currently connected. 1MCP is ready to connect to servers and 
 ## What 1MCP Provides
 
 - **Unified Access**: Connect to multiple MCP servers through one proxy
-- **Tool Aggregation**: Access tools using the pattern \`{{toolPattern}}\`
+- **Tool Aggregation**: Most tool names follow the pattern \`{{toolPattern}}\`. Use the exact names returned by tools/list; names outside the protocol limits use a stable compact form.
 - **Resource Sharing**: Share files, data, and capabilities across servers
 - **Intelligent Routing**: Automatic request routing to appropriate servers
 

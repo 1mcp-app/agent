@@ -1,8 +1,33 @@
 #!/usr/bin/env node
 
 const { execSync } = require('child_process');
+const { createHash } = require('node:crypto');
 const fs = require('fs');
 const path = require('path');
+
+function retainLegacySdkNotice(bundledCode, rootDir = process.cwd()) {
+  const island = path.join(rootDir, 'build/sdk/legacy/server/retained-sdk');
+  const license = fs.readFileSync(path.join(island, 'LICENSE'), 'utf8');
+  const provenanceSource = fs.readFileSync(path.join(island, 'provenance.json'), 'utf8');
+  const provenance = JSON.parse(provenanceSource);
+  const licenseHash = createHash('sha256').update(license).digest('hex');
+  const expectedLicenseHash = '5e13dbbc1d120fc2a03cecde7c91424ae2d7de11b63d58ded2f4431e261ee50d';
+  if (licenseHash !== expectedLicenseHash || provenance.licenseSha256 !== expectedLicenseHash) {
+    throw new Error('Retained legacy SDK license changed');
+  }
+  if (provenance.package !== '@modelcontextprotocol/sdk' || provenance.version !== '1.30.0') {
+    throw new Error('Retained legacy SDK provenance changed');
+  }
+  if (license.includes('*/') || provenanceSource.includes('*/')) {
+    throw new Error('Retained legacy SDK notice cannot contain a comment terminator');
+  }
+  // Insert after esbuild has removed legal comments. SEA retains these exact source bytes.
+  const notice = `/*\nRetained @modelcontextprotocol/sdk@1.30.0 transport license:\n${license}\nRetained transport source provenance:\n${provenanceSource}*/\n`;
+  if (!bundledCode.startsWith('#!')) return notice + bundledCode;
+  const shebangEnd = bundledCode.indexOf('\n');
+  if (shebangEnd === -1) throw new Error('SEA bundle shebang has no newline');
+  return bundledCode.slice(0, shebangEnd + 1) + notice + bundledCode.slice(shebangEnd + 1);
+}
 
 function readAdminConsoleAssets(rootDir, relativeDir = '') {
   const assets = {};
@@ -42,6 +67,8 @@ function buildSEA() {
     // 2. Build TypeScript
     console.log('📦 Building TypeScript...');
     execSync('tsc --project tsconfig.build.json', { stdio: 'inherit' });
+    execSync('tsc-alias -p tsconfig.build.json', { stdio: 'inherit' });
+    execSync('node scripts/vendor-legacy-transport.mjs', { stdio: 'inherit' });
 
     // 3. Set execute permissions on main file
     const mainFile = 'build/index.js';
@@ -163,7 +190,7 @@ globalThis.__1MCP_SEA_ADMIN_CONSOLE_ASSETS__ = ${JSON.stringify(adminConsoleAsse
     }`,
     );
 
-    fs.writeFileSync('build/bundled.cjs', bundledCode);
+    fs.writeFileSync('build/bundled.cjs', retainLegacySdkNotice(bundledCode));
 
     // 5. Create SEA preparation blob
     console.log('🔧 Creating SEA blob...');
@@ -180,4 +207,4 @@ if (require.main === module) {
   buildSEA();
 }
 
-module.exports = { buildSEA };
+module.exports = { buildSEA, retainLegacySdkNotice };

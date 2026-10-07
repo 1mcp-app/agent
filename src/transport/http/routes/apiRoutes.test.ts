@@ -4,7 +4,9 @@ import * as runtimeCatalog from '@src/core/capabilities/runtimeCapabilityCatalog
 import { CapabilityCursorCapacityError } from '@src/core/capabilities/capabilityPagination.js';
 import { LoadingState, LoadingStateTracker } from '@src/core/loading/loadingStateTracker.js';
 import { type ServerAdapter, ServerStatus, ServerType } from '@src/core/server/adapters/types.js';
+import { isSourceToolDisabled, withToolDisabledState } from '@src/core/server/disabledTools.js';
 import type { OutboundConnections } from '@src/core/types/index.js';
+import { buildPublicToolName } from '@src/utils/core/toolNames.js';
 
 import type { Request, RequestHandler, Response } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -238,26 +240,39 @@ describe('apiRoutes inspect', () => {
     });
   });
 
-  it('returns 404 for disabled tool inspect targets', async () => {
-    mockedGetTransportConfig.mockReturnValue({
-      context7: {
-        type: 'stdio',
-        command: 'node',
-        disabledTools: ['context7_1mcp_query-docs'],
-      },
-    });
+  it.each([
+    { sourceName: 'query-docs', reference: 'query-docs' },
+    { sourceName: 'query-docs', reference: 'context7_1mcp_query-docs' },
+    { sourceName: 'query-docs'.repeat(12), reference: buildPublicToolName('context7', 'query-docs'.repeat(12)) },
+  ])(
+    'returns 404 with the exact enable identity for configured disabled tool $reference',
+    async ({ sourceName, reference }) => {
+      mockedGetTransportConfig.mockReturnValue({
+        context7: {
+          type: 'stdio',
+          command: 'node',
+          disabledTools: [reference, 'unrelated-tool'],
+        },
+      });
 
-    const req = { query: { target: 'context7/context7_1mcp_query-docs' } };
-    const res = createMockResponse();
+      const req = { query: { target: `context7/${reference}` } };
+      const res = createMockResponse();
 
-    await invokeInspectRoute(scopeAuthMiddleware, req, res);
-    await invokeInspectRoute(inspectHandler, req, res);
+      await invokeInspectRoute(scopeAuthMiddleware, req, res);
+      await invokeInspectRoute(inspectHandler, req, res);
 
-    expect(res.statusCode).toBe(404);
-    expect(res.body).toEqual({
-      error: "Tool is disabled: context7:query-docs. Use '1mcp mcp tools enable context7 query-docs' to re-enable it.",
-    });
-  });
+      expect(res.statusCode).toBe(404);
+      expect(res.body).toEqual({
+        error: `Tool is disabled: context7:${reference}. Use '1mcp mcp tools enable context7 ${reference}' to re-enable it.`,
+      });
+      // The enable command uses this config-only writer; the message must preserve its exact reference.
+      const configured = mockedGetTransportConfig().context7;
+      expect(isSourceToolDisabled({ context7: configured }, 'context7', sourceName)).toBe(true);
+      const enabled = withToolDisabledState(configured, reference, false, 'context7');
+      expect(enabled.disabledTools).toEqual(['unrelated-tool']);
+      expect(isSourceToolDisabled({ context7: enabled }, 'context7', sourceName)).toBe(false);
+    },
+  );
 
   it('hides disabled tools declared on template servers from direct inspect results', async () => {
     mockedLoadDeclaredServerConfigs.mockReturnValue({

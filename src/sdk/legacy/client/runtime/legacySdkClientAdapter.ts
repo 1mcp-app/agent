@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
+import { missingClientCapabilityFromBridge } from '@src/gateway/contracts/gatewayFailure.js';
 import { assertInteractionRoute } from '@src/gateway/interactions/interactionRoute.js';
 import logger from '@src/logger/logger.js';
 import { injectTraceContext, stripBaggage } from '@src/observability/tracing/context.js';
@@ -21,10 +22,12 @@ import {
   RESPONSE_JSON_VALUE_LIMITS,
   toJsonValue,
 } from '@src/sdk/contracts/index.js';
+import { currentRequestProgress } from '@src/sdk/contracts/requestProgress.js';
 import type { Client } from '@src/sdk/legacy/client/index.js';
 import { StreamableHTTPError } from '@src/sdk/legacy/client/streamableHttp.js';
 import { captureCapabilityListResult } from '@src/sdk/legacy/shared/capabilityListCapture.js';
 import {
+  McpError,
   PromptListChangedNotificationSchema,
   ResourceListChangedNotificationSchema,
   ResultSchema,
@@ -153,6 +156,10 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
         ),
       );
     } catch (error) {
+      if (this.interactionBridge && error instanceof McpError) {
+        const failure = missingClientCapabilityFromBridge(error);
+        if (failure) throw failure;
+      }
       throw toProtocolError(error);
     } finally {
       this.controllers.delete(request.id);
@@ -169,7 +176,11 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
       return await requestClient.request(
         { method: request.method, ...(params === undefined ? {} : { params }) } as never,
         ResultSchema,
-        { signal: controller.signal, ...(request.timeoutMs === undefined ? {} : { timeout: request.timeoutMs }) },
+        {
+          signal: controller.signal,
+          onprogress: currentRequestProgress(),
+          ...(request.timeoutMs === undefined ? {} : { timeout: request.timeoutMs }),
+        },
       );
     } catch (error) {
       if (isPostAuthUnauthorized(error)) {

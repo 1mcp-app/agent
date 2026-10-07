@@ -9,7 +9,13 @@ import { ClientStatus, type OutboundConnections } from '@src/core/types/client.j
 import { SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
 import { ErrorCode, OneMcpProtocolError, type Tool } from '@src/sdk/contracts/index.js';
 
-import { CapabilityCatalog } from './capabilityCatalog.js';
+import {
+  attachCatalogCursorOwner,
+  bindCatalogCursorOwner,
+  CapabilityCatalog,
+  createCatalogCursorOwner,
+  revokeCatalogCursorOwner,
+} from './capabilityCatalog.js';
 import {
   advanceCapabilityPaginationGeneration,
   CAPABILITY_PAGINATION_META_KEY,
@@ -122,6 +128,266 @@ describe('CapabilityCatalog', () => {
   }
 
   afterEach(() => vi.restoreAllMocks());
+
+  function ownedVisibility(
+    sessionId: string,
+    owner: ReturnType<typeof createCatalogCursorOwner>,
+    candidates: Array<readonly [string, string]> = [['filesystem', 'filesystem']],
+    filters = {},
+  ) {
+    const context = { sessionId };
+    bindCatalogCursorOwner(context, owner);
+    const visibility = createCapabilityVisibility(candidates, sessionId, filters);
+    attachCatalogCursorOwner(visibility, context);
+    return visibility;
+  }
+
+  it('continues the same static walk under minted owner authority across private sessions without re-admission', async () => {
+    const owner = createCatalogCursorOwner();
+    const catalog = createCatalog(undefined, {
+      getServerConfigs: () => ({ filesystem: { type: 'stdio', command: 'node' } }),
+    });
+    const admit = vi.spyOn(toolSchemaBoundary, 'admitToolSchemas');
+    const first = await catalog.listVisibleTools({ limit: 1 }, ownedVisibility('private-one', owner));
+    const admissionCount = admit.mock.calls.length;
+    const second = await catalog.listVisibleTools(
+      { limit: 1, cursor: first.nextCursor },
+      ownedVisibility('private-two', owner),
+    );
+    expect(first.tools.map((tool) => tool.name)).toEqual(['read_file']);
+    expect(second.tools.map((tool) => tool.name)).toEqual(['write_file']);
+    expect(admit).toHaveBeenCalledTimes(admissionCount);
+    expect(second.nextCursor).toBeUndefined();
+  });
+
+  it('rejects foreign, cloned, revoked, filter-changed, and candidate-changed authority without serving cached tools', async () => {
+    const owner = createCatalogCursorOwner();
+    const catalog = createCatalog(undefined, {
+      getServerConfigs: () => ({ filesystem: { type: 'stdio', command: 'node' } }),
+    });
+    const first = await catalog.listVisibleTools({ limit: 1 }, ownedVisibility('one', owner));
+    const continuation = { limit: 1, cursor: first.nextCursor };
+    await expect(
+      createCatalog(undefined, { outboundConnections: new Map(outboundConnections) }).listVisibleTools(
+        continuation,
+        ownedVisibility('two', owner),
+      ),
+    ).rejects.toThrow('Invalid capability pagination cursor');
+    await expect(
+      catalog.listVisibleTools(continuation, ownedVisibility('two', createCatalogCursorOwner())),
+    ).rejects.toThrow('Invalid capability pagination cursor');
+    expect(() => bindCatalogCursorOwner({}, JSON.parse(JSON.stringify(owner)))).toThrow(
+      'Capability cursor owner is unavailable',
+    );
+    await expect(
+      catalog.listVisibleTools(
+        continuation,
+        ownedVisibility('two', owner, [['filesystem', 'filesystem']], { tags: ['fs'] }),
+      ),
+    ).rejects.toThrow('Invalid capability pagination cursor');
+    await expect(catalog.listVisibleTools(continuation, ownedVisibility('two', owner, []))).rejects.toThrow(
+      'Invalid capability pagination cursor',
+    );
+    const revokedVisibility = ownedVisibility('two', owner);
+    revokeCatalogCursorOwner(owner);
+    await expect(catalog.listVisibleTools(continuation, revokedVisibility)).rejects.toThrow(
+      'Capability cursor owner is unavailable',
+    );
+    await expect(catalog.listVisibleTools({}, revokedVisibility)).rejects.toThrow(
+      'Capability cursor owner is unavailable',
+    );
+  });
+
+  it('keeps template and legacy walks bound to their actual session', async () => {
+    const owner = createCatalogCursorOwner();
+    const candidates = [
+      ['filesystem', 'filesystem'],
+      ['template-server:rendered123', 'template-server'],
+    ] as const;
+    const catalog = createCatalog(undefined, { getServerConfigs: () => ({}) });
+    const first = await catalog.listVisibleTools({ limit: 1 }, ownedVisibility('one', owner, [...candidates]));
+    await expect(
+      catalog.listVisibleTools({ limit: 1, cursor: first.nextCursor }, ownedVisibility('two', owner, [...candidates])),
+    ).rejects.toThrow('Invalid capability pagination cursor');
+    const legacy = await catalog.listVisibleTools({ limit: 1 }, createCapabilityVisibility(candidates, 'one'));
+    await expect(
+      catalog.listVisibleTools({ limit: 1, cursor: legacy.nextCursor }, createCapabilityVisibility(candidates, 'two')),
+    ).rejects.toThrow('Invalid capability pagination cursor');
+  });
+
+  it('rejects fixed-lifetime expiry, backend replacement, config changes, and pagination epoch changes', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const config = { filesystem: { type: 'stdio', command: 'node', disabledTools: [] as string[] } };
+      const catalog = createCatalog(undefined, { getServerConfigs: () => config });
+      const owner = createCatalogCursorOwner();
+      const visibility = ownedVisibility('one', owner);
+      const issue = () => catalog.listVisibleTools({ limit: 1 }, visibility);
+      let first = await issue();
+      const original = outboundConnections.get('filesystem')!;
+      outboundConnections.set('filesystem', createMockOutboundConnection({ name: 'filesystem' }));
+      await expect(catalog.listVisibleTools({ cursor: first.nextCursor }, visibility)).rejects.toThrow(
+        'Invalid capability pagination cursor',
+      );
+      outboundConnections.set('filesystem', original);
+      first = await issue();
+      config.filesystem.disabledTools.push('write_file');
+      await expect(catalog.listVisibleTools({ cursor: first.nextCursor }, visibility)).rejects.toThrow(
+        'Invalid capability pagination cursor',
+      );
+      config.filesystem.disabledTools.length = 0;
+      first = await issue();
+      advanceCapabilityPaginationGeneration(outboundConnections, 'tools');
+      await expect(catalog.listVisibleTools({ cursor: first.nextCursor }, visibility)).rejects.toThrow(
+        'Invalid capability pagination cursor',
+      );
+      first = await issue();
+      vi.setSystemTime(Date.now() + 14 * 60 * 1000);
+      await catalog.listVisibleTools({ cursor: first.nextCursor }, visibility);
+      vi.setSystemTime(Date.now() + 60 * 1000);
+      await expect(catalog.listVisibleTools({ cursor: first.nextCursor }, visibility)).rejects.toThrow(
+        'Capability cursor owner is unavailable',
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('preserves a full issuance lifetime for a fresh walk published near the owner deadline without renewing earlier cursors', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const issuedAt = Date.now();
+      const owner = createCatalogCursorOwner();
+      const catalog = createCatalog(undefined, {
+        getServerConfigs: () => ({ filesystem: { type: 'stdio', command: 'node' } }),
+      });
+      const original = await catalog.listVisibleTools({ limit: 1 }, ownedVisibility('one', owner));
+      vi.setSystemTime(issuedAt + 14 * 60 * 1000 + 59 * 1000);
+      const laterVisibility = ownedVisibility('two', owner);
+      const later = await catalog.listVisibleTools({ limit: 1 }, laterVisibility);
+      expect(later.nextCursor).toEqual(expect.any(String));
+      vi.setSystemTime(issuedAt + 15 * 60 * 1000);
+      await expect(catalog.listVisibleTools({ cursor: original.nextCursor }, laterVisibility)).rejects.toThrow(
+        'Invalid capability pagination cursor',
+      );
+      expect(
+        (await catalog.listVisibleTools({ cursor: later.nextCursor }, laterVisibility)).tools.map((tool) => tool.name),
+      ).toEqual(['write_file']);
+      vi.setSystemTime(issuedAt + 29 * 60 * 1000 + 58 * 1000);
+      expect(
+        (await catalog.listVisibleTools({ cursor: later.nextCursor }, laterVisibility)).tools.map((tool) => tool.name),
+      ).toEqual(['write_file']);
+      vi.setSystemTime(issuedAt + 29 * 60 * 1000 + 59 * 1000);
+      await expect(catalog.listVisibleTools({ cursor: later.nextCursor }, laterVisibility)).rejects.toThrow(
+        'Capability cursor owner is unavailable',
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not extend owner lifetime for a capacity failure or a listing without a cursor', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const issuedAt = Date.now();
+      const owner = createCatalogCursorOwner();
+      const fullPageOwner = createCatalogCursorOwner();
+      const catalog = createCatalog(undefined, {
+        getServerConfigs: () => ({ filesystem: { type: 'stdio', command: 'node' } }),
+      });
+      const visibility = ownedVisibility('one', owner);
+      const fullPageVisibility = ownedVisibility('two', fullPageOwner);
+      for (let i = 0; i < 250; i++) await catalog.listVisibleTools({ limit: 1 }, visibility);
+      vi.setSystemTime(issuedAt + 14 * 60 * 1000 + 59 * 1000);
+      await expect(catalog.listVisibleTools({ limit: 1 }, visibility)).rejects.toThrow(
+        'Capability cursor capacity exceeded',
+      );
+      expect((await catalog.listVisibleTools({}, fullPageVisibility)).nextCursor).toBeUndefined();
+      vi.setSystemTime(issuedAt + 15 * 60 * 1000);
+      await expect(catalog.listVisibleTools({}, visibility)).rejects.toThrow('Capability cursor owner is unavailable');
+      await expect(catalog.listVisibleTools({}, fullPageVisibility)).rejects.toThrow(
+        'Capability cursor owner is unavailable',
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not revive an owner that expires during asynchronous admission', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const owner = createCatalogCursorOwner();
+      const visibility = ownedVisibility('one', owner);
+      const admit = toolSchemaBoundary.admitToolSchemas;
+      vi.spyOn(toolSchemaBoundary, 'admitToolSchemas').mockImplementationOnce(async (...args) => {
+        vi.setSystemTime(Date.now() + 15 * 60 * 1000);
+        return admit(...args);
+      });
+      const catalog = createCatalog();
+      await expect(catalog.listVisibleTools({ limit: 1 }, visibility)).rejects.toThrow(
+        'Capability cursor owner is unavailable',
+      );
+      await expect(catalog.listVisibleTools({}, visibility)).rejects.toThrow('Capability cursor owner is unavailable');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not publish a walk when its owner is revoked during asynchronous admission', async () => {
+    const owner = createCatalogCursorOwner();
+    const visibility = ownedVisibility('one', owner);
+    const admit = toolSchemaBoundary.admitToolSchemas;
+    vi.spyOn(toolSchemaBoundary, 'admitToolSchemas').mockImplementationOnce(async (...args) => {
+      revokeCatalogCursorOwner(owner);
+      return admit(...args);
+    });
+    await expect(createCatalog().listVisibleTools({ limit: 1 }, visibility)).rejects.toThrow(
+      'Capability cursor owner is unavailable',
+    );
+  });
+
+  it.each(['raw', 'public'] as const)(
+    'keeps compact routing exact through cached schema reads, rebuilt registries, and %s disabled filtering',
+    async (referenceKind) => {
+      const name = `read-file:${'x'.repeat(60)}_1mcp_tail`;
+      const tool: Tool = { name, inputSchema: { type: 'object' } };
+      const disabledTools: string[] = [];
+      const rebuild = () =>
+        ToolRegistry.fromToolsWithServer([{ server: 'filesystem', connectionKey: 'filesystem', tool }]).withConnections(
+          outboundConnections,
+        );
+      registry = rebuild();
+      const catalog = createCatalog(undefined, {
+        getServerConfigs: () => ({ filesystem: { type: 'stdio', command: 'node', disabledTools } }),
+      });
+      const listed = await catalog.listVisibleTools({ server: 'filesystem' });
+      const publicIdentity = listed.tools[0].route!.publicIdentity;
+      expect(publicIdentity).toMatch(/^[A-Za-z0-9_.-]{1,64}$/);
+      expect(listed.tools[0].name).toBe(name);
+      expect((await catalog.describeVisibleTool({ server: 'filesystem', toolName: name })).fromCache).toBe(false);
+      registry = rebuild();
+      expect((await catalog.describeVisibleTool({ server: 'filesystem', toolName: name })).fromCache).toBe(true);
+      expect((await catalog.listVisibleTools({ server: 'filesystem' })).tools[0].route!.publicIdentity).toBe(
+        publicIdentity,
+      );
+      expect(schemaCache.getIfCached('filesystem', name)?.name).toBe(name);
+      expect(schemaCache.getIfCached('filesystem', publicIdentity)).toBeNull();
+
+      const called = await catalog.invokeVisibleTool({ server: 'filesystem', toolName: name, args: {} });
+      expect(called.error).toBeUndefined();
+      expect(called.route?.publicIdentity).toBe(publicIdentity);
+      expect(mockClient.callTool).toHaveBeenCalledWith({ name, arguments: {} });
+      disabledTools.push(referenceKind === 'public' ? publicIdentity : name);
+      expect((await catalog.listVisibleTools({ server: 'filesystem' })).tools).toEqual([]);
+      expect((await catalog.describeVisibleTool({ server: 'filesystem', toolName: name })).error?.type).toBe(
+        'not_found',
+      );
+      expect((await catalog.invokeVisibleTool({ server: 'filesystem', toolName: name, args: {} })).error?.type).toBe(
+        'not_found',
+      );
+      expect(mockClient.callTool).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it('records the selected route and duration while keeping debug payload capture lazy', async () => {
     const diagnostic = vi.spyOn(localDiagnostics, 'writeLocalDiagnostic').mockImplementation(() => undefined);

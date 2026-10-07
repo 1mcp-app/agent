@@ -2,20 +2,32 @@ import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js'
 
 import type { OutboundConnections } from '@src/core/types/index.js';
 import { schemaBoundary, SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
-import { ErrorCode, OneMcpProtocolError } from '@src/sdk/contracts/index.js';
+import { ErrorCode, type JsonValue, OneMcpProtocolError } from '@src/sdk/contracts/index.js';
+import { buildPublicResourceTemplate } from '@src/utils/core/resourceUris.js';
 
+import * as pagination from './capabilityPagination.js';
 import {
   CapabilityCursorCapacityError,
   CapabilityProvidersUnavailableError,
   getCapabilityFailureFacts,
 } from './capabilityPagination.js';
-import { createCapabilityVisibility } from './capabilityVisibility.js';
+import {
+  createCapabilityVisibility,
+  createResourceRouteOwner,
+  revokeResourceRouteOwner,
+} from './capabilityVisibility.js';
 import {
   isConfiguredToolSnapshotComplete,
   readConfiguredToolSnapshot,
   readLastConfiguredToolSnapshot,
 } from './configuredToolSnapshot.js';
-import { acquireRuntimeCapabilityCatalog, evictRuntimeCapabilityCatalogSession } from './runtimeCapabilityCatalog.js';
+import {
+  acquireRuntimeCapabilityCatalog,
+  evictRuntimeCapabilityCatalogSession,
+  isIssuedRuntimeResourceEntry,
+  pruneRuntimeResourceRoutes,
+  RUNTIME_CATALOG_SCOPE_TTL_MS,
+} from './runtimeCapabilityCatalog.js';
 
 const tool = (name: string) => ({ name, inputSchema: { type: 'object' } });
 function fixture(
@@ -32,6 +44,49 @@ function fixture(
 }
 
 describe('runtime capability catalog', () => {
+  it('recognizes only exact catalog-minted unlisted resource entries as issued provenance', async () => {
+    const connection = createMockOutboundConnection({
+      name: 'provider',
+      capabilities: { resources: {} },
+      adapter: {
+        request: vi.fn(async ({ method }): Promise<JsonValue> =>
+          method === 'resources/list'
+            ? { resources: [{ name: 'listed', uri: 'file:///listed' }] }
+            : { resourceTemplates: [] },
+        ),
+      },
+    });
+    const snapshot = await acquireRuntimeCapabilityCatalog(new Map([['provider', connection]]));
+    const listed = snapshot.generation.entries.find((entry) => entry.route.kind === 'resources')!;
+    const uri = snapshot.projectUnlistedResource('provider', 'urn:provider:opaque');
+    const issued = snapshot.resolve('resources', uri)!.entry;
+    expect(isIssuedRuntimeResourceEntry(issued)).toBe(true);
+    expect(isIssuedRuntimeResourceEntry(listed)).toBe(false);
+    expect(isIssuedRuntimeResourceEntry(structuredClone(issued))).toBe(false);
+    expect(snapshot.generation.entries).not.toContain(issued);
+  });
+
+  it('exposes the admitted tools/list schema projection and retains its source fence', async () => {
+    let schema = {
+      type: 'object',
+      properties: { region: { type: 'string', 'x-mcp-header': 'Region' } },
+      required: ['region'],
+    };
+    const connection = fixture('header-catalog', () => ({ tools: [{ name: 'region', inputSchema: schema }] }));
+    const connections = new Map([['header-catalog', connection]]);
+    const snapshot = await acquireRuntimeCapabilityCatalog(connections);
+    const definition = snapshot.getToolDefinition('header-catalog_1mcp_region');
+    expect(definition?.tool).toEqual((await snapshot.list('tools', { enablePagination: false })).items[0]);
+    expect(definition?.tool.inputSchema).toMatchObject({
+      $schema: 'https://json-schema.org/draft/2020-12/schema',
+      properties: { region: { 'x-mcp-header': 'Region' } },
+    });
+    expect(snapshot.getToolDefinition('unknown')).toBeUndefined();
+    schema = { ...schema, required: [] };
+    await acquireRuntimeCapabilityCatalog(connections);
+    expect(() => definition?.assertCurrent()).toThrow('schema_invalid');
+  });
+
   it.each(['listing', 'admission'] as const)(
     'exposes synchronous captured %s failure facts before any listing walk',
     async (failure) => {
@@ -632,7 +687,7 @@ describe('runtime capability catalog', () => {
     });
     expect(snapshot.generation.entries).toHaveLength(5);
     expect(snapshot.resolve('tools', 'tool_list')?.entry.route.origin).toBe('internal');
-    expect(snapshot.resolve('resourceTemplates', 'server_1mcp_file:///{id}')).toBeDefined();
+    expect(snapshot.resolve('resourceTemplates', buildPublicResourceTemplate('server', 'file:///{id}'))).toBeDefined();
   });
 
   it('treats an unimplemented resource template listing as no templates', async () => {
@@ -801,6 +856,123 @@ describe('runtime capability catalog', () => {
     evictRuntimeCapabilityCatalogSession(connections, 'owner');
     expect(owner.resolve('resources', identity)).toBeUndefined();
   });
+
+  it('retains a trusted resource owner across bridge closure without sharing aliases with other owners or runtimes', async () => {
+    const connection = fixture('server');
+    const connections = new Map([['server', connection]]);
+    const owner = createResourceRouteOwner();
+    const visibility = (session: string, currentOwner = owner) =>
+      createCapabilityVisibility([['server', 'server']], session, { tags: ['safe'] }, currentOwner);
+    const first = await acquireRuntimeCapabilityCatalog(connections, visibility('private-first'));
+    const uri = first.projectUnlistedResource('server', 'custom:///unlisted%2f?q=one#part');
+    evictRuntimeCapabilityCatalogSession(connections, 'private-first');
+    const second = await acquireRuntimeCapabilityCatalog(connections, visibility('private-second'));
+    expect(second.resolve('resources', uri)?.entry.route.upstreamIdentity).toBe('custom:///unlisted%2f?q=one#part');
+    expect(second.projectUnlistedResource('server', 'custom:///unlisted%2f?q=one#part')).toBe(uri);
+    const other = await acquireRuntimeCapabilityCatalog(connections, visibility('other', createResourceRouteOwner()));
+    const filtered = await acquireRuntimeCapabilityCatalog(
+      connections,
+      createCapabilityVisibility([['server', 'server']], 'filtered', { tags: ['different'] }, owner),
+    );
+    const foreign = await acquireRuntimeCapabilityCatalog(new Map(connections), visibility('foreign'));
+    const requestsBeforeLookup = vi.mocked(connection.adapter.request).mock.calls.length;
+    expect(other.resolve('resources', uri)).toBeUndefined();
+    expect(filtered.resolve('resources', uri)).toBeUndefined();
+    expect(foreign.resolve('resources', uri)).toBeUndefined();
+    expect(second.resolve('resources', 'urn:1mcp:resource:guessed')).toBeUndefined();
+    expect(connection.adapter.request).toHaveBeenCalledTimes(requestsBeforeLookup);
+    revokeResourceRouteOwner(owner);
+    pruneRuntimeResourceRoutes(connections);
+    expect(second.resolve('resources', uri)).toBeUndefined();
+    expect(() => second.projectUnlistedResource('server', 'file:///new')).toThrow('owner is unavailable');
+  });
+
+  it('expires handles at issuance time even when shared catalog access keeps the scope alive', async () => {
+    vi.useFakeTimers();
+    try {
+      const connections = new Map([['server', fixture('server')]]);
+      const owner = createResourceRouteOwner();
+      const visibility = createCapabilityVisibility([['server', 'server']], 'private', undefined, owner);
+      const first = await acquireRuntimeCapabilityCatalog(connections, visibility);
+      const uri = first.projectUnlistedResource('server', 'file:///hidden');
+      vi.advanceTimersByTime(RUNTIME_CATALOG_SCOPE_TTL_MS - 1);
+      const refreshed = await acquireRuntimeCapabilityCatalog(connections, visibility);
+      expect(refreshed.resolve('resources', uri)).toBeDefined();
+      vi.advanceTimersByTime(1);
+      expect(refreshed.resolve('resources', uri)).toBeUndefined();
+      expect(refreshed.projectUnlistedResource('server', 'file:///hidden')).not.toBe(uri);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(['backend', 'adapter'] as const)('invalidates handles after %s replacement', async (replacement) => {
+    const connection = fixture('server');
+    const connections = new Map([['server', connection]]);
+    const visibility = createCapabilityVisibility(
+      [['server', 'server']],
+      'private',
+      undefined,
+      createResourceRouteOwner(),
+    );
+    const first = await acquireRuntimeCapabilityCatalog(connections, visibility);
+    const uri = first.projectUnlistedResource('server', 'file:///hidden');
+    if (replacement === 'backend') connections.set('server', fixture('server'));
+    else Object.defineProperty(connection, 'adapter', { value: fixture('server').adapter });
+    const second = await acquireRuntimeCapabilityCatalog(connections, visibility);
+    expect(second.resolve('resources', uri)).toBeUndefined();
+  });
+
+  it('bounds handle retention and reclaims expired capacity in a live scope', async () => {
+    vi.useFakeTimers();
+    try {
+      const connections = new Map([['server', fixture('server')]]);
+      const visibility = createCapabilityVisibility(
+        [['server', 'server']],
+        'private',
+        undefined,
+        createResourceRouteOwner(),
+      );
+      const first = await acquireRuntimeCapabilityCatalog(connections, visibility);
+      for (let index = 0; index < 1000; index++) first.projectUnlistedResource('server', `file:///hidden-${index}`);
+      expect(() => first.projectUnlistedResource('server', 'file:///overflow')).toThrow('capacity');
+      vi.advanceTimersByTime(RUNTIME_CATALOG_SCOPE_TTL_MS - 1);
+      const refreshed = await acquireRuntimeCapabilityCatalog(connections, visibility);
+      vi.advanceTimersByTime(1);
+      expect(() => refreshed.projectUnlistedResource('server', 'file:///recovered')).not.toThrow();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(['resources', 'resourceTemplates'] as const)(
+    'invalidates a handle at the provider %s epoch and removes its observer on revocation',
+    async (kind) => {
+      const connection = fixture('server');
+      const connections = new Map([['server', connection]]);
+      const owner = createResourceRouteOwner();
+      const visibility = createCapabilityVisibility([['server', 'server']], 'private', undefined, owner);
+      const registration = vi.spyOn(pagination, 'registerCapabilityPaginationNotifications');
+      const unregister = vi.spyOn(pagination, 'unregisterCapabilityPaginationConnections');
+      try {
+        const snapshot = await acquireRuntimeCapabilityCatalog(connections, visibility);
+        const uri = snapshot.projectUnlistedResource('server', 'file:///hidden');
+        const source = registration.mock.calls.find(([, provider]) => provider === connection)?.[0];
+        expect(source).toBeDefined();
+        pagination.advanceCapabilityPaginationGeneration(source!, kind);
+        expect(snapshot.resolve('resources', uri)).toBeUndefined();
+        snapshot.projectUnlistedResource('server', 'file:///new');
+        const currentSource = registration.mock.calls.at(-1)?.[0];
+        unregister.mockClear();
+        revokeResourceRouteOwner(owner);
+        pruneRuntimeResourceRoutes(connections);
+        expect(unregister).toHaveBeenCalledWith(currentSource);
+      } finally {
+        registration.mockRestore();
+        unregister.mockRestore();
+      }
+    },
+  );
 
   it('invalidates a cursor when upstream page positions change despite identical objects', async () => {
     let token = 'old';

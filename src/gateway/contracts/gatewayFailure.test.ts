@@ -8,9 +8,59 @@ import {
   gatewayFailureToMcp,
   gatewayFailureToProblem,
   gatewayFailureToToolResult,
+  MISSING_CLIENT_CAPABILITY,
+  missingClientCapabilityFailure,
+  missingClientCapabilityFromBridge,
 } from './gatewayFailure.js';
 
 describe('gateway failure public projections', () => {
+  it('retains only bounded capability facts in an owned missing-capability projection', () => {
+    const source = { sampling: {}, elicitation: { form: {} }, 'custom.capability': { supported: true } };
+    const failure = missingClientCapabilityFailure(source)!;
+    source.sampling = { secret: 'later' };
+    expect(gatewayFailureToMcp(failure, 'modern')).toEqual({
+      code: -32021,
+      message: 'Interaction capability required',
+      data: {
+        requiredCapabilities: { sampling: {}, elicitation: { form: {} }, 'custom.capability': { supported: true } },
+        'app.1mcp/failure': { kind: 'protocol', code: MISSING_CLIENT_CAPABILITY },
+      },
+    });
+    const wire = JSON.parse(JSON.stringify(gatewayFailureToMcp(failure, 'modern')));
+    expect(missingClientCapabilityFromBridge(wire)).toEqual(failure);
+    // The general foreign-error path cannot acquire this trust.
+    expect(gatewayFailureToMcp(gatewayFailureFromUnknown(wire, 'transport')).code).toBe(-32000);
+    expect(missingClientCapabilityFromBridge({ ...wire, code: -32603 })).toBeUndefined();
+    expect(
+      missingClientCapabilityFromBridge({ ...wire, data: { requiredCapabilities: { sampling: {} } } }),
+    ).toBeUndefined();
+  });
+
+  it('rejects malformed, unbounded and accessor capability payloads', () => {
+    const getter = Object.defineProperty({}, 'sampling', {
+      enumerable: true,
+      get: () => {
+        throw new Error('must not access');
+      },
+    });
+    for (const value of [
+      null,
+      [],
+      {},
+      { sampling: [] },
+      { sampling: true },
+      { sampling: { value: 'x'.repeat(4097) } },
+      getter,
+    ])
+      expect(missingClientCapabilityFailure(value)).toBeUndefined();
+    const foreign = {
+      kind: 'protocol' as const,
+      code: MISSING_CLIENT_CAPABILITY,
+      message: 'secret',
+      data: { requiredCapabilities: { sampling: {} } },
+    };
+    expect(gatewayFailureToMcp(foreign).code).toBe(-32000);
+  });
   it.each([
     ['schema_evaluation_timeout', 6],
     ['schema_evaluation_unavailable', 6],

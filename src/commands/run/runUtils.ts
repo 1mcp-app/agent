@@ -3,7 +3,7 @@ import { encode } from '@toon-format/toon';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { schemaBoundary, SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
 import type { CallToolResult, Tool } from '@src/sdk/contracts/index.js';
-import { buildUri } from '@src/utils/core/parsing.js';
+import { buildPublicToolName } from '@src/utils/core/toolNames.js';
 import { isPlainObject } from '@src/utils/typeGuards.js';
 
 export type RunOutputFormat = 'json' | 'text' | 'toon' | 'compact';
@@ -105,7 +105,7 @@ export function parseToolReference(toolRef: string): ParsedToolReference {
   return {
     serverName,
     toolName,
-    qualifiedName: buildUri(serverName, toolName, MCP_URI_SEPARATOR),
+    qualifiedName: buildPublicToolName(serverName, toolName),
   };
 }
 

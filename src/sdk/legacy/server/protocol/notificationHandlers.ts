@@ -16,7 +16,6 @@ import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInb
 import {
   CancelledNotificationSchema,
   LoggingMessageNotificationSchema,
-  ProgressNotificationSchema,
   RootsListChangedNotificationSchema,
 } from '@src/sdk/legacy/types.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
@@ -66,11 +65,7 @@ export async function setupClientToServerNotifications(
   inboundConn: InboundConnection,
 ): Promise<void> {
   const coverage: Promise<void>[] = [];
-  const clientNotificationSchemas = [
-    CancelledNotificationSchema,
-    ProgressNotificationSchema,
-    LoggingMessageNotificationSchema,
-  ];
+  const clientNotificationSchemas = [CancelledNotificationSchema, LoggingMessageNotificationSchema];
 
   for (const [name, outboundConn] of outboundConns.entries()) {
     registerLegacyNotificationOwner(outboundConn, inboundConn);

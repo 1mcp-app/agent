@@ -255,6 +255,8 @@ npx -y @1mcp/agent --config-dir ./project-config
 }
 ```
 
+调用工具时，请使用 `tools/list` 返回的名称。通常的 `{server}_1mcp_{tool}` 名称在只包含英文字母、数字、下划线、点和连字符且不超过 64 个字符时保持不变；否则，1MCP 会根据服务器和上游工具标识生成稳定的紧凑名称。请复制实际公布的名称，不要自行拼接。按服务器配置的禁用规则和描述覆盖支持上游名称、通常的限定名称以及实际公布的紧凑名称。
+
 禁用工具只按服务器生效，不是全局设置。请使用逻辑上的服务器本地名称，例如 `write_file`；运行时过滤也能识别 `filesystem_1mcp_write_file` 这样的限定名称，但逻辑名称更容易维护。
 
 `toolDescriptionOverrides` 会更新完整 `tools/list`、懒加载工具发现与 Schema 查看、REST 能力视图以及 Admin 中展示的描述。它不会修改上游服务器，也不会改变工具输入 Schema、annotations 或执行路由。删除对应键，或在 Admin 中使用 **重置**，即可重新继承上游描述。空工具名和空白描述会被拒绝。

@@ -18,6 +18,9 @@ pnpm exec tsc --project tsconfig.build.json
 echo "🔗 Resolving path aliases..."
 pnpm exec tsc-alias -p tsconfig.build.json
 
+# Retain the corrected pinned legacy transport in every shipped build.
+node scripts/vendor-legacy-transport.mjs
+
 # Build Admin Console SPA
 echo "🖥️ Building Admin Console SPA..."
 pnpm exec tsc --noEmit --project web/admin/tsconfig.json

@@ -3,6 +3,7 @@ import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js'
 import { publishConfiguredToolSnapshot } from '@src/core/capabilities/configuredToolSnapshot.js';
 import { ClientStatus, type OutboundConnection, type OutboundConnections } from '@src/core/types/index.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
+import { buildPublicToolName } from '@src/utils/core/toolNames.js';
 
 import { describe, expect, it, vi } from 'vitest';
 
@@ -116,6 +117,105 @@ describe('Configured Tool Inventory', () => {
     });
 
     expect(inventory.rows).toMatchObject([{ name: 'write_file', enabled: false, observed: true, unresolved: false }]);
+  });
+
+  it('coalesces compact configuration references into the exact observed source row', async () => {
+    const server = 'compact-inventory';
+    const name = `${server}_1mcp_${'x'.repeat(80)}`;
+    const publicIdentity = buildPublicToolName(server, name);
+    const inventory = await createConfiguredToolInventory({
+      targetName: server,
+      source: 'mcpServers',
+      config: {
+        type: 'stdio',
+        command: 'node',
+        disabledTools: [publicIdentity],
+        toolDescriptionOverrides: { [publicIdentity]: 'custom' },
+      },
+      connections: new Map([[server, connection(server, [{ name, inputSchema: { type: 'object' } }])]]),
+    });
+    expect(inventory.rows).toMatchObject([
+      {
+        name,
+        enabled: false,
+        observed: true,
+        unresolved: false,
+        effectiveDescription: 'custom',
+        descriptionOverride: 'custom',
+        descriptionOverridden: true,
+      },
+    ]);
+    expect(inventory.rows).toHaveLength(1);
+  });
+
+  it('isolates malformed live and retained source names while preserving healthy configuration aliases', async () => {
+    const server = 'malformed-inventory';
+    const name = 'healthy'.repeat(20);
+    const publicIdentity = buildPublicToolName(server, name);
+    const connections: OutboundConnections = new Map([
+      [
+        server,
+        connection(server, [
+          { name: '', inputSchema: { type: 'object' } },
+          { name: '\ud800', inputSchema: { type: 'object' } },
+          { name, description: 'upstream', inputSchema: { type: 'object' } },
+        ]),
+      ],
+    ]);
+    const config = {
+      type: 'stdio' as const,
+      command: 'node',
+      disabledTools: [publicIdentity],
+      toolDescriptionOverrides: { [publicIdentity]: 'custom' },
+    };
+    const live = await createConfiguredToolInventory({ targetName: server, source: 'mcpServers', config, connections });
+    expect(live.inspection).toMatchObject({ status: 'complete', reason: 'invalid_tool_identity' });
+    expect(live.rows).toMatchObject([
+      { name, observed: true, enabled: false, effectiveDescription: 'custom', descriptionOverridden: true },
+    ]);
+    expect(live.rows).toHaveLength(1);
+    expect(live.counts).toEqual({ observed: 1, enabled: 0, disabled: 1, unresolved: 0 });
+
+    connections.clear();
+    const retained = await createConfiguredToolInventory({
+      targetName: server,
+      source: 'mcpServers',
+      config,
+      connections,
+    });
+    expect(retained.rows).toMatchObject([{ name, observed: false, stale: true, enabled: false }]);
+    expect(retained.rows).toHaveLength(1);
+    expect(retained.inspection?.status).toBe('unavailable');
+  });
+
+  it('retains unresolved and ambiguous configuration references verbatim', async () => {
+    const server = 'opaque-inventory';
+    const first = 'x'.repeat(80);
+    const publicIdentity = buildPublicToolName(server, first);
+    const second = publicIdentity.slice(`${server}_1mcp_`.length);
+    const unknown = buildPublicToolName(server, 'unknown'.repeat(20));
+    const inventory = await createConfiguredToolInventory({
+      targetName: server,
+      source: 'mcpServers',
+      config: { type: 'stdio', command: 'node', disabledTools: [publicIdentity, unknown] },
+      connections: new Map([
+        [
+          server,
+          connection(
+            server,
+            [first, second].map((name) => ({ name, inputSchema: { type: 'object' } })),
+          ),
+        ],
+      ]),
+    });
+    for (const name of [publicIdentity, unknown]) {
+      expect(inventory.rows.find((row) => row.name === name)).toMatchObject({
+        name,
+        unresolved: true,
+        observed: false,
+      });
+    }
+    expect(inventory.rows.some((row) => row.name === unknown.slice(`${server}_1mcp_`.length))).toBe(false);
   });
 
   it('unions Template Server tools and reports partial occurrence', async () => {

@@ -42,6 +42,24 @@ transport contract. The upstream example sent newline-delimited JSON with
 and timed out before legacy gateway initialization could complete. A real SDK
 HTTP subscription regression checks acknowledgement and catalog notification
 delivery without changing the suite, dependency pins or production transport.
+The four inherited sampling and elicitation tools share their actual callback request
+and response-rendering definitions between legacy callbacks and native modern MRTR.
+Modern continuations carry a signed binding to the exact tool and arguments; the
+fixture validates the returned callback response before deriving its result, without
+executing the original tool again. Sampling uses the sampling result schema instead
+of incorrectly requiring a request method in the response. The defaults and enum
+schemas retain their upstream values. Real legacy and modern SDK clients exercise
+these callbacks; forged states, changed arguments, malformed responses, decline and
+cancel responses are covered too.
+
+The modern resource listener honors only requested `test://watched-resource`
+watches, emits URI updates with its own subscription id every three seconds, and
+releases its update timer on close. Discovery advertises this implemented subscribe
+capability. Streaming progress and logging diagnostic tools also use SSE with valid
+notification fields and complete-result discriminants; no-log-without-logLevel is
+checked through the real SDK transport. These fixture corrections leave the pinned
+suite and its validators unchanged.
+
 It also binds the fixture listener explicitly to `127.0.0.1` so local controls
 do not expose their synthetic server on other interfaces.
 It does not activate tasks or implement the excluded draft header scenarios.
@@ -56,3 +74,37 @@ have nonempty successful checks to qualify this fixture. Excluded statuses remai
 in the artifacts. The foundation runs the gateway independently afterward and
 records required-scenario comparisons; a direct success never supplies a gateway
 success. The wire tap preserves Host values so DNS rebinding checks reach the peer.
+
+The gateway server target uses `canonicalGatewayTarget.ts` to adapt only pinned
+scenario input identities. Before scored scenarios, it reads the verified
+reference fixture's catalogs as an allowlist and matches each identity to the
+gateway's advertised `_meta['app.1mcp/route']` tuple of kind, server
+`official_conformance`, and upstream identity. Missing or ambiguous tuples never
+receive guessed routes. Exact tool/prompt names, resource URIs and owned template
+instances are replaced with actual advertised identities; matching `Mcp-Name`
+headers follow the same replacement. Missing or mismatching headers remain
+unchanged, as do raw arguments, metadata and continuation fields.
+
+Responses retain their status, headers and body bytes, including incremental SSE.
+The pinned suite, requirements, result validation and output identities remain
+unchanged: invalid public names and resource URIs remain failures. Actual
+gateway-bound frames and JSON/SSE response payloads receive the same negotiated
+envelope schema validation used by the official runner. Sanitized payload digests,
+schema outcomes, exact mapping identities and qualification faults are retained
+in digest-protected `official-targets/server.<revision>.json` artifacts; raw private payloads
+are not retained. These artifacts describe target adaptation, not product success.
+Catalog discovery preloads shared catalogs and closes its discovery sessions
+before scored exchanges, so these runs do not prove cold-cache behavior.
+
+The modern official gateway leg runs with production authentication and scope
+validation enabled. Its owned loopback CLI route issues a genuine grant, checked
+through native REST admission before the canonical target starts. The target
+adds that same in-memory bearer only to its fixed gateway destination, including
+gateway catalog discovery, after the credential-stripping wire tap. Reference
+discovery remains anonymous. All other headers and request fields retain their
+existing treatment; conflicting Authorization headers fail closed. Qualification
+evidence records the authentication mode and credential presence, never the
+credential or its digest. Legacy, matrix and official client legs keep their
+existing authentication configuration. This exercises authenticated protocol
+behavior; it does not supply authorization-server conformance evidence or replace
+the separate anonymous rejection checks.

@@ -84,6 +84,7 @@ export interface OAuthAuthorizationFlowDependencies {
     oauthTokenTtlMs: number;
   };
   getAvailableTags: () => string[];
+  getResourceUrl: () => string;
 }
 
 export interface SubmitConsentInput {
@@ -219,7 +220,13 @@ export function createOAuthAuthorizationFlow(dependencies: OAuthAuthorizationFlo
       const accessToken = AUTH_CONFIG.SERVER.TOKEN.ID_PREFIX + tokenId;
       const allScopes = tagsToScopes(dependencies.getAvailableTags());
 
-      dependencies.storage.createSessionWithId(tokenId, 'cli', '', allScopes, authConfig.oauthTokenTtlMs);
+      dependencies.storage.createSessionWithId(
+        tokenId,
+        'cli',
+        new URL(dependencies.getResourceUrl()).href,
+        allScopes,
+        authConfig.oauthTokenTtlMs,
+      );
 
       return {
         authRequired: true,

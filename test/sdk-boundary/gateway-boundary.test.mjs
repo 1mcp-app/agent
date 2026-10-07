@@ -85,6 +85,10 @@ test('gateway production attachment is confined to explicit adapters and shared 
     'src/commands/run/run.ts -> @src/gateway/contracts/gatewayFailure.js',
     'src/core/capabilities/capabilityCatalog.ts -> @src/gateway/contracts/gatewayFailure.js',
     'src/core/capabilities/metaToolProvider.ts -> @src/gateway/contracts/gatewayFailure.js',
+    'src/sdk/legacy/client/runtime/legacySdkClientAdapter.ts -> @src/gateway/contracts/gatewayFailure.js',
+    'src/sdk/legacy/client/runtime/modernSdkClientAdapter.ts -> @src/gateway/contracts/gatewayFailure.js',
+    'src/sdk/contracts/mcpParamHeaders.ts -> @src/gateway/contracts/gatewayFailure.js',
+    'src/sdk/legacy/server/protocol/resourceRequestHandlers.ts -> @src/gateway/contracts/gatewayFailure.js',
     'src/transport/http/routes/toolRoutes.ts -> @src/gateway/contracts/gatewayFailure.js',
     'src/utils/core/errorHandling.ts -> @src/gateway/contracts/gatewayFailure.js',
     // Request-local interaction attachment; SDK objects never enter these plain-data ports.
@@ -101,6 +105,7 @@ test('gateway production attachment is confined to explicit adapters and shared 
     'src/transport/http/routes/modernHttpRoutes.ts -> @src/gateway/contracts/immutableJson.js',
     'src/transport/http/routes/modernHttpRoutes.ts -> @src/gateway/interactions/interactionBroker.js',
     'src/transport/http/routes/modernHttpRoutes.ts -> @src/gateway/interactions/interactionRoute.js',
+    'src/transport/http/routes/modernToolHeaderRegistry.ts -> @src/gateway/interactions/interactionRoute.js',
     'src/transport/http/routes/modernHttpRoutes.ts -> @src/gateway/interactions/validateInteractionResponse.js',
     'src/transport/http/routes/modernHttpRoutes.ts -> @src/gateway/ports/outboundEraAdapter.js',
     'src/transport/http/routes/modernInteractionBinding.ts -> @src/gateway/contracts/gatewayRequest.js',

@@ -263,6 +263,7 @@ function getOAuthFlow(
       oauthTokenTtlMs: agentConfig.get('auth').oauthTokenTtlMs,
     }),
     getAvailableTags: () => [],
+    getResourceUrl: () => agentConfig.getUrl(),
   });
 }
 

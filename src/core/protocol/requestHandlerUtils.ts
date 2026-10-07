@@ -1,6 +1,10 @@
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
-import { CapabilityCatalog } from '@src/core/capabilities/capabilityCatalog.js';
-import { type CapabilityVisibility, createCapabilityVisibility } from '@src/core/capabilities/capabilityVisibility.js';
+import { attachCatalogCursorOwner, CapabilityCatalog } from '@src/core/capabilities/capabilityCatalog.js';
+import {
+  type CapabilityVisibility,
+  createCapabilityVisibility,
+  getResourceRouteOwner,
+} from '@src/core/capabilities/capabilityVisibility.js';
 import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { SchemaCache } from '@src/core/capabilities/schemaCache.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
@@ -8,7 +12,12 @@ import { byCapabilities } from '@src/core/filtering/clientFiltering.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { createConnectionResolver } from '@src/core/server/connectionResolver.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
-import { InboundConnection, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
+import {
+  InboundConnection,
+  type InboundConnectionConfig,
+  OutboundConnection,
+  OutboundConnections,
+} from '@src/core/types/index.js';
 import type { MCPServerParams } from '@src/core/types/transport.js';
 
 export function getRequestSession(inboundConn: InboundConnection): string | undefined {
@@ -83,7 +92,7 @@ export function resolveLazyCapabilityVisibility(
 /** Resolve request-time Filter Selection into a catalog-enforced Server Candidate Set. */
 export function resolveCapabilityVisibility(
   outboundConns: OutboundConnections,
-  inboundConn: InboundConnection,
+  inboundConn: InboundConnectionConfig,
   sessionId: string | undefined,
   capability: 'tools' | 'resources' | 'prompts',
 ): CapabilityVisibility {
@@ -94,7 +103,7 @@ export function resolveCapabilityVisibility(
     capability === 'tools' ? { tools: {} } : capability === 'resources' ? { resources: {} } : { prompts: {} };
   const capable = byCapabilities(capabilityRequirement)(tagAndPresetScoped);
 
-  return createCapabilityVisibility(
+  const visibility = createCapabilityVisibility(
     Array.from(
       capable.entries(),
       ([connectionKey, connection]) => [connectionKey, connection.name || connectionKey.split(':')[0]] as const,
@@ -107,5 +116,8 @@ export function resolveCapabilityVisibility(
       tagQuery: inboundConn.tagQuery,
       presetName: inboundConn.presetName,
     },
+    capability === 'resources' ? getResourceRouteOwner(inboundConn.context) : undefined,
   );
+  if (capability === 'tools') attachCatalogCursorOwner(visibility, inboundConn.context);
+  return visibility;
 }

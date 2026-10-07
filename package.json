@@ -108,6 +108,7 @@
     "test:tracing:performance": "node --expose-gc scripts/measure-propagation.mjs"
   },
   "dependencies": {
+    "@hono/node-server": "2.0.12",
     "@modelcontextprotocol/client": "2.3.1",
     "@modelcontextprotocol/core": "2.3.1",
     "@modelcontextprotocol/node": "2.1.1",

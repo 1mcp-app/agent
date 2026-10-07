@@ -1,7 +1,13 @@
 import { Client } from '@modelcontextprotocol/client';
 import { createMockInboundConnection, createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
+import { setOutboundNotificationHandler } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import { registerModernSubscriptions } from '@src/sdk/legacy/client/runtime/modernSubscriptions.js';
+import {
+  CancelledNotificationSchema,
+  LoggingMessageNotificationSchema,
+  ProgressNotificationSchema,
+} from '@src/sdk/legacy/types.js';
 
 import { describe, expect, it, vi } from 'vitest';
 
@@ -26,6 +32,27 @@ vi.mock('./resourceSubscriptions.js', () => ({
 }));
 
 describe('modern catalog coverage for legacy connections', () => {
+  it('leaves the SDK progress demultiplexer installed while registering logging and cancellation', async () => {
+    vi.mocked(setOutboundNotificationHandler).mockClear();
+    await setupClientToServerNotifications(new Map(), createMockInboundConnection());
+    const { connections } = fixture();
+    await setupClientToServerNotifications(connections, createMockInboundConnection());
+    expect(setOutboundNotificationHandler).not.toHaveBeenCalledWith(
+      expect.anything(),
+      ProgressNotificationSchema,
+      expect.anything(),
+    );
+    expect(setOutboundNotificationHandler).toHaveBeenCalledWith(
+      expect.anything(),
+      LoggingMessageNotificationSchema,
+      expect.anything(),
+    );
+    expect(setOutboundNotificationHandler).toHaveBeenCalledWith(
+      expect.anything(),
+      CancelledNotificationSchema,
+      expect.anything(),
+    );
+  });
   function fixture() {
     const connection = createMockOutboundConnection({
       name: 'modern-peer',

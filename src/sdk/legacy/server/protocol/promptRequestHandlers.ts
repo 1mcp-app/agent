@@ -12,6 +12,7 @@ import { CompleteRequestSchema, GetPromptRequestSchema, ListPromptsRequestSchema
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 
 import { withPrivateInteractionConnection } from './privateInteractionConnection.js';
+import { withProviderRequestProgress } from './requestProviderProgress.js';
 import { bindOwnedCatalogConnections, bindOwnedNotificationAuthorization } from './resourceSubscriptions.js';
 
 export function registerPromptHandlers(outboundConns: LegacyOutboundConnections, inboundConn: InboundConnection): void {
@@ -53,11 +54,17 @@ export function registerPromptHandlers(outboundConns: LegacyOutboundConnections,
     withErrorHandling(async (request, extra) => {
       const route = (await acquire()).resolve('prompts', request.params.name);
       if (!route?.connection) throw new Error(`Unknown prompt: ${request.params.name}`);
-      return withPrivateInteractionConnection(route.connection, inboundConn, extra, route.entry, (selected) =>
-        requestLegacyOutbound(selected, 'prompts/get', {
-          ...request.params,
-          name: route.entry.route.upstreamIdentity,
-        }),
+      const { _meta: _callerMeta, ...params } = request.params;
+      return withProviderRequestProgress(
+        outboundConns,
+        route.connection,
+        route.entry,
+        extra,
+        request.params._meta?.progressToken,
+        () =>
+          withPrivateInteractionConnection(route.connection!, inboundConn, extra, route.entry, (selected) =>
+            requestLegacyOutbound(selected, 'prompts/get', { ...params, name: route.entry.route.upstreamIdentity }),
+          ),
       );
     }, 'Error getting prompt'),
   );

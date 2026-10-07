@@ -1,11 +1,10 @@
 import { encode } from '@toon-format/toon';
 
 import type { ParsedToolReference } from '@src/commands/run/runUtils.js';
-import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { readPublicCapabilityRoute } from '@src/core/capabilities/catalogGeneration.js';
 import type { InspectSearchResult } from '@src/core/capabilities/inspectSearch.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
-import { buildUri } from '@src/utils/core/parsing.js';
+import { buildPublicToolName } from '@src/utils/core/toolNames.js';
 import { isPlainObject } from '@src/utils/typeGuards.js';
 
 import chalk from 'chalk';
@@ -135,7 +134,7 @@ export function parseInspectTarget(value: string | undefined): InspectTarget {
     reference: {
       serverName,
       toolName,
-      qualifiedName: buildUri(serverName, toolName, MCP_URI_SEPARATOR),
+      qualifiedName: buildPublicToolName(serverName, toolName),
     },
   };
 }

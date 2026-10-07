@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,7 +54,6 @@ describe('official client gateway bridge', () => {
   });
 
   it.each([
-    ['auth/metadata-default', '2025-11-25', undefined],
     ['http-standard-headers', '2026-07-28', undefined],
     ['json-schema-ref-no-deref', '2026-07-28', undefined],
     [
@@ -143,52 +142,43 @@ describe('official client gateway bridge', () => {
   });
 
   it.each([
-    [503, 'awaiting_oauth', 'gateway-rejected'],
-    [503, 'loading', 'harness-defect'],
-    [500, 'loading', 'harness-defect'],
+    ['auth/metadata-default', '2025-11-25', undefined],
+    ['auth/pre-registration', '2025-11-25', { client_id: 'registered-client', client_secret: 'private-secret' }],
+    [
+      'auth/iss-wrong-issuer',
+      '2026-07-28',
+      { issuer: 'http://localhost:99', authorization_servers: ['http://localhost:99'] },
+    ],
   ] as const)(
-    'classifies auth health %s with backend state %s as %s',
-    async (healthStatus, backendState, expectedStatus) => {
+    'blocks %s as an OAuth fixture gap before starting any gateway or client',
+    async (scenario, revision, context) => {
       const scratch = await mkdtemp(join(tmpdir(), 'official-client-bridge-'));
-      const fixture = join(scratch, 'fixture.mjs');
-      const pendingGateway = join(scratch, 'pending-gateway.mjs');
-      await writeFile(
-        fixture,
-        `process.stderr.write('{"classification":"gateway-rejected"}\\n'); process.exitCode = 1;\n`,
-        'utf8',
-      );
-      await writeFile(
-        pendingGateway,
-        `import { createServer } from 'node:http';\n` +
-          `const port = Number(process.argv[process.argv.indexOf('--port') + 1]);\n` +
-          `const healthStatus = ${healthStatus};\n` +
-          `const backendState = '${backendState}';\n` +
-          `const server = createServer((request, response) => { request.resume(); if (request.url === '/health/ready') response.writeHead(healthStatus).end(); else if (request.url === '/health/mcp/official_conformance' && healthStatus === 503) response.writeHead(401, { 'content-type': 'application/json' }).end(JSON.stringify({ name: 'official_conformance', state: backendState })); else response.writeHead(500).end(); if (healthStatus !== 503 || (request.url === '/health/mcp/official_conformance' && backendState !== 'awaiting_oauth')) setImmediate(() => server.close(() => process.exit(0))); });\n` +
-          `server.listen(port, '127.0.0.1');\n` +
-          `process.once('SIGTERM', () => server.close(() => process.exit(0)));\n`,
-        'utf8',
-      );
       try {
-        const execution = execFileAsync(
-          process.execPath,
-          [bridge, fixture, pendingGateway, scratch, 'http://localhost:9/mcp'],
-          {
-            env: {
-              ...process.env,
-              MCP_CONFORMANCE_SCENARIO: 'auth/pre-registration',
-              MCP_CONFORMANCE_PROTOCOL_VERSION: '2025-11-25',
-              MCP_CONFORMANCE_CONTEXT: JSON.stringify({
-                client_id: 'pre-registered-client',
-                client_secret: 'pre-registered-secret',
-              }),
+        await expect(
+          execFileAsync(
+            process.execPath,
+            [bridge, '/missing-fixture', '/missing-gateway', scratch, 'http://localhost:9/mcp'],
+            {
+              env: {
+                ...process.env,
+                MCP_CONFORMANCE_SCENARIO: scenario,
+                MCP_CONFORMANCE_PROTOCOL_VERSION: revision,
+                ...(context ? { MCP_CONFORMANCE_CONTEXT: JSON.stringify(context) } : {}),
+              },
+              timeout: 15_000,
             },
-            timeout: 15_000,
-          },
-        );
-        await expect(execution).rejects.toMatchObject({ code: 1 });
-        await expect(readFile(join(scratch, 'auth%2Fpre-registration.json'), 'utf8')).resolves.toContain(
-          `"status":"${expectedStatus}"`,
-        );
+          ),
+        ).rejects.toMatchObject({ code: 1 });
+        const name = `${encodeURIComponent(scenario)}.json`;
+        expect(await readdir(scratch)).toEqual([name]);
+        const status = JSON.parse(await readFile(join(scratch, name), 'utf8'));
+        expect(status).toEqual({
+          scenario,
+          status: 'fixture-defect',
+          reason: 'oauth-fixture-context-unavailable',
+        });
+        expect(JSON.stringify(status)).not.toContain('private-secret');
+        expect(JSON.stringify(status)).not.toContain('localhost:99');
       } finally {
         await rm(scratch, { recursive: true, force: true });
       }

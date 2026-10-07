@@ -185,6 +185,8 @@ This page provides a complete reference for all variables available in custom in
 - **Customizable**: Can be overridden in configuration
 - **Example**: `"{server}::{tool}"`
 
+This pattern describes the usual name. Use the actual names returned by `tools/list`: names that exceed the protocol length or character constraints use a stable compact form. Changing this instruction-template variable does not rename advertised tools.
+
 ### <span v-pre>`{{examples}}`</span>
 
 - **Type**: `array<ToolExample>`

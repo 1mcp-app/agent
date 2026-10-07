@@ -4,7 +4,10 @@ import {
   unregisterCapabilityPaginationConnections,
 } from '@src/core/capabilities/capabilityPagination.js';
 import type { CatalogEntry } from '@src/core/capabilities/catalogGeneration.js';
-import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
+import {
+  acquireRuntimeCapabilityCatalog,
+  isIssuedRuntimeResourceEntry,
+} from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { ClientStatus, type InboundConnection, type OutboundConnection } from '@src/core/types/index.js';
 import { captureJson } from '@src/core/validation/schemaPolicy.js';
 import { hasInteractionCapability } from '@src/gateway/interactions/interactionCapabilities.js';
@@ -38,7 +41,14 @@ export async function withPrivateInteractionConnection<T>(
   entry: CatalogEntry,
   operation: (connection: OutboundConnection) => Promise<T>,
   assertCurrent?: () => void,
+  issuedResourceRead?: CatalogEntry,
 ): Promise<T> {
+  if (issuedResourceRead !== undefined) {
+    if (issuedResourceRead !== entry) throw new McpError(-32000, 'interaction_lost');
+    if (entry.route.kind !== 'resources') throw new McpError(-32000, 'interaction_lost');
+    if (!isIssuedRuntimeResourceEntry(entry)) throw new McpError(-32000, 'interaction_lost');
+    if (!assertCurrent) throw new McpError(-32000, 'interaction_lost');
+  }
   const adapter = source.adapter;
   const observed = new Map([[entry.route.connectionKey, source]]);
   registerCapabilityPaginationNotifications(observed, source);
@@ -54,7 +64,16 @@ export async function withPrivateInteractionConnection<T>(
     assertCurrent?.();
   };
   try {
-    return await withSelectedInteractionConnection(source, inbound, extra, entry, operation, assertProviderCurrent);
+    if (issuedResourceRead) assertProviderCurrent();
+    return await withSelectedInteractionConnection(
+      source,
+      inbound,
+      extra,
+      entry,
+      operation,
+      assertProviderCurrent,
+      issuedResourceRead,
+    );
   } finally {
     unregisterCapabilityPaginationConnections(observed);
   }
@@ -67,7 +86,8 @@ async function withSelectedInteractionConnection<T>(
   extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
   entry: CatalogEntry,
   operation: (connection: OutboundConnection) => Promise<T>,
-  assertCurrent?: () => void,
+  assertCurrent: () => void,
+  issuedResourceRead?: CatalogEntry,
 ): Promise<T> {
   if (!inbound.canonicalSchemaProjection || source.adapter.protocol?.era === 'modern') {
     return withRequestInteractionScope(source, inbound, extra, () => operation(source), undefined, assertCurrent);
@@ -126,22 +146,28 @@ async function withSelectedInteractionConnection<T>(
     setRequestInteractionProfile(privateSource, capabilities);
     return await Promise.race([
       withDerivedInteractionRoute(source.adapter, privateSource.adapter, async () => {
-        // A changed contract on the new peer must fail before any side-effecting operation.
-        const snapshot = await acquireRuntimeCapabilityCatalog(
-          new Map([[entry.route.connectionKey, privateSource]]),
-          undefined,
-          { signal },
-        );
-        const matches = snapshot.generation.entries.filter(
-          (candidate) =>
-            candidate.route.kind === entry.route.kind &&
-            candidate.route.upstreamIdentity === entry.route.upstreamIdentity,
-        );
-        if (
-          matches.length !== 1 ||
-          captureJson(matches[0].sourceObject, false, true).json !== captureJson(entry.sourceObject, false, true).json
-        ) {
-          throw new McpError(-32000, 'interaction_lost');
+        if (issuedResourceRead) {
+          // An issued URI has no discovery record. Its original owner and provider remain authoritative.
+          if (!privateSource.capabilities?.resources) throw new McpError(-32000, 'interaction_lost');
+          assertCurrent();
+        } else {
+          // A changed contract on the new peer must fail before any side-effecting operation.
+          const snapshot = await acquireRuntimeCapabilityCatalog(
+            new Map([[entry.route.connectionKey, privateSource]]),
+            undefined,
+            { signal },
+          );
+          const matches = snapshot.generation.entries.filter(
+            (candidate) =>
+              candidate.route.kind === entry.route.kind &&
+              candidate.route.upstreamIdentity === entry.route.upstreamIdentity,
+          );
+          if (
+            matches.length !== 1 ||
+            captureJson(matches[0].sourceObject, false, true).json !== captureJson(entry.sourceObject, false, true).json
+          ) {
+            throw new McpError(-32000, 'interaction_lost');
+          }
         }
         signal.throwIfAborted();
         return withRequestInteractionScope(

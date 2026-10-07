@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { ConnectionResolver, type TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { getDisabledSourceToolError, isSourceToolDisabled } from '@src/core/server/disabledTools.js';
+import { parseTemplateConnectionKey } from '@src/core/server/templateIdentity.js';
 import { applySourceToolDescription } from '@src/core/server/toolDescriptionOverrides.js';
 import {
   ClientStatus,
@@ -23,6 +24,7 @@ import logger from '@src/logger/logger.js';
 import { ownData } from '@src/observability/privacy/fields.js';
 import { ErrorCode, type Tool } from '@src/sdk/contracts/index.js';
 import { MCPError } from '@src/utils/core/errorTypes.js';
+import { buildPublicToolName } from '@src/utils/core/toolNames.js';
 
 import {
   CAPABILITY_PAGINATION_META_KEY,
@@ -120,7 +122,45 @@ const NEVER_REFRESH: CapabilityRefreshFacts = {
   shouldNotifyListChanged: false,
 };
 
+declare const catalogCursorOwnerBrand: unique symbol;
+export interface CatalogCursorOwner {
+  readonly [catalogCursorOwnerBrand]: true;
+}
+
+const catalogCursorOwners = new WeakMap<CatalogCursorOwner, number>();
+const contextCatalogCursorOwners = new WeakMap<object, CatalogCursorOwner>();
+const visibilityCatalogCursorOwners = new WeakMap<CapabilityVisibility, CatalogCursorOwner>();
+
+/** Listener-owned authority; never reconstructed from transport fields or serialized data. */
+export function createCatalogCursorOwner(): CatalogCursorOwner {
+  const owner = Object.freeze({}) as CatalogCursorOwner;
+  catalogCursorOwners.set(owner, Date.now() + TOOL_LISTING_TTL_MS);
+  return owner;
+}
+
+export function revokeCatalogCursorOwner(owner: CatalogCursorOwner): void {
+  catalogCursorOwners.delete(owner);
+}
+
+export function isCatalogCursorOwnerCurrent(owner: CatalogCursorOwner): boolean {
+  const expiresAt = catalogCursorOwners.get(owner);
+  return expiresAt !== undefined && expiresAt > Date.now();
+}
+
+export function bindCatalogCursorOwner(context: object, owner: CatalogCursorOwner): void {
+  if (!isCatalogCursorOwnerCurrent(owner))
+    throw new MCPError('Capability cursor owner is unavailable', ErrorCode.InvalidParams);
+  contextCatalogCursorOwners.set(context, owner);
+}
+
+export function attachCatalogCursorOwner(visibility: CapabilityVisibility, context: object | undefined): void {
+  const owner = context && contextCatalogCursorOwners.get(context);
+  // Preserve revoked identity: a request cannot silently fall back to session authority.
+  if (owner) visibilityCatalogCursorOwners.set(visibility, owner);
+}
+
 interface ToolListingSnapshot {
+  owner?: CatalogCursorOwner;
   registry: ToolRegistry;
   generation: string;
   visibility: string;
@@ -255,12 +295,21 @@ export class CapabilityCatalog {
     queryOptions: CapabilityCatalogQueryOptions = {},
   ): Promise<VisibleToolListResult> {
     const continuation = this.decodeToolListingCursor(options.cursor);
+    const effectiveVisibility = visibility ?? this.deps.defaultVisibility;
+    const owner = effectiveVisibility && visibilityCatalogCursorOwners.get(effectiveVisibility);
+    const assertOwnerCurrent = () => {
+      if (owner && !isCatalogCursorOwnerCurrent(owner)) {
+        throw new MCPError('Capability cursor owner is unavailable', ErrorCode.InvalidParams);
+      }
+    };
+    assertOwnerCurrent();
     const visibilityKey = this.toolListingVisibility(visibility);
     if (continuation) {
       const snapshot = this.toolListings.get(continuation.walk);
       if (
         !snapshot ||
         snapshot.expiresAt <= Date.now() ||
+        snapshot.owner !== owner ||
         snapshot.visibility !== visibilityKey ||
         snapshot.generation !== getCapabilityPaginationGeneration(this.deps.outboundConnections, 'tools') ||
         !snapshot.registry.isCurrent()
@@ -350,12 +399,14 @@ export class CapabilityCatalog {
           if (error.retryable) throw error;
         }
       }
+      assertOwnerCurrent();
       if (!isListingCurrent()) {
         throw new MCPError('Capability catalog changed during listing', -32000, { retryable: true });
       }
       const generation = getCapabilityPaginationGeneration(this.deps.outboundConnections, 'tools');
       const meta = this.toolAdmissionMeta(registry.getListingMeta(), timedOutSources, generation);
       const snapshot: ToolListingSnapshot = {
+        owner,
         registry: ToolRegistry.fromToolsWithServer(admitted, meta).withConnections(
           registry.getConnections(),
           () =>
@@ -376,13 +427,14 @@ export class CapabilityCatalog {
       };
       const walk = randomUUID();
       for (const [id, saved] of this.toolListings) {
-        if (saved.expiresAt <= Date.now()) this.toolListings.delete(id);
+        if (saved.expiresAt <= Date.now() || (saved.owner && !isCatalogCursorOwnerCurrent(saved.owner)))
+          this.toolListings.delete(id);
       }
       const result = this.toolListingPage(walk, snapshot, { ...options, cursor: undefined }, visibility);
       if (result.nextCursor) {
         snapshot.bytes = Buffer.byteLength(JSON.stringify(snapshot.registry.getAllTools()));
         const visibilityListings = Array.from(this.toolListings.values()).filter(
-          (saved) => saved.visibility === visibilityKey,
+          (saved) => saved.owner === owner && saved.visibility === visibilityKey,
         );
         const visibilityBytes = visibilityListings.reduce((total, saved) => total + saved.bytes, 0);
         if (visibilityListings.length >= MAX_VISIBILITY_TOOL_LISTINGS) {
@@ -398,12 +450,17 @@ export class CapabilityCatalog {
         if (this.toolListings.size >= MAX_TOOL_LISTING_SNAPSHOTS) {
           throw new MCPError('Capability cursor capacity exceeded', -32000);
         }
+        assertOwnerCurrent();
         this.toolListings.set(walk, snapshot);
+        // Only publication of a new bounded walk grants its full issuance lifetime.
+        // Continuations retain their snapshot deadline and cannot renew authority.
+        if (owner) catalogCursorOwners.set(owner, Math.max(catalogCursorOwners.get(owner)!, snapshot.expiresAt));
       }
       return result;
     } finally {
       this.listingState.activeAttempts.delete(attempt);
       await this.pruneToolAdmissionOutcomes(queryOptions.toolRegistry);
+      assertOwnerCurrent();
     }
   }
 
@@ -506,8 +563,12 @@ export class CapabilityCatalog {
 
   private toolListingVisibility(visibility?: CapabilityVisibility): string {
     const effective = visibility ?? this.deps.defaultVisibility;
+    const owner = effective && visibilityCatalogCursorOwners.get(effective);
+    const staticCandidates =
+      effective &&
+      Array.from(effective.serverCandidates.keys()).every((key) => parseTemplateConnectionKey(key).kind === 'static');
     return JSON.stringify({
-      sessionId: effective?.sessionId,
+      sessionId: owner && staticCandidates ? undefined : effective?.sessionId,
       candidates: effective ? Array.from(effective.serverCandidates).sort(([a], [b]) => a.localeCompare(b)) : null,
       filters: effective?.filterSelection,
     });
@@ -986,7 +1047,7 @@ export class CapabilityCatalog {
         kind: 'tools',
         origin: 'external',
         upstreamIdentity: tool.name,
-        publicIdentity: tool.route?.publicIdentity ?? `${tool.server}_1mcp_${tool.name}`,
+        publicIdentity: tool.route?.publicIdentity ?? buildPublicToolName(tool.server, tool.name),
         server: tool.server,
         toolName: tool.name,
         connectionKey: registryConnectionKey,
@@ -1004,7 +1065,7 @@ export class CapabilityCatalog {
       kind: 'tools',
       origin: 'external',
       upstreamIdentity: tool.name,
-      publicIdentity: tool.route?.publicIdentity ?? `${tool.server}_1mcp_${tool.name}`,
+      publicIdentity: tool.route?.publicIdentity ?? buildPublicToolName(tool.server, tool.name),
       server: tool.server,
       toolName: tool.name,
       connectionKey: result.key,

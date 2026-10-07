@@ -10,6 +10,7 @@ import {
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import {
   ElicitResultSchema,
+  CreateMessageResultSchema,
   ResultSchema,
   ProgressNotificationSchema,
   LoggingMessageNotificationSchema,
@@ -25,7 +26,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import cors from "cors";
 import { randomUUID, createHmac } from "crypto";
 const resourceSubscriptions = /* @__PURE__ */ new Set();
-const watchedResourceContent = "Watched resource content";
+let watchedResourceContent = "Watched resource content";
+let watchedResourceRevision = 0;
 const MRTR_STATE_SECRET = "conformance-mrtr-secret-" + randomUUID();
 function signMrtState(payload) {
   const data = JSON.stringify(payload);
@@ -46,6 +48,17 @@ function getMrtInputText(inputResponse, field) {
   const content = inputResponse?.content;
   const value = content?.[field];
   return typeof value === "string" ? value : "unknown";
+}
+const interactiveToolDefinitions = new Map();
+function createInteractiveToolHandler(name, request, resultSchema, render) {
+  interactiveToolDefinitions.set(name, { request, resultSchema, render });
+  return async (args, { sendRequest }) => {
+    try {
+      return render(await sendRequest(request(args), resultSchema));
+    } catch (error) {
+      return { content: [{ type: "text", text: `${name === "test_sampling" ? "Sampling" : "Elicitation"} not supported or error: ${error.message}` }] };
+    }
+  };
 }
 const transports = {};
 const servers = {};
@@ -407,10 +420,9 @@ function createMcpServer() {
         prompt: z.string().describe("The prompt to send to the LLM")
       }
     },
-    async (args, { sendRequest }) => {
-      try {
-        const result = await sendRequest(
-          {
+    createInteractiveToolHandler(
+      "test_sampling",
+      (args) => ({
             method: "sampling/createMessage",
             params: {
               messages: [
@@ -424,30 +436,10 @@ function createMcpServer() {
               ],
               maxTokens: 100
             }
-          },
-          z.object({ method: z.literal("sampling/createMessage") }).passthrough()
-        );
-        const samplingResult = result;
-        const modelResponse = samplingResult.content?.text || samplingResult.message?.content?.text || "No response";
-        return {
-          content: [
-            {
-              type: "text",
-              text: `LLM response: ${modelResponse}`
-            }
-          ]
-        };
-      } catch (error) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Sampling not supported or error: ${error.message}`
-            }
-          ]
-        };
-      }
-    }
+          }),
+      CreateMessageResultSchema,
+      (result) => ({ content: [{ type: "text", text: `LLM response: ${result.content?.text || result.message?.content?.text || "No response"}` }] })
+    )
   );
   mcpServer.registerTool(
     "test_elicitation",
@@ -457,10 +449,9 @@ function createMcpServer() {
         message: z.string().describe("The message to show the user")
       }
     },
-    async (args, { sendRequest }) => {
-      try {
-        const result = await sendRequest(
-          {
+    createInteractiveToolHandler(
+      "test_elicitation",
+      (args) => ({
             method: "elicitation/create",
             params: {
               message: args.message,
@@ -475,29 +466,10 @@ function createMcpServer() {
                 required: ["response"]
               }
             }
-          },
-          ElicitResultSchema
-        );
-        const elicitResult = result;
-        return {
-          content: [
-            {
-              type: "text",
-              text: `User response: action=${elicitResult.action}, content=${JSON.stringify(elicitResult.content || {})}`
-            }
-          ]
-        };
-      } catch (error) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Elicitation not supported or error: ${error.message}`
-            }
-          ]
-        };
-      }
-    }
+          }),
+      ElicitResultSchema,
+      (result) => ({ content: [{ type: "text", text: `User response: action=${result.action}, content=${JSON.stringify(result.content || {})}` }] })
+    )
   );
   mcpServer.registerTool(
     "test_elicitation_sep1034_defaults",
@@ -505,10 +477,9 @@ function createMcpServer() {
       description: "Tests elicitation with default values per SEP-1034",
       inputSchema: {}
     },
-    async (_args, { sendRequest }) => {
-      try {
-        const result = await sendRequest(
-          {
+    createInteractiveToolHandler(
+      "test_elicitation_sep1034_defaults",
+      () => ({
             method: "elicitation/create",
             params: {
               message: "Please review and update the form fields with defaults",
@@ -545,29 +516,10 @@ function createMcpServer() {
                 required: []
               }
             }
-          },
-          ElicitResultSchema
-        );
-        const elicitResult = result;
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Elicitation completed: action=${elicitResult.action}, content=${JSON.stringify(elicitResult.content || {})}`
-            }
-          ]
-        };
-      } catch (error) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Elicitation not supported or error: ${error.message}`
-            }
-          ]
-        };
-      }
-    }
+          }),
+      ElicitResultSchema,
+      (result) => ({ content: [{ type: "text", text: `Elicitation completed: action=${result.action}, content=${JSON.stringify(result.content || {})}` }] })
+    )
   );
   mcpServer.registerTool(
     "test_elicitation_sep1330_enums",
@@ -575,10 +527,9 @@ function createMcpServer() {
       description: "Tests elicitation with enum schema improvements per SEP-1330",
       inputSchema: {}
     },
-    async (_args, { sendRequest }) => {
-      try {
-        const result = await sendRequest(
-          {
+    createInteractiveToolHandler(
+      "test_elicitation_sep1330_enums",
+      () => ({
             method: "elicitation/create",
             params: {
               message: "Please select options from the enum fields",
@@ -637,29 +588,10 @@ function createMcpServer() {
                 required: []
               }
             }
-          },
-          ElicitResultSchema
-        );
-        const elicitResult = result;
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Elicitation completed: action=${elicitResult.action}, content=${JSON.stringify(elicitResult.content || {})}`
-            }
-          ]
-        };
-      } catch (error) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Elicitation not supported or error: ${error.message}`
-            }
-          ]
-        };
-      }
-    }
+          }),
+      ElicitResultSchema,
+      (result) => ({ content: [{ type: "text", text: `Elicitation completed: action=${result.action}, content=${JSON.stringify(result.content || {})}` }] })
+    )
   );
   mcpServer.registerTool(
     "json_schema_2020_12_tool",
@@ -1066,6 +998,9 @@ app.post("/mcp", async (req, res) => {
       const trackingSubId = String(id ?? "sub-token-stateless-123");
       const wantsTools = requestedNotifications.toolsListChanged === true;
       const wantsPrompts = requestedNotifications.promptsListChanged === true;
+      const watchedUris = Array.isArray(requestedNotifications.resourceSubscriptions)
+        ? [...new Set(requestedNotifications.resourceSubscriptions.filter((uri) => uri === "test://watched-resource"))]
+        : [];
       const ackFrame = {
         jsonrpc: "2.0",
         method: "notifications/subscriptions/acknowledged",
@@ -1073,7 +1008,8 @@ app.post("/mcp", async (req, res) => {
           _meta: { "io.modelcontextprotocol/subscriptionId": trackingSubId },
           notifications: {
             ...wantsTools ? { toolsListChanged: true } : {},
-            ...wantsPrompts ? { promptsListChanged: true } : {}
+            ...wantsPrompts ? { promptsListChanged: true } : {},
+            ...watchedUris.length ? { resourceSubscriptions: watchedUris } : {}
           }
         }
       };
@@ -1082,10 +1018,22 @@ app.post("/mcp", async (req, res) => {
         res,
         subscriptionId: trackingSubId,
         wantsTools,
-        wantsPrompts
+        wantsPrompts,
+        watchedUris
       };
       activeListenStreams.push(stream);
+      const updates = watchedUris.length ? setInterval(() => {
+        watchedResourceContent = `Watched resource content revision ${++watchedResourceRevision}`;
+        for (const uri of watchedUris) {
+          res.write("event: message\ndata: " + JSON.stringify({
+            jsonrpc: "2.0", method: "notifications/resources/updated",
+            params: { uri, _meta: { "io.modelcontextprotocol/subscriptionId": trackingSubId } }
+          }) + "\n\n");
+        }
+      }, 3000) : undefined;
+      updates?.unref();
       res.on("close", () => {
+        clearInterval(updates);
         const index = activeListenStreams.indexOf(stream);
         if (index !== -1) activeListenStreams.splice(index, 1);
       });
@@ -1103,7 +1051,7 @@ app.post("/mcp", async (req, res) => {
             prompts: { listChanged: true },
             // resources/list, resources/templates/list and resources/read are
             // served on this path, so the capability must be declared too.
-            resources: {}
+            resources: { subscribe: true }
           },
           // Spec PR #3002: server identity lives in the result `_meta`.
           _meta: {
@@ -1364,6 +1312,38 @@ app.post("/mcp", async (req, res) => {
       const name = params.name;
       const inputResponses = params.inputResponses;
       const requestState = params.requestState;
+      if (!interactiveToolDefinitions.size) createMcpServer();
+      const interactive = interactiveToolDefinitions.get(name);
+      if (interactive) {
+        const args = params.arguments || {};
+        const interaction = interactive.request(args);
+        const capability = interaction.method === "sampling/createMessage" ? "sampling" : "elicitation";
+        if (!meta["io.modelcontextprotocol/clientCapabilities"]?.[capability]) {
+          return res.status(400).json({ jsonrpc: "2.0", id, error: {
+            code: -32021, message: "Interaction capability required",
+            data: { requiredCapabilities: { [capability]: {} } }
+          } });
+        }
+        const binding = JSON.stringify({ name, args });
+        if (inputResponses !== undefined || requestState !== undefined) {
+          const state = verifyMrtState(requestState);
+          const parsed = interactive.resultSchema.safeParse(inputResponses?.callback);
+          if (state?.kind !== "legacy-callback" || state.binding !== binding || !parsed.success ||
+              !inputResponses || Object.keys(inputResponses).length !== 1) {
+            return res.status(400).json({ jsonrpc: "2.0", id,
+              error: { code: -32602, message: "Invalid callback continuation" } });
+          }
+          return sendStatelessJson(res, method, { jsonrpc: "2.0", id, result: interactive.render(parsed.data) });
+        }
+        return sendStatelessJson(res, method, { jsonrpc: "2.0", id, result: {
+          resultType: "input_required",
+          inputRequests: { callback: {
+            ...interaction,
+            params: { ...interaction.params, ...(capability === "elicitation" ? { mode: "form" } : {}) }
+          } },
+          requestState: signMrtState({ kind: "legacy-callback", binding })
+        } });
+      }
       if (name === "test_missing_capability") {
         const clientCaps = meta["io.modelcontextprotocol/clientCapabilities"];
         if (!clientCaps?.sampling) {
@@ -1805,48 +1785,47 @@ app.post("/mcp", async (req, res) => {
       }
       if (name === "test_streaming_elicitation") {
         res.writeHead(200, {
-          "Content-Type": "application/json",
-          "Transfer-Encoding": "chunked"
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache"
         });
         res.write(
-          JSON.stringify({
+          "event: message\ndata: " + JSON.stringify({
             jsonrpc: "2.0",
             method: "notifications/progress",
-            // Emits standard progress notice
-            params: { progressToken: "token-abc", total: 100, value: 50 }
-          }) + "\n"
+            params: { progressToken: params._meta?.progressToken ?? "token-abc", total: 100, progress: 50 }
+          }) + "\n\n"
         );
         return res.end(
-          JSON.stringify({
+          "event: message\ndata: " + JSON.stringify({
             jsonrpc: "2.0",
             id,
-            result: { content: [{ type: "text", text: "Streaming complete" }] }
-          })
+            result: { resultType: "complete", content: [{ type: "text", text: "Streaming complete" }] }
+          }) + "\n\n"
         );
       }
       if (name === "test_logging_tool") {
         res.writeHead(200, {
-          "Content-Type": "application/json",
-          "Transfer-Encoding": "chunked"
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache"
         });
         if (meta && meta["io.modelcontextprotocol/logLevel"]) {
           res.write(
-            JSON.stringify({
+            "event: message\ndata: " + JSON.stringify({
               jsonrpc: "2.0",
               method: "notifications/message",
               params: {
                 level: "info",
-                text: "Diagnostic trace logging activated"
+                data: "Diagnostic trace logging activated"
               }
-            }) + "\n"
+            }) + "\n\n"
           );
         }
         return res.end(
-          JSON.stringify({
+          "event: message\ndata: " + JSON.stringify({
             jsonrpc: "2.0",
             id,
-            result: { content: [{ type: "text", text: "Logging evaluated" }] }
-          })
+            result: { resultType: "complete", content: [{ type: "text", text: "Logging evaluated" }] }
+          }) + "\n\n"
         );
       }
       if (name === "test_trigger_tool_change" || name === "test_trigger_prompt_change") {

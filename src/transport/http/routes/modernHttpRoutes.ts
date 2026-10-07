@@ -1,18 +1,37 @@
 import {
   createMcpHandler,
+  fromJsonSchema,
   hostHeaderValidationResponse,
   isLegacyRequest,
+  type JsonSchemaType,
+  McpServer,
   originValidationResponse,
   ProtocolError,
   Server,
   type ServerContext,
 } from '@modelcontextprotocol/server';
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION, STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
+import {
+  type CatalogCursorOwner,
+  createCatalogCursorOwner,
+  isCatalogCursorOwnerCurrent,
+  revokeCatalogCursorOwner,
+} from '@src/core/capabilities/capabilityCatalog.js';
+import {
+  createResourceRouteOwner,
+  type ResourceRouteOwner,
+  revokeResourceRouteOwner,
+} from '@src/core/capabilities/capabilityVisibility.js';
+import {
+  MAX_RUNTIME_CATALOG_SCOPES,
+  pruneRuntimeResourceRoutes,
+  RUNTIME_CATALOG_SCOPE_TTL_MS,
+} from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
 import type { InboundConnectionConfig } from '@src/core/types/index.js';
 import { ModernInboundEraAdapter } from '@src/gateway/adapters/modern/modernInboundEraAdapter.js';
@@ -37,7 +56,9 @@ import {
 } from '@src/gateway/interactions/validateInteractionResponse.js';
 import type { GatewayInteractionRequest } from '@src/gateway/ports/outboundEraAdapter.js';
 import { withMcpTraceContext } from '@src/observability/tracing/context.js';
+import { withRequestProgress } from '@src/sdk/contracts/requestProgress.js';
 import {
+  type AuthInfo,
   getAuthInfo,
   getPresetName,
   getTagExpression,
@@ -61,6 +82,7 @@ import {
   getModernSubscriptionCapabilities,
   serveModernSubscription,
 } from './modernSubscriptions.js';
+import { resolveModernToolHeaderRegistry, toolHeaderProjectionValidator } from './modernToolHeaderRegistry.js';
 
 const DEFAULT_MODERN_REQUEST_TIMEOUT_MS = 60_000;
 
@@ -92,6 +114,8 @@ export type ModernInboundBridgeFactory = (
   serverManager: ServerManager,
   config: InboundConnectionConfig,
   options?: {
+    resourceOwner?: ResourceRouteOwner;
+    catalogCursorOwner?: CatalogCursorOwner;
     subscriptionSignal?: AbortSignal;
     subscriptionListKinds?: readonly ('tools' | 'resources' | 'prompts')[];
     subscriptionNotification?: (notification: { method: string; params?: Record<string, unknown> }) => void;
@@ -150,6 +174,14 @@ function gatewayFailureError(failure: GatewayFailure): ProtocolError {
 
 let activeModernRequests = 0;
 const MAX_ACTIVE_MODERN_REQUESTS = 256;
+let activeModernToolHeaderAdmissions = 0;
+const MAX_MODERN_TOOL_HEADER_ADMISSIONS = 256;
+
+function requestCapacityError(): ProtocolError {
+  return new ProtocolError(-32000, 'Gateway request capacity exceeded', {
+    'app.1mcp/failure': { kind: 'transport', code: 'gateway_overloaded' },
+  });
+}
 
 async function dispatchGateway(
   method: GatewayOperation,
@@ -307,6 +339,74 @@ export function setupModernHttpRoutes(
   requestPolicy: ModernHttpRequestPolicy,
   requestTimeoutMs = DEFAULT_MODERN_REQUEST_TIMEOUT_MS,
 ): void {
+  const catalogOwners = new Map<
+    string,
+    {
+      resourceOwner?: ResourceRouteOwner;
+      resourceLastAccess?: number;
+      cursorOwner?: CatalogCursorOwner;
+    }
+  >();
+  let catalogOwnersClosed = false;
+  const catalogOwnerFor = (auth: AuthInfo | undefined, label: string) => {
+    if (catalogOwnersClosed) throw new ProtocolError(-32000, `${label} is unavailable`);
+    const now = Date.now();
+    for (const [key, retained] of catalogOwners) {
+      if (retained.resourceOwner && now - retained.resourceLastAccess! >= RUNTIME_CATALOG_SCOPE_TTL_MS) {
+        revokeResourceRouteOwner(retained.resourceOwner);
+        delete retained.resourceOwner;
+        delete retained.resourceLastAccess;
+      }
+      if (retained.cursorOwner && !isCatalogCursorOwnerCurrent(retained.cursorOwner)) {
+        revokeCatalogCursorOwner(retained.cursorOwner);
+        delete retained.cursorOwner;
+      }
+      if (!retained.resourceOwner && !retained.cursorOwner) catalogOwners.delete(key);
+    }
+    // Only middleware-verified grant facts enter this private key. Anonymous requests retain listener authority.
+    const key = auth
+      ? createHash('sha256')
+          .update(
+            JSON.stringify([
+              auth.token,
+              auth.clientId,
+              [...new Set(auth.grantedScopes)].sort(),
+              [...new Set(auth.grantedTags)].sort(),
+            ]),
+          )
+          .digest('hex')
+      : 'anonymous';
+    const retained = catalogOwners.get(key);
+    if (retained) return retained;
+    if (catalogOwners.size >= MAX_RUNTIME_CATALOG_SCOPES) throw new ProtocolError(-32000, `${label} capacity exceeded`);
+    const created: {
+      resourceOwner?: ResourceRouteOwner;
+      resourceLastAccess?: number;
+      cursorOwner?: CatalogCursorOwner;
+    } = {};
+    catalogOwners.set(key, created);
+    return created;
+  };
+  const resourceOwnerFor = (auth: AuthInfo | undefined): ResourceRouteOwner => {
+    const retained = catalogOwnerFor(auth, 'Resource route owner');
+    retained.resourceOwner ??= createResourceRouteOwner();
+    retained.resourceLastAccess = Date.now();
+    return retained.resourceOwner;
+  };
+  const cursorOwnerFor = (auth: AuthInfo | undefined): CatalogCursorOwner => {
+    const retained = catalogOwnerFor(auth, 'Capability cursor owner');
+    retained.cursorOwner ??= createCatalogCursorOwner();
+    return retained.cursorOwner;
+  };
+  serverManager.registerCleanup(async () => {
+    catalogOwnersClosed = true;
+    for (const retained of catalogOwners.values()) {
+      if (retained.resourceOwner) revokeResourceRouteOwner(retained.resourceOwner);
+      if (retained.cursorOwner) revokeCatalogCursorOwner(retained.cursorOwner);
+    }
+    catalogOwners.clear();
+    pruneRuntimeResourceRoutes(serverManager.getClients());
+  });
   const interactions = new InteractionBroker({
     validate: validateInteractionResponse,
     validateRequest: validateInteractionRequest,
@@ -381,159 +481,235 @@ export function setupModernHttpRoutes(
       const accepted = (req.get('accept') ?? '').split(',').map((value) => value.trim());
       const responseMode =
         accepted.includes('text/event-stream') && !accepted.includes('application/json') ? 'sse' : 'auto';
+      let activeHeaderRegistry: Awaited<ReturnType<typeof resolveModernToolHeaderRegistry>>;
+      let ownsHeaderAdmission = false;
       const handler = createMcpHandler(
-        () => {
-          const server = new Server(
-            { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
-            {
-              capabilities: {
-                ...getModernSubscriptionCapabilities(serverManager, config),
-                completions: {},
-              },
-            },
+        async () => {
+          // The SDK validates the envelope and standard headers before entering
+          // this factory. Bound live catalog observers before their first await.
+          if (method === 'tools/call') {
+            if (activeModernToolHeaderAdmissions >= MAX_MODERN_TOOL_HEADER_ADMISSIONS) {
+              // Throwing from the factory becomes an SDK internal error. Return
+              // an execution handler so the existing capacity error survives.
+              const overloaded = new Server(
+                { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
+                { capabilities: { tools: {} } },
+              );
+              overloaded.setRequestHandler('tools/call', async () => {
+                throw requestCapacityError();
+              });
+              return overloaded;
+            }
+            activeModernToolHeaderAdmissions++;
+            ownsHeaderAdmission = true;
+          }
+          const headerRegistry = await resolveModernToolHeaderRegistry(
+            serverManager,
+            config,
+            method,
+            (req.body as { params?: unknown } | null)?.params,
+            disconnect.controller.signal,
           );
+          activeHeaderRegistry = headerRegistry;
+          const capabilities = { ...getModernSubscriptionCapabilities(serverManager, config), completions: {} };
+          const product = new McpServer({ name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION }, { capabilities: {} });
+          const server = product.server;
+          server.registerCapabilities(capabilities);
+          const headerTool = headerRegistry?.headerTool;
+          if (headerTool) {
+            product.registerTool(
+              headerTool.name as string,
+              {
+                inputSchema: fromJsonSchema(headerTool.inputSchema as JsonSchemaType, toolHeaderProjectionValidator),
+              },
+              () => {
+                throw new Error('Tool execution requires the gateway handler');
+              },
+            );
+            // Registration defaults listChanged to true; retain the listener's
+            // actual subscription capability instead of advertising SDK defaults.
+            server.registerCapabilities({
+              tools: { ...capabilities.tools, listChanged: capabilities.tools?.listChanged },
+            });
+          }
+          // Install generic handlers last: the registry supplies header declarations,
+          // while the gateway remains responsible for all execution and wire results.
           for (const operation of gatewayOperationSchema.options) {
             server.setRequestHandler(operation, async (message, context: ServerContext) =>
-              withMcpTraceContext(
-                (req.body as { params?: unknown } | undefined)?.params,
-                async () => {
-                  if (activeModernRequests >= MAX_ACTIVE_MODERN_REQUESTS) {
-                    throw new ProtocolError(-32000, 'Gateway request capacity exceeded', {
-                      'app.1mcp/failure': {
-                        kind: 'transport',
-                        code: 'gateway_overloaded',
-                      },
-                    });
-                  }
-                  activeModernRequests++;
-                  try {
-                    const capabilities =
-                      (context.mcpReq.envelope as Record<string, unknown> | undefined)?.[
-                        'io.modelcontextprotocol/clientCapabilities'
-                      ] ?? {};
-                    const logLevel = (context.mcpReq.envelope as Record<string, unknown> | undefined)?.[
-                      'io.modelcontextprotocol/logLevel'
-                    ] as NonNullable<Parameters<ModernInboundBridgeFactory>[2]>['logLevel'];
-                    const binding = await createModernInteractionBinding(
-                      serverManager,
-                      config,
-                      operation,
-                      stripInboundRequestMeta(message.params),
-                      getAuthInfo(res),
-                      capabilities,
-                      context.mcpReq.signal,
-                    );
-                    const requestState = context.mcpReq.requestState();
-                    if (requestState !== undefined) {
-                      if (!binding || typeof requestState !== 'string')
-                        throw new ProtocolError(-32602, 'Interaction continuation rejected');
-                      return (await interactions.resume(
-                        requestState,
-                        binding,
-                        context.mcpReq.inputResponses,
-                        context.mcpReq.signal,
-                        async () =>
-                          JSON.stringify(binding) ===
-                            JSON.stringify(
-                              await createModernInteractionBinding(
-                                serverManager,
-                                config,
-                                operation,
-                                stripInboundRequestMeta(message.params),
-                                getAuthInfo(res),
-                                capabilities,
-                                context.mcpReq.signal,
-                              ),
-                            ) &&
-                          (await revalidateAuthInfo(getAuthInfo(res))) &&
-                          isModernInteractionBindingCurrent(binding),
-                      )) as never;
-                    }
-                    const deadline = Date.now() + requestTimeoutMs;
-                    if (binding) {
-                      const verifyBinding = async (signal: AbortSignal) => {
-                        const current = await createModernInteractionBinding(
-                          serverManager,
-                          config,
-                          operation,
-                          stripInboundRequestMeta(message.params),
-                          getAuthInfo(res),
-                          capabilities,
-                          signal,
-                        );
-                        if (JSON.stringify(current) !== JSON.stringify(binding)) {
-                          interactions.invalidate(binding);
-                          throw new ProtocolError(-32602, 'Interaction route or authority changed');
-                        }
-                      };
-                      return (await interactions.start(
-                        binding,
-                        deadline,
-                        async (interaction, signal, interactionRound) => {
-                          const unwatch = watchModernInteractionBinding(binding, () =>
-                            interactions.invalidate(binding),
+              withRequestProgress(
+                context.mcpReq._meta?.progressToken,
+                (notification) => context.mcpReq.notify(notification),
+                () =>
+                  withMcpTraceContext(
+                    (req.body as { params?: unknown } | undefined)?.params,
+                    async () => {
+                      if (activeModernRequests >= MAX_ACTIVE_MODERN_REQUESTS) {
+                        throw requestCapacityError();
+                      }
+                      activeModernRequests++;
+                      try {
+                        const resourceOwner =
+                          operation === 'resources/read' ? resourceOwnerFor(getAuthInfo(res)) : undefined;
+                        // Enabled lazy mode reserves this unprefixed operation for the internal
+                        // meta-tool catalog. Header-registry admission and the authoritative
+                        // handler still resolve and fence that internal route before execution.
+                        const nativeToolList =
+                          operation === 'tools/call' &&
+                          message.method === 'tools/call' &&
+                          message.params.name === 'tool_list' &&
+                          serverManager.getLazyLoadingOrchestrator?.()?.isEnabled() === true;
+                        const catalogCursorOwner = nativeToolList ? cursorOwnerFor(getAuthInfo(res)) : undefined;
+                        const capabilities =
+                          (context.mcpReq.envelope as Record<string, unknown> | undefined)?.[
+                            'io.modelcontextprotocol/clientCapabilities'
+                          ] ?? {};
+                        const logLevel = (context.mcpReq.envelope as Record<string, unknown> | undefined)?.[
+                          'io.modelcontextprotocol/logLevel'
+                        ] as NonNullable<Parameters<ModernInboundBridgeFactory>[2]>['logLevel'];
+                        // Native catalog reads have no provider interaction route to discover.
+                        const binding = nativeToolList
+                          ? undefined
+                          : await createModernInteractionBinding(
+                              serverManager,
+                              config,
+                              operation,
+                              stripInboundRequestMeta(message.params),
+                              getAuthInfo(res),
+                              capabilities,
+                              context.mcpReq.signal,
+                              resourceOwner,
+                            );
+                        const dispatch = (...args: Parameters<typeof dispatchGateway>) => {
+                          const execute = () => dispatchGateway(...args);
+                          if (!headerRegistry) return execute();
+                          return headerRegistry.run(
+                            execute,
+                            () => !binding || isModernInteractionBindingCurrent(binding),
                           );
-                          try {
-                            await verifyBinding(signal);
-                            return await withModernInteractionBinding(binding, () =>
-                              withNativeInteractionRound(
-                                async (inputs) => {
-                                  await verifyBinding(signal);
-                                  if (
-                                    !Object.values(inputs).every((input) =>
-                                      hasInteractionCapability(capabilities, input),
-                                    )
-                                  )
-                                    throw new ProtocolError(-32021, 'Interaction capability required');
-                                  return interactionRound(inputs);
-                                },
-                                () =>
-                                  dispatchGateway(
-                                    operation,
-                                    message.params,
-                                    signal,
+                        };
+                        const requestState = context.mcpReq.requestState();
+                        if (requestState !== undefined) {
+                          if (!binding || typeof requestState !== 'string')
+                            throw new ProtocolError(-32602, 'Interaction continuation rejected');
+                          return (await interactions.resume(
+                            requestState,
+                            binding,
+                            context.mcpReq.inputResponses,
+                            context.mcpReq.signal,
+                            async () =>
+                              JSON.stringify(binding) ===
+                                JSON.stringify(
+                                  await createModernInteractionBinding(
                                     serverManager,
                                     config,
-                                    createBridge,
-                                    deadline,
-                                    {
-                                      capabilities: toImmutableJsonValue(capabilities),
-                                      logLevel,
-                                      interaction: async (input) => {
-                                        await verifyBinding(signal);
-                                        if (!hasInteractionCapability(capabilities, input))
-                                          throw new ProtocolError(-32021, 'Interaction capability required');
-                                        return interaction(input);
-                                      },
-                                    },
+                                    operation,
+                                    stripInboundRequestMeta(message.params),
+                                    getAuthInfo(res),
+                                    capabilities,
+                                    context.mcpReq.signal,
+                                    resourceOwner,
                                   ),
-                              ),
+                                ) &&
+                              (await revalidateAuthInfo(getAuthInfo(res))) &&
+                              isModernInteractionBindingCurrent(binding),
+                          )) as never;
+                        }
+                        const deadline = Date.now() + requestTimeoutMs;
+                        if (binding) {
+                          const verifyBinding = async (signal: AbortSignal) => {
+                            const current = await createModernInteractionBinding(
+                              serverManager,
+                              config,
+                              operation,
+                              stripInboundRequestMeta(message.params),
+                              getAuthInfo(res),
+                              capabilities,
+                              signal,
+                              resourceOwner,
                             );
-                          } finally {
-                            unwatch();
-                          }
-                        },
-                        context.mcpReq.signal,
-                      )) as never;
-                    }
-                    return (await dispatchGateway(
-                      operation,
-                      message.params,
-                      context.mcpReq.signal,
-                      serverManager,
-                      config,
-                      createBridge,
-                      Date.now() + requestTimeoutMs,
-                    )) as never;
-                  } finally {
-                    activeModernRequests--;
-                  }
-                },
+                            if (JSON.stringify(current) !== JSON.stringify(binding)) {
+                              interactions.invalidate(binding);
+                              throw new ProtocolError(-32602, 'Interaction route or authority changed');
+                            }
+                          };
+                          return (await interactions.start(
+                            binding,
+                            deadline,
+                            async (interaction, signal, interactionRound) => {
+                              const unwatch = watchModernInteractionBinding(binding, () =>
+                                interactions.invalidate(binding),
+                              );
+                              try {
+                                await verifyBinding(signal);
+                                return await withModernInteractionBinding(binding, () =>
+                                  withNativeInteractionRound(
+                                    async (inputs) => {
+                                      await verifyBinding(signal);
+                                      if (
+                                        !Object.values(inputs).every((input) =>
+                                          hasInteractionCapability(capabilities, input),
+                                        )
+                                      )
+                                        throw new ProtocolError(-32021, 'Interaction capability required');
+                                      return interactionRound(inputs);
+                                    },
+                                    () =>
+                                      dispatch(
+                                        operation,
+                                        message.params,
+                                        signal,
+                                        serverManager,
+                                        config,
+                                        createBridge,
+                                        deadline,
+                                        {
+                                          ...(resourceOwner ? { resourceOwner } : {}),
+                                          ...(catalogCursorOwner ? { catalogCursorOwner } : {}),
+                                          capabilities: toImmutableJsonValue(capabilities),
+                                          logLevel,
+                                          interaction: async (input) => {
+                                            await verifyBinding(signal);
+                                            if (!hasInteractionCapability(capabilities, input))
+                                              throw new ProtocolError(-32021, 'Interaction capability required');
+                                            return interaction(input);
+                                          },
+                                        },
+                                      ),
+                                  ),
+                                );
+                              } finally {
+                                unwatch();
+                              }
+                            },
+                            context.mcpReq.signal,
+                          )) as never;
+                        }
+                        return (await dispatch(
+                          operation,
+                          message.params,
+                          context.mcpReq.signal,
+                          serverManager,
+                          config,
+                          createBridge,
+                          Date.now() + requestTimeoutMs,
+                          {
+                            ...(resourceOwner ? { resourceOwner } : {}),
+                            ...(catalogCursorOwner ? { catalogCursorOwner } : {}),
+                            capabilities: toImmutableJsonValue(capabilities),
+                            logLevel,
+                          },
+                        )) as never;
+                      } finally {
+                        activeModernRequests--;
+                      }
+                    },
+                    context.mcpReq.signal,
+                  ),
                 context.mcpReq.signal,
               ),
             );
           }
-          return server;
+          return product;
         },
         { legacy: 'reject', responseMode },
       );
@@ -541,7 +717,18 @@ export function setupModernHttpRoutes(
       try {
         await writeWebResponse(await handler.fetch(request, { parsedBody: req.body }), res);
       } finally {
-        await handler.close();
+        try {
+          await handler.close();
+        } finally {
+          try {
+            activeHeaderRegistry?.close();
+          } finally {
+            if (ownsHeaderAdmission) {
+              ownsHeaderAdmission = false;
+              activeModernToolHeaderAdmissions--;
+            }
+          }
+        }
       }
     } finally {
       disconnect.cleanup();

@@ -7,14 +7,55 @@ import { Client } from '@src/sdk/legacy/client/index.js';
 import { createLegacyOutboundConnection } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import { Server } from '@src/sdk/legacy/server/index.js';
 import { ConnectionManager } from '@src/sdk/legacy/server/runtime/connectionManager.js';
+import { ServerManager } from '@src/sdk/legacy/server/runtime/serverManager.js';
 import { createModernInboundLegacyBridge } from '@src/sdk/legacy/transport/http/modernInboundLegacyBridge.js';
-import { LoggingMessageNotificationSchema } from '@src/sdk/legacy/types.js';
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+  LoggingMessageNotificationSchema,
+} from '@src/sdk/legacy/types.js';
 import { setupModernHttpRoutes } from '@src/transport/http/routes/modernHttpRoutes.js';
 
 import express from 'express';
 import { expect, it, vi } from 'vitest';
 
 it('does not dispatch a call cancelled while the bridge is connecting', async () => {
+  // Admit a real selected, annotated tool before exercising the delayed bridge.
+  // An empty catalog would correctly reject before the cancellation boundary.
+  const backend = new Server({ name: 'cancel-peer', version: '1' }, { capabilities: { tools: {} } });
+  const listed = vi.fn(async () => ({
+    tools: [
+      {
+        name: 'echo',
+        inputSchema: {
+          type: 'object' as const,
+          properties: { region: { type: 'string', 'x-mcp-header': 'Region' } },
+          required: ['region'],
+        },
+      },
+    ],
+  }));
+  const backendCall = vi.fn(async () => ({ content: [] }));
+  backend.setRequestHandler(ListToolsRequestSchema, listed);
+  backend.setRequestHandler(CallToolRequestSchema, backendCall);
+  const client = new Client({ name: 'cancel-gateway', version: '1' }, { capabilities: {} });
+  const [clientTransport, backendTransport] = InMemoryTransport.createLinkedPair();
+  await backend.connect(backendTransport);
+  await client.connect(clientTransport);
+  const connection = createLegacyOutboundConnection({
+    name: 'cancel-peer',
+    client,
+    transport: clientTransport,
+    status: ClientStatus.Connected,
+    capabilities: { tools: {} },
+  });
+  const connections = new Map([['cancel-peer', connection]]);
+  const manager = ServerManager.getOrCreateInstance(
+    { name: 'cancel-gateway', version: '1' },
+    { capabilities: { tools: {}, resources: {}, prompts: {}, completions: {} } },
+    connections,
+    {},
+  );
   let release!: () => void;
   let sawClose!: () => void;
   const closed = new Promise<void>((resolve) => {
@@ -44,19 +85,14 @@ it('does not dispatch a call cancelled while the bridge is connecting', async ()
     req.socket.once('close', sawClose);
     next();
   });
-  setupModernHttpRoutes(
-    app as never,
-    { registerCleanup: vi.fn(), getClients: () => new Map() } as never,
-    [],
-    createBridge,
-    {
-      allowsHost: () => true,
-      allowsOrigin: () => true,
-    },
-  );
+  setupModernHttpRoutes(app as never, manager as never, [], createBridge, {
+    allowsHost: () => true,
+    allowsOrigin: () => true,
+  });
   const server = app.listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', resolve));
   const controller = new AbortController();
+  let unexpectedResponse: { status: number; contentType: string | null; text: string } | undefined;
   const pending = fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/mcp`, {
     method: 'POST',
     signal: controller.signal,
@@ -64,15 +100,16 @@ it('does not dispatch a call cancelled while the bridge is connecting', async ()
       'Content-Type': 'application/json',
       'MCP-Protocol-Version': '2026-07-28',
       'Mcp-Method': 'tools/call',
-      'Mcp-Name': 'echo',
+      'Mcp-Name': 'cancel-peer_1mcp_echo',
+      'Mcp-Param-Region': 'west',
     },
     body: JSON.stringify({
       jsonrpc: '2.0',
       id: 1,
       method: 'tools/call',
       params: {
-        name: 'echo',
-        arguments: {},
+        name: 'cancel-peer_1mcp_echo',
+        arguments: { region: 'west' },
         _meta: {
           'io.modelcontextprotocol/protocolVersion': '2026-07-28',
           'io.modelcontextprotocol/clientCapabilities': {},
@@ -80,19 +117,36 @@ it('does not dispatch a call cancelled while the bridge is connecting', async ()
         },
       },
     }),
-  }).catch(() => {});
+  })
+    .then(async (response) => {
+      unexpectedResponse = {
+        status: response.status,
+        contentType: response.headers.get('content-type'),
+        text: await response.text(),
+      };
+    })
+    .catch(() => {});
   try {
-    await vi.waitFor(() => expect(createBridge).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(createBridge, JSON.stringify(unexpectedResponse)).toHaveBeenCalledOnce(), {
+      timeout: 3000,
+    });
+    expect(listed).toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
+    expect(backendCall).not.toHaveBeenCalled();
     controller.abort();
     await pending;
     await closed;
     release();
     await vi.waitFor(() => expect(close).toHaveBeenCalled());
     expect(request).not.toHaveBeenCalled();
+    expect(backendCall).not.toHaveBeenCalled();
   } finally {
     release?.();
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
+    await ServerManager.resetInstance();
+    await connection.adapter.close();
+    await backend.close();
   }
 });
 

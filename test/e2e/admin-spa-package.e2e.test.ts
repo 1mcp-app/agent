@@ -38,6 +38,7 @@ function createIsolatedDockerLayout(): { rootDir: string; configDir: string } {
     for (const file of ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml']) {
       cpSync(path.join(process.cwd(), file), path.join(rootDir, file));
     }
+    cpSync(path.join(process.cwd(), 'patches'), path.join(rootDir, 'patches'), { recursive: true });
     run('pnpm', ['install', '--frozen-lockfile', '--prefer-offline', '--prod'], rootDir);
 
     mkdirSync(configDir, { recursive: true });

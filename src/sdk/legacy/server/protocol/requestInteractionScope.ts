@@ -252,6 +252,8 @@ export async function forwardScopedNotification(
   connection: OutboundConnection,
   notification: { method: string; params?: Record<string, unknown> },
 ): Promise<void> {
+  // Progress is delivered only by the SDK's request-specific onprogress callback.
+  if (notification.method === 'notifications/progress') return;
   const scope = active.get(connection);
   if (!scope) {
     if (notification.method !== 'notifications/message') return;

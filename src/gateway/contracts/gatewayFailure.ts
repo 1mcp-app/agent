@@ -15,6 +15,43 @@ const GATEWAY_FAILURE_KINDS: readonly GatewayFailureKind[] = [
   'internal',
 ];
 const knownGatewayFailures = new WeakSet<object>();
+export const MISSING_CLIENT_CAPABILITY = 'missing_required_client_capability';
+
+/** The protocol's extensible capability object, detached under a deliberately small error budget. */
+export function missingClientCapabilityFailure(requiredCapabilities: unknown): GatewayFailure | undefined {
+  try {
+    const capabilities = toImmutableJsonValue(requiredCapabilities, {
+      maxTotalStringLength: 4096,
+      maxDepth: 6,
+      maxNodes: 128,
+    });
+    if (Buffer.byteLength(JSON.stringify(capabilities)) > 8192) return undefined;
+    const parsed = z
+      .record(z.string().min(1).max(128), z.record(z.string().max(128), z.unknown()))
+      .safeParse(capabilities);
+    if (!parsed.success || Object.keys(parsed.data).length === 0) return undefined;
+    return createGatewayFailure({
+      kind: 'protocol',
+      code: MISSING_CLIENT_CAPABILITY,
+      message: 'Interaction capability required',
+      data: { requiredCapabilities: capabilities },
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+/** Only the private aggregate bridge may reconstruct our exact public protocol projection. */
+export function missingClientCapabilityFromBridge(error: unknown): GatewayFailure | undefined {
+  if (typeof error !== 'object' || error === null || ownDataValue(error, 'code') !== -32021) return undefined;
+  const data = ownDataValue(error, 'data');
+  if (typeof data !== 'object' || data === null) return undefined;
+  const marker = ownDataValue(data, 'app.1mcp/failure');
+  if (typeof marker !== 'object' || marker === null) return undefined;
+  if (ownDataValue(marker, 'kind') !== 'protocol' || ownDataValue(marker, 'code') !== MISSING_CLIENT_CAPABILITY)
+    return undefined;
+  return missingClientCapabilityFailure(ownDataValue(data, 'requiredCapabilities'));
+}
 
 export interface GatewayFailure {
   readonly kind: GatewayFailureKind;
@@ -41,6 +78,15 @@ export function createGatewayFailure(input: {
   });
   knownGatewayFailures.add(failure);
   return failure;
+}
+
+/** Detach an internal response value without converting structural lookalikes into owned failures. */
+export function detachGatewayFailure(failure: GatewayFailure): ImmutableJsonValue {
+  const detached = toImmutableJsonValue(failure);
+  if (knownGatewayFailures.has(failure) && typeof detached === 'object' && detached !== null) {
+    knownGatewayFailures.add(detached);
+  }
+  return detached;
 }
 
 function ownDataValue(record: object, key: string): unknown {
@@ -125,6 +171,21 @@ export function gatewayFailure<T = never>(failure: GatewayFailure): GatewayResul
 
 /** Public projections share sanitized facts; raw upstream diagnostics never cross these boundaries. */
 export function gatewayFailureToMcp(failure: GatewayFailure, era: 'legacy' | 'modern' = 'legacy') {
+  if (knownGatewayFailures.has(failure) && failure.kind === 'protocol' && failure.code === MISSING_CLIENT_CAPABILITY) {
+    const details = failure.data;
+    const validated = missingClientCapabilityFailure(
+      typeof details === 'object' && details !== null ? ownDataValue(details, 'requiredCapabilities') : undefined,
+    );
+    if (validated)
+      return {
+        code: -32021,
+        message: validated.message,
+        data: {
+          'app.1mcp/failure': { kind: 'protocol', code: MISSING_CLIENT_CAPABILITY },
+          requiredCapabilities: ownDataValue(validated.data as object, 'requiredCapabilities'),
+        },
+      };
+  }
   const safe = createGatewayFailure({ kind: failure.kind, code: failure.code, message: failure.message });
   const numeric = Number(safe.code);
   let code: number;

@@ -3,12 +3,15 @@
   "commit": "c321dd32035556e6769d3724a8ee97d87c3faaac",
   "path": "examples/servers/typescript/everything-server.ts",
   "sourceSha256": "488ddabf5573078dbc4c21d980701ba05033ad83316bdbde20005228151a5205",
-  "generatedSha256": "dd9c14d940b6264c1eaa54bdee07c03d9b945dadf1629cf83e56d535f5c299cc",
+  "generatedSha256": "5589c039d325a8ba9f34a03f22a3c271bcab64d20dc334f40667f74e1a0a888c",
   "transformation": "esbuild 0.28.2 transform: loader=ts format=esm target=node22 legalComments=inline; provenance comment prepended; redundant hashbang removed",
   "patches": [
     "fixture.patch: add draft tools/call complete discriminator; reject malformed elicitation inputResponses",
     "fixture.patch: preserve upstream unused handler signature with a scoped lint suppression",
     "fixture.patch: restrict the listener to explicit IPv4 loopback 127.0.0.1",
-    "fixture.patch: frame modern subscription acknowledgements and catalog notifications as SSE"
+    "fixture.patch: frame modern subscription acknowledgements and catalog notifications as SSE",
+    "fixture.patch: share actual legacy callback request/result definitions with authenticated native MRTR continuations; validate sampling result schema",
+    "fixture.patch: honor modern watched-resource filters and send owned URI updates; close owned update timers with listener",
+    "fixture.patch: frame streaming progress/logging tool responses as schema-valid SSE"
   ]
 }

@@ -15,8 +15,11 @@ function statusPath() {
   return join(statusDirectory, `${encodeURIComponent(scenario)}.json`);
 }
 
-async function recordStatus(status) {
-  await writeFile(statusPath(), `${JSON.stringify({ scenario, status })}\n`, { encoding: 'utf8', mode: 0o600 });
+async function recordStatus(status, reason) {
+  await writeFile(statusPath(), `${JSON.stringify({ scenario, status, ...(reason ? { reason } : {}) })}\n`, {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
 }
 
 async function reserveLoopbackPort() {
@@ -54,7 +57,7 @@ async function stopChild(child) {
   if (!(await waitForExit(child, 3_000))) throw new Error('CHILD_CLEANUP_TIMEOUT');
 }
 
-async function waitForGatewayReady(child, origin, allowUnreadyProductFailure) {
+async function waitForGatewayReady(child, origin) {
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
     if (child.exitCode !== null || child.signalCode !== null) throw new Error('GATEWAY_EXITED');
@@ -65,15 +68,6 @@ async function waitForGatewayReady(child, origin, allowUnreadyProductFailure) {
         return;
       }
       await response.body?.cancel();
-      if (allowUnreadyProductFailure && response.status === 503) {
-        const backend = await fetch(`${origin}/health/mcp/official_conformance`, {
-          signal: AbortSignal.timeout(500),
-        });
-        const status = await backend.json().catch(() => undefined);
-        if (backend.status === 401 && status?.name === 'official_conformance' && status?.state === 'awaiting_oauth') {
-          return;
-        }
-      }
     } catch {
       // Readiness polling is outside the official scenario attempt.
     }
@@ -142,24 +136,19 @@ async function main() {
   if (context !== undefined && (!context || typeof context !== 'object' || Array.isArray(context))) {
     throw new Error('INVALID_CONTEXT');
   }
+  if (family === 'auth') {
+    // The pinned CLI passes the resource URL and optional credentials, but no
+    // independently owned issuer. This fixture also has no OAuth completion driver.
+    await recordStatus('fixture-defect', 'oauth-fixture-context-unavailable');
+    process.exitCode = 1;
+    return;
+  }
   const scratch = await mkdtemp(join(statusDirectory, 'bridge-'));
   const runtimeScope = join(scratch, 'runtime-scope');
   const home = join(scratch, 'home');
   await Promise.all([mkdir(runtimeScope), mkdir(home)]);
-  const oauthEnvironment = {};
   const upstream = { type: 'streamableHttp', url: endpoint.href };
-  if (family === 'auth') {
-    const oauth = { autoRegister: typeof context?.client_id !== 'string' };
-    if (typeof context?.client_id === 'string') {
-      oauth.clientId = '${MCP_CONFORMANCE_FIXTURE_CLIENT_ID}';
-      oauthEnvironment.MCP_CONFORMANCE_FIXTURE_CLIENT_ID = context.client_id;
-    }
-    if (typeof context?.client_secret === 'string') {
-      oauth.clientSecret = '${MCP_CONFORMANCE_FIXTURE_CLIENT_SECRET}';
-      oauthEnvironment.MCP_CONFORMANCE_FIXTURE_CLIENT_SECRET = context.client_secret;
-    }
-    upstream.oauth = oauth;
-  }
+
   await writeFile(
     join(runtimeScope, 'mcp.json'),
     `${JSON.stringify({
@@ -197,14 +186,13 @@ async function main() {
         ONE_MCP_LOG_LEVEL: 'error',
         ONE_MCP_ENABLE_AUTH: 'false',
         NO_PROXY: '127.0.0.1,localhost,::1',
-        ...oauthEnvironment,
       },
       stdio: ['ignore', 'ignore', 'ignore'],
     },
   );
 
   try {
-    await waitForGatewayReady(gateway, origin, family === 'auth');
+    await waitForGatewayReady(gateway, origin);
     const result = await runFixture(`${origin}/mcp`, home);
     await recordStatus(result.kind);
     process.exitCode = result.exitCode;

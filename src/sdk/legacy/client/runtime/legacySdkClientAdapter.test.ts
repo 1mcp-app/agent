@@ -1,5 +1,11 @@
 import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
+import {
+  gatewayFailureFromUnknown,
+  gatewayFailureToMcp,
+  missingClientCapabilityFailure,
+} from '@src/gateway/contracts/gatewayFailure.js';
 import { createLegacyTimeoutMs, JSON_VALUE_LIMITS, OneMcpProtocolError } from '@src/sdk/contracts/index.js';
+import { withRequestProgress } from '@src/sdk/contracts/requestProgress.js';
 import { Client } from '@src/sdk/legacy/client/index.js';
 import { StreamableHTTPError } from '@src/sdk/legacy/client/streamableHttp.js';
 import { CallToolRequestSchema, McpError } from '@src/sdk/legacy/types.js';
@@ -36,6 +42,50 @@ function createOAuthTransport(
 }
 
 describe('LegacySdkClientAdapter', () => {
+  it('restores owned capability semantics only on the private aggregate bridge', async () => {
+    const client = createClient();
+    const projection = gatewayFailureToMcp(missingClientCapabilityFailure({ sampling: {} })!);
+    const request = vi.spyOn(client, 'request');
+    for (const interactionBridge of [false, true]) {
+      const adapter = new LegacySdkClientAdapter(client, createTransport(), { interactionBridge });
+      request.mockRejectedValueOnce(new McpError(projection.code, projection.message, projection.data));
+      const caught = await adapter
+        .request({ id: 'private' as never, method: 'tools/call' })
+        .catch((error: unknown) => error);
+      expect(gatewayFailureToMcp(gatewayFailureFromUnknown(caught, 'transport')).code).toBe(
+        interactionBridge ? -32021 : -32000,
+      );
+    }
+    const bridge = new LegacySdkClientAdapter(client, createTransport(), { interactionBridge: true });
+    request.mockRejectedValueOnce({ code: -32021, message: projection.message, data: projection.data });
+    const foreign = await bridge
+      .request({ id: 'foreign' as never, method: 'tools/call' })
+      .catch((error: unknown) => error);
+    expect(gatewayFailureToMcp(gatewayFailureFromUnknown(foreign, 'transport')).code).toBe(-32000);
+    expect(request).toHaveBeenCalledTimes(3);
+  });
+
+  it('installs SDK progress correlation only under a validated caller owner', async () => {
+    const client = createClient();
+    const send = vi.fn(async () => {});
+    const request = vi.spyOn(client, 'request').mockImplementation(async (_message, _schema, options) => {
+      options?.onprogress?.({ progress: 4 });
+      return { content: [] } as never;
+    });
+    const adapter = new LegacySdkClientAdapter(client, createTransport());
+    expect(
+      await withRequestProgress('caller', send, () =>
+        adapter.request({ id: 'progress' as never, method: 'tools/call' }),
+      ),
+    ).toEqual({ content: [] });
+    expect(send).toHaveBeenCalledWith({
+      method: 'notifications/progress',
+      params: { progressToken: 'caller', progress: 4 },
+    });
+    await adapter.request({ id: 'ordinary' as never, method: 'tools/call' });
+    expect(request.mock.calls[1][2]?.onprogress).toBeUndefined();
+    expect(send).toHaveBeenCalledTimes(1);
+  });
   it('strips reserved baggage from large bridge responses without loosening upstream limits', async () => {
     const client = createClient();
     const result = {

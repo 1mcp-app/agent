@@ -9,7 +9,7 @@ import { JSONRPCMessageSchema as LegacyJSONRPCMessageSchema } from '@modelcontex
 
 import { z } from 'zod';
 
-import { createSanitizedWireCapture, startHttpWireTap } from '../capture/index.js';
+import { type AuthenticatedWireTarget, createSanitizedWireCapture, startHttpWireTap } from '../capture/index.js';
 
 type Environment = Record<string, string | undefined>;
 type KillSignal = Parameters<ChildProcess['kill']>[0];
@@ -349,7 +349,7 @@ interface CommonRunOptions {
 
 export type OfficialConformanceRunOptions = CommonRunOptions &
   (
-    | { role: 'server'; url: string; command?: never }
+    | { role: 'server'; url: string; command?: never; authenticatedTarget?: AuthenticatedWireTarget }
     | {
         role: 'client';
         command: string;
@@ -701,6 +701,7 @@ export async function runOfficialConformance(
           capture,
           contextId: `official-${index}`,
           hop: 'inbound',
+          authenticatedTarget: options.authenticatedTarget,
         });
         targetArgs = ['--url', tappedTarget(tap.url, options.url)];
         const captureTargetError = (): void => {

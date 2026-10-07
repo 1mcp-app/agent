@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
+import { bindCatalogCursorOwner, type CatalogCursorOwner } from '@src/core/capabilities/capabilityCatalog.js';
+import { bindResourceRouteOwner, type ResourceRouteOwner } from '@src/core/capabilities/capabilityVisibility.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { filterConnectionsForSession } from '@src/core/protocol/requestHandlerUtils.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
@@ -45,6 +47,8 @@ export async function createModernInboundLegacyBridge(
   serverManager: ServerManager,
   config: InboundConnectionConfig,
   options: {
+    readonly resourceOwner?: ResourceRouteOwner;
+    readonly catalogCursorOwner?: CatalogCursorOwner;
     readonly subscriptionSignal?: AbortSignal;
     readonly subscriptionListKinds?: readonly ('tools' | 'resources' | 'prompts')[];
     readonly subscriptionNotification?: (notification: { method: string; params?: Record<string, unknown> }) => void;
@@ -109,6 +113,12 @@ export async function createModernInboundLegacyBridge(
   try {
     await Promise.all(connecting);
     options.subscriptionSignal?.throwIfAborted();
+    if (options.resourceOwner || options.catalogCursorOwner) {
+      const context = serverManager.getServer(connectionId)?.context;
+      if (!context) throw new Error('Private catalog context is unavailable');
+      if (options.resourceOwner) bindResourceRouteOwner(context, options.resourceOwner);
+      if (options.catalogCursorOwner) bindCatalogCursorOwner(context, options.catalogCursorOwner);
+    }
     // This private inbound session owns the threshold; no shared upstream logging/setLevel is sent.
     if (options.logLevel !== undefined) await client.setLoggingLevel(options.logLevel);
   } catch (error) {

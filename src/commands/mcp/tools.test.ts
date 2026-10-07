@@ -1,5 +1,7 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
+import { buildPublicToolName } from '@src/utils/core/toolNames.js';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { listToolsCommand, toolsCommand } from './tools.js';
@@ -553,6 +555,31 @@ describe('toolsCommand', () => {
       }),
     );
   });
+
+  it.each(['upstream', 'public'] as const)(
+    'preserves compact references and enables by the exact %s identity',
+    async (identityKind) => {
+      const server = 'good-server';
+      const name = 'x'.repeat(80);
+      const publicIdentity = buildPublicToolName(server, name);
+      const target = {
+        serverName: server,
+        source: 'mcpServers' as const,
+        serverConfig: { type: 'stdio' as const, command: 'node' },
+      };
+      configState.resolveServerTarget.mockReturnValue(target);
+      const { disableToolCommand, enableToolCommand } = await import('./tools.js');
+      await disableToolCommand({ server, tool: publicIdentity });
+      expect(configState.setResolvedServerTarget).toHaveBeenLastCalledWith(target, {
+        ...target.serverConfig,
+        disabledTools: [publicIdentity],
+      });
+      target.serverConfig = { ...target.serverConfig, ...configState.setResolvedServerTarget.mock.lastCall![1] };
+      await enableToolCommand({ server, tool: identityKind === 'upstream' ? name : publicIdentity });
+      expect(configState.setResolvedServerTarget).toHaveBeenLastCalledWith(target, { type: 'stdio', command: 'node' });
+      expect(mockPrinter.error).not.toHaveBeenCalled();
+    },
+  );
 
   it('disables a tool in the template entry when static and template names collide', async () => {
     configState.serverTargetExists.mockReturnValue(true);

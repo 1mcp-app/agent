@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  '@modelcontextprotocol/sdk@1.30.0':
+    hash: 75c775371ba4b626db950c68d95331c6e8c9a3949d551aba01d9d1332cb82937
+    path: ../../../../patches/@modelcontextprotocol__sdk@1.30.0.patch
+
 importers:
 
   .:
@@ -16,7 +21,7 @@ importers:
         version: 2.0.0(@modelcontextprotocol/server@2.0.0)(hono@4.13.5)
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
-        version: 1.30.0(zod@4.4.3)
+        version: 1.30.0(patch_hash=75c775371ba4b626db950c68d95331c6e8c9a3949d551aba01d9d1332cb82937)(zod@4.4.3)
       '@modelcontextprotocol/server':
         specifier: 2.0.0
         version: 2.0.0
@@ -468,7 +473,7 @@ snapshots:
     optionalDependencies:
       hono: 4.13.5
 
-  '@modelcontextprotocol/sdk@1.30.0(zod@4.4.3)':
+  '@modelcontextprotocol/sdk@1.30.0(patch_hash=75c775371ba4b626db950c68d95331c6e8c9a3949d551aba01d9d1332cb82937)(zod@4.4.3)':
     dependencies:
       '@hono/node-server': 2.1.1(hono@4.13.5)
       ajv: 8.20.0

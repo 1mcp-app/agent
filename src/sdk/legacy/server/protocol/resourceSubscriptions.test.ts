@@ -1,6 +1,9 @@
+import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
 import type { InboundConnection, OutboundConnection } from '@src/core/types/index.js';
 import { ServerStatus } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
+import { buildPublicResourceUri } from '@src/utils/core/resourceUris.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -83,6 +86,44 @@ describe('owned legacy resource subscriptions', () => {
   afterEach(async () => {
     await Promise.all(inbounds.splice(0).map(cleanupOwnedResources));
     vi.useRealTimers();
+  });
+
+  it('round-trips generated resource identities through the actual catalog resolver and subscription updates', async () => {
+    const { acquireRuntimeCapabilityCatalog } = await vi.importActual<
+      typeof import('@src/core/capabilities/runtimeCapabilityCatalog.js')
+    >('@src/core/capabilities/runtimeCapabilityCatalog.js');
+    const { resolveResourceRoute } = await vi.importActual<
+      typeof import('@src/sdk/legacy/shared/resourceTemplateRouting.js')
+    >('@src/sdk/legacy/shared/resourceTemplateRouting.js');
+    const upstreamUri = 'file:///a%2fb?q=one#part';
+    upstream = createMockOutboundConnection({
+      name: 'backend',
+      capabilities: { resources: { subscribe: true } },
+      adapter: {
+        request: vi.fn(
+          async ({ method }) =>
+            (method === 'resources/list'
+              ? { resources: [{ name: 'a', uri: upstreamUri }] }
+              : { resourceTemplates: [] }) as never,
+        ),
+      },
+    });
+    connections = new Map([['backend', upstream]]);
+    const catalog = await acquireRuntimeCapabilityCatalog(connections);
+    mocks.acquire.mockResolvedValue(catalog);
+    mocks.route.mockImplementation(resolveResourceRoute);
+    const publicUri = buildPublicResourceUri('backend', upstreamUri);
+    const owner = fixture();
+    await subscribeOwnedResource(connections, owner, publicUri);
+    expect(mocks.request).toHaveBeenCalledWith(upstream, 'resources/subscribe', { uri: upstreamUri });
+    deliverOwnedResourceUpdate(upstream, update(upstreamUri));
+    await vi.waitFor(() => expect(owner.adapter.notify).toHaveBeenCalledTimes(1));
+    expect(owner.adapter.notify).toHaveBeenCalledWith({
+      method: 'notifications/resources/updated',
+      params: { uri: publicUri, sequence: 0, server: 'backend' },
+    });
+    await unsubscribeOwnedResource(owner, publicUri);
+    expect(mocks.request).toHaveBeenCalledWith(upstream, 'resources/unsubscribe', { uri: upstreamUri });
   });
 
   it('keeps a peer watch alive and forwards only exact subscribed URI bytes', async () => {
