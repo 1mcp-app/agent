@@ -23,7 +23,8 @@ vi.mock('@src/config/mcpConfigManager.js', () => ({
   },
 }));
 
-vi.mock('@src/utils/core/parsing.js', () => ({
+vi.mock('@src/utils/core/parsing.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@src/utils/core/parsing.js')>()),
   parseUri: mockParseUri,
   buildUri: vi.fn((serverName: string, toolName: string) => `${serverName}_1mcp_${toolName}`),
 }));

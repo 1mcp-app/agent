@@ -211,14 +211,15 @@ describe('immutable catalog generations', () => {
     }
   });
 
-  it('retains whitespace collision semantics for names requiring a generated identity', () => {
+  it('keeps distinct exact source names available when compact names are generated', () => {
     const name = 'long name'.repeat(10);
     const generation = buildCatalogGeneration(1, [
       source('tools', { object: { ...objects.tools, name } }),
       source('tools', { object: { ...objects.tools, name: ` ${name} ` } }),
     ]);
-    expect(generation.entries).toEqual([]);
-    expect(generation.quarantine.map((item) => item.reason)).toEqual(['identity-collision', 'identity-collision']);
+    expect(generation.entries.map((entry) => entry.route.upstreamIdentity)).toEqual([name, ` ${name} `]);
+    expect(new Set(generation.entries.map((entry) => entry.route.publicIdentity)).size).toBe(2);
+    expect(generation.quarantine).toEqual([]);
   });
 
   it('rejects invalid trusted public tool names and malformed server identities', () => {

@@ -4,7 +4,7 @@ import { buildUri } from './parsing.js';
 import { buildPublicToolName, isValidPublicToolName } from './toolNames.js';
 
 describe('public tool names', () => {
-  it.each(['read', 'read-file.v2', 'nested_1mcp_read', 'x'.repeat(53)])(
+  it.each(['read', 'read-file.v2', 'nested_1mcp_read', 'name/part', 'x'.repeat(53)])(
     'preserves valid canonical names: %s',
     (upstreamIdentity) => {
       expect(buildPublicToolName('files', upstreamIdentity)).toBe(`files_1mcp_${upstreamIdentity}`);
@@ -32,14 +32,12 @@ describe('public tool names', () => {
   });
 
   it('keeps compact identities stable for cached client references', () => {
-    expect(buildPublicToolName('files', 'x'.repeat(80))).toBe(
-      'files_1mcp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx_fad53fd1a47a0fee',
-    );
+    expect(buildPublicToolName('files', 'x'.repeat(80))).toBe('files_1mcp_fad53fd1a47a0feebcc2a7bac662643ca231db7f');
   });
 
-  it('retains historical trim normalization for invalid canonical names', () => {
+  it('preserves exact source tuples for invalid canonical names', () => {
     const upstreamIdentity = 'long name'.repeat(10);
-    expect(buildPublicToolName(' files ', ` ${upstreamIdentity} `)).toBe(
+    expect(buildPublicToolName(' files ', ` ${upstreamIdentity} `)).not.toBe(
       buildPublicToolName('files', upstreamIdentity),
     );
   });
@@ -55,8 +53,9 @@ describe('public tool names', () => {
 
   it('validates raw internal public names and leaves generic URI building intact', () => {
     expect(isValidPublicToolName('tool_list')).toBe(true);
+    expect(isValidPublicToolName('name/part')).toBe(true);
     expect(isValidPublicToolName('a'.repeat(64))).toBe(true);
-    for (const name of ['', 'a'.repeat(65), 'name/part', '文件', ' name ', 'tool_list\n']) {
+    for (const name of ['', 'a'.repeat(65), '文件', ' name ', 'tool_list\n']) {
       expect(isValidPublicToolName(name)).toBe(false);
     }
     expect(buildUri('files', 'file:///{path}', '_1mcp_')).toBe('files_1mcp_file:///{path}');
