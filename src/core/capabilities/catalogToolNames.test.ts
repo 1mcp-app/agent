@@ -66,4 +66,15 @@ describe('public tool name protocol limits', () => {
       expect(generation.quarantine.map((item) => item.reason)).toEqual(['identity-collision', 'identity-collision']);
     }
   });
+
+  it('retains distinct exact source names when compacting whitespace-bearing names', () => {
+    const names = ['read:document', ' read:document', 'read:document '];
+    const generation = buildCatalogGeneration(
+      1,
+      names.map((name) => tool('files', name)),
+    );
+    expect(generation.quarantine).toEqual([]);
+    expect(new Set(generation.entries.map((entry) => entry.route.publicIdentity)).size).toBe(names.length);
+    expect(generation.entries.map((entry) => entry.route.upstreamIdentity)).toEqual(names);
+  });
 });

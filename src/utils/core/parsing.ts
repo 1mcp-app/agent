@@ -81,7 +81,7 @@ export function buildToolName(serverName: string, toolName: string): string {
   // Hash the structured source tuple, not an ambiguous concatenated identity.
   // Connection IDs and catalog generations must not change consumer references.
   const digest = createHash('sha256')
-    .update(JSON.stringify([serverName.trim(), toolName.trim()]))
+    .update(JSON.stringify([serverName, toolName]))
     .digest('hex')
     .slice(0, 40);
   const serverPrefix = serverName
