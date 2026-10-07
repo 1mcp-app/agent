@@ -63,7 +63,7 @@ export interface OAuthBackendServerRuntime {
 }
 
 export interface OAuthBackendClientRuntime {
-  initiateOAuth(serverName: string): Promise<void>;
+  initiateOAuth(serverName: string, options?: { restart?: boolean }): Promise<void>;
   bindOAuthReturn?(serverName: string, state: string, origin: string): Promise<void>;
   getOAuthReturn?(serverName: string, state: string): string | undefined;
   completeOAuthAndReconnect(serverName: string, authorizationCode: string | URLSearchParams): Promise<void>;
@@ -343,7 +343,7 @@ export function createOAuthAuthorizationFlow(dependencies: OAuthAuthorizationFlo
       clientInfo.oauthStartTime = undefined;
       clientInfo.status = 'disconnected';
 
-      const started = await initiateBackendOAuth(input.serverName, dependencies);
+      const started = await initiateBackendOAuth(input.serverName, dependencies, { restart: true });
       if (started.status !== 'started') {
         return started;
       }
@@ -495,6 +495,7 @@ type InitiateBackendOAuthResult =
 async function initiateBackendOAuth(
   serverName: string,
   dependencies: OAuthAuthorizationFlowDependencies,
+  options?: { restart?: boolean },
 ): Promise<InitiateBackendOAuthResult> {
   if (!dependencies.serverRuntime) {
     return {
@@ -518,7 +519,7 @@ async function initiateBackendOAuth(
     };
   }
 
-  await dependencies.clientRuntime.initiateOAuth(serverName);
+  await dependencies.clientRuntime.initiateOAuth(serverName, options);
 
   if (!clientInfo.authorizationUrl) {
     return {

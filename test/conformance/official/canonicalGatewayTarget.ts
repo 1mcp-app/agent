@@ -66,19 +66,21 @@ function inspectResponse(
     const parts: Buffer[] = [];
     const prefix = Buffer.from('data:');
     const newline = Buffer.from('\n');
+    const appendDataLine = (line: Buffer): void => {
+      if (!line.subarray(0, prefix.length).equals(prefix)) return;
+      if (parts.length) parts.push(newline);
+      // SSE removes one optional ASCII space and joins data lines with LF.
+      // Slice the original bytes so invalid UTF-8 remains invalid evidence.
+      parts.push(line.subarray(line[prefix.length] === 0x20 ? prefix.length + 1 : prefix.length));
+    };
     let start = 0;
-    for (let end = 0; end <= value.length; end++) {
-      if (end < value.length && value[end] !== 0x0a && value[end] !== 0x0d) continue;
-      const line = value.subarray(start, end);
-      if (line.subarray(0, prefix.length).equals(prefix)) {
-        if (parts.length) parts.push(newline);
-        // SSE removes one optional ASCII space and joins data lines with LF.
-        // Slice the original bytes so invalid UTF-8 remains invalid evidence.
-        parts.push(line.subarray(line[prefix.length] === 0x20 ? prefix.length + 1 : prefix.length));
-      }
+    for (let end = 0; end < value.length; end++) {
+      if (value[end] !== 0x0a && value[end] !== 0x0d) continue;
+      appendDataLine(value.subarray(start, end));
       if (end + 1 < value.length && value[end] === 0x0d && value[end + 1] === 0x0a) end++;
       start = end + 1;
     }
+    appendDataLine(value.subarray(start));
     const data = Buffer.concat(parts);
     if (data.length) observe(data, 'sse', oversized);
     else if (oversized) observe(Buffer.alloc(0), 'sse', true);

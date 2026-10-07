@@ -247,7 +247,7 @@ describe('OAuth Authorization Flow', () => {
     expect(storage.createSessionWithId).not.toHaveBeenCalled();
   });
 
-  it('creates a fresh authorization attempt on every start instead of reusing an expired or consumed URL', async () => {
+  it('delegates every start to the runtime rather than reusing its connection snapshot URL', async () => {
     const clientInfo = {
       status: 'awaiting_oauth',
       authorizationUrl: 'https://provider.example/authorize?state=expired',
@@ -300,7 +300,7 @@ describe('OAuth Authorization Flow', () => {
     });
     expect(clientInfo.status).toBe('awaiting_oauth');
     expect(clientInfo.oauthStartTime).toBe(new Date(clientInfo.oauthStartTime!).toISOString());
-    expect(initiateOAuth).toHaveBeenCalledWith('github');
+    expect(initiateOAuth).toHaveBeenCalledWith('github', undefined);
   });
 
   it('should clear backend OAuth state before restart', async () => {
@@ -324,6 +324,7 @@ describe('OAuth Authorization Flow', () => {
     });
 
     const result = await flow.restartBackendOAuth({ serverName: 'github' });
+    expect(initiateOAuth).toHaveBeenCalledWith('github', { restart: true });
 
     expect(result).toEqual({
       status: 'restarted',

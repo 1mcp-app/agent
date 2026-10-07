@@ -129,3 +129,29 @@ credential or its digest. Legacy, matrix and official client legs keep their
 existing authentication configuration. This exercises authenticated protocol
 behavior; it does not supply authorization-server conformance evidence or replace
 the separate anonymous rejection checks.
+
+### Owned client toolkit repairs
+
+Client qualification uses an additional executable derived from the pristine
+`@modelcontextprotocol/conformance@0.2.0-alpha.11` distribution (source commit
+`c321dd32035556e6769d3724a8ee97d87c3faaac`). `fixtureRepairs.mjs` verifies its
+SHA-256 and every replacement count before generating it. The original executable,
+requirement YAMLs, scenario inventory, and server suite remain unchanged. Evidence
+records original, executed, and repair recipe digests; `official-toolkit-repairs.json`
+retains the individual edits.
+
+The modern completed-result stimulus now explicitly supplies the schema-required
+`resultType: complete`, with a distinct check ID. The custom-header omission case
+omits its optional boolean rather than supplying schema-invalid null. These cases
+prove valid completion and omission only. The existing owned malformed-result and
+header codec controls retain rejection and null encoding coverage.
+
+OAuth context contains issuer URLs supplied directly by the scenario's lifecycle
+objects, independently of discovery responses. The owned driver provisions a real
+gateway credential and completes authorization through the production authorize
+and callback routes. Negative issuer cases retain their original wire checks.
+Scope step-up completes the pending attempt without replaying the failed Tool.
+Migration models an operator explicitly configuring the second owned issuer and
+restarting the gateway with the same durable credential store; it verifies fresh
+registration and prevents cross-issuer credential reuse. It does not authorize an
+arbitrary issuer advertised by an upstream response.

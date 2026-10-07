@@ -126,6 +126,7 @@ const FOUNDATION_ARTIFACTS = [
   { id: 'legacy-client-adapter', path: 'src/sdk/legacy/client/runtime/legacySdkClientAdapter.ts' },
   { id: 'legacy-server-adapter', path: 'src/sdk/legacy/server/runtime/legacySdkServerAdapter.ts' },
   { id: 'sdk-topology-runtime', path: 'scripts/sdk-boundary/topology.mjs' },
+  { id: 'official-toolkit-repairs', path: 'test/conformance/official/fixtureRepairs.mjs' },
   { id: 'official-client-bridge', path: 'test/conformance/foundation/officialClientBridge.mjs' },
   { id: 'official-client-direct-fixture', path: 'test/conformance/official/fixtures/client-control.mjs' },
   { id: 'official-client-scenario-catalog', path: 'test/conformance/foundation/officialClientScenarioCatalog.mjs' },
@@ -713,7 +714,7 @@ const officialClientBridgeStatusSchema = z
       .max(128)
       .regex(/^[A-Za-z0-9][A-Za-z0-9/_-]*$/u),
     status: z.enum(['attempted', 'gateway-rejected', 'fixture-defect', 'harness-defect']),
-    reason: z.enum(['oauth-fixture-context-unavailable']).optional(),
+    reason: z.enum(['oauth-fixture-context-unavailable', 'owned-oauth-rejected']).optional(),
   })
   .strict();
 
@@ -791,6 +792,7 @@ async function runOfficialPeers(root: string, outputDirectory: string): Promise<
     let clientResult = await runOfficialConformance({
       packageRoot,
       role: 'client',
+      repairClientFixtures: true,
       revision,
       command,
       temporaryParentDirectory: outputDirectory,

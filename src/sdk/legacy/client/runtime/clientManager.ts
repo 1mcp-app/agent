@@ -793,9 +793,18 @@ export class ClientManager extends EventEmitter {
     return this.clientFactory.createClientInstance();
   }
 
-  public async initiateOAuth(serverName: string): Promise<void> {
+  public async initiateOAuth(serverName: string, options?: { restart?: boolean }): Promise<void> {
     this.assertActive();
     const connection = this.getClient(serverName);
+    const pendingAuthorization = getLegacyTransport(connection).oauthProvider?.getPendingAuthorizationUrl?.();
+    // A challenge may already have created a scope step-up attempt. Preserve its
+    // state, verifier and scope union; completing it must never replay the Tool.
+    if (pendingAuthorization && !options?.restart) {
+      connection.authorizationUrl = pendingAuthorization;
+      connection.oauthStartTime = new Date().toISOString();
+      connection.status = ClientStatus.AwaitingOAuth;
+      return;
+    }
     // An explicit new authorization abandons prior attempts/refresh work and
     // releases old DNS approvals while retaining compatible client registration.
     await getLegacyTransport(connection).oauthProvider?.invalidateCredentials?.('tokens');

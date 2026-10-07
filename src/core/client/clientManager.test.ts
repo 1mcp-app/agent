@@ -530,6 +530,33 @@ describe('ClientManager (Integration)', () => {
       expect(recreate).toHaveBeenCalledExactlyOnceWith(mockTransport, 'backend', { preserveSessionId: false });
     });
 
+    it.each([false, true])('preserves a pending challenge unless restart=%s', async (restart) => {
+      const pending = 'https://issuer.example/authorize?scope=basic+write&state=pending';
+      const provider = {
+        getAuthorizationUrl: vi.fn().mockReturnValue(pending),
+        getPendingAuthorizationUrl: vi.fn().mockReturnValue(pending),
+        invalidateCredentials: vi.fn().mockResolvedValue(undefined),
+      };
+      Object.assign(mockTransport, { oauthProvider: provider });
+      await clientManager.createSingleClient('oauth', mockTransport);
+      const connection = clientManager.getClient('oauth');
+      const recreate = vi
+        .spyOn((clientManager as any).transportRecreator, 'recreateHttpTransport')
+        .mockReturnValue(mockTransport);
+      vi.spyOn(mockClient as Client, 'connect').mockRejectedValue(new Error('OAuth required'));
+      await clientManager.initiateOAuth('oauth', { restart });
+      if (restart) {
+        expect(provider.invalidateCredentials).toHaveBeenCalledWith('tokens');
+        expect(recreate).toHaveBeenCalledOnce();
+      } else {
+        expect(provider.invalidateCredentials).not.toHaveBeenCalled();
+        expect(recreate).not.toHaveBeenCalled();
+        expect(clientManager.getClient('oauth')).toBe(connection);
+        expect(connection.authorizationUrl).toBe(pending);
+        expect(connection.status).toBe(ClientStatus.AwaitingOAuth);
+      }
+    });
+
     it('initiates OAuth on a fresh transport and retains the candidate for the callback', async () => {
       await clientManager.createSingleClient('oauth', mockTransport);
       const connection = clientManager.getClient('oauth');

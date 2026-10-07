@@ -122,6 +122,28 @@ describe('official client gateway classification', () => {
     }
   });
 
+  it.each(['attempted', 'gateway-rejected'])(
+    'retains owned OAuth rejection as product evidence for %s',
+    async (status) => {
+      const directory = await mkdtemp(join(tmpdir(), 'official-client-status-'));
+      const result: OfficialConformanceResult = {
+        ...officialProductResult(),
+        scenarios: [{ scenarioId: 'auth/iss-wrong-issuer', checks: [] }],
+      };
+      try {
+        const bridgeStatus = { scenario: 'auth/iss-wrong-issuer', status, reason: 'owned-oauth-rejected' };
+        await writeFile(join(directory, 'auth%2Fiss-wrong-issuer.json'), JSON.stringify(bridgeStatus));
+        expect(await classifyOfficialClientResult(result, directory, directory)).toEqual(result);
+        const evidence = JSON.parse(
+          await readFile(join(directory, 'official-client-statuses/client.2025-11-25.json'), 'utf8'),
+        );
+        expect(evidence.bridgeStatuses).toEqual([bridgeStatus]);
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
   it('rejects unbounded or unknown reason evidence without retaining it', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'official-client-status-'));
     try {

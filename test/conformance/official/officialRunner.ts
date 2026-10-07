@@ -10,6 +10,7 @@ import { JSONRPCMessageSchema as LegacyJSONRPCMessageSchema } from '@modelcontex
 import { z } from 'zod';
 
 import { type AuthenticatedWireTarget, createSanitizedWireCapture, startHttpWireTap } from '../capture/index.js';
+import { ORIGINAL_TOOLKIT_DIGEST, prepareToolkitRepairs } from './fixtureRepairs.mjs';
 
 type Environment = Record<string, string | undefined>;
 type KillSignal = Parameters<ChildProcess['kill']>[0];
@@ -241,6 +242,14 @@ const officialEvidenceArtifactPayloadSchema = z
     role: z.enum(['client', 'server']),
     revision: z.enum(['2025-11-25', '2026-07-28']),
     productVerdict: z.enum(['pass', 'fail']),
+    fixtureRepair: z
+      .object({
+        originalDigest: z.string().regex(/^[a-f0-9]{64}$/u),
+        executedDigest: z.string().regex(/^[a-f0-9]{64}$/u),
+        recipeDigest: z.string().regex(/^[a-f0-9]{64}$/u),
+      })
+      .strict()
+      .optional(),
     scenarios: z.array(
       z
         .object({
@@ -349,10 +358,17 @@ interface CommonRunOptions {
 
 export type OfficialConformanceRunOptions = CommonRunOptions &
   (
-    | { role: 'server'; url: string; command?: never; authenticatedTarget?: AuthenticatedWireTarget }
+    | {
+        role: 'server';
+        url: string;
+        command?: never;
+        repairClientFixtures?: never;
+        authenticatedTarget?: AuthenticatedWireTarget;
+      }
     | {
         role: 'client';
         command: string;
+        repairClientFixtures?: boolean;
         url?: never;
         /** Validated downstream fixture evidence, independent of upstream checks. */
         observeClientFailure?: (scenarioId: string) => Promise<boolean>;
@@ -675,6 +691,9 @@ export async function runOfficialConformance(
   let result: OfficialConformanceResult | undefined;
   try {
     workspace = await mkdtemp(join(options.temporaryParentDirectory, '1mcp-official-conformance-'));
+    const entryPoint = options.repairClientFixtures
+      ? await prepareToolkitRepairs(options.packageRoot, options.temporaryParentDirectory)
+      : resolve(options.packageRoot, 'dist', 'index.js');
     const home = join(workspace, 'home');
     const temporaryDirectory = join(workspace, 'tmp');
     const outputDirectory = join(workspace, 'output');
@@ -733,7 +752,7 @@ export async function runOfficialConformance(
       }
       executionStarted = true;
       const processResult = await executeOnce(
-        resolve(options.packageRoot, 'dist', 'index.js'),
+        entryPoint,
         [
           options.role,
           ...targetArgs,
@@ -824,6 +843,15 @@ export async function runOfficialConformance(
           schemaVersion: 1,
           ...identity,
           productVerdict,
+          ...(options.repairClientFixtures
+            ? {
+                fixtureRepair: {
+                  originalDigest: ORIGINAL_TOOLKIT_DIGEST,
+                  executedDigest: sha256(await readFile(entryPoint)),
+                  recipeDigest: sha256(await readFile(new URL('./fixtureRepairs.mjs', import.meta.url))),
+                },
+              }
+            : {}),
           scenarios,
           counts,
         });

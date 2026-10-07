@@ -337,6 +337,20 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
   getAuthorizationUrl(): string | undefined {
     return this.authorizationUrl;
   }
+  /** Only a live, unconsumed attempt owned by this provider can be resumed. */
+  getPendingAuthorizationUrl(): string | undefined {
+    if (!this.authorizationUrl) return undefined;
+    const record = this.current();
+    if (!record) return undefined;
+    const state = new URL(this.authorizationUrl).searchParams.get('state');
+    if (!state) return undefined;
+    const attempt = record.attempts[oauthDigest(state)];
+    if (!attempt || attempt.consumed || attempt.expires <= Date.now()) return undefined;
+    if (attempt.generation !== record.generation || !sameAuthority(attempt.authority, record.authority))
+      return undefined;
+    if (attempt.redirect !== this.redirectUrl) return undefined;
+    return this.authorizationUrl;
+  }
   clearAuthorizationUrl(): void {
     this.authorizationUrl = undefined;
   }
