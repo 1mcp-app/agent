@@ -6,7 +6,7 @@ import {
   toProtocolResourceTemplate,
   toProtocolTool,
 } from '@src/sdk/contracts/index.js';
-import { buildUri } from '@src/utils/core/parsing.js';
+import { buildToolName, buildUri } from '@src/utils/core/parsing.js';
 
 export type CapabilityKind = 'tools' | 'prompts' | 'resources' | 'resourceTemplates';
 export type CapabilityOrigin = 'external' | 'internal';
@@ -127,7 +127,11 @@ function capture(source: CapabilitySource): CatalogEntry {
   const upstreamIdentity = normalized[identityField];
   if (typeof upstreamIdentity !== 'string' || !upstreamIdentity.trim() || !hasOnlyUnicodeScalars(upstreamIdentity))
     throw new TypeError('Invalid capability identity');
-  const publicIdentity = source.publicIdentity ?? buildUri(source.server, upstreamIdentity, MCP_URI_SEPARATOR);
+  const publicIdentity =
+    source.publicIdentity ??
+    (source.kind === 'tools'
+      ? buildToolName(source.server, upstreamIdentity)
+      : buildUri(source.server, upstreamIdentity, MCP_URI_SEPARATOR));
   if (!publicIdentity.trim() || !hasOnlyUnicodeScalars(publicIdentity)) throw new TypeError('Invalid public identity');
   const route = Object.freeze({
     kind: source.kind,

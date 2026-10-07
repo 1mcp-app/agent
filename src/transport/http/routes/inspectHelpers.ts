@@ -15,7 +15,7 @@ import {
   getValidatedTags,
 } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
 import type { ClientServerStatus } from '@src/types/serverStatus.js';
-import { buildUri, parseUri } from '@src/utils/core/parsing.js';
+import { buildToolName, parseUri } from '@src/utils/core/parsing.js';
 import { normalizeTag } from '@src/utils/validation/sanitization.js';
 
 import { Response } from 'express';
@@ -118,7 +118,7 @@ export function parseTarget(
     kind: 'tool',
     serverName,
     toolName,
-    qualifiedName: `${serverName}${MCP_URI_SEPARATOR}${toolName}`,
+    qualifiedName: qualifyToolName(serverName, toolName),
   };
 }
 
@@ -139,7 +139,7 @@ export function getToolName(qualifiedName: string): string {
 }
 
 export function qualifyToolName(serverName: string, toolName: string): string {
-  return buildUri(serverName, toolName, MCP_URI_SEPARATOR);
+  return buildToolName(serverName, toolName);
 }
 
 export function summarizeToolSchema(tool: Tool): ToolSummary {

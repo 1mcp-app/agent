@@ -1,3 +1,7 @@
+import { createHash } from 'node:crypto';
+
+import { MCP_URI_SEPARATOR } from '@src/constants/mcp.js';
+
 import { InvalidRequestError } from './errorTypes.js';
 
 /**
@@ -67,4 +71,22 @@ export function buildUri(clientName: string, resourceName: string, separator: st
   }
 
   return `${clientName.trim()}${separator}${resourceName.trim()}`;
+}
+
+/** Preserve valid public names; compact names that exceed MCP's tool-name limits. */
+export function buildToolName(serverName: string, toolName: string): string {
+  const qualified = buildUri(serverName, toolName, MCP_URI_SEPARATOR);
+  if (qualified.length <= 64 && /^[A-Za-z0-9_./-]+$/.test(qualified)) return qualified;
+
+  // Hash the structured source tuple, not an ambiguous concatenated identity.
+  // Connection IDs and catalog generations must not change consumer references.
+  const digest = createHash('sha256')
+    .update(JSON.stringify([serverName.trim(), toolName.trim()]))
+    .digest('hex')
+    .slice(0, 40);
+  const serverPrefix = serverName
+    .trim()
+    .replace(/[^A-Za-z0-9_./-]/g, '_')
+    .slice(0, 18);
+  return `${serverPrefix}${MCP_URI_SEPARATOR}${digest}`;
 }
