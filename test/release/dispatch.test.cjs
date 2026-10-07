@@ -32,26 +32,32 @@ function dispatch(t, inputs, summaryOverrides = {}) {
     jobs: { ci: { result: 'success' }, 'native-security': { result: 'success' } },
     ...summaryOverrides,
   };
+  // Preload the command boundary in the child Node process, avoiding platform-specific executables.
+  const preload = path.join(directory, 'fake-tools.cjs');
   fs.writeFileSync(
-    path.join(directory, 'gh'),
-    `#!/usr/bin/env node
-const fs = require('node:fs');
-const args = process.argv.slice(2);
-if (args[0] === 'api') console.log(${JSON.stringify(JSON.stringify(run))});
-else if (args[0] === 'run' && args[1] === 'download') {
-  fs.writeFileSync(args[args.indexOf('--dir') + 1] + '/release-summary.json', ${JSON.stringify(JSON.stringify(summary))});
-} else process.exit(99);
+    preload,
+    `const fs = require('node:fs');
+const path = require('node:path');
+require('node:child_process').execFileSync = (command, args) => {
+  if (command === 'git' && args[0] === 'ls-remote') {
+    const error = new Error('Tag absent');
+    error.status = 2;
+    throw error;
+  }
+  if (command === 'gh' && args[0] === 'api') return ${JSON.stringify(JSON.stringify(run))};
+  if (command === 'gh' && args[0] === 'run' && args[1] === 'download') {
+    fs.writeFileSync(path.join(args[args.indexOf('--dir') + 1], 'release-summary.json'), ${JSON.stringify(JSON.stringify(summary))});
+    return '';
+  }
+  throw new Error('Unexpected external command');
+};
 `,
-    { mode: 0o755 },
   );
-  // The real version validator still checks remote tag absence; no network is used.
-  fs.writeFileSync(path.join(directory, 'git'), '#!/bin/sh\nexit 2\n', { mode: 0o755 });
-  const result = spawnSync(process.execPath, [script, 'validate'], {
+  const result = spawnSync(process.execPath, ['--require', preload, script, 'validate'], {
     cwd: directory,
     encoding: 'utf8',
     env: {
       ...process.env,
-      PATH: `${directory}${path.delimiter}${process.env.PATH}`,
       GITHUB_OUTPUT: output,
       GITHUB_RUN_ID: '456',
       GITHUB_REPOSITORY: '1mcp-app/agent',
