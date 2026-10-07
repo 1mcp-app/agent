@@ -178,6 +178,6 @@ jobs:
           path: |
             *.tar.gz
             *.zip
-            sea-*.json
+            sea-${{ matrix.platform }}.json
           if-no-files-found: error
           retention-days: 30
