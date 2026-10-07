@@ -44,6 +44,27 @@ function verifyRecoveryRun(run, summary, repository, runId) {
   });
   if (summary.jobs?.ci?.result !== 'success' || summary.jobs?.['native-security']?.result !== 'success')
     throw new Error('Original release gates did not pass');
+  const requiredChecks = [
+    'static',
+    'unit-admin',
+    'test-e2e-parallel',
+    'test-e2e-system',
+    'test-e2e-browser',
+    'test-conformance',
+    'test-legacy-upgrade',
+    'test-windows-installer',
+    'release-lifecycle',
+  ];
+  const gates = summary.gates;
+  if (
+    gates?.sha !== identity.sha ||
+    gates.ci !== 'success' ||
+    gates.infrastructureVerdict !== 'green' ||
+    gates.productVerdict !== 'green' ||
+    requiredChecks.some((name) => gates.checks?.[name]?.result !== 'success') ||
+    Object.values(gates.checks || {}).some((check) => check.result !== 'success')
+  )
+    throw new Error('Original exact-source release gate evidence is missing or not green');
   return { policy, identity };
 }
 

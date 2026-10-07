@@ -96,7 +96,7 @@ jobs:
 
   ci:
     needs: candidate
-    if: ${{ !cancelled() && needs.candidate.result == 'success' }}
+    if: ${{ !cancelled() && needs.candidate.result == 'success' && inputs.recovery_run_id == '' }}
     uses: ./.github/workflows/test-and-validate.yml
     with:
       checkout_ref: ${{ needs.candidate.outputs.release_sha }}
@@ -106,15 +106,16 @@ jobs:
 
   native-security:
     needs: candidate
-    if: ${{ !cancelled() && needs.candidate.result == 'success' }}
+    if: ${{ !cancelled() && needs.candidate.result == 'success' && inputs.recovery_run_id == '' }}
     uses: ./.github/workflows/native-credentials.yml
     with:
       checkout_ref: ${{ needs.candidate.outputs.release_sha }}
     permissions:
       contents: read
 
+  # Build retained candidates alongside validation; publication below still requires every gate.
   package:
-    needs: [validate, candidate, ci, native-security]
+    needs: [validate, candidate]
     if: inputs.recovery_run_id == ''
     runs-on: ubuntu-latest
     permissions:
@@ -151,7 +152,7 @@ jobs:
           if-no-files-found: error
 
   binaries:
-    needs: [validate, candidate, ci, native-security]
+    needs: [validate, candidate]
     if: inputs.recovery_run_id == ''
     uses: ./.github/workflows/build-binaries.yml
     with:
@@ -163,7 +164,7 @@ jobs:
       contents: write
 
   docker:
-    needs: [validate, candidate, ci, native-security]
+    needs: [validate, candidate]
     if: inputs.recovery_run_id == ''
     uses: ./.github/workflows/build-docker-images.yml
     with:
@@ -183,7 +184,7 @@ jobs:
   # tag a release whose images failed to publish).
   release:
     needs: [validate, candidate, ci, native-security, package, binaries, docker]
-    if: ${{ !cancelled() && needs.ci.result == 'success' && needs.native-security.result == 'success' && (inputs.recovery_run_id != '' || (needs.package.result == 'success' && needs.binaries.result == 'success' && needs.docker.result == 'success')) }}
+    if: ${{ !cancelled() && needs.validate.result == 'success' && needs.candidate.result == 'success' && ((inputs.recovery_run_id != '' && needs.ci.result == 'skipped' && needs.native-security.result == 'skipped') || (inputs.recovery_run_id == '' && needs.ci.result == 'success' && needs.native-security.result == 'success' && needs.package.result == 'success' && needs.binaries.result == 'success' && needs.docker.result == 'success')) }}
     uses: ./.github/workflows/publish-to-npm.yml
     with:
       release_ref: ${{ needs.validate.outputs.release_ref }}
@@ -259,6 +260,8 @@ jobs:
         with:
           name: release-gates
           path: summary-evidence/gates
+          run-id: ${{ needs.candidate.outputs.artifact_run_id || github.run_id }}
+          github-token: ${{ github.token }}
       - name: Collect partial publication and alias evidence
         continue-on-error: true
         uses: actions/download-artifact@v8

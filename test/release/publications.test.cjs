@@ -75,6 +75,7 @@ function fixture(t, identity = stable, existing = false) {
     readbackDirectory: path.join(directory, 'readback'),
     recovery: existing,
     npmReadback: async () => npm,
+    waitForNpmReadback: async () => {},
     dockerReadback: (reference) => oci[reference] || null,
     ghApi: (endpoint) =>
       endpoint.includes('/git/ref/') ? (release ? { object: { type: 'commit', sha } } : null) : release,
@@ -142,6 +143,87 @@ test('case 1: failure before publication rejects stale source/channel/gates and 
   await assert.rejects(main('versions', f.options), /DNS/);
   assert.deepEqual(f.writes, []);
   assert.equal(JSON.parse(fs.readFileSync(f.options.statePath)).status, 'partial-or-failed');
+});
+
+test('successful npm command with absent readback records uncertainty and stops before other publications', async (t) => {
+  const f = fixture(t);
+  f.options.npmReadback = async () => null;
+  await assert.rejects(main('versions', f.options), /version absent/);
+  const state = JSON.parse(fs.readFileSync(f.options.statePath));
+  assert.equal(state.publications.npm.commandCompleted, true);
+  assert.equal(state.publications.npm.status, 'attempting');
+  assert.deepEqual(f.writes, ['npm']);
+});
+
+test('delayed npm registry propagation polls readback without republishing', async (t) => {
+  const f = fixture(t);
+  const readNpm = f.options.npmReadback;
+  let reads = 0;
+  let waits = 0;
+  f.options.npmReadback = async () => (++reads <= 3 ? null : readNpm());
+  f.options.waitForNpmReadback = async () => {
+    waits++;
+  };
+  await main('versions', f.options);
+  assert.equal(waits, 2);
+  assert.equal(f.writes.filter((write) => write === 'npm').length, 1);
+  assert.equal(JSON.parse(fs.readFileSync(f.options.statePath)).status, 'success');
+});
+
+test('npm readback deadline stops polling even before the attempt cap', async (t) => {
+  const f = fixture(t);
+  let now = 1000;
+  t.mock.method(Date, 'now', () => now);
+  let reads = 0;
+  f.options.npmReadback = async (_version, timeoutMs) => {
+    reads++;
+    if (reads > 1) assert.ok(timeoutMs > 0 && timeoutMs <= 30000);
+    return null;
+  };
+  f.options.waitForNpmReadback = async () => {
+    now += 10 * 60 * 1000;
+  };
+  await assert.rejects(main('versions', f.options), /version absent/);
+  assert.equal(reads, 2); // One preflight and one post-publication read, then the deadline expires.
+  assert.deepEqual(f.writes, ['npm']);
+});
+
+test('post-publish identity conflict or registry errors stop without polling or further writes', async (t) => {
+  for (const observed of [{ name: 'wrong' }, new Error('Registry unavailable')]) {
+    const f = fixture(t);
+    let reads = 0;
+    f.options.npmReadback = async () => {
+      if (++reads === 1) return null;
+      if (observed instanceof Error) throw observed;
+      return observed;
+    };
+    f.options.waitForNpmReadback = async () => assert.fail('Conflicts and errors must not be polled');
+    await assert.rejects(main('versions', f.options));
+    assert.deepEqual(f.writes, ['npm']);
+  }
+});
+
+test('malformed HTTP 200 registry metadata is never treated as missing', async (t) => {
+  for (const metadata of [null, false, 0, '', []]) {
+    const f = fixture(t);
+    delete f.options.npmReadback;
+    t.mock.method(globalThis, 'fetch', async () => ({ status: 200, ok: true, json: async () => metadata }));
+    f.options.waitForNpmReadback = async () => assert.fail('Malformed metadata must not be polled');
+    await assert.rejects(main('versions', f.options), /malformed registry metadata/);
+    assert.deepEqual(f.writes, []);
+    t.mock.restoreAll();
+  }
+});
+
+test('non-null falsy post-publication readbacks fail immediately without polling', async (t) => {
+  for (const metadata of [false, 0, '']) {
+    const f = fixture(t);
+    let reads = 0;
+    f.options.npmReadback = async () => (++reads === 1 ? null : metadata);
+    f.options.waitForNpmReadback = async () => assert.fail('Only explicit absence may be polled');
+    await assert.rejects(main('versions', f.options), /name differs/);
+    assert.deepEqual(f.writes, ['npm']);
+  }
 });
 
 test('case 2: partial publication stops, explicit owner resume reuses npm and retained bytes', async (t) => {
@@ -232,6 +314,25 @@ function recoveryFixture(identity = stable, releaseRef = 'main') {
     runUrl: 'https://github.com/1mcp-app/agent/actions/runs/123',
     releaseRef,
     jobs: { ci: { result: 'success' }, 'native-security': { result: 'success' } },
+    gates: {
+      sha: identity.sha,
+      ci: 'success',
+      infrastructureVerdict: 'green',
+      productVerdict: 'green',
+      checks: Object.fromEntries(
+        [
+          'static',
+          'unit-admin',
+          'test-e2e-parallel',
+          'test-e2e-system',
+          'test-e2e-browser',
+          'test-conformance',
+          'test-legacy-upgrade',
+          'test-windows-installer',
+          'release-lifecycle',
+        ].map((name) => [name, { result: 'success' }]),
+      ),
+    },
   };
   return { run, summary };
 }
@@ -265,6 +366,11 @@ test('recovery rejects foreign, untested, chained, malformed or conflicting run 
     { recoveryRunId: '123' },
     { jobs: { ci: { result: 'failure' }, 'native-security': { result: 'success' } } },
     { jobs: {} },
+    { gates: undefined },
+    { gates: { ...summary.gates, sha: 'b'.repeat(40) } },
+    { gates: { ...summary.gates, productVerdict: 'red' } },
+    { gates: { ...summary.gates, checks: {} } },
+    { gates: { ...summary.gates, checks: { ...summary.gates.checks, 'test-conformance': { result: 'skipped' } } } },
   ])
     assert.throws(() => verifyRecoveryRun(run, { ...summary, ...change }, '1mcp-app/agent', '123'));
   for (const change of [
@@ -353,6 +459,18 @@ test('summary distinguishes partial alias uncertainty and unperformed publicatio
   assert.equal(summary.publications.npm.status, 'verified');
   const before = summarize({ ...stable, jobs: { release: { result: 'skipped' } }, records: [], runUrl: 'run' });
   assert.equal(before.publicationStatus, 'not-attempted-or-evidence-unavailable');
+});
+
+test('recovery summary links reused gates to the original run', () => {
+  const summary = summarize({
+    sha: stable.sha,
+    version: stable.version,
+    jobs: {},
+    records: [],
+    runUrl: 'https://github.com/1mcp-app/agent/actions/runs/456',
+    recoveryRunId: '123',
+  });
+  assert.equal(summary.gateRunUrl, 'https://github.com/1mcp-app/agent/actions/runs/123');
 });
 
 test('OCI missing-manifest is distinct from DNS/proxy/auth/tool failures', () => {

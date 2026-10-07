@@ -10,11 +10,20 @@ function jobRuns(
   needs: Record<string, unknown>,
   cancelled = false,
   implicitSuccess = false,
+  recoveryRunId = '',
 ): boolean {
   if (!condition) return implicitSuccess;
-  const expression = condition.replace(/^\$\{\{\s*|\s*\}\}$/g, '');
+  const expression = condition
+    .replace(/^\$\{\{\s*|\s*\}\}$/g, '')
+    .replace(/needs\.([a-z]+(?:-[a-z]+)+)/g, "needs['$1']");
   if (!/\b(?:always|cancelled|success|failure)\(/.test(expression) && !implicitSuccess) return false;
-  return Boolean(runInNewContext(expression, { needs, cancelled: () => cancelled }, { timeout: 1000 }));
+  return Boolean(
+    runInNewContext(
+      expression,
+      { needs, inputs: { recovery_run_id: recoveryRunId }, cancelled: () => cancelled },
+      { timeout: 1000 },
+    ),
+  );
 }
 describe('release-pipeline workflow', () => {
   it('checks the final version SHA with the existing full quality and native-security workflows', () => {
@@ -29,10 +38,18 @@ describe('release-pipeline workflow', () => {
     });
     expect(workflow.jobs['native-security'].with.checkout_ref).toBe(workflow.jobs.ci.with.checkout_ref);
     for (const job of ['package', 'binaries', 'docker'])
-      expect(workflow.jobs[job].needs).toEqual(['validate', 'candidate', 'ci', 'native-security']);
+      expect(workflow.jobs[job].needs).toEqual(['validate', 'candidate']);
   });
   it('requires all artifact jobs or explicit owner recovery before publication', () => {
-    expect(workflow.jobs.release.needs).toContain('package');
+    expect(workflow.jobs.release.needs).toEqual([
+      'validate',
+      'candidate',
+      'ci',
+      'native-security',
+      'package',
+      'binaries',
+      'docker',
+    ]);
     expect(workflow.jobs.release.if).toContain("needs.ci.result == 'success'");
     expect(workflow.jobs.release.if).toContain("needs.native-security.result == 'success'");
     expect(workflow.jobs.release.with.artifact_run_id).toBe('${{ needs.candidate.outputs.artifact_run_id }}');
@@ -48,16 +65,47 @@ describe('release-pipeline workflow', () => {
     );
   });
   it.each(['ci', 'native-security'])(
-    '%s checks run after successful recovery candidate despite skipped version update',
+    '%s checks run only for a new candidate and are reused during validated recovery',
     (job) => {
-      expect(workflow.jobs[job].if).toBe("${{ !cancelled() && needs.candidate.result == 'success' }}");
+      expect(workflow.jobs[job].if).toBe(
+        "${{ !cancelled() && needs.candidate.result == 'success' && inputs.recovery_run_id == '' }}",
+      );
       const needs = { candidate: { result: 'success' }, 'update-version': { result: 'skipped' } };
       expect(jobRuns(workflow.jobs[job].if, needs)).toBe(true);
+      expect(jobRuns(workflow.jobs[job].if, needs, false, false, '123')).toBe(false);
       for (const result of ['failure', 'cancelled', 'skipped'])
         expect(jobRuns(workflow.jobs[job].if, { candidate: { result } })).toBe(false);
       expect(jobRuns(workflow.jobs[job].if, needs, true)).toBe(false);
     },
   );
+  it('requires validated original gates for recovery and all fresh gates and artifacts for new publication', () => {
+    const needs = Object.fromEntries(workflow.jobs.release.needs.map((name: string) => [name, { result: 'success' }]));
+    expect(jobRuns(workflow.jobs.release.if, needs)).toBe(true);
+    for (const name of workflow.jobs.release.needs) {
+      for (const result of ['failure', 'cancelled', 'skipped']) {
+        expect(jobRuns(workflow.jobs.release.if, { ...needs, [name]: { result } })).toBe(false);
+      }
+    }
+    const recovery = {
+      ...needs,
+      ci: { result: 'skipped' },
+      'native-security': { result: 'skipped' },
+      package: { result: 'skipped' },
+      binaries: { result: 'skipped' },
+      docker: { result: 'skipped' },
+    };
+    expect(jobRuns(workflow.jobs.release.if, recovery, false, false, '123')).toBe(true);
+    expect(jobRuns(workflow.jobs.release.if, recovery)).toBe(false);
+    expect(jobRuns(workflow.jobs.release.if, recovery, true, false, '123')).toBe(false);
+    for (const name of ['validate', 'candidate']) {
+      for (const result of ['failure', 'cancelled', 'skipped'])
+        expect(jobRuns(workflow.jobs.release.if, { ...recovery, [name]: { result } }, false, false, '123')).toBe(false);
+    }
+    const download = workflow.jobs.summary.steps.find(
+      (step: { with?: { name?: string } }) => step.with?.name === 'release-gates',
+    );
+    expect(download.with['run-id']).toBe('${{ needs.candidate.outputs.artifact_run_id || github.run_id }}');
+  });
   it('finalizes successful recovery from main despite skipped ancestors and stops failed/cancelled releases', () => {
     const needs = {
       release: { result: 'success' },
