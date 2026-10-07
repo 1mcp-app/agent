@@ -5,9 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.39.0-beta.3] - 2026-10-04
+## [0.39.0-beta.4] - 2026-10-07
 
 ### 🚀 Features
+- Upgrade released SDK and verify cross-era compatibility by @xizhibei in [#604](https://github.com/1mcp-app/agent/pull/604)
+- Protect inbound OAuth credentials with shared native storage by @xizhibei in [#600](https://github.com/1mcp-app/agent/pull/600)
+- Add native upstream OAuth credential storage by @xizhibei in [#589](https://github.com/1mcp-app/agent/pull/589)
+- Bind upstream OAuth credentials and callbacks to authority by @xizhibei in [#586](https://github.com/1mcp-app/agent/pull/586)
+- Add AGENTS.md for documentation guidelines and development commands by @xizhibei
 - Add ADRs for upstream schema timeouts, scheduled runtime recovery, project checkout identity, and operational telemetry by @xizhibei
 - Typed private events and exporter-free propagation by @xizhibei in [#585](https://github.com/1mcp-app/agent/pull/585)
 - Opt-in scheduled runtime recovery by @xizhibei in [#584](https://github.com/1mcp-app/agent/pull/584)
@@ -18,6 +23,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enforce isolated multi-dialect validation by @xizhibei in [#535](https://github.com/1mcp-app/agent/pull/535)
 
 ### 🐛 Bug Fixes
+- Frame reference subscriptions as SSE by @xizhibei in [#609](https://github.com/1mcp-app/agent/pull/609)
+- Drain discarded OAuth providers during reconnect by @xizhibei in [#607](https://github.com/1mcp-app/agent/pull/607)
+- Check final SHA and safely resume publication by @xizhibei in [#602](https://github.com/1mcp-app/agent/pull/602)
+- Repair dependency update tests and browser CI by @xizhibei in [#603](https://github.com/1mcp-app/agent/pull/603)
+- Align peer contracts and protocol-era probes by @xizhibei in [#601](https://github.com/1mcp-app/agent/pull/601)
+- Restore useful sanitized local investigation logs by @xizhibei in [#592](https://github.com/1mcp-app/agent/pull/592)
+- Restore main CI logging and documentation validation by @xizhibei in [#591](https://github.com/1mcp-app/agent/pull/591)
+- Isolate upstream schema admission timeouts by @xizhibei in [#583](https://github.com/1mcp-app/agent/pull/583)
 - Page aggregated lists within response limits by @lenstr in [#578](https://github.com/1mcp-app/agent/pull/578)
 - Resume cursors across stateless sessions by @lenstr in [#581](https://github.com/1mcp-app/agent/pull/581)
 - Keep meta-tools working after startup and idle periods by @lenstr in [#580](https://github.com/1mcp-app/agent/pull/580)
@@ -32,6 +45,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ⚡ Performance
 - Reuse compile verdicts across acquisitions by @lenstr in [#582](https://github.com/1mcp-app/agent/pull/582)
+
+### 🧪 Testing
+- Qualify official conformance fixtures and retain direct controls by @xizhibei in [#608](https://github.com/1mcp-app/agent/pull/608)
+
+### ⚙️ Miscellaneous Tasks
+- Simplify release inputs and recover by run ID by @xizhibei in [#610](https://github.com/1mcp-app/agent/pull/610)
+- Parallelize validation, lifecycle, and conformance work by @xizhibei in [#587](https://github.com/1mcp-app/agent/pull/587)
 
 ## New Contributors
 * @lenstr made their first contribution in [#578](https://github.com/1mcp-app/agent/pull/578)
@@ -1214,7 +1234,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * @xizhibei made their first contribution in [#1](https://github.com/1mcp-app/agent/pull/1)
 * @dependabot[bot] made their first contribution
 
-[0.39.0-beta.3]: https://github.com/1mcp-app/agent/compare/v0.38.2..v0.39.0-beta.3
+[0.39.0-beta.4]: https://github.com/1mcp-app/agent/compare/v0.38.2..v0.39.0-beta.4
 [0.38.2]: https://github.com/1mcp-app/agent/compare/v0.38.1..v0.38.2
 [0.38.1]: https://github.com/1mcp-app/agent/compare/v0.38.0..v0.38.1
 [0.38.0]: https://github.com/1mcp-app/agent/compare/v0.37.0..v0.38.0
