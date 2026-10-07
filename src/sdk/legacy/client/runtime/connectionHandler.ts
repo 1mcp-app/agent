@@ -16,6 +16,7 @@ import { CONNECTION_RETRY, MCP_SERVER_NAME } from '@src/constants.js';
 import { parseTemplateConnectionKey } from '@src/core/server/templateIdentity.js';
 import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+import { SseWireLimitError } from '@src/transport/sseWireLimit.js';
 import { ClientConnectionError, NonRetryableClientConnectionError } from '@src/utils/core/errorTypes.js';
 import { getConnectionTimeout } from '@src/utils/core/timeoutUtils.js';
 
@@ -129,6 +130,7 @@ export class ConnectionHandler {
 
         if (
           nonRetryableOAuthError ||
+          error instanceof SseWireLimitError ||
           error instanceof ProtocolError ||
           error instanceof UnsupportedProtocolVersionError ||
           (error instanceof SdkError && TERMINAL_MODERN_CONNECT_ERRORS.has(error.code))

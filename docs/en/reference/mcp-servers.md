@@ -531,6 +531,12 @@ Set a custom working directory for the process:
 - **STDIO Transports**: Typically need shorter connection timeouts (local process)
 - **Retry Logic**: Failed connections trigger transport recreation for HTTP/SSE
 
+### SSE receive limits
+
+HTTP and SSE connections accept at most 8 MiB (8,388,608 bytes) per SSE data payload and per raw line, measured before parsing. The line limit includes the field name and optional space; the payload limit includes newlines inserted between multiple `data` fields. A payload split across individually bounded lines may reach exactly 8 MiB. These limits also apply when the stdio proxy or CLI receives SSE from the HTTP runtime.
+
+Exceeding either limit cancels the stream and closes that connection. The failed Tool call is not automatically replayed, and that connection does not automatically resume or reconnect. Check the upstream outcome before deciding whether to call the tool again; narrow or paginate oversized results. Other response formats retain their existing limits.
+
 ### Migration from Single Timeout
 
 **Before (Deprecated):**

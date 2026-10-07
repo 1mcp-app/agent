@@ -22,6 +22,7 @@ import { CONNECTION_RETRY, MCP_SERVER_NAME } from '@src/constants.js';
 import logger from '@src/logger/logger.js';
 import { normalizeEvent } from '@src/observability/events/normalize.js';
 import { AuthProviderTransport } from '@src/sdk/legacy/client/runtime/legacyTransport.js';
+import { SseWireLimitError } from '@src/transport/sseWireLimit.js';
 
 import { afterEach, beforeEach, describe, expect, it, MockInstance, vi } from 'vitest';
 
@@ -172,6 +173,31 @@ describe('ConnectionHandler', () => {
       );
       expect(JSON.stringify(normalizedLogs)).not.toContain(secret);
       expect((thrown as Error).name).toBe('ClientConnectionError');
+    });
+
+    it('does not reconnect or schedule a retry after an initial SSE wire limit failure', async () => {
+      expect(CONNECTION_RETRY.MAX_ATTEMPTS).toBeGreaterThan(1);
+      (mockClient.connect as unknown as MockInstance).mockRejectedValue(new SseWireLimitError());
+      const recreate = vi.fn();
+      const createClient = vi.fn();
+      const timersBefore = vi.getTimerCount();
+
+      await expect(
+        connectionHandler.connectWithRetry(
+          mockClient as Client,
+          mockTransport,
+          'oversized-sse-client',
+          undefined,
+          recreate,
+          createClient,
+        ),
+      ).rejects.toMatchObject({ name: 'NonRetryableClientConnectionError' });
+
+      expect(mockClient.connect).toHaveBeenCalledOnce();
+      expect(recreate).not.toHaveBeenCalled();
+      expect(createClient).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(timersBefore);
+      expect(mockTransport.close).not.toHaveBeenCalled();
     });
 
     it('should not retry a permanent OAuth HTTP error', async () => {

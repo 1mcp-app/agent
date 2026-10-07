@@ -9,6 +9,7 @@ import { resolveFilterSelection } from '@src/core/filtering/filterSelection.js';
 import logger from '@src/logger/logger.js';
 import { StreamableHTTPClientTransport } from '@src/sdk/legacy/client/streamableHttp.js';
 import { type CallToolResult, type JSONRPCMessage, LATEST_PROTOCOL_VERSION, type Tool } from '@src/sdk/legacy/types.js';
+import { createSseWireLimitedFetch, registerSseWireLimitOwner } from '@src/transport/sseWireLimit.js';
 import type { ContextData } from '@src/types/context.js';
 import { createContextHash } from '@src/utils/context/contextHash.js';
 
@@ -85,12 +86,15 @@ export class StreamableServeClient {
     }
 
     this.transport = new StreamableHTTPClientTransport(serverUrl, {
+      fetch: createSseWireLimitedFetch(undefined, () => this.transport),
       sessionId,
       requestInit: {
         headers,
         redirect: 'error',
       },
     });
+
+    registerSseWireLimitOwner(this.transport, undefined);
 
     this.transport.onmessage = (message) => {
       this.handleMessage(message);

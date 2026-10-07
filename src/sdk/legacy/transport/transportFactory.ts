@@ -30,6 +30,7 @@ import {
 } from '@src/sdk/legacy/client/streamableHttp.js';
 import { HandlebarsTemplateRenderer } from '@src/template/handlebarsTemplateRenderer.js';
 import { ManagedStdioStderr } from '@src/transport/managedStdioStderr.js';
+import { createSseWireLimitedFetch, registerSseWireLimitOwner } from '@src/transport/sseWireLimit.js';
 import type { ContextData } from '@src/types/context.js';
 
 import { z, ZodError } from 'zod';
@@ -188,10 +189,12 @@ function createSSETransport(name: string, validatedTransport: ValidatedTransport
 
   const oauthProvider = createOAuthProvider(name, validatedTransport);
   sseOptions.authProvider = oauthProvider;
-  sseOptions.fetch = oauthProvider.fetch;
+  let transport: AuthProviderTransport;
+  sseOptions.fetch = createSseWireLimitedFetch(oauthProvider.fetch, () => transport);
 
   const Transport = usesModernClient(validatedTransport) ? ModernSSEClientTransport : SSEClientTransport;
-  const transport = new Transport(new URL(validatedTransport.url), sseOptions as never) as AuthProviderTransport;
+  transport = new Transport(new URL(validatedTransport.url), sseOptions as never) as AuthProviderTransport;
+  registerSseWireLimitOwner(transport, oauthProvider.fetch);
   transport.oauthProvider = oauthProvider;
 
   return transport;
@@ -223,12 +226,14 @@ function createHTTPTransport(
 
   const oauthProvider = createOAuthProvider(name, validatedTransport);
   httpOptions.authProvider = oauthProvider;
-  httpOptions.fetch = oauthProvider.fetch;
+  let transport: AuthProviderTransport;
+  httpOptions.fetch = createSseWireLimitedFetch(oauthProvider.fetch, () => transport);
 
   const Transport = usesModernClient(validatedTransport)
     ? ModernStreamableHTTPClientTransport
     : StreamableHTTPClientTransport;
-  const transport = new Transport(new URL(validatedTransport.url), httpOptions as never) as AuthProviderTransport;
+  transport = new Transport(new URL(validatedTransport.url), httpOptions as never) as AuthProviderTransport;
+  registerSseWireLimitOwner(transport, oauthProvider.fetch);
   transport.oauthProvider = oauthProvider;
 
   return transport;
