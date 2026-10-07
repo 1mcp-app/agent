@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enforce isolated multi-dialect validation by @xizhibei in [#535](https://github.com/1mcp-app/agent/pull/535)
 
 ### 🐛 Bug Fixes
+- Bound public tool names and preserve exact routing by @xizhibei in [#612](https://github.com/1mcp-app/agent/pull/612)
 - Frame reference subscriptions as SSE by @xizhibei in [#609](https://github.com/1mcp-app/agent/pull/609)
 - Drain discarded OAuth providers during reconnect by @xizhibei in [#607](https://github.com/1mcp-app/agent/pull/607)
 - Check final SHA and safely resume publication by @xizhibei in [#602](https://github.com/1mcp-app/agent/pull/602)
