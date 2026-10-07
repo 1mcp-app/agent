@@ -460,11 +460,12 @@ test('a rejected modern probe is a pre-negotiation legacy peer error, not an acc
   });
   const envelope = await response.json();
   assert.equal(response.status, 400);
-  assert.equal(envelope.id, null);
+  assert.equal(envelope.id, 1);
   assert.equal(envelope.error.code, -32000);
   assert.equal('result' in envelope, false);
-  // Keep the strict invalid-envelope verdict even when legacy fallback succeeds.
-  assert.equal(JSONRPCMessageSchema.safeParse(envelope).success, false);
+  // A parsed singleton rejection echoes its known ID and remains a valid error
+  // envelope; it must not be treated as an accepted modern operation.
+  assert.equal(JSONRPCMessageSchema.safeParse(envelope).success, true);
   const { output } = await runFixture([
     'probe',
     '--sdk-era',
