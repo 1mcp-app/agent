@@ -3,39 +3,60 @@ const fs = require('node:fs');
 const { execFileSync } = require('node:child_process');
 const { candidate } = require('./release-artifacts.cjs');
 const { validateReleaseInputs } = require('./validate-release-inputs.cjs');
-function validateOwnerInputs({ approval, readiness, runId, sha }) {
-  for (const reference of [approval, readiness]) {
-    if (
-      typeof reference !== 'string' ||
-      !/^https:\/\/github\.com\/1mcp-app\/agent\/(issues|pull)\/[0-9]+(?:#[-A-Za-z0-9]+)?$/.test(reference)
-    ) {
-      throw new Error('Required owner approval and approved #485 evidence references must be repository issue/PR URLs');
-    }
-  }
-  if (Boolean(runId) !== Boolean(sha))
-    throw new Error('Recovery requires original run ID and exact candidate SHA together');
-  if (runId && (!/^[0-9]+$/.test(runId) || !/^[0-9a-f]{40}$/.test(sha))) throw new Error('Invalid recovery identity');
-}
-function verifyRecoveryRun(run, summary, identity, repository) {
+
+function verifyRecoveryRun(run, summary, repository, runId) {
   if (
-    run.repository.full_name !== repository ||
+    run.repository?.full_name !== repository ||
+    String(run.id) !== runId ||
     run.path !== '.github/workflows/release-pipeline.yml' ||
     run.event !== 'workflow_dispatch' ||
     run.status !== 'completed' ||
-    ![
-      'main',
-      validateReleaseInputs({ targetRef: 'main', version: identity.version, tagExists: () => false })
-        .expectedReleaseBranch,
-    ].includes(run.head_branch)
+    !Number.isSafeInteger(run.run_attempt) ||
+    run.run_attempt < 1
   ) {
-    throw new Error('Recovery run is not a completed owner-dispatched Release Pipeline in this repository');
+    throw new Error('Recovery run is not a completed maintainer-dispatched Release Pipeline in this repository');
   }
-  if (summary.sha !== identity.sha || summary.version !== identity.version || summary.channel !== identity.channel)
-    throw new Error('Recovery candidate identity mismatch');
-  if (summary.jobs.ci.result !== 'success' || summary.jobs['native-security'].result !== 'success')
-    throw new Error('Original release gates did not pass');
+  if (
+    String(summary.runId) !== runId ||
+    String(summary.artifactRunId) !== runId ||
+    String(summary.attempt) !== String(run.run_attempt) ||
+    summary.runUrl !== `https://github.com/${repository}/actions/runs/${runId}`
+  ) {
+    throw new Error('Recovery summary does not belong to the selected original run and attempt');
+  }
   if (summary.recoveryRunId) throw new Error('Select original artifact-producing run, not a recovery run');
+  if (!summary.releaseRef || typeof summary.version !== 'string' || !summary.channel)
+    throw new Error('Original summary lacks release identity; stop for maintainer reconciliation');
+  const policy = validateReleaseInputs({
+    targetRef: summary.releaseRef,
+    version: summary.version,
+    tagExists: () => false,
+  });
+  if (!['main', policy.expectedReleaseBranch].includes(run.head_branch))
+    throw new Error('Recovery run was dispatched from an unapproved branch');
+  if (summary.channel !== policy.npmTag) throw new Error('Recovery candidate channel mismatch');
+  const identity = candidate({
+    sha: summary.sha,
+    actualSha: summary.sha,
+    version: summary.version,
+    actualVersion: summary.version,
+    npmTag: summary.channel,
+  });
+  if (summary.jobs?.ci?.result !== 'success' || summary.jobs?.['native-security']?.result !== 'success')
+    throw new Error('Original release gates did not pass');
+  return { policy, identity };
 }
+
+function resolveDispatch({ runId, targetRef, version }, readRecovery) {
+  if (runId) {
+    if (!/^[0-9]+$/.test(runId)) throw new Error('Invalid recovery run ID');
+    if (version) throw new Error('Recovery uses the original version; leave version empty');
+    return readRecovery(runId);
+  }
+  if (!version) throw new Error('version is required for a new release');
+  return { policy: validateReleaseInputs({ targetRef: targetRef || 'main', version }) };
+}
+
 function resolveCandidateSource({ sha, version, npmTag, releaseRef }, git) {
   const policy = validateReleaseInputs({ targetRef: releaseRef, version, tagExists: () => false });
   if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error('Invalid candidate SHA');
@@ -57,54 +78,67 @@ function resolveCandidateSource({ sha, version, npmTag, releaseRef }, git) {
   git(['merge-base', '--is-ancestor', actualSha, `refs/remotes/origin/${policy.targetRef}`]);
   return candidate({ sha, actualSha, version, actualVersion, npmTag });
 }
+
 function gh(args) {
   return execFileSync('gh', args, { encoding: 'utf8' }).trim();
 }
+
 if (require.main === module) {
   try {
     const command = process.argv[2];
-    if (command === 'validate')
-      validateOwnerInputs({
-        approval: process.env.APPROVAL_REF,
-        readiness: process.env.READINESS_REF,
-        runId: process.env.RECOVERY_RUN_ID,
-        sha: process.env.RELEASE_SHA,
-      });
-    else if (command === 'candidate') {
-      let identity = candidate({
-        sha: process.env.RELEASE_SHA,
-        actualSha: process.env.RELEASE_SHA,
-        version: process.env.VERSION,
-        actualVersion: process.env.VERSION,
-        npmTag: process.env.NPM_TAG,
-      });
-      const runId = process.env.RECOVERY_RUN_ID;
-      if (runId) {
-        const run = JSON.parse(gh(['api', `repos/${process.env.GITHUB_REPOSITORY}/actions/runs/${runId}`]));
-        fs.mkdirSync('recovery-evidence', { recursive: true });
-        gh([
-          'run',
-          'download',
-          runId,
-          '--repo',
-          process.env.GITHUB_REPOSITORY,
-          '--name',
-          'release-summary',
-          '--dir',
-          'recovery-evidence',
-        ]);
-        const summary = JSON.parse(fs.readFileSync('recovery-evidence/release-summary.json'));
-        verifyRecoveryRun(run, summary, identity, process.env.GITHUB_REPOSITORY);
-        // Select the verified original-run identity, not the raw dispatch string.
-        identity = { ...identity, sha: summary.sha };
-      }
-      identity = resolveCandidateSource(
-        { sha: identity.sha, version: identity.version, npmTag: identity.channel, releaseRef: process.env.RELEASE_REF },
+    const runId = process.env.RECOVERY_RUN_ID;
+    if (command === 'validate') {
+      const { policy, identity } = resolveDispatch(
+        { runId, targetRef: process.env.TARGET_REF, version: process.env.VERSION },
+        (originalRunId) => {
+          const repository = process.env.GITHUB_REPOSITORY;
+          const run = JSON.parse(gh(['api', `repos/${repository}/actions/runs/${originalRunId}`]));
+          fs.mkdirSync('recovery-evidence', { recursive: true });
+          gh([
+            'run',
+            'download',
+            originalRunId,
+            '--repo',
+            repository,
+            '--name',
+            'release-summary',
+            '--dir',
+            'recovery-evidence',
+          ]);
+          const summary = JSON.parse(fs.readFileSync('recovery-evidence/release-summary.json', 'utf8'));
+          return verifyRecoveryRun(run, summary, repository, originalRunId);
+        },
+      );
+      const outputs = {
+        version: policy.version,
+        version_tag: policy.versionTag,
+        release_ref: policy.targetRef,
+        expected_release_branch: policy.expectedReleaseBranch,
+        is_prerelease: String(policy.isPrerelease),
+        npm_tag: policy.npmTag,
+        docker_raw_tag: policy.dockerRawTag,
+        release_sha: identity?.sha || '',
+        artifact_run_id: runId || process.env.GITHUB_RUN_ID,
+      };
+      fs.appendFileSync(
+        process.env.GITHUB_OUTPUT,
+        Object.entries(outputs)
+          .map(([key, value]) => `${key}=${value}\n`)
+          .join(''),
+      );
+    } else if (command === 'candidate') {
+      const identity = resolveCandidateSource(
+        {
+          sha: process.env.RELEASE_SHA,
+          version: process.env.VERSION,
+          npmTag: process.env.NPM_TAG,
+          releaseRef: process.env.RELEASE_REF,
+        },
         (args) => execFileSync('git', args, { encoding: args[0] === 'show' ? null : 'utf8' }),
       );
       fs.appendFileSync(
         process.env.GITHUB_OUTPUT,
-        `release_sha=${identity.sha}\nartifact_run_id=${runId || process.env.GITHUB_RUN_ID}\n`,
+        `release_sha=${identity.sha}\nartifact_run_id=${process.env.ARTIFACT_RUN_ID}\n`,
       );
     } else throw new Error('Unknown recovery check');
   } catch (error) {
@@ -112,4 +146,4 @@ if (require.main === module) {
     process.exitCode = 1;
   }
 }
-module.exports = { validateOwnerInputs, verifyRecoveryRun, resolveCandidateSource };
+module.exports = { resolveDispatch, verifyRecoveryRun, resolveCandidateSource };

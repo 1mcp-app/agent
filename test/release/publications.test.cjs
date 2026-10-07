@@ -5,11 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { candidate, loadArtifacts, recordArtifacts } = require('../../scripts/release-artifacts.cjs');
 const { main, aliasNames, dockerReadback, publicationDecision } = require('../../scripts/release-publications.cjs');
-const {
-  validateOwnerInputs,
-  verifyRecoveryRun,
-  resolveCandidateSource,
-} = require('../../scripts/release-recovery.cjs');
+const { resolveDispatch, verifyRecoveryRun, resolveCandidateSource } = require('../../scripts/release-recovery.cjs');
 const { summarize } = require('../../scripts/release-summary.cjs');
 const sha = 'a'.repeat(40);
 const stable = { sha, version: '1.2.3', channel: 'latest', versionTag: 'v1.2.3' };
@@ -218,26 +214,86 @@ test('beta promotes next and beta only, never stable aliases or GitHub latest', 
   assert.deepEqual(aliasNames(beta, 'basic'), []);
 });
 
-test('owner recovery rejects stale, foreign, untested, chained and malformed candidates', () => {
+function recoveryFixture(identity = stable, releaseRef = 'main') {
   const run = {
+    id: 123,
+    run_attempt: 1,
     repository: { full_name: '1mcp-app/agent' },
     path: '.github/workflows/release-pipeline.yml',
     event: 'workflow_dispatch',
     status: 'completed',
     head_branch: 'main',
   };
-  const summary = { ...stable, jobs: { ci: { result: 'success' }, 'native-security': { result: 'success' } } };
-  verifyRecoveryRun(run, summary, stable, '1mcp-app/agent');
+  const summary = {
+    ...identity,
+    runId: '123',
+    artifactRunId: '123',
+    attempt: '1',
+    runUrl: 'https://github.com/1mcp-app/agent/actions/runs/123',
+    releaseRef,
+    jobs: { ci: { result: 'success' }, 'native-security': { result: 'success' } },
+  };
+  return { run, summary };
+}
+
+test('recovery derives stable, beta and maintenance identity using only the original run ID', () => {
+  for (const identity of [stable, beta]) {
+    for (const source of ['main', 'release-1.2']) {
+      const { run, summary } = recoveryFixture(identity, source);
+      const result = resolveDispatch({ runId: '123', targetRef: 'main', version: '' }, (runId) =>
+        verifyRecoveryRun(run, summary, '1mcp-app/agent', runId),
+      );
+      assert.deepEqual(result.identity, identity);
+      assert.equal(result.policy.targetRef, source);
+      assert.equal(result.policy.version, identity.version);
+    }
+  }
+});
+
+test('recovery rejects foreign, untested, chained, malformed or conflicting run evidence', () => {
+  const { run, summary } = recoveryFixture();
   for (const change of [
-    { sha: 'b'.repeat(40) },
-    { version: beta.version },
+    { sha: 'bad' },
+    { version: 'bad' },
     { channel: 'next' },
+    { releaseRef: 'release-9.9' },
+    { releaseRef: undefined },
+    { runId: '456' },
+    { artifactRunId: '456' },
+    { attempt: '2' },
+    { runUrl: 'https://github.com/other/repo/actions/runs/123' },
     { recoveryRunId: '123' },
     { jobs: { ci: { result: 'failure' }, 'native-security': { result: 'success' } } },
+    { jobs: {} },
   ])
-    assert.throws(() => verifyRecoveryRun(run, { ...summary, ...change }, stable, '1mcp-app/agent'));
-  assert.throws(() => verifyRecoveryRun({ ...run, status: 'in_progress' }, summary, stable, '1mcp-app/agent'));
-  assert.throws(() => validateOwnerInputs({ approval: '', readiness: '', runId: '1', sha }));
+    assert.throws(() => verifyRecoveryRun(run, { ...summary, ...change }, '1mcp-app/agent', '123'));
+  for (const change of [
+    { id: 456 },
+    { repository: { full_name: 'other/repo' } },
+    { path: '.github/workflows/other.yml' },
+    { event: 'push' },
+    { status: 'in_progress' },
+    { run_attempt: undefined },
+    { run_attempt: 0 },
+    { head_branch: 'feature/untrusted' },
+  ])
+    assert.throws(() => verifyRecoveryRun({ ...run, ...change }, summary, '1mcp-app/agent', '123'));
+});
+
+test('dispatch rejects ambiguous inputs or unavailable original evidence before source mutation', () => {
+  const unexpectedRead = () => {
+    throw new Error('Unexpected original-run read');
+  };
+  assert.throws(() => resolveDispatch({ runId: 'invalid' }, unexpectedRead), /Invalid recovery run ID/);
+  assert.throws(() => resolveDispatch({ runId: '123', version: '1.2.3' }, unexpectedRead), /leave version empty/);
+  assert.throws(() => resolveDispatch({ version: '' }, unexpectedRead), /required for a new release/);
+  assert.throws(
+    () =>
+      resolveDispatch({ runId: '123' }, () => {
+        throw new Error('Summary expired');
+      }),
+    /Summary expired/,
+  );
 });
 
 test('expired/missing or modified artifacts are rejected; no rebuilding same identity', (t) => {
@@ -263,10 +319,19 @@ test('summary distinguishes partial alias uncertainty and unperformed publicatio
       },
     ],
     runUrl: 'run',
-    approvalRef: 'approval',
-    readinessRef: 'readiness',
+    releaseRef: 'release-1.2',
+    dispatchActor: 'maintainer',
+    triggeringActor: 'maintainer',
   });
   assert.equal(summary.outcome, 'incomplete');
+  assert.equal(summary.releaseRef, 'release-1.2');
+  assert.deepEqual(summary.authorization, {
+    method: 'workflow_dispatch',
+    dispatchActor: 'maintainer',
+    triggeringActor: 'maintainer',
+    runUrl: 'run',
+  });
+  assert.ok(!Object.hasOwn(summary, 'approvalReferences'));
   assert.equal(summary.aliases['oci-latest'].status, 'attempting');
   assert.equal(summary.publications.npm.status, 'verified');
   const before = summarize({ ...stable, jobs: { release: { result: 'skipped' } }, records: [], runUrl: 'run' });
@@ -354,18 +419,6 @@ test('trusted resolver only parses candidate data and requires approved branch a
       }),
     /ancestry/,
   );
-});
-
-test('recovery rejects original workflows dispatched from an arbitrary feature branch', () => {
-  const run = {
-    repository: { full_name: '1mcp-app/agent' },
-    path: '.github/workflows/release-pipeline.yml',
-    event: 'workflow_dispatch',
-    status: 'completed',
-    head_branch: 'feature/untrusted',
-  };
-  const summary = { ...stable, jobs: { ci: { result: 'success' }, 'native-security': { result: 'success' } } };
-  assert.throws(() => verifyRecoveryRun(run, summary, stable, '1mcp-app/agent'));
 });
 
 test('trusted resolver rejects older or divergent setup action bytes before allowing candidate execution', () => {
