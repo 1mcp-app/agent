@@ -108,15 +108,15 @@ export async function runClientControl(endpoint, scenario) {
   }
 }
 
-// Mirrors the pinned suite's runMRTRClient: fulfill input_required and retry with
-// a fresh JSON-RPC id while keeping requestState scoped to that logical request.
+// Fulfill input_required and retry with a fresh JSON-RPC id while keeping
+// requestState scoped to that logical request. This raw modern diagnostic must
+// retain the published wire contract even when the pinned peer omits a field.
 function assertCompleted(result) {
   if (result === null) throw new Error('CONTROL_RESULT_INVALID');
   if (typeof result !== 'object') throw new Error('CONTROL_RESULT_INVALID');
   if (Array.isArray(result)) throw new Error('CONTROL_RESULT_INVALID');
   if (result?.resultType === 'input_required') throw new Error('CONTROL_CONTINUATION_INCOMPLETE');
   if (result?.isError === true) throw new Error('CONTROL_CONTINUATION_TOOL_ERROR');
-  if (result.resultType === undefined) return;
   if (result.resultType !== 'complete') throw new Error('CONTROL_RESULT_INVALID');
 }
 
@@ -150,9 +150,14 @@ export async function runRequestStateControl(endpoint) {
     if (!response.ok) throw new Error('CONTROL_RPC_REJECTED');
     const result = await response.json();
     if (result.error) throw new Error('CONTROL_RPC_REJECTED');
+    if (result.result === null || typeof result.result !== 'object' || Array.isArray(result.result))
+      throw new Error('CONTROL_RESULT_INVALID');
+    if (result.result.resultType === undefined) throw new Error('CONTROL_RESULT_TYPE_MISSING');
+    if (typeof result.result.resultType !== 'string') throw new Error('CONTROL_RESULT_INVALID');
     return result.result;
   };
   const listed = await rpc('tools/list');
+  assertCompleted(listed);
   const call = (name, extra = {}) => {
     const resolved = listed.tools.find((tool) => tool.name === name || tool.name.endsWith(`_1mcp_${name}`))?.name;
     if (!resolved) throw new Error('CONTROL_TOOL_MISSING');
@@ -176,7 +181,7 @@ export async function runRequestStateControl(endpoint) {
   assertCompleted(await call('test_mrtr_no_result_type'));
   return {
     ok: true,
-    phases: ['input-required', 'unrelated-isolated', 'fresh-id-retry', 'no-state-omitted', 'default-complete'],
+    phases: ['input-required', 'unrelated-isolated', 'fresh-id-retry', 'no-state-omitted', 'explicit-complete'],
   };
 }
 

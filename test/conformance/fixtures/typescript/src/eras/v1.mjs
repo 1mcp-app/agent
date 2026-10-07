@@ -130,7 +130,7 @@ export function createV1ClientTransport(transportName, options) {
     });
   }
   if (transportName === 'sse') return new SSEClientTransport(new URL(options.endpoint));
-  return new StreamableHTTPClientTransport(new URL(options.endpoint));
+  return new StreamableHTTPClientTransport(new URL(options.endpoint), {requestInit: options.requestInit});
 }
 
 export function createV1Client() {

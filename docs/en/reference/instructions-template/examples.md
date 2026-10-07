@@ -64,7 +64,7 @@ Web server instructions for frontend development
 
 ## Usage
 
-Tool names normally follow `{server}_1mcp_{tool}`. Use the exact name returned by `tools/list` for compact names that preserve MCP's naming limits.
+Most tool names follow `{server}_1mcp_{tool}`. Use the exact name returned by `tools/list`; names outside the protocol limits use a stable compact form.
 
 Example tools:
 - `filesystem_1mcp_read_file` - Read files through filesystem server

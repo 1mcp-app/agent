@@ -22,6 +22,7 @@ export function createCliTokenRoute(oauthProvider: SDKOAuthServerProvider): Requ
         };
       },
       getAvailableTags: () => McpConfigManager.getInstance().getAvailableTags(),
+      getResourceUrl: () => AgentConfigManager.getInstance().getUrl(),
     });
 
   return async (req: Request, res: Response): Promise<void> => {

@@ -42,9 +42,48 @@ transport contract. The upstream example sent newline-delimited JSON with
 and timed out before legacy gateway initialization could complete. A real SDK
 HTTP subscription regression checks acknowledgement and catalog notification
 delivery without changing the suite, dependency pins or production transport.
+The four inherited sampling and elicitation tools share their actual callback request
+and response-rendering definitions between legacy callbacks and native modern MRTR.
+Modern continuations carry a signed binding to the exact tool and arguments; the
+fixture validates the returned callback response before deriving its result, without
+executing the original tool again. Sampling uses the sampling result schema instead
+of incorrectly requiring a request method in the response. The defaults and enum
+schemas retain their upstream values. Real legacy and modern SDK clients exercise
+these callbacks; forged states, changed arguments, malformed responses, decline and
+cancel responses are covered too.
+
+The simple elicitation tool requests the pinned scenario's required `username`
+and `email` string fields on both callback paths. The additional owned
+`test_custom_header` tool exposes one required string argument annotated
+`x-mcp-header: "Value"` and echoes the supplied value. Its modern calls pass
+the original headers and parsed request through `@modelcontextprotocol/server`
+`createMcpHandler`, adapted by `@modelcontextprotocol/node` `toNodeHandler`.
+The public SDK's registered schema performs custom-header decoding and validation
+before tool execution. Real HTTP tests cover matching literals and encoded Unicode,
+Base64 decoding, literal incomplete markers, malformed Base64, missing headers,
+and header/body mismatch. The fixture does not synthesize passing header results.
+
+The modern resource listener honors only requested `test://watched-resource`
+watches, emits URI updates with its own subscription id every three seconds, and
+releases its update timer on close. Discovery advertises this implemented subscribe
+capability. Streaming progress and logging diagnostic tools also use SSE with valid
+notification fields and complete-result discriminants; no-log-without-logLevel is
+checked through the real SDK transport. These fixture corrections leave the pinned
+suite and its validators unchanged.
+
+The stateless tools catalog advertises the already implemented
+`test_trigger_tool_change` and `test_trigger_prompt_change` mutation hooks with
+empty object input schemas. Calls execute their existing notification handlers;
+advertisement does not synthesize events. A real authenticated gateway regression
+discovers both hooks, observes exactly one upstream mutation dispatch per call,
+and matches the upstream catalog notification to the event delivered on the
+inbound subscription for each catalog kind.
+
 It also binds the fixture listener explicitly to `127.0.0.1` so local controls
 do not expose their synthetic server on other interfaces.
-It does not activate tasks or implement the excluded draft header scenarios.
+It does not activate tasks. The owned custom-header tool supplies the callable
+fixture needed by the pinned server custom-header validation scenario; the pinned
+scenario selection and requirement classifications remain unchanged.
 
 Run controls on Node 24, matching CI. Node 26.4.0 triggers an unhandled rejection
 inside the pinned suite's legacy multiple-SSE-stream scenario; that missing
@@ -56,3 +95,66 @@ have nonempty successful checks to qualify this fixture. Excluded statuses remai
 in the artifacts. The foundation runs the gateway independently afterward and
 records required-scenario comparisons; a direct success never supplies a gateway
 success. The wire tap preserves Host values so DNS rebinding checks reach the peer.
+
+The gateway server target uses `canonicalGatewayTarget.ts` to adapt only pinned
+scenario input identities. Before scored scenarios, it reads the verified
+reference fixture's catalogs as an allowlist and matches each identity to the
+gateway's advertised `_meta['app.1mcp/route']` tuple of kind, server
+`official_conformance`, and upstream identity. Missing or ambiguous tuples never
+receive guessed routes. Exact tool/prompt names, resource URIs and owned template
+instances are replaced with actual advertised identities; matching `Mcp-Name`
+headers follow the same replacement. Missing or mismatching headers remain
+unchanged, as do raw arguments, metadata and continuation fields.
+
+Responses retain their status, headers and body bytes, including incremental SSE.
+The pinned suite, requirements, result validation and output identities remain
+unchanged: invalid public names and resource URIs remain failures. Actual
+gateway-bound frames and JSON/SSE response payloads receive the same negotiated
+envelope schema validation used by the official runner. Sanitized payload digests,
+schema outcomes, exact mapping identities and qualification faults are retained
+in digest-protected `official-targets/server.<revision>.json` artifacts; raw private payloads
+are not retained. These artifacts describe target adaptation, not product success.
+Catalog discovery preloads shared catalogs and closes its discovery sessions
+before scored exchanges, so these runs do not prove cold-cache behavior.
+
+The modern official gateway leg runs with production authentication and scope
+validation enabled. Its owned loopback CLI route issues a genuine grant, checked
+through native REST admission before the canonical target starts. The target
+adds that same in-memory bearer only to its fixed gateway destination, including
+gateway catalog discovery, after the credential-stripping wire tap. Reference
+discovery remains anonymous. All other headers and request fields retain their
+existing treatment; conflicting Authorization headers fail closed. Qualification
+evidence records the authentication mode and credential presence, never the
+credential or its digest. Legacy, matrix and official client legs keep their
+existing authentication configuration. This exercises authenticated protocol
+behavior; it does not supply authorization-server conformance evidence or replace
+the separate anonymous rejection checks.
+
+### Owned client toolkit repairs
+
+Client qualification uses an additional executable derived from the pristine
+`@modelcontextprotocol/conformance@0.2.0-alpha.11` distribution (source commit
+`c321dd32035556e6769d3724a8ee97d87c3faaac`). `fixtureRepairs.mjs` verifies its
+SHA-256 and every replacement count before generating it. The original executable,
+requirement YAMLs, scenario inventory, and server suite remain unchanged. Evidence
+records original, executed, and repair recipe digests; `official-toolkit-repairs.json`
+retains the individual edits.
+
+The modern completed-result stimulus now explicitly supplies the schema-required
+`resultType: complete`, with a distinct check ID. The custom-header omission case
+omits its optional boolean rather than supplying schema-invalid null. These cases
+prove valid completion and omission only. The existing owned malformed-result and
+header codec controls retain rejection and null encoding coverage. The modern
+standard-header fixture observes `server/discover` and expects that handshake;
+legacy runs still require `initialize` and `notifications/initialized`. An owned
+raw client missing the discovery header must fail the repaired peer's wire check.
+
+OAuth context contains issuer URLs supplied directly by the scenario's lifecycle
+objects, independently of discovery responses. The owned driver provisions a real
+gateway credential and completes authorization through the production authorize
+and callback routes. Negative issuer cases retain their original wire checks.
+Scope step-up completes the pending attempt without replaying the failed Tool.
+Migration models an operator explicitly configuring the second owned issuer and
+restarting the gateway with the same durable credential store; it verifies fresh
+registration and prevents cross-issuer credential reuse. It does not authorize an
+arbitrary issuer advertised by an upstream response.

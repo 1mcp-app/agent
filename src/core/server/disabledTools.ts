@@ -1,6 +1,8 @@
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
+import { readPublicCapabilityRoute } from '@src/core/capabilities/catalogGeneration.js';
 import type { MCPServerParams } from '@src/core/types/index.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
+import { getSourceToolConfigReferences, matchesToolConfigReference } from '@src/utils/core/toolNames.js';
 
 function normalizeToolName(toolName: string): string {
   return toolName.trim();
@@ -17,24 +19,8 @@ export function getLogicalToolName(logicalServerName: string, toolName: string):
   return normalizedToolName;
 }
 
-function getComparableToolNames(logicalServerName: string, toolName: string): string[] {
-  const normalizedToolName = normalizeToolName(toolName);
-  if (!normalizedToolName) {
-    return [];
-  }
-
-  const names = new Set<string>([normalizedToolName]);
-  const rawToolName = getLogicalToolName(logicalServerName, normalizedToolName);
-  if (rawToolName) {
-    names.add(rawToolName);
-    names.add(`${logicalServerName}${MCP_URI_SEPARATOR}${rawToolName}`);
-  }
-
-  return Array.from(names);
-}
-
 export function getDisabledToolMessage(logicalServerName: string, toolName: string): string {
-  const displayToolName = getLogicalToolName(logicalServerName, toolName);
+  const displayToolName = normalizeToolName(toolName);
   return `Tool is disabled: ${logicalServerName}:${displayToolName}. Use '1mcp mcp tools enable ${logicalServerName} ${displayToolName}' to re-enable it.`;
 }
 
@@ -59,10 +45,10 @@ export function getDisabledTools(serverConfig?: Pick<MCPServerParams, 'disabledT
   return disabledTools;
 }
 
-export function normalizeDisabledToolsForServer(logicalServerName: string, toolNames: readonly string[]): string[] {
-  return Array.from(
-    new Set(toolNames.map((toolName) => getLogicalToolName(logicalServerName, toolName)).filter(Boolean)),
-  ).sort((left, right) => left.localeCompare(right));
+export function normalizeDisabledToolsForServer(_logicalServerName: string, toolNames: readonly string[]): string[] {
+  return Array.from(new Set(toolNames.map(normalizeToolName).filter(Boolean))).sort((left, right) =>
+    left.localeCompare(right),
+  );
 }
 
 export function getDisabledToolsForServer(
@@ -82,9 +68,8 @@ export function isToolDisabled(
     return false;
   }
 
-  const disabledTools = new Set(getDisabledToolsForServer(serverConfigs, logicalServerName));
-  return getComparableToolNames(logicalServerName, normalizedToolName).some((toolNameVariant) =>
-    disabledTools.has(toolNameVariant),
+  return getDisabledToolsForServer(serverConfigs, logicalServerName).some((disabledTool) =>
+    matchesToolConfigReference(logicalServerName, normalizedToolName, disabledTool),
   );
 }
 
@@ -110,7 +95,7 @@ export function isSourceToolDisabled(
   upstreamIdentity: string,
 ): boolean {
   const disabled = getDisabledToolsForServer(serverConfigs, server);
-  return disabled.includes(upstreamIdentity) || disabled.includes(`${server}${MCP_URI_SEPARATOR}${upstreamIdentity}`);
+  return getSourceToolConfigReferences(server, upstreamIdentity).some((reference) => disabled.includes(reference));
 }
 
 export function getDisabledSourceToolError(
@@ -134,7 +119,12 @@ export function filterDisabledTools<T extends Pick<Tool, 'name'>>(
     return tools;
   }
 
-  return tools.filter((tool) => !isToolDisabled(serverConfigs, logicalServerName, tool.name));
+  return tools.filter((tool) => {
+    const route = readPublicCapabilityRoute(tool);
+    if (route?.kind === 'tools' && route.server === logicalServerName)
+      return !isSourceToolDisabled(serverConfigs, logicalServerName, route.upstreamIdentity);
+    return !isToolDisabled(serverConfigs, logicalServerName, tool.name);
+  });
 }
 
 export function withToolDisabledState(
@@ -144,17 +134,17 @@ export function withToolDisabledState(
   logicalServerName?: string,
 ): MCPServerParams {
   const normalizedToolName = normalizeToolName(toolName);
-  const comparableNames = logicalServerName
-    ? new Set(getComparableToolNames(logicalServerName, normalizedToolName))
-    : new Set([normalizedToolName]);
   const disabledTools = new Set(
-    getDisabledTools(serverConfig).filter((disabledTool) => !comparableNames.has(disabledTool)),
+    getDisabledTools(serverConfig).filter((disabledTool) =>
+      logicalServerName
+        ? !matchesToolConfigReference(logicalServerName, normalizedToolName, disabledTool)
+        : disabledTool !== normalizedToolName,
+    ),
   );
 
   if (disabled && normalizedToolName) {
-    disabledTools.add(
-      logicalServerName ? getLogicalToolName(logicalServerName, normalizedToolName) : normalizedToolName,
-    );
+    // A config-only caller has no source route from which to recover a compact identity.
+    disabledTools.add(normalizedToolName);
   }
 
   const nextDisabledTools = Array.from(disabledTools).sort((left, right) => left.localeCompare(right));

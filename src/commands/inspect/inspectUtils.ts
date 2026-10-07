@@ -4,7 +4,7 @@ import type { ParsedToolReference } from '@src/commands/run/runUtils.js';
 import { readPublicCapabilityRoute } from '@src/core/capabilities/catalogGeneration.js';
 import type { InspectSearchResult } from '@src/core/capabilities/inspectSearch.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
-import { buildToolName } from '@src/utils/core/parsing.js';
+import { buildPublicToolName } from '@src/utils/core/toolNames.js';
 import { isPlainObject } from '@src/utils/typeGuards.js';
 
 import chalk from 'chalk';
@@ -134,7 +134,7 @@ export function parseInspectTarget(value: string | undefined): InspectTarget {
     reference: {
       serverName,
       toolName,
-      qualifiedName: buildToolName(serverName, toolName),
+      qualifiedName: buildPublicToolName(serverName, toolName),
     },
   };
 }

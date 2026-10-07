@@ -15,8 +15,10 @@ import {
 import { generateSdkBoundaryProof, readSdkBoundaryProof } from '../boundary/sdkBoundaryProof.js';
 import { SanitizedWireEvidenceFileSchema, writeEvidence } from '../capture/index.js';
 import { verifyConformanceIntegrity } from '../integrity/index.js';
+import { startCanonicalGatewayTarget } from '../official/canonicalGatewayTarget.js';
 import {
   type OfficialConformanceResult,
+  type OfficialConformanceRevision,
   readOfficialEvidenceArtifact,
   runOfficialConformance,
 } from '../official/officialRunner.js';
@@ -105,6 +107,10 @@ const FOUNDATION_ARTIFACTS = [
   { id: 'official-runner', path: 'test/conformance/official/officialRunner.ts' },
   { id: 'official-reference-lifecycle', path: 'test/conformance/official/referenceServer.ts' },
   { id: 'official-server-control', path: 'test/conformance/official/serverControl.ts' },
+  { id: 'official-canonical-target', path: 'test/conformance/official/canonicalGatewayTarget.ts' },
+  { id: 'retained-legacy-transport-generator', path: 'scripts/vendor-legacy-transport.mjs' },
+  { id: 'retained-legacy-sdk-patch', path: 'patches/@modelcontextprotocol__sdk@1.30.0.patch' },
+  { id: 'patch-config', path: 'pnpm-workspace.yaml' },
   { id: 'official-reference-fixture', path: 'test/conformance/official/fixtures/reference/everything-server.mjs' },
   { id: 'official-reference-provenance', path: 'test/conformance/official/fixtures/reference/provenance.json' },
   { id: 'official-reference-patch', path: 'test/conformance/official/fixtures/reference/fixture.patch' },
@@ -120,6 +126,7 @@ const FOUNDATION_ARTIFACTS = [
   { id: 'legacy-client-adapter', path: 'src/sdk/legacy/client/runtime/legacySdkClientAdapter.ts' },
   { id: 'legacy-server-adapter', path: 'src/sdk/legacy/server/runtime/legacySdkServerAdapter.ts' },
   { id: 'sdk-topology-runtime', path: 'scripts/sdk-boundary/topology.mjs' },
+  { id: 'official-toolkit-repairs', path: 'test/conformance/official/fixtureRepairs.mjs' },
   { id: 'official-client-bridge', path: 'test/conformance/foundation/officialClientBridge.mjs' },
   { id: 'official-client-direct-fixture', path: 'test/conformance/official/fixtures/client-control.mjs' },
   { id: 'official-client-scenario-catalog', path: 'test/conformance/foundation/officialClientScenarioCatalog.mjs' },
@@ -485,11 +492,12 @@ async function waitForGatewayReady(child: ChildProcess, origin: string): Promise
   throw new Error('gateway-readiness-timeout');
 }
 
-async function startOfficialGateway(
+export async function startOfficialGateway(
   root: string,
   outputDirectory: string,
   upstreamEndpoint: string,
-): Promise<{ endpoint: string; close(): Promise<void> }> {
+  revision: OfficialConformanceRevision,
+): Promise<{ endpoint: string; accessToken?: string; close(): Promise<void> }> {
   const scratch = await mkdtemp(join(outputDirectory, 'official-gateway-'));
   const runtimeScope = join(scratch, 'runtime-scope');
   const home = join(scratch, 'home');
@@ -519,6 +527,12 @@ async function startOfficialGateway(
       '--async-max-retries',
       '0',
       '--no-async-background-retry',
+      '--enable-auth',
+      String(revision === '2026-07-28'),
+      '--enable-scope-validation',
+      'true',
+      '--credential-store',
+      'file',
     ],
     {
       cwd: runtimeScope,
@@ -528,14 +542,33 @@ async function startOfficialGateway(
         NODE_ENV: 'test',
         ONE_MCP_CONFIG_DIR: runtimeScope,
         ONE_MCP_LOG_LEVEL: 'error',
-        ONE_MCP_ENABLE_AUTH: 'false',
         NO_PROXY: '127.0.0.1,localhost,::1',
       },
       stdio: ['ignore', 'ignore', 'ignore'],
     },
   );
+  let accessToken: string | undefined;
   try {
     await waitForGatewayReady(child, origin);
+    if (revision === '2026-07-28') {
+      // Provision exactly once through the real localhost route; credentials never enter args or evidence.
+      const response = await fetch(`${origin}/api/auth/cli-token`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(5000),
+      });
+      if (response.status !== 200) throw new Error('official-gateway-credential-rejected');
+      const minted = z
+        .object({ authRequired: z.literal(true), token: z.string().min(1).max(4096) })
+        .safeParse(await response.json());
+      if (!minted.success) throw new Error('official-gateway-credential-invalid');
+      accessToken = minted.data.token;
+      const admitted = await fetch(`${origin}/api/v1/inspect`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: AbortSignal.timeout(5000),
+      });
+      await admitted.body?.cancel();
+      if (admitted.status !== 200) throw new Error(`official-gateway-auth-admission-rejected:${admitted.status}`);
+    }
   } catch (error) {
     try {
       await stopChild(child);
@@ -546,6 +579,7 @@ async function startOfficialGateway(
   }
   return {
     endpoint: `${origin}/mcp`,
+    accessToken,
     close: async () => {
       await stopChild(child);
       await rm(scratch, { recursive: true, force: true });
@@ -674,18 +708,38 @@ function shellArgument(value: string): string {
 
 const officialClientBridgeStatusSchema = z
   .object({
-    scenario: z.string().min(1),
+    scenario: z
+      .string()
+      .min(1)
+      .max(128)
+      .regex(/^[A-Za-z0-9][A-Za-z0-9/_-]*$/u),
     status: z.enum(['attempted', 'gateway-rejected', 'fixture-defect', 'harness-defect']),
+    reason: z.enum(['oauth-fixture-context-unavailable', 'owned-oauth-rejected']).optional(),
   })
   .strict();
+
+/** Qualification is independent of the pinned suite's retained raw result artifacts. */
+export async function runQualifiedOfficialServerTarget(
+  revision: OfficialConformanceResult['revision'],
+  target: { isQualified(): boolean; close(): Promise<void> },
+  run: () => Promise<OfficialConformanceResult>,
+): Promise<OfficialConformanceResult> {
+  if (!target.isQualified()) return { classification: 'fixture', role: 'server', revision, reason: 'invalid-target' };
+  const result = await run();
+  await target.close();
+  if (!target.isQualified()) return { classification: 'harness', role: 'server', revision, reason: 'artifact-invalid' };
+  return result;
+}
 
 export async function classifyOfficialClientResult(
   result: OfficialConformanceResult,
   statusDirectory: string,
+  outputDirectory?: string,
 ): Promise<OfficialConformanceResult> {
   if (result.classification !== 'product') return result;
   try {
     let fixtureDefect = false;
+    const bridgeStatuses: z.infer<typeof officialClientBridgeStatusSchema>[] = [];
     for (const scenario of result.scenarios) {
       const status = officialClientBridgeStatusSchema.parse(
         JSON.parse(await readFile(join(statusDirectory, `${encodeURIComponent(scenario.scenarioId)}.json`), 'utf8')),
@@ -693,14 +747,35 @@ export async function classifyOfficialClientResult(
       if (status.scenario !== scenario.scenarioId) {
         return { classification: 'harness', role: result.role, revision: result.revision, reason: 'artifact-invalid' };
       }
+      bridgeStatuses.push(status);
       if (status.status === 'harness-defect') {
         return { classification: 'harness', role: result.role, revision: result.revision, reason: 'artifact-invalid' };
       }
       fixtureDefect ||= status.status === 'fixture-defect';
     }
-    return fixtureDefect
+    const classified: OfficialConformanceResult = fixtureDefect
       ? { classification: 'fixture', role: result.role, revision: result.revision, reason: 'invalid-target' }
       : result;
+    if (outputDirectory) {
+      const payload = {
+        schemaVersion: 1,
+        role: result.role,
+        revision: result.revision,
+        classification: classified.classification,
+        ...(classified.classification === 'fixture' ? { reason: classified.reason } : {}),
+        rawOfficialArtifact: result.artifact,
+        bridgeStatuses,
+      };
+      const digest = `sha256:${createHash('sha256').update(JSON.stringify(payload)).digest('hex')}`;
+      const directory = join(outputDirectory, 'official-client-statuses');
+      await mkdir(directory, { recursive: true, mode: 0o700 });
+      await writeFile(
+        join(directory, `client.${result.revision}.json`),
+        `${JSON.stringify({ ...payload, digest }, null, 2)}\n`,
+        { mode: 0o600 },
+      );
+    }
+    return classified;
   } catch {
     return { classification: 'harness', role: result.role, revision: result.revision, reason: 'artifact-invalid' };
   }
@@ -717,6 +792,7 @@ async function runOfficialPeers(root: string, outputDirectory: string): Promise<
     let clientResult = await runOfficialConformance({
       packageRoot,
       role: 'client',
+      repairClientFixtures: true,
       revision,
       command,
       temporaryParentDirectory: outputDirectory,
@@ -728,7 +804,7 @@ async function runOfficialPeers(root: string, outputDirectory: string): Promise<
         return status.status === 'gateway-rejected';
       },
     });
-    clientResult = await classifyOfficialClientResult(clientResult, statusDirectory);
+    clientResult = await classifyOfficialClientResult(clientResult, statusDirectory, outputDirectory);
     try {
       await rm(statusDirectory, { recursive: true, force: true });
     } catch {
@@ -737,6 +813,7 @@ async function runOfficialPeers(root: string, outputDirectory: string): Promise<
 
     let server: Awaited<ReturnType<typeof startOfficialReferenceServer>> | undefined;
     let gateway: Awaited<ReturnType<typeof startOfficialGateway>> | undefined;
+    let canonicalTarget: Awaited<ReturnType<typeof startCanonicalGatewayTarget>> | undefined;
     let serverResult: OfficialConformanceResult = {
       classification: 'fixture',
       role: 'server',
@@ -757,15 +834,30 @@ async function runOfficialPeers(root: string, outputDirectory: string): Promise<
           outputDirectory,
         });
         if (control.qualified) {
-          gateway = await startOfficialGateway(root, outputDirectory, server.endpoint);
-          serverResult = await runOfficialConformance({
-            packageRoot,
-            role: 'server',
+          gateway = await startOfficialGateway(root, outputDirectory, server.endpoint, revision);
+          canonicalTarget = await startCanonicalGatewayTarget({
+            root,
+            gatewayEndpoint: gateway.endpoint,
+            gatewayAccessToken: gateway.accessToken,
+            referenceEndpoint: server.endpoint,
             revision,
-            url: gateway.endpoint,
-            temporaryParentDirectory: outputDirectory,
+            outputDirectory,
           });
-          await writeOfficialServerComparison(outputDirectory, control.result, serverResult);
+          const target = canonicalTarget;
+          const authenticatedTarget = gateway.accessToken ? target : undefined;
+          serverResult = await runQualifiedOfficialServerTarget(revision, target, () =>
+            runOfficialConformance({
+              packageRoot,
+              role: 'server',
+              revision,
+              url: target.endpoint,
+              authenticatedTarget,
+              temporaryParentDirectory: outputDirectory,
+            }),
+          );
+          if (serverResult.classification === 'product') {
+            await writeOfficialServerComparison(outputDirectory, control.result, serverResult);
+          }
         }
         // An unqualified direct peer remains fixture evidence; it never supplies a gateway verdict.
       } catch {
@@ -773,7 +865,7 @@ async function runOfficialPeers(root: string, outputDirectory: string): Promise<
       }
     }
     let cleanupFailed = false;
-    for (const close of [gateway?.close, server?.close]) {
+    for (const close of [canonicalTarget?.close, gateway?.close, server?.close]) {
       if (!close) continue;
       try {
         await close();

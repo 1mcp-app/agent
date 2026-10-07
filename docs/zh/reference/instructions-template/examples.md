@@ -51,7 +51,7 @@ description: 使用 Handlebars 编写 1MCP 自定义指令模板的示例。
 
 ## 使用方法
 
-工具名称通常采用 `{server}_1mcp_{tool}` 格式。对于为满足 MCP 命名限制而生成的紧凑名称，请使用 `tools/list` 返回的精确名称。
+大多数工具名称遵循 `{server}_1mcp_{tool}` 模式。请使用 `tools/list` 返回的准确名称；超出协议限制的名称会使用稳定的紧凑形式。
 
 示例工具：
 - `filesystem_1mcp_read_file` - 通过文件系统服务器读取文件

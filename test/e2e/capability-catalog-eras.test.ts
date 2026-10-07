@@ -28,6 +28,11 @@ import {
 } from '@src/sdk/legacy/types.js';
 import { setupModernHttpRoutes } from '@src/transport/http/routes/modernHttpRoutes.js';
 import { buildUri } from '@src/utils/core/parsing.js';
+import {
+  buildPublicResourceTemplate,
+  buildPublicResourceUri,
+  isValidResourceUri,
+} from '@src/utils/core/resourceUris.js';
 
 import express from 'express';
 import { describe, expect, it } from 'vitest';
@@ -58,13 +63,21 @@ async function closeHttp(server: HttpServer): Promise<void> {
 
 describe('capability catalog with real SDK peers', () => {
   it.each([
-    ['legacy', 'legacy'],
-    ['legacy', 'modern'],
-    ['modern', 'legacy'],
-    ['modern', 'modern'],
-  ] as const)('round-trips mixed capabilities and exact routes in the %s-%s cell', async (inboundEra, outboundEra) => {
+    ['legacy', 'legacy', false],
+    ['legacy', 'modern', false],
+    ['modern', 'legacy', false],
+    ['modern', 'modern', false],
+    ['modern', 'legacy', true],
+    ['modern', 'modern', true],
+  ] as const)('round-trips %s-%s capabilities (grant: %s)', async (inboundEra, outboundEra, authenticated) => {
     const cleanup: Array<() => Promise<unknown>> = [];
     const observed: Array<{ method: string; params?: unknown }> = [];
+    let verifiedAuth = {
+      token: 'fixture-verified-token',
+      clientId: 'fixture-client',
+      grantedScopes: ['tag:fixture'],
+      grantedTags: ['fixture'],
+    };
     const schemaTool = {
       name: 'schema-probe',
       inputSchema: { type: 'object', required: ['value'], properties: { value: { type: 'integer' } } },
@@ -92,6 +105,14 @@ describe('capability catalog with real SDK peers', () => {
         };
       }
       if (request.method === 'tools/call') return { ...results[request.method], structuredContent: {} };
+      if (request.method === 'resources/read' && (request.params as { uri?: string })?.uri === 'file:///dynamic')
+        return {
+          contents: [
+            { uri: resource.uri, text: 'Guide' },
+            { uri: 'file:///second%2f', text: 'Template content' },
+            { uri: 'custom:///unlisted%2f?q=one#part', text: 'Unlisted content' },
+          ],
+        };
       return results[request.method];
     };
     try {
@@ -171,10 +192,24 @@ describe('capability catalog with real SDK peers', () => {
       } else {
         const app = express();
         app.use(express.json());
-        setupModernHttpRoutes(app as never, manager as never, [], createModernInboundLegacyBridge, {
-          allowsHost: () => true,
-          allowsOrigin: () => true,
-        });
+        setupModernHttpRoutes(
+          app as never,
+          manager as never,
+          authenticated
+            ? [
+                (_req, res, next) => {
+                  // This fixture supplies admitted grant facts; production middleware verifies the token.
+                  res.locals.auth = verifiedAuth;
+                  next();
+                },
+              ]
+            : [],
+          createModernInboundLegacyBridge,
+          {
+            allowsHost: () => true,
+            allowsOrigin: () => true,
+          },
+        );
         const server = createServer(app);
         cleanup.push(() => closeHttp(server));
         const client = new ModernClient(
@@ -198,10 +233,10 @@ describe('capability catalog with real SDK peers', () => {
         prompts: [{ ...prompt, name: publicIdentity(prompt.name) }],
       });
       expect(await request('resources/list')).toMatchObject({
-        resources: [{ ...resource, uri: publicIdentity(resource.uri) }],
+        resources: [{ ...resource, uri: buildPublicResourceUri('fixture', resource.uri) }],
       });
       expect(await request('resources/templates/list')).toMatchObject({
-        resourceTemplates: [{ ...template, uriTemplate: publicIdentity(template.uriTemplate) }],
+        resourceTemplates: [{ ...template, uriTemplate: buildPublicResourceTemplate('fixture', template.uriTemplate) }],
       });
       expect(await request('tools/call', { name: publicIdentity(tool.name), arguments: {} })).toMatchObject(
         results['tools/call'],
@@ -235,26 +270,76 @@ describe('capability catalog with real SDK peers', () => {
       expect(
         await request('prompts/get', { name: publicIdentity(prompt.name), arguments: { topic: 'test' } }),
       ).toMatchObject(results['prompts/get']);
-      expect(await request('resources/read', { uri: publicIdentity(resource.uri) })).toMatchObject({
-        contents: [{ uri: publicIdentity(resource.uri), text: 'Guide' }],
+      expect(await request('resources/read', { uri: buildPublicResourceUri('fixture', resource.uri) })).toMatchObject({
+        contents: [{ uri: buildPublicResourceUri('fixture', resource.uri), text: 'Guide' }],
       });
-      expect(await request('resources/read', { uri: publicIdentity('file:///dynamic') })).toMatchObject({
-        contents: [{ uri: publicIdentity(resource.uri), text: 'Guide' }],
+      const dynamicRead = await request('resources/read', {
+        uri: buildPublicResourceUri('fixture', 'file:///dynamic'),
       });
+      expect(dynamicRead).toMatchObject({
+        contents: [
+          { uri: buildPublicResourceUri('fixture', resource.uri), text: 'Guide' },
+          { uri: buildPublicResourceUri('fixture', 'file:///second%2f'), text: 'Template content' },
+          { uri: expect.stringMatching(/^urn:1mcp:resource:/), text: 'Unlisted content' },
+        ],
+      });
+      const contents = dynamicRead.contents as Array<{ uri: string }>;
+      expect(contents.every(({ uri }) => isValidResourceUri(uri))).toBe(true);
+      await request('resources/read', { uri: contents[2].uri });
+      expect(observed).toContainEqual(
+        expect.objectContaining({
+          method: 'resources/read',
+          params: expect.objectContaining({ uri: 'custom:///unlisted%2f?q=one#part' }),
+        }),
+      );
+      const readsBeforeGuess = observed.filter(({ method }) => method === 'resources/read').length;
+      await expect(
+        request('resources/read', { uri: 'urn:1mcp:resource:00000000-0000-4000-8000-000000000000' }),
+      ).rejects.toBeDefined();
+      expect(observed.filter(({ method }) => method === 'resources/read')).toHaveLength(readsBeforeGuess);
+      expect(manager.getInboundConnections().size).toBe(inboundEra === 'modern' ? 0 : 1);
+      if (authenticated) {
+        const originalAuth = verifiedAuth;
+        verifiedAuth = { ...originalAuth, token: 'different-verified-token' };
+        await expect(request('resources/read', { uri: contents[2].uri })).rejects.toBeDefined();
+        verifiedAuth = { ...originalAuth, grantedScopes: ['tag:narrow'], grantedTags: ['narrow'] };
+        await expect(request('resources/read', { uri: contents[2].uri })).rejects.toBeDefined();
+        expect(observed.filter(({ method }) => method === 'resources/read')).toHaveLength(readsBeforeGuess);
+        verifiedAuth = originalAuth;
+        await request('resources/read', { uri: contents[2].uri });
+      }
       expect(
         await request('completion/complete', {
           ref: { type: 'ref/prompt', name: publicIdentity(prompt.name) },
           argument: { name: 'topic', value: 't' },
         }),
       ).toMatchObject(results['completion/complete']);
+      expect(isValidResourceUri(buildPublicResourceUri('fixture', resource.uri))).toBe(true);
+      expect(
+        await request('completion/complete', {
+          ref: { type: 'ref/resource', uri: buildPublicResourceTemplate('fixture', template.uriTemplate) },
+          argument: { name: 'name', value: 'g' },
+        }),
+      ).toMatchObject(results['completion/complete']);
       expect(observed).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ method: 'tools/call', params: expect.objectContaining({ name: tool.name }) }),
           expect.objectContaining({ method: 'prompts/get', params: expect.objectContaining({ name: prompt.name }) }),
-          expect.objectContaining({ method: 'resources/read', params: expect.objectContaining({ uri: resource.uri }) }),
+          expect.objectContaining({
+            method: 'resources/read',
+            params: expect.objectContaining({ uri: resource.uri }),
+          }),
+          expect.objectContaining({
+            method: 'completion/complete',
+            params: expect.objectContaining({ ref: { type: 'ref/resource', uri: template.uriTemplate } }),
+          }),
           expect.objectContaining({
             method: 'resources/read',
             params: expect.objectContaining({ uri: 'file:///dynamic' }),
+          }),
+          expect.objectContaining({
+            method: 'resources/read',
+            params: expect.objectContaining({ uri: 'custom:///unlisted%2f?q=one#part' }),
           }),
         ]),
       );

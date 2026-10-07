@@ -241,7 +241,7 @@ function getOAuthFlow(
       bindOAuthReturn: (serverName, state, origin) =>
         ClientManager.getOrCreateInstance().bindOAuthReturn(serverName, state, origin),
       getOAuthReturn: (serverName, state) => ClientManager.getOrCreateInstance().getOAuthReturn(serverName, state),
-      initiateOAuth: (serverName) => ClientManager.getOrCreateInstance().initiateOAuth(serverName),
+      initiateOAuth: (serverName, options) => ClientManager.getOrCreateInstance().initiateOAuth(serverName, options),
       completeOAuthAndReconnect: (serverName, authorizationCode) =>
         ClientManager.getOrCreateInstance().completeOAuthAndReconnect(serverName, authorizationCode),
     },
@@ -263,6 +263,7 @@ function getOAuthFlow(
       oauthTokenTtlMs: agentConfig.get('auth').oauthTokenTtlMs,
     }),
     getAvailableTags: () => [],
+    getResourceUrl: () => agentConfig.getUrl(),
   });
 }
 

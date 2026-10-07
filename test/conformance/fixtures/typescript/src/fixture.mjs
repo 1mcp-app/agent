@@ -235,10 +235,11 @@ async function runOfficialConformanceClient(endpoint) {
   if (!context || typeof context !== 'object' || Array.isArray(context)) throw new Error('INVALID_CONTEXT');
   const serverEndpoint = requireLoopbackEndpoint(endpoint);
 
+  const requestInit = ownedGatewayRequestInit(modern, family, serverEndpoint);
   const client = createOfficialClient(modern, family);
   const transport = modern
-    ? createV2ClientTransport('streamable-http', { endpoint: serverEndpoint })
-    : createV1ClientTransport('streamable-http', { endpoint: serverEndpoint });
+    ? createV2ClientTransport('streamable-http', { endpoint: serverEndpoint, requestInit })
+    : createV1ClientTransport('streamable-http', { endpoint: serverEndpoint, requestInit });
   try {
     await client.connect(transport);
     if (family === 'initialize') return;
@@ -261,7 +262,9 @@ async function runOfficialConformanceClient(endpoint) {
       return await client.callTool({ name: resolved, arguments: args });
     };
 
-    if (family === 'tools') {
+    if (family === 'auth') {
+      await attempt(() => callTool('test-tool'));
+    } else if (family === 'tools') {
       await attempt(() => callTool('add_numbers', { a: 20, b: 22 }));
     } else if (family === 'elicitation') {
       await attempt(() => callTool('test_client_elicitation_defaults'));
@@ -300,6 +303,21 @@ async function runOfficialConformanceClient(endpoint) {
   } finally {
     await client.close();
   }
+}
+
+function ownedGatewayRequestInit(modern, family, endpoint) {
+  const token = process.env.ONE_MCP_CONFORMANCE_GATEWAY_TOKEN;
+  const origin = process.env.ONE_MCP_CONFORMANCE_GATEWAY_ORIGIN;
+  if (token === undefined && origin === undefined) return undefined;
+  if (family !== 'auth' && (!modern || family !== 'request-state')) throw new Error('INVALID_CONTEXT');
+  if (!token || token.length > 4096 || !/^[A-Za-z0-9._~+/-]+=*$/u.test(token)) throw new Error('INVALID_CONTEXT');
+  try {
+    const owned = new URL(requireLoopbackEndpoint(origin));
+    if (origin !== owned.origin || new URL(endpoint).origin !== owned.origin) throw new Error();
+  } catch {
+    throw new Error('INVALID_CONTEXT');
+  }
+  return { headers: { Authorization: `Bearer ${token}` }, redirect: 'manual' };
 }
 
 class FixtureSdkResultTypeError extends Error {}

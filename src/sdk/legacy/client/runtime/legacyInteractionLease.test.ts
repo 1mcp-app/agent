@@ -2,9 +2,54 @@ import type { LegacySdkAdapter } from '@src/sdk/contracts/index.js';
 
 import { describe, expect, it } from 'vitest';
 
-import { beginLegacyInteractionRequest, withLegacyInteractionLease } from './legacyInteractionLease.js';
+import {
+  beginLegacyInteractionRequest,
+  currentLegacyInteractionCapabilities,
+  withLegacyInteractionLease,
+} from './legacyInteractionLease.js';
 
 describe('adapter interaction lease', () => {
+  it('keeps overlapping negotiated-modern contexts independent', async () => {
+    const adapter = { protocol: { era: 'modern' } } as LegacySdkAdapter;
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const owned = withLegacyInteractionLease(
+      adapter,
+      async () => {
+        await pending;
+        expect(currentLegacyInteractionCapabilities()).toEqual({ roots: {} });
+      },
+      undefined,
+      undefined,
+      { roots: {} },
+    );
+    await withLegacyInteractionLease(
+      adapter,
+      async () => {
+        expect(currentLegacyInteractionCapabilities()).toEqual({ sampling: {} });
+        beginLegacyInteractionRequest(adapter, 'tools/call')();
+      },
+      undefined,
+      undefined,
+      { sampling: {} },
+    );
+    release();
+    await owned;
+  });
+
+  it('retains exclusivity when a modern SDK has negotiated legacy', async () => {
+    const adapter = { protocol: { era: 'legacy' } } as LegacySdkAdapter;
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const owned = withLegacyInteractionLease(adapter, () => pending);
+    expect(() => beginLegacyInteractionRequest(adapter, 'tools/call')).toThrow('interaction_capacity_exceeded');
+    release();
+    await owned;
+  });
   it('prevents unscoped REST or CLI invocation from sharing a protocol owner', async () => {
     const adapter = {} as LegacySdkAdapter;
     let release!: () => void;

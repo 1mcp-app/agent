@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { GatewayFailure, ImmutableJsonValue } from '../../contracts/index.js';
+import {
+  type GatewayFailure,
+  gatewayFailureToMcp,
+  type ImmutableJsonValue,
+  missingClientCapabilityFailure,
+} from '../../contracts/index.js';
 import { ModernInboundEraAdapter } from './modernInboundEraAdapter.js';
 import { ModernOutboundEraAdapter } from './modernOutboundEraAdapter.js';
 
@@ -172,6 +177,26 @@ describe('ModernInboundEraAdapter', () => {
     expect(responses).toEqual([{ type: 'success', correlationId: 'wire-2', result: { tools: [{ name: 'one' }] } }]);
     expect(Object.isFrozen(responses[0])).toBe(true);
     expect(Object.isFrozen((responses[0] as { result: { tools: object[] } }).result.tools[0])).toBe(true);
+  });
+  it('retains only owned capability-failure provenance across detached immutable response frames', async () => {
+    const owned = missingClientCapabilityFailure({ sampling: {} })!;
+    for (const [failure, expectedCode] of [
+      [owned, -32021],
+      [JSON.parse(JSON.stringify(owned)), -32000],
+    ] as const) {
+      const { adapter, responses } = inbound([
+        { type: 'request', correlationId: 'caller-1', operation: 'tools/call', params: { name: 'act' } },
+      ]);
+      const event = await adapter.nextEvent();
+      expect(event?.type).toBe('request');
+      await adapter.respond({ type: 'failure', requestId: 'gateway-request-1', failure });
+      const frame = responses[0] as unknown as { failure: GatewayFailure };
+      expect(frame.failure).not.toBe(failure);
+      expect(Object.isFrozen(frame)).toBe(true);
+      expect(Object.isFrozen(frame.failure)).toBe(true);
+      expect(Object.isFrozen(frame.failure.data)).toBe(true);
+      expect(gatewayFailureToMcp(frame.failure, 'modern').code).toBe(expectedCode);
+    }
   });
 });
 

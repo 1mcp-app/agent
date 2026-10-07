@@ -1,0 +1,13 @@
+# Retained legacy SDK patch
+
+`@modelcontextprotocol__sdk@1.30.0.patch` applies through pnpm to the pinned legacy SDK, including its CommonJS and ESM HTTP transports. The independently installed TypeScript peer fixture references the same patch. The package versions and upstream tarball integrity remain pinned; lockfiles record the patch hash separately. The conformance tool retains its scenarios and validators; its transitive use of this SDK receives the same transport correction.
+
+After a single JSON-RPC request has been parsed, session/protocol-version rejection must carry that request's known ID. Upstream `1.30.0` returned `id: null` even for a valid discovery request; `1.32.1` was inspected and retains that behavior. Preserve HTTP status, error code/message, validation order and unknown-ID behavior. Do not correlate batches, notifications or malformed input to an invented ID, and do not exempt malformed responses from validation.
+
+`test/conformance/capture/legacyHttpEnvelope.test.ts` checks zero/numeric/string IDs, stateless and stateful transport rejection, ESM/CommonJS loading, successful subsequent legacy operations, and strict rejection of malformed/null-ID envelopes. The conformance integrity inventory retains this patch and its configuration alongside the independent peer lockfile.
+
+Remove the patch only after a pinned upstream release proves the same regression and compatibility checks pass.
+
+The build retains the exact corrected ESM Node and WebStandard transports under `build/sdk/legacy/server/retained-sdk`, with the upstream MIT license and source/generated checksums. The generator verifies the exact SDK version, patch configuration, lock entry, source hashes and imports before redirecting the compiled compatibility shim. Only internal import specifiers and dangling source-map references change. npm installations use this retained implementation even though their SDK dependency remains the unmodified upstream `1.30.0`; no installation script mutates dependencies. SEA bundles the same generated transport. The existing locked Node adapter `@hono/node-server@2.0.12` is an explicit runtime dependency so the retained Node wrapper resolves identically in isolated package layouts. Docker stages copy the patch before installing pnpm dependencies.
+
+SEA embeds the complete exact pinned upstream MIT notice and retained source provenance in its final bundled source after esbuild removes legal comments. The build verifies the license checksum and rejects comment terminators in notice inputs. The standalone binary and existing binary-only archive retain the complete notice and provenance; `test/packaging/sea-notice-proof.mjs` checks the final native binary and archived bytes directly.

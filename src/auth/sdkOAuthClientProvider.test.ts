@@ -250,6 +250,28 @@ describe('SDKOAuthClientProvider authority persistence', () => {
       /OAuth authority/,
     );
   });
+  it.each(['expired', 'consumed'])('does not resume a %s cached authorization URL', async (kind) => {
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+    const target = await bound();
+    const flow = await attempt(target);
+    const cachedUrl = target.getAuthorizationUrl();
+    expect(target.getPendingAuthorizationUrl()).toBe(cachedUrl);
+    if (kind === 'expired') clock.mockReturnValue(now + OAUTH_ATTEMPT_TTL_MS);
+    else
+      await expect(
+        target.withAuthorizationCallback(flow.response, async () => {
+          throw new Error('token network failure');
+        }),
+      ).rejects.toThrow('token network failure');
+    expect(target.getAuthorizationUrl()).toBe(cachedUrl);
+    expect(target.getPendingAuthorizationUrl()).toBeUndefined();
+    await target.invalidateCredentials('tokens');
+    await attempt(target);
+    expect(target.getPendingAuthorizationUrl()).toBeDefined();
+    expect(target.getPendingAuthorizationUrl()).not.toBe(cachedUrl);
+  });
+
   it('bounds pending and consumed attempt records and recovers capacity after expiry', async () => {
     const now = Date.now();
     const clock = vi.spyOn(Date, 'now').mockReturnValue(now);

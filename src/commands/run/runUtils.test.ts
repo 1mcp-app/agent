@@ -1,8 +1,15 @@
+import { buildCatalogGeneration } from '@src/core/capabilities/catalogGeneration.js';
 import { type Tool, toProtocolTool } from '@src/sdk/contracts/index.js';
 
 import { describe, expect, it } from 'vitest';
 
-import { formatToolCallOutput, parseToolReference, resolveToolArguments, RunCommandInputError } from './runUtils.js';
+import {
+  findToolByQualifiedName,
+  formatToolCallOutput,
+  parseToolReference,
+  resolveToolArguments,
+  RunCommandInputError,
+} from './runUtils.js';
 
 function createTool(inputSchema: Record<string, unknown>): Tool {
   return toProtocolTool({
@@ -25,6 +32,19 @@ describe('parseToolReference', () => {
     expect(() => parseToolReference('filesystem')).toThrow(RunCommandInputError);
     expect(() => parseToolReference('/read_file')).toThrow(RunCommandInputError);
     expect(() => parseToolReference('a/b/c')).toThrow(RunCommandInputError);
+  });
+
+  it('finds compact catalog names while preserving the explicit upstream tool reference', () => {
+    const server = 'runner';
+    const name = `echo args_1mcp_${'x'.repeat(60)}`;
+    const entry = buildCatalogGeneration(1, [
+      { kind: 'tools', server, connectionKey: server, object: { name, inputSchema: { type: 'object' } } },
+    ]).entries[0];
+    const reference = parseToolReference(`${server}/${name}`);
+    const tool = toProtocolTool(entry.publicObject);
+    expect(reference.toolName).toBe(name);
+    expect(reference.qualifiedName).toBe(entry.route.publicIdentity);
+    expect(findToolByQualifiedName([tool], reference.qualifiedName)).toBe(tool);
   });
 });
 

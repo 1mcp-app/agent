@@ -168,6 +168,7 @@ export async function startAuthoritySurfaceFixture(): Promise<AuthoritySurfaceFi
     createTokenId: () => randomBytes(24).toString('base64url'),
     getAuthConfig: () => ({ enabled: true, oauthTokenTtlMs: 60_000 }),
     getAvailableTags: () => ['allowed'],
+    getResourceUrl: () => baseUrl,
   });
 
   const app = express();

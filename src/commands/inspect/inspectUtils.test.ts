@@ -203,6 +203,22 @@ describe('inspectUtils', () => {
     ]);
   });
 
+  it('finds compact names and displays the full upstream name from catalog provenance', () => {
+    const server = 'runner';
+    const name = `echo args_1mcp_${'x'.repeat(60)}`;
+    const entry = buildCatalogGeneration(1, [
+      { kind: 'tools', server, connectionKey: server, object: { name, inputSchema: { type: 'object' } } },
+    ]).entries[0];
+    const target = parseInspectTarget(`${server}/${name}`);
+    expect(target).toEqual({
+      kind: 'tool',
+      reference: { serverName: server, toolName: name, qualifiedName: entry.route.publicIdentity },
+    });
+    expect(extractInspectServerInfo(server, [toProtocolTool(entry.publicObject)]).tools).toMatchObject([
+      { tool: name, qualifiedName: entry.route.publicIdentity },
+    ]);
+  });
+
   it.each(['text', 'json', 'toon'] as const)('omits routing identities from %s display', (format) => {
     const reference = { serverName: 'runner', toolName: 'echo_args', qualifiedName: toolSchemaResponse.name };
     const info = extractInspectToolInfo(toolSchemaResponse, reference);

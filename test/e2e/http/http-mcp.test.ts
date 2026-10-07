@@ -77,9 +77,18 @@ describeHttpE2E('Streamable HTTP MCP protocol E2E', () => {
     );
 
     const resources = await client.listResources();
-    expect(resources.resources).toEqual(
-      expect.arrayContaining([expect.objectContaining({ uri: 'echo_1mcp_echo://test', name: 'Echo Test Resource' })]),
-    );
+    const advertised = resources.resources.filter((resource) => resource.name === 'Echo Test Resource');
+    expect(advertised).toHaveLength(1);
+    const resource = advertised[0];
+    expect(resource._meta).toMatchObject({
+      'app.1mcp/route': { kind: 'resources', server: 'echo', upstreamIdentity: 'echo://test' },
+    });
+    expect(() => new URL(resource.uri)).not.toThrow();
+    expect(resource.uri).not.toBe('echo://test');
+    const read = await client.getClient().readResource({ uri: resource.uri });
+    expect(read.contents).toEqual([
+      { uri: resource.uri, mimeType: 'text/plain', text: 'This is an echo test resource' },
+    ]);
   });
 });
 

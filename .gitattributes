@@ -2,6 +2,11 @@
 # working-tree representation to platform defaults.
 * text=auto
 
+# Retained SDK sealed inputs must keep identical LF bytes on every platform.
+patches/@modelcontextprotocol__sdk@1.30.0.patch text eol=lf
+pnpm-lock.yaml text eol=lf
+pnpm-workspace.yaml text eol=lf
+
 # POSIX interpreters fail hard on CRLF shebangs - force LF everywhere.
 *.sh text eol=lf
 

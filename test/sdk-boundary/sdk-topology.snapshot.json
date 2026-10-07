@@ -61,7 +61,7 @@
       ],
       "manifestSpecifier": "1.30.0",
       "lockSpecifier": "1.30.0",
-      "resolved": "1.30.0(zod@4.4.3)"
+      "resolved": "1.30.0(patch_hash=75c775371ba4b626db950c68d95331c6e8c9a3949d551aba01d9d1332cb82937)(zod@4.4.3)"
     },
     "@modelcontextprotocol/server": {
       "placement": "dependencies",
@@ -196,7 +196,7 @@
       "package": "@modelcontextprotocol/conformance",
       "version": "0.2.0-alpha.11",
       "dependencies": {
-        "@modelcontextprotocol/sdk": "1.30.0(zod@4.4.3)",
+        "@modelcontextprotocol/sdk": "1.30.0(patch_hash=75c775371ba4b626db950c68d95331c6e8c9a3949d551aba01d9d1332cb82937)(zod@4.4.3)",
         "eventsource-parser": "3.1.0",
         "zod": "4.4.3"
       }
@@ -217,7 +217,7 @@
         "hono": "4.12.34"
       }
     },
-    "@modelcontextprotocol/sdk@1.30.0(zod@4.4.3)": {
+    "@modelcontextprotocol/sdk@1.30.0(patch_hash=75c775371ba4b626db950c68d95331c6e8c9a3949d551aba01d9d1332cb82937)(zod@4.4.3)": {
       "package": "@modelcontextprotocol/sdk",
       "version": "1.30.0",
       "dependencies": {

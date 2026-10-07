@@ -7,9 +7,10 @@ import {
   readCompleteConfiguredToolTargetSnapshot,
   readConfiguredToolSnapshot,
 } from '@src/core/capabilities/configuredToolSnapshot.js';
-import { getDisabledTools, getLogicalToolName, isToolDisabled } from '@src/core/server/disabledTools.js';
+import { getDisabledTools, isSourceToolDisabled, isToolDisabled } from '@src/core/server/disabledTools.js';
 import {
-  applyEffectiveToolDescription,
+  applySourceToolDescription,
+  getSourceToolDescription,
   getToolDescriptionOverrides,
 } from '@src/core/server/toolDescriptionOverrides.js';
 import {
@@ -20,6 +21,7 @@ import {
 } from '@src/core/types/index.js';
 import { isConfiguredServerTargetDisabled } from '@src/domains/config-change/configChange.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
+import { getSourceToolConfigReferences } from '@src/utils/core/toolNames.js';
 
 export type ConfiguredToolTargetSource = 'mcpServers' | 'mcpTemplates';
 
@@ -137,9 +139,29 @@ export async function createConfiguredToolInventory(input: {
   }
 
   const overrides = getToolDescriptionOverrides(input.config);
+  const referenceSources = new Map<string, string | null>();
+  let invalidSourceCount = 0;
+  for (const name of toolsByName.keys()) {
+    let references: readonly string[];
+    try {
+      references = getSourceToolConfigReferences(input.targetName, name);
+    } catch {
+      // Raw observations remain in retained snapshots, but malformed identities cannot grant config aliases.
+      toolsByName.delete(name);
+      invalidSourceCount += 1;
+      continue;
+    }
+    for (const reference of references) {
+      if (referenceSources.has(reference) && referenceSources.get(reference) !== name) {
+        referenceSources.set(reference, null);
+        continue;
+      }
+      referenceSources.set(reference, name);
+    }
+  }
   const configuredNames = new Set([
-    ...getDisabledTools(input.config).map((name) => getLogicalToolName(input.targetName, name)),
-    ...Object.keys(overrides).map((name) => getLogicalToolName(input.targetName, name)),
+    ...getDisabledTools(input.config).map((reference) => referenceSources.get(reference) ?? reference),
+    ...Object.keys(overrides).map((reference) => referenceSources.get(reference) ?? reference),
   ]);
   const allNames = new Set([...toolsByName.keys(), ...configuredNames]);
   const tokenEstimator = new TokenEstimationService(model);
@@ -152,14 +174,16 @@ export async function createConfiguredToolInventory(input: {
       .map((name): ConfiguredToolInventoryRow => {
         const observed = toolsByName.get(name);
         const effectiveTool = observed
-          ? applyEffectiveToolDescription(observed.tool, input.config, input.targetName)
+          ? applySourceToolDescription(observed.tool, input.config, input.targetName)
           : undefined;
         const approximateTokens = effectiveTool
           ? (tokenEstimator.estimateServerTokens(input.targetName, [effectiveTool], [], [], true).breakdown.tools[0]
               ?.tokens ?? 0)
           : 0;
         const observedInstanceCount = observed?.instances.size ?? 0;
-        const descriptionOverride = overrides[name];
+        const descriptionOverride = observed
+          ? getSourceToolDescription(input.config, input.targetName, name)
+          : overrides[name];
         return {
           name,
           ...(observed?.tool.description !== undefined ? { upstreamDescription: observed.tool.description } : {}),
@@ -170,7 +194,9 @@ export async function createConfiguredToolInventory(input: {
               : {}),
           ...(descriptionOverride !== undefined ? { descriptionOverride } : {}),
           descriptionOverridden: descriptionOverride !== undefined,
-          enabled: !isToolDisabled(serverConfigs, input.targetName, name),
+          enabled: observed
+            ? !isSourceToolDisabled(serverConfigs, input.targetName, name)
+            : !isToolDisabled(serverConfigs, input.targetName, name),
           observed: observed?.live ?? false,
           stale: observed !== undefined && !observed.live,
           unresolved: observed === undefined,
@@ -230,7 +256,10 @@ export async function createConfiguredToolInventory(input: {
     model,
     generation,
     activeInstanceCount,
-    inspection,
+    inspection:
+      invalidSourceCount > 0 && inspection.status === 'complete'
+        ? { ...inspection, reason: 'invalid_tool_identity' }
+        : inspection,
     rows,
     counts: {
       observed: rows.filter((row) => row.observed).length,

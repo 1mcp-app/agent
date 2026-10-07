@@ -1,6 +1,7 @@
 import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { getRequestSession, resolveCapabilityVisibility } from '@src/core/protocol/requestHandlerUtils.js';
 import { InboundConnection } from '@src/core/types/index.js';
+import { withSelectedNativeInputResponses } from '@src/gateway/interactions/nativeInputResponses.js';
 import { RESPONSE_JSON_VALUE_LIMITS } from '@src/sdk/contracts/index.js';
 import {
   type LegacyOutboundConnections,
@@ -12,6 +13,7 @@ import { CompleteRequestSchema, GetPromptRequestSchema, ListPromptsRequestSchema
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 
 import { withPrivateInteractionConnection } from './privateInteractionConnection.js';
+import { withProviderRequestProgress } from './requestProviderProgress.js';
 import { bindOwnedCatalogConnections, bindOwnedNotificationAuthorization } from './resourceSubscriptions.js';
 
 export function registerPromptHandlers(outboundConns: LegacyOutboundConnections, inboundConn: InboundConnection): void {
@@ -53,11 +55,24 @@ export function registerPromptHandlers(outboundConns: LegacyOutboundConnections,
     withErrorHandling(async (request, extra) => {
       const route = (await acquire()).resolve('prompts', request.params.name);
       if (!route?.connection) throw new Error(`Unknown prompt: ${request.params.name}`);
-      return withPrivateInteractionConnection(route.connection, inboundConn, extra, route.entry, (selected) =>
-        requestLegacyOutbound(selected, 'prompts/get', {
-          ...request.params,
-          name: route.entry.route.upstreamIdentity,
-        }),
+      const { _meta: _callerMeta, ...params } = request.params;
+      return withProviderRequestProgress(
+        outboundConns,
+        route.connection,
+        route.entry,
+        extra,
+        request.params._meta?.progressToken,
+        () =>
+          withPrivateInteractionConnection(route.connection!, inboundConn, extra, route.entry, (selected) =>
+            withSelectedNativeInputResponses(
+              request.params.name,
+              'prompts/get',
+              selected.adapter,
+              route.entry.route.upstreamIdentity,
+              () =>
+                requestLegacyOutbound(selected, 'prompts/get', { ...params, name: route.entry.route.upstreamIdentity }),
+            ),
+          ),
       );
     }, 'Error getting prompt'),
   );

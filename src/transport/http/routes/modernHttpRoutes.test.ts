@@ -4,11 +4,19 @@ import { EventEmitter, once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import { Writable } from 'node:stream';
 
+import { type CatalogCursorOwner, isCatalogCursorOwnerCurrent } from '@src/core/capabilities/capabilityCatalog.js';
+import { isResourceRouteOwnerActive, type ResourceRouteOwner } from '@src/core/capabilities/capabilityVisibility.js';
+import {
+  MAX_RUNTIME_CATALOG_SCOPES,
+  RUNTIME_CATALOG_SCOPE_TTL_MS,
+} from '@src/core/capabilities/runtimeCapabilityCatalog.js';
+
 import express from 'express';
-import request from 'supertest';
+import request, { type Response as HttpTestResponse } from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
+import * as bindings from './modernInteractionBinding.js';
 import errorHandler from '../middlewares/errorHandler.js';
 import {
   bindDisconnectAbort,
@@ -19,6 +27,13 @@ import {
 import { setupStreamableHttpRoutes } from './streamableHttpRoutes.js';
 
 const { createBridge } = vi.hoisted(() => ({ createBridge: vi.fn() }));
+
+// These transport tests supply private bridges independently of provider catalogs.
+// Catalog admission and header fences use real peers in modernHttpRoutes.paramHeaders.test.ts.
+vi.mock('./modernToolHeaderRegistry.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./modernToolHeaderRegistry.js')>()),
+  resolveModernToolHeaderRegistry: vi.fn(async () => undefined),
+}));
 
 const modernMeta = {
   'io.modelcontextprotocol/protocolVersion': '2026-07-28',
@@ -363,6 +378,317 @@ describe('modern HTTP admission', () => {
       expect.objectContaining({ operation: 'tools/list', params: { cursor: 'next-page' } }),
     );
     expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  function resourceOwnerListener(operation: 'resources/read' | 'tools/call' = 'resources/read', lazyEnabled = true) {
+    const instance = express();
+    instance.use(express.json());
+    const cleanups: Array<() => Promise<void>> = [];
+    setupModernHttpRoutes(
+      instance as never,
+      {
+        registerCleanup: (cleanup: () => Promise<void>) => cleanups.push(cleanup),
+        getLazyLoadingOrchestrator: () => (operation === 'tools/call' ? { isEnabled: () => lazyEnabled } : undefined),
+        getClients: () => new Map(),
+      } as never,
+      [
+        (req, res, next) => {
+          const token = req.get('x-test-verified-token');
+          if (token)
+            res.locals.auth = {
+              token,
+              clientId: 'same-client',
+              grantedScopes: (req.get('x-test-verified-grant') ?? 'safe').split(','),
+              grantedTags: ['safe'],
+            };
+          next();
+        },
+      ],
+      createBridge,
+      loopbackPolicy,
+    );
+    createBridge.mockImplementation(async () => ({
+      targetConnectionId: 'private-resource',
+      close: vi.fn(async () => undefined),
+      outbound: {
+        role: 'outbound',
+        pin: { era: 'legacy', revision: '2025-11-25' },
+        request: vi.fn(async () =>
+          operation === 'resources/read'
+            ? { contents: [{ uri: 'file:///value', text: 'value' }] }
+            : { content: [{ type: 'text', text: 'ok' }] },
+        ),
+        cancel: vi.fn(async () => undefined),
+        close: vi.fn(async () => undefined),
+      },
+    }));
+    const post = (token?: string, grant?: string, target: express.Express | string = instance) => {
+      const pending = modernPost(target, {
+        jsonrpc: '2.0',
+        id: 'resource',
+        method: operation,
+        params:
+          operation === 'resources/read'
+            ? { uri: 'file:///value', _meta: modernMeta }
+            : { name: 'tool_list', arguments: { limit: 1 }, _meta: modernMeta },
+      }).set('Mcp-Name', operation === 'resources/read' ? 'file:///value' : 'tool_list');
+      if (token) pending.set('x-test-verified-token', token);
+      if (grant) pending.set('x-test-verified-grant', grant);
+      return pending;
+    };
+    return { instance, post, cleanups };
+  }
+
+  it('preserves provider-binding discovery and does not mint cursor authority when lazy mode is disabled', async () => {
+    const binding = vi.spyOn(bindings, 'createModernInteractionBinding').mockResolvedValue(undefined);
+    const listener = resourceOwnerListener('tools/call', false);
+    try {
+      await listener.post('token-a');
+      expect(binding).toHaveBeenCalledOnce();
+      expect(createBridge.mock.calls.at(-1)?.[2]).not.toHaveProperty('catalogCursorOwner');
+    } finally {
+      await Promise.all(listener.cleanups.map((cleanup) => cleanup()));
+      binding.mockRestore();
+    }
+  });
+
+  it('keeps native cursor owners private, listener-local, grant-separated and revoked by cleanup', async () => {
+    const binding = vi.spyOn(bindings, 'createModernInteractionBinding').mockResolvedValue(undefined);
+    const first = resourceOwnerListener('tools/call');
+    const second = resourceOwnerListener('tools/call');
+    try {
+      await first.post('token-a', 'safe,other');
+      await first.post('token-a', 'other,safe');
+      await first.post('token-b', 'safe,other');
+      await first.post('token-a', 'narrow');
+      await first.post();
+      await first.post();
+      expect(binding).not.toHaveBeenCalled();
+      const owners = createBridge.mock.calls.map((call) => call[2].catalogCursorOwner as CatalogCursorOwner);
+      expect(owners[1]).toBe(owners[0]);
+      expect(owners[2]).not.toBe(owners[0]);
+      expect(owners[3]).not.toBe(owners[0]);
+      expect(owners[5]).toBe(owners[4]);
+      await second.post('token-a', 'safe,other');
+      const foreignOwner = createBridge.mock.calls.at(-1)?.[2].catalogCursorOwner as CatalogCursorOwner;
+      expect(foreignOwner).not.toBe(owners[0]);
+      expect(createBridge.mock.calls.every((call) => !('catalogCursorOwner' in call[1]))).toBe(true);
+      await Promise.all(first.cleanups.map((cleanup) => cleanup()));
+      expect(owners.every((owner) => !isCatalogCursorOwnerCurrent(owner))).toBe(true);
+      expect(isCatalogCursorOwnerCurrent(foreignOwner)).toBe(true);
+      const count = createBridge.mock.calls.length;
+      expect((await first.post('token-a')).body.error.message).toBe('Capability cursor owner is unavailable');
+      expect(createBridge).toHaveBeenCalledTimes(count);
+    } finally {
+      await Promise.all(second.cleanups.map((cleanup) => cleanup()));
+      binding.mockRestore();
+    }
+  });
+
+  it('expires native cursor authority from issuance despite repeated requests and reclaims bounded owner capacity', async () => {
+    const binding = vi.spyOn(bindings, 'createModernInteractionBinding').mockResolvedValue(undefined);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const listener = resourceOwnerListener('tools/call');
+    // Keep one HTTP listener alive across the capacity loop, as in production;
+    // posting the Express app directly would allocate and close a server per call.
+    const server = listener.instance.listen(0, '127.0.0.1');
+    const requestPorts: number[] = [];
+    let listenerCloses = 0;
+    server.on('request', (incoming) => requestPorts.push(incoming.socket.localPort!));
+    server.on('close', () => listenerCloses++);
+    try {
+      await once(server, 'listening');
+      const { port } = server.address() as AddressInfo;
+      const post = (token: string) =>
+        listener
+          .post(token, undefined, `http://127.0.0.1:${port}`)
+          .on('response', (response: HttpTestResponse) => {
+            if (response.body?.result === undefined && response.body?.error === undefined)
+              console.info(
+                'OWNED-CURSOR-WIRE',
+                JSON.stringify({
+                  status: response.status,
+                  contentType: response.headers['content-type'],
+                  body: response.body,
+                  text: response.text,
+                }),
+              );
+          })
+          .on('error', (error: Error & { code?: string; status?: number }) => {
+            console.info(
+              'OWNED-CURSOR-REQUEST-ERROR',
+              JSON.stringify({ message: error.message, code: error.code, status: error.status }),
+            );
+          });
+      await post('token-a');
+      const owner = createBridge.mock.calls.at(-1)?.[2].catalogCursorOwner as CatalogCursorOwner;
+      vi.setSystemTime(Date.now() + RUNTIME_CATALOG_SCOPE_TTL_MS - 1);
+      await post('token-a');
+      expect(createBridge.mock.calls.at(-1)?.[2].catalogCursorOwner).toBe(owner);
+      vi.setSystemTime(Date.now() + 1);
+      await post('token-a');
+      expect(isCatalogCursorOwnerCurrent(owner)).toBe(false);
+      expect(createBridge.mock.calls.at(-1)?.[2].catalogCursorOwner).not.toBe(owner);
+      for (let i = 1; i < MAX_RUNTIME_CATALOG_SCOPES; i++) await post(`token-${i}`);
+      const count = createBridge.mock.calls.length;
+      expect((await post('overflow')).body.error.message).toBe('Capability cursor owner capacity exceeded');
+      expect(createBridge).toHaveBeenCalledTimes(count);
+      vi.setSystemTime(Date.now() + RUNTIME_CATALOG_SCOPE_TTL_MS);
+      expect((await post('recovered')).body.error).toBeUndefined();
+      expect(server.listening).toBe(true);
+      expect(listenerCloses).toBe(0);
+      expect(requestPorts).toHaveLength(MAX_RUNTIME_CATALOG_SCOPES + 4);
+      expect(new Set(requestPorts)).toEqual(new Set([port]));
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      await Promise.all(listener.cleanups.map((cleanup) => cleanup()));
+      vi.useRealTimers();
+      binding.mockRestore();
+      expect(server.listening).toBe(false);
+      expect(listenerCloses).toBe(1);
+    }
+  });
+
+  it('mints listener-owned resource authority per verified token and grant, and revokes it through manager cleanup', async () => {
+    const binding = vi.spyOn(bindings, 'createModernInteractionBinding').mockResolvedValue(undefined);
+    try {
+      const first = resourceOwnerListener();
+      await first.post('token-a', 'safe,other');
+      await first.post('token-a', 'other,safe');
+      await first.post('token-b', 'safe,other');
+      await first.post('token-a', 'narrow');
+      await first.post();
+      await first.post();
+      const owners = createBridge.mock.calls.map((call) => call[2].resourceOwner as ResourceRouteOwner);
+      expect(owners[1]).toBe(owners[0]);
+      expect(owners[2]).not.toBe(owners[0]);
+      expect(owners[3]).not.toBe(owners[0]);
+      expect(owners[5]).toBe(owners[4]);
+      expect(owners[4]).not.toBe(owners[0]);
+      expect(binding.mock.calls[0].at(-1)).toBe(owners[0]);
+      const second = resourceOwnerListener();
+      await second.post('token-a', 'safe,other');
+      const foreignOwner = createBridge.mock.calls.at(-1)?.[2].resourceOwner as ResourceRouteOwner;
+      expect(foreignOwner).not.toBe(owners[0]);
+      await Promise.all(first.cleanups.map((cleanup) => cleanup()));
+      expect(owners.every((owner) => !isResourceRouteOwnerActive(owner))).toBe(true);
+      expect(isResourceRouteOwnerActive(foreignOwner)).toBe(true);
+      const bridgeCount = createBridge.mock.calls.length;
+      expect((await first.post('token-a')).body.error.message).toBe('Resource route owner is unavailable');
+      expect(createBridge).toHaveBeenCalledTimes(bridgeCount);
+      await Promise.all(second.cleanups.map((cleanup) => cleanup()));
+    } finally {
+      binding.mockRestore();
+    }
+  });
+
+  it('bounds retained verified owners and reclaims idle owner capacity at the existing TTL', async () => {
+    const binding = vi.spyOn(bindings, 'createModernInteractionBinding').mockResolvedValue(undefined);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const listener = resourceOwnerListener();
+    const server = listener.instance.listen(0, '127.0.0.1');
+    try {
+      await once(server, 'listening');
+      const address = server.address() as AddressInfo;
+      const post = (token: string) => listener.post(token, undefined, `http://127.0.0.1:${address.port}`);
+      for (let index = 0; index < MAX_RUNTIME_CATALOG_SCOPES; index++) {
+        const response = await post(`verified-${index}`);
+        expect(response.body.error).toBeUndefined();
+      }
+      const original = createBridge.mock.calls[0][2].resourceOwner as ResourceRouteOwner;
+      expect((await post('overflow')).body.error.message).toBe('Resource route owner capacity exceeded');
+      expect(createBridge).toHaveBeenCalledTimes(MAX_RUNTIME_CATALOG_SCOPES);
+      vi.setSystemTime(Date.now() + RUNTIME_CATALOG_SCOPE_TTL_MS);
+      expect((await post('recovered')).body.error).toBeUndefined();
+      expect(isResourceRouteOwnerActive(original)).toBe(false);
+    } finally {
+      await Promise.all(listener.cleanups.map((cleanup) => cleanup()));
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      binding.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('preserves anonymous request capabilities and log levels without inheriting them across requests', async () => {
+    const capabilities = { roots: { listChanged: true }, sampling: {}, elicitation: { form: {} } };
+    const outbound = {
+      role: 'outbound' as const,
+      pin: Object.freeze({ era: 'legacy' as const, revision: '2025-11-25' }),
+      request: vi.fn(async () => ({ content: [{ type: 'text', text: 'ok' }] })),
+      cancel: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+    };
+    const firstClose = vi.fn(async () => undefined);
+    const secondClose = vi.fn(async () => undefined);
+    createBridge.mockResolvedValueOnce({ targetConnectionId: 'first-private-call', outbound, close: firstClose });
+    createBridge.mockResolvedValueOnce({ targetConnectionId: 'second-private-call', outbound, close: secondClose });
+    const instance = app();
+    const first = await modernPost(instance, {
+      jsonrpc: '2.0',
+      id: 30,
+      method: 'tools/call',
+      params: {
+        name: 'echo',
+        arguments: {},
+        _meta: {
+          ...modernMeta,
+          'io.modelcontextprotocol/clientCapabilities': capabilities,
+          'io.modelcontextprotocol/logLevel': 'warning',
+          'untrusted-business-meta': 'do not forward',
+        },
+      },
+    }).set('Mcp-Name', 'echo');
+    const second = await modernPost(instance, {
+      jsonrpc: '2.0',
+      id: 31,
+      method: 'tools/call',
+      params: { name: 'echo', arguments: {}, _meta: modernMeta },
+    }).set('Mcp-Name', 'echo');
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(first.body.result.resultType).toBe('complete');
+    expect(second.body.result.resultType).toBe('complete');
+    expect(first.headers['mcp-session-id']).toBeUndefined();
+    expect(second.headers['mcp-session-id']).toBeUndefined();
+    expect(createBridge).toHaveBeenCalledTimes(2);
+    expect(createBridge.mock.calls[0][2]).toEqual({ capabilities, logLevel: 'warning' });
+    expect(createBridge.mock.calls[1][2]).toEqual({ capabilities: {}, logLevel: undefined });
+    for (const [, , options] of createBridge.mock.calls) {
+      expect(options).not.toHaveProperty('interaction');
+    }
+    expect(Object.isFrozen(createBridge.mock.calls[0][2].capabilities)).toBe(true);
+    expect(outbound.request).toHaveBeenCalledTimes(2);
+    for (const call of [1, 2]) {
+      expect(outbound.request).toHaveBeenNthCalledWith(
+        call,
+        expect.objectContaining({ operation: 'tools/call', params: { name: 'echo', arguments: {} } }),
+      );
+    }
+    expect(firstClose).toHaveBeenCalledOnce();
+    expect(secondClose).toHaveBeenCalledOnce();
+  });
+
+  it('rejects anonymous requestState before allocating a bridge even with interaction capabilities', async () => {
+    const response = await modernPost(app(), {
+      jsonrpc: '2.0',
+      id: 32,
+      method: 'tools/call',
+      params: {
+        name: 'echo',
+        arguments: {},
+        requestState: 'opaque-state',
+        _meta: {
+          ...modernMeta,
+          'io.modelcontextprotocol/clientCapabilities': { elicitation: { form: {} } },
+        },
+      },
+    }).set('Mcp-Name', 'echo');
+
+    expect(response.status).toBe(200);
+    expect(response.body.error).toMatchObject({ code: -32602, message: 'Interaction continuation rejected' });
+    expect(createBridge).not.toHaveBeenCalled();
   });
 
   it('maps bridge creation and gateway protocol failures through the v2 error funnel', async () => {

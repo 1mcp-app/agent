@@ -1,6 +1,7 @@
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 
 import type { OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
+import { observeCatalogCoverageLoss } from '@src/sdk/contracts/catalogCoverageInvalidation.js';
 import {
   ErrorCode,
   InvalidJsonValueError,
@@ -260,6 +261,17 @@ export function registerCapabilityPaginationNotifications(
   if (!state) {
     state = { connections: new Set(), forwarders: new Map(), pumping: false };
     notificationStates.set(connection.adapter, state);
+    const observedState = state;
+    const adapter = connection.adapter;
+    observeCatalogCoverageLoss(adapter, () => {
+      if (connection.adapter === adapter) clearConfiguredToolSnapshot(connection);
+      // All maps already observing this exact provider lose catalog coverage at
+      // once, before notification owner teardown can invoke external callbacks.
+      for (const connections of observedState.connections) {
+        for (const kind of ['tools', 'resources', 'resourceTemplates', 'prompts'] as const)
+          advanceCapabilityPaginationGeneration(connections, kind);
+      }
+    });
   }
   if (!state.connections.has(connections)) {
     state.connections.add(connections);

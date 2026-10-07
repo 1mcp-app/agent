@@ -15,7 +15,8 @@ import {
   getValidatedTags,
 } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
 import type { ClientServerStatus } from '@src/types/serverStatus.js';
-import { buildToolName, parseUri } from '@src/utils/core/parsing.js';
+import { parseUri } from '@src/utils/core/parsing.js';
+import { buildPublicToolName } from '@src/utils/core/toolNames.js';
 import { normalizeTag } from '@src/utils/validation/sanitization.js';
 
 import { Response } from 'express';
@@ -118,7 +119,7 @@ export function parseTarget(
     kind: 'tool',
     serverName,
     toolName,
-    qualifiedName: qualifyToolName(serverName, toolName),
+    qualifiedName: buildPublicToolName(serverName, toolName),
   };
 }
 
@@ -139,7 +140,7 @@ export function getToolName(qualifiedName: string): string {
 }
 
 export function qualifyToolName(serverName: string, toolName: string): string {
-  return buildToolName(serverName, toolName);
+  return buildPublicToolName(serverName, toolName);
 }
 
 export function summarizeToolSchema(tool: Tool): ToolSummary {

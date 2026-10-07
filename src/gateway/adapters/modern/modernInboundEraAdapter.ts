@@ -4,6 +4,7 @@ import {
   createGatewayCancellation,
   createGatewayFailure,
   createGatewayRequestEnvelope,
+  detachGatewayFailure,
   type EffectiveRequestAuthority,
   gatewayFailureFromUnknown,
   gatewayOperationSchema,
@@ -165,10 +166,10 @@ export class ModernInboundEraAdapter implements InboundEraAdapter {
             },
             RESPONSE_JSON_VALUE_LIMITS,
           )
-        : toImmutableJsonValue({
+        : Object.freeze({
             type: 'failure',
             correlationId,
-            failure: response.failure,
+            failure: detachGatewayFailure(response.failure),
           });
     try {
       await this.#callbacks.respond(frame);

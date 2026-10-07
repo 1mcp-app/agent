@@ -1,4 +1,10 @@
-import { Client, type NotificationMethod, type RequestMethod } from '@modelcontextprotocol/client';
+import {
+  Client,
+  MissingRequiredClientCapabilityError,
+  type NotificationMethod,
+  type RequestMethod,
+  StreamableHTTPClientTransport,
+} from '@modelcontextprotocol/client';
 
 import { randomUUID } from 'node:crypto';
 
@@ -6,19 +12,24 @@ import { captureJson } from '@src/core/validation/schemaPolicy.js';
 import { LegacyOutboundEraAdapter } from '@src/gateway/adapters/legacy/legacyOutboundEraAdapter.js';
 import { ModernOutboundEraAdapter } from '@src/gateway/adapters/modern/modernOutboundEraAdapter.js';
 import { createEffectiveRequestAuthority } from '@src/gateway/contracts/effectiveRequestAuthority.js';
+import { createGatewayFailure, missingClientCapabilityFailure } from '@src/gateway/contracts/gatewayFailure.js';
 import { type GatewayOperation, gatewayOperationSchema } from '@src/gateway/contracts/gatewayRequest.js';
 import { toImmutableJsonValue } from '@src/gateway/contracts/immutableJson.js';
 import { hasInteractionCapability } from '@src/gateway/interactions/interactionCapabilities.js';
 import { assertInteractionRoute, currentNativeInteractionRound } from '@src/gateway/interactions/interactionRoute.js';
+import { takeNativeInitialInputResponses } from '@src/gateway/interactions/nativeInputResponses.js';
 import {
   validateInteractionRequest,
   validateInteractionResponse,
 } from '@src/gateway/interactions/validateInteractionResponse.js';
 import type { OutboundEraAdapter } from '@src/gateway/ports/outboundEraAdapter.js';
 import { injectTraceContext, stripBaggage } from '@src/observability/tracing/context.js';
+import { reportCatalogCoverageLoss } from '@src/sdk/contracts/catalogCoverageInvalidation.js';
 import {
   createLegacyTimeoutMs,
+  JSON_VALUE_LIMITS,
   type JsonValue,
+  type JsonValueCost,
   type LegacyConnectionId,
   type LegacyRequestId,
   type LegacySdkAdapter,
@@ -27,21 +38,25 @@ import {
   type LegacySdkNotification,
   type LegacySdkRequest,
   type LegacySdkResponse,
+  measureJsonValue,
   OneMcpProtocolError,
   toJsonValue,
 } from '@src/sdk/contracts/index.js';
+import { currentRequestProgress } from '@src/sdk/contracts/requestProgress.js';
 import { captureCapabilityListResult } from '@src/sdk/legacy/shared/capabilityListCapture.js';
 
 import { z } from 'zod';
 
 import { observeBackendDispatchLifetime } from './backendDispatchLifetime.js';
 import {
+  assertCurrentLegacyInteraction,
   beginLegacyInteractionRequest,
   currentLegacyInteractionCapabilities,
   currentLegacyInteractionLogLevel,
   currentLegacyInteractionSignal,
 } from './legacyInteractionLease.js';
 import type { AuthProviderTransport } from './legacyTransport.js';
+import { createMcpParamHeaders, type McpParamDeclaration, scanMcpParamDeclarations } from './mcpParamHeaders.js';
 import {
   closeModernSubscriptions,
   type ModernSubscriptionFilter,
@@ -66,6 +81,7 @@ const capabilityListMethods = new Set(['tools/list', 'prompts/list', 'resources/
 interface ModernHandles {
   readonly client: Client;
   transport: AuthProviderTransport;
+  readonly clearToolHeaders: () => void;
 }
 
 const modernHandles = new WeakMap<ModernSdkClientAdapter, ModernHandles>();
@@ -93,9 +109,15 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
   private catalogCoverageLost = false;
   private readonly resourceSubscriptions = new Map<string, Promise<ModernSubscriptionHandle>>();
   private readonly subscriptionHandlers = new Map<string, (notification: ModernSubscriptionNotification) => unknown>();
+  private readonly toolHeaders = new Map<
+    string,
+    { readonly declarations: readonly McpParamDeclaration[]; readonly cost: JsonValueCost }
+  >();
+  private readonly toolHeaderCursors = new Map<string, number>();
+  private toolHeaderEpoch = 0;
 
   constructor(client: Client, transport: AuthProviderTransport) {
-    modernHandles.set(this, { client, transport });
+    modernHandles.set(this, { client, transport, clearToolHeaders: () => this.clearToolHeaders() });
     this.registerListChangedNotifications();
 
     const revision = client.getNegotiatedProtocolVersion() ?? '2025-11-25';
@@ -180,11 +202,20 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
     if (!operation.success) {
       return this.requestDirect({ ...request, params });
     }
+    if (this.gatewayRequests.has(request.id))
+      throw createGatewayFailure({
+        kind: 'invalid-request',
+        code: 'modern_outbound_duplicate_request',
+        message: 'The outbound request id is already active',
+      });
     const release = beginLegacyInteractionRequest(this, request.method);
+    const interactionHandlers = new Map(this.interactionHandlers);
     this.gatewayRequests.add(request.id);
     try {
       const timeoutMs = request.timeoutMs ?? createLegacyTimeoutMs(60_000);
       const nativeRound = currentNativeInteractionRound();
+      const initialInputResponses =
+        this.protocol.era === 'modern' ? takeNativeInitialInputResponses(this, request.method, params) : undefined;
       return toJsonValue(
         await this.outbound.request(
           {
@@ -198,6 +229,7 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
             deadlineUnixMs: Date.now() + timeoutMs,
           },
           {
+            ...(initialInputResponses === undefined ? {} : { initialInputResponses }),
             interactionRound: nativeRound
               ? async (inputs) => {
                   if (
@@ -213,7 +245,7 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
             interaction: async (input) => {
               if (!hasInteractionCapability(currentLegacyInteractionCapabilities(), input))
                 throw new OneMcpProtocolError(-32021, 'Interaction capability required');
-              const handler = this.interactionHandlers.get(input.method);
+              const handler = interactionHandlers.get(input.method);
               if (!handler) throw new OneMcpProtocolError(-32021, 'Interaction capability required');
               const binding = {
                 principal: 'request-scoped-provider',
@@ -273,8 +305,9 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
   ): void {
     const method = this.methodFromLegacySchema(schema) as NotificationMethod;
     this.subscriptionHandlers.set(method, handler);
-    if (method === ('notifications/1mcp/subscription_lost' as string)) return;
+    if (method === 'notifications/progress' || method === ('notifications/1mcp/subscription_lost' as string)) return;
     this.handles.client.setNotificationHandler(method, async (notification) => {
+      if (method === 'notifications/tools/list_changed') this.clearToolHeaders();
       if (
         this.protocol.era === 'modern' &&
         notification.params?._meta?.['io.modelcontextprotocol/subscriptionId'] !== undefined
@@ -298,12 +331,28 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
     if (this.lifecycleState === 'stopped' || this.lifecycleState === 'stopping') {
       throw new OneMcpProtocolError(-32_603, 'Modern SDK adapter is closed');
     }
+    const mirrorsHeaders =
+      this.protocol.era === 'modern' && this.handles.transport instanceof StreamableHTTPClientTransport;
+    const headers =
+      mirrorsHeaders && request.method === 'tools/call' ? this.toolCallHeaders(request.params) : undefined;
     const controller = new AbortController();
     const ownerSignal = currentLegacyInteractionSignal();
     const abort = () => controller.abort();
     ownerSignal?.addEventListener('abort', abort, { once: true });
     if (ownerSignal?.aborted) abort();
     this.controllers.set(request.id, controller);
+    let headerEpoch: number | undefined = this.toolHeaderEpoch;
+    if (mirrorsHeaders && request.method === 'tools/list') {
+      const params = request.params;
+      const cursor =
+        params !== null && typeof params === 'object' && !Array.isArray(params) ? params.cursor : undefined;
+      if (cursor === undefined) {
+        this.clearToolHeaders();
+        headerEpoch = this.toolHeaderEpoch;
+      } else {
+        headerEpoch = typeof cursor === 'string' ? this.toolHeaderCursors.get(cursor) : undefined;
+      }
+    }
     try {
       controller.signal.throwIfAborted();
       const logLevel = currentLegacyInteractionLogLevel();
@@ -332,11 +381,15 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
         };
       }
       message.params = injectTraceContext(message.params);
+      assertCurrentLegacyInteraction();
+      controller.signal.throwIfAborted();
       observeBackendDispatchLifetime(this.handles.transport);
       const options = {
         signal: controller.signal,
         allowInputRequired: true,
+        onprogress: currentRequestProgress(),
         ...(request.timeoutMs === undefined ? {} : { timeout: request.timeoutMs }),
+        ...(headers === undefined ? {} : { headers }),
       };
       const result = capabilityListMethods.has(request.method)
         ? await this.handles.client.request(message as never, capabilityListResultSchema, options)
@@ -352,13 +405,71 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
       ) {
         return toJsonValue(captureJson(result, false, true).value);
       }
-      return stripBaggage(captureCapabilityListResult(request.method, result));
+      const captured = captureCapabilityListResult(request.method, result);
+      if (mirrorsHeaders && request.method === 'tools/list') this.captureToolHeaderPage(captured, headerEpoch);
+      return stripBaggage(captured);
     } catch (error) {
+      if (error instanceof MissingRequiredClientCapabilityError) {
+        const failure = missingClientCapabilityFailure(error.requiredCapabilities);
+        if (failure) throw failure;
+      }
       throw toProtocolError(error);
     } finally {
       this.controllers.delete(request.id);
       ownerSignal?.removeEventListener('abort', abort);
     }
+  }
+
+  private clearToolHeaders(): void {
+    this.toolHeaderEpoch++;
+    this.toolHeaders.clear();
+    this.toolHeaderCursors.clear();
+  }
+
+  private toolCallHeaders(params: JsonValue | undefined): Readonly<Record<string, string>> {
+    if (params === null || typeof params !== 'object' || Array.isArray(params)) return {};
+    if (typeof params.name !== 'string') return {};
+    return createMcpParamHeaders(this.toolHeaders.get(params.name)?.declarations ?? [], params.arguments);
+  }
+
+  private captureToolHeaderPage(result: JsonValue, epoch: number | undefined): void {
+    if (result === null || typeof result !== 'object' || Array.isArray(result) || !Array.isArray(result.tools)) return;
+    const current = epoch === this.toolHeaderEpoch && this.lifecycleState === 'running';
+    const headers = new Map(this.toolHeaders);
+    result.tools = result.tools.filter((tool) => {
+      if (tool === null || typeof tool !== 'object' || Array.isArray(tool)) return true;
+      if (typeof tool.name !== 'string' || tool.inputSchema === undefined) return true;
+      const scan = scanMcpParamDeclarations(tool.inputSchema);
+      headers.delete(tool.name);
+      if (!scan.valid) return false;
+      if (scan.declarations.length) {
+        headers.set(tool.name, {
+          declarations: scan.declarations,
+          cost: measureJsonValue({ name: tool.name, inputSchema: tool.inputSchema }, JSON_VALUE_LIMITS),
+        });
+      }
+      return true;
+    });
+    if (!current) return;
+    const cursors = new Map(this.toolHeaderCursors);
+    if (typeof result.nextCursor === 'string') cursors.set(result.nextCursor, this.toolHeaderEpoch);
+    const cursorCost = [...cursors.keys()].reduce(
+      (total, cursor) => ({ nodes: total.nodes + 1, stringLength: total.stringLength + cursor.length }),
+      { nodes: 0, stringLength: 0 },
+    );
+    const costs = [...headers.values()].reduce(
+      (total, item) => ({
+        nodes: total.nodes + item.cost.nodes,
+        stringLength: total.stringLength + item.cost.stringLength,
+      }),
+      cursorCost,
+    );
+    if (costs.nodes > JSON_VALUE_LIMITS.maxNodes || costs.stringLength > JSON_VALUE_LIMITS.maxTotalStringLength)
+      throw new OneMcpProtocolError(-32603, 'Tool header catalog exceeds the JSON budget');
+    this.toolHeaders.clear();
+    for (const [name, declarations] of headers) this.toolHeaders.set(name, declarations);
+    this.toolHeaderCursors.clear();
+    for (const [cursor, origin] of cursors) this.toolHeaderCursors.set(cursor, origin);
   }
 
   private async cancelDirect(requestId: LegacyRequestId): Promise<void> {
@@ -369,6 +480,7 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
     if (this.closePromise) return this.closePromise;
     if (this.lifecycleState === 'stopped') return Promise.resolve();
     this.lifecycleState = 'stopping';
+    this.clearToolHeaders();
     this.closePromise = (async () => {
       for (const controller of this.controllers.values()) controller.abort();
       this.controllers.clear();
@@ -409,6 +521,7 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
   private registerListChangedNotifications(): void {
     for (const method of LIST_CHANGED_METHODS) {
       this.handles.client.setNotificationHandler(method, async (notification) => {
+        if (method === 'notifications/tools/list_changed') this.clearToolHeaders();
         if (this.protocol.era === 'modern') return;
         this.publish({
           type: 'notification',
@@ -449,6 +562,13 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
   }
 
   private deliverSubscription(note: ModernSubscriptionNotification): void {
+    if (note.method === 'notifications/tools/list_changed') this.clearToolHeaders();
+    if (note.method === 'notifications/1mcp/subscription_lost' && note.params?.catalog === true) {
+      this.clearToolHeaders();
+      // This notice is emitted by an owned subscription closure/overflow, never
+      // accepted as a public upstream notification. Invalidate before callbacks.
+      reportCatalogCoverageLoss(this);
+    }
     const handler = this.subscriptionHandlers.get(note.method);
     if (handler) {
       void Promise.resolve(handler(note)).catch(() => {});
@@ -565,6 +685,7 @@ export function getModernSdkTransport(adapter: ModernSdkClientAdapter): AuthProv
 }
 
 export function setModernSdkTransport(adapter: ModernSdkClientAdapter, transport: AuthProviderTransport): void {
+  modernHandles.get(adapter)!.clearToolHeaders();
   modernHandles.get(adapter)!.transport = transport;
   rebindModernSubscriptionTransport(adapter, transport);
 }

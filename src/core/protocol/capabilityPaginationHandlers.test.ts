@@ -25,6 +25,7 @@ import {
 import type { OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import { ClientStatus, ServerStatus } from '@src/core/types/index.js';
 import { cleanupOwnedResources } from '@src/sdk/legacy/server/protocol/resourceSubscriptions.js';
+import { buildPublicResourceUri, isValidResourceUri } from '@src/utils/core/resourceUris.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -187,12 +188,43 @@ describe('capability pagination protocol handlers', () => {
     await cleanupOwnedResources(inbound);
   });
 
+  it('quarantines a malformed sibling URI while continuing healthy absolute resource pages', async () => {
+    const firstUri = 'test://healthy-1';
+    const secondUri = 'test://healthy-2';
+    const listResources = vi
+      .fn()
+      .mockResolvedValueOnce({
+        resources: [
+          { uri: 'relative-malformed', name: 'malformed' },
+          { uri: firstUri, name: 'healthy-1' },
+        ],
+        nextCursor: 'opaque-next',
+      })
+      .mockResolvedValueOnce({ resources: [{ uri: secondUri, name: 'healthy-2' }] });
+    const handler = registerResources(new Map([['origin', connection('origin', { listResources })]]));
+    const first = (await handler({ params: {} })) as {
+      resources: Array<{ name: string; uri: string }>;
+      nextCursor?: string;
+    };
+    const second = (await handler({ params: { cursor: first.nextCursor } })) as typeof first;
+    expect(first.resources).toEqual([
+      expect.objectContaining({ name: 'healthy-1', uri: buildPublicResourceUri('origin', firstUri) }),
+    ]);
+    expect(second.resources).toEqual([
+      expect.objectContaining({ name: 'healthy-2', uri: buildPublicResourceUri('origin', secondUri) }),
+    ]);
+    expect([...first.resources, ...second.resources].every((resource) => isValidResourceUri(resource.uri))).toBe(true);
+    expect(first.nextCursor).toBeDefined();
+    expect(second.nextCursor).toBeUndefined();
+    expect(listResources).toHaveBeenNthCalledWith(2, { cursor: 'opaque-next' }, expect.anything());
+  });
+
   it('walks providers in canonical order and preserves opaque upstream cursors', async () => {
     const alphaList = vi
       .fn()
-      .mockResolvedValueOnce({ resources: [{ uri: 'alpha-1', name: 'alpha-1' }], nextCursor: 'alpha-next' })
-      .mockResolvedValueOnce({ resources: [{ uri: 'alpha-2', name: 'alpha-2' }] });
-    const zetaList = vi.fn().mockResolvedValue({ resources: [{ uri: 'zeta-1', name: 'zeta-1' }] });
+      .mockResolvedValueOnce({ resources: [{ uri: 'test://alpha-1', name: 'alpha-1' }], nextCursor: 'alpha-next' })
+      .mockResolvedValueOnce({ resources: [{ uri: 'test://alpha-2', name: 'alpha-2' }] });
+    const zetaList = vi.fn().mockResolvedValue({ resources: [{ uri: 'test://zeta-1', name: 'zeta-1' }] });
     const connections: OutboundConnections = new Map([
       ['zeta-key', connection('zeta', { listResources: zetaList })],
       ['alpha-key', connection('alpha', { listResources: alphaList })],
@@ -367,7 +399,9 @@ describe('capability pagination protocol handlers', () => {
 
   it('rejects a cursor used for a different capability kind', async () => {
     const listTools = vi.fn().mockResolvedValue({ tools: [{ name: 'alpha-tool', inputSchema: { type: 'object' } }] });
-    const listResources = vi.fn().mockResolvedValue({ resources: [{ uri: 'alpha-resource', name: 'alpha-resource' }] });
+    const listResources = vi
+      .fn()
+      .mockResolvedValue({ resources: [{ uri: 'test://alpha-resource', name: 'alpha-resource' }] });
     const connections = new Map([['alpha', connection('alpha', { listTools, listResources })]]) as OutboundConnections;
 
     registerToolHandlers(
@@ -394,10 +428,10 @@ describe('capability pagination protocol handlers', () => {
 
   it('rejects a cursor after provider availability changes', async () => {
     const alphaList = vi.fn().mockResolvedValue({
-      resources: [{ uri: 'alpha-resource', name: 'alpha-resource' }],
+      resources: [{ uri: 'test://alpha-resource', name: 'alpha-resource' }],
       nextCursor: 'alpha-next',
     });
-    const zetaList = vi.fn().mockResolvedValue({ resources: [{ uri: 'zeta-resource', name: 'zeta-resource' }] });
+    const zetaList = vi.fn().mockResolvedValue({ resources: [{ uri: 'test://zeta-resource', name: 'zeta-resource' }] });
     const connections = new Map([
       ['alpha', connection('alpha', { listResources: alphaList })],
       ['zeta', connection('zeta', { listResources: zetaList })],
@@ -420,10 +454,10 @@ describe('capability pagination protocol handlers', () => {
     const betaList = vi
       .fn()
       .mockResolvedValueOnce({
-        resources: [{ uri: 'beta-1', name: 'beta-1' }],
+        resources: [{ uri: 'test://beta-1', name: 'beta-1' }],
         nextCursor: 'beta-next',
       })
-      .mockResolvedValueOnce({ resources: [{ uri: 'beta-2', name: 'beta-2' }] });
+      .mockResolvedValueOnce({ resources: [{ uri: 'test://beta-2', name: 'beta-2' }] });
     const handler = registerResources(
       new Map([
         ['beta', connection('beta', { listResources: betaList })],
@@ -460,11 +494,11 @@ describe('capability pagination protocol handlers', () => {
     const alphaList = vi
       .fn()
       .mockResolvedValueOnce({
-        resources: [{ uri: 'alpha-1', name: 'alpha-1' }],
+        resources: [{ uri: 'test://alpha-1', name: 'alpha-1' }],
         nextCursor: 'alpha-next',
       })
       .mockRejectedValueOnce(new Error('private failure detail'));
-    const zetaList = vi.fn().mockResolvedValue({ resources: [{ uri: 'zeta-1', name: 'zeta-1' }] });
+    const zetaList = vi.fn().mockResolvedValue({ resources: [{ uri: 'test://zeta-1', name: 'zeta-1' }] });
     const connections = new Map([
       ['zeta', connection('zeta', { listResources: zetaList })],
       ['alpha', connection('alpha', { listResources: alphaList })],
@@ -502,7 +536,7 @@ describe('capability pagination protocol handlers', () => {
 
   it('stops pagination-disabled draining when an upstream cursor repeats', async () => {
     const listResources = vi.fn().mockResolvedValue({
-      resources: [{ uri: 'alpha-resource', name: 'alpha-resource' }],
+      resources: [{ uri: 'test://alpha-resource', name: 'alpha-resource' }],
       nextCursor: 'repeated-cursor',
     });
     const connections = new Map([['alpha', connection('alpha', { listResources })]]) as OutboundConnections;
@@ -525,7 +559,7 @@ describe('capability pagination protocol handlers', () => {
     const listResources = vi.fn().mockImplementation(async () => {
       page += 1;
       return {
-        resources: [{ uri: `alpha-${page}`, name: `alpha-${page}` }],
+        resources: [{ uri: `test://alpha-${page}`, name: `alpha-${page}` }],
         nextCursor: `cursor-${page}`,
       };
     });
@@ -562,7 +596,7 @@ describe('capability pagination protocol handlers', () => {
   it('invalidates a resource walk when an upstream list-changed notification arrives', async () => {
     const notificationHandlers = new Map<unknown, (notification: unknown) => Promise<unknown>>();
     const listResources = vi.fn().mockResolvedValue({
-      resources: [{ uri: 'alpha-1', name: 'alpha-1' }],
+      resources: [{ uri: 'test://alpha-1', name: 'alpha-1' }],
       nextCursor: 'alpha-next',
     });
     const outbound = connection('alpha', {
@@ -640,7 +674,7 @@ describe('capability pagination protocol handlers', () => {
 
   it('rejects a cursor when the filter selection changes without changing providers', async () => {
     const listResources = vi.fn().mockResolvedValue({
-      resources: [{ uri: 'alpha-1', name: 'alpha-1' }],
+      resources: [{ uri: 'test://alpha-1', name: 'alpha-1' }],
       nextCursor: 'alpha-next',
     });
     const connections = new Map([['alpha', connection('alpha', { listResources }, ['safe'])]]) as OutboundConnections;
@@ -667,7 +701,7 @@ describe('capability pagination protocol handlers', () => {
 
   it('skips empty final providers without consuming an aggregate page', async () => {
     const alphaList = vi.fn().mockResolvedValue({ resources: [] });
-    const betaList = vi.fn().mockResolvedValue({ resources: [{ uri: 'beta-1', name: 'beta-1' }] });
+    const betaList = vi.fn().mockResolvedValue({ resources: [{ uri: 'test://beta-1', name: 'beta-1' }] });
     const handler = registerResources(
       new Map([
         ['beta', connection('beta', { listResources: betaList })],
@@ -692,7 +726,7 @@ describe('capability pagination protocol handlers', () => {
         'alpha',
         connection('alpha', {
           listResources: vi.fn().mockResolvedValue({
-            resources: [{ uri: 'alpha-1', name: 'alpha-1' }],
+            resources: [{ uri: 'test://alpha-1', name: 'alpha-1' }],
             nextCursor: 'alpha-next',
           }),
         }),
@@ -701,7 +735,7 @@ describe('capability pagination protocol handlers', () => {
     const handler = registerResources(connections);
     const lateHandlers = new Map<unknown, (notification: unknown) => Promise<unknown>>();
     const late = connection('late', {
-      listResources: vi.fn().mockResolvedValue({ resources: [{ uri: 'late-1', name: 'late-1' }] }),
+      listResources: vi.fn().mockResolvedValue({ resources: [{ uri: 'test://late-1', name: 'late-1' }] }),
       setNotificationHandler: vi.fn((schema, notificationHandler) => lateHandlers.set(schema, notificationHandler)),
     });
     connections.set('late', late);
@@ -726,10 +760,10 @@ describe('capability pagination protocol handlers', () => {
     const healthyList = vi
       .fn()
       .mockResolvedValueOnce({
-        resources: [{ uri: 'healthy-1', name: 'healthy-1' }],
+        resources: [{ uri: 'test://healthy-1', name: 'healthy-1' }],
         nextCursor: 'healthy-next',
       })
-      .mockResolvedValueOnce({ resources: [{ uri: 'healthy-2', name: 'healthy-2' }] });
+      .mockResolvedValueOnce({ resources: [{ uri: 'test://healthy-2', name: 'healthy-2' }] });
     entries.push(['healthy', connection('healthy', { listResources: healthyList })]);
     const handler = registerResources(new Map(entries));
 
@@ -749,10 +783,10 @@ describe('capability pagination protocol handlers', () => {
     const listResources = vi
       .fn()
       .mockResolvedValueOnce({
-        resources: [{ uri: 'alpha-1', name: 'alpha-1' }],
+        resources: [{ uri: 'test://alpha-1', name: 'alpha-1' }],
         nextCursor: upstreamCursor,
       })
-      .mockResolvedValueOnce({ resources: [{ uri: 'alpha-2', name: 'alpha-2' }] });
+      .mockResolvedValueOnce({ resources: [{ uri: 'test://alpha-2', name: 'alpha-2' }] });
     const handler = registerResources(new Map([['alpha', connection('alpha', { listResources })]]));
 
     const first = (await handler({ params: {} })) as { nextCursor?: string };

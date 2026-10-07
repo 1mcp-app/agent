@@ -12,6 +12,7 @@ describe('OAuth Authorization Flow', () => {
       storage?: Partial<Parameters<typeof createOAuthAuthorizationFlow>[0]['storage']>;
       enabled?: boolean;
       availableTags?: string[];
+      resourceUrl?: string;
       serverRuntime?: Partial<NonNullable<Parameters<typeof createOAuthAuthorizationFlow>[0]['serverRuntime']>>;
       clientRuntime?: Partial<NonNullable<Parameters<typeof createOAuthAuthorizationFlow>[0]['clientRuntime']>>;
       loadingRuntime?: Partial<NonNullable<Parameters<typeof createOAuthAuthorizationFlow>[0]['loadingRuntime']>>;
@@ -42,6 +43,7 @@ describe('OAuth Authorization Flow', () => {
         createTokenId: () => 'token-123',
         getAuthConfig: () => ({ enabled: overrides.enabled ?? true, oauthTokenTtlMs: 3_600_000 }),
         getAvailableTags: () => overrides.availableTags ?? ['read', 'write'],
+        getResourceUrl: () => overrides.resourceUrl ?? 'https://gateway.example',
       }),
     };
   };
@@ -215,7 +217,19 @@ describe('OAuth Authorization Flow', () => {
     expect(storage.createSessionWithId).toHaveBeenCalledWith(
       'token-123',
       'cli',
-      '',
+      'https://gateway.example/',
+      ['tag:read', 'tag:write'],
+      3_600_000,
+    );
+  });
+
+  it('canonicalizes the configured audience without appending the MCP endpoint', () => {
+    const { flow, storage } = createFlow({ resourceUrl: 'https://GATEWAY.EXAMPLE:443/runtime/' });
+    flow.createLocalhostCliToken();
+    expect(storage.createSessionWithId).toHaveBeenCalledWith(
+      'token-123',
+      'cli',
+      'https://gateway.example/runtime/',
       ['tag:read', 'tag:write'],
       3_600_000,
     );
@@ -233,7 +247,7 @@ describe('OAuth Authorization Flow', () => {
     expect(storage.createSessionWithId).not.toHaveBeenCalled();
   });
 
-  it('creates a fresh authorization attempt on every start instead of reusing an expired or consumed URL', async () => {
+  it('delegates every start to the runtime rather than reusing its connection snapshot URL', async () => {
     const clientInfo = {
       status: 'awaiting_oauth',
       authorizationUrl: 'https://provider.example/authorize?state=expired',
@@ -286,7 +300,7 @@ describe('OAuth Authorization Flow', () => {
     });
     expect(clientInfo.status).toBe('awaiting_oauth');
     expect(clientInfo.oauthStartTime).toBe(new Date(clientInfo.oauthStartTime!).toISOString());
-    expect(initiateOAuth).toHaveBeenCalledWith('github');
+    expect(initiateOAuth).toHaveBeenCalledWith('github', undefined);
   });
 
   it('should clear backend OAuth state before restart', async () => {
@@ -310,6 +324,7 @@ describe('OAuth Authorization Flow', () => {
     });
 
     const result = await flow.restartBackendOAuth({ serverName: 'github' });
+    expect(initiateOAuth).toHaveBeenCalledWith('github', { restart: true });
 
     expect(result).toEqual({
       status: 'restarted',

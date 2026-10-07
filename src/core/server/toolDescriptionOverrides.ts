@@ -1,6 +1,12 @@
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
+import { readPublicCapabilityRoute } from '@src/core/capabilities/catalogGeneration.js';
 import type { MCPServerParams } from '@src/core/types/index.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
+import {
+  buildPublicToolName,
+  getSourceToolConfigReferences,
+  matchesToolConfigReference,
+} from '@src/utils/core/toolNames.js';
 
 function logicalToolName(serverName: string, toolName: string): string {
   const normalized = toolName.trim();
@@ -26,7 +32,12 @@ export function getEffectiveToolDescription(
 ): string | undefined {
   const overrides = getToolDescriptionOverrides(serverConfig);
   const logicalName = logicalToolName(serverName, toolName);
-  return overrides[logicalName] ?? overrides[toolName.trim()] ?? upstreamDescription;
+  return (
+    overrides[logicalName] ??
+    overrides[toolName.trim()] ??
+    overrides[buildPublicToolName(serverName, toolName)] ??
+    upstreamDescription
+  );
 }
 
 export function applyEffectiveToolDescription<T extends Pick<Tool, 'name'> & { description?: string }>(
@@ -34,7 +45,11 @@ export function applyEffectiveToolDescription<T extends Pick<Tool, 'name'> & { d
   serverConfig: Pick<MCPServerParams, 'toolDescriptionOverrides'> | undefined,
   serverName: string,
 ): T {
-  const description = getEffectiveToolDescription(serverConfig, serverName, tool.name, tool.description);
+  const route = readPublicCapabilityRoute(tool);
+  const description =
+    route?.kind === 'tools' && route.server === serverName
+      ? (getSourceToolDescription(serverConfig, serverName, route.upstreamIdentity) ?? tool.description)
+      : getEffectiveToolDescription(serverConfig, serverName, tool.name, tool.description);
   if (description === tool.description) return tool;
   if (description === undefined) {
     const { description: _description, ...withoutDescription } = tool;
@@ -43,14 +58,25 @@ export function applyEffectiveToolDescription<T extends Pick<Tool, 'name'> & { d
   return { ...tool, description };
 }
 
+export function getSourceToolDescription(
+  serverConfig: Pick<MCPServerParams, 'toolDescriptionOverrides'> | undefined,
+  server: string,
+  upstreamIdentity: string,
+): string | undefined {
+  const overrides = getToolDescriptionOverrides(serverConfig);
+  for (const reference of getSourceToolConfigReferences(server, upstreamIdentity)) {
+    if (overrides[reference] !== undefined) return overrides[reference];
+  }
+  return undefined;
+}
+
 /** Apply configuration to an exact source name, including names containing the routing separator. */
 export function applySourceToolDescription<T extends Pick<Tool, 'name'> & { description?: string }>(
   tool: T,
   serverConfig: Pick<MCPServerParams, 'toolDescriptionOverrides'> | undefined,
   server: string,
 ): T {
-  const overrides = getToolDescriptionOverrides(serverConfig);
-  const description = overrides[tool.name] ?? overrides[`${server}${MCP_URI_SEPARATOR}${tool.name}`];
+  const description = getSourceToolDescription(serverConfig, server, tool.name);
   return description === undefined || description === tool.description ? tool : { ...tool, description };
 }
 
@@ -61,8 +87,17 @@ export function withToolDescriptionOverride(
   serverName?: string,
 ): MCPServerParams {
   const overrides = getToolDescriptionOverrides(serverConfig);
-  const name = serverName ? logicalToolName(serverName, toolName) : toolName.trim();
+  const name = toolName.trim();
   const normalizedDescription = description?.trim() ?? '';
+
+  for (const configuredName of Object.keys(overrides)) {
+    if (configuredName === name) {
+      delete overrides[configuredName];
+      continue;
+    }
+    if (!serverName) continue;
+    if (matchesToolConfigReference(serverName, name, configuredName)) delete overrides[configuredName];
+  }
 
   if (name) {
     if (normalizedDescription) overrides[name] = normalizedDescription;

@@ -6,7 +6,14 @@ import {
   toProtocolResourceTemplate,
   toProtocolTool,
 } from '@src/sdk/contracts/index.js';
-import { buildToolName, buildUri } from '@src/utils/core/parsing.js';
+import { buildUri } from '@src/utils/core/parsing.js';
+import {
+  buildPublicResourceTemplate,
+  buildPublicResourceUri,
+  isValidResourceTemplate,
+  isValidResourceUri,
+} from '@src/utils/core/resourceUris.js';
+import { buildPublicToolName, isValidPublicToolName } from '@src/utils/core/toolNames.js';
 
 export type CapabilityKind = 'tools' | 'prompts' | 'resources' | 'resourceTemplates';
 export type CapabilityOrigin = 'external' | 'internal';
@@ -127,12 +134,23 @@ function capture(source: CapabilitySource): CatalogEntry {
   const upstreamIdentity = normalized[identityField];
   if (typeof upstreamIdentity !== 'string' || !upstreamIdentity.trim() || !hasOnlyUnicodeScalars(upstreamIdentity))
     throw new TypeError('Invalid capability identity');
-  const publicIdentity =
-    source.publicIdentity ??
-    (source.kind === 'tools'
-      ? buildToolName(source.server, upstreamIdentity)
-      : buildUri(source.server, upstreamIdentity, MCP_URI_SEPARATOR));
+  let publicIdentity: string;
+  if (source.publicIdentity !== undefined) publicIdentity = source.publicIdentity;
+  else if (source.kind === 'tools') publicIdentity = buildPublicToolName(source.server, upstreamIdentity);
+  else if (source.kind === 'resources') publicIdentity = buildPublicResourceUri(source.server, upstreamIdentity);
+  else if (source.kind === 'resourceTemplates')
+    publicIdentity = buildPublicResourceTemplate(source.server, upstreamIdentity);
+  else publicIdentity = buildUri(source.server, upstreamIdentity, MCP_URI_SEPARATOR);
+  if (source.kind === 'resources' && (!isValidResourceUri(upstreamIdentity) || !isValidResourceUri(publicIdentity)))
+    throw new TypeError('Invalid resource URI');
+  if (
+    source.kind === 'resourceTemplates' &&
+    (!isValidResourceTemplate(upstreamIdentity) || !isValidResourceTemplate(publicIdentity))
+  )
+    throw new TypeError('Unsupported resource URI template');
   if (!publicIdentity.trim() || !hasOnlyUnicodeScalars(publicIdentity)) throw new TypeError('Invalid public identity');
+  if (source.kind === 'tools' && !isValidPublicToolName(publicIdentity))
+    throw new TypeError('Invalid public tool name');
   const route = Object.freeze({
     kind: source.kind,
     server: source.server,

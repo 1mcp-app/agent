@@ -6,10 +6,10 @@ import {
   registerCapabilityPaginationNotifications,
   unregisterCapabilityPaginationForwarder,
 } from '@src/core/capabilities/capabilityPagination.js';
-import { createCapabilityVisibility } from '@src/core/capabilities/capabilityVisibility.js';
+import { createCapabilityVisibility, type ResourceRouteOwner } from '@src/core/capabilities/capabilityVisibility.js';
 import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
-import { filterConnectionsForSession } from '@src/core/protocol/requestHandlerUtils.js';
+import { filterConnectionsForSession, resolveCapabilityVisibility } from '@src/core/protocol/requestHandlerUtils.js';
 import { resolveResourceRoute } from '@src/core/protocol/resourceTemplateRouting.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
 import type { InboundConnectionConfig, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
@@ -82,6 +82,7 @@ export async function createModernInteractionBinding(
   auth: AuthInfo | undefined,
   capabilities: unknown,
   signal?: AbortSignal,
+  resourceOwner?: ResourceRouteOwner,
 ): Promise<InteractionBinding | undefined> {
   // Anonymous bearer continuations need an explicit listener policy; they are not enabled implicitly.
   if (!auth || !['tools/call', 'prompts/get', 'resources/read'].includes(operation)) return undefined;
@@ -97,13 +98,20 @@ export async function createModernInteractionBinding(
   if (typeof publicIdentity !== 'string') return undefined;
   const connections = manager.getClients();
   const visible = FilteringService.getFilteredConnections(filterConnectionsForSession(connections, undefined), config);
-  const visibility = createCapabilityVisibility(
+  let visibility = createCapabilityVisibility(
     Array.from(visible, ([key, connection]) => [key, connection.name || key] as const),
     undefined,
     { ...config },
   );
+  if (kind === 'resources') {
+    visibility = { ...resolveCapabilityVisibility(connections, config, undefined, 'resources'), resourceOwner };
+  }
   const serverConfigs = getConfiguredServerTargets();
-  const snapshot = await acquireRuntimeCapabilityCatalog(connections, visibility, { serverConfigs, signal });
+  const snapshot = await acquireRuntimeCapabilityCatalog(
+    connections,
+    visibility,
+    kind === 'resources' ? { signal } : { serverConfigs, signal },
+  );
   const selected =
     kind === 'resources' ? resolveResourceRoute(snapshot, publicIdentity) : snapshot.resolve(kind, publicIdentity);
   if (!selected?.connection) return undefined;

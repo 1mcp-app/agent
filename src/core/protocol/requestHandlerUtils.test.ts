@@ -1,10 +1,23 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
+import {
+  bindCatalogCursorOwner,
+  CapabilityCatalog,
+  createCatalogCursorOwner,
+  revokeCatalogCursorOwner,
+} from '@src/core/capabilities/capabilityCatalog.js';
+import { bindResourceRouteOwner, createResourceRouteOwner } from '@src/core/capabilities/capabilityVisibility.js';
+import { SchemaCache } from '@src/core/capabilities/schemaCache.js';
+import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { ClientStatus, type InboundConnection, type OutboundConnections } from '@src/core/types/index.js';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { createCapabilityCatalogFromConnections, resolveLazyCapabilityVisibility } from './requestHandlerUtils.js';
+import {
+  createCapabilityCatalogFromConnections,
+  resolveCapabilityVisibility,
+  resolveLazyCapabilityVisibility,
+} from './requestHandlerUtils.js';
 
 vi.mock('@src/core/server/serverManager.js', () => ({
   ServerManager: {
@@ -54,6 +67,58 @@ describe('createCapabilityCatalogFromConnections', () => {
 });
 
 describe('resolveLazyCapabilityVisibility', () => {
+  it('projects cursor ownership only from the actual context and only into tool visibility', async () => {
+    const owner = createCatalogCursorOwner();
+    const context = { sessionId: 'actual-private-session' };
+    bindCatalogCursorOwner(context, owner);
+    const connections = new Map();
+    const config = { context, tags: ['safe'], tagFilterMode: 'simple-or' as const };
+    const tools = resolveCapabilityVisibility(connections, config, context.sessionId, 'tools');
+    const resources = resolveCapabilityVisibility(connections, config, context.sessionId, 'resources');
+    const copied = resolveCapabilityVisibility(
+      connections,
+      JSON.parse(JSON.stringify(config)),
+      context.sessionId,
+      'tools',
+    );
+    expect(tools.sessionId).toBe(context.sessionId);
+    expect(tools.filterSelection?.tags).toEqual(['safe']);
+    expect(JSON.stringify(tools)).not.toContain('owner');
+    revokeCatalogCursorOwner(owner);
+    const catalog = new CapabilityCatalog({
+      getToolRegistry: ToolRegistry.empty,
+      schemaCache: new SchemaCache({ maxEntries: 10 }),
+      outboundConnections: connections,
+      getServerConfigs: () => ({}),
+    });
+    await expect(catalog.listVisibleTools({}, tools)).rejects.toThrow('Capability cursor owner is unavailable');
+    await expect(catalog.listVisibleTools({}, copied)).resolves.toMatchObject({ tools: [] });
+    await expect(catalog.listVisibleTools({}, resources)).resolves.toMatchObject({ tools: [] });
+  });
+
+  it('carries only internally bound resource ownership through current capability and tag filtering', () => {
+    const owner = createResourceRouteOwner();
+    const context = { sessionId: 'private-bridge' };
+    bindResourceRouteOwner(context, owner);
+    const connections = new Map([
+      [
+        'visible',
+        createMockOutboundConnection({ name: 'visible', capabilities: { resources: {}, tools: {} }, tags: ['safe'] }),
+      ],
+      ['hidden', createMockOutboundConnection({ name: 'hidden', capabilities: { resources: {} }, tags: ['private'] })],
+      ['tools-only', createMockOutboundConnection({ name: 'tools-only', capabilities: { tools: {} }, tags: ['safe'] })],
+    ]);
+    const config = { context, tags: ['safe'], tagFilterMode: 'simple-or' as const, enablePagination: false };
+    const visibility = resolveCapabilityVisibility(connections, config, context.sessionId, 'resources');
+    expect(visibility.resourceOwner).toBe(owner);
+    expect([...visibility.serverCandidates.keys()]).toEqual(['visible']);
+    expect(visibility.filterSelection).not.toHaveProperty('enablePagination');
+    expect(
+      resolveCapabilityVisibility(connections, JSON.parse(JSON.stringify(config)), context.sessionId, 'resources')
+        .resourceOwner,
+    ).toBeUndefined();
+    expect(resolveCapabilityVisibility(connections, config, context.sessionId, 'tools').resourceOwner).toBeUndefined();
+  });
   it('derives a public server name when the connection name is empty', () => {
     const connections: OutboundConnections = new Map([
       [

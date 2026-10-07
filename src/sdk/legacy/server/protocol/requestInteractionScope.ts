@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 
 import { type InboundConnection, type OutboundConnection, ServerStatus } from '@src/core/types/index.js';
@@ -40,9 +41,22 @@ interface Scope {
 }
 const legacyOwners = new InteractionOwner();
 const active = new WeakMap<OutboundConnection, Scope>();
+const modernContext = new AsyncLocalStorage<Scope>();
+const modernScopes = new WeakMap<OutboundConnection, Set<Scope>>();
 const installed = new WeakMap<OutboundConnection, OutboundConnection['adapter']>();
 const profiles = new WeakMap<OutboundConnection, ClientCapabilities>();
 const notificationOwners = new WeakMap<OutboundConnection, Set<WeakRef<InboundConnection>>>();
+
+function ownsScope(connection: OutboundConnection, scope: Scope): boolean {
+  if (scope.adapter.protocol?.era === 'modern') return modernScopes.get(connection)?.has(scope) === true;
+  return active.get(connection) === scope;
+}
+
+function callbackScope(connection: OutboundConnection): Scope | undefined {
+  if (connection.adapter.protocol?.era !== 'modern') return active.get(connection);
+  const scope = modernContext.getStore();
+  return scope && ownsScope(connection, scope) ? scope : undefined;
+}
 
 export function registerLegacyNotificationOwner(connection: OutboundConnection, inbound: InboundConnection): void {
   if (inbound.requestOnly) return;
@@ -81,7 +95,8 @@ export async function withRequestInteractionScope<T>(
   sourceProviderId?: string,
   assertCurrent?: () => void,
 ): Promise<T> {
-  if (active.has(connection)) throw new McpError(-32000, 'interaction_capacity_exceeded');
+  const modern = connection.adapter.protocol?.era === 'modern';
+  if (!modern && active.has(connection)) throw new McpError(-32000, 'interaction_capacity_exceeded');
   if (extra.signal.aborted) throw new McpError(-32000, 'interaction_lost');
   const auth = extra.authInfo;
   if (auth && (typeof auth.clientId !== 'string' || !auth.clientId || typeof auth.token !== 'string' || !auth.token))
@@ -125,7 +140,7 @@ export async function withRequestInteractionScope<T>(
         if (profile && !profile[capability]) continue;
         try {
           setOutboundRequestHandler(connection, schema, async (request: ServerRequest) => {
-            const scope = active.get(connection);
+            const scope = callbackScope(connection);
             if (
               !scope ||
               scope.adapter !== installedAdapter ||
@@ -192,7 +207,7 @@ export async function withRequestInteractionScope<T>(
               assertRoute();
               if (
                 scope.extra.signal.aborted ||
-                active.get(connection) !== scope ||
+                !ownsScope(connection, scope) ||
                 connection.adapter !== installedAdapter ||
                 scope.adapter !== installedAdapter
               )
@@ -227,18 +242,27 @@ export async function withRequestInteractionScope<T>(
           abort,
           assertCurrent,
         });
-        active.set(connection, scope);
+        if (modern) {
+          let scopes = modernScopes.get(connection);
+          if (!scopes) modernScopes.set(connection, (scopes = new Set()));
+          scopes.add(scope);
+        } else active.set(connection, scope);
         try {
           assertCurrent?.();
-          return await operation();
+          return modern ? await modernContext.run(scope, operation) : await operation();
         } finally {
           abort.abort();
-          if (active.get(connection) === scope) active.delete(connection);
+          if (modern) {
+            const scopes = modernScopes.get(connection);
+            scopes?.delete(scope);
+            if (!scopes?.size) modernScopes.delete(connection);
+          } else if (active.get(connection) === scope) active.delete(connection);
         }
       },
       scopedExtra.signal,
       sessionLogLevels.get(inbound),
       getLegacyInboundServer(inbound).getClientCapabilities(),
+      assertCurrent,
     );
   } finally {
     if (admission) legacyOwners.finish(admission.id);
@@ -252,7 +276,13 @@ export async function forwardScopedNotification(
   connection: OutboundConnection,
   notification: { method: string; params?: Record<string, unknown> },
 ): Promise<void> {
-  const scope = active.get(connection);
+  // Progress is delivered only by the SDK's request-specific onprogress callback.
+  if (notification.method === 'notifications/progress') return;
+  const scopes = modernScopes.get(connection);
+  // These raw notifications have no portable parent id. Never choose an owner
+  // from an ambiguous modern operation set.
+  if (scopes && scopes.size !== 1) return;
+  const scope = scopes ? scopes.values().next().value : active.get(connection);
   if (!scope) {
     if (notification.method !== 'notifications/message') return;
     const owners = Array.from(notificationOwners.get(connection) ?? []).flatMap((ref) => {
@@ -282,6 +312,17 @@ export async function forwardScopedNotification(
 }
 
 export function ownsActiveInteraction(connection: OutboundConnection, inbound: InboundConnection): boolean {
-  const scope = active.get(connection);
-  return scope?.inbound === inbound && !scope.extra.signal.aborted;
+  let scope: Scope | undefined;
+  if (connection.adapter.protocol?.era === 'modern') {
+    const scopes = modernScopes.get(connection);
+    if (scopes?.size !== 1) return false;
+    scope = scopes.values().next().value;
+  } else scope = active.get(connection);
+  if (scope?.inbound !== inbound || scope.adapter !== connection.adapter || scope.extra.signal.aborted) return false;
+  try {
+    scope.assertCurrent?.();
+    return true;
+  } catch {
+    return false;
+  }
 }
