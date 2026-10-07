@@ -34,7 +34,7 @@ function summarize({
     releaseUrl,
     artifactRunId,
     recoveryRunId: recoveryRunId || null,
-    gateRunUrl: runUrl,
+    gateRunUrl: recoveryRunId ? runUrl.replace(/\/runs\/\d+$/, `/runs/${recoveryRunId}`) : runUrl,
     gates: records.find((record) => record.checks && record.ci) || null,
     jobs,
     artifacts: records.filter((record) => record.kind),

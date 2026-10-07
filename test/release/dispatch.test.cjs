@@ -56,6 +56,25 @@ function dispatch(t, inputs, summaryOverrides = {}) {
     channel: 'next',
     releaseRef: 'release-1.2',
     jobs: { ci: { result: 'success' }, 'native-security': { result: 'success' } },
+    gates: {
+      sha: 'a'.repeat(40),
+      ci: 'success',
+      infrastructureVerdict: 'green',
+      productVerdict: 'green',
+      checks: Object.fromEntries(
+        [
+          'static',
+          'unit-admin',
+          'test-e2e-parallel',
+          'test-e2e-system',
+          'test-e2e-browser',
+          'test-conformance',
+          'test-legacy-upgrade',
+          'test-windows-installer',
+          'release-lifecycle',
+        ].map((name) => [name, { result: 'success' }]),
+      ),
+    },
     ...summaryOverrides,
   };
   // Preload the command boundary in the child Node process, avoiding platform-specific executables.

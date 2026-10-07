@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const { setTimeout: delay } = require('node:timers/promises');
 const { candidate, currentCandidate, checksum, loadArtifacts } = require('./release-artifacts.cjs');
 function run(command, args) {
   return execFileSync(command, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -15,13 +16,16 @@ function ghApi(endpoint) {
     throw new Error(`GitHub readback ambiguous: ${endpoint}`);
   }
 }
-async function npmReadback(version) {
+async function npmReadback(version, timeoutMs = 30000) {
   const response = await fetch(`https://registry.npmjs.org/@1mcp%2fagent/${encodeURIComponent(version)}`, {
-    signal: AbortSignal.timeout(30000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`npm readback ambiguous: HTTP ${response.status}`);
-  return response.json();
+  const metadata = await response.json();
+  if (metadata === null || typeof metadata !== 'object' || Array.isArray(metadata))
+    throw new Error('npm readback ambiguous: malformed registry metadata');
+  return metadata;
 }
 function dockerReadback(reference, execute = run) {
   try {
@@ -34,14 +38,30 @@ function dockerReadback(reference, execute = run) {
   }
 }
 function verifyNpm(observed, identity, artifact) {
-  if (
-    !observed ||
-    observed.name !== '@1mcp/agent' ||
-    observed.version !== identity.version ||
-    observed.gitHead !== identity.sha ||
-    observed.dist?.integrity !== artifact.integrity
-  ) {
-    throw new Error('npm immutable identity mismatch or ambiguity');
+  if (observed === null || observed === undefined)
+    throw new Error('npm immutable identity mismatch or ambiguity: version absent');
+  for (const [field, actual, expected] of [
+    ['name', observed.name, '@1mcp/agent'],
+    ['version', observed.version, identity.version],
+    ['gitHead', observed.gitHead, identity.sha],
+    ['integrity', observed.dist?.integrity, artifact.integrity],
+  ]) {
+    if (actual !== expected) throw new Error(`npm immutable identity mismatch or ambiguity: ${field} differs`);
+  }
+}
+
+async function waitForPublishedNpm(readNpm, identity, artifact, wait = delay) {
+  // npm accepted this write. Poll only readback; never replay the publish command.
+  const deadline = Date.now() + 10 * 60 * 1000;
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) verifyNpm(null, identity, artifact);
+    const observed = await readNpm(identity.version, Math.min(30000, remaining));
+    if (observed !== null || attempt === 39) {
+      verifyNpm(observed, identity, artifact);
+      return;
+    }
+    await wait(Math.max(0, Math.min(15000, deadline - Date.now())));
   }
 }
 function verifyOci(observed, identity, digests) {
@@ -228,7 +248,7 @@ async function main(command, options = {}) {
       }
       if (npmDecision === 'publish-missing') {
         mark('publications', 'npm', { status: 'attempting' });
-        execute('npm', [
+        const output = execute('npm', [
           'publish',
           packageFile,
           '--access',
@@ -237,7 +257,13 @@ async function main(command, options = {}) {
           '--tag',
           `candidate-${identity.version.replace(/[^A-Za-z0-9-]/g, '-')}`,
         ]);
-        verifyNpm(await readNpm(identity.version), identity, npm.files[0]);
+        // Record command completion without copying npm inventories or credential-bearing diagnostics.
+        mark('publications', 'npm', {
+          status: 'attempting',
+          commandCompleted: true,
+          acknowledged: String(output).trim() === `+ @1mcp/agent@${identity.version}`,
+        });
+        await waitForPublishedNpm(readNpm, identity, npm.files[0], options.waitForNpmReadback);
         mark('publications', 'npm', { status: 'verified', integrity: npm.files[0].integrity });
       }
       for (const item of oci) {
