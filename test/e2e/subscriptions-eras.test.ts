@@ -8,7 +8,6 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
-import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { ClientStatus } from '@src/core/types/index.js';
 import { Client as LegacyClient } from '@src/sdk/legacy/client/index.js';
 import { ClientFactory } from '@src/sdk/legacy/client/runtime/clientFactory.js';
@@ -25,15 +24,25 @@ import {
   UnsubscribeRequestSchema,
 } from '@src/sdk/legacy/types.js';
 import { setupModernHttpRoutes } from '@src/transport/http/routes/modernHttpRoutes.js';
-import { buildUri } from '@src/utils/core/parsing.js';
 
 import express from 'express';
 import { describe, expect, it } from 'vitest';
 
 const uri = 'fixture://document?key=a%2Fb';
-const publicUri = buildUri('fixture', uri, MCP_URI_SEPARATOR);
 const capabilities = { resources: { subscribe: true, listChanged: true } };
 type Note = { method: string; params?: { uri?: string; [key: string]: unknown } };
+
+function advertisedResourceUri(resources: Array<{ uri: string; name: string; _meta?: unknown }>): string {
+  const documents = resources.filter((resource) => resource.name === 'Document');
+  expect(documents).toHaveLength(1);
+  const document = documents[0];
+  expect(document._meta).toMatchObject({
+    'app.1mcp/route': { kind: 'resources', server: 'fixture', upstreamIdentity: uri },
+  });
+  expect(() => new URL(document.uri)).not.toThrow();
+  expect(document.uri).not.toBe(uri);
+  return document.uri;
+}
 
 async function listen(server: HttpServer): Promise<URL> {
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -45,7 +54,7 @@ async function closeHttp(server: HttpServer): Promise<void> {
 }
 
 // Read the wire, including frame headers: SDK callbacks alone cannot prove ack ordering or absence of replay IDs.
-async function openStream(url: URL, id: string) {
+async function openStream(url: URL, id: string, publicUri: string) {
   const controller = new AbortController();
   const response = await fetch(url, {
     method: 'POST',
@@ -128,6 +137,7 @@ describe('resource notification journeys with real SDK peers', () => {
     '%s inbound / %s backend preserves URI and independent subscription ownership',
     async (inboundEra, outboundEra) => {
       const cleanup: Array<() => Promise<unknown>> = [];
+      const upstreamSubscriptions: string[] = [];
       try {
         let connection;
         let emit: (resourceUri: string) => Promise<void>;
@@ -141,6 +151,7 @@ describe('resource notification journeys with real SDK peers', () => {
           }));
           backend.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({ resourceTemplates: [] }));
           backend.setRequestHandler(SubscribeRequestSchema, async (request) => {
+            upstreamSubscriptions.push(request.params.uri);
             subscribed.add(request.params.uri);
             return {};
           });
@@ -225,10 +236,13 @@ describe('resource notification journeys with real SDK peers', () => {
               await manager.connectTransport(serverTransport, `owner-${index}`, {});
               await client.connect(clientTransport);
               cleanup.push(() => client.close());
+              const publicUri = advertisedResourceUri((await client.listResources()).resources);
               await client.subscribeResource({ uri: publicUri });
-              return { client, notes, catalogNotes };
+              return { client, notes, catalogNotes, publicUri };
             }),
           );
+          const publicUri = owners[0].publicUri;
+          expect(owners.map((owner) => owner.publicUri)).toEqual([publicUri, publicUri]);
           await emit(uri);
           await expect.poll(() => owners.map((owner) => owner.notes.length)).toEqual([1, 1]);
           expect(owners.map((owner) => owner.notes[0].params?.uri)).toEqual([publicUri, publicUri]);
@@ -257,9 +271,16 @@ describe('resource notification journeys with real SDK peers', () => {
           const server = createServer(app);
           const url = await listen(server);
           cleanup.push(() => closeHttp(server));
-          const first = await openStream(url, 'first');
+          const catalogClient = new ModernClient(
+            { name: 'subscription-catalog-consumer', version: '1' },
+            { versionNegotiation: { mode: { pin: '2026-07-28' } } },
+          );
+          await catalogClient.connect(new StreamableHTTPClientTransport(url));
+          cleanup.push(() => catalogClient.close());
+          const publicUri = advertisedResourceUri((await catalogClient.listResources()).resources);
+          const first = await openStream(url, 'first', publicUri);
           cleanup.push(first.close);
-          const second = await openStream(url, 'second');
+          const second = await openStream(url, 'second', publicUri);
           cleanup.push(second.close);
           await emit(uri);
           await expect.poll(() => [first.notes.length, second.notes.length]).toEqual([2, 2]);
@@ -274,7 +295,7 @@ describe('resource notification journeys with real SDK peers', () => {
           await emit(uri);
           await expect.poll(() => second.notes.length).toBe(3);
           expect(first.notes).toHaveLength(2);
-          const replacement = await openStream(url, 'replacement');
+          const replacement = await openStream(url, 'replacement', publicUri);
           cleanup.push(replacement.close);
           await delay(50);
           expect(replacement.notes).toHaveLength(1);
@@ -291,6 +312,10 @@ describe('resource notification journeys with real SDK peers', () => {
           expect(first.notes).toHaveLength(2);
           for (const stream of [first, second, replacement])
             expect(stream.frames.some((frame) => /^id:/m.test(frame))).toBe(false);
+        }
+        if (outboundEra === 'legacy') {
+          expect(upstreamSubscriptions.length).toBeGreaterThan(0);
+          expect(new Set(upstreamSubscriptions)).toEqual(new Set([uri]));
         }
       } finally {
         for (const close of cleanup.reverse()) await close();

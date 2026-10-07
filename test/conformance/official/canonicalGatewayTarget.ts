@@ -76,7 +76,7 @@ function inspectResponse(
         // Slice the original bytes so invalid UTF-8 remains invalid evidence.
         parts.push(line.subarray(line[prefix.length] === 0x20 ? prefix.length + 1 : prefix.length));
       }
-      if (value[end] === 0x0d && value[end + 1] === 0x0a) end++;
+      if (end + 1 < value.length && value[end] === 0x0d && value[end + 1] === 0x0a) end++;
       start = end + 1;
     }
     const data = Buffer.concat(parts);
@@ -411,6 +411,12 @@ export async function startCanonicalGatewayTarget(options: {
   gatewayAccessToken?: string;
 }): Promise<{ endpoint: string; isQualified(): boolean; rejectCredentialConflict(): void; close(): Promise<void> }> {
   const target = endpoint(options.gatewayEndpoint);
+  // Only the configured, validated loopback endpoint supplies request authority.
+  const trustedAuthority = Object.freeze({
+    protocol: target.protocol,
+    hostname: target.hostname === '[::1]' ? '::1' : target.hostname,
+    port: target.port ? Number(target.port) : undefined,
+  });
   const reference = endpoint(options.referenceEndpoint);
   const accessToken = options.gatewayAccessToken;
   if (
@@ -509,14 +515,22 @@ export async function startCanonicalGatewayTarget(options: {
           if (key === 'mcp-name' && headers[index + 1] === transformed.from) headers[index + 1] = transformed.to!;
           if (key === 'content-length') headers[index + 1] = String(body!.byteLength);
         }
-      const upstream = httpRequest(destination, { method: incoming.method, headers }, (response) => {
-        inspectResponse(response, (payload, framing, oversized) =>
-          observe('gateway_to_client', payload, framing, oversized),
-        );
-        outgoing.writeHead(response.statusCode ?? 502, response.statusMessage, response.rawHeaders);
-        response.pipe(outgoing);
-        response.once('error', () => outgoing.destroy());
-      });
+      const upstream = httpRequest(
+        {
+          ...trustedAuthority,
+          path: destination.pathname + destination.search,
+          method: incoming.method,
+          headers,
+        },
+        (response) => {
+          inspectResponse(response, (payload, framing, oversized) =>
+            observe('gateway_to_client', payload, framing, oversized),
+          );
+          outgoing.writeHead(response.statusCode ?? 502, response.statusMessage, response.rawHeaders);
+          response.pipe(outgoing);
+          response.once('error', () => outgoing.destroy());
+        },
+      );
       active.add(upstream);
       upstream.once('close', () => active.delete(upstream));
       upstream.once('error', () => {

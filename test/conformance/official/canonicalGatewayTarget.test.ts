@@ -39,8 +39,14 @@ function publicCatalogs(): Catalogs {
   }
   return catalogs;
 }
-async function listen(server: Server): Promise<string> {
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+async function listen(server: Server, host: '127.0.0.1' | '::1' = '127.0.0.1'): Promise<string> {
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, host, () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
   cleanups.push(
     () =>
       new Promise<void>((resolve) => {
@@ -50,7 +56,7 @@ async function listen(server: Server): Promise<string> {
   );
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('listener');
-  return `http://127.0.0.1:${address.port}/mcp`;
+  return `http://${host === '::1' ? '[::1]' : host}:${address.port}/mcp`;
 }
 async function setup(
   options: {
@@ -58,10 +64,11 @@ async function setup(
     referenceCatalogs?: Catalogs;
     revision?: '2025-11-25' | '2026-07-28';
     gatewayAccessToken?: string;
+    gatewayHost?: '127.0.0.1' | '::1';
     respond?: (response: ServerResponse, body: string) => void;
   } = {},
 ) {
-  const calls: Array<{ body: string; bytes: Buffer; headers: Record<string, unknown> }> = [];
+  const calls: Array<{ body: string; bytes: Buffer; headers: Record<string, unknown>; url?: string }> = [];
   const discovery: string[] = [];
   const discoveryHeaders: Array<{ method: unknown; headers: Record<string, unknown> }> = [];
   const gatewayDiscoveryHeaders: Array<Record<string, unknown>> = [];
@@ -89,7 +96,7 @@ async function setup(
       try {
         message = JSON.parse(body);
       } catch {
-        calls.push({ body, bytes, headers: incoming.headers });
+        calls.push({ body, bytes, headers: incoming.headers, url: incoming.url });
         outgoing.writeHead(400).end('malformed unchanged');
         return;
       }
@@ -127,7 +134,7 @@ async function setup(
         );
         return;
       }
-      calls.push({ body, bytes, headers: incoming.headers });
+      calls.push({ body, bytes, headers: incoming.headers, url: incoming.url });
       if (options.respond) {
         options.respond(outgoing, body);
         return;
@@ -142,7 +149,7 @@ async function setup(
       );
     });
   const referenceEndpoint = await listen(peer(options.referenceCatalogs ?? reference, false));
-  const gatewayEndpoint = await listen(peer(options.catalogs ?? publicCatalogs(), true));
+  const gatewayEndpoint = await listen(peer(options.catalogs ?? publicCatalogs(), true), options.gatewayHost);
   const outputDirectory = await mkdtemp(join(tmpdir(), 'canonical-target-test-'));
   cleanups.push(() => rm(outputDirectory, { recursive: true, force: true }));
   const revision = options.revision ?? '2026-07-28';
@@ -159,6 +166,7 @@ async function setup(
     JSON.parse(await readFile(join(outputDirectory, 'official-targets', `server.${revision}.json`), 'utf8'));
   return {
     ...target,
+    gatewayEndpoint,
     calls,
     discovery,
     discoveryHeaders,
@@ -238,6 +246,76 @@ describe('canonical official gateway target', () => {
     expect(status).toBe(400);
     expect(escaped).toBe(0);
     expect(target.calls).toHaveLength(0);
+  });
+
+  it.each(['absolute', 'protocol-relative', 'credential'] as const)(
+    'rejects an untrusted %s request target before reaching any backend',
+    async (kind) => {
+      let escaped = 0;
+      const foreign = await listen(
+        createServer((_incoming, response) => {
+          escaped++;
+          response.writeHead(200).end();
+        }),
+      );
+      const target = await setup({ gatewayAccessToken: 'owned-token' });
+      let path = foreign;
+      if (kind === 'protocol-relative') path = foreign.slice('http:'.length);
+      if (kind === 'credential') path = target.gatewayEndpoint.replace('http://', 'http://user:secret@');
+      const status = await new Promise<number | undefined>((resolve, reject) => {
+        const outgoing = request(
+          target.endpoint,
+          { method: 'POST', path, headers: { 'content-type': 'application/json' } },
+          (response) => {
+            response.resume();
+            response.once('end', () => resolve(response.statusCode));
+          },
+        );
+        outgoing.once('error', reject);
+        outgoing.end('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"test_simple_text"}}');
+      });
+      expect(status).toBe(400);
+      expect(escaped).toBe(0);
+      expect(target.calls).toHaveLength(0);
+    },
+  );
+
+  it('forwards guarded relative paths and query bytes through its fixed authority', async () => {
+    const output = Buffer.from('{"jsonrpc":"2.0","id":1,"result":{"resultType":"complete","content":[]}}');
+    const target = await setup({
+      respond: (response) => response.writeHead(207, { 'content-type': 'application/json' }).end(output),
+    });
+    const path = '/mcp/relative%2Fpart?encoded=a%2Fb&next=%2F%2Fforeign.invalid%2F';
+    const response = await post(
+      new URL(path, target.endpoint).href,
+      '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"test_simple_text"}}',
+      { 'x-path-proof': 'unchanged' },
+    );
+    expect(response.status).toBe(207);
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(output);
+    expect(target.calls[0].url).toBe(path);
+    expect(target.calls[0].headers['x-path-proof']).toBe('unchanged');
+  });
+
+  it('routes the configured IPv6 loopback authority without URL brackets in request hostname options', async (context) => {
+    let target: Awaited<ReturnType<typeof setup>>;
+    try {
+      target = await setup({ gatewayHost: '::1' });
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && ['EAFNOSUPPORT', 'EADDRNOTAVAIL'].includes(String(error.code))) {
+        context.skip('IPv6 loopback unavailable');
+        return;
+      }
+      throw error;
+    }
+    const response = await post(
+      target.endpoint,
+      '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"test_simple_text"}}',
+    );
+    expect(response.status).toBe(200);
+    expect((await response.json()).id).toBe(1);
+    expect(target.calls).toHaveLength(1);
+    expect(target.calls[0].body).toContain('official_conformance_1mcp_test_simple_text');
   });
 
   it.each(['Authorization', 'Cookie', 'Proxy-Authorization'])(
@@ -601,6 +679,30 @@ describe('canonical official gateway target', () => {
           response.write(output.subarray(0, split));
           response.end(output.subarray(split));
         },
+      });
+      const response = await post(
+        target.endpoint,
+        '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"test_simple_text"}}',
+      );
+      expect(Buffer.from(await response.arrayBuffer())).toEqual(output);
+      await target.close();
+      expect((await target.readEvidence()).wireChecks).toContainEqual({
+        direction: 'gateway_to_client',
+        framing: 'sse',
+        schemaResult: 'valid',
+        byteLength: payload.byteLength,
+        digest: `sha256:${createHash('sha256').update(payload).digest('hex')}`,
+      });
+    },
+  );
+
+  it.each(['', '\r', '\n', '\r\n'])(
+    'flushes the final SSE data line at EOF with %j ending without a blank frame delimiter',
+    async (ending) => {
+      const payload = Buffer.from('{"jsonrpc":"2.0","id":1,"result":{"resultType":"complete","content":[]}}');
+      const output = Buffer.concat([Buffer.from('data: '), payload, Buffer.from(ending)]);
+      const target = await setup({
+        respond: (response) => response.writeHead(200, { 'content-type': 'text/event-stream' }).end(output),
       });
       const response = await post(
         target.endpoint,

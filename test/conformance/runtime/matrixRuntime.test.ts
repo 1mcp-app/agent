@@ -3,8 +3,11 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { describe, expect, it } from 'vitest';
+import { JSONRPCMessageSchema as LegacyMessageSchema } from '@modelcontextprotocol/sdk/types.js';
 
+import { describe, expect, it, vi } from 'vitest';
+
+import * as wireCapture from '../capture/index.js';
 import {
   executeMatrixAssignment,
   type MatrixAssignmentDescriptor,
@@ -301,51 +304,121 @@ describe('matrix runtime execution', () => {
     { inboundEra: 'legacy', sdkEra: 'v1', revision: '2025-11-25' },
     { inboundEra: 'modern', sdkEra: 'v2', revision: '2026-07-28' },
   ] as const)(
-    'keeps $inboundEra inbound legacy-upstream fallback schema-invalid',
+    'preserves a schema-valid legacy rejection and successful fallback for $inboundEra inbound',
     async (scenario) => {
       const fixture = join(repositoryRoot, 'test/conformance/fixtures/typescript/src/fixture.mjs');
-      const result = await executeMatrixAssignment({
-        assignmentId: `case-${scenario.inboundEra}-legacy-null-id`,
-        inboundProbe: {
-          command: process.execPath,
-          args: [
-            fixture,
-            'probe',
-            '--sdk-era',
-            scenario.sdkEra,
-            '--protocol-era',
-            scenario.inboundEra,
-            '--transport',
-            'streamable-http',
-            '--aggregated',
-            '--runtime-output',
-            '--endpoint',
-            '{{gatewayEndpoint}}',
-          ],
-        },
-        upstreamPeer: {
-          command: process.execPath,
-          args: [fixture, 'server', '--sdk-era', 'v1', '--transport', 'streamable-http'],
-          readiness: { kind: 'stdout-json', fixtureId: 'typescript-v1' },
-        },
-        upstreamTransport: { type: 'streamableHttp' },
-        eras: { inbound: scenario.inboundEra, upstream: 'legacy' },
-        revisions: { inbound: scenario.revision, upstream: '2025-11-25' },
-        captureContexts: {
-          inbound: { id: 'legacy-error-inbound', negotiatedRevision: scenario.revision },
-          upstream: { id: 'legacy-error-upstream', negotiatedRevision: '2025-11-25' },
-        },
-        builtEntryPath: join(repositoryRoot, 'build/index.js'),
-        timeouts: { startupMs: 20_000, probeMs: 20_000, shutdownMs: 3_000 },
+      const rawFallbackReceipts: Array<{
+        direction: string;
+        id: string | number;
+        method?: string;
+        errorCode?: number;
+      }> = [];
+      const createCapture = wireCapture.createSanitizedWireCapture;
+      const captureSpy = vi.spyOn(wireCapture, 'createSanitizedWireCapture').mockImplementation((options) => {
+        const capture = createCapture(options);
+        return {
+          snapshot: capture.snapshot,
+          observe(observation) {
+            if (observation.hop === 'upstream' && observation.body.byteLength) {
+              try {
+                const parsed = LegacyMessageSchema.safeParse(
+                  JSON.parse(Buffer.from(observation.body).toString('utf8')),
+                );
+                if (parsed.success && 'id' in parsed.data) {
+                  const envelope = parsed.data;
+                  const id = envelope.id;
+                  if (id === undefined) return capture.observe(observation);
+                  if ('method' in envelope && envelope.method === 'server/discover') {
+                    rawFallbackReceipts.push({
+                      direction: observation.direction,
+                      id,
+                      method: envelope.method,
+                    });
+                  } else if ('error' in envelope) {
+                    rawFallbackReceipts.push({
+                      direction: observation.direction,
+                      id,
+                      errorCode: envelope.error.code,
+                    });
+                  }
+                }
+              } catch {
+                /* Non-JSON streaming records retain the existing capture classification. */
+              }
+            }
+            return capture.observe(observation);
+          },
+        };
       });
+      let result;
+      try {
+        result = await executeMatrixAssignment({
+          assignmentId: `case-${scenario.inboundEra}-legacy-known-id`,
+          inboundProbe: {
+            command: process.execPath,
+            args: [
+              fixture,
+              'probe',
+              '--sdk-era',
+              scenario.sdkEra,
+              '--protocol-era',
+              scenario.inboundEra,
+              '--transport',
+              'streamable-http',
+              '--aggregated',
+              '--runtime-output',
+              '--endpoint',
+              '{{gatewayEndpoint}}',
+            ],
+          },
+          upstreamPeer: {
+            command: process.execPath,
+            args: [fixture, 'server', '--sdk-era', 'v1', '--transport', 'streamable-http'],
+            readiness: { kind: 'stdout-json', fixtureId: 'typescript-v1' },
+          },
+          upstreamTransport: { type: 'streamableHttp' },
+          eras: { inbound: scenario.inboundEra, upstream: 'legacy' },
+          revisions: { inbound: scenario.revision, upstream: '2025-11-25' },
+          captureContexts: {
+            inbound: { id: 'legacy-error-inbound', negotiatedRevision: scenario.revision },
+            upstream: { id: 'legacy-error-upstream', negotiatedRevision: '2025-11-25' },
+          },
+          builtEntryPath: join(repositoryRoot, 'build/index.js'),
+          timeouts: { startupMs: 20_000, probeMs: 20_000, shutdownMs: 3_000 },
+        });
+      } finally {
+        captureSpy.mockRestore();
+      }
       expect(result.kind, JSON.stringify(result)).toBe('product');
       if (result.kind !== 'product') return;
-      expect(result).toMatchObject({ status: 'fail', reason: 'wire_schema_invalid', firstAttempt: true });
+      expect(result).toMatchObject({ status: 'pass', reason: 'probe_succeeded', firstAttempt: true });
       expect(result.facts).toMatchObject({ toolsCount: 1, callError: false });
       const records = result.evidence.upstream.records;
-      expect(records.filter((record) => record.schemaResult === 'invalid')).toEqual([
-        expect.objectContaining({ direction: 'peer_to_gateway', correlation: 'error' }),
+      expect(rawFallbackReceipts).toEqual([
+        { direction: 'gateway_to_peer', id: expect.any(String), method: 'server/discover' },
+        { direction: 'peer_to_gateway', id: rawFallbackReceipts[0]?.id, errorCode: -32000 },
       ]);
+      expect(records.filter((record) => record.correlation === 'error')).toEqual([
+        expect.objectContaining({
+          direction: 'peer_to_gateway',
+          correlation: 'error',
+          schemaResult: 'valid',
+          envelope: expect.objectContaining({ id: true, error: true, result: false }),
+        }),
+      ]);
+      for (const [hop, evidence] of Object.entries(result.evidence)) {
+        expect(evidence.records.length).toBeGreaterThan(0);
+        expect(new Set(evidence.records.map((record) => record.hop))).toEqual(new Set([hop]));
+        expect(
+          evidence.records.filter((record) => ['invalid', 'infrastructure_error'].includes(record.schemaResult)),
+        ).toEqual([]);
+        expect(evidence.records).toContainEqual(
+          expect.objectContaining({ method: 'tools_list', schemaResult: 'valid' }),
+        );
+        expect(evidence.records).toContainEqual(
+          expect.objectContaining({ method: 'tools_call', schemaResult: 'valid' }),
+        );
+      }
       expect(records.findIndex((record) => record.correlation === 'error')).toBeLessThan(
         records.findIndex((record) => record.method === 'initialize'),
       );
