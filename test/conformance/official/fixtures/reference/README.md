@@ -144,7 +144,10 @@ The modern completed-result stimulus now explicitly supplies the schema-required
 `resultType: complete`, with a distinct check ID. The custom-header omission case
 omits its optional boolean rather than supplying schema-invalid null. These cases
 prove valid completion and omission only. The existing owned malformed-result and
-header codec controls retain rejection and null encoding coverage.
+header codec controls retain rejection and null encoding coverage. The modern
+standard-header fixture observes `server/discover` and expects that handshake;
+legacy runs still require `initialize` and `notifications/initialized`. An owned
+raw client missing the discovery header must fail the repaired peer's wire check.
 
 OAuth context contains issuer URLs supplied directly by the scenario's lifecycle
 objects, independently of discovery responses. The owned driver provisions a real

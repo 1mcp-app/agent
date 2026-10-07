@@ -56,7 +56,7 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
   private record?: BoundClientSession;
   private readonly verifiers = new Map<string, string>();
   private readonly callbacks = new AsyncLocalStorage<{ verifier: string; generation: string }>();
-  private authorizationUrl?: string;
+  private authorizationAttempt?: { url: string; key: string };
   private callbackTail: Promise<unknown> = Promise.resolve();
   private readonly operations = new AsyncLocalStorage<{
     failed: boolean;
@@ -270,12 +270,12 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
       },
       ticket.requestVersion,
     );
-    this.authorizationUrl = undefined;
+    this.authorizationAttempt = undefined;
   }
 
   async invalidateCredentials(scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery'): Promise<void> {
     const record = this.current();
-    this.authorizationUrl = undefined;
+    this.authorizationAttempt = undefined;
     this.verifiers.clear();
     if (!record) return;
     this.record = await this.sessionRepository.updateBound(this.slot!, record.generation, (current) => {
@@ -332,27 +332,28 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
       consumed: false,
     });
     this.verifiers.delete(challenge!);
-    this.authorizationUrl = url.toString();
+    this.authorizationAttempt = { url: url.toString(), key: oauthDigest(state) };
   }
   getAuthorizationUrl(): string | undefined {
-    return this.authorizationUrl;
+    return this.authorizationAttempt?.url;
   }
   /** Only a live, unconsumed attempt owned by this provider can be resumed. */
   getPendingAuthorizationUrl(): string | undefined {
-    if (!this.authorizationUrl) return undefined;
+    const authorization = this.authorizationAttempt;
+    if (!authorization) return undefined;
     const record = this.current();
     if (!record) return undefined;
-    const state = new URL(this.authorizationUrl).searchParams.get('state');
-    if (!state) return undefined;
-    const attempt = record.attempts[oauthDigest(state)];
+    // The durable key was bound to this URL at creation, before it was exposed
+    // through transport/provider APIs. Resumption never reinterprets a URL.
+    const attempt = record.attempts[authorization.key];
     if (!attempt || attempt.consumed || attempt.expires <= Date.now()) return undefined;
     if (attempt.generation !== record.generation || !sameAuthority(attempt.authority, record.authority))
       return undefined;
     if (attempt.redirect !== this.redirectUrl) return undefined;
-    return this.authorizationUrl;
+    return this.authorizationAttempt?.url;
   }
   clearAuthorizationUrl(): void {
-    this.authorizationUrl = undefined;
+    this.authorizationAttempt = undefined;
   }
 
   /** Validation and durable consumption happen before the SDK can see a code, for both eras. */

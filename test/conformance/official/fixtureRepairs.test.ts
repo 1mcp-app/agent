@@ -1,4 +1,6 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -39,6 +41,51 @@ describe('owned official toolkit fixture repairs', () => {
     }
   });
 
+  it('rejects a missing discovery header through the repaired real peer', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'toolkit-header-control-'));
+    try {
+      const entry = await prepareToolkitRepairs(packageRoot, directory);
+      const driver = join(directory, 'missing-header.mjs');
+      await writeFile(
+        driver,
+        `const response = await fetch(process.argv[2], {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({jsonrpc: '2.0', id: 1, method: 'server/discover', params: {}})}); await response.body?.cancel();`,
+      );
+      const command = [process.execPath, driver].map((value) => "'" + value.replaceAll("'", "'\\''") + "'").join(' ');
+      const child = spawn(
+        process.execPath,
+        [
+          entry,
+          'client',
+          '--command',
+          command,
+          '--scenario',
+          'http-standard-headers',
+          '--spec-version',
+          '2026-07-28',
+          '--force',
+          '--output-dir',
+          directory,
+        ],
+        { stdio: 'ignore' },
+      );
+      const [code] = await once(child, 'exit');
+      expect(code).toBe(1);
+      const paths = (await readdir(directory, { recursive: true })).filter((path) => path.endsWith('checks.json'));
+      expect(paths).toHaveLength(1);
+      const checks = JSON.parse(await readFile(join(directory, paths[0]), 'utf8'));
+      expect(checks).toContainEqual(
+        expect.objectContaining({ name: 'ClientMcpMethodHeader_server_discover', status: 'FAILURE' }),
+      );
+      expect(
+        checks.some((check: { name: string }) =>
+          ['ClientMcpMethodHeader_initialize', 'ClientMcpMethodHeader_notifications_initialized'].includes(check.name),
+        ),
+      ).toBe(false);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }, 15000);
+
   it('supplies explicit modern completion, schema-valid omission, and independently owned issuer context', async () => {
     const original = await readFile(join(packageRoot, 'dist/index.js'), 'utf8');
     const { source, repairs } = repairToolkit(original);
@@ -57,6 +104,9 @@ describe('owned official toolkit fixture repairs', () => {
       'modern-complete-check-description',
       'modern-complete-check-error',
       'schema-valid-omission',
+      'standard-header-protocol-context',
+      'standard-header-discovery-observer',
+      'standard-header-handshake-inventory',
       'metadata-owned-issuer',
       'scenario-owned-issuer',
       'credential-scenario-owned-issuer',

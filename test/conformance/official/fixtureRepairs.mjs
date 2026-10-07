@@ -46,6 +46,26 @@ export function repairToolkit(source) {
   // Boolean-only schemas cannot admit null. The existing null/omitted case now uses
   // a schema-valid omitted optional value. Null header encoding/rejection has owned tests.
   replace('schema-valid-omission', 'priority:1,verbose:null,query:`SELECT 1`', 'priority:1,query:`SELECT 1`', 1);
+  // The modern header scenario uses discovery, not the legacy handshake. The
+  // base scaffold must observe discovery headers before its early response.
+  replace(
+    'standard-header-protocol-context',
+    'Ia=class{constructor(){this.source={introducedIn:F},this.server=null,this.checks=[],this.port=0,this.sessionId=`session-${Date.now()}`}async start(e){',
+    'Ia=class{constructor(){this.source={introducedIn:F},this.server=null,this.checks=[],this.port=0,this.sessionId=`session-${Date.now()}`}async start(e){this.ownedSpecVersion=e.specVersion;',
+    1,
+  );
+  replace(
+    'standard-header-discovery-observer',
+    'if(r.method===`server/discover`){this.sendDiscover(t,r);return}',
+    'if(r.method===`server/discover`){if(this.name===`http-standard-headers`)this.checkMcpMethodHeader(e,r);this.sendDiscover(t,r);return}',
+    1,
+  );
+  replace(
+    'standard-header-handshake-inventory',
+    'getChecks(){let e=[...this.checks];for(let t of[`initialize`,`notifications/initialized`,',
+    'getChecks(){let e=[...this.checks];for(let t of[...(this.ownedSpecVersion===F?[`server/discover`]:[`initialize`,`notifications/initialized`]),',
+    1,
+  );
   // These values come from the scenario's own lifecycle objects, not PRM or AS responses.
   replace(
     'metadata-owned-issuer',
