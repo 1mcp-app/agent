@@ -25,7 +25,20 @@ function filesIn(directory) {
   });
 }
 function loadArtifacts(directory, expected) {
-  const manifests = filesIn(directory).filter((file) => /(?:npm|sea-|oci-).*\.json$/.test(path.basename(file)));
+  const required = [
+    'npm',
+    'sea-linux-x64',
+    'sea-linux-arm64',
+    'sea-win32-x64',
+    'sea-darwin-x64',
+    'sea-darwin-arm64',
+    'oci-basic-amd64',
+    'oci-basic-arm64',
+    'oci-extended-amd64',
+    'oci-extended-arm64',
+  ];
+  const manifestNames = new Set(required.map((kind) => `${kind}.json`));
+  const manifests = filesIn(directory).filter((file) => manifestNames.has(path.basename(file)));
   const records = manifests.map((file) => {
     const record = JSON.parse(fs.readFileSync(file, 'utf8'));
     candidate({ ...expected, actualSha: record.sha, actualVersion: record.version, npmTag: record.channel });
@@ -41,18 +54,6 @@ function loadArtifacts(directory, expected) {
       throw new Error('Invalid OCI digest');
     return { ...record, manifestPath: file };
   });
-  const required = [
-    'npm',
-    'sea-linux-x64',
-    'sea-linux-arm64',
-    'sea-win32-x64',
-    'sea-darwin-x64',
-    'sea-darwin-arm64',
-    'oci-basic-amd64',
-    'oci-basic-arm64',
-    'oci-extended-amd64',
-    'oci-extended-arm64',
-  ];
   if (
     records.length !== required.length ||
     required.some((kind) => records.filter((record) => record.kind === kind).length !== 1)

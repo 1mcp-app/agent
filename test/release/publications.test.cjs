@@ -296,6 +296,23 @@ test('dispatch rejects ambiguous inputs or unavailable original evidence before 
   );
 });
 
+test('retained SEA build configuration is not a publication identity', (t) => {
+  const f = fixture(t);
+  fs.writeFileSync(path.join(f.directory, 'package.tgz'), 'retained tested bytes');
+  for (const record of f.options.records) {
+    const manifest = { ...record, smoke: 'passed' };
+    delete manifest.manifestPath;
+    fs.writeFileSync(path.join(f.directory, `${record.kind}.json`), JSON.stringify(manifest));
+  }
+  fs.writeFileSync(path.join(f.directory, 'sea-config.json'), JSON.stringify({ main: 'sea.cjs', output: 'sea.blob' }));
+  assert.equal(loadArtifacts(f.directory, stable).length, 10);
+  const manifestPath = path.join(f.directory, 'sea-darwin-x64.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  manifest.sha = 'b'.repeat(40);
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+  assert.throws(() => loadArtifacts(f.directory, stable), /Candidate SHA mismatch/);
+});
+
 test('expired/missing or modified artifacts are rejected; no rebuilding same identity', (t) => {
   const f = fixture(t);
   assert.throws(() => loadArtifacts(f.directory, stable), /Missing/);
