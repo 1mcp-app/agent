@@ -32,7 +32,7 @@ describe('publish-to-npm workflow', () => {
       ),
     ).toBe(true);
   });
-  it.each([false, true])('runs actual retained-candidate validation for recovery=%s without publishing', (recovery) => {
+  it('runs actual retained-candidate validation without publishing', () => {
     const step = workflow.jobs.publish.steps.find(
       (item: { name?: string }) => item.name === 'Validate retained candidate',
     );
@@ -43,19 +43,17 @@ describe('publish-to-npm workflow', () => {
       version,
       npm_tag: validateReleaseInputs({ targetRef: 'main', version, tagExists: () => false }).npmTag,
       artifact_run_id: '123456',
-      approval_ref: 'https://github.com/1mcp-app/agent/issues/474#issuecomment-123',
-      readiness_ref: 'https://github.com/1mcp-app/agent/issues/485#issuecomment-456',
     };
-    expect(step.env.RECOVERY_RUN_ID).toBe("${{ inputs.recovery && inputs.artifact_run_id || '' }}");
+    expect(step.env).not.toHaveProperty('APPROVAL_REF');
+    expect(step.env).not.toHaveProperty('READINESS_REF');
     const environment = Object.fromEntries(
       Object.entries(step.env).map(([key, value]) => {
-        if (key === 'RECOVERY_RUN_ID') return [key, recovery ? inputs.artifact_run_id : ''];
         const inputName = String(value).match(/^\$\{\{ inputs\.([a-z_]+) \}\}$/)?.[1];
         if (!inputName || !(inputName in inputs)) throw new Error(`Unexpected validation input: ${value}`);
         return [key, inputs[inputName]];
       }),
     );
-    // Only the actual local candidate/owner validators run; the publication steps are never invoked.
+    // Only retained-candidate validation runs; publication steps are never invoked.
     const result = spawnSync('bash', ['-e', '-c', step.run], {
       encoding: 'utf8',
       env: { ...process.env, ...environment },
@@ -63,15 +61,6 @@ describe('publish-to-npm workflow', () => {
     expect(result.status, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout).sha).toBe(sha);
     expect(environment.RELEASE_SHA).toBe(sha);
-    expect(environment.RECOVERY_RUN_ID).toBe(recovery ? '123456' : '');
-    if (recovery) {
-      const invalid = spawnSync('bash', ['-e', '-c', step.run], {
-        encoding: 'utf8',
-        env: { ...process.env, ...environment, RECOVERY_RUN_ID: 'invalid' },
-      });
-      expect(invalid.status).toBe(1);
-      expect(invalid.stderr).toContain('Invalid recovery identity');
-    }
   });
   it('promotes only after required versioned publications, preserving protected paths and partial evidence', () => {
     expect(workflow.jobs.promote.needs).toBe('publish');

@@ -36,12 +36,6 @@ on:
         description: Explicit owner resumption of verified missing publications.
         required: true
         type: boolean
-      approval_ref:
-        required: true
-        type: string
-      readiness_ref:
-        required: true
-        type: string
 
 concurrency:
   group: publish-${{ github.repository }}
@@ -74,14 +68,10 @@ jobs:
       - name: Validate retained candidate
         env:
           RELEASE_SHA: ${{ inputs.release_sha }}
-          RECOVERY_RUN_ID: ${{ inputs.recovery && inputs.artifact_run_id || '' }}
           VERSION: ${{ inputs.version }}
           NPM_TAG: ${{ inputs.npm_tag }}
-          APPROVAL_REF: ${{ inputs.approval_ref }}
-          READINESS_REF: ${{ inputs.readiness_ref }}
         run: |
           node scripts/release-artifacts.cjs candidate
-          RELEASE_SHA="${RECOVERY_RUN_ID:+$RELEASE_SHA}" node scripts/release-recovery.cjs validate
       - name: Download tested npm archive
         uses: actions/download-artifact@v8
         with:

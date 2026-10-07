@@ -36,8 +36,16 @@ describe('release-pipeline workflow', () => {
     expect(workflow.jobs.release.if).toContain("needs.ci.result == 'success'");
     expect(workflow.jobs.release.if).toContain("needs.native-security.result == 'success'");
     expect(workflow.jobs.release.with.artifact_run_id).toBe('${{ needs.candidate.outputs.artifact_run_id }}');
-    expect(workflow.on.workflow_dispatch.inputs.approval_ref.required).toBe(true);
-    expect(workflow.on.workflow_dispatch.inputs.readiness_ref.required).toBe(true);
+    expect(Object.keys(workflow.on.workflow_dispatch.inputs)).toEqual(['target_ref', 'version', 'recovery_run_id']);
+    expect(workflow.on.workflow_dispatch.inputs.version.required).toBe(false);
+    expect(workflow.on.workflow_dispatch.inputs.target_ref.default).toBe('main');
+    expect(workflow.jobs.validate.permissions.actions).toBe('read');
+    expect(workflow.jobs.candidate.steps[1].env.RELEASE_SHA).toBe(
+      '${{ needs.validate.outputs.release_sha || needs.update-version.outputs.release_sha }}',
+    );
+    expect(workflow.jobs.summary.steps.find((step: { id?: string }) => step.id === 'summary').env.VERSION).toBe(
+      '${{ needs.validate.outputs.version }}',
+    );
   });
   it.each(['ci', 'native-security'])(
     '%s checks run after successful recovery candidate despite skipped version update',
@@ -69,6 +77,7 @@ describe('release-pipeline workflow', () => {
       "${{ !cancelled() && needs.release.result == 'success' && needs.validate.outputs.release_ref == 'main' }}",
     );
     expect(workflow.jobs.summary.if).toBe('always()');
+    expect(workflow.jobs.summary.steps[0].with.ref).toBe('${{ github.sha }}');
     expect(workflow.jobs.summary.permissions.contents).toBe('read');
     expect(workflow.jobs['attach-summary'].environment).toBe('release');
     expect(workflow.jobs['attach-summary'].permissions.contents).toBe('write');
