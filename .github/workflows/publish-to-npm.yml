@@ -136,10 +136,9 @@ jobs:
           NPM_TAG: ${{ inputs.npm_tag }}
           RECOVERY: ${{ inputs.recovery }}
           GH_TOKEN: ${{ github.token }}
-        run: |
-          export GITHUB_SHA="$RELEASE_SHA"
-          export GITHUB_REF="refs/heads/$RELEASE_REF"
-          node scripts/release-publications.cjs versions
+        # npm provenance must match GitHub's signed dispatch context. The retained
+        # archive's gitHead and checksums independently bind it to RELEASE_SHA.
+        run: node scripts/release-publications.cjs versions
       - name: Retain publication outcomes even on partial failure
         if: always()
         uses: actions/upload-artifact@v7
