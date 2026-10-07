@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import type { Server } from 'node:http';
 import path from 'node:path';
 
 import type { BackendOAuthDashboardResult, OAuthAuthorizationFlow } from '@src/auth/oauthAuthorizationFlow.js';
@@ -20,7 +21,7 @@ import { staticBackendLogSource } from '@src/domains/backend-logs/backendLogSour
 import { createConfigChangeService } from '@src/domains/config-change/configChange.js';
 
 import express from 'express';
-import request from 'supertest';
+import supertest from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -92,6 +93,7 @@ describe('admin routes', () => {
   let backendRestartService: {
     restartBackend: ReturnType<typeof vi.fn<AdminBackendRestartOperations['restartBackend']>>;
   };
+  const requestServers = new Map<express.Express, Server>();
 
   beforeEach(() => {
     storageDir = `/tmp/admin-routes-${Date.now()}-${Math.random()}`;
@@ -128,10 +130,35 @@ describe('admin routes', () => {
     };
   });
 
-  afterEach(() => {
-    fs.rmSync(storageDir, { recursive: true, force: true });
-    delete (globalThis as Record<string, unknown>)[SEA_ADMIN_CONSOLE_ASSETS_KEY];
+  afterEach(async () => {
+    try {
+      const servers = [...requestServers.values()];
+      for (const server of servers) server.closeAllConnections();
+      await Promise.all(
+        servers.map(
+          (server) =>
+            new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))),
+        ),
+      );
+      for (const server of servers) expect(server.listening).toBe(false);
+    } finally {
+      requestServers.clear();
+      fs.rmSync(storageDir, { recursive: true, force: true });
+      delete (globalThis as Record<string, unknown>)[SEA_ADMIN_CONSOLE_ASSETS_KEY];
+    }
   });
+
+  function request(app: express.Express | Server) {
+    if (typeof app !== 'function') return supertest(app);
+    let server = requestServers.get(app);
+    if (!server) {
+      // Match Supertest's synchronous bind, keeping one listener for the whole fixture.
+      server = app.listen(0);
+      requestServers.set(app, server);
+      if (!server.address()) throw new Error('Admin route test server did not bind synchronously');
+    }
+    return supertest(server);
+  }
 
   function mountAdminRoutes(
     options: {

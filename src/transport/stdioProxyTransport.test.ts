@@ -4,6 +4,7 @@ import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { SSE_WIRE_LIMIT_BYTES, SseWireLimitError } from './sseWireLimit.js';
 import { StdioProxyTransport } from './stdioProxyTransport.js';
 
 // Mock the SDK transports
@@ -43,6 +44,7 @@ describe('StdioProxyTransport', () => {
   });
 
   afterEach(async () => {
+    vi.unstubAllGlobals();
     if (proxy) {
       await proxy.close();
     }
@@ -117,6 +119,7 @@ describe('StdioProxyTransport', () => {
         serverUrl: 'http://localhost:3050/mcp',
       });
 
+      vi.spyOn(proxy['httpTransport'], 'start');
       await proxy.start();
 
       // Verify both transports were started
@@ -608,5 +611,32 @@ describe('StdioProxyTransport', () => {
       // Should not throw
       expect(() => proxy['httpTransport'].onerror!(error)).not.toThrow();
     });
+  });
+  it('terminally cancels oversized HTTP-runtime SSE before forwarding or reconnecting', async () => {
+    const cancel = vi.fn();
+    const delegate = vi.fn().mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array(SSE_WIRE_LIMIT_BYTES + 1).fill(120));
+          },
+          cancel,
+        }),
+        { headers: { 'content-type': 'text/event-stream' } },
+      ),
+    );
+    vi.stubGlobal('fetch', delegate);
+    proxy = new StdioProxyTransport({ serverUrl: 'http://127.0.0.1/mcp' });
+    await proxy.start();
+    const options = vi.mocked(StreamableHTTPClientTransport).mock.calls.at(-1)?.[1];
+    if (!options?.fetch) throw new Error('Missing bounded fetch');
+    const response = await options.fetch('http://127.0.0.1/mcp');
+    await expect(response.arrayBuffer()).rejects.toBeInstanceOf(SseWireLimitError);
+    const transport = vi.mocked(StreamableHTTPClientTransport).mock.results.at(-1)?.value;
+    expect(transport.close).toHaveBeenCalledOnce();
+    expect(transport.send).not.toHaveBeenCalled();
+    expect(cancel).toHaveBeenCalledOnce();
+    await expect(options.fetch('http://127.0.0.1/mcp')).rejects.toBeInstanceOf(SseWireLimitError);
+    expect(delegate).toHaveBeenCalledOnce();
   });
 });

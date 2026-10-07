@@ -14,6 +14,7 @@ import { injectTraceContext, stripBaggage, withMcpTraceContext } from '@src/obse
 import { toProtocolJSONRPCMessage } from '@src/sdk/contracts/index.js';
 import { StdioServerTransport } from '@src/sdk/legacy/server/stdio.js';
 import { JSONRPCMessage } from '@src/sdk/legacy/types.js';
+import { createSseWireLimitedFetch, registerSseWireLimitOwner } from '@src/transport/sseWireLimit.js';
 import type { ClientInfo, ContextData } from '@src/types/context.js';
 import { ClientInfoExtractor } from '@src/utils/client/clientInfoExtractor.js';
 
@@ -97,10 +98,12 @@ export class StdioProxyTransport {
 
     // Create HTTP transport with custom fetch that dynamically injects User-Agent
     // Note: sessionId is passed as a parameter, SDK will handle adding it to headers
+    const trustedFetch = this.createDynamicHeaderFetch();
     this.httpTransport = new StreamableHTTPClientTransport(this.serverUrl, {
-      fetch: this.createDynamicHeaderFetch(),
+      fetch: createSseWireLimitedFetch(trustedFetch, () => this.httpTransport),
       sessionId: this.context.sessionId,
     });
+    registerSseWireLimitOwner(this.httpTransport, trustedFetch);
   }
 
   /**

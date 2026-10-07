@@ -7,6 +7,11 @@ import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 import { AuthProviderTransport } from '@src/sdk/legacy/client/runtime/legacyTransport.js';
+import {
+  createSseWireLimitedFetch,
+  registerSseWireLimitOwner,
+  SSE_WIRE_LIMIT_BYTES,
+} from '@src/transport/sseWireLimit.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -38,6 +43,65 @@ describe('TransportRecreator', () => {
         expect(original.sessionId).toBe('live-session');
       },
     );
+  });
+
+  it.each([
+    ['legacy HTTP', StreamableHTTPClientTransport],
+    ['modern HTTP', ModernStreamableHTTPClientTransport],
+    ['legacy SSE', SSEClientTransport],
+    ['modern SSE', ModernSSEClientTransport],
+  ] as const)('rebinds a guarded fallback fetch to its replacement (%s)', async (_family, Transport) => {
+    const cancelled = vi.fn();
+    const trustedFetch = vi.fn<typeof fetch>(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new Uint8Array(SSE_WIRE_LIMIT_BYTES + 1).fill(120));
+            },
+            cancel: cancelled,
+          }),
+          { headers: { 'content-type': 'text/event-stream' } },
+        ),
+    );
+    // Modern constructors wrap fetch when a DPoP provider exists. Rebinding must
+    // use the registered delegate rather than copying that SDK wrapper.
+    const oauthProvider = { token: vi.fn(async () => undefined), dpop: vi.fn(async () => undefined) };
+    let original: AuthProviderTransport;
+    const guardedFetch = createSseWireLimitedFetch(trustedFetch, () => original);
+    original = new Transport(new URL('https://example.com/mcp'), {
+      fetch: guardedFetch,
+      authProvider: oauthProvider as never,
+    }) as AuthProviderTransport;
+    original.oauthProvider = oauthProvider as never;
+    registerSseWireLimitOwner(original, trustedFetch);
+    const originalClosed = vi.fn();
+    original.onclose = originalClosed;
+
+    const replacement = transportRecreator.recreateHttpTransport(original);
+    const replacementClosed = vi.fn();
+    const replacementError = vi.fn();
+    replacement.onclose = replacementClosed;
+    replacement.onerror = replacementError;
+    const fetchReplacement = (replacement as unknown as { _fetch: typeof fetch })._fetch;
+    const response = await fetchReplacement('https://example.com/mcp');
+
+    await expect(response.text()).rejects.toThrow('wire limit');
+    expect(replacementClosed).toHaveBeenCalledOnce();
+    expect(replacementError).toHaveBeenCalledOnce();
+    expect(originalClosed).not.toHaveBeenCalled();
+    expect(cancelled).toHaveBeenCalledOnce();
+    expect(trustedFetch).toHaveBeenCalledOnce();
+    await expect(fetchReplacement('https://example.com/mcp')).rejects.toThrow('wire limit');
+    expect(trustedFetch).toHaveBeenCalledOnce();
+
+    // A further fallback recreation receives its own fresh guard.
+    const next = transportRecreator.recreateHttpTransport(replacement);
+    const nextFetch = (next as unknown as { _fetch: typeof fetch })._fetch;
+    const nextResponse = await nextFetch('https://example.com/mcp');
+    await expect(nextResponse.text()).rejects.toThrow('wire limit');
+    expect(replacementClosed).toHaveBeenCalledOnce();
+    expect(trustedFetch).toHaveBeenCalledTimes(2);
   });
 
   describe('recreateHttpTransport', () => {
