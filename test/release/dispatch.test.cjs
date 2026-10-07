@@ -4,8 +4,34 @@ const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { parse } = require('yaml');
 
 const script = path.resolve('scripts/release-recovery.cjs');
+
+test('publication preserves signed dispatch identity when candidate preparation advances HEAD', (t) => {
+  const workflow = parse(fs.readFileSync('.github/workflows/publish-to-npm.yml', 'utf8'));
+  const publish = workflow.jobs.publish.steps.find((step) => step.run?.includes('release-publications.cjs versions'));
+  assert.ok(publish);
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'release-provenance-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const node = path.join(directory, 'node');
+  fs.writeFileSync(node, '#!/bin/sh\nprintf "%s\\n" "$GITHUB_SHA" "$GITHUB_REF" "$RELEASE_SHA"\n', { mode: 0o755 });
+  const dispatchSha = 'a'.repeat(40);
+  const candidateSha = 'b'.repeat(40);
+  const result = spawnSync('bash', ['-e', '-c', publish.run], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: `${directory}${path.delimiter}${process.env.PATH}`,
+      GITHUB_SHA: dispatchSha,
+      GITHUB_REF: 'refs/heads/main',
+      RELEASE_SHA: candidateSha,
+      RELEASE_REF: 'main',
+    },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(result.stdout.trim().split('\n'), [dispatchSha, 'refs/heads/main', candidateSha]);
+});
 
 function dispatch(t, inputs, summaryOverrides = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'release-dispatch-'));

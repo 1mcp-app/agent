@@ -19,7 +19,9 @@ describe('publish-to-npm workflow', () => {
     expect(publish.environment).toBe('release');
     expect(publish.permissions['id-token']).toBe('write');
     const step = publish.steps.find((item: { name?: string }) => item.name?.startsWith('Publish missing'));
-    expect(step.run).toContain('export GITHUB_SHA="$RELEASE_SHA"');
+    expect(step.env).not.toHaveProperty('GITHUB_SHA');
+    expect(step.env).not.toHaveProperty('GITHUB_REF');
+    expect(step.run).not.toMatch(/\bGITHUB_(?:SHA|REF)\s*=/);
     expect(step.run).toContain('node scripts/release-publications.cjs versions');
     expect(JSON.stringify(workflow)).not.toContain('pnpm build');
     const downloads = publish.steps.filter((item: { uses?: string }) => item.uses === 'actions/download-artifact@v8');
