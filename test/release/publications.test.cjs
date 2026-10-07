@@ -362,12 +362,15 @@ test('OCI missing-manifest is distinct from DNS/proxy/auth/tool failures', () =>
     throw error;
   };
   assert.equal(dockerReadback('image:version', fail('manifest unknown')), null);
+  assert.equal(dockerReadback('image:version', fail('ERROR: image:version: not found\n')), null);
   for (const diagnostic of [
     'DNS host not found',
     'proxy not found',
     'docker: command not found',
     'HTTP 404 gateway failure',
     'unauthorized',
+    'ERROR: another-image:version: not found',
+    'ERROR: image:version: not found\nunauthorized',
   ])
     assert.throws(() => dockerReadback('image:version', fail(diagnostic)), /ambiguous/);
 });

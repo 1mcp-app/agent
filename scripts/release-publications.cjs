@@ -29,6 +29,7 @@ function dockerReadback(reference, execute = run) {
   } catch (error) {
     const message = String(error.stderr);
     if (message.includes('manifest unknown') || message.includes('MANIFEST_UNKNOWN')) return null;
+    if (message.trim() === `ERROR: ${reference}: not found`) return null;
     throw new Error('OCI readback ambiguous');
   }
 }
