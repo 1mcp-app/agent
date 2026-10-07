@@ -298,17 +298,33 @@ test('official tools_call resolves an aggregated gateway tool name', async (t) =
   assert.equal(call?.message.params.name, 'official_conformance_1mcp_add_numbers');
 });
 
-test('official auth dispatch triggers the gateway upstream client', async (t) => {
-  const mock = await startConformanceMock('2026-07-28', { tools: [] });
-  t.after(() => mock.close());
-  const result = await runOfficialClient(mock.endpoint, 'auth/metadata-default', '2026-07-28');
-
-  assert.equal(result.code, 0, result.stderr);
-  assert.equal(
-    mock.requests.some(({ message }) => message.method === 'tools/list'),
-    true,
-  );
-});
+for (const protocolVersion of ['2025-11-25', '2026-07-28']) {
+  test(`official auth dispatch exercises the Tool with its origin-bound credential (${protocolVersion})`, async (t) => {
+    const mock = await startConformanceMock(protocolVersion, {
+      tools: [{ name: 'test-tool', inputSchema: { type: 'object' } }],
+    });
+    t.after(() => mock.close());
+    const token = 'owned-private-oauth-driver-token';
+    const result = await runOfficialClient(
+      mock.endpoint,
+      'auth/metadata-default',
+      protocolVersion,
+      {},
+      {
+        ONE_MCP_CONFORMANCE_GATEWAY_TOKEN: token,
+        ONE_MCP_CONFORMANCE_GATEWAY_ORIGIN: new URL(mock.endpoint).origin,
+      },
+    );
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal((result.stdout + result.stderr).includes(token), false);
+    assert.ok(mock.requests.every(({ headers }) => headers.authorization === `Bearer ${token}`));
+    assert.ok(mock.requests.some(({ message }) => message.method === 'tools/list'));
+    assert.equal(
+      mock.requests.find(({ message }) => message.method === 'tools/call')?.message.params.name,
+      'test-tool',
+    );
+  });
+}
 
 test('official HTTP header dispatch executes standard and context-provided operations', async (t) => {
   const standard = await startConformanceMock('2026-07-28', {
