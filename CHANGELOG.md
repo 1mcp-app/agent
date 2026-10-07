@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enforce isolated multi-dialect validation by @xizhibei in [#535](https://github.com/1mcp-app/agent/pull/535)
 
 ### 🐛 Bug Fixes
+- Recognize exact Buildx missing-tag responses by @xizhibei in [#616](https://github.com/1mcp-app/agent/pull/616)
 - Select only retained publication manifests by @xizhibei in [#615](https://github.com/1mcp-app/agent/pull/615)
 - Complete legacy and modern conformance qualification by @xizhibei in [#613](https://github.com/1mcp-app/agent/pull/613)
 - Bound public tool names and preserve exact routing by @xizhibei in [#612](https://github.com/1mcp-app/agent/pull/612)
