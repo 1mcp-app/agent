@@ -50,19 +50,59 @@ function verifyNpm(observed, identity, artifact) {
   }
 }
 
-async function waitForPublishedNpm(readNpm, identity, artifact, wait = delay) {
-  // npm accepted this write. Poll only readback; never replay the publish command.
+async function pollNpmReadback(readback, ready, failure, wait = delay) {
   const deadline = Date.now() + 10 * 60 * 1000;
   for (let attempt = 0; attempt < 40; attempt++) {
     const remaining = deadline - Date.now();
-    if (remaining <= 0) verifyNpm(null, identity, artifact);
-    const observed = await readNpm(identity.version, Math.min(30000, remaining));
-    if (observed !== null || attempt === 39) {
-      verifyNpm(observed, identity, artifact);
-      return;
-    }
+    if (remaining <= 0) throw new Error(failure);
+    const observed = await readback(Math.min(30000, remaining));
+    if (ready(observed)) return;
+    if (attempt === 39) throw new Error(failure);
     await wait(Math.max(0, Math.min(15000, deadline - Date.now())));
   }
+}
+async function waitForPublishedNpm(readNpm, identity, artifact, wait) {
+  // npm accepted this write. Poll only readback; never replay the publish command.
+  await pollNpmReadback(
+    (timeoutMs) => readNpm(identity.version, timeoutMs),
+    (observed) => {
+      if (observed === null) return false;
+      verifyNpm(observed, identity, artifact);
+      return true;
+    },
+    'npm immutable identity mismatch or ambiguity: version absent',
+    wait,
+  );
+}
+async function npmTagsReadback(timeoutMs = 30000) {
+  const response = await fetch('https://registry.npmjs.org/@1mcp%2fagent', {
+    signal: AbortSignal.timeout(timeoutMs),
+    headers: { 'Cache-Control': 'no-cache' },
+  });
+  if (!response.ok) throw new Error(`npm tag readback ambiguous: HTTP ${response.status}`);
+  const metadata = await response.json();
+  const tags = metadata?.['dist-tags'];
+  if (
+    !tags ||
+    typeof tags !== 'object' ||
+    Array.isArray(tags) ||
+    Object.values(tags).some((version) => typeof version !== 'string' || !version)
+  )
+    throw new Error('npm tag readback ambiguous: malformed registry metadata');
+  return tags;
+}
+async function waitForNpmAlias(readTags, identity, previous, wait) {
+  await pollNpmReadback(
+    readTags,
+    (tags) => {
+      const observed = tags[identity.channel];
+      if (observed === identity.version) return true;
+      if (observed !== previous) throw new Error('npm alias readback conflict');
+      return false;
+    },
+    'npm alias readback mismatch after propagation deadline',
+    wait,
+  );
 }
 function verifyOci(observed, identity, digests) {
   const expected = [...digests].sort();
@@ -101,6 +141,7 @@ async function main(command, options = {}) {
   const records = options.records || loadArtifacts('artifacts', identity);
   const execute = options.run || run;
   const readNpm = options.npmReadback || npmReadback;
+  const readTags = options.npmTagsReadback || npmTagsReadback;
   const readOci = options.dockerReadback || dockerReadback;
   const readGithub = options.ghApi || ghApi;
   const repository = options.repository || process.env.GITHUB_REPOSITORY;
@@ -319,13 +360,12 @@ async function main(command, options = {}) {
     else if (command === 'promote') {
       // Re-query every versioned identity immediately before aliases, including recovery.
       await verifyVersions();
-      const priorNpmTags = JSON.parse(execute('npm', ['view', '@1mcp/agent', 'dist-tags', '--json']));
+      const priorNpmTags = await readTags();
       if (priorNpmTags[identity.channel] !== identity.version) {
         mark('aliases', 'npm', { status: 'attempting', tag: identity.channel });
         execute('npm', ['dist-tag', 'add', `@1mcp/agent@${identity.version}`, identity.channel]);
       }
-      const observed = JSON.parse(execute('npm', ['view', '@1mcp/agent', 'dist-tags', '--json']));
-      if (observed[identity.channel] !== identity.version) throw new Error('npm alias readback mismatch');
+      await waitForNpmAlias(readTags, identity, priorNpmTags[identity.channel], options.waitForNpmReadback);
       mark('aliases', 'npm', { status: 'verified', tag: identity.channel, version: identity.version });
       for (const target of ['basic', 'extended']) {
         const digest = state.publications[`oci-${target}`].digest;

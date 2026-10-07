@@ -75,6 +75,7 @@ function fixture(t, identity = stable, existing = false) {
     readbackDirectory: path.join(directory, 'readback'),
     recovery: existing,
     npmReadback: async () => npm,
+    npmTagsReadback: async () => ({ [identity.channel]: npmAlias }),
     waitForNpmReadback: async () => {},
     dockerReadback: (reference) => oci[reference] || null,
     ghApi: (endpoint) =>
@@ -268,6 +269,75 @@ test('case 3: alias partial movement is truthful, explicit resumption does not r
   assert.equal(state.aliases['oci-latest'].status, 'verified');
   assert.ok(!f.writes.includes('npm'));
   assert.ok(!f.writes.includes('github'));
+});
+
+test('delayed npm channel propagation polls fresh metadata without repeating tag writes', async (t) => {
+  const f = fixture(t);
+  await main('versions', f.options);
+  const readTags = f.options.npmTagsReadback;
+  let reads = 0;
+  let waits = 0;
+  f.options.npmTagsReadback = async () => (++reads <= 3 ? { [stable.channel]: '0.9.0' } : readTags());
+  f.options.waitForNpmReadback = async () => {
+    waits++;
+  };
+  await main('promote', f.options);
+  assert.equal(waits, 2);
+  assert.equal(f.writes.filter((write) => write === 'alias:npm').length, 1);
+  assert.equal(JSON.parse(fs.readFileSync(f.options.statePath)).status, 'success');
+});
+
+test('npm channel conflicts and read errors stop before Docker alias movement', async (t) => {
+  for (const observed of [{ [stable.channel]: '9.9.9' }, new Error('Registry unavailable')]) {
+    const f = fixture(t);
+    await main('versions', f.options);
+    let reads = 0;
+    f.options.npmTagsReadback = async () => {
+      if (++reads === 1) return { [stable.channel]: '0.9.0' };
+      if (observed instanceof Error) throw observed;
+      return observed;
+    };
+    f.options.waitForNpmReadback = async () => assert.fail('Conflicts and errors must not be polled');
+    await assert.rejects(main('promote', f.options));
+    assert.equal(f.writes.filter((write) => write === 'alias:npm').length, 1);
+    assert.ok(!f.writes.some((write) => write.startsWith('oci:') && !write.includes(':v')));
+  }
+});
+
+test('npm channel polling is bounded and retains uncertain alias state without repeating writes', async (t) => {
+  const f = fixture(t);
+  await main('versions', f.options);
+  let reads = 0;
+  f.options.npmTagsReadback = async () => {
+    reads++;
+    return { [stable.channel]: '0.9.0' };
+  };
+  await assert.rejects(main('promote', f.options), /propagation deadline/);
+  assert.equal(reads, 41); // One preflight, then forty readbacks.
+  assert.equal(f.writes.filter((write) => write === 'alias:npm').length, 1);
+  assert.equal(JSON.parse(fs.readFileSync(f.options.statePath)).aliases.npm.status, 'attempting');
+});
+
+test('HTTP errors and malformed npm tag metadata fail before any alias write', async (t) => {
+  for (const response of [
+    { status: 403, ok: false },
+    ...[null, [], false, { next: 123 }].map((tags) => ({
+      status: 200,
+      ok: true,
+      json: async () => ({ 'dist-tags': tags }),
+    })),
+  ]) {
+    const f = fixture(t);
+    await main('versions', f.options);
+    delete f.options.npmTagsReadback;
+    t.mock.method(globalThis, 'fetch', async (_url, options) => {
+      assert.equal(options.headers['Cache-Control'], 'no-cache');
+      return response;
+    });
+    await assert.rejects(main('promote', f.options), /npm tag readback ambiguous/);
+    assert.ok(!f.writes.some((write) => write.startsWith('alias:')));
+    t.mock.restoreAll();
+  }
 });
 
 test('case 4: conflicting existing npm/OCI/GitHub identities and ambiguous readbacks stop before writes', async (t) => {
