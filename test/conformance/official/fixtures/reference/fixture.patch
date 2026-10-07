@@ -15,6 +15,42 @@
      async (_request) => {
        return {
          completion: {
+@@ -957,7 +958,7 @@
+     const wants = type === "tools" ? stream.wantsTools : stream.wantsPrompts;
+     if (!wants) continue;
+     stream.res.write(
+-      JSON.stringify({
++      "event: message\ndata: " + JSON.stringify({
+         jsonrpc: "2.0",
+         method: notificationMethod,
+         params: {
+@@ -965,7 +966,7 @@
+             "io.modelcontextprotocol/subscriptionId": stream.subscriptionId
+           }
+         }
+-      }) + "\n"
++      }) + "\n\n"
+     );
+   }
+ }
+@@ -1056,7 +1057,7 @@
+     }
+     if (method === "subscriptions/listen") {
+       res.writeHead(200, {
+-        "Content-Type": "application/json",
++        "Content-Type": "text/event-stream",
+         "Cache-Control": "no-cache",
+         Connection: "keep-alive",
+         "Transfer-Encoding": "chunked"
+@@ -1076,7 +1077,7 @@
+           }
+         }
+       };
+-      res.write(JSON.stringify(ackFrame) + "\n");
++      res.write("event: message\ndata: " + JSON.stringify(ackFrame) + "\n\n");
+       const stream = {
+         res,
+         subscriptionId: trackingSubId,
 @@ -1385,6 +1386,15 @@
          });
        }
