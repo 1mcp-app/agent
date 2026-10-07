@@ -158,4 +158,88 @@ describe('SSE wire bounds before parsing', () => {
     expect(cancel).toHaveBeenCalledOnce();
     expect(calls).toEqual(['error', 'close']);
   });
+
+  it('releases the upstream reader lock after overflow', async () => {
+    const cancel = vi.fn();
+    const original = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encode(':' + 'x'.repeat(16)));
+        },
+        cancel,
+      }),
+      { headers: { 'content-type': 'text/event-stream' } },
+    );
+    const guarded = createSseWireLimitedFetch(
+      async () => original,
+      () => ({ close: async () => {} }),
+      16,
+    );
+    await expect(consume(guarded)).rejects.toBeInstanceOf(SseWireLimitError);
+    await vi.waitFor(() => expect(original.body!.locked).toBe(false));
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it('releases the upstream reader lock after ordinary read errors', async () => {
+    const failure = new Error('upstream read failed');
+    const original = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.error(failure);
+        },
+      }),
+      { headers: { 'content-type': 'text/event-stream' } },
+    );
+    const close = vi.fn();
+    const guarded = createSseWireLimitedFetch(
+      async () => original,
+      () => ({ close }),
+    );
+    await expect(consume(guarded)).rejects.toBe(failure);
+    await vi.waitFor(() => expect(original.body!.locked).toBe(false));
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it('releases the upstream reader lock after consumer cancellation', async () => {
+    const cancel = vi.fn();
+    const original = new Response(new ReadableStream<Uint8Array>({ cancel }), {
+      headers: { 'content-type': 'text/event-stream' },
+    });
+    const guarded = createSseWireLimitedFetch(
+      async () => original,
+      () => ({ close: async () => {} }),
+    );
+    await (await guarded('https://example.com')).body!.cancel('consumer stopped');
+    expect(original.body!.locked).toBe(false);
+    expect(cancel).toHaveBeenCalledExactlyOnceWith('consumer stopped');
+  });
+
+  it('reports terminal overflow before slow reader cancellation completes', async () => {
+    let finishCancellation!: () => void;
+    const cancellation = new Promise<void>((resolve) => {
+      finishCancellation = resolve;
+    });
+    const original = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encode(':' + 'x'.repeat(16)));
+        },
+        cancel: () => cancellation,
+      }),
+      { headers: { 'content-type': 'text/event-stream' } },
+    );
+    const close = vi.fn().mockResolvedValue(undefined);
+    const onerror = vi.fn();
+    const guarded = createSseWireLimitedFetch(
+      async () => original,
+      () => ({ close, onerror }),
+      16,
+    );
+    await expect(consume(guarded)).rejects.toBeInstanceOf(SseWireLimitError);
+    expect(close).toHaveBeenCalledOnce();
+    expect(onerror).toHaveBeenCalledWith(expect.any(SseWireLimitError));
+    expect(original.body!.locked).toBe(true);
+    finishCancellation();
+    await vi.waitFor(() => expect(original.body!.locked).toBe(false));
+  });
 });

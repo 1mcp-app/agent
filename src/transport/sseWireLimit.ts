@@ -132,6 +132,14 @@ export function createSseWireLimitedFetch(
       return response;
     }
     const reader = response.body.getReader();
+    let cleanupPromise: Promise<void> | undefined;
+    const cleanup = (reason: unknown): Promise<void> => {
+      cleanupPromise ??= reader
+        .cancel(reason)
+        .catch(() => {})
+        .finally(() => reader.releaseLock());
+      return cleanupPromise;
+    };
     const counter = new SseWireCounter(limit);
     const body = new ReadableStream<Uint8Array>({
       async pull(controller) {
@@ -146,11 +154,12 @@ export function createSseWireLimitedFetch(
           counter.accept(next.value);
           controller.enqueue(next.value);
         } catch (error) {
+          // Cancellation can take time; settle the body and transport immediately.
+          void cleanup(error);
           if (error instanceof SseWireLimitError && !terminalError) {
             terminalError = error;
             // Report the bounded reason to pending requests, then close before the
             // body error reaches SDK/EventSource reconnect handling.
-            void reader.cancel(error).catch(() => {});
             const transport = owner();
             failPendingStart(transport, error);
             try {
@@ -164,7 +173,7 @@ export function createSseWireLimitedFetch(
         }
       },
       async cancel(reason) {
-        await reader.cancel(reason);
+        await cleanup(reason);
       },
     });
     const boundedResponse = new Response(body, {
