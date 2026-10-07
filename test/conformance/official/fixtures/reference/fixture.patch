@@ -15,7 +15,12 @@
    ResultSchema,
    ProgressNotificationSchema,
    LoggingMessageNotificationSchema,
-@@ -25,7 +26,8 @@
+@@ -22,11 +23,32 @@
+ import { toJsonSchemaCompat } from "@modelcontextprotocol/sdk/server/zod-json-schema-compat.js";
+ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
++import { McpServer as ModernMcpServer, createMcpHandler, fromJsonSchema } from "@modelcontextprotocol/server";
++import { toNodeHandler } from "@modelcontextprotocol/node";
  import cors from "cors";
  import { randomUUID, createHmac } from "crypto";
  const resourceSubscriptions = /* @__PURE__ */ new Set();
@@ -23,13 +28,31 @@
 +let watchedResourceContent = "Watched resource content";
 +let watchedResourceRevision = 0;
  const MRTR_STATE_SECRET = "conformance-mrtr-secret-" + randomUUID();
++const CUSTOM_HEADER_TOOL_NAME = "test_custom_header";
++const CUSTOM_HEADER_INPUT_SCHEMA = {
++  type: "object",
++  properties: {
++    value: { type: "string", "x-mcp-header": "Value" }
++  },
++  required: ["value"],
++  additionalProperties: false
++};
++const renderCustomHeader = ({ value }) => ({ content: [{ type: "text", text: value }] });
++const customHeaderHandler = toNodeHandler(createMcpHandler(() => {
++  const server = new ModernMcpServer({ name: "reference-custom-header", version: "1.0.0" });
++  server.registerTool(CUSTOM_HEADER_TOOL_NAME, {
++    description: "Echo a string after SDK custom-header decoding and validation",
++    inputSchema: fromJsonSchema(CUSTOM_HEADER_INPUT_SCHEMA)
++  }, renderCustomHeader);
++  return server;
++}, { legacy: "reject" }));
  function signMrtState(payload) {
    const data = JSON.stringify(payload);
-@@ -46,6 +48,17 @@
-   const content = inputResponse?.content;
+   const hmac = createHmac("sha256", MRTR_STATE_SECRET).update(data).digest("hex");
+@@ -47,6 +69,17 @@
    const value = content?.[field];
    return typeof value === "string" ? value : "unknown";
-+}
+ }
 +const interactiveToolDefinitions = new Map();
 +function createInteractiveToolHandler(name, request, resultSchema, render) {
 +  interactiveToolDefinitions.set(name, { request, resultSchema, render });
@@ -40,10 +63,22 @@
 +      return { content: [{ type: "text", text: `${name === "test_sampling" ? "Sampling" : "Elicitation"} not supported or error: ${error.message}` }] };
 +    }
 +  };
- }
++}
  const transports = {};
  const servers = {};
-@@ -407,10 +420,9 @@
+ async function getStatelessDispatchClient() {
+@@ -163,6 +196,10 @@
+   const originalSetRequestHandler = mcpServer.server.setRequestHandler.bind(
+     mcpServer.server
+   );
++  mcpServer.registerTool(CUSTOM_HEADER_TOOL_NAME, {
++    description: "Echo a string after SDK custom-header decoding and validation",
++    inputSchema: { value: z.string() }
++  }, renderCustomHeader);
+   const listSchemasForCaching = /* @__PURE__ */ new Set([
+     ListToolsRequestSchema,
+     ListPromptsRequestSchema,
+@@ -407,10 +444,9 @@
          prompt: z.string().describe("The prompt to send to the LLM")
        }
      },
@@ -57,10 +92,11 @@
              method: "sampling/createMessage",
              params: {
                messages: [
-@@ -424,30 +436,10 @@
+@@ -423,31 +459,11 @@
+                 }
                ],
                maxTokens: 100
-             }
+-            }
 -          },
 -          z.object({ method: z.literal("sampling/createMessage") }).passthrough()
 -        );
@@ -71,7 +107,7 @@
 -            {
 -              type: "text",
 -              text: `LLM response: ${modelResponse}`
--            }
+             }
 -          ]
 -        };
 -      } catch (error) {
@@ -92,7 +128,7 @@
    );
    mcpServer.registerTool(
      "test_elicitation",
-@@ -457,10 +449,9 @@
+@@ -457,47 +473,31 @@
          message: z.string().describe("The message to show the user")
        }
      },
@@ -106,8 +142,21 @@
              method: "elicitation/create",
              params: {
                message: args.message,
-@@ -475,29 +466,10 @@
-                 required: ["response"]
+               requestedSchema: {
+                 type: "object",
+                 properties: {
+-                  response: {
++                  username: {
+                     type: "string",
+                     description: "User's response"
++                  },
++                  email: {
++                    type: "string",
++                    description: "User's email address"
+                   }
+                 },
+-                required: ["response"]
++                required: ["username", "email"]
                }
              }
 -          },
@@ -140,7 +189,7 @@
    );
    mcpServer.registerTool(
      "test_elicitation_sep1034_defaults",
-@@ -505,10 +477,9 @@
+@@ -505,10 +505,9 @@
        description: "Tests elicitation with default values per SEP-1034",
        inputSchema: {}
      },
@@ -154,7 +203,7 @@
              method: "elicitation/create",
              params: {
                message: "Please review and update the form fields with defaults",
-@@ -545,29 +516,10 @@
+@@ -545,29 +544,10 @@
                  required: []
                }
              }
@@ -188,7 +237,7 @@
    );
    mcpServer.registerTool(
      "test_elicitation_sep1330_enums",
-@@ -575,10 +527,9 @@
+@@ -575,10 +555,9 @@
        description: "Tests elicitation with enum schema improvements per SEP-1330",
        inputSchema: {}
      },
@@ -202,7 +251,7 @@
              method: "elicitation/create",
              params: {
                message: "Please select options from the enum fields",
-@@ -637,29 +588,10 @@
+@@ -637,29 +616,10 @@
                  required: []
                }
              }
@@ -236,7 +285,7 @@
    );
    mcpServer.registerTool(
      "json_schema_2020_12_tool",
-@@ -904,6 +836,7 @@
+@@ -904,6 +864,7 @@
    );
    mcpServer.server.setRequestHandler(
      z.object({ method: z.literal("completion/complete") }).passthrough(),
@@ -244,7 +293,17 @@
      async (_request) => {
        return {
          completion: {
-@@ -957,7 +890,7 @@
+@@ -920,6 +881,9 @@
+       const registeredTools = mcpServer._registeredTools;
+       return {
+         tools: Object.entries(registeredTools).filter(([, tool]) => tool.enabled).map(([name, tool]) => {
++          if (name === CUSTOM_HEADER_TOOL_NAME) {
++            return { name, description: tool.description, inputSchema: CUSTOM_HEADER_INPUT_SCHEMA };
++          }
+           if (name === "json_schema_2020_12_tool") {
+             return {
+               name,
+@@ -957,7 +921,7 @@
      const wants = type === "tools" ? stream.wantsTools : stream.wantsPrompts;
      if (!wants) continue;
      stream.res.write(
@@ -253,7 +312,7 @@
          jsonrpc: "2.0",
          method: notificationMethod,
          params: {
-@@ -965,7 +898,7 @@
+@@ -965,7 +929,7 @@
              "io.modelcontextprotocol/subscriptionId": stream.subscriptionId
            }
          }
@@ -262,8 +321,15 @@
      );
    }
  }
-@@ -1056,7 +989,7 @@
+@@ -1054,9 +1018,14 @@
+         }
+       });
      }
++    if (method === "tools/call" && params.name === CUSTOM_HEADER_TOOL_NAME) {
++      // The public SDK receives the original headers and parsed request. Its
++      // registered schema validates custom headers before executing the echo.
++      return customHeaderHandler(req, res, body);
++    }
      if (method === "subscriptions/listen") {
        res.writeHead(200, {
 -        "Content-Type": "application/json",
@@ -271,7 +337,7 @@
          "Cache-Control": "no-cache",
          Connection: "keep-alive",
          "Transfer-Encoding": "chunked"
-@@ -1065,6 +998,9 @@
+@@ -1065,6 +1034,9 @@
        const trackingSubId = String(id ?? "sub-token-stateless-123");
        const wantsTools = requestedNotifications.toolsListChanged === true;
        const wantsPrompts = requestedNotifications.promptsListChanged === true;
@@ -281,20 +347,17 @@
        const ackFrame = {
          jsonrpc: "2.0",
          method: "notifications/subscriptions/acknowledged",
-@@ -1072,19 +1008,32 @@
+@@ -1072,19 +1044,32 @@
            _meta: { "io.modelcontextprotocol/subscriptionId": trackingSubId },
            notifications: {
              ...wantsTools ? { toolsListChanged: true } : {},
 -            ...wantsPrompts ? { promptsListChanged: true } : {}
--          }
--        }
--      };
--      res.write(JSON.stringify(ackFrame) + "\n");
 +            ...wantsPrompts ? { promptsListChanged: true } : {},
 +            ...watchedUris.length ? { resourceSubscriptions: watchedUris } : {}
-+          }
-+        }
-+      };
+           }
+         }
+       };
+-      res.write(JSON.stringify(ackFrame) + "\n");
 +      res.write("event: message\ndata: " + JSON.stringify(ackFrame) + "\n\n");
        const stream = {
          res,
@@ -320,7 +383,7 @@
          const index = activeListenStreams.indexOf(stream);
          if (index !== -1) activeListenStreams.splice(index, 1);
        });
-@@ -1102,7 +1051,7 @@
+@@ -1102,7 +1087,7 @@
              prompts: { listChanged: true },
              // resources/list, resources/templates/list and resources/read are
              // served on this path, so the capability must be declared too.
@@ -329,7 +392,7 @@
            },
            // Spec PR #3002: server identity lives in the result `_meta`.
            _meta: {
-@@ -1363,6 +1312,38 @@
+@@ -1363,6 +1348,38 @@
        const name = params.name;
        const inputResponses = params.inputResponses;
        const requestState = params.requestState;
@@ -368,7 +431,7 @@
        if (name === "test_missing_capability") {
          const clientCaps = meta["io.modelcontextprotocol/clientCapabilities"];
          if (!clientCaps?.sampling) {
-@@ -1385,6 +1366,15 @@
+@@ -1385,6 +1402,15 @@
          });
        }
        if (name === "test_input_required_result_elicitation") {
@@ -384,7 +447,7 @@
          if (inputResponses?.["user_name"]) {
            const userName = getMrtInputText(inputResponses["user_name"], "name");
            return sendStatelessJson(res, method, {
-@@ -1795,48 +1785,47 @@
+@@ -1795,48 +1821,47 @@
        }
        if (name === "test_streaming_elicitation") {
          res.writeHead(200, {
@@ -449,7 +512,7 @@
          );
        }
        if (name === "test_trigger_tool_change" || name === "test_trigger_prompt_change") {
-@@ -1868,7 +1857,7 @@
+@@ -1868,7 +1893,7 @@
            ResultSchema
          );
          for (const n of dispatch.drainNotifications()) write(n);
@@ -458,7 +521,7 @@
        } catch (e) {
          for (const n of dispatch.drainNotifications()) write(n);
          write({
-@@ -2039,7 +2028,7 @@
+@@ -2039,7 +2064,7 @@
    }
  });
  const PORT = process.env.PORT || 3e3;

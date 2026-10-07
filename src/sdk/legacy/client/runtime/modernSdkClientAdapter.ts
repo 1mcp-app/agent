@@ -12,7 +12,7 @@ import { captureJson } from '@src/core/validation/schemaPolicy.js';
 import { LegacyOutboundEraAdapter } from '@src/gateway/adapters/legacy/legacyOutboundEraAdapter.js';
 import { ModernOutboundEraAdapter } from '@src/gateway/adapters/modern/modernOutboundEraAdapter.js';
 import { createEffectiveRequestAuthority } from '@src/gateway/contracts/effectiveRequestAuthority.js';
-import { missingClientCapabilityFailure } from '@src/gateway/contracts/gatewayFailure.js';
+import { createGatewayFailure, missingClientCapabilityFailure } from '@src/gateway/contracts/gatewayFailure.js';
 import { type GatewayOperation, gatewayOperationSchema } from '@src/gateway/contracts/gatewayRequest.js';
 import { toImmutableJsonValue } from '@src/gateway/contracts/immutableJson.js';
 import { hasInteractionCapability } from '@src/gateway/interactions/interactionCapabilities.js';
@@ -48,6 +48,7 @@ import { z } from 'zod';
 
 import { observeBackendDispatchLifetime } from './backendDispatchLifetime.js';
 import {
+  assertCurrentLegacyInteraction,
   beginLegacyInteractionRequest,
   currentLegacyInteractionCapabilities,
   currentLegacyInteractionLogLevel,
@@ -200,7 +201,14 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
     if (!operation.success) {
       return this.requestDirect({ ...request, params });
     }
+    if (this.gatewayRequests.has(request.id))
+      throw createGatewayFailure({
+        kind: 'invalid-request',
+        code: 'modern_outbound_duplicate_request',
+        message: 'The outbound request id is already active',
+      });
     const release = beginLegacyInteractionRequest(this, request.method);
+    const interactionHandlers = new Map(this.interactionHandlers);
     this.gatewayRequests.add(request.id);
     try {
       const timeoutMs = request.timeoutMs ?? createLegacyTimeoutMs(60_000);
@@ -233,7 +241,7 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
             interaction: async (input) => {
               if (!hasInteractionCapability(currentLegacyInteractionCapabilities(), input))
                 throw new OneMcpProtocolError(-32021, 'Interaction capability required');
-              const handler = this.interactionHandlers.get(input.method);
+              const handler = interactionHandlers.get(input.method);
               if (!handler) throw new OneMcpProtocolError(-32021, 'Interaction capability required');
               const binding = {
                 principal: 'request-scoped-provider',
@@ -369,6 +377,8 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
         };
       }
       message.params = injectTraceContext(message.params);
+      assertCurrentLegacyInteraction();
+      controller.signal.throwIfAborted();
       observeBackendDispatchLifetime(this.handles.transport);
       const options = {
         signal: controller.signal,

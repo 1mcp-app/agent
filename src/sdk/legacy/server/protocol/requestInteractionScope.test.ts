@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 
 import * as validation from '@src/gateway/interactions/validateInteractionResponse.js';
@@ -11,7 +12,12 @@ import type { ServerNotification, ServerRequest } from '@src/sdk/legacy/types.js
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { withPrivateInteractionConnection } from './privateInteractionConnection.js';
-import { forwardScopedNotification, sessionLogLevels, withRequestInteractionScope } from './requestInteractionScope.js';
+import {
+  forwardScopedNotification,
+  ownsActiveInteraction,
+  sessionLogLevels,
+  withRequestInteractionScope,
+} from './requestInteractionScope.js';
 
 const handlers = vi.hoisted(() => new Map<string, (request: ServerRequest) => Promise<unknown>>());
 vi.mock('@src/sdk/legacy/client/runtime/legacyOutboundConnection.js', () => ({
@@ -42,6 +48,163 @@ function fixture() {
 
 describe('legacy operation interaction ownership', () => {
   afterEach(() => vi.restoreAllMocks());
+
+  it('keeps concurrent modern callback senders local and rejects a removed owner', async () => {
+    const first = fixture();
+    const second = fixture();
+    const secondController = new AbortController();
+    second.extra = { ...second.extra, signal: secondController.signal };
+    Object.assign(first.connection.adapter, { protocol: { era: 'modern' } });
+    second.connection = first.connection;
+    let finishFirst!: () => void;
+    let finishSecond!: () => void;
+    let firstCallback!: () => Promise<unknown>;
+    let secondCallback!: () => Promise<unknown>;
+    vi.mocked(first.extra.sendRequest).mockResolvedValue({ roots: [{ uri: 'file:///first' }] });
+    vi.mocked(second.extra.sendRequest).mockResolvedValue({ roots: [{ uri: 'file:///second' }] });
+    const firstOperation = withRequestInteractionScope(first.connection, first.inbound, first.extra, () => {
+      firstCallback = AsyncLocalStorage.bind(() => handlers.get('roots/list')!({ method: 'roots/list' }));
+      return new Promise<void>((resolve) => {
+        finishFirst = resolve;
+      });
+    });
+    expect(ownsActiveInteraction(first.connection, first.inbound)).toBe(true);
+    expect(ownsActiveInteraction(first.connection, second.inbound)).toBe(false);
+    const secondOperation = withRequestInteractionScope(second.connection, second.inbound, second.extra, () => {
+      secondCallback = AsyncLocalStorage.bind(() => handlers.get('roots/list')!({ method: 'roots/list' }));
+      return new Promise<void>((resolve) => {
+        finishSecond = resolve;
+      });
+    });
+    try {
+      expect(ownsActiveInteraction(first.connection, first.inbound)).toBe(false);
+      expect(ownsActiveInteraction(first.connection, second.inbound)).toBe(false);
+      await expect(secondCallback()).resolves.toEqual({ roots: [{ uri: 'file:///second' }] });
+      await expect(firstCallback()).resolves.toEqual({ roots: [{ uri: 'file:///first' }] });
+      await forwardScopedNotification(first.connection, { method: 'notifications/message', params: { level: 'info' } });
+      expect(first.extra.sendNotification).not.toHaveBeenCalled();
+      expect(second.extra.sendNotification).not.toHaveBeenCalled();
+      finishFirst();
+      await firstOperation;
+      expect(ownsActiveInteraction(first.connection, first.inbound)).toBe(false);
+      expect(ownsActiveInteraction(first.connection, second.inbound)).toBe(true);
+      await expect(firstCallback()).rejects.toThrow('interaction_lost');
+      await expect(secondCallback()).resolves.toEqual({ roots: [{ uri: 'file:///second' }] });
+      expect(first.extra.sendRequest).toHaveBeenCalledOnce();
+      expect(second.extra.sendRequest).toHaveBeenCalledTimes(2);
+      secondController.abort();
+      expect(ownsActiveInteraction(first.connection, second.inbound)).toBe(false);
+    } finally {
+      finishFirst();
+      finishSecond();
+      await Promise.all([firstOperation, secondOperation]);
+    }
+  });
+
+  it.each([
+    ['cancel', 'schema_evaluation_unavailable'],
+    ['capability', 'interaction_capability_required'],
+    ['provider', 'interaction_lost'],
+  ] as const)('rejects modern owner %s loss without affecting its sibling', async (change, expectedError) => {
+    const first = fixture();
+    const second = fixture();
+    Object.assign(first.connection.adapter, { protocol: { era: 'modern' } });
+    second.connection = first.connection;
+    const controller = new AbortController();
+    let current = true;
+    let answer!: (value: unknown) => void;
+    let callback!: () => Promise<unknown>;
+    let finish!: () => void;
+    vi.mocked(first.extra.sendRequest).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const operation = withRequestInteractionScope(
+      first.connection,
+      first.inbound,
+      { ...first.extra, signal: controller.signal },
+      () => {
+        callback = AsyncLocalStorage.bind(() => handlers.get('roots/list')!({ method: 'roots/list' }));
+        return new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+      },
+      undefined,
+      () => {
+        if (!current) throw new Error('selected provider changed');
+      },
+    );
+    const response = callback();
+    const rejected = expect(response).rejects.toThrow(expectedError);
+    try {
+      await vi.waitFor(() => expect(answer).toBeTypeOf('function'));
+      if (change === 'cancel') controller.abort();
+      else if (change === 'capability') Object.assign(first.inbound, { capabilities: {} });
+      else current = false;
+      await withRequestInteractionScope(second.connection, second.inbound, second.extra, async () => {
+        await expect(handlers.get('roots/list')!({ method: 'roots/list' })).resolves.toEqual({ roots: [] });
+      });
+      answer({ roots: [] });
+      await rejected;
+      expect(second.extra.sendRequest).toHaveBeenCalledOnce();
+    } finally {
+      answer?.({ roots: [] });
+      finish();
+      await operation;
+      await response.catch(() => undefined);
+    }
+  });
+
+  it('invalidates a modern callback on actual selected-provider notification while another provider stays healthy', async () => {
+    const selected = fixture();
+    const sibling = fixture();
+    const emitters = new Map<OutboundConnection, (event: LegacySdkEvent) => void>();
+    for (const item of [selected, sibling]) {
+      Object.assign(item.connection.adapter, { protocol: { era: 'modern' } });
+      item.connection.status = ClientStatus.Connected;
+      item.connection.adapter.nextEvent = vi.fn(
+        () =>
+          new Promise<LegacySdkEvent>((resolve) => {
+            emitters.set(item.connection, resolve);
+          }),
+      );
+    }
+    const entry = { route: { kind: 'tools', connectionKey: 'selected' } } as CatalogEntry;
+    let answer!: (value: unknown) => void;
+    vi.mocked(selected.extra.sendRequest).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const response = withPrivateInteractionConnection(
+      selected.connection,
+      selected.inbound,
+      selected.extra,
+      entry,
+      () => handlers.get('roots/list')!({ method: 'roots/list' }),
+    );
+    const rejected = expect(response).rejects.toThrow('interaction_lost');
+    try {
+      await vi.waitFor(() => expect(answer).toBeTypeOf('function'));
+      const emit = emitters.get(selected.connection)!;
+      emit({ type: 'notification', notification: { method: 'notifications/tools/list_changed' } });
+      await vi.waitFor(() => expect(emitters.get(selected.connection)).not.toBe(emit));
+      await expect(
+        withPrivateInteractionConnection(sibling.connection, sibling.inbound, sibling.extra, entry, () =>
+          handlers.get('roots/list')!({ method: 'roots/list' }),
+        ),
+      ).resolves.toEqual({ roots: [] });
+      answer({ roots: [] });
+      await rejected;
+      expect(sibling.extra.sendRequest).toHaveBeenCalledOnce();
+    } finally {
+      answer?.({ roots: [] });
+      await response.catch(() => undefined);
+    }
+  });
 
   it.each(['cancel', 'adapter replacement'] as const)(
     'rejects a response invalidated during validation by %s',

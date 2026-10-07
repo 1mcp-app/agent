@@ -52,6 +52,17 @@ schemas retain their upstream values. Real legacy and modern SDK clients exercis
 these callbacks; forged states, changed arguments, malformed responses, decline and
 cancel responses are covered too.
 
+The simple elicitation tool requests the pinned scenario's required `username`
+and `email` string fields on both callback paths. The additional owned
+`test_custom_header` tool exposes one required string argument annotated
+`x-mcp-header: "Value"` and echoes the supplied value. Its modern calls pass
+the original headers and parsed request through `@modelcontextprotocol/server`
+`createMcpHandler`, adapted by `@modelcontextprotocol/node` `toNodeHandler`.
+The public SDK's registered schema performs custom-header decoding and validation
+before tool execution. Real HTTP tests cover matching literals and encoded Unicode,
+Base64 decoding, literal incomplete markers, malformed Base64, missing headers,
+and header/body mismatch. The fixture does not synthesize passing header results.
+
 The modern resource listener honors only requested `test://watched-resource`
 watches, emits URI updates with its own subscription id every three seconds, and
 releases its update timer on close. Discovery advertises this implemented subscribe
@@ -62,7 +73,9 @@ suite and its validators unchanged.
 
 It also binds the fixture listener explicitly to `127.0.0.1` so local controls
 do not expose their synthetic server on other interfaces.
-It does not activate tasks or implement the excluded draft header scenarios.
+It does not activate tasks. The owned custom-header tool supplies the callable
+fixture needed by the pinned server custom-header validation scenario; the pinned
+scenario selection and requirement classifications remain unchanged.
 
 Run controls on Node 24, matching CI. Node 26.4.0 triggers an unhandled rejection
 inside the pinned suite's legacy multiple-SSE-stream scenario; that missing

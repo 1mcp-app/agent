@@ -13,6 +13,93 @@ import { describe, expect, it, vi } from 'vitest';
 import { startOfficialReferenceServer } from './referenceServer.js';
 
 describe('official reference fixture', () => {
+  it('advertises a callable string header and applies public SDK decoding and validation before echoing', async () => {
+    const server = await startOfficialReferenceServer(process.cwd(), tmpdir());
+    const rpc = async (method: string, params: Record<string, unknown>, headers: Record<string, string> = {}) => {
+      const response = await fetch(server.endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+          'MCP-Protocol-Version': '2026-07-28',
+          'Mcp-Method': method,
+          ...(method === 'tools/call' ? { 'Mcp-Name': 'test_custom_header' } : {}),
+          ...headers,
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 22,
+          method,
+          params: {
+            ...params,
+            _meta: {
+              'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+              'io.modelcontextprotocol/clientInfo': { name: 'header-control-test', version: '1' },
+              'io.modelcontextprotocol/clientCapabilities': {},
+            },
+          },
+        }),
+      });
+      const text = await response.text();
+      const data = text.startsWith('event:')
+        ? text
+            .split('\n')
+            .find((line) => line.startsWith('data:'))
+            ?.slice(5)
+        : text;
+      return { status: response.status, body: JSON.parse(data ?? '') };
+    };
+    try {
+      const catalog = await rpc('tools/list', {});
+      expect(catalog.body.result.tools).toContainEqual(
+        expect.objectContaining({
+          name: 'test_custom_header',
+          inputSchema: {
+            type: 'object',
+            properties: { value: { type: 'string', 'x-mcp-header': 'Value' } },
+            required: ['value'],
+            additionalProperties: false,
+          },
+        }),
+      );
+      for (const [value, header] of [
+        ['Hello', 'Hello'],
+        ['Hello', '=?base64?SGVsbG8=?='],
+        ['SGVsbG8=', 'SGVsbG8='],
+        ['=?base64?SGVsbG8=', '=?base64?SGVsbG8='],
+        ['你好', '=?base64?5L2g5aW9?='],
+      ]) {
+        const result = await rpc(
+          'tools/call',
+          { name: 'test_custom_header', arguments: { value } },
+          {
+            'Mcp-Param-Value': header,
+          },
+        );
+        expect(result.status).toBe(200);
+        expect(result.body.result).toMatchObject({ resultType: 'complete', content: [{ type: 'text', text: value }] });
+      }
+      const invalidHeaders: Record<string, string>[] = [
+        { 'Mcp-Param-Value': 'different' },
+        { 'Mcp-Param-Value': '=?base64?SGVsbG8?=' },
+        { 'Mcp-Param-Value': '=?base64?SGVs!!!bG8=?=' },
+        {},
+      ];
+      for (const headers of invalidHeaders) {
+        const rejected = await rpc(
+          'tools/call',
+          { name: 'test_custom_header', arguments: { value: 'Hello' } },
+          headers,
+        );
+        expect(rejected.status).toBe(400);
+        expect(rejected.body).toMatchObject({ id: 22, error: { code: -32020 } });
+        expect(rejected.body.result).toBeUndefined();
+      }
+    } finally {
+      await server.close();
+    }
+  });
+
   it.each(['legacy', 'modern'])('fulfills real sampling and elicitation callbacks on the %s endpoint', async (era) => {
     const server = await startOfficialReferenceServer(process.cwd(), tmpdir());
     const sampling = vi.fn(async () => ({
@@ -20,10 +107,21 @@ describe('official reference fixture', () => {
       model: 'callback-model',
       content: { type: 'text' as const, text: 'response from real handler' },
     }));
-    const elicitation = vi.fn(async () => ({
-      action: 'accept' as const,
-      content: { response: 'response from real handler' },
-    }));
+    const elicitation = vi.fn(async (request: unknown) => {
+      expect(request).toMatchObject({
+        params: {
+          requestedSchema: {
+            type: 'object',
+            properties: { username: { type: 'string' }, email: { type: 'string' } },
+            required: ['username', 'email'],
+          },
+        },
+      });
+      return {
+        action: 'accept' as const,
+        content: { username: 'response from real handler', email: 'callback@example.test' },
+      };
+    });
     const client =
       era === 'legacy'
         ? new LegacyClient(
@@ -99,12 +197,25 @@ describe('official reference fixture', () => {
           if (name.includes('defaults')) expect(callback.params.requestedSchema.properties.score.default).toBe(95.5);
           else if (name.includes('enums'))
             expect(callback.params.requestedSchema.properties.titledMulti.items.anyOf[0].title).toBe('First Choice');
-          else expect(callback.params.message).toBe(args.message);
+          else {
+            expect(callback.params.message).toBe(args.message);
+            expect(callback.params.requestedSchema).toEqual({
+              type: 'object',
+              properties: {
+                username: { type: 'string', description: "User's response" },
+                email: { type: 'string', description: "User's email address" },
+              },
+              required: ['username', 'email'],
+            });
+          }
         }
         const response =
           name === 'test_sampling'
             ? { role: 'assistant', model: 'actual-test-model', content: { type: 'text', text: 'actual client answer' } }
-            : { action: 'accept', content: { response: 'actual client answer' } };
+            : {
+                action: 'accept',
+                content: { username: 'actual client answer', email: 'callback@example.test' },
+              };
         const continuation = {
           name,
           arguments: args,

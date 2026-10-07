@@ -23,12 +23,32 @@ import { z } from "zod";
 import { toJsonSchemaCompat } from "@modelcontextprotocol/sdk/server/zod-json-schema-compat.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { McpServer as ModernMcpServer, createMcpHandler, fromJsonSchema } from "@modelcontextprotocol/server";
+import { toNodeHandler } from "@modelcontextprotocol/node";
 import cors from "cors";
 import { randomUUID, createHmac } from "crypto";
 const resourceSubscriptions = /* @__PURE__ */ new Set();
 let watchedResourceContent = "Watched resource content";
 let watchedResourceRevision = 0;
 const MRTR_STATE_SECRET = "conformance-mrtr-secret-" + randomUUID();
+const CUSTOM_HEADER_TOOL_NAME = "test_custom_header";
+const CUSTOM_HEADER_INPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    value: { type: "string", "x-mcp-header": "Value" }
+  },
+  required: ["value"],
+  additionalProperties: false
+};
+const renderCustomHeader = ({ value }) => ({ content: [{ type: "text", text: value }] });
+const customHeaderHandler = toNodeHandler(createMcpHandler(() => {
+  const server = new ModernMcpServer({ name: "reference-custom-header", version: "1.0.0" });
+  server.registerTool(CUSTOM_HEADER_TOOL_NAME, {
+    description: "Echo a string after SDK custom-header decoding and validation",
+    inputSchema: fromJsonSchema(CUSTOM_HEADER_INPUT_SCHEMA)
+  }, renderCustomHeader);
+  return server;
+}, { legacy: "reject" }));
 function signMrtState(payload) {
   const data = JSON.stringify(payload);
   const hmac = createHmac("sha256", MRTR_STATE_SECRET).update(data).digest("hex");
@@ -176,6 +196,10 @@ function createMcpServer() {
   const originalSetRequestHandler = mcpServer.server.setRequestHandler.bind(
     mcpServer.server
   );
+  mcpServer.registerTool(CUSTOM_HEADER_TOOL_NAME, {
+    description: "Echo a string after SDK custom-header decoding and validation",
+    inputSchema: { value: z.string() }
+  }, renderCustomHeader);
   const listSchemasForCaching = /* @__PURE__ */ new Set([
     ListToolsRequestSchema,
     ListPromptsRequestSchema,
@@ -458,12 +482,16 @@ function createMcpServer() {
               requestedSchema: {
                 type: "object",
                 properties: {
-                  response: {
+                  username: {
                     type: "string",
                     description: "User's response"
+                  },
+                  email: {
+                    type: "string",
+                    description: "User's email address"
                   }
                 },
-                required: ["response"]
+                required: ["username", "email"]
               }
             }
           }),
@@ -853,6 +881,9 @@ function createMcpServer() {
       const registeredTools = mcpServer._registeredTools;
       return {
         tools: Object.entries(registeredTools).filter(([, tool]) => tool.enabled).map(([name, tool]) => {
+          if (name === CUSTOM_HEADER_TOOL_NAME) {
+            return { name, description: tool.description, inputSchema: CUSTOM_HEADER_INPUT_SCHEMA };
+          }
           if (name === "json_schema_2020_12_tool") {
             return {
               name,
@@ -986,6 +1017,11 @@ app.post("/mcp", async (req, res) => {
           }
         }
       });
+    }
+    if (method === "tools/call" && params.name === CUSTOM_HEADER_TOOL_NAME) {
+      // The public SDK receives the original headers and parsed request. Its
+      // registered schema validates custom headers before executing the echo.
+      return customHeaderHandler(req, res, body);
     }
     if (method === "subscriptions/listen") {
       res.writeHead(200, {

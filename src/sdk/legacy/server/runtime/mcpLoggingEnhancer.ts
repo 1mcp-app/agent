@@ -205,10 +205,8 @@ export function enhanceServerWithLogging(server: Server): void {
   };
 
   // Override notification sending
-  server.notification = (notification: {
-    method: string;
-    params?: { [key: string]: unknown; _meta?: { [key: string]: unknown } };
-  }) => {
+  server.notification = (...args: Parameters<Server['notification']>) => {
+    const [notification] = args;
     logNotification(notification.method, notification.params);
 
     if (!server.transport) {
@@ -218,7 +216,8 @@ export function enhanceServerWithLogging(server: Server): void {
 
     // Try to send notification, catch connection errors gracefully
     try {
-      const result = originalNotification(notification);
+      // Retain SDK request/task correlation so HTTP notifications stay on their owning response stream.
+      const result = originalNotification(...args);
 
       // Handle both sync and async cases
       if (result && typeof result.catch === 'function') {

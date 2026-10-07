@@ -133,6 +133,22 @@ describe('MCP Logging Enhancer', () => {
       });
     });
 
+    it('preserves notification request and task options without changing their identity', async () => {
+      const originalNotification = vi.fn().mockResolvedValue(undefined);
+      mockServer.notification = originalNotification;
+      mockServer.transport = { send: vi.fn() };
+      enhanceServerWithLogging(mockServer);
+      const notification = {
+        method: 'notifications/progress',
+        params: { progressToken: 'public-token', progress: 50, total: 100 },
+      };
+      const options = Object.freeze({ relatedRequestId: 'owned-request', relatedTask: { taskId: 'owned-task' } });
+
+      await expect(mockServer.notification(notification, options)).resolves.toBeUndefined();
+      expect(originalNotification).toHaveBeenCalledExactlyOnceWith(notification, options);
+      expect(originalNotification.mock.calls[0][1]).toBe(options);
+    });
+
     it('should handle notification sending with connection errors', () => {
       const originalNotification = vi.fn().mockImplementation(() => {
         throw new Error('Not connected');

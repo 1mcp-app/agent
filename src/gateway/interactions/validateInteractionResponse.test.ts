@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import type { ImmutableJsonValue } from '../contracts/index.js';
 import { validateInteractionRequest, validateInteractionResponse } from './validateInteractionResponse.js';
 
 const binding = {
@@ -9,6 +10,37 @@ const binding = {
   generation: 'one',
   inbound: 'modern',
   outbound: 'legacy',
+};
+
+function titledEnumRequest(items: ImmutableJsonValue) {
+  return {
+    method: 'elicitation/create' as const,
+    params: {
+      message: 'Select options',
+      requestedSchema: {
+        type: 'object',
+        properties: {
+          choices: {
+            type: 'array',
+            title: 'Choices',
+            description: 'Choose up to two options',
+            default: ['first'],
+            minItems: 1,
+            maxItems: 2,
+            items,
+          },
+        },
+        required: ['choices'],
+      },
+    },
+  };
+}
+
+const titledEnumItems = {
+  anyOf: [
+    { const: 'first', title: 'First option' },
+    { const: 'second', title: 'Second option' },
+  ],
 };
 
 describe('shared interaction schema boundary', () => {
@@ -65,6 +97,40 @@ describe('shared interaction schema boundary', () => {
         binding,
       ),
     ).rejects.toBeDefined();
+  });
+
+  it('admits titled multi-select enums without items.type and validates accepted selections', async () => {
+    const request = titledEnumRequest(titledEnumItems);
+    await expect(validateInteractionRequest(request, binding)).resolves.toBeUndefined();
+    await expect(
+      validateInteractionResponse(request, { action: 'accept', content: { choices: ['first', 'second'] } }, binding),
+    ).resolves.toBeUndefined();
+    for (const choices of [['unknown'], [1], [], ['first', 'second', 'first']]) {
+      await expect(
+        validateInteractionResponse(request, { action: 'accept', content: { choices } }, binding),
+      ).rejects.toThrow('schema_input_invalid');
+    }
+    for (const action of ['decline', 'cancel']) {
+      await expect(validateInteractionResponse(request, { action }, binding)).resolves.toBeUndefined();
+    }
+  });
+
+  it.each([
+    ['numeric const', { anyOf: [{ const: 1, title: 'Number' }] }],
+    ['missing title', { anyOf: [{ const: 'first' }] }],
+    ['non-string title', { anyOf: [{ const: 'first', title: 1 }] }],
+    ['nested object', { anyOf: [{ type: 'object', properties: { nested: { type: 'string' } } }] }],
+    ['nested array', { anyOf: [{ type: 'array', items: { type: 'string' } }] }],
+    ['conflicting item type', { type: 'object', ...titledEnumItems }],
+    ['external ref', { anyOf: [{ const: 'first', title: 'First', $ref: 'https://attacker.invalid/schema' }] }],
+  ])('rejects %s in titled multi-select enums before presentation', async (_name, items) => {
+    await expect(validateInteractionRequest(titledEnumRequest(items), binding)).rejects.toBeDefined();
+  });
+
+  it('continues admitting untitled multi-select enums', async () => {
+    await expect(
+      validateInteractionRequest(titledEnumRequest({ type: 'string', enum: ['first', 'second'] }), binding),
+    ).resolves.toBeUndefined();
   });
 
   it('admits sampling tool schemas before forwarding and never treats them as aggregate tools', async () => {

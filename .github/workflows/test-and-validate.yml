@@ -272,6 +272,7 @@ jobs:
             .tmp/conformance/legacy-revisions/
             .tmp/conformance/official-evidence/
             .tmp/conformance/official-controls/
+            .tmp/conformance/official-client-statuses/
             .tmp/conformance/evidence/
           if-no-files-found: error
 

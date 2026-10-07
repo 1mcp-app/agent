@@ -172,7 +172,26 @@ export async function validateInteractionRequest(
                 required: ['type', 'items'],
                 properties: {
                   type: { const: 'array' },
-                  items: { type: 'object', required: ['type'], properties: { type: { const: 'string' } } },
+                  items: {
+                    type: 'object',
+                    anyOf: [
+                      { required: ['type'], properties: { type: { const: 'string' } } },
+                      {
+                        required: ['anyOf'],
+                        properties: {
+                          type: { const: 'string' },
+                          anyOf: {
+                            type: 'array',
+                            items: {
+                              type: 'object',
+                              required: ['const', 'title'],
+                              properties: { const: { type: 'string' }, title: { type: 'string' } },
+                            },
+                          },
+                        },
+                      },
+                    ],
+                  },
                 },
               },
             ],

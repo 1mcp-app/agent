@@ -23,6 +23,154 @@ import type { AuthProviderTransport } from './legacyTransport.js';
 import { ModernSdkClientAdapter, setModernSdkTransport } from './modernSdkClientAdapter.js';
 
 describe('ModernSdkClientAdapter', () => {
+  it('retains the shared lease when the modern SDK negotiated the legacy protocol', async () => {
+    const client = new Client({ name: 'configured-client', version: '2' });
+    vi.spyOn(client, 'getProtocolEra').mockReturnValue('legacy');
+    vi.spyOn(client, 'getNegotiatedProtocolVersion').mockReturnValue('2025-11-25');
+    const request = vi.spyOn(client, 'request');
+    const adapter = new ModernSdkClientAdapter(client, {} as AuthProviderTransport);
+    let release!: () => void;
+    const pending = withLegacyInteractionLease(
+      adapter,
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    try {
+      await expect(
+        adapter.request({ id: 'legacy-peer' as never, method: 'tools/call', params: { name: 'act' } }),
+      ).rejects.toThrow('interaction_capacity_exceeded');
+      expect(request).not.toHaveBeenCalled();
+    } finally {
+      release();
+      await pending;
+    }
+  });
+  it('keeps concurrent modern callback answers and continuations attached to their request', async () => {
+    const client = new Client({ name: 'configured-client', version: '2' });
+    vi.spyOn(client, 'getProtocolEra').mockReturnValue('modern');
+    vi.spyOn(client, 'getNegotiatedProtocolVersion').mockReturnValue('2026-07-28');
+    const request = vi.spyOn(client, 'request').mockImplementation(async (message) => {
+      const params = message.params as { name: string; inputResponses?: { roots: unknown } };
+      if (params.inputResponses) return { content: [], ownerAnswer: params.inputResponses.roots } as never;
+      return { resultType: 'input_required', inputRequests: { roots: { method: 'roots/list' } } } as never;
+    });
+    const adapter = new ModernSdkClientAdapter(client, {} as AuthProviderTransport);
+    let answerFirst!: (value: unknown) => void;
+    adapter.registerRequestHandler(
+      { shape: { method: { value: 'roots/list' } } },
+      () =>
+        new Promise((resolve) => {
+          answerFirst = resolve;
+        }),
+    );
+    const first = withLegacyInteractionLease(
+      adapter,
+      () =>
+        adapter.request({
+          id: 'first-owner' as never,
+          method: 'tools/call',
+          params: { name: 'first' },
+        }),
+      undefined,
+      undefined,
+      { roots: {} },
+    );
+    await vi.waitFor(() => expect(answerFirst).toBeTypeOf('function'));
+    adapter.registerRequestHandler({ shape: { method: { value: 'roots/list' } } }, async () => ({
+      roots: [{ uri: 'file:///second' }],
+    }));
+    await expect(
+      withLegacyInteractionLease(
+        adapter,
+        () =>
+          adapter.request({
+            id: 'second-owner' as never,
+            method: 'tools/call',
+            params: { name: 'second' },
+          }),
+        undefined,
+        undefined,
+        { roots: {} },
+      ),
+    ).resolves.toMatchObject({ ownerAnswer: { roots: [{ uri: 'file:///second' }] } });
+    answerFirst({ roots: [{ uri: 'file:///first' }] });
+    await expect(first).resolves.toMatchObject({ ownerAnswer: { roots: [{ uri: 'file:///first' }] } });
+    expect(request.mock.calls.map(([message]) => (message.params as { name: string }).name)).toEqual([
+      'first',
+      'second',
+      'second',
+      'first',
+    ]);
+  });
+  it('keeps the original cancellation reservation when a duplicate modern request is rejected', async () => {
+    const client = new Client({ name: 'configured-client', version: '2' });
+    vi.spyOn(client, 'getProtocolEra').mockReturnValue('modern');
+    vi.spyOn(client, 'getNegotiatedProtocolVersion').mockReturnValue('2026-07-28');
+    const request = vi.spyOn(client, 'request').mockResolvedValue({
+      resultType: 'input_required',
+      inputRequests: { roots: { method: 'roots/list' } },
+    } as never);
+    const adapter = new ModernSdkClientAdapter(client, {} as AuthProviderTransport);
+    let answer!: (value: unknown) => void;
+    adapter.registerRequestHandler(
+      { shape: { method: { value: 'roots/list' } } },
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const frame = { id: 'same-owner' as never, method: 'tools/call', params: { name: 'act' } };
+    const original = withLegacyInteractionLease(adapter, () => adapter.request(frame), undefined, undefined, {
+      roots: {},
+    });
+    const rejected = expect(original).rejects.toMatchObject({ code: 'interaction_expired' });
+    await vi.waitFor(() => expect(answer).toBeTypeOf('function'));
+    await expect(adapter.request(frame)).rejects.toMatchObject({ code: 'modern_outbound_duplicate_request' });
+    await adapter.cancel(frame.id);
+    answer({ roots: [] });
+    await rejected;
+    expect(request).toHaveBeenCalledOnce();
+  });
+
+  it('rechecks the selected provider immediately before a modern continuation dispatch', async () => {
+    const client = new Client({ name: 'configured-client', version: '2' });
+    vi.spyOn(client, 'getProtocolEra').mockReturnValue('modern');
+    vi.spyOn(client, 'getNegotiatedProtocolVersion').mockReturnValue('2026-07-28');
+    const request = vi.spyOn(client, 'request').mockResolvedValue({
+      resultType: 'input_required',
+      inputRequests: { roots: { method: 'roots/list' } },
+    } as never);
+    const adapter = new ModernSdkClientAdapter(client, {} as AuthProviderTransport);
+    adapter.registerRequestHandler({ shape: { method: { value: 'roots/list' } } }, async () => ({ roots: [] }));
+    let current = true;
+    const validate = vi.spyOn(validation, 'validateInteractionResponse').mockImplementationOnce(async () => {
+      current = false;
+    });
+    try {
+      await expect(
+        withLegacyInteractionLease(
+          adapter,
+          () =>
+            adapter.request({
+              id: 'provider-fence' as never,
+              method: 'tools/call',
+              params: { name: 'act' },
+            }),
+          undefined,
+          undefined,
+          { roots: {} },
+          () => {
+            if (!current) throw new Error('selected provider invalidated');
+          },
+        ),
+      ).rejects.toBeDefined();
+      expect(request).toHaveBeenCalledOnce();
+    } finally {
+      validate.mockRestore();
+    }
+  });
   it('retains only an actual SDK missing-capability rejection, not foreign numeric failures', async () => {
     const client = new Client({ name: 'configured-client', version: '2' });
     vi.spyOn(client, 'getProtocolEra').mockReturnValue('modern');

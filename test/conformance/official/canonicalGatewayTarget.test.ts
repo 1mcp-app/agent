@@ -1,3 +1,5 @@
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+
 import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { createServer, request, type Server, type ServerResponse } from 'node:http';
@@ -8,6 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { createSanitizedWireCapture, startHttpWireTap } from '../capture/index.js';
 import { startCanonicalGatewayTarget } from './canonicalGatewayTarget.js';
+import { startOfficialReferenceServer } from './referenceServer.js';
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -185,6 +188,49 @@ async function post(endpoint: string, body: string, headers: Record<string, stri
 }
 
 describe('canonical official gateway target', () => {
+  it('maps the actual owned custom-header tool while preserving its argument and custom header', async () => {
+    const fixture = await startOfficialReferenceServer(resolve('.'), tmpdir());
+    cleanups.push(fixture.close);
+    const client = new Client({ name: 'owned-header-discovery', version: '1' }, { capabilities: {} });
+    let tool;
+    try {
+      await client.connect(new StreamableHTTPClientTransport(new URL(fixture.endpoint)));
+      tool = (await client.listTools()).tools.find((entry) => entry.name === 'test_custom_header');
+    } finally {
+      await client.close();
+    }
+    expect(tool).toBeDefined();
+    expect(tool?.inputSchema.properties).toEqual({ value: { type: 'string', 'x-mcp-header': 'Value' } });
+    const publicIdentity = 'official_conformance_1mcp_test_custom_header';
+    const catalogs = publicCatalogs();
+    catalogs.tools.push({
+      ...tool,
+      name: publicIdentity,
+      _meta: {
+        'app.1mcp/route': {
+          kind: 'tools',
+          server: 'official_conformance',
+          upstreamIdentity: 'test_custom_header',
+        },
+      },
+    });
+    const target = await setup({ catalogs, referenceCatalogs: { ...reference, tools: [...reference.tools, tool!] } });
+    const body =
+      '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"test_custom_header","arguments":{"value":"Hello"}}}';
+    const response = await post(target.endpoint, body, {
+      'mcp-method': 'tools/call',
+      'mcp-name': 'test_custom_header',
+      'mcp-param-value': '=?base64?SGVsbG8=?=',
+    });
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(target.calls[0].body).toBe(body.replace('"name":"test_custom_header"', `"name":"${publicIdentity}"`));
+    expect(target.calls[0].headers['mcp-name']).toBe(publicIdentity);
+    expect(target.calls[0].headers['mcp-param-value']).toBe('=?base64?SGVsbG8=?=');
+    await target.close();
+    expect((await target.readEvidence()).faults).toEqual([]);
+  });
+
   it('authenticates only fixed gateway discovery and forwarding without retaining the configured credential', async () => {
     const token = 'owned-configuration-token';
     const unchanged = '{"jsonrpc":"2.0","id":7,"result":{"content":[{"type":"text","text":"unchanged"}]}}';
