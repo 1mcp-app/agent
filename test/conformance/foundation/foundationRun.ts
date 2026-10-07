@@ -20,6 +20,12 @@ import {
   readOfficialEvidenceArtifact,
   runOfficialConformance,
 } from '../official/officialRunner.js';
+import { startOfficialReferenceServer } from '../official/referenceServer.js';
+import {
+  runOfficialServerControl,
+  verifyQualifiedOfficialServerControl,
+  writeOfficialServerComparison,
+} from '../official/serverControl.js';
 import {
   executeMatrixAssignment,
   type MatrixAssignmentDescriptor,
@@ -97,6 +103,13 @@ const FOUNDATION_ARTIFACTS = [
   { id: 'integrity-verifier', path: 'test/conformance/integrity/index.ts' },
   { id: 'mcp-2026-specification-source', path: 'test/conformance/integrity/mcp-2026-07-28-spec-source.json' },
   { id: 'official-runner', path: 'test/conformance/official/officialRunner.ts' },
+  { id: 'official-reference-lifecycle', path: 'test/conformance/official/referenceServer.ts' },
+  { id: 'official-server-control', path: 'test/conformance/official/serverControl.ts' },
+  { id: 'official-reference-fixture', path: 'test/conformance/official/fixtures/reference/everything-server.mjs' },
+  { id: 'official-reference-provenance', path: 'test/conformance/official/fixtures/reference/provenance.json' },
+  { id: 'official-reference-patch', path: 'test/conformance/official/fixtures/reference/fixture.patch' },
+  { id: 'official-reference-license', path: 'test/conformance/official/fixtures/reference/LICENSE' },
+  { id: 'official-reference-readme', path: 'test/conformance/official/fixtures/reference/README.md' },
   { id: 'matrix-runtime', path: 'test/conformance/runtime/matrixRuntime.ts' },
   { id: 'foundation-run', path: 'test/conformance/foundation/foundationRun.ts' },
   { id: 'sdk-boundary-proof', path: 'test/conformance/boundary/sdkBoundaryProof.ts' },
@@ -108,6 +121,7 @@ const FOUNDATION_ARTIFACTS = [
   { id: 'legacy-server-adapter', path: 'src/sdk/legacy/server/runtime/legacySdkServerAdapter.ts' },
   { id: 'sdk-topology-runtime', path: 'scripts/sdk-boundary/topology.mjs' },
   { id: 'official-client-bridge', path: 'test/conformance/foundation/officialClientBridge.mjs' },
+  { id: 'official-client-direct-fixture', path: 'test/conformance/official/fixtures/client-control.mjs' },
   { id: 'official-client-scenario-catalog', path: 'test/conformance/foundation/officialClientScenarioCatalog.mjs' },
   { id: 'typescript-manifest', path: 'test/conformance/fixtures/typescript/package.json' },
   { id: 'typescript-lock', path: 'test/conformance/fixtures/typescript/pnpm-lock.yaml' },
@@ -721,7 +735,7 @@ async function runOfficialPeers(root: string, outputDirectory: string): Promise<
       clientResult = { classification: 'harness', role: 'client', revision, reason: 'cleanup-failure' };
     }
 
-    let server: Awaited<ReturnType<typeof startTypescriptServer>> | undefined;
+    let server: Awaited<ReturnType<typeof startOfficialReferenceServer>> | undefined;
     let gateway: Awaited<ReturnType<typeof startOfficialGateway>> | undefined;
     let serverResult: OfficialConformanceResult = {
       classification: 'fixture',
@@ -730,20 +744,30 @@ async function runOfficialPeers(root: string, outputDirectory: string): Promise<
       reason: 'invalid-target',
     };
     try {
-      server = await startTypescriptServer(root, revision === '2026-07-28' ? 'modern' : 'legacy', outputDirectory);
+      server = await startOfficialReferenceServer(root, outputDirectory);
     } catch {
       // The default result identifies a server fixture that failed before it became a valid target.
     }
     if (server) {
       try {
-        gateway = await startOfficialGateway(root, outputDirectory, server.endpoint);
-        serverResult = await runOfficialConformance({
+        const control = await runOfficialServerControl({
           packageRoot,
-          role: 'server',
           revision,
-          url: gateway.endpoint,
-          temporaryParentDirectory: outputDirectory,
+          endpoint: server.endpoint,
+          outputDirectory,
         });
+        if (control.qualified) {
+          gateway = await startOfficialGateway(root, outputDirectory, server.endpoint);
+          serverResult = await runOfficialConformance({
+            packageRoot,
+            role: 'server',
+            revision,
+            url: gateway.endpoint,
+            temporaryParentDirectory: outputDirectory,
+          });
+          await writeOfficialServerComparison(outputDirectory, control.result, serverResult);
+        }
+        // An unqualified direct peer remains fixture evidence; it never supplies a gateway verdict.
       } catch {
         serverResult = { classification: 'process', role: 'server', revision, reason: 'spawn-failure' };
       }
@@ -969,6 +993,7 @@ async function validateEvidenceBundle(
   }
   for (const run of baseline.officialRuns) {
     if (run.classification !== 'product') continue;
+    if (run.role === 'server') await verifyQualifiedOfficialServerControl(outputDirectory, run.revision);
     const artifact = await readOfficialEvidenceArtifact(outputDirectory, run.artifact);
     if (
       artifact.role !== run.role ||

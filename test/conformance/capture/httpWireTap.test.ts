@@ -20,6 +20,52 @@ describe('HTTP wire tap', () => {
     );
   });
 
+  it('preserves adversarial and valid Host values for peer validation without changing the connection destination', async () => {
+    const observed: Array<string | undefined> = [];
+    const peer = createServer((req, res) => {
+      observed.push(req.headers.host);
+      req.resume();
+      res.writeHead(req.headers.host === 'attacker.example' ? 403 : 200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ jsonrpc: '2.0', id: 1, result: {} }));
+    });
+    await new Promise<void>((resolve) => peer.listen(0, '127.0.0.1', resolve));
+    closeTasks.push(
+      () => new Promise<void>((resolve, reject) => peer.close((error) => (error ? reject(error) : resolve()))),
+    );
+    const address = peer.address();
+    if (!address || typeof address === 'string') throw new Error('Peer did not bind');
+    const capture = createSanitizedWireCapture({
+      contexts: [{ id: 'host-validation', negotiatedRevision: '2025-11-25' }],
+      validateEnvelope: () => true,
+    });
+    const tap = await startHttpWireTap({
+      target: `http://127.0.0.1:${address.port}`,
+      capture,
+      contextId: 'host-validation',
+      hop: 'inbound',
+    });
+    closeTasks.push(tap.close);
+    for (const [host, status] of [
+      ['attacker.example', 403],
+      [`localhost:${address.port}`, 200],
+    ] as const) {
+      await new Promise<void>((resolve, reject) => {
+        const req = request(
+          tap.url,
+          { method: 'POST', headers: { host, 'content-type': 'application/json' } },
+          (response) => {
+            expect(response.statusCode).toBe(status);
+            response.resume();
+            response.once('end', resolve);
+          },
+        );
+        req.once('error', reject);
+        req.end(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping' }));
+      });
+    }
+    expect(observed).toEqual(['attacker.example', `localhost:${address.port}`]);
+  });
+
   it('captures distinct inbound and upstream facts while forwarding SSE incrementally', async () => {
     const secret = 'wire!Secret-._~42';
     const peer = createServer((req, res) => {

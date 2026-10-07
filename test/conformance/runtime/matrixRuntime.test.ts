@@ -297,6 +297,63 @@ describe('matrix runtime execution', () => {
     }
   });
 
+  it.each([
+    { inboundEra: 'legacy', sdkEra: 'v1', revision: '2025-11-25' },
+    { inboundEra: 'modern', sdkEra: 'v2', revision: '2026-07-28' },
+  ] as const)(
+    'keeps $inboundEra inbound legacy-upstream fallback schema-invalid',
+    async (scenario) => {
+      const fixture = join(repositoryRoot, 'test/conformance/fixtures/typescript/src/fixture.mjs');
+      const result = await executeMatrixAssignment({
+        assignmentId: `case-${scenario.inboundEra}-legacy-null-id`,
+        inboundProbe: {
+          command: process.execPath,
+          args: [
+            fixture,
+            'probe',
+            '--sdk-era',
+            scenario.sdkEra,
+            '--protocol-era',
+            scenario.inboundEra,
+            '--transport',
+            'streamable-http',
+            '--aggregated',
+            '--runtime-output',
+            '--endpoint',
+            '{{gatewayEndpoint}}',
+          ],
+        },
+        upstreamPeer: {
+          command: process.execPath,
+          args: [fixture, 'server', '--sdk-era', 'v1', '--transport', 'streamable-http'],
+          readiness: { kind: 'stdout-json', fixtureId: 'typescript-v1' },
+        },
+        upstreamTransport: { type: 'streamableHttp' },
+        eras: { inbound: scenario.inboundEra, upstream: 'legacy' },
+        revisions: { inbound: scenario.revision, upstream: '2025-11-25' },
+        captureContexts: {
+          inbound: { id: 'legacy-error-inbound', negotiatedRevision: scenario.revision },
+          upstream: { id: 'legacy-error-upstream', negotiatedRevision: '2025-11-25' },
+        },
+        builtEntryPath: join(repositoryRoot, 'build/index.js'),
+        timeouts: { startupMs: 20_000, probeMs: 20_000, shutdownMs: 3_000 },
+      });
+      expect(result.kind, JSON.stringify(result)).toBe('product');
+      if (result.kind !== 'product') return;
+      expect(result).toMatchObject({ status: 'fail', reason: 'wire_schema_invalid', firstAttempt: true });
+      expect(result.facts).toMatchObject({ toolsCount: 1, callError: false });
+      const records = result.evidence.upstream.records;
+      expect(records.filter((record) => record.schemaResult === 'invalid')).toEqual([
+        expect.objectContaining({ direction: 'peer_to_gateway', correlation: 'error' }),
+      ]);
+      expect(records.findIndex((record) => record.correlation === 'error')).toBeLessThan(
+        records.findIndex((record) => record.method === 'initialize'),
+      );
+      expect(records).toContainEqual(expect.objectContaining({ method: 'tools_call', schemaResult: 'valid' }));
+    },
+    90_000,
+  );
+
   it('observes both hops through the actual 1MCP gateway and Python upstream fixture', async () => {
     const builtEntryPath = join(repositoryRoot, 'build/index.js');
     const scratch = await mkdtemp(join(tmpdir(), 'matrix-python-case-'));

@@ -1,0 +1,13 @@
+{
+  "repository": "https://github.com/modelcontextprotocol/conformance",
+  "commit": "c321dd32035556e6769d3724a8ee97d87c3faaac",
+  "path": "examples/servers/typescript/everything-server.ts",
+  "sourceSha256": "488ddabf5573078dbc4c21d980701ba05033ad83316bdbde20005228151a5205",
+  "generatedSha256": "ed7c2a47ffaa90b8bfe9882f47b9d23c078687b162adb9d2f1c3f8e0354e5862",
+  "transformation": "esbuild 0.28.2 transform: loader=ts format=esm target=node22 legalComments=inline; provenance comment prepended; redundant hashbang removed",
+  "patches": [
+    "fixture.patch: add draft tools/call complete discriminator; reject malformed elicitation inputResponses",
+    "fixture.patch: preserve upstream unused handler signature with a scoped lint suppression",
+    "fixture.patch: restrict the listener to explicit IPv4 loopback 127.0.0.1"
+  ]
+}

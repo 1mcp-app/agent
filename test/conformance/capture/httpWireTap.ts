@@ -25,11 +25,9 @@ function normalizedHeaders(headers: IncomingHttpHeaders): Record<string, string 
   return normalized;
 }
 
-function forwardedHeaders(headers: IncomingHttpHeaders, host: string): IncomingHttpHeaders {
-  return Object.fromEntries([
-    ...Object.entries(headers).filter(([name]) => !CREDENTIAL_HEADERS.has(name.toLowerCase())),
-    ['host', host],
-  ]);
+function forwardedHeaders(headers: IncomingHttpHeaders): IncomingHttpHeaders {
+  // Keep Host validation observable; the connection still uses the fixed trusted loopback destination.
+  return Object.fromEntries(Object.entries(headers).filter(([name]) => !CREDENTIAL_HEADERS.has(name.toLowerCase())));
 }
 
 function isLoopbackTarget(target: URL): boolean {
@@ -141,7 +139,7 @@ export async function startHttpWireTap(options: {
         port: requestPort,
         path: `${destination.pathname}${destination.search}`,
         method: incoming.method,
-        headers: forwardedHeaders(incoming.headers, destination.host),
+        headers: forwardedHeaders(incoming.headers),
       },
       (response) => {
         inspectStream(response, options.capture, {

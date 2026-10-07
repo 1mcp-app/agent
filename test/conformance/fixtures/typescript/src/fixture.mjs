@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
 
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+
 import { officialClientScenarioFamily } from '../../../foundation/officialClientScenarioCatalog.mjs';
 import { PROFILES, TOOL_INPUT_SENTINEL, TOOL_NAME } from './constants.mjs';
 import { createV1Client, createV1ClientTransport, serveV1Http, serveV1Stdio } from './eras/v1.mjs';
@@ -232,7 +235,7 @@ async function runOfficialConformanceClient(endpoint) {
   if (!context || typeof context !== 'object' || Array.isArray(context)) throw new Error('INVALID_CONTEXT');
   const serverEndpoint = requireLoopbackEndpoint(endpoint);
 
-  const client = modern ? createV2Client('modern', { roots: {}, sampling: {}, elicitation: {} }) : createV1Client();
+  const client = createOfficialClient(modern, family);
   const transport = modern
     ? createV2ClientTransport('streamable-http', { endpoint: serverEndpoint })
     : createV1ClientTransport('streamable-http', { endpoint: serverEndpoint });
@@ -285,14 +288,7 @@ async function runOfficialConformanceClient(endpoint) {
         await attempt(() => client.getPrompt({ name: prompts.prompts[0].name }));
       }
     } else if (family === 'request-state') {
-      for (const name of [
-        'test_mrtr_echo_state',
-        'test_mrtr_no_state',
-        'test_mrtr_unrelated',
-        'test_mrtr_no_result_type',
-      ]) {
-        await attempt(() => callTool(name));
-      }
+      await attempt(() => runSdkRequestState(client, callTool, toolName));
     } else if (family === 'schema' && scenario === 'json-schema-2020-12-preservation') {
       const focal = listed?.tools.find(
         (tool) => tool.name === 'json_schema_2020_12_tool' || tool.name.endsWith('_1mcp_json_schema_2020_12_tool'),
@@ -304,6 +300,62 @@ async function runOfficialConformanceClient(endpoint) {
   } finally {
     await client.close();
   }
+}
+
+class FixtureSdkResultTypeError extends Error {}
+
+function assertCompleted(result) {
+  if (result?.resultType === 'input_required') throw new Error('CONTINUATION_INCOMPLETE');
+  if (result?.isError === true) throw new Error('CONTINUATION_TOOL_ERROR');
+}
+
+async function runSdkRequestState(client, callTool, toolName) {
+  const call = async (name, continuation = {}) => {
+    const resolved = toolName(name);
+    if (!resolved) throw new Error('REQUIRED_TOOL_MISSING');
+    return client.request(
+      { method: 'tools/call', params: { name: resolved, arguments: {}, ...continuation } },
+      {
+        allowInputRequired: true,
+      },
+    );
+  };
+  for (const name of ['test_mrtr_echo_state', 'test_mrtr_no_state']) {
+    const result = await call(name);
+    if (result?.resultType !== 'input_required') throw new Error('INPUT_REQUIRED_MISSING');
+    const inputResponses = {};
+    for (const [key, request] of Object.entries(result.inputRequests)) {
+      if (request.method !== 'elicitation/create') throw new Error('INPUT_METHOD_UNSUPPORTED');
+      inputResponses[key] = { action: 'accept', content: { confirmed: true } };
+    }
+    if (name === 'test_mrtr_echo_state') assertCompleted(await callTool('test_mrtr_unrelated'));
+    const continued = await call(name, {
+      inputResponses,
+      ...(result.requestState !== undefined ? { requestState: result.requestState } : {}),
+    });
+    assertCompleted(continued);
+  }
+  try {
+    assertCompleted(await callTool('test_mrtr_no_result_type'));
+  } catch (error) {
+    if (error?.code === 'INVALID_RESULT' && error?.data?.violation === 'missing-resultType') {
+      throw new FixtureSdkResultTypeError();
+    }
+    throw error;
+  }
+}
+
+function createOfficialClient(modern, family) {
+  if (modern) return createV2Client('modern', { roots: {}, sampling: {}, elicitation: {} });
+  if (family !== 'elicitation') return createV1Client();
+  const client = new Client(
+    { name: '1mcp-conformance-client-v1', version: '1.0.0' },
+    {
+      capabilities: { elicitation: { form: { applyDefaults: true } } },
+    },
+  );
+  client.setRequestHandler(ElicitRequestSchema, async () => ({ action: 'accept', content: {} }));
+  return client;
 }
 
 async function main() {
@@ -337,7 +389,8 @@ async function main() {
       writeJson(process.stderr, {
         kind: 'conformance-client',
         ok: false,
-        classification: 'gateway-rejected',
+        classification: error instanceof FixtureSdkResultTypeError ? 'fixture-sdk-rejected' : 'gateway-rejected',
+        ...(error instanceof FixtureSdkResultTypeError ? { reasonCode: 'missing-result-type' } : {}),
       });
       process.exitCode = 1;
       return;

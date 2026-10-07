@@ -206,6 +206,13 @@ export function officialScenarioIds(revision: OfficialConformanceRevision, role:
   return [...REQUIRED_SCENARIOS[revision][role], ...NOT_SCORED_SCENARIOS[revision][role]];
 }
 
+export function officialRequiredScenarioIds(
+  revision: OfficialConformanceRevision,
+  role: OfficialConformanceRole,
+): string[] {
+  return [...REQUIRED_SCENARIOS[revision][role]];
+}
+
 export function officialClientScenarioIds(revision: OfficialConformanceRevision): string[] {
   return officialScenarioIds(revision, 'client');
 }
