@@ -15,7 +15,8 @@ import {
   type BackgroundSupervisorState,
   readBackgroundSupervisorState,
 } from '@src/core/server/backgroundRuntimeSupervisorState.js';
-import { isProcessAlive, readPidFile, ServerPidInfo } from '@src/core/server/pidFileManager.js';
+import { readPidFile, ServerPidInfo } from '@src/core/server/pidFileManager.js';
+import { inspectProcessIdentity, readProcessIdentity } from '@src/core/server/processIdentity.js';
 import {
   discoverScopedRuntime,
   type LoadingSummarySnapshot,
@@ -204,6 +205,7 @@ export interface BackgroundProgress {
 }
 
 export interface WaitForReadyOptions {
+  inspectIdentity?: typeof inspectProcessIdentity;
   timeoutMs?: number;
   intervalMs?: number;
   readinessProbe?: ReadinessProbe;
@@ -234,6 +236,7 @@ export async function waitForBackgroundReady(
   const timeoutMs = options.timeoutMs ?? 30000;
   const intervalMs = options.intervalMs ?? 250;
   const probe = options.readinessProbe ?? probeReadiness;
+  const inspectIdentity = options.inspectIdentity ?? inspectProcessIdentity;
   const now = options.now ?? (() => Date.now());
   const sleep = options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
 
@@ -245,7 +248,12 @@ export async function waitForBackgroundReady(
 
     const info = readPidFile(configDir);
     options.onProgress?.({ elapsedMs: now() - start, info: info ?? undefined });
-    if (info && info.pid === childPid && (await probe(info))) {
+    if (
+      info &&
+      info.pid === childPid &&
+      inspectIdentity(info.pid, info.processIdentity) === 'alive' &&
+      (await probe(info))
+    ) {
       return { ready: true, info };
     }
 
@@ -256,6 +264,7 @@ export async function waitForBackgroundReady(
 }
 
 export interface WaitForSupervisorReadyOptions {
+  inspectIdentity?: typeof inspectProcessIdentity;
   intervalMs?: number;
   readinessProbe?: ReadinessProbe;
   isSupervisorAlive?: (pid: number) => boolean;
@@ -273,7 +282,10 @@ export async function waitForBackgroundSupervisorReady(
 ): Promise<WaitForReadyResult> {
   const intervalMs = options.intervalMs ?? 250;
   const probe = options.readinessProbe ?? probeReadiness;
-  const processAlive = options.isSupervisorAlive ?? isProcessAlive;
+  const inspectIdentity = options.inspectIdentity ?? inspectProcessIdentity;
+  const supervisorIdentity = readProcessIdentity(supervisorPid);
+  const processAlive =
+    options.isSupervisorAlive ?? (() => inspectIdentity(supervisorPid, supervisorIdentity) === 'alive');
   const readState = options.readState ?? readBackgroundSupervisorState;
   const readRuntimeInfo = options.readRuntimeInfo ?? readPidFile;
   const sleep = options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
@@ -285,13 +297,21 @@ export async function waitForBackgroundSupervisorReady(
     }
     const state = readState(configDir);
     if (state?.supervisorPid === supervisorPid) {
+      if (inspectIdentity(supervisorPid, state.supervisorIdentity) !== 'alive') {
+        return { ready: false, reason: 'background supervisor identity could not be verified' };
+      }
       if (state.status === 'crash-loop') {
         return { ready: false, terminal: true, reason: 'background runtime entered crash-loop' };
       }
       if (state.runtimePid !== null) {
         const info = readRuntimeInfo(configDir);
         options.onProgress?.({ elapsedMs: Date.now() - startedAt, info: info ?? undefined });
-        if (info?.pid === state.runtimePid && (await probe(info))) {
+        if (
+          info?.pid === state.runtimePid &&
+          inspectIdentity(state.runtimePid, state.runtimeIdentity) === 'alive' &&
+          inspectIdentity(info.pid, info.processIdentity) === 'alive' &&
+          (await probe(info))
+        ) {
           return { ready: true, info };
         }
       } else {
@@ -505,8 +525,9 @@ export async function runServeBackgroundSupervisor(
         waitForReady: async (worker) => {
           const workerPid = worker.pid;
           if (!workerPid) return false;
+          const workerIdentity = readProcessIdentity(workerPid);
           const result = await waitForBackgroundReady(configDir, workerPid, {
-            isChildAlive: () => isProcessAlive(workerPid),
+            isChildAlive: () => inspectProcessIdentity(workerPid, workerIdentity) === 'alive',
           });
           return result.ready;
         },

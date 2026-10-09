@@ -3277,7 +3277,10 @@ describe('admin routes', () => {
       .post('/admin/api/oauth/context7%3A0123456789abcdef/authorize')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', csrfToken)
-      .set('Idempotency-Key', 'oauth-authorize-success');
+      .set('Idempotency-Key', 'oauth-authorize-success')
+      .set('Host', 'evil.example')
+      .set('X-Forwarded-Host', 'evil.example')
+      .set('Origin', 'https://evil.example');
 
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({

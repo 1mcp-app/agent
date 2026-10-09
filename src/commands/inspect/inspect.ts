@@ -8,6 +8,7 @@ import {
   type ReusableClientSurface,
 } from '@src/commands/shared/clientSurfaceAttachment.js';
 import { buildFilterSelectionQuery } from '@src/commands/shared/filterSelectionQuery.js';
+import { inspectToolsPageSchema } from '@src/commands/shared/inspectApiSchemas.js';
 import {
   type JsonRpcErrorEnvelope,
   type JsonRpcResponse,
@@ -15,6 +16,8 @@ import {
 } from '@src/commands/shared/serveClient.js';
 import { API_INSPECT_ENDPOINT } from '@src/constants/api.js';
 import { readPublicCapabilityRoute } from '@src/core/capabilities/catalogGeneration.js';
+import { collectConfiguredToolPages } from '@src/core/capabilities/configuredToolSnapshot.js';
+import { paginateInspectTools } from '@src/core/capabilities/inspectPagination.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 import { hasHttpErrorCode, type Tool, toProtocolTools } from '@src/sdk/contracts/index.js';
 import type { ContextData } from '@src/types/context.js';
@@ -237,6 +240,18 @@ export async function getInspectResult(
       Boolean(attachment.cachedSession?.sessionId),
       extractServerInstructionsFromAggregatedInstructions(response.instructions, target.serverName),
     );
+    result = {
+      ...result,
+      ...paginateInspectTools(result.tools, {
+        limit: attachment.target.mergedOptions.limit ?? 20,
+        all: attachment.target.mergedOptions.all,
+        cursor: attachment.target.mergedOptions.cursor,
+        scope: {
+          server: target.serverName,
+          filters: buildInspectQuery({ ...attachment.target.mergedOptions, cursor: undefined, all: false, limit: 20 }),
+        },
+      }),
+    };
     if (!includeServerInstructions) {
       result = stripServerInstructions(result);
     }
@@ -317,6 +332,19 @@ export async function inspectCommand(options: InspectCommandOptions): Promise<vo
   }
 }
 
+async function listAllInspectTools(client: StreamableServeClient) {
+  const first = await client.listTools();
+  if ('error' in first) return first;
+  const result = await collectConfiguredToolPages(async (cursor) => {
+    const response = cursor === undefined ? first : await client.listTools(cursor);
+    if ('error' in response) throw new InspectCommandError(response.error.message);
+    const page = inspectToolsPageSchema.safeParse(response.result);
+    if (!page.success) throw new InspectCommandError('Invalid tools/list response from server.');
+    return { ...page.data, tools: toProtocolTools(page.data.tools) };
+  });
+  return { ...first, result };
+}
+
 export async function inspectTools(options: {
   serverUrl: URL;
   sessionId?: string;
@@ -348,7 +376,7 @@ export async function inspectTools(options: {
         };
       }
 
-      const response = await client.listTools();
+      const response = await listAllInspectTools(client);
       if ('error' in response) {
         return {
           rawResponse: response as JsonRpcErrorEnvelope,
@@ -368,7 +396,7 @@ export async function inspectTools(options: {
       };
     }
 
-    const response = await client.listTools();
+    const response = await listAllInspectTools(client);
     if ('error' in response) {
       return {
         rawResponse: response as JsonRpcErrorEnvelope,

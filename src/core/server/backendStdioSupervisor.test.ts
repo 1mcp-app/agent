@@ -2,6 +2,32 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { BackendStdioSupervisor, type BackendSupervisionSnapshot } from './backendStdioSupervisor.js';
 
+// Mirrors ClientManager.applyBackendSupervisionState(): the gateway clears a
+// backend's capabilities/instructions while it is restarting or crash-looping,
+// and preserves them once it is connected. The 'connected' branch deliberately
+// does NOT re-populate them — they are restored by the recovery's activate()
+// step. We replicate this here so the supervisor ordering fix can be asserted
+// end-to-end without pulling in ClientManager.
+interface GatewayConnection {
+  status: 'connected' | 'restarting' | 'crash-loop';
+  capabilities?: { tools?: Record<string, unknown> };
+  instructions?: string;
+}
+
+function applyGatewaySupervision(conn: GatewayConnection, snapshot: BackendSupervisionSnapshot): void {
+  if (snapshot.state === 'restarting' || snapshot.state === 'crash-loop') {
+    conn.status = snapshot.state;
+    conn.capabilities = undefined;
+    // Instructions are aggregated from backends; static backends drop them on
+    // restart so stale instructions are not served (see clientManager.ts).
+    if (snapshot.backendId.startsWith('static:')) {
+      conn.instructions = undefined;
+    }
+  } else if (snapshot.state === 'connected') {
+    conn.status = 'connected';
+  }
+}
+
 describe('BackendStdioSupervisor', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -165,5 +191,114 @@ describe('BackendStdioSupervisor', () => {
     expect(dispose).toHaveBeenCalledTimes(1);
     expect(stopResolved).toBe(true);
     expect(supervisor.snapshot()).toMatchObject({ state: 'stopped', currentPid: null, nextRetryAt: null });
+  });
+
+  it('preserves capabilities and instructions across a manual restart (#547)', async () => {
+    const conn: GatewayConnection = { status: 'connected', capabilities: { tools: {} }, instructions: 'initial' };
+    let activateCalls = 0;
+    let supervisor!: BackendStdioSupervisor;
+    const recover = vi.fn().mockImplementation(async () => ({
+      pid: 7001,
+      activate: () => {
+        activateCalls += 1;
+        // Production activate() swaps in the recovered client, restoring its
+        // capabilities/instructions, then re-applies supervision state with the
+        // CURRENT supervisor state.
+        conn.capabilities = { tools: {} };
+        conn.instructions = 'recovered';
+        applyGatewaySupervision(conn, supervisor.snapshot());
+      },
+      dispose: vi.fn(),
+    }));
+    supervisor = new BackendStdioSupervisor({
+      backendId: 'static:demo',
+      policy: { restartOnExit: true },
+      recover,
+      onStateChange: (snapshot) => applyGatewaySupervision(conn, snapshot),
+    });
+
+    expect(conn.capabilities).toBeDefined();
+    expect(conn.instructions).toBe('initial');
+
+    await supervisor.restartNow();
+
+    expect(recover).toHaveBeenCalledTimes(1);
+    expect(activateCalls).toBe(1);
+    // The gateway must still see the backend's capabilities and instructions
+    // after recovery. The #547 regression was that activate() ran while the
+    // state was still 'restarting', so the gateway cleared them.
+    expect(conn.status).toBe('connected');
+    expect(conn.capabilities).toBeDefined();
+    expect(conn.instructions).toBe('recovered');
+  });
+
+  it('preserves capabilities and instructions after an automatic crash recovery (#547)', async () => {
+    const conn: GatewayConnection = { status: 'connected', capabilities: { tools: {} }, instructions: 'initial' };
+    let activateCalls = 0;
+    let supervisor!: BackendStdioSupervisor;
+    const recover = vi.fn().mockImplementation(async () => ({
+      pid: 7002,
+      activate: () => {
+        activateCalls += 1;
+        conn.capabilities = { tools: {} };
+        conn.instructions = 'recovered';
+        applyGatewaySupervision(conn, supervisor.snapshot());
+      },
+      dispose: vi.fn(),
+    }));
+    supervisor = new BackendStdioSupervisor({
+      backendId: 'static:demo',
+      policy: { restartOnExit: true, restartDelay: 10 },
+      recover,
+      onStateChange: (snapshot) => applyGatewaySupervision(conn, snapshot),
+    });
+
+    // Simulate the stdio child process exiting unexpectedly.
+    supervisor.handleUnexpectedExit({ code: 1, signal: null, pid: 5000 });
+    // While restarting, the gateway hides the backend's tools/instructions.
+    expect(conn.status).toBe('restarting');
+    expect(conn.capabilities).toBeUndefined();
+    expect(conn.instructions).toBeUndefined();
+
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(recover).toHaveBeenCalledTimes(1);
+    expect(activateCalls).toBe(1);
+    expect(conn.status).toBe('connected');
+    expect(conn.capabilities).toBeDefined();
+    expect(conn.instructions).toBe('recovered');
+  });
+
+  it('replaces stale metadata when recovery returns changed or absent replacement data (#547)', async () => {
+    const conn: GatewayConnection = {
+      status: 'connected',
+      capabilities: { tools: { v: 1 } },
+      instructions: 'stale',
+    };
+    let supervisor!: BackendStdioSupervisor;
+    const recover = vi.fn().mockImplementation(async () => ({
+      pid: 8001,
+      // The recovered backend reports DIFFERENT capabilities and ABSENT
+      // instructions — the gateway must reflect the new values, not retain the
+      // stale ones.
+      activate: () => {
+        conn.capabilities = { tools: { v: 2 } };
+        conn.instructions = undefined;
+        applyGatewaySupervision(conn, supervisor.snapshot());
+      },
+      dispose: vi.fn(),
+    }));
+    supervisor = new BackendStdioSupervisor({
+      backendId: 'static:demo',
+      policy: { restartOnExit: true },
+      recover,
+      onStateChange: (snapshot) => applyGatewaySupervision(conn, snapshot),
+    });
+
+    await supervisor.restartNow();
+
+    expect(conn.capabilities).toEqual({ tools: { v: 2 } });
+    expect(conn.instructions).toBeUndefined();
+    expect(supervisor.snapshot().currentPid).toBe(8001);
   });
 });

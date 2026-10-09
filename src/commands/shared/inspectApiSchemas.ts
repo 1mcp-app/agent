@@ -46,3 +46,23 @@ export const inspectToolResultSchema = z
 
 export type InspectServerSummary = z.infer<typeof inspectServerSummarySchema>;
 export type ApiInspectServerResult = z.infer<typeof inspectServerResultSchema>;
+
+// Validate each upstream page before using its tool objects or continuation cursor.
+const inspectToolSchema = z
+  .object({
+    name: z.string(),
+    description: z.string().optional(),
+    inputSchema: z.object({ type: z.literal('object') }).passthrough(),
+    outputSchema: z
+      .object({ type: z.literal('object') })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough();
+
+export const inspectToolsPageSchema = z
+  .object({
+    tools: z.array(inspectToolSchema),
+    nextCursor: z.string().optional(),
+  })
+  .passthrough();

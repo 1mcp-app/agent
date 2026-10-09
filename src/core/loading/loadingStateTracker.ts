@@ -157,11 +157,21 @@ export class LoadingStateTracker extends EventEmitter {
     }
 
     const now = new Date();
-    const info: ServerLoadingInfo = {
+    let info: ServerLoadingInfo = {
       ...existing,
       state,
       ...updates,
     };
+
+    if (state === LoadingState.Ready) {
+      const {
+        error: _error,
+        authorizationUrl: _authorizationUrl,
+        oauthStartTime: _oauthStartTime,
+        ...readyInfo
+      } = info;
+      info = readyInfo;
+    }
 
     // Handle state-specific updates
     switch (state) {

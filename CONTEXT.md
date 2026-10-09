@@ -159,6 +159,10 @@ _Avoid_: rendered hash, session ID, process PID
 A static server definition or **Template Server** definition addressed by a **Config Change** before runtime rendering.
 _Avoid_: server config, target config, raw server
 
+**Disabled Static Server**:
+A static **Configured Server Target** whose definition is retained but whose backend capabilities are unavailable through the **Aggregated Runtime** until it is re-enabled.
+_Avoid_: removed server, deleted server, disabled tool
+
 **Configured Server Target Identity**:
 The source-qualified identity of one **Configured Server Target**, combining whether it is a static or **Template Server** definition with its configured name. It remains unambiguous when both sources contain the same name.
 _Avoid_: server name, bare target ID

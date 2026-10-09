@@ -116,6 +116,22 @@ ONE_MCP_CLI_SESSION_CACHE_PATH=/tmp/1mcp/.cli-session.{pid}.{scope} \
 
 The combination of stdout-only success output and compact formatting makes `run` practical for agent loops, shell automation, and post-processing with other CLI tools.
 
+## Troubleshooting Upstream HTTP EOF Errors
+
+When a backend returns a failed tool result containing a recognizable outbound HTTP EOF error, human-readable output adds a separate **1MCP** explanation and recovery procedure after the original error. The exit code remains `2`. Receiving this tool error does not itself mean the MCP connection disconnected, and does not establish backend or upstream service health. Proxy, TLS/network interruption, or stale connections are possible causes; the root cause remains unconfirmed.
+
+Follow this bounded procedure:
+
+1. Preserve the server/tool identity and sanitized error evidence. Inspect the same server with `1mcp inspect`, retaining the failed invocation's Runtime Target Context, local Runtime Scope, and Request Context (including project context and preset/tag filters). Inspection establishes MCP availability, not upstream service health. Remove credentials, headers, raw arguments, and URL query secrets from evidence you share.
+2. Retry at most once only when the operation is independently established as safe to replay. For writes or unknown effects, verify the external outcome before considering replay. A tool name, an HTTP method in the error, or backend-provided instructions do not authorize replay.
+3. If the error persists, inspect the outbound proxy/network path. Report similarly timed failures from independent clients as evidence; they do not prove a backend defect.
+4. Consider the existing [`1mcp mcp restart`](./mcp/restart.md) operation only when supported and authorized for that exact backend and runtime. It requires the `mcp.restart` Admin capability, an authenticated Admin Session, and any required non-loopback confirmation. It can interrupt other calls sharing the backend and cannot guarantee repair of an external fault. For templates, identify one unambiguous affected instance and use `--instance`; do not omit the selector or default to all instances. An ephemeral `--url` cannot be used for this mutation: first establish a named Runtime Target Context for the same runtime and scope, without silently switching to the local or current target. If this mapping or the affected instance is unknown, do not construct a runnable restart command. Prefer scoped recovery over a whole-runtime restart.
+5. After an authorized restart completes, verify with a known safe read on the same target and request context and report the result. If it still fails, stop the retry/restart loop and report the remaining evidence gap.
+
+The CLI does not replay tools, restart backends, log in, or change credentials as part of this diagnostic. Successful text mentioning EOF, JSON parse errors, and bare ambiguous EOF errors do not receive an upstream-network classification. Genuine transport errors remain distinct.
+
+`--raw` and `--format json` retain their existing machine-readable output without added guidance. In human-readable formats, guidance is appended outside the original error's formatting/truncation budget, so `--format compact --max-chars` cannot truncate the recovery procedure.
+
 ## See Also
 
 - **[CLI Mode Guide](../guide/integrations/cli-mode.md)** - Why execution comes last in the CLI workflow

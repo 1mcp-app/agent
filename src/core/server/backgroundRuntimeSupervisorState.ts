@@ -3,6 +3,8 @@ import path from 'path';
 
 import { z } from 'zod';
 
+import { type ProcessIdentity, processIdentitySchema } from './processIdentity.js';
+
 export const BACKGROUND_SUPERVISOR_STATE_FILE = 'background-runtime.json';
 export const BACKGROUND_MAX_RESTART_ATTEMPTS = 5;
 
@@ -20,6 +22,8 @@ export interface BackgroundSupervisorState {
   version: 1;
   status: BackgroundSupervisorStatus;
   supervisorPid: number;
+  supervisorIdentity?: ProcessIdentity;
+  runtimeIdentity?: ProcessIdentity;
   runtimePid: number | null;
   restartAttempt: number;
   lastExit: BackgroundRuntimeExit | null;
@@ -32,6 +36,8 @@ const stateSchema = z.object({
   version: z.literal(1),
   status: z.enum(['starting', 'running', 'restarting', 'crash-loop', 'stopping']),
   supervisorPid: z.number().int().positive(),
+  supervisorIdentity: processIdentitySchema.optional(),
+  runtimeIdentity: processIdentitySchema.optional(),
   runtimePid: z.number().int().positive().nullable(),
   restartAttempt: z.number().int().min(0).max(BACKGROUND_MAX_RESTART_ATTEMPTS),
   lastExit: z

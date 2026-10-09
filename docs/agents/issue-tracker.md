@@ -2,6 +2,10 @@
 
 Issues and PRDs for this repo live as GitHub issues in `1mcp-app/agent`. Use the GitHub CLI (`gh`) for issue operations.
 
+## Authorization and destination
+
+This document defines the destination and commands for authorized tracker operations. A skill's publication step does not itself authorize publication. Honor the user's requested destination, including local drafts in `.scratch`. When publication is already authorized, perform the scoped operation without requesting the same approval again.
+
 ## Conventions
 
 - **Create an issue**: `gh issue create --repo 1mcp-app/agent --title "..." --body "..."`
@@ -15,7 +19,7 @@ When running from this clone, `gh` can infer the repository from `git remote -v`
 
 ## When a skill says "publish to the issue tracker"
 
-Create a GitHub issue in `1mcp-app/agent`.
+When publication is authorized, create a GitHub issue in `1mcp-app/agent`. Otherwise prepare the requested local draft; do not treat the skill's wording as permission to publish.
 
 ## When a skill says "fetch the relevant ticket"
 

@@ -106,7 +106,7 @@ describe('inspectUtils', () => {
     const output = formatInspectOutput(info, 'text');
 
     expect(output).toContain('Inspect: Tool');
-    expect(output).toContain('qualified_name: runner_1mcp_echo_args');
+    expect(output).not.toContain('qualified_name');
     expect(output).toContain('required_args:');
     expect(output).toContain('- name: message');
     expect(output).toContain('type=string');
@@ -135,7 +135,7 @@ describe('inspectUtils', () => {
     const output = formatInspectOutput(info, 'json');
     const parsed = JSON.parse(output) as { qualifiedName: string; requiredArgs: unknown[] };
 
-    expect(parsed.qualifiedName).toBe('runner_1mcp_echo_args');
+    expect(parsed.qualifiedName).toBeUndefined();
     expect(parsed.requiredArgs).toHaveLength(1);
   });
 
@@ -201,6 +201,25 @@ describe('inspectUtils', () => {
         qualifiedName: 'runner_1mcp_runner_1mcp_echo',
       },
     ]);
+  });
+
+  it.each(['text', 'json', 'toon'] as const)('omits routing identities from %s display', (format) => {
+    const reference = { serverName: 'runner', toolName: 'echo_args', qualifiedName: toolSchemaResponse.name };
+    const info = extractInspectToolInfo(toolSchemaResponse, reference);
+    const serverInfo = {
+      kind: 'server' as const,
+      server: 'runner',
+      tools: [{ tool: 'echo_args', qualifiedName: toolSchemaResponse.name, requiredArgs: 1, optionalArgs: 2 }],
+      totalTools: 2,
+      hasMore: true,
+      nextCursor: 'next',
+    };
+    for (const result of [info, serverInfo]) {
+      const output = formatInspectOutput(result, format);
+      expect(output).not.toMatch(/qualifiedName|qualified_name/);
+      expect(output).toContain('echo_args');
+      expect(output).toContain('runner');
+    }
   });
 
   it('supports tools without optional metadata', () => {

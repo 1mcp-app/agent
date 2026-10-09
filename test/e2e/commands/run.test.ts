@@ -245,7 +245,8 @@ describeRunE2E('run command E2E', () => {
     });
     runner.assertSuccess(inspectResult);
     expect(inspectResult.stdout).toContain('server: serena');
-    expect(inspectResult.stdout).toContain('find_symbol,serena_1mcp_find_symbol');
+    expect(inspectResult.stdout).toContain('find_symbol,');
+    expect(inspectResult.stdout).not.toContain('qualifiedName');
 
     const runResult = await runner.runRunCommand('serena/find_symbol', {
       cwd: environment.getTempDir(),

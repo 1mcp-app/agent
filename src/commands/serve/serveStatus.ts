@@ -4,11 +4,13 @@ import {
   cleanupBackgroundSupervisorState,
   readBackgroundSupervisorState,
 } from '@src/core/server/backgroundRuntimeSupervisor.js';
-import { isProcessAlive, ServerPidInfo } from '@src/core/server/pidFileManager.js';
+import { ServerPidInfo } from '@src/core/server/pidFileManager.js';
+import { inspectProcessIdentity } from '@src/core/server/processIdentity.js';
 import { discoverScopedRuntime, RuntimeStatus } from '@src/core/server/runtimeLifecycle.js';
 import {
   readRuntimeScopeOwnership,
   reclaimStaleRuntimeScopeOwnership,
+  RuntimeScopeOwnedError,
   type RuntimeScopeOwnershipRecord,
 } from '@src/core/server/runtimeScopeOwnership.js';
 
@@ -49,7 +51,7 @@ export const STATUS_EXIT_CODES: Record<ServeRuntimeStatus, number> = {
 export interface RuntimeStatusDeps {
   readSupervisorState?: typeof readBackgroundSupervisorState;
   cleanupSupervisorState?: typeof cleanupBackgroundSupervisorState;
-  isAlive?: (pid: number) => boolean;
+  inspectIdentity?: typeof inspectProcessIdentity;
   discoverRuntime?: typeof discoverScopedRuntime;
   readOwnership?: typeof readRuntimeScopeOwnership;
   reclaimOwnership?: typeof reclaimStaleRuntimeScopeOwnership;
@@ -67,7 +69,7 @@ export async function getRuntimeStatusReport(
   const configDir = getConfigDir(configDirOption);
   const readSupervisorState = deps.readSupervisorState ?? readBackgroundSupervisorState;
   const cleanupSupervisorState = deps.cleanupSupervisorState ?? cleanupBackgroundSupervisorState;
-  const isAlive = deps.isAlive ?? isProcessAlive;
+  const inspectIdentity = deps.inspectIdentity ?? inspectProcessIdentity;
   const discoverRuntime = deps.discoverRuntime ?? discoverScopedRuntime;
   const readOwnership = deps.readOwnership ?? readRuntimeScopeOwnership;
   const reclaimOwnership = deps.reclaimOwnership ?? reclaimStaleRuntimeScopeOwnership;
@@ -80,8 +82,24 @@ export async function getRuntimeStatusReport(
   }
 
   if (supervisorState) {
-    const supervisorAlive = isAlive(supervisorState.supervisorPid);
-    const runtimeAlive = supervisorState.runtimePid !== null && isAlive(supervisorState.runtimePid);
+    const supervisorStatus = inspectIdentity(supervisorState.supervisorPid, supervisorState.supervisorIdentity);
+    const runtimeStatus =
+      supervisorState.runtimePid === null
+        ? 'dead'
+        : inspectIdentity(supervisorState.runtimePid, supervisorState.runtimeIdentity);
+    if (supervisorStatus === 'unknown' || runtimeStatus === 'unknown') {
+      return statusError(
+        configDir,
+        new Error(
+          'Cannot verify supervisor or worker process identity; lifecycle metadata was retained' +
+            (!supervisorState.supervisorIdentity && !supervisorState.runtimeIdentity
+              ? '. Legacy metadata requires explicit recovery. On Linux, a live supervised pair with complete scope metadata can use 1mcp serve --restart with the same --config-dir. On macOS/Windows, stop the verified old runtime using its original CLI or service manager before restarting with the new CLI; retain metadata until all scope participants have stopped.'
+              : ''),
+        ),
+      );
+    }
+    const supervisorAlive = supervisorStatus === 'alive';
+    const runtimeAlive = runtimeStatus === 'alive';
 
     if (!supervisorAlive && runtimeAlive) {
       return { status: 'orphaned', configDir, info: null, supervisorState };
@@ -100,7 +118,7 @@ export async function getRuntimeStatusReport(
         discoverRuntime,
         readOwnership,
         reclaimOwnership,
-        isAlive,
+        inspectIdentity,
       });
       if ((discovered.status === 'running' || discovered.status === 'unreachable') && discovered.info) {
         let owner: RuntimeScopeOwnershipRecord | null;
@@ -142,14 +160,14 @@ export async function getRuntimeStatusReport(
     return { ...discovered, configDir, supervisorState };
   }
 
-  return discoverRuntimeWithOwnership(configDir, { discoverRuntime, readOwnership, reclaimOwnership, isAlive });
+  return discoverRuntimeWithOwnership(configDir, { discoverRuntime, readOwnership, reclaimOwnership, inspectIdentity });
 }
 
 interface OwnershipDiscoveryDeps {
   discoverRuntime: typeof discoverScopedRuntime;
   readOwnership: typeof readRuntimeScopeOwnership;
   reclaimOwnership: typeof reclaimStaleRuntimeScopeOwnership;
-  isAlive: (pid: number) => boolean;
+  inspectIdentity: typeof inspectProcessIdentity;
 }
 
 async function discoverRuntimeWithOwnership(
@@ -170,21 +188,41 @@ async function discoverRuntimeWithOwnership(
   if (!ownership) {
     return { ...discovered, configDir };
   }
-  if (deps.isAlive(ownership.pid)) {
+  const ownerStatus = deps.inspectIdentity(ownership.pid, ownership.processIdentity);
+  if (ownerStatus === 'unknown')
+    return statusError(
+      configDir,
+      new Error(
+        'Cannot verify Runtime Scope owner identity; lifecycle metadata was retained' +
+          (!ownership.processIdentity
+            ? '. Legacy ownership-only metadata cannot prove a live supervisor/worker pair. Stop the original runtime using its original CLI or service manager; verify all scope participants have stopped before manual metadata cleanup.'
+            : ''),
+      ),
+    );
+  if (ownerStatus === 'alive') {
     return { status: 'unreachable', configDir, info: null, ownership };
   }
+  let reclaimError: RuntimeScopeOwnedError | undefined;
   try {
-    if (deps.reclaimOwnership(configDir, ownership, deps.isAlive)) {
+    if (deps.reclaimOwnership(configDir, ownership)) {
       return { ...discovered, configDir };
     }
+  } catch (error) {
+    if (!(error instanceof RuntimeScopeOwnedError)) return statusError(configDir, error);
+    reclaimError = error;
+  }
+  try {
     const replacement = deps.readOwnership(configDir);
     if (!replacement) {
-      return { ...discovered, configDir };
+      return reclaimError ? statusError(configDir, reclaimError) : { ...discovered, configDir };
     }
-    if (deps.isAlive(replacement.pid)) {
+    if (deps.inspectIdentity(replacement.pid, replacement.processIdentity) === 'alive') {
       return { status: 'unreachable', configDir, info: null, ownership: replacement };
     }
-    return statusError(configDir, new Error('Runtime Scope ownership changed while removing stale metadata'));
+    return statusError(
+      configDir,
+      reclaimError ?? new Error('Runtime Scope ownership changed while removing stale metadata'),
+    );
   } catch (error) {
     return statusError(configDir, error);
   }

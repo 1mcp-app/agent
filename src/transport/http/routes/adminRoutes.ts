@@ -83,6 +83,17 @@ const adminLoginBodySchema = z.object({
   username: z.string().trim().min(1).max(ADMIN_USERNAME_MAX_LENGTH),
   password: z.string().min(1).max(ADMIN_PASSWORD_MAX_LENGTH),
 });
+const adminOAuthReturnOriginSchema = z
+  .string()
+  .refine((value) => {
+    try {
+      const url = new URL(value);
+      return value === url.origin;
+    } catch {
+      return false;
+    }
+  }, 'Expected a canonical HTTP(S) origin')
+  .pipe(z.url({ protocol: /^https?$/ }));
 const adminOAuthServiceParamsSchema = z.object({
   serviceId: z.string().trim().min(1).max(256),
 });
@@ -524,6 +535,7 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     const result = await options.oauthService.authorizeService({
       context: buildAdminOperationContext(req, options, { type: 'backend_oauth_service', id: serviceId }),
       serviceId,
+      adminReturnOrigin: trustedAdminReturnOrigin(req.header('Origin'), options.getRuntimeIdentity().externalUrl),
     });
     sendAdminOAuthOperationResult(res, result);
   });
@@ -539,6 +551,7 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     const result = await options.oauthService.restartService({
       context: buildAdminOperationContext(req, options, { type: 'backend_oauth_service', id: serviceId }),
       serviceId,
+      adminReturnOrigin: trustedAdminReturnOrigin(req.header('Origin'), options.getRuntimeIdentity().externalUrl),
     });
     sendAdminOAuthOperationResult(res, result);
   });
@@ -2769,4 +2782,26 @@ function isLoopbackRuntimeUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** Only authenticated, CSRF-checked browser requests can supply this origin. */
+export function trustedAdminReturnOrigin(origin: string | undefined, externalUrl: string): string | undefined {
+  const parsed = adminOAuthReturnOriginSchema.safeParse(origin);
+  if (!parsed.success) return undefined;
+  try {
+    const candidate = new URL(parsed.data);
+    const configured = new URL(externalUrl);
+    const loopback = new Set(['localhost', '127.0.0.1', '[::1]']);
+    if (
+      candidate.origin === configured.origin ||
+      (loopback.has(candidate.hostname) &&
+        loopback.has(configured.hostname) &&
+        candidate.protocol === configured.protocol &&
+        candidate.port === configured.port)
+    )
+      return candidate.origin;
+  } catch {
+    /* Invalid origins use the callback-local fallback. */
+  }
+  return undefined;
 }

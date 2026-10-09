@@ -6,12 +6,15 @@ import { discoverScopedRuntime, probeLoadingSummary } from '@src/core/server/run
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { readProcessIdentity } from './processIdentity.js';
+
 describe('runtimeLifecycle', () => {
   const testConfigDir = path.join(process.cwd(), '.tmp-test-lifecycle');
   const testPidFilePath = getPidFilePath(testConfigDir);
 
   const baseInfo = (overrides: Partial<ServerPidInfo> = {}): ServerPidInfo => ({
     pid: process.pid,
+    processIdentity: readProcessIdentity(process.pid),
     url: 'http://localhost:3050/mcp',
     port: 3050,
     host: 'localhost',
@@ -42,6 +45,33 @@ describe('runtimeLifecycle', () => {
       const result = await discoverScopedRuntime(testConfigDir, async () => true);
       expect(result.status).toBe('not-running');
       expect(result.info).toBeNull();
+    });
+
+    it('rejects a reused PID without probing an unrelated process', async () => {
+      const identity = readProcessIdentity(process.pid)!;
+      writePidFile(
+        testConfigDir,
+        baseInfo({
+          processIdentity: { ...identity, startTime: identity.platform === 'darwin' ? 'old birth time' : '0' },
+        }),
+      );
+      const probe = vi.fn(async () => true);
+      expect((await discoverScopedRuntime(testConfigDir, probe)).status).toBe('not-running');
+      expect(probe).not.toHaveBeenCalled();
+    });
+
+    it('retains malformed identity metadata and reports an error', async () => {
+      fs.writeFileSync(testPidFilePath, JSON.stringify({ ...baseInfo(), processIdentity: { platform: 'linux' } }));
+      expect((await discoverScopedRuntime(testConfigDir, async () => true)).status).toBe('error');
+      expect(fs.existsSync(testPidFilePath)).toBe(true);
+    });
+
+    it('retains legacy metadata when the process incarnation is unknown', async () => {
+      fs.writeFileSync(testPidFilePath, JSON.stringify({ ...baseInfo(), processIdentity: undefined }));
+      const probe = vi.fn(async () => true);
+      expect((await discoverScopedRuntime(testConfigDir, probe)).status).toBe('error');
+      expect(fs.existsSync(testPidFilePath)).toBe(true);
+      expect(probe).not.toHaveBeenCalled();
     });
 
     describe('tier 1: dead process', () => {

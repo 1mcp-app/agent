@@ -27,6 +27,7 @@ const callbackQuerySchema = z.object({
   code: z.string().optional(),
   error: z.string().optional(),
   iss: z.string().optional(),
+  state: z.string().max(1024).optional(),
 });
 
 /**
@@ -92,6 +93,22 @@ export function createOAuthRoutes(
   /**
    * Handle OAuth callback and trigger reconnection
    */
+  // Commit a document on the initiating site before navigating to the Strict-cookie Admin session.
+  router.get('/return', (req: Request, res: Response) => {
+    const errors = ['access_denied', 'provider_error', 'missing_code', 'callback_failed', 'runtime_unavailable'];
+    const error =
+      typeof req.query.error === 'string' && errors.includes(req.query.error) ? req.query.error : 'callback_failed';
+    const path = req.query.success === '1' ? '/admin/oauth?success=1' : `/admin/oauth?error=${error}`;
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; base-uri 'none'; frame-ancestors 'none'");
+    res
+      .type('html')
+      .send(
+        `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${path}"><title>Returning to Admin Console</title></head><body><a href="${path}">Continue to Admin Console</a></body></html>`,
+      );
+  });
+
   router.get('/callback/:serverName', async (req: Request, res: Response) => {
     const { serverName } = req.params;
     try {
@@ -102,12 +119,20 @@ export function createOAuthRoutes(
       });
       if (result.status !== 'completed') {
         logger.error(`OAuth callback failed for ${serverName}:`, result.errorDescription);
-        const errorCode = result.status === 'provider_error' ? result.errorDescription : result.status;
-        return res.redirect(`/admin/oauth?error=${encodeURIComponent(errorCode)}`);
+        const errorCode =
+          result.status === 'provider_error' && result.errorDescription === 'access_denied'
+            ? 'access_denied'
+            : result.status;
+        const path = `/admin/oauth?error=${errorCode}`;
+        return res.redirect(
+          result.adminReturnOrigin ? `${result.adminReturnOrigin}/oauth/return?error=${errorCode}` : path,
+        );
       }
 
       // Redirect back to dashboard with success
-      res.redirect('/admin/oauth?success=1');
+      res.redirect(
+        result.adminReturnOrigin ? `${result.adminReturnOrigin}/oauth/return?success=1` : '/admin/oauth?success=1',
+      );
     } catch (error) {
       logger.error(`Error handling OAuth callback for ${serverName}:`, error);
       res.redirect('/admin/oauth?error=callback_failed');

@@ -1,6 +1,8 @@
+import fs from 'node:fs';
+
 import {
   cleanupPidFileIfMatches,
-  isProcessAlive,
+  getPidFilePath,
   PidFileReadError,
   readPidFile,
   ServerPidInfo,
@@ -8,6 +10,8 @@ import {
 import logger from '@src/logger/logger.js';
 
 import { z } from 'zod';
+
+import { inspectProcessIdentity } from './processIdentity.js';
 
 /**
  * Lifecycle module for the (Background) Aggregated Runtime.
@@ -22,14 +26,14 @@ import { z } from 'zod';
 /**
  * Discovered state of the runtime occupying a Runtime Scope.
  *
- * - `not-running`: no PID file, malformed PID file, or the recorded process is
- *   dead. The PID file is deleted in the dead-process case.
+ * - `not-running`: no PID file, or the recorded process incarnation is dead.
+ *   Matching stale metadata is deleted in the dead-process case.
  * - `unreachable`: the recorded process is alive but the readiness probe failed.
  *   The PID file is RETAINED — the runtime may be mid-startup or wedged, and
  *   deleting it would strand a real process.
  * - `running`: the recorded process is alive and the readiness probe succeeded.
- * - `error`: the PID file exists but cannot be read, so callers must fail
- *   closed instead of treating the scope as empty.
+ * - `error`: metadata is unreadable/malformed or incarnation evidence is
+ *   unavailable; callers fail closed and retain the metadata.
  */
 export type RuntimeStatus = 'not-running' | 'unreachable' | 'running' | 'error';
 
@@ -156,15 +160,30 @@ export async function discoverScopedRuntime(
   }
 
   if (!info) {
+    if (fs.existsSync(getPidFilePath(configDir))) {
+      return { status: 'error', info: null, error: 'Runtime PID metadata is malformed; retained for manual recovery.' };
+    }
     return { status: 'not-running', info: null };
   }
 
   // Tier 1: dead process → delete the stale PID file, report not-running.
   // Delete only if the file still records this dead PID: a newer runtime may
   // have replaced it between the read above and here, and we must not strand it.
-  if (!isProcessAlive(info.pid)) {
+  const identityStatus = inspectProcessIdentity(info.pid, info.processIdentity);
+  if (identityStatus === 'unknown') {
+    return {
+      status: 'error',
+      info: null,
+      error:
+        `Cannot verify process identity for Runtime Scope PID ${info.pid}; lifecycle metadata was retained.` +
+        (!info.processIdentity
+          ? ' A legacy PID record alone cannot establish recovery authority. Stop the original runtime using its original CLI or service manager; verify all scope participants have stopped before manual metadata cleanup.'
+          : ''),
+    };
+  }
+  if (identityStatus === 'dead') {
     logger.warn(`PID file points to dead process (PID: ${info.pid}); removing stale PID file`);
-    cleanupPidFileIfMatches(configDir, info.pid);
+    cleanupPidFileIfMatches(configDir, info);
     return { status: 'not-running', info: null };
   }
 

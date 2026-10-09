@@ -430,7 +430,7 @@ describe('MCP Enable/Disable Commands E2E', () => {
         args: ['--url', `http://127.0.0.1:${servePort}/mcp`, '--config-dir', environment.getConfigDir()],
       });
       runner.assertSuccess(enabledInspect);
-      runner.assertOutputContains(enabledInspect, 'qualifiedName: runner_1mcp_echo_args');
+      runner.assertOutputContains(enabledInspect, 'server: runner\ntool: echo_args');
     });
   });
 
@@ -655,7 +655,7 @@ describe('MCP Enable/Disable Commands E2E', () => {
       if (
         expectedState === 'enabled' &&
         result.exitCode === 0 &&
-        lastOutput.includes('qualifiedName: runner_1mcp_echo_args')
+        lastOutput.includes('server: runner\ntool: echo_args')
       ) {
         return;
       }

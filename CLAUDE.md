@@ -43,6 +43,10 @@ pnpm sea:build        # Create SEA bundle
 pnpm sea:binary       # Build binary for current platform
 ```
 
+## Verification and completion
+
+Use the repository's existing test framework, fixtures, and required quality gates. Diagnose failed checks and complete unaffected work. Report unresolved gates accurately; do not waive them or claim verification succeeded. "Verify" and "confirm" mean checking evidence unless an instruction explicitly requests human approval.
+
 ## Architecture Overview
 
 1MCP is a unified MCP server that aggregates multiple MCP servers into one endpoint. It acts as a proxy, managing servers as subprocesses and forwarding requests from AI assistants.
@@ -93,6 +97,14 @@ src/
 | Mock Factories    | `test/unit-utils/MockFactories.ts`                  |
 
 ## Development Conventions
+
+### Maintainable control flow
+
+- Make each branch express one decision. Prefer guard clauses and early returns over nested `if/else` chains.
+- Split conditions that mix several concerns or require mentally unpacking `&&`, `||`, and negation. Use sequential checks or a well-named domain predicate; keep the predicate itself straightforward.
+- Keep ordinary two-way `if/else` when it is clearer. Avoid nested ternaries and boolean flags that make one function perform different workflows.
+- Extract small functions around meaningful decisions or steps, not wrappers that merely hide a complicated expression. Do not replace simple branches with unnecessary dispatch tables, classes, or abstractions.
+- During refactoring, preserve validation, short-circuit order, side effects, and failure behavior. Review new or changed code against these rules and verify the affected behavior.
 
 ### Environment Variables
 

@@ -104,7 +104,7 @@ npx -y @1mcp/agent inspect filesystem --limit 20 --cursor next-page-token
 在以下情况使用 `inspect`：
 
 - 确认当前有哪些服务器可用
-- 找到工具的准确限定名
+- 找到工具的 server/tool 命令引用
 - 调用前查看工具的输入和输出 schema
 - 通过 JSON 输出构建自动化脚本
 - 让 agent 一次只关注工具面的一个局部
@@ -116,3 +116,9 @@ npx -y @1mcp/agent inspect filesystem --limit 20 --cursor next-page-token
 - **[Run 命令](./run.md)** - 在确认 schema 后调用工具
 - **[Serve 命令](./serve.md)** - 启动 `inspect` 所查询的 1MCP 服务器
 - **[配置深入指南](../guide/essentials/configuration.md)** - 包含 CLI 会话缓存等全局配置
+
+### 工具输出与分页
+
+CLI 使用 `server` 和 `tool` 标识工具；文本、JSON 和 TOON 输出不再显示冗余的 `qualifiedName` / `qualified_name` 字段。API 路由标识保持不变。
+
+即使上游忽略分页大小，`--limit` 也会限制当前页的工具数。`totalTools` 表示当前可见工具的完整数量，`hasMore` 和 `nextCursor` 表示后续工具。每次检查请求都会在有界遍历上游页面（最多 1,000 页）后执行本地分页。`--all` 返回剩余全部工具；不传游标时返回全部工具。游标绑定目标、筛选条件和工具清单。游标无效或过期时，请移除 `--cursor` 后重新开始。
