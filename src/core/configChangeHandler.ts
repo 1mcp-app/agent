@@ -96,8 +96,8 @@ export class ConfigChangeHandler {
 
     logger.info('configChangeHandler.processing.configuration.changes.76003a4f');
 
-    // Get the latest configuration for all operations
-    const newConfig = this.configManager.getTransportConfig();
+    // Include retained disabled definitions so lifecycle decisions use validated intent.
+    const newConfig = this.configManager.getTransportConfig({ includeDisabled: true });
 
     const appliedChanges: ConfigChange[] = [];
     for (const change of changes) {
