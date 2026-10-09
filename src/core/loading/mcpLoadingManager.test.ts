@@ -333,6 +333,83 @@ describe('McpLoadingManager', () => {
     });
   });
 
+  describe('queued initial loading cancellation', () => {
+    it('can disable a target as soon as initial loading is announced', async () => {
+      const controlledClient = {
+        ...clientManager,
+        createSingleClient: vi.fn(async (name: string) => {
+          clientManager._outboundConns.set(name, {});
+        }),
+      };
+      manager = new McpLoadingManager(controlledClient as never, { ...FAST_CONFIG, maxConcurrentLoads: 1 });
+      let unloaded: Promise<void> | undefined;
+      manager.on(McpLoadingEvent.LoadingStarted, () => {
+        unloaded = manager.unloadServer('target');
+      });
+      await manager.startAsyncLoading({ unaffected: makeFakeTransport(), target: makeFakeTransport() });
+      await unloaded;
+      await manager.waitForInitialLoading();
+
+      expect(controlledClient.createSingleClient.mock.calls.map(([name]) => name)).toEqual(['unaffected']);
+      expect(manager.getStateTracker().getServerState('target')).toBeUndefined();
+    });
+
+    it('keeps a re-enabled generation when its cancelled initial entry leaves the queue', async () => {
+      const firstLoad = makeDeferred();
+      const latestLoad = makeDeferred();
+      const initialTransports = { slow: makeFakeTransport(), target: makeFakeTransport() };
+      const latestTransport = makeFakeTransport();
+      const controlledClient = {
+        ...clientManager,
+        createSingleClient: vi.fn(async (name: string, transport: unknown) => {
+          if (name === 'slow') await firstLoad.promise;
+          if (transport === latestTransport) await latestLoad.promise;
+          clientManager._outboundConns.set(name, {});
+        }),
+      };
+      manager = new McpLoadingManager(controlledClient as never, { ...FAST_CONFIG, maxConcurrentLoads: 1 });
+      await manager.startAsyncLoading(initialTransports);
+      await vi.waitFor(() => expect(controlledClient.createSingleClient).toHaveBeenCalledTimes(1));
+      await manager.unloadServer('target');
+      mockCreateTransports.mockReturnValueOnce({ target: latestTransport });
+      const reenabled = manager.loadServer('target', makeServerConfig({ args: ['latest.js'] }));
+      firstLoad.resolve();
+      await manager.waitForInitialLoading();
+      await vi.waitFor(() => expect(controlledClient.createSingleClient).toHaveBeenCalledTimes(2));
+      expect(controlledClient.createSingleClient.mock.calls[1].slice(0, 2)).toEqual(['target', latestTransport]);
+      expect(manager.getCancellableServers()).toContain('target');
+      latestLoad.resolve();
+      await reenabled;
+
+      expect(manager.isServerReady('target')).toBe(true);
+      expect([...clientManager.getClients().keys()]).toEqual(['slow', 'target']);
+    });
+
+    it('does not start a disabled server when its initial queue slot becomes available', async () => {
+      const firstLoad = makeDeferred();
+      const initialTransports = { slow: makeFakeTransport(), disabled: makeFakeTransport() };
+      const controlledClient = {
+        ...clientManager,
+        createSingleClient: vi.fn(async (name: string) => {
+          if (name === 'slow') await firstLoad.promise;
+          clientManager._outboundConns.set(name, {});
+        }),
+      };
+      manager = new McpLoadingManager(controlledClient as never, { ...FAST_CONFIG, maxConcurrentLoads: 1 });
+      await manager.startAsyncLoading(initialTransports);
+      await vi.waitFor(() => expect(controlledClient.createSingleClient).toHaveBeenCalledTimes(1));
+      expect(manager.getStateTracker().getServerState('disabled')?.state).toBe(LoadingState.Pending);
+
+      await manager.unloadServer('disabled');
+      firstLoad.resolve();
+      await manager.waitForInitialLoading();
+
+      expect(controlledClient.createSingleClient.mock.calls.map(([name]) => name)).toEqual(['slow']);
+      expect(manager.getStateTracker().getServerState('disabled')).toBeUndefined();
+      expect([...clientManager.getClients().keys()]).toEqual(['slow']);
+    });
+  });
+
   // ── Race A: unloadServer cancels in-flight retry sleep ─────────────────────
 
   describe('Race A — unloadServer cancels in-flight load', () => {
