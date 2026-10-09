@@ -21,6 +21,10 @@ interface Identity {
   revision: string;
 }
 
+/**
+ * Probe whether the fixture's owned child still exists after a lifecycle change.
+ * Only an absent process is treated as stopped; other probe failures propagate.
+ */
 function alive(pid: number): boolean {
   try {
     process.kill(pid, 0);

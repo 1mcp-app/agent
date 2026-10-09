@@ -312,7 +312,8 @@ export class McpLoadingManager extends EventEmitter {
   }
 
   /**
-   * Load servers with concurrency control using ParallelExecutor
+   * Claim initial operations before announcing or queueing concurrent startup.
+   * Retain each operation's controller so unloading can cancel even queued entries.
    */
   private async loadServersWithConcurrency(transports: Record<string, AuthProviderTransport>): Promise<void> {
     const executor = new ParallelExecutor<[string, AuthProviderTransport, AbortController], void>();

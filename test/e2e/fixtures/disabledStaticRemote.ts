@@ -9,7 +9,10 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@src/sdk/legacy/t
 
 import express from 'express';
 
-/** A separately hosted backend: unloading the gateway must close streams, not this listener. */
+/**
+ * Start an independently hosted backend and expose its active stream count.
+ * Gateway unload must close those streams while the health listener stays alive.
+ */
 export async function startDisabledStaticRemote(type: 'http' | 'sse') {
   const app = express();
   app.use(express.json());
