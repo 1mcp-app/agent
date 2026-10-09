@@ -63,7 +63,7 @@ jobs:
         run: pnpm ci:static
 
       - name: Test maintenance release source selection
-        run: node --test test/release/maintenance-dispatch.test.cjs
+        run: node --test test/release/*.test.cjs
 
       # AUTH-07 gate: credential-file permission invariants (0600 files / 0700
       # dirs, fail-closed read+write) as a named, separately inspectable step.

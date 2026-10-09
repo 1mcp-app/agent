@@ -161,6 +161,7 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository }}
+          flavor: latest=false
           tags: |
             type=raw,value=${{ steps.raw-tag.outputs.docker_tag }},enable=${{ steps.raw-tag.outputs.publish_raw_tag == 'true' }}
             type=semver,pattern=v{{version}}${{ matrix.suffix }},value=${{ inputs.version_tag }}
