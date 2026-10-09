@@ -12,6 +12,10 @@ on:
         description: 'Release version: X.Y.Z or X.Y.Z-<prerelease>.'
         required: true
         type: string
+      repair_container_latest_run_id:
+        description: 'Alias repair only: successful original 0.38 release run; leave empty for publication.'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -22,6 +26,7 @@ concurrency:
 
 jobs:
   validate:
+    if: inputs.repair_container_latest_run_id == ''
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -143,3 +148,30 @@ jobs:
             exit 1
           fi
           echo "Created ${EXPECTED_RELEASE_BRANCH} at ${RELEASE_SHA}."
+
+  repair-container-latest:
+    if: inputs.repair_container_latest_run_id != ''
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v4
+      - name: Validate original release and retained platform digests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_RUN_ID: ${{ inputs.repair_container_latest_run_id }}
+          VERSION: ${{ inputs.version }}
+        run: node scripts/repair-container-latest.cjs validate
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Promote the verified immutable extended manifest
+        run: node scripts/repair-container-latest.cjs promote

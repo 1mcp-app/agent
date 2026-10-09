@@ -33,6 +33,23 @@ describe('release-pipeline workflow', () => {
     expect(jobs.release.needs).toEqual(expect.arrayContaining(['binaries', 'docker']));
   });
 
+  it('prevents implicit latest tags from letting the lite manifest overwrite the extended channel', () => {
+    const { jobs } = parse(fs.readFileSync('.github/workflows/build-docker-images.yml', 'utf8'));
+    const metadata = jobs.docker.steps.find((step: { id?: string }) => step.id === 'meta');
+    expect(metadata.with.flavor).toBe('latest=false');
+    expect(metadata.with.tags).toContain("enable=${{ steps.raw-tag.outputs.publish_raw_tag == 'true' }}");
+  });
+
+  it('keeps immutable alias repair separate from version rewriting and publication', () => {
+    const { jobs } = parse(readReleasePipelineWorkflow());
+    expect(jobs.validate.if).toBe("inputs.repair_container_latest_run_id == ''");
+    expect(jobs['repair-container-latest'].if).toBe("inputs.repair_container_latest_run_id != ''");
+    expect(jobs['repair-container-latest'].environment).toBe('release');
+    expect(
+      jobs['repair-container-latest'].steps.some((step: { run?: string }) => step.run?.includes('pnpm build')),
+    ).toBe(false);
+  });
+
   it('creates the release branch for prereleases that run from main', () => {
     const workflow = readReleasePipelineWorkflow();
     const finalizeJob = workflow.match(/\n\s{2}finalize:\n(?<body>(?:\s{4}.*\n)+)/)?.groups?.body;
