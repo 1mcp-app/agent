@@ -64,6 +64,14 @@ describe('publish-to-npm workflow', () => {
     expect(JSON.parse(result.stdout).sha).toBe(sha);
     expect(environment.RELEASE_SHA).toBe(sha);
   });
+  it('excludes tags on other release branches when rendering the resolved changelog range', () => {
+    const generate = workflow.jobs.publish.steps.find(
+      (item: { name?: string }) => item.name === 'Generate release changelog',
+    );
+    expect(generate.with.args).toContain('--use-branch-tags');
+    expect(generate.with.args).toContain('${{ steps.release-notes-range.outputs.range }}');
+    expect(generate.with.args).toContain('${{ steps.release-notes-range.outputs.tag_filter_args }}');
+  });
   it('promotes only after required versioned publications, preserving protected paths and partial evidence', () => {
     expect(workflow.jobs.promote.needs).toBe('publish');
     expect(workflow.jobs.promote.environment).toBe('release');
