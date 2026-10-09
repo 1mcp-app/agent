@@ -49,6 +49,8 @@ describe('Disabled Static Server real stdio lifecycle', () => {
           target: definition('original'),
           unaffected: definition('unaffected'),
           initial: definition('initial', true),
+          // Retain this definition last so its MODIFIED lifecycle marker follows the disabled edits.
+          reloadWitness: definition('disabled-edit-applied', true),
         },
       };
       const save = () => fs.writeFileSync(configPath, JSON.stringify(config));
@@ -149,9 +151,13 @@ describe('Disabled Static Server real stdio lifecycle', () => {
 
         config.mcpServers.target = definition('latest', true);
         config.mcpServers.initial = definition('initial-edit', true);
+        config.mcpServers.reloadWitness.disabled = false;
         save();
-        // Wait past the existing watcher debounce to observe editing a still-disabled definition.
-        await new Promise((resolve) => setTimeout(resolve, 1500));
+        // This backend can become callable only after the lifecycle handler applies this save.
+        await vi.waitFor(
+          async () => expect((await identity('reloadWitness_1mcp_identity')).revision).toBe('disabled-edit-applied'),
+          { timeout: 15000, interval: 100 },
+        );
         expect((await client.listTools()).tools.some(({ name }) => /^(target|initial)_/.test(name))).toBe(false);
         config.mcpServers.target.disabled = false;
         save();
