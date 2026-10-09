@@ -547,6 +547,8 @@ trust = "verified"
 
 控制配置文件热重载行为以实现无缝更新。
 
+启用热重载后，将 `mcp.json` 中静态服务器的 `disabled` 设为 `true` 会保留其定义并卸载运行时连接。该服务器的工具、资源和提示词将不可用；由 1MCP 启动的 stdio 子进程会停止，独立托管的 HTTP/SSE 服务则继续运行。设回 `disabled: false` 会加载最新配置，无需重启 1MCP。初始禁用的服务器保持未加载状态。客户端能力变更通知遵循 `--enable-client-notifications` 设置。
+
 **`--enable-config-reload`**
 
 - **用途**：启用配置文件热重载
