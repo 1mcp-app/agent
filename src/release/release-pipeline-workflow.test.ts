@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 
 function readReleasePipelineWorkflow(): string {
   return fs
@@ -17,6 +18,19 @@ describe('release-pipeline workflow', () => {
     expect(ciJob).toBeDefined();
     expect(ciJob).toContain('uses: ./.github/workflows/test-and-validate.yml');
     expect(ciJob).not.toContain('run_e2e:');
+  });
+
+  it('validates the final versioned source before either publication lane starts', () => {
+    const { jobs, on } = parse(readReleasePipelineWorkflow());
+    expect(on.workflow_dispatch.inputs.target_ref.default).toBe('');
+    expect(jobs['update-version'].needs).toBe('validate');
+    expect(jobs.ci.needs).toEqual(['validate', 'update-version']);
+    expect(jobs.ci.with.checkout_ref).toBe('${{ needs.update-version.outputs.release_sha }}');
+    for (const lane of ['binaries', 'docker']) {
+      expect(jobs[lane].needs).toContain('ci');
+      expect(jobs[lane].with.release_sha).toBe('${{ needs.update-version.outputs.release_sha }}');
+    }
+    expect(jobs.release.needs).toEqual(expect.arrayContaining(['binaries', 'docker']));
   });
 
   it('creates the release branch for prereleases that run from main', () => {

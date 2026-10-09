@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       target_ref:
-        description: 'Release source branch: main or release-<major>.<minor>.'
-        required: true
-        default: main
+        description: 'Release source: defaults to the selected workflow branch; maintenance dispatches must match.'
+        required: false
+        default: ''
         type: string
       version:
         description: 'Release version: X.Y.Z or X.Y.Z-<prerelease>.'
@@ -18,7 +18,7 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.inputs.version }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   validate:
@@ -47,15 +47,15 @@ jobs:
           VERSION: ${{ inputs.version }}
 
   ci:
-    needs: validate
+    needs: [validate, update-version]
     uses: ./.github/workflows/test-and-validate.yml
     with:
-      checkout_ref: refs/heads/${{ needs.validate.outputs.release_ref }}
+      checkout_ref: ${{ needs.update-version.outputs.release_sha }}
     permissions:
       contents: read
 
   update-version:
-    needs: [validate, ci]
+    needs: validate
     uses: ./.github/workflows/update-version.yml
     with:
       release_ref: ${{ needs.validate.outputs.release_ref }}
@@ -64,7 +64,7 @@ jobs:
       contents: write
 
   binaries:
-    needs: [validate, update-version]
+    needs: [validate, update-version, ci]
     uses: ./.github/workflows/build-binaries.yml
     with:
       release_ref: ${{ needs.validate.outputs.release_ref }}
@@ -75,7 +75,7 @@ jobs:
       contents: write
 
   docker:
-    needs: [validate, update-version]
+    needs: [validate, update-version, ci]
     uses: ./.github/workflows/build-docker-images.yml
     with:
       release_ref: ${{ needs.validate.outputs.release_ref }}
