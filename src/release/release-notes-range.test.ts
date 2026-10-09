@@ -89,6 +89,20 @@ describe('resolveReleaseNotesRange', () => {
     });
   });
 
+  it('ignores a newer stable tag on an unmerged maintenance branch', () => {
+    const { cwd, releaseSha } = createStableAfterPrereleasesFixtureRepository();
+    git(cwd, ['checkout', '-b', 'release-1.2', 'v1.2.3']);
+    commitFile(cwd, 'maintenance patch', 'fix: maintenance patch');
+    git(cwd, ['tag', 'v1.2.4']);
+    git(cwd, ['checkout', 'main']);
+
+    expect(resolveReleaseNotesRange({ cwd, versionTag: 'v1.3.0', releaseSha })).toEqual({
+      previousTag: 'v1.2.3',
+      range: `v1.2.3..${releaseSha}`,
+      tagFilterArgs: "--ignore-tags '^v.*-?(alpha|beta|rc|preview|next)[-.0-9]+.*$'",
+    });
+  });
+
   it.each([
     ['1.3.0', '0123456789abcdef0123456789abcdef01234567', 'version_tag must be a v-prefixed semver tag.'],
     ['v1.3.0', 'not-a-sha', 'release_sha must be a 40-character lowercase hexadecimal commit SHA.'],

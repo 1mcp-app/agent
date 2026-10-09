@@ -111,7 +111,7 @@ jobs:
         id: git-cliff
         with:
           config: cliff-release.toml
-          args: --tag ${{ inputs.version_tag }} --strip header ${{ steps.release-notes-range.outputs.tag_filter_args }} ${{ steps.release-notes-range.outputs.range }}
+          args: --use-branch-tags --tag ${{ inputs.version_tag }} --strip header ${{ steps.release-notes-range.outputs.tag_filter_args }} ${{ steps.release-notes-range.outputs.range }}
         env:
           GITHUB_REPO: ${{ github.repository }}
 
