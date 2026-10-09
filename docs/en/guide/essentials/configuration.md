@@ -553,6 +553,8 @@ Using `legacy` with a non-loopback HTTP host also requires `--confirm-untrusted-
 
 Control configuration file hot-reload behavior for seamless updates.
 
+With hot reload enabled, setting `disabled: true` on a static server in `mcp.json` retains its definition and unloads its runtime connection. Its tools, resources, and prompts become unavailable; an owned stdio child is stopped, while independently hosted HTTP/SSE services keep running. Setting `disabled: false` loads the latest configuration without restarting 1MCP. Initially disabled servers remain unloaded. Client capability-change notifications follow `--enable-client-notifications`.
+
 **`--enable-config-reload`**
 
 - **Purpose**: Enable configuration file hot-reload
