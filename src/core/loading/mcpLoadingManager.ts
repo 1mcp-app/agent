@@ -181,9 +181,6 @@ export class McpLoadingManager extends EventEmitter {
     }
 
     logger.info('mcpLoadingManager.starting.async.loading.of.mcp.servers.b40171ec');
-    this.stateTracker.startLoading(serverNames);
-    this.emit(McpLoadingEvent.LoadingStarted, serverNames);
-
     // Start loading servers with concurrency control
     this.initialLoadingPromise = this.loadServersWithConcurrency(transports);
     // Existing callers start loading without waiting; keep rejection observed while
@@ -318,19 +315,26 @@ export class McpLoadingManager extends EventEmitter {
    * Load servers with concurrency control using ParallelExecutor
    */
   private async loadServersWithConcurrency(transports: Record<string, AuthProviderTransport>): Promise<void> {
-    const executor = new ParallelExecutor<[string, AuthProviderTransport], void>();
-    const serverEntries = Object.entries(transports);
-
-    await executor.execute(
-      serverEntries,
-      async ([name, transport]) => {
-        if (this.isShuttingDown) return;
-
+    const executor = new ParallelExecutor<[string, AuthProviderTransport, AbortController], void>();
+    // Claim every initial operation before enqueueing, including servers waiting for a worker.
+    const serverEntries = Object.entries(transports).map<[string, AuthProviderTransport, AbortController]>(
+      ([name, transport]) => {
         this.cancelServerOperation(name);
         const opController = new AbortController();
         this.serverOpAbortControllers.set(name, opController);
+        return [name, transport, opController];
+      },
+    );
 
+    this.stateTracker.startLoading(Object.keys(transports));
+    this.emit(McpLoadingEvent.LoadingStarted, Object.keys(transports));
+
+    await executor.execute(
+      serverEntries,
+      async ([name, transport, opController]) => {
         try {
+          if (this.isShuttingDown) return;
+          if (opController.signal.aborted) return;
           await this.loadSingleServer(name, transport, opController.signal);
         } finally {
           if (this.serverOpAbortControllers.get(name) === opController) {
