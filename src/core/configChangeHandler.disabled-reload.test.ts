@@ -66,10 +66,12 @@ describe('Disabled Static Server validated reload handoff', () => {
   const backend: MCPServerParams = { type: 'stdio', command: 'node', args: ['original.js'] };
   const unaffected: MCPServerParams = { type: 'stdio', command: 'node', args: ['unaffected.js'] };
 
+  /** Persist server definitions through the public configuration boundary. */
   async function save(servers: Record<string, MCPServerParams>) {
     await writeFile(configPath, JSON.stringify({ mcpServers: servers }));
   }
 
+  /** Apply a saved configuration and wait for its reload handoff to finish. */
   async function reload(servers: Record<string, MCPServerParams>) {
     await save(servers);
     await manager.reloadConfig();
