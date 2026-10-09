@@ -622,7 +622,9 @@ export class ConfigManager extends EventEmitter {
     }
   }
 
-  public getTransportConfig(): Record<string, MCPServerParams> {
+  public getTransportConfig(options: { includeDisabled?: boolean } = {}): Record<string, MCPServerParams> {
+    // Lifecycle reconciliation needs retained, validated disable intent; startup stays enabled-only.
+    if (options.includeDisabled) return { ...this.transportConfig };
     return this.loader.getTransportConfig(this.transportConfig);
   }
 
