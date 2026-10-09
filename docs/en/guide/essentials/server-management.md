@@ -145,6 +145,33 @@ npx -y @1mcp/agent mcp add remote-api --type=http --url="https://mcp.example.com
 - **Custom Headers**: Add custom HTTP headers for authentication or other purposes.
 - **Endpoint Configuration**: Configure the remote MCP endpoint and its request headers.
 
+#### Example: keyless web search with Parallel
+
+[Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp) provides `web_search` and `web_fetch` over Streamable HTTP without an API key. The free endpoint is intended for exploration and light use and has rate limits.
+
+Add it as an optional server using the existing HTTP transport:
+
+```bash
+npx -y @1mcp/agent mcp add parallel-search --type=http --url=https://search.parallel.ai/mcp --tags=search,web
+```
+
+Start your runtime with `npx -y @1mcp/agent serve` (or use your already running runtime with configuration reload enabled). In another terminal, inspect the tools and make a search:
+
+```bash
+npx -y @1mcp/agent inspect parallel-search
+npx -y @1mcp/agent inspect parallel-search/web_search
+npx -y @1mcp/agent run parallel-search/web_search --args '{"objective":"Find the official Model Context Protocol introduction","search_queries":["Model Context Protocol introduction"],"session_id":"d28009e5-4529-4eb7-8433-9e91f58a5b76"}'
+```
+
+You should see `web_search` and `web_fetch` in the tool list, and search results containing URLs and excerpts. If you need more detail from a page, inspect and call the fetch tool:
+
+```bash
+npx -y @1mcp/agent inspect parallel-search/web_fetch
+npx -y @1mcp/agent run parallel-search/web_fetch --args '{"urls":["https://modelcontextprotocol.io/introduction"],"objective":"Explain what Model Context Protocol is","session_id":"d28009e5-4529-4eb7-8433-9e91f58a5b76"}'
+```
+
+Generate a new UUID for each conversation and reuse it as `session_id` across related search and fetch calls. Fetch output includes page content or a per-URL error. Adding this server preserves your existing server entries. See [CLI mode](/guide/integrations/cli-mode) for client setup and [server filtering](/guide/advanced/server-filtering) to control which clients can access it.
+
 ### SSE Transport (Deprecated)
 
 Server-Sent Events is a deprecated transport type. It is recommended to use the HTTP transport instead.

@@ -133,6 +133,33 @@ npx -y @1mcp/agent mcp add remote-api --type=http --url="https://mcp.example.com
 - **自定义标头**：添加自定义 HTTP 标头用于身份验证或其他目的。
 - **端点配置**：配置远程 MCP 端点及其请求标头。
 
+#### 示例：使用 Parallel 进行免密钥网页搜索
+
+[Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp) 通过可流式 HTTP 提供 `web_search` 和 `web_fetch`，无需 API 密钥。免费端点适合探索和轻量使用，并有速率限制。
+
+使用现有的 HTTP 传输添加此可选服务器：
+
+```bash
+npx -y @1mcp/agent mcp add parallel-search --type=http --url=https://search.parallel.ai/mcp --tags=search,web
+```
+
+运行 `npx -y @1mcp/agent serve` 启动运行时（也可使用已启用配置热重载的现有运行时）。在另一个终端中查看工具并执行搜索：
+
+```bash
+npx -y @1mcp/agent inspect parallel-search
+npx -y @1mcp/agent inspect parallel-search/web_search
+npx -y @1mcp/agent run parallel-search/web_search --args '{"objective":"Find the official Model Context Protocol introduction","search_queries":["Model Context Protocol introduction"],"session_id":"d28009e5-4529-4eb7-8433-9e91f58a5b76"}'
+```
+
+工具列表应包含 `web_search` 和 `web_fetch`，搜索结果应包含网址和内容摘录。如果需要网页的更多细节，可查看并调用抓取工具：
+
+```bash
+npx -y @1mcp/agent inspect parallel-search/web_fetch
+npx -y @1mcp/agent run parallel-search/web_fetch --args '{"urls":["https://modelcontextprotocol.io/introduction"],"objective":"Explain what Model Context Protocol is","session_id":"d28009e5-4529-4eb7-8433-9e91f58a5b76"}'
+```
+
+为每次对话生成新的 UUID，并在相关搜索和抓取调用中复用同一个 `session_id`。抓取结果包含网页内容或各网址对应的错误。添加此服务器会保留现有服务器条目。客户端设置请参阅 [CLI 模式](/zh/guide/integrations/cli-mode)，访问控制请参阅 [服务器过滤](/zh/guide/advanced/server-filtering)。
+
 ### SSE 传输（已弃用）
 
 Server-Sent Events 是已弃用的传输类型。建议改用 HTTP 传输。
