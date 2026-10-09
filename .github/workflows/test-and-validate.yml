@@ -62,6 +62,9 @@ jobs:
       - name: Validate static checks
         run: pnpm ci:static
 
+      - name: Test maintenance release source selection
+        run: node --test test/release/maintenance-dispatch.test.cjs
+
       # AUTH-07 gate: credential-file permission invariants (0600 files / 0700
       # dirs, fail-closed read+write) as a named, separately inspectable step.
       - name: Security permission gate (ticket-05)

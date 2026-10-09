@@ -18,7 +18,7 @@ on:
 
 concurrency:
   group: version-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   HUSKY: 0

@@ -73,7 +73,14 @@ function resolveNpmTag(releaseChannel) {
   return NEXT_NPM_CHANNEL_REGEX.test(releaseChannel) ? 'next' : releaseChannel;
 }
 
-function validateReleaseInputs({ targetRef, version, tagExists = defaultTagExists }) {
+function validateReleaseInputs({ targetRef, dispatchRef, version, tagExists = defaultTagExists }) {
+  targetRef = targetRef || dispatchRef;
+  if (dispatchRef && dispatchRef !== 'main' && !RELEASE_REF_REGEX.test(dispatchRef)) {
+    throw new Error('dispatch source must be main or release-<major>.<minor>.');
+  }
+  if (RELEASE_REF_REGEX.test(dispatchRef) && targetRef !== dispatchRef) {
+    throw new Error('target_ref must match the maintenance dispatch source.');
+  }
   if (targetRef !== 'main' && !RELEASE_REF_REGEX.test(targetRef)) {
     throw new Error('target_ref must be main or release-<major>.<minor>.');
   }
@@ -121,13 +128,13 @@ function writeGitHubOutputs(outputs, outputPath) {
 if (require.main === module) {
   const [targetRef, version] = process.argv.slice(2);
 
-  if (!targetRef || !version) {
+  if ((!targetRef && !process.env.GITHUB_REF_NAME) || !version) {
     console.error('Usage: node scripts/validate-release-inputs.cjs <target_ref> <version>');
     process.exit(1);
   }
 
   try {
-    const outputs = validateReleaseInputs({ targetRef, version });
+    const outputs = validateReleaseInputs({ targetRef, dispatchRef: process.env.GITHUB_REF_NAME, version });
     const githubOutput = process.env.GITHUB_OUTPUT;
 
     if (githubOutput) {
