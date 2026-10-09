@@ -5,9 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.39.0-beta.5] - 2026-10-07
+## [0.39.0] - 2026-10-09
 
 ### 🚀 Features
+- Add pull request and documentation templates by @xizhibei
 - Upgrade released SDK and verify cross-era compatibility by @xizhibei in [#604](https://github.com/1mcp-app/agent/pull/604)
 - Protect inbound OAuth credentials with shared native storage by @xizhibei in [#600](https://github.com/1mcp-app/agent/pull/600)
 - Add native upstream OAuth credential storage by @xizhibei in [#589](https://github.com/1mcp-app/agent/pull/589)
@@ -23,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enforce isolated multi-dialect validation by @xizhibei in [#535](https://github.com/1mcp-app/agent/pull/535)
 
 ### 🐛 Bug Fixes
+- Unload disabled static servers during hot reload by @xizhibei in [#623](https://github.com/1mcp-app/agent/pull/623)
 - Tolerate delayed npm channel readback by @xizhibei in [#620](https://github.com/1mcp-app/agent/pull/620)
 - Streamline candidate builds and validated recovery by @xizhibei in [#619](https://github.com/1mcp-app/agent/pull/619)
 - Bound SSE input and terminate overflow without replay by @xizhibei in [#617](https://github.com/1mcp-app/agent/pull/617)
@@ -1242,7 +1244,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * @xizhibei made their first contribution in [#1](https://github.com/1mcp-app/agent/pull/1)
 * @dependabot[bot] made their first contribution
 
-[0.39.0-beta.5]: https://github.com/1mcp-app/agent/compare/v0.38.2..v0.39.0-beta.5
+[0.39.0]: https://github.com/1mcp-app/agent/compare/v0.38.2..v0.39.0
 [0.38.2]: https://github.com/1mcp-app/agent/compare/v0.38.1..v0.38.2
 [0.38.1]: https://github.com/1mcp-app/agent/compare/v0.38.0..v0.38.1
 [0.38.0]: https://github.com/1mcp-app/agent/compare/v0.37.0..v0.38.0
