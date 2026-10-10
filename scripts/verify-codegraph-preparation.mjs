@@ -455,19 +455,23 @@ try {
   await checked('real-native-cancellation-and-deadline', async () => {
     for (const mode of ['cancel', 'deadline']) {
       const root = path.join(fixture, mode);
+      const sourceFiles = mode === 'deadline' ? 20000 : 2000;
+      const functionsPerFile = mode === 'deadline' ? 5 : 1;
       await mkdir(path.join(root, 'src'), { recursive: true });
       await git(root, 'init', '-q');
-      for (let batch = 0; batch < 20; batch += 1)
+      for (let batch = 0; batch < sourceFiles / 100; batch += 1)
         await Promise.all(
           Array.from({ length: 100 }, (_, offset) => {
             const i = batch * 100 + offset;
-            return writeFile(
-              path.join(root, 'src', `probe${i}.ts`),
-              `export function NativeStopFixture${i}(v: number) { return v + ${i}; }\n`,
-            );
+            const content = Array.from({ length: functionsPerFile }, (_, fn) => {
+              const suffix = fn === 0 ? '' : `Part${fn}`;
+              return `export function NativeStopFixture${i}${suffix}(v: number) { return v + ${i}; }\n`;
+            }).join('');
+            return writeFile(path.join(root, 'src', `probe${i}.ts`), content);
           }),
         );
       const controller = new AbortController();
+      const started = performance.now();
       const work = runCodeGraphWorker(installation, root, 'initialize', {
         signal: controller.signal,
         executionDeadlineMs: mode === 'deadline' ? 1500 : 120000,
@@ -475,14 +479,13 @@ try {
       // Attach rejection observation immediately, while waiting for a verified
       // nonce-owned native writer record to prove a live indexing process.
       const observed = work.then(
-        () => ({ success: true }),
+        (result) => ({ success: true, result }),
         (error) => ({ error }),
       );
       const pid = await waitForWriter(root);
       if (mode === 'cancel') controller.abort();
       const outcome = await observed;
-      assert.equal(outcome.error?.code, mode === 'cancel' ? 'cancelled' : 'deadline_exceeded');
-      assert.throws(() => process.kill(pid, 0), 'Cancellation must resolve after actual native child exit.');
+      const elapsedMs = performance.now() - started;
       const retained = [];
       for (const name of ['writer.pid', 'rebuild.pid', 'codegraph.lock']) {
         if (
@@ -499,6 +502,41 @@ try {
           `${mode}: forced exit retained native locks; explicit manual ownership reconciliation is required before further preparation.`,
         );
       report[`${mode}NativePid`] = pid;
+      let pidState = 'alive';
+      try {
+        process.kill(pid, 0);
+      } catch (error) {
+        pidState = error.code === 'ESRCH' ? 'absent' : `probe-error: ${error.code || error.message}`;
+      }
+      const diagnostic = {
+        mode,
+        root,
+        sourceSize: await countedSource(root),
+        functionsPerFile,
+        executionDeadlineMs: mode === 'deadline' ? 1500 : 120000,
+        outcome: {
+          success: outcome.success === true,
+          result: outcome.result ?? null,
+          error: outcome.error
+            ? { code: outcome.error.code ?? null, message: outcome.error.message || String(outcome.error) }
+            : null,
+        },
+        elapsedMs,
+        pid,
+        pidState,
+        retainedNativeLocks: retained,
+      };
+      report.nativeStopOutcomes ??= {};
+      report.nativeStopOutcomes[mode] = diagnostic;
+      // Save the observed result before assertions: even a too-fast successful
+      // native index or a failed PID check must leave complete fixture evidence.
+      await writeFile(
+        path.join(reportDirectory, `codegraph-${mode}-outcome-${Date.now()}.json`),
+        JSON.stringify(diagnostic, null, 2) + '\n',
+      );
+      assert.equal(outcome.error?.code, mode === 'cancel' ? 'cancelled' : 'deadline_exceeded');
+      assert.equal(pidState, 'absent', 'Cancellation must complete only after the observed native child exit.');
+      assert.throws(() => process.kill(pid, 0), 'Cancellation must resolve after actual native child exit.');
     }
   });
   report.sourceSize = {};
