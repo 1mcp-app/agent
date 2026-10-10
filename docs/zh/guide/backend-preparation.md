@@ -33,7 +33,7 @@ description: 启用有边界的 CodeGraph 索引准备，查看就绪状态，�
 { "preparation": { "codegraph": { "enabled": true } } }
 ```
 
-未启用时，不自动准备。显式 `prepare` 仍遵守运行时操作权限与目标权限。关联 worktree 可继承主副本的偏好；本地文件会整体替换继承配置，创建时请保留其他需要的设置。参见[工作副本与项目集合](./project-checkouts.md)。
+未启用时，不自动准备。显式 `prepare` 仍遵守运行时操作权限与目标权限。关联 worktree 可继承主副本的偏好；本地文件会整体替换继承配置，创建时请保留其他需要的设置。参见[工作副本与项目集合](/zh/guide/project-checkouts)。
 
 初始化和增量同步不隐含授权全量重建、安装依赖或付费操作。本适配器验证的操作是 `initialize` 与 `sync`；格式不兼容或中断的索引可能需要另行验证的恢复流程。
 
@@ -75,12 +75,13 @@ description: 启用有边界的 CodeGraph 索引准备，查看就绪状态，�
 ```bash
 1mcp preparation status codegraph --project /work/frontend --format json
 1mcp prepare codegraph --project /work/frontend --format json
-1mcp preparation wait codegraph <operation-id> --project /work/frontend --wait-ms 5000
-1mcp preparation cancel codegraph <operation-id> --project /work/frontend
-1mcp preparation retry codegraph <operation-id> --project /work/frontend
+OPERATION_ID='operation-id-from-prepare-response'
+1mcp preparation wait codegraph "$OPERATION_ID" --project /work/frontend --wait-ms 5000
+1mcp preparation cancel codegraph "$OPERATION_ID" --project /work/frontend
+1mcp preparation retry codegraph "$OPERATION_ID" --project /work/frontend
 ```
 
-使用操作 ID 时，保持相同的工作副本、运行时选择与认证。ID 绑定已授权目标和调用者，其他调用者的 ID 不授予查看或取消权限。不带 ID 的 `status` 检查当前就绪状态；不带 ID 的 `retry` 可在运行时重启后协调保留的失败。准备要求已验证的本地工作副本上下文，保留现有认证、授权与过滤边界，不签发新的远程信任。
+将示例 `OPERATION_ID` 值替换为 `prepare` 返回的 ID。使用操作 ID 时，保持相同的工作副本、运行时选择与认证。ID 绑定已授权目标和调用者，其他调用者的 ID 不授予查看或取消权限。不带 ID 的 `status` 检查当前就绪状态；不带 ID 的 `retry` 可在运行时重启后协调保留的失败。准备要求已验证的本地工作副本上下文，保留现有认证、授权与过滤边界，不签发新的远程信任。
 
 保存的项目集合可使用 `--project-set /work/projects.json --project frontend`。逐个准备成员；选择多个成员不会将单项目后端操作自动分发到每个成员。
 
@@ -119,14 +120,14 @@ maxRecords = 1024
 
 ## 已验证的原生测量
 
-2026-10-11 在 Darwin arm64、Git 2.52、CodeGraph 1.6.2 上，通过已初始化的 HTTP/SSE 以及 2026-07-28 请求流程完成验证。冷启动样本包含 20,000 个源文件，每个文件五个函数，源码约 10 MB。
+2026-10-11（Asia/Shanghai，对应 UTC 2026-10-10）在 Darwin arm64、Git 2.52、CodeGraph 1.6.2 上，通过已初始化的 HTTP/SSE 以及 2026-07-28 请求流程完成验证。冷启动样本包含 20,000 个源文件，每个文件五个函数，源码约 10 MB。
 
 | 观察项                                | 测量结果                                   |
 | ------------------------------------- | ------------------------------------------ |
 | 冷启动索引 / 后续就绪验证             | 13.97 秒 / 5.47 秒，共用 120 秒后台预算    |
 | 前台待准备响应 / 索引期间无关就绪工具 | 5.14 秒 / 98 毫秒                          |
 | 热路径原生就绪检查                    | 30 次检查，中位数 27 毫秒，范围 17–58 毫秒 |
-| 十轮 HTTP 状态查询与工具调用 | 6.32 秒；未新增准备任务或完整检查          |
+| 十轮 HTTP 状态查询与工具调用          | 6.32 秒；未新增准备任务或完整检查          |
 | 另外 18 个目标的默认调度              | 一个活动任务、16 个排队任务、两个忙碌响应  |
 
 同一个已初始化客户端收到目录变化通知，并查询到选定源码。关联及独立工作副本、即时编辑、分支切换、等待者断开、取消和外部锁协调均通过验证。显式配置的 1 秒执行期限停止了拥有的索引进程。随后显式增加至 120 秒，`initialize`/`sync` 权限仍拒绝需要重建的恢复，保留数据库且未启动新写入进程。

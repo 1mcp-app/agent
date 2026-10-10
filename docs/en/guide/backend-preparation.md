@@ -33,7 +33,7 @@ In the effective `.1mcprc`, enable automatic preparation by **configured server 
 { "preparation": { "codegraph": { "enabled": true } } }
 ```
 
-Without this opt-in, automatic preparation is disabled. An explicit `prepare` command still obeys runtime-owned actions and target permissions. Linked worktrees can inherit the main checkout's preferences; a local file replaces the inherited configuration as a whole. Retain other desired settings when creating that local file. See [project checkouts and sets](./project-checkouts.md).
+Without this opt-in, automatic preparation is disabled. An explicit `prepare` command still obeys runtime-owned actions and target permissions. Linked worktrees can inherit the main checkout's preferences; a local file replaces the inherited configuration as a whole. Retain other desired settings when creating that local file. See [project checkouts and sets](/guide/project-checkouts).
 
 Full rebuilds, dependency installation, and paid operations are not granted by initial indexing or incremental synchronization. This verified adapter supports `initialize` and `sync`; incompatible or interrupted indexes can require a separately verified recovery procedure.
 
@@ -75,12 +75,13 @@ These commands use the selected Aggregated Runtime directly and remain reachable
 ```bash
 1mcp preparation status codegraph --project /work/frontend --format json
 1mcp prepare codegraph --project /work/frontend --format json
-1mcp preparation wait codegraph <operation-id> --project /work/frontend --wait-ms 5000
-1mcp preparation cancel codegraph <operation-id> --project /work/frontend
-1mcp preparation retry codegraph <operation-id> --project /work/frontend
+OPERATION_ID='operation-id-from-prepare-response'
+1mcp preparation wait codegraph "$OPERATION_ID" --project /work/frontend --wait-ms 5000
+1mcp preparation cancel codegraph "$OPERATION_ID" --project /work/frontend
+1mcp preparation retry codegraph "$OPERATION_ID" --project /work/frontend
 ```
 
-Retain the same checkout, runtime selection, and authentication when using an operation ID. IDs are bound to the authorized target and caller; another caller's ID does not grant status or cancellation authority. `status` without an ID inspects current readiness. `retry` without an ID can reconcile a retained failure after runtime restart. Preparation requires verified local checkout context and preserves existing authentication, authorization, and filters; it issues no new remote trust.
+Replace the example `OPERATION_ID` value with the ID returned by `prepare`. Retain the same checkout, runtime selection, and authentication when using an operation ID. IDs are bound to the authorized target and caller; another caller's ID does not grant status or cancellation authority. `status` without an ID inspects current readiness. `retry` without an ID can reconcile a retained failure after runtime restart. Preparation requires verified local checkout context and preserves existing authentication, authorization, and filters; it issues no new remote trust.
 
 For a saved project set, replace `--project /work/frontend` with `--project-set /work/projects.json --project frontend`. Prepare members individually; selecting several members does not fan out a single-project backend operation.
 
@@ -119,14 +120,14 @@ After restart, saved state is advisory. The runtime rechecks native readiness an
 
 ## Verified native measurements
 
-On 2026-10-11, CodeGraph 1.6.2 with Git 2.52 on Darwin arm64 was verified through initialized HTTP/SSE and the 2026-07-28 request flow. The cold fixture contained 20,000 source files with five functions per file, about 10 MB of source.
+On 2026-10-11 (Asia/Shanghai; 2026-10-10 UTC), CodeGraph 1.6.2 with Git 2.52 on Darwin arm64 was verified through initialized HTTP/SSE and the 2026-07-28 request flow. The cold fixture contained 20,000 source files with five functions per file, about 10 MB of source.
 
 | Observation                                                        | Measured result                                       |
 | ------------------------------------------------------------------ | ----------------------------------------------------- |
 | Cold indexing / subsequent readiness verification                  | 13.97 s / 5.47 s, sharing the 120 s background budget |
 | Foreground pending response / unrelated ready tool during indexing | 5.14 s / 98 ms                                        |
 | Warm native readiness probes                                       | Median 27 ms, range 17–58 ms across 30 probes         |
-| Ten warm HTTP status/query rounds                | 6.32 s; no new preparation or full inspection         |
+| Ten warm HTTP status/query rounds                                  | 6.32 s; no new preparation or full inspection         |
 | Default scheduling with 18 additional targets                      | One active job, 16 queued, two busy responses         |
 
 The same initialized consumer received the catalog change and queried the selected source. Linked and independent checkouts, immediate edits, branch switches, disconnected waiters, cancellation, and foreign-lock reconciliation passed. A configured 1 s execution deadline stopped its owned writer. A subsequent explicit 120 s budget still denied rebuild-required recovery under `initialize`/`sync` permission; the database was preserved and no new writer started.

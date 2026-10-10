@@ -165,6 +165,13 @@ class PreparationSnapshotStore {
       return;
     }
     this.assertCapacity(key);
+    // Persist only a bounded advisory copy. Restart imports also require instructions <= 4096.
+    const failure = status.failure && {
+      ...status.failure,
+      code: status.failure.code.slice(0, 256),
+      message: status.failure.message.slice(0, 4096),
+      instructions: status.failure.instructions.slice(0, 4096),
+    };
     this.records.set(
       key,
       savedSchema.parse({
@@ -175,7 +182,7 @@ class PreparationSnapshotStore {
         action: status.action,
         state: status.state,
         previousJobId: status.id,
-        failure: status.failure,
+        failure,
       }),
     );
     this.flush();

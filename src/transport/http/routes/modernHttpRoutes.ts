@@ -599,8 +599,16 @@ export function setupModernHttpRoutes(
                 pending.setRequestHandler('tools/call', async () => preparation.result as never);
                 return pending;
               }
-              if (preparation.kind === 'ready' && !(await preparation.revalidate()))
-                throw new ProtocolError(-32602, 'Preparation authorization changed');
+              if (preparation.kind === 'ready' && !(await preparation.revalidate())) {
+                const changed = new Server(
+                  { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
+                  { capabilities: { tools: {} } },
+                );
+                changed.setRequestHandler('tools/call', async () => {
+                  throw new ProtocolError(-32602, 'Preparation authorization changed');
+                });
+                return changed;
+              }
             }
           }
           const headerRegistry = await resolveModernToolHeaderRegistry(

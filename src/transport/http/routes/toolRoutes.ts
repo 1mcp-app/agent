@@ -380,7 +380,7 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
       }
 
       if (preparation.kind === 'blocked') {
-        res.json({ result: preparation.result, server: target.serverName, tool: target.toolName });
+        res.json({ result: preparation.result.structuredContent, server: target.serverName, tool: target.toolName });
         return;
       }
       if (preparation.kind === 'ready' && !(await preparation.revalidate())) {

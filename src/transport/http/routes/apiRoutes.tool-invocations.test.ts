@@ -1,5 +1,7 @@
 import { createMockLegacySdkAdapter, createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
+import { once } from 'node:events';
+
 import * as runtimeCatalog from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { SchemaCache } from '@src/core/capabilities/schemaCache.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
@@ -168,12 +170,21 @@ describe('apiRoutes /api/tool-invocations', () => {
     app.use(express.json());
     app.use('/api/v1', createApiRoutes(serverManager as never, authorizationAttempts));
 
-    const responses = await Promise.all(
-      Array.from({ length: 101 }, () => request(app).post('/api/v1/tool-invocations').send({ tool: 'server/tool' })),
-    );
+    const server = app.listen(0, '127.0.0.1');
+    try {
+      await once(server, 'listening');
+      const responses = await Promise.all(
+        Array.from({ length: 101 }, () =>
+          request(server).post('/api/v1/tool-invocations').send({ tool: 'server/tool' }),
+        ),
+      );
 
-    expect(responses.every((response) => response.status === 503)).toBe(true);
-    expect(authorizationAttempts).toHaveBeenCalledTimes(101);
+      expect(responses.every((response) => response.status === 503)).toBe(true);
+      expect(authorizationAttempts).toHaveBeenCalledTimes(101);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    }
   });
 
   it('returns 400 when tool field is missing', async () => {

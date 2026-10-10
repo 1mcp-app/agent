@@ -12,7 +12,11 @@ vi.mock('@src/commands/shared/clientSurfaceAttachment.js', () => ({
   formatClientSurfaceAuthRequiredMessage: () => 'Authentication required',
 }));
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 describe('preparation CLI', () => {
   it('uses runtime REST attachment and carries proof plus context without upstream fallback', async () => {
@@ -48,6 +52,113 @@ describe('preparation CLI', () => {
     await expect(preparationCommand({ action: 'cancel', backend: 'codegraph', id: 'preparation-1' })).rejects.toThrow();
     await expect(preparationCommand({ action: 'status', backend: 'codegraph', 'wait-ms': 5 })).rejects.toThrow();
     expect(attach).not.toHaveBeenCalled();
+  });
+
+  it.each(['wait', 'prepare', 'status', 'retry'] as const)(
+    'allows %s to complete at a runtime-configured budget longer than 15 seconds',
+    async (action) => {
+      vi.useFakeTimers();
+      const runtimeWaitMs = 20_000;
+      let requestSignal: AbortSignal | undefined;
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url, input: RequestInit) => {
+          const request = JSON.parse(input.body as string);
+          expect(request.action).toBe(action);
+          expect(request.waitMs).toBeUndefined();
+          requestSignal = input.signal ?? undefined;
+          return new Promise<Response>((resolve, reject) => {
+            const timer = setTimeout(
+              () =>
+                resolve(
+                  new Response(JSON.stringify({ state: 'running' }), {
+                    status: 200,
+                    headers: { 'content-type': 'application/json' },
+                  }),
+                ),
+              request.waitMs ?? runtimeWaitMs,
+            );
+            input.signal?.addEventListener(
+              'abort',
+              () => {
+                clearTimeout(timer);
+                reject(new DOMException('Aborted', 'AbortError'));
+              },
+              { once: true },
+            );
+          });
+        }),
+      );
+      vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+      vi.mocked(attachReusableClientSurface).mockImplementation(
+        async (input) =>
+          input.rest({ baseUrl: 'http://localhost', options: {}, context: {}, sessionId: 'session' } as never) as never,
+      );
+      let settled = false;
+      const command = preparationCommand({
+        action,
+        backend: 'codegraph',
+        ...(action === 'wait' ? { id: '00000000-0000-4000-8000-000000000001' } : {}),
+      }).then(() => {
+        settled = true;
+      });
+      // Observe rejection immediately so a former premature timeout is reported only by this assertion.
+      const outcome = command.then(
+        () => ({ error: undefined }),
+        (error: unknown) => ({ error }),
+      );
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(requestSignal?.aborted).toBe(false);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(await outcome).toEqual({ error: undefined });
+      expect(settled).toBe(true);
+    },
+  );
+
+  it.each([undefined, 0, 25_000, 3_600_000])('keeps wait %s within a bounded matching HTTP timeout', async (waitMs) => {
+    const post = vi.spyOn(ApiClient.prototype, 'post').mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: { state: 'running' },
+    });
+    vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    vi.mocked(attachReusableClientSurface).mockImplementation(
+      async (input) =>
+        input.rest({ baseUrl: 'http://localhost', options: {}, context: {}, sessionId: 'session' } as never) as never,
+    );
+    await preparationCommand({
+      action: 'wait',
+      backend: 'codegraph',
+      id: '00000000-0000-4000-8000-000000000001',
+      'wait-ms': waitMs,
+    });
+    expect(post).toHaveBeenCalledWith('/api/v1/preparation', expect.objectContaining({ action: 'wait', waitMs }), {
+      timeout: (waitMs ?? 3_600_000) + 10_000,
+    });
+  });
+
+  it('retains the short cancellation timeout without supplying an invalid wait override', async () => {
+    const post = vi.spyOn(ApiClient.prototype, 'post').mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: { state: 'cancelled' },
+    });
+    vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    vi.mocked(attachReusableClientSurface).mockImplementation(
+      async (input) =>
+        input.rest({ baseUrl: 'http://localhost', options: {}, context: {}, sessionId: 'session' } as never) as never,
+    );
+    await preparationCommand({
+      action: 'cancel',
+      backend: 'codegraph',
+      id: '00000000-0000-4000-8000-000000000001',
+    });
+    expect(post).toHaveBeenCalledWith(
+      '/api/v1/preparation',
+      expect.objectContaining({ action: 'cancel', waitMs: undefined }),
+      { timeout: 15_000 },
+    );
   });
 
   it('formats pending/failure states truthfully', () => {
@@ -94,7 +205,9 @@ describe('preparation config authority', () => {
     ).toBe(false);
   });
   it('validates configurable runtime scheduler bounds without inventing authority defaults', () => {
-    expect(applicationConfigSchema.parse({ preparation: { concurrency: 2, queueCapacity: 32 } }).preparation).toMatchObject({
+    expect(
+      applicationConfigSchema.parse({ preparation: { concurrency: 2, queueCapacity: 32 } }).preparation,
+    ).toMatchObject({
       concurrency: 2,
       queueCapacity: 32,
     });

@@ -23,13 +23,15 @@ export interface PreparationCommandOptions extends GlobalOptions {
   format?: 'text' | 'json';
 }
 
+const maximumRuntimeWaitMs = 3_600_000;
+
 const optionsSchema = z
   .object({
     action: z.enum(['prepare', 'status', 'wait', 'cancel', 'retry']),
     backend: z.string().trim().min(1).max(256),
     id: z.string().uuid().optional(),
     operation: z.string().min(1).max(256).optional(),
-    'wait-ms': z.number().int().min(0).max(3_600_000).optional(),
+    'wait-ms': z.number().int().min(0).max(maximumRuntimeWaitMs).optional(),
     format: z.enum(['text', 'json']).optional(),
   })
   .passthrough()
@@ -58,6 +60,8 @@ export async function preparationCommand(options: PreparationCommandOptions): Pr
         contextProof: context.contextProof,
       });
       const query = new URLSearchParams(buildFilterSelectionQuery(context.options)).toString();
+      // Omitted waits and native probes use the runtime's configured budget; cancellation does not probe.
+      const transportWaitMs = parsed.action === 'cancel' ? 5_000 : (parsed['wait-ms'] ?? maximumRuntimeWaitMs);
       const result = await api.post<unknown>(
         `${API_BASE_PATH}/preparation${query ? `?${query}` : ''}`,
         {
@@ -68,7 +72,7 @@ export async function preparationCommand(options: PreparationCommandOptions): Pr
           waitMs: parsed['wait-ms'],
           _meta: { context: context.context, contextProof: context.contextProof },
         },
-        { timeout: (parsed['wait-ms'] ?? 5_000) + 10_000 },
+        { timeout: transportWaitMs + 10_000 },
       );
       if (result.ok && result.data !== undefined)
         return { status: 'success', value: result.data, sessionId: result.sessionId, restSupport: true };

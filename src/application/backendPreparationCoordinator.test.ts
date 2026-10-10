@@ -629,6 +629,71 @@ describe('runtime preparation controls', () => {
     expect(prepare).toHaveBeenCalledTimes(2);
   });
 
+  it.each(['backend_failed', 'not_ready'] as const)(
+    'keeps oversized %s diagnostics observable and restores a bounded stable failure after restart',
+    async (code) => {
+      const message = `CodeGraph exited 1: ${'worker stderr '.repeat(700)}`;
+      const instructions = `Inspect the prerequisite and explicitly retry. ${'native diagnostic '.repeat(700)}`;
+      let prepared = false;
+      const prepare = vi.fn(async () => {
+        prepared = true;
+        if (code === 'backend_failed') throw new Error(message);
+      });
+      const native: BackendPreparationAdapter = {
+        inspect: async () => (prepared && code === 'not_ready' ? { state: 'unsupported', instructions } : required),
+        prepare,
+        classifyFailure: () => ({ code, message, retryable: false, instructions }),
+        reconcile: vi.fn(async () => required),
+      };
+      const { coordinator, resolve, directory } = await fixture(native);
+      const grant = await resolve();
+      const started = await job(coordinator, grant);
+      const file = path.join(directory, 'runtime/backend-preparation.json');
+      // The background monitor must persist the failed state before another control attempts to save it.
+      await vi.waitFor(async () => {
+        expect(JSON.parse(await fs.readFile(file, 'utf8'))[0]).toMatchObject({ state: 'failed' });
+      });
+      for (const action of ['wait', 'status', 'cancel'] as const) {
+        expect(await coordinator.control(grant, { action, id: started.id })).toMatchObject({
+          state: 'failed',
+          failure: { code, instructions, ...(code === 'backend_failed' ? { message } : {}) },
+        });
+      }
+      expect(await coordinator.control(grant, { action: 'prepare' })).toMatchObject({
+        state: 'job',
+        status: { state: 'failed', failure: { instructions } },
+      });
+      expect(prepare).toHaveBeenCalledOnce();
+      const saved = JSON.parse(await fs.readFile(file, 'utf8'))[0];
+      expect(saved.failure.instructions).toBe(instructions.slice(0, 4096));
+      expect(saved.failure.message.length).toBeLessThanOrEqual(4096);
+      if (code === 'backend_failed') expect(saved.failure.message).toBe(message.slice(0, 4096));
+      await coordinator.shutdown();
+      const restarted = new BackendPreparationCoordinator({
+        adapterFactory: () => native,
+        storagePath: path.join(directory, 'runtime'),
+        options: { requestWaitMs: 50, executionDeadlineMs: 200 },
+      });
+      coordinators.push(restarted);
+      const refreshed = await restarted.resolveGrant({
+        backendName: 'codegraph',
+        checkoutPath: grant.target.checkoutRoot,
+        owner: grant.owner,
+        filterConfig: { tagFilterMode: 'none' },
+      });
+      expect(await restarted.control(refreshed, { action: 'status' })).toMatchObject({
+        state: 'job',
+        status: { state: 'failed', failure: saved.failure },
+      });
+      expect(await restarted.control(refreshed, { action: 'prepare' })).toMatchObject({
+        state: 'job',
+        status: { state: 'failed', failure: saved.failure },
+      });
+      expect(native.reconcile).toHaveBeenCalledOnce();
+      expect(prepare).toHaveBeenCalledOnce();
+    },
+  );
+
   it('clears a saved failure only after verified native readiness', async () => {
     let state: BackendReadiness = required;
     const native: BackendPreparationAdapter = {
