@@ -244,7 +244,7 @@ jobs:
 
       - name: Install frozen TypeScript peer fixtures
         working-directory: test/conformance/fixtures/typescript
-        run: pnpm install --ignore-workspace --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Resolve checked-out source SHA
         id: conformance-source

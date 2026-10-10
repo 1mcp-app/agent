@@ -19,10 +19,5 @@
   "engines": {
     "node": ">=20.19.0"
   },
-  "packageManager": "pnpm@10.33.0",
-  "pnpm": {
-    "patchedDependencies": {
-      "@modelcontextprotocol/sdk@1.30.0": "../../../../patches/@modelcontextprotocol__sdk@1.30.0.patch"
-    }
-  }
+  "packageManager": "pnpm@12.10.1"
 }

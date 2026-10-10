@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { parse as parseYaml } from 'yaml';
+import { parsePnpmDependencyLockfile } from '../pnpm-lockfile.mjs';
 
 export const SNAPSHOT_PATH = 'test/sdk-boundary/sdk-topology.snapshot.json';
 
@@ -46,7 +46,7 @@ function trackedEdges(dependencies = {}) {
 
 export async function buildSdkTopology(root) {
   const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
-  const lock = parseYaml(await readFile(path.join(root, 'pnpm-lock.yaml'), 'utf8'));
+  const lock = parsePnpmDependencyLockfile(await readFile(path.join(root, 'pnpm-lock.yaml'), 'utf8'));
   const importer = lock.importers?.['.'];
   if (!importer) throw new Error('pnpm-lock.yaml does not contain the root importer');
 

@@ -6,6 +6,7 @@ import { dirname, join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 
+import { parsePnpmDependencyLockfile } from '../../../scripts/pnpm-lockfile.mjs';
 import {
   buildConformanceBaseline,
   type ConformanceBaseline,
@@ -103,6 +104,7 @@ const FOUNDATION_ARTIFACTS = [
   { id: 'capture-http', path: 'test/conformance/capture/httpWireTap.ts' },
   { id: 'capture-stdio', path: 'test/conformance/capture/stdioWireTap.ts' },
   { id: 'integrity-verifier', path: 'test/conformance/integrity/index.ts' },
+  { id: 'pnpm-lockfile-parser', path: 'scripts/pnpm-lockfile.mjs' },
   { id: 'mcp-2026-specification-source', path: 'test/conformance/integrity/mcp-2026-07-28-spec-source.json' },
   { id: 'official-runner', path: 'test/conformance/official/officialRunner.ts' },
   { id: 'official-reference-lifecycle', path: 'test/conformance/official/referenceServer.ts' },
@@ -131,6 +133,7 @@ const FOUNDATION_ARTIFACTS = [
   { id: 'official-client-direct-fixture', path: 'test/conformance/official/fixtures/client-control.mjs' },
   { id: 'official-client-scenario-catalog', path: 'test/conformance/foundation/officialClientScenarioCatalog.mjs' },
   { id: 'typescript-manifest', path: 'test/conformance/fixtures/typescript/package.json' },
+  { id: 'typescript-workspace', path: 'test/conformance/fixtures/typescript/pnpm-workspace.yaml' },
   { id: 'typescript-lock', path: 'test/conformance/fixtures/typescript/pnpm-lock.yaml' },
   { id: 'typescript-constants', path: 'test/conformance/fixtures/typescript/src/constants.mjs' },
   { id: 'typescript-driver', path: 'test/conformance/fixtures/typescript/src/fixture.mjs' },
@@ -343,7 +346,7 @@ async function integrityReport(root: string, expectedSourceSha: string) {
     npm: {
       packageManifestPath: join(root, 'package.json'),
       pnpmLockPath: join(root, 'pnpm-lock.yaml'),
-      parseYaml,
+      parseYaml: parsePnpmDependencyLockfile,
       installedPackages: Object.fromEntries(
         [
           '@modelcontextprotocol/client',

@@ -2,8 +2,9 @@ import { copyFile, mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
+import { stringify as stringifyYaml } from 'yaml';
 
+import { parsePnpmDependencyLockfile } from '../../../scripts/pnpm-lockfile.mjs';
 import { generateSdkBoundaryProof, readSdkBoundaryProof } from './sdkBoundaryProof.js';
 
 describe('SDK boundary accepted-contract proof', () => {
@@ -98,7 +99,7 @@ describe('SDK boundary accepted-contract proof', () => {
       'lockfile',
       async (root: string) => {
         const path = join(root, 'pnpm-lock.yaml');
-        const lock = parseYaml(await readFile(path, 'utf8')) as {
+        const lock = parsePnpmDependencyLockfile(await readFile(path, 'utf8')) as {
           importers: { '.': { dependencies: Record<string, { specifier: string }> } };
         };
         lock.importers['.'].dependencies['@modelcontextprotocol/sdk']!.specifier = '1.29.0';

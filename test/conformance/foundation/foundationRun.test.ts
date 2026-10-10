@@ -4,6 +4,7 @@ import * as childProcess from 'node:child_process';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
+import { readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -36,6 +37,13 @@ describe('foundation integrity preflight', () => {
         args[1][1] === 'HEAD:test/conformance/boundary/sdkBoundaryProof.ts'
       ) {
         return Buffer.from('different committed artifact content');
+      }
+      // Model committed artifacts independently of uncommitted files in this checkout.
+      if (args[0] === 'git' && Array.isArray(args[1]) && args[1][0] === 'show') {
+        const revision = args[1][1];
+        if (typeof revision === 'string' && revision.startsWith('HEAD:')) {
+          return readFileSync(join(process.cwd(), revision.slice('HEAD:'.length)));
+        }
       }
       return execFileSync(...args);
     });

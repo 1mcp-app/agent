@@ -3,7 +3,7 @@
 This fixture-local package owns real MCP peers for the pinned TypeScript SDK eras. Install it independently from the repository workspace:
 
 ```bash
-pnpm install --ignore-workspace --frozen-lockfile
+pnpm install --frozen-lockfile
 pnpm self-check
 pnpm check
 ```
