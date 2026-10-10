@@ -1,3 +1,6 @@
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
 
 import { getRuntimeParentEnvironment } from '@src/config/runtimeBootstrap.js';
@@ -53,6 +56,57 @@ describe('worker bootstrap client contracts', () => {
       stdout.mockRestore();
     }
   });
+
+  it.each(['tty', 'empty-open-pipe', 'partial-open-pipe', 'oversized', 'invalid-json'] as const)(
+    'handles a manual explicit assignment with %s stdin without inventing hook input',
+    async (inputKind) => {
+      const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bootstrap-stdin-'));
+      const entry = path.join(directory, 'instructions.mjs');
+      const invoked = path.join(directory, 'invoked');
+      await fs.writeFile(
+        entry,
+        `import {writeFileSync} from 'node:fs';
+        writeFileSync(${JSON.stringify(invoked)}, 'invoked');
+        if(!process.argv.includes('--project=/worker'))process.exit(2);
+        process.stdout.write('Verified instructions for explicit worker');`,
+      );
+      const input = new PassThrough();
+      if (inputKind === 'tty') Object.assign(input, { isTTY: true });
+      if (inputKind === 'partial-open-pipe') input.write('{"hook_event_name":');
+      if (inputKind === 'oversized') input.write('x'.repeat(BOOTSTRAP_INPUT_LIMIT + 1));
+      if (inputKind === 'invalid-json') input.end('not json');
+      const resume = vi.spyOn(input, 'resume');
+      const stdin = vi.spyOn(process, 'stdin', 'get').mockReturnValue(input as unknown as typeof process.stdin);
+      const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+      const previousEntry = process.argv[1];
+      process.argv[1] = entry;
+      try {
+        await bootstrapCommand({ client: 'codex', event: 'SubagentStart', project: ['/worker'] });
+        const context = JSON.parse(String(stdout.mock.calls[0][0])).hookSpecificOutput.additionalContext;
+        if (inputKind === 'tty' || inputKind === 'empty-open-pipe') {
+          expect(context).toContain('Explicit Worker Project Assignment: ["/worker"]');
+          expect(context).toContain('Verified instructions for explicit worker');
+          expect(context).not.toContain('could not be verified');
+          expect(await fs.readFile(invoked, 'utf8')).toBe('invoked');
+        } else {
+          expect(context).toContain('could not be verified');
+          expect(context).not.toContain('Verified instructions for explicit worker');
+          await expect(fs.access(invoked)).rejects.toThrow();
+        }
+        if (inputKind === 'tty') expect(resume).not.toHaveBeenCalled();
+        expect(input.listenerCount('data')).toBe(0);
+        expect(input.listenerCount('end')).toBe(0);
+        expect(input.listenerCount('error')).toBe(0);
+      } finally {
+        process.argv[1] = previousEntry;
+        stdin.mockRestore();
+        stdout.mockRestore();
+        resume.mockRestore();
+        input.destroy();
+        await fs.rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
 
   it('bounds an oversized assignment before it can expand hook output', async () => {
     const render = vi.fn();
@@ -206,9 +260,23 @@ describe('worker bootstrap client contracts', () => {
     expect(await readBootstrapInput(Readable.from(['{}']))).toBe('{}');
     await expect(readBootstrapInput(Readable.from(['x'.repeat(BOOTSTRAP_INPUT_LIMIT + 1)]))).rejects.toThrow('64 KiB');
     const stalled = new PassThrough();
+    stalled.write('{');
     await expect(readBootstrapInput(stalled, 20)).rejects.toThrow('deadline');
     expect(stalled.listenerCount('data')).toBe(0);
     stalled.destroy();
+  });
+
+  it('treats a zero-byte open pipe deadline as empty and detaches its listeners', async () => {
+    const input = new PassThrough();
+    try {
+      expect(await readBootstrapInput(input, 20)).toBe('');
+      expect(input.listenerCount('data')).toBe(0);
+      expect(input.listenerCount('end')).toBe(0);
+      expect(input.listenerCount('error')).toBe(0);
+      expect(input.isPaused()).toBe(true);
+    } finally {
+      input.destroy();
+    }
   });
 });
 

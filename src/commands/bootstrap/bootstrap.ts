@@ -89,7 +89,10 @@ export async function readBootstrapInput(input: Readable, deadlineMs = 1000): Pr
     };
     const onEnd = () => finish();
     const onError = (error: Error) => finish(error);
-    const timer = setTimeout(() => finish(new Error('Hook stdin deadline exceeded')), deadlineMs);
+    const timer = setTimeout(
+      () => finish(bytes === 0 ? undefined : new Error('Hook stdin deadline exceeded')),
+      deadlineMs,
+    );
     input.on('data', onData);
     input.once('end', onEnd);
     input.once('error', onError);
@@ -194,7 +197,7 @@ export async function renderBootstrapContext(
 export async function bootstrapCommand(options: BootstrapCommandOptions): Promise<void> {
   let input: string;
   try {
-    input = await readBootstrapInput(process.stdin);
+    input = process.stdin.isTTY ? '' : await readBootstrapInput(process.stdin);
   } catch {
     input = '!invalid-hook-input';
   }
