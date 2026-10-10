@@ -84,6 +84,72 @@ describe('backend preparation lifecycle', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  it('validates after native inspection but before scheduler mutation and skips an already-ready job', async () => {
+    const { service, adapter } = setup();
+    const beforeAdmission = vi.fn();
+    const validateAdmission = vi.fn(async () => {
+      expect(adapter.inspections).toBe(1);
+      expect(service.scheduler.counts()).toEqual({ active: 0, queued: 0 });
+      throw new Error('Authority revoked');
+    });
+    await expect(
+      service.prepare(target, 'symbols', policy, undefined, { validateAdmission, beforeAdmission }),
+    ).rejects.toThrow('Authority revoked');
+    expect(beforeAdmission).not.toHaveBeenCalled();
+    expect(adapter.calls).toHaveLength(0);
+    adapter.readiness.set(adapter.key(target), ready);
+    expect(await service.prepare(target, 'symbols', policy, undefined, { validateAdmission })).toMatchObject({
+      state: 'ready',
+    });
+    expect(validateAdmission).toHaveBeenCalledOnce();
+  });
+
+  it('retains the original failure and releases retry reservation when asynchronous admission validation rejects', async () => {
+    const { service, adapter } = setup();
+    adapter.failures = ['missing_binary'];
+    const original = await service.prepare(target, 'symbols', policy);
+    if (original.state !== 'job') throw new Error('Expected job');
+    await flush();
+    const beforeAdmission = vi.fn();
+    await expect(
+      service.retry(original.status.id, undefined, {
+        validateAdmission: async () => {
+          throw new Error('Authority revoked');
+        },
+        beforeAdmission,
+      }),
+    ).rejects.toThrow('Authority revoked');
+    expect(service.status(original.status.id)).toMatchObject({ state: 'failed' });
+    expect(beforeAdmission).not.toHaveBeenCalled();
+    expect(service.scheduler.counts()).toEqual({ active: 0, queued: 0 });
+    expect(await service.retry(original.status.id)).toMatchObject({ state: 'job' });
+    await service.shutdown();
+  });
+
+  it('rechecks a compatible concurrent admission after asynchronous validation yields', async () => {
+    const { service, adapter } = setup();
+    let release!: () => void;
+    const validated = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const entered = vi.fn();
+    const first = service.prepare(target, 'symbols', policy, undefined, {
+      validateAdmission: async () => {
+        entered();
+        await validated;
+      },
+    });
+    await vi.waitFor(() => expect(entered).toHaveBeenCalledOnce());
+    const other = await service.prepare(target, 'symbols', policy);
+    release();
+    expect(other.state).toBe('job');
+    if (other.state !== 'job') throw new Error('Expected shared job');
+    expect(await first).toMatchObject({ state: 'job', status: { id: other.status.id } });
+    await flush();
+    expect(adapter.calls).toHaveLength(1);
+    await service.shutdown();
+  });
+
   it('validates bounded runtime options and preserves conservative authorization', () => {
     expect(PreparationOptionsSchema.parse({})).toEqual({
       concurrency: 1,

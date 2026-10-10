@@ -115,10 +115,11 @@ export class BackendPreparationService {
       action,
       undefined,
       options.beforeAdmission,
+      options.validateAdmission,
     );
   }
 
-  private prepareInspected(
+  private async prepareInspected(
     resolved: PreparationTarget,
     operation: string,
     authority: BackendPolicy,
@@ -127,7 +128,8 @@ export class BackendPreparationService {
     action?: PreparationAction,
     replacement?: PreparationJob,
     beforeAdmission?: () => void,
-  ): PreparationResult {
+    validateAdmission?: () => Promise<void>,
+  ): Promise<PreparationResult> {
     if (this.shuttingDown) return this.shutdownResult();
     const active = this.activeJob(resolved, authority, action);
     if (active) return { state: 'job', status: this.snapshot(active) };
@@ -168,6 +170,21 @@ export class BackendPreparationService {
         state: 'busy',
         instructions: 'Preparation status capacity reached; use a new runtime after reconciling retained operations.',
       };
+    if (validateAdmission) {
+      await validateAdmission();
+      // Validation may have yielded to another caller, shutdown, or a completed job.
+      // Repeat identity/capacity checks, then run the synchronous mutation guard with no further await.
+      return this.prepareInspected(
+        resolved,
+        operation,
+        authority,
+        adapter,
+        readiness,
+        action,
+        replacement,
+        beforeAdmission,
+      );
+    }
     let complete!: () => void;
     const completion = new Promise<void>((resolve) => {
       complete = resolve;
@@ -249,7 +266,7 @@ export class BackendPreparationService {
         if (readiness.state === 'unknown') return readiness;
         if (!preferences[resolved.backendName]?.enabled)
           return { state: 'disabled', instructions: readiness.instructions };
-        result = this.prepareInspected(
+        result = await this.prepareInspected(
           resolved,
           operation,
           authority,
@@ -258,6 +275,7 @@ export class BackendPreparationService {
           undefined,
           undefined,
           options.beforeAdmission,
+          options.validateAdmission,
         );
       }
     }
@@ -285,6 +303,7 @@ export class BackendPreparationService {
         undefined,
         undefined,
         options.beforeAdmission,
+        options.validateAdmission,
       );
     }
     if (status.state === 'failed') return { state: 'job', status };
@@ -374,7 +393,7 @@ export class BackendPreparationService {
     try {
       const waitMs = PreparationOptionsSchema.shape.requestWaitMs.parse(options.waitMs ?? this.options.requestWaitMs);
       const readiness = await this.probe(job.adapter, job.status.target, job.status.operation, waitMs, options.signal);
-      return this.prepareInspected(
+      return await this.prepareInspected(
         job.status.target,
         job.status.operation,
         authority,
@@ -383,6 +402,7 @@ export class BackendPreparationService {
         job.status.action,
         job,
         options.beforeAdmission,
+        options.validateAdmission,
       );
     } finally {
       job.retrying = false;

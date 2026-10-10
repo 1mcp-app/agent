@@ -85,6 +85,8 @@ export interface PreparationRequestOptions {
   readonly signal?: AbortSignal;
   /** Trusted runtime-only synchronous advisory-capacity reservation; never a backend-operation callback. */
   readonly beforeAdmission?: () => void;
+  /** Optional caller-owned asynchronous validation after native inspection, before a new job is scheduled. */
+  readonly validateAdmission?: () => Promise<void>;
 }
 
 export type PreparationState = 'queued' | 'running' | 'cancelling' | 'ready' | 'failed' | 'cancelled';
