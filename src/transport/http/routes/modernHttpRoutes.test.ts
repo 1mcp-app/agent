@@ -4,12 +4,14 @@ import { EventEmitter, once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import { Writable } from 'node:stream';
 
+import * as templateContextAuthority from '@src/transport/http/utils/templateContextAuthority.js';
 import { type CatalogCursorOwner, isCatalogCursorOwnerCurrent } from '@src/core/capabilities/capabilityCatalog.js';
 import { isResourceRouteOwnerActive, type ResourceRouteOwner } from '@src/core/capabilities/capabilityVisibility.js';
 import {
   MAX_RUNTIME_CATALOG_SCOPES,
   RUNTIME_CATALOG_SCOPE_TTL_MS,
 } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
+import { authorizeTemplateContext, createTemplateContextProof } from '@src/core/context/templateContextTrust.js';
 
 import express from 'express';
 import request, { type Response as HttpTestResponse } from 'supertest';
@@ -72,6 +74,57 @@ function modernPost(instance: express.Express | string, body: object) {
 }
 
 describe('modern HTTP admission', () => {
+  it('rejects a signed frontend proof paired with backend context before modern dispatch', async () => {
+    const context = { project: { path: '/work/frontend' }, user: {}, environment: {}, sessionId: 'session-a' };
+    const capability = {
+      version: 1 as const,
+      runtimeScopeId: 'scope-a',
+      secret: Buffer.alloc(32, 7).toString('base64url'),
+    };
+    const proof = createTemplateContextProof(context, capability);
+    const authorize = vi
+      .spyOn(templateContextAuthority, 'authorizeRequestTemplateContext')
+      .mockImplementation((input) => authorizeTemplateContext({ ...input, mode: 'verified', capability }));
+    try {
+      const response = await request(app())
+        .post('/mcp')
+        .set('MCP-Protocol-Version', '2026-07-28')
+        .set('Mcp-Method', 'tools/call')
+        .set('mcp-session-id', 'session-a')
+        .send({
+          jsonrpc: '2.0',
+          id: 3,
+          method: 'tools/call',
+          params: {
+            name: 'checkout_source',
+            arguments: {},
+            _meta: { ...modernMeta, context: { ...context, project: { path: '/work/backend' } }, contextProof: proof },
+          },
+        });
+      expect(response.status).toBe(400);
+      expect(response.body).toEqual({
+        jsonrpc: '2.0',
+        id: 3,
+        error: { code: -32602, message: 'Request context proof rejected' },
+      });
+      expect(createBridge).not.toHaveBeenCalled();
+      expect(authorize).toHaveBeenCalledOnce();
+    } finally {
+      authorize.mockRestore();
+    }
+  });
+
+  it('rejects a malformed explicit proof without allocating a modern bridge', async () => {
+    const response = await modernPost(app(), {
+      jsonrpc: '2.0',
+      id: 3,
+      method: 'tools/call',
+      params: { name: 'checkout_source', arguments: {}, _meta: { ...modernMeta, contextProof: null } },
+    });
+    expect(response.status).toBe(400);
+    expect(response.body.error).toEqual({ code: -32602, message: 'Request context proof rejected' });
+    expect(createBridge).not.toHaveBeenCalled();
+  });
   it.each(['post', 'get', 'delete'] as const)('rejects malformed Host authorities on %s', async (method) => {
     const instance = app();
     const response = await request(instance)

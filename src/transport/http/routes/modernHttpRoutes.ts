@@ -71,9 +71,15 @@ import {
   getValidatedTags,
   revalidateAuthInfo,
 } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
+import {
+  extractTemplateContextRequest,
+  hasExplicitTemplateContextProof,
+} from '@src/transport/http/utils/contextExtractor.js';
+import { authorizeRequestTemplateContext } from '@src/transport/http/utils/templateContextAuthority.js';
 
 import type { NextFunction, Request, RequestHandler, Response, Router } from 'express';
 
+import { prepareHttpRequestContext } from './inspectRequestContext.js';
 import {
   createModernInteractionBinding,
   isModernInteractionBindingCurrent,
@@ -103,7 +109,7 @@ export interface ModernHttpRequestPolicy {
   allowsOrigin(origin: string | undefined, host: string | undefined): boolean;
 }
 
-function buildConfig(req: Request, res: Response) {
+function buildConfig(req: Request, res: Response): InboundConnectionConfig {
   return {
     tags: getValidatedTags(res),
     tagExpression: getTagExpression(res),
@@ -457,7 +463,39 @@ export function setupModernHttpRoutes(
         return;
       }
 
+      if (hasExplicitTemplateContextProof(req)) {
+        const extractedContext = extractTemplateContextRequest(req);
+        const authorization = extractedContext
+          ? authorizeRequestTemplateContext({
+              ...extractedContext,
+              transportSessionId: req.get('mcp-session-id'),
+            })
+          : undefined;
+        if (authorization?.status !== 'trusted') {
+          res.status(400).json({
+            jsonrpc: '2.0',
+            id: (req.body as { id?: string | number } | undefined)?.id ?? null,
+            error: { code: -32602, message: 'Request context proof rejected' },
+          });
+          return;
+        }
+      }
+
       const config = buildConfig(req, res);
+      const preparedContext = await prepareHttpRequestContext(serverManager, req, res, config);
+      let bindingId: string | undefined;
+      if ('bindingId' in preparedContext) {
+        bindingId = preparedContext.bindingId;
+      } else if (preparedContext.status === 'routing_only') {
+        bindingId = preparedContext.sessionId;
+      }
+      const projectContext = bindingId
+        ? serverManager.getTemplateServerManager?.().getBindingContext?.(bindingId)
+        : undefined;
+      if ('bindingId' in preparedContext && !projectContext) {
+        throw new Error('Project binding is no longer available');
+      }
+      const targetedConfig = projectContext ? { ...config, bindingId, context: projectContext } : config;
       const method = (req.body as { method?: unknown } | null)?.method;
       if (method === 'subscriptions/listen' || method === 'notifications/cancelled') {
         // Preserve the pinned SDK's envelope, header, version and wire validation ladder.
@@ -476,9 +514,16 @@ export function setupModernHttpRoutes(
           await validation.close();
         }
         if (method === 'subscriptions/listen') {
-          await serveModernSubscription(req, res, serverManager, config, createBridge, disconnect.controller.signal);
+          await serveModernSubscription(
+            req,
+            res,
+            serverManager,
+            targetedConfig,
+            createBridge,
+            disconnect.controller.signal,
+          );
         } else {
-          cancelModernSubscription(req, res, serverManager, config);
+          cancelModernSubscription(req, res, serverManager, targetedConfig);
         }
         return;
       }
@@ -509,13 +554,13 @@ export function setupModernHttpRoutes(
           }
           const headerRegistry = await resolveModernToolHeaderRegistry(
             serverManager,
-            config,
+            targetedConfig,
             method,
             (req.body as { params?: unknown } | null)?.params,
             disconnect.controller.signal,
           );
           activeHeaderRegistry = headerRegistry;
-          const capabilities = { ...getModernSubscriptionCapabilities(serverManager, config), completions: {} };
+          const capabilities = { ...getModernSubscriptionCapabilities(serverManager, targetedConfig), completions: {} };
           const product = new McpServer({ name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION }, { capabilities: {} });
           const server = product.server;
           server.registerCapabilities(capabilities);
@@ -583,7 +628,7 @@ export function setupModernHttpRoutes(
                           ? undefined
                           : await createModernInteractionBinding(
                               serverManager,
-                              config,
+                              targetedConfig,
                               operation,
                               stripInboundRequestMeta(message.params),
                               getAuthInfo(res),
@@ -615,7 +660,7 @@ export function setupModernHttpRoutes(
                                 JSON.stringify(
                                   await createModernInteractionBinding(
                                     serverManager,
-                                    config,
+                                    targetedConfig,
                                     operation,
                                     stripInboundRequestMeta(message.params),
                                     getAuthInfo(res),
@@ -633,7 +678,7 @@ export function setupModernHttpRoutes(
                           const verifyBinding = async (signal: AbortSignal) => {
                             const current = await createModernInteractionBinding(
                               serverManager,
-                              config,
+                              targetedConfig,
                               operation,
                               stripInboundRequestMeta(message.params),
                               getAuthInfo(res),
@@ -673,7 +718,7 @@ export function setupModernHttpRoutes(
                                         message.params,
                                         signal,
                                         serverManager,
-                                        config,
+                                        targetedConfig,
                                         createBridge,
                                         deadline,
                                         {
@@ -703,7 +748,7 @@ export function setupModernHttpRoutes(
                           message.params,
                           context.mcpReq.signal,
                           serverManager,
-                          config,
+                          targetedConfig,
                           createBridge,
                           Date.now() + requestTimeoutMs,
                           {

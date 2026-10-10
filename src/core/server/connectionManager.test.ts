@@ -173,7 +173,12 @@ describe('ConnectionManager', () => {
       const tags = ['initial'];
       const context = { sessionId: 'snapshot-session' } as ContextData;
 
-      await connectionManager.connectTransport(mockTransport, 'snapshot-session', { tags }, context);
+      await connectionManager.connectTransport(
+        mockTransport,
+        'snapshot-session',
+        { tags, bindingId: 'target-binding', projectFilterMode: 'none' },
+        context,
+      );
       tags.push('mutated');
       context.sessionId = 'mutated-session';
 
@@ -183,6 +188,8 @@ describe('ConnectionManager', () => {
       expect(JSON.parse(JSON.stringify(connection))).toMatchObject({
         status: ServerStatus.Connected,
         tags: ['initial'],
+        bindingId: 'target-binding',
+        projectFilterMode: 'none',
         context: { sessionId: 'snapshot-session' },
       });
     });

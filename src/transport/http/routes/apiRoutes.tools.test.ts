@@ -2,6 +2,7 @@ import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js'
 
 import { CAPABILITY_PAGINATION_META_KEY } from '@src/core/capabilities/capabilityPagination.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
+import { createProjectBindingId } from '@src/domains/project-selection/projectSelection.js';
 
 import type { Request, RequestHandler, Response } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -425,6 +426,7 @@ describe('apiRoutes /api/tools', () => {
       getClientTransports: vi.fn(() => ({})),
       getTemplateServerManager: vi.fn(() => ({
         getRenderedHashForSession: vi.fn(() => undefined),
+        getBindingContext: () => context,
         createTemplateBasedServers,
       })),
       getServerRegistry: vi.fn(() => ({
@@ -444,7 +446,7 @@ describe('apiRoutes /api/tools', () => {
       sessionId: 'header-session',
     });
     expect(createTemplateBasedServers).toHaveBeenCalledWith(
-      'header-session',
+      createProjectBindingId('header-session', context),
       { ...context, sessionId: 'header-session' },
       expect.any(Object),
       { mcpTemplates: { serena: templateConfig } },
@@ -455,7 +457,10 @@ describe('apiRoutes /api/tools', () => {
     expect(callMetaTool).toHaveBeenCalledWith(
       'tool_list',
       expect.any(Object),
-      expect.objectContaining({ sessionId: 'header-session', serverCandidates: expect.any(Map) }),
+      expect.objectContaining({
+        sessionId: createProjectBindingId('header-session', context),
+        serverCandidates: expect.any(Map),
+      }),
     );
     expect(res.setHeader).toHaveBeenCalledWith('mcp-session-id', 'header-session');
     expect(context.sessionId).toBe('context-session');
@@ -491,6 +496,7 @@ describe('apiRoutes /api/tools', () => {
       getClientTransports: vi.fn(() => ({})),
       getTemplateServerManager: vi.fn(() => ({
         getRenderedHashForSession: vi.fn(() => undefined),
+        getBindingContext: () => context,
         createTemplateBasedServers,
       })),
       getServerRegistry: vi.fn(() => ({
@@ -506,7 +512,7 @@ describe('apiRoutes /api/tools', () => {
 
     expect(res.statusCode).toBe(200);
     expect(createTemplateBasedServers).toHaveBeenCalledWith(
-      'derived-session-id',
+      createProjectBindingId('derived-session-id', context),
       { ...context, sessionId: 'derived-session-id' },
       expect.any(Object),
       { mcpTemplates: { serena: templateConfig } },
@@ -519,7 +525,10 @@ describe('apiRoutes /api/tools', () => {
     expect(callMetaTool).toHaveBeenCalledWith(
       'tool_list',
       expect.any(Object),
-      expect.objectContaining({ sessionId: 'derived-session-id', serverCandidates: expect.any(Map) }),
+      expect.objectContaining({
+        sessionId: createProjectBindingId('derived-session-id', context),
+        serverCandidates: expect.any(Map),
+      }),
     );
     expect(res.setHeader).toHaveBeenCalledWith('mcp-session-id', 'derived-session-id');
   });

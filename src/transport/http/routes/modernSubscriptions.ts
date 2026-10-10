@@ -51,7 +51,10 @@ export function getModernSubscriptionCapabilities(
 ) {
   const connections = manager.getClients();
   if (!connections.size) return { tools: {}, prompts: {}, resources: {} };
-  const visible = FilteringService.getFilteredConnections(filterConnectionsForSession(connections, undefined), config);
+  const visible = FilteringService.getFilteredConnections(
+    filterConnectionsForSession(connections, config.bindingId),
+    config,
+  );
   const sources = [...visible.values()].filter((connection) => connection.status === ClientStatus.Connected);
   const supports = (
     connection: OutboundConnection,
@@ -115,7 +118,7 @@ class ModernSubscription {
   }
   private visible() {
     return FilteringService.getFilteredConnections(
-      filterConnectionsForSession(this.manager.getClients(), undefined),
+      filterConnectionsForSession(this.manager.getClients(), this.config.bindingId),
       this.config,
     );
   }

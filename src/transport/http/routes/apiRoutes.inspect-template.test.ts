@@ -449,7 +449,7 @@ describe('apiRoutes inspect', () => {
     });
   });
 
-  it('does not initialize template servers for bare inspect listings even when request context is present', async () => {
+  it('initializes selected template context for bare inspect listings', async () => {
     mockedLoadDeclaredServerConfigs.mockReturnValue({
       staticServers: {},
       templateServers: {
@@ -539,6 +539,7 @@ describe('apiRoutes inspect', () => {
       getClient: vi.fn((name: string) => outboundConnections.get(name)),
       getTemplateServerManager: vi.fn(() => ({
         getRenderedHashForSession,
+        getBindingContext: () => mockedExtractRequestContext(),
         createTemplateBasedServers,
       })),
       getClientTransports: vi.fn(() => new Map()),
@@ -558,8 +559,8 @@ describe('apiRoutes inspect', () => {
       return server.server === 'serena';
     });
     expect(serenaEntry).toMatchObject({ server: 'serena', type: 'template', available: false, toolCount: 0 });
-    expect(createTemplateBasedServers).not.toHaveBeenCalled();
-    expect(registerTemplate).not.toHaveBeenCalled();
-    expect(getRenderedHashForSession).not.toHaveBeenCalled();
+    expect(createTemplateBasedServers).toHaveBeenCalledOnce();
+    expect(registerTemplate).toHaveBeenCalledOnce();
+    expect(getRenderedHashForSession).toHaveBeenCalled();
   });
 });

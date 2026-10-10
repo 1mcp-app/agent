@@ -18,6 +18,7 @@ import {
   projectToolSchemas,
   schemaInputErrorResult,
 } from '@src/core/validation/toolSchemaBoundary.js';
+import { projectSelectionDiagnostic, projectToolArguments } from '@src/domains/project-selection/projectPolicy.js';
 import { gatewayFailureFromUnknown } from '@src/gateway/contracts/gatewayFailure.js';
 import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import logger from '@src/logger/logger.js';
@@ -629,6 +630,15 @@ export class CapabilityCatalog {
     const refresh = await this.resolveRefreshFacts(queryOptions.refreshIntent ?? 'never', 'describe');
     const access = await this.resolveVisibleToolAccess(args, visibility, queryOptions.toolRegistry);
     if (access.error) {
+      const effectiveVisibility = visibility ?? this.deps.defaultVisibility;
+      const selectionError = args.server
+        ? projectSelectionDiagnostic(
+            this.deps.getServerConfigs()[args.server],
+            effectiveVisibility?.projectContext,
+            effectiveVisibility?.filterSelection ?? {},
+          )
+        : undefined;
+      if (selectionError) access.error = { type: 'validation', message: selectionError };
       return { schema: {}, error: access.error, refresh };
     }
 
@@ -739,6 +749,15 @@ export class CapabilityCatalog {
     const refresh = await this.resolveRefreshFacts(queryOptions.refreshIntent ?? 'never', 'invoke');
     const access = await this.resolveVisibleToolAccess(args, visibility, queryOptions.toolRegistry);
     if (access.error) {
+      const effectiveVisibility = visibility ?? this.deps.defaultVisibility;
+      const selectionError = args.server
+        ? projectSelectionDiagnostic(
+            this.deps.getServerConfigs()[args.server],
+            effectiveVisibility?.projectContext,
+            effectiveVisibility?.filterSelection ?? {},
+          )
+        : undefined;
+      if (selectionError) access.error = { type: 'validation', message: selectionError };
       writeLocalDiagnostic('warn', 'tool.rejected', {
         ...requested,
         phase: 'routing',
@@ -792,6 +811,11 @@ export class CapabilityCatalog {
 
     let phase = 'schema_admission';
     try {
+      const targetArgs = projectToolArguments(
+        this.deps.getServerConfigs()[route.server],
+        visibility?.projectContext ?? this.deps.defaultVisibility?.projectContext,
+        args.args,
+      );
       const adapter = connection.adapter;
       const definition =
         access.tool.definition ??
@@ -808,7 +832,7 @@ export class CapabilityCatalog {
       };
       const contracts = await admitToolSchemas(definition as unknown as Record<string, unknown>, binding);
       phase = 'input_validation';
-      const validateOutput = await prepareToolValidation(contracts, args.args, binding);
+      const validateOutput = await prepareToolValidation(contracts, targetArgs, binding);
       phase = 'routing_revalidation';
       const current = await this.resolveVisibleToolAccess(args, visibility, queryOptions.toolRegistry);
       if (
@@ -827,7 +851,7 @@ export class CapabilityCatalog {
         'tools/call',
         {
           name: route.toolName,
-          arguments: args.args as never,
+          arguments: targetArgs as never,
         },
         { signal: queryOptions.signal, timeoutMs: connection.requestTimeoutMs },
       );

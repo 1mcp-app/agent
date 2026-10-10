@@ -3,7 +3,7 @@ import { TemplateConfig } from '@src/core/instructions/templateTypes.js';
 import { TagExpression } from '@src/domains/preset/parsers/tagQueryParser.js';
 import { TagQuery } from '@src/domains/preset/types/presetTypes.js';
 import type { LegacyConnectionId, LegacySdkAdapter } from '@src/sdk/contracts/legacySdkAdapter.js';
-import { ContextNamespace, EnvironmentContext, UserContext } from '@src/types/context.js';
+import { ContextNamespace, EnvironmentContext, type ProjectSet, UserContext } from '@src/types/context.js';
 
 /**
  * Enum representing possible server connection states
@@ -34,6 +34,10 @@ export interface InboundConnectionError {
 }
 
 export interface InboundConnectionConfig extends TemplateConfig {
+  /** Private checkout routing identity; never accepted in client ContextData. */
+  readonly bindingId?: string;
+  /** Original validated request selector mode, before auth tags narrow visibility. */
+  readonly projectFilterMode?: 'simple-or' | 'advanced' | 'preset' | 'none';
   readonly tags?: string[];
   readonly tagExpression?: TagExpression;
   readonly tagQuery?: TagQuery;
@@ -48,6 +52,7 @@ export interface InboundConnectionConfig extends TemplateConfig {
   readonly presetName?: string;
   readonly context?: {
     project?: ContextNamespace;
+    projectSet?: ProjectSet;
     user?: UserContext;
     environment?: EnvironmentContext;
     timestamp?: string;

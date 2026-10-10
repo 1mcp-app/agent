@@ -104,6 +104,8 @@ describe('apiRoutes /api/servers', () => {
   };
 
   beforeEach(() => {
+    mockedGetTransportConfig.mockReturnValue({});
+    mockedExtractRequestContext.mockReturnValue(undefined);
     mockedLoadDeclaredServerConfigs.mockReset();
     mockedLoadDeclaredServerConfigs.mockReturnValue({
       staticServers: {},

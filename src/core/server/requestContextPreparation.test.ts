@@ -1,5 +1,6 @@
 import type { TrustedTemplateContext } from '@src/core/context/templateContextTrust.js';
 import type { MCPServerParams } from '@src/core/types/index.js';
+import { createProjectBindingId } from '@src/domains/project-selection/projectSelection.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -66,6 +67,7 @@ describe('requestContextPreparation', () => {
     expect(result).toEqual({
       status: 'prepared',
       sessionId: 'header-session',
+      bindingId: createProjectBindingId('header-session', context),
       templateNames: ['serena'],
       createdTemplateNames: ['serena'],
     });
@@ -75,7 +77,7 @@ describe('requestContextPreparation', () => {
       sessionId: 'header-session',
     });
     expect(deps.createTemplateBasedServers).toHaveBeenCalledWith(
-      'header-session',
+      createProjectBindingId('header-session', context),
       { ...context, sessionId: 'header-session' },
       { tags: ['dev'] },
       { mcpTemplates: { serena: templateConfig } },
@@ -111,7 +113,7 @@ describe('requestContextPreparation', () => {
       sessionId: 'derived-session',
     });
     expect(deps.createTemplateBasedServers).toHaveBeenCalledWith(
-      'derived-session',
+      createProjectBindingId('derived-session', context),
       { ...contextWithoutSession, sessionId: 'derived-session' },
       {},
       { mcpTemplates: { serena: templateConfig } },
@@ -130,12 +132,13 @@ describe('requestContextPreparation', () => {
     expect(result).toEqual({
       status: 'already_prepared',
       sessionId: 'derived-session',
+      bindingId: createProjectBindingId('derived-session', context),
       templateNames: ['serena'],
       createdTemplateNames: [],
     });
     expect(deps.registerTemplateAdapter).toHaveBeenCalledWith('serena', templateConfig);
     expect(deps.createTemplateBasedServers).not.toHaveBeenCalled();
-    expect(deps.touchEphemeralClient).toHaveBeenCalledWith('derived-session');
+    expect(deps.touchEphemeralClient).toHaveBeenCalledWith(createProjectBindingId('derived-session', context));
     expect(deps.refreshCapabilities).not.toHaveBeenCalled();
   });
 
@@ -158,7 +161,7 @@ describe('requestContextPreparation', () => {
     expect(result).toMatchObject({ templateNames: ['enabled'], createdTemplateNames: ['enabled'] });
     expect(deps.registerTemplateAdapter).not.toHaveBeenCalledWith('disabled', expect.anything());
     expect(deps.createTemplateBasedServers).toHaveBeenCalledWith(
-      'derived-session',
+      createProjectBindingId('derived-session', context),
       expect.anything(),
       {},
       { mcpTemplates: { enabled: templateConfig } },

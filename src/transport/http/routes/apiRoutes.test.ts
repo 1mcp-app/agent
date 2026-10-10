@@ -186,6 +186,9 @@ describe('apiRoutes inspect', () => {
     const serverRegistry = {
       getServerNames: vi.fn(() => Array.from(adapters.keys())),
       get: vi.fn((name: string) => adapters.get(name)),
+      resolveConnection: vi.fn((name: string, context?: { sessionId?: string }) =>
+        outboundConnections.get(`${name}:${context?.sessionId}`),
+      ),
     };
 
     const serverManager = {
@@ -300,7 +303,7 @@ describe('apiRoutes inspect', () => {
       ),
     );
 
-    const req = { query: { target: 'serena' } };
+    const req = { query: { target: 'serena' }, headers: { 'mcp-session-id': 'template-hash' } };
     const res = createMockResponse();
 
     await invokeInspectRoute(scopeAuthMiddleware, req, res);
@@ -365,6 +368,9 @@ describe('apiRoutes inspect', () => {
     const serverRegistry = {
       getServerNames: vi.fn(() => Array.from(adapters.keys())),
       get: vi.fn((name: string) => adapters.get(name)),
+      resolveConnection: vi.fn((name: string, context?: { sessionId?: string }) =>
+        outboundConnections.get(`${name}:${context?.sessionId}`),
+      ),
     };
 
     const serverManager = {

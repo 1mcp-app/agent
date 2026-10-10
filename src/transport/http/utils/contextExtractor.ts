@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 
 import type { TemplateContextProof } from '@src/core/context/templateContextTrust.js';
+import { projectSetSchema } from '@src/domains/project-selection/projectSelection.js';
 import logger from '@src/logger/logger.js';
 import { ErrorCode } from '@src/sdk/contracts/index.js';
 import type { ContextData } from '@src/types/context.js';
@@ -72,6 +73,7 @@ const clientInfoSchema = z
 const contextDataSchema = z
   .object({
     project: contextNamespaceSchema,
+    projectSet: projectSetSchema.optional(),
     user: userContextSchema,
     environment: environmentContextSchema,
     timestamp: z.string().optional(),
@@ -201,6 +203,17 @@ export function extractTemplateContextRequest(req: Request): ExtractedTemplateCo
     proof: extractProofFromQuery(req) ?? undefined,
     source: 'query',
   };
+}
+
+/** Preserve explicit proof presence even when parsing rejects its structure. */
+export function hasExplicitTemplateContextProof(req: Request): boolean {
+  const body = req.body as
+    { _meta?: { contextProof?: unknown }; params?: { _meta?: { contextProof?: unknown } } } | undefined;
+  return (
+    body?.params?._meta?.contextProof !== undefined ||
+    body?._meta?.contextProof !== undefined ||
+    req.query?.contextProof !== undefined
+  );
 }
 
 function extractProofFromMeta(req: Request): TemplateContextProof | null {
