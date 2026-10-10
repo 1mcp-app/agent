@@ -1,6 +1,7 @@
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 import { EventEmitter, once } from 'node:events';
+import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { Writable } from 'node:stream';
 
@@ -15,7 +16,7 @@ import { authorizeTemplateContext, createTemplateContextProof } from '@src/core/
 
 import express from 'express';
 import request, { type Response as HttpTestResponse } from 'supertest';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
 import * as bindings from './modernInteractionBinding.js';
@@ -65,7 +66,36 @@ function app(policy: ModernHttpRequestPolicy = loopbackPolicy) {
   return instance;
 }
 
-function modernPost(instance: express.Express | string, body: object) {
+const requestServers = new Map<express.Express, Server>();
+
+async function ensureListening(instance: express.Express): Promise<Server> {
+  let server = requestServers.get(instance);
+  if (!server) {
+    // Reserve the same IPv4 address Supertest connects to, including on Darwin.
+    server = instance.listen(0, '127.0.0.1');
+    requestServers.set(instance, server);
+  }
+  if (!server.listening) await once(server, 'listening');
+  return server;
+}
+
+afterEach(async () => {
+  try {
+    const servers = [...requestServers.values()].filter((server) => server.listening);
+    for (const server of servers) server.closeAllConnections();
+    await Promise.all(
+      servers.map(
+        (server) =>
+          new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))),
+      ),
+    );
+    for (const server of requestServers.values()) expect(server.listening).toBe(false);
+  } finally {
+    requestServers.clear();
+  }
+});
+
+function modernPost(instance: Server | string, body: object) {
   return request(instance)
     .post('/mcp')
     .set('MCP-Protocol-Version', '2026-07-28')
@@ -74,6 +104,29 @@ function modernPost(instance: express.Express | string, body: object) {
 }
 
 describe('modern HTTP admission', () => {
+  it('reserves its IPv4 listener against a competing fixture and preserves modern dispatch', async () => {
+    const instance = app();
+    const server = await ensureListening(instance);
+    const address = server.address() as AddressInfo;
+    expect(address).toMatchObject({ address: '127.0.0.1', family: 'IPv4' });
+    const contender = express().listen(address.port, '127.0.0.1');
+    try {
+      await expect(once(contender, 'listening')).rejects.toMatchObject({ code: 'EADDRINUSE' });
+      expect(contender.listening).toBe(false);
+    } finally {
+      if (contender.listening) await new Promise<void>((resolve) => contender.close(() => resolve()));
+    }
+    const response = await modernPost(server, {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'server/discover',
+      params: { _meta: modernMeta },
+    });
+    expect(response.status).toBe(200);
+    expect(response.body.result.supportedVersions).toEqual(['2026-07-28']);
+    expect(await ensureListening(instance)).toBe(server);
+  });
+
   it('rejects a signed frontend proof paired with backend context before modern dispatch', async () => {
     const context = { project: { path: '/work/frontend' }, user: {}, environment: {}, sessionId: 'session-a' };
     const capability = {
@@ -86,7 +139,7 @@ describe('modern HTTP admission', () => {
       .spyOn(templateContextAuthority, 'authorizeRequestTemplateContext')
       .mockImplementation((input) => authorizeTemplateContext({ ...input, mode: 'verified', capability }));
     try {
-      const response = await request(app())
+      const response = await request(await ensureListening(app()))
         .post('/mcp')
         .set('MCP-Protocol-Version', '2026-07-28')
         .set('Mcp-Method', 'tools/call')
@@ -115,7 +168,7 @@ describe('modern HTTP admission', () => {
   });
 
   it('rejects a malformed explicit proof without allocating a modern bridge', async () => {
-    const response = await modernPost(app(), {
+    const response = await modernPost(await ensureListening(app()), {
       jsonrpc: '2.0',
       id: 3,
       method: 'tools/call',
@@ -127,7 +180,7 @@ describe('modern HTTP admission', () => {
   });
   it.each(['post', 'get', 'delete'] as const)('rejects malformed Host authorities on %s', async (method) => {
     const instance = app();
-    const response = await request(instance)
+    const response = await request(await ensureListening(instance))
       [method]('/mcp')
       .set('Host', 'a b')
       .set('MCP-Protocol-Version', '2026-07-28')
@@ -188,7 +241,7 @@ describe('modern HTTP admission', () => {
   });
 
   it('serves server/discover without allocating a legacy session', async () => {
-    const response = await modernPost(app(), {
+    const response = await modernPost(await ensureListening(app()), {
       jsonrpc: '2.0',
       id: 1,
       method: 'server/discover',
@@ -220,7 +273,7 @@ describe('modern HTTP admission', () => {
   });
 
   it('routes claim-less legacy requests onward unchanged', async () => {
-    const response = await request(app())
+    const response = await request(await ensureListening(app()))
       .post('/mcp')
       .send({
         jsonrpc: '2.0',
@@ -234,7 +287,7 @@ describe('modern HTTP admission', () => {
   });
 
   it('owns malformed modern traffic and returns exact version errors', async () => {
-    const mismatch = await request(app())
+    const mismatch = await request(await ensureListening(app()))
       .post('/mcp')
       .set('MCP-Protocol-Version', '2026-07-28')
       .send({
@@ -264,7 +317,7 @@ describe('modern HTTP admission', () => {
     ['clientCapabilities', { ...modernMeta, 'io.modelcontextprotocol/clientCapabilities': undefined }],
     ['clientInfo', { ...modernMeta, 'io.modelcontextprotocol/clientInfo': { name: 1 } }],
   ])('rejects a missing or invalid %s envelope value through the SDK ladder', async (_field, meta) => {
-    const response = await request(app())
+    const response = await request(await ensureListening(app()))
       .post('/mcp')
       .set('MCP-Protocol-Version', '2026-07-28')
       .set('Mcp-Method', 'tools/list')
@@ -277,7 +330,7 @@ describe('modern HTTP admission', () => {
   });
 
   it('rejects malformed modern JSON before legacy admission while preserving a JSON-RPC parse error', async () => {
-    const response = await request(app())
+    const response = await request(await ensureListening(app()))
       .post('/mcp')
       .set('Content-Type', 'application/json')
       .set('MCP-Protocol-Version', '2026-07-28')
@@ -294,7 +347,9 @@ describe('modern HTTP admission', () => {
   it.each([undefined, '2025-11-25'])(
     'keeps retained legacy malformed JSON unchanged for version %s',
     async (version) => {
-      let pending = request(app()).post('/mcp').set('Content-Type', 'application/json');
+      let pending = request(await ensureListening(app()))
+        .post('/mcp')
+        .set('Content-Type', 'application/json');
       if (version) pending = pending.set('MCP-Protocol-Version', version);
       const response = await pending.send('{');
 
@@ -304,7 +359,7 @@ describe('modern HTTP admission', () => {
   );
 
   it.each(['2026-07-28', '2099-01-01'])('owns malformed JSON for claimed modern version %s', async (version) => {
-    const response = await request(app())
+    const response = await request(await ensureListening(app()))
       .post('/mcp')
       .set('Content-Type', 'application/json')
       .set('MCP-Protocol-Version', version)
@@ -328,7 +383,7 @@ describe('modern HTTP admission', () => {
       ...modernMeta,
       'io.modelcontextprotocol/protocolVersion': headers['MCP-Protocol-Version'],
     };
-    let pending = request(app()).post('/mcp');
+    let pending = request(await ensureListening(app())).post('/mcp');
     for (const [name, value] of Object.entries(headers)) pending = pending.set(name, value);
     const body = { jsonrpc: '2.0', id: 12, method: 'tools/list', params: { _meta: meta } };
     const response = await pending.send(headers['Content-Type'] === 'text/plain' ? JSON.stringify(body) : body);
@@ -342,7 +397,7 @@ describe('modern HTTP admission', () => {
     ['external host', { Host: 'attacker.example' }],
     ['external origin', { Origin: 'https://attacker.example' }],
   ])('rejects %s before constructing a bridge', async (_case, headers) => {
-    let pending = modernPost(app(), {
+    let pending = modernPost(await ensureListening(app()), {
       jsonrpc: '2.0',
       id: 11,
       method: 'server/discover',
@@ -356,7 +411,7 @@ describe('modern HTTP admission', () => {
   });
 
   it('allows an explicit loopback Origin', async () => {
-    const response = await modernPost(app(), {
+    const response = await modernPost(await ensureListening(app()), {
       jsonrpc: '2.0',
       id: 13,
       method: 'server/discover',
@@ -373,10 +428,13 @@ describe('modern HTTP admission', () => {
         origin === undefined || (host === 'mcp.example.com' && origin === 'https://mcp.example.com'),
     };
     const body = { jsonrpc: '2.0', id: 14, method: 'server/discover', params: { _meta: modernMeta } };
-    const allowed = await modernPost(app(policy), body)
+    const allowed = await modernPost(await ensureListening(app(policy)), body)
       .set('Host', 'mcp.example.com')
       .set('Origin', 'https://mcp.example.com');
-    const rejected = await modernPost(app(policy), { ...body, params: { _meta: { ...modernMeta } } })
+    const rejected = await modernPost(await ensureListening(app(policy)), {
+      ...body,
+      params: { _meta: { ...modernMeta } },
+    })
       .set('Host', 'mcp.example.com')
       .set('Origin', 'https://other.example.com');
 
@@ -411,7 +469,7 @@ describe('modern HTTP admission', () => {
     };
     createBridge.mockResolvedValueOnce({ targetConnectionId: 'private-bridge', outbound, close });
 
-    const response = await modernPost(app(), {
+    const response = await modernPost(await ensureListening(app()), {
       jsonrpc: '2.0',
       id: 2,
       method: 'tools/list',
@@ -433,7 +491,10 @@ describe('modern HTTP admission', () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
-  function resourceOwnerListener(operation: 'resources/read' | 'tools/call' = 'resources/read', lazyEnabled = true) {
+  async function resourceOwnerListener(
+    operation: 'resources/read' | 'tools/call' = 'resources/read',
+    lazyEnabled = true,
+  ) {
     const instance = express();
     instance.use(express.json());
     const cleanups: Array<() => Promise<void>> = [];
@@ -475,7 +536,8 @@ describe('modern HTTP admission', () => {
         close: vi.fn(async () => undefined),
       },
     }));
-    const post = (token?: string, grant?: string, target: express.Express | string = instance) => {
+    const server = await ensureListening(instance);
+    const post = (token?: string, grant?: string, target: Server | string = server) => {
       const pending = modernPost(target, {
         jsonrpc: '2.0',
         id: 'resource',
@@ -494,7 +556,7 @@ describe('modern HTTP admission', () => {
 
   it('preserves provider-binding discovery and does not mint cursor authority when lazy mode is disabled', async () => {
     const binding = vi.spyOn(bindings, 'createModernInteractionBinding').mockResolvedValue(undefined);
-    const listener = resourceOwnerListener('tools/call', false);
+    const listener = await resourceOwnerListener('tools/call', false);
     try {
       await listener.post('token-a');
       expect(binding).toHaveBeenCalledOnce();
@@ -507,8 +569,8 @@ describe('modern HTTP admission', () => {
 
   it('keeps native cursor owners private, listener-local, grant-separated and revoked by cleanup', async () => {
     const binding = vi.spyOn(bindings, 'createModernInteractionBinding').mockResolvedValue(undefined);
-    const first = resourceOwnerListener('tools/call');
-    const second = resourceOwnerListener('tools/call');
+    const first = await resourceOwnerListener('tools/call');
+    const second = await resourceOwnerListener('tools/call');
     try {
       await first.post('token-a', 'safe,other');
       await first.post('token-a', 'other,safe');
@@ -541,16 +603,15 @@ describe('modern HTTP admission', () => {
   it('expires native cursor authority from issuance despite repeated requests and reclaims bounded owner capacity', async () => {
     const binding = vi.spyOn(bindings, 'createModernInteractionBinding').mockResolvedValue(undefined);
     vi.useFakeTimers({ toFake: ['Date'] });
-    const listener = resourceOwnerListener('tools/call');
+    const listener = await resourceOwnerListener('tools/call');
     // Keep one HTTP listener alive across the capacity loop, as in production;
     // posting the Express app directly would allocate and close a server per call.
-    const server = listener.instance.listen(0, '127.0.0.1');
+    const server = await ensureListening(listener.instance);
     const requestPorts: number[] = [];
     let listenerCloses = 0;
     server.on('request', (incoming) => requestPorts.push(incoming.socket.localPort!));
     server.on('close', () => listenerCloses++);
     try {
-      await once(server, 'listening');
       const { port } = server.address() as AddressInfo;
       const post = (token: string) =>
         listener
@@ -606,7 +667,7 @@ describe('modern HTTP admission', () => {
   it('mints listener-owned resource authority per verified token and grant, and revokes it through manager cleanup', async () => {
     const binding = vi.spyOn(bindings, 'createModernInteractionBinding').mockResolvedValue(undefined);
     try {
-      const first = resourceOwnerListener();
+      const first = await resourceOwnerListener();
       await first.post('token-a', 'safe,other');
       await first.post('token-a', 'other,safe');
       await first.post('token-b', 'safe,other');
@@ -620,7 +681,7 @@ describe('modern HTTP admission', () => {
       expect(owners[5]).toBe(owners[4]);
       expect(owners[4]).not.toBe(owners[0]);
       expect(binding.mock.calls[0].at(-1)).toBe(owners[0]);
-      const second = resourceOwnerListener();
+      const second = await resourceOwnerListener();
       await second.post('token-a', 'safe,other');
       const foreignOwner = createBridge.mock.calls.at(-1)?.[2].resourceOwner as ResourceRouteOwner;
       expect(foreignOwner).not.toBe(owners[0]);
@@ -639,10 +700,9 @@ describe('modern HTTP admission', () => {
   it('bounds retained verified owners and reclaims idle owner capacity at the existing TTL', async () => {
     const binding = vi.spyOn(bindings, 'createModernInteractionBinding').mockResolvedValue(undefined);
     vi.useFakeTimers({ toFake: ['Date'] });
-    const listener = resourceOwnerListener();
-    const server = listener.instance.listen(0, '127.0.0.1');
+    const listener = await resourceOwnerListener();
+    const server = await ensureListening(listener.instance);
     try {
-      await once(server, 'listening');
       const address = server.address() as AddressInfo;
       const post = (token: string) => listener.post(token, undefined, `http://127.0.0.1:${address.port}`);
       for (let index = 0; index < MAX_RUNTIME_CATALOG_SCOPES; index++) {
@@ -677,7 +737,7 @@ describe('modern HTTP admission', () => {
     createBridge.mockResolvedValueOnce({ targetConnectionId: 'first-private-call', outbound, close: firstClose });
     createBridge.mockResolvedValueOnce({ targetConnectionId: 'second-private-call', outbound, close: secondClose });
     const instance = app();
-    const first = await modernPost(instance, {
+    const first = await modernPost(await ensureListening(instance), {
       jsonrpc: '2.0',
       id: 30,
       method: 'tools/call',
@@ -692,7 +752,7 @@ describe('modern HTTP admission', () => {
         },
       },
     }).set('Mcp-Name', 'echo');
-    const second = await modernPost(instance, {
+    const second = await modernPost(await ensureListening(instance), {
       jsonrpc: '2.0',
       id: 31,
       method: 'tools/call',
@@ -724,7 +784,7 @@ describe('modern HTTP admission', () => {
   });
 
   it('rejects anonymous requestState before allocating a bridge even with interaction capabilities', async () => {
-    const response = await modernPost(app(), {
+    const response = await modernPost(await ensureListening(app()), {
       jsonrpc: '2.0',
       id: 32,
       method: 'tools/call',
@@ -746,7 +806,7 @@ describe('modern HTTP admission', () => {
 
   it('maps bridge creation and gateway protocol failures through the v2 error funnel', async () => {
     createBridge.mockRejectedValueOnce(new Error('bridge unavailable'));
-    const unavailable = await modernPost(app(), {
+    const unavailable = await modernPost(await ensureListening(app()), {
       jsonrpc: '2.0',
       id: 20,
       method: 'tools/list',
@@ -769,7 +829,7 @@ describe('modern HTTP admission', () => {
       },
       close,
     });
-    const invalid = await modernPost(app(), {
+    const invalid = await modernPost(await ensureListening(app()), {
       jsonrpc: '2.0',
       id: 21,
       method: 'tools/list',
@@ -800,7 +860,7 @@ describe('modern HTTP admission', () => {
       params: { name: 'echo', arguments: {}, _meta: modernMeta },
     };
 
-    const response = await modernPost(app(), body).set('Mcp-Name', 'echo');
+    const response = await modernPost(await ensureListening(app()), body).set('Mcp-Name', 'echo');
     expect(response.status).toBe(200);
     expect(response.body.result).toMatchObject({
       resultType: 'complete',
@@ -811,7 +871,7 @@ describe('modern HTTP admission', () => {
       expect.objectContaining({ operation: 'tools/call', params: { name: 'echo', arguments: {} } }),
     );
 
-    const mismatch = await modernPost(app(), {
+    const mismatch = await modernPost(await ensureListening(app()), {
       ...body,
       params: { ...body.params, _meta: { ...modernMeta } },
     }).set('Mcp-Name', 'other');
@@ -831,7 +891,7 @@ describe('modern HTTP admission', () => {
   });
 
   it('supports request-scoped SSE without enabling GET or redelivery semantics', async () => {
-    const response = await modernPost(app(), {
+    const response = await modernPost(await ensureListening(app()), {
       jsonrpc: '2.0',
       id: 3,
       method: 'server/discover',
@@ -842,7 +902,9 @@ describe('modern HTTP admission', () => {
     expect(response.headers['content-type']).toContain('text/event-stream');
     expect(response.text).toContain('event: message');
     expect(response.text).toContain('"supportedVersions":["2026-07-28"]');
-    const unsupportedGet = await request(app()).get('/mcp').set('MCP-Protocol-Version', '2026-07-28');
+    const unsupportedGet = await request(await ensureListening(app()))
+      .get('/mcp')
+      .set('MCP-Protocol-Version', '2026-07-28');
     expect(unsupportedGet.status).toBe(405);
     expect(unsupportedGet.body).toEqual({
       jsonrpc: '2.0',
@@ -882,7 +944,7 @@ describe('modern HTTP admission', () => {
       );
       instance.use(router);
 
-      const response = await request(instance)
+      const response = await request(await ensureListening(instance))
         [method]('/mcp')
         .set('MCP-Protocol-Version', '2026-07-28')
         .set('Mcp-Session-Id', 'legacy-session-that-must-not-be-used');
@@ -917,9 +979,7 @@ describe('modern HTTP admission', () => {
     };
     createBridge.mockResolvedValueOnce({ targetConnectionId: 'cancel-bridge', outbound, close });
     const instance = app();
-    const server = await new Promise<ReturnType<express.Express['listen']>>((resolve) => {
-      const listening = instance.listen(0, '127.0.0.1', () => resolve(listening));
-    });
+    const server = await ensureListening(instance);
     const { port } = server.address() as AddressInfo;
     const controller = new AbortController();
     const pending = fetch(`http://127.0.0.1:${port}/mcp`, {
@@ -973,9 +1033,7 @@ describe('modern HTTP admission', () => {
       close: async () => undefined,
     }));
     const instance = app();
-    const server = await new Promise<ReturnType<express.Express['listen']>>((resolve) => {
-      const listening = instance.listen(0, '127.0.0.1', () => resolve(listening));
-    });
+    const server = await ensureListening(instance);
     const { port } = server.address() as AddressInfo;
     const client = new Client(
       { name: 'real-v2-test', version: '1' },
@@ -1033,9 +1091,9 @@ describe('modern HTTP admission', () => {
     });
     const instance = app();
     const body = { jsonrpc: '2.0', id: 0, method: 'tools/list', params: { _meta: modernMeta } };
-    const first = modernPost(instance, body).then((response) => response);
+    const first = modernPost(await ensureListening(instance), body).then((response) => response);
     await vi.waitFor(() => expect(pending).toHaveLength(1));
-    const second = modernPost(instance, body).then((response) => response);
+    const second = modernPost(await ensureListening(instance), body).then((response) => response);
     await vi.waitFor(() => expect(pending).toHaveLength(2));
     expect(pending[0].requestId).not.toBe(pending[1].requestId);
     expect(pending[0].authority.connectionIds).toEqual(['private-0']);
@@ -1051,8 +1109,7 @@ describe('modern HTTP admission', () => {
 
   it('bounds simultaneous HTTP exchanges before bridge allocation and releases admission', async () => {
     const instance = app();
-    const server = instance.listen(0, '127.0.0.1');
-    await once(server, 'listening');
+    const server = await ensureListening(instance);
     const endpoint = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
