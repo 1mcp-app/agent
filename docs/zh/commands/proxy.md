@@ -47,6 +47,10 @@ description: 将本地 stdio 客户端连接到运行中的 1MCP HTTP 运行时�
 
 如果你经常把同一个项目或客户端桥接到相同的 preset 或过滤视图，可以使用 `.1mcprc`。
 
+在 Git 仓库内，配置发现从当前目录向上查找到 checkout 根目录为止，不读取仓库之外的配置。最近的本地文件提供完整配置；配置文件所在目录不会改变传给模板服务器的源码 checkout。
+
+同一仓库的 linked worktree 没有本地配置时，会借用主 checkout 根目录的 `.1mcprc`，源码目标仍然是 linked checkout。添加本地文件后会整体替换继承配置，即使文件只有一个字段也不会合并主 checkout 的其他字段。本地配置无效时不会回退到继承配置。Git 无法确定可用的主 checkout 时，linked 目标保持不变并使用普通默认设置。
+
 示例：
 
 ```json

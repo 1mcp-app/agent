@@ -1,4 +1,6 @@
-import { access, readFile } from 'fs/promises';
+import { access, readFile, realpath } from 'fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { basename, dirname, join, resolve } from 'path';
 
 import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
@@ -13,22 +15,35 @@ import { ProjectConfig, validateProjectConfig } from './projectConfigTypes.js';
  */
 export const PROJECT_CONFIG_FILE = '.1mcprc';
 const GIT_DIRECTORY_NAME = '.git';
+const execFileAsync = promisify(execFile);
 
 export interface ResolvedProjectContext {
   cwd: string;
   projectRoot: string;
   projectName: string;
   projectConfigPath?: string;
+  /** Repository checkout root, independent of the configuration directory. */
+  repositoryRoot?: string;
+  projectConfigDir?: string;
+  projectConfigSource?: 'local' | 'inherited';
   projectConfig: ProjectConfig | null;
   source: 'project-config' | 'repo-root' | 'cwd';
 }
 
-async function findNearestAncestorContaining(startDir: string, targetName: string): Promise<string | null> {
+async function findNearestAncestorContaining(
+  startDir: string,
+  targetName: string,
+  boundary?: string,
+): Promise<string | null> {
   let currentDir = resolve(startDir);
 
   while (true) {
     if (await pathExists(join(currentDir, targetName))) {
       return currentDir;
+    }
+
+    if (currentDir === boundary) {
+      return null;
     }
 
     const parentDir = dirname(currentDir);
@@ -77,41 +92,139 @@ async function readProjectConfig(configPath: string): Promise<ProjectConfig | nu
   }
 }
 
+async function readGitOutput(repoRoot: string, args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync('git', ['-C', repoRoot, ...args], {
+    timeout: 5000,
+    maxBuffer: 1024 * 1024,
+  });
+  return stdout;
+}
+
+async function getCommonGitDirectory(checkout: string): Promise<string> {
+  const output = await readGitOutput(checkout, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  return realpath(output.replace(/\r?\n$/, ''));
+}
+
+async function validateMainCheckout(candidate: string, commonGitDir: string): Promise<string | null> {
+  if (!(await pathExists(join(candidate, GIT_DIRECTORY_NAME)))) {
+    return null;
+  }
+  if ((await getCommonGitDirectory(candidate)) !== commonGitDir) {
+    return null;
+  }
+  return realpath(candidate);
+}
+
+/** Use Git metadata without assuming the common Git directory's parent is the source checkout. */
+async function findMainCheckout(repoRoot: string): Promise<string | null> {
+  try {
+    const stdout = await readGitOutput(repoRoot, ['worktree', 'list', '--porcelain', '-z']);
+    // Git lists the main worktree first. NUL fields preserve spaces and newlines in paths.
+    const fields = stdout.split('\0');
+    const firstRecordEnd = fields.indexOf('');
+    const mainRecord = firstRecordEnd < 0 ? fields : fields.slice(0, firstRecordEnd);
+    if (mainRecord.includes('bare')) {
+      return null;
+    }
+    const mainField = mainRecord[0];
+    if (!mainField?.startsWith('worktree ')) {
+      return null;
+    }
+    const checkout = await realpath(repoRoot);
+    const registeredMain = await realpath(mainField.slice('worktree '.length));
+    if (registeredMain === checkout) {
+      return null;
+    }
+    // Inherit only for an actual registered linked checkout, never an arbitrary .git marker.
+    let registeredCheckout = false;
+    for (const field of fields) {
+      if (!field.startsWith('worktree ')) {
+        continue;
+      }
+      try {
+        if ((await realpath(field.slice('worktree '.length))) === checkout) {
+          registeredCheckout = true;
+          break;
+        }
+      } catch {
+        // A stale registry entry does not invalidate another registered checkout.
+      }
+    }
+    if (!registeredCheckout) {
+      return null;
+    }
+    const commonGitDir = await getCommonGitDirectory(repoRoot);
+    const mainCheckout = await validateMainCheckout(registeredMain, commonGitDir);
+    if (mainCheckout) {
+      return mainCheckout;
+    }
+    // Separate-git-dir registries can name the metadata directory as the main worktree.
+    // Query the main Git directory so Git selects its config.worktree when enabled,
+    // or the common configuration otherwise. Never use the linked checkout's override.
+    const worktreeConfigEnabled = await readGitOutput(repoRoot, [
+      '--git-dir',
+      commonGitDir,
+      'config',
+      '--local',
+      '--type=bool',
+      '--default=false',
+      '--get',
+      'extensions.worktreeConfig',
+    ]);
+    const configScope = worktreeConfigEnabled.replace(/\r?\n$/, '') === 'true' ? '--worktree' : '--local';
+    const configuredWorktree = await readGitOutput(repoRoot, [
+      '--git-dir',
+      commonGitDir,
+      'config',
+      configScope,
+      '--path',
+      '--get',
+      'core.worktree',
+    ]);
+    return await validateMainCheckout(resolve(commonGitDir, configuredWorktree.replace(/\r?\n$/, '')), commonGitDir);
+  } catch {
+    // Missing Git, invalid metadata, or unavailable main checkout must not change the target.
+    return null;
+  }
+}
+
 export async function resolveProjectContext(cwd: string = process.cwd()): Promise<ResolvedProjectContext> {
   const resolvedCwd = resolve(cwd);
-  const configDir = await findNearestAncestorContaining(resolvedCwd, PROJECT_CONFIG_FILE);
-
-  if (configDir) {
-    const projectConfigPath = join(configDir, PROJECT_CONFIG_FILE);
-    return {
-      cwd: resolvedCwd,
-      projectRoot: configDir,
-      projectName: basename(configDir) || 'unknown',
-      projectConfigPath,
-      projectConfig: await readProjectConfig(projectConfigPath),
-      source: 'project-config',
-    };
-  }
-
   const repoRoot = await findNearestAncestorContaining(resolvedCwd, GIT_DIRECTORY_NAME);
-  if (repoRoot) {
-    logger.debug('projectConfigLoader.no.found.for.using.repository.root.413dc0c6');
-    return {
-      cwd: resolvedCwd,
-      projectRoot: repoRoot,
-      projectName: basename(repoRoot) || 'unknown',
-      projectConfig: null,
-      source: 'repo-root',
-    };
+  const localConfigDir = await findNearestAncestorContaining(resolvedCwd, PROJECT_CONFIG_FILE, repoRoot ?? undefined);
+  let configDir = localConfigDir;
+  let projectConfigSource: 'local' | 'inherited' = 'local';
+
+  if (!configDir && repoRoot) {
+    const mainCheckout = await findMainCheckout(repoRoot);
+    if (mainCheckout && (await pathExists(join(mainCheckout, PROJECT_CONFIG_FILE)))) {
+      configDir = mainCheckout;
+      projectConfigSource = 'inherited';
+    }
   }
 
-  logger.debug('projectConfigLoader.no.or.repository.root.found.for.using.cwd.51d43561');
-  return {
+  const projectRoot = repoRoot ?? localConfigDir ?? resolvedCwd;
+  const context: ResolvedProjectContext = {
     cwd: resolvedCwd,
-    projectRoot: resolvedCwd,
-    projectName: basename(resolvedCwd) || 'unknown',
+    projectRoot,
+    projectName: basename(projectRoot) || 'unknown',
+    ...(repoRoot ? { repositoryRoot: repoRoot } : {}),
     projectConfig: null,
-    source: 'cwd',
+    source: repoRoot ? 'repo-root' : 'cwd',
+  };
+
+  if (!configDir) {
+    return context;
+  }
+
+  const projectConfigPath = join(configDir, PROJECT_CONFIG_FILE);
+  return {
+    ...context,
+    projectConfigPath,
+    projectConfigDir: configDir,
+    projectConfigSource,
+    projectConfig: await readProjectConfig(projectConfigPath),
+    source: 'project-config',
   };
 }
 
