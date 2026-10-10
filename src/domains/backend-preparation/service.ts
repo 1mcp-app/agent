@@ -8,6 +8,7 @@ import type {
   PreparationFailure,
   PreparationOptions,
   PreparationRecoveryHint,
+  PreparationRequestOptions,
   PreparationResult,
   PreparationStatus,
   PreparationTarget,
@@ -33,6 +34,7 @@ interface PreparationJob {
   retrying: boolean;
   readonly completion: Promise<void>;
   readonly complete: () => void;
+  readonly automatic: boolean;
 }
 
 export class BackendPreparationService {
@@ -51,11 +53,16 @@ export class BackendPreparationService {
     this.scheduler = new PreparationScheduler(this.options.concurrency, this.options.queueCapacity);
   }
 
-  async inspect(target: PreparationTarget, operation: string): Promise<BackendReadiness> {
+  async inspect(
+    target: PreparationTarget,
+    operation: string,
+    options: { readonly waitMs?: number; readonly signal?: AbortSignal } = {},
+  ): Promise<BackendReadiness> {
     const resolved = PreparationTargetSchema.parse(target);
     const adapter = this.registry.get(resolved.backendName);
     if (!adapter) return this.unsupported(resolved.backendName);
-    return this.probe(adapter, resolved, operation, this.options.requestWaitMs);
+    const waitMs = PreparationOptionsSchema.shape.requestWaitMs.parse(options.waitMs ?? this.options.requestWaitMs);
+    return this.probe(adapter, resolved, operation, waitMs, options.signal);
   }
 
   /** Recovery only reconciles native evidence. A persisted running flag never starts or kills work. */
@@ -88,6 +95,7 @@ export class BackendPreparationService {
     operation: string,
     policy: BackendPolicy,
     action?: PreparationAction,
+    options: PreparationRequestOptions = {},
   ): Promise<PreparationResult> {
     if (this.shuttingDown) return this.shutdownResult();
     const resolved = Object.freeze(PreparationTargetSchema.parse(target));
@@ -96,8 +104,18 @@ export class BackendPreparationService {
     if (active) return { state: 'job', status: this.snapshot(active) };
     const adapter = this.registry.get(resolved.backendName);
     if (!adapter) return this.unsupported(resolved.backendName);
-    const readiness = await this.probe(adapter, resolved, operation, this.options.requestWaitMs);
-    return this.prepareInspected(resolved, operation, authority, adapter, readiness, action);
+    const waitMs = PreparationOptionsSchema.shape.requestWaitMs.parse(options.waitMs ?? this.options.requestWaitMs);
+    const readiness = await this.probe(adapter, resolved, operation, waitMs, options.signal);
+    return this.prepareInspected(
+      resolved,
+      operation,
+      authority,
+      adapter,
+      readiness,
+      action,
+      undefined,
+      options.beforeAdmission,
+    );
   }
 
   private prepareInspected(
@@ -108,12 +126,14 @@ export class BackendPreparationService {
     readiness: BackendReadiness,
     action?: PreparationAction,
     replacement?: PreparationJob,
+    beforeAdmission?: () => void,
   ): PreparationResult {
     if (this.shuttingDown) return this.shutdownResult();
     const active = this.activeJob(resolved, authority, action);
     if (active) return { state: 'job', status: this.snapshot(active) };
     if (readiness.state === 'conflict') return readiness;
     if (readiness.state === 'unsupported') return readiness;
+    if (readiness.state === 'unknown') return readiness;
     if (readiness.state === 'ready') {
       if (!action) {
         this.clearResolvedFailure(resolved, operation, authority, readiness);
@@ -129,9 +149,19 @@ export class BackendPreparationService {
     const failed = action ? undefined : this.failedJob(resolved, authority);
     if (failed) return { state: 'job', status: this.snapshot(failed) };
     const admitted = this.findJob(key);
-    if (admitted && admitted !== replacement && admitted.status.state !== 'ready')
+    if (admitted && admitted !== replacement && admitted.status.state !== 'ready') {
+      if (replacement)
+        return {
+          state: 'busy',
+          instructions: `Retry of ${replacement.status.id} (${replacement.status.action}) did not start: ${admitted.status.id} owns ${selected}. Check or explicitly retry that operation; both records are preserved.`,
+        };
+      if (admitted.status.action !== selected)
+        return {
+          state: 'busy',
+          instructions: `Preparation ${admitted.status.id} reserves ${selected} while performing ${admitted.status.action}; wait before explicitly selecting ${selected} again.`,
+        };
       return { state: 'job', status: this.snapshot(admitted) };
-    if (admitted && admitted !== replacement) this.identities.delete(key);
+    }
     if (!replacement) this.releaseCompletedRecords();
     if (this.jobs.size - (replacement ? 1 : 0) >= this.options.maxRecords)
       return {
@@ -161,15 +191,21 @@ export class BackendPreparationService {
       retrying: false,
       completion,
       complete,
+      automatic: action === undefined,
     };
     if (
-      !this.scheduler.schedule(job.status.id, async () => {
-        try {
-          await this.execute(job);
-        } finally {
-          job.complete();
-        }
-      })
+      !this.scheduler.schedule(
+        job.status.id,
+        async (wasQueued) => {
+          try {
+            await this.execute(job, wasQueued);
+          } finally {
+            job.complete();
+          }
+        },
+        JSON.stringify([resolved.checkoutRoot, resolved.backendName]),
+        beforeAdmission,
+      )
     ) {
       return { state: 'busy', instructions: 'Preparation queue is full; submit a new request later.' };
     }
@@ -185,7 +221,7 @@ export class BackendPreparationService {
     operation: string,
     policy: BackendPolicy,
     preferences: ProjectPreparationPreferences,
-    options: { readonly waitMs?: number; readonly signal?: AbortSignal } = {},
+    options: PreparationRequestOptions = {},
   ): Promise<PreparationAdmission> {
     if (this.shuttingDown) return this.shutdownResult();
     const resolved = Object.freeze(PreparationTargetSchema.parse(target));
@@ -210,9 +246,19 @@ export class BackendPreparationService {
         }
         if (readiness.state === 'unsupported') return readiness;
         if (readiness.state === 'conflict') return readiness;
+        if (readiness.state === 'unknown') return readiness;
         if (!preferences[resolved.backendName]?.enabled)
           return { state: 'disabled', instructions: readiness.instructions };
-        result = this.prepareInspected(resolved, operation, authority, adapter, readiness);
+        result = this.prepareInspected(
+          resolved,
+          operation,
+          authority,
+          adapter,
+          readiness,
+          undefined,
+          undefined,
+          options.beforeAdmission,
+        );
       }
     }
     if (result.state !== 'job') return result;
@@ -228,17 +274,34 @@ export class BackendPreparationService {
       }
       if (current.state === 'unsupported') return current;
       if (current.state === 'conflict') return current;
+      if (current.state === 'unknown') return this.pending(status, current.instructions);
       if (!preferences[resolved.backendName]?.enabled) return { state: 'disabled', instructions: current.instructions };
-      return this.prepareInspected(resolved, operation, authority, adapter, current);
+      return this.prepareInspected(
+        resolved,
+        operation,
+        authority,
+        adapter,
+        current,
+        undefined,
+        undefined,
+        options.beforeAdmission,
+      );
     }
     if (status.state === 'failed') return { state: 'job', status };
     if (status.state === 'cancelled') return { state: 'job', status };
+    return this.pending(
+      status,
+      `Preparation ${status.id} is ${status.state}. Check status or wait, then submit the original operation again.`,
+    );
+  }
+
+  private pending(status: PreparationStatus, instructions: string): PreparationAdmission {
     return {
       state: 'pending',
       status,
       operationExecuted: false,
       operationQueued: false,
-      instructions: `Preparation ${status.id} is ${status.state}. Check status or wait, then submit the original operation again; it has not executed and will not be replayed.`,
+      instructions: `${instructions} The original operation has not executed and will not be replayed.`,
     };
   }
 
@@ -289,7 +352,7 @@ export class BackendPreparationService {
   }
 
   /** Explicit retry creates a new compatible identity when the execution budget changes. */
-  async retry(id: string, policy?: BackendPolicy): Promise<PreparationResult> {
+  async retry(id: string, policy?: BackendPolicy, options: PreparationRequestOptions = {}): Promise<PreparationResult> {
     const job = this.jobs.get(id);
     if (!job) return { state: 'unsupported', instructions: 'Unknown preparation operation.' };
     if (this.shuttingDown) return this.shutdownResult();
@@ -309,12 +372,8 @@ export class BackendPreparationService {
       return { state: 'forbidden', instructions: `Runtime policy does not permit ${job.status.action}.` };
     job.retrying = true;
     try {
-      const readiness = await this.probe(
-        job.adapter,
-        job.status.target,
-        job.status.operation,
-        this.options.requestWaitMs,
-      );
+      const waitMs = PreparationOptionsSchema.shape.requestWaitMs.parse(options.waitMs ?? this.options.requestWaitMs);
+      const readiness = await this.probe(job.adapter, job.status.target, job.status.operation, waitMs, options.signal);
       return this.prepareInspected(
         job.status.target,
         job.status.operation,
@@ -323,6 +382,7 @@ export class BackendPreparationService {
         readiness,
         job.status.action,
         job,
+        options.beforeAdmission,
       );
     } finally {
       job.retrying = false;
@@ -381,6 +441,7 @@ export class BackendPreparationService {
       retrying: false,
       completion: Promise.resolve(),
       complete: () => {},
+      automatic: false,
     };
     this.jobs.set(job.status.id, job);
     this.identities.set(key, job.status.id);
@@ -423,7 +484,7 @@ export class BackendPreparationService {
     return { state: 'busy', instructions: 'Preparation runtime is shutting down; no new work can start.' };
   }
 
-  private async execute(job: PreparationJob): Promise<void> {
+  private async execute(job: PreparationJob, wasQueued: boolean): Promise<void> {
     if (job.controller.signal.aborted) {
       this.update(job, { state: 'cancelled' });
       return;
@@ -432,6 +493,7 @@ export class BackendPreparationService {
     this.update(job, { state: 'running' });
     const expiresAt = Date.now() + job.status.executionDeadlineMs;
     const deadline = setTimeout(() => {
+      if (job.status.state === 'cancelling') return;
       this.update(job, {
         state: 'failed',
         failure: {
@@ -444,6 +506,11 @@ export class BackendPreparationService {
       job.controller.abort();
     }, job.status.executionDeadlineMs);
     try {
+      if (wasQueued) {
+        if (job.automatic) {
+          if (!(await this.reconcileQueuedReadiness(job, expiresAt))) return;
+        }
+      }
       await this.runAttempts(job);
       if (job.controller.signal.aborted) {
         if (job.status.state !== 'failed') this.update(job, { state: 'cancelled' });
@@ -485,6 +552,67 @@ export class BackendPreparationService {
       clearTimeout(deadline);
       job.settling = false;
     }
+  }
+
+  private async reconcileQueuedReadiness(job: PreparationJob, expiresAt: number): Promise<boolean> {
+    const readiness = await this.probe(
+      job.adapter,
+      job.status.target,
+      job.status.operation,
+      Math.max(0, expiresAt - Date.now()),
+      job.controller.signal,
+    );
+    if (job.controller.signal.aborted) {
+      if (job.status.state !== 'failed') this.update(job, { state: 'cancelled' });
+      return false;
+    }
+    if (readiness.state === 'ready') {
+      this.update(job, { state: 'ready', readiness });
+      return false;
+    }
+    if (readiness.state !== 'required') {
+      this.update(job, {
+        state: 'failed',
+        readiness,
+        failure: {
+          code: 'not_ready',
+          message: 'Queued preparation could not verify native readiness.',
+          retryable: false,
+          instructions: readiness.instructions,
+        },
+      });
+      return false;
+    }
+    if (!job.policy.allowedActions.includes(readiness.action)) {
+      this.update(job, {
+        state: 'failed',
+        readiness,
+        failure: {
+          code: 'action_forbidden',
+          message: `Runtime policy does not permit ${readiness.action}.`,
+          retryable: false,
+          instructions: readiness.instructions,
+        },
+      });
+      return false;
+    }
+    this.moveActionIdentity(job, readiness.action);
+    this.update(job, { action: readiness.action, readiness });
+    return true;
+  }
+
+  private moveActionIdentity(job: PreparationJob, action: PreparationAction): void {
+    const base = preparationKey(job.status.target, job.policy, this.options);
+    const destinationKey = `${base}:${action}`;
+    const destination = this.findJob(destinationKey);
+    if (destination === job) return;
+    if (destination) {
+      // Keep the inferred job's original reservation when another explicit job owns this action.
+      if (destination.status.state !== 'ready') return;
+    }
+    const oldKey = `${base}:${job.status.action}`;
+    if (this.identities.get(oldKey) === job.status.id) this.identities.delete(oldKey);
+    this.identities.set(destinationKey, job.status.id);
   }
 
   private async runAttempts(job: PreparationJob): Promise<void> {
@@ -538,6 +666,9 @@ export class BackendPreparationService {
     const actions = action ? [action] : policy.allowedActions;
     for (const selected of actions) {
       const job = this.findJob(`${base}:${selected}`);
+      if (action) {
+        if (job?.status.action !== action) continue;
+      }
       if (job && !this.terminal(job)) return job;
       if (job?.settling) return job;
     }
@@ -578,13 +709,18 @@ export class BackendPreparationService {
       const stop = (): void => {
         controller.abort();
         finish({
-          state: 'conflict',
+          state: 'unknown',
+          reason: signal?.aborted ? 'caller_disconnected' : 'inspection_timeout',
           instructions:
             'Readiness inspection did not complete within the caller budget; no backend operation executed. Inspect again before preparing.',
         });
       };
       const timer = setTimeout(stop, waitMs);
       if (signal?.aborted) {
+        stop();
+        return;
+      }
+      if (waitMs === 0) {
         stop();
         return;
       }

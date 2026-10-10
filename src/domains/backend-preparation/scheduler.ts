@@ -2,12 +2,15 @@ import { PreparationOptionsSchema } from './policy.js';
 
 interface ScheduledWork {
   readonly id: string;
-  readonly run: () => Promise<void>;
+  readonly resourceKey: string;
+  readonly wasQueued: boolean;
+  readonly run: (wasQueued: boolean) => Promise<void>;
 }
 
 /** Runtime-global expensive-work bound. Running cancellation retains its slot until work settles. */
 export class PreparationScheduler {
   private active = 0;
+  private readonly activeResources = new Set<string>();
   private readonly queue: ScheduledWork[] = [];
 
   constructor(
@@ -17,13 +20,22 @@ export class PreparationScheduler {
     PreparationOptionsSchema.parse({ concurrency, queueCapacity });
   }
 
-  schedule(id: string, run: () => Promise<void>): boolean {
+  schedule(
+    id: string,
+    run: (wasQueued: boolean) => Promise<void>,
+    resourceKey = id,
+    beforeAdmission?: () => void,
+  ): boolean {
     if (this.active < this.concurrency) {
-      this.start({ id, run });
-      return true;
+      if (!this.activeResources.has(resourceKey)) {
+        beforeAdmission?.();
+        this.start({ id, run, resourceKey, wasQueued: false });
+        return true;
+      }
     }
     if (this.queue.length >= this.queueCapacity) return false;
-    this.queue.push({ id, run });
+    beforeAdmission?.();
+    this.queue.push({ id, run, resourceKey, wasQueued: true });
     return true;
   }
 
@@ -40,15 +52,25 @@ export class PreparationScheduler {
 
   private start(work: ScheduledWork): void {
     this.active++;
+    this.activeResources.add(work.resourceKey);
     void Promise.resolve()
-      .then(work.run)
+      .then(() => work.run(work.wasQueued))
       .finally(() => {
         this.active--;
-        const next = this.queue.shift();
-        if (next) this.start(next);
+        this.activeResources.delete(work.resourceKey);
+        this.drain();
       })
       .catch(() => {
         /* A failing work item must still release its slot. */
       });
+  }
+
+  private drain(): void {
+    while (this.active < this.concurrency) {
+      const index = this.queue.findIndex((work) => !this.activeResources.has(work.resourceKey));
+      if (index < 0) return;
+      const [next] = this.queue.splice(index, 1);
+      this.start(next);
+    }
   }
 }

@@ -143,7 +143,10 @@ describe('backend preparation lifecycle', () => {
   it('honors higher concurrency while incompatible execution policy remains distinct', async () => {
     const { service, adapter } = setup({ concurrency: 2, queueCapacity: 1 });
     await service.prepare(target, 'symbols', policy);
-    await service.prepare(target, 'symbols', { ...policy, executionDeadlineMs: 130000 });
+    await service.prepare({ ...target, checkoutRoot: '/canonical/unrelated' }, 'symbols', {
+      ...policy,
+      executionDeadlineMs: 130000,
+    });
     await service.prepare({ ...target, configurationKey: 'config-b' }, 'symbols', policy);
     await flush();
     expect(adapter.calls).toHaveLength(2);
@@ -377,7 +380,8 @@ describe('backend preparation lifecycle', () => {
     const admission = service.admit(target, 'symbols', policy, { graph: { enabled: true } }, { waitMs: 20 });
     await vi.advanceTimersByTimeAsync(20);
     expect(await admission).toMatchObject({
-      state: 'conflict',
+      state: 'unknown',
+      reason: 'inspection_timeout',
       instructions: expect.stringContaining('no backend operation executed'),
     });
     expect(adapter.calls).toHaveLength(0);
@@ -650,7 +654,7 @@ describe('backend preparation lifecycle', () => {
       { waitMs: 20 },
     );
     await vi.advanceTimersByTimeAsync(20);
-    expect(await recovery).toMatchObject({ state: 'conflict' });
+    expect(await recovery).toMatchObject({ state: 'unknown', reason: 'inspection_timeout' });
     expect(probeSignal?.aborted).toBe(true);
     expect(adapter.calls).toHaveLength(0);
   });
@@ -660,7 +664,7 @@ describe('backend preparation lifecycle', () => {
     adapter.reconcile = () => new Promise(() => {});
     const recovery = service.recover(target, 'symbols', { previousJobId: 'advisory', previousState: 'failed' });
     await vi.advanceTimersByTimeAsync(5000);
-    expect(await recovery).toMatchObject({ state: 'conflict' });
+    expect(await recovery).toMatchObject({ state: 'unknown', reason: 'inspection_timeout' });
     expect(adapter.calls).toHaveLength(0);
   });
 
@@ -681,7 +685,7 @@ describe('backend preparation lifecycle', () => {
       { signal: caller.signal },
     );
     caller.abort();
-    expect(await recovery).toMatchObject({ state: 'conflict' });
+    expect(await recovery).toMatchObject({ state: 'unknown', reason: 'caller_disconnected' });
     expect(probeSignal?.aborted).toBe(true);
     expect(adapter.calls[0].signal.aborted).toBe(false);
     adapter.calls[0].finish();
@@ -731,5 +735,383 @@ describe('backend preparation lifecycle', () => {
     adapter.calls[0].finish();
     await flush();
     expect(service.clearResolvedFailure(target, 'symbols', policy, ready)).toBe(1);
+  });
+
+  it('serializes incompatible native work without joining identities and skips redundant queued automatic work', async () => {
+    const { service, adapter } = setup({ concurrency: 2 });
+    const first = await service.prepare(target, 'symbols', policy);
+    const second = await service.prepare(target, 'symbols', { ...policy, executionDeadlineMs: 130000 });
+    await service.prepare({ ...target, checkoutRoot: '/canonical/unrelated' }, 'symbols', policy);
+    if (first.state !== 'job' || second.state !== 'job') throw new Error('Expected jobs');
+    expect(first.status.id).not.toBe(second.status.id);
+    await flush();
+    expect(adapter.calls).toHaveLength(2);
+    expect(service.scheduler.counts()).toEqual({ active: 2, queued: 1 });
+    expect(service.status(second.status.id)).toMatchObject({ state: 'queued' });
+    adapter.calls[0].finish();
+    await flush();
+    expect(service.status(second.status.id)).toMatchObject({ state: 'ready' });
+    expect(adapter.calls).toHaveLength(2);
+    expect(adapter.calls[1].signal.aborted).toBe(false);
+  });
+
+  it('prepares incompatible configurations separately while preventing simultaneous same-checkout writers', async () => {
+    const { service, adapter } = setup({ concurrency: 2 });
+    await service.prepare(target, 'symbols', policy);
+    const next = await service.prepare({ ...target, configurationKey: 'config-b' }, 'symbols', policy);
+    if (next.state !== 'job') throw new Error('Expected job');
+    await flush();
+    expect(adapter.calls).toHaveLength(1);
+    expect(service.scheduler.counts()).toEqual({ active: 1, queued: 1 });
+    adapter.calls[0].finish();
+    await flush();
+    expect(adapter.calls).toHaveLength(2);
+    expect(adapter.calls[1].target.configurationKey).toBe('config-b');
+    expect(service.status(next.status.id)).toMatchObject({ state: 'running' });
+  });
+
+  it('counts resource-blocked jobs against queue bounds while allowing unrelated work into free slots', async () => {
+    const { service, adapter } = setup({ concurrency: 2, queueCapacity: 1 });
+    await service.prepare(target, 'symbols', policy);
+    const queued = await service.prepare(target, 'symbols', { ...policy, executionDeadlineMs: 130000 });
+    expect(await service.prepare(target, 'symbols', { ...policy, executionDeadlineMs: 130000 })).toMatchObject(queued);
+    expect(await service.prepare(target, 'symbols', { ...policy, executionDeadlineMs: 140000 })).toMatchObject({
+      state: 'busy',
+    });
+    expect(await service.prepare({ ...target, checkoutRoot: '/canonical/unrelated' }, 'symbols', policy)).toMatchObject(
+      { state: 'job' },
+    );
+    await flush();
+    expect(adapter.calls).toHaveLength(2);
+    expect(service.scheduler.counts()).toEqual({ active: 2, queued: 1 });
+  });
+
+  it('starts an unrelated queued target when the queue head is blocked by another native writer', async () => {
+    const { service, adapter } = setup({ concurrency: 2 });
+    await service.prepare(target, 'symbols', policy);
+    await service.prepare({ ...target, checkoutRoot: '/canonical/b' }, 'symbols', policy);
+    await service.prepare(target, 'symbols', { ...policy, executionDeadlineMs: 130000 });
+    await service.prepare({ ...target, checkoutRoot: '/canonical/c' }, 'symbols', policy);
+    await flush();
+    adapter.calls[1].finish();
+    await flush();
+    expect(adapter.calls).toHaveLength(3);
+    expect(adapter.calls[2].target.checkoutRoot).toBe('/canonical/c');
+    expect(service.scheduler.counts()).toEqual({ active: 2, queued: 1 });
+  });
+
+  it('preserves an explicitly selected preparation action after waiting even when native readiness is ready', async () => {
+    const { service, adapter } = setup({ concurrency: 2 });
+    await service.prepare(target, 'symbols', policy);
+    const forced = await service.prepare(target, 'symbols', { ...policy, executionDeadlineMs: 130000 }, 'sync');
+    await flush();
+    expect(adapter.calls).toHaveLength(1);
+    adapter.calls[0].finish();
+    await flush();
+    expect(adapter.calls).toHaveLength(2);
+    if (forced.state !== 'job') throw new Error('Expected job');
+    expect(service.status(forced.status.id)).toMatchObject({ action: 'sync', state: 'running' });
+  });
+
+  it('rechecks a queued automatic action against current runtime permissions before writing', async () => {
+    const { service, adapter } = setup();
+    await service.prepare({ ...target, checkoutRoot: '/canonical/blocker' }, 'symbols', policy);
+    const queued = await service.prepare(target, 'symbols', policy);
+    await flush();
+    adapter.readiness.set(adapter.key(target), { ...required, action: 'rebuild' });
+    adapter.calls[0].finish();
+    await flush();
+    if (queued.state !== 'job') throw new Error('Expected job');
+    expect(service.status(queued.status.id)).toMatchObject({ state: 'failed', failure: { code: 'action_forbidden' } });
+    expect(adapter.calls).toHaveLength(1);
+  });
+
+  it('preserves explicit cancellation when owned work takes longer than its execution deadline to stop', async () => {
+    const { service, adapter } = setup({ executionDeadlineMs: 10 });
+    adapter.cooperate = false;
+    const result = await service.prepare(target, 'symbols', policy);
+    if (result.state !== 'job') throw new Error('Expected job');
+    await flush();
+    service.cancel(result.status.id);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(service.status(result.status.id)).toMatchObject({ state: 'cancelling' });
+    expect(service.scheduler.counts()).toEqual({ active: 1, queued: 0 });
+    adapter.calls[0].fail(new Error('Owned work fully stopped'));
+    await flush();
+    expect(service.status(result.status.id)).toMatchObject({ state: 'cancelled' });
+    expect(service.status(result.status.id)?.failure).toBeUndefined();
+    expect(await service.retry(result.status.id)).toMatchObject({ state: 'job', status: { executionDeadlineMs: 10 } });
+  });
+
+  it('reports unknown immediately for a zero inspection budget without claiming a writer conflict', async () => {
+    const { service, adapter } = setup();
+    expect(await service.admit(target, 'symbols', policy, { graph: { enabled: true } }, { waitMs: 0 })).toMatchObject({
+      state: 'unknown',
+      reason: 'inspection_timeout',
+    });
+    expect(adapter.inspections).toBe(0);
+    expect(adapter.calls).toHaveLength(0);
+  });
+
+  it('returns truthful pending when preparation reaches ready but operation verification uses the last caller budget', async () => {
+    const { service, adapter } = setup();
+    await service.prepare(target, 'symbols', policy);
+    await flush();
+    const nativeInspect = adapter.inspect.bind(adapter);
+    adapter.inspect = (selected, operation?: string) =>
+      operation === 'another-operation'
+        ? new Promise((resolve) => setTimeout(() => resolve(ready), 5))
+        : nativeInspect(selected);
+    const admission = service.admit(target, 'another-operation', policy, { graph: { enabled: true } }, { waitMs: 5 });
+    await vi.advanceTimersByTimeAsync(4);
+    adapter.calls[0].finish();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await admission).toMatchObject({
+      state: 'pending',
+      status: { state: 'ready' },
+      operationExecuted: false,
+      operationQueued: false,
+    });
+    expect(adapter.calls).toHaveLength(1);
+  });
+
+  it('uses the remaining explicit preparation-control probe budget without adding a new default wait', async () => {
+    const { service, adapter } = setup();
+    adapter.inspect = () => new Promise(() => {});
+    const preparation = service.prepare(target, 'symbols', policy, undefined, { waitMs: 20 });
+    await vi.advanceTimersByTimeAsync(20);
+    expect(await preparation).toMatchObject({ state: 'unknown', reason: 'inspection_timeout' });
+    expect(adapter.calls).toHaveLength(0);
+  });
+
+  it('keeps a failed retry reserved when its remaining explicit-control probe budget expires', async () => {
+    const { service, adapter } = setup({ maxRecords: 1 });
+    adapter.failures = ['missing_binary'];
+    const result = await service.prepare(target, 'symbols', policy);
+    if (result.state !== 'job') throw new Error('Expected job');
+    await flush();
+    adapter.inspect = () => new Promise(() => {});
+    const retry = service.retry(result.status.id, undefined, { waitMs: 20 });
+    await vi.advanceTimersByTimeAsync(20);
+    expect(await retry).toMatchObject({ state: 'unknown', reason: 'inspection_timeout' });
+    expect(service.status(result.status.id)).toMatchObject({ state: 'failed' });
+    adapter.inspect = async () => required;
+    expect(await service.prepare(target, 'symbols', policy)).toMatchObject({
+      state: 'job',
+      status: { id: result.status.id, state: 'failed' },
+    });
+  });
+
+  it('preserves an explicit queued destination identity when an inferred action changes before execution', async () => {
+    const { service, adapter } = setup();
+    await service.prepare({ ...target, checkoutRoot: '/canonical/blocker' }, 'symbols', policy);
+    const inferred = await service.prepare(target, 'symbols', policy);
+    const explicit = await service.prepare(target, 'symbols', policy, 'sync');
+    if (inferred.state !== 'job' || explicit.state !== 'job') throw new Error('Expected independent jobs');
+    expect(inferred.status.id).not.toBe(explicit.status.id);
+    await flush();
+    adapter.readiness.set(adapter.key(target), { ...required, action: 'sync' });
+    adapter.calls[0].finish();
+    await flush();
+    expect(service.status(inferred.status.id)).toMatchObject({ state: 'running', action: 'sync' });
+    expect(await service.prepare(target, 'symbols', policy, 'initialize')).toMatchObject({ state: 'busy' });
+    expect(await service.prepare(target, 'symbols', policy, 'sync')).toMatchObject({
+      state: 'job',
+      status: { id: explicit.status.id, state: 'queued' },
+    });
+    adapter.calls[1].finish();
+    await flush();
+    expect(service.status(inferred.status.id)).toMatchObject({ state: 'ready' });
+    expect(service.status(explicit.status.id)).toMatchObject({ state: 'running', action: 'sync' });
+    adapter.calls[2].fail(new Error('Stable explicit sync failure'));
+    await flush();
+    adapter.readiness.set(adapter.key(target), { ...required, action: 'sync' });
+    for (let attempt = 0; attempt < 3; attempt++) {
+      expect(await service.prepare(target, 'symbols', policy)).toMatchObject({
+        state: 'job',
+        status: { id: explicit.status.id, state: 'failed', failure: { code: 'native_failure' } },
+      });
+    }
+    expect(adapter.calls).toHaveLength(3);
+    expect(service.scheduler.counts()).toEqual({ active: 0, queued: 0 });
+  });
+
+  it('reports the occupied action identity instead of silently redirecting a named failed retry', async () => {
+    const { service, adapter } = setup();
+    await service.prepare({ ...target, checkoutRoot: '/canonical/blocker' }, 'symbols', policy);
+    const inferred = await service.prepare(target, 'symbols', policy);
+    const explicit = await service.prepare(target, 'symbols', policy, 'sync');
+    if (inferred.state !== 'job' || explicit.state !== 'job') throw new Error('Expected jobs');
+    await flush();
+    adapter.readiness.set(adapter.key(target), { ...required, action: 'sync' });
+    adapter.calls[0].finish();
+    await flush();
+    adapter.calls[1].fail(new Error('Stable inferred sync failure'));
+    await flush();
+    adapter.calls[2].fail(new Error('Stable explicit sync failure'));
+    await flush();
+    const retry = await service.retry(inferred.status.id);
+    expect(retry).toMatchObject({ state: 'busy' });
+    if (retry.state !== 'busy') throw new Error('Expected occupied action diagnostic');
+    expect(retry.instructions).toContain(inferred.status.id);
+    expect(retry.instructions).toContain(explicit.status.id);
+    expect(retry.instructions).toContain('did not start');
+    expect(service.status(inferred.status.id)).toMatchObject({ state: 'failed', action: 'sync' });
+    expect(service.status(explicit.status.id)).toMatchObject({ state: 'failed', action: 'sync' });
+    expect(await service.prepare(target, 'symbols', policy)).toMatchObject({
+      state: 'job',
+      status: { id: inferred.status.id, state: 'failed' },
+    });
+    expect(await service.prepare(target, 'symbols', policy, 'sync')).toMatchObject({
+      state: 'job',
+      status: { id: explicit.status.id, state: 'failed' },
+    });
+    expect(adapter.calls).toHaveLength(3);
+    expect(service.scheduler.counts()).toEqual({ active: 0, queued: 0 });
+  });
+
+  it('avoids adapter I/O for zero-budget and already-disconnected inspection calls', async () => {
+    const { service, adapter } = setup();
+    expect(await service.inspect(target, 'symbols', { waitMs: 0 })).toMatchObject({
+      state: 'unknown',
+      reason: 'inspection_timeout',
+    });
+    const disconnected = new AbortController();
+    disconnected.abort();
+    expect(await service.inspect(target, 'symbols', { signal: disconnected.signal })).toMatchObject({
+      state: 'unknown',
+      reason: 'caller_disconnected',
+    });
+    expect(adapter.inspections).toBe(0);
+    expect(adapter.calls).toHaveLength(0);
+  });
+
+  it('bounds read-only inspection by the supplied remaining request budget', async () => {
+    const { service, adapter } = setup();
+    adapter.inspect = () => new Promise(() => {});
+    const inspection = service.inspect(target, 'symbols', { waitMs: 20 });
+    await vi.advanceTimersByTimeAsync(20);
+    expect(await inspection).toMatchObject({ state: 'unknown', reason: 'inspection_timeout' });
+    expect(adapter.calls).toHaveLength(0);
+  });
+
+  it('never reserves advisory capacity for ready, disabled, forbidden, unsupported, or unverified requests', async () => {
+    const { service, adapter } = setup();
+    const beforeAdmission = vi.fn(() => {
+      throw new Error('No advisory capacity');
+    });
+    adapter.readiness.set(adapter.key(target), ready);
+    expect(await service.admit(target, 'symbols', policy, {}, { beforeAdmission })).toMatchObject({ state: 'ready' });
+    adapter.readiness.delete(adapter.key(target));
+    expect(await service.admit(target, 'symbols', policy, {}, { beforeAdmission })).toMatchObject({
+      state: 'disabled',
+    });
+    expect(
+      await service.prepare(target, 'symbols', { allowedActions: [] }, undefined, { beforeAdmission }),
+    ).toMatchObject({ state: 'forbidden' });
+    expect(
+      await service.prepare({ ...target, backendName: 'missing' }, 'symbols', policy, undefined, { beforeAdmission }),
+    ).toMatchObject({ state: 'unsupported' });
+    expect(
+      await service.admit(target, 'symbols', policy, { graph: { enabled: true } }, { waitMs: 0, beforeAdmission }),
+    ).toMatchObject({ state: 'unknown' });
+    expect(beforeAdmission).not.toHaveBeenCalled();
+    expect(adapter.calls).toHaveLength(0);
+  });
+
+  it('reserves once before new native admission, while joined jobs and scheduler overflow bypass the guard', async () => {
+    const { service, adapter } = setup({ queueCapacity: 0 });
+    const beforeAdmission = vi.fn(() => {
+      expect(adapter.calls).toHaveLength(0);
+    });
+    const first = await service.prepare(target, 'symbols', policy, undefined, { beforeAdmission });
+    expect(beforeAdmission).toHaveBeenCalledOnce();
+    const joinedGuard = vi.fn(() => {
+      throw new Error('Should only join');
+    });
+    if (first.state !== 'job') throw new Error('Expected job');
+    expect(await service.prepare(target, 'symbols', policy, undefined, { beforeAdmission: joinedGuard })).toMatchObject(
+      { state: 'job', status: { id: first.status.id } },
+    );
+    expect(
+      await service.prepare({ ...target, checkoutRoot: '/canonical/overflow' }, 'symbols', policy, undefined, {
+        beforeAdmission: joinedGuard,
+      }),
+    ).toMatchObject({ state: 'busy' });
+    expect(joinedGuard).not.toHaveBeenCalled();
+    await flush();
+    expect(adapter.calls).toHaveLength(1);
+  });
+
+  it('leaves the scheduler and failure identity intact when an explicit retry reservation throws', async () => {
+    const { service, adapter } = setup({ maxRecords: 1 });
+    adapter.failures = ['missing_binary'];
+    const failed = await service.prepare(target, 'symbols', policy);
+    if (failed.state !== 'job') throw new Error('Expected job');
+    await flush();
+    const beforeAdmission = vi.fn(() => {
+      throw new Error('Advisory capacity unavailable');
+    });
+    await expect(service.retry(failed.status.id, undefined, { beforeAdmission })).rejects.toThrow(
+      'Advisory capacity unavailable',
+    );
+    expect(beforeAdmission).toHaveBeenCalledOnce();
+    expect(service.scheduler.counts()).toEqual({ active: 0, queued: 0 });
+    expect(await service.prepare(target, 'symbols', policy)).toMatchObject({
+      state: 'job',
+      status: { id: failed.status.id, state: 'failed' },
+    });
+    const retryGuard = vi.fn();
+    const retry = await service.retry(failed.status.id, undefined, { beforeAdmission: retryGuard });
+    expect(retryGuard).toHaveBeenCalledOnce();
+    expect(retry).toMatchObject({ state: 'job' });
+    expect(service.status(failed.status.id)).toBeUndefined();
+    await flush();
+    expect(adapter.calls).toHaveLength(1);
+  });
+
+  it('keeps unrelated ready operations responsive when retained failures fill advisory capacity', async () => {
+    const { service, adapter } = setup({ maxRecords: 1 });
+    adapter.failures = ['missing_binary'];
+    const failed = await service.prepare(target, 'symbols', policy);
+    if (failed.state !== 'job') throw new Error('Expected job');
+    await flush();
+    const unrelated = { ...target, checkoutRoot: '/canonical/already-ready' };
+    adapter.readiness.set(adapter.key(unrelated), ready);
+    const beforeAdmission = vi.fn(() => {
+      throw new Error('Retained advisory failures fill capacity');
+    });
+    expect(
+      await service.admit(unrelated, 'symbols', policy, { graph: { enabled: true } }, { beforeAdmission }),
+    ).toMatchObject({ state: 'ready' });
+    expect(beforeAdmission).not.toHaveBeenCalled();
+    expect(service.status(failed.status.id)).toMatchObject({ state: 'failed' });
+  });
+
+  it('guards new automatic follow-up admission after the joined operation lacks native coverage', async () => {
+    const { service, adapter } = setup();
+    const authority: BackendPolicy = { allowedActions: ['initialize', 'rebuild'] };
+    const nativeInspect = adapter.inspect.bind(adapter);
+    adapter.inspect = async (selected, operation?: string) =>
+      operation === 'full-coverage' ? { ...required, action: 'rebuild' } : nativeInspect(selected);
+    await service.prepare(target, 'symbols', authority);
+    await flush();
+    const beforeAdmission = vi.fn(() => {
+      throw new Error('No follow-up advisory capacity');
+    });
+    const admission = service.admit(
+      target,
+      'full-coverage',
+      authority,
+      { graph: { enabled: true } },
+      { beforeAdmission },
+    );
+    const rejection = expect(admission).rejects.toThrow('No follow-up advisory capacity');
+    adapter.calls[0].finish();
+    await rejection;
+    expect(beforeAdmission).toHaveBeenCalledOnce();
+    await flush();
+    expect(adapter.calls).toHaveLength(1);
+    expect(service.scheduler.counts()).toEqual({ active: 0, queued: 0 });
   });
 });

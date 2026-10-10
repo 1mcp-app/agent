@@ -30,6 +30,11 @@ export type BackendReadiness =
       readonly instructions: string;
       readonly evidence: ReadinessEvidence;
     }
+  | {
+      readonly state: 'unknown';
+      readonly reason: 'inspection_timeout' | 'caller_disconnected';
+      readonly instructions: string;
+    }
   | { readonly state: 'unsupported' | 'conflict'; readonly instructions: string };
 
 export interface PreparationFailure {
@@ -75,6 +80,13 @@ export interface PreparationOptions {
   readonly maxRecords: number;
 }
 
+export interface PreparationRequestOptions {
+  readonly waitMs?: number;
+  readonly signal?: AbortSignal;
+  /** Trusted runtime-only synchronous advisory-capacity reservation; never a backend-operation callback. */
+  readonly beforeAdmission?: () => void;
+}
+
 export type PreparationState = 'queued' | 'running' | 'cancelling' | 'ready' | 'failed' | 'cancelled';
 
 export interface PreparationStatus {
@@ -92,6 +104,7 @@ export interface PreparationStatus {
 export type PreparationResult =
   | { readonly state: 'ready'; readonly readiness: BackendReadiness }
   | { readonly state: 'job'; readonly status: PreparationStatus }
+  | Extract<BackendReadiness, { state: 'unknown' }>
   | { readonly state: 'busy' | 'disabled' | 'unsupported' | 'conflict' | 'forbidden'; readonly instructions: string };
 
 export type PreparationAdmission =
