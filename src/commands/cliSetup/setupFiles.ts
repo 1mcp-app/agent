@@ -18,7 +18,7 @@ export type CliSetupTarget = (typeof CLI_SETUP_TARGETS)[number];
 export const CLI_SETUP_SCOPES = ['global', 'repo', 'all'] as const;
 export type CliSetupScope = (typeof CLI_SETUP_SCOPES)[number];
 
-const MANAGED_COMMAND = '1mcp instructions';
+const LEGACY_MANAGED_COMMAND = '1mcp instructions';
 
 interface ScopePaths {
   scope: Exclude<CliSetupScope, 'all'>;
@@ -60,6 +60,7 @@ interface HookEntry {
 interface HookConfig {
   hooks?: {
     SessionStart?: HookEntry[];
+    SubagentStart?: HookEntry[];
     [key: string]: unknown;
   };
   [key: string]: unknown;
@@ -117,7 +118,7 @@ async function writeTargetSetupFiles(
 
   return Promise.all([
     writeManagedFile(managedDocPath, managedDocContent, { ...resultInfo, kind: 'managed-doc' }),
-    writeManagedJson(hookPath, (existing) => upsertHooks(existing), { ...resultInfo, kind: 'hook' }),
+    writeManagedJson(hookPath, (existing) => upsertHooks(existing, resultInfo.target), { ...resultInfo, kind: 'hook' }),
     writeManagedFile(startupPath, startupContent, { ...resultInfo, kind: 'startup-doc' }, existingStartup),
   ]);
 }
@@ -128,7 +129,11 @@ export function formatCliSetupOutput(results: CliSetupWriteResult[]): string {
     (result) =>
       `- [${result.scope}] ${result.kind} ${result.target}: ${result.path}${result.changed ? '' : ' (unchanged)'}`,
   );
-  return [header, ...lines].join('\n');
+  return [
+    header,
+    ...lines,
+    'Hook files configure delivery only. Disabled, untrusted, skipped, or unavailable hooks remain bootstrap coverage gaps. Verify delivery in the selected client.',
+  ].join('\n');
 }
 
 export { renderManagedDocContent, renderStartupDocManagedBlock, upsertStartupDocManagedBlock };
@@ -222,55 +227,43 @@ async function writeManagedFile(
   };
 }
 
-function upsertHooks(existing: Record<string, unknown>): Record<string, unknown> {
+export function upsertHooks(existing: Record<string, unknown>, target: CliSetupTarget): Record<string, unknown> {
   const config = cloneHookConfig(existing);
   config.hooks ??= {};
-  config.hooks.SessionStart = dedupeSessionStartHooks(config.hooks.SessionStart ?? []);
+  for (const event of ['SessionStart', 'SubagentStart'] as const) {
+    const entries = config.hooks[event] ?? [];
+    if (!Array.isArray(entries)) throw new Error(`Expected hooks.${event} to be an array`);
+    config.hooks[event] = composeBootstrapHooks(entries, target, event);
+  }
   return config;
 }
 
-function dedupeSessionStartHooks(entries: HookEntry[]): HookEntry[] {
-  const dedupedEntries: HookEntry[] = [];
-  let seenManagedHook = false;
-
+function composeBootstrapHooks(entries: HookEntry[], target: CliSetupTarget, event: string): HookEntry[] {
+  const preserved: HookEntry[] = [];
   for (const entry of entries) {
-    const hooks = Array.isArray(entry?.hooks) ? entry.hooks : [];
-    const nextHooks: HookCommand[] = [];
-
-    for (const hook of hooks) {
-      if (isManagedHook(hook)) {
-        if (!seenManagedHook) {
-          seenManagedHook = true;
-          nextHooks.push(hook);
-        }
-        continue;
-      }
-      nextHooks.push(hook);
+    if (!Array.isArray(entry?.hooks)) {
+      preserved.push(entry);
+      continue;
     }
-
+    const nextHooks = entry.hooks.filter((hook) => !isManagedHook(hook, target, event));
     if (nextHooks.length > 0) {
-      dedupedEntries.push({
-        ...entry,
-        hooks: nextHooks,
-      });
+      preserved.push({ ...entry, hooks: nextHooks });
     }
   }
-
-  if (!seenManagedHook) {
-    dedupedEntries.push(createHookEntry());
-  }
-
-  return dedupedEntries;
+  // Always use an unconditional entry: migrating a restrictive legacy matcher must not exclude workers.
+  preserved.push({ hooks: [{ type: 'command', command: managedBootstrapCommand(target, event), timeout: 10 }] });
+  return preserved;
 }
 
-function createHookEntry(): HookEntry {
-  return {
-    hooks: [{ type: 'command', command: MANAGED_COMMAND }],
-  };
+function managedBootstrapCommand(target: CliSetupTarget, event: string): string {
+  return `1mcp bootstrap --client ${target} --event ${event}`;
 }
 
-function isManagedHook(hook: HookCommand | undefined): boolean {
-  return hook?.type === 'command' && hook.command === MANAGED_COMMAND;
+function isManagedHook(hook: HookCommand | undefined, target: CliSetupTarget, event: string): boolean {
+  if (hook?.type !== 'command') return false;
+  if (hook.command === LEGACY_MANAGED_COMMAND) return true;
+  // Explicit custom assignments or shell pipelines are user-owned and must be retained.
+  return hook.command === managedBootstrapCommand(target, event);
 }
 
 function cloneHookConfig(existing: Record<string, unknown>): HookConfig {

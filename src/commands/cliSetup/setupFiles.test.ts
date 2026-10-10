@@ -9,6 +9,7 @@ import {
   renderManagedDocContent,
   renderStartupDocManagedBlock,
   resolveCliSetupScope,
+  upsertHooks,
   upsertStartupDocManagedBlock,
   writeCliSetupFiles,
 } from './setupFiles.js';
@@ -35,6 +36,41 @@ describe('cli setup file writers', () => {
     expect(resolveCliSetupScope()).toBe('global');
     expect(resolveCliSetupScope('repo')).toBe('repo');
     expect(() => resolveCliSetupScope('workspace')).toThrow('Invalid cli-setup scope: workspace');
+  });
+
+  it.each(['codex', 'claude'] as const)('composes both %s events without consuming unrelated mixed hooks', (target) => {
+    const custom = { type: 'command', command: 'echo unrelated', timeout: 42 };
+    const assigned = {
+      type: 'command',
+      command: `1mcp bootstrap --client ${target} --event SubagentStart --project /custom`,
+    };
+    const source = {
+      hooks: {
+        SessionStart: [{ matcher: '^resume$', hooks: [{ type: 'command', command: '1mcp instructions' }, custom] }],
+        SubagentStart: [{ matcher: '^Explore$', hooks: [custom, assigned] }],
+        Stop: [{ hooks: [custom] }],
+      },
+      disableAllHooks: true,
+    };
+    const first = upsertHooks(source, target);
+    expect(source.hooks.SessionStart[0].hooks[0].command).toBe('1mcp instructions');
+    expect(first.disableAllHooks).toBe(true);
+    expect(first.hooks).toMatchObject({
+      SessionStart: [
+        { matcher: '^resume$', hooks: [custom] },
+        { hooks: [{ command: `1mcp bootstrap --client ${target} --event SessionStart` }] },
+      ],
+      SubagentStart: [
+        { matcher: '^Explore$', hooks: [custom, assigned] },
+        { hooks: [{ command: `1mcp bootstrap --client ${target} --event SubagentStart` }] },
+      ],
+      Stop: source.hooks.Stop,
+    });
+    expect(JSON.stringify(upsertHooks(first, target))).toBe(JSON.stringify(first));
+  });
+
+  it('rejects malformed event collections instead of overwriting them', () => {
+    expect(() => upsertHooks({ hooks: { SubagentStart: {} } }, 'claude')).toThrow('Expected hooks.SubagentStart');
   });
 
   it('renders managed doc content with conditional instructions guidance', () => {
@@ -81,6 +117,7 @@ describe('cli setup file writers', () => {
                     ],
                   },
                 ],
+                SubagentStart: [{ matcher: '^Explore$', hooks: [{ type: 'command', command: 'echo custom-worker' }] }],
               },
             }),
           );
@@ -110,7 +147,13 @@ describe('cli setup file writers', () => {
         const commands = hooks.hooks.SessionStart.flatMap((entry: { hooks: Array<{ command: string }> }) =>
           entry.hooks.map((hook) => hook.command),
         );
-        expect(commands.filter((command: string) => command === '1mcp instructions')).toHaveLength(1);
+        expect(commands.filter((command: string) => command.startsWith('1mcp bootstrap'))).toHaveLength(1);
+        expect(commands).not.toContain('1mcp instructions');
+        expect(hooks.hooks.SubagentStart).toHaveLength(2);
+        expect(hooks.hooks.SubagentStart[0]).toEqual({
+          matcher: '^Explore$',
+          hooks: [{ type: 'command', command: 'echo custom-worker' }],
+        });
         expect(commands).toContain('echo keep-custom-hook');
       }
       const repeated = await writeCliSetupFiles({ repoRoot, scope, targets: ['codex', 'claude'] });
@@ -178,13 +221,13 @@ describe('cli setup file writers', () => {
     expect(agents).toBe('@.codex/1MCP.md\n');
     expect(claude).toBe('@.claude/1MCP.md\n');
     expect(
-      codexHooks.hooks.SessionStart.flatMap((entry) => entry.hooks).filter(
-        (hook) => hook.command === '1mcp instructions',
+      codexHooks.hooks.SessionStart.flatMap((entry) => entry.hooks).filter((hook) =>
+        hook.command.startsWith('1mcp bootstrap'),
       ),
     ).toHaveLength(1);
     expect(
-      claudeSettings.hooks.SessionStart.flatMap((entry) => entry.hooks).filter(
-        (hook) => hook.command === '1mcp instructions',
+      claudeSettings.hooks.SessionStart.flatMap((entry) => entry.hooks).filter((hook) =>
+        hook.command.startsWith('1mcp bootstrap'),
       ),
     ).toHaveLength(1);
   });
@@ -259,8 +302,8 @@ describe('cli setup file writers', () => {
     };
 
     expect(
-      codexHooks.hooks.SessionStart.flatMap((entry) => entry.hooks).filter(
-        (hook) => hook.command === '1mcp instructions',
+      codexHooks.hooks.SessionStart.flatMap((entry) => entry.hooks).filter((hook) =>
+        hook.command.startsWith('1mcp bootstrap'),
       ),
     ).toHaveLength(1);
     expect(
@@ -268,8 +311,8 @@ describe('cli setup file writers', () => {
     ).toBe(true);
     expect(claudeSettings.enabledPlugins['typescript-lsp@claude-plugins-official']).toBe(true);
     expect(
-      claudeSettings.hooks.SessionStart.flatMap((entry) => entry.hooks).filter(
-        (hook) => hook.command === '1mcp instructions',
+      claudeSettings.hooks.SessionStart.flatMap((entry) => entry.hooks).filter((hook) =>
+        hook.command.startsWith('1mcp bootstrap'),
       ),
     ).toHaveLength(1);
     expect(
