@@ -13,7 +13,10 @@ import {
 import tagsExtractor from '@src/transport/http/middlewares/tagsExtractor.js';
 import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
 import { StreamableSessionLifecycle, StreamableSessionStatus } from '@src/transport/http/streamableSessionLifecycle.js';
-import { extractTemplateContextRequest } from '@src/transport/http/utils/contextExtractor.js';
+import {
+  extractTemplateContextRequest,
+  hasExplicitTemplateContextProof,
+} from '@src/transport/http/utils/contextExtractor.js';
 import { sendBadRequest, sendInternalError, sendNotFound } from '@src/transport/http/utils/httpErrorHandler.js';
 import { authorizeRequestTemplateContext } from '@src/transport/http/utils/templateContextAuthority.js';
 import { logError, logWarn } from '@src/transport/http/utils/unifiedLogger.js';
@@ -191,6 +194,10 @@ export function setupStreamableHttpRoutes(
       const authorization = extractedContext
         ? authorizeRequestTemplateContext({ ...extractedContext, transportSessionId: sessionId })
         : undefined;
+      if (hasExplicitTemplateContextProof(req) && authorization?.status !== 'trusted') {
+        sendBadRequest(res, 'Request context proof rejected');
+        return;
+      }
       const result = await lifecycle.resolvePostSession({
         sessionId,
         isInitializeRequest: isInitialize,

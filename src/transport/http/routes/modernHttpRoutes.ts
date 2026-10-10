@@ -71,6 +71,11 @@ import {
   getValidatedTags,
   revalidateAuthInfo,
 } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
+import {
+  extractTemplateContextRequest,
+  hasExplicitTemplateContextProof,
+} from '@src/transport/http/utils/contextExtractor.js';
+import { authorizeRequestTemplateContext } from '@src/transport/http/utils/templateContextAuthority.js';
 
 import type { NextFunction, Request, RequestHandler, Response, Router } from 'express';
 
@@ -456,6 +461,24 @@ export function setupModernHttpRoutes(
       if (rejected) {
         await writeWebResponse(rejected, res);
         return;
+      }
+
+      if (hasExplicitTemplateContextProof(req)) {
+        const extractedContext = extractTemplateContextRequest(req);
+        const authorization = extractedContext
+          ? authorizeRequestTemplateContext({
+              ...extractedContext,
+              transportSessionId: req.get('mcp-session-id'),
+            })
+          : undefined;
+        if (authorization?.status !== 'trusted') {
+          res.status(400).json({
+            jsonrpc: '2.0',
+            id: (req.body as { id?: string | number } | undefined)?.id ?? null,
+            error: { code: -32602, message: 'Request context proof rejected' },
+          });
+          return;
+        }
       }
 
       const config = buildConfig(req, res);

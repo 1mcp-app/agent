@@ -7,6 +7,7 @@ import {
   extractContextFromMeta,
   extractRequestContext,
   extractTemplateContextRequest,
+  hasExplicitTemplateContextProof,
 } from './contextExtractor.js';
 
 // Mock logger to avoid console output during tests
@@ -20,6 +21,18 @@ vi.mock('@src/logger/logger.js', () => ({
 }));
 
 describe('contextExtractor', () => {
+  it.each([
+    { body: { params: { _meta: { contextProof: null } } } },
+    { body: { _meta: { contextProof: {} } } },
+    { query: { contextProof: '' } },
+  ])('detects explicitly supplied malformed proofs: %j', (req) => {
+    const request: Partial<Request> = req;
+    expect(hasExplicitTemplateContextProof(request as Request)).toBe(true);
+  });
+
+  it('distinguishes absent proof from a malformed explicit proof', () => {
+    expect(hasExplicitTemplateContextProof({ body: { params: { _meta: { context: {} } } } } as Request)).toBe(false);
+  });
   let mockRequest: Partial<Request>;
 
   beforeEach(() => {

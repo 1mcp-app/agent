@@ -14,7 +14,6 @@ export const globalOptions = {
     describe: 'Explicit checkout path, or selected labels from --project-set',
     type: 'array' as const,
     string: true,
-    default: undefined,
   },
   'project-set': {
     describe: 'Path to a saved JSON project-set definition (no global project switch)',

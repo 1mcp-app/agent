@@ -205,6 +205,17 @@ export function extractTemplateContextRequest(req: Request): ExtractedTemplateCo
   };
 }
 
+/** Preserve explicit proof presence even when parsing rejects its structure. */
+export function hasExplicitTemplateContextProof(req: Request): boolean {
+  const body = req.body as
+    { _meta?: { contextProof?: unknown }; params?: { _meta?: { contextProof?: unknown } } } | undefined;
+  return (
+    body?.params?._meta?.contextProof !== undefined ||
+    body?._meta?.contextProof !== undefined ||
+    req.query?.contextProof !== undefined
+  );
+}
+
 function extractProofFromMeta(req: Request): TemplateContextProof | null {
   const body = req.body as {
     _meta?: { contextProof?: unknown };

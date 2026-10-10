@@ -141,6 +141,22 @@
       "additionalProperties": {
         "type": "object",
         "properties": {
+          "projectTarget": {
+            "description": "Runtime-owned project targeting; templates default to single and static backends to independent",
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": ["independent", "single", "native-set"]
+              },
+              "argument": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": ["mode"],
+            "additionalProperties": false
+          },
           "type": {
             "description": "Transport type for connecting to the MCP server",
             "type": "string",
@@ -396,6 +412,22 @@
       "additionalProperties": {
         "type": "object",
         "properties": {
+          "projectTarget": {
+            "description": "Runtime-owned project targeting; templates default to single and static backends to independent",
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": ["independent", "single", "native-set"]
+              },
+              "argument": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": ["mode"],
+            "additionalProperties": false
+          },
           "type": {
             "description": "Transport type for connecting to the MCP server",
             "type": "string",
