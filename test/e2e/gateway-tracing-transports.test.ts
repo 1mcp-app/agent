@@ -121,9 +121,16 @@ describe('real transport trace carriers', () => {
           });
           cleanup.push(() => client.close());
           await client.connect(proxy as never);
+          await expect(
+            client.request({
+              method: 'tools/call',
+              params: { name: 'fixture_1mcp_trace', arguments: {}, _meta: metadata },
+            } as never),
+          ).rejects.toThrow('Request context proof rejected');
+          const { contextProof: _rejectedProof, ...acceptedMetadata } = metadata;
           const result = (await client.request({
             method: 'tools/call',
-            params: { name: 'fixture_1mcp_trace', arguments: {}, _meta: metadata },
+            params: { name: 'fixture_1mcp_trace', arguments: {}, _meta: acceptedMetadata },
           } as never)) as { content: Array<{ text: string }> };
           expect(JSON.parse(result.content[0].text)).toEqual({ traceparent: parent, tracestate: 'vendor=opaque' });
           expect(result).toMatchObject({ _meta: { other: 'preserved' }, structuredContent: { baggage: 'legit' } });
