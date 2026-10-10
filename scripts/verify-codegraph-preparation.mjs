@@ -116,8 +116,8 @@ async function countedSource(root) {
 }
 
 async function readOnlySession(root) {
-  const entry = path.resolve('build/domains/backend-preparation/codegraphReadOnly.js');
-  const code = `import {runCodeGraphReadOnlyServer} from ${JSON.stringify('file://' + entry)}; await runCodeGraphReadOnlyServer(${JSON.stringify({ executable, checkoutPath: root })});`;
+  const entry = new URL('../build/domains/backend-preparation/codegraphReadOnly.js', import.meta.url).href;
+  const code = `import {runCodeGraphReadOnlyServer} from ${JSON.stringify(entry)}; await runCodeGraphReadOnlyServer(${JSON.stringify({ executable, checkoutPath: root })});`;
   const child = spawn(process.execPath, ['--input-type=module', '-e', code], { env, stdio: ['pipe', 'pipe', 'pipe'] });
   const exited = new Promise((resolve) => child.once('close', resolve));
   let buffer = '',

@@ -6,7 +6,7 @@ import { getRuntimeParentEnvironment } from '../../config/runtimeBootstrap.js';
 export function codeGraphEnvironment(): Record<string, string | undefined> {
   const environment = { ...getRuntimeParentEnvironment() };
   for (const key of Object.keys(environment)) {
-    if (key.startsWith('GIT_CONFIG_')) delete environment[key];
+    if (/^GIT_CONFIG_(?:PARAMETERS|COUNT|KEY_\d+|VALUE_\d+)$/.test(key)) delete environment[key];
   }
   for (const key of [
     'GIT_DIR',

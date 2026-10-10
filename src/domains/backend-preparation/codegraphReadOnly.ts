@@ -32,6 +32,9 @@ interface MetadataSnapshot {
 }
 
 const metadataSnapshots = new Map<string, MetadataSnapshot>();
+// Reusable cache entries and owned worker lifetimes differ: an abandoned job
+// leaves the cache immediately, but shutdown must still await its verified exit.
+const activeMetadataSnapshots = new Set<MetadataSnapshot>();
 let metadataEpoch = 0;
 let metadataClosing: Promise<void> | undefined;
 
@@ -112,15 +115,18 @@ function snapshotFor(
     }).then(
       (tools) => {
         snapshot.settled = true;
+        activeMetadataSnapshots.delete(snapshot);
         return tools;
       },
       (error) => {
         snapshot.settled = true;
+        activeMetadataSnapshots.delete(snapshot);
         if (metadataSnapshots.get(key) === snapshot) metadataSnapshots.delete(key);
         throw error;
       },
     ),
   };
+  activeMetadataSnapshots.add(snapshot);
   metadataSnapshots.set(key, snapshot);
   return snapshot;
 }
@@ -130,7 +136,7 @@ function snapshotFor(
 export function disposeCodeGraphPreparationToolMetadata(): Promise<void> {
   if (metadataClosing) return metadataClosing;
   metadataEpoch += 1;
-  const snapshots = [...metadataSnapshots.values()];
+  const snapshots = [...activeMetadataSnapshots];
   metadataSnapshots.clear();
   for (const snapshot of snapshots) snapshot.controller.abort();
   metadataClosing = Promise.allSettled(snapshots.map((snapshot) => snapshot.promise)).then(() => {
@@ -195,6 +201,7 @@ export async function getCodeGraphPreparationToolDefinition(
     } finally {
       snapshot.waiters -= 1;
       if (snapshot.waiters === 0 && !snapshot.settled) {
+        if (metadataSnapshots.get(key) === snapshot) metadataSnapshots.delete(key);
         snapshot.controller.abort();
         await snapshot.promise.catch(() => undefined); // Verify owned exit.
       }

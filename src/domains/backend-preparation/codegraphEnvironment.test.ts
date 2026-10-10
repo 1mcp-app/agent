@@ -15,6 +15,13 @@ vi.mock('../../config/runtimeBootstrap.js', () => ({
     GIT_CONFIG_COUNT: '2',
     GIT_CONFIG_KEY_0: 'core.fsmonitor',
     GIT_CONFIG_VALUE_0: '/foreign/hook',
+    GIT_CONFIG_KEY_1: 'core.fsmonitor',
+    GIT_CONFIG_VALUE_1: '/another/hook',
+    GIT_CONFIG_GLOBAL: '/configured/global',
+    GIT_CONFIG_SYSTEM: '/configured/system',
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG: '/configured/legacy',
+    GIT_CONFIG_CUSTOM: 'preserved',
   }),
 }));
 
@@ -28,6 +35,17 @@ it('confines inherited Git commands to the target without invoking fsmonitor hoo
   expect(env.GIT_CONFIG_COUNT).toBe('1');
   expect(env.GIT_CONFIG_KEY_0).toBe('core.fsmonitor');
   expect(env.GIT_CONFIG_VALUE_0).toBe('false');
+  expect(env.GIT_CONFIG_KEY_1).toBeUndefined();
+  expect(env.GIT_CONFIG_VALUE_1).toBeUndefined();
   expect(env.GIT_OPTIONAL_LOCKS).toBe('0');
   expect(env.KEEP_ME).toBe('yes');
+});
+
+it('preserves normal Git configuration selectors while overriding only command-scoped injections', () => {
+  const env = codeGraphEnvironment();
+  expect(env.GIT_CONFIG_GLOBAL).toBe('/configured/global');
+  expect(env.GIT_CONFIG_SYSTEM).toBe('/configured/system');
+  expect(env.GIT_CONFIG_NOSYSTEM).toBe('1');
+  expect(env.GIT_CONFIG).toBe('/configured/legacy');
+  expect(env.GIT_CONFIG_CUSTOM).toBe('preserved');
 });
