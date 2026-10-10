@@ -1,9 +1,10 @@
 import { CliTestRunner, CommandTestEnvironment } from '@test/e2e/utils/index.js';
 
-import { type ChildProcess, spawn } from 'node:child_process';
+import { type ChildProcess, execFile, spawn } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -15,8 +16,10 @@ describeInspectE2E('inspect command E2E', () => {
   let runner: CliTestRunner;
   let serveProcess: ChildProcess | undefined;
   let servePort: number;
+  let serveOutput: string;
 
   beforeEach(async () => {
+    serveOutput = '';
     environment = new CommandTestEnvironment({
       name: 'inspect-command',
       createConfigFile: true,
@@ -31,6 +34,8 @@ describeInspectE2E('inspect command E2E', () => {
       ],
     });
     await environment.setup();
+    // Keep checkout-derived context and runtime project policies inside this fixture.
+    await promisify(execFile)('git', ['init', '--quiet', environment.getTempDir()]);
     await writeFile(join(environment.getTempDir(), '.1mcprc'), '{}', 'utf8');
     runner = new CliTestRunner(environment);
     servePort = await getAvailablePort();
@@ -283,7 +288,7 @@ describeInspectE2E('inspect command E2E', () => {
       args: ['--config-dir', environment.getConfigDir()],
     });
 
-    runner.assertSuccess(instructionsResult);
+    runner.assertSuccess(instructionsResult, `Instructions failed. Fixture server output:\n${serveOutput}`);
     expect(instructionsResult.stdout).toContain('1MCP CLI Instructions');
     expect(instructionsResult.stdout).toContain('Run `1mcp inspect <server>`');
     expect(instructionsResult.stdout).toContain('=== SERVER SUMMARY ===');
@@ -304,7 +309,7 @@ describeInspectE2E('inspect command E2E', () => {
       'servers[2]{server,type,status,available,loadTracked,toolCount,hasInstructions}:',
     );
     expect(listResult.stdout).toContain('runner,external,connected,true,true,4,false');
-    expect(listResult.stdout).toContain('serena,template,disconnected,false,false,0,true');
+    expect(listResult.stdout).toContain('serena,template,connected,true,false,1,true');
     expect(listResult.stdout).not.toContain('# 1MCP - Model Context Protocol Proxy');
 
     const runResult = await runner.runRunCommand('runner/echo_args', {
@@ -559,8 +564,12 @@ describeInspectE2E('inspect command E2E', () => {
     );
 
     let stderr = '';
+    serveProcess.stdout?.on('data', (chunk) => {
+      serveOutput = (serveOutput + chunk.toString()).slice(-32768);
+    });
     serveProcess.stderr?.on('data', (chunk) => {
       stderr += chunk.toString();
+      serveOutput = (serveOutput + chunk.toString()).slice(-32768);
     });
 
     serveProcess.on('exit', (code) => {
