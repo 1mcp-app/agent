@@ -28,7 +28,7 @@ npx -y @1mcp/agent cli-setup (--codex | --claude) [options]
 The `cli-setup` command installs lightweight bootstrap files that point Codex or Claude at the 1MCP CLI workflow. It writes:
 
 - A managed `1MCP.md` bootstrap document
-- Hook configuration so the startup doc is injected on session start
+- Managed `SessionStart` and `SubagentStart` bootstrap command hooks
 - A startup file reference from `AGENTS.md` or `CLAUDE.md`
 
 `cli-setup` does not replace [`instructions`](./instructions.md). It makes sure the session is prepared to use `instructions`, `inspect`, and `run` in the right order.
@@ -111,7 +111,31 @@ The managed startup docs tell the client to:
 
 Search defaults to case-insensitive literal substring matching. Use a quoted `--search 'filesystem/*read?' --glob` pattern for whole-reference `*`/`?` matching. `--include-descriptions` adds effective descriptions to matching; `--show-descriptions` independently displays them.
 
-Rerun the same `cli-setup` command to refresh managed guidance in any scope. Repeated runs are idempotent and preserve unrelated startup-document content and hooks. Startup references stay lightweight, and hooks continue to call `1mcp instructions`.
+Rerun the same `cli-setup` command to refresh managed guidance in any scope. Repeated runs are byte-stable and preserve unrelated startup-document content and hooks, including commands mixed into a managed hook entry. Exact legacy `1mcp instructions` handlers are replaced with unconditional `1mcp bootstrap --client <client> --event <event>` handlers for both events. Customized commands with extra arguments remain user-owned. Global and repository hooks may both deliver the same playbook; repeated delivery is safe and does not suppress a differently assigned worker.
+
+## Worker Bootstrap and Project Assignment
+
+`bootstrap` reads client hook JSON from stdin and returns `hookSpecificOutput.additionalContext` for the requested event. Both [Codex](https://developers.openai.com/codex/hooks) and [Claude](https://code.claude.com/docs/en/hooks) support this format. Hook input is limited to 64 KiB with a one-second stdin deadline. Runtime rendering has a five-second deadline, a 32 KiB output limit, and a 9,000-character context budget. Exceeding these limits delivers the general playbook with a coverage gap, rather than claiming complete project instructions.
+
+The context budget includes the escaped assignment and recovery guidance. An assignment that cannot fit is omitted in full; bootstrap reports unresolved selection in the delivered context and asks the worker to recover the original selector from its dispatch instructions.
+
+A `SessionStart` handler can fetch ordinary runtime instructions. A `SubagentStart` handler without an explicit assignment delivers the inspect-before-run playbook and reports unresolved project selection. It never chooses the parent checkout from hook cwd or session identity. The supported hook schemas do not provide a worker project assignment field.
+
+Bootstrap parses its options from explicit CLI flags rather than inherited `ONE_MCP_*` options. Its instructions subprocess excludes inherited `ONE_MCP_PROJECT` and `ONE_MCP_PROJECT_SET`; other environment plumbing remains intact. A parent's environment selectors cannot assign an otherwise unassigned worker.
+
+Give every worker its absolute checkout path or project-set definition path in dispatch instructions. Before project-specific discovery or calls, the worker runs one of:
+
+```bash
+1mcp bootstrap --client codex --event SubagentStart --project /absolute/frontend-checkout
+1mcp bootstrap --client claude --event SubagentStart --project-set /absolute/feature-projects.json
+1mcp bootstrap --client codex --event SubagentStart --project-set /absolute/feature-projects.json --project backend --project frontend
+```
+
+Without a project set, assign exactly one absolute checkout path. With `--project-set`, repeated `--project` values select ordered member labels and override the definition's optional saved `selection`. Retain the selectors on subsequent `instructions`, `inspect`, and `run` calls. A multi-project assignment requires explicit checkout selection for checkout-specific tools; coordinate separate calls for tools that accept one project. Arguments are passed to the runtime-facing instructions command without a shell. See [Project Checkouts and Sets](../guide/project-checkouts.md) for the definition format and backend target contracts.
+
+## Verify Hook Delivery
+
+Writing hook configuration does not establish that the client enabled or trusted it, that a hook executed, or that the selected runtime and checkout index are ready. Verify the client actually receives `additionalContext` for both events. Disabled, untrusted, commented configuration files that setup leaves untouched, runtime failures, and unresolved worker assignments are bootstrap coverage gaps. Resolve the reported gap before project-specific tool use. Setup does not enable hooks or change trust automatically.
 
 ## See Also
 

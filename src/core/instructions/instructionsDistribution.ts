@@ -196,6 +196,11 @@ export function renderManagedDocContent(): string {
     '',
     'Use `--preset`, `--tags`, or `--tag-filter` with `1mcp instructions`, `inspect`, and `run` when you need a narrower server set.',
     '',
+    'Each delegated worker must receive this playbook independently. Dispatch instructions must name its Worker Project Assignment as an absolute checkout path or project-set definition path.',
+    'If the startup hook cannot resolve the assignment, run `1mcp bootstrap --client codex|claude --event SubagentStart --project <absolute-checkout>` or use `--project-set <absolute-definition>` before project-specific instructions or calls. Do not infer a worker target from parent cwd or session identity.',
+    'Retain the assigned `--project` and/or `--project-set` selectors for instructions and tool calls. With a project set, repeat `--project <label>` to select its ordered members. A multi-project set requires explicit selection for checkout-specific calls; coordinate separate calls for single-project tools.',
+    'Identical hook delivery may repeat across global and repository sources. Never suppress instructions for a different assigned target. Configuration files alone do not prove enabled, trusted hook delivery or runtime readiness.',
+    '',
   ].join('\n');
 }
 

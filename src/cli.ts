@@ -9,6 +9,7 @@ import yargs from 'yargs';
 import { setupAdminCommands } from './commands/admin/index.js';
 import { setupAppCommands } from './commands/app/index.js';
 import { setupAuthCommands } from './commands/auth/index.js';
+import { setupBootstrapCommand } from './commands/bootstrap/index.js';
 import { setupCliSetupCommand } from './commands/cliSetup/index.js';
 import { setupInspectCommand } from './commands/inspect/index.js';
 import { setupInstructionsCommand } from './commands/instructions/index.js';
@@ -58,6 +59,7 @@ yargsInstance = yargsInstance
 yargsInstance = setupAdminCommands(yargsInstance);
 yargsInstance = setupAppCommands(yargsInstance);
 yargsInstance = setupAuthCommands(yargsInstance);
+yargsInstance = setupBootstrapCommand(yargsInstance);
 yargsInstance = setupCliSetupCommand(yargsInstance);
 yargsInstance = setupInstructionsCommand(yargsInstance);
 yargsInstance = setupMcpCommands(yargsInstance);
@@ -86,6 +88,7 @@ function checkGlobalOptionConflicts(argv: string[]): void {
       arg === 'admin' ||
       arg === 'auth' ||
       arg === 'cli-setup' ||
+      arg === 'bootstrap' ||
       arg === 'instructions' ||
       arg === 'mcp' ||
       arg === 'preset' ||
