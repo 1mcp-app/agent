@@ -1,4 +1,8 @@
 import { isOperatorDisabledTemplateDefinition } from '@src/config/configuredServerTargets.js';
+import {
+  normalizeProjectPreparationAuthority,
+  type ProjectPreparationAuthority,
+} from '@src/core/context/projectPreparationAuthority.js';
 import type { TrustedTemplateContext } from '@src/core/context/templateContextTrust.js';
 import type { OutboundConnections } from '@src/core/types/client.js';
 import type { MCPServerParams } from '@src/core/types/index.js';
@@ -37,6 +41,7 @@ export interface RequestContextPreparationDependencies {
     outboundConns: OutboundConnections,
     transports: Record<string, Transport>,
     lifecycle: 'ephemeral',
+    authority?: ProjectPreparationAuthority,
   ): Promise<void>;
   hasTemplateAdapter(templateName: string): boolean;
   registerTemplateAdapter(templateName: string, config: MCPServerParams): void;
@@ -47,6 +52,7 @@ export interface RequestContextPreparationDependencies {
     bindingId: string,
     context: ContextData,
     filterConfig: InboundConnectionConfig,
+    authority?: ProjectPreparationAuthority,
   ): Promise<string | undefined>;
 }
 
@@ -55,6 +61,7 @@ export interface PrepareRequestContextInput {
   filterConfig: InboundConnectionConfig;
   context?: TrustedTemplateContext | null;
   transportSessionId?: string;
+  authority?: ProjectPreparationAuthority;
 }
 
 export async function prepareRequestContext(
@@ -75,9 +82,15 @@ export async function prepareRequestContext(
   const canonicalContext = canonical.projectSet
     ? withProjectSelection(canonical, await canonicalizeProjectSet(canonical.projectSet, process.cwd()))
     : canonical;
+  const authority = normalizeProjectPreparationAuthority(input.authority, context, canonicalContext);
   const initialBindingId = createProjectBindingId(sessionId, canonicalContext);
   const bindingId =
-    (await deps.registerBindingContext?.(initialBindingId, canonicalContext, filterConfig)) ?? initialBindingId;
+    (await deps.registerBindingContext?.(
+      initialBindingId,
+      canonicalContext,
+      filterConfig,
+      ...(authority ? [authority] : []),
+    )) ?? initialBindingId;
   const selection = resolveProjectSelection(canonicalContext);
   const renderedTemplates = await deps.loadRenderedTemplates(canonicalContext);
   const templateEntries = Object.entries(renderedTemplates).filter(([_templateName, config]) => {
@@ -129,6 +142,7 @@ export async function prepareRequestContext(
     deps.getOutboundConnections(),
     deps.getClientTransports(),
     'ephemeral',
+    ...(authority ? [authority] : []),
   );
   await deps.refreshCapabilities();
 

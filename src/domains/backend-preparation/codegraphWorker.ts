@@ -55,7 +55,7 @@ function assertUnlocked() {
   const dir = sdk.getCodeGraphDir(root);
   for (const name of ['rebuild.pid', 'writer.pid', 'codegraph.lock']) {
     if (fs.existsSync(path.join(dir, name))) {
-      if (action === 'inspect' && name === 'writer.pid') {
+      if ((action === 'inspect' || action === 'inspect-index') && name === 'writer.pid') {
         try {
           const owner = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'));
           if (Number.isInteger(owner.pid) && owner.pid > 0 && owner.ready === true) {
@@ -71,7 +71,18 @@ function assertUnlocked() {
   }
 }
 
+function indexSnapshot() {
+  const build = graph.getIndexBuildInfo();
+  return {
+    initialized: true, projectPath: root, indexPath: sdk.getCodeGraphDir(root),
+    index: { builtWithVersion: build.version, builtWithExtractionVersion: build.extractionVersion,
+      currentExtractionVersion: extraction.EXTRACTION_VERSION, reindexRecommended: graph.isIndexStale(),
+      state: graph.getIndexState(), pendingRefs: graph.getPendingReferenceCount() },
+  };
+}
+
 function snapshot() {
+  const index = indexSnapshot();
   // Cold-only scope audit uses the backend's exact configured candidate list.
   // An unreadable file is not silently treated as current. Source symlinks are
   // unsupported because their external target may escape the journal's scope.
@@ -105,14 +116,10 @@ function snapshot() {
   const getMetadata = graph.queries.getMetadata.bind(graph.queries);
   graph.queries.getMetadata = key => key === scanner.INDEXED_AT_COMMIT_KEY ? null : getMetadata(key);
   const changes = graph.getChangedFiles();
-  const build = graph.getIndexBuildInfo();
   return {
-    initialized: true, projectPath: root, indexPath: sdk.getCodeGraphDir(root),
+    ...index,
     fileCount: graph.getStats().fileCount,
     pendingChanges: { added: changes.added.length, modified: changes.modified.length, removed: changes.removed.length },
-    index: { builtWithVersion: build.version, builtWithExtractionVersion: build.extractionVersion,
-      currentExtractionVersion: extraction.EXTRACTION_VERSION, reindexRecommended: graph.isIndexStale(),
-      state: graph.getIndexState(), pendingRefs: graph.getPendingReferenceCount() },
   };
 }
 
@@ -120,7 +127,7 @@ function snapshot() {
   try {
     assertUnlocked();
     const dbPath = sdk.getDatabasePath(root);
-    if (action === 'inspect') {
+    if (action === 'inspect' || action === 'inspect-index') {
       // Exact root only: never resolve the nearest ancestor's index. A malformed
       // existing DB is incompatible, rather than an invitation to overwrite it.
       if (!fs.existsSync(dbPath)) {
@@ -131,6 +138,10 @@ function snapshot() {
       // published storage API avoids that mutation and schema repair entirely.
       const db = sdk.DatabaseConnection.open(dbPath, { readOnly: true });
       graph = new sdk.CodeGraph(db, new sdk.QueryBuilder(db.getDb()), root);
+      if (action === 'inspect-index') {
+        report(indexSnapshot());
+        return;
+      }
       report(snapshot());
       return;
     }

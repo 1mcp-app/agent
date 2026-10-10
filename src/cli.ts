@@ -14,6 +14,8 @@ import { setupCliSetupCommand } from './commands/cliSetup/index.js';
 import { setupInspectCommand } from './commands/inspect/index.js';
 import { setupInstructionsCommand } from './commands/instructions/index.js';
 import { setupMcpCommands } from './commands/mcp/index.js';
+import { setupCodegraphReadonlyCommand } from './commands/preparation/codegraphReadonly.js';
+import { setupPreparationCommands } from './commands/preparation/index.js';
 import { setupPresetCommands } from './commands/preset/index.js';
 import { setupProxyCommand } from './commands/proxy/index.js';
 import { setupRegistryCommands } from './commands/registry/index.js';
@@ -64,6 +66,8 @@ yargsInstance = setupCliSetupCommand(yargsInstance);
 yargsInstance = setupInstructionsCommand(yargsInstance);
 yargsInstance = setupMcpCommands(yargsInstance);
 yargsInstance = setupPresetCommands(yargsInstance);
+yargsInstance = setupPreparationCommands(yargsInstance);
+yargsInstance = setupCodegraphReadonlyCommand(yargsInstance);
 yargsInstance = setupServeCommand(yargsInstance);
 yargsInstance = setupProxyCommand(yargsInstance);
 yargsInstance = setupInspectCommand(yargsInstance);
@@ -92,6 +96,9 @@ function checkGlobalOptionConflicts(argv: string[]): void {
       arg === 'instructions' ||
       arg === 'mcp' ||
       arg === 'preset' ||
+      arg === 'prepare' ||
+      arg === 'preparation' ||
+      arg === 'codegraph-readonly' ||
       arg === 'serve' ||
       arg === 'proxy' ||
       arg === 'inspect' ||

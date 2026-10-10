@@ -33,7 +33,11 @@ class FakeAdapter implements BackendPreparationAdapter {
   key(selected: PreparationTarget): string {
     return `${selected.checkoutRoot}:${selected.configurationKey}`;
   }
-  async inspect(selected: PreparationTarget): Promise<BackendReadiness> {
+  async inspect(
+    selected: PreparationTarget,
+    _operation?: string,
+    _options?: { signal?: AbortSignal; waitMs?: number },
+  ): Promise<BackendReadiness> {
     this.inspections++;
     return this.readiness.get(this.key(selected)) ?? required;
   }
@@ -333,6 +337,39 @@ describe('backend preparation lifecycle', () => {
     expect(adapter.calls).toHaveLength(1);
   });
 
+  it.each([false, true])(
+    'preserves an interrupted initialize record when native readiness requires rebuild (policy allows rebuild: %s)',
+    async (allowRebuild) => {
+      const { service, adapter } = setup({ executionDeadlineMs: 20 });
+      const original = await service.prepare(target, 'symbols', policy);
+      if (original.state !== 'job') throw new Error('Expected job');
+      await flush();
+      await vi.advanceTimersByTimeAsync(20);
+      const failure = service.status(original.status.id);
+      expect(failure).toMatchObject({ action: 'initialize', state: 'failed', failure: { code: 'execution_deadline' } });
+      adapter.readiness.set(adapter.key(target), {
+        ...required,
+        action: 'rebuild',
+        evidence: { freshness: 'unknown', coverage: 'partial', detail: 'Interrupted native index is partial.' },
+        instructions: 'Review the partial native database and explicitly select an authorized rebuild procedure.',
+      });
+      const beforeAdmission = vi.fn();
+      const retryPolicy: BackendPolicy = {
+        allowedActions: allowRebuild ? ['initialize', 'sync', 'rebuild'] : ['initialize', 'sync'],
+        executionDeadlineMs: 40,
+      };
+      const retry = await service.retry(original.status.id, retryPolicy, { beforeAdmission });
+      expect(retry).toMatchObject({ state: 'forbidden', instructions: expect.stringContaining('requires rebuild') });
+      if (retry.state !== 'forbidden') throw new Error('Expected explicit recovery selection');
+      expect(retry.instructions).toContain('Select rebuild explicitly under runtime policy');
+      expect(retry.instructions).toContain('partial native database');
+      expect(service.status(original.status.id)).toEqual(failure);
+      expect(adapter.calls).toHaveLength(1);
+      expect(beforeAdmission).not.toHaveBeenCalled();
+      expect(service.scheduler.counts()).toEqual({ active: 0, queued: 0 });
+    },
+  );
+
   it('does not automatically retry permanent failure and verified readiness resolves it', async () => {
     const { service, adapter } = setup();
     adapter.failures = ['missing_binary'];
@@ -501,6 +538,43 @@ describe('backend preparation lifecycle', () => {
     await vi.advanceTimersByTimeAsync(20);
     expect(service.status(first.status.id)).toMatchObject({ state: 'failed', failure: { code: 'execution_deadline' } });
     expect(service.scheduler.counts()).toEqual({ active: 0, queued: 0 });
+  });
+
+  it('gives background verification the remaining job budget while a caller probe still stops at five seconds', async () => {
+    const { service, adapter } = setup({ executionDeadlineMs: 12_000, requestWaitMs: 5_000 });
+    const first = await service.prepare(target, 'symbols', policy);
+    if (first.state !== 'job') throw new Error('Expected job');
+    await flush();
+    await vi.advanceTimersByTimeAsync(1_000);
+    const inspect = vi.fn<BackendPreparationAdapter['inspect']>(
+      () => new Promise((resolve) => setTimeout(() => resolve(ready), 6_000)),
+    );
+    adapter.inspect = inspect;
+    adapter.calls[0].finish();
+    await flush();
+    expect(inspect.mock.calls[0][2]?.waitMs).toBe(11_000);
+    const backgroundSignal = inspect.mock.calls[0][2]?.signal;
+    const caller = service.inspect(target, 'symbols');
+    expect(inspect.mock.calls[1][2]?.waitMs).toBe(5_000);
+    const callerSignal = inspect.mock.calls[1][2]?.signal;
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(await caller).toMatchObject({ state: 'unknown', reason: 'inspection_timeout' });
+    expect(callerSignal?.aborted).toBe(true);
+    expect(backgroundSignal?.aborted).toBe(false);
+    expect(service.status(first.status.id)?.state).toBe('running');
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(service.status(first.status.id)?.state).toBe('ready');
+  });
+
+  it('forwards the bounded recovery budget to native reconciliation', async () => {
+    const { service, adapter } = setup();
+    adapter.reconcile = vi.fn(async () => ready);
+    const advisory = { previousJobId: 'old', previousState: 'running' };
+    expect(await service.recover(target, 'symbols', advisory, { waitMs: 1_234 })).toEqual(ready);
+    expect(adapter.reconcile).toHaveBeenCalledWith(target, 'symbols', advisory, {
+      signal: expect.any(AbortSignal),
+      waitMs: 1_234,
+    });
   });
 
   it('retains retry capacity reservation across a delayed conflicting probe', async () => {

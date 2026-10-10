@@ -47,6 +47,7 @@ vi.mock('@src/transport/http/utils/contextExtractor.js', () => ({
 }));
 
 vi.mock('@src/transport/http/utils/templateContextAuthority.js', () => ({
+  getRequestProjectPreparationAuthority: vi.fn(() => undefined),
   authorizeRequestTemplateContext: mockedAuthorizeRequestTemplateContext,
 }));
 

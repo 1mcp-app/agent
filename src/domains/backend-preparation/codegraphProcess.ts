@@ -32,11 +32,14 @@ export async function runCodeGraphWorker(
   action: string,
   options: CodeGraphProcessOptions,
 ): Promise<unknown> {
-  if (options.signal?.aborted)
-    throw new CodeGraphPreparationError(
-      'cancelled',
-      'CodeGraph preparation cancelled. If forced exit left native locks, explicitly reconcile their ownership; no post-exit lock removal is attempted.',
-    );
+  const readOnly = action === 'inspect' || action === 'inspect-index' || action === 'describe-tools';
+  const cancellationMessage = readOnly
+    ? 'CodeGraph read-only inspection cancelled; no preparation or writer-lock acquisition was started.'
+    : 'CodeGraph preparation cancelled. If forced exit left native locks, explicitly reconcile their ownership; no post-exit lock removal is attempted.';
+  const deadlineMessage = readOnly
+    ? 'CodeGraph read-only inspection exceeded its inspection budget; no preparation or writer-lock acquisition was started.'
+    : 'CodeGraph preparation exceeded its execution deadline. Locks retained after forced exit require explicit manual ownership reconciliation; this runtime never removes them.';
+  if (options.signal?.aborted) throw new CodeGraphPreparationError('cancelled', cancellationMessage);
   const claimId = randomUUID();
   let stopped = false;
   return await new Promise<unknown>((resolve, reject) => {
@@ -78,23 +81,11 @@ export async function runCodeGraphWorker(
         // Exit may have raced the signal; only close establishes completion.
       }
     };
-    const onAbort = () =>
-      stop(
-        new CodeGraphPreparationError(
-          'cancelled',
-          'CodeGraph preparation cancelled. If forced exit left native locks, explicitly reconcile their ownership; no post-exit lock removal is attempted.',
-        ),
-      );
+    const onAbort = () => stop(new CodeGraphPreparationError('cancelled', cancellationMessage));
     options.signal?.addEventListener('abort', onAbort, { once: true });
     if (options.signal?.aborted) onAbort();
     const deadline = setTimeout(
-      () =>
-        stop(
-          new CodeGraphPreparationError(
-            'deadline_exceeded',
-            'CodeGraph preparation exceeded its execution deadline. Locks retained after forced exit require explicit manual ownership reconciliation; this runtime never removes them.',
-          ),
-        ),
+      () => stop(new CodeGraphPreparationError('deadline_exceeded', deadlineMessage)),
       options.executionDeadlineMs,
     );
     child.stdout.on('data', (data: Buffer) => {

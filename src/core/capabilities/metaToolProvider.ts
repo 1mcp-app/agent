@@ -155,8 +155,9 @@ export class MetaToolProvider {
     visibility?: CapabilityVisibility,
     signal?: AbortSignal,
     toolRegistry?: ToolRegistry,
+    beforeDispatch?: CapabilityCatalogQueryOptions['beforeDispatch'],
   ): Promise<ListToolsResult | DescribeToolResult | CallToolResult> {
-    const query: CapabilityCatalogQueryOptions = { signal, ...(toolRegistry ? { toolRegistry } : {}) };
+    const query: CapabilityCatalogQueryOptions = { signal, beforeDispatch, ...(toolRegistry ? { toolRegistry } : {}) };
     switch (name) {
       case 'tool_list': {
         const parsed = ToolListInputSchema.safeParse(args);

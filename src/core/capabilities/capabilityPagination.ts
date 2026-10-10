@@ -180,9 +180,16 @@ interface RuntimePaginationState {
   signature: Partial<Record<CapabilityKind, string>>;
 }
 
+interface CapabilityNotification {
+  method: string;
+  params?: Record<string, unknown>;
+  /** Added only by the runtime's exact-provider preparation invalidation. */
+  origin?: 'runtime-preparation';
+}
+
 interface CapabilityNotificationState {
   connections: Set<OutboundConnections>;
-  forwarders: Map<object, (notification: { method: string; params?: Record<string, unknown> }) => Promise<void>>;
+  forwarders: Map<object, (notification: CapabilityNotification) => Promise<void>>;
   pumping: boolean;
 }
 
@@ -255,7 +262,8 @@ export function registerCapabilityPaginationNotifications(
   connections: OutboundConnections,
   connection: OutboundConnection,
   forwardingKey?: object,
-  forward?: (notification: { method: string; params?: Record<string, unknown> }) => Promise<void>,
+  forward?: (notification: CapabilityNotification) => Promise<void>,
+  forwardingOptions?: { preserveExisting?: true },
 ): void {
   let state = notificationStates.get(connection.adapter);
   if (!state) {
@@ -285,7 +293,8 @@ export function registerCapabilityPaginationNotifications(
       advanceCapabilityPaginationGeneration(connections, kind);
     }
   }
-  if (forwardingKey && forward) state.forwarders.set(forwardingKey, forward);
+  if (forwardingKey && forward && !(forwardingOptions?.preserveExisting && state.forwarders.has(forwardingKey)))
+    state.forwarders.set(forwardingKey, forward);
 
   if (!state.pumping) {
     state.pumping = true;
@@ -326,6 +335,18 @@ async function pumpCapabilityNotifications(
     };
     await Promise.all(Array.from(state.forwarders.values(), (handler) => handler(notification)));
   }
+}
+
+/** Preparation changed this exact provider while its read-only MCP process remained connected. */
+export async function invalidatePreparedToolProvider(connection: OutboundConnection): Promise<void> {
+  clearConfiguredToolSnapshot(connection);
+  const state = notificationStates.get(connection.adapter);
+  if (!state) return;
+  for (const connections of state.connections) advanceCapabilityPaginationGeneration(connections, 'tools');
+  // Internal provenance must not enter a spread/serialized notification envelope.
+  const notification: CapabilityNotification = { method: 'notifications/tools/list_changed' };
+  Object.defineProperty(notification, 'origin', { value: 'runtime-preparation' });
+  await Promise.all(Array.from(state.forwarders.values(), (handler) => handler(notification)));
 }
 
 /** Remove one inbound notification forwarder from every connected provider. */

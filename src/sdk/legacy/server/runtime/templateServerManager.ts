@@ -7,6 +7,11 @@ import {
   clearLastConfiguredToolSnapshot,
 } from '@src/core/capabilities/configuredToolSnapshot.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
+import {
+  bindProjectPreparationAuthority,
+  getProjectPreparationAuthorityIdentity,
+  type ProjectPreparationAuthority,
+} from '@src/core/context/projectPreparationAuthority.js';
 import { ClientTemplateTracker, TemplateFilteringService, TemplateIndex } from '@src/core/filtering/index.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
@@ -93,6 +98,8 @@ export class TemplateServerManager {
   private ownerBindings = new Map<string, Set<string>>();
   private bindingContexts = new Map<string, ContextData>();
   private bindingPolicies = new Map<string, InboundConnectionConfig[]>();
+  private bindingConfigurations = new Map<string, Readonly<InboundConnectionConfig>>();
+  private bindingAuthorities = new Map<string, ProjectPreparationAuthority>();
   private ephemeralBindingActivity = new Map<string, number>();
 
   // Maps sessionId -> (templateName -> renderedHash) for routing shareable servers
@@ -167,6 +174,7 @@ export class TemplateServerManager {
     outboundConns: OutboundConnections,
     transports: Record<string, Transport>,
     lifecycle: TemplateClientLifecycle = 'persistent',
+    authority?: ProjectPreparationAuthority,
   ): Promise<void> {
     this.outboundConns = outboundConns;
     this.transports = transports;
@@ -174,7 +182,12 @@ export class TemplateServerManager {
     const ownerSessionId = context.sessionId ?? sessionId;
     context = context.projectSet ? withProjectSelection(context, context.projectSet) : context;
     context = { ...context, sessionId: ownerSessionId };
-    sessionId = await this.registerBindingContext(createProjectBindingId(ownerSessionId, context), context, opts);
+    sessionId = await this.registerBindingContext(
+      createProjectBindingId(ownerSessionId, context),
+      context,
+      opts,
+      authority,
+    );
 
     if (lifecycle === 'persistent') {
       this.trackPersistentClient(sessionId);
@@ -832,35 +845,57 @@ export class TemplateServerManager {
     return this.bindingContexts.get(bindingId);
   }
 
+  public getBindingContexts(): ReadonlyMap<string, ContextData> {
+    return new Map(this.bindingContexts);
+  }
+
   public getBindingPolicies(bindingId: string): readonly InboundConnectionConfig[] {
     return this.bindingPolicies.get(bindingId) ?? [];
+  }
+
+  /** Exact selector inputs used in the immutable binding identity; this read never renews its lifetime. */
+  public getBindingConfiguration(bindingId: string): Readonly<InboundConnectionConfig> | undefined {
+    const config = this.bindingConfigurations.get(bindingId);
+    return config ? structuredClone(config) : undefined;
+  }
+
+  /** Callers must revalidate this opaque receipt before each preparation admission. */
+  public getBindingAuthority(bindingId: string): ProjectPreparationAuthority | undefined {
+    return this.bindingAuthorities.get(bindingId);
   }
 
   public async registerBindingContext(
     bindingId: string,
     context: ContextData,
     filterConfig: InboundConnectionConfig = {},
+    authority?: ProjectPreparationAuthority,
   ): Promise<string> {
+    const preparationAuthority = getProjectPreparationAuthorityIdentity(authority, context);
     const policies = await resolveProjectPolicies(context, filterConfig);
+    const bindingConfiguration = structuredClone({
+      tags: filterConfig.tags,
+      tagExpression: filterConfig.tagExpression,
+      tagQuery: filterConfig.tagQuery,
+      tagFilterMode: filterConfig.tagFilterMode,
+      presetName: filterConfig.presetName,
+      projectFilterMode: filterConfig.projectFilterMode,
+    });
     if (context.project || context.projectSet) {
       bindingId = createProjectBindingId(context.sessionId ?? bindingId, context, {
-        filterConfig: {
-          tags: filterConfig.tags,
-          tagExpression: filterConfig.tagExpression,
-          tagQuery: filterConfig.tagQuery,
-          tagFilterMode: filterConfig.tagFilterMode,
-          presetName: filterConfig.presetName,
-          projectFilterMode: filterConfig.projectFilterMode,
-        },
+        filterConfig: bindingConfiguration,
         policies,
+        preparationAuthority,
       });
     }
+    const boundAuthority = bindProjectPreparationAuthority(authority, bindingId, context);
     const capacity = Math.max(1, this.poolPolicy.maxTotalInstances) * 32;
     if (!this.bindingContexts.has(bindingId) && this.bindingContexts.size >= capacity) {
       throw new Error('Project binding capacity exceeded');
     }
     this.bindingContexts.set(bindingId, context);
     this.bindingPolicies.set(bindingId, policies);
+    this.bindingConfigurations.set(bindingId, Object.freeze(bindingConfiguration));
+    if (boundAuthority) this.bindingAuthorities.set(bindingId, boundAuthority);
     const ownerSessionId = context.sessionId ?? bindingId;
     const owned = this.ownerBindings.get(ownerSessionId) ?? new Set<string>();
     owned.add(bindingId);
@@ -873,6 +908,8 @@ export class TemplateServerManager {
     const owner = this.bindingContexts.get(bindingId)?.sessionId ?? bindingId;
     this.bindingContexts.delete(bindingId);
     this.bindingPolicies.delete(bindingId);
+    this.bindingConfigurations.delete(bindingId);
+    this.bindingAuthorities.delete(bindingId);
     this.ephemeralBindingActivity.delete(bindingId);
     const owned = this.ownerBindings.get(owner);
     owned?.delete(bindingId);
@@ -904,6 +941,8 @@ export class TemplateServerManager {
     this.ownerBindings.clear();
     this.bindingContexts.clear();
     this.bindingPolicies.clear();
+    this.bindingConfigurations.clear();
+    this.bindingAuthorities.clear();
     this.ephemeralBindingActivity.clear();
 
     await this.clientInstancePool.shutdown();

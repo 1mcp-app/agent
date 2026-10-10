@@ -15,6 +15,11 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
+import {
+  admitBackendPreparationTool,
+  revalidatePreparationAuthentication,
+  withPreparationRequestScope,
+} from '@src/application/backendPreparationAdmission.js';
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION, STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
 import {
   type CatalogCursorOwner,
@@ -34,6 +39,8 @@ import {
 } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
 import type { InboundConnectionConfig } from '@src/core/types/index.js';
+import { SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
+import { schemaInputErrorResult } from '@src/core/validation/toolSchemaBoundary.js';
 import { ModernInboundEraAdapter } from '@src/gateway/adapters/modern/modernInboundEraAdapter.js';
 import { createEffectiveRequestAuthority } from '@src/gateway/contracts/effectiveRequestAuthority.js';
 import { type GatewayOperation, gatewayOperationSchema } from '@src/gateway/contracts/gatewayRequest.js';
@@ -72,12 +79,14 @@ import {
   revalidateAuthInfo,
 } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
 import {
+  CONTEXT_HEADERS,
   extractTemplateContextRequest,
   hasExplicitTemplateContextProof,
 } from '@src/transport/http/utils/contextExtractor.js';
 import { authorizeRequestTemplateContext } from '@src/transport/http/utils/templateContextAuthority.js';
 
 import type { NextFunction, Request, RequestHandler, Response, Router } from 'express';
+import { z } from 'zod';
 
 import { prepareHttpRequestContext } from './inspectRequestContext.js';
 import {
@@ -551,6 +560,48 @@ export function setupModernHttpRoutes(
             }
             activeModernToolHeaderAdmissions++;
             ownsHeaderAdmission = true;
+            const call = z
+              .object({ name: z.string(), arguments: z.record(z.string(), z.unknown()).optional() })
+              .loose()
+              .safeParse((req.body as { params?: unknown } | null)?.params);
+            if (call.success) {
+              const rawOwner = req.headers?.[CONTEXT_HEADERS.SESSION_ID];
+              const auth = getAuthInfo(res);
+              let preparation;
+              try {
+                preparation = await admitBackendPreparationTool({
+                  serverManager,
+                  bindingId,
+                  ownerSessionId: Array.isArray(rawOwner) ? rawOwner[0] : rawOwner,
+                  filterConfig: { ...targetedConfig, projectFilterMode: getTagFilterMode(res) },
+                  authentication: auth
+                    ? [auth.clientId, auth.token, [...auth.grantedScopes].sort(), [...auth.grantedTags].sort()]
+                    : undefined,
+                  revalidateAuth: () => revalidatePreparationAuthentication(auth, () => revalidateAuthInfo(auth)),
+                  request: call.data,
+                  signal: disconnect.controller.signal,
+                });
+              } catch (error) {
+                if (!(error instanceof SchemaBoundaryError) || error.code !== 'schema_input_invalid') throw error;
+                const invalid = new Server(
+                  { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
+                  { capabilities: { tools: {} } },
+                );
+                invalid.setRequestHandler('tools/call', async () => schemaInputErrorResult());
+                return invalid;
+              }
+
+              if (preparation.kind === 'blocked') {
+                const pending = new Server(
+                  { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
+                  { capabilities: { tools: {} } },
+                );
+                pending.setRequestHandler('tools/call', async () => preparation.result as never);
+                return pending;
+              }
+              if (preparation.kind === 'ready' && !(await preparation.revalidate()))
+                throw new ProtocolError(-32602, 'Preparation authorization changed');
+            }
           }
           const headerRegistry = await resolveModernToolHeaderRegistry(
             serverManager,
@@ -774,7 +825,20 @@ export function setupModernHttpRoutes(
       );
 
       try {
-        await writeWebResponse(await handler.fetch(request, { parsedBody: req.body }), res);
+        const auth = getAuthInfo(res);
+        const rawOwner = req.headers?.[CONTEXT_HEADERS.SESSION_ID];
+        const response = await withPreparationRequestScope(
+          {
+            ownerSessionId: Array.isArray(rawOwner) ? rawOwner[0] : rawOwner,
+            filterConfig: { ...targetedConfig, projectFilterMode: getTagFilterMode(res) },
+            authentication: auth
+              ? [auth.clientId, auth.token, [...auth.grantedScopes].sort(), [...auth.grantedTags].sort()]
+              : undefined,
+            revalidateAuth: () => revalidatePreparationAuthentication(auth, () => revalidateAuthInfo(auth)),
+          },
+          () => handler.fetch(request, { parsedBody: req.body }),
+        );
+        await writeWebResponse(response, res);
       } finally {
         try {
           await handler.close();

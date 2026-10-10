@@ -88,8 +88,14 @@ export class CodeGraphPreparationAdapter implements BackendPreparationAdapter {
   async inspect(
     target: PreparationTarget,
     _operation: string,
-    options?: { signal?: AbortSignal },
+    options?: { signal?: AbortSignal; waitMs?: number },
   ): Promise<BackendReadiness> {
+    const deadline = Date.now() + (options?.waitMs ?? this.options.inspectionDeadlineMs ?? 5_000);
+    const inspectionTimeout: BackendReadiness = {
+      state: 'unknown',
+      reason: 'inspection_timeout',
+      instructions: 'CodeGraph read-only inspection exhausted its inspection budget; no source operation was admitted.',
+    };
     let root: string;
     let installation: CodeGraphInstallation;
     try {
@@ -120,71 +126,86 @@ export class CodeGraphPreparationAdapter implements BackendPreparationAdapter {
         checkout,
         () =>
           this.nativeWork(options?.signal, async () => {
-            const deadline = Date.now() + (this.options.inspectionDeadlineMs ?? 5_000);
-            let before = await checkout.journal.query(checkout.token, options?.signal);
-            let fingerprint = await checkout.freshness.fingerprint(options?.signal);
-            if (
-              checkout.readiness &&
-              checkout.token &&
-              checkout.fingerprint === fingerprint &&
-              relevantJournalPaths(before.paths).length === 0
-            ) {
-              checkout.token = before.token;
-              this.measurements.warmChecks += 1;
-              return checkout.readiness;
-            }
-            checkout.readiness = undefined;
-            for (let attempt = 0; attempt < 3; attempt += 1) {
+            try {
+              if (Date.now() >= deadline) return inspectionTimeout;
+              let before = await checkout.journal.query(checkout.token, options?.signal);
+              let fingerprint = await checkout.freshness.fingerprint(options?.signal);
+              if (Date.now() >= deadline) return inspectionTimeout;
+              if (
+                checkout.readiness &&
+                checkout.token &&
+                checkout.fingerprint === fingerprint &&
+                relevantJournalPaths(before.paths).length === 0
+              ) {
+                checkout.token = before.token;
+                this.measurements.warmChecks += 1;
+                return checkout.readiness;
+              }
+              checkout.readiness = undefined;
+              for (let attempt = 0; attempt < 3; attempt += 1) {
+                const remaining = deadline - Date.now();
+                if (remaining <= 0) return inspectionTimeout;
+                this.measurements.inspections += 1;
+                const raw = await runCodeGraphWorker(installation, root, 'inspect', {
+                  signal: options?.signal,
+                  executionDeadlineMs: remaining,
+                });
+                const readiness = readinessFromStatus(root, statusSchema.parse(raw));
+                const after = await checkout.journal.query(before.token, options?.signal);
+                const stamp = await checkout.freshness.fingerprint(options?.signal);
+                if (stamp === fingerprint && relevantJournalPaths(after.paths).length === 0) {
+                  checkout.fingerprint = stamp;
+                  checkout.token = after.token;
+                  checkout.readiness = readiness;
+                  return readiness;
+                }
+                if (readiness.state !== 'ready') return readiness;
+                before = after;
+                fingerprint = stamp;
+              }
+              return {
+                state: 'required',
+                action: 'sync',
+                instructions:
+                  'Checkout or index changed during native validation; inspect again before using source results.',
+                evidence: {
+                  freshness: 'unknown',
+                  coverage: 'unknown',
+                  detail: 'Native journal barrier could not establish a stable readiness snapshot.',
+                },
+              };
+            } catch (error) {
+              if (!(error instanceof CodeGraphPreparationError && error.code === 'journal_unavailable')) throw error;
+              checkout.readiness = undefined;
               const remaining = deadline - Date.now();
-              if (remaining <= 0) break;
+              if (remaining <= 0) return inspectionTimeout;
               this.measurements.inspections += 1;
-              const raw = await runCodeGraphWorker(installation, root, 'inspect', {
+              const raw = await runCodeGraphWorker(installation, root, 'inspect-index', {
                 signal: options?.signal,
                 executionDeadlineMs: remaining,
               });
-              const readiness = readinessFromStatus(root, statusSchema.parse(raw));
-              const after = await checkout.journal.query(before.token, options?.signal);
-              const stamp = await checkout.freshness.fingerprint(options?.signal);
-              if (stamp === fingerprint && relevantJournalPaths(after.paths).length === 0) {
-                checkout.fingerprint = stamp;
-                checkout.token = after.token;
-                checkout.readiness = readiness;
-                return readiness;
-              }
-              if (readiness.state !== 'ready') return readiness;
-              before = after;
-              fingerprint = stamp;
+              const recovery = indexRecoveryReadiness(root, statusSchema.parse(raw));
+              if (recovery) return recovery;
+              if (this.options.sourceMonitor !== 'git-fsmonitor') throw error;
+              return {
+                state: 'required',
+                action: 'sync',
+                instructions:
+                  'Explicitly prepare this checkout to start the authorized native Git source monitor; read-only inspection does not start it.',
+                evidence: {
+                  freshness: 'unknown',
+                  coverage: 'unknown',
+                  detail:
+                    'Native index metadata is complete and compatible; no native source journal is available to prove source freshness or coverage.',
+                },
+              };
             }
-            return {
-              state: 'required',
-              action: 'sync',
-              instructions:
-                'Checkout or index changed during native validation; inspect again before using source results.',
-              evidence: {
-                freshness: 'unknown',
-                coverage: 'unknown',
-                detail: 'Native journal barrier could not establish a stable readiness snapshot.',
-              },
-            };
           }),
         options?.signal,
       );
     } catch (error) {
       if (error instanceof CodeGraphPreparationError && error.code === 'ownership_conflict')
         return { state: 'conflict', instructions: error.message };
-      if (
-        error instanceof CodeGraphPreparationError &&
-        error.code === 'journal_unavailable' &&
-        this.options.sourceMonitor === 'git-fsmonitor'
-      ) {
-        return {
-          state: 'required',
-          action: 'sync',
-          instructions:
-            'Explicitly prepare this checkout to start the authorized native Git source monitor; read-only inspection does not start it.',
-          evidence: { freshness: 'unknown', coverage: 'unknown', detail: 'No native source journal is available.' },
-        };
-      }
       return {
         state: 'unsupported',
         instructions: `CodeGraph readiness could not be verified: ${failureMessage(error)} No source operation was admitted.`,
@@ -269,7 +290,7 @@ export class CodeGraphPreparationAdapter implements BackendPreparationAdapter {
     target: PreparationTarget,
     operation: string,
     _advisory: PreparationRecoveryHint,
-    options?: { signal?: AbortSignal },
+    options?: { signal?: AbortSignal; waitMs?: number },
   ): Promise<BackendReadiness> {
     // Restarted runtimes establish a new native journal baseline and inspect the exact on-disk state.
     // Saved running flags/PIDs never authorize cancellation or lock removal.
@@ -409,7 +430,7 @@ export class CodeGraphPreparationAdapter implements BackendPreparationAdapter {
   }
 }
 
-function readinessFromStatus(root: string, status: z.infer<typeof statusSchema>): BackendReadiness {
+function indexRecoveryReadiness(root: string, status: z.infer<typeof statusSchema>): BackendReadiness | undefined {
   if (status.projectPath !== root || status.indexPath !== path.join(root, '.codegraph')) {
     return {
       state: 'conflict',
@@ -426,7 +447,7 @@ function readinessFromStatus(root: string, status: z.infer<typeof statusSchema>)
     };
   }
   const index = status.index;
-  if (!index || !status.pendingChanges || status.fileCount === undefined) {
+  if (!index) {
     return {
       state: 'unsupported',
       instructions:
@@ -456,6 +477,20 @@ function readinessFromStatus(root: string, status: z.infer<typeof statusSchema>)
         coverage: 'partial',
         detail: 'Interrupted, partial, failed or unmarked index is not ready.',
       },
+    };
+  }
+  return undefined;
+}
+
+function readinessFromStatus(root: string, status: z.infer<typeof statusSchema>): BackendReadiness {
+  const recovery = indexRecoveryReadiness(root, status);
+  if (recovery) return recovery;
+  const index = status.index;
+  if (!index || !status.pendingChanges || status.fileCount === undefined) {
+    return {
+      state: 'unsupported',
+      instructions:
+        'CodeGraph supplied incomplete readiness metadata; source freshness and coverage cannot be established.',
     };
   }
   const changes = status.pendingChanges;

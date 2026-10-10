@@ -503,6 +503,65 @@ describe('runtime capability catalog', () => {
     }
   });
 
+  it.each(['unchanged', 'changed', 'removed', 'denied'] as const)(
+    'admits a newly ready source before a newer pending read, then respects its %s outcome',
+    async (outcome) => {
+      const connection = fixture('codegraph', () => ({ tools: [] }));
+      const connections = new Map([['codegraph', connection]]);
+      await acquireRuntimeCapabilityCatalog(connections);
+      const releases: ((value: never) => void)[] = [];
+      vi.mocked(connection.adapter.request).mockImplementation(() => new Promise((resolve) => releases.push(resolve)));
+      const first = acquireRuntimeCapabilityCatalog(connections);
+      const second = acquireRuntimeCapabilityCatalog(connections);
+      const descriptor = {
+        name: 'codegraph_explore',
+        inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] },
+      };
+      await vi.waitFor(() => expect(releases).toHaveLength(2));
+      releases[0]({ tools: [descriptor] } as never);
+      const snapshot = await first;
+      let finish: Awaited<ReturnType<typeof snapshot.prepareToolCall>> | undefined;
+      let failure: unknown;
+      try {
+        finish = await snapshot.prepareToolCall('codegraph_1mcp_codegraph_explore', { query: 'Symbol' });
+      } catch (error) {
+        failure = error;
+      }
+      const admission =
+        outcome === 'denied'
+          ? vi
+              .spyOn(schemaBoundary, 'admit')
+              .mockRejectedValueOnce(new SchemaBoundaryError('schema_invalid', false, 'admission'))
+          : undefined;
+      let newerTools: unknown[] = [descriptor];
+      if (outcome === 'removed') newerTools = [];
+      if (outcome === 'changed') {
+        newerTools = [
+          { ...descriptor, inputSchema: { ...descriptor.inputSchema, properties: { query: { type: 'number' } } } },
+        ];
+      }
+      try {
+        releases[1]({ tools: newerTools } as never);
+        await second;
+      } finally {
+        admission?.mockRestore();
+      }
+      expect(failure).toBeUndefined();
+      expect(finish).toBeDefined();
+      if (outcome === 'unchanged') {
+        expect(() => finish!.assertCurrent()).not.toThrow();
+        await expect(
+          snapshot.prepareToolCall('codegraph_1mcp_codegraph_explore', { query: 'Symbol' }),
+        ).resolves.toBeDefined();
+      } else {
+        expect(() => finish!.assertCurrent()).toThrow('schema_invalid');
+        await expect(snapshot.prepareToolCall('codegraph_1mcp_codegraph_explore', { query: 'Symbol' })).rejects.toThrow(
+          'schema_invalid',
+        );
+      }
+    },
+  );
+
   it('keeps a published contract callable during a pending read, then rejects an observed change', async () => {
     const connection = fixture();
     const connections = new Map([['server', connection]]);

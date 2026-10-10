@@ -1,13 +1,25 @@
+import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
 import { activateRuntimeScopeEnvironment } from '@src/config/runtimeScopeEnv.js';
 import { createRuntimeTargetFingerprint } from '@src/config/runtimeTargetFingerprint.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
 import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
+import {
+  createProjectPreparationAuthority,
+  normalizeProjectPreparationAuthority,
+  type ProjectPreparationAuthority,
+  validateProjectPreparationAuthority,
+} from '@src/core/context/projectPreparationAuthority.js';
+import { authorizeTemplateContext, createTemplateContextProof } from '@src/core/context/templateContextTrust.js';
 import { TemplateFilteringService } from '@src/core/filtering/index.js';
 import type { BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
 import { ClientStatus } from '@src/core/types/client.js';
 import logger from '@src/logger/logger.js';
 import { normalizeEvent } from '@src/observability/events/normalize.js';
 import { HandlebarsTemplateRenderer } from '@src/template/handlebarsTemplateRenderer.js';
+import type { ContextData } from '@src/types/context.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -132,6 +144,84 @@ describe('TemplateServerManager', () => {
     lastExit: null,
     lastError: null,
     currentPid,
+  });
+
+  it('isolates verified preparation receipts and removes them with ephemeral and transport binding ownership', async () => {
+    const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), 'preparation-binding-expiry-')));
+    await templateServerManager.shutdown();
+    vi.useFakeTimers();
+    templateServerManager = new TemplateServerManager({ idleTimeoutMs: 100, cleanupIntervalMs: 10000 });
+    const capability = {
+      version: 1 as const,
+      runtimeScopeId: 'runtime-a',
+      secret: Buffer.alloc(32, 7).toString('base64url'),
+    };
+    const context: ContextData = {
+      project: { path: directory },
+      user: {},
+      environment: {},
+      sessionId: 'rest-owner',
+    };
+    function receiptFor(source: ContextData) {
+      const proof = createTemplateContextProof(source, capability);
+      const verify = (signedContext: ContextData, signedProof: typeof proof, ownerSessionId: string) =>
+        authorizeTemplateContext({
+          mode: 'verified',
+          context: signedContext,
+          proof: signedProof,
+          capability,
+          transportSessionId: ownerSessionId,
+        });
+      const authority = createProjectPreparationAuthority({
+        context: source,
+        proof,
+        authorization: verify(source, proof, source.sessionId!),
+        verify,
+      });
+      return normalizeProjectPreparationAuthority(authority, source, source);
+    }
+    try {
+      const authority = receiptFor(context)!;
+      const ephemeral = await templateServerManager.registerBindingContext('ignored', context, {}, authority);
+      const legacy = await templateServerManager.registerBindingContext('ignored', context);
+      expect(ephemeral).not.toBe(legacy);
+      expect(templateServerManager.getBindingAuthority(legacy)).toBeUndefined();
+      const bound = templateServerManager.getBindingAuthority(ephemeral);
+      expect(
+        validateProjectPreparationAuthority(bound, {
+          bindingId: ephemeral,
+          context,
+          ownerSessionId: context.sessionId!,
+        }),
+      ).toBe(true);
+      await expect(
+        templateServerManager.registerBindingContext(
+          'ignored',
+          context,
+          {},
+          JSON.parse(JSON.stringify(authority)) as ProjectPreparationAuthority,
+        ),
+      ).rejects.toThrow('canonical context');
+      const persistentContext = { ...context, sessionId: 'transport-owner' };
+      const persistent = await templateServerManager.registerBindingContext(
+        'ignored',
+        persistentContext,
+        {},
+        receiptFor(persistentContext),
+      );
+      templateServerManager.trackPersistentClient(persistent);
+      vi.advanceTimersByTime(101);
+      await templateServerManager.cleanupIdleInstances(new Map(), {});
+      expect(templateServerManager.getBindingAuthority(ephemeral)).toBeUndefined();
+      expect(templateServerManager.getBindingContext(ephemeral)).toBeUndefined();
+      expect(templateServerManager.getBindingAuthority(persistent)).toBeDefined();
+      await templateServerManager.cleanupTemplateServers('transport-owner', new Map(), {});
+      expect(templateServerManager.getBindingAuthority(persistent)).toBeUndefined();
+    } finally {
+      await templateServerManager.shutdown();
+      vi.useRealTimers();
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   describe('getRenderedHashForSession', () => {

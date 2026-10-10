@@ -156,9 +156,15 @@
             },
             "required": ["mode"],
             "if": {
-              "properties": { "mode": { "const": "native-set" } }
+              "properties": {
+                "mode": {
+                  "const": "native-set"
+                }
+              }
             },
-            "then": { "required": ["argument"] },
+            "then": {
+              "required": ["argument"]
+            },
             "additionalProperties": false
           },
           "type": {
@@ -402,6 +408,49 @@
                 }
               }
             }
+          },
+          "preparation": {
+            "description": "Runtime-owned preparation permission; no installation, rebuild, or paid-service authority",
+            "type": "object",
+            "properties": {
+              "adapter": {
+                "type": "string",
+                "const": "codegraph"
+              },
+              "executable": {
+                "type": "string",
+                "minLength": 1
+              },
+              "expectedVersion": {
+                "type": "string",
+                "const": "1.6.2"
+              },
+              "sourceMonitor": {
+                "description": "Allow an owned foreground Git source observer during permitted preparation",
+                "type": "string",
+                "const": "git-fsmonitor"
+              },
+              "allowedActions": {
+                "maxItems": 2,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["initialize", "sync"]
+                }
+              },
+              "executionDeadlineMs": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 86400000
+              },
+              "transientRetryLimit": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 3
+              }
+            },
+            "required": ["adapter", "executable", "expectedVersion", "allowedActions"],
+            "additionalProperties": false
           }
         }
       },
@@ -431,9 +480,15 @@
             },
             "required": ["mode"],
             "if": {
-              "properties": { "mode": { "const": "native-set" } }
+              "properties": {
+                "mode": {
+                  "const": "native-set"
+                }
+              }
             },
-            "then": { "required": ["argument"] },
+            "then": {
+              "required": ["argument"]
+            },
             "additionalProperties": false
           },
           "type": {
@@ -677,6 +732,49 @@
                 }
               }
             }
+          },
+          "preparation": {
+            "description": "Runtime-owned preparation permission; no installation, rebuild, or paid-service authority",
+            "type": "object",
+            "properties": {
+              "adapter": {
+                "type": "string",
+                "const": "codegraph"
+              },
+              "executable": {
+                "type": "string",
+                "minLength": 1
+              },
+              "expectedVersion": {
+                "type": "string",
+                "const": "1.6.2"
+              },
+              "sourceMonitor": {
+                "description": "Allow an owned foreground Git source observer during permitted preparation",
+                "type": "string",
+                "const": "git-fsmonitor"
+              },
+              "allowedActions": {
+                "maxItems": 2,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["initialize", "sync"]
+                }
+              },
+              "executionDeadlineMs": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 86400000
+              },
+              "transientRetryLimit": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 3
+              }
+            },
+            "required": ["adapter", "executable", "expectedVersion", "allowedActions"],
+            "additionalProperties": false
           }
         }
       }

@@ -10,7 +10,10 @@ import logger from '@src/logger/logger.js';
 import { StreamableHTTPServerTransport } from '@src/sdk/legacy/server/streamableHttp.js';
 import { RestorableStreamableHTTPServerTransport } from '@src/transport/http/restorableStreamableTransport.js';
 import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
-import { authorizeRequestTemplateContext } from '@src/transport/http/utils/templateContextAuthority.js';
+import {
+  authorizeRequestTemplateContext,
+  getRequestProjectPreparationAuthority,
+} from '@src/transport/http/utils/templateContextAuthority.js';
 import { logError } from '@src/transport/http/utils/unifiedLogger.js';
 import type { ContextData } from '@src/types/context.js';
 import { withCanonicalSessionId } from '@src/utils/context/sessionIdentity.js';
@@ -297,11 +300,13 @@ export class StreamableSessionLifecycle {
       }
 
       try {
+        const authority = getRequestProjectPreparationAuthority(authorization);
         await this.serverManager.connectTransport(
           transport,
           sessionId,
           config,
           authorization?.status === 'trusted' ? authorization.context : undefined,
+          ...(authority ? [authority] : []),
         );
       } catch (connectError) {
         const errorMessage = connectError instanceof Error ? connectError.message : String(connectError);
@@ -360,6 +365,16 @@ export class StreamableSessionLifecycle {
         ? withCanonicalSessionId(context as ContextData, sessionId)
         : undefined;
     const canonicalContext = validContext ?? (context ? { ...context, sessionId } : undefined);
+    const authorization =
+      validContext && contextProof
+        ? authorizeRequestTemplateContext({
+            context: context as ContextData,
+            proof: contextProof,
+            transportSessionId: sessionId,
+            source: 'meta',
+          })
+        : undefined;
+    const authority = getRequestProjectPreparationAuthority(authorization);
 
     if (canonicalContext && canonicalContext.project?.name && canonicalContext.sessionId) {
       logger.info('streamableSessionLifecycle.new.session.with.context.90e138c1');
@@ -372,7 +387,13 @@ export class StreamableSessionLifecycle {
     };
 
     try {
-      await this.serverManager.connectTransport(transport, sessionId, configWithContext, validContext);
+      await this.serverManager.connectTransport(
+        transport,
+        sessionId,
+        configWithContext,
+        validContext,
+        ...(authority ? [authority] : []),
+      );
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error('streamableSessionLifecycle.failed.to.connect.transport.43c1f33b', { error: error });

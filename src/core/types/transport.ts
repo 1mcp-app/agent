@@ -1,7 +1,10 @@
 import { IOType } from 'node:child_process';
+import path from 'node:path';
 import { Stream } from 'node:stream';
 
 import { z } from 'zod';
+
+import { PreparationOptionsSchema } from '../../domains/backend-preparation/policy.js';
 
 const ENVIRONMENT_REFERENCE_PATTERN = /\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*/u;
 const transportUrlSchema = z.union([
@@ -101,6 +104,7 @@ export interface GlobalTransportConfig {
  * CLI args and ONE_MCP_* env vars always take precedence over these values.
  */
 export interface ApplicationConfig {
+  readonly preparation?: Partial<z.infer<typeof PreparationOptionsSchema>>;
   readonly transport?: 'http' | 'sse' | 'stdio';
   readonly port?: number;
   readonly host?: string;
@@ -263,6 +267,25 @@ export const templateServerConfigSchema = z.object({
  * Zod schema for transport configuration
  */
 export const transportConfigSchema = z.object({
+  preparation: z
+    .object({
+      adapter: z.literal('codegraph'),
+      executable: z
+        .string()
+        .min(1)
+        .refine((value) => path.isAbsolute(value), 'Executable must be an absolute installed path'),
+      expectedVersion: z.literal('1.6.2'),
+      sourceMonitor: z
+        .literal('git-fsmonitor')
+        .optional()
+        .describe('Allow an owned foreground Git source observer during permitted preparation'),
+      allowedActions: z.array(z.enum(['initialize', 'sync'])).max(2),
+      executionDeadlineMs: z.number().int().min(1).max(86_400_000).optional(),
+      transientRetryLimit: z.number().int().min(0).max(3).optional(),
+    })
+    .strict()
+    .optional()
+    .describe('Runtime-owned preparation permission; no installation, rebuild, or paid-service authority'),
   projectTarget: z
     .discriminatedUnion('mode', [
       z
@@ -379,6 +402,7 @@ export const transportConfigSchema = z.object({
  * Zod schema for application-level configuration
  */
 export const applicationConfigSchema = z.object({
+  preparation: PreparationOptionsSchema.partial().optional(),
   transport: z.enum(['http', 'sse', 'stdio']).optional().describe('Transport type for the 1MCP server'),
   port: z.number().int().min(1).max(65535).optional().describe('HTTP port to listen on'),
   host: z.string().optional().describe('HTTP host to listen on'),
