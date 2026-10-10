@@ -970,6 +970,78 @@ describe('backend preparation lifecycle', () => {
     expect(service.scheduler.counts()).toEqual({ active: 0, queued: 0 });
   });
 
+  it('contains synchronous native inspection throws and cleans up the request probe timer', async () => {
+    const { service, adapter } = setup();
+    adapter.inspect = () => {
+      throw new Error('Synchronous inspection failure');
+    };
+    const caller = new AbortController();
+    const removed = vi.spyOn(caller.signal, 'removeEventListener');
+    expect(await service.inspect(target, 'symbols', { signal: caller.signal })).toMatchObject({
+      state: 'conflict',
+      instructions: 'Fix the native prerequisite, then explicitly retry.',
+    });
+    expect(vi.getTimerCount()).toBe(0);
+    expect(removed).toHaveBeenCalledOnce();
+    caller.abort();
+    expect(removed).toHaveBeenCalledOnce();
+    expect(adapter.calls).toHaveLength(0);
+  });
+
+  it('contains synchronous native recovery throws without trusting saved ownership', async () => {
+    const { service, adapter } = setup();
+    adapter.reconcile = () => {
+      throw new Error('Synchronous reconciliation failure');
+    };
+    expect(
+      await service.recover(target, 'symbols', { previousJobId: 'foreign-process', previousState: 'running' }),
+    ).toMatchObject({ state: 'conflict' });
+    expect(vi.getTimerCount()).toBe(0);
+    expect(adapter.calls).toHaveLength(0);
+  });
+
+  it('contains a throwing classifier after native probe rejection without an unhandled rejection or writer-conflict claim', async () => {
+    const { service, adapter } = setup();
+    adapter.inspect = () => Promise.reject(new Error('Rejected native probe'));
+    adapter.classifyFailure = () => {
+      throw new Error('Broken adapter classifier');
+    };
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      const result = await service.inspect(target, 'symbols');
+      expect(result).toMatchObject({
+        state: 'unsupported',
+        instructions: expect.stringContaining('could not classify'),
+      });
+      await flush();
+      expect(unhandled).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+      expect(adapter.calls).toHaveLength(0);
+    } finally {
+      process.off('unhandledRejection', unhandled);
+    }
+  });
+
+  it('ignores late probe rejection after timeout without invoking a broken classifier again', async () => {
+    const { service, adapter } = setup();
+    let reject!: (error: unknown) => void;
+    adapter.inspect = () =>
+      new Promise((_resolve, fail) => {
+        reject = fail;
+      });
+    adapter.classifyFailure = vi.fn(() => {
+      throw new Error('Must not classify a settled probe');
+    });
+    const result = service.inspect(target, 'symbols', { waitMs: 1 });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await result).toMatchObject({ state: 'unknown', reason: 'inspection_timeout' });
+    reject(new Error('Late native failure'));
+    await flush();
+    expect(adapter.classifyFailure).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('avoids adapter I/O for zero-budget and already-disconnected inspection calls', async () => {
     const { service, adapter } = setup();
     expect(await service.inspect(target, 'symbols', { waitMs: 0 })).toMatchObject({

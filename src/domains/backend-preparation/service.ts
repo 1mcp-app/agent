@@ -725,10 +725,24 @@ export class BackendPreparationService {
         return;
       }
       signal?.addEventListener('abort', stop, { once: true });
-      void inspect(controller.signal).then(finish, (error: unknown) => {
-        const failure = classifyFailure(error);
-        finish({ state: 'conflict', instructions: failure.instructions });
-      });
+      const failed = (error: unknown): void => {
+        if (settled) return;
+        try {
+          const failure = classifyFailure(error);
+          finish({ state: 'conflict', instructions: failure.instructions });
+        } catch {
+          finish({
+            state: 'unsupported',
+            instructions:
+              'The readiness adapter failed and could not classify the failure. Check adapter configuration and native prerequisites; no backend operation executed.',
+          });
+        }
+      };
+      try {
+        void inspect(controller.signal).then(finish, failed);
+      } catch (error) {
+        failed(error);
+      }
     });
   }
 
