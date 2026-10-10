@@ -40,7 +40,13 @@ describe('cli-setup command E2E', () => {
     expect(codexManagedDoc).toContain(
       'If this session already received the current 1MCP instructions content from hooks',
     );
-    expect(codexHooks).toContain('"command": "1mcp instructions"');
+    const hooks = JSON.parse(codexHooks).hooks;
+    expect(hooks.SessionStart).toEqual([
+      { hooks: [{ type: 'command', command: '1mcp bootstrap --client codex --event SessionStart', timeout: 10 }] },
+    ]);
+    expect(hooks.SubagentStart).toEqual([
+      { hooks: [{ type: 'command', command: '1mcp bootstrap --client codex --event SubagentStart', timeout: 10 }] },
+    ]);
     expect(agents).toBe(`@${path.join(homeDir, '.codex', '1MCP.md').replace(/\\/g, '/')}\n`);
   });
 
