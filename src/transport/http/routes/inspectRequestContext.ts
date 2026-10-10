@@ -2,6 +2,7 @@ import { ConfigManager } from '@src/config/configManager.js';
 import {
   prepareRequestContext,
   type RequestContextPreparationDependencies,
+  type RequestContextPreparationResult,
 } from '@src/core/server/requestContextPreparation.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import {
@@ -77,12 +78,12 @@ export function createRequestContextPreparationDependencies(
   };
 }
 
-export async function ensureRequestContextInitialized(
+export async function prepareHttpRequestContext(
   serverManager: ServerManager,
   req: Request,
   res: Response,
   filterConfig: ReturnType<typeof buildFilterConfig>,
-): Promise<string | undefined> {
+): Promise<RequestContextPreparationResult> {
   const extracted = extractTemplateContextRequest(req);
   const transportSessionId = getHeaderSessionId(req);
   const authorization = extracted
@@ -100,12 +101,27 @@ export async function ensureRequestContextInitialized(
   });
 
   if (result.status === 'no_context') {
-    return undefined;
+    return result;
+  }
+
+  if ('bindingId' in result && !serverManager.getTemplateServerManager().getBindingContext(result.bindingId)) {
+    throw new Error('Project binding is no longer available');
   }
 
   if (authorization?.status === 'trusted') {
     res.setHeader?.(CONTEXT_HEADERS.SESSION_ID, result.sessionId);
   }
 
+  return result;
+}
+
+export async function ensureRequestContextInitialized(
+  serverManager: ServerManager,
+  req: Request,
+  res: Response,
+  filterConfig: ReturnType<typeof buildFilterConfig>,
+): Promise<string | undefined> {
+  const result = await prepareHttpRequestContext(serverManager, req, res, filterConfig);
+  if (result.status === 'no_context') return undefined;
   return 'bindingId' in result ? result.bindingId : result.sessionId;
 }

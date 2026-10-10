@@ -1,7 +1,43 @@
+import { readFileSync } from 'node:fs';
+
+import { Ajv } from 'ajv';
+import addFormats from 'ajv-formats';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
+import { generateMcpConfigSchema } from '../../../docs/.vitepress/utils/configSchemaGen.js';
 import { mcpServerConfigSchema, transportConfigSchema } from './transport.js';
+
+describe.each([
+  [
+    'published',
+    JSON.parse(readFileSync(new URL('../../../docs/public/schemas/v1.0.0/mcp-config.json', import.meta.url), 'utf8')),
+  ],
+  ['generated', generateMcpConfigSchema(transportConfigSchema, mcpServerConfigSchema)],
+])('%s project target schema', (_name, schema) => {
+  const validator = new Ajv({ strict: false });
+  addFormats.default(validator);
+  const validate = validator.compile(schema);
+
+  it.each(['mcpServers', 'mcpTemplates'] as const)('matches runtime target validation for %s', (source) => {
+    for (const projectTarget of [
+      { mode: 'native-set' },
+      { mode: 'native-set', argument: '' },
+      { mode: 'native-set', argument: 'projects' },
+      { mode: 'single' },
+      { mode: 'independent' },
+      { mode: 'single', argument: 'project' },
+      { mode: 'independent', argument: 'project' },
+      { mode: 'single', argument: '' },
+      { mode: 'native-set', argument: 1 },
+      { mode: 'native-set', argument: 'projects', extra: true },
+      { mode: 'single', extra: true },
+    ]) {
+      const config = { mcpServers: {}, [source]: { backend: { command: 'node', projectTarget } } };
+      expect(validate(config), JSON.stringify(projectTarget)).toBe(mcpServerConfigSchema.safeParse(config).success);
+    }
+  });
+});
 
 describe('transportConfigSchema stderr', () => {
   it.each(['inherit', 'ignore', 'overlapped', 'pipe'] as const)('accepts %s', (stderr) => {

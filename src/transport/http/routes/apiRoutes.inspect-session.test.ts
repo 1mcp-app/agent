@@ -271,6 +271,7 @@ describe('apiRoutes inspect', () => {
       getClient: vi.fn((name: string) => outboundConnections.get(name)),
       getTemplateServerManager: vi.fn(() => ({
         getRenderedHashForSession,
+        getBindingContext: () => mockedExtractRequestContext(),
         createTemplateBasedServers,
         touchEphemeralClient,
       })),

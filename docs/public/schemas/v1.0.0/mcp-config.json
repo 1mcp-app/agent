@@ -155,6 +155,10 @@
               }
             },
             "required": ["mode"],
+            "if": {
+              "properties": { "mode": { "const": "native-set" } }
+            },
+            "then": { "required": ["argument"] },
             "additionalProperties": false
           },
           "type": {
@@ -426,6 +430,10 @@
               }
             },
             "required": ["mode"],
+            "if": {
+              "properties": { "mode": { "const": "native-set" } }
+            },
+            "then": { "required": ["argument"] },
             "additionalProperties": false
           },
           "type": {

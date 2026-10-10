@@ -23,7 +23,7 @@ import { logError, logWarn } from '@src/transport/http/utils/unifiedLogger.js';
 
 import { Request, RequestHandler, Response, Router } from 'express';
 
-import { ensureRequestContextInitialized } from './inspectRequestContext.js';
+import { prepareHttpRequestContext } from './inspectRequestContext.js';
 
 /**
  * Type guard to check if a request body is an initialize request.
@@ -235,20 +235,19 @@ export function setupStreamableHttpRoutes(
       }
 
       if (!isInitialize && authorization?.status === 'trusted') {
-        const bindingId = await ensureRequestContextInitialized(
+        const preparedContext = await prepareHttpRequestContext(
           serverManager,
           req,
           res,
           buildConfigFromRequest(res, req, customTemplate),
         );
-        const bindingContext = bindingId
-          ? serverManager.getTemplateServerManager().getBindingContext(bindingId)
-          : undefined;
-        if (bindingId && bindingContext) {
-          await withProjectBinding(bindingId, bindingContext, () => transport.handleRequest(req, wrappedRes, req.body));
-        } else {
-          await transport.handleRequest(req, wrappedRes, req.body);
+        if (!('bindingId' in preparedContext)) {
+          throw new Error('Project binding is no longer available');
         }
+        const bindingId = preparedContext.bindingId;
+        const bindingContext = serverManager.getTemplateServerManager().getBindingContext(bindingId);
+        if (!bindingContext) throw new Error('Project binding is no longer available');
+        await withProjectBinding(bindingId, bindingContext, () => transport.handleRequest(req, wrappedRes, req.body));
       } else {
         await transport.handleRequest(req, wrappedRes, req.body);
       }

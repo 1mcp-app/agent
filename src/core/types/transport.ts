@@ -264,14 +264,27 @@ export const templateServerConfigSchema = z.object({
  */
 export const transportConfigSchema = z.object({
   projectTarget: z
-    .object({
-      mode: z.enum(['independent', 'single', 'native-set']),
-      argument: z.string().min(1).optional(),
-    })
-    .strict()
-    .refine((target) => target.mode !== 'native-set' || target.argument !== undefined, {
-      message: 'Native project-set backends require an explicit selected-path argument',
-    })
+    .discriminatedUnion('mode', [
+      z
+        .object({
+          mode: z.enum(['independent', 'single']),
+          argument: z.string().min(1).optional(),
+        })
+        .strict(),
+      z
+        .object({
+          mode: z.literal('native-set'),
+          argument: z
+            .string({
+              error: (issue) =>
+                issue.input === undefined
+                  ? 'Native project-set backends require an explicit selected-path argument'
+                  : undefined,
+            })
+            .min(1),
+        })
+        .strict(),
+    ])
     .optional()
     .describe('Runtime-owned project targeting; templates default to single and static backends to independent'),
   type: z

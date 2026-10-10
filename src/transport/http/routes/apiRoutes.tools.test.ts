@@ -426,6 +426,7 @@ describe('apiRoutes /api/tools', () => {
       getClientTransports: vi.fn(() => ({})),
       getTemplateServerManager: vi.fn(() => ({
         getRenderedHashForSession: vi.fn(() => undefined),
+        getBindingContext: () => context,
         createTemplateBasedServers,
       })),
       getServerRegistry: vi.fn(() => ({
@@ -495,6 +496,7 @@ describe('apiRoutes /api/tools', () => {
       getClientTransports: vi.fn(() => ({})),
       getTemplateServerManager: vi.fn(() => ({
         getRenderedHashForSession: vi.fn(() => undefined),
+        getBindingContext: () => context,
         createTemplateBasedServers,
       })),
       getServerRegistry: vi.fn(() => ({

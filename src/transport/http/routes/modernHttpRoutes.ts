@@ -79,7 +79,7 @@ import { authorizeRequestTemplateContext } from '@src/transport/http/utils/templ
 
 import type { NextFunction, Request, RequestHandler, Response, Router } from 'express';
 
-import { ensureRequestContextInitialized } from './inspectRequestContext.js';
+import { prepareHttpRequestContext } from './inspectRequestContext.js';
 import {
   createModernInteractionBinding,
   isModernInteractionBindingCurrent,
@@ -482,10 +482,19 @@ export function setupModernHttpRoutes(
       }
 
       const config = buildConfig(req, res);
-      const bindingId = await ensureRequestContextInitialized(serverManager, req, res, config);
+      const preparedContext = await prepareHttpRequestContext(serverManager, req, res, config);
+      let bindingId: string | undefined;
+      if ('bindingId' in preparedContext) {
+        bindingId = preparedContext.bindingId;
+      } else if (preparedContext.status === 'routing_only') {
+        bindingId = preparedContext.sessionId;
+      }
       const projectContext = bindingId
         ? serverManager.getTemplateServerManager?.().getBindingContext?.(bindingId)
         : undefined;
+      if ('bindingId' in preparedContext && !projectContext) {
+        throw new Error('Project binding is no longer available');
+      }
       const targetedConfig = projectContext ? { ...config, bindingId, context: projectContext } : config;
       const method = (req.body as { method?: unknown } | null)?.method;
       if (method === 'subscriptions/listen' || method === 'notifications/cancelled') {

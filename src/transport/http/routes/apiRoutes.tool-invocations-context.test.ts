@@ -1,6 +1,7 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
 import type { OutboundConnections } from '@src/core/types/index.js';
+import type { ContextData } from '@src/types/context.js';
 
 import type { Request, RequestHandler, Response } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -119,7 +120,10 @@ describe('apiRoutes /api/tool-invocations', () => {
     });
 
     const connections: OutboundConnections = new Map();
-    const createTemplateBasedServers = vi.fn(async (bindingId: string) => {
+    const bindingContexts = new Map<string, ContextData>();
+    const getBindingContext = vi.fn((bindingId: string) => bindingContexts.get(bindingId));
+    const createTemplateBasedServers = vi.fn(async (bindingId: string, canonicalContext: ContextData) => {
+      bindingContexts.set(bindingId, canonicalContext);
       connections.set(`serena:${bindingId}`, connection);
     });
     const registerTemplate = vi.fn();
@@ -141,6 +145,7 @@ describe('apiRoutes /api/tool-invocations', () => {
       getClient: vi.fn(() => undefined),
       getTemplateServerManager: vi.fn(() => ({
         getRenderedHashForSession: vi.fn(() => undefined),
+        getBindingContext,
         createTemplateBasedServers,
       })),
       getServerRegistry: vi.fn(() => ({
@@ -166,6 +171,11 @@ describe('apiRoutes /api/tool-invocations', () => {
       'ephemeral',
     );
     expect(registerTemplate).toHaveBeenCalledWith('serena', templateConfig);
+    expect(getBindingContext).toHaveBeenCalledWith(createTemplateBasedServers.mock.calls[0][0]);
+    expect(bindingContexts.get(createTemplateBasedServers.mock.calls[0][0])).toEqual({
+      ...context,
+      sessionId: 'derived-session-id',
+    });
     expect(callTool).toHaveBeenCalledWith({ name: 'list_memories', arguments: {} });
   });
 

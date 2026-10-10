@@ -110,7 +110,11 @@ export async function buildServerSummaries(
   const serverConfigs = getServerTargetConfigs(declaredServers);
   const includeTemplateInstances = options.includeTemplateInstances ?? true;
   const summaryConnections = new Map(
-    Array.from(filteredConnections.entries()).filter(([name]) => includeTemplateInstances || !name.includes(':')),
+    Array.from(filteredConnections.entries()).filter(([name]) => {
+      if (!includeTemplateInstances && name.includes(':')) return false;
+      const cleanName = name.includes(':') ? name.split(':')[0] : name;
+      return isProjectBackendVisible(serverConfigs[cleanName], options.projectContext, options.projectPolicies ?? []);
+    }),
   );
   let toolCountByServer: Record<string, number> = {};
 
@@ -394,7 +398,14 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
 
       // No target: list all filtered servers
       if (!targetRaw) {
-        const filteredConnections = FilteringService.getFilteredConnections(serverManager.getClients(), filterConfig);
+        const bindingId = await ensureRequestContextInitialized(serverManager, req, res, filterConfig);
+        const templateManager = serverManager.getTemplateServerManager?.();
+        const projectContext = bindingId ? templateManager?.getBindingContext?.(bindingId) : undefined;
+        const scopedConnections = createConnectionResolver(
+          serverManager.getClients(),
+          templateManager,
+        ).filterForSession(bindingId);
+        const filteredConnections = FilteringService.getFilteredConnections(scopedConnections, filterConfig);
         const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
 
         const servers = await buildServerSummaries(
@@ -405,7 +416,12 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
           instructionAggregator,
           declaredServers,
           filterConfig,
-          { includeTemplateInstances: false },
+          {
+            includeTemplateInstances: projectContext !== undefined,
+            bindingId,
+            projectContext,
+            projectPolicies: bindingId ? templateManager?.getBindingPolicies?.(bindingId) : undefined,
+          },
         );
 
         const serverInstructions = Object.fromEntries(
