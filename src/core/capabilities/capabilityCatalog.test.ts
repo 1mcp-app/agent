@@ -634,6 +634,87 @@ describe('CapabilityCatalog', () => {
     );
   });
 
+  it('rechecks runtime preparation authority after schema admission and never dispatches a revoked grant', async () => {
+    let authorized = true;
+    let finishValidation: () => void = () => undefined;
+    const validationStarted = vi.fn();
+    vi.spyOn(toolSchemaBoundary, 'prepareToolValidation').mockImplementationOnce(async () => {
+      validationStarted();
+      await new Promise<void>((resolve) => {
+        finishValidation = resolve;
+      });
+      return async () => undefined;
+    });
+    const beforeDispatch = vi.fn(async () => authorized);
+    const response = createCatalog().invokeVisibleTool(
+      { server: 'filesystem', toolName: 'read_file', args: {} },
+      undefined,
+      { beforeDispatch },
+    );
+    await vi.waitFor(() => expect(validationStarted).toHaveBeenCalledOnce());
+    authorized = false;
+    finishValidation();
+    const result = await response;
+    expect(beforeDispatch).toHaveBeenCalledOnce();
+    expect(result.error?.message).toBe('schema_evaluation_unavailable');
+    expect(mockClient.callTool).not.toHaveBeenCalled();
+  });
+
+  it('rechecks the selected connection after the final authorization fence before one source dispatch', async () => {
+    const catalog = createCatalog();
+    const beforeDispatch = vi.fn(async () => {
+      outboundConnections.delete('filesystem');
+      return true;
+    });
+    const result = await catalog.invokeVisibleTool(
+      { server: 'filesystem', toolName: 'read_file', args: {} },
+      undefined,
+      { beforeDispatch },
+    );
+    expect(result.error?.message).toBe('schema_evaluation_unavailable');
+    expect(mockClient.callTool).not.toHaveBeenCalled();
+  });
+
+  it('rejects a provider disconnected during the final readiness gate without source dispatch', async () => {
+    const beforeDispatch = async () => {
+      outboundConnections.get('filesystem')!.status = ClientStatus.Disconnected;
+      return true;
+    };
+    const result = await createCatalog().invokeVisibleTool(
+      { server: 'filesystem', toolName: 'read_file', args: {} },
+      undefined,
+      { beforeDispatch },
+    );
+    expect(result.error?.message).toBe('schema_evaluation_unavailable');
+    expect(mockClient.callTool).not.toHaveBeenCalled();
+  });
+
+  it('rejects a changed real registry schema during the final authorization fence without dispatching stale arguments', async () => {
+    const beforeDispatch = vi.fn(async () => {
+      registry = ToolRegistry.fromGeneration(
+        buildCatalogGeneration(2, [
+          {
+            kind: 'tools',
+            object: {
+              name: 'read_file',
+              inputSchema: { type: 'object', properties: { path: { type: 'number' } }, required: ['path'] },
+            },
+            server: 'filesystem',
+            connectionKey: 'filesystem',
+          },
+        ]),
+      );
+      return true;
+    });
+    const result = await createCatalog().invokeVisibleTool(
+      { server: 'filesystem', toolName: 'read_file', args: { path: '/old' } },
+      undefined,
+      { beforeDispatch },
+    );
+    expect(result.error?.message).toBe('schema_evaluation_unavailable');
+    expect(mockClient.callTool).not.toHaveBeenCalled();
+  });
+
   it('records output validation failures after dispatch', async () => {
     const diagnostic = vi.spyOn(localDiagnostics, 'writeLocalDiagnostic').mockImplementation(() => undefined);
     const error = new SchemaBoundaryError('schema_output_invalid', false, 'output');
@@ -1206,4 +1287,40 @@ describe('CapabilityCatalog', () => {
       shouldNotifyListChanged: true,
     });
   });
+});
+
+it.each([false, true])('dispatches only the selected template instance with final gate=%s', async (gated) => {
+  const requestA = vi.fn(async () => ({ content: [] }));
+  const requestB = vi.fn(async () => ({ content: [] }));
+  const a = createMockOutboundConnection({ name: 'graph', adapter: { request: requestA } });
+  const b = createMockOutboundConnection({ name: 'graph', adapter: { request: requestB } });
+  const connections = new Map([
+    ['graph:a', a],
+    ['graph:b', b],
+  ]);
+  const tool: Tool = {
+    name: 'explore',
+    inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] },
+  };
+  const registry = ToolRegistry.fromToolsWithServer([
+    { server: 'graph', connectionKey: 'graph:a', tool },
+    { server: 'graph', connectionKey: 'graph:b', tool },
+  ]).withConnections(connections);
+  const catalog = new CapabilityCatalog({
+    getToolRegistry: () => registry,
+    schemaCache: new SchemaCache({ maxEntries: 10 }),
+    outboundConnections: connections,
+    getServerConfigs: () => ({ graph: { command: 'fixture', template: {} } }),
+    templateHashProvider: {
+      getRenderedHashForSession: (session: string) => (session === 'session-a' ? 'a' : 'b'),
+    } as never,
+  });
+  const result = await catalog.invokeVisibleTool(
+    { server: 'graph', toolName: 'explore', args: { query: 'Symbol' } },
+    createCapabilityVisibility([['graph:a', 'graph']], 'session-a'),
+    gated ? { beforeDispatch: async () => true } : {},
+  );
+  expect(result.error).toBeUndefined();
+  expect(requestA).toHaveBeenCalledOnce();
+  expect(requestB).not.toHaveBeenCalled();
 });

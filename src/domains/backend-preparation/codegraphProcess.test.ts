@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -134,4 +134,117 @@ describe('owned CodeGraph worker lifecycle', () => {
     expect(() => process.kill(process.pid, 0)).not.toThrow();
     await expect(access(path.join(root, 'started'))).rejects.toThrow();
   });
+
+  async function metadataSdk(state: string, malformed = false) {
+    await mkdir(path.join(root, '.codegraph'));
+    await writeFile(path.join(root, '.codegraph', 'codegraph.db'), 'native-db-fixture');
+    await writeFile(path.join(root, 'probe.ts'), 'export function ReadOnlyMetadataFixture() { return 42; }\n');
+    await writeFile(path.join(root, '.gitignore'), '# Existing user preference\n');
+    await writeFile(
+      path.join(libraryRoot, 'index.js'),
+      `
+      const path=require('node:path');
+      exports.getCodeGraphDir=root=>path.join(root,'.codegraph');
+      exports.getDatabasePath=root=>path.join(root,'.codegraph','codegraph.db');
+      exports.DatabaseConnection={open:(_file,options)=>{
+        if(options?.readOnly!==true)throw new Error('Writable storage open forbidden');
+        ${malformed ? "throw new Error('Malformed native database');" : 'return {getDb:()=>({}),close:()=>{}};'}
+      }};
+      exports.QueryBuilder=class{};
+      exports.CodeGraph=class{
+        static open(){throw new Error('Facade repair forbidden');}
+        static init(){throw new Error('Initialization forbidden');}
+        getIndexBuildInfo(){return {version:'1.6.2',extractionVersion:1};}
+        isIndexStale(){return false;}
+        getIndexState(){return ${JSON.stringify(state)};}
+        getPendingReferenceCount(){return 0;}
+        getChangedFiles(){throw new Error('Source scan forbidden');}
+        getStats(){throw new Error('Full readiness snapshot forbidden');}
+        destroy(){}
+      };
+    `,
+    );
+  }
+
+  it.each(['partial', 'complete'])(
+    'reads only native index metadata for %s state without scanner, repairs or writer locks',
+    async (state) => {
+      await metadataSdk(state);
+      const paths = ['.codegraph/codegraph.db', 'probe.ts', '.gitignore'];
+      const before = await Promise.all(paths.map((file) => readFile(path.join(root, file), 'utf8')));
+      const result = await runCodeGraphWorker(installation(), root, 'inspect-index', { executionDeadlineMs: 5_000 });
+      expect(result).toEqual({
+        initialized: true,
+        projectPath: root,
+        indexPath: path.join(root, '.codegraph'),
+        index: {
+          builtWithVersion: '1.6.2',
+          builtWithExtractionVersion: 1,
+          currentExtractionVersion: 1,
+          reindexRecommended: false,
+          state,
+          pendingRefs: 0,
+        },
+      });
+      expect(await Promise.all(paths.map((file) => readFile(path.join(root, file), 'utf8')))).toEqual(before);
+      expect(await readdir(path.join(root, '.codegraph'))).toEqual(['codegraph.db']);
+    },
+  );
+
+  it('reports malformed index storage without repairing it or scanning source', async () => {
+    await metadataSdk('partial', true);
+    await expect(
+      runCodeGraphWorker(installation(), root, 'inspect-index', { executionDeadlineMs: 5_000 }),
+    ).rejects.toMatchObject({ code: 'backend_failed', message: 'Malformed native database' });
+    expect(await readFile(path.join(root, '.codegraph', 'codegraph.db'), 'utf8')).toBe('native-db-fixture');
+    expect(await readdir(path.join(root, '.codegraph'))).toEqual(['codegraph.db']);
+  });
+
+  it('preserves a live foreign owner during read-only index metadata inspection', async () => {
+    await metadataSdk('partial');
+    const owner = JSON.stringify({ pid: process.pid, mode: 'foreign', ready: false });
+    await writeFile(path.join(root, '.codegraph', 'writer.pid'), owner);
+    await expect(
+      runCodeGraphWorker(installation(), root, 'inspect-index', { executionDeadlineMs: 5_000 }),
+    ).rejects.toMatchObject({ code: 'ownership_conflict' });
+    expect(await readFile(path.join(root, '.codegraph', 'writer.pid'), 'utf8')).toBe(owner);
+    expect(() => process.kill(process.pid, 0)).not.toThrow();
+  });
+
+  it.each(['inspect', 'inspect-index', 'describe-tools'])(
+    'reports an owned read-only %s deadline without suggesting writer lock repair',
+    async (action) => {
+      const hanging = `require('node:fs').writeFileSync(${JSON.stringify(path.join(root, 'started'))},String(process.pid));Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0);`;
+      await writeFile(path.join(libraryRoot, 'index.js'), hanging);
+      await writeFile(path.join(libraryRoot, 'mcp/tools.js'), hanging);
+      const job = runCodeGraphWorker(installation(), root, action, {
+        executionDeadlineMs: 500,
+        terminationGraceMs: 30,
+      });
+      const pid = await startedPid();
+      await expect(job).rejects.toMatchObject({
+        code: 'deadline_exceeded',
+        message:
+          'CodeGraph read-only inspection exceeded its inspection budget; no preparation or writer-lock acquisition was started.',
+      });
+      expect(() => process.kill(pid, 0)).toThrow();
+      await expect(access(path.join(root, '.codegraph'))).rejects.toThrow();
+    },
+  );
+
+  it.each(['inspect', 'inspect-index', 'describe-tools'])(
+    'reports an already-cancelled read-only %s without preparation or lock claims',
+    async (action) => {
+      const controller = new AbortController();
+      controller.abort();
+      await expect(
+        runCodeGraphWorker(installation(), root, action, { signal: controller.signal, executionDeadlineMs: 5_000 }),
+      ).rejects.toMatchObject({
+        code: 'cancelled',
+        message: 'CodeGraph read-only inspection cancelled; no preparation or writer-lock acquisition was started.',
+      });
+      await expect(access(path.join(root, '.codegraph'))).rejects.toThrow();
+      await expect(access(path.join(root, 'started'))).rejects.toThrow();
+    },
+  );
 });

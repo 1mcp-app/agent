@@ -90,6 +90,9 @@ vi.mock('./templateServerManager.js', () => ({
       shutdown: vi.fn().mockResolvedValue(undefined),
       retireTemplatesForRuntimeEnvironment: mockState.retireTemplatesForRuntimeEnvironment,
       createTemplateBasedServers: mockState.createTemplateBasedServers,
+      getBindingContext: vi.fn(),
+      getBindingAuthority: vi.fn(),
+      getBindingConfiguration: vi.fn(),
     };
   }),
 }));
@@ -356,6 +359,7 @@ describe('ServerManager hot-reload lifecycle facade', () => {
       outboundConns,
       transports,
       'ephemeral',
+      undefined,
     );
     expect(mockState.createTemplateBasedServers).toHaveBeenCalledOnce();
     expect(refreshCapabilities).toHaveBeenCalledOnce();

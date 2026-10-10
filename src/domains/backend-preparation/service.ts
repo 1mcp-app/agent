@@ -83,7 +83,7 @@ export class BackendPreparationService {
       };
     const waitMs = PreparationOptionsSchema.shape.requestWaitMs.parse(options.waitMs ?? this.options.requestWaitMs);
     return this.readReadiness(
-      (signal) => adapter.reconcile!(resolved, operation, advisory, { signal }),
+      (signal) => adapter.reconcile!(resolved, operation, advisory, { signal, waitMs }),
       (error) => adapter.classifyFailure(error),
       waitMs,
       options.signal,
@@ -393,6 +393,11 @@ export class BackendPreparationService {
     try {
       const waitMs = PreparationOptionsSchema.shape.requestWaitMs.parse(options.waitMs ?? this.options.requestWaitMs);
       const readiness = await this.probe(job.adapter, job.status.target, job.status.operation, waitMs, options.signal);
+      if (readiness.state === 'required' && readiness.action !== job.status.action)
+        return {
+          state: 'forbidden',
+          instructions: `Native readiness now requires ${readiness.action}. Retrying this ${job.status.action} operation cannot change its action. Select ${readiness.action} explicitly under runtime policy after reviewing native recovery instructions: ${readiness.instructions}`,
+        };
       return await this.prepareInspected(
         job.status.target,
         job.status.operation,
@@ -703,7 +708,7 @@ export class BackendPreparationService {
     signal?: AbortSignal,
   ): Promise<BackendReadiness> {
     return this.readReadiness(
-      (signal) => adapter.inspect(target, operation, { signal }),
+      (signal) => adapter.inspect(target, operation, { signal, waitMs }),
       (error) => adapter.classifyFailure(error),
       waitMs,
       signal,

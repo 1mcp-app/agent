@@ -1,6 +1,17 @@
+import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
+import {
+  createProjectPreparationAuthority,
+  getProjectPreparationAuthorityIdentity,
+  type ProjectPreparationAuthority,
+} from '@src/core/context/projectPreparationAuthority.js';
 import type { TrustedTemplateContext } from '@src/core/context/templateContextTrust.js';
+import { authorizeTemplateContext, createTemplateContextProof } from '@src/core/context/templateContextTrust.js';
 import type { MCPServerParams } from '@src/core/types/index.js';
 import { createProjectBindingId } from '@src/domains/project-selection/projectSelection.js';
+import type { ContextData } from '@src/types/context.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -38,6 +49,56 @@ describe('requestContextPreparation', () => {
       getClientTransports: vi.fn(() => ({})),
       refreshCapabilities: vi.fn().mockResolvedValue(undefined),
     };
+  });
+
+  it('carries verified raw selection authority into the canonical binding and template creation', async () => {
+    const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), 'preparation-selection-')));
+    try {
+      const selected = {
+        ...context,
+        project: {},
+        projectSet: { projects: [{ label: 'front', path: directory }], selection: ['front'] },
+      };
+      const capability = {
+        version: 1 as const,
+        runtimeScopeId: 'runtime-a',
+        secret: Buffer.alloc(32, 7).toString('base64url'),
+      };
+      const proof = createTemplateContextProof(selected, capability);
+      const verify = (signedContext: ContextData, signedProof: typeof proof, ownerSessionId: string) =>
+        authorizeTemplateContext({
+          context: signedContext,
+          proof: signedProof,
+          capability,
+          transportSessionId: ownerSessionId,
+          mode: 'verified',
+        });
+      const authority = createProjectPreparationAuthority({
+        context: selected,
+        proof,
+        authorization: verify(selected, proof, selected.sessionId!),
+        verify,
+      });
+      deps.registerBindingContext = vi.fn(async (_id, canonicalContext, _filter, normalized) => {
+        expect(canonicalContext.project.path).toBe(directory);
+        expect(getProjectPreparationAuthorityIdentity(normalized, canonicalContext)).toEqual(expect.any(String));
+        return 'selected-binding';
+      });
+      const result = await prepareRequestContext({
+        deps,
+        context: selected as TrustedTemplateContext,
+        transportSessionId: selected.sessionId,
+        filterConfig: {},
+        authority,
+      });
+      expect(result).toMatchObject({ bindingId: 'selected-binding' });
+      const registeredAuthority = vi.mocked(deps.registerBindingContext).mock
+        .calls[0][3] as ProjectPreparationAuthority;
+      expect(vi.mocked(deps.createTemplateBasedServers).mock.calls[0][7]).toBe(registeredAuthority);
+      expect(selected.project).toEqual({});
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it('returns no_context without rendering templates when no context or transport session is present', async () => {

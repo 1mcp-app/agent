@@ -75,7 +75,7 @@ describe('owned legacy resource subscriptions', () => {
       honoredFilter: filter,
       close: vi.fn().mockResolvedValue(undefined),
     }));
-    upstream = { name: 'backend', adapter: {} } as OutboundConnection;
+    upstream = { name: 'backend', adapter: { nextEvent: () => new Promise(() => undefined) } } as OutboundConnection;
     connections = new Map([['backend', upstream]]);
     mocks.route.mockReset().mockImplementation((_snapshot, uri: string) => ({
       connection: upstream,

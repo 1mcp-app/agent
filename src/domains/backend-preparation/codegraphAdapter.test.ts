@@ -86,6 +86,17 @@ describe('CodeGraphPreparationAdapter', () => {
     };
   }
 
+  function indexMetadata() {
+    const { initialized, projectPath, indexPath, index } = status();
+    return { initialized, projectPath, indexPath, index };
+  }
+
+  async function missingJournal() {
+    await adapter.dispose();
+    adapter = new CodeGraphPreparationAdapter({ executable: '/installed/codegraph', sourceMonitor: 'git-fsmonitor' });
+    mocks.query.mockRejectedValue(new CodeGraphPreparationError('journal_unavailable', 'No native source journal.'));
+  }
+
   it('requires initialization only for an absent checkout-local database', async () => {
     await rm(path.join(root, '.codegraph', 'codegraph.db'));
     mocks.run.mockResolvedValue({ initialized: false, projectPath: root, indexPath: path.join(root, '.codegraph') });
@@ -111,6 +122,91 @@ describe('CodeGraphPreparationAdapter', () => {
     expect(mocks.run).toHaveBeenCalledTimes(2);
   });
 
+  it('uses the supplied verification budget including initialization time rather than a five-second internal cap', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      mocks.create.mockImplementationOnce(async () => {
+        vi.setSystemTime(Date.now() + 3_000);
+        return { query: mocks.query, start: mocks.start, dispose: mocks.dispose };
+      });
+      mocks.run.mockImplementationOnce(async (_installation, _root, action, options) => {
+        expect(action).toBe('inspect');
+        expect(options.executionDeadlineMs).toBe(9_000);
+        vi.setSystemTime(Date.now() + 6_000);
+        return status();
+      });
+      expect(await adapter.inspect(target, 'explore', { waitMs: 12_000 })).toMatchObject({ state: 'ready' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retains the five-second standalone default and forwards a recovery-specific budget', async () => {
+    mocks.run.mockResolvedValue(status());
+    expect((await adapter.inspect(target, 'explore')).state).toBe('ready');
+    expect(mocks.run.mock.calls[0][3].executionDeadlineMs).toBeGreaterThan(4_000);
+    expect(mocks.run.mock.calls[0][3].executionDeadlineMs).toBeLessThanOrEqual(5_000);
+    mocks.generation += 1;
+    expect(
+      await adapter.reconcile(
+        target,
+        'explore',
+        { previousJobId: 'old', previousState: 'running' },
+        { waitMs: 12_000 },
+      ),
+    ).toMatchObject({ state: 'ready' });
+    expect(mocks.run.mock.calls[1][3].executionDeadlineMs).toBeGreaterThan(11_000);
+    expect(mocks.run.mock.calls[1][3].executionDeadlineMs).toBeLessThanOrEqual(12_000);
+  });
+
+  it('reports inspection timeout if admission consumes the budget before a worker can start', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      mocks.create.mockImplementationOnce(async () => {
+        vi.setSystemTime(Date.now() + 6_000);
+        return { query: mocks.query, start: mocks.start, dispose: mocks.dispose };
+      });
+      expect(await adapter.inspect(target, 'explore', { waitMs: 5_000 })).toMatchObject({
+        state: 'unknown',
+        reason: 'inspection_timeout',
+        instructions: expect.stringContaining('read-only inspection exhausted its inspection budget'),
+      });
+      expect(mocks.run).not.toHaveBeenCalled();
+      expect(mocks.query).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not renew a queued inspection budget even when the prior turn establishes a reusable baseline', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      let finish!: (value: ReturnType<typeof status>) => void;
+      let started!: () => void;
+      const startedPromise = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      mocks.run.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+            started();
+          }),
+      );
+      const first = adapter.inspect(target, 'explore', { waitMs: 12_000 });
+      await startedPromise;
+      const queued = adapter.inspect(target, 'explore', { waitMs: 5_000 });
+      vi.setSystemTime(Date.now() + 6_000);
+      finish(status());
+      expect((await first).state).toBe('ready');
+      expect(await queued).toMatchObject({ state: 'unknown', reason: 'inspection_timeout' });
+      expect(mocks.run).toHaveBeenCalledTimes(1);
+      expect(adapter.getMeasurements().warmChecks).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each(['partial', 'failed', 'indexing', null])('blocks incomplete native state %s', async (state) => {
     const evidence = status();
     mocks.run.mockResolvedValue({ ...evidence, index: { ...evidence.index, state } });
@@ -119,6 +215,72 @@ describe('CodeGraphPreparationAdapter', () => {
       action: 'rebuild',
       evidence: { coverage: 'partial' },
     });
+  });
+
+  it.each(['partial', 'failed', 'indexing', null])(
+    'checks native structural state %s before selecting monitor-start sync when the journal is absent',
+    async (state) => {
+      await missingJournal();
+      const metadata = indexMetadata();
+      mocks.run.mockResolvedValue({ ...metadata, index: { ...metadata.index, state } });
+      expect(await adapter.inspect(target, 'explore')).toMatchObject({
+        state: 'required',
+        action: 'rebuild',
+        evidence: { freshness: 'unknown', coverage: 'partial' },
+      });
+      expect(mocks.run).toHaveBeenCalledWith(
+        expect.anything(),
+        root,
+        'inspect-index',
+        expect.objectContaining({ executionDeadlineMs: expect.any(Number) }),
+      );
+      expect(mocks.start).not.toHaveBeenCalled();
+      expect(adapter.getMeasurements()).toEqual({ inspections: 1, preparations: 0, warmChecks: 0 });
+    },
+  );
+
+  it('requires explicit rebuild for incompatible metadata without a journal or source scan', async () => {
+    await missingJournal();
+    const metadata = indexMetadata();
+    mocks.run.mockResolvedValue({ ...metadata, index: { ...metadata.index, builtWithExtractionVersion: 6 } });
+    expect(await adapter.inspect(target, 'explore')).toMatchObject({ state: 'required', action: 'rebuild' });
+    expect(mocks.run.mock.calls[0][2]).toBe('inspect-index');
+    expect(mocks.start).not.toHaveBeenCalled();
+  });
+
+  it.each(['malformed-database', 'invalid-metadata'])(
+    'does not select sync after a journal-less %s failure',
+    async (failure) => {
+      await missingJournal();
+      if (failure === 'malformed-database') mocks.run.mockRejectedValue(new Error('Malformed native database.'));
+      else mocks.run.mockResolvedValue({ ...indexMetadata(), index: { ...indexMetadata().index, state: 'invalid' } });
+      expect(await adapter.inspect(target, 'explore')).toMatchObject({ state: 'unsupported' });
+      expect(mocks.start).not.toHaveBeenCalled();
+      expect(adapter.getMeasurements().preparations).toBe(0);
+    },
+  );
+
+  it('requires only authorized monitor startup for compatible complete metadata and makes no ready/freshness claim', async () => {
+    await missingJournal();
+    mocks.run.mockResolvedValue(indexMetadata());
+    expect(await adapter.inspect(target, 'explore', { waitMs: 12_000 })).toMatchObject({
+      state: 'required',
+      action: 'sync',
+      evidence: { freshness: 'unknown', coverage: 'unknown' },
+    });
+    expect(mocks.run.mock.calls[0][2]).toBe('inspect-index');
+    expect(mocks.run.mock.calls[0][3].executionDeadlineMs).toBeGreaterThan(11_000);
+    expect(mocks.run.mock.calls[0][3].executionDeadlineMs).toBeLessThanOrEqual(12_000);
+    expect(mocks.start).not.toHaveBeenCalled();
+    expect(adapter.getMeasurements().warmChecks).toBe(0);
+  });
+
+  it('does not grant monitor startup when source monitoring was not configured', async () => {
+    mocks.query.mockRejectedValue(new CodeGraphPreparationError('journal_unavailable', 'No native source journal.'));
+    mocks.run.mockResolvedValue(indexMetadata());
+    expect(await adapter.inspect(target, 'explore')).toMatchObject({ state: 'unsupported' });
+    expect(mocks.run.mock.calls[0][2]).toBe('inspect-index');
+    expect(mocks.start).not.toHaveBeenCalled();
   });
 
   it('blocks incompatible extraction formats and pending references', async () => {

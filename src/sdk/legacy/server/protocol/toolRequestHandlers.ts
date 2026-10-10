@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto';
 
+import {
+  admitBackendPreparationTool,
+  revalidatePreparationAuthentication,
+} from '@src/application/backendPreparationAdmission.js';
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { attachCatalogCursorOwner } from '@src/core/capabilities/capabilityCatalog.js';
@@ -19,14 +23,17 @@ import {
 } from '@src/core/protocol/requestHandlerUtils.js';
 import { getDisabledSourceToolError } from '@src/core/server/disabledTools.js';
 import { withRuntimeAdmission } from '@src/core/server/runtimeDrain.js';
+import { ServerManager } from '@src/core/server/serverManager.js';
 import { InboundConnection } from '@src/core/types/index.js';
 import { SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
+import { schemaInputErrorResult } from '@src/core/validation/toolSchemaBoundary.js';
+import { getProjectBinding } from '@src/domains/project-selection/projectBindingScope.js';
 import { projectSelectionDiagnostic } from '@src/domains/project-selection/projectPolicy.js';
 import { withSelectedNativeInputResponses } from '@src/gateway/interactions/nativeInputResponses.js';
 import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import { ownData } from '@src/observability/privacy/fields.js';
 import { ErrorCode, RESPONSE_JSON_VALUE_LIMITS, toJsonValue } from '@src/sdk/contracts/index.js';
-import type { Tool } from '@src/sdk/contracts/index.js';
+import type { CallToolResult, Tool } from '@src/sdk/contracts/index.js';
 import { type LegacyOutboundConnections } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import { revalidateLegacyRequestAuthInfo } from '@src/sdk/legacy/server/auth/requestAuthRevalidation.js';
 import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
@@ -40,6 +47,7 @@ import {
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@src/sdk/legacy/types.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 import { MCPError } from '@src/utils/core/errorTypes.js';
+import { scopesToTags } from '@src/utils/validation/scopeValidation.js';
 
 import { withPrivateInteractionConnection } from './privateInteractionConnection.js';
 import { withProviderRequestProgress } from './requestProviderProgress.js';
@@ -154,6 +162,30 @@ export function registerToolHandlers(
         writeLocalDiagnostic('debug', 'tool.arguments', () => ({ ...requested, arguments: request.params.arguments }));
         try {
           const args = request.params.arguments;
+          let preparation;
+          try {
+            const auth = extra?.authInfo;
+            preparation = await admitBackendPreparationTool({
+              serverManager: () => ServerManager.current,
+              bindingId: getRequestSession(inboundConn),
+              ownerSessionId: getProjectBinding()?.context?.sessionId ?? inboundConn.context?.sessionId,
+              filterConfig: inboundConn,
+              authentication: auth
+                ? [auth.clientId, auth.token, [...auth.scopes].sort(), scopesToTags(auth.scopes).sort()]
+                : undefined,
+              revalidateAuth: () =>
+                revalidatePreparationAuthentication(auth, () => revalidateLegacyRequestAuthInfo(auth)),
+              request: request.params,
+              signal: extra?.signal,
+            });
+          } catch (error) {
+            if (error instanceof SchemaBoundaryError && error.code === 'schema_input_invalid')
+              return schemaInputErrorResult();
+            throw error;
+          }
+          if (preparation.kind === 'blocked') return preparation.result;
+          if (preparation.kind === 'ready' && !(await preparation.revalidate()))
+            throw new MCPError('Preparation authorization changed', ErrorCode.InvalidParams);
           const toolListContinuation =
             lazy &&
             request.params.name === 'tool_list' &&
@@ -247,8 +279,12 @@ export function registerToolHandlers(
           };
           phase = 'routing_revalidation';
           if (extra?.signal?.aborted) throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
+          if (preparation.kind === 'ready' && !(await preparation.revalidate()))
+            throw new MCPError('Preparation authorization changed', ErrorCode.InvalidParams);
           const { route } = resolved.entry;
           validateOutput.assertCurrent();
+          if (!snapshot.isCurrent() || extra?.signal?.aborted)
+            throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
           if (route.origin === 'internal') {
             phase = 'internal';
             if (lazyLoadingOrchestrator && route.connectionKey === '\0app.1mcp/meta-tools') {
@@ -262,6 +298,7 @@ export function registerToolHandlers(
                     // This request already enumerated its visible backends; answer from that
                     // snapshot rather than a shared registry that may be stale or partial.
                     toolListContinuation ? undefined : ToolRegistry.fromCapabilitySnapshot(snapshot),
+                    preparation.kind === 'ready' ? preparation.beforeDispatch : undefined,
                   ),
                 ),
               );
@@ -295,8 +332,12 @@ export function registerToolHandlers(
             return structuredToolResult({ error: disabled });
           }
           phase = 'upstream';
-          return await finish(
-            await withProviderRequestProgress(
+          const setupDeadline = preparation.kind === 'ready' ? preparation.setupDeadline() : undefined;
+          const dispatchExtra = setupDeadline ? { ...extra, signal: setupDeadline.signal } : extra;
+          let deferred: { result: unknown } | undefined;
+          let result;
+          try {
+            result = await withProviderRequestProgress(
               outboundConns,
               connection,
               resolved.entry,
@@ -306,9 +347,26 @@ export function registerToolHandlers(
                 withPrivateInteractionConnection(
                   connection,
                   inboundConn,
-                  extra,
+                  dispatchExtra,
                   resolved.entry,
-                  (selected) => {
+                  async (selected) => {
+                    // Setup is complete; the final native gate owns the same remaining deadline.
+                    if (dispatchExtra.signal.aborted)
+                      throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
+                    setupDeadline?.stop();
+                    if (preparation.kind === 'ready') {
+                      const decision = await preparation.beforeDispatch();
+                      if (decision === false) throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
+                      if (typeof decision === 'object' && 'result' in decision) {
+                        deferred = decision;
+                        return structuredToolResult(decision.result);
+                      }
+                      if (typeof decision === 'object' && !decision.assertCurrent())
+                        throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
+                    }
+                    validateOutput.assertCurrent();
+                    if (!snapshot.isCurrent() || connection.adapter !== adapter || dispatchExtra.signal.aborted)
+                      throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
                     const selectedAdapter = selected.adapter;
                     diagnosticRoute = { ...diagnosticRoute, timeoutMs: selected.requestTimeoutMs };
                     writeLocalDiagnostic('debug', 'tool.dispatch', () => ({ ...diagnosticRoute, phase }));
@@ -319,7 +377,7 @@ export function registerToolHandlers(
                       route.upstreamIdentity,
                       () =>
                         executeWithPostAuthOAuthRecovery(route.server, selected, () =>
-                          requestLegacyAdapter(
+                          requestLegacyAdapter<CallToolResult>(
                             selectedAdapter,
                             'tools/call',
                             toJsonValue({
@@ -328,7 +386,7 @@ export function registerToolHandlers(
                                 ? {}
                                 : { arguments: validateOutput.targetArguments ?? request.params.arguments }),
                             }),
-                            { signal: extra?.signal, timeoutMs: selected.requestTimeoutMs },
+                            { signal: extra.signal, timeoutMs: selected.requestTimeoutMs },
                           ),
                         ),
                     );
@@ -336,8 +394,12 @@ export function registerToolHandlers(
                   validateOutput.assertCurrent,
                 ),
               validateOutput.assertCurrent,
-            ),
-          );
+            );
+          } finally {
+            setupDeadline?.stop();
+          }
+          if (deferred) return structuredToolResult(deferred.result);
+          return await finish(result);
         } catch (error) {
           reportFailure(error);
           throw error;

@@ -54,7 +54,7 @@ export interface BackendPreparationAdapter {
   inspect(
     target: PreparationTarget,
     operation: string,
-    options?: { readonly signal?: AbortSignal },
+    options?: { readonly signal?: AbortSignal; readonly waitMs?: number },
   ): Promise<BackendReadiness>;
   /** Must settle only once owned work has stopped. Abort must never stop foreign work. */
   prepare(
@@ -68,7 +68,7 @@ export interface BackendPreparationAdapter {
     target: PreparationTarget,
     operation: string,
     advisory: PreparationRecoveryHint,
-    options?: { readonly signal?: AbortSignal },
+    options?: { readonly signal?: AbortSignal; readonly waitMs?: number },
   ): Promise<BackendReadiness>;
 }
 

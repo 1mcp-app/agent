@@ -1,6 +1,10 @@
 import { ConfigManager } from '@src/config/configManager.js';
 import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
 import { getGlobalContextManager } from '@src/core/context/globalContextManager.js';
+import {
+  normalizeProjectPreparationAuthority,
+  type ProjectPreparationAuthority,
+} from '@src/core/context/projectPreparationAuthority.js';
 import { ClientTemplateTracker, FilterCache, getFilterCache, TemplateIndex } from '@src/core/filtering/index.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
@@ -54,6 +58,13 @@ export interface ContextChangedEventData {
  */
 export class ServerManager {
   private readonly cleanupCallbacks = new Set<() => Promise<void>>();
+  private readonly ownedCleanupCallbacks = new Set<() => Promise<void>>();
+
+  /** Owned subprocess settlement must complete before runtime shutdown returns. */
+  public registerOwnedCleanup(callback: () => Promise<void>): () => void {
+    this.ownedCleanupCallbacks.add(callback);
+    return () => this.ownedCleanupCallbacks.delete(callback);
+  }
 
   public registerCleanup(callback: () => Promise<void>): () => void {
     this.cleanupCallbacks.add(callback);
@@ -255,6 +266,7 @@ export class ServerManager {
     sessionId: string,
     opts: InboundConnectionConfig,
     context?: ContextData,
+    authority?: ProjectPreparationAuthority,
   ): Promise<void> {
     // Load configuration data
     // Always process templates when context is available to ensure context-specific rendering
@@ -269,14 +281,17 @@ export class ServerManager {
     }
 
     if (context) {
+      const sourceContext = context;
       context = withCanonicalSessionId(context, sessionId);
       if (context.projectSet) {
         context = withProjectSelection(context, await canonicalizeProjectSet(context.projectSet, process.cwd()));
       }
+      authority = normalizeProjectPreparationAuthority(authority, sourceContext, context);
       const bindingId = await this.templateServerManager.registerBindingContext(
         createProjectBindingId(sessionId, context),
         context,
         opts,
+        ...(authority ? [authority] : []),
       );
       opts = { ...opts, bindingId };
     }
@@ -309,6 +324,8 @@ export class ServerManager {
         requestServerConfigData,
         this.outboundConns,
         this.transports,
+        'persistent',
+        ...(authority ? [authority] : []),
       );
 
       // Populate server registry with template servers
@@ -400,8 +417,10 @@ export class ServerManager {
 
     try {
       for (const [sessionId, { names: affectedNames, lifecycle }] of templatesBySession) {
-        const inboundConnection = this.connectionManager.getInboundConnections().get(sessionId);
-        const context = inboundConnection?.context as ContextData | undefined;
+        const bindingContext = this.templateServerManager.getBindingContext(sessionId);
+        const ownerSessionId = bindingContext?.sessionId ?? sessionId;
+        const inboundConnection = this.connectionManager.getInboundConnections().get(ownerSessionId);
+        const context = bindingContext ?? (inboundConnection?.context as ContextData | undefined);
         if (!inboundConnection || !context) continue;
         const { templateServers, errors } = await ConfigManager.getInstance().loadConfigWithTemplates(context);
         if (errors.length > 0) {
@@ -416,11 +435,12 @@ export class ServerManager {
         await this.templateServerManager.createTemplateBasedServers(
           sessionId,
           context,
-          inboundConnection,
+          this.templateServerManager.getBindingConfiguration(sessionId) ?? inboundConnection,
           { mcpTemplates: affectedTemplates },
           this.outboundConns,
           this.transports,
           lifecycle,
+          this.templateServerManager.getBindingAuthority(sessionId),
         );
       }
     } finally {
@@ -637,6 +657,10 @@ export class ServerManager {
   public async cleanup(): Promise<void> {
     // Close schema admission immediately, then close request sources before awaiting the worker drain.
     const schemaShutdown = shutdownSchemaBoundary();
+    const ownedCallbacks = Array.from(this.ownedCleanupCallbacks);
+    this.ownedCleanupCallbacks.clear();
+    const ownedSettlement = Promise.allSettled(ownedCallbacks.map((callback) => Promise.resolve().then(callback)));
+    const failures: unknown[] = [];
     try {
       const callbacks = Array.from(this.cleanupCallbacks);
       this.cleanupCallbacks.clear();
@@ -655,9 +679,24 @@ export class ServerManager {
       await this.templateServerManager.shutdown();
       this.templateConfigurationManager.cleanup();
       this.filterCache.clear();
+    } catch (error) {
+      failures.push(error);
     } finally {
-      await schemaShutdown;
+      await Promise.all([
+        schemaShutdown.catch((error: unknown) => {
+          failures.push(error);
+        }),
+        ownedSettlement.then((outcomes) => {
+          for (const outcome of outcomes) {
+            if (outcome.status === 'rejected') {
+              const reason: unknown = outcome.reason;
+              failures.push(reason);
+            }
+          }
+        }),
+      ]);
     }
+    if (failures.length) throw new AggregateError(failures, 'Runtime cleanup failed');
 
     logger.info('serverManager.servermanager.cleanup.completed.155038e7');
   }

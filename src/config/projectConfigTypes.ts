@@ -30,6 +30,7 @@ export const ProjectConfigSchema = z.object({
   tags: z.union([z.string(), z.array(z.string())]).optional(),
   filter: z.string().optional(),
   context: ContextConfigSchema.optional(),
+  preparation: z.record(z.string().min(1), z.object({ enabled: z.boolean() }).strict()).optional(),
 });
 
 /**
@@ -53,6 +54,8 @@ export interface ProjectConfig {
   tags?: string | string[];
   filter?: string;
   context?: ContextConfig;
+  /** Automatic preparation preference, keyed by configured backend name. Never grants runtime authority. */
+  preparation?: Record<string, { enabled: boolean }>;
 }
 
 /**

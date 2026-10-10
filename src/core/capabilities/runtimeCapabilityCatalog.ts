@@ -673,14 +673,20 @@ async function collectRuntimeCapabilityCatalog(
         // admission that fails. Starting an otherwise identical read does not.
         if (scopedState.observedTools?.fingerprints.get(routeKey) !== sourceFingerprints.get(routeKey))
           throw new SchemaBoundaryError('schema_invalid');
-        const latest = scopedState.snapshot?.resolve('tools', identity);
-        if (
-          !latest ||
-          latest.connection !== resolved.connection ||
-          !isDeepStrictEqual(latest.entry.route, resolved.entry.route) ||
-          !isDeepStrictEqual(latest.entry.sourceObject, resolved.entry.sourceObject)
-        )
-          throw new SchemaBoundaryError('schema_invalid');
+        const latestSnapshot = scopedState.snapshot;
+        // A newer pending read can suppress this acquisition's publication. Its
+        // previous published inventory may still be empty or hold an older schema.
+        // Current observations and admission failures above still fence every read.
+        if (latestSnapshot && latestSnapshot.generation.id >= started) {
+          const latest = latestSnapshot.resolve('tools', identity);
+          if (
+            !latest ||
+            latest.connection !== resolved.connection ||
+            !isDeepStrictEqual(latest.entry.route, resolved.entry.route) ||
+            !isDeepStrictEqual(latest.entry.sourceObject, resolved.entry.sourceObject)
+          )
+            throw new SchemaBoundaryError('schema_invalid');
+        }
       };
       assertContractCurrent();
       return Object.freeze({

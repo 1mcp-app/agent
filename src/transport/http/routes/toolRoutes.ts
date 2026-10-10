@@ -1,3 +1,7 @@
+import {
+  admitBackendPreparationTool,
+  revalidatePreparationAuthentication,
+} from '@src/application/backendPreparationAdmission.js';
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { CapabilityCatalog } from '@src/core/capabilities/capabilityCatalog.js';
 import {
@@ -26,6 +30,11 @@ import {
   gatewayFailureToProblem,
 } from '@src/gateway/contracts/gatewayFailure.js';
 import logger from '@src/logger/logger.js';
+import {
+  getAuthInfo,
+  getTagFilterMode,
+  revalidateAuthInfo,
+} from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
 import { CONTEXT_HEADERS } from '@src/transport/http/utils/contextExtractor.js';
 
 import { Request, RequestHandler, Response } from 'express';
@@ -345,6 +354,40 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
 
       const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
 
+      const auth = getAuthInfo(res);
+      const rawOwner = req.headers?.[CONTEXT_HEADERS.SESSION_ID];
+      const ownerSessionId = Array.isArray(rawOwner) ? rawOwner[0] : rawOwner;
+      let preparation;
+      try {
+        preparation = await admitBackendPreparationTool({
+          serverManager,
+          bindingId: requestSessionId,
+          ownerSessionId,
+          filterConfig: { ...filterConfig, projectFilterMode: getTagFilterMode(res) },
+          authentication: auth
+            ? [auth.clientId, auth.token, [...auth.grantedScopes].sort(), [...auth.grantedTags].sort()]
+            : undefined,
+          revalidateAuth: () => revalidatePreparationAuthentication(auth, () => revalidateAuthInfo(auth)),
+          request: { name: target.qualifiedName, arguments: toolArgs },
+          signal: controller.signal,
+        });
+      } catch (error) {
+        if (error instanceof SchemaBoundaryError && error.code === 'schema_input_invalid') {
+          res.json({ result: schemaInputErrorResult(), server: target.serverName, tool: target.toolName });
+          return;
+        }
+        throw error;
+      }
+
+      if (preparation.kind === 'blocked') {
+        res.json({ result: preparation.result.structuredContent, server: target.serverName, tool: target.toolName });
+        return;
+      }
+      if (preparation.kind === 'ready' && !(await preparation.revalidate())) {
+        res.status(401).json({ error: 'Preparation authorization changed' });
+        return;
+      }
+
       if (!lazyOrchestrator) {
         if (visibleServerNames && !visibleServerNames.has(target.serverName)) {
           res.status(404).json({ error: `Server not found: ${target.serverName}` });
@@ -402,6 +445,19 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
             return;
           }
           validateOutput.assertCurrent();
+          if (preparation.kind === 'ready') {
+            const decision = await preparation.beforeDispatch();
+            if (decision === false) throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
+            if (typeof decision === 'object' && 'result' in decision) {
+              res.json({ result: decision.result, server: target.serverName, tool: target.toolName });
+              return;
+            }
+            if (typeof decision === 'object' && 'assertCurrent' in decision && !decision.assertCurrent())
+              throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
+          }
+          validateOutput.assertCurrent();
+          if (resolved.connection.adapter !== adapter || !snapshot.isCurrent() || controller.signal.aborted)
+            throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
           const upstreamResult = await requestLegacyAdapter(
             adapter,
             'tools/call',
@@ -457,7 +513,10 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
         const catalogResult = await catalog.invokeVisibleTool(
           { server: target.serverName, toolName: target.toolName, args: toolArgs },
           visibility,
-          { signal: controller.signal },
+          {
+            signal: controller.signal,
+            beforeDispatch: preparation.kind === 'ready' ? preparation.beforeDispatch : undefined,
+          },
         );
         if (!catalogResult.error) {
           res.json({ result: catalogResult.result, server: catalogResult.server, tool: catalogResult.tool });
@@ -488,16 +547,25 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
         return;
       }
 
-      const result = (await lazyOrchestrator.callMetaTool(
-        'tool_invoke',
-        {
-          server: target.serverName,
-          toolName: target.toolName,
-          args: toolArgs,
-        },
-        visibility,
-        controller.signal,
-      )) as ToolInvokeOutput;
+      const metaArguments = { server: target.serverName, toolName: target.toolName, args: toolArgs };
+      let result: ToolInvokeOutput;
+      if (preparation.kind === 'ready') {
+        result = (await lazyOrchestrator.callMetaTool(
+          'tool_invoke',
+          metaArguments,
+          visibility,
+          controller.signal,
+          undefined,
+          preparation.beforeDispatch,
+        )) as ToolInvokeOutput;
+      } else {
+        result = (await lazyOrchestrator.callMetaTool(
+          'tool_invoke',
+          metaArguments,
+          visibility,
+          controller.signal,
+        )) as ToolInvokeOutput;
+      }
 
       if (result.error) {
         let status: number;

@@ -445,7 +445,7 @@ describe('Health Routes', () => {
       });
     });
 
-    it('returns aggregate supervision for a template target at minimal detail', async () => {
+    it('returns only aggregate supervision at minimal detail when the timestamp contains the worker PID', async () => {
       const loadingManager = {
         getStateTracker: () => ({ getServerState: vi.fn() }),
       } as any;
@@ -471,17 +471,27 @@ describe('Health Routes', () => {
         stopped: 0,
       });
 
-      const response = await request(templateApp).get('/health/mcp/worker');
+      const timestamp = '2026-10-10T21:52:04.101Z';
+      const timestampSpy = vi.spyOn(Date.prototype, 'toISOString').mockReturnValue(timestamp);
+      try {
+        const response = await request(templateApp).get('/health/mcp/worker');
 
-      expect(response.status).toBe(200);
-      expect(response.body).toMatchObject({
-        name: 'worker',
-        state: 'connected',
-        backendSupervision: { total: 1, connected: 1 },
-      });
-      expect(response.body.instances).toBeUndefined();
-      expect(JSON.stringify(response.body)).not.toContain('template:worker');
-      expect(JSON.stringify(response.body)).not.toContain('101');
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({
+          name: 'worker',
+          state: 'connected',
+          backendSupervision: {
+            total: 1,
+            connected: 1,
+            restarting: 0,
+            crashLoop: 0,
+            stopped: 0,
+          },
+          timestamp,
+        });
+      } finally {
+        timestampSpy.mockRestore();
+      }
     });
 
     it('reports a stopped template target as unavailable', async () => {
