@@ -12,7 +12,7 @@ const target: PreparationTarget = {
   configurationKey: 'config-a',
 };
 const policy: BackendPolicy = { allowedActions: ['initialize', 'sync'] };
-const ready: BackendReadiness = {
+const ready: Extract<BackendReadiness, { state: 'ready' }> = {
   state: 'ready',
   evidence: { freshness: 'current', coverage: 'complete', detail: 'Native target-specific proof' },
 };
@@ -24,6 +24,7 @@ const required: BackendReadiness = {
 };
 
 class FakeAdapter implements BackendPreparationAdapter {
+  reconcile?: BackendPreparationAdapter['reconcile'];
   readiness = new Map<string, BackendReadiness>();
   calls: { target: PreparationTarget; signal: AbortSignal; finish: () => void; fail: (error: unknown) => void }[] = [];
   failures: unknown[] = [];
@@ -633,5 +634,102 @@ describe('backend preparation lifecycle', () => {
       status: { id: original.status.id, state: 'failed' },
     });
     expect(adapter.calls).toHaveLength(1);
+  });
+
+  it('bounds native recovery probing and forwards the owned probe abort signal', async () => {
+    const { service, adapter } = setup();
+    let probeSignal: AbortSignal | undefined;
+    adapter.reconcile = (_selected, _operation, _advisory, options) => {
+      probeSignal = options?.signal;
+      return new Promise(() => {});
+    };
+    const recovery = service.recover(
+      target,
+      'symbols',
+      { previousJobId: 'saved-foreign-pid', previousState: 'running' },
+      { waitMs: 20 },
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    expect(await recovery).toMatchObject({ state: 'conflict' });
+    expect(probeSignal?.aborted).toBe(true);
+    expect(adapter.calls).toHaveLength(0);
+  });
+
+  it('uses the default request budget for recovery instead of waiting indefinitely', async () => {
+    const { service, adapter } = setup();
+    adapter.reconcile = () => new Promise(() => {});
+    const recovery = service.recover(target, 'symbols', { previousJobId: 'advisory', previousState: 'failed' });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(await recovery).toMatchObject({ state: 'conflict' });
+    expect(adapter.calls).toHaveLength(0);
+  });
+
+  it('aborts a disconnected recovery probe without cancelling shared preparation', async () => {
+    const { service, adapter } = setup();
+    await service.prepare(target, 'symbols', policy);
+    await flush();
+    let probeSignal: AbortSignal | undefined;
+    adapter.reconcile = (_selected, _operation, _advisory, options) => {
+      probeSignal = options?.signal;
+      return new Promise(() => {});
+    };
+    const caller = new AbortController();
+    const recovery = service.recover(
+      target,
+      'symbols',
+      { previousJobId: 'foreign', previousState: 'running' },
+      { signal: caller.signal },
+    );
+    caller.abort();
+    expect(await recovery).toMatchObject({ state: 'conflict' });
+    expect(probeSignal?.aborted).toBe(true);
+    expect(adapter.calls[0].signal.aborted).toBe(false);
+    adapter.calls[0].finish();
+    await service.shutdown();
+  });
+
+  it('recycles a resolved failure only after current native readiness proves the same operation ready', async () => {
+    const { service, adapter } = setup({ maxRecords: 1 });
+    adapter.failures = ['missing_binary'];
+    const failed = await service.prepare(target, 'symbols', policy);
+    if (failed.state !== 'job') throw new Error('Expected job');
+    await flush();
+    adapter.readiness.set(adapter.key(target), ready);
+    expect(await service.admit(target, 'symbols', policy, {})).toMatchObject({ state: 'ready' });
+    expect(service.status(failed.status.id)).toBeUndefined();
+    expect(await service.prepare({ ...target, checkoutRoot: '/canonical/new' }, 'symbols', policy)).toMatchObject({
+      state: 'job',
+    });
+  });
+
+  it('preserves failed records for other operations, identities, and execution policies', async () => {
+    const { service, adapter } = setup({ maxRecords: 2 });
+    adapter.failures = ['missing_binary', 'missing_binary'];
+    const first = await service.prepare(target, 'symbols', policy);
+    await flush();
+    const different = { ...policy, executionDeadlineMs: 130000 };
+    const second = await service.prepare(target, 'full-coverage', different);
+    if (first.state !== 'job' || second.state !== 'job') throw new Error('Expected jobs');
+    await flush();
+    expect(service.clearResolvedFailure(target, 'full-coverage', policy, ready)).toBe(0);
+    expect(service.clearResolvedFailure({ ...target, configurationKey: 'other' }, 'symbols', policy, ready)).toBe(0);
+    expect(service.clearResolvedFailure(target, 'symbols', different, ready)).toBe(0);
+    expect(service.clearResolvedFailure(target, 'symbols', policy, ready)).toBe(1);
+    expect(service.status(first.status.id)).toBeUndefined();
+    expect(service.status(second.status.id)).toMatchObject({ state: 'failed' });
+  });
+
+  it('never discards a failed job while its owned preparation is still stopping', async () => {
+    const { service, adapter } = setup({ executionDeadlineMs: 10 });
+    adapter.cooperate = false;
+    const result = await service.prepare(target, 'symbols', policy);
+    if (result.state !== 'job') throw new Error('Expected job');
+    await flush();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(service.clearResolvedFailure(target, 'symbols', policy, ready)).toBe(0);
+    expect(service.status(result.status.id)).toMatchObject({ state: 'failed' });
+    adapter.calls[0].finish();
+    await flush();
+    expect(service.clearResolvedFailure(target, 'symbols', policy, ready)).toBe(1);
   });
 });

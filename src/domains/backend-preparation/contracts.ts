@@ -63,6 +63,7 @@ export interface BackendPreparationAdapter {
     target: PreparationTarget,
     operation: string,
     advisory: PreparationRecoveryHint,
+    options?: { readonly signal?: AbortSignal },
   ): Promise<BackendReadiness>;
 }
 

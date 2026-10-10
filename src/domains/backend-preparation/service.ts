@@ -15,6 +15,7 @@ import type {
 } from './contracts.js';
 import {
   BackendPolicySchema,
+  BackendReadyReadinessSchema,
   PreparationFailureSchema,
   preparationKey,
   PreparationOptionsSchema,
@@ -62,6 +63,7 @@ export class BackendPreparationService {
     target: PreparationTarget,
     operation: string,
     advisory: PreparationRecoveryHint,
+    options: { readonly waitMs?: number; readonly signal?: AbortSignal } = {},
   ): Promise<BackendReadiness> {
     const resolved = PreparationTargetSchema.parse(target);
     const adapter = this.registry.get(resolved.backendName);
@@ -72,7 +74,13 @@ export class BackendPreparationService {
         instructions:
           'Native ownership reconciliation is unavailable; inspect prerequisites before explicit preparation.',
       };
-    return adapter.reconcile(resolved, operation, advisory);
+    const waitMs = PreparationOptionsSchema.shape.requestWaitMs.parse(options.waitMs ?? this.options.requestWaitMs);
+    return this.readReadiness(
+      (signal) => adapter.reconcile!(resolved, operation, advisory, { signal }),
+      (error) => adapter.classifyFailure(error),
+      waitMs,
+      options.signal,
+    );
   }
 
   async prepare(
@@ -107,7 +115,10 @@ export class BackendPreparationService {
     if (readiness.state === 'conflict') return readiness;
     if (readiness.state === 'unsupported') return readiness;
     if (readiness.state === 'ready') {
-      if (!action) return { state: 'ready', readiness };
+      if (!action) {
+        this.clearResolvedFailure(resolved, operation, authority, readiness);
+        return { state: 'ready', readiness };
+      }
     }
     const selected = action ?? (readiness.state === 'required' ? readiness.action : undefined);
     if (!selected) return { state: 'forbidden', instructions: 'No permitted preparation action was selected.' };
@@ -193,7 +204,10 @@ export class BackendPreparationService {
       const joined = this.activeJob(resolved, authority);
       if (joined) result = { state: 'job', status: this.snapshot(joined) };
       else {
-        if (readiness.state === 'ready') return { state: 'ready', readiness };
+        if (readiness.state === 'ready') {
+          this.clearResolvedFailure(resolved, operation, authority, readiness);
+          return { state: 'ready', readiness };
+        }
         if (readiness.state === 'unsupported') return readiness;
         if (readiness.state === 'conflict') return readiness;
         if (!preferences[resolved.backendName]?.enabled)
@@ -208,7 +222,10 @@ export class BackendPreparationService {
       // Readiness for one operation never proves readiness for a different operation.
       const adapter = this.registry.get(resolved.backendName)!;
       const current = await this.probe(adapter, resolved, operation, remaining(), options.signal);
-      if (current.state === 'ready') return { state: 'ready', readiness: current };
+      if (current.state === 'ready') {
+        this.clearResolvedFailure(resolved, operation, authority, current);
+        return { state: 'ready', readiness: current };
+      }
       if (current.state === 'unsupported') return current;
       if (current.state === 'conflict') return current;
       if (!preferences[resolved.backendName]?.enabled) return { state: 'disabled', instructions: current.instructions };
@@ -370,6 +387,31 @@ export class BackendPreparationService {
     return this.snapshot(job);
   }
 
+  /** Caller supplies fresh native evidence; advisory state alone cannot resolve a failure. */
+  clearResolvedFailure(
+    target: PreparationTarget,
+    operation: string,
+    policy: BackendPolicy,
+    readiness: Extract<BackendReadiness, { state: 'ready' }>,
+  ): number {
+    const resolved = PreparationTargetSchema.parse(target);
+    const authority = BackendPolicySchema.parse(policy);
+    BackendReadyReadinessSchema.parse(readiness);
+    const base = preparationKey(resolved, authority, this.options);
+    let cleared = 0;
+    for (const action of authority.allowedActions) {
+      const job = this.findJob(`${base}:${action}`);
+      if (!job) continue;
+      if (job.status.state !== 'failed') continue;
+      if (job.status.operation !== operation) continue;
+      if (job.settling) continue;
+      if (job.retrying) continue;
+      this.removeRecord(job);
+      cleared++;
+    }
+    return cleared;
+  }
+
   private removeRecord(job: PreparationJob): void {
     this.jobs.delete(job.status.id);
     for (const [key, id] of this.identities) {
@@ -509,6 +551,20 @@ export class BackendPreparationService {
     waitMs: number,
     signal?: AbortSignal,
   ): Promise<BackendReadiness> {
+    return this.readReadiness(
+      (signal) => adapter.inspect(target, operation, { signal }),
+      (error) => adapter.classifyFailure(error),
+      waitMs,
+      signal,
+    );
+  }
+
+  private async readReadiness(
+    inspect: (signal: AbortSignal) => Promise<BackendReadiness>,
+    classifyFailure: (error: unknown) => PreparationFailure,
+    waitMs: number,
+    signal?: AbortSignal,
+  ): Promise<BackendReadiness> {
     const controller = new AbortController();
     return new Promise<BackendReadiness>((resolve) => {
       let settled = false;
@@ -533,8 +589,8 @@ export class BackendPreparationService {
         return;
       }
       signal?.addEventListener('abort', stop, { once: true });
-      void adapter.inspect(target, operation, { signal: controller.signal }).then(finish, (error: unknown) => {
-        const failure = adapter.classifyFailure(error);
+      void inspect(controller.signal).then(finish, (error: unknown) => {
+        const failure = classifyFailure(error);
         finish({ state: 'conflict', instructions: failure.instructions });
       });
     });

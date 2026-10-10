@@ -49,3 +49,16 @@ export const PreparationFailureSchema = z
     instructions: z.string().min(1).max(4096),
   })
   .strict();
+
+export const BackendReadyReadinessSchema = z
+  .object({
+    state: z.literal('ready'),
+    evidence: z
+      .object({
+        freshness: z.enum(['current', 'stale', 'unknown']),
+        coverage: z.enum(['complete', 'partial', 'unknown']),
+        detail: z.string().max(4096),
+      })
+      .strict(),
+  })
+  .strict();
