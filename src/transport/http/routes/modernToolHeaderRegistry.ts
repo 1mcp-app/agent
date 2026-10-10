@@ -40,7 +40,10 @@ export async function resolveModernToolHeaderRegistry(
   const name = (params as { name?: unknown }).name;
   if (typeof name !== 'string') return undefined;
   const connections = manager.getClients();
-  const visible = FilteringService.getFilteredConnections(filterConnectionsForSession(connections, undefined), config);
+  const visible = FilteringService.getFilteredConnections(
+    filterConnectionsForSession(connections, config.bindingId),
+    config,
+  );
   const visibility = resolveCapabilityVisibility(connections, config, undefined, 'tools');
   // Observe before the asynchronous read so a notification during admission also
   // invalidates the declaration. Separate maps fence only the selected provider.

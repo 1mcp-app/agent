@@ -55,11 +55,14 @@ export function createAdminInstructionPreviewRuntime(
           return invalidPreview(input, 'request_context_untrusted', 'Request context could not be authorized');
         }
         preparedSessionId = deriveContextSessionId(context);
-        await prepareRequestContext({
+        const preparation = await prepareRequestContext({
           deps: createRequestContextPreparationDependencies(serverManager),
           context,
           filterConfig,
         });
+        if ('bindingId' in preparation) {
+          preparedSessionId = preparation.bindingId;
+        }
       }
 
       const sessionConnections = createConnectionResolver(

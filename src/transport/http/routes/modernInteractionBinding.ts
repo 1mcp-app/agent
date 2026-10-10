@@ -6,10 +6,9 @@ import {
   registerCapabilityPaginationNotifications,
   unregisterCapabilityPaginationForwarder,
 } from '@src/core/capabilities/capabilityPagination.js';
-import { createCapabilityVisibility, type ResourceRouteOwner } from '@src/core/capabilities/capabilityVisibility.js';
+import { type ResourceRouteOwner } from '@src/core/capabilities/capabilityVisibility.js';
 import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
-import { FilteringService } from '@src/core/filtering/filteringService.js';
-import { filterConnectionsForSession, resolveCapabilityVisibility } from '@src/core/protocol/requestHandlerUtils.js';
+import { resolveCapabilityVisibility } from '@src/core/protocol/requestHandlerUtils.js';
 import { resolveResourceRoute } from '@src/core/protocol/resourceTemplateRouting.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
 import type { InboundConnectionConfig, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
@@ -97,14 +96,9 @@ export async function createModernInteractionBinding(
   const publicIdentity = record[kind === 'resources' ? 'uri' : 'name'];
   if (typeof publicIdentity !== 'string') return undefined;
   const connections = manager.getClients();
-  const visible = FilteringService.getFilteredConnections(filterConnectionsForSession(connections, undefined), config);
-  let visibility = createCapabilityVisibility(
-    Array.from(visible, ([key, connection]) => [key, connection.name || key] as const),
-    undefined,
-    { ...config },
-  );
+  let visibility = resolveCapabilityVisibility(connections, config, config.bindingId, kind);
   if (kind === 'resources') {
-    visibility = { ...resolveCapabilityVisibility(connections, config, undefined, 'resources'), resourceOwner };
+    visibility = { ...visibility, resourceOwner };
   }
   const serverConfigs = getConfiguredServerTargets();
   const snapshot = await acquireRuntimeCapabilityCatalog(

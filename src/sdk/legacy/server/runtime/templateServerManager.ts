@@ -33,6 +33,12 @@ import type { OutboundConnection, OutboundConnections } from '@src/core/types/cl
 import { ClientStatus } from '@src/core/types/client.js';
 import { MCPServerParams } from '@src/core/types/index.js';
 import type { InboundConnectionConfig } from '@src/core/types/server.js';
+import { isProjectBackendVisible, resolveProjectPolicies } from '@src/domains/project-selection/projectPolicy.js';
+import {
+  createProjectBindingId,
+  resolveProjectSelection,
+  withProjectSelection,
+} from '@src/domains/project-selection/projectSelection.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import {
   createLegacyOutboundConnection,
@@ -84,6 +90,10 @@ export class TemplateServerManager {
   private templateConfigHashes = new Map<string, string>();
   private templateToolMetadataHashes = new Map<string, string>();
   private templateRetirements = new Map<string, Promise<void>>();
+  private ownerBindings = new Map<string, Set<string>>();
+  private bindingContexts = new Map<string, ContextData>();
+  private bindingPolicies = new Map<string, InboundConnectionConfig[]>();
+  private ephemeralBindingActivity = new Map<string, number>();
 
   // Maps sessionId -> (templateName -> renderedHash) for routing shareable servers
   private sessionToRenderedHash = new Map<string, Map<string, string>>();
@@ -161,12 +171,32 @@ export class TemplateServerManager {
     this.outboundConns = outboundConns;
     this.transports = transports;
 
+    const ownerSessionId = context.sessionId ?? sessionId;
+    context = context.projectSet ? withProjectSelection(context, context.projectSet) : context;
+    context = { ...context, sessionId: ownerSessionId };
+    sessionId = await this.registerBindingContext(createProjectBindingId(ownerSessionId, context), context, opts);
+
     if (lifecycle === 'persistent') {
       this.trackPersistentClient(sessionId);
     }
 
     // Get template servers that match the client's tags/preset
-    const templateConfigs = this.getMatchingTemplateConfigs(opts, serverConfigData);
+    const selection = resolveProjectSelection(context);
+    const templateConfigs = this.getMatchingTemplateConfigs(opts, serverConfigData).filter(([, config]) => {
+      if (!context.project && !context.projectSet) return true;
+      if (
+        !isProjectBackendVisible(
+          { ...config, template: config.template ?? {} },
+          context,
+          this.bindingPolicies.get(sessionId) ?? [],
+        )
+      )
+        return false;
+      const mode = config.projectTarget?.mode ?? 'single';
+      if (mode === 'independent') return true;
+      if (selection.kind === 'unresolved') return false;
+      return mode === 'native-set' || selection.kind === 'single';
+    });
 
     logger.info('templateServerManager.creating.template.based.servers.for.session.63a3dddd', {
       templateCount: templateConfigs.length,
@@ -176,19 +206,23 @@ export class TemplateServerManager {
     // Create client instances from templates
     for (const [templateName, templateConfig] of templateConfigs) {
       try {
+        const targetTemplateOptions =
+          !context.project || templateConfig.projectTarget?.mode === 'independent'
+            ? templateConfig.template
+            : { ...templateConfig.template, perClient: true, shareable: false };
         // Get or create client instance from template
         const instance = await this.clientInstancePool.getOrCreateClientInstance(
           templateName,
           templateConfig,
           context,
           sessionId,
-          templateConfig.template,
+          targetTemplateOptions,
         );
 
         // CRITICAL: Register the template server in outbound connections for capability aggregation
         const renderedHash = instance.renderedHash; // From the pooled instance
 
-        const identityMode = resolveTemplateIdentityMode(templateConfig.template);
+        const identityMode = resolveTemplateIdentityMode(targetTemplateOptions);
         const outboundKey = serializeTemplateIdentity(
           identityMode === 'session'
             ? createSessionIdentity(templateName, sessionId)
@@ -254,8 +288,8 @@ export class TemplateServerManager {
 
         // Enhanced client-template tracking
         this.clientTemplateTracker.addClientTemplate(sessionId, templateName, instance.id, {
-          shareable: templateConfig.template?.shareable,
-          perClient: templateConfig.template?.perClient,
+          shareable: targetTemplateOptions?.shareable,
+          perClient: targetTemplateOptions?.perClient,
         });
 
         if (lifecycle === 'ephemeral') {
@@ -320,6 +354,15 @@ export class TemplateServerManager {
     this.outboundConns = outboundConns;
     this.transports = transports;
 
+    const ownedBindings = this.ownerBindings.get(sessionId);
+    if (ownedBindings) {
+      this.ownerBindings.delete(sessionId);
+      for (const bindingId of ownedBindings) {
+        await this.cleanupTemplateServers(bindingId, outboundConns, transports);
+      }
+    }
+    this.forgetBindingContext(sessionId);
+
     await cleanupTemplateServersForSession(sessionId, outboundConns, transports, {
       clientInstancePool: this.clientInstancePool,
       clientTemplateTracker: this.clientTemplateTracker,
@@ -331,6 +374,7 @@ export class TemplateServerManager {
 
   public trackPersistentClient(sessionId: string): void {
     this.persistentSessions.add(sessionId);
+    this.ephemeralBindingActivity.delete(sessionId);
     this.ephemeralClients.delete(sessionId);
   }
 
@@ -359,6 +403,9 @@ export class TemplateServerManager {
   }
 
   public touchEphemeralClient(sessionId: string, templateName?: string): void {
+    if (this.bindingContexts.has(sessionId) && !this.persistentSessions.has(sessionId)) {
+      this.ephemeralBindingActivity.set(sessionId, Date.now());
+    }
     const clients = this.ephemeralClients.get(sessionId);
     if (!clients || this.persistentSessions.has(sessionId)) {
       return;
@@ -539,6 +586,12 @@ export class TemplateServerManager {
       ephemeralClients: this.ephemeralClients,
       persistentSessions: this.persistentSessions,
     });
+
+    for (const [bindingId, lastUsed] of this.ephemeralBindingActivity) {
+      if (Date.now() - lastUsed < this.poolPolicy.idleTimeoutMs) continue;
+      if (this.ephemeralClients.get(bindingId)?.size) continue;
+      await this.cleanupTemplateServers(bindingId, outboundConns, transports);
+    }
 
     // Get all instances from the pool
     const allInstances = this.clientInstancePool.getAllInstances();
@@ -774,6 +827,58 @@ export class TemplateServerManager {
     return this.sessionToRenderedHash.get(sessionId)?.get(templateName);
   }
 
+  public getBindingContext(bindingId: string): ContextData | undefined {
+    this.touchEphemeralClient(bindingId);
+    return this.bindingContexts.get(bindingId);
+  }
+
+  public getBindingPolicies(bindingId: string): readonly InboundConnectionConfig[] {
+    return this.bindingPolicies.get(bindingId) ?? [];
+  }
+
+  public async registerBindingContext(
+    bindingId: string,
+    context: ContextData,
+    filterConfig: InboundConnectionConfig = {},
+  ): Promise<string> {
+    const policies = await resolveProjectPolicies(context, filterConfig);
+    if (context.project || context.projectSet) {
+      bindingId = createProjectBindingId(context.sessionId ?? bindingId, context, {
+        filterConfig: {
+          tags: filterConfig.tags,
+          tagExpression: filterConfig.tagExpression,
+          tagQuery: filterConfig.tagQuery,
+          tagFilterMode: filterConfig.tagFilterMode,
+          presetName: filterConfig.presetName,
+          projectFilterMode: filterConfig.projectFilterMode,
+        },
+        policies,
+      });
+    }
+    const capacity = Math.max(1, this.poolPolicy.maxTotalInstances) * 32;
+    if (!this.bindingContexts.has(bindingId) && this.bindingContexts.size >= capacity) {
+      throw new Error('Project binding capacity exceeded');
+    }
+    this.bindingContexts.set(bindingId, context);
+    this.bindingPolicies.set(bindingId, policies);
+    const ownerSessionId = context.sessionId ?? bindingId;
+    const owned = this.ownerBindings.get(ownerSessionId) ?? new Set<string>();
+    owned.add(bindingId);
+    this.ownerBindings.set(ownerSessionId, owned);
+    this.touchEphemeralClient(bindingId);
+    return bindingId;
+  }
+
+  private forgetBindingContext(bindingId: string): void {
+    const owner = this.bindingContexts.get(bindingId)?.sessionId ?? bindingId;
+    this.bindingContexts.delete(bindingId);
+    this.bindingPolicies.delete(bindingId);
+    this.ephemeralBindingActivity.delete(bindingId);
+    const owned = this.ownerBindings.get(owner);
+    owned?.delete(bindingId);
+    if (owned?.size === 0) this.ownerBindings.delete(owner);
+  }
+
   /**
    * Get all rendered hashes for a specific session
    * Used by filterConnectionsForSession to determine which connections to include
@@ -796,6 +901,10 @@ export class TemplateServerManager {
     this.ephemeralClients.clear();
     this.persistentSessions.clear();
     this.sessionToRenderedHash.clear();
+    this.ownerBindings.clear();
+    this.bindingContexts.clear();
+    this.bindingPolicies.clear();
+    this.ephemeralBindingActivity.clear();
 
     await this.clientInstancePool.shutdown();
     this.templateConfigHashes.clear();

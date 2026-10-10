@@ -1,6 +1,7 @@
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION, STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
 import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
+import { withProjectBinding } from '@src/domains/project-selection/projectBindingScope.js';
 import logger from '@src/logger/logger.js';
 import {
   getPresetName,
@@ -18,6 +19,8 @@ import { authorizeRequestTemplateContext } from '@src/transport/http/utils/templ
 import { logError, logWarn } from '@src/transport/http/utils/unifiedLogger.js';
 
 import { Request, RequestHandler, Response, Router } from 'express';
+
+import { ensureRequestContextInitialized } from './inspectRequestContext.js';
 
 /**
  * Type guard to check if a request body is an initialize request.
@@ -224,7 +227,24 @@ export function setupStreamableHttpRoutes(
         });
       }
 
-      await transport.handleRequest(req, wrappedRes, req.body);
+      if (!isInitialize && authorization?.status === 'trusted') {
+        const bindingId = await ensureRequestContextInitialized(
+          serverManager,
+          req,
+          res,
+          buildConfigFromRequest(res, req, customTemplate),
+        );
+        const bindingContext = bindingId
+          ? serverManager.getTemplateServerManager().getBindingContext(bindingId)
+          : undefined;
+        if (bindingId && bindingContext) {
+          await withProjectBinding(bindingId, bindingContext, () => transport.handleRequest(req, wrappedRes, req.body));
+        } else {
+          await transport.handleRequest(req, wrappedRes, req.body);
+        }
+      } else {
+        await transport.handleRequest(req, wrappedRes, req.body);
+      }
 
       if (isInitialize && protocolVersion) {
         try {

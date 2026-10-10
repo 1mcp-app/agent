@@ -116,7 +116,7 @@ describe('createAdminInstructionPreviewRuntime', () => {
       selection: { mode: 'all' },
       requestContext: {
         version: '1.0.0',
-        project: { name: 'preview-project' },
+        project: { name: 'preview-project', path: '/tmp' },
         user: {},
         environment: {},
       },
@@ -202,13 +202,13 @@ describe('createAdminInstructionPreviewRuntime', () => {
       surface: 'initialization',
       template: 'preview {{instructions}}',
       selection: { mode: 'tags', tags: ['docs'] },
-      requestContext: { project: { name: 'preview' }, user: {}, environment: {} },
+      requestContext: { project: { name: 'preview', path: '/tmp' }, user: {}, environment: {} },
     });
 
     expect(result.surface).toBe('initialize');
     expect(runtime.createTemplateBasedServers).toHaveBeenCalledWith(
-      expect.stringMatching(/^rest-/),
-      expect.objectContaining({ project: { name: 'preview' } }),
+      expect.stringMatching(/^binding-/),
+      expect.objectContaining({ project: { name: 'preview', path: '/tmp' } }),
       expect.objectContaining({ tagFilterMode: 'simple-or', tags: ['docs'] }),
       expect.objectContaining({ mcpTemplates: { contextual: expect.any(Object) } }),
       runtime.clients,
@@ -216,7 +216,7 @@ describe('createAdminInstructionPreviewRuntime', () => {
       'ephemeral',
     );
     expect(runtime.cleanupTemplateServers).toHaveBeenCalledWith(
-      expect.stringMatching(/^rest-/),
+      expect.stringMatching(/^binding-/),
       runtime.clients,
       runtime.transports,
     );
@@ -234,7 +234,7 @@ describe('createAdminInstructionPreviewRuntime', () => {
       surface: 'cli',
       template: 'preview',
       selection: { mode: 'all' },
-      requestContext: { project: { name: 'preview' }, user: {}, environment: {} },
+      requestContext: { project: { name: 'preview', path: '/tmp' }, user: {}, environment: {} },
     });
 
     expect(result.validation).toMatchObject({ code: 'request_context_untrusted' });
@@ -257,7 +257,7 @@ describe('createAdminInstructionPreviewRuntime', () => {
       surface: 'cli',
       template: 'preview',
       selection: { mode: 'all' },
-      requestContext: { project: { name: 'preview' }, user: {}, environment: {} },
+      requestContext: { project: { name: 'preview', path: '/tmp' }, user: {}, environment: {} },
     });
 
     expect(result.validation).toEqual({
@@ -303,7 +303,7 @@ describe('createAdminInstructionPreviewRuntime', () => {
       surface: 'cli',
       template: 'preview',
       selection: { mode: 'all' },
-      requestContext: { project: { name: 'preview' }, user: {}, environment: {} },
+      requestContext: { project: { name: 'preview', path: '/tmp' }, user: {}, environment: {} },
     });
 
     expect(result.rendered).toBe('rendered');

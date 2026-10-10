@@ -8,6 +8,7 @@ import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { ServerRegistry } from '@src/core/server/adapters/ServerRegistry.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ConnectionManager } from '@src/core/server/connectionManager.js';
+import { createConnectionResolver } from '@src/core/server/connectionResolver.js';
 import { MCPServerLifecycleManager } from '@src/core/server/mcpServerLifecycleManager.js';
 import { TemplateConfigurationManager } from '@src/core/server/templateConfigurationManager.js';
 import { TemplateServerManager } from '@src/core/server/templateServerManager.js';
@@ -22,11 +23,17 @@ import type {
 } from '@src/core/types/index.js';
 import { MCPServerConfiguration } from '@src/core/types/transport.js';
 import { initializeSchemaBoundary, shutdownSchemaBoundary } from '@src/core/validation/schemaBoundary.js';
+import {
+  canonicalizeProjectSet,
+  createProjectBindingId,
+  withProjectSelection,
+} from '@src/domains/project-selection/projectSelection.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { getLegacyTransport } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import type { AuthProviderTransport } from '@src/sdk/legacy/client/runtime/legacyTransport.js';
 import { Transport } from '@src/sdk/legacy/shared/transport.js';
 import type { ContextData } from '@src/types/context.js';
+import { withCanonicalSessionId } from '@src/utils/context/sessionIdentity.js';
 
 /**
  * Event data for context change events
@@ -261,17 +268,32 @@ export class ServerManager {
       };
     }
 
+    if (context) {
+      context = withCanonicalSessionId(context, sessionId);
+      if (context.projectSet) {
+        context = withProjectSelection(context, await canonicalizeProjectSet(context.projectSet, process.cwd()));
+      }
+      const bindingId = await this.templateServerManager.registerBindingContext(
+        createProjectBindingId(sessionId, context),
+        context,
+        opts,
+      );
+      opts = { ...opts, bindingId };
+    }
+
+    let requestServerConfigData = this.serverConfigData;
+
     // Always process templates with current context when context is available
     if (context) {
       const { templateServers } = await configManager.loadConfigWithTemplates(context);
-      this.serverConfigData.mcpTemplates = templateServers;
+      requestServerConfigData = { ...this.serverConfigData, mcpTemplates: templateServers };
       // Note: ConfigManager.loadConfigWithTemplates already handles conflict detection
       // by filtering out static servers that conflict with template servers
     }
 
     // Populate server registry with external servers
-    if (this.serverConfigData.mcpServers) {
-      for (const [name, config] of Object.entries(this.serverConfigData.mcpServers)) {
+    if (requestServerConfigData.mcpServers) {
+      for (const [name, config] of Object.entries(requestServerConfigData.mcpServers)) {
         if (!this.serverRegistry.has(name)) {
           this.serverRegistry.registerExternal(name, config);
         }
@@ -279,18 +301,18 @@ export class ServerManager {
     }
 
     // If we have context, create template-based servers
-    if (context && this.serverConfigData.mcpTemplates) {
+    if (context && requestServerConfigData.mcpTemplates) {
       await this.templateServerManager.createTemplateBasedServers(
         sessionId,
         context,
         opts,
-        this.serverConfigData,
+        requestServerConfigData,
         this.outboundConns,
         this.transports,
       );
 
       // Populate server registry with template servers
-      for (const [name, config] of Object.entries(this.serverConfigData.mcpTemplates)) {
+      for (const [name, config] of Object.entries(requestServerConfigData.mcpTemplates)) {
         if (!this.serverRegistry.has(name)) {
           this.serverRegistry.registerTemplate(name, config);
         }
@@ -306,7 +328,12 @@ export class ServerManager {
     // IMPORTANT: Get filtered instructions AFTER template servers are created
     // This ensures template server instructions are included in the initialize response
     this.instructionAggregator?.setRuntimeInstructionConfiguration(configManager.getRuntimeInstructionConfiguration());
-    const filteredInstructions = this.instructionAggregator?.getFilteredInstructions(opts, this.outboundConns) || '';
+    const instructionConnections = createConnectionResolver(
+      this.outboundConns,
+      this.templateServerManager,
+    ).filterForSession(opts.bindingId);
+    const filteredInstructions =
+      this.instructionAggregator?.getFilteredInstructions(opts, instructionConnections) || '';
 
     // Connect the transport
     await this.connectionManager.connectTransport(transport, sessionId, opts, context, filteredInstructions);

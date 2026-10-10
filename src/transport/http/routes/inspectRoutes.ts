@@ -13,12 +13,16 @@ import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { LoadingState, type ServerLoadingInfo } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { ServerRegistry } from '@src/core/server/adapters/ServerRegistry.js';
+import { createConnectionResolver } from '@src/core/server/connectionResolver.js';
 import { filterDisabledTools, getDisabledToolError, isSourceToolDisabled } from '@src/core/server/disabledTools.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { applyEffectiveToolDescription } from '@src/core/server/toolDescriptionOverrides.js';
+import type { InboundConnectionConfig } from '@src/core/types/server.js';
+import { isProjectBackendVisible } from '@src/domains/project-selection/projectPolicy.js';
 import logger from '@src/logger/logger.js';
 import { ErrorCode } from '@src/sdk/contracts/index.js';
 import { getAuthInfo } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
+import type { ContextData } from '@src/types/context.js';
 import { MCPError } from '@src/utils/core/errorTypes.js';
 
 import { Request, RequestHandler, Response } from 'express';
@@ -98,6 +102,9 @@ export async function buildServerSummaries(
   filterConfig: ReturnType<typeof buildFilterConfig>,
   options: {
     includeTemplateInstances?: boolean;
+    bindingId?: string;
+    projectContext?: ContextData;
+    projectPolicies?: readonly InboundConnectionConfig[];
   } = {},
 ): Promise<ServerSummary[]> {
   const serverConfigs = getServerTargetConfigs(declaredServers);
@@ -107,11 +114,11 @@ export async function buildServerSummaries(
   );
   let toolCountByServer: Record<string, number> = {};
 
-  if (toolRegistry) {
+  if (toolRegistry && !options.bindingId) {
     for (const [serverName, tools] of Object.entries(toolRegistry.groupByServer())) {
       toolCountByServer[serverName] = filterDisabledTools(tools, serverConfigs, serverName).length;
     }
-  } else if (capabilityAggregator) {
+  } else if (capabilityAggregator && !options.bindingId) {
     for (const tool of capabilityAggregator.getCurrentCapabilities().tools) {
       const sn = readPublicCapabilityRoute(tool)?.server;
       if (sn && !filterDisabledTools([tool], serverConfigs, sn).length) continue;
@@ -174,10 +181,18 @@ export async function buildServerSummaries(
 
   const servers: ServerSummary[] = [];
   for (const [cleanName, info] of serverMap) {
+    if (!isProjectBackendVisible(serverConfigs[cleanName], options.projectContext, options.projectPolicies ?? []))
+      continue;
     const adapter = serverRegistry.get(cleanName);
     const connection = resolveConnectionByServerName(summaryConnections, cleanName);
     const loadingInfo = getLoadingInfo(cleanName);
-    const state = deriveServerState(adapter?.getStatus(), adapter?.isAvailable(), connection, loadingInfo);
+    const targetContext = options.bindingId ? { sessionId: options.bindingId } : undefined;
+    const state = deriveServerState(
+      adapter?.getStatus(targetContext),
+      adapter?.isAvailable(targetContext),
+      connection,
+      loadingInfo,
+    );
     const type = adapter?.type ?? (declaredServers.templateServers[cleanName] ? 'template' : 'external');
 
     servers.push({
@@ -199,8 +214,10 @@ export function createServersHandler(serverManager: ServerManager): RequestHandl
   return async (_req: Request, res: Response): Promise<void> => {
     try {
       const filterConfig = buildFilterConfig(res);
-      await ensureRequestContextInitialized(serverManager, _req, res, filterConfig);
-      const filteredConnections = FilteringService.getFilteredConnections(serverManager.getClients(), filterConfig);
+      const bindingId = await ensureRequestContextInitialized(serverManager, _req, res, filterConfig);
+      const templateManager = serverManager.getTemplateServerManager?.();
+      const scoped = createConnectionResolver(serverManager.getClients(), templateManager).filterForSession(bindingId);
+      const filteredConnections = FilteringService.getFilteredConnections(scoped, filterConfig);
       const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
       const declaredServers = ConfigManager.getInstance().loadDeclaredServerConfigs();
 
@@ -212,6 +229,11 @@ export function createServersHandler(serverManager: ServerManager): RequestHandl
         serverManager.getInstructionAggregator(),
         declaredServers,
         filterConfig,
+        {
+          bindingId,
+          projectContext: bindingId ? templateManager?.getBindingContext?.(bindingId) : undefined,
+          projectPolicies: bindingId ? templateManager?.getBindingPolicies?.(bindingId) : undefined,
+        },
       );
 
       const payload: InspectServersPayload = { kind: 'servers', servers };
@@ -288,6 +310,15 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
         for (const name of [...names].sort()) {
           if (serverTarget && name !== serverTarget) continue;
           const config = serverConfigs[name];
+          const manager = serverManager.getTemplateServerManager?.();
+          if (
+            !isProjectBackendVisible(
+              config,
+              requestSessionId ? manager?.getBindingContext?.(requestSessionId) : undefined,
+              requestSessionId ? (manager?.getBindingPolicies?.(requestSessionId) ?? []) : [],
+            )
+          )
+            continue;
           const adapter = registry.get(name);
           if (config?.disabled) continue;
           if (!matchesFilterConfig(config?.tags ?? adapter?.config.tags ?? filtered.get(name)?.tags, filterConfig))
@@ -394,7 +425,13 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       }
 
       const requestSessionId = await ensureRequestContextInitialized(serverManager, req, res, filterConfig);
-      const filteredConnections = FilteringService.getFilteredConnections(serverManager.getClients(), filterConfig);
+      const templateManager = serverManager.getTemplateServerManager?.();
+      const projectContext = requestSessionId ? templateManager?.getBindingContext?.(requestSessionId) : undefined;
+      const projectPolicies = requestSessionId ? (templateManager?.getBindingPolicies?.(requestSessionId) ?? []) : [];
+      const scoped = createConnectionResolver(serverManager.getClients(), templateManager).filterForSession(
+        requestSessionId,
+      );
+      const filteredConnections = FilteringService.getFilteredConnections(scoped, filterConfig);
       const serverRegistry: ServerRegistry = serverManager.getServerRegistry();
       const auth = getAuthInfo(res);
       const selection = {
@@ -412,7 +449,10 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
         const connections = serverManager.getClients();
         const key = [...connections].find(([, candidate]) => candidate === connection)?.[0];
         if (key === undefined) throw new Error('Tool inventory backend is no longer current');
-        const visibility = createCapabilityVisibility([[key, serverName]], requestSessionId, selection);
+        const visibility = {
+          ...createCapabilityVisibility([[key, serverName]], requestSessionId, selection),
+          ...(projectContext ? { projectContext } : {}),
+        };
         return acquireRuntimeCapabilityCatalog(connections, visibility, {
           serverConfigs,
           continuation:
@@ -430,6 +470,10 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       const target = parseTarget(targetRaw);
       if (!target) {
         res.status(400).json({ error: 'Invalid target format. Use <server> or <server>/<tool>.' });
+        return;
+      }
+      if (!isProjectBackendVisible(serverConfigs[target.serverName], projectContext, projectPolicies)) {
+        res.status(404).json({ error: `Server not available for this Project Selection: ${target.serverName}` });
         return;
       }
 

@@ -96,6 +96,7 @@ describe('apiRoutes /api/instructions', () => {
       aggregator,
       expect.anything(),
       expect.objectContaining({ tagFilterMode: 'simple-or', tags: ['coding'] }),
+      expect.objectContaining({ bindingId: 'request-session' }),
     );
     expect(Object.keys(response.body).sort()).toEqual(['fallback', 'rendered', 'templateIdentity']);
   });

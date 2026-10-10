@@ -19,9 +19,20 @@ import {
   OutboundConnections,
 } from '@src/core/types/index.js';
 import type { MCPServerParams } from '@src/core/types/transport.js';
+import { getProjectBinding } from '@src/domains/project-selection/projectBindingScope.js';
+import { isProjectBackendVisible } from '@src/domains/project-selection/projectPolicy.js';
+import { createProjectBindingId } from '@src/domains/project-selection/projectSelection.js';
+import type { ContextData } from '@src/types/context.js';
 
 export function getRequestSession(inboundConn: InboundConnection): string | undefined {
-  return inboundConn.context?.sessionId;
+  const current = getProjectBinding();
+  if (current) return current.bindingId;
+  if (inboundConn.bindingId) return inboundConn.bindingId;
+  const context = inboundConn.context;
+  if (context?.sessionId && context.project && context.user && context.environment) {
+    return createProjectBindingId(context.sessionId, context as ContextData);
+  }
+  return context?.sessionId;
 }
 
 export async function createCapabilityCatalogFromConnections(
@@ -96,12 +107,22 @@ export function resolveCapabilityVisibility(
   sessionId: string | undefined,
   capability: 'tools' | 'resources' | 'prompts',
 ): CapabilityVisibility {
+  const current = getProjectBinding();
+  sessionId = current?.bindingId ?? inboundConn.bindingId ?? sessionId;
+  const templateManager = ServerManager.current.getTemplateServerManager();
+  const projectContext = current?.context ?? (sessionId ? templateManager?.getBindingContext?.(sessionId) : undefined);
+  const projectPolicies = sessionId ? (templateManager?.getBindingPolicies?.(sessionId) ?? []) : [];
   // Scope template instances before applying client filters and availability.
   const sessionScoped = filterConnectionsForSession(outboundConns, sessionId);
   const tagAndPresetScoped = FilteringService.getFilteredConnections(sessionScoped, inboundConn);
   const capabilityRequirement =
     capability === 'tools' ? { tools: {} } : capability === 'resources' ? { resources: {} } : { prompts: {} };
-  const capable = byCapabilities(capabilityRequirement)(tagAndPresetScoped);
+  const candidates = new Map(
+    Array.from(tagAndPresetScoped).filter(([, connection]) =>
+      isProjectBackendVisible(getConfiguredServerTargets()[connection.name], projectContext, projectPolicies),
+    ),
+  );
+  const capable = byCapabilities(capabilityRequirement)(candidates);
 
   const visibility = createCapabilityVisibility(
     Array.from(
@@ -118,6 +139,7 @@ export function resolveCapabilityVisibility(
     },
     capability === 'resources' ? getResourceRouteOwner(inboundConn.context) : undefined,
   );
-  if (capability === 'tools') attachCatalogCursorOwner(visibility, inboundConn.context);
-  return visibility;
+  const targetedVisibility = { ...visibility, ...(projectContext ? { projectContext } : {}) };
+  if (capability === 'tools') attachCatalogCursorOwner(targetedVisibility, inboundConn.context);
+  return targetedVisibility;
 }

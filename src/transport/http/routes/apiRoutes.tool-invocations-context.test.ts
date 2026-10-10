@@ -1,5 +1,7 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
+import type { OutboundConnections } from '@src/core/types/index.js';
+
 import type { Request, RequestHandler, Response } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -116,7 +118,10 @@ describe('apiRoutes /api/tool-invocations', () => {
       errors: [],
     });
 
-    const createTemplateBasedServers = vi.fn();
+    const connections: OutboundConnections = new Map();
+    const createTemplateBasedServers = vi.fn(async (bindingId: string) => {
+      connections.set(`serena:${bindingId}`, connection);
+    });
     const registerTemplate = vi.fn();
     const connection = createMockOutboundConnection({
       name: 'serena',
@@ -131,7 +136,7 @@ describe('apiRoutes /api/tool-invocations', () => {
     });
     const serverManager = {
       getLazyLoadingOrchestrator: vi.fn(() => undefined),
-      getClients: vi.fn(() => new Map()),
+      getClients: vi.fn(() => connections),
       getClientTransports: vi.fn(() => ({})),
       getClient: vi.fn(() => undefined),
       getTemplateServerManager: vi.fn(() => ({
@@ -152,7 +157,7 @@ describe('apiRoutes /api/tool-invocations', () => {
 
     expect(res.statusCode).toBe(200);
     expect(createTemplateBasedServers).toHaveBeenCalledWith(
-      'derived-session-id',
+      expect.stringMatching(/^binding-/),
       { ...context, sessionId: 'derived-session-id' },
       expect.any(Object),
       { mcpTemplates: { serena: templateConfig } },

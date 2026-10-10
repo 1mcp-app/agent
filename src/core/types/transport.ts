@@ -263,6 +263,17 @@ export const templateServerConfigSchema = z.object({
  * Zod schema for transport configuration
  */
 export const transportConfigSchema = z.object({
+  projectTarget: z
+    .object({
+      mode: z.enum(['independent', 'single', 'native-set']),
+      argument: z.string().min(1).optional(),
+    })
+    .strict()
+    .refine((target) => target.mode !== 'native-set' || target.argument !== undefined, {
+      message: 'Native project-set backends require an explicit selected-path argument',
+    })
+    .optional()
+    .describe('Runtime-owned project targeting; templates default to single and static backends to independent'),
   type: z
     .enum(['stdio', 'sse', 'http', 'streamableHttp'])
     .optional()

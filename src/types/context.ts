@@ -61,6 +61,8 @@ export interface ClientInfo {
  */
 export interface ContextData {
   project: ContextNamespace;
+  /** Explicit checkout membership and per-call selection. No selection means unresolved for multiple members. */
+  projectSet?: ProjectSet;
   user: UserContext;
   environment: EnvironmentContext;
   timestamp?: string;
@@ -74,6 +76,17 @@ export interface ContextData {
     /** Client information extracted from MCP initialize request */
     client?: ClientInfo;
   };
+}
+
+export interface ProjectSetMember {
+  label: string;
+  path: string;
+}
+
+export interface ProjectSet {
+  name?: string;
+  projects: ProjectSetMember[];
+  selection?: string[];
 }
 
 /**

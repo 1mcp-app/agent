@@ -283,7 +283,7 @@ describe('apiRoutes inspect', () => {
     await invokeInspectRoute(handler, { query: { target: 'serena' } }, res);
 
     expect(createTemplateBasedServers).not.toHaveBeenCalled();
-    expect(touchEphemeralClient).toHaveBeenCalledWith('derived-session-id');
+    expect(touchEphemeralClient).toHaveBeenCalledWith(expect.stringMatching(/^binding-/));
     expect(registerTemplate).not.toHaveBeenCalled();
   });
 
@@ -404,6 +404,7 @@ describe('apiRoutes inspect', () => {
     const serverRegistry = {
       getServerNames: vi.fn(() => Array.from(adapters.keys())),
       get: vi.fn((name: string) => adapters.get(name)),
+      resolveConnection: vi.fn((name: string) => outboundConnections.get(`${name}:template-hash`)),
     };
 
     const serverManager = {
@@ -419,7 +420,7 @@ describe('apiRoutes inspect', () => {
 
     inspectHandler = createInspectHandler(serverManager as never);
 
-    const req = { query: { target: 'serena' } };
+    const req = { query: { target: 'serena' }, headers: { 'mcp-session-id': 'template-hash' } };
     const res = createMockResponse();
 
     await invokeInspectRoute(scopeAuthMiddleware, req, res);

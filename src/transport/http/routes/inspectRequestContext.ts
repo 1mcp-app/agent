@@ -24,6 +24,9 @@ export function createRequestContextPreparationDependencies(
   serverManager: ServerManager,
 ): RequestContextPreparationDependencies {
   return {
+    async registerBindingContext(bindingId, context, filterConfig) {
+      return serverManager.getTemplateServerManager().registerBindingContext?.(bindingId, context, filterConfig);
+    },
     deriveSessionId: deriveContextSessionId,
     async loadRenderedTemplates(context) {
       const { templateServers } = await ConfigManager.getInstance().loadConfigWithTemplates(context);
@@ -104,5 +107,5 @@ export async function ensureRequestContextInitialized(
     res.setHeader?.(CONTEXT_HEADERS.SESSION_ID, result.sessionId);
   }
 
-  return result.sessionId;
+  return 'bindingId' in result ? result.bindingId : result.sessionId;
 }

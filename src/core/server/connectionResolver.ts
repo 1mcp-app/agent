@@ -1,5 +1,9 @@
+import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import type { OutboundConnection, OutboundConnections } from '@src/core/types/client.js';
+import type { InboundConnectionConfig } from '@src/core/types/server.js';
+import { isProjectBackendVisible } from '@src/domains/project-selection/projectPolicy.js';
 import { errorIf } from '@src/logger/logger.js';
+import type { ContextData } from '@src/types/context.js';
 
 import {
   createRenderedIdentity,
@@ -15,6 +19,8 @@ import {
  * This abstracts away the dependency on TemplateServerManager.
  */
 export interface TemplateHashProvider {
+  getBindingContext?(bindingId: string): ContextData | undefined;
+  getBindingPolicies?(bindingId: string): readonly InboundConnectionConfig[];
   /**
    * Get the rendered hash for a specific session and template
    */
@@ -47,6 +53,7 @@ export class ConnectionResolver {
   ) {}
 
   resolveWithKey(clientName: string, sessionId?: string): { key: string; connection: OutboundConnection } | undefined {
+    if (!this.isTargetVisible(clientName, sessionId)) return undefined;
     const candidates: TemplateIdentity[] = [];
     if (sessionId) {
       candidates.push(createSessionIdentity(clientName, sessionId));
@@ -109,6 +116,7 @@ export class ConnectionResolver {
     const sessionHashes = this.getSessionRenderedHashes(sessionId);
 
     for (const [key, conn] of this.outboundConns.entries()) {
+      if (!this.isTargetVisible(conn.name, sessionId)) continue;
       const identity = parseTemplateConnectionKey(key);
       if (identity.kind === 'invalid') {
         errorIf(() => ({
@@ -167,6 +175,12 @@ export class ConnectionResolver {
     }
 
     return filtered;
+  }
+
+  private isTargetVisible(serverName: string, bindingId?: string): boolean {
+    const context = bindingId ? this.templateHashProvider?.getBindingContext?.(bindingId) : undefined;
+    const policies = bindingId ? (this.templateHashProvider?.getBindingPolicies?.(bindingId) ?? []) : [];
+    return isProjectBackendVisible(getConfiguredServerTargets()[serverName], context, policies);
   }
 
   /**

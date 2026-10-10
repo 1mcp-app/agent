@@ -11,6 +11,7 @@ import { instructionsRenderResponseSchema } from '@src/core/instructions/instruc
 import { createConnectionResolver } from '@src/core/server/connectionResolver.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, type OutboundConnections } from '@src/core/types/index.js';
+import { resolveProjectSelection } from '@src/domains/project-selection/projectSelection.js';
 import logger from '@src/logger/logger.js';
 
 import type { Request, RequestHandler, Response } from 'express';
@@ -33,6 +34,8 @@ export function createInstructionsHandler(serverManager: ServerManager): Request
 
       const configManager = ConfigManager.getInstance();
       const declaredServers = configManager.loadDeclaredServerConfigs();
+      const manager = serverManager.getTemplateServerManager();
+      const projectContext = sessionId ? manager.getBindingContext?.(sessionId) : undefined;
       const sessionConnections = createConnectionResolver(
         serverManager.getClients(),
         serverManager.getTemplateServerManager(),
@@ -46,6 +49,11 @@ export function createInstructionsHandler(serverManager: ServerManager): Request
         activeAggregator,
         declaredServers,
         filterConfig,
+        {
+          bindingId: sessionId,
+          projectContext,
+          projectPolicies: sessionId ? manager.getBindingPolicies?.(sessionId) : undefined,
+        },
       );
       const runtimeConfiguration = configManager.getRuntimeInstructionConfiguration();
 
@@ -102,7 +110,11 @@ export function createInstructionsHandler(serverManager: ServerManager): Request
         );
       }
 
-      const rendered = activeAggregator.renderInstructions('cli', filterConfig, connections, metadata);
+      let rendered = activeAggregator.renderInstructions('cli', filterConfig, connections, metadata);
+      const projectSelection = projectContext ? resolveProjectSelection(projectContext) : undefined;
+      if (projectSelection?.kind === 'unresolved') {
+        rendered = `Project Selection is unresolved. Select --project <label> before checkout-specific calls. Available labels: ${projectSelection.availableLabels.join(', ') || '(none)'}\n\n${rendered}`;
+      }
       const failure = activeAggregator.getRenderFailures().cli;
       const templateIdentity = activeAggregator.getActiveInstructionTemplate() ?? 'default';
       const response = instructionsRenderResponseSchema.parse({

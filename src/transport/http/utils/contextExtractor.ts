@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 
 import type { TemplateContextProof } from '@src/core/context/templateContextTrust.js';
+import { projectSetSchema } from '@src/domains/project-selection/projectSelection.js';
 import logger from '@src/logger/logger.js';
 import { ErrorCode } from '@src/sdk/contracts/index.js';
 import type { ContextData } from '@src/types/context.js';
@@ -72,6 +73,7 @@ const clientInfoSchema = z
 const contextDataSchema = z
   .object({
     project: contextNamespaceSchema,
+    projectSet: projectSetSchema.optional(),
     user: userContextSchema,
     environment: environmentContextSchema,
     timestamp: z.string().optional(),
