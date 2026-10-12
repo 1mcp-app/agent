@@ -68,8 +68,10 @@ describe('HTTP project binding lifetime and inspect admission', () => {
   function removeBindingDuringPreparation() {
     load.mockImplementation(async (preparedContext: ContextData) => {
       // Preparation has registered the real binding before awaiting template rendering.
+      expect(templates.getBindingContexts().size).toBeGreaterThan(0);
       await Promise.resolve();
       await templates.cleanupTemplateServers(preparedContext.sessionId!, clients, {});
+      expect(templates.getBindingContexts().size).toBe(0);
       return { templateServers: {}, staticServers: {}, errors: [] };
     });
   }
@@ -127,7 +129,7 @@ describe('HTTP project binding lifetime and inspect admission', () => {
       const response = await request(instance)
         .post('/mcp')
         .set('MCP-Protocol-Version', protocolVersion)
-        .set('Mcp-Method', 'tools/call')
+        .set(protocolVersion === '2026-07-28' ? { 'Mcp-Method': 'tools/call', 'Mcp-Name': 'checkout_source' } : {})
         .set('mcp-session-id', 'session-a')
         .send({
           jsonrpc: '2.0',
@@ -138,13 +140,17 @@ describe('HTTP project binding lifetime and inspect admission', () => {
             arguments: {},
             _meta: {
               context: context(),
-              'io.modelcontextprotocol/protocolVersion': protocolVersion,
-              'io.modelcontextprotocol/clientCapabilities': {},
-              'io.modelcontextprotocol/clientInfo': { name: 'race-test', version: '1' },
+              ...(protocolVersion === '2026-07-28'
+                ? {
+                    'io.modelcontextprotocol/protocolVersion': protocolVersion,
+                    'io.modelcontextprotocol/clientCapabilities': {},
+                    'io.modelcontextprotocol/clientInfo': { name: 'race-test', version: '1' },
+                  }
+                : {}),
             },
           },
         });
-      expect(response.status).toBe(500);
+      expect(response.status, JSON.stringify(response.body)).toBe(500);
       expect(load, JSON.stringify(response.body)).toHaveBeenCalledOnce();
       expect(handleRequest).not.toHaveBeenCalled();
       expect(createBridge).not.toHaveBeenCalled();
@@ -160,7 +166,7 @@ describe('HTTP project binding lifetime and inspect admission', () => {
     const response = await request(instance)
       .get('/inspect')
       .query({ context: Buffer.from(JSON.stringify(context())).toString('base64url') });
-    expect(response.status).toBe(500);
+    expect(response.status, JSON.stringify(response.body)).toBe(500);
     expect(load).toHaveBeenCalledOnce();
     expect(connection.adapter.request).not.toHaveBeenCalled();
   });

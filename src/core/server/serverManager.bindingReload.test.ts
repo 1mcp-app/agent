@@ -63,6 +63,7 @@ it('reloads a request binding with its exact B selectors while the transport ret
   const manager = Object.create(ServerManager.prototype) as ServerManager;
   Object.assign(manager, {
     templateServerManager: templates,
+    logicalTemplateContexts: new Map(),
     connectionManager: { getInboundConnections: () => new Map([['session-a', inbound]]) },
     outboundConns: outbound,
     transports: {},
