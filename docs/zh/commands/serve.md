@@ -344,3 +344,18 @@ http://127.0.0.1:3051/mcp?app=cursor
 - **[使用 Caddy 进行云端部署](/zh/guide/advanced/cloud-deployment)**
 - **[架构](/zh/reference/architecture)**
 - **[配置指南](/zh/guide/essentials/configuration)**
+
+## 后端断开与恢复
+
+直接使用 `serve --transport stdio` 仍已弃用。需要 stdio 兼容性的客户端应启动 HTTP 聚合运行时，并将 proxy 作为客户端命令：
+
+```bash
+# 运行时终端
+1mcp serve --transport http --config mcp.json --host 127.0.0.1 --port 3050
+# 客户端命令（独立进程）
+1mcp proxy --url http://127.0.0.1:3050/mcp
+```
+
+后端退出时，普通客户端连接仍可响应 ping 和健康后端请求；不可用的工具、资源和提示词会从目录中移除。进行中的请求遵循现有的有界失败策略，不会重放。如果配置的监督机制成功初始化替代后端，现有客户端连接即可使用恢复后的能力及目录变更通知。列表变更通知遵循现有通知设置和可见性规则。
+
+失败后端的资源订阅会丢失，健康后端的订阅保持有效。恢复后客户端必须显式重新订阅；系统不会自动恢复订阅或重放遗漏事件。显式现代订阅过滤器仍会在已确认的覆盖范围丢失时关闭。
