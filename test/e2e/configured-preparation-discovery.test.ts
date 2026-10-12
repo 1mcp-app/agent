@@ -152,7 +152,17 @@ describe.skipIf(process.platform !== 'linux' && process.platform !== 'darwin')(
           const readyStarted = performance.now();
           const readyResult = await cli(checkout, ['run', 'ready/source', '--args', '{}', '--format', 'json']);
           expect(JSON.stringify(readyResult)).toContain('unrelated-ready-576');
-          expect(performance.now() - readyStarted).toBeLessThan(2500);
+          const readyToolLatencyMs = performance.now() - readyStarted;
+          console.info(
+            'Configured preparation acceptance',
+            JSON.stringify({
+              platform: `${process.platform}-${process.arch}`,
+              node: process.version,
+              checkout: checkout === linked ? 'linked' : 'independent',
+              readyToolLatencyMs,
+            }),
+          );
+          expect(readyToolLatencyMs).toBeLessThan(2500);
           await expect(readFile(path.join(checkout, 'prepared.marker'), 'utf8')).rejects.toMatchObject({
             code: 'ENOENT',
           });
