@@ -54,9 +54,19 @@ const definition: MCPServerParams = {
   tags: ['allowed'],
   template: {},
   preparation: {
-    adapter: 'codegraph',
-    executable: '/installed/codegraph',
-    expectedVersion: '1.6.2',
+    adapter: 'configured-command',
+    affectedTools: ['codegraph_explore'],
+    integration: {
+      probe: { executable: '/installed/probe', args: ['{checkout}', '{operation}'] },
+      readinessExitCodes: { '0': { state: 'ready' } },
+      actions: {
+        initialize: { executable: '/installed/prepare', args: [], successExitCodes: [0], transientExitCodes: [] },
+      },
+      containment: 'posix-process-group',
+      inspectionTimeoutMs: 5000,
+      outputLimitBytes: 16384,
+      terminationGraceMs: 500,
+    },
     allowedActions: ['initialize', 'sync'],
   },
 };
@@ -127,6 +137,9 @@ function fixture(waitMs = 5000) {
     getBindingContext: () => context,
     getBindingContexts: () => new Map(bindingPresent ? [['binding-a', context]] : []),
     getBindingAuthority: () => authority,
+    getBindingPolicies: () => [],
+    getRenderedHashForSession: () => undefined,
+    getAllRenderedHashesForSession: () => [],
   };
   const serverManager = { getTemplateServerManager: () => manager } as unknown as ServerManager;
   const grant: PreparationGrant = {
@@ -446,31 +459,50 @@ describe('source operation preparation admission', () => {
     expect(f.ports.toolDefinition).not.toHaveBeenCalled();
     expect(f.ports.coordinator.admit).not.toHaveBeenCalled();
   });
-  it('uses only the resolved configured native visibility under the verified checkout and caller budget', async () => {
-    vi.useFakeTimers();
-    const f = fixture(50);
-    f.configureVisibility('{{project.visibility}}');
-    f.renderConfig.mockImplementationOnce(async () => {
-      vi.setSystemTime(Date.now() + 20);
-      return {
-        staticServers: {},
-        templateServers: { codegraph: { ...definition, env: { CODEGRAPH_MCP_TOOLS: 'search,explore' } } },
-        errors: [],
-      };
+  it('gates arbitrary configured tool names when affectedTools selects all', async () => {
+    const preparation = definition.preparation!;
+    const original = preparation.affectedTools;
+    preparation.affectedTools = 'all';
+    try {
+      const f = fixture();
+      f.ports.coordinator.admit.mockResolvedValueOnce(pending as never);
+      const result = await admitBackendPreparationTool(
+        { ...f.input, request: { name: `codegraph${MCP_URI_SEPARATOR}lookup`, arguments: {} } },
+        f.ports,
+      );
+      expect(result).toMatchObject({
+        kind: 'blocked',
+        result: {
+          structuredContent: { preparation: { state: 'pending' }, operationExecuted: false, operationQueued: false },
+        },
+      });
+      expect(f.ports.coordinator.admit).toHaveBeenCalledWith(f.grant, 'lookup', expect.anything());
+      expect(f.ports.refresh).not.toHaveBeenCalled();
+    } finally {
+      preparation.affectedTools = original;
+    }
+  });
+
+  it('allows cold preparation with no source schema while leaving original dispatch blocked', async () => {
+    const f = fixture();
+    Object.assign(f.input.serverManager, { getClients: () => new Map() });
+    const { toolDefinition: _metadata, ...ports } = f.ports;
+    f.ports.coordinator.admit.mockResolvedValueOnce(pending as never);
+    expect(await admitBackendPreparationTool(f.input, ports)).toMatchObject({
+      kind: 'blocked',
+      result: { structuredContent: { operationExecuted: false, operationQueued: false } },
     });
-    await admitBackendPreparationTool(
-      { ...f.input, request: { ...f.input.request, arguments: { query: 'Symbol', toolVisibility: 'files' } } },
-      f.ports,
-    );
-    expect(f.renderConfig).toHaveBeenCalledWith(
-      expect.objectContaining({ project: { path: '/repo/frontend' }, sessionId: 'session-a' }),
-    );
-    expect(f.ports.toolDefinition).toHaveBeenCalledWith(
-      expect.objectContaining({ toolVisibility: 'search,explore' }),
-      expect.objectContaining({ executionDeadlineMs: 30 }),
-    );
-    expect(f.ports.coordinator.admit.mock.calls[0][2]).toMatchObject({ waitMs: 30 });
-    vi.useRealTimers();
+    expect(f.ports.validateArguments).not.toHaveBeenCalled();
+    expect(f.ports.coordinator.admit).toHaveBeenCalledOnce();
+    expect(f.ports.refresh).not.toHaveBeenCalled();
+  });
+
+  it('does not interpret backend-specific environment as preparation authority', async () => {
+    const f = fixture();
+    f.configureVisibility('{{project.visibility}}');
+    await admitBackendPreparationTool(f.input, f.ports);
+    expect(f.renderConfig).not.toHaveBeenCalled();
+    expect(f.ports.toolDefinition).toHaveBeenCalledWith({ toolName: 'codegraph_explore' }, expect.anything());
   });
   it.each([
     'unknown',

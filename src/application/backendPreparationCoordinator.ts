@@ -16,8 +16,7 @@ import type { ServerManager } from '@src/core/server/serverManager.js';
 import type { InboundConnectionConfig } from '@src/core/types/server.js';
 import { type MCPServerParams, transportConfigSchema } from '@src/core/types/transport.js';
 import { PreparationAdapterRegistry } from '@src/domains/backend-preparation/adapterRegistry.js';
-import { CodeGraphPreparationAdapter } from '@src/domains/backend-preparation/codegraphAdapter.js';
-import { disposeCodeGraphPreparationToolMetadata } from '@src/domains/backend-preparation/codegraphReadOnly.js';
+import { ConfiguredCommandPreparationAdapter } from '@src/domains/backend-preparation/configuredCommandAdapter.js';
 import type {
   BackendPolicy,
   BackendPreparationAdapter,
@@ -53,6 +52,7 @@ export interface PreparationGrant {
   readonly target: PreparationTarget;
   readonly policy: BackendPolicy;
   readonly preferences: NonNullable<ProjectConfig['preparation']>;
+  readonly integrationAvailable?: boolean;
 }
 export interface PreparationControlRequest {
   readonly action: PreparationControl;
@@ -105,7 +105,7 @@ const savedSchema = z
     operation: z.string().min(1).max(256),
     policy: BackendPolicySchema,
     action: z.enum(['initialize', 'sync', 'rebuild', 'install', 'paid']),
-    state: z.enum(['queued', 'running', 'cancelling', 'ready', 'failed', 'cancelled']),
+    state: z.enum(['queued', 'running', 'cancelling', 'ready', 'not_ready', 'failed', 'cancelled']),
     previousJobId: z.string().min(1).max(256),
     failure: failureSchema.optional(),
   })
@@ -303,9 +303,10 @@ export class BackendPreparationCoordinator {
         throw new Error('Backend is unavailable for this checkout');
     }
     const configurationKey = digest(config ?? { unsupported: true });
-    if (config) this.register(input.backendName, configurationKey, config);
+    if (config?.integration) this.register(input.backendName, configurationKey, config);
     const grant: PreparationGrant = {
       owner: input.owner,
+      integrationAvailable: Boolean(config?.integration),
       target: { checkoutRoot, backendName: input.backendName, backendIdentity: digest(definition), configurationKey },
       policy: config
         ? {
@@ -322,13 +323,42 @@ export class BackendPreparationCoordinator {
 
   async control(grant: PreparationGrant, request: PreparationControlRequest): Promise<PreparationControlResult> {
     if (this.closed) throw new Error('Preparation coordinator is stopped');
-    const operation = request.operation ?? 'query';
+    if (grant.integrationAvailable === false)
+      return {
+        state: 'unsupported',
+        instructions: 'No configured preparation integration is available for this backend.',
+      };
+    const requestedHandle = request.id ? this.handles.get(request.id) : undefined;
+    const operation =
+      request.operation ??
+      (requestedHandle ? this.service.status(requestedHandle.serviceId)?.operation : undefined) ??
+      'query';
     const expiresAt = Date.now() + (request.waitMs ?? this.service.options.requestWaitMs);
     const probeOptions = () => ({ waitMs: Math.max(0, expiresAt - Date.now()), signal: request.signal });
     const validateAdmission = () =>
       this.revalidateGrant(grant, request.validateAdmission, false, expiresAt, request.signal);
-    const key = digest(preparationKey(grant.target, grant.policy, this.service.options));
-    if (!request.id && request.action !== 'inspect') {
+    const key = digest(preparationKey(grant.target, grant.policy, this.service.options, operation));
+    if (request.action === 'inspect') {
+      if (request.id) throw new Error('inspect does not accept a job id');
+      const current = this.currentStatus(key);
+      const saved = this.store.get(key);
+      const readiness =
+        saved && !current
+          ? await this.service.recover(
+              grant.target,
+              operation,
+              {
+                previousJobId: saved.previousJobId,
+                previousState: saved.state,
+              },
+              probeOptions(),
+            )
+          : await this.service.inspect(grant.target, operation, probeOptions());
+      if (!current) return readiness;
+      const progress = await this.service.inspectProgress(grant.target, operation, probeOptions());
+      return { state: 'job', status: this.presentStatus(grant, key, { ...current, readiness, progress }) };
+    }
+    if (!request.id) {
       const current = this.currentStatus(key);
       if (current) {
         if (
@@ -407,7 +437,7 @@ export class BackendPreparationCoordinator {
         if (saved.operation === operation) this.store.delete(key);
         return { state: 'ready', readiness };
       }
-      if (saved.state === 'failed' && saved.failure) {
+      if (['failed', 'not_ready'].includes(saved.state) && saved.failure) {
         const restored =
           this.service.importFailure(
             grant.target,
@@ -415,6 +445,7 @@ export class BackendPreparationCoordinator {
             { ...grant.policy, executionDeadlineMs: saved.policy.executionDeadlineMs },
             saved.action,
             saved.failure,
+            saved.state === 'not_ready' ? 'not_ready' : 'failed',
           ) ?? this.currentStatus(key);
         if (restored) {
           if (request.action === 'retry')
@@ -437,10 +468,10 @@ export class BackendPreparationCoordinator {
         }
       }
       if (readiness.state !== 'required') return readiness;
-      if (request.action === 'inspect' || request.action === 'status') return readiness;
+      if (request.action === 'status') return readiness;
       if (request.action === 'retry') this.store.delete(key);
     }
-    if (request.action === 'inspect' || request.action === 'status') {
+    if (request.action === 'status') {
       const readiness = await this.service.inspect(grant.target, operation, probeOptions());
       if (readiness.state === 'ready') {
         this.service.clearResolvedFailure(grant.target, operation, grant.policy, readiness);
@@ -480,8 +511,13 @@ export class BackendPreparationCoordinator {
     } = {},
   ): Promise<PublicPreparationAdmission | BackendReadiness> {
     if (this.closed) throw new Error('Preparation coordinator is stopped');
+    if (grant.integrationAvailable === false)
+      return {
+        state: 'unsupported',
+        instructions: 'No configured preparation integration is available for this backend.',
+      };
     const expiresAt = Date.now() + (options.waitMs ?? this.service.options.requestWaitMs);
-    const key = digest(preparationKey(grant.target, grant.policy, this.service.options));
+    const key = digest(preparationKey(grant.target, grant.policy, this.service.options, operation));
     const recovered = this.store.get(key);
     if (recovered && !this.currentStatus(key)) {
       const status = await this.control(grant, {
@@ -634,12 +670,7 @@ export class BackendPreparationCoordinator {
         throw new Error('Preparation adapter capacity reached');
       this.adapters.set(
         adapterKey,
-        this.ports.adapterFactory?.(config) ??
-          new CodeGraphPreparationAdapter({
-            executable: config.executable,
-            expectedVersion: config.expectedVersion,
-            ...(config.sourceMonitor ? { sourceMonitor: config.sourceMonitor } : {}),
-          }),
+        this.ports.adapterFactory?.(config) ?? new ConfiguredCommandPreparationAdapter(config.integration!),
       );
     }
     if (this.registered.has(backendName)) return;
@@ -653,6 +684,11 @@ export class BackendPreparationCoordinator {
         this.trackAdapter(target, () => adapterFor(target).inspect(target, operation, options)),
       prepare: (target, action, options) =>
         this.trackAdapter(target, () => adapterFor(target).prepare(target, action, options)),
+      progress: (target, operation, options) =>
+        this.trackAdapter(
+          target,
+          () => adapterFor(target).progress?.(target, operation, options) ?? Promise.resolve(undefined),
+        ),
       classifyFailure: (error) => {
         const adapter = error !== null && typeof error === 'object' ? this.failureAdapters.get(error) : undefined;
         return (
@@ -702,6 +738,11 @@ export class BackendPreparationCoordinator {
     if (!status) return undefined;
     this.recycle();
     this.store.save(key, status, grant.policy);
+    this.monitor(grant, key, status);
+    return this.presentStatus(grant, key, status);
+  }
+
+  private presentStatus(grant: PreparationGrant, key: string, status: PreparationStatus): PublicPreparationStatus {
     let handle = [...this.handles].find(
       ([, value]) => value.owner === grant.owner && value.key === key && value.serviceId === status.id,
     )?.[0];
@@ -711,7 +752,6 @@ export class BackendPreparationCoordinator {
       handle = randomUUID();
       this.handles.set(handle, { owner: grant.owner, key, serviceId: status.id });
     }
-    this.monitor(grant, key, status);
     return {
       ...status,
       id: handle,
@@ -776,7 +816,7 @@ export class BackendPreparationCoordinator {
   }
   private monitor(grant: PreparationGrant, key: string, status: PreparationStatus): void {
     if (this.monitored.has(status.id)) return;
-    if (['ready', 'failed', 'cancelled'].includes(status.state)) return;
+    if (['ready', 'not_ready', 'failed', 'cancelled'].includes(status.state)) return;
     this.monitored.add(status.id);
     void (async () => {
       while (true) {
@@ -784,7 +824,7 @@ export class BackendPreparationCoordinator {
         if (!finished) return;
         this.store.save(key, finished, grant.policy);
         if (finished.state === 'ready') await this.refreshReadyStatus(finished);
-        if (['ready', 'failed', 'cancelled'].includes(finished.state)) return;
+        if (['ready', 'not_ready', 'failed', 'cancelled'].includes(finished.state)) return;
       }
     })()
       .catch(() => {
@@ -863,8 +903,6 @@ export async function refreshPreparedBackendCapabilities(
     if (!connection) continue;
     if (options.onlyEmptyInventory) {
       const tools = readConfiguredToolSnapshot(connection);
-      // The pinned read-only helper's source schemas are independent of index contents.
-      // Syncing source preserves an existing declaration/header; initialization changes an empty inventory.
       if (!tools || tools.length) continue;
     }
     if (options.missingTool) {
@@ -884,19 +922,11 @@ export function getBackendPreparationCoordinator(serverManager: ServerManager): 
   coordinator = new BackendPreparationCoordinator({
     options: ConfigManager.getInstance().getAppConfig().preparation,
     storagePath: AgentConfigManager.getInstance().get('runtimeScopeStoragePath'),
-    onReady: (target) => refreshPreparedBackendCapabilities(serverManager, target, { onlyEmptyInventory: true }),
+    onReady: (target) => refreshPreparedBackendCapabilities(serverManager, target),
   });
   runtimeCoordinators.set(serverManager, coordinator);
   serverManager.registerOwnedCleanup(async () => {
-    const outcomes = await Promise.allSettled([coordinator!.shutdown(), disposeCodeGraphPreparationToolMetadata()]);
-    const failures: unknown[] = [];
-    for (const outcome of outcomes) {
-      if (outcome.status === 'rejected') {
-        const reason: unknown = outcome.reason;
-        failures.push(reason);
-      }
-    }
-    if (failures.length) throw new AggregateError(failures, 'Backend preparation shutdown failed');
+    await coordinator!.shutdown();
   });
   return coordinator;
 }

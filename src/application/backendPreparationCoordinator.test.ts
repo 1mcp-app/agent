@@ -33,9 +33,19 @@ const config: MCPServerParams = {
   template: {},
   tags: ['allowed'],
   preparation: {
-    adapter: 'codegraph',
-    executable: '/installed/codegraph',
-    expectedVersion: '1.6.2',
+    adapter: 'configured-command',
+    affectedTools: ['codegraph_explore'],
+    integration: {
+      probe: { executable: '/installed/probe', args: ['{checkout}', '{operation}'] },
+      readinessExitCodes: { '0': { state: 'ready' } },
+      actions: {
+        initialize: { executable: '/installed/prepare', args: [], successExitCodes: [0], transientExitCodes: [] },
+      },
+      containment: 'posix-process-group',
+      inspectionTimeoutMs: 5000,
+      outputLimitBytes: 16384,
+      terminationGraceMs: 500,
+    },
     allowedActions: ['initialize', 'sync'],
   },
 };
@@ -473,6 +483,121 @@ describe('runtime preparation controls', () => {
     expect(prepare).toHaveBeenCalledTimes(1);
   });
 
+  it('reports missing configured commands as unsupported without preparing the gated backend', async () => {
+    const { coordinator, resolve, native, prepare } = await fixture(undefined, {
+      preparation: { adapter: 'configured-command', affectedTools: 'all', allowedActions: ['initialize'] },
+    });
+    const grant = await resolve();
+    expect(await coordinator.control(grant, { action: 'inspect' })).toMatchObject({ state: 'unsupported' });
+    expect(await coordinator.control(grant, { action: 'prepare' })).toMatchObject({ state: 'unsupported' });
+    expect(await coordinator.admit(grant, 'lookup')).toMatchObject({ state: 'unsupported' });
+    expect(native.inspect).not.toHaveBeenCalled();
+    expect(prepare).not.toHaveBeenCalled();
+  });
+
+  it('returns a pending handle for an initially cold operation even when its action finishes immediately', async () => {
+    let initialized = false;
+    const prepare = vi.fn(async () => {
+      initialized = true;
+    });
+    const onReady = vi.fn(async () => undefined);
+    const { coordinator, resolve, checkout } = await fixture(
+      {
+        inspect: async () => (initialized ? ready : required),
+        prepare,
+        classifyFailure: () => {
+          throw new Error('not used');
+        },
+      },
+      {},
+      {},
+      onReady,
+    );
+    await fs.writeFile(
+      path.join(checkout, '.1mcprc'),
+      JSON.stringify({ preparation: { codegraph: { enabled: true } } }),
+    );
+    const grant = await resolve();
+    const result = await coordinator.admit(grant, 'lookup');
+    expect(result).toMatchObject({ state: 'pending', operationExecuted: false, operationQueued: false });
+    if (result.state !== 'pending') throw new Error('Expected asynchronous admission');
+    expect(await coordinator.control(grant, { action: 'wait', id: result.status.id, waitMs: 100 })).toMatchObject({
+      state: 'ready',
+      operation: 'lookup',
+    });
+    expect(prepare).toHaveBeenCalledOnce();
+    expect(onReady).toHaveBeenCalledOnce();
+  });
+
+  it('reports the next required action without refreshing readiness or automatically chaining commands', async () => {
+    let initialized = false;
+    const prepare = vi.fn(async () => {
+      initialized = true;
+    });
+    const onReady = vi.fn(async () => undefined);
+    const { coordinator, resolve } = await fixture(
+      {
+        inspect: async () => (initialized ? { ...required, action: 'sync' } : required),
+        prepare,
+        classifyFailure: () => {
+          throw new Error('not used');
+        },
+      },
+      {},
+      {},
+      onReady,
+    );
+    const grant = await resolve();
+    const started = await job(coordinator, grant);
+    expect(await coordinator.control(grant, { action: 'wait', id: started.id, waitMs: 100 })).toMatchObject({
+      state: 'not_ready',
+      readiness: { state: 'required', action: 'sync' },
+    });
+    expect(await coordinator.control(grant, { action: 'prepare' })).toMatchObject({
+      state: 'job',
+      status: { state: 'not_ready' },
+    });
+    expect(prepare).toHaveBeenCalledOnce();
+    expect(onReady).not.toHaveBeenCalled();
+  });
+
+  it('keeps inspection read-only while exposing an active job and explicit progress', async () => {
+    let complete: () => void = () => undefined;
+    const prepare = vi.fn<BackendPreparationAdapter['prepare']>(
+      async (_target, _action, options) =>
+        new Promise<void>((resolve) => {
+          complete = resolve;
+          options.signal.addEventListener('abort', () => resolve(), { once: true });
+        }),
+    );
+    const progress = vi.fn(async () => ({ completed: 2, total: 5, unit: 'files' }));
+    const { coordinator, resolve, directory } = await fixture({
+      inspect: async () => required,
+      progress,
+      prepare,
+      classifyFailure: () => {
+        throw new Error('not used');
+      },
+    });
+    const grant = await resolve();
+    const started = await job(coordinator, grant);
+    const saved = await fs.readFile(path.join(directory, 'runtime/backend-preparation.json'), 'utf8');
+    expect(await coordinator.control(grant, { action: 'inspect' })).toMatchObject({
+      state: 'job',
+      status: {
+        id: started.id,
+        action: 'initialize',
+        progress: { completed: 2, total: 5, unit: 'files' },
+        readiness: { state: 'required' },
+      },
+    });
+    expect(await fs.readFile(path.join(directory, 'runtime/backend-preparation.json'), 'utf8')).toBe(saved);
+    expect(prepare).toHaveBeenCalledOnce();
+    expect(progress).toHaveBeenCalledOnce();
+    complete();
+    await coordinator.control(grant, { action: 'wait', id: started.id, waitMs: 100 });
+  });
+
   it('retains a stable failure when only another operation has verified readiness', async () => {
     const native: BackendPreparationAdapter = {
       inspect: async (_target, operation) => (operation === 'other' ? ready : required),
@@ -632,6 +757,7 @@ describe('runtime preparation controls', () => {
   it.each(['backend_failed', 'not_ready'] as const)(
     'keeps oversized %s diagnostics observable and restores a bounded stable failure after restart',
     async (code) => {
+      const terminal = code === 'not_ready' ? 'not_ready' : 'failed';
       const message = `CodeGraph exited 1: ${'worker stderr '.repeat(700)}`;
       const instructions = `Inspect the prerequisite and explicitly retry. ${'native diagnostic '.repeat(700)}`;
       let prepared = false;
@@ -649,19 +775,19 @@ describe('runtime preparation controls', () => {
       const grant = await resolve();
       const started = await job(coordinator, grant);
       const file = path.join(directory, 'runtime/backend-preparation.json');
-      // The background monitor must persist the failed state before another control attempts to save it.
+      // The background monitor must persist the terminal state before another control attempts to save it.
       await vi.waitFor(async () => {
-        expect(JSON.parse(await fs.readFile(file, 'utf8'))[0]).toMatchObject({ state: 'failed' });
+        expect(JSON.parse(await fs.readFile(file, 'utf8'))[0]).toMatchObject({ state: terminal });
       });
       for (const action of ['wait', 'status', 'cancel'] as const) {
         expect(await coordinator.control(grant, { action, id: started.id })).toMatchObject({
-          state: 'failed',
+          state: terminal,
           failure: { code, instructions, ...(code === 'backend_failed' ? { message } : {}) },
         });
       }
       expect(await coordinator.control(grant, { action: 'prepare' })).toMatchObject({
         state: 'job',
-        status: { state: 'failed', failure: { instructions } },
+        status: { state: terminal, failure: { instructions } },
       });
       expect(prepare).toHaveBeenCalledOnce();
       const saved = JSON.parse(await fs.readFile(file, 'utf8'))[0];
@@ -683,11 +809,11 @@ describe('runtime preparation controls', () => {
       });
       expect(await restarted.control(refreshed, { action: 'status' })).toMatchObject({
         state: 'job',
-        status: { state: 'failed', failure: saved.failure },
+        status: { state: terminal, failure: saved.failure },
       });
       expect(await restarted.control(refreshed, { action: 'prepare' })).toMatchObject({
         state: 'job',
-        status: { state: 'failed', failure: saved.failure },
+        status: { state: terminal, failure: saved.failure },
       });
       expect(native.reconcile).toHaveBeenCalledOnce();
       expect(prepare).toHaveBeenCalledOnce();

@@ -6,6 +6,7 @@ import { ConfigManager } from '@src/config/configManager.js';
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import type { ToolDispatchDecision } from '@src/core/capabilities/capabilityCatalog.js';
+import { readConfiguredToolSnapshot } from '@src/core/capabilities/configuredToolSnapshot.js';
 import { ToolInvokeInputSchema } from '@src/core/capabilities/schemas/metaToolSchemas.js';
 import {
   getProjectPreparationAuthorityIdentity,
@@ -14,12 +15,12 @@ import {
 import { TemplateFilteringService } from '@src/core/filtering/templateFilteringService.js';
 import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { createConnectionResolver } from '@src/core/server/connectionResolver.js';
 import { getDisabledSourceToolError } from '@src/core/server/disabledTools.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
 import type { InboundConnectionConfig } from '@src/core/types/server.js';
+import type { MCPServerParams } from '@src/core/types/transport.js';
 import { admitToolSchemas, prepareToolValidation } from '@src/core/validation/toolSchemaBoundary.js';
-import { requiresCodeGraphPreparation } from '@src/domains/backend-preparation/codegraphAdapter.js';
-import { getCodeGraphPreparationToolDefinition } from '@src/domains/backend-preparation/codegraphReadOnly.js';
 import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import { projectToolArguments } from '@src/domains/project-selection/projectPolicy.js';
 import { isProjectBackendVisible, resolveProjectPolicies } from '@src/domains/project-selection/projectPolicy.js';
@@ -172,22 +173,27 @@ function nativeTarget(request: PreparationToolRequest, backendNames: string[]) {
   };
 }
 
+function isPreparationAffected(config: MCPServerParams['preparation'], toolName: string): boolean {
+  if (!config) return false;
+  if (config.affectedTools === 'all') return true;
+  return config.affectedTools.includes(toolName);
+}
+
 export async function admitBackendPreparationTool(
   input: PreparationToolAdmissionInput,
   ports: {
     coordinator?: Pick<BackendPreparationCoordinator, 'resolveGrant' | 'admit'>;
-    toolDefinition?: typeof getCodeGraphPreparationToolDefinition;
+    toolDefinition?: (
+      input: { toolName: string },
+      options: { signal?: AbortSignal; executionDeadlineMs: number },
+    ) => Promise<Record<string, unknown> | undefined>;
     validateArguments?: (definition: Record<string, unknown>, args: unknown, signal?: AbortSignal) => Promise<void>;
     refresh?: typeof refreshPreparedBackendCapabilities;
   } = {},
 ): Promise<PreparationToolAdmission> {
   const configured = getConfiguredServerTargets();
   const candidate = nativeTarget(input.request, Object.keys(configured));
-  if (
-    !candidate ||
-    configured[candidate.backendName]?.preparation?.adapter !== 'codegraph' ||
-    !requiresCodeGraphPreparation(candidate.toolName)
-  )
+  if (!candidate || !isPreparationAffected(configured[candidate.backendName]?.preparation, candidate.toolName))
     return { kind: 'unaffected' };
   if (!requestScopes.getStore())
     return withPreparationRequestScope({}, () => admitBackendPreparationTool(input, ports));
@@ -217,9 +223,7 @@ async function admitScopedPreparationTool(
   const target = nativeTarget(input.request, Object.keys(configs));
   if (!target) return { kind: 'unaffected' };
   const definition = configs[target.backendName];
-  if (definition?.preparation?.adapter !== 'codegraph' || !requiresCodeGraphPreparation(target.toolName))
-    return { kind: 'unaffected' };
-  const preparationConfig = definition.preparation;
+  if (!isPreparationAffected(definition?.preparation, target.toolName)) return { kind: 'unaffected' };
   const blocked = (preparation: unknown): PreparationToolAdmission => ({
     kind: 'blocked',
     result: preparationToolResult(
@@ -350,53 +354,45 @@ async function admitScopedPreparationTool(
   const remaining = () => Math.max(0, expiresAt - Date.now());
   if (input.signal?.aborted || remaining() === 0)
     return blocked({ state: 'unknown', reason: input.signal?.aborted ? 'caller_disconnected' : 'inspection_timeout' });
-  let toolVisibility: string | undefined;
-  const configuredEnvironment = definition.env;
-  if (
-    configuredEnvironment &&
-    !Array.isArray(configuredEnvironment) &&
-    Object.hasOwn(configuredEnvironment, 'CODEGRAPH_MCP_TOOLS')
-  ) {
-    const rendered = await withinRequestBudget(scope, input.signal, async () =>
-      ConfigManager.getInstance().loadConfigWithTemplates(context),
+  // Validate an already-discovered source schema when available. Empty cold discovery
+  // must not prevent preparation; the caller's later explicit invocation validates its schema.
+  let nativeDefinition: Record<string, unknown> | undefined;
+  if (ports?.toolDefinition) {
+    nativeDefinition = await withinRequestBudget(scope, input.signal, async (signal) =>
+      ports!.toolDefinition!({ toolName: target.toolName }, { signal, executionDeadlineMs: remaining() }),
     );
-    if (rendered.errors.length)
-      return blocked({ state: 'forbidden', instructions: 'The configured backend environment could not be resolved.' });
-    const environment = (rendered.templateServers[target.backendName] ?? rendered.staticServers[target.backendName])
-      ?.env;
-    if (!environment || Array.isArray(environment) || typeof environment.CODEGRAPH_MCP_TOOLS !== 'string')
-      return blocked({
-        state: 'forbidden',
-        instructions: 'The configured native tool visibility could not be resolved.',
-      });
-    toolVisibility = environment.CODEGRAPH_MCP_TOOLS;
-  }
-  const nativeDefinition = await withinRequestBudget(scope, input.signal, async (signal) =>
-    (ports?.toolDefinition ?? getCodeGraphPreparationToolDefinition)(
-      {
-        executable: preparationConfig.executable,
-        expectedVersion: preparationConfig.expectedVersion,
-        toolName: target.toolName,
-        toolVisibility,
-      },
-      { signal, executionDeadlineMs: remaining() },
-    ),
-  );
-  if (!nativeDefinition)
-    return blocked({
-      state: 'unsupported',
-      instructions: 'The pinned native backend does not expose this source operation.',
+    if (!nativeDefinition)
+      return blocked({ state: 'unsupported', instructions: 'The configured backend does not expose this operation.' });
+  } else {
+    const resolver = createConnectionResolver(serverManager.getClients(), {
+      getBindingContext: (id) => manager.getBindingContexts().get(id),
+      getBindingPolicies: (id) => manager.getBindingPolicies(id),
+      getRenderedHashForSession: (id, backend) => manager.getRenderedHashForSession(id, backend),
+      getAllRenderedHashesForSession: (id) => manager.getAllRenderedHashesForSession(id),
     });
-  await withinRequestBudget(scope, input.signal, async (signal) => {
-    if (ports?.validateArguments) return ports.validateArguments(nativeDefinition, args, signal);
-    const validationBinding = {
-      routeKey: `${target.backendName}/${target.toolName}`,
-      generation: grant.target.configurationKey,
-      signal,
-    };
-    const contracts = await admitToolSchemas(nativeDefinition, validationBinding);
-    await prepareToolValidation(contracts, args, validationBinding);
-  });
+    const connection = resolver.resolve(target.backendName, input.bindingId);
+    if (connection) {
+      const snapshot = readConfiguredToolSnapshot(connection);
+      const found = snapshot?.find((tool) => tool.name === target.toolName);
+      nativeDefinition = found ? { ...found } : undefined;
+      if (snapshot?.length && !nativeDefinition)
+        return blocked({
+          state: 'unsupported',
+          instructions: 'The configured backend does not expose this operation.',
+        });
+    }
+  }
+  if (nativeDefinition)
+    await withinRequestBudget(scope, input.signal, async (signal) => {
+      if (ports?.validateArguments) return ports.validateArguments(nativeDefinition, args, signal);
+      const validationBinding = {
+        routeKey: `${target.backendName}/${target.toolName}`,
+        generation: grant.target.configurationKey,
+        signal,
+      };
+      const contracts = await admitToolSchemas(nativeDefinition, validationBinding);
+      await prepareToolValidation(contracts, args, validationBinding);
+    });
   if (!(await authorized())) return blocked({ state: 'forbidden', instructions: 'Preparation authorization changed.' });
   const result = await coordinator.admit(grant, target.toolName, {
     waitMs: remaining(),

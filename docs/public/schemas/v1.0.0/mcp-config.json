@@ -141,36 +141,335 @@
       "additionalProperties": {
         "type": "object",
         "properties": {
-          "projectTarget": {
-            "description": "Runtime-owned project targeting; templates default to single and static backends to independent",
+          "preparation": {
+            "description": "Runtime-owned command integration and explicit action permissions",
             "type": "object",
             "properties": {
-              "mode": {
+              "adapter": {
                 "type": "string",
-                "enum": ["independent", "single", "native-set"]
+                "const": "configured-command"
               },
-              "argument": {
-                "type": "string",
-                "minLength": 1
-              }
-            },
-            "required": ["mode"],
-            "if": {
-              "properties": {
-                "mode": {
-                  "const": "native-set"
+              "affectedTools": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "all"
+                  },
+                  {
+                    "minItems": 1,
+                    "maxItems": 4096,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    }
+                  }
+                ]
+              },
+              "integration": {
+                "type": "object",
+                "properties": {
+                  "containment": {
+                    "type": "string",
+                    "const": "posix-process-group"
+                  },
+                  "probe": {
+                    "type": "object",
+                    "properties": {
+                      "executable": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 4096
+                      },
+                      "args": {
+                        "maxItems": 256,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "maxLength": 16384
+                        }
+                      }
+                    },
+                    "required": [
+                      "executable",
+                      "args"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "status": {
+                    "type": "object",
+                    "properties": {
+                      "executable": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 4096
+                      },
+                      "args": {
+                        "maxItems": 256,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "maxLength": 16384
+                        }
+                      }
+                    },
+                    "required": [
+                      "executable",
+                      "args"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "readinessExitCodes": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string",
+                      "pattern": "^(?:0|[1-9]\\d?|1\\d{2}|2[0-4]\\d|25[0-5])$"
+                    },
+                    "additionalProperties": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "state": {
+                              "type": "string",
+                              "const": "ready"
+                            }
+                          },
+                          "required": [
+                            "state"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "state": {
+                              "type": "string",
+                              "const": "required"
+                            },
+                            "action": {
+                              "type": "string",
+                              "enum": [
+                                "initialize",
+                                "sync",
+                                "rebuild",
+                                "install",
+                                "paid"
+                              ]
+                            },
+                            "instructions": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 4096
+                            }
+                          },
+                          "required": [
+                            "state",
+                            "action",
+                            "instructions"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "state": {
+                              "type": "string",
+                              "const": "conflict"
+                            },
+                            "instructions": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 4096
+                            }
+                          },
+                          "required": [
+                            "state",
+                            "instructions"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  },
+                  "actions": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string",
+                      "enum": [
+                        "initialize",
+                        "sync",
+                        "rebuild",
+                        "install",
+                        "paid"
+                      ]
+                    },
+                    "additionalProperties": {
+                      "type": "object",
+                      "properties": {
+                        "executable": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4096
+                        },
+                        "args": {
+                          "maxItems": 256,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "maxLength": 16384
+                          }
+                        },
+                        "successExitCodes": {
+                          "default": [
+                            0
+                          ],
+                          "minItems": 1,
+                          "type": "array",
+                          "items": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 255
+                          }
+                        },
+                        "transientExitCodes": {
+                          "default": [],
+                          "type": "array",
+                          "items": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 255
+                          }
+                        }
+                      },
+                      "required": [
+                        "executable",
+                        "args"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "inspectionTimeoutMs": {
+                    "default": 5000,
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 60000
+                  },
+                  "outputLimitBytes": {
+                    "default": 16384,
+                    "type": "integer",
+                    "minimum": 256,
+                    "maximum": 65536
+                  },
+                  "terminationGraceMs": {
+                    "default": 500,
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5000
+                  }
+                },
+                "required": [
+                  "containment",
+                  "probe",
+                  "readinessExitCodes",
+                  "actions"
+                ],
+                "additionalProperties": false
+              },
+              "allowedActions": {
+                "maxItems": 5,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "initialize",
+                    "sync",
+                    "rebuild",
+                    "install",
+                    "paid"
+                  ]
                 }
+              },
+              "executionDeadlineMs": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 86400000
+              },
+              "transientRetryLimit": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 3
               }
             },
-            "then": {
-              "required": ["argument"]
-            },
+            "required": [
+              "adapter",
+              "affectedTools",
+              "allowedActions"
+            ],
             "additionalProperties": false
+          },
+          "projectTarget": {
+            "description": "Runtime-owned project targeting; templates default to single and static backends to independent",
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "independent",
+                      "single"
+                    ]
+                  },
+                  "argument": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "mode"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "const": "native-set"
+                  },
+                  "argument": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "mode",
+                  "argument"
+                ],
+                "additionalProperties": false
+              }
+            ]
           },
           "type": {
             "description": "Transport type for connecting to the MCP server",
             "type": "string",
-            "enum": ["stdio", "sse", "http", "streamableHttp"]
+            "enum": [
+              "stdio",
+              "sse",
+              "http",
+              "streamableHttp"
+            ]
+          },
+          "protocolVersion": {
+            "description": "Outbound MCP protocol negotiation mode (defaults to auto when omitted)",
+            "type": "string",
+            "enum": [
+              "auto",
+              "legacy",
+              "2026-07-28"
+            ]
           },
           "disabled": {
             "description": "Disable this server. Can be a boolean value or a template string that evaluates to a boolean (e.g., \"{?project.environment=production}\")",
@@ -192,7 +491,7 @@
             }
           },
           "instructionOverride": {
-            "description": "Literal replacement for upstream server instructions; an empty string intentionally suppresses them",
+            "description": "Literal replacement for upstream instructions; an empty string intentionally suppresses them",
             "type": "string"
           },
           "toolDescriptionOverrides": {
@@ -200,8 +499,7 @@
             "type": "object",
             "propertyNames": {
               "type": "string",
-              "minLength": 1,
-              "pattern": "\\S"
+              "minLength": 1
             },
             "additionalProperties": {
               "type": "string",
@@ -312,7 +610,12 @@
             "anyOf": [
               {
                 "type": "string",
-                "enum": ["inherit", "ignore", "overlapped", "pipe"]
+                "enum": [
+                  "inherit",
+                  "ignore",
+                  "overlapped",
+                  "pipe"
+                ]
               },
               {
                 "type": "integer",
@@ -408,49 +711,6 @@
                 }
               }
             }
-          },
-          "preparation": {
-            "description": "Runtime-owned preparation permission; no installation, rebuild, or paid-service authority",
-            "type": "object",
-            "properties": {
-              "adapter": {
-                "type": "string",
-                "const": "codegraph"
-              },
-              "executable": {
-                "type": "string",
-                "minLength": 1
-              },
-              "expectedVersion": {
-                "type": "string",
-                "const": "1.6.2"
-              },
-              "sourceMonitor": {
-                "description": "Allow an owned foreground Git source observer during permitted preparation",
-                "type": "string",
-                "const": "git-fsmonitor"
-              },
-              "allowedActions": {
-                "maxItems": 2,
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "enum": ["initialize", "sync"]
-                }
-              },
-              "executionDeadlineMs": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 86400000
-              },
-              "transientRetryLimit": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 3
-              }
-            },
-            "required": ["adapter", "executable", "expectedVersion", "allowedActions"],
-            "additionalProperties": false
           }
         }
       },
@@ -465,36 +725,335 @@
       "additionalProperties": {
         "type": "object",
         "properties": {
-          "projectTarget": {
-            "description": "Runtime-owned project targeting; templates default to single and static backends to independent",
+          "preparation": {
+            "description": "Runtime-owned command integration and explicit action permissions",
             "type": "object",
             "properties": {
-              "mode": {
+              "adapter": {
                 "type": "string",
-                "enum": ["independent", "single", "native-set"]
+                "const": "configured-command"
               },
-              "argument": {
-                "type": "string",
-                "minLength": 1
-              }
-            },
-            "required": ["mode"],
-            "if": {
-              "properties": {
-                "mode": {
-                  "const": "native-set"
+              "affectedTools": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "all"
+                  },
+                  {
+                    "minItems": 1,
+                    "maxItems": 4096,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    }
+                  }
+                ]
+              },
+              "integration": {
+                "type": "object",
+                "properties": {
+                  "containment": {
+                    "type": "string",
+                    "const": "posix-process-group"
+                  },
+                  "probe": {
+                    "type": "object",
+                    "properties": {
+                      "executable": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 4096
+                      },
+                      "args": {
+                        "maxItems": 256,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "maxLength": 16384
+                        }
+                      }
+                    },
+                    "required": [
+                      "executable",
+                      "args"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "status": {
+                    "type": "object",
+                    "properties": {
+                      "executable": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 4096
+                      },
+                      "args": {
+                        "maxItems": 256,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "maxLength": 16384
+                        }
+                      }
+                    },
+                    "required": [
+                      "executable",
+                      "args"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "readinessExitCodes": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string",
+                      "pattern": "^(?:0|[1-9]\\d?|1\\d{2}|2[0-4]\\d|25[0-5])$"
+                    },
+                    "additionalProperties": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "state": {
+                              "type": "string",
+                              "const": "ready"
+                            }
+                          },
+                          "required": [
+                            "state"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "state": {
+                              "type": "string",
+                              "const": "required"
+                            },
+                            "action": {
+                              "type": "string",
+                              "enum": [
+                                "initialize",
+                                "sync",
+                                "rebuild",
+                                "install",
+                                "paid"
+                              ]
+                            },
+                            "instructions": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 4096
+                            }
+                          },
+                          "required": [
+                            "state",
+                            "action",
+                            "instructions"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "state": {
+                              "type": "string",
+                              "const": "conflict"
+                            },
+                            "instructions": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 4096
+                            }
+                          },
+                          "required": [
+                            "state",
+                            "instructions"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  },
+                  "actions": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string",
+                      "enum": [
+                        "initialize",
+                        "sync",
+                        "rebuild",
+                        "install",
+                        "paid"
+                      ]
+                    },
+                    "additionalProperties": {
+                      "type": "object",
+                      "properties": {
+                        "executable": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4096
+                        },
+                        "args": {
+                          "maxItems": 256,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "maxLength": 16384
+                          }
+                        },
+                        "successExitCodes": {
+                          "default": [
+                            0
+                          ],
+                          "minItems": 1,
+                          "type": "array",
+                          "items": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 255
+                          }
+                        },
+                        "transientExitCodes": {
+                          "default": [],
+                          "type": "array",
+                          "items": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 255
+                          }
+                        }
+                      },
+                      "required": [
+                        "executable",
+                        "args"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "inspectionTimeoutMs": {
+                    "default": 5000,
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 60000
+                  },
+                  "outputLimitBytes": {
+                    "default": 16384,
+                    "type": "integer",
+                    "minimum": 256,
+                    "maximum": 65536
+                  },
+                  "terminationGraceMs": {
+                    "default": 500,
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5000
+                  }
+                },
+                "required": [
+                  "containment",
+                  "probe",
+                  "readinessExitCodes",
+                  "actions"
+                ],
+                "additionalProperties": false
+              },
+              "allowedActions": {
+                "maxItems": 5,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "initialize",
+                    "sync",
+                    "rebuild",
+                    "install",
+                    "paid"
+                  ]
                 }
+              },
+              "executionDeadlineMs": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 86400000
+              },
+              "transientRetryLimit": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 3
               }
             },
-            "then": {
-              "required": ["argument"]
-            },
+            "required": [
+              "adapter",
+              "affectedTools",
+              "allowedActions"
+            ],
             "additionalProperties": false
+          },
+          "projectTarget": {
+            "description": "Runtime-owned project targeting; templates default to single and static backends to independent",
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "independent",
+                      "single"
+                    ]
+                  },
+                  "argument": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "mode"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "const": "native-set"
+                  },
+                  "argument": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "mode",
+                  "argument"
+                ],
+                "additionalProperties": false
+              }
+            ]
           },
           "type": {
             "description": "Transport type for connecting to the MCP server",
             "type": "string",
-            "enum": ["stdio", "sse", "http", "streamableHttp"]
+            "enum": [
+              "stdio",
+              "sse",
+              "http",
+              "streamableHttp"
+            ]
+          },
+          "protocolVersion": {
+            "description": "Outbound MCP protocol negotiation mode (defaults to auto when omitted)",
+            "type": "string",
+            "enum": [
+              "auto",
+              "legacy",
+              "2026-07-28"
+            ]
           },
           "disabled": {
             "description": "Disable this server. Can be a boolean value or a template string that evaluates to a boolean (e.g., \"{?project.environment=production}\")",
@@ -516,7 +1075,7 @@
             }
           },
           "instructionOverride": {
-            "description": "Literal replacement for upstream server instructions inherited by rendered instances; an empty string intentionally suppresses them",
+            "description": "Literal replacement for upstream instructions; an empty string intentionally suppresses them",
             "type": "string"
           },
           "toolDescriptionOverrides": {
@@ -524,8 +1083,7 @@
             "type": "object",
             "propertyNames": {
               "type": "string",
-              "minLength": 1,
-              "pattern": "\\S"
+              "minLength": 1
             },
             "additionalProperties": {
               "type": "string",
@@ -636,7 +1194,12 @@
             "anyOf": [
               {
                 "type": "string",
-                "enum": ["inherit", "ignore", "overlapped", "pipe"]
+                "enum": [
+                  "inherit",
+                  "ignore",
+                  "overlapped",
+                  "pipe"
+                ]
               },
               {
                 "type": "integer",
@@ -732,49 +1295,6 @@
                 }
               }
             }
-          },
-          "preparation": {
-            "description": "Runtime-owned preparation permission; no installation, rebuild, or paid-service authority",
-            "type": "object",
-            "properties": {
-              "adapter": {
-                "type": "string",
-                "const": "codegraph"
-              },
-              "executable": {
-                "type": "string",
-                "minLength": 1
-              },
-              "expectedVersion": {
-                "type": "string",
-                "const": "1.6.2"
-              },
-              "sourceMonitor": {
-                "description": "Allow an owned foreground Git source observer during permitted preparation",
-                "type": "string",
-                "const": "git-fsmonitor"
-              },
-              "allowedActions": {
-                "maxItems": 2,
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "enum": ["initialize", "sync"]
-                }
-              },
-              "executionDeadlineMs": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 86400000
-              },
-              "transientRetryLimit": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 3
-              }
-            },
-            "required": ["adapter", "executable", "expectedVersion", "allowedActions"],
-            "additionalProperties": false
           }
         }
       }
@@ -790,7 +1310,10 @@
         "failureMode": {
           "description": "How to handle template processing failures (strict = throw error, graceful = log and continue)",
           "type": "string",
-          "enum": ["strict", "graceful"]
+          "enum": [
+            "strict",
+            "graceful"
+          ]
         },
         "cacheContext": {
           "description": "Whether to cache processed templates based on context hash",
@@ -803,25 +1326,24 @@
       "type": "object",
       "propertyNames": {
         "type": "string",
-        "minLength": 1,
-        "not": {
-          "const": "default"
-        }
+        "minLength": 1
       },
       "additionalProperties": {
         "type": "object",
         "properties": {
           "initialization": {
-            "description": "Complete Handlebars template for MCP initialization instructions",
-            "type": "string"
+            "type": "string",
+            "description": "Complete Handlebars template for MCP initialization instructions"
           },
           "cli": {
-            "description": "Complete Handlebars template for direct CLI instructions",
-            "type": "string"
+            "type": "string",
+            "description": "Complete Handlebars template for direct CLI instructions"
           }
         },
-        "required": ["initialization", "cli"],
-        "additionalProperties": false
+        "required": [
+          "initialization",
+          "cli"
+        ]
       }
     },
     "publishedInstructionTemplates": {
@@ -829,32 +1351,33 @@
       "type": "object",
       "propertyNames": {
         "type": "string",
-        "minLength": 1,
-        "not": {
-          "const": "default"
-        }
+        "minLength": 1
       },
       "additionalProperties": {
         "type": "object",
         "properties": {
           "initialization": {
-            "description": "Complete Handlebars template for MCP initialization instructions",
-            "type": "string"
+            "type": "string",
+            "description": "Complete Handlebars template for MCP initialization instructions"
           },
           "cli": {
-            "description": "Complete Handlebars template for direct CLI instructions",
-            "type": "string"
+            "type": "string",
+            "description": "Complete Handlebars template for direct CLI instructions"
           }
         },
-        "required": ["initialization", "cli"],
-        "additionalProperties": false
+        "required": [
+          "initialization",
+          "cli"
+        ]
       }
     },
     "activeInstructionTemplate": {
-      "description": "Explicitly selected managed instruction template identity, including the protected default",
+      "description": "Explicitly selected managed instruction template identity",
       "type": "string",
       "minLength": 1
     }
   },
-  "required": ["mcpServers"]
+  "required": [
+    "mcpServers"
+  ]
 }

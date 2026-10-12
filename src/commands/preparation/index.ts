@@ -18,7 +18,6 @@ function options(yargs: Argv): Argv {
     .option('operation', {
       describe: 'Operation-specific readiness to inspect or prepare',
       type: 'string',
-      default: 'query',
     })
     .option('format', { describe: 'Output format', choices: ['text', 'json'], type: 'string', default: 'text' });
 }
@@ -40,7 +39,7 @@ export function setupPreparationCommands(yargs: Argv): Argv {
       'Inspect, wait, cancel, or retry a runtime-owned preparation operation',
       (command) =>
         options(command)
-          .positional('action', { type: 'string', choices: ['status', 'wait', 'cancel', 'retry'] })
+          .positional('action', { type: 'string', choices: ['inspect', 'status', 'wait', 'cancel', 'retry'] })
           .positional('id', { type: 'string', describe: 'Preparation operation id returned by prepare or status' })
           .option('wait-ms', {
             type: 'number',

@@ -19,6 +19,35 @@ describe.each([
   addFormats.default(validator);
   const validate = validator.compile(schema);
 
+  it('preserves configured preparation authority in published and generated schemas', () => {
+    const integration = {
+      probe: { executable: '/installed/probe', args: ['{checkout}', '{operation}'] },
+      readinessExitCodes: { '0': { state: 'ready' } },
+      actions: {},
+      containment: 'posix-process-group',
+    };
+    for (const preparation of [
+      { adapter: 'configured-command', affectedTools: 'all', allowedActions: [] },
+      { adapter: 'configured-command', affectedTools: ['lookup'], allowedActions: ['initialize'], integration },
+      { adapter: 'configured-command', affectedTools: [], allowedActions: [] },
+      {
+        adapter: 'configured-command',
+        affectedTools: 'all',
+        allowedActions: [],
+        integration: { ...integration, readinessExitCodes: { '300': { state: 'ready' } } },
+      },
+      {
+        adapter: 'codegraph',
+        executable: '/installed/codegraph',
+        expectedVersion: '1.6.2',
+        allowedActions: ['initialize'],
+      },
+    ]) {
+      const config = { mcpServers: { backend: { command: 'node', preparation } } };
+      expect(validate(config), JSON.stringify(preparation)).toBe(mcpServerConfigSchema.safeParse(config).success);
+    }
+  });
+
   it.each(['mcpServers', 'mcpTemplates'] as const)('matches runtime target validation for %s', (source) => {
     for (const projectTarget of [
       { mode: 'native-set' },

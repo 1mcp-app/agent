@@ -1,135 +1,90 @@
 ---
-title: Checkout-Specific Backend Preparation
-description: Enable bounded CodeGraph preparation, inspect readiness, and control runtime-owned indexing jobs for a selected checkout.
+title: Backend Preparation
+description: Configure checkout-specific readiness probes and runtime-owned asynchronous preparation commands.
 ---
 
-# Checkout-Specific Backend Preparation
+# Backend Preparation
 
-Preparation makes a selected checkout's source index usable before a relevant tool runs. Select the checkout explicitly when working across repositories or worktrees. Another checkout's index, a connected server, or successful tool discovery does not establish source coverage for your target.
+The runtime coordinates preparation jobs for a selected Project Checkout. Integrations supply read-only readiness probes and foreground preparation commands. The runtime does not infer readiness from backend names, versions, index files, Git HEAD, connection health, or command output.
 
-## Two Separate Permissions
+## Runtime configuration
 
-The runtime operator configures the backend's supported actions. A project's `.1mcprc` opts into automatic preparation for that configured backend name. Project configuration cannot grant an action the runtime forbids.
-
-Add preparation metadata to the existing runtime server definition:
+Add preparation metadata to an existing server definition. Use executable paths and argument arrays; arguments are passed literally without shell parsing. `{checkout}` and `{operation}` are replaced in arguments, and the command runs in the selected canonical checkout. Commands belong to the runtime configuration, never project preferences or caller arguments.
 
 ```json
 {
   "preparation": {
-    "adapter": "codegraph",
-    "executable": "/absolute/path/to/already-installed/codegraph",
-    "expectedVersion": "1.6.2",
-    "sourceMonitor": "git-fsmonitor",
-    "allowedActions": ["initialize", "sync"]
-  }
-}
-```
-
-The adapter uses an already-installed, verified backend. It does not download or install CodeGraph. `sourceMonitor` explicitly permits preparation to start a foreground native Git source monitor for the selected checkout. Existing monitors are borrowed; inspection never starts one. The verified native integration is CodeGraph 1.6.2 with Git 2.52 on local macOS checkouts. Unsupported platforms, versions, relocated sockets, and source configurations receive actionable limitations; macOS verification does not establish Windows or Linux support.
-
-In the effective `.1mcprc`, enable automatic preparation by **configured server name**, for example:
-
-```json
-{ "preparation": { "codegraph": { "enabled": true } } }
-```
-
-Without this opt-in, automatic preparation is disabled. An explicit `prepare` command still obeys runtime-owned actions and target permissions. Linked worktrees can inherit the main checkout's preferences; a local file replaces the inherited configuration as a whole. Retain other desired settings when creating that local file. See [project checkouts and sets](/guide/project-checkouts).
-
-Full rebuilds, dependency installation, and paid operations are not granted by initial indexing or incremental synchronization. This verified adapter supports `initialize` and `sync`; incompatible or interrupted indexes can require a separately verified recovery procedure.
-
-## Keep CodeGraph Discovery Read-Only
-
-Configure the first-party `codegraph-readonly` launcher as the backend's normal stdio command when using runtime-managed preparation. It uses the pinned native read-only engine rather than starting another indexing writer:
-
-```json
-{
-  "mcpTemplates": {
-    "codegraph": {
-      "command": "/absolute/path/to/1mcp",
-      "args": [
-        "codegraph-readonly",
-        "--executable=/absolute/path/to/already-installed/codegraph",
-        "--path={{project.path}}"
-      ],
-      "template": { "shareable": true },
-      "protocolVersion": "legacy",
-      "projectTarget": { "mode": "single" },
-      "preparation": {
-        "adapter": "codegraph",
-        "executable": "/absolute/path/to/already-installed/codegraph",
-        "expectedVersion": "1.6.2",
-        "sourceMonitor": "git-fsmonitor",
-        "allowedActions": ["initialize", "sync"]
-      }
+    "adapter": "configured-command",
+    "affectedTools": ["lookup"],
+    "allowedActions": ["initialize", "sync"],
+    "integration": {
+      "probe": {
+        "executable": "/absolute/path/to/readiness-wrapper",
+        "args": ["{checkout}", "{operation}"]
+      },
+      "readinessExitCodes": {
+        "0": { "state": "ready" },
+        "2": { "state": "required", "action": "initialize", "instructions": "Initialize the selected checkout." },
+        "3": { "state": "required", "action": "sync", "instructions": "Synchronize changed source." },
+        "4": { "state": "conflict", "instructions": "Reconcile the existing writer before retrying." }
+      },
+      "actions": {
+        "initialize": {
+          "executable": "/absolute/path/to/prepare-wrapper",
+          "args": ["initialize", "{checkout}", "{operation}"]
+        },
+        "sync": { "executable": "/absolute/path/to/prepare-wrapper", "args": ["sync", "{checkout}", "{operation}"] }
+      },
+      "containment": "posix-process-group"
     }
   }
 }
 ```
 
-Use this command in a checkout-bound template alongside the preparation metadata. Keep the existing template configuration and filters. The runtime owns the ordinary stdio lifecycle; this launcher does not replace another configured command automatically. The launcher accepts only its configured checkout; a tool argument cannot redirect it to another source tree. A writer started by an unrelated native CLI or runtime remains a conflict and is never killed or reclaimed by preparation.
+Replace these example wrapper paths with installed integration scripts. A probe must establish freshness and coverage for this checkout and operation, including dirty source. Unmapped exits and timeouts produce unknown readiness; logs are bounded diagnostics. An integration that cannot establish freshness should report unknown rather than ready. `affectedTools` accepts explicit upstream names or `"all"`; other tools retain their ordinary behavior. A gated backend with no integration reports unsupported preparation.
 
-## Inspect and Control Preparation
+Each action may explicitly define `successExitCodes` (default `[0]`) and `transientExitCodes`. The mappings must not overlap. Only explicitly transient failures can retry automatically, within `transientRetryLimit` and the job deadline. `allowedActions` grants runtime authority. Rebuilds, dependency installation, and paid services require explicit `rebuild`, `install`, or `paid` permission; project preferences cannot add them.
 
-These commands use the selected Aggregated Runtime directly and remain reachable even when the backend initially advertises no tools:
+An optional `status` command uses the same executable/args format and returns exit zero with a JSON object containing optional `message`, `completed`, `total`, and `unit`. Explicit inspection validates this progress; absent progress remains unavailable. Logs never supply inferred percentages. Probe/status commands must be read-only and bounded. `inspectionTimeoutMs` defaults to 5,000; `outputLimitBytes` defaults to 16,384.
+
+Preparation commands must stay in the runtime-owned process group and keep descendants attached. The current containment implementation supports Linux and macOS. Unsupported platforms reject preparation before launching an action. Declaring containment is an operator assertion about integration scripts; escaping or detached writers are outside this contract. Native writer coordination remains the integration's responsibility. The runtime never kills foreign work or breaks another writer's lock.
+
+## Project opt-in
+
+Enable automatic preparation by configured server name in the effective `.1mcprc`:
+
+```json
+{ "preparation": { "source-search": { "enabled": true } } }
+```
+
+Automatic preparation is disabled without this preference. Explicit preparation still obeys runtime action permissions and checkout authorization. Linked worktrees inherit project preferences using whole-file rules; a local configuration replaces the inherited file. See [project checkouts and sets](/guide/project-checkouts).
+
+## Controls and asynchronous admission
+
+Preparation controls remain accessible even if initial tool discovery is empty:
 
 ```bash
-1mcp preparation status codegraph --project /work/frontend --format json
-1mcp prepare codegraph --project /work/frontend --format json
-OPERATION_ID='operation-id-from-prepare-response'
-1mcp preparation wait codegraph "$OPERATION_ID" --project /work/frontend --wait-ms 5000
-1mcp preparation cancel codegraph "$OPERATION_ID" --project /work/frontend
-1mcp preparation retry codegraph "$OPERATION_ID" --project /work/frontend
+1mcp preparation inspect source-search --project /work/frontend --operation lookup --format json
+1mcp prepare source-search --project /work/frontend --operation lookup --format json
+OPERATION_ID='replace-with-returned-job-id'
+1mcp preparation status source-search "$OPERATION_ID" --project /work/frontend
+1mcp preparation wait source-search "$OPERATION_ID" --project /work/frontend --wait-ms 5000
+1mcp preparation cancel source-search "$OPERATION_ID" --project /work/frontend
+1mcp preparation retry source-search "$OPERATION_ID" --project /work/frontend
 ```
 
-Replace the example `OPERATION_ID` value with the ID returned by `prepare`. Retain the same checkout, runtime selection, and authentication when using an operation ID. IDs are bound to the authorized target and caller; another caller's ID does not grant status or cancellation authority. `status` without an ID inspects current readiness. `retry` without an ID can reconcile a retained failure after runtime restart. Preparation requires verified local checkout context and preserves existing authentication, authorization, and filters; it issues no new remote trust.
+`inspect` reads readiness and current job state, action, elapsed time, and available progress. It does not schedule preparation, repair state, or retry failed jobs. Handles are bound to the authenticated owner, target, operation, and effective configuration. Controls using an ID recover its operation automatically; an explicitly conflicting operation is rejected.
 
-For a saved project set, replace `--project /work/frontend` with `--project-set /work/projects.json --project frontend`. Prepare members individually; selecting several members does not fan out a single-project backend operation.
+A gated cold tool call promptly returns a job ID and state. **The original operation is neither executed nor queued for replay**, even if preparation completes quickly. Submit a fresh tool request after readiness is verified. Compatible callers share a job; different checkouts, operations, and policies do not. Caller disconnects leave shared work running.
 
-Inspection performs no source, configuration, Git-index, or CodeGraph-index mutation. It can run bounded read-only native probes but does not start indexing or a source monitor. Native Git journal queries may create and remove internal coordination cookies. They provide a source-change observation barrier; an ordinary filesystem watcher or an elapsed timer alone cannot prove freshness.
+One job performs one action. Successful action exit triggers a fresh probe. Only verified readiness refreshes permitted capabilities, including an initially empty inventory. Another required action finishes as `not_ready`; it needs explicit retry rather than automatic action chaining. Terminal failures remain observable until explicit retry. Ungated and already-ready unrelated tools remain responsive.
 
-## Pending Is Not a Tool Result
+## Budgets and recovery
 
-A relevant tool request can start or join one compatible preparation job. Its default wait budget is five seconds. If preparation is still running, the response reports pending state, an operation ID, and recovery instructions. **The original backend operation did not execute and is not queued for replay.** Check status or wait, then submit the original operation again once ready.
+Runtime defaults are one active expensive job, at most 16 queued jobs, a 120,000 ms execution deadline independent of queue time, and a 5,000 ms request inspection/wait budget. Configure scheduler bounds through the application's `[preparation]` settings. Backend metadata can set `executionDeadlineMs` and `transientRetryLimit`; increasing deadlines requires an explicit runtime configuration change.
 
-This wait budget includes readiness probes and connection setup before dispatch. Once the original operation starts, it uses the normal tool timeout. Background preparation and its final readiness verification share the execution budget; a foreground wait expiring does not cancel them.
+Cancellation and execution expiry stop owned action processes and their attached descendants. A direct child exiting does not prove descendants stopped. Restart treats saved state as advisory: integrations reprobe readiness, and uncertain formerly running ownership reports conflict. No saved PID or flag authorizes signalling, duplicate writers, index deletion, or foreign-lock recovery. Inspection does not erase these facts.
 
-Successful preparation triggers capability refresh. Newly available tools remain subject to the selected checkout's filters and existing authorization. Ready, unrelated tools do not wait for another checkout's preparation.
+## Real integration acceptance
 
-Readiness is checked for the intended operation. Source edits, newly added or deleted files, branch changes, incompatible formats, partial coverage, and journal-history loss can invalidate readiness. Warm journal checks reuse only a validated baseline; they do not treat database existence or Git HEAD as proof of current source.
-
-## Budgets, Failure, and Recovery
-
-Defaults are one active expensive job, at most 16 queued jobs, a five-second request wait, and a two-minute execution deadline. Queue time does not consume the execution budget. Compatible calls deduplicate before queue admission. Distinct targets or incompatible configurations retain distinct job identities; queue overflow returns busy.
-
-Configure runtime limits in `config.toml` next to the selected MCP configuration:
-
-```toml
-[preparation]
-concurrency = 1
-queueCapacity = 16
-requestWaitMs = 5000
-executionDeadlineMs = 120000
-maxRecords = 1024
-```
-
-A backend can also declare an explicit `executionDeadlineMs` in its runtime preparation metadata. Increasing a budget requires a deliberate runtime configuration change; repeated requests do not silently relax it.
-
-Disconnecting one waiter or reaching its wait deadline leaves shared preparation running. Explicit cancellation and execution expiry stop only owned preparation work. Failure remains visible until explicit retry or verified native evidence resolves it. Deadline exhaustion requires a larger explicit execution budget before another long attempt; partial indexes are preserved only where supported natively. A retry rechecks native readiness. If the index now requires a different recovery action, retry preserves the failure and returns explicit recovery instructions; it does not switch actions or grant a rebuild.
-
-After restart, saved state is advisory. The runtime rechecks native readiness and ownership; saved running flags and process IDs are never permission to signal a process. It does not break foreign locks, delete an index, reuse another checkout's index, or restart a failed job automatically. A forced worker exit can leave native locks whose ownership is uncertain. Those locks are retained for explicit manual reconciliation. Follow the reported prerequisite or recovery instructions when preparation is unsupported, incomplete, or conflicting.
-
-## Verified native measurements
-
-On 2026-10-11 (Asia/Shanghai; 2026-10-10 UTC), CodeGraph 1.6.2 with Git 2.52 on Darwin arm64 was verified through initialized HTTP/SSE and the 2026-07-28 request flow. The cold fixture contained 20,000 source files with five functions per file, about 10 MB of source.
-
-| Observation                                                        | Measured result                                       |
-| ------------------------------------------------------------------ | ----------------------------------------------------- |
-| Cold indexing / subsequent readiness verification                  | 13.97 s / 5.47 s, sharing the 120 s background budget |
-| Foreground pending response / unrelated ready tool during indexing | 5.14 s / 98 ms                                        |
-| Warm native readiness probes                                       | Median 27 ms, range 17–58 ms across 30 probes         |
-| Ten warm HTTP status/query rounds                                  | 6.32 s; no new preparation or full inspection         |
-| Default scheduling with 18 additional targets                      | One active job, 16 queued, two busy responses         |
-
-The same initialized consumer received the catalog change and queried the selected source. Linked and independent checkouts, immediate edits, branch switches, disconnected waiters, cancellation, and foreign-lock reconciliation passed. A configured 1 s execution deadline stopped its owned writer. A subsequent explicit 120 s budget still denied rebuild-required recovery under `initialize`/`sync` permission; the database was preserved and no new writer started.
-
-These measurements are observations, not resource or latency guarantees. Across 150 scoped process samples, the observed per-process maxima were 645.6% CPU and 2,511,040 KiB RSS, at different processes/times; external host contention was not measured. The test exercised an actual configured 1 s expiry, not an elapsed default 120 s expiry. Partial/incompatible metadata fixtures verified diagnostics and were restored; they do not establish coverage for naturally corrupted files. Verification is specific to this native version/platform and does not establish installed client-hook activation.
+CodeGraph and Code Review Graph use this same configured-command contract through external wrappers. Repository examples are in `examples/backend-preparation/README.md`, with a bounded native fixture wrapper and `scripts/verify-configured-preparation.mjs` for repeatable acceptance. Code Review Graph status alone does not establish dirty-source freshness; its wrapper must verify that separately or report the coverage gap. Runtime core contains no backend-specific readiness parser. Acceptance evidence must identify backend version, platform, checkout/source size, cold preparation time, warm probe overhead, shared jobs, unrelated ready-tool latency, cancellation coverage, and available CPU/memory observations. Passing local tests does not establish deployment or live client activation.
