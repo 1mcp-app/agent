@@ -44,6 +44,7 @@ vi.mock('@src/sdk/legacy/server/runtime/clientInstanceFactory.js', () => ({
       close: vi.fn().mockResolvedValue(undefined),
       getInstructions: () => 'Use this project template',
       getServerCapabilities: () => ({ tools: {} }),
+      request: vi.fn(async () => ({ tools: [] })),
       setNotificationHandler: vi.fn(),
     },
     transport: { close: vi.fn().mockResolvedValue(undefined) },
@@ -113,6 +114,26 @@ describe('ServerManager instruction initialization', () => {
     ]);
     expect(manager.getClients().get('worker:proxy-session')).toBe(connection);
     expect(manager.getTemplateServerManager().getClientInstancePool().getTemplateInstances('worker')).toHaveLength(1);
+  });
+
+  it('joining a shareable template preserves the first logical session catalog and provider', async () => {
+    runtimeConfiguration.templateServers = {
+      worker: { command: 'node', args: ['{{project.path}}'], template: { shareable: true } },
+    };
+    const context = { project: { path: '/project' }, user: {}, environment: {} };
+    await manager.prepareLogicalTemplateSession('proxy-a', { ...context, sessionId: 'proxy-a' });
+    const [key, connection] = Array.from(manager.getClients()).find(([, outbound]) => outbound.name === 'worker')!;
+    const snapshot = await acquireRuntimeCapabilityCatalog(
+      manager.getClients(),
+      createCapabilityVisibility([[key, 'worker']], 'proxy-a'),
+    );
+    expect(snapshot.isCurrent()).toBe(true);
+    await manager.prepareLogicalTemplateSession('proxy-b', { ...context, sessionId: 'proxy-b' });
+    expect(manager.getClients().get(key)).toBe(connection);
+    expect(snapshot.isCurrent()).toBe(true);
+    const instances = manager.getTemplateServerManager().getClientInstancePool().getTemplateInstances('worker');
+    expect(instances).toHaveLength(1);
+    expect(instances[0].referenceCount).toBe(2);
   });
 
   it('prepares logical templates before discovery without creating a transport connection', async () => {

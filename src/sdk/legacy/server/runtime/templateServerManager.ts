@@ -37,6 +37,7 @@ import logger, { debugIf } from '@src/logger/logger.js';
 import {
   createLegacyOutboundConnection,
   getLegacyClient,
+  getLegacyTransport,
 } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import type { AuthProviderTransport } from '@src/sdk/legacy/client/runtime/legacyTransport.js';
 import { Transport } from '@src/sdk/legacy/shared/transport.js';
@@ -199,17 +200,20 @@ export class TemplateServerManager {
         instance.outboundKeys.add(outboundKey);
 
         const instructions = instance.client.getInstructions();
-        outboundConns.set(
-          outboundKey,
-          createLegacyOutboundConnection({
-            name: templateName, // Keep clean name for tool namespacing (serena_1mcp_*)
-            transport: instance.transport as AuthProviderTransport,
-            client: instance.client,
-            status: ClientStatus.Connected, // Template servers should be connected
-            capabilities: instance.client.getServerCapabilities?.(),
-            instructions,
-          }),
-        );
+        // Joining a pooled instance must preserve its adapter and continuation ownership.
+        if (!this.matchesPooledTemplateInstance(outboundConns.get(outboundKey), instance)) {
+          outboundConns.set(
+            outboundKey,
+            createLegacyOutboundConnection({
+              name: templateName, // Keep clean name for tool namespacing (serena_1mcp_*)
+              transport: instance.transport as AuthProviderTransport,
+              client: instance.client,
+              status: ClientStatus.Connected, // Template servers should be connected
+              capabilities: instance.client.getServerCapabilities?.(),
+              instructions,
+            }),
+          );
+        }
         registerCapabilityPaginationNotifications(outboundConns, outboundConns.get(outboundKey)!);
         if (instance.supervision) {
           this.publishTemplateSupervision(instance, instance.supervision);
@@ -309,6 +313,15 @@ export class TemplateServerManager {
         }
       }
     }
+  }
+
+  private matchesPooledTemplateInstance(
+    connection: OutboundConnection | undefined,
+    instance: PooledClientInstance,
+  ): boolean {
+    if (!connection) return false;
+    if (getLegacyClient(connection) !== instance.client) return false;
+    return getLegacyTransport(connection) === instance.transport;
   }
 
   /**
