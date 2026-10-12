@@ -2,6 +2,8 @@ import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js'
 
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
+import { createCapabilityVisibility } from '@src/core/capabilities/capabilityVisibility.js';
+import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { ClientStatus, type OutboundConnections } from '@src/core/types/client.js';
 import type { MCPServerParams } from '@src/core/types/transport.js';
 
@@ -133,15 +135,22 @@ describe('ServerManager instruction initialization', () => {
       manager.connectTransport({} as Transport, 'bridge-one', { logicalTemplateSessionId: 'proxy-session' }, context),
       manager.connectTransport({} as Transport, 'bridge-two', { logicalTemplateSessionId: 'proxy-session' }, context),
     ]);
+    manager.getClients().set('backend:proxy-session', createMockOutboundConnection({ capabilities: {} }));
+    const snapshot = await acquireRuntimeCapabilityCatalog(
+      manager.getClients(),
+      createCapabilityVisibility([['backend:proxy-session', 'backend']], 'proxy-session'),
+    );
     await manager.disconnectTransport('bridge-one');
     await manager.disconnectTransport('bridge-two');
     expect(expired).toEqual([]);
+    expect(snapshot.isCurrent()).toBe(true);
     expect(connectTransport).toHaveBeenCalledTimes(2);
     vi.useFakeTimers();
     try {
       vi.advanceTimersByTime(300001);
       await manager.getTemplateServerManager().cleanupIdleInstances();
       expect(expired).toEqual(['proxy-session']);
+      expect(snapshot.isCurrent()).toBe(false);
     } finally {
       vi.useRealTimers();
     }

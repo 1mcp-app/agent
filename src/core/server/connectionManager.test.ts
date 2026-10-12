@@ -105,6 +105,20 @@ describe('ConnectionManager', () => {
     expect(snapshot.isCurrent()).toBe(false);
   });
 
+  it('preserves a logical session catalog scope when its private bridge disconnects', async () => {
+    await connectionManager.connectTransport(mockTransport, 'private-bridge', {
+      context: { sessionId: 'logical-proxy' },
+      logicalTemplateSessionId: 'logical-proxy',
+    });
+    mockOutboundConns.set('backend:logical-proxy', createMockOutboundConnection({ capabilities: {} }));
+    const snapshot = await acquireRuntimeCapabilityCatalog(
+      mockOutboundConns,
+      createCapabilityVisibility([['backend:logical-proxy', 'backend']], 'logical-proxy'),
+    );
+    await connectionManager.disconnectTransport('private-bridge');
+    expect(snapshot.isCurrent()).toBe(true);
+  });
+
   const mockServerConfig = { name: 'test-server', version: '1.0.0' };
   const mockServerCapabilities = { capabilities: { tools: {} } };
 
