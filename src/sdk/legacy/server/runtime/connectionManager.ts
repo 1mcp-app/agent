@@ -157,7 +157,9 @@ export class ConnectionManager {
           resourceCleanupError = error;
         }
         unregisterLegacyNotificationOwner(this.outboundConns.values(), connection);
-        evictRuntimeCapabilityCatalogSession(this.outboundConns, connection.context?.sessionId ?? sessionId);
+        if (!connection.logicalTemplateSessionId) {
+          evictRuntimeCapabilityCatalogSession(this.outboundConns, connection.context?.sessionId ?? sessionId);
+        }
 
         // Only close the transport if explicitly requested
         if (forceClose) {

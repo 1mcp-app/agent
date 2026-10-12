@@ -1,5 +1,6 @@
 import { ConfigManager } from '@src/config/configManager.js';
 import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
+import { evictRuntimeCapabilityCatalogSession } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { getGlobalContextManager } from '@src/core/context/globalContextManager.js';
 import { ClientTemplateTracker, FilterCache, getFilterCache, TemplateIndex } from '@src/core/filtering/index.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
@@ -94,6 +95,7 @@ export class ServerManager {
     );
     this.templateServerManager.registerLogicalTemplateSessionCleanup((sessionId) => {
       this.logicalTemplateContexts.delete(sessionId);
+      evictRuntimeCapabilityCatalogSession(this.outboundConns, sessionId);
     });
     this.mcpServerLifecycleManager = new MCPServerLifecycleManager();
     this.templateConfigurationManager = new TemplateConfigurationManager();
