@@ -9,6 +9,9 @@ function fixture() {
   Object.assign(manager, {
     cleanupCallbacks: new Set(),
     ownedCleanupCallbacks: new Set(),
+    logicalTemplateContexts: new Map(),
+    logicalTemplatePreparations: new Map(),
+    logicalBridgeSessions: new Set(),
     connectionManager: { cleanup: connectionCleanup },
     templateServerManager: { shutdown: templateShutdown },
     templateConfigurationManager: { cleanup: vi.fn() },
