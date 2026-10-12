@@ -18,6 +18,10 @@ import { createSseWireLimitedFetch, registerSseWireLimitOwner } from '@src/trans
 import type { ClientInfo, ContextData } from '@src/types/context.js';
 import { ClientInfoExtractor } from '@src/utils/client/clientInfoExtractor.js';
 
+import { z } from 'zod';
+
+const modernClientInfoSchema = z.object({ name: z.string(), version: z.string(), title: z.unknown().optional() });
+
 /**
  * STDIO Proxy Transport Options
  */
@@ -62,6 +66,7 @@ export class StdioProxyTransport {
   private serverUrl: URL;
   private downstreamPin?: ProtocolEraPin;
   private legacyInitializeRequestId?: string | number;
+  private readonly connectionTimestamp: string;
 
   constructor(private options: StdioProxyTransportOptions) {
     // Reset any previous state
@@ -76,6 +81,8 @@ export class StdioProxyTransport {
         version: MCP_SERVER_VERSION,
         sessionId: generateMcpSessionId(),
       });
+    this.connectionTimestamp =
+      this.context.transport?.connectionTimestamp ?? this.context.timestamp ?? new Date().toISOString();
 
     logger.info('stdioProxyTransport.detected.proxy.context.2cbf19e3', { sessionId: this.context.sessionId });
 
@@ -177,14 +184,18 @@ export class StdioProxyTransport {
         try {
           this.classifyDownstreamFrame(message);
           if ('result' in message) message = { ...message, result: stripBaggage(message.result) };
-          // Check for initialize request to extract client info
+          // Capture client facts once for the logical proxy session.
           if (!this.initializeIntercepted) {
-            const clientInfo = ClientInfoExtractor.extractFromInitializeRequest(toProtocolJSONRPCMessage(message));
+            const clientInfo =
+              this.extractModernClientInfo(message) ??
+              ClientInfoExtractor.extractFromInitializeRequest(toProtocolJSONRPCMessage(message));
             if (clientInfo) {
               this.clientInfo = clientInfo;
               this.initializeIntercepted = true;
 
-              logger.info('stdioProxyTransport.extracted.client.info.from.initialize.request.3006194b');
+              if ('method' in message && message.method === 'initialize') {
+                logger.info('stdioProxyTransport.extracted.client.info.from.initialize.request.3006194b');
+              }
 
               // Client info is now available - custom fetch will dynamically inject
               // the updated User-Agent header for all subsequent HTTP requests
@@ -261,6 +272,21 @@ export class StdioProxyTransport {
       });
     }
     this.downstreamPin ??= classified.value;
+  }
+
+  private extractModernClientInfo(message: JSONRPCMessage): ClientInfo | null {
+    if (!('method' in message) || message.method !== 'server/discover') return null;
+    const params = message.params;
+    if (typeof params !== 'object' || params === null) return null;
+    const meta = params._meta;
+    if (typeof meta !== 'object' || meta === null) return null;
+    const parsed = modernClientInfoSchema.safeParse(meta['io.modelcontextprotocol/clientInfo']);
+    if (!parsed.success) return null;
+    return {
+      name: parsed.data.name,
+      version: parsed.data.version,
+      title: typeof parsed.data.title === 'string' ? parsed.data.title : undefined,
+    };
   }
 
   private observeUpstreamFrame(message: JSONRPCMessage): void {
@@ -379,8 +405,9 @@ export class StdioProxyTransport {
       ...this.context,
       ...(this.clientInfo && {
         transport: {
+          ...this.context.transport,
           type: 'stdio-proxy',
-          connectionTimestamp: new Date().toISOString(),
+          connectionTimestamp: this.connectionTimestamp,
           client: this.clientInfo,
         },
       }),
