@@ -133,15 +133,23 @@ describe('modern HTTP template ingress', () => {
     'partitions resource ownership by logical proxy session with authenticated=%s',
     async (authenticated) => {
       const fixture = app(authenticated);
-      await post(fixture.instance, 'resources/list');
-      await post(fixture.instance, 'resources/list', { ...context, sessionId: 'proxy-b' });
-      await post(fixture.instance, 'resources/list', { ...context, timestamp: '2026-10-12T00:01:00Z' });
+      const first = await post(fixture.instance, 'resources/list');
+      expect(first.status).toBe(200);
+      expect(first.body.error, JSON.stringify(first.body)).toBeUndefined();
+      const second = await post(fixture.instance, 'resources/list', { ...context, sessionId: 'proxy-b' });
+      expect(second.status).toBe(200);
+      expect(second.body.error, JSON.stringify(second.body)).toBeUndefined();
+      const repeated = await post(fixture.instance, 'resources/list', { ...context, timestamp: '2026-10-12T00:01:00Z' });
+      expect(repeated.status).toBe(200);
+      expect(repeated.body.error, JSON.stringify(repeated.body)).toBeUndefined();
       const owners = fixture.createBridge.mock.calls.map((call) => call[2]?.resourceOwner);
       expect(owners[0]).toBeDefined();
       expect(owners[1]).not.toBe(owners[0]);
       expect(owners[2]).toBe(owners[0]);
       fixture.expire('proxy-a');
-      await post(fixture.instance, 'resources/list');
+      const recreated = await post(fixture.instance, 'resources/list');
+      expect(recreated.status).toBe(200);
+      expect(recreated.body.error, JSON.stringify(recreated.body)).toBeUndefined();
       expect(fixture.createBridge.mock.calls[3][2]?.resourceOwner).not.toBe(owners[0]);
     },
   );
