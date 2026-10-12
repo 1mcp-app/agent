@@ -29,12 +29,18 @@ export const PreparationTargetSchema = z
   })
   .strict();
 
-export function preparationKey(target: PreparationTarget, policy: BackendPolicy, options: PreparationOptions): string {
+export function preparationKey(
+  target: PreparationTarget,
+  policy: BackendPolicy,
+  options: PreparationOptions,
+  operation?: string,
+): string {
   return JSON.stringify([
     target.checkoutRoot,
     target.backendName,
     target.backendIdentity,
     target.configurationKey,
+    operation,
     [...new Set(policy.allowedActions)].sort(),
     policy.executionDeadlineMs ?? options.executionDeadlineMs,
     policy.transientRetryLimit ?? 0,
