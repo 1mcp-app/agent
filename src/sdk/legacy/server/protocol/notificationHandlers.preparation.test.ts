@@ -48,9 +48,17 @@ beforeEach(() => {
     command: 'fixture',
     template: {},
     preparation: {
-      adapter: 'codegraph',
-      executable: '/installed/codegraph',
-      expectedVersion: '1.6.2',
+      adapter: 'configured-command',
+      affectedTools: ['codegraph_explore'],
+      integration: {
+        probe: { executable: '/installed/probe', args: [] },
+        readinessExitCodes: { '0': { state: 'ready' } },
+        actions: {},
+        containment: 'posix-process-group',
+        inspectionTimeoutMs: 5000,
+        outputLimitBytes: 16384,
+        terminationGraceMs: 500,
+      },
       allowedActions: ['initialize', 'sync'],
     },
   };

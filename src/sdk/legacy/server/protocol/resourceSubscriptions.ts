@@ -329,8 +329,8 @@ function preparationCatalogIdentity(connection: LegacyOutboundConnection, bindin
   const preparation = definition?.preparation;
   if (
     definition?.disabled ||
-    preparation?.adapter !== 'codegraph' ||
-    preparation.expectedVersion !== '1.6.2' ||
+    preparation?.adapter !== 'configured-command' ||
+    !preparation.integration ||
     !preparation.allowedActions.length
   )
     return undefined;

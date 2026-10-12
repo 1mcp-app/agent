@@ -38,9 +38,14 @@ const definition = {
   tags: ['allowed'],
   template: {},
   preparation: {
-    adapter: 'codegraph',
-    executable: '/installed/codegraph',
-    expectedVersion: '1.6.2',
+    adapter: 'configured-command',
+    affectedTools: ['codegraph_explore'],
+    integration: {
+      probe: { executable: '/installed/probe', args: [] },
+      readinessExitCodes: { '0': { state: 'ready' } },
+      actions: {},
+      containment: 'posix-process-group',
+    },
     allowedActions: ['initialize', 'sync'],
   },
 };
@@ -73,22 +78,15 @@ vi.mock('@src/core/runtime/runtimeIdentityService.js', () => ({
     }
   },
 }));
-vi.mock('@src/domains/backend-preparation/codegraphAdapter.js', () => ({
-  requiresCodeGraphPreparation: (name: string) => name === 'codegraph_explore',
-  CodeGraphPreparationAdapter: class {
+vi.mock('@src/domains/backend-preparation/configuredCommandAdapter.js', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  ConfiguredCommandPreparationAdapter: class {
     inspect = native.inspect;
     prepare = native.prepare;
     classifyFailure() {
       return { code: 'fixture', message: 'Fixture failure', retryable: false, instructions: 'Retry' };
     }
   },
-}));
-vi.mock('@src/domains/backend-preparation/codegraphReadOnly.js', () => ({
-  getCodeGraphPreparationToolDefinition: async () => ({
-    name: 'codegraph_explore',
-    inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] },
-  }),
-  disposeCodeGraphPreparationToolMetadata: async () => undefined,
 }));
 vi.mock('@src/core/capabilities/runtimeCapabilityCatalog.js', () => ({ acquireRuntimeCapabilityCatalog: vi.fn() }));
 
@@ -148,9 +146,13 @@ describe('legacy source preparation entrypoint', () => {
       const manager = {
         getBindingContexts: () => new Map([['binding-a', context]]),
         getBindingAuthority: () => authority,
+        getBindingPolicies: () => [],
+        getAllRenderedHashesForSession: () => new Map(),
+        getRenderedHashForSession: () => undefined,
       };
       currentServer = {
         getTemplateServerManager: () => manager,
+        getClients: () => new Map(),
         registerOwnedCleanup: (cleanup: () => Promise<void>) => cleanups.unshift(cleanup),
       } as unknown as ServerManager;
       native.inspect.mockResolvedValue({
