@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from 'node:util';
+
 import { isOperatorDisabledTemplateDefinition } from '@src/config/configuredServerTargets.js';
 import { getRuntimeScopeEnvironment, sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
 import { createRuntimeTargetFingerprint } from '@src/config/runtimeTargetFingerprint.js';
@@ -38,6 +40,7 @@ import {
   createLegacyOutboundConnection,
   getLegacyClient,
   getLegacyTransport,
+  snapshotSupervision,
 } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import type { AuthProviderTransport } from '@src/sdk/legacy/client/runtime/legacyTransport.js';
 import { Transport } from '@src/sdk/legacy/shared/transport.js';
@@ -528,6 +531,17 @@ export class TemplateServerManager {
     return this.clientInstancePool.restartInstance(instance);
   }
 
+  private isCurrentSupervisionPublication(
+    connection: OutboundConnection,
+    instance: PooledClientInstance,
+    status: ClientStatus,
+    snapshot: BackendSupervisionSnapshot,
+  ): boolean {
+    if (!this.matchesPooledTemplateInstance(connection, instance)) return false;
+    if (connection.status !== status) return false;
+    return isDeepStrictEqual(connection.supervision, snapshotSupervision(snapshot));
+  }
+
   private publishTemplateSupervision(instance: PooledClientInstance, snapshot: BackendSupervisionSnapshot): void {
     instance.supervision = snapshot;
     for (const outboundKey of instance.outboundKeys) {
@@ -541,17 +555,19 @@ export class TemplateServerManager {
             : snapshot.state === 'stopped'
               ? ClientStatus.Disconnected
               : ClientStatus.Restarting;
-        const replacement = createLegacyOutboundConnection({
-          name: connection.name,
-          client: instance.client,
-          transport: instance.transport as AuthProviderTransport,
-          status,
-          capabilities: connected ? instance.client.getServerCapabilities?.() : undefined,
-          instructions: connected ? instance.client.getInstructions?.() : undefined,
-          supervision: snapshot,
-        });
-        this.outboundConns?.set(outboundKey, replacement);
-        registerCapabilityPaginationNotifications(this.outboundConns!, replacement);
+        if (!this.isCurrentSupervisionPublication(connection, instance, status, snapshot)) {
+          const replacement = createLegacyOutboundConnection({
+            name: connection.name,
+            client: instance.client,
+            transport: instance.transport as AuthProviderTransport,
+            status,
+            capabilities: connected ? instance.client.getServerCapabilities?.() : undefined,
+            instructions: connected ? instance.client.getInstructions?.() : undefined,
+            supervision: snapshot,
+          });
+          this.outboundConns?.set(outboundKey, replacement);
+          registerCapabilityPaginationNotifications(this.outboundConns!, replacement);
+        }
       }
       ClientManager.current?.publishBackendSupervisionState(outboundKey, snapshot);
     }
