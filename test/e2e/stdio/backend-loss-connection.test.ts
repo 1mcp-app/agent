@@ -98,8 +98,6 @@ describe('backend loss preserves real client connections', () => {
                       url!.href,
                       '--config-dir',
                       directory,
-                      '--enable-client-notifications',
-                      String(notificationsEnabled),
                       '--log-level',
                       'debug',
                       '--log-file',
@@ -114,6 +112,8 @@ describe('backend loss preserves real client connections', () => {
                       config,
                       '--config-dir',
                       directory,
+                      '--enable-client-notifications',
+                      String(notificationsEnabled),
                     ],
               stderr: 'pipe',
             });
