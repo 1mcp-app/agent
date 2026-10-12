@@ -76,6 +76,9 @@ describe('configured preparation jobs', () => {
       status: { id: result.status.id, state: 'not_ready' },
     });
     expect(calls).toBe(1);
+    expect(
+      await jobs.admit(target, 'symbols', { allowedActions: ['initialize', 'sync'] }, { fixture: { enabled: true } }),
+    ).toMatchObject({ state: 'job', status: { id: result.status.id, state: 'not_ready' } });
     await jobs.shutdown();
   });
   it('keeps readiness and job identity specific to each requested operation', async () => {

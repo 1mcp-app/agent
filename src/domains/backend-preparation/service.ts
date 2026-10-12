@@ -319,6 +319,9 @@ export class BackendPreparationService {
       }
     }
     if (result.state !== 'job') return result;
+    if (result.status.state === 'failed') return result;
+    if (result.status.state === 'not_ready') return result;
+    if (result.status.state === 'cancelled') return result;
     return this.pending(
       result.status,
       `Preparation ${result.status.id} is ${result.status.state}. Check status or wait, then submit the original operation again.`,
