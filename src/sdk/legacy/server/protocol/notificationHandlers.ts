@@ -38,6 +38,7 @@ async function setupCatalogCoverage(
   inbound: InboundConnection,
   connection: LegacyOutboundConnection,
 ): Promise<void> {
+  if (connection.status !== ClientStatus.Connected) return;
   const kinds = ['tools', 'resources', 'prompts'] as const;
   if (connection.adapter.protocol?.era === 'modern') {
     const filter: ModernSubscriptionFilter = {};

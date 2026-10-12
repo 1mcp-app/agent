@@ -3,6 +3,7 @@ import {
   type RuntimeCapabilitySnapshot,
 } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { getRequestSession, resolveCapabilityVisibility } from '@src/core/protocol/requestHandlerUtils.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ClientStatus, type InboundConnection, ServerStatus } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 import { toJsonValue } from '@src/sdk/contracts/index.js';
@@ -556,6 +557,7 @@ export function enqueueOwnedNotification(
     'notifications/prompts/list_changed': 'prompts',
   } as const;
   const kind = kinds[notification.method as keyof typeof kinds];
+  if (kind && !AgentConfigManager.getInstance().get('features').clientNotifications) return;
   if (kind && inbound.subscriptionListKinds && !inbound.subscriptionListKinds.includes(kind)) return;
   const owner = getOwner(connections, inbound);
   const encoded = JSON.stringify(notification);
@@ -578,7 +580,27 @@ export async function subscribeOwnedResource(
   if (owner.closed) throw new Error('Resource subscription owner is closed');
   if (authorize) owner.authorize ??= authorize;
   const existing = owner.watches.get(uri);
-  if (existing) return existing.ready;
+  if (existing) {
+    await existing.ready;
+    try {
+      await assertWatchCurrent(existing);
+      return;
+    } catch (error) {
+      if (owner.inbound.subscriptionListKinds !== undefined) {
+        terminate(owner);
+        throw error;
+      }
+      if (owner.inbound.status !== ServerStatus.Connected) {
+        terminate(owner);
+        throw error;
+      }
+      if (existing.authorize && !(await existing.authorize())) {
+        terminate(owner);
+        throw error;
+      }
+      await detach(existing).catch(() => undefined);
+    }
+  }
   if (Buffer.byteLength(uri) > MAX_URI_BYTES) throw new Error('Resource subscription URI exceeds limit');
   releaseClosedUpstreamReservations();
   if (

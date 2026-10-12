@@ -83,6 +83,13 @@ describe('modern catalog coverage for legacy connections', () => {
     });
   });
 
+  it('does not reopen catalog coverage on a disconnected modern backend', async () => {
+    const { connection, coverage, connections } = fixture();
+    Object.assign(connection, { status: 'disconnected' });
+    await setupClientToServerNotifications(connections, createMockInboundConnection());
+    expect(coverage).not.toHaveBeenCalled();
+  });
+
   it('does not request unselected catalog coverage for a resource-only bridge', async () => {
     const { coverage, connections } = fixture();
     await setupClientToServerNotifications(connections, createMockInboundConnection({ subscriptionListKinds: [] }));

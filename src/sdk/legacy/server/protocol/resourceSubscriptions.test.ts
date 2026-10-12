@@ -614,6 +614,22 @@ describe('owned legacy resource subscriptions', () => {
     );
   });
 
+  it('explicitly subscribes a replacement generation before the owner monitor runs', async () => {
+    const owner = fixture();
+    await subscribeOwnedResource(connections, owner, 'public:file:///a');
+    const retired = upstream.adapter;
+    Object.assign(upstream, { adapter: { ...retired } });
+    await subscribeOwnedResource(connections, owner, 'public:file:///a');
+    const subscribes = mocks.request.mock.calls.filter(([, method]) => method === 'resources/subscribe');
+    expect(subscribes).toHaveLength(2);
+    expect(subscribes[1][0].adapter).toBe(upstream.adapter);
+    const unsubscribes = mocks.request.mock.calls.filter(([, method]) => method === 'resources/unsubscribe');
+    expect(unsubscribes).toHaveLength(1);
+    expect(unsubscribes[0][0].adapter).toBe(retired);
+    deliverOwnedResourceUpdate(upstream, update());
+    await vi.waitFor(() => expect(owner.adapter.notify).toHaveBeenCalledOnce());
+  });
+
   it('rejects oversized URI and terminates oversized delivery', async () => {
     const owner = fixture();
     await expect(subscribeOwnedResource(connections, owner, 'a'.repeat(8193))).rejects.toThrow('URI exceeds');
