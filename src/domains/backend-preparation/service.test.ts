@@ -223,19 +223,17 @@ describe('backend preparation lifecycle', () => {
     expect(service.scheduler.counts()).toEqual({ active: 2, queued: 1 });
   });
 
-  it('returns truthful pending within the wait budget without executing or replaying the original operation', async () => {
+  it('returns truthful pending immediately within the wait budget without executing or replaying the original operation', async () => {
     const { service, adapter } = setup();
     let operations = 0;
     const admission = service.admit(target, 'symbols', policy, { graph: { enabled: true } });
     await flush();
-    await vi.advanceTimersByTimeAsync(4999);
     let completed = false;
     void admission.then(() => {
       completed = true;
     });
     await flush();
-    expect(completed).toBe(false);
-    await vi.advanceTimersByTimeAsync(1);
+    expect(completed).toBe(true);
     const result = await admission;
     expect(result).toMatchObject({ state: 'pending', operationExecuted: false, operationQueued: false });
     expect(operations).toBe(0);
@@ -684,10 +682,10 @@ describe('backend preparation lifecycle', () => {
     adapter.calls[0].finish();
     const second = await admission;
     expect(second).toMatchObject({
-      state: 'job',
+      state: 'pending',
       status: { operation: 'full-coverage', action: 'rebuild', state: 'queued' },
     });
-    if (first.state !== 'job' || second.state !== 'job') throw new Error('Expected jobs');
+    if (first.state !== 'job' || second.state !== 'pending') throw new Error('Expected jobs');
     expect(second.status.id).not.toBe(first.status.id);
   });
 
@@ -993,7 +991,7 @@ describe('backend preparation lifecycle', () => {
     expect(adapter.calls).toHaveLength(0);
   });
 
-  it('returns truthful pending when preparation reaches ready but operation verification uses the last caller budget', async () => {
+  it('reports unknown when another operation exhausts its probe budget instead of borrowing shared readiness', async () => {
     const { service, adapter } = setup();
     await service.prepare(target, 'symbols', policy);
     await flush();
@@ -1007,10 +1005,8 @@ describe('backend preparation lifecycle', () => {
     adapter.calls[0].finish();
     await vi.advanceTimersByTimeAsync(1);
     expect(await admission).toMatchObject({
-      state: 'pending',
-      status: { state: 'ready' },
-      operationExecuted: false,
-      operationQueued: false,
+      state: 'unknown',
+      reason: 'inspection_timeout',
     });
     expect(adapter.calls).toHaveLength(1);
   });
