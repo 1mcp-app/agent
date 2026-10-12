@@ -26,6 +26,7 @@ export class LegacyGatewayClientAdapter extends LegacySdkClientAdapter {
     const owner = this;
     const direct: LegacySdkAdapter = {
       connectionId: this.connectionId,
+      protocolPin: this.protocolPin,
       get state() {
         return owner.state;
       },

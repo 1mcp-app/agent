@@ -62,6 +62,9 @@ importers:
       https-proxy-agent:
         specifier: ^9.0.0
         version: 9.1.0
+      jose:
+        specifier: 6.2.8
+        version: 6.2.8
       json5:
         specifier: ^2.2.3
         version: 2.2.3

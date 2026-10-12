@@ -60,6 +60,11 @@ export interface AgentConfig {
     oauthCodeTtlMs: number;
     oauthTokenTtlMs: number;
   };
+  cloudflareAccess: {
+    issuer?: string;
+    audience?: string;
+    groupTagMap: Record<string, string[]>;
+  };
   rateLimit: {
     windowMs: number;
     max: number;
@@ -168,6 +173,7 @@ export class AgentConfigManager {
         oauthCodeTtlMs: AUTH_CONFIG.SERVER.AUTH_CODE.TTL_MS,
         oauthTokenTtlMs: AUTH_CONFIG.SERVER.TOKEN.TTL_MS,
       },
+      cloudflareAccess: { groupTagMap: {} },
       rateLimit: {
         windowMs: RATE_LIMIT_CONFIG.OAUTH.WINDOW_MS,
         max: RATE_LIMIT_CONFIG.OAUTH.MAX,

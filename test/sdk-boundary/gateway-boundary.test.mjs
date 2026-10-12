@@ -89,6 +89,7 @@ test('gateway production attachment is confined to explicit inbound and outbound
     'src/sdk/legacy/transport/http/modernInboundLegacyBridge.ts -> @src/gateway/adapters/legacy/legacyOutboundEraAdapter.js',
     'src/sdk/legacy/transport/stdioProxyTransport.ts -> @src/gateway/contracts/index.js',
     'src/transport/http/middlewares/errorHandler.ts -> @src/gateway/contracts/protocolEra.js',
+    'src/transport/http/routes/modernHttpRoutes.ts -> @src/gateway/adapters/configuredServerEventsProvider.js',
     'src/transport/http/routes/modernHttpRoutes.ts -> @src/gateway/adapters/modern/modernInboundEraAdapter.js',
     'src/transport/http/routes/modernHttpRoutes.ts -> @src/gateway/contracts/effectiveRequestAuthority.js',
     'src/transport/http/routes/modernHttpRoutes.ts -> @src/gateway/contracts/index.js',
