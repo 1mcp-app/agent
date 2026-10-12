@@ -79,6 +79,8 @@ export class TemplateServerManager {
   private instructionAggregator?: InstructionAggregator;
   private ephemeralClients = new Map<string, Map<string, EphemeralTemplateClient>>();
   private persistentSessions = new Set<string>();
+  private logicalSessions = new Map<string, { lastUsedAt: number; retainCount: number }>();
+  private logicalSessionCleanup = new Set<(sessionId: string) => void>();
   private outboundConns?: OutboundConnections;
   private transports?: Record<string, Transport>;
   private templateConfigHashes = new Map<string, string>();
@@ -320,6 +322,7 @@ export class TemplateServerManager {
     this.outboundConns = outboundConns;
     this.transports = transports;
 
+    this.expireLogicalSession(sessionId);
     await cleanupTemplateServersForSession(sessionId, outboundConns, transports, {
       clientInstancePool: this.clientInstancePool,
       clientTemplateTracker: this.clientTemplateTracker,
@@ -327,6 +330,39 @@ export class TemplateServerManager {
       ephemeralClients: this.ephemeralClients,
       persistentSessions: this.persistentSessions,
     });
+  }
+
+  public registerLogicalTemplateSessionCleanup(listener: (sessionId: string) => void): () => void {
+    this.logicalSessionCleanup.add(listener);
+    return () => {
+      this.logicalSessionCleanup.delete(listener);
+    };
+  }
+
+  public touchLogicalTemplateSession(sessionId: string): void {
+    const session = this.logicalSessions.get(sessionId) ?? { lastUsedAt: Date.now(), retainCount: 0 };
+    session.lastUsedAt = Date.now();
+    this.logicalSessions.set(sessionId, session);
+    this.touchEphemeralClient(sessionId);
+  }
+
+  public retainLogicalTemplateSession(sessionId: string): () => void {
+    this.touchLogicalTemplateSession(sessionId);
+    const session = this.logicalSessions.get(sessionId)!;
+    session.retainCount++;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      session.retainCount--;
+      session.lastUsedAt = Date.now();
+      this.touchEphemeralClient(sessionId);
+    };
+  }
+
+  private expireLogicalSession(sessionId: string): void {
+    if (!this.logicalSessions.delete(sessionId)) return;
+    for (const listener of this.logicalSessionCleanup) listener(sessionId);
   }
 
   public trackPersistentClient(sessionId: string): void {
@@ -532,13 +568,32 @@ export class TemplateServerManager {
     outboundConns: OutboundConnections = this.outboundConns ?? new Map<string, OutboundConnection>(),
     transports: Record<string, Transport> = this.transports ?? {},
   ): Promise<number> {
+    const sessionsWithMembership = new Set(this.ephemeralClients.keys());
+    // Active requests and subscriptions retain their contextual membership.
+    for (const [sessionId, session] of this.logicalSessions) {
+      if (session.retainCount > 0) this.touchEphemeralClient(sessionId);
+    }
     await cleanupExpiredEphemeralClients(outboundConns, transports, {
       clientInstancePool: this.clientInstancePool,
       clientTemplateTracker: this.clientTemplateTracker,
       sessionToRenderedHash: this.sessionToRenderedHash,
       ephemeralClients: this.ephemeralClients,
-      persistentSessions: this.persistentSessions,
+      persistentSessions: new Set([
+        ...this.persistentSessions,
+        ...Array.from(this.logicalSessions)
+          .filter(([, session]) => session.retainCount > 0)
+          .map(([sessionId]) => sessionId),
+      ]),
     });
+
+    for (const [sessionId, session] of this.logicalSessions) {
+      if (session.retainCount > 0) continue;
+      if (this.ephemeralClients.has(sessionId)) continue;
+      if (!sessionsWithMembership.has(sessionId)) {
+        if (Date.now() - session.lastUsedAt <= this.poolPolicy.idleTimeoutMs) continue;
+      }
+      this.expireLogicalSession(sessionId);
+    }
 
     // Get all instances from the pool
     const allInstances = this.clientInstancePool.getAllInstances();
@@ -793,6 +848,8 @@ export class TemplateServerManager {
       this.cleanupTimer = undefined;
     }
 
+    for (const sessionId of this.logicalSessions.keys()) this.expireLogicalSession(sessionId);
+    this.logicalSessionCleanup.clear();
     this.ephemeralClients.clear();
     this.persistentSessions.clear();
     this.sessionToRenderedHash.clear();

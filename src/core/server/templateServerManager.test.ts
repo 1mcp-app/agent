@@ -474,6 +474,26 @@ describe('TemplateServerManager', () => {
       expect(transports).not.toHaveProperty('zero');
     });
 
+    it('retains a logical session while a subscription is active and expires it after release', async () => {
+      vi.useFakeTimers();
+      try {
+        const expired: string[] = [];
+        templateServerManager.registerLogicalTemplateSessionCleanup((sessionId) => expired.push(sessionId));
+        templateServerManager.touchLogicalTemplateSession('proxy-session');
+        const release = templateServerManager.retainLogicalTemplateSession('proxy-session');
+        vi.advanceTimersByTime(300001);
+        await templateServerManager.cleanupIdleInstances();
+        expect(expired).toEqual([]);
+        release();
+        release();
+        vi.advanceTimersByTime(300001);
+        await templateServerManager.cleanupIdleInstances();
+        expect(expired).toEqual(['proxy-session']);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('expires stale ephemeral REST sessions and leaves persistent sessions active', async () => {
       vi.useFakeTimers();
       try {
