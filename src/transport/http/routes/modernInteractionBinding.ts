@@ -97,14 +97,20 @@ export async function createModernInteractionBinding(
   const publicIdentity = record[kind === 'resources' ? 'uri' : 'name'];
   if (typeof publicIdentity !== 'string') return undefined;
   const connections = manager.getClients();
-  const visible = FilteringService.getFilteredConnections(filterConnectionsForSession(connections, undefined), config);
+  const visible = FilteringService.getFilteredConnections(
+    filterConnectionsForSession(connections, config.logicalTemplateSessionId),
+    config,
+  );
   let visibility = createCapabilityVisibility(
     Array.from(visible, ([key, connection]) => [key, connection.name || key] as const),
-    undefined,
+    config.logicalTemplateSessionId,
     { ...config },
   );
   if (kind === 'resources') {
-    visibility = { ...resolveCapabilityVisibility(connections, config, undefined, 'resources'), resourceOwner };
+    visibility = {
+      ...resolveCapabilityVisibility(connections, config, config.logicalTemplateSessionId, 'resources'),
+      resourceOwner,
+    };
   }
   const serverConfigs = getConfiguredServerTargets();
   const snapshot = await acquireRuntimeCapabilityCatalog(

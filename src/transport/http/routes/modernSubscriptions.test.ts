@@ -2,13 +2,14 @@ import { EventEmitter } from 'node:events';
 
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
-import { ClientStatus } from '@src/core/types/index.js';
+import { ClientStatus, type InboundConnectionConfig } from '@src/core/types/index.js';
 
 import type { Request, Response } from 'express';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ModernInboundBridgeFactory } from './modernHttpRoutes.js';
 import {
+  cancelModernSubscription,
   closeModernSubscriptions,
   getModernSubscriptionCapabilities,
   serveModernSubscription,
@@ -85,12 +86,12 @@ function fixture() {
     notify = options!.subscriptionNotification!;
     return { targetConnectionId: 'private', outbound: {} as never, subscribe, prepareSubscriptions: prepare, close };
   }) as ModernInboundBridgeFactory;
-  function start(filter: Record<string, unknown> = {}) {
+  function start(filter: Record<string, unknown> = {}, config: InboundConnectionConfig = {}) {
     const req = {
       body: { jsonrpc: '2.0', id: 7, method: 'subscriptions/listen', params: { notifications: filter } },
       get: () => undefined,
     } as unknown as Request;
-    return serveModernSubscription(req, response as unknown as Response, manager, {}, factory, controller.signal);
+    return serveModernSubscription(req, response as unknown as Response, manager, config, factory, controller.signal);
   }
   return {
     manager,
@@ -121,6 +122,27 @@ afterEach(async () => {
 const messages = (frames: string[]) => frames.map((frame) => JSON.parse(frame.split('data: ')[1]));
 
 describe('modern subscription ownership', () => {
+  it('keeps same-grant cancellation within the logical session and context generation', async () => {
+    const value = tracked();
+    const config = { logicalTemplateSessionId: 'proxy-a', logicalTemplateBindingId: 'context-a' };
+    const pending = value.start({ toolsListChanged: true }, config);
+    await vi.waitFor(() => expect(value.frames).toHaveLength(1));
+    const req = { body: { params: { requestId: 7 } } } as Request;
+    cancelModernSubscription(req, value.response as unknown as Response, value.manager, {
+      ...config,
+      logicalTemplateSessionId: 'proxy-b',
+    });
+    expect(value.close).not.toHaveBeenCalled();
+    cancelModernSubscription(req, value.response as unknown as Response, value.manager, {
+      ...config,
+      logicalTemplateBindingId: 'context-b',
+    });
+    expect(value.close).not.toHaveBeenCalled();
+    cancelModernSubscription(req, value.response as unknown as Response, value.manager, config);
+    await pending;
+    expect(value.close).toHaveBeenCalledOnce();
+  });
+
   it('advertises only supported notification coverage across the visible provider set', () => {
     const value = tracked();
     value.connections.clear();

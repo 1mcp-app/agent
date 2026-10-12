@@ -114,7 +114,10 @@ function proxy(directory: string, project: string, modern: boolean) {
   let buffer = '';
   let stderr = '';
   let id = 0;
-  const pending = new Map<number, { resolve: (value: Result) => void; reject: (error: Error) => void }>();
+  const pending = new Map<
+    number,
+    { resolve: (value: Result) => void; reject: (error: Error) => void; method: string }
+  >();
   child.stderr.on('data', (data) => (stderr += String(data)));
   child.stdout.on('data', (data) => {
     buffer += String(data);
@@ -125,7 +128,7 @@ function proxy(directory: string, project: string, modern: boolean) {
       const waiter = pending.get(response.id);
       if (!waiter) continue;
       pending.delete(response.id);
-      if (response.error) waiter.reject(new Error(JSON.stringify(response.error)));
+      if (response.error) waiter.reject(new Error(`${waiter.method}: ${JSON.stringify(response.error)}`));
       else waiter.resolve(response.result);
     }
   });
@@ -141,6 +144,7 @@ function proxy(directory: string, project: string, modern: boolean) {
         reject(new Error(`Proxy request timed out: ${method}: ${stderr}`));
       }, 12000);
       pending.set(requestId, {
+        method,
         resolve: (value) => {
           clearTimeout(timer);
           resolve(value);
