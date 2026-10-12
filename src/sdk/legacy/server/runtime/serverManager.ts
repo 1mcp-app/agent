@@ -333,7 +333,8 @@ export class ServerManager {
     opts: InboundConnectionConfig,
     context?: ContextData,
   ): Promise<void> {
-    const templateContext = context ?? (opts.context as ContextData | undefined);
+    const templateContext =
+      context ?? (opts.logicalTemplateSessionId ? (opts.context as ContextData | undefined) : undefined);
     if (opts.logicalTemplateSessionId && templateContext) {
       await this.prepareLogicalTemplateSession(opts.logicalTemplateSessionId, templateContext, opts);
       this.logicalBridgeSessions.add(sessionId);
