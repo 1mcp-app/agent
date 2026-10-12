@@ -19,6 +19,33 @@ describe.each([
   addFormats.default(validator);
   const validate = validator.compile(schema);
 
+  it.each(['instructionTemplates', 'publishedInstructionTemplates'] as const)(
+    'matches runtime protected identities and permissive template input for %s',
+    (field) => {
+      for (const [identity, extra] of [
+        ['default', false],
+        ['team', false],
+        ['team', true],
+      ] as const) {
+        const config = {
+          mcpServers: {},
+          [field]: { [identity]: { initialization: 'init', cli: 'cli', ...(extra ? { extra: 'stripped' } : {}) } },
+        };
+        expect(validate(config), JSON.stringify(config)).toBe(mcpServerConfigSchema.safeParse(config).success);
+      }
+    },
+  );
+
+  it.each(['mcpServers', 'mcpTemplates'] as const)('matches runtime logical override names for %s', (field) => {
+    for (const name of ['search', ' search', 'search ', '\tsearch', 'search\n', 'two words', '']) {
+      const config = {
+        mcpServers: {},
+        [field]: { backend: { command: 'node', toolDescriptionOverrides: { [name]: 'text' } } },
+      };
+      expect(validate(config), JSON.stringify(name)).toBe(mcpServerConfigSchema.safeParse(config).success);
+    }
+  });
+
   it('preserves configured preparation authority in published and generated schemas', () => {
     const integration = {
       probe: { executable: '/installed/probe', args: ['{checkout}', '{operation}'] },

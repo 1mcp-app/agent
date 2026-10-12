@@ -354,6 +354,20 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
 
       const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
 
+      if (
+        visibleServerNames &&
+        !visibleServerNames.has(target.serverName) &&
+        (!lazyOrchestrator || hasFilterSelection)
+      ) {
+        res.status(404).json({ error: `Server not found: ${target.serverName}` });
+        return;
+      }
+      const earlyDisabledToolError = getDisabledToolInvocationError(target.serverName, target.toolName);
+      if (earlyDisabledToolError) {
+        res.status(404).json({ error: earlyDisabledToolError });
+        return;
+      }
+
       const auth = getAuthInfo(res);
       const rawOwner = req.headers?.[CONTEXT_HEADERS.SESSION_ID];
       const ownerSessionId = Array.isArray(rawOwner) ? rawOwner[0] : rawOwner;

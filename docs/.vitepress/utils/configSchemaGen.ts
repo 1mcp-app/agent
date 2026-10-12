@@ -84,6 +84,7 @@ export function generateMcpConfigSchema(_zodSchema: z.ZodType, fullConfigSchema:
       io: 'input',
       unrepresentable: 'any',
     });
+    preserveMcpInputRefinements(schema);
 
     const $id = `${SCHEMA_BASE_URL}/${SCHEMA_VERSION}/mcp-config.json`;
 
@@ -98,6 +99,31 @@ export function generateMcpConfigSchema(_zodSchema: z.ZodType, fullConfigSchema:
     const message = `Failed to generate MCP config schema: ${error instanceof Error ? error.message : String(error)}`;
     process.stderr.write(`[schema-gen] ${message}\n`);
     throw new Error(message);
+  }
+}
+
+/** Preserve runtime input refinements that Zod cannot express during conversion. */
+function preserveMcpInputRefinements(schema: Record<string, unknown>): void {
+  const properties = schema.properties as Record<string, Record<string, unknown>> | undefined;
+  for (const field of ['instructionTemplates', 'publishedInstructionTemplates']) {
+    const templates = properties?.[field];
+    if (templates) {
+      templates.propertyNames = {
+        ...(templates.propertyNames as Record<string, unknown>),
+        not: { const: 'default' },
+      };
+    }
+  }
+  for (const field of ['mcpServers', 'mcpTemplates']) {
+    const transport = properties?.[field]?.additionalProperties as Record<string, unknown> | undefined;
+    const transportProperties = transport?.properties as Record<string, Record<string, unknown>> | undefined;
+    const overrides = transportProperties?.toolDescriptionOverrides;
+    if (overrides) {
+      overrides.propertyNames = {
+        ...(overrides.propertyNames as Record<string, unknown>),
+        pattern: '^\\S(?:[\\s\\S]*\\S)?$',
+      };
+    }
   }
 }
 

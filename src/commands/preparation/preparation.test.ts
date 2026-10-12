@@ -54,6 +54,14 @@ describe('preparation CLI', () => {
     expect(attach).not.toHaveBeenCalled();
   });
 
+  it.each(['prepare', 'inspect'] as const)('names %s when rejecting an unexpected operation id', async (action) => {
+    const attach = vi.mocked(attachReusableClientSurface).mockClear();
+    await expect(
+      preparationCommand({ action, backend: 'fixture', id: '00000000-0000-4000-8000-000000000001' }),
+    ).rejects.toThrow(`${action} does not accept an operation id`);
+    expect(attach).not.toHaveBeenCalled();
+  });
+
   it.each(['wait', 'prepare', 'status', 'retry'] as const)(
     'allows %s to complete at a runtime-configured budget longer than 15 seconds',
     async (action) => {

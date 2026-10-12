@@ -39,7 +39,7 @@ const optionsSchema = z
     if (['wait', 'cancel'].includes(value.action) && !value.id)
       context.addIssue({ code: 'custom', message: 'wait and cancel require an operation id' });
     if (['prepare', 'inspect'].includes(value.action) && value.id)
-      context.addIssue({ code: 'custom', message: 'prepare does not accept an operation id' });
+      context.addIssue({ code: 'custom', message: `${value.action} does not accept an operation id` });
     if (value['wait-ms'] !== undefined && value.action !== 'wait')
       context.addIssue({ code: 'custom', message: '--wait-ms is only accepted for wait' });
   });

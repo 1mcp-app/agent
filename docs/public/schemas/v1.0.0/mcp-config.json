@@ -499,7 +499,8 @@
             "type": "object",
             "propertyNames": {
               "type": "string",
-              "minLength": 1
+              "minLength": 1,
+              "pattern": "^\\S(?:[\\s\\S]*\\S)?$"
             },
             "additionalProperties": {
               "type": "string",
@@ -1083,7 +1084,8 @@
             "type": "object",
             "propertyNames": {
               "type": "string",
-              "minLength": 1
+              "minLength": 1,
+              "pattern": "^\\S(?:[\\s\\S]*\\S)?$"
             },
             "additionalProperties": {
               "type": "string",
@@ -1326,7 +1328,10 @@
       "type": "object",
       "propertyNames": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "not": {
+          "const": "default"
+        }
       },
       "additionalProperties": {
         "type": "object",
@@ -1351,7 +1356,10 @@
       "type": "object",
       "propertyNames": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "not": {
+          "const": "default"
+        }
       },
       "additionalProperties": {
         "type": "object",

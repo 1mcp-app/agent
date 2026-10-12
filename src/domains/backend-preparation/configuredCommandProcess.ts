@@ -107,6 +107,7 @@ export async function runConfiguredCommand(
     let escalation: ReturnType<typeof setTimeout> | undefined;
     let poll: ReturnType<typeof setTimeout> | undefined;
     let finished = false;
+    let checking = false;
     const signalOwned = (signal: 'SIGTERM' | 'SIGKILL'): void => {
       if (!child.pid || finished) return;
       try {
@@ -145,40 +146,49 @@ export async function runConfiguredCommand(
       else resolve({ code: exitCode, output: output.toString('utf8'), diagnostic: diagnostic.toString('utf8') });
     };
     const check = async (): Promise<void> => {
-      if (finished) return;
-      if (closed && !child.pid) {
-        finish();
-        return;
-      }
+      if (finished || checking) return;
+      checking = true;
       try {
-        const groups = await processGroups();
-        const alive = groups.some((item) => item.group === child.pid && !item.state.startsWith('Z'));
-        if (closed && !alive) {
+        if (closed && !child.pid) {
           finish();
           return;
         }
-      } catch (error) {
-        stop(
-          error instanceof ConfiguredCommandError
-            ? error
-            : new ConfiguredCommandError('ownership_unknown', 'Owned process inventory unavailable.'),
-        );
-        // Preserve ownership and scheduler capacity until actual group settlement is verified.
-        signalOwned('SIGKILL');
-        if (closed && child.pid) {
-          try {
-            process.kill(-child.pid, 0);
-          } catch (inventoryError) {
-            if ((inventoryError as { code?: string }).code === 'ESRCH') {
-              finish();
-              return;
+        try {
+          const groups = await processGroups();
+          const alive = groups.some((item) => item.group === child.pid && !item.state.startsWith('Z'));
+          if (closed && !alive) {
+            finish();
+            return;
+          }
+        } catch (error) {
+          stop(
+            error instanceof ConfiguredCommandError
+              ? error
+              : new ConfiguredCommandError('ownership_unknown', 'Owned process inventory unavailable.'),
+          );
+          // Preserve ownership and scheduler capacity until actual group settlement is verified.
+          signalOwned('SIGKILL');
+          if (closed && child.pid) {
+            try {
+              process.kill(-child.pid, 0);
+            } catch (inventoryError) {
+              if ((inventoryError as { code?: string }).code === 'ESRCH') {
+                finish();
+                return;
+              }
             }
           }
         }
+        if (finished) return;
+        poll = setTimeout(
+          () => {
+            void check();
+          },
+          closed ? 50 : 500,
+        );
+      } finally {
+        checking = false;
       }
-      poll = setTimeout(() => {
-        void check();
-      }, 50);
     };
     child.stdout.on('data', (chunk: Buffer) => {
       if (output.length + chunk.length > options.outputLimitBytes) {
@@ -197,6 +207,9 @@ export async function runConfiguredCommand(
     child.once('close', (code) => {
       closed = true;
       exitCode = code;
+      // Wake settlement immediately; short probes never wait for the running interval.
+      if (poll) clearTimeout(poll);
+      void check();
     });
     options.signal?.addEventListener('abort', abort, { once: true });
     if (options.signal?.aborted) abort();

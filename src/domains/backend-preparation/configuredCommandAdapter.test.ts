@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -24,6 +24,27 @@ const command = (source: string, args: string[] = []) => ({
   args: ['-e', source, ...args],
 });
 describe('configured-command preparation adapter', () => {
+  it('bounds process inventory scans while the command is running', async () => {
+    const selected = await target();
+    const bin = join(selected.checkoutRoot, 'bin');
+    const scans = join(selected.checkoutRoot, 'scans');
+    await mkdir(bin);
+    const wrapper = join(bin, 'ps');
+    await writeFile(
+      wrapper,
+      `#!${process.execPath}\nrequire('fs').appendFileSync(${JSON.stringify(scans)}, 'scan\\n'); const r = require('child_process').spawnSync('/bin/ps', process.argv.slice(2)); process.stdout.write(r.stdout); process.stderr.write(r.stderr); process.exit(r.status ?? 1);\n`,
+    );
+    await chmod(wrapper, 0o755);
+    vi.stubEnv('PATH', bin);
+    const adapter = new ConfiguredCommandPreparationAdapter({
+      containment: 'posix-process-group',
+      probe: command('process.exit(0)'),
+      readinessExitCodes: { '0': { state: 'ready' } },
+      actions: { initialize: command('setTimeout(()=>{},1200)') },
+    });
+    await adapter.prepare(selected, 'initialize', { signal: new AbortController().signal, executionDeadlineMs: 5000 });
+    expect((await readFile(scans, 'utf8')).trim().split('\n').length).toBeLessThanOrEqual(8);
+  });
   it('probes the selected checkout with literal argument substitutions and no shell interpretation', async () => {
     const selected = await target('configured-command-{operation} space$;-');
     const operation = 'symbols {checkout}; $(touch should-never-exist)';
