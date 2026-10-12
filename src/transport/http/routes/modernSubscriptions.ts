@@ -1,6 +1,6 @@
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@src/constants.js';
-import { createCapabilityVisibility } from '@src/core/capabilities/capabilityVisibility.js';
+import { createCapabilityVisibility, type ResourceRouteOwner } from '@src/core/capabilities/capabilityVisibility.js';
 import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { filterConnectionsForSession } from '@src/core/protocol/requestHandlerUtils.js';
@@ -51,7 +51,10 @@ export function getModernSubscriptionCapabilities(
 ) {
   const connections = manager.getClients();
   if (!connections.size) return { tools: {}, prompts: {}, resources: {} };
-  const visible = FilteringService.getFilteredConnections(filterConnectionsForSession(connections, undefined), config);
+  const visible = FilteringService.getFilteredConnections(
+    filterConnectionsForSession(connections, config.logicalTemplateSessionId),
+    config,
+  );
   const sources = [...visible.values()].filter((connection) => connection.status === ClientStatus.Connected);
   const supports = (
     connection: OutboundConnection,
@@ -108,6 +111,7 @@ class ModernSubscription {
     private readonly res: Response,
     readonly config: InboundConnectionConfig,
     private readonly signal: AbortSignal,
+    private readonly resourceOwner?: ResourceRouteOwner,
   ) {
     this.auth = getAuthInfo(res);
     signal.addEventListener('abort', this.onAbort, { once: true });
@@ -115,7 +119,7 @@ class ModernSubscription {
   }
   private visible() {
     return FilteringService.getFilteredConnections(
-      filterConnectionsForSession(this.manager.getClients(), undefined),
+      filterConnectionsForSession(this.manager.getClients(), this.config.logicalTemplateSessionId),
       this.config,
     );
   }
@@ -185,8 +189,9 @@ class ModernSubscription {
     if (filter.resourceSubscriptions?.length) {
       const visibility = createCapabilityVisibility(
         [...visible].map(([key, connection]) => [key, connection.name || key]),
-        undefined,
+        this.config.logicalTemplateSessionId,
         { ...this.config },
+        this.resourceOwner,
       );
       const snapshot = await acquireRuntimeCapabilityCatalog(this.manager.getClients(), visibility, {
         signal: this.controller.signal,
@@ -212,6 +217,7 @@ class ModernSubscription {
     try {
       this.bridge = await createBridge(this.manager, this.config, {
         subscriptionSignal: this.controller.signal,
+        resourceOwner: this.resourceOwner,
         subscriptionListKinds: (['tools', 'resources', 'prompts'] as const).filter(
           (kind) => filter[`${kind}ListChanged`] === true,
         ),
@@ -388,6 +394,7 @@ export async function serveModernSubscription(
   config: InboundConnectionConfig,
   createBridge: ModernInboundBridgeFactory,
   signal: AbortSignal,
+  resourceOwner?: ResourceRouteOwner,
 ): Promise<void> {
   const parsed = listenSchema.safeParse(req.body);
   if (!parsed.success || req.get('last-event-id')) {
@@ -414,7 +421,7 @@ export async function serveModernSubscription(
     return;
   }
   if (signal.aborted) return;
-  const owner = new ModernSubscription(manager, parsed.data.id, res, config, signal);
+  const owner = new ModernSubscription(manager, parsed.data.id, res, config, signal, resourceOwner);
   setups++;
   try {
     await owner.setup(parsed.data.params.notifications, createBridge);
