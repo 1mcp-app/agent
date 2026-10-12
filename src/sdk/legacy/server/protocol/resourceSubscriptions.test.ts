@@ -630,6 +630,24 @@ describe('owned legacy resource subscriptions', () => {
     await vi.waitFor(() => expect(owner.adapter.notify).toHaveBeenCalledOnce());
   });
 
+  it('shares one fresh watch across concurrent resubscriptions after rapid replacement', async () => {
+    const owner = fixture();
+    await subscribeOwnedResource(connections, owner, 'public:file:///a');
+    Object.assign(upstream, { adapter: { ...upstream.adapter } });
+    await Promise.all([
+      subscribeOwnedResource(connections, owner, 'public:file:///a'),
+      subscribeOwnedResource(connections, owner, 'public:file:///a'),
+    ]);
+    deliverOwnedResourceUpdate(upstream, update());
+    await vi.waitFor(() => expect(owner.adapter.notify).toHaveBeenCalledOnce());
+    await unsubscribeOwnedResource(owner, 'public:file:///a');
+    const unsubscribes = mocks.request.mock.calls.filter(([, method]) => method === 'resources/unsubscribe');
+    expect(unsubscribes).toHaveLength(2);
+    deliverOwnedResourceUpdate(upstream, update());
+    await new Promise((done) => setTimeout(done, 10));
+    expect(owner.adapter.notify).toHaveBeenCalledOnce();
+  });
+
   it('rejects oversized URI and terminates oversized delivery', async () => {
     const owner = fixture();
     await expect(subscribeOwnedResource(connections, owner, 'a'.repeat(8193))).rejects.toThrow('URI exceeds');

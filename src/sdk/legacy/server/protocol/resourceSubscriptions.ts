@@ -579,11 +579,17 @@ export async function subscribeOwnedResource(
   const owner = getOwner(connections, inbound);
   if (owner.closed) throw new Error('Resource subscription owner is closed');
   if (authorize) owner.authorize ??= authorize;
-  const existing = owner.watches.get(uri);
-  if (existing) {
+  // Recheck ownership after each await: another request or the monitor may retire
+  // the observed watch. The fresh reservation below is made without an await.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const existing = owner.watches.get(uri);
+    if (!existing) break;
     await existing.ready;
+    if (owner.closed) throw new Error('Resource subscription owner is closed');
+    if (owner.watches.get(uri) !== existing || !existing.active) continue;
     try {
       await assertWatchCurrent(existing);
+      if (owner.watches.get(uri) !== existing || !existing.active) continue;
       return;
     } catch (error) {
       if (owner.inbound.subscriptionListKinds !== undefined) {
@@ -601,6 +607,8 @@ export async function subscribeOwnedResource(
       await detach(existing).catch(() => undefined);
     }
   }
+  if (owner.closed) throw new Error('Resource subscription owner is closed');
+  if (owner.watches.has(uri)) throw new Error('Resource subscription coverage changed during setup');
   if (Buffer.byteLength(uri) > MAX_URI_BYTES) throw new Error('Resource subscription URI exceeds limit');
   releaseClosedUpstreamReservations();
   if (
