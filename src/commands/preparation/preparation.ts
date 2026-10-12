@@ -10,7 +10,7 @@ import type { GlobalOptions } from '@src/globalOptions.js';
 import { z } from 'zod';
 
 export interface PreparationCommandOptions extends GlobalOptions {
-  action?: 'prepare' | 'status' | 'wait' | 'cancel' | 'retry';
+  action?: 'inspect' | 'prepare' | 'status' | 'wait' | 'cancel' | 'retry';
   backend?: string;
   id?: string;
   operation?: string;
@@ -27,7 +27,7 @@ const maximumRuntimeWaitMs = 3_600_000;
 
 const optionsSchema = z
   .object({
-    action: z.enum(['prepare', 'status', 'wait', 'cancel', 'retry']),
+    action: z.enum(['inspect', 'prepare', 'status', 'wait', 'cancel', 'retry']),
     backend: z.string().trim().min(1).max(256),
     id: z.string().uuid().optional(),
     operation: z.string().min(1).max(256).optional(),
@@ -38,7 +38,7 @@ const optionsSchema = z
   .superRefine((value, context) => {
     if (['wait', 'cancel'].includes(value.action) && !value.id)
       context.addIssue({ code: 'custom', message: 'wait and cancel require an operation id' });
-    if (value.action === 'prepare' && value.id)
+    if (['prepare', 'inspect'].includes(value.action) && value.id)
       context.addIssue({ code: 'custom', message: 'prepare does not accept an operation id' });
     if (value['wait-ms'] !== undefined && value.action !== 'wait')
       context.addIssue({ code: 'custom', message: '--wait-ms is only accepted for wait' });
@@ -104,5 +104,20 @@ export function formatPreparationOutput(value: unknown, format: 'text' | 'json')
   const instructions = typeof record.instructions === 'string' ? `\n${record.instructions}` : '';
   const failure = record.failure as { instructions?: string } | undefined;
   const recovery = failure?.instructions ? `\n${failure.instructions}` : '';
-  return `${prefix}${String(record.state)}${id}${instructions}${recovery}`;
+  const details: string[] = [];
+  if (typeof record.action === 'string') details.push(`action: ${record.action}`);
+  if (typeof record.elapsedMs === 'number') details.push(`elapsed: ${record.elapsedMs} ms`);
+  const job = details.length ? `\n${details.join('; ')}` : '';
+  const progress = formatProgress(record.progress);
+  return `${prefix}${String(record.state)}${id}${job}${progress}${instructions}${recovery}`;
+}
+
+function formatProgress(value: unknown): string {
+  if (!value || typeof value !== 'object') return '';
+  const progress = value as Record<string, unknown>;
+  const message = typeof progress.message === 'string' ? progress.message : '';
+  if (typeof progress.completed !== 'number') return message ? `\nprogress: ${message}` : '';
+  const total = typeof progress.total === 'number' ? `/${progress.total}` : '';
+  const unit = typeof progress.unit === 'string' ? ` ${progress.unit}` : '';
+  return `\nprogress: ${progress.completed}${total}${unit}${message ? ` (${message})` : ''}`;
 }

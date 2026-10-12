@@ -179,6 +179,27 @@ describe('preparation CLI', () => {
   });
 });
 
+describe('preparation inspection output', () => {
+  it('reports action elapsed time and explicit progress without inferring a percentage', () => {
+    expect(
+      formatPreparationOutput(
+        {
+          state: 'job',
+          status: {
+            state: 'running',
+            id: 'id',
+            action: 'sync',
+            elapsedMs: 1250,
+            target: { backendName: 'source-search' },
+            progress: { completed: 2, total: 5, unit: 'files' },
+          },
+        },
+        'text',
+      ),
+    ).toBe('source-search: running (id)\naction: sync; elapsed: 1250 ms\nprogress: 2/5 files');
+  });
+});
+
 describe('preparation config authority', () => {
   it('accepts backend-keyed project preferences and rejects runtime permissions in project config', () => {
     expect(validateProjectConfig({ preparation: { codegraph: { enabled: true } } })).toEqual({
@@ -188,21 +209,34 @@ describe('preparation config authority', () => {
       validateProjectConfig({ preparation: { codegraph: { enabled: true, allowedActions: ['install'] } } }),
     ).toThrow();
   });
-  it('requires an installed absolute executable and exact supported version with bounded actions', () => {
+  it('accepts generic affected tools and runtime command authority without backend version coupling', () => {
     const preparation = {
-      adapter: 'codegraph',
-      executable: '/installed/codegraph',
-      expectedVersion: '1.6.2',
+      adapter: 'configured-command',
+      affectedTools: ['lookup'],
       allowedActions: ['initialize', 'sync'],
+      integration: {
+        probe: { executable: '/installed/readiness', args: ['{checkout}', '{operation}'] },
+        readinessExitCodes: {
+          '0': { state: 'ready' },
+          '2': { state: 'required', action: 'initialize', instructions: 'Initialize' },
+        },
+        actions: { initialize: { executable: '/installed/prepare', args: ['{checkout}'] } },
+        containment: 'posix-process-group',
+      },
     };
-    expect(transportConfigSchema.parse({ preparation }).preparation).toEqual(preparation);
-    expect(transportConfigSchema.safeParse({ preparation: { ...preparation, executable: 'npx' } }).success).toBe(false);
+    expect(transportConfigSchema.parse({ preparation }).preparation).toMatchObject(preparation);
+    expect(transportConfigSchema.safeParse({ preparation: { ...preparation, affectedTools: [] } }).success).toBe(false);
     expect(
       transportConfigSchema.safeParse({ preparation: { ...preparation, expectedVersion: 'latest' } }).success,
     ).toBe(false);
     expect(
       transportConfigSchema.safeParse({ preparation: { ...preparation, allowedActions: ['install'] } }).success,
-    ).toBe(false);
+    ).toBe(true);
+    expect(
+      transportConfigSchema.safeParse({
+        preparation: { adapter: 'configured-command', affectedTools: 'all', allowedActions: [] },
+      }).success,
+    ).toBe(true);
   });
   it('validates configurable runtime scheduler bounds without inventing authority defaults', () => {
     expect(

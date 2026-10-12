@@ -1,135 +1,89 @@
 ---
-title: 工作副本专属的后端准备
-description: 启用有边界的 CodeGraph 索引准备，查看就绪状态，并控制运行时拥有的索引任务。
+title: 后端准备
+description: 配置副本专属的只读就绪探测，以及运行时拥有的异步准备命令。
 ---
 
-# 工作副本专属的后端准备
+# 后端准备
 
-后端准备使选定工作副本的源码索引在相关工具执行前可用。跨仓库或 Git worktree 工作时，请明确选择目标。其他副本的索引、已连接的服务或成功的工具发现，都不能证明当前目标的源码覆盖。
+运行时为选定的 Project Checkout 管理准备任务。集成提供只读就绪探测和前台准备命令；后端名称、版本、索引文件、Git HEAD、连接状态和命令日志本身都不证明就绪。
 
-## 运行时权限与项目选择
+## 运行时配置
 
-运行时配置规定后端允许的操作；项目的 `.1mcprc` 按**已配置的服务名称**选择是否自动准备。项目配置不能扩大运行时权限。
-
-在现有服务定义中加入：
+在现有服务器定义中添加以下元数据，并将示例路径替换为已安装的集成脚本：
 
 ```json
 {
   "preparation": {
-    "adapter": "codegraph",
-    "executable": "/absolute/path/to/already-installed/codegraph",
-    "expectedVersion": "1.6.2",
-    "sourceMonitor": "git-fsmonitor",
-    "allowedActions": ["initialize", "sync"]
-  }
-}
-```
-
-适配器只使用已安装且验证过的后端，不下载或安装 CodeGraph。`sourceMonitor` 明确允许准备过程为选定副本启动前台 Git 原生源码监视器；现有监视器仅借用，检查不会启动源码监视器。当前验证范围是本地 macOS 工作副本、CodeGraph 1.6.2 与 Git 2.52。其他平台、版本、重定位的套接字及不支持的源码配置会报告具体限制；macOS 验证不代表 Windows 或 Linux 已验证。
-
-在有效 `.1mcprc` 中按服务名启用：
-
-```json
-{ "preparation": { "codegraph": { "enabled": true } } }
-```
-
-未启用时，不自动准备。显式 `prepare` 仍遵守运行时操作权限与目标权限。关联 worktree 可继承主副本的偏好；本地文件会整体替换继承配置，创建时请保留其他需要的设置。参见[工作副本与项目集合](/zh/guide/project-checkouts)。
-
-初始化和增量同步不隐含授权全量重建、安装依赖或付费操作。本适配器验证的操作是 `initialize` 与 `sync`；格式不兼容或中断的索引可能需要另行验证的恢复流程。
-
-## 使用只读 CodeGraph 传输
-
-运行时管理准备时，将第一方 `codegraph-readonly` 启动器配置为普通 stdio 命令。它使用固定版本的原生只读引擎，不启动另一个索引写入者：
-
-```json
-{
-  "mcpTemplates": {
-    "codegraph": {
-      "command": "/absolute/path/to/1mcp",
-      "args": [
-        "codegraph-readonly",
-        "--executable=/absolute/path/to/already-installed/codegraph",
-        "--path={{project.path}}"
-      ],
-      "template": { "shareable": true },
-      "protocolVersion": "legacy",
-      "projectTarget": { "mode": "single" },
-      "preparation": {
-        "adapter": "codegraph",
-        "executable": "/absolute/path/to/already-installed/codegraph",
-        "expectedVersion": "1.6.2",
-        "sourceMonitor": "git-fsmonitor",
-        "allowedActions": ["initialize", "sync"]
-      }
+    "adapter": "configured-command",
+    "affectedTools": ["lookup"],
+    "allowedActions": ["initialize", "sync"],
+    "integration": {
+      "probe": { "executable": "/absolute/path/to/readiness-wrapper", "args": ["{checkout}", "{operation}"] },
+      "readinessExitCodes": {
+        "0": { "state": "ready" },
+        "2": { "state": "required", "action": "initialize", "instructions": "初始化选定副本。" },
+        "3": { "state": "required", "action": "sync", "instructions": "同步源码变更。" },
+        "4": { "state": "conflict", "instructions": "先核对现有写入者的所有权。" }
+      },
+      "actions": {
+        "initialize": {
+          "executable": "/absolute/path/to/prepare-wrapper",
+          "args": ["initialize", "{checkout}", "{operation}"]
+        },
+        "sync": { "executable": "/absolute/path/to/prepare-wrapper", "args": ["sync", "{checkout}", "{operation}"] }
+      },
+      "containment": "posix-process-group"
     }
   }
 }
 ```
 
-将该命令用于绑定工作副本的模板，并保留现有模板设置和过滤器，另加准备元数据。普通 stdio 生命周期仍由运行时管理；不会自动替换其他已配置命令。启动器只接受配置指定的工作副本，工具参数不能将其切换到其他源码目录。其他原生 CLI 或运行时启动的写入进程仍构成冲突，不会被准备流程终止或夺取所有权。
+命令使用 executable 和参数数组，不进行隐式 shell 解析。参数中的 `{checkout}`、`{operation}` 会被替换，工作目录是选定的规范副本路径。命令仅由运行时配置授权，项目偏好和请求参数不能新增命令。
 
-## 查看状态与控制任务
+探测必须确认实际副本及操作的源码新鲜度和覆盖范围，包括未提交变更。未映射退出码和超时报告 unknown；日志只是有界诊断。无法证明新鲜度时应报告 unknown。`affectedTools` 可以是明确的上游工具名称数组或 `"all"`；其他工具保持原有行为。被保护的后端缺少 integration 时报告 unsupported。
 
-这些命令直接访问选定的聚合运行时，即使后端最初没有公开工具也可使用：
+每个动作可配置 `successExitCodes`（默认 `[0]`）和 `transientExitCodes`，两者不能重叠。只有明确分类的瞬时失败可以在 `transientRetryLimit` 和任务截止时间内自动重试。重建、安装依赖和付费服务分别要求运行时显式授予 `rebuild`、`install`、`paid`，项目不能扩大权限。
+
+可选 `status` 使用相同的命令结构，退出零时输出 JSON，支持可选字段 `message`、`completed`、`total`、`unit`。显式检查验证这些进度字段；缺少进度时报告不可用，不从日志推算百分比。probe/status 必须只读且有界。`inspectionTimeoutMs` 默认 5000，`outputLimitBytes` 默认 16384。
+
+准备命令及后代必须保持在运行时拥有的进程组内。当前实现支持 Linux 和 macOS；其他平台在动作启动前拒绝准备。containment 声明由操作人员确认集成脚本满足约束，脱离进程组或后台分离的写入者不属于此契约。原生写入者协调由集成负责；运行时不终止外部进程，也不破坏外部锁。
+
+## 项目选择启用
+
+有效 `.1mcprc` 按配置服务器名称启用自动准备：
+
+```json
+{ "preparation": { "source-search": { "enabled": true } } }
+```
+
+没有该偏好时自动准备关闭，显式准备仍遵守运行时动作权限和副本授权。关联工作树按完整文件规则继承偏好，本地配置替换继承文件。参见[项目副本与集合](/zh/guide/project-checkouts)。
+
+## 控制与异步调用
+
+初始工具发现为空时也能使用准备控制：
 
 ```bash
-1mcp preparation status codegraph --project /work/frontend --format json
-1mcp prepare codegraph --project /work/frontend --format json
-OPERATION_ID='operation-id-from-prepare-response'
-1mcp preparation wait codegraph "$OPERATION_ID" --project /work/frontend --wait-ms 5000
-1mcp preparation cancel codegraph "$OPERATION_ID" --project /work/frontend
-1mcp preparation retry codegraph "$OPERATION_ID" --project /work/frontend
+1mcp preparation inspect source-search --project /work/frontend --operation lookup --format json
+1mcp prepare source-search --project /work/frontend --operation lookup --format json
+OPERATION_ID='replace-with-returned-job-id'
+1mcp preparation status source-search "$OPERATION_ID" --project /work/frontend
+1mcp preparation wait source-search "$OPERATION_ID" --project /work/frontend --wait-ms 5000
+1mcp preparation cancel source-search "$OPERATION_ID" --project /work/frontend
+1mcp preparation retry source-search "$OPERATION_ID" --project /work/frontend
 ```
 
-将示例 `OPERATION_ID` 值替换为 `prepare` 返回的 ID。使用操作 ID 时，保持相同的工作副本、运行时选择与认证。ID 绑定已授权目标和调用者，其他调用者的 ID 不授予查看或取消权限。不带 ID 的 `status` 检查当前就绪状态；不带 ID 的 `retry` 可在运行时重启后协调保留的失败。准备要求已验证的本地工作副本上下文，保留现有认证、授权与过滤边界，不签发新的远程信任。
+`inspect` 只读取就绪证据、任务状态、动作、已用时间和明确可用的进度，不调度准备、不修复状态、不重试失败。句柄绑定认证主体、目标、操作和有效配置。带 ID 的控制自动恢复其操作，显式冲突的操作会被拒绝。
 
-保存的项目集合可使用 `--project-set /work/projects.json --project frontend`。逐个准备成员；选择多个成员不会将单项目后端操作自动分发到每个成员。
+未就绪的受保护工具调用及时返回任务 ID 和状态。**原始操作没有执行，也没有排队等待回放**，即使准备很快完成也一样；确认就绪后需重新提交工具请求。兼容请求共享任务，不同副本、操作或策略不共享。调用方断开不会取消共享任务。
 
-检查不修改源码、配置、Git 索引或 CodeGraph 索引。它可以执行有界的原生只读探测，但不会启动索引或源码监视器。Git 原生日志查询可能创建并删除内部协调 cookie，用于确认源码变更已被观察到。普通文件监视器或等待一段时间，本身不能证明源码新鲜度。
+每个任务只执行一个动作。动作退出成功后重新探测，只有确认 ready 才刷新允许的能力，包括初始为空的工具清单。仍需另一动作时任务以 `not_ready` 结束，要求显式重试，不自动串联动作。终态失败保留到显式重试。其他未受保护或已就绪工具保持可用。
 
-## 待准备不是工具结果
+## 限额与恢复
 
-相关工具请求可启动或加入一个兼容任务，默认最多等待五秒。未完成时，响应提供待准备状态、操作 ID 与恢复说明。**原后端操作未执行，也未排队等待重放。** 查看状态或等待就绪后，再次提交原工具请求。
+默认同时运行一个昂贵任务，最多排队 16 个，执行期限 120000 毫秒且不含排队时间，请求检查/等待预算 5000 毫秒。应用 `[preparation]` 设置调度限额，后端元数据可设 `executionDeadlineMs`、`transientRetryLimit`。延长期限需要明确修改运行时配置。
 
-该等待预算包含派发前的就绪探测与连接建立。原操作开始执行后使用正常的工具超时。后台准备与最终就绪验证共用执行预算，前台等待到期不会取消它们。
+取消和执行超时停止拥有的动作进程及附属后代，直接子进程退出不能证明后代已停止。重启仅将保存状态视为参考：重新探测就绪，先前运行任务的所有权不明确时报告 conflict。保存的 PID 或标志不授权终止进程、重复写入、删除索引或破坏外部锁；检查不会抹去这些事实。
 
-准备成功会刷新能力目录，新公开的工具仍受所选工作副本的过滤器与现有授权限制。其他已就绪工具不需要等待另一个副本的准备。
+## 真实集成验收
 
-就绪判断针对预期操作。源码修改、新增或删除文件、分支变化、格式不兼容、部分覆盖以及变更日志丢失，都可能使就绪状态失效。暖检查只在原生日志证明没有相关变更时复用已验证基线，不把数据库存在或 Git HEAD 当作源码最新的证据。
-
-## 预算、失败与恢复
-
-默认一个昂贵任务运行、最多 16 个排队任务、请求等待五秒、执行限时两分钟。排队时间与执行预算分开。兼容请求在入队前去重；不同目标或不兼容配置保持不同任务身份，队列溢出返回忙碌。
-
-在所选 MCP 配置旁的 `config.toml` 中调整运行时限制：
-
-```toml
-[preparation]
-concurrency = 1
-queueCapacity = 16
-requestWaitMs = 5000
-executionDeadlineMs = 120000
-maxRecords = 1024
-```
-
-后端的运行时准备元数据还可声明 `executionDeadlineMs`。增加预算需要明确修改运行时配置；重复请求不会暗中放宽限制。
-
-一个等待者断开或等待超时，不会取消共享任务。显式取消和执行超时只停止拥有的准备工作。失败会保留，直到显式重试或原生证据确认问题已解决。执行预算耗尽后，再次长时间尝试需要更大的显式预算；只有后端支持时才保留和继续部分进度。 重试会重新检查原生就绪状态。如果索引现在需要另一种恢复操作，重试保留失败状态并返回明确的恢复说明，不会自动切换操作或授权重建。
-
-重启后的保存状态仅供参考。运行时重新检查原生就绪状态与所有权，不根据保存的运行标记或 PID 发信号，不破坏其他进程的锁，不删除索引，不借用其他副本的索引，也不自动重启失败任务。强制退出的任务可能留下所有权不确定的原生锁，这些锁会保留，需显式人工核对处理。不支持、覆盖不完整或冲突时，请按返回的前置条件和恢复说明处理。
-
-## 已验证的原生测量
-
-2026-10-11（Asia/Shanghai，对应 UTC 2026-10-10）在 Darwin arm64、Git 2.52、CodeGraph 1.6.2 上，通过已初始化的 HTTP/SSE 以及 2026-07-28 请求流程完成验证。冷启动样本包含 20,000 个源文件，每个文件五个函数，源码约 10 MB。
-
-| 观察项                                | 测量结果                                   |
-| ------------------------------------- | ------------------------------------------ |
-| 冷启动索引 / 后续就绪验证             | 13.97 秒 / 5.47 秒，共用 120 秒后台预算    |
-| 前台待准备响应 / 索引期间无关就绪工具 | 5.14 秒 / 98 毫秒                          |
-| 热路径原生就绪检查                    | 30 次检查，中位数 27 毫秒，范围 17–58 毫秒 |
-| 十轮 HTTP 状态查询与工具调用          | 6.32 秒；未新增准备任务或完整检查          |
-| 另外 18 个目标的默认调度              | 一个活动任务、16 个排队任务、两个忙碌响应  |
-
-同一个已初始化客户端收到目录变化通知，并查询到选定源码。关联及独立工作副本、即时编辑、分支切换、等待者断开、取消和外部锁协调均通过验证。显式配置的 1 秒执行期限停止了拥有的索引进程。随后显式增加至 120 秒，`initialize`/`sync` 权限仍拒绝需要重建的恢复，保留数据库且未启动新写入进程。
-
-这些是观测值，不是资源或延迟保证。150 次限定进程采样的单进程最大观测值分别为 645.6% CPU 和 2,511,040 KiB RSS，来自不同进程或时刻；未测量宿主机外部竞争。实际验证的是配置的 1 秒超时，没有等待默认 120 秒超时。部分覆盖及格式不兼容的元数据样本用于验证诊断并已恢复，不代表自然文件损坏的覆盖保证。验证仅针对上述原生版本与平台，也不证明已安装客户端钩子的激活状态。
+CodeGraph 与 Code Review Graph 通过外部包装脚本使用相同配置命令契约。仓库 `examples/backend-preparation/README.md` 提供有界原生验收包装器，`scripts/verify-configured-preparation.mjs` 用于重复运行验收。Code Review Graph 的 status 本身不证明未提交源码新鲜度，包装脚本需要单独核验或明确报告缺口。运行时核心不解析后端专属就绪字段。验收证据需记录后端版本、平台、副本源码规模、冷准备时间、热探测开销、共享任务数、其他已就绪工具延迟、取消覆盖和可取得的 CPU/内存观察。通过本地测试不代表部署或客户端已激活。
