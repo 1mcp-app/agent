@@ -53,6 +53,7 @@ describe('ServerManager instruction initialization', () => {
     connectTransport = vi.fn().mockResolvedValue(undefined);
     (manager as any).connectionManager = {
       connectTransport,
+      disconnectTransport: vi.fn().mockResolvedValue(undefined),
       getInboundConnections: vi.fn(() => new Map()),
       cleanup: vi.fn().mockResolvedValue(undefined),
     };
@@ -66,6 +67,40 @@ describe('ServerManager instruction initialization', () => {
         mcpTemplates: {},
       },
     };
+  });
+
+  it('prepares logical templates before discovery without creating a transport connection', async () => {
+    const context = { project: { path: '/project' }, user: {}, environment: {}, sessionId: 'proxy-session' };
+    await manager.prepareLogicalTemplateSession('proxy-session', context, { tagFilterMode: 'none' });
+    expect(connectTransport).not.toHaveBeenCalled();
+    const expired: string[] = [];
+    const stop = manager.registerLogicalTemplateSessionCleanup((sessionId) => expired.push(sessionId));
+    const release = manager.retainLogicalTemplateSession('proxy-session');
+    release();
+    stop();
+    expect(expired).toEqual([]);
+  });
+
+  it('closing private bridges preserves their logical session until idle expiry', async () => {
+    const context = { project: { path: '/project' }, user: {}, environment: {}, sessionId: 'proxy-session' };
+    const expired: string[] = [];
+    manager.registerLogicalTemplateSessionCleanup((sessionId) => expired.push(sessionId));
+    await Promise.all([
+      manager.connectTransport({} as Transport, 'bridge-one', { logicalTemplateSessionId: 'proxy-session' }, context),
+      manager.connectTransport({} as Transport, 'bridge-two', { logicalTemplateSessionId: 'proxy-session' }, context),
+    ]);
+    await manager.disconnectTransport('bridge-one');
+    await manager.disconnectTransport('bridge-two');
+    expect(expired).toEqual([]);
+    expect(connectTransport).toHaveBeenCalledTimes(2);
+    vi.useFakeTimers();
+    try {
+      vi.advanceTimersByTime(300001);
+      await manager.getTemplateServerManager().cleanupIdleInstances();
+      expect(expired).toEqual(['proxy-session']);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('keeps delivered instructions unchanged while a new initialization sees a refreshed override', async () => {
