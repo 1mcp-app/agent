@@ -5,6 +5,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+
 import { describe, expect, it } from 'vitest';
 
 const execute = promisify(execFile);
@@ -24,6 +27,7 @@ describe.skipIf(process.platform !== 'linux' && process.platform !== 'darwin')(
       const independent = path.join(directory, 'independent');
       const readyCheckout = path.join(directory, 'ready');
       let runtime: ChildProcess | undefined;
+      let readyClient: Client | undefined;
       let diagnostics = '';
       try {
         await mkdir(configDirectory);
@@ -144,13 +148,23 @@ describe.skipIf(process.platform !== 'linux' && process.platform !== 'darwin')(
           );
           return JSON.parse(result.stdout);
         };
+        readyClient = new Client(
+          { name: 'configured-preparation-ready-acceptance', version: '1' },
+          { capabilities: {} },
+        );
+        await readyClient.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`)));
+        const readyTool = async () => readyClient!.callTool({ name: 'ready_1mcp_source', arguments: {} });
+        expect(JSON.stringify(await readyTool())).toContain('unrelated-ready-576');
         for (const checkout of [linked, independent]) {
           const initial = await cli(checkout, ['inspect', 'fixture', '--format', 'json']);
           expect(initial.tools).toEqual([]);
           const job = await cli(checkout, ['prepare', 'fixture', '--operation', 'source', '--format', 'json']);
           expect(job).toMatchObject({ state: 'job', status: { id: expect.any(String) } });
+          await expect
+            .poll(() => readFile(path.join(checkout, 'preparation-started.marker'), 'utf8'), { timeout: 5000 })
+            .toBe('running');
           const readyStarted = performance.now();
-          const readyResult = await cli(checkout, ['run', 'ready/source', '--args', '{}', '--format', 'json']);
+          const readyResult = await readyTool();
           expect(JSON.stringify(readyResult)).toContain('unrelated-ready-576');
           const readyToolLatencyMs = performance.now() - readyStarted;
           console.info(
@@ -166,6 +180,7 @@ describe.skipIf(process.platform !== 'linux' && process.platform !== 'darwin')(
           await expect(readFile(path.join(checkout, 'prepared.marker'), 'utf8')).rejects.toMatchObject({
             code: 'ENOENT',
           });
+          await writeFile(path.join(checkout, 'preparation-release.marker'), 'release');
           let status = job.status;
           for (let attempt = 0; attempt < 20 && status.state !== 'ready'; attempt++) {
             status = await cli(checkout, [
@@ -195,6 +210,7 @@ describe.skipIf(process.platform !== 'linux' && process.platform !== 'darwin')(
         await expect(readFile(path.join(main, 'prepared.marker'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
         expect(runtime.exitCode).toBeNull();
       } finally {
+        await readyClient?.close();
         if (runtime && runtime.exitCode === null && runtime.signalCode === null) {
           const owned = runtime;
           await new Promise<void>((resolve) => {

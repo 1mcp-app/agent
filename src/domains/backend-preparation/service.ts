@@ -401,17 +401,37 @@ export class BackendPreparationService {
           instructions: 'Execution deadline exhausted; explicitly select a larger execution budget before retrying.',
         };
     }
-    if (!authority.allowedActions.includes(job.status.action))
-      return { state: 'forbidden', instructions: `Runtime policy does not permit ${job.status.action}.` };
     job.retrying = true;
     try {
       const waitMs = PreparationOptionsSchema.shape.requestWaitMs.parse(options.waitMs ?? this.options.requestWaitMs);
       const readiness = await this.probe(job.adapter, job.status.target, job.status.operation, waitMs, options.signal);
-      if (readiness.state === 'required' && readiness.action !== job.status.action)
-        return {
-          state: 'forbidden',
-          instructions: `Native readiness now requires ${readiness.action}. Retrying this ${job.status.action} operation cannot change its action. Select ${readiness.action} explicitly under runtime policy after reviewing native recovery instructions: ${readiness.instructions}`,
-        };
+      if (readiness.state === 'required' && readiness.action !== job.status.action) {
+        if (!authority.allowedActions.includes(readiness.action))
+          return { state: 'forbidden', instructions: `Runtime policy does not permit ${readiness.action}.` };
+        const destination = this.findJob(
+          `${preparationKey(job.status.target, authority, this.options, job.status.operation)}:${readiness.action}`,
+        );
+        if (destination && destination.status.state !== 'ready')
+          return {
+            state: 'busy',
+            instructions: `Retry of ${job.status.id} did not start: ${destination.status.id} already owns ${readiness.action}. Both records are preserved.`,
+          };
+        // A further required action is a separate job, explicitly admitted by retry.
+        // Preserve the previous action's terminal record rather than rewriting history.
+        return await this.prepareInspected(
+          job.status.target,
+          job.status.operation,
+          authority,
+          job.adapter,
+          readiness,
+          readiness.action,
+          undefined,
+          options.beforeAdmission,
+          options.validateAdmission,
+        );
+      }
+      if (!authority.allowedActions.includes(job.status.action))
+        return { state: 'forbidden', instructions: `Runtime policy does not permit ${job.status.action}.` };
       return await this.prepareInspected(
         job.status.target,
         job.status.operation,

@@ -593,6 +593,11 @@ describe('runtime capability catalog', () => {
         outputSchema: { type: 'object', required: ['ok'] },
       },
     ];
+    // Warm the real schema worker before this catalog-generation concurrency
+    // assertion. Cold compile timing is exercised by the schema boundary suite.
+    const warm = await acquireRuntimeCapabilityCatalog(connections, undefined, { internalTools });
+    const warmFinish = await warm.prepareToolCall('1mcp_1mcp_internal', { value: 1 });
+    await warmFinish({ content: [], structuredContent: { ok: true } });
     const snapshots = await Promise.all(
       Array.from({ length: 3 }, () => acquireRuntimeCapabilityCatalog(connections, undefined, { internalTools })),
     );

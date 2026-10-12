@@ -357,14 +357,27 @@ describe('backend preparation lifecycle', () => {
         executionDeadlineMs: 40,
       };
       const retry = await service.retry(original.status.id, retryPolicy, { beforeAdmission });
-      expect(retry).toMatchObject({ state: 'forbidden', instructions: expect.stringContaining('requires rebuild') });
-      if (retry.state !== 'forbidden') throw new Error('Expected explicit recovery selection');
-      expect(retry.instructions).toContain('Select rebuild explicitly under runtime policy');
-      expect(retry.instructions).toContain('partial native database');
       expect(service.status(original.status.id)).toEqual(failure);
-      expect(adapter.calls).toHaveLength(1);
-      expect(beforeAdmission).not.toHaveBeenCalled();
-      expect(service.scheduler.counts()).toEqual({ active: 0, queued: 0 });
+      if (!allowRebuild) {
+        expect(retry).toMatchObject({
+          state: 'forbidden',
+          instructions: expect.stringContaining('does not permit rebuild'),
+        });
+        expect(adapter.calls).toHaveLength(1);
+        expect(beforeAdmission).not.toHaveBeenCalled();
+        expect(service.scheduler.counts()).toEqual({ active: 0, queued: 0 });
+        return;
+      }
+      if (retry.state !== 'job') throw new Error('Expected authorized separate rebuild job');
+      expect(retry.status).toMatchObject({ action: 'rebuild', executionDeadlineMs: 40 });
+      expect(retry.status.id).not.toBe(original.status.id);
+      await flush();
+      expect(adapter.calls).toHaveLength(2);
+      expect(beforeAdmission).toHaveBeenCalledOnce();
+      adapter.calls[1].finish();
+      await flush();
+      expect(service.status(retry.status.id)).toMatchObject({ state: 'ready', action: 'rebuild' });
+      expect(service.status(original.status.id)).toEqual(failure);
     },
   );
 

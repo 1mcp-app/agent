@@ -1,5 +1,6 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import type { InboundConnection, OutboundConnection } from '@src/core/types/index.js';
 import { ServerStatus } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
@@ -527,6 +528,40 @@ describe('owned legacy resource subscriptions', () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(owner.adapter.close).toHaveBeenCalledOnce();
   });
+
+  it.each([undefined, 'runtime-preparation'] as const)(
+    'respects catalog delivery eligibility for origin %s',
+    async (origin) => {
+      const manager = AgentConfigManager.getInstance();
+      const get = manager.get.bind(manager);
+      const feature = vi.spyOn(manager, 'get');
+      try {
+        for (const blockedBy of ['disabled', 'request-only', 'kind-filter']) {
+          const owner = fixture();
+          Object.assign(upstream, { capabilities: { tools: { listChanged: true } }, status: 'connected' });
+          registerOwnedCatalogConnection(connections, owner, upstream, 'tools');
+          feature.mockImplementation((key) =>
+            key === 'features'
+              ? ({ ...get('features'), clientNotifications: blockedBy !== 'disabled' } as never)
+              : get(key),
+          );
+          if (blockedBy === 'request-only') Object.assign(owner, { requestOnly: true });
+          if (blockedBy === 'kind-filter') Object.assign(owner, { subscriptionListKinds: ['resources'] });
+          enqueueOwnedCatalogNotification(
+            connections,
+            owner,
+            upstream,
+            { method: 'notifications/tools/list_changed' },
+            origin,
+          );
+          await new Promise((resolve) => setTimeout(resolve, 30));
+          expect(owner.adapter.notify).not.toHaveBeenCalled();
+        }
+      } finally {
+        feature.mockRestore();
+      }
+    },
+  );
 
   it('does not deliver a queued retired catalog event after rapid replacement', async () => {
     const owner = fixture();

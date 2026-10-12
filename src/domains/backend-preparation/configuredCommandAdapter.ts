@@ -168,15 +168,11 @@ export class ConfiguredCommandPreparationAdapter implements BackendPreparationAd
   async reconcile(
     target: PreparationTarget,
     operation: string,
-    advisory: PreparationRecoveryHint,
+    _advisory: PreparationRecoveryHint,
     options: { signal?: AbortSignal; waitMs?: number } = {},
   ): Promise<BackendReadiness> {
-    if (['queued', 'running', 'cancelling'].includes(advisory.previousState))
-      return {
-        state: 'conflict',
-        instructions:
-          'Previous runtime ownership is uncertain. Reconcile native writer ownership externally before explicit preparation; saved job state confers no process ownership.',
-      };
+    // Saved flags never authorize process control. The read-only native probe owns
+    // writer coordination and must still report conflict until externally reconciled.
     return this.inspect(target, operation, options);
   }
   classifyFailure(error: unknown): PreparationFailure {

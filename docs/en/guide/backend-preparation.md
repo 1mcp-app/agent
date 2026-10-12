@@ -77,13 +77,13 @@ OPERATION_ID='replace-with-returned-job-id'
 
 A gated cold tool call promptly returns a job ID and state. **The original operation is neither executed nor queued for replay**, even if preparation completes quickly. Submit a fresh tool request after readiness is verified. Compatible callers share a job; different checkouts, operations, and policies do not. Caller disconnects leave shared work running.
 
-One job performs one action. Successful action exit triggers a fresh probe. Only verified readiness refreshes permitted capabilities, including an initially empty inventory. Another required action finishes as `not_ready`; it needs explicit retry rather than automatic action chaining. Terminal failures remain observable until explicit retry. Ungated and already-ready unrelated tools remain responsive.
+One job performs one action. Successful action exit triggers a fresh probe. Only verified readiness refreshes permitted capabilities, including an initially empty inventory. Another required action finishes as `not_ready`. Explicit retry reprobes and admits that newly required action only when runtime policy permits it, as a separate job retaining the previous terminal record. It does not chain actions automatically. Terminal failures remain observable until explicit retry. Ungated and already-ready unrelated tools remain responsive.
 
 ## Budgets and recovery
 
 Runtime defaults are one active expensive job, at most 16 queued jobs, a 120,000 ms execution deadline independent of queue time, and a 5,000 ms request inspection/wait budget. Configure scheduler bounds through the application's `[preparation]` settings. Backend metadata can set `executionDeadlineMs` and `transientRetryLimit`; increasing deadlines requires an explicit runtime configuration change.
 
-Cancellation and execution expiry stop owned action processes and their attached descendants. A direct child exiting does not prove descendants stopped. Restart treats saved state as advisory: integrations reprobe readiness, and uncertain formerly running ownership reports conflict. No saved PID or flag authorizes signalling, duplicate writers, index deletion, or foreign-lock recovery. Inspection does not erase these facts.
+Cancellation and execution expiry stop owned action processes and their attached descendants. A direct child exiting does not prove descendants stopped. Restart treats saved state as advisory: the configured read-only probe verifies current readiness and native writer coordination. A native conflict stays blocked until external reconciliation; inspect can then report readiness without starting work, and explicit retry can admit required preparation. No saved PID or flag authorizes signalling, duplicate writers, index deletion, or foreign-lock recovery. Inspection does not erase these facts.
 
 ## Real integration acceptance
 

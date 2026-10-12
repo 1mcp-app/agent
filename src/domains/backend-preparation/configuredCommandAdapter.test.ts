@@ -203,7 +203,7 @@ describe('configured-command preparation adapter', () => {
     expect(failure).toMatchObject({ code: 'unsupported_containment', retryable: false });
     expect(await readFile(join(selected.checkoutRoot, 'launched'), 'utf8').catch(() => undefined)).toBeUndefined();
   });
-  it('recovery treats saved running ownership as conflict and otherwise performs a fresh probe', async () => {
+  it('recovery reprobes native readiness without treating saved running state as process ownership', async () => {
     const adapter = new ConfiguredCommandPreparationAdapter({
       containment: 'posix-process-group',
       probe: command('process.exit(0)'),
@@ -213,7 +213,7 @@ describe('configured-command preparation adapter', () => {
     const selected = await target();
     expect(
       await adapter.reconcile(selected, 'symbols', { previousJobId: 'old-runtime-job', previousState: 'running' }),
-    ).toMatchObject({ state: 'conflict' });
+    ).toMatchObject({ state: 'ready' });
     expect(
       await adapter.reconcile(selected, 'symbols', { previousJobId: 'old-runtime-job', previousState: 'ready' }),
     ).toMatchObject({ state: 'ready' });
