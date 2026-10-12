@@ -26,6 +26,7 @@ vi.mock('./requestInteractionScope.js', () => ({
   registerLegacyNotificationOwner: vi.fn(),
 }));
 vi.mock('./resourceSubscriptions.js', () => ({
+  bindOwnedCatalogRefresh: vi.fn(),
   enqueueOwnedCatalogNotification: vi.fn(),
   registerOwnedCatalogConnection: vi.fn(),
   setupOwnedResourceNotifications: vi.fn(),

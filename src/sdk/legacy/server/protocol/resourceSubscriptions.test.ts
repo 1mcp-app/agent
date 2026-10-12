@@ -500,6 +500,55 @@ describe('owned legacy resource subscriptions', () => {
     expect(owner.adapter.notify).toHaveBeenCalledOnce();
   });
 
+  it('keeps an ordinary inbound alive across backend loss and rapid adapter replacement', async () => {
+    vi.useFakeTimers();
+    const owner = fixture();
+    Object.assign(upstream, { capabilities: { tools: { listChanged: true } }, status: 'connected' });
+    registerOwnedCatalogConnection(connections, owner, upstream, 'tools');
+    Object.assign(upstream, { status: 'disconnected' });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(owner.adapter.close).not.toHaveBeenCalled();
+    Object.assign(upstream, { status: 'connected', adapter: { ...upstream.adapter } });
+    await vi.advanceTimersByTimeAsync(1000);
+    enqueueOwnedCatalogNotification(connections, owner, upstream, { method: 'notifications/tools/list_changed' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(owner.adapter.notify).toHaveBeenCalledOnce();
+    Object.assign(upstream, { adapter: { ...upstream.adapter } });
+    registerOwnedCatalogConnection(connections, owner, upstream, 'tools');
+    expect(owner.adapter.close).not.toHaveBeenCalled();
+  });
+
+  it('still terminates an explicit catalog filter on backend loss', async () => {
+    vi.useFakeTimers();
+    const owner = Object.assign(fixture(), { subscriptionListKinds: ['tools'] as const });
+    Object.assign(upstream, { capabilities: { tools: { listChanged: true } }, status: 'connected' });
+    registerOwnedCatalogConnection(connections, owner, upstream, 'tools');
+    Object.assign(upstream, { status: 'disconnected' });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(owner.adapter.close).toHaveBeenCalledOnce();
+  });
+
+  it('does not deliver a queued retired catalog event after rapid replacement', async () => {
+    const owner = fixture();
+    const blocked = deferred();
+    vi.mocked(owner.adapter.notify).mockReturnValueOnce(blocked.promise);
+    Object.assign(upstream, { capabilities: { tools: { listChanged: true } }, status: 'connected' });
+    registerOwnedCatalogConnection(connections, owner, upstream, 'tools');
+    enqueueOwnedNotification(connections, owner, { method: 'notifications/tools/list_changed' });
+    await vi.waitFor(() => expect(owner.adapter.notify).toHaveBeenCalledOnce());
+    enqueueOwnedCatalogNotification(connections, owner, upstream, {
+      method: 'notifications/tools/list_changed',
+      params: { retired: true },
+    });
+    Object.assign(upstream, { adapter: { ...upstream.adapter } });
+    blocked.resolve();
+    await vi.waitFor(() => expect(mocks.notification).toHaveBeenCalledTimes(2));
+    expect(owner.adapter.close).not.toHaveBeenCalled();
+    expect(owner.adapter.notify).toHaveBeenCalledOnce();
+    enqueueOwnedCatalogNotification(connections, owner, upstream, { method: 'notifications/tools/list_changed' });
+    await vi.waitFor(() => expect(owner.adapter.notify).toHaveBeenCalledTimes(2));
+  });
+
   it('rejects a catalog event from a source the recipient does not own', async () => {
     const owner = fixture();
     const hidden = {

@@ -26,6 +26,7 @@ import {
   registerLegacyNotificationOwner,
 } from './requestInteractionScope.js';
 import {
+  bindOwnedCatalogRefresh,
   enqueueOwnedCatalogNotification,
   registerOwnedCatalogConnection,
   setupOwnedResourceNotifications,
@@ -64,6 +65,9 @@ export async function setupClientToServerNotifications(
   outboundConns: LegacyOutboundConnections,
   inboundConn: InboundConnection,
 ): Promise<void> {
+  bindOwnedCatalogRefresh(outboundConns, inboundConn, () =>
+    setupClientToServerNotifications(outboundConns, inboundConn),
+  );
   const coverage: Promise<void>[] = [];
   const clientNotificationSchemas = [CancelledNotificationSchema, LoggingMessageNotificationSchema];
 
