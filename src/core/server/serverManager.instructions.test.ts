@@ -3,6 +3,7 @@ import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import { ClientStatus, type OutboundConnections } from '@src/core/types/client.js';
+import type { MCPServerParams } from '@src/core/types/transport.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -10,6 +11,7 @@ import { InstructionAggregator } from '../instructions/instructionAggregator.js'
 import { ServerManager } from './serverManager.js';
 
 const runtimeConfiguration = vi.hoisted(() => ({
+  templateServers: {} as Record<string, MCPServerParams>,
   current: {
     configuredTargets: {
       mcpServers: { upstream: { command: 'node', instructionOverride: 'first override' } },
@@ -21,10 +23,35 @@ const runtimeConfiguration = vi.hoisted(() => ({
 vi.mock('@src/config/configManager.js', () => ({
   ConfigManager: {
     getInstance: () => ({
-      loadConfigWithTemplates: vi.fn().mockResolvedValue({ staticServers: {}, templateServers: {}, errors: [] }),
+      loadConfigWithTemplates: vi.fn(async () => ({
+        staticServers: {},
+        templateServers: runtimeConfiguration.templateServers,
+        errors: [],
+      })),
       getRuntimeInstructionConfiguration: () => runtimeConfiguration.current,
     }),
   },
+}));
+
+// Replace only the backend launch boundary; pooling, template routing and outbound snapshots remain real.
+vi.mock('@src/sdk/legacy/server/runtime/clientInstanceFactory.js', () => ({
+  createPooledClientInstance: vi.fn(async (params) => ({
+    ...params,
+    id: params.instanceId,
+    client: {
+      close: vi.fn().mockResolvedValue(undefined),
+      getInstructions: () => 'Use this project template',
+      getServerCapabilities: () => ({ tools: {} }),
+      setNotificationHandler: vi.fn(),
+    },
+    transport: { close: vi.fn().mockResolvedValue(undefined) },
+    referenceCount: 1,
+    createdAt: new Date(),
+    lastUsedAt: new Date(),
+    status: 'active',
+    outboundKeys: new Set(),
+    clientIds: new Set([params.clientId]),
+  })),
 }));
 
 describe('ServerManager instruction initialization', () => {
@@ -61,12 +88,29 @@ describe('ServerManager instruction initialization', () => {
 
   afterEach(async () => {
     await ServerManager.resetInstance();
+    runtimeConfiguration.templateServers = {};
     runtimeConfiguration.current = {
       configuredTargets: {
         mcpServers: { upstream: { command: 'node', instructionOverride: 'first override' } },
         mcpTemplates: {},
       },
     };
+  });
+
+  it('repeated and concurrent logical preparation preserves outbound continuation identity', async () => {
+    runtimeConfiguration.templateServers = {
+      worker: { command: 'node', args: ['{{project.path}}'], template: { perClient: true } },
+    };
+    const context = { project: { path: '/project' }, user: {}, environment: {}, sessionId: 'proxy-session' };
+    await manager.prepareLogicalTemplateSession('proxy-session', context, { tagFilterMode: 'none' });
+    const connection = manager.getClients().get('worker:proxy-session');
+    expect(connection?.instructions).toBe('Use this project template');
+    await Promise.all([
+      manager.prepareLogicalTemplateSession('proxy-session', context, { tagFilterMode: 'none' }),
+      manager.prepareLogicalTemplateSession('proxy-session', context, { tagFilterMode: 'none' }),
+    ]);
+    expect(manager.getClients().get('worker:proxy-session')).toBe(connection);
+    expect(manager.getTemplateServerManager().getClientInstancePool().getTemplateInstances('worker')).toHaveLength(1);
   });
 
   it('prepares logical templates before discovery without creating a transport connection', async () => {

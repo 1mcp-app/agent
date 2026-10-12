@@ -301,11 +301,21 @@ export class ServerManager {
     if (!context) return;
     const { templateServers } = await configManager.loadConfigWithTemplates(context);
     this.serverConfigData.mcpTemplates = templateServers;
+    // A retained logical membership owns its outbound adapter and continuation state.
+    // Configuration reload retires affected memberships before rebuilding them.
+    const pendingTemplates =
+      lifecycle === 'ephemeral'
+        ? Object.fromEntries(
+            Object.entries(templateServers).filter(
+              ([name]) => this.templateServerManager.getRenderedHashForSession(sessionId, name) === undefined,
+            ),
+          )
+        : templateServers;
     await this.templateServerManager.createTemplateBasedServers(
       sessionId,
       context,
       opts,
-      { mcpTemplates: templateServers },
+      { mcpTemplates: pendingTemplates },
       this.outboundConns,
       this.transports,
       lifecycle,
