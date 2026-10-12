@@ -607,6 +607,7 @@ export function enqueueOwnedCatalogNotification(
   const kind = notification.method.split('/')[1];
   for (const owner of owners.get(inbound)?.values() ?? []) {
     if (owner.closed) continue;
+    if (!allowsOwnedNotification(owner.inbound, notification)) continue;
     const covered = Array.from(owner.catalogs.values()).some(
       (source) =>
         source.connection === connection &&
@@ -637,17 +638,22 @@ export function enqueueOwnedNotification(
   notification: Update,
   isCurrent?: () => boolean,
 ): void {
-  if (inbound.requestOnly) return;
+  if (!allowsOwnedNotification(inbound, notification)) return;
+  const owner = getOwner(connections, inbound);
+  enqueueOwnerNotification(owner, notification, isCurrent);
+}
+
+function allowsOwnedNotification(inbound: InboundConnection, notification: Update): boolean {
+  if (inbound.requestOnly) return false;
   const kinds = {
     'notifications/tools/list_changed': 'tools',
     'notifications/resources/list_changed': 'resources',
     'notifications/prompts/list_changed': 'prompts',
   } as const;
   const kind = kinds[notification.method as keyof typeof kinds];
-  if (kind && !AgentConfigManager.getInstance().get('features').clientNotifications) return;
-  if (kind && inbound.subscriptionListKinds && !inbound.subscriptionListKinds.includes(kind)) return;
-  const owner = getOwner(connections, inbound);
-  enqueueOwnerNotification(owner, notification, isCurrent);
+  if (kind && !AgentConfigManager.getInstance().get('features').clientNotifications) return false;
+  if (kind && inbound.subscriptionListKinds && !inbound.subscriptionListKinds.includes(kind)) return false;
+  return true;
 }
 
 function enqueueOwnerNotification(owner: Owner, notification: Update, isCurrent?: () => boolean): void {

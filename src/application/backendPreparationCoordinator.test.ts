@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { ConfigManager } from '@src/config/configManager.js';
 import type { MCPServerParams } from '@src/core/types/transport.js';
+import { ConfiguredCommandPreparationAdapter } from '@src/domains/backend-preparation/configuredCommandAdapter.js';
 import type { BackendPreparationAdapter, BackendReadiness } from '@src/domains/backend-preparation/contracts.js';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -53,7 +54,7 @@ const config: MCPServerParams = {
 async function fixture(
   adapter?: BackendPreparationAdapter,
   overrides: Partial<MCPServerParams> = {},
-  options: { maxRecords?: number } = {},
+  options: { maxRecords?: number; requestWaitMs?: number; executionDeadlineMs?: number } = {},
   onReady?: (target: import('@src/domains/backend-preparation/contracts.js').PreparationTarget) => Promise<void>,
 ) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'preparation-runtime-'));
@@ -709,6 +710,137 @@ describe('runtime preparation controls', () => {
     await coordinator.shutdown();
     await coordinator.shutdown();
     expect(events).toEqual(['settled', 'disposed']);
+  });
+
+  it('reprobes saved active commands after external reconciliation while keeping genuine writer conflicts blocked', async () => {
+    const integration = {
+      containment: 'posix-process-group' as const,
+      probe: {
+        executable: process.execPath,
+        args: ['-e', 'process.exit(Number(require("fs").readFileSync("native-state","utf8")))'],
+      },
+      readinessExitCodes: {
+        '0': { state: 'ready' as const },
+        '10': { state: 'required' as const, action: 'initialize' as const, instructions: 'Initialize this checkout' },
+        '12': { state: 'conflict' as const, instructions: 'Native writer still owns checkout' },
+      },
+      actions: {
+        initialize: {
+          executable: process.execPath,
+          args: ['-e', 'const fs=require("fs"); fs.appendFileSync("actions","initialize\\n")'],
+          successExitCodes: [0],
+          transientExitCodes: [],
+        },
+      },
+      inspectionTimeoutMs: 2000,
+      outputLimitBytes: 16384,
+      terminationGraceMs: 50,
+    };
+    const { coordinator, resolve, directory, checkout } = await fixture(
+      new ConfiguredCommandPreparationAdapter(integration),
+      { preparation: { ...config.preparation!, integration } },
+      { requestWaitMs: 2000, executionDeadlineMs: 5000 },
+    );
+    await fs.writeFile(path.join(checkout, 'native-state'), '10');
+    const grant = await resolve();
+    const started = await job(coordinator, grant);
+    await coordinator.control(grant, { action: 'wait', id: started.id, waitMs: 3000 });
+    await coordinator.shutdown();
+    const storage = path.join(directory, 'runtime', 'backend-preparation.json');
+    const records = JSON.parse(await fs.readFile(storage, 'utf8'));
+    records[0].state = 'running';
+    delete records[0].failure;
+    await fs.writeFile(storage, JSON.stringify(records));
+    const restarted = new BackendPreparationCoordinator({
+      storagePath: path.join(directory, 'runtime'),
+      options: { requestWaitMs: 2000, executionDeadlineMs: 5000 },
+    });
+    coordinators.push(restarted);
+    const refreshed = await restarted.resolveGrant({
+      backendName: 'codegraph',
+      checkoutPath: checkout,
+      owner: grant.owner,
+      filterConfig: { tagFilterMode: 'none' },
+    });
+    await fs.writeFile(path.join(checkout, 'native-state'), '12');
+    expect(await restarted.control(refreshed, { action: 'retry' })).toMatchObject({
+      state: 'conflict',
+      instructions: 'Native writer still owns checkout',
+    });
+    await fs.writeFile(path.join(checkout, 'native-state'), '10');
+    expect(await restarted.control(refreshed, { action: 'inspect' })).toMatchObject({
+      state: 'required',
+      action: 'initialize',
+    });
+    expect(await fs.readFile(path.join(checkout, 'actions'), 'utf8')).toBe('initialize\n');
+    const retried = (await restarted.control(refreshed, { action: 'retry' })) as {
+      state: string;
+      status: PublicPreparationStatus;
+    };
+    expect(retried).toMatchObject({ state: 'job' });
+    await restarted.control(refreshed, { action: 'wait', id: retried.status.id, waitMs: 3000 });
+    expect(await fs.readFile(path.join(checkout, 'actions'), 'utf8')).toBe('initialize\ninitialize\n');
+  });
+
+  it('explicit runtime retry admits the next required command as a separate job without automatic chaining', async () => {
+    const action = (name: string, state: number) => ({
+      executable: process.execPath,
+      args: [
+        '-e',
+        `const fs=require("fs");fs.appendFileSync("actions",${JSON.stringify(name + '\n')});fs.writeFileSync("native-state",${JSON.stringify(String(state))})`,
+      ],
+      successExitCodes: [0],
+      transientExitCodes: [],
+    });
+    const integration = {
+      containment: 'posix-process-group' as const,
+      probe: {
+        executable: process.execPath,
+        args: ['-e', 'process.exit(Number(require("fs").readFileSync("native-state","utf8")))'],
+      },
+      readinessExitCodes: {
+        '0': { state: 'ready' as const },
+        '10': { state: 'required' as const, action: 'initialize' as const, instructions: 'Initialize' },
+        '11': { state: 'required' as const, action: 'sync' as const, instructions: 'Synchronize' },
+      },
+      actions: { initialize: action('initialize', 11), sync: action('sync', 0) },
+      inspectionTimeoutMs: 2000,
+      outputLimitBytes: 16384,
+      terminationGraceMs: 50,
+    };
+    const { coordinator, resolve, checkout } = await fixture(
+      new ConfiguredCommandPreparationAdapter(integration),
+      { preparation: { ...config.preparation!, integration } },
+      { requestWaitMs: 2000, executionDeadlineMs: 5000 },
+    );
+    await fs.writeFile(path.join(checkout, 'native-state'), '10');
+    const grant = await resolve();
+    const first = await job(coordinator, grant);
+    expect(await coordinator.control(grant, { action: 'wait', id: first.id, waitMs: 3000 })).toMatchObject({
+      state: 'not_ready',
+      action: 'initialize',
+      readiness: { state: 'required', action: 'sync' },
+    });
+    expect(await coordinator.control(grant, { action: 'prepare' })).toMatchObject({
+      state: 'job',
+      status: { id: first.id, state: 'not_ready' },
+    });
+    expect(await fs.readFile(path.join(checkout, 'actions'), 'utf8')).toBe('initialize\n');
+    const second = (await coordinator.control(grant, { action: 'retry', id: first.id })) as {
+      state: string;
+      status: PublicPreparationStatus;
+    };
+    expect(second).toMatchObject({ state: 'job', status: { action: 'sync' } });
+    expect(second.status.id).not.toBe(first.id);
+    expect(await coordinator.control(grant, { action: 'wait', id: second.status.id, waitMs: 3000 })).toMatchObject({
+      state: 'ready',
+      action: 'sync',
+    });
+    expect(await coordinator.control(grant, { action: 'status', id: first.id })).toMatchObject({
+      state: 'not_ready',
+      action: 'initialize',
+    });
+    expect(await fs.readFile(path.join(checkout, 'actions'), 'utf8')).toBe('initialize\nsync\n');
   });
 
   it('persists stable failure, reconciles without preparing after restart, and permits explicit retry', async () => {

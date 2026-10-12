@@ -32,6 +32,58 @@ function service(adapter: BackendPreparationAdapter) {
   return new BackendPreparationService(registry);
 }
 describe('configured preparation jobs', () => {
+  it.each(['failed', 'cancelled', 'execution_deadline'] as const)(
+    'explicit retry admits a newly required action after %s while preserving the terminal record',
+    async (outcome) => {
+      const calls: string[] = [];
+      let started!: () => void;
+      const running = new Promise<void>((resolve) => (started = resolve));
+      const jobs = service({
+        inspect: async () => {
+          if (calls.length === 0) return required;
+          return calls.includes('sync') ? ready : { ...required, action: 'sync' };
+        },
+        prepare: async (_target, action, options) => {
+          calls.push(action);
+          if (action === 'sync') return;
+          started();
+          if (outcome === 'failed') throw new Error('Terminal command failure');
+          await new Promise<void>((resolve) =>
+            options.signal.addEventListener('abort', () => resolve(), { once: true }),
+          );
+        },
+        classifyFailure: failure,
+      });
+      const policy = { allowedActions: ['initialize', 'sync'] as const, executionDeadlineMs: 50 };
+      const first = await jobs.prepare(target, 'symbols', { ...policy, allowedActions: [...policy.allowedActions] });
+      if (first.state !== 'job') throw new Error('Expected first job');
+      await running;
+      if (outcome === 'cancelled') jobs.cancel(first.status.id);
+      const terminal = await jobs.wait(first.status.id);
+      // A deadline reports its terminal state before the owned adapter settles.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(terminal?.state).toBe(outcome === 'cancelled' ? 'cancelled' : 'failed');
+      if (outcome === 'execution_deadline') {
+        expect(await jobs.retry(first.status.id, { allowedActions: ['sync'], executionDeadlineMs: 50 })).toMatchObject({
+          state: 'forbidden',
+          instructions: expect.stringContaining('larger execution budget'),
+        });
+      }
+      expect(
+        await jobs.retry(first.status.id, { allowedActions: ['initialize'], executionDeadlineMs: 100 }),
+      ).toMatchObject({
+        state: 'forbidden',
+        instructions: expect.stringContaining('sync'),
+      });
+      const next = await jobs.retry(first.status.id, { allowedActions: ['sync'], executionDeadlineMs: 100 });
+      if (next.state !== 'job') throw new Error(`Expected new sync job, received ${next.state}`);
+      expect(next.status.id).not.toBe(first.status.id);
+      expect(await jobs.wait(next.status.id)).toMatchObject({ state: 'ready', action: 'sync' });
+      expect(jobs.status(first.status.id)).toEqual(terminal);
+      expect(calls).toEqual(['initialize', 'sync']);
+      await jobs.shutdown();
+    },
+  );
   it('returns pending job immediately even when the action completes before admission returns', async () => {
     let completed = false;
     const jobs = service({
@@ -107,6 +159,36 @@ describe('configured preparation jobs', () => {
     const result = await jobs.prepare(target, 'symbols', { allowedActions: ['initialize'] });
     if (result.state !== 'job') throw new Error('Expected job');
     expect(await jobs.wait(result.status.id)).toMatchObject({ elapsedMs: expect.any(Number) });
+    await jobs.shutdown();
+  });
+  it('explicit retry admits one newly required authorized action and retains the previous not-ready job', async () => {
+    const calls: string[] = [];
+    const jobs = service({
+      inspect: async () => {
+        if (calls.length === 0) return required;
+        if (calls.length === 1) return { ...required, action: 'sync' };
+        return ready;
+      },
+      prepare: async (_target, action) => {
+        calls.push(action);
+      },
+      classifyFailure: failure,
+    });
+    const first = await jobs.prepare(target, 'symbols', { allowedActions: ['initialize', 'sync'] });
+    if (first.state !== 'job') throw new Error('Expected job');
+    await jobs.wait(first.status.id);
+    expect(calls).toEqual(['initialize']);
+    expect(await jobs.retry(first.status.id, { allowedActions: ['initialize'] })).toMatchObject({
+      state: 'forbidden',
+      instructions: expect.stringContaining('sync'),
+    });
+    expect(jobs.status(first.status.id)).toMatchObject({ state: 'not_ready', action: 'initialize' });
+    const next = await jobs.retry(first.status.id, { allowedActions: ['sync'] });
+    if (next.state !== 'job') throw new Error('Expected next job');
+    expect(next.status.id).not.toBe(first.status.id);
+    expect(await jobs.wait(next.status.id)).toMatchObject({ state: 'ready', action: 'sync' });
+    expect(jobs.status(first.status.id)).toMatchObject({ state: 'not_ready', action: 'initialize' });
+    expect(calls).toEqual(['initialize', 'sync']);
     await jobs.shutdown();
   });
 });

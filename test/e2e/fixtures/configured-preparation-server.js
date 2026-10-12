@@ -19,7 +19,19 @@ if (mode === 'probe') {
   process.exitCode = (await ready()) ? 0 : 10;
 } else if (mode === 'initialize') {
   await appendFile(path.join(checkout, 'preparations.log'), 'initialize\n');
-  await new Promise((resolve) => setTimeout(resolve, 3000));
+  await writeFile(path.join(checkout, 'preparation-started.marker'), 'running');
+  const release = path.join(checkout, 'preparation-release.marker');
+  const deadline = Date.now() + 20000;
+  while (true) {
+    try {
+      await access(release);
+      break;
+    } catch {
+      /* Held by the acceptance harness. */
+    }
+    if (Date.now() >= deadline) throw new Error('Preparation fixture release deadline exceeded');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
   await writeFile(marker, 'ready');
 } else if (mode === 'serve') {
   const server = new Server({ name: 'configured-fixture', version: '1' }, { capabilities: { tools: {} } });
