@@ -34,6 +34,9 @@ describe('ServerManager schema cleanup', () => {
     const manager = Object.assign(Object.create(ServerManager.prototype), {
       cleanupCallbacks: new Set([closeInteractions]),
       ownedCleanupCallbacks: new Set(),
+      logicalTemplateContexts: new Map(),
+      logicalTemplatePreparations: new Map(),
+      logicalBridgeSessions: new Set(),
       connectionManager: { cleanup: connectionCleanup },
       templateServerManager: { shutdown: templateShutdown },
       templateConfigurationManager: { cleanup: vi.fn() },

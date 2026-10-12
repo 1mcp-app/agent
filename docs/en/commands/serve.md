@@ -354,3 +354,18 @@ Use this when the client can authenticate against the HTTP runtime. Do not assum
 - **[Cloud Deployment with Caddy](/guide/advanced/cloud-deployment)**
 - **[Architecture](/reference/architecture)**
 - **[Configuration Guide](/guide/essentials/configuration)**
+
+## Backend loss and recovery
+
+Direct `serve --transport stdio` remains deprecated. For stdio-compatible clients, run an HTTP Aggregated Runtime and use the proxy as the client command:
+
+```bash
+# Runtime terminal
+1mcp serve --transport http --config mcp.json --host 127.0.0.1 --port 3050
+# Client command (separate process)
+1mcp proxy --url http://127.0.0.1:3050/mcp
+```
+
+When a backend exits, ordinary client connections remain responsive: ping and healthy backends continue working, while unavailable tools, resources, and prompts leave the catalog. In-flight requests use the existing bounded failure policy and are not replayed. If configured supervision successfully initializes a replacement backend, its capabilities and catalog change notifications become available on the existing client connection. List-change delivery follows the existing notification settings and visibility policy.
+
+Resource subscriptions for the failed backend are lost; healthy backend watches remain active. After recovery, clients must explicitly subscribe again. There is no automatic resubscription or replay of missed events. Explicit modern subscription filters still fail closed when their acknowledged coverage is lost.

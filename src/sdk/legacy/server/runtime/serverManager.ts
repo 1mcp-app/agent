@@ -1,5 +1,6 @@
 import { ConfigManager } from '@src/config/configManager.js';
 import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
+import { evictRuntimeCapabilityCatalogSession } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { getGlobalContextManager } from '@src/core/context/globalContextManager.js';
 import {
   normalizeProjectPreparationAuthority,
@@ -77,6 +78,9 @@ export class ServerManager {
   private serverCapabilities: { capabilities: Record<string, unknown> };
   private outboundConns: OutboundConnections;
   private transports: Record<string, Transport>;
+  private logicalTemplateContexts = new Map<string, { context: ContextData; opts: InboundConnectionConfig }>();
+  private logicalTemplatePreparations = new Map<string, Promise<void>>();
+  private logicalBridgeSessions = new Set<string>();
   private serverConfigData: MCPServerConfiguration | null = null; // Cache the config data
   private instructionAggregator?: InstructionAggregator;
   private lazyLoadingOrchestrator?: LazyLoadingOrchestrator;
@@ -107,6 +111,10 @@ export class ServerManager {
     this.templateServerManager = new TemplateServerManager(
       AgentConfigManager.getInstance().get('templateInstancePool'),
     );
+    this.templateServerManager.registerLogicalTemplateSessionCleanup((sessionId) => {
+      this.logicalTemplateContexts.delete(sessionId);
+      evictRuntimeCapabilityCatalogSession(this.outboundConns, sessionId);
+    });
     this.mcpServerLifecycleManager = new MCPServerLifecycleManager();
     this.templateConfigurationManager = new TemplateConfigurationManager();
     this.serverRegistry = new ServerRegistry(outboundConns, this.templateServerManager);
@@ -261,6 +269,92 @@ export class ServerManager {
     }
   }
 
+  public retainLogicalTemplateSession(sessionId: string): () => void {
+    return this.templateServerManager.retainLogicalTemplateSession(sessionId);
+  }
+
+  public registerLogicalTemplateSessionCleanup(listener: (sessionId: string) => void): () => void {
+    return this.templateServerManager.registerLogicalTemplateSessionCleanup(listener);
+  }
+
+  /** Prepare contextual memberships and instructions before modern discovery. */
+  public async prepareLogicalTemplateSession(
+    sessionId: string,
+    context: ContextData,
+    opts: InboundConnectionConfig = {},
+  ): Promise<void> {
+    const previous = this.logicalTemplatePreparations.get(sessionId);
+    const preparation = (async () => {
+      if (previous) await previous;
+      const release = this.retainLogicalTemplateSession(sessionId);
+      try {
+        this.logicalTemplateContexts.set(sessionId, { context, opts });
+        await this.prepareTemplateSession(sessionId, context, opts, 'ephemeral');
+      } finally {
+        release();
+      }
+    })();
+    this.logicalTemplatePreparations.set(sessionId, preparation);
+    try {
+      await preparation;
+    } finally {
+      if (this.logicalTemplatePreparations.get(sessionId) === preparation) {
+        this.logicalTemplatePreparations.delete(sessionId);
+      }
+    }
+  }
+
+  private async prepareTemplateSession(
+    sessionId: string,
+    context: ContextData | undefined,
+    opts: InboundConnectionConfig,
+    lifecycle: 'persistent' | 'ephemeral',
+    authority?: ProjectPreparationAuthority,
+  ): Promise<void> {
+    const configManager = ConfigManager.getInstance();
+    if (!this.serverConfigData) {
+      const { staticServers } = await configManager.loadConfigWithTemplates(undefined);
+      this.serverConfigData = { mcpServers: staticServers, mcpTemplates: {} };
+    }
+    for (const [name, config] of Object.entries(this.serverConfigData.mcpServers ?? {})) {
+      if (!this.serverRegistry.has(name)) this.serverRegistry.registerExternal(name, config);
+    }
+    if (!context) return;
+    authority ??= opts.bindingId ? this.templateServerManager.getBindingAuthority(opts.bindingId) : undefined;
+    const bindingId = await this.templateServerManager.registerBindingContext(
+      createProjectBindingId(context.sessionId ?? sessionId, context),
+      context,
+      opts,
+      ...(authority ? [authority] : []),
+    );
+    const { templateServers } = await configManager.loadConfigWithTemplates(context);
+    // A retained logical membership owns its outbound adapter and continuation state.
+    // Configuration reload retires affected memberships before rebuilding them.
+    const pendingTemplates =
+      lifecycle === 'ephemeral'
+        ? Object.fromEntries(
+            Object.entries(templateServers).filter(
+              ([name]) => this.templateServerManager.getRenderedHashForSession(bindingId, name) === undefined,
+            ),
+          )
+        : templateServers;
+    await this.templateServerManager.createTemplateBasedServers(
+      sessionId,
+      context,
+      opts,
+      { mcpTemplates: pendingTemplates },
+      this.outboundConns,
+      this.transports,
+      lifecycle,
+      ...(authority ? [authority] : []),
+    );
+    for (const [name, config] of Object.entries(templateServers)) {
+      if (!this.serverRegistry.has(name)) this.serverRegistry.registerTemplate(name, config);
+    }
+    if (this.lazyLoadingOrchestrator) await this.lazyLoadingOrchestrator.refreshCapabilities();
+    this.instructionAggregator?.setRuntimeInstructionConfiguration(configManager.getRuntimeInstructionConfiguration());
+  }
+
   public async connectTransport(
     transport: Transport,
     sessionId: string,
@@ -268,99 +362,55 @@ export class ServerManager {
     context?: ContextData,
     authority?: ProjectPreparationAuthority,
   ): Promise<void> {
-    // Load configuration data
-    // Always process templates when context is available to ensure context-specific rendering
-    const configManager = ConfigManager.getInstance();
-    if (!this.serverConfigData) {
-      // First load - static servers only (templates processed separately per context)
-      const { staticServers } = await configManager.loadConfigWithTemplates(undefined);
-      this.serverConfigData = {
-        mcpServers: staticServers,
-        mcpTemplates: {}, // Will be populated per context
-      };
-    }
-
-    if (context) {
-      const sourceContext = context;
-      context = withCanonicalSessionId(context, sessionId);
-      if (context.projectSet) {
-        context = withProjectSelection(context, await canonicalizeProjectSet(context.projectSet, process.cwd()));
-      }
-      authority = normalizeProjectPreparationAuthority(authority, sourceContext, context);
-      const bindingId = await this.templateServerManager.registerBindingContext(
-        createProjectBindingId(sessionId, context),
-        context,
-        opts,
-        ...(authority ? [authority] : []),
-      );
-      opts = { ...opts, bindingId };
-    }
-
-    let requestServerConfigData = this.serverConfigData;
-
-    // Always process templates with current context when context is available
-    if (context) {
-      const { templateServers } = await configManager.loadConfigWithTemplates(context);
-      requestServerConfigData = { ...this.serverConfigData, mcpTemplates: templateServers };
-      // Note: ConfigManager.loadConfigWithTemplates already handles conflict detection
-      // by filtering out static servers that conflict with template servers
-    }
-
-    // Populate server registry with external servers
-    if (requestServerConfigData.mcpServers) {
-      for (const [name, config] of Object.entries(requestServerConfigData.mcpServers)) {
-        if (!this.serverRegistry.has(name)) {
-          this.serverRegistry.registerExternal(name, config);
+    let templateContext =
+      context ?? (opts.logicalTemplateSessionId ? (opts.context as ContextData | undefined) : undefined);
+    if (opts.logicalTemplateSessionId && templateContext) {
+      await this.prepareLogicalTemplateSession(opts.logicalTemplateSessionId, templateContext, opts);
+      this.logicalBridgeSessions.add(sessionId);
+    } else {
+      if (templateContext) {
+        const sourceContext = templateContext;
+        templateContext = withCanonicalSessionId(templateContext, sessionId);
+        if (templateContext.projectSet) {
+          templateContext = withProjectSelection(
+            templateContext,
+            await canonicalizeProjectSet(templateContext.projectSet, process.cwd()),
+          );
         }
+        authority = normalizeProjectPreparationAuthority(authority, sourceContext, templateContext);
+        const bindingId = await this.templateServerManager.registerBindingContext(
+          createProjectBindingId(sessionId, templateContext),
+          templateContext,
+          opts,
+          ...(authority ? [authority] : []),
+        );
+        opts = { ...opts, bindingId };
       }
+      await this.prepareTemplateSession(sessionId, templateContext, opts, 'persistent', authority);
     }
-
-    // If we have context, create template-based servers
-    if (context && requestServerConfigData.mcpTemplates) {
-      await this.templateServerManager.createTemplateBasedServers(
-        sessionId,
-        context,
-        opts,
-        requestServerConfigData,
-        this.outboundConns,
-        this.transports,
-        'persistent',
-        ...(authority ? [authority] : []),
-      );
-
-      // Populate server registry with template servers
-      for (const [name, config] of Object.entries(requestServerConfigData.mcpTemplates)) {
-        if (!this.serverRegistry.has(name)) {
-          this.serverRegistry.registerTemplate(name, config);
-        }
-      }
-
-      // CRITICAL: Refresh tool registry after template servers are added
-      // This ensures template server tools are included in lazy loading mode
-      if (this.lazyLoadingOrchestrator) {
-        await this.lazyLoadingOrchestrator.refreshCapabilities();
-      }
-    }
-
-    // IMPORTANT: Get filtered instructions AFTER template servers are created
-    // This ensures template server instructions are included in the initialize response
-    this.instructionAggregator?.setRuntimeInstructionConfiguration(configManager.getRuntimeInstructionConfiguration());
+    this.instructionAggregator?.setRuntimeInstructionConfiguration(
+      ConfigManager.getInstance().getRuntimeInstructionConfiguration(),
+    );
     const instructionConnections = createConnectionResolver(
       this.outboundConns,
       this.templateServerManager,
-    ).filterForSession(opts.bindingId);
-    const filteredInstructions =
-      this.instructionAggregator?.getFilteredInstructions(opts, instructionConnections) || '';
-
-    // Connect the transport
-    await this.connectionManager.connectTransport(transport, sessionId, opts, context, filteredInstructions);
+    ).filterForSession(opts.bindingId ?? opts.logicalTemplateSessionId);
+    const instructions = this.instructionAggregator?.getFilteredInstructions(opts, instructionConnections) || '';
+    try {
+      await this.connectionManager.connectTransport(transport, sessionId, opts, templateContext, instructions);
+    } catch (error) {
+      this.logicalBridgeSessions.delete(sessionId);
+      if (!opts.logicalTemplateSessionId) {
+        await this.templateServerManager.cleanupTemplateServers(sessionId, this.outboundConns, this.transports);
+      }
+      throw error;
+    }
   }
 
   public async disconnectTransport(sessionId: string, forceClose: boolean = false): Promise<void> {
-    // Clean up template-based servers for this client
-    await this.templateServerManager.cleanupTemplateServers(sessionId, this.outboundConns, this.transports);
-
-    // Disconnect the transport
+    if (!this.logicalBridgeSessions.delete(sessionId)) {
+      await this.templateServerManager.cleanupTemplateServers(sessionId, this.outboundConns, this.transports);
+    }
     await this.connectionManager.disconnectTransport(sessionId, forceClose);
   }
 
@@ -420,8 +470,12 @@ export class ServerManager {
         const bindingContext = this.templateServerManager.getBindingContext(sessionId);
         const ownerSessionId = bindingContext?.sessionId ?? sessionId;
         const inboundConnection = this.connectionManager.getInboundConnections().get(ownerSessionId);
-        const context = bindingContext ?? (inboundConnection?.context as ContextData | undefined);
-        if (!inboundConnection || !context) continue;
+        const logicalSession = this.logicalTemplateContexts.get(sessionId);
+        const context =
+          bindingContext ?? logicalSession?.context ?? (inboundConnection?.context as ContextData | undefined);
+        const opts =
+          this.templateServerManager.getBindingConfiguration(sessionId) ?? logicalSession?.opts ?? inboundConnection;
+        if (!opts || !context) continue;
         const { templateServers, errors } = await ConfigManager.getInstance().loadConfigWithTemplates(context);
         if (errors.length > 0) {
           logger.warn(
@@ -435,7 +489,7 @@ export class ServerManager {
         await this.templateServerManager.createTemplateBasedServers(
           sessionId,
           context,
-          this.templateServerManager.getBindingConfiguration(sessionId) ?? inboundConnection,
+          opts,
           { mcpTemplates: affectedTemplates },
           this.outboundConns,
           this.transports,
@@ -677,6 +731,9 @@ export class ServerManager {
       }
       await this.connectionManager.cleanup();
       await this.templateServerManager.shutdown();
+      this.logicalTemplateContexts.clear();
+      this.logicalBridgeSessions.clear();
+      this.logicalTemplatePreparations.clear();
       this.templateConfigurationManager.cleanup();
       this.filterCache.clear();
     } catch (error) {

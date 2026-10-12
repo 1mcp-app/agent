@@ -82,6 +82,7 @@ vi.mock('./templateServerManager.js', () => ({
   TemplateServerManager: vi.fn(function () {
     return {
       setInstructionAggregator: vi.fn(),
+      registerLogicalTemplateSessionCleanup: vi.fn(),
       getFilteringStats: vi.fn(() => ({ tracker: null, index: null, enabled: true })),
       getClientTemplateInfo: vi.fn(() => ({})),
       rebuildTemplateIndex: vi.fn(),

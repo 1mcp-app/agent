@@ -94,7 +94,7 @@ export class ClientManager extends EventEmitter {
   private oauthFlowHandler: OAuthFlowHandler;
   private transportRecreator: TransportRecreator;
   private backendSupervisors = new Map<string, BackendStdioSupervisor>();
-  private backendAvailabilityHandler?: (name: string, snapshot: BackendSupervisionSnapshot) => void | Promise<void>;
+  private backendAvailabilityHandler?: (name: string, snapshot?: BackendSupervisionSnapshot) => void | Promise<void>;
   private isShuttingDown = false;
   private shutdownPromise?: Promise<void>;
 
@@ -130,7 +130,7 @@ export class ClientManager extends EventEmitter {
   }
 
   public setBackendAvailabilityHandler(
-    handler: (name: string, snapshot: BackendSupervisionSnapshot) => void | Promise<void>,
+    handler: (name: string, snapshot?: BackendSupervisionSnapshot) => void | Promise<void>,
   ): void {
     this.backendAvailabilityHandler = handler;
   }
@@ -204,6 +204,7 @@ export class ClientManager extends EventEmitter {
       const cleanName = clientInfo?.name || name;
       this.instructionAggregator?.removeServer({ source: 'mcpServers', name: cleanName }, name);
       logger.info('clientManager.client.disconnected.827fca0a');
+      this.publishBackendAvailability(name);
     };
 
     client.onerror = (error) => {
@@ -1128,6 +1129,10 @@ export class ClientManager extends EventEmitter {
       }
     }
     this.emit(ClientManagerEvent.BackendSupervisionStateChanged, name, snapshot);
+    this.publishBackendAvailability(name, snapshot);
+  }
+
+  private publishBackendAvailability(name: string, snapshot?: BackendSupervisionSnapshot): void {
     try {
       void Promise.resolve(this.backendAvailabilityHandler?.(name, snapshot)).catch((_error) => {
         logger.warn('clientManager.failed.to.publish.backend.availability.for.9f2d28de');

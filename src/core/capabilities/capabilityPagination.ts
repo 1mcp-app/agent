@@ -306,8 +306,10 @@ async function pumpCapabilityNotifications(
   connection: OutboundConnection,
   state: CapabilityNotificationState,
 ): Promise<void> {
+  const adapter = connection.adapter;
   while (true) {
-    const event = await connection.adapter.nextEvent();
+    const event = await adapter.nextEvent();
+    if (connection.adapter !== adapter) return;
     if (event.type === 'closed') return;
     if (event.type !== 'notification') continue;
 

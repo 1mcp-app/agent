@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from 'node:util';
+
 import { isOperatorDisabledTemplateDefinition } from '@src/config/configuredServerTargets.js';
 import { getRuntimeScopeEnvironment, sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
 import { createRuntimeTargetFingerprint } from '@src/config/runtimeTargetFingerprint.js';
@@ -48,6 +50,8 @@ import logger, { debugIf } from '@src/logger/logger.js';
 import {
   createLegacyOutboundConnection,
   getLegacyClient,
+  getLegacyTransport,
+  snapshotSupervision,
 } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import type { AuthProviderTransport } from '@src/sdk/legacy/client/runtime/legacyTransport.js';
 import { Transport } from '@src/sdk/legacy/shared/transport.js';
@@ -90,6 +94,8 @@ export class TemplateServerManager {
   private instructionAggregator?: InstructionAggregator;
   private ephemeralClients = new Map<string, Map<string, EphemeralTemplateClient>>();
   private persistentSessions = new Set<string>();
+  private logicalSessions = new Map<string, { lastUsedAt: number; retainCount: number }>();
+  private logicalSessionCleanup = new Set<(sessionId: string) => void>();
   private outboundConns?: OutboundConnections;
   private transports?: Record<string, Transport>;
   private templateConfigHashes = new Map<string, string>();
@@ -244,17 +250,20 @@ export class TemplateServerManager {
         instance.outboundKeys.add(outboundKey);
 
         const instructions = instance.client.getInstructions();
-        outboundConns.set(
-          outboundKey,
-          createLegacyOutboundConnection({
-            name: templateName, // Keep clean name for tool namespacing (serena_1mcp_*)
-            transport: instance.transport as AuthProviderTransport,
-            client: instance.client,
-            status: ClientStatus.Connected, // Template servers should be connected
-            capabilities: instance.client.getServerCapabilities?.(),
-            instructions,
-          }),
-        );
+        // Joining a pooled instance must preserve its adapter and continuation ownership.
+        if (!this.matchesPooledTemplateInstance(outboundConns.get(outboundKey), instance)) {
+          outboundConns.set(
+            outboundKey,
+            createLegacyOutboundConnection({
+              name: templateName, // Keep clean name for tool namespacing (serena_1mcp_*)
+              transport: instance.transport as AuthProviderTransport,
+              client: instance.client,
+              status: ClientStatus.Connected, // Template servers should be connected
+              capabilities: instance.client.getServerCapabilities?.(),
+              instructions,
+            }),
+          );
+        }
         registerCapabilityPaginationNotifications(outboundConns, outboundConns.get(outboundKey)!);
         if (instance.supervision) {
           this.publishTemplateSupervision(instance, instance.supervision);
@@ -356,6 +365,15 @@ export class TemplateServerManager {
     }
   }
 
+  private matchesPooledTemplateInstance(
+    connection: OutboundConnection | undefined,
+    instance: PooledClientInstance,
+  ): boolean {
+    if (!connection) return false;
+    if (getLegacyClient(connection) !== instance.client) return false;
+    return getLegacyTransport(connection) === instance.transport;
+  }
+
   /**
    * Clean up template-based servers when a client disconnects
    */
@@ -376,6 +394,7 @@ export class TemplateServerManager {
     }
     this.forgetBindingContext(sessionId);
 
+    this.expireLogicalSession(sessionId);
     await cleanupTemplateServersForSession(sessionId, outboundConns, transports, {
       clientInstancePool: this.clientInstancePool,
       clientTemplateTracker: this.clientTemplateTracker,
@@ -383,6 +402,39 @@ export class TemplateServerManager {
       ephemeralClients: this.ephemeralClients,
       persistentSessions: this.persistentSessions,
     });
+  }
+
+  public registerLogicalTemplateSessionCleanup(listener: (sessionId: string) => void): () => void {
+    this.logicalSessionCleanup.add(listener);
+    return () => {
+      this.logicalSessionCleanup.delete(listener);
+    };
+  }
+
+  public touchLogicalTemplateSession(sessionId: string): void {
+    const session = this.logicalSessions.get(sessionId) ?? { lastUsedAt: Date.now(), retainCount: 0 };
+    session.lastUsedAt = Date.now();
+    this.logicalSessions.set(sessionId, session);
+    this.touchEphemeralClient(sessionId);
+  }
+
+  public retainLogicalTemplateSession(sessionId: string): () => void {
+    this.touchLogicalTemplateSession(sessionId);
+    const session = this.logicalSessions.get(sessionId)!;
+    session.retainCount++;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      session.retainCount--;
+      session.lastUsedAt = Date.now();
+      this.touchEphemeralClient(sessionId);
+    };
+  }
+
+  private expireLogicalSession(sessionId: string): void {
+    if (!this.logicalSessions.delete(sessionId)) return;
+    for (const listener of this.logicalSessionCleanup) listener(sessionId);
   }
 
   public trackPersistentClient(sessionId: string): void {
@@ -539,6 +591,17 @@ export class TemplateServerManager {
     return this.clientInstancePool.restartInstance(instance);
   }
 
+  private isCurrentSupervisionPublication(
+    connection: OutboundConnection,
+    instance: PooledClientInstance,
+    status: ClientStatus,
+    snapshot: BackendSupervisionSnapshot,
+  ): boolean {
+    if (!this.matchesPooledTemplateInstance(connection, instance)) return false;
+    if (connection.status !== status) return false;
+    return isDeepStrictEqual(connection.supervision, snapshotSupervision(snapshot));
+  }
+
   private publishTemplateSupervision(instance: PooledClientInstance, snapshot: BackendSupervisionSnapshot): void {
     instance.supervision = snapshot;
     for (const outboundKey of instance.outboundKeys) {
@@ -552,17 +615,19 @@ export class TemplateServerManager {
             : snapshot.state === 'stopped'
               ? ClientStatus.Disconnected
               : ClientStatus.Restarting;
-        const replacement = createLegacyOutboundConnection({
-          name: connection.name,
-          client: instance.client,
-          transport: instance.transport as AuthProviderTransport,
-          status,
-          capabilities: connected ? instance.client.getServerCapabilities?.() : undefined,
-          instructions: connected ? instance.client.getInstructions?.() : undefined,
-          supervision: snapshot,
-        });
-        this.outboundConns?.set(outboundKey, replacement);
-        registerCapabilityPaginationNotifications(this.outboundConns!, replacement);
+        if (!this.isCurrentSupervisionPublication(connection, instance, status, snapshot)) {
+          const replacement = createLegacyOutboundConnection({
+            name: connection.name,
+            client: instance.client,
+            transport: instance.transport as AuthProviderTransport,
+            status,
+            capabilities: connected ? instance.client.getServerCapabilities?.() : undefined,
+            instructions: connected ? instance.client.getInstructions?.() : undefined,
+            supervision: snapshot,
+          });
+          this.outboundConns?.set(outboundKey, replacement);
+          registerCapabilityPaginationNotifications(this.outboundConns!, replacement);
+        }
       }
       ClientManager.current?.publishBackendSupervisionState(outboundKey, snapshot);
     }
@@ -592,18 +657,37 @@ export class TemplateServerManager {
     outboundConns: OutboundConnections = this.outboundConns ?? new Map<string, OutboundConnection>(),
     transports: Record<string, Transport> = this.transports ?? {},
   ): Promise<number> {
+    const sessionsWithMembership = new Set(this.ephemeralClients.keys());
+    // Active requests and subscriptions retain their contextual membership.
+    for (const [sessionId, session] of this.logicalSessions) {
+      if (session.retainCount > 0) this.touchEphemeralClient(sessionId);
+    }
     await cleanupExpiredEphemeralClients(outboundConns, transports, {
       clientInstancePool: this.clientInstancePool,
       clientTemplateTracker: this.clientTemplateTracker,
       sessionToRenderedHash: this.sessionToRenderedHash,
       ephemeralClients: this.ephemeralClients,
-      persistentSessions: this.persistentSessions,
+      persistentSessions: new Set([
+        ...this.persistentSessions,
+        ...Array.from(this.logicalSessions)
+          .filter(([, session]) => session.retainCount > 0)
+          .map(([sessionId]) => sessionId),
+      ]),
     });
 
     for (const [bindingId, lastUsed] of this.ephemeralBindingActivity) {
+      if ((this.logicalSessions.get(bindingId)?.retainCount ?? 0) > 0) continue;
       if (Date.now() - lastUsed < this.poolPolicy.idleTimeoutMs) continue;
       if (this.ephemeralClients.get(bindingId)?.size) continue;
       await this.cleanupTemplateServers(bindingId, outboundConns, transports);
+    }
+    for (const [sessionId, session] of this.logicalSessions) {
+      if (session.retainCount > 0) continue;
+      if (this.ephemeralClients.has(sessionId)) continue;
+      if (!sessionsWithMembership.has(sessionId)) {
+        if (Date.now() - session.lastUsedAt <= this.poolPolicy.idleTimeoutMs) continue;
+      }
+      this.expireLogicalSession(sessionId);
     }
 
     // Get all instances from the pool
@@ -935,6 +1019,8 @@ export class TemplateServerManager {
       this.cleanupTimer = undefined;
     }
 
+    for (const sessionId of this.logicalSessions.keys()) this.expireLogicalSession(sessionId);
+    this.logicalSessionCleanup.clear();
     this.ephemeralClients.clear();
     this.persistentSessions.clear();
     this.sessionToRenderedHash.clear();
