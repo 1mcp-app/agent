@@ -802,7 +802,7 @@ describe('ModernSdkClientAdapter custom HTTP headers', () => {
         method: 'tools/call',
         params: { name: tools[0].name, arguments: { region: 'west' } },
       });
-      expect(request.mock.calls.at(-1)?.at(-1)).toMatchObject({ headers: {} });
+      expect(request.mock.calls.at(-1)?.at(-1)).toHaveProperty('headers', {});
 
       request.mockResolvedValueOnce({ tools: [tool] } as never);
       await list(adapter);
@@ -940,7 +940,7 @@ describe('ModernSdkClientAdapter custom HTTP headers', () => {
       const pending = list(adapter);
       await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
       if (change === 'new listing') {
-        request.mockResolvedValueOnce({ tools: [] } as never);
+        request.mockResolvedValueOnce({ tools: [tool] } as never);
         await list(adapter);
       }
       if (change === 'list changed') {
@@ -961,7 +961,10 @@ describe('ModernSdkClientAdapter custom HTTP headers', () => {
       if (change === 'close') await expect(call(adapter)).rejects.toBeDefined();
       else {
         await call(adapter);
-        expect(request.mock.calls.at(-1)?.at(-1)).toMatchObject({ headers: {} });
+        expect(request.mock.calls.at(-1)?.at(-1)).toHaveProperty(
+          'headers',
+          change === 'new listing' ? { 'Mcp-Param-Region': 'west' } : {},
+        );
       }
     },
   );
@@ -1129,6 +1132,18 @@ describe('ModernSdkClientAdapter custom HTTP headers', () => {
       const page = {
         tools: [
           { ...tool, name: `tool-${index}`, inputSchema: { ...tool.inputSchema, description: 'x'.repeat(300_000) } },
+          ...(index === 3
+            ? [
+                {
+                  ...tool,
+                  name: 'tool-0',
+                  inputSchema: {
+                    description: 'x'.repeat(300_000),
+                    properties: { region: { type: 'string', 'x-mcp-header': 'Place' } },
+                  },
+                },
+              ]
+            : []),
         ],
         nextCursor: String(index + 1),
       };
@@ -1136,15 +1151,16 @@ describe('ModernSdkClientAdapter custom HTTP headers', () => {
       const pending = list(adapter, index === 0 ? undefined : String(index));
       await expect(pending).resolves.toEqual(page);
     }
-    for (const index of [0, 3]) {
+    for (const index of [0, 1, 3]) {
       await adapter.request({
         id: `page-call-${index}` as never,
         method: 'tools/call',
         params: { name: `tool-${index}`, arguments: { region: 'west' } },
       });
-      expect(request.mock.calls.at(-1)?.at(-1)).toMatchObject({
-        headers: index === 0 ? { 'Mcp-Param-Region': 'west' } : {},
-      });
+      expect(request.mock.calls.at(-1)?.at(-1)).toHaveProperty(
+        'headers',
+        index === 1 ? { 'Mcp-Param-Region': 'west' } : {},
+      );
     }
   });
 
@@ -1207,7 +1223,7 @@ describe('ModernSdkClientAdapter custom HTTP headers', () => {
     request.mockResolvedValueOnce({ tools: [tool] } as never);
     await list(adapter, cursor);
     await call(adapter);
-    expect(request.mock.calls.at(-1)?.at(-1)).toMatchObject({ headers: {} });
+    expect(request.mock.calls.at(-1)?.at(-1)).toHaveProperty('headers', {});
   });
 
   it('retains derived headers on MRTR continuations without validating unfinished output as complete', async () => {

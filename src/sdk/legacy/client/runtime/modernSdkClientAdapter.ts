@@ -443,6 +443,8 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
       if (typeof tool.name !== 'string' || tool.inputSchema === undefined) return true;
       const scan = scanMcpParamDeclarations(tool.inputSchema);
       headers.delete(tool.name);
+      // A current page invalidates old declarations even when replacements cannot be admitted.
+      if (current) this.toolHeaders.delete(tool.name);
       if (!scan.valid) return false;
       if (scan.declarations.length) {
         headers.set(tool.name, {

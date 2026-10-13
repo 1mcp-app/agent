@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### 🐛 Bug Fixes
-- Capture large upstream capability lists with the bounded response JSON budget, without rejecting valid lists when the tool-header cache is full.
+- Capture large upstream capability lists with the bounded response JSON budget, without rejecting valid lists when the tool-header cache is full or retaining stale headers for redefined tools.
 
 ## [0.39.1] - 2026-10-12
 
