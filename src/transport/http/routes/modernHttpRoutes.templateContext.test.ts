@@ -139,7 +139,10 @@ describe('modern HTTP template ingress', () => {
       const second = await post(fixture.instance, 'resources/list', { ...context, sessionId: 'proxy-b' });
       expect(second.status).toBe(200);
       expect(second.body.error, JSON.stringify(second.body)).toBeUndefined();
-      const repeated = await post(fixture.instance, 'resources/list', { ...context, timestamp: '2026-10-12T00:01:00Z' });
+      const repeated = await post(fixture.instance, 'resources/list', {
+        ...context,
+        timestamp: '2026-10-12T00:01:00Z',
+      });
       expect(repeated.status).toBe(200);
       expect(repeated.body.error, JSON.stringify(repeated.body)).toBeUndefined();
       const owners = fixture.createBridge.mock.calls.map((call) => call[2]?.resourceOwner);
@@ -153,6 +156,28 @@ describe('modern HTTP template ingress', () => {
       expect(fixture.createBridge.mock.calls[3][2]?.resourceOwner).not.toBe(owners[0]);
     },
   );
+
+  it('isolates selected checkout resource owners within one logical session', async () => {
+    const fixture = app();
+    const projects = [
+      { label: 'a', path: '/project/a' },
+      { label: 'b', path: '/project/b' },
+    ];
+    const selected = (label: string): ContextData => ({ ...context, projectSet: { projects, selection: [label] } });
+    for (const label of ['a', 'b', 'a']) {
+      const response = await post(fixture.instance, 'resources/list', selected(label));
+      expect(response.status, JSON.stringify(response.body)).toBe(200);
+      expect(response.body.error).toBeUndefined();
+    }
+    const configs = fixture.createBridge.mock.calls.map((call) => call[1]);
+    expect(configs.map((config) => config.logicalTemplateSessionId)).toEqual(['proxy-a', 'proxy-a', 'proxy-a']);
+    const owners = fixture.createBridge.mock.calls.map((call) => call[2]?.resourceOwner);
+    expect(owners[0]).not.toBe(owners[1]);
+    expect(owners[2]).toBe(owners[0]);
+    fixture.expire('proxy-a');
+    await post(fixture.instance, 'resources/list', selected('a'));
+    expect(fixture.createBridge.mock.calls[3][2]?.resourceOwner).not.toBe(owners[0]);
+  });
 
   it('strips raw context and proof before the outbound backend hop', async () => {
     const fixture = app();

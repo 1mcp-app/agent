@@ -44,6 +44,56 @@ function fixture(
 }
 
 describe('runtime capability catalog', () => {
+  it('injects the native selected paths before validating inputs and keeps disabled tools inaccessible', async () => {
+    const connection = fixture('native', () => ({
+      tools: [
+        {
+          name: 'search',
+          inputSchema: {
+            type: 'object',
+            properties: { projects: { type: 'array', items: { type: 'string' }, minItems: 2 } },
+            required: ['projects'],
+            additionalProperties: false,
+          },
+        },
+      ],
+    }));
+    const projectContext = {
+      project: {},
+      user: {},
+      environment: {},
+      sessionId: 'agent',
+      projectSet: {
+        projects: [
+          { label: 'front', path: '/front' },
+          { label: 'back', path: '/back' },
+        ],
+        selection: ['front', 'back'],
+      },
+    };
+    const visibility = { ...createCapabilityVisibility([['native', 'native']], 'target-binding'), projectContext };
+    const config = {
+      type: 'stdio' as const,
+      command: 'node',
+      projectTarget: { mode: 'native-set' as const, argument: 'projects' },
+      disabledTools: [] as string[],
+    };
+    const connections = new Map([['native', connection]]);
+    const snapshot = await acquireRuntimeCapabilityCatalog(connections, visibility, {
+      serverConfigs: { native: config },
+    });
+    expect((await snapshot.prepareToolCall('native_1mcp_search', {})).targetArguments).toEqual({
+      projects: ['/front', '/back'],
+    });
+    await expect(snapshot.prepareToolCall('native_1mcp_search', { projects: ['/other'] })).rejects.toThrow('conflicts');
+    config.disabledTools.push('search');
+    const disabled = await acquireRuntimeCapabilityCatalog(connections, visibility, {
+      serverConfigs: { native: config },
+    });
+    expect(disabled.resolve('tools', 'native_1mcp_search')).toBeUndefined();
+    await expect(disabled.prepareToolCall('native_1mcp_search', {})).rejects.toThrow('schema_invalid');
+  });
+
   it('recognizes only exact catalog-minted unlisted resource entries as issued provenance', async () => {
     const connection = createMockOutboundConnection({
       name: 'provider',

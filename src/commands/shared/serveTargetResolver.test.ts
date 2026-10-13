@@ -1,3 +1,7 @@
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
 import type { ResolvedProjectContext } from '@src/config/projectConfigLoader.js';
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
 import { RuntimeTargetStoreError } from '@src/domains/runtime-targets/runtimeTargetStore.js';
@@ -119,6 +123,44 @@ describe('resolveServeTarget', () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('resolves explicit saved-set labels while leaving unselected and combined sets free of invocation defaults', async () => {
+    const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), 'cli-project-set-')));
+    try {
+      await Promise.all(['front', 'back'].map((label) => mkdir(path.join(directory, label))));
+      const file = path.join(directory, 'set.json');
+      await writeFile(
+        file,
+        JSON.stringify({
+          projects: [
+            { label: 'front', path: './front' },
+            { label: 'back', path: './back' },
+          ],
+        }),
+      );
+      const options: ResolvableServeTargetOptions = { url: 'http://localhost:3050/mcp', 'project-set': file };
+      const unresolved = await resolveServeTarget(options);
+      expect(unresolved.projectSet?.selection).toBeUndefined();
+      expect(unresolved.projectConfig).toBeNull();
+      expect(unresolved.mergedOptions.preset).toBeUndefined();
+      const single = await resolveServeTarget({ ...options, project: ['back'] });
+      expect(mockedResolveProjectContext).toHaveBeenLastCalledWith(path.join(directory, 'back'));
+      expect(single.projectSet?.selection).toEqual(['back']);
+      expect(single.mergedOptions.preset).toBe('development');
+      const combined = await resolveServeTarget({ ...options, project: ['front', 'back'] });
+      expect(combined.projectConfig).toBeNull();
+      expect(combined.mergedOptions.preset).toBeUndefined();
+      await expect(resolveServeTarget({ ...options, project: ['unknown'] })).rejects.toThrow(
+        'Unknown Project Selection label',
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects multiple checkout paths without a saved set', async () => {
+    await expect(resolveServeTarget({ project: ['/front', '/back'] })).rejects.toThrow('exactly one checkout path');
   });
 
   it('returns merged options and resolved URLs', async () => {

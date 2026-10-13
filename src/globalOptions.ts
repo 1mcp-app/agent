@@ -10,6 +10,16 @@
  * - ONE_MCP_LOG_FILE
  */
 export const globalOptions = {
+  project: {
+    describe: 'Explicit checkout path, or selected labels from --project-set',
+    type: 'array' as const,
+    string: true,
+  },
+  'project-set': {
+    describe: 'Path to a saved JSON project-set definition (no global project switch)',
+    type: 'string' as const,
+    default: undefined,
+  },
   config: {
     alias: 'c',
     describe: 'Path to the config file (env: ONE_MCP_CONFIG)',
@@ -45,6 +55,8 @@ export const globalOptions = {
  * Type definition for global options interface
  */
 export interface GlobalOptions {
+  project?: string[];
+  'project-set'?: string;
   config?: string;
   'config-dir'?: string;
   'cli-session-cache-path'?: string;

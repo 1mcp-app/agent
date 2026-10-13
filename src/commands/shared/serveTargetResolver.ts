@@ -3,6 +3,11 @@ import { normalizeTags, resolveProjectContext } from '@src/config/projectConfigL
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
 import { getConfigDir } from '@src/constants.js';
 import {
+  canonicalizeCheckoutPath,
+  loadProjectSet,
+  resolveProjectSelection,
+} from '@src/domains/project-selection/projectSelection.js';
+import {
   type RuntimeIdentityWarning,
   type RuntimeTargetTlsOptions,
   verifyRuntimeIdentityForTarget,
@@ -20,6 +25,7 @@ import {
   RuntimeTargetStoreError,
 } from '@src/domains/runtime-targets/runtimeTargetStore.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
+import type { ProjectSet } from '@src/types/context.js';
 import {
   discoverServerWithPidFile,
   toRuntimeProbeFailure,
@@ -36,6 +42,7 @@ export interface ResolvedServeTarget<TOptions extends ResolvableServeTargetOptio
   projectRoot: string;
   projectName: string;
   projectConfig: ProjectConfig | null;
+  projectSet?: ProjectSet;
   mergedOptions: TOptions;
   discoveredUrl: string;
   serverUrl: URL;
@@ -130,9 +137,21 @@ export async function resolveServeTarget<TOptions extends ResolvableServeTargetO
       'Use either --url or --context, not both, when selecting a runtime target',
     );
   }
-  const resolvedProjectContext = await resolveProjectContext();
+  const projectSet = options['project-set'] ? await loadProjectSet(options['project-set'], options.project) : undefined;
+  const selected = projectSet ? resolveProjectSelection({ project: {}, projectSet }) : undefined;
+  if (!projectSet && options.project && options.project.length !== 1) {
+    throw new Error('Without --project-set, --project accepts exactly one checkout path');
+  }
+  let checkoutPath: string | undefined;
+  if (selected?.kind === 'single') {
+    checkoutPath = selected.projects[0].path;
+  } else if (!projectSet && options.project?.[0]) {
+    checkoutPath = await canonicalizeCheckoutPath(options.project[0], process.cwd());
+  }
+  const resolvedProjectContext = await resolveProjectContext(checkoutPath);
+  const selectedProjectConfig = projectSet && selected?.kind !== 'single' ? null : resolvedProjectContext.projectConfig;
   const normalizedOptions = normalizeEphemeralUrlOption(options);
-  const mergedOptions = mergeServeTargetOptions(normalizedOptions, resolvedProjectContext.projectConfig);
+  const mergedOptions = mergeServeTargetOptions(normalizedOptions, selectedProjectConfig);
 
   const remoteTarget = await resolveRemoteRuntimeTargetContext(mergedOptions, ports);
   if (remoteTarget) {
@@ -157,7 +176,8 @@ export async function resolveServeTarget<TOptions extends ResolvableServeTargetO
       cwd: resolvedProjectContext.cwd,
       projectRoot: resolvedProjectContext.projectRoot,
       projectName: resolvedProjectContext.projectName,
-      projectConfig: resolvedProjectContext.projectConfig,
+      projectConfig: selectedProjectConfig,
+      projectSet,
       mergedOptions,
       discoveredUrl,
       serverUrl: buildServerUrl(discoveredUrl, mergedOptions),
@@ -208,7 +228,8 @@ export async function resolveServeTarget<TOptions extends ResolvableServeTargetO
     cwd: resolvedProjectContext.cwd,
     projectRoot: resolvedProjectContext.projectRoot,
     projectName: resolvedProjectContext.projectName,
-    projectConfig: resolvedProjectContext.projectConfig,
+    projectConfig: selectedProjectConfig,
+    projectSet,
     mergedOptions,
     discoveredUrl,
     serverUrl: buildServerUrl(discoveredUrl, mergedOptions),

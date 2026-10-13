@@ -129,6 +129,83 @@ describe('CapabilityCatalog', () => {
 
   afterEach(() => vi.restoreAllMocks());
 
+  it('reports unresolved selection labels for an admitted target backend while excluded backends remain hidden', async () => {
+    const catalog = createCatalog(undefined, {
+      getServerConfigs: () => ({ filesystem: { type: 'stdio', command: 'node', template: {}, tags: ['safe'] } }),
+    });
+    const projectContext = {
+      project: {},
+      user: {},
+      environment: {},
+      projectSet: {
+        projects: [
+          { label: 'front', path: '/front' },
+          { label: 'back', path: '/back' },
+        ],
+      },
+    };
+    const admitted = {
+      ...createCapabilityVisibility([], 'binding', { tags: ['safe'], tagFilterMode: 'simple-or' }),
+      projectContext,
+    };
+    expect(
+      (await catalog.invokeVisibleTool({ server: 'filesystem', toolName: 'read_file', args: {} }, admitted)).error,
+    ).toMatchObject({ type: 'validation', message: expect.stringContaining('front, back') });
+    const excluded = { ...admitted, filterSelection: { tags: ['other'], tagFilterMode: 'simple-or' } };
+    expect(
+      (await catalog.invokeVisibleTool({ server: 'filesystem', toolName: 'read_file', args: {} }, excluded)).error
+        ?.type,
+    ).toBe('not_found');
+    expect(mockClient.callTool).not.toHaveBeenCalled();
+  });
+
+  it('dispatches native selected paths through the lazy catalog and blocks target overrides and disabled tools', async () => {
+    mockClient.callTool.mockResolvedValue({ content: [], structuredContent: { content: 'ok' } });
+    const config = {
+      type: 'stdio' as const,
+      command: 'node',
+      projectTarget: { mode: 'native-set' as const, argument: 'projects' },
+      disabledTools: [] as string[],
+    };
+    const catalog = createCatalog(undefined, { getServerConfigs: () => ({ filesystem: config }) });
+    const visibility = {
+      ...createCapabilityVisibility([['filesystem', 'filesystem']], 'binding'),
+      projectContext: {
+        project: {},
+        user: {},
+        environment: {},
+        projectSet: {
+          projects: [
+            { label: 'front', path: '/front' },
+            { label: 'back', path: '/back' },
+          ],
+          selection: ['front', 'back'],
+        },
+      },
+    };
+    const result = await catalog.invokeVisibleTool(
+      { server: 'filesystem', toolName: 'read_file', args: { path: 'a.ts' } },
+      visibility,
+    );
+    expect(result.error).toBeUndefined();
+    expect(mockClient.callTool).toHaveBeenCalledWith({
+      name: 'read_file',
+      arguments: { path: 'a.ts', projects: ['/front', '/back'] },
+    });
+    const conflicting = await catalog.invokeVisibleTool(
+      { server: 'filesystem', toolName: 'read_file', args: { projects: ['/other'] } },
+      visibility,
+    );
+    expect(conflicting.error).toBeDefined();
+    expect(mockClient.callTool).toHaveBeenCalledTimes(1);
+    config.disabledTools.push('read_file');
+    expect(
+      (await catalog.invokeVisibleTool({ server: 'filesystem', toolName: 'read_file', args: {} }, visibility)).error
+        ?.type,
+    ).toBe('not_found');
+    expect(mockClient.callTool).toHaveBeenCalledTimes(1);
+  });
+
   function ownedVisibility(
     sessionId: string,
     owner: ReturnType<typeof createCatalogCursorOwner>,

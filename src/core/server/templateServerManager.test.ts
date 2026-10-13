@@ -686,8 +686,8 @@ describe('TemplateServerManager', () => {
         'test-template',
         replacementConfig,
         expect.anything(),
-        'next-session',
-        replacementConfig.template,
+        expect.stringMatching(/^binding-/),
+        { perClient: true, shareable: false },
       );
     });
 

@@ -1,6 +1,7 @@
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION, STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
 import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
+import { withProjectBinding } from '@src/domains/project-selection/projectBindingScope.js';
 import logger from '@src/logger/logger.js';
 import {
   getPresetName,
@@ -12,12 +13,17 @@ import {
 import tagsExtractor from '@src/transport/http/middlewares/tagsExtractor.js';
 import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
 import { StreamableSessionLifecycle, StreamableSessionStatus } from '@src/transport/http/streamableSessionLifecycle.js';
-import { extractTemplateContextRequest } from '@src/transport/http/utils/contextExtractor.js';
+import {
+  extractTemplateContextRequest,
+  hasExplicitTemplateContextProof,
+} from '@src/transport/http/utils/contextExtractor.js';
 import { sendBadRequest, sendInternalError, sendNotFound } from '@src/transport/http/utils/httpErrorHandler.js';
 import { authorizeRequestTemplateContext } from '@src/transport/http/utils/templateContextAuthority.js';
 import { logError, logWarn } from '@src/transport/http/utils/unifiedLogger.js';
 
 import { Request, RequestHandler, Response, Router } from 'express';
+
+import { prepareHttpRequestContext } from './inspectRequestContext.js';
 
 /**
  * Type guard to check if a request body is an initialize request.
@@ -188,6 +194,10 @@ export function setupStreamableHttpRoutes(
       const authorization = extractedContext
         ? authorizeRequestTemplateContext({ ...extractedContext, transportSessionId: sessionId })
         : undefined;
+      if (hasExplicitTemplateContextProof(req) && authorization?.status !== 'trusted') {
+        sendBadRequest(res, 'Request context proof rejected');
+        return;
+      }
       const result = await lifecycle.resolvePostSession({
         sessionId,
         isInitializeRequest: isInitialize,
@@ -224,7 +234,23 @@ export function setupStreamableHttpRoutes(
         });
       }
 
-      await transport.handleRequest(req, wrappedRes, req.body);
+      if (!isInitialize && authorization?.status === 'trusted') {
+        const preparedContext = await prepareHttpRequestContext(
+          serverManager,
+          req,
+          res,
+          buildConfigFromRequest(res, req, customTemplate),
+        );
+        if (!('bindingId' in preparedContext)) {
+          throw new Error('Project binding is no longer available');
+        }
+        const bindingId = preparedContext.bindingId;
+        const bindingContext = serverManager.getTemplateServerManager().getBindingContext(bindingId);
+        if (!bindingContext) throw new Error('Project binding is no longer available');
+        await withProjectBinding(bindingId, bindingContext, () => transport.handleRequest(req, wrappedRes, req.body));
+      } else {
+        await transport.handleRequest(req, wrappedRes, req.body);
+      }
 
       if (isInitialize && protocolVersion) {
         try {

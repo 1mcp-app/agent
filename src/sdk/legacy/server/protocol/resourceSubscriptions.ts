@@ -5,6 +5,7 @@ import {
 import { getRequestSession, resolveCapabilityVisibility } from '@src/core/protocol/requestHandlerUtils.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ClientStatus, type InboundConnection, ServerStatus } from '@src/core/types/index.js';
+import { getProjectBinding, withProjectBinding } from '@src/domains/project-selection/projectBindingScope.js';
 import logger from '@src/logger/logger.js';
 import { toJsonValue } from '@src/sdk/contracts/index.js';
 import {
@@ -58,6 +59,8 @@ interface CatalogSource {
   kind: 'tools' | 'resources' | 'prompts';
 }
 interface Owner {
+  readonly binding?: ReturnType<typeof getProjectBinding>;
+  readonly bindingId?: string;
   readonly inbound: InboundConnection;
   readonly connections: LegacyOutboundConnections;
   readonly watches: Map<string, Watch>;
@@ -85,7 +88,7 @@ interface UpstreamWatch {
   cleanupFailed: boolean;
 }
 const catalogOwners = new WeakMap<LegacyOutboundConnection, Set<Owner>>();
-const owners = new WeakMap<InboundConnection, Owner>();
+const owners = new WeakMap<InboundConnection, Map<string, Owner>>();
 const upstreamWatches = new WeakMap<LegacyOutboundConnection, Map<string, UpstreamWatch>>();
 // Unconfirmed teardown retains process capacity even after its local owner is gone.
 const upstreamReservations = new Set<UpstreamWatch>();
@@ -116,13 +119,13 @@ function countUnconfirmedUpstreamWatches(): number {
 }
 
 async function acquireOwnerCatalog(owner: Owner): Promise<RuntimeCapabilitySnapshot> {
-  const visibility = resolveCapabilityVisibility(
-    owner.connections,
-    owner.inbound,
-    getRequestSession(owner.inbound),
-    'resources',
-  );
+  const visibility = ownerVisibility(owner, 'resources');
   return acquireRuntimeCapabilityCatalog(owner.connections, visibility, { signal: owner.abort.signal });
+}
+
+function ownerVisibility(owner: Owner, kind: 'tools' | 'resources' | 'prompts') {
+  const resolve = () => resolveCapabilityVisibility(owner.connections, owner.inbound, owner.bindingId, kind);
+  return owner.binding ? withProjectBinding(owner.binding.bindingId, owner.binding.context, resolve) : resolve();
 }
 
 async function resolve(owner: Owner, uri: string, snapshot?: RuntimeCapabilitySnapshot) {
@@ -219,7 +222,14 @@ function releaseUpstreamWatch(upstream: UpstreamWatch, operation: Promise<void>)
 }
 
 export async function cleanupOwnedResources(inbound: InboundConnection): Promise<void> {
-  const owner = owners.get(inbound);
+  const all = owners.get(inbound);
+  owners.delete(inbound);
+  const results = await Promise.allSettled(Array.from(all?.values() ?? [], cleanupOwner));
+  if (results.some((result) => result.status === 'rejected'))
+    throw new Error('Resource subscription cleanup incomplete');
+}
+
+async function cleanupOwner(owner: Owner): Promise<void> {
   if (!owner || owner.closed) return;
   owner.closed = true;
   ownerCount--;
@@ -252,12 +262,18 @@ function loseWatchCoverage(watch: Watch): void {
 }
 
 function getOwner(connections: LegacyOutboundConnections, inbound: InboundConnection): Owner {
-  let owner = owners.get(inbound);
+  const bindingId = getRequestSession(inbound);
+  let byBinding = owners.get(inbound);
+  if (!byBinding) owners.set(inbound, (byBinding = new Map<string, Owner>()));
+  let owner = byBinding.get(bindingId ?? '');
   if (!owner) {
+    const existingOwner = byBinding.values().next().value as Owner | undefined;
     if (ownerCount >= MAX_PROCESS_WATCHES) throw new Error('Subscription owner admission limit exceeded');
     ownerCount++;
     owner = {
       inbound,
+      bindingId,
+      binding: getProjectBinding() ?? (bindingId ? { bindingId } : undefined),
       connections,
       watches: new Map(),
       catalogs: new Map(),
@@ -269,8 +285,10 @@ function getOwner(connections: LegacyOutboundConnections, inbound: InboundConnec
       bytes: 0,
       delivery: Promise.resolve(),
       checking: false,
+      requiresAuthorization: existingOwner?.requiresAuthorization,
+      authorize: existingOwner?.authorize,
     };
-    owners.set(inbound, owner);
+    byBinding.set(bindingId ?? '', owner);
   }
   return owner;
 }
@@ -312,12 +330,7 @@ function isCatalogSourceCurrent(owner: Owner, source: CatalogSource): boolean {
   if (current.adapter !== source.adapter) return false;
   if (current.status !== ClientStatus.Connected) return false;
   if (!supportsListChanged(current, source.kind)) return false;
-  const visibility = resolveCapabilityVisibility(
-    owner.connections,
-    owner.inbound,
-    getRequestSession(owner.inbound),
-    source.kind,
-  );
+  const visibility = ownerVisibility(owner, source.kind);
   return visibility.serverCandidates.has(source.connectionKey);
 }
 
@@ -335,19 +348,18 @@ async function refreshOrdinaryCatalog(owner: Owner): Promise<void> {
     if (connection.status !== ClientStatus.Connected) continue;
     for (const kind of owner.catalogKinds) {
       if (!supportsListChanged(connection, kind)) continue;
-      const visibility = resolveCapabilityVisibility(
-        owner.connections,
-        owner.inbound,
-        getRequestSession(owner.inbound),
-        kind,
-      );
+      const visibility = ownerVisibility(owner, kind);
       if (!visibility.serverCandidates.has(key)) continue;
       if (!owner.catalogs.has(`${key}\0${kind}`)) changed = true;
     }
   }
   if (!changed) return;
-  if (owner.refreshCatalog) await owner.refreshCatalog();
-  for (const kind of owner.catalogKinds) bindOwnedCatalogConnections(owner.connections, owner.inbound, kind);
+  const bind = async () => {
+    if (owner.refreshCatalog) await owner.refreshCatalog();
+    for (const kind of owner.catalogKinds) bindOwnedCatalogConnections(owner.connections, owner.inbound, kind);
+  };
+  if (owner.binding) await withProjectBinding(owner.binding.bindingId, owner.binding.context, bind);
+  else await bind();
 }
 
 /** Install generation-aware forwarding again after ordinary catalog ownership changes. */
@@ -526,21 +538,22 @@ export function enqueueOwnedCatalogNotification(
   connection: LegacyOutboundConnection,
   notification: Update,
 ): void {
-  const owner = owners.get(inbound);
-  if (!owner || owner.closed) return;
   const kind = notification.method.split('/')[1];
-  const covered = Array.from(owner.catalogs.values()).some(
-    (source) => source.connection === connection && source.adapter === connection.adapter && source.kind === kind,
-  );
-  if (!covered) return;
-  const adapter = connection.adapter;
-  enqueueOwnedNotification(connections, inbound, notification, () => {
-    if (connection.adapter !== adapter) return false;
-    if (connection.status !== ClientStatus.Connected) return false;
-    return Array.from(owner.catalogs.values()).some(
-      (source) => source.connection === connection && source.adapter === adapter && source.kind === kind,
+  for (const owner of owners.get(inbound)?.values() ?? []) {
+    if (owner.closed) continue;
+    const covered = Array.from(owner.catalogs.values()).some(
+      (source) => source.connection === connection && source.adapter === connection.adapter && source.kind === kind,
     );
-  });
+    if (!covered) continue;
+    const adapter = connection.adapter;
+    enqueueOwnerNotification(owner, notification, () => {
+      if (connection.adapter !== adapter) return false;
+      if (connection.status !== ClientStatus.Connected) return false;
+      return Array.from(owner.catalogs.values()).some(
+        (source) => source.connection === connection && source.adapter === adapter && source.kind === kind,
+      );
+    });
+  }
 }
 
 /** Catalog invalidation remains synchronous upstream; recipient delivery never blocks its peers. */
@@ -560,11 +573,21 @@ export function enqueueOwnedNotification(
   if (kind && !AgentConfigManager.getInstance().get('features').clientNotifications) return;
   if (kind && inbound.subscriptionListKinds && !inbound.subscriptionListKinds.includes(kind)) return;
   const owner = getOwner(connections, inbound);
+  enqueueOwnerNotification(owner, notification, isCurrent);
+}
+
+function enqueueOwnerNotification(owner: Owner, notification: Update, isCurrent?: () => boolean): void {
+  if (owner.inbound.requestOnly) return;
+  if (
+    notification.method.endsWith('/list_changed') &&
+    !AgentConfigManager.getInstance().get('features').clientNotifications
+  )
+    return;
   const encoded = JSON.stringify(notification);
   const snapshot = structuredClone(notification);
   enqueue(owner, Buffer.byteLength(encoded), async () => {
     if (isCurrent && !isCurrent()) return;
-    await inbound.adapter.notify({ method: snapshot.method, params: toJsonValue(snapshot.params ?? {}) });
+    await owner.inbound.adapter.notify({ method: snapshot.method, params: toJsonValue(snapshot.params ?? {}) });
   });
 }
 
@@ -707,7 +730,10 @@ export async function subscribeOwnedResource(
 }
 
 export async function unsubscribeOwnedResource(inbound: InboundConnection, uri: string): Promise<void> {
-  const watch = owners.get(inbound)?.watches.get(uri);
+  const watch = owners
+    .get(inbound)
+    ?.get(getRequestSession(inbound) ?? '')
+    ?.watches.get(uri);
   if (watch) await detach(watch);
 }
 

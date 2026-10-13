@@ -19,6 +19,7 @@ const authState = vi.hoisted(() => ({ allowed: true }));
 vi.mock('@src/config/configuredServerTargets.js', () => ({ getConfiguredServerTargets: () => ({}) }));
 vi.mock('@src/core/protocol/requestHandlerUtils.js', () => ({
   filterConnectionsForSession: (value: unknown) => value,
+  resolveCapabilityVisibility: vi.fn(() => ({})),
 }));
 vi.mock('@src/core/filtering/filteringService.js', () => ({
   FilteringService: { getFilteredConnections: (value: unknown) => value },

@@ -2,12 +2,14 @@ import path from 'node:path';
 
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
 import { AUTH_CONFIG } from '@src/constants/auth.js';
-import type { ContextData } from '@src/types/context.js';
+import { withProjectSelection } from '@src/domains/project-selection/projectSelection.js';
+import type { ContextData, ProjectSet } from '@src/types/context.js';
 
 export interface BuildCliContextOptions {
   projectConfig?: ProjectConfig | null;
   cwd?: string;
   projectRoot?: string;
+  projectSet?: ProjectSet;
   transportType?: string;
   version?: string;
   sessionId?: string;
@@ -83,7 +85,7 @@ export function buildCliContext(options: BuildCliContextOptions = {}): ContextDa
       : {}),
   };
 
-  return context;
+  return options.projectSet ? withProjectSelection(context, options.projectSet) : context;
 }
 
 export function generateStreamableSessionId(): string {

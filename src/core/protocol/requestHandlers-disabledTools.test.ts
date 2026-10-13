@@ -178,17 +178,10 @@ describe('requestHandlers disabled tools enforcement', () => {
   });
 
   it('re-reads disabled tools config for listTools after config reload', async () => {
-    mockGetTransportConfig.mockReturnValueOnce({
+    mockGetTransportConfig.mockReturnValue({
       filesystem: {
         type: 'stdio',
         command: 'node',
-      },
-    });
-    mockGetTransportConfig.mockReturnValueOnce({
-      filesystem: {
-        type: 'stdio',
-        command: 'node',
-        disabledTools: ['write_file'],
       },
     });
 
@@ -196,6 +189,9 @@ describe('requestHandlers disabled tools enforcement', () => {
 
     const handler = getRegisteredHandler(ListToolsRequestSchema);
     const firstResult = await handler({ params: {} });
+    mockGetTransportConfig.mockReturnValue({
+      filesystem: { type: 'stdio', command: 'node', disabledTools: ['write_file'] },
+    });
     const secondResult = await handler({ params: {} });
 
     expect(firstResult.tools.map((tool: { name: string }) => tool.name)).toEqual([

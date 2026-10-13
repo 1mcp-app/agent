@@ -1,6 +1,7 @@
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 
 import { STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
+import { authorizeTemplateContext, createTemplateContextProof } from '@src/core/context/templateContextTrust.js';
 import {
   StreamableSessionLifecycle,
   StreamableSessionMissingReason,
@@ -244,6 +245,84 @@ describe('Streamable HTTP Routes', () => {
         mockLifecycle,
       );
       postHandler = mockRouter.post.mock.calls[0][3];
+    });
+
+    it.each(['2024-11-05', '2025-11-25'])(
+      'rejects a tampered selection before resolving or dispatching an established %s session',
+      async (protocolVersion) => {
+        const context = { project: { path: '/work/frontend' }, user: {}, environment: {}, sessionId: 'session-a' };
+        const capability = {
+          version: 1 as const,
+          runtimeScopeId: 'scope-a',
+          secret: Buffer.alloc(32, 7).toString('base64url'),
+        };
+        const proof = createTemplateContextProof(context, capability);
+        const tampered = { ...context, project: { path: '/work/backend' } };
+        mockedExtractTemplateContextRequest.mockReturnValue({ context: tampered, proof, source: 'meta' });
+        mockedAuthorizeRequestTemplateContext.mockImplementation((input) =>
+          authorizeTemplateContext({ ...input, mode: 'verified', capability }),
+        );
+        mockRequest.headers['mcp-session-id'] = context.sessionId;
+        mockRequest.headers['mcp-protocol-version'] = protocolVersion;
+        mockRequest.body = {
+          jsonrpc: '2.0',
+          id: 2,
+          method: 'tools/call',
+          params: { name: 'checkout_source', arguments: {}, _meta: { context: tampered, contextProof: proof } },
+        };
+        const transport = (await mockLifecycle.resolvePostSession()).transport;
+        mockLifecycle.resolvePostSession.mockClear();
+
+        await postHandler(mockRequest, mockResponse);
+
+        expect(mockResponse.status).toHaveBeenCalledWith(400);
+        expect(mockResponse.json).toHaveBeenCalledWith({
+          error: { code: ErrorCode.InvalidParams, message: 'Request context proof rejected' },
+        });
+        expect(mockLifecycle.resolvePostSession).not.toHaveBeenCalled();
+        expect(transport.handleRequest).not.toHaveBeenCalled();
+      },
+    );
+
+    it('rejects a malformed or orphan explicit proof before session allocation', async () => {
+      mockRequest.body = { jsonrpc: '2.0', id: 1, method: 'initialize', params: { _meta: { contextProof: null } } };
+      await postHandler(mockRequest, mockResponse);
+      expect(mockResponse.status).toHaveBeenCalledWith(400);
+      expect(mockLifecycle.resolvePostSession).not.toHaveBeenCalled();
+    });
+
+    it('keeps contextless requests on the established session', async () => {
+      mockRequest.headers['mcp-session-id'] = 'session-a';
+      mockRequest.body = { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} };
+      const transport = (await mockLifecycle.resolvePostSession()).transport;
+      mockLifecycle.resolvePostSession.mockClear();
+      await postHandler(mockRequest, mockResponse);
+      expect(mockLifecycle.resolvePostSession).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: 'session-a' }),
+      );
+      expect(transport.handleRequest).toHaveBeenCalledOnce();
+    });
+
+    it('preserves legacy trust authorization when an explicit proof is supplied', async () => {
+      const context = { project: { path: '/work/frontend' }, user: {}, environment: {} };
+      mockedExtractTemplateContextRequest.mockReturnValue({ context, source: 'meta' });
+      mockedAuthorizeRequestTemplateContext.mockReturnValue({
+        status: 'trusted',
+        provenance: 'legacy-unverified',
+        context,
+      });
+      mockRequest.body = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { _meta: { context, contextProof: null } },
+      };
+      await postHandler(mockRequest, mockResponse);
+      expect(mockLifecycle.resolvePostSession).toHaveBeenCalledOnce();
+      expect(mockLifecycle.resolvePostSession.mock.calls[0][0].createSessionData()).toMatchObject({
+        context,
+        contextProof: undefined,
+      });
     });
 
     it('should create new session when no sessionId header', async () => {

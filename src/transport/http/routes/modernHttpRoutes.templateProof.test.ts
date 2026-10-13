@@ -92,7 +92,7 @@ function fixture(mode: 'verified' | 'disabled' | 'legacy' = 'verified') {
 
 describe('modern ingress reauthorizes signed template memberships', () => {
   it.each(['missing', 'tampered', 'expired', 'scope', 'session'] as const)(
-    'denies %s proofs after a trusted request while preserving static capabilities',
+    'denies %s proofs after a trusted request without reusing template membership',
     async (kind) => {
       const f = fixture();
       const valid = createTemplateContextProof(context, f.capability);
@@ -108,17 +108,24 @@ describe('modern ingress reauthorizes signed template memberships', () => {
         invalid = createTemplateContextProof(context, { ...f.capability, runtimeScopeId: 'other-scope' });
       if (kind === 'session') invalid = createTemplateContextProof({ ...context, sessionId: 'proxy-b' }, f.capability);
       const next = await f.post(invalid);
-      expect(next.body.result.tools).toContainEqual(expect.objectContaining({ name: 'static_1mcp_safe' }));
       expect(f.prepare).toHaveBeenCalledOnce();
-      expect(f.bridgeConfigs[1]).not.toHaveProperty('logicalTemplateSessionId');
-      expect(f.bridgeConfigs[1]).not.toHaveProperty('context');
+      if (kind === 'missing') {
+        expect(next.body.result.tools).toContainEqual(expect.objectContaining({ name: 'static_1mcp_safe' }));
+        expect(f.bridgeConfigs[1]).not.toHaveProperty('logicalTemplateSessionId');
+        expect(f.bridgeConfigs[1]).not.toHaveProperty('context');
+      } else {
+        expect(next.status).toBe(400);
+        expect(next.body.error.message).toBe('Request context proof rejected');
+        expect(f.bridgeConfigs).toHaveLength(1);
+      }
     },
   );
 
   it('never prepares signed caller templates in disabled mode', async () => {
     const f = fixture('disabled');
     const response = await f.post(createTemplateContextProof(context, f.capability));
-    expect(response.body.result.tools).toHaveLength(1);
+    expect(response.status).toBe(400);
+    expect(f.bridgeConfigs).toHaveLength(0);
     expect(f.prepare).not.toHaveBeenCalled();
   });
 

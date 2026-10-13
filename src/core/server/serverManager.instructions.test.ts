@@ -119,14 +119,14 @@ describe('ServerManager instruction initialization', () => {
       worker: { command: 'node', args: ['{{project.path}}'], template: { perClient: true } },
     };
     const context = { project: { path: '/project' }, user: {}, environment: {}, sessionId: 'proxy-session' };
-    await manager.prepareLogicalTemplateSession('proxy-session', context, { tagFilterMode: 'none' });
-    const connection = manager.getClients().get('worker:proxy-session');
+    const bindingId = await manager.prepareLogicalTemplateSession('proxy-session', context, { tagFilterMode: 'none' });
+    const connection = manager.getClients().get(`worker:${bindingId}`);
     expect(connection?.instructions).toBe('Use this project template');
     await Promise.all([
       manager.prepareLogicalTemplateSession('proxy-session', context, { tagFilterMode: 'none' }),
       manager.prepareLogicalTemplateSession('proxy-session', context, { tagFilterMode: 'none' }),
     ]);
-    expect(manager.getClients().get('worker:proxy-session')).toBe(connection);
+    expect(manager.getClients().get(`worker:${bindingId}`)).toBe(connection);
     expect(manager.getTemplateServerManager().getClientInstancePool().getTemplateInstances('worker')).toHaveLength(1);
   });
 
@@ -152,6 +152,55 @@ describe('ServerManager instruction initialization', () => {
       expect(instances[0].referenceCount).toBe(2);
     },
   );
+
+  it('keeps a persistent static-only project binding until its transport disconnects', async () => {
+    const context = { project: { path: '/project' }, user: {}, environment: {}, sessionId: 'static-only' };
+    await manager.connectTransport({} as Transport, 'static-only', {}, context);
+    const bindingId = connectTransport.mock.calls[0][2].bindingId;
+    vi.useFakeTimers();
+    try {
+      vi.advanceTimersByTime(300001);
+      await manager.getTemplateServerManager().cleanupIdleInstances();
+      expect(manager.getTemplateServerManager().getBindingContext(bindingId)).toBeDefined();
+      await manager.disconnectTransport('static-only');
+      expect(manager.getTemplateServerManager().getBindingContext(bindingId)).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retains private logical memberships during idle cleanup and expires them after release', async () => {
+    const context = { project: { path: '/project' }, user: {}, environment: {}, sessionId: 'retained' };
+    const bindingId = await manager.prepareLogicalTemplateSession('retained', context);
+    const release = manager.retainLogicalTemplateSession('retained');
+    const expired = vi.fn();
+    manager.registerLogicalTemplateSessionCleanup(expired);
+    vi.useFakeTimers();
+    try {
+      vi.advanceTimersByTime(300001);
+      await manager.getTemplateServerManager().cleanupIdleInstances();
+      expect(manager.getTemplateServerManager().getBindingContext(bindingId!)).toBeDefined();
+      expect(expired).not.toHaveBeenCalled();
+      release();
+      vi.advanceTimersByTime(300001);
+      await manager.getTemplateServerManager().cleanupIdleInstances();
+      expect(manager.getTemplateServerManager().getBindingContext(bindingId!)).toBeUndefined();
+      expect(expired).toHaveBeenCalledWith('retained');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('uses the prepared binding snapshot instead of resolving project policies again during creation', async () => {
+    runtimeConfiguration.templateServers = {
+      worker: { command: 'node', template: { perClient: true } },
+    };
+    const register = vi.spyOn(manager.getTemplateServerManager(), 'registerBindingContext');
+    const context = { project: { path: '/project' }, user: {}, environment: {}, sessionId: 'snapshot' };
+    const bindingId = await manager.prepareLogicalTemplateSession('snapshot', context);
+    expect(register).toHaveBeenCalledOnce();
+    expect(manager.getClients().get(`worker:${bindingId}`)).toBeDefined();
+  });
 
   it('prepares logical templates before discovery without creating a transport connection', async () => {
     const context = { project: { path: '/project' }, user: {}, environment: {}, sessionId: 'proxy-session' };

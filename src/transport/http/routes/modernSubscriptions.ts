@@ -1,9 +1,9 @@
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@src/constants.js';
-import { createCapabilityVisibility, type ResourceRouteOwner } from '@src/core/capabilities/capabilityVisibility.js';
+import { type ResourceRouteOwner } from '@src/core/capabilities/capabilityVisibility.js';
 import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
-import { filterConnectionsForSession } from '@src/core/protocol/requestHandlerUtils.js';
+import { filterConnectionsForSession, resolveCapabilityVisibility } from '@src/core/protocol/requestHandlerUtils.js';
 import { resolveResourceRoute } from '@src/core/protocol/resourceTemplateRouting.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, type InboundConnectionConfig, type OutboundConnection } from '@src/core/types/index.js';
@@ -52,7 +52,7 @@ export function getModernSubscriptionCapabilities(
   const connections = manager.getClients();
   if (!connections.size) return { tools: {}, prompts: {}, resources: {} };
   const visible = FilteringService.getFilteredConnections(
-    filterConnectionsForSession(connections, config.logicalTemplateSessionId),
+    filterConnectionsForSession(connections, config.bindingId ?? config.logicalTemplateSessionId),
     config,
   );
   const sources = [...visible.values()].filter((connection) => connection.status === ClientStatus.Connected);
@@ -119,7 +119,10 @@ class ModernSubscription {
   }
   private visible() {
     return FilteringService.getFilteredConnections(
-      filterConnectionsForSession(this.manager.getClients(), this.config.logicalTemplateSessionId),
+      filterConnectionsForSession(
+        this.manager.getClients(),
+        this.config.bindingId ?? this.config.logicalTemplateSessionId,
+      ),
       this.config,
     );
   }
@@ -187,12 +190,15 @@ class ModernSubscription {
       for (const [key, connection] of visible) if (connection.capabilities?.[kind]) selected.add(key);
     }
     if (filter.resourceSubscriptions?.length) {
-      const visibility = createCapabilityVisibility(
-        [...visible].map(([key, connection]) => [key, connection.name || key]),
-        this.config.logicalTemplateSessionId,
-        { ...this.config },
-        this.resourceOwner,
-      );
+      const visibility = {
+        ...resolveCapabilityVisibility(
+          this.manager.getClients(),
+          this.config,
+          this.config.bindingId ?? this.config.logicalTemplateSessionId,
+          'resources',
+        ),
+        resourceOwner: this.resourceOwner,
+      };
       const snapshot = await acquireRuntimeCapabilityCatalog(this.manager.getClients(), visibility, {
         signal: this.controller.signal,
         serverConfigs: getConfiguredServerTargets(),

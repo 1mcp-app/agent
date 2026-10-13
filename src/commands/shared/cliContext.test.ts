@@ -10,6 +10,27 @@ describe('buildCliContext', () => {
     vi.unstubAllGlobals();
   });
 
+  it('preserves unresolved set state and overrides invocation checkout only for one selected label', () => {
+    const projects = [
+      { label: 'front', path: '/front' },
+      { label: 'back', path: '/back' },
+    ];
+    const options = {
+      cwd: '/invocation',
+      projectRoot: '/invocation',
+      transportType: 'inspect' as const,
+      version: 'inspect',
+      projectSet: { projects },
+    };
+    expect(buildCliContext(options).project).toEqual({});
+    expect(buildCliContext({ ...options, projectSet: { projects, selection: ['back'] } }).project).toMatchObject({
+      path: '/back',
+      cwd: '/back',
+      name: 'back',
+    });
+    expect(buildCliContext({ ...options, projectSet: { projects, selection: ['front', 'back'] } }).project).toEqual({});
+  });
+
   it('builds a base context with command metadata', () => {
     vi.stubGlobal('process', {
       ...process,

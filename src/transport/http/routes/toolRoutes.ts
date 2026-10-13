@@ -18,6 +18,8 @@ import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
 import { SchemaBoundaryError } from '@src/core/validation/schemaPolicy.js';
 import { schemaInputErrorResult } from '@src/core/validation/toolSchemaBoundary.js';
+import { isProjectBackendVisible } from '@src/domains/project-selection/projectPolicy.js';
+import { requireProjectTarget } from '@src/domains/project-selection/projectSelection.js';
 import {
   createGatewayFailure,
   gatewayFailureFromUnknown,
@@ -65,13 +67,23 @@ function getCapabilityVisibilityFromRequest(
   const filteredConnections = hasFilterSelection
     ? FilteringService.getFilteredConnections(sessionScoped, filterConfig)
     : sessionScoped;
-  return createCapabilityVisibility(
-    Array.from(filteredConnections.entries(), ([connectionKey, connection]) => {
-      const publicServerName = connection.name || connectionKey.split(':')[0];
-      return [connectionKey, publicServerName] as const;
-    }),
-    sessionId,
-  );
+  const manager = serverManager.getTemplateServerManager?.();
+  const projectContext = sessionId ? manager?.getBindingContext?.(sessionId) : undefined;
+  const policies = sessionId ? (manager?.getBindingPolicies?.(sessionId) ?? []) : [];
+  return {
+    ...createCapabilityVisibility(
+      Array.from(filteredConnections.entries())
+        .filter(([, connection]) =>
+          isProjectBackendVisible(getServerConfigs()[connection.name], projectContext, policies),
+        )
+        .map(([connectionKey, connection]) => {
+          const publicServerName = connection.name || connectionKey.split(':')[0];
+          return [connectionKey, publicServerName] as const;
+        }),
+      sessionId,
+    ),
+    ...(projectContext ? { projectContext } : {}),
+  };
 }
 
 function getTemplateHashProvider(serverManager: ServerManager): TemplateHashProvider | undefined {
@@ -308,6 +320,23 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
         return;
       }
 
+      const projectContext = requestSessionId
+        ? serverManager.getTemplateServerManager?.().getBindingContext?.(requestSessionId)
+        : undefined;
+      const targetConfig = getServerConfigs()[target.serverName];
+      if (projectContext) {
+        try {
+          requireProjectTarget(
+            projectContext,
+            targetConfig?.projectTarget?.mode ??
+              (isTemplateTarget(serverManager, target.serverName) ? 'single' : 'independent'),
+          );
+        } catch (error) {
+          res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+          return;
+        }
+      }
+
       const visibility = getCapabilityVisibilityFromRequest(serverManager, res, requestSessionId);
       const visibleServerNames = visibility ? getCapabilityVisibleServerNames(visibility) : undefined;
       const filterConfig = buildFilterConfig(res);
@@ -317,7 +346,7 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
       const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
 
       if (!lazyOrchestrator) {
-        if (hasFilterSelection && visibleServerNames && !visibleServerNames.has(target.serverName)) {
+        if (visibleServerNames && !visibleServerNames.has(target.serverName)) {
           res.status(404).json({ error: `Server not found: ${target.serverName}` });
           return;
         }
@@ -347,12 +376,15 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
             : new Map([[`\0app.1mcp/resolved/${target.serverName}`, connection]]);
           const snapshot = await acquireRuntimeCapabilityCatalog(
             catalogConnections,
-            createCapabilityVisibility(
-              Array.from(catalogConnections)
-                .filter(([, candidate]) => candidate === connection)
-                .map(([key]) => [key, target.serverName] as const),
-              requestSessionId,
-            ),
+            {
+              ...createCapabilityVisibility(
+                Array.from(catalogConnections)
+                  .filter(([, candidate]) => candidate === connection)
+                  .map(([key]) => [key, target.serverName] as const),
+                requestSessionId,
+              ),
+              ...(projectContext ? { projectContext } : {}),
+            },
             { serverConfigs: getServerConfigs(), signal: controller.signal },
           );
           const resolved = snapshot.resolve('tools', target.qualifiedName);
@@ -375,7 +407,7 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
             'tools/call',
             {
               name: resolved.entry.route.upstreamIdentity,
-              arguments: toolArgs as never,
+              arguments: validateOutput.targetArguments as never,
             },
             { signal: controller.signal, timeoutMs: resolved.connection.requestTimeoutMs },
           );

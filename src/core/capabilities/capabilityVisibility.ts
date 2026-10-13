@@ -2,6 +2,8 @@
  * Request-scoped capability visibility after session, tag, and preset filtering.
  * Connection keys retain template identity; server names remain the public API.
  */
+import type { ContextData } from '@src/types/context.js';
+
 declare const resourceRouteOwnerBrand: unique symbol;
 export interface ResourceRouteOwner {
   readonly [resourceRouteOwnerBrand]: true;
@@ -34,6 +36,8 @@ export function getResourceRouteOwner(context: object | undefined): ResourceRout
 }
 
 export interface CapabilityVisibility {
+  /** Runtime-derived target; never read from client capability assertions. */
+  readonly projectContext?: ContextData;
   readonly sessionId?: string;
   readonly resourceOwner?: ResourceRouteOwner;
   readonly serverCandidates: ReadonlyMap<string, string>;

@@ -27,7 +27,7 @@ import { connectRuntimeControl, type RuntimeControlDescription } from '@src/core
 import type { RuntimeIdentityWarning } from '@src/domains/runtime-targets/runtimeIdentityVerification.js';
 import { RuntimeTargetStore } from '@src/domains/runtime-targets/runtimeTargetStore.js';
 import logger from '@src/logger/logger.js';
-import type { ContextData } from '@src/types/context.js';
+import type { ContextData, ProjectSet } from '@src/types/context.js';
 import { resolveCanonicalSessionId, withCanonicalSessionId } from '@src/utils/context/sessionIdentity.js';
 import { stripMcpSuffix } from '@src/utils/urlUtils.js';
 
@@ -41,6 +41,7 @@ export interface ResolvedAttachmentTarget<
   cwd: string;
   projectRoot: string;
   projectConfig: ProjectConfig | null;
+  projectSet?: ProjectSet;
   mergedOptions: TOptions;
   discoveredUrl: string;
   serverUrl: URL;
@@ -221,6 +222,7 @@ export async function attachFreshClientSurface<TOptions extends ResolvableServeT
     cwd: target.cwd,
     projectConfig: target.projectConfig,
     projectRoot: target.projectRoot,
+    projectSet: target.projectSet,
     transportType: input.clientSurface,
     version: input.version,
     sessionId: freshSessionId,
@@ -258,6 +260,7 @@ export async function attachReusableClientSurface<TOptions extends ResolvableSer
     cwd: target.cwd,
     projectConfig: target.projectConfig,
     projectRoot: target.projectRoot,
+    projectSet: target.projectSet,
     transportType: input.clientSurface,
     version: input.version,
   });

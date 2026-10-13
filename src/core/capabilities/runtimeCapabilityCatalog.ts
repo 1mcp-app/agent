@@ -18,6 +18,7 @@ import {
   projectToolSchemas,
   type ToolSchemaContracts,
 } from '@src/core/validation/toolSchemaBoundary.js';
+import { projectToolArguments } from '@src/domains/project-selection/projectPolicy.js';
 import { ErrorCode, OneMcpProtocolError, type Tool } from '@src/sdk/contracts/index.js';
 import { MCPError } from '@src/utils/core/errorTypes.js';
 
@@ -96,6 +97,7 @@ interface SourcePages {
 export interface PreparedToolCall {
   (result: unknown): Promise<void>;
   assertCurrent(): void;
+  readonly targetArguments: unknown;
 }
 
 export interface RuntimeCapabilitySnapshot {
@@ -280,7 +282,11 @@ async function collectRuntimeCapabilityCatalog(
   const capturedAdapters = new Map(Array.from(captured, ([key, connection]) => [key, connection.adapter]));
   const { continuation, signal, ...catalogOptions } = options;
   signal?.throwIfAborted();
-  const scopeSessionId = isSessionIndependent(visibility) ? undefined : visibility?.sessionId;
+  const scopeSessionId = visibility?.projectContext
+    ? visibility.sessionId
+    : isSessionIndependent(visibility)
+      ? undefined
+      : visibility?.sessionId;
   const scope = createHash('sha256')
     .update(
       JSON.stringify(
@@ -288,6 +294,8 @@ async function collectRuntimeCapabilityCatalog(
           Array.from(captured.keys()).sort(),
           scopeSessionId,
           visibility?.filterSelection,
+          visibility?.projectContext?.projectSet,
+          visibility?.projectContext?.project.path,
           catalogOptions,
           visibility ? Array.from(visibility.serverCandidates).sort(([a], [b]) => compareCodePoints(a, b)) : null,
         ],
@@ -684,15 +692,22 @@ async function collectRuntimeCapabilityCatalog(
       const definition = snapshot.getToolDefinition(identity);
       if (!definition) throw new SchemaBoundaryError('schema_invalid');
       const resolved = snapshot.resolve('tools', identity)!;
+      const targetArgs = projectToolArguments(
+        options.serverConfigs?.[resolved.entry.route.server],
+        visibility?.projectContext,
+        args,
+      );
       const routeKey = JSON.stringify([resolved.entry.route.connectionKey, resolved.entry.route.upstreamIdentity]);
       const contract = schemaContracts.get(routeKey)!;
-      const validateOutput = await prepareToolValidation(contract, args, {
+      const validateOutput = await prepareToolValidation(contract, targetArgs, {
         routeKey,
         generation: String(started),
         signal,
       });
       definition.assertCurrent();
-      return Object.freeze(Object.assign(validateOutput, { assertCurrent: definition.assertCurrent }));
+      return Object.freeze(
+        Object.assign(validateOutput, { assertCurrent: definition.assertCurrent, targetArguments: targetArgs }),
+      );
     },
     connections: readonlyConnections(captured),
     isCurrent,

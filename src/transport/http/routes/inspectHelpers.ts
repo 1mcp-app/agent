@@ -84,6 +84,7 @@ export function buildFilterConfig(res: Response): InboundConnectionConfig {
   // enforce those tags so scoped tokens cannot enumerate out-of-scope servers.
   if (tagFilterMode === 'none' && validatedTags.length > 0) {
     return {
+      projectFilterMode: tagFilterMode,
       tags: validatedTags,
       tagExpression: undefined,
       tagQuery: undefined,
@@ -93,6 +94,7 @@ export function buildFilterConfig(res: Response): InboundConnectionConfig {
   }
 
   return {
+    projectFilterMode: tagFilterMode,
     tags: validatedTags,
     tagExpression: getTagExpression(res),
     tagQuery: getTagQuery(res),

@@ -122,6 +122,7 @@ function buildContextData(config: InboundConnectionConfig, sessionId: string): C
 
   return {
     project: context.project || { name: 'unknown' },
+    ...(context.projectSet ? { projectSet: context.projectSet } : {}),
     user: context.user || {},
     environment: context.environment || {},
     timestamp: context.timestamp || new Date().toISOString(),

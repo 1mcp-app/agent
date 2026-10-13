@@ -17,14 +17,15 @@ export interface ModernTemplateContextBinding {
 export class ModernTemplateContextSessions {
   private readonly bindings = new Map<string, ModernTemplateContextBinding>();
 
-  bind(context: ContextData): ModernTemplateContextBinding {
+  bind(context: ContextData, projectBindingId?: string): ModernTemplateContextBinding {
     const sessionId = context.sessionId ?? deriveContextSessionId(context);
     const { timestamp: _timestamp, transport, ...facts } = context;
     const { connectionTimestamp: _connectionTimestamp, ...transportFacts } = transport ?? {};
     const effectiveHash = createHash('sha256')
       .update(JSON.stringify({ ...facts, transport: transport ? transportFacts : undefined }, canonicalJson))
       .digest('hex');
-    const existing = this.bindings.get(sessionId);
+    const key = context.projectSet ? (projectBindingId ?? sessionId) : sessionId;
+    const existing = this.bindings.get(key);
     if (existing) {
       if (existing.effectiveHash !== effectiveHash) {
         throw new ProtocolError(-32602, 'Template context changed; start a new Request Session');
@@ -40,7 +41,7 @@ export class ModernTemplateContextSessions {
       context: structuredClone({ ...context, sessionId }),
       effectiveHash,
     });
-    this.bindings.set(sessionId, binding);
+    this.bindings.set(key, binding);
     return binding;
   }
 
@@ -48,6 +49,16 @@ export class ModernTemplateContextSessions {
     const binding = this.bindings.get(sessionId);
     this.bindings.delete(sessionId);
     return binding;
+  }
+
+  forgetSession(sessionId: string): ModernTemplateContextBinding[] {
+    const forgotten: ModernTemplateContextBinding[] = [];
+    for (const [key, binding] of this.bindings) {
+      if (binding.sessionId !== sessionId) continue;
+      forgotten.push(binding);
+      this.bindings.delete(key);
+    }
+    return forgotten;
   }
 
   clear(): void {

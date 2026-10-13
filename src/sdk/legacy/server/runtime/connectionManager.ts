@@ -51,6 +51,8 @@ function snapshotInboundConfig(
     ...(opts.tagFilterMode !== undefined ? { tagFilterMode: opts.tagFilterMode } : {}),
     ...(opts.enablePagination !== undefined ? { enablePagination: opts.enablePagination } : {}),
     ...(opts.requestOnly !== undefined ? { requestOnly: opts.requestOnly } : {}),
+    ...(opts.bindingId !== undefined ? { bindingId: opts.bindingId } : {}),
+    ...(opts.projectFilterMode !== undefined ? { projectFilterMode: opts.projectFilterMode } : {}),
     ...(opts.logicalTemplateSessionId !== undefined ? { logicalTemplateSessionId: opts.logicalTemplateSessionId } : {}),
     ...(opts.logicalTemplateBindingId !== undefined ? { logicalTemplateBindingId: opts.logicalTemplateBindingId } : {}),
     ...(opts.subscriptionListKinds !== undefined ? { subscriptionListKinds: [...opts.subscriptionListKinds] } : {}),

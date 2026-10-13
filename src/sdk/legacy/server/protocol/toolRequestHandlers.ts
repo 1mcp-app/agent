@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
+import { MCP_URI_SEPARATOR } from '@src/constants.js';
+import { attachCatalogCursorOwner } from '@src/core/capabilities/capabilityCatalog.js';
 import { InternalCapabilitiesProvider } from '@src/core/capabilities/internalCapabilitiesProvider.js';
 import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
 import {
@@ -19,6 +21,7 @@ import { getDisabledSourceToolError } from '@src/core/server/disabledTools.js';
 import { withRuntimeAdmission } from '@src/core/server/runtimeDrain.js';
 import { InboundConnection } from '@src/core/types/index.js';
 import { SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
+import { projectSelectionDiagnostic } from '@src/domains/project-selection/projectPolicy.js';
 import { withSelectedNativeInputResponses } from '@src/gateway/interactions/nativeInputResponses.js';
 import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import { ownData } from '@src/observability/privacy/fields.js';
@@ -36,6 +39,7 @@ import {
 } from '@src/sdk/legacy/shared/schemaProjection.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@src/sdk/legacy/types.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
+import { MCPError } from '@src/utils/core/errorTypes.js';
 
 import { withPrivateInteractionConnection } from './privateInteractionConnection.js';
 import { withProviderRequestProgress } from './requestProviderProgress.js';
@@ -50,10 +54,11 @@ export function registerToolHandlers(
   const lazy = lazyLoadingOrchestrator?.isEnabled() ?? false;
   const acquire = async (cursor?: string, signal?: AbortSignal, { upstream = true } = {}) => {
     const resolved = lazy
-      ? resolveLazyCapabilityVisibility(outboundConns, inboundConn, sessionId)
-      : resolveCapabilityVisibility(outboundConns, inboundConn, sessionId, 'tools');
+      ? resolveLazyCapabilityVisibility(outboundConns, inboundConn, getRequestSession(inboundConn))
+      : resolveCapabilityVisibility(outboundConns, inboundConn, getRequestSession(inboundConn), 'tools');
     // Lazy discovery lists only gateway tools, so it must not wait on upstream enumeration.
     const visibility = upstream ? resolved : { ...resolved, serverCandidates: new Map<string, string>() };
+    attachCatalogCursorOwner(visibility, inboundConn.context);
     const provider = InternalCapabilitiesProvider.getInstance();
     await provider.initialize();
     const internalTools = provider.getAvailableTools();
@@ -161,6 +166,13 @@ export function registerToolHandlers(
           phase = 'routing';
           const resolved = snapshot.resolve('tools', request.params.name);
           if (!resolved) {
+            const backend = Object.keys(serverConfigs).find((name) =>
+              request.params.name.startsWith(`${name}${MCP_URI_SEPARATOR}`),
+            );
+            const selectionError = backend
+              ? projectSelectionDiagnostic(serverConfigs[backend], visibility.projectContext, inboundConn)
+              : undefined;
+            if (selectionError) throw new MCPError(selectionError, ErrorCode.InvalidParams);
             const entry = snapshot.generation.resolve('tools', request.params.name);
             const error =
               entry && getDisabledSourceToolError(serverConfigs, entry.route.server, entry.route.upstreamIdentity);
@@ -312,9 +324,9 @@ export function registerToolHandlers(
                             'tools/call',
                             toJsonValue({
                               name: route.upstreamIdentity,
-                              ...(request.params.arguments === undefined
+                              ...((validateOutput.targetArguments ?? request.params.arguments) === undefined
                                 ? {}
-                                : { arguments: request.params.arguments }),
+                                : { arguments: validateOutput.targetArguments ?? request.params.arguments }),
                             }),
                             { signal: extra?.signal, timeoutMs: selected.requestTimeoutMs },
                           ),
