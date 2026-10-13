@@ -233,6 +233,32 @@ describe('ModernOutboundEraAdapter', () => {
     expect(Object.isFrozen((result as { tools: object[] }).tools[0])).toBe(true);
   });
 
+  it('accepts SmartSheet-sized tool lists within the bounded response budget', async () => {
+    const tools = Array.from({ length: 49 }, (_, toolIndex) => ({
+      name: `tool_${toolIndex}`,
+      description: 'An upstream SmartSheet tool',
+      inputSchema: {
+        type: 'object',
+        properties: Object.fromEntries(
+          Array.from({ length: 73 }, (_, propertyIndex) => [
+            `parameter_${propertyIndex}`,
+            { type: 'string', description: 'A parameter' },
+          ]),
+        ),
+      },
+    }));
+    const adapter = outbound({ request: async () => ({ tools }) });
+
+    const result = await adapter.request({
+      requestId: 'large-list',
+      operation: 'tools/list',
+      authority: { connectionIds: ['server-a'], provenance: ['inbound'] },
+      deadlineUnixMs: 2_000_000_000_123,
+    });
+
+    expect(result).toEqual({ tools });
+  });
+
   it('forwards the exact cancellation id', async () => {
     let resolveRequest!: (value: unknown) => void;
     const pending = new Promise<unknown>((resolve) => {

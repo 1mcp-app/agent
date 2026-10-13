@@ -1,5 +1,6 @@
 import { captureJson } from '@src/core/validation/schemaPolicy.js';
 import { captureTraceContext, injectTraceContext, stripBaggage } from '@src/observability/tracing/context.js';
+import { isCapabilityListMethod, RESPONSE_JSON_VALUE_LIMITS } from '@src/sdk/contracts/index.js';
 
 import {
   createEffectiveRequestAuthority,
@@ -90,6 +91,7 @@ export class ModernOutboundEraAdapter implements OutboundEraAdapter {
         }
         const result = toImmutableJsonValue(
           captureJson(stripBaggage(await this.#callbacks.request(frame)), false, true).value,
+          isCapabilityListMethod(request.operation) ? RESPONSE_JSON_VALUE_LIMITS : undefined,
         );
         if (!isRecord(result) || result.resultType !== 'input_required') return result;
         if (!['tools/call', 'prompts/get', 'resources/read'].includes(request.operation) || round >= 10) {
