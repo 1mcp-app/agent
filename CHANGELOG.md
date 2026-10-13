@@ -5,10 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.39.2] - 2026-10-13
 
 ### 🐛 Bug Fixes
-- Capture large upstream capability lists with the bounded response JSON budget, without rejecting valid lists during tool-header cache admission or retaining stale headers for redefined tools.
+- Preserve large upstream MCP capability lists by @NarryG in [#645](https://github.com/1mcp-app/agent/pull/645)
+
+## New Contributors
+* @NarryG made their first contribution in [#645](https://github.com/1mcp-app/agent/pull/645)
 
 ## [0.39.1] - 2026-10-12
 
@@ -1264,6 +1267,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * @xizhibei made their first contribution in [#1](https://github.com/1mcp-app/agent/pull/1)
 * @dependabot[bot] made their first contribution
 
+[0.39.2]: https://github.com/1mcp-app/agent/compare/v0.39.1..v0.39.2
 [0.39.1]: https://github.com/1mcp-app/agent/compare/v0.39.0..v0.39.1
 [0.39.0]: https://github.com/1mcp-app/agent/compare/v0.38.2..v0.39.0
 [0.38.2]: https://github.com/1mcp-app/agent/compare/v0.38.1..v0.38.2
