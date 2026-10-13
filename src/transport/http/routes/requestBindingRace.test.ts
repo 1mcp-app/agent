@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import * as authority from '@src/transport/http/utils/templateContextAuthority.js';
 import { ConfigManager } from '@src/config/configManager.js';
 import { authorizeTemplateContext } from '@src/core/context/templateContextTrust.js';
+import { prepareRequestContext } from '@src/core/server/requestContextPreparation.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
 import { TemplateServerManager } from '@src/core/server/templateServerManager.js';
 import { StreamableSessionStatus } from '@src/transport/http/streamableSessionLifecycle.js';
@@ -16,7 +17,10 @@ import express from 'express';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ensureRequestContextInitialized } from './inspectRequestContext.js';
+import {
+  createRequestContextPreparationDependencies,
+  ensureRequestContextInitialized,
+} from './inspectRequestContext.js';
 import { buildServerSummaries, createInspectHandler, createServersHandler } from './inspectRoutes.js';
 import { setupModernHttpRoutes } from './modernHttpRoutes.js';
 import { setupStreamableHttpRoutes } from './streamableHttpRoutes.js';
@@ -42,6 +46,15 @@ describe('HTTP project binding lifetime and inspect admission', () => {
       getInstructionAggregator: () => instructions,
       getLazyLoadingOrchestrator: () => undefined,
       registerCleanup: vi.fn(),
+      retainLogicalTemplateSession: (id: string) => templates.retainLogicalTemplateSession(id),
+      prepareLogicalTemplateSession: async (_id: string, context: ContextData, filterConfig: object) => {
+        const result = await prepareRequestContext({
+          deps: createRequestContextPreparationDependencies(manager),
+          context: context as never,
+          filterConfig,
+        });
+        return 'bindingId' in result ? result.bindingId : undefined;
+      },
     } as unknown as ServerManager;
     vi.spyOn(authority, 'authorizeRequestTemplateContext').mockImplementation((input) =>
       authorizeTemplateContext({ ...input, mode: 'legacy' }),
@@ -127,7 +140,7 @@ describe('HTTP project binding lifetime and inspect admission', () => {
       const response = await request(instance)
         .post('/mcp')
         .set('MCP-Protocol-Version', protocolVersion)
-        .set('Mcp-Method', 'tools/call')
+        .set(protocolVersion === '2026-07-28' ? { 'Mcp-Method': 'tools/call', 'Mcp-Name': 'checkout_source' } : {})
         .set('mcp-session-id', 'session-a')
         .send({
           jsonrpc: '2.0',
@@ -138,13 +151,16 @@ describe('HTTP project binding lifetime and inspect admission', () => {
             arguments: {},
             _meta: {
               context: context(),
-              'io.modelcontextprotocol/protocolVersion': protocolVersion,
+              ...(protocolVersion === '2026-07-28'
+                ? { 'io.modelcontextprotocol/protocolVersion': protocolVersion }
+                : {}),
               'io.modelcontextprotocol/clientCapabilities': {},
               'io.modelcontextprotocol/clientInfo': { name: 'race-test', version: '1' },
             },
           },
         });
-      expect(response.status).toBe(500);
+      expect(response.status, JSON.stringify(response.body)).toBe(500);
+      expect(response.body.error).toBeDefined();
       expect(load, JSON.stringify(response.body)).toHaveBeenCalledOnce();
       expect(handleRequest).not.toHaveBeenCalled();
       expect(createBridge).not.toHaveBeenCalled();
@@ -160,7 +176,7 @@ describe('HTTP project binding lifetime and inspect admission', () => {
     const response = await request(instance)
       .get('/inspect')
       .query({ context: Buffer.from(JSON.stringify(context())).toString('base64url') });
-    expect(response.status).toBe(500);
+    expect(response.status, JSON.stringify(response.body)).toBe(500);
     expect(load).toHaveBeenCalledOnce();
     expect(connection.adapter.request).not.toHaveBeenCalled();
   });

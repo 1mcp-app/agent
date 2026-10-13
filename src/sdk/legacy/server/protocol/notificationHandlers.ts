@@ -26,6 +26,7 @@ import {
   registerLegacyNotificationOwner,
 } from './requestInteractionScope.js';
 import {
+  bindOwnedCatalogRefresh,
   enqueueOwnedCatalogNotification,
   registerOwnedCatalogConnection,
   setupOwnedResourceNotifications,
@@ -37,6 +38,7 @@ async function setupCatalogCoverage(
   inbound: InboundConnection,
   connection: LegacyOutboundConnection,
 ): Promise<void> {
+  if (connection.status !== ClientStatus.Connected) return;
   const kinds = ['tools', 'resources', 'prompts'] as const;
   if (connection.adapter.protocol?.era === 'modern') {
     const filter: ModernSubscriptionFilter = {};
@@ -64,6 +66,9 @@ export async function setupClientToServerNotifications(
   outboundConns: LegacyOutboundConnections,
   inboundConn: InboundConnection,
 ): Promise<void> {
+  bindOwnedCatalogRefresh(outboundConns, inboundConn, () =>
+    setupClientToServerNotifications(outboundConns, inboundConn),
+  );
   const coverage: Promise<void>[] = [];
   const clientNotificationSchemas = [CancelledNotificationSchema, LoggingMessageNotificationSchema];
 

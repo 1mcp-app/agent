@@ -19,6 +19,7 @@ import {
   runWithNativeInitialInputResponses,
   withSelectedNativeInputResponses,
 } from '@src/gateway/interactions/nativeInputResponses.js';
+import { JSON_VALUE_LIMITS } from '@src/sdk/contracts/index.js';
 import { withRequestProgress } from '@src/sdk/contracts/requestProgress.js';
 
 import { describe, expect, it, vi } from 'vitest';
@@ -454,6 +455,48 @@ describe('ModernSdkClientAdapter', () => {
     }
   });
 
+  it('preserves SmartSheet-sized tool lists through the modern SDK boundary', async () => {
+    const tools = Array.from({ length: 49 }, (_, index) => ({
+      name: `sheet-tool-${index}`,
+      inputSchema: {
+        type: 'object',
+        properties: Object.fromEntries(
+          Array.from({ length: 110 }, (_, propertyIndex) => [`field-${propertyIndex}`, { type: 'string' }]),
+        ),
+      },
+    }));
+    const handler = createMcpHandler(
+      () => {
+        const server = new Server({ name: 'large-peer', version: '1' }, { capabilities: { tools: {} } });
+        server.setRequestHandler('tools/list', async () => ({ tools }) as never);
+        return server;
+      },
+      { legacy: 'reject' },
+    );
+    const transport = new StreamableHTTPClientTransport(new URL('http://localhost/mcp'), {
+      fetch: async (input, init) => handler.fetch(new Request(input, init)),
+    });
+    const client = new Client(
+      { name: 'gateway', version: '1' },
+      { versionNegotiation: { mode: { pin: '2026-07-28' } } },
+    );
+    await client.connect(transport);
+    const adapter = new ModernSdkClientAdapter(client, transport as unknown as AuthProviderTransport);
+    try {
+      const result = await adapter.request({ id: 'large-list' as never, method: 'tools/list' });
+      const resultTools =
+        result !== null && typeof result === 'object' && !Array.isArray(result) && Array.isArray(result.tools)
+          ? result.tools
+          : undefined;
+      expect(resultTools).toHaveLength(49);
+      expect(resultTools?.[0]).toEqual(tools[0]);
+      expect(resultTools?.[48]).toEqual(tools[48]);
+    } finally {
+      await adapter.close();
+      await handler.close();
+    }
+  });
+
   it.each([
     ['bounded', { content: [{ type: 'text', text: 'x'.repeat(64 * 1024) }] }, true],
     ['string budget', { content: [{ type: 'text', text: 'x'.repeat(1_000_001) }] }, false],
@@ -734,6 +777,46 @@ describe('ModernSdkClientAdapter custom HTTP headers', () => {
     }
     expect(request).toHaveBeenCalledTimes(4);
   });
+  it.each([
+    ['node', 49, 110],
+    ['string', 2, 0],
+    ['node', 1, JSON_VALUE_LIMITS.maxNodes / 2],
+    ['string', 1, 0],
+  ] as const)(
+    'returns the list when its header cache exceeds the %s budget (%s tools)',
+    async (budget, toolCount, propertyCount) => {
+      const { adapter, request } = mockedHttpAdapter();
+      const tools = Array.from({ length: toolCount }, (_, index) => ({
+        name: `overflow-${index}`,
+        inputSchema: {
+          type: 'object',
+          ...(budget === 'string'
+            ? { description: 'x'.repeat(JSON_VALUE_LIMITS.maxTotalStringLength / toolCount) }
+            : {}),
+          properties: {
+            ...Object.fromEntries(
+              Array.from({ length: propertyCount }, (_, field) => [`field-${field}`, { type: 'string' }]),
+            ),
+            region: { type: 'string', 'x-mcp-header': 'Region' },
+          },
+        },
+      }));
+      request.mockResolvedValueOnce({ tools } as never);
+
+      await expect(list(adapter)).resolves.toEqual({ tools });
+      await adapter.request({
+        id: 'overflow-call' as never,
+        method: 'tools/call',
+        params: { name: tools[0].name, arguments: { region: 'west' } },
+      });
+      expect(request.mock.calls.at(-1)?.at(-1)).toHaveProperty('headers', {});
+
+      request.mockResolvedValueOnce({ tools: [tool] } as never);
+      await list(adapter);
+      await call(adapter);
+      expect(request.mock.calls.at(-1)?.at(-1)).toMatchObject({ headers: { 'Mcp-Param-Region': 'west' } });
+    },
+  );
 
   it('excludes invalid annotations while retaining healthy tools and opaque malformed siblings', async () => {
     const { adapter, request } = mockedHttpAdapter();
@@ -864,7 +947,7 @@ describe('ModernSdkClientAdapter custom HTTP headers', () => {
       const pending = list(adapter);
       await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
       if (change === 'new listing') {
-        request.mockResolvedValueOnce({ tools: [] } as never);
+        request.mockResolvedValueOnce({ tools: [tool] } as never);
         await list(adapter);
       }
       if (change === 'list changed') {
@@ -885,7 +968,10 @@ describe('ModernSdkClientAdapter custom HTTP headers', () => {
       if (change === 'close') await expect(call(adapter)).rejects.toBeDefined();
       else {
         await call(adapter);
-        expect(request.mock.calls.at(-1)?.at(-1)).toMatchObject({ headers: {} });
+        expect(request.mock.calls.at(-1)?.at(-1)).toHaveProperty(
+          'headers',
+          change === 'new listing' ? { 'Mcp-Param-Region': 'west' } : {},
+        );
       }
     },
   );
@@ -1050,17 +1136,39 @@ describe('ModernSdkClientAdapter custom HTTP headers', () => {
   it('caps retained declarations across individually bounded catalog pages', async () => {
     const { adapter, request } = mockedHttpAdapter();
     for (let index = 0; index < 4; index++) {
-      request.mockResolvedValueOnce({
+      const page = {
         tools: [
           { ...tool, name: `tool-${index}`, inputSchema: { ...tool.inputSchema, description: 'x'.repeat(300_000) } },
+          ...(index === 3
+            ? [
+                {
+                  ...tool,
+                  name: 'tool-0',
+                  inputSchema: {
+                    description: 'x'.repeat(300_000),
+                    properties: { region: { type: 'string', 'x-mcp-header': 'Place' } },
+                  },
+                },
+              ]
+            : []),
         ],
         nextCursor: String(index + 1),
-      } as never);
+      };
+      request.mockResolvedValueOnce(page as never);
       const pending = list(adapter, index === 0 ? undefined : String(index));
-      if (index === 3) await expect(pending).rejects.toBeDefined();
-      else await expect(pending).resolves.toHaveProperty('tools');
+      await expect(pending).resolves.toEqual(page);
     }
-    expect(request).toHaveBeenCalledTimes(4);
+    for (const index of [0, 1, 3]) {
+      await adapter.request({
+        id: `page-call-${index}` as never,
+        method: 'tools/call',
+        params: { name: `tool-${index}`, arguments: { region: 'west' } },
+      });
+      expect(request.mock.calls.at(-1)?.at(-1)).toHaveProperty(
+        'headers',
+        index === 1 ? { 'Mcp-Param-Region': 'west' } : {},
+      );
+    }
   });
 
   it.each(['new listing', 'list changed', 'transport replacement', 'close'] as const)(
@@ -1116,11 +1224,13 @@ describe('ModernSdkClientAdapter custom HTTP headers', () => {
       const nextCursor = String(index).repeat(400_000);
       request.mockResolvedValueOnce({ tools: [], nextCursor } as never);
       const pending = list(adapter, cursor);
-      if (index === 2) await expect(pending).rejects.toBeDefined();
-      else await expect(pending).resolves.toHaveProperty('nextCursor', nextCursor);
+      await expect(pending).resolves.toEqual({ tools: [], nextCursor });
       cursor = nextCursor;
     }
-    expect(request).toHaveBeenCalledTimes(3);
+    request.mockResolvedValueOnce({ tools: [tool] } as never);
+    await list(adapter, cursor);
+    await call(adapter);
+    expect(request.mock.calls.at(-1)?.at(-1)).toHaveProperty('headers', {});
   });
 
   it('retains derived headers on MRTR continuations without validating unfinished output as complete', async () => {

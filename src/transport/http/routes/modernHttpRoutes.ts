@@ -32,8 +32,10 @@ import {
   pruneRuntimeResourceRoutes,
   RUNTIME_CATALOG_SCOPE_TTL_MS,
 } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
+import { filterConnectionsForSession } from '@src/core/protocol/requestHandlerUtils.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
 import type { InboundConnectionConfig } from '@src/core/types/index.js';
+import { createProjectBindingId } from '@src/domains/project-selection/projectSelection.js';
 import { ModernInboundEraAdapter } from '@src/gateway/adapters/modern/modernInboundEraAdapter.js';
 import { createEffectiveRequestAuthority } from '@src/gateway/contracts/effectiveRequestAuthority.js';
 import { type GatewayOperation, gatewayOperationSchema } from '@src/gateway/contracts/gatewayRequest.js';
@@ -79,7 +81,6 @@ import { authorizeRequestTemplateContext } from '@src/transport/http/utils/templ
 
 import type { NextFunction, Request, RequestHandler, Response, Router } from 'express';
 
-import { prepareHttpRequestContext } from './inspectRequestContext.js';
 import {
   createModernInteractionBinding,
   isModernInteractionBindingCurrent,
@@ -92,6 +93,7 @@ import {
   getModernSubscriptionCapabilities,
   serveModernSubscription,
 } from './modernSubscriptions.js';
+import { ModernTemplateContextSessions } from './modernTemplateContext.js';
 import { resolveModernToolHeaderRegistry, toolHeaderProjectionValidator } from './modernToolHeaderRegistry.js';
 
 const DEFAULT_MODERN_REQUEST_TIMEOUT_MS = 60_000;
@@ -349,16 +351,18 @@ export function setupModernHttpRoutes(
   requestPolicy: ModernHttpRequestPolicy,
   requestTimeoutMs = DEFAULT_MODERN_REQUEST_TIMEOUT_MS,
 ): void {
+  const templateContexts = new ModernTemplateContextSessions();
   const catalogOwners = new Map<
     string,
     {
       resourceOwner?: ResourceRouteOwner;
       resourceLastAccess?: number;
       cursorOwner?: CatalogCursorOwner;
+      templateBindingId?: string;
     }
   >();
   let catalogOwnersClosed = false;
-  const catalogOwnerFor = (auth: AuthInfo | undefined, label: string) => {
+  const catalogOwnerFor = (auth: AuthInfo | undefined, label: string, config: InboundConnectionConfig) => {
     if (catalogOwnersClosed) throw new ProtocolError(-32000, `${label} is unavailable`);
     const now = Date.now();
     for (const [key, retained] of catalogOwners) {
@@ -374,7 +378,7 @@ export function setupModernHttpRoutes(
       if (!retained.resourceOwner && !retained.cursorOwner) catalogOwners.delete(key);
     }
     // Only middleware-verified grant facts enter this private key. Anonymous requests retain listener authority.
-    const key = auth
+    const authorityKey = auth
       ? createHash('sha256')
           .update(
             JSON.stringify([
@@ -386,6 +390,7 @@ export function setupModernHttpRoutes(
           )
           .digest('hex')
       : 'anonymous';
+    const key = JSON.stringify([authorityKey, config.logicalTemplateBindingId]);
     const retained = catalogOwners.get(key);
     if (retained) return retained;
     if (catalogOwners.size >= MAX_RUNTIME_CATALOG_SCOPES) throw new ProtocolError(-32000, `${label} capacity exceeded`);
@@ -393,22 +398,35 @@ export function setupModernHttpRoutes(
       resourceOwner?: ResourceRouteOwner;
       resourceLastAccess?: number;
       cursorOwner?: CatalogCursorOwner;
-    } = {};
+      templateBindingId?: string;
+    } = { templateBindingId: config.logicalTemplateBindingId };
     catalogOwners.set(key, created);
     return created;
   };
-  const resourceOwnerFor = (auth: AuthInfo | undefined): ResourceRouteOwner => {
-    const retained = catalogOwnerFor(auth, 'Resource route owner');
+  const resourceOwnerFor = (auth: AuthInfo | undefined, config: InboundConnectionConfig): ResourceRouteOwner => {
+    const retained = catalogOwnerFor(auth, 'Resource route owner', config);
     retained.resourceOwner ??= createResourceRouteOwner();
     retained.resourceLastAccess = Date.now();
     return retained.resourceOwner;
   };
-  const cursorOwnerFor = (auth: AuthInfo | undefined): CatalogCursorOwner => {
-    const retained = catalogOwnerFor(auth, 'Capability cursor owner');
+  const cursorOwnerFor = (auth: AuthInfo | undefined, config: InboundConnectionConfig): CatalogCursorOwner => {
+    const retained = catalogOwnerFor(auth, 'Capability cursor owner', config);
     retained.cursorOwner ??= createCatalogCursorOwner();
     return retained.cursorOwner;
   };
+  const unwatchTemplates = serverManager.registerLogicalTemplateSessionCleanup?.((sessionId) => {
+    const bindings = templateContexts.forgetSession(sessionId);
+    for (const [key, retained] of catalogOwners) {
+      if (!bindings.some((binding) => retained.templateBindingId === binding.id)) continue;
+      if (retained.resourceOwner) revokeResourceRouteOwner(retained.resourceOwner);
+      if (retained.cursorOwner) revokeCatalogCursorOwner(retained.cursorOwner);
+      catalogOwners.delete(key);
+    }
+    pruneRuntimeResourceRoutes(serverManager.getClients());
+  });
   serverManager.registerCleanup(async () => {
+    unwatchTemplates?.();
+    templateContexts.clear();
     catalogOwnersClosed = true;
     for (const retained of catalogOwners.values()) {
       if (retained.resourceOwner) revokeResourceRouteOwner(retained.resourceOwner);
@@ -451,6 +469,7 @@ export function setupModernHttpRoutes(
   router.delete(STREAMABLE_HTTP_ENDPOINT, modernAdmission, ...middlewares, rejectUnsupportedTransportMethod);
   router.post(STREAMABLE_HTTP_ENDPOINT, modernAdmission, ...middlewares, async (req: Request, res: Response) => {
     const disconnect = bindDisconnectAbort(req, res);
+    let releaseTemplateSession: (() => void) | undefined;
     try {
       const request = webRequest(req, disconnect.controller.signal);
       const rejected =
@@ -464,12 +483,9 @@ export function setupModernHttpRoutes(
       }
 
       if (hasExplicitTemplateContextProof(req)) {
-        const extractedContext = extractTemplateContextRequest(req);
-        const authorization = extractedContext
-          ? authorizeRequestTemplateContext({
-              ...extractedContext,
-              transportSessionId: req.get('mcp-session-id'),
-            })
+        const extracted = extractTemplateContextRequest(req);
+        const authorization = extracted
+          ? authorizeRequestTemplateContext({ ...extracted, transportSessionId: req.get('mcp-session-id') })
           : undefined;
         if (authorization?.status !== 'trusted') {
           res.status(400).json({
@@ -480,22 +496,38 @@ export function setupModernHttpRoutes(
           return;
         }
       }
-
-      const config = buildConfig(req, res);
-      const preparedContext = await prepareHttpRequestContext(serverManager, req, res, config);
-      let bindingId: string | undefined;
-      if ('bindingId' in preparedContext) {
-        bindingId = preparedContext.bindingId;
-      } else if (preparedContext.status === 'routing_only') {
-        bindingId = preparedContext.sessionId;
-      }
-      const projectContext = bindingId
-        ? serverManager.getTemplateServerManager?.().getBindingContext?.(bindingId)
-        : undefined;
-      if ('bindingId' in preparedContext && !projectContext) {
-        throw new Error('Project binding is no longer available');
-      }
-      const targetedConfig = projectContext ? { ...config, bindingId, context: projectContext } : config;
+      let config: InboundConnectionConfig = buildConfig(req, res);
+      const prepareTemplates = async () => {
+        const extracted = extractTemplateContextRequest(req);
+        if (!extracted) return;
+        const authorization = authorizeRequestTemplateContext({
+          ...extracted,
+          transportSessionId: req.get('mcp-session-id'),
+        });
+        if (authorization.status !== 'trusted') return;
+        const initial = templateContexts.bind(
+          authorization.context,
+          createProjectBindingId(authorization.context.sessionId!, authorization.context),
+        );
+        const context = initial.context;
+        const sessionId = initial.sessionId;
+        config = { ...config, context, logicalTemplateSessionId: sessionId, logicalTemplateBindingId: initial.id };
+        releaseTemplateSession = serverManager.retainLogicalTemplateSession(sessionId);
+        const bindingId = await serverManager.prepareLogicalTemplateSession(sessionId, context, config);
+        const projectContext = bindingId
+          ? serverManager.getTemplateServerManager().getBindingContext(bindingId)
+          : context;
+        if (!projectContext) throw new Error('Project binding is no longer available');
+        const binding = initial;
+        config = {
+          ...config,
+          bindingId,
+          context: projectContext,
+          logicalTemplateSessionId: binding.sessionId,
+          logicalTemplateBindingId: binding.id,
+        };
+        disconnect.controller.signal.throwIfAborted();
+      };
       const method = (req.body as { method?: unknown } | null)?.method;
       if (method === 'subscriptions/listen' || method === 'notifications/cancelled') {
         // Preserve the pinned SDK's envelope, header, version and wire validation ladder.
@@ -513,17 +545,19 @@ export function setupModernHttpRoutes(
         } finally {
           await validation.close();
         }
+        await prepareTemplates();
         if (method === 'subscriptions/listen') {
           await serveModernSubscription(
             req,
             res,
             serverManager,
-            targetedConfig,
+            config,
             createBridge,
             disconnect.controller.signal,
+            resourceOwnerFor(getAuthInfo(res), config),
           );
         } else {
-          cancelModernSubscription(req, res, serverManager, targetedConfig);
+          cancelModernSubscription(req, res, serverManager, config);
         }
         return;
       }
@@ -534,6 +568,7 @@ export function setupModernHttpRoutes(
       let ownsHeaderAdmission = false;
       const handler = createMcpHandler(
         async () => {
+          await prepareTemplates();
           // The SDK validates the envelope and standard headers before entering
           // this factory. Bound live catalog observers before their first await.
           if (method === 'tools/call') {
@@ -554,14 +589,29 @@ export function setupModernHttpRoutes(
           }
           const headerRegistry = await resolveModernToolHeaderRegistry(
             serverManager,
-            targetedConfig,
+            config,
             method,
             (req.body as { params?: unknown } | null)?.params,
             disconnect.controller.signal,
           );
           activeHeaderRegistry = headerRegistry;
-          const capabilities = { ...getModernSubscriptionCapabilities(serverManager, targetedConfig), completions: {} };
-          const product = new McpServer({ name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION }, { capabilities: {} });
+          const capabilities = { ...getModernSubscriptionCapabilities(serverManager, config), completions: {} };
+          const instructionConnections = serverManager.getClients();
+          const instructions = serverManager
+            .getInstructionAggregator?.()
+            ?.getFilteredInstructions(
+              config,
+              instructionConnections.size
+                ? filterConnectionsForSession(
+                    instructionConnections,
+                    config.bindingId ?? config.logicalTemplateSessionId,
+                  )
+                : instructionConnections,
+            );
+          const product = new McpServer(
+            { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
+            { capabilities: {}, instructions: instructions || undefined },
+          );
           const server = product.server;
           server.registerCapabilities(capabilities);
           const headerTool = headerRegistry?.headerTool;
@@ -605,8 +655,11 @@ export function setupModernHttpRoutes(
                                 context.mcpReq.inputResponses,
                               )
                             : undefined;
-                        const resourceOwner =
-                          operation === 'resources/read' ? resourceOwnerFor(getAuthInfo(res)) : undefined;
+                        const resourceOwner = ['resources/read', 'resources/list', 'resources/templates/list'].includes(
+                          operation,
+                        )
+                          ? resourceOwnerFor(getAuthInfo(res), config)
+                          : undefined;
                         // Enabled lazy mode reserves this unprefixed operation for the internal
                         // meta-tool catalog. Header-registry admission and the authoritative
                         // handler still resolve and fence that internal route before execution.
@@ -615,7 +668,9 @@ export function setupModernHttpRoutes(
                           message.method === 'tools/call' &&
                           message.params.name === 'tool_list' &&
                           serverManager.getLazyLoadingOrchestrator?.()?.isEnabled() === true;
-                        const catalogCursorOwner = nativeToolList ? cursorOwnerFor(getAuthInfo(res)) : undefined;
+                        const catalogCursorOwner = nativeToolList
+                          ? cursorOwnerFor(getAuthInfo(res), config)
+                          : undefined;
                         const capabilities =
                           (context.mcpReq.envelope as Record<string, unknown> | undefined)?.[
                             'io.modelcontextprotocol/clientCapabilities'
@@ -628,7 +683,7 @@ export function setupModernHttpRoutes(
                           ? undefined
                           : await createModernInteractionBinding(
                               serverManager,
-                              targetedConfig,
+                              config,
                               operation,
                               stripInboundRequestMeta(message.params),
                               getAuthInfo(res),
@@ -660,7 +715,7 @@ export function setupModernHttpRoutes(
                                 JSON.stringify(
                                   await createModernInteractionBinding(
                                     serverManager,
-                                    targetedConfig,
+                                    config,
                                     operation,
                                     stripInboundRequestMeta(message.params),
                                     getAuthInfo(res),
@@ -678,7 +733,7 @@ export function setupModernHttpRoutes(
                           const verifyBinding = async (signal: AbortSignal) => {
                             const current = await createModernInteractionBinding(
                               serverManager,
-                              targetedConfig,
+                              config,
                               operation,
                               stripInboundRequestMeta(message.params),
                               getAuthInfo(res),
@@ -718,7 +773,7 @@ export function setupModernHttpRoutes(
                                         message.params,
                                         signal,
                                         serverManager,
-                                        targetedConfig,
+                                        config,
                                         createBridge,
                                         deadline,
                                         {
@@ -748,7 +803,7 @@ export function setupModernHttpRoutes(
                           message.params,
                           context.mcpReq.signal,
                           serverManager,
-                          targetedConfig,
+                          config,
                           createBridge,
                           Date.now() + requestTimeoutMs,
                           {
@@ -790,6 +845,7 @@ export function setupModernHttpRoutes(
         }
       }
     } finally {
+      releaseTemplateSession?.();
       disconnect.cleanup();
     }
   });
