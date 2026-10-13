@@ -395,7 +395,12 @@ export class ServerManager {
     const templateContext =
       context ?? (opts.logicalTemplateSessionId ? (opts.context as ContextData | undefined) : undefined);
     if (opts.logicalTemplateSessionId && templateContext) {
-      const bindingId = await this.prepareLogicalTemplateSession(opts.logicalTemplateSessionId, templateContext, opts);
+      const bindingId = await this.prepareLogicalTemplateSession(
+        opts.logicalTemplateSessionId,
+        templateContext,
+        opts,
+        authority,
+      );
       opts = { ...opts, bindingId };
       this.logicalBridgeSessions.add(sessionId);
     } else {
