@@ -449,7 +449,7 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
       if (scan.declarations.length) {
         headers.set(tool.name, {
           declarations: scan.declarations,
-          cost: measureJsonValue({ name: tool.name, inputSchema: tool.inputSchema }, JSON_VALUE_LIMITS),
+          cost: measureJsonValue({ name: tool.name, inputSchema: tool.inputSchema }, RESPONSE_JSON_VALUE_LIMITS),
         });
       }
       return true;

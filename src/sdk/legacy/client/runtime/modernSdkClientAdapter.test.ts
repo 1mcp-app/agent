@@ -777,18 +777,25 @@ describe('ModernSdkClientAdapter custom HTTP headers', () => {
     }
     expect(request).toHaveBeenCalledTimes(4);
   });
-  it.each(['node', 'string'] as const)(
-    'returns the list when its header cache exceeds the %s budget',
-    async (budget) => {
+  it.each([
+    ['node', 49, 110],
+    ['string', 2, 0],
+    ['node', 1, JSON_VALUE_LIMITS.maxNodes / 2],
+    ['string', 1, 0],
+  ] as const)(
+    'returns the list when its header cache exceeds the %s budget (%s tools)',
+    async (budget, toolCount, propertyCount) => {
       const { adapter, request } = mockedHttpAdapter();
-      const tools = Array.from({ length: budget === 'node' ? 49 : 2 }, (_, index) => ({
+      const tools = Array.from({ length: toolCount }, (_, index) => ({
         name: `overflow-${index}`,
         inputSchema: {
           type: 'object',
-          ...(budget === 'string' ? { description: 'x'.repeat(JSON_VALUE_LIMITS.maxTotalStringLength / 2) } : {}),
+          ...(budget === 'string'
+            ? { description: 'x'.repeat(JSON_VALUE_LIMITS.maxTotalStringLength / toolCount) }
+            : {}),
           properties: {
             ...Object.fromEntries(
-              Array.from({ length: budget === 'node' ? 110 : 0 }, (_, field) => [`field-${field}`, { type: 'string' }]),
+              Array.from({ length: propertyCount }, (_, field) => [`field-${field}`, { type: 'string' }]),
             ),
             region: { type: 'string', 'x-mcp-header': 'Region' },
           },
