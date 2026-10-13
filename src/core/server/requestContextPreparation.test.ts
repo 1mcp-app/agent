@@ -79,7 +79,7 @@ describe('requestContextPreparation', () => {
     expect(deps.createTemplateBasedServers).toHaveBeenCalledWith(
       createProjectBindingId('header-session', context),
       { ...context, sessionId: 'header-session' },
-      { tags: ['dev'] },
+      { tags: ['dev'], bindingId: createProjectBindingId('header-session', context) },
       { mcpTemplates: { serena: templateConfig } },
       expect.any(Map),
       {},
@@ -115,7 +115,7 @@ describe('requestContextPreparation', () => {
     expect(deps.createTemplateBasedServers).toHaveBeenCalledWith(
       createProjectBindingId('derived-session', context),
       { ...contextWithoutSession, sessionId: 'derived-session' },
-      {},
+      { bindingId: createProjectBindingId('derived-session', context) },
       { mcpTemplates: { serena: templateConfig } },
       expect.any(Map),
       {},
@@ -163,7 +163,7 @@ describe('requestContextPreparation', () => {
     expect(deps.createTemplateBasedServers).toHaveBeenCalledWith(
       createProjectBindingId('derived-session', context),
       expect.anything(),
-      {},
+      { bindingId: createProjectBindingId('derived-session', context) },
       { mcpTemplates: { enabled: templateConfig } },
       expect.any(Map),
       {},

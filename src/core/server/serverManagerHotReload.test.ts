@@ -17,6 +17,7 @@ const mockState = vi.hoisted(() => ({
   inboundConnections: new Map(),
   retireTemplatesForRuntimeEnvironment: vi.fn().mockResolvedValue([]),
   createTemplateBasedServers: vi.fn(),
+  getBindingContext: vi.fn(),
   loadConfigWithTemplates: vi.fn(),
 }));
 
@@ -82,6 +83,7 @@ vi.mock('./templateServerManager.js', () => ({
   TemplateServerManager: vi.fn(function () {
     return {
       setInstructionAggregator: vi.fn(),
+      registerLogicalTemplateSessionCleanup: vi.fn(),
       getFilteringStats: vi.fn(() => ({ tracker: null, index: null, enabled: true })),
       getClientTemplateInfo: vi.fn(() => ({})),
       rebuildTemplateIndex: vi.fn(),
@@ -90,6 +92,7 @@ vi.mock('./templateServerManager.js', () => ({
       shutdown: vi.fn().mockResolvedValue(undefined),
       retireTemplatesForRuntimeEnvironment: mockState.retireTemplatesForRuntimeEnvironment,
       createTemplateBasedServers: mockState.createTemplateBasedServers,
+      getBindingContext: mockState.getBindingContext,
     };
   }),
 }));
@@ -315,6 +318,31 @@ describe('ServerManager hot-reload lifecycle facade', () => {
     expect(serverManager.startServer).not.toHaveBeenCalled();
     expect(serverManager.stopServer).not.toHaveBeenCalled();
     expect(serverManager.restartServer).not.toHaveBeenCalled();
+  });
+
+  it('recreates a persistent private binding using its canonical transport owner', async () => {
+    const context = { sessionId: 'transport-1', project: { path: '/selected' } };
+    const inbound = createMockInboundConnection({ context, tags: ['runtime'] });
+    mockState.inboundConnections.set('transport-1', inbound);
+    mockState.getBindingContext.mockReturnValueOnce(context);
+    mockState.retireTemplatesForRuntimeEnvironment.mockResolvedValueOnce([
+      { sessionId: 'binding-selected', templateName: 'affected', lifecycle: 'persistent' },
+    ]);
+    mockState.loadConfigWithTemplates.mockResolvedValueOnce({
+      staticServers: {},
+      templateServers: { affected: { command: 'node' } },
+      errors: [],
+    });
+    await serverManager.reloadTemplatesForRuntimeEnvironment([]);
+    expect(mockState.createTemplateBasedServers).toHaveBeenCalledWith(
+      'binding-selected',
+      context,
+      expect.objectContaining({ bindingId: 'binding-selected', tags: ['runtime'] }),
+      { mcpTemplates: { affected: { command: 'node' } } },
+      outboundConns,
+      transports,
+      'persistent',
+    );
   });
 
   it('recreates only affected template instances for connected sessions after Runtime Scope env changes', async () => {

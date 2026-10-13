@@ -1,9 +1,11 @@
 import { stripBaggage } from '@src/observability/tracing/context.js';
 import {
   createLegacyTimeoutMs,
+  isCapabilityListMethod,
   type JsonValueLimits,
   type LegacyRequestId,
   type LegacySdkAdapter,
+  RESPONSE_JSON_VALUE_LIMITS,
   toJsonValue,
 } from '@src/sdk/contracts/index.js';
 
@@ -80,7 +82,9 @@ export class LegacyOutboundEraAdapter implements OutboundEraAdapter {
         ...(params === undefined ? {} : { params }),
         timeoutMs: createLegacyTimeoutMs(remainingMs),
       });
-      return toImmutableJsonValue(stripBaggage(result), this.resultLimits);
+      const resultLimits =
+        this.resultLimits ?? (isCapabilityListMethod(request.operation) ? RESPONSE_JSON_VALUE_LIMITS : undefined);
+      return toImmutableJsonValue(stripBaggage(result), resultLimits);
     } catch (error) {
       throw gatewayFailureFromUnknown(error, 'transport');
     } finally {

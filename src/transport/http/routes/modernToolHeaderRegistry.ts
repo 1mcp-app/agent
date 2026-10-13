@@ -41,7 +41,7 @@ export async function resolveModernToolHeaderRegistry(
   if (typeof name !== 'string') return undefined;
   const connections = manager.getClients();
   const visible = FilteringService.getFilteredConnections(
-    filterConnectionsForSession(connections, config.bindingId),
+    filterConnectionsForSession(connections, config.bindingId ?? config.logicalTemplateSessionId),
     config,
   );
   const visibility = resolveCapabilityVisibility(connections, config, undefined, 'tools');

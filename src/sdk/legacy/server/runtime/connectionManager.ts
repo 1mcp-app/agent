@@ -53,6 +53,8 @@ function snapshotInboundConfig(
     ...(opts.requestOnly !== undefined ? { requestOnly: opts.requestOnly } : {}),
     ...(opts.bindingId !== undefined ? { bindingId: opts.bindingId } : {}),
     ...(opts.projectFilterMode !== undefined ? { projectFilterMode: opts.projectFilterMode } : {}),
+    ...(opts.logicalTemplateSessionId !== undefined ? { logicalTemplateSessionId: opts.logicalTemplateSessionId } : {}),
+    ...(opts.logicalTemplateBindingId !== undefined ? { logicalTemplateBindingId: opts.logicalTemplateBindingId } : {}),
     ...(opts.subscriptionListKinds !== undefined ? { subscriptionListKinds: [...opts.subscriptionListKinds] } : {}),
     ...(opts.canonicalSchemaProjection === true ? { canonicalSchemaProjection: true } : {}),
     ...(opts.presetName !== undefined ? { presetName: opts.presetName } : {}),
@@ -157,7 +159,9 @@ export class ConnectionManager {
           resourceCleanupError = error;
         }
         unregisterLegacyNotificationOwner(this.outboundConns.values(), connection);
-        evictRuntimeCapabilityCatalogSession(this.outboundConns, connection.context?.sessionId ?? sessionId);
+        if (!connection.logicalTemplateSessionId) {
+          evictRuntimeCapabilityCatalogSession(this.outboundConns, connection.context?.sessionId ?? sessionId);
+        }
 
         // Only close the transport if explicitly requested
         if (forceClose) {

@@ -96,7 +96,12 @@ export async function createModernInteractionBinding(
   const publicIdentity = record[kind === 'resources' ? 'uri' : 'name'];
   if (typeof publicIdentity !== 'string') return undefined;
   const connections = manager.getClients();
-  let visibility = resolveCapabilityVisibility(connections, config, config.bindingId, kind);
+  let visibility = resolveCapabilityVisibility(
+    connections,
+    config,
+    config.bindingId ?? config.logicalTemplateSessionId,
+    kind,
+  );
   if (kind === 'resources') {
     visibility = { ...visibility, resourceOwner };
   }

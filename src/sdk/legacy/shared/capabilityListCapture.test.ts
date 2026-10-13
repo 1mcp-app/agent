@@ -1,3 +1,5 @@
+import { JSON_VALUE_LIMITS, toJsonValue } from '@src/sdk/contracts/index.js';
+
 import { captureCapabilityListResult } from './capabilityListCapture.js';
 
 describe('capability list capture', () => {
@@ -42,5 +44,40 @@ describe('capability list capture', () => {
   it('does not interpret template-shaped unknown fields in other operation results', () => {
     const result = { resourceTemplates: [{ uriTemplate: 'file:///{' }] };
     expect(captureCapabilityListResult('tools/list', result)).toEqual(result);
+  });
+
+  it('captures a SmartSheet-sized tool list above the default JSON node limit', () => {
+    const makeTool = (index: number) => ({
+      name: `tool_${index}`,
+      description: 'An upstream SmartSheet tool',
+      inputSchema: {
+        type: 'object',
+        properties: Object.fromEntries(
+          Array.from({ length: 73 }, (_, propertyIndex) => [
+            `parameter_${propertyIndex}`,
+            { type: 'string', description: 'A parameter' },
+          ]),
+        ),
+      },
+    });
+    const result = { tools: Array.from({ length: 49 }, (_, index) => makeTool(index)) };
+
+    expect(() => toJsonValue(result, JSON_VALUE_LIMITS)).toThrow('node limit');
+    const captured = captureCapabilityListResult('tools/list', result);
+    expect(captured).toEqual(result);
+    expect(captured).not.toBe(result);
+  });
+
+  it('honors an explicit smaller limit for capability lists', () => {
+    const result = { tools: [{ name: 'tool' }] };
+    const limits = { ...JSON_VALUE_LIMITS, maxNodes: 1 };
+
+    expect(() => captureCapabilityListResult('tools/list', result, limits)).toThrow('node limit');
+  });
+
+  it('keeps tool-call results under the ordinary JSON node limit', () => {
+    const result = { content: Array.from({ length: JSON_VALUE_LIMITS.maxNodes }, () => null) };
+
+    expect(() => captureCapabilityListResult('tools/call', result)).toThrow('node limit');
   });
 });
