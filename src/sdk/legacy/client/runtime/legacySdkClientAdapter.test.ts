@@ -11,6 +11,7 @@ import { Client } from '@src/sdk/legacy/client/index.js';
 import { StreamableHTTPError } from '@src/sdk/legacy/client/streamableHttp.js';
 import { CallToolRequestSchema, McpError } from '@src/sdk/legacy/types.js';
 
+import { LegacyGatewayClientAdapter } from './legacyGatewayClientAdapter.js';
 import { bindLegacySdkConnection, getLegacySdkTransport, LegacySdkClientAdapter } from './legacySdkClientAdapter.js';
 import type { AuthProviderTransport } from './legacyTransport.js';
 
@@ -164,6 +165,57 @@ describe('LegacySdkClientAdapter', () => {
       expect.anything(),
       expect.objectContaining({ timeout: 1234, signal: expect.any(AbortSignal) }),
     );
+  });
+
+  it('captures SmartSheet-sized tool lists through the legacy adapter', async () => {
+    const client = createClient();
+    const result = {
+      tools: Array.from({ length: 49 }, (_, toolIndex) => ({
+        name: `tool_${toolIndex}`,
+        description: 'An upstream SmartSheet tool',
+        inputSchema: {
+          type: 'object',
+          properties: Object.fromEntries(
+            Array.from({ length: 73 }, (_, propertyIndex) => [
+              `parameter_${propertyIndex}`,
+              { type: 'string', description: 'A parameter' },
+            ]),
+          ),
+        },
+      })),
+    };
+    vi.spyOn(client, 'request').mockResolvedValue(result as never);
+    const adapter = new LegacySdkClientAdapter(client, createTransport());
+
+    const response = await adapter.request({ id: 'large-list' as never, method: 'tools/list' });
+
+    expect(response).toEqual(result);
+    expect(response).not.toBe(result);
+  });
+
+  it('captures SmartSheet-sized tool lists through the legacy gateway adapter', async () => {
+    const client = createClient();
+    const result = {
+      tools: Array.from({ length: 49 }, (_, toolIndex) => ({
+        name: `tool_${toolIndex}`,
+        description: 'An upstream SmartSheet tool',
+        inputSchema: {
+          type: 'object',
+          properties: Object.fromEntries(
+            Array.from({ length: 73 }, (_, propertyIndex) => [
+              `parameter_${propertyIndex}`,
+              { type: 'string', description: 'A parameter' },
+            ]),
+          ),
+        },
+      })),
+    };
+    vi.spyOn(client, 'request').mockResolvedValue(result as never);
+    const adapter = new LegacyGatewayClientAdapter(client, createTransport());
+
+    const response = await adapter.request({ id: 'large-list-gateway' as never, method: 'tools/list' });
+
+    expect(response).toEqual(result);
   });
 
   it('converts foreign SDK protocol failures', async () => {

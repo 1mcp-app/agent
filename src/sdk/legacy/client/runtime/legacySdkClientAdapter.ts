@@ -11,7 +11,6 @@ import { assertInteractionRoute } from '@src/gateway/interactions/interactionRou
 import logger from '@src/logger/logger.js';
 import { injectTraceContext, stripBaggage } from '@src/observability/tracing/context.js';
 import {
-  JSON_VALUE_LIMITS,
   type JsonValue,
   type LegacyConnectionId,
   type LegacyRequestId,
@@ -159,14 +158,9 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
     try {
       if (this.lifecycleState === 'idle') await this.start();
       const result = await this.requestWithRecovery(request, controller);
-      // The interaction bridge fronts this gateway, so its results are assembled responses.
-      return stripBaggage(
-        captureCapabilityListResult(
-          request.method,
-          result,
-          this.interactionBridge ? RESPONSE_JSON_VALUE_LIMITS : JSON_VALUE_LIMITS,
-        ),
-      );
+      // Interaction bridge results are assembled responses; list results use the shared response budget.
+      const captureLimits = this.interactionBridge ? RESPONSE_JSON_VALUE_LIMITS : undefined;
+      return stripBaggage(captureCapabilityListResult(request.method, result, captureLimits));
     } catch (error) {
       if (this.interactionBridge && error instanceof McpError) {
         const resourceFailure = resourceFailureFromBridgeRequest(error, request);

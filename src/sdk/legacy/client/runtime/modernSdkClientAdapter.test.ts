@@ -454,6 +454,48 @@ describe('ModernSdkClientAdapter', () => {
     }
   });
 
+  it('preserves SmartSheet-sized tool lists through the modern SDK boundary', async () => {
+    const tools = Array.from({ length: 49 }, (_, index) => ({
+      name: `sheet-tool-${index}`,
+      inputSchema: {
+        type: 'object',
+        properties: Object.fromEntries(
+          Array.from({ length: 110 }, (_, propertyIndex) => [`field-${propertyIndex}`, { type: 'string' }]),
+        ),
+      },
+    }));
+    const handler = createMcpHandler(
+      () => {
+        const server = new Server({ name: 'large-peer', version: '1' }, { capabilities: { tools: {} } });
+        server.setRequestHandler('tools/list', async () => ({ tools }) as never);
+        return server;
+      },
+      { legacy: 'reject' },
+    );
+    const transport = new StreamableHTTPClientTransport(new URL('http://localhost/mcp'), {
+      fetch: async (input, init) => handler.fetch(new Request(input, init)),
+    });
+    const client = new Client(
+      { name: 'gateway', version: '1' },
+      { versionNegotiation: { mode: { pin: '2026-07-28' } } },
+    );
+    await client.connect(transport);
+    const adapter = new ModernSdkClientAdapter(client, transport as unknown as AuthProviderTransport);
+    try {
+      const result = await adapter.request({ id: 'large-list' as never, method: 'tools/list' });
+      const resultTools =
+        result !== null && typeof result === 'object' && !Array.isArray(result) && Array.isArray(result.tools)
+          ? result.tools
+          : undefined;
+      expect(resultTools).toHaveLength(49);
+      expect(resultTools?.[0]).toEqual(tools[0]);
+      expect(resultTools?.[48]).toEqual(tools[48]);
+    } finally {
+      await adapter.close();
+      await handler.close();
+    }
+  });
+
   it.each([
     ['bounded', { content: [{ type: 'text', text: 'x'.repeat(64 * 1024) }] }, true],
     ['string budget', { content: [{ type: 'text', text: 'x'.repeat(1_000_001) }] }, false],
