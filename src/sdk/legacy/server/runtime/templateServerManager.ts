@@ -188,12 +188,19 @@ export class TemplateServerManager {
     const ownerSessionId = context.sessionId ?? sessionId;
     context = context.projectSet ? withProjectSelection(context, context.projectSet) : context;
     context = { ...context, sessionId: ownerSessionId };
-    sessionId = await this.registerBindingContext(
-      createProjectBindingId(ownerSessionId, context),
-      context,
-      opts,
-      authority,
-    );
+    if (opts.bindingId) {
+      sessionId = opts.bindingId;
+      const preparedContext = this.bindingContexts.get(sessionId);
+      if (!preparedContext) throw new Error('Project binding is no longer available');
+      context = preparedContext;
+    } else {
+      sessionId = await this.registerBindingContext(
+        createProjectBindingId(ownerSessionId, context),
+        context,
+        opts,
+        authority,
+      );
+    }
 
     if (lifecycle === 'persistent') {
       this.trackPersistentClient(sessionId);
@@ -658,9 +665,16 @@ export class TemplateServerManager {
     transports: Record<string, Transport> = this.transports ?? {},
   ): Promise<number> {
     const sessionsWithMembership = new Set(this.ephemeralClients.keys());
+    const retainedBindings = new Set<string>();
     // Active requests and subscriptions retain their contextual membership.
     for (const [sessionId, session] of this.logicalSessions) {
-      if (session.retainCount > 0) this.touchEphemeralClient(sessionId);
+      if (session.retainCount > 0) {
+        this.touchEphemeralClient(sessionId);
+        for (const bindingId of this.ownerBindings.get(sessionId) ?? []) {
+          retainedBindings.add(bindingId);
+          this.touchEphemeralClient(bindingId);
+        }
+      }
     }
     await cleanupExpiredEphemeralClients(outboundConns, transports, {
       clientInstancePool: this.clientInstancePool,
@@ -669,6 +683,7 @@ export class TemplateServerManager {
       ephemeralClients: this.ephemeralClients,
       persistentSessions: new Set([
         ...this.persistentSessions,
+        ...retainedBindings,
         ...Array.from(this.logicalSessions)
           .filter(([, session]) => session.retainCount > 0)
           .map(([sessionId]) => sessionId),
@@ -676,7 +691,7 @@ export class TemplateServerManager {
     });
 
     for (const [bindingId, lastUsed] of this.ephemeralBindingActivity) {
-      if ((this.logicalSessions.get(bindingId)?.retainCount ?? 0) > 0) continue;
+      if (retainedBindings.has(bindingId)) continue;
       if (Date.now() - lastUsed < this.poolPolicy.idleTimeoutMs) continue;
       if (this.ephemeralClients.get(bindingId)?.size) continue;
       await this.cleanupTemplateServers(bindingId, outboundConns, transports);
@@ -684,6 +699,7 @@ export class TemplateServerManager {
     for (const [sessionId, session] of this.logicalSessions) {
       if (session.retainCount > 0) continue;
       if (this.ephemeralClients.has(sessionId)) continue;
+      if (this.ownerBindings.get(sessionId)?.size) continue;
       if (!sessionsWithMembership.has(sessionId)) {
         if (Date.now() - session.lastUsedAt <= this.poolPolicy.idleTimeoutMs) continue;
       }

@@ -42,6 +42,7 @@ import type { ServerManager } from '@src/core/server/serverManager.js';
 import type { InboundConnectionConfig } from '@src/core/types/index.js';
 import { SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
 import { schemaInputErrorResult } from '@src/core/validation/toolSchemaBoundary.js';
+import { createProjectBindingId } from '@src/domains/project-selection/projectSelection.js';
 import { ModernInboundEraAdapter } from '@src/gateway/adapters/modern/modernInboundEraAdapter.js';
 import { createEffectiveRequestAuthority } from '@src/gateway/contracts/effectiveRequestAuthority.js';
 import { type GatewayOperation, gatewayOperationSchema } from '@src/gateway/contracts/gatewayRequest.js';
@@ -84,12 +85,14 @@ import {
   extractTemplateContextRequest,
   hasExplicitTemplateContextProof,
 } from '@src/transport/http/utils/contextExtractor.js';
-import { authorizeRequestTemplateContext } from '@src/transport/http/utils/templateContextAuthority.js';
+import {
+  authorizeRequestTemplateContext,
+  getRequestProjectPreparationAuthority,
+} from '@src/transport/http/utils/templateContextAuthority.js';
 
 import type { NextFunction, Request, RequestHandler, Response, Router } from 'express';
 import { z } from 'zod';
 
-import { prepareHttpRequestContext } from './inspectRequestContext.js';
 import {
   createModernInteractionBinding,
   isModernInteractionBindingCurrent,
@@ -424,10 +427,9 @@ export function setupModernHttpRoutes(
     return retained.cursorOwner;
   };
   const unwatchTemplates = serverManager.registerLogicalTemplateSessionCleanup?.((sessionId) => {
-    const binding = templateContexts.forget(sessionId);
-    const bindingId = binding?.id ?? sessionId;
+    const bindings = templateContexts.forgetSession(sessionId);
     for (const [key, retained] of catalogOwners) {
-      if (retained.templateBindingId !== bindingId) continue;
+      if (!bindings.some((binding) => retained.templateBindingId === binding.id)) continue;
       if (retained.resourceOwner) revokeResourceRouteOwner(retained.resourceOwner);
       if (retained.cursorOwner) revokeCatalogCursorOwner(retained.cursorOwner);
       catalogOwners.delete(key);
@@ -498,13 +500,11 @@ export function setupModernHttpRoutes(
           ? authorizeRequestTemplateContext({ ...extractedContext, transportSessionId: req.get('mcp-session-id') })
           : undefined;
         if (authorization?.status !== 'trusted') {
-          res
-            .status(400)
-            .json({
-              jsonrpc: '2.0',
-              id: (req.body as { id?: string | number } | undefined)?.id ?? null,
-              error: { code: -32602, message: 'Request context proof rejected' },
-            });
+          res.status(400).json({
+            jsonrpc: '2.0',
+            id: (req.body as { id?: string | number } | undefined)?.id ?? null,
+            error: { code: -32602, message: 'Request context proof rejected' },
+          });
           return;
         }
       }
@@ -518,29 +518,34 @@ export function setupModernHttpRoutes(
           transportSessionId: req.get('mcp-session-id'),
         });
         if (authorization.status !== 'trusted') return;
-        const preparedContext = await prepareHttpRequestContext(serverManager, req, res, config);
-        bindingId =
-          'bindingId' in preparedContext
-            ? preparedContext.bindingId
-            : preparedContext.status === 'routing_only'
-              ? preparedContext.sessionId
-              : undefined;
+        const initial = templateContexts.bind(
+          authorization.context,
+          createProjectBindingId(authorization.context.sessionId!, authorization.context),
+        );
+        const context = authorization.context;
+        const sessionId = initial.sessionId;
+        config = { ...config, context, logicalTemplateSessionId: sessionId, logicalTemplateBindingId: initial.id };
+        releaseTemplateSession = serverManager.retainLogicalTemplateSession(sessionId);
+        const authority = getRequestProjectPreparationAuthority(authorization);
+        bindingId = await serverManager.prepareLogicalTemplateSession(
+          sessionId,
+          context,
+          config,
+          ...(authority ? [authority] : []),
+        );
         const projectContext = bindingId
-          ? serverManager.getTemplateServerManager?.().getBindingContext?.(bindingId)
-          : undefined;
-        if ('bindingId' in preparedContext && !projectContext)
-          throw new Error('Project binding is no longer available');
-        if (!projectContext || !bindingId) return;
+          ? serverManager.getTemplateServerManager().getBindingContext(bindingId)
+          : initial.context;
+        if (!projectContext) throw new Error('Project binding is no longer available');
+        const binding = initial;
         config = {
           ...config,
           bindingId,
           context: projectContext,
-          logicalTemplateSessionId: bindingId,
-          logicalTemplateBindingId: bindingId,
+          logicalTemplateSessionId: binding.sessionId,
+          logicalTemplateBindingId: binding.id,
         };
-        await serverManager.prepareLogicalTemplateSession(bindingId, projectContext, config);
         disconnect.controller.signal.throwIfAborted();
-        releaseTemplateSession = serverManager.retainLogicalTemplateSession(bindingId);
       };
       const method = (req.body as { method?: unknown } | null)?.method;
       if (method === 'subscriptions/listen' || method === 'notifications/cancelled') {

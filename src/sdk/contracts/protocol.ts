@@ -1,5 +1,17 @@
 import { type JsonObject, type JsonValue, toJsonValue } from './jsonValue.js';
 
+/** MCP methods that return capability lists and may use the bounded response budget. */
+const CAPABILITY_LIST_METHODS: Readonly<Record<string, true>> = {
+  'tools/list': true,
+  'prompts/list': true,
+  'resources/list': true,
+  'resources/templates/list': true,
+};
+
+export function isCapabilityListMethod(method: string): boolean {
+  return Object.hasOwn(CAPABILITY_LIST_METHODS, method);
+}
+
 /** Stable JSON-RPC and transport error codes used by 1MCP. */
 export enum ErrorCode {
   ConnectionClosed = -32000,

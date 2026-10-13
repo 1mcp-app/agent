@@ -137,7 +137,7 @@ export async function prepareRequestContext(
   await deps.createTemplateBasedServers(
     bindingId,
     canonicalContext,
-    filterConfig,
+    { ...filterConfig, bindingId },
     { mcpTemplates: pendingTemplates },
     deps.getOutboundConnections(),
     deps.getClientTransports(),

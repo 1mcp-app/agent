@@ -79,7 +79,7 @@ export class ServerManager {
   private outboundConns: OutboundConnections;
   private transports: Record<string, Transport>;
   private logicalTemplateContexts = new Map<string, { context: ContextData; opts: InboundConnectionConfig }>();
-  private logicalTemplatePreparations = new Map<string, Promise<void>>();
+  private logicalTemplatePreparations = new Map<string, Promise<string | undefined>>();
   private logicalBridgeSessions = new Set<string>();
   private serverConfigData: MCPServerConfiguration | null = null; // Cache the config data
   private instructionAggregator?: InstructionAggregator;
@@ -113,6 +113,9 @@ export class ServerManager {
     );
     this.templateServerManager.registerLogicalTemplateSessionCleanup((sessionId) => {
       this.logicalTemplateContexts.delete(sessionId);
+      for (const [bindingId, entry] of this.logicalTemplateContexts) {
+        if (entry.context.sessionId === sessionId) this.logicalTemplateContexts.delete(bindingId);
+      }
       evictRuntimeCapabilityCatalogSession(this.outboundConns, sessionId);
     });
     this.mcpServerLifecycleManager = new MCPServerLifecycleManager();
@@ -282,21 +285,23 @@ export class ServerManager {
     sessionId: string,
     context: ContextData,
     opts: InboundConnectionConfig = {},
-  ): Promise<void> {
+    authority?: ProjectPreparationAuthority,
+  ): Promise<string | undefined> {
     const previous = this.logicalTemplatePreparations.get(sessionId);
     const preparation = (async () => {
       if (previous) await previous;
       const release = this.retainLogicalTemplateSession(sessionId);
       try {
-        this.logicalTemplateContexts.set(sessionId, { context, opts });
-        await this.prepareTemplateSession(sessionId, context, opts, 'ephemeral');
+        const bindingId = await this.prepareTemplateSession(sessionId, context, opts, 'ephemeral', authority);
+        if (bindingId) this.logicalTemplateContexts.set(bindingId, { context, opts: { ...opts, bindingId } });
+        return bindingId;
       } finally {
         release();
       }
     })();
     this.logicalTemplatePreparations.set(sessionId, preparation);
     try {
-      await preparation;
+      return await preparation;
     } finally {
       if (this.logicalTemplatePreparations.get(sessionId) === preparation) {
         this.logicalTemplatePreparations.delete(sessionId);
@@ -310,7 +315,7 @@ export class ServerManager {
     opts: InboundConnectionConfig,
     lifecycle: 'persistent' | 'ephemeral',
     authority?: ProjectPreparationAuthority,
-  ): Promise<void> {
+  ): Promise<string | undefined> {
     const configManager = ConfigManager.getInstance();
     if (!this.serverConfigData) {
       const { staticServers } = await configManager.loadConfigWithTemplates(undefined);
@@ -320,13 +325,31 @@ export class ServerManager {
       if (!this.serverRegistry.has(name)) this.serverRegistry.registerExternal(name, config);
     }
     if (!context) return;
-    authority ??= opts.bindingId ? this.templateServerManager.getBindingAuthority(opts.bindingId) : undefined;
-    const bindingId = await this.templateServerManager.registerBindingContext(
-      createProjectBindingId(context.sessionId ?? sessionId, context),
+    const sourceContext = context;
+    context = withCanonicalSessionId(
       context,
-      opts,
-      ...(authority ? [authority] : []),
+      lifecycle === 'persistent' ? sessionId : (context.sessionId ?? sessionId),
     );
+    if (context.projectSet) {
+      context = withProjectSelection(context, await canonicalizeProjectSet(context.projectSet, process.cwd()));
+    }
+    authority = normalizeProjectPreparationAuthority(authority, sourceContext, context);
+    let bindingId = opts.bindingId;
+    if (bindingId) {
+      const preparedContext = this.templateServerManager.getBindingContext(bindingId);
+      if (!preparedContext) throw new Error('Project binding is no longer available');
+      context = preparedContext;
+      authority = this.templateServerManager.getBindingAuthority(bindingId);
+    } else {
+      bindingId = await this.templateServerManager.registerBindingContext(
+        createProjectBindingId(context.sessionId!, context),
+        context,
+        opts,
+        ...(authority ? [authority] : []),
+      );
+    }
+    if (lifecycle === 'persistent') this.templateServerManager.trackPersistentClient(bindingId);
+    opts = { ...opts, bindingId };
     const { templateServers } = await configManager.loadConfigWithTemplates(context);
     // A retained logical membership owns its outbound adapter and continuation state.
     // Configuration reload retires affected memberships before rebuilding them.
@@ -338,21 +361,28 @@ export class ServerManager {
             ),
           )
         : templateServers;
-    await this.templateServerManager.createTemplateBasedServers(
-      sessionId,
-      context,
-      opts,
-      { mcpTemplates: pendingTemplates },
-      this.outboundConns,
-      this.transports,
-      lifecycle,
-      ...(authority ? [authority] : []),
-    );
+    if (!this.templateServerManager.getBindingContext(bindingId))
+      throw new Error('Project binding is no longer available');
+    if (Object.keys(pendingTemplates).length > 0) {
+      await this.templateServerManager.createTemplateBasedServers(
+        sessionId,
+        context,
+        opts,
+        { mcpTemplates: pendingTemplates },
+        this.outboundConns,
+        this.transports,
+        lifecycle,
+        ...(authority ? [authority] : []),
+      );
+    }
     for (const [name, config] of Object.entries(templateServers)) {
       if (!this.serverRegistry.has(name)) this.serverRegistry.registerTemplate(name, config);
     }
     if (this.lazyLoadingOrchestrator) await this.lazyLoadingOrchestrator.refreshCapabilities();
     this.instructionAggregator?.setRuntimeInstructionConfiguration(configManager.getRuntimeInstructionConfiguration());
+    if (!this.templateServerManager.getBindingContext(bindingId))
+      throw new Error('Project binding is no longer available');
+    return bindingId;
   }
 
   public async connectTransport(
@@ -362,31 +392,15 @@ export class ServerManager {
     context?: ContextData,
     authority?: ProjectPreparationAuthority,
   ): Promise<void> {
-    let templateContext =
+    const templateContext =
       context ?? (opts.logicalTemplateSessionId ? (opts.context as ContextData | undefined) : undefined);
     if (opts.logicalTemplateSessionId && templateContext) {
-      await this.prepareLogicalTemplateSession(opts.logicalTemplateSessionId, templateContext, opts);
+      const bindingId = await this.prepareLogicalTemplateSession(opts.logicalTemplateSessionId, templateContext, opts);
+      opts = { ...opts, bindingId };
       this.logicalBridgeSessions.add(sessionId);
     } else {
-      if (templateContext) {
-        const sourceContext = templateContext;
-        templateContext = withCanonicalSessionId(templateContext, sessionId);
-        if (templateContext.projectSet) {
-          templateContext = withProjectSelection(
-            templateContext,
-            await canonicalizeProjectSet(templateContext.projectSet, process.cwd()),
-          );
-        }
-        authority = normalizeProjectPreparationAuthority(authority, sourceContext, templateContext);
-        const bindingId = await this.templateServerManager.registerBindingContext(
-          createProjectBindingId(sessionId, templateContext),
-          templateContext,
-          opts,
-          ...(authority ? [authority] : []),
-        );
-        opts = { ...opts, bindingId };
-      }
-      await this.prepareTemplateSession(sessionId, templateContext, opts, 'persistent', authority);
+      const bindingId = await this.prepareTemplateSession(sessionId, templateContext, opts, 'persistent', authority);
+      opts = { ...opts, bindingId };
     }
     this.instructionAggregator?.setRuntimeInstructionConfiguration(
       ConfigManager.getInstance().getRuntimeInstructionConfiguration(),
@@ -394,7 +408,7 @@ export class ServerManager {
     const instructionConnections = createConnectionResolver(
       this.outboundConns,
       this.templateServerManager,
-    ).filterForSession(opts.bindingId ?? opts.logicalTemplateSessionId);
+    ).filterForSession(opts.bindingId);
     const instructions = this.instructionAggregator?.getFilteredInstructions(opts, instructionConnections) || '';
     try {
       await this.connectionManager.connectTransport(transport, sessionId, opts, templateContext, instructions);
@@ -489,7 +503,7 @@ export class ServerManager {
         await this.templateServerManager.createTemplateBasedServers(
           sessionId,
           context,
-          opts,
+          bindingContext ? { ...opts, bindingId: sessionId } : opts,
           { mcpTemplates: affectedTemplates },
           this.outboundConns,
           this.transports,

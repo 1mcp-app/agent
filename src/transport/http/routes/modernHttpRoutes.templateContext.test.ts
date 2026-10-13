@@ -1,7 +1,5 @@
-import { ConfigManager } from '@src/config/configManager.js';
 import type { TemplateContextAuthorization } from '@src/core/context/templateContextTrust.js';
 import type { InboundConnectionConfig } from '@src/core/types/index.js';
-import { createProjectBindingId } from '@src/domains/project-selection/projectSelection.js';
 import type { ContextData } from '@src/types/context.js';
 
 import express from 'express';
@@ -34,22 +32,11 @@ const meta = {
 };
 function app(authenticated = false) {
   let expire!: (sessionId: string) => void;
-  vi.spyOn(ConfigManager, 'getInstance').mockReturnValue({
-    loadConfigWithTemplates: async () => ({ templateServers: {} }),
-  } as never);
-  const bindings = new Map<string, ContextData>();
   const prepare = vi.fn(async () => undefined);
   const release = vi.fn();
   const retain = vi.fn(() => release);
   const manager = {
     getClients: () => new Map(),
-    getTemplateServerManager: () => ({
-      registerBindingContext: async (id: string, value: ContextData) => {
-        if (!bindings.has(id)) bindings.set(id, value);
-        return id;
-      },
-      getBindingContext: (id: string) => bindings.get(id),
-    }),
     registerCleanup: vi.fn(),
     prepareLogicalTemplateSession: prepare,
     retainLogicalTemplateSession: retain,
@@ -109,14 +96,14 @@ describe('modern HTTP template ingress', () => {
   it('prepares authorized logical templates before discovery emits their instructions', async () => {
     const fixture = app();
     const response = await post(fixture.instance, 'server/discover');
-    expect(response.status, JSON.stringify(response.body)).toBe(200);
+    expect(response.status).toBe(200);
     expect(fixture.prepare).toHaveBeenCalledWith(
-      createProjectBindingId('proxy-a', context),
+      'proxy-a',
       context,
-      expect.objectContaining({ logicalTemplateSessionId: createProjectBindingId('proxy-a', context) }),
+      expect.objectContaining({ logicalTemplateSessionId: 'proxy-a' }),
     );
     expect(response.body.result.instructions).toContain('Template instruction for /project/a');
-    expect(fixture.retain).toHaveBeenCalledWith(createProjectBindingId('proxy-a', context));
+    expect(fixture.retain).toHaveBeenCalledWith('proxy-a');
     expect(fixture.release).toHaveBeenCalledOnce();
     expect(fixture.createBridge).not.toHaveBeenCalled();
   });
@@ -131,17 +118,16 @@ describe('modern HTTP template ingress', () => {
     expect(fixture.createBridge.mock.calls[1][1]).not.toHaveProperty('context');
   });
 
-  it('isolates changed target inputs and preserves membership when only timestamps change', async () => {
+  it('rejects changed effective inputs and preserves membership when only timestamps change', async () => {
     const fixture = app();
     await post(fixture.instance, 'tools/list');
     const later = await post(fixture.instance, 'tools/list', { ...context, timestamp: '2026-10-12T00:01:00Z' });
     expect(later.status).toBe(200);
     expect(fixture.createBridge.mock.calls[1][1]).toEqual(fixture.createBridge.mock.calls[0][1]);
     const changed = await post(fixture.instance, 'tools/list', { ...context, project: { path: '/project/b' } });
-    expect(changed.body.error).toBeUndefined();
-    expect(fixture.createBridge).toHaveBeenCalledTimes(3);
-    expect(fixture.prepare).toHaveBeenCalledTimes(3);
-    expect(fixture.createBridge.mock.calls[2][1].bindingId).not.toBe(fixture.createBridge.mock.calls[0][1].bindingId);
+    expect(changed.body.error).toBeDefined();
+    expect(fixture.createBridge).toHaveBeenCalledTimes(2);
+    expect(fixture.prepare).toHaveBeenCalledTimes(2);
   });
 
   it.each([false, true])(
@@ -164,7 +150,7 @@ describe('modern HTTP template ingress', () => {
       expect(owners[0]).toBeDefined();
       expect(owners[1]).not.toBe(owners[0]);
       expect(owners[2]).toBe(owners[0]);
-      fixture.expire(createProjectBindingId('proxy-a', context));
+      fixture.expire('proxy-a');
       const recreated = await post(fixture.instance, 'resources/list');
       expect(recreated.status).toBe(200);
       expect(recreated.body.error, JSON.stringify(recreated.body)).toBeUndefined();
@@ -172,10 +158,32 @@ describe('modern HTTP template ingress', () => {
     },
   );
 
+  it('isolates selected checkout resource owners within one logical session', async () => {
+    const fixture = app();
+    const projects = [
+      { label: 'a', path: '/project/a' },
+      { label: 'b', path: '/project/b' },
+    ];
+    const selected = (label: string): ContextData => ({ ...context, projectSet: { projects, selection: [label] } });
+    for (const label of ['a', 'b', 'a']) {
+      const response = await post(fixture.instance, 'resources/list', selected(label));
+      expect(response.status, JSON.stringify(response.body)).toBe(200);
+      expect(response.body.error).toBeUndefined();
+    }
+    const configs = fixture.createBridge.mock.calls.map((call) => call[1]);
+    expect(configs.map((config) => config.logicalTemplateSessionId)).toEqual(['proxy-a', 'proxy-a', 'proxy-a']);
+    const owners = fixture.createBridge.mock.calls.map((call) => call[2]?.resourceOwner);
+    expect(owners[0]).not.toBe(owners[1]);
+    expect(owners[2]).toBe(owners[0]);
+    fixture.expire('proxy-a');
+    await post(fixture.instance, 'resources/list', selected('a'));
+    expect(fixture.createBridge.mock.calls[3][2]?.resourceOwner).not.toBe(owners[0]);
+  });
+
   it('strips raw context and proof before the outbound backend hop', async () => {
     const fixture = app();
     const response = await post(fixture.instance, 'tools/list', context, { caller: 'unsafe' });
-    expect(response.status, JSON.stringify(response.body)).toBe(200);
+    expect(response.status).toBe(200);
     const bridge = await fixture.createBridge.mock.results[0].value;
     expect(bridge.outbound.request).toHaveBeenCalledWith(
       expect.objectContaining({ operation: 'tools/list', params: {} }),

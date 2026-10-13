@@ -392,8 +392,12 @@ async function refreshOrdinaryCatalog(owner: Owner): Promise<void> {
     }
   }
   if (!changed) return;
-  if (owner.refreshCatalog) await owner.refreshCatalog();
-  for (const kind of owner.catalogKinds) bindOwnedCatalogConnections(owner.connections, owner.inbound, kind);
+  const bind = async () => {
+    if (owner.refreshCatalog) await owner.refreshCatalog();
+    for (const kind of owner.catalogKinds) bindOwnedCatalogConnections(owner.connections, owner.inbound, kind);
+  };
+  if (owner.binding) await withProjectBinding(owner.binding.bindingId, owner.binding.context, bind);
+  else await bind();
 }
 
 /** Install generation-aware forwarding again after ordinary catalog ownership changes. */
@@ -615,19 +619,15 @@ export function enqueueOwnedCatalogNotification(
         source.kind === kind &&
         (!source.preparationIdentity || origin === 'runtime-preparation'),
     );
-    if (covered) {
-      const adapter = connection.adapter;
-      enqueueOwnerNotification(
-        owner,
-        notification,
-        () =>
-          connection.adapter === adapter &&
-          connection.status === ClientStatus.Connected &&
-          Array.from(owner.catalogs.values()).some(
-            (source) => source.connection === connection && source.adapter === adapter && source.kind === kind,
-          ),
+    if (!covered) continue;
+    const adapter = connection.adapter;
+    enqueueOwnerNotification(owner, notification, () => {
+      if (connection.adapter !== adapter) return false;
+      if (connection.status !== ClientStatus.Connected) return false;
+      return Array.from(owner.catalogs.values()).some(
+        (source) => source.connection === connection && source.adapter === adapter && source.kind === kind,
       );
-    }
+    });
   }
 }
 
@@ -657,6 +657,7 @@ function allowsOwnedNotification(inbound: InboundConnection, notification: Updat
 }
 
 function enqueueOwnerNotification(owner: Owner, notification: Update, isCurrent?: () => boolean): void {
+  if (!allowsOwnedNotification(owner.inbound, notification)) return;
   const encoded = JSON.stringify(notification);
   const snapshot = structuredClone(notification);
   enqueue(owner, Buffer.byteLength(encoded), async () => {

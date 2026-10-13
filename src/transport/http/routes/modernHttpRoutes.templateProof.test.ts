@@ -2,7 +2,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { ConfigManager } from '@src/config/configManager.js';
+import {
+  normalizeProjectPreparationAuthority,
+  type ProjectPreparationAuthority,
+} from '@src/core/context/projectPreparationAuthority.js';
 import {
   createTemplateContextProof,
   TemplateContextCapabilityStore,
@@ -11,7 +14,6 @@ import {
 import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import type { InboundConnectionConfig } from '@src/core/types/index.js';
-import { createProjectBindingId } from '@src/domains/project-selection/projectSelection.js';
 import type { ContextData } from '@src/types/context.js';
 
 import express from 'express';
@@ -46,22 +48,21 @@ function fixture(mode: 'verified' | 'disabled' | 'legacy' = 'verified') {
       return undefined;
     },
   } as AgentConfigManager);
-  vi.spyOn(ConfigManager, 'getInstance').mockReturnValue({
-    loadConfigWithTemplates: async () => ({ templateServers: {} }),
-  } as never);
-  const bindings = new Map<string, ContextData>();
-  const prepare = vi.fn(async () => undefined);
+  const prepare = vi.fn(
+    async (
+      _session: string,
+      receivedContext: ContextData,
+      _config: InboundConnectionConfig,
+      authority?: ProjectPreparationAuthority,
+    ) => {
+      normalizeProjectPreparationAuthority(authority, receivedContext, receivedContext);
+      return undefined;
+    },
+  );
   const bridgeConfigs: InboundConnectionConfig[] = [];
   const manager = {
     registerCleanup: vi.fn(),
     getClients: () => new Map(),
-    getTemplateServerManager: () => ({
-      registerBindingContext: async (id: string, value: ContextData) => {
-        if (!bindings.has(id)) bindings.set(id, value);
-        return id;
-      },
-      getBindingContext: (id: string) => bindings.get(id),
-    }),
     prepareLogicalTemplateSession: prepare,
     retainLogicalTemplateSession: () => () => undefined,
     registerLogicalTemplateSessionCleanup: vi.fn(),
@@ -88,7 +89,7 @@ function fixture(mode: 'verified' | 'disabled' | 'legacy' = 'verified') {
     },
     { allowsHost: () => true, allowsOrigin: () => true },
   );
-  const post = (proof?: TemplateContextProof, session = 'proxy-a') =>
+  const post = (proof?: TemplateContextProof, session = 'proxy-a', requestContext = context) =>
     request(instance)
       .post('/mcp')
       .set('MCP-Protocol-Version', '2026-07-28')
@@ -98,14 +99,14 @@ function fixture(mode: 'verified' | 'disabled' | 'legacy' = 'verified') {
         jsonrpc: '2.0',
         id: 1,
         method: 'tools/list',
-        params: { _meta: { ...meta, context, contextProof: proof } },
+        params: { _meta: { ...meta, context: requestContext, contextProof: proof } },
       });
   return { capability, post, prepare, bridgeConfigs };
 }
 
 describe('modern ingress reauthorizes signed template memberships', () => {
   it.each(['missing', 'tampered', 'expired', 'scope', 'session'] as const)(
-    'denies %s proofs after a trusted request while preserving static capabilities',
+    'denies %s proofs after a trusted request without reusing template membership',
     async (kind) => {
       const f = fixture();
       const valid = createTemplateContextProof(context, f.capability);
@@ -128,15 +129,38 @@ describe('modern ingress reauthorizes signed template memberships', () => {
         expect(f.bridgeConfigs[1]).not.toHaveProperty('context');
       } else {
         expect(next.status).toBe(400);
+        expect(next.body.error.message).toBe('Request context proof rejected');
         expect(f.bridgeConfigs).toHaveLength(1);
       }
     },
   );
 
+  it('prepares renewed signed transport context without changing logical membership', async () => {
+    const f = fixture();
+    const firstContext: ContextData = {
+      ...context,
+      transport: { type: 'stdio', connectionTimestamp: '2026-10-12T00:00:00Z' },
+    };
+    const renewedContext: ContextData = {
+      ...firstContext,
+      transport: { ...firstContext.transport!, connectionTimestamp: '2026-10-12T00:01:00Z' },
+    };
+    for (const current of [firstContext, renewedContext]) {
+      const response = await f.post(createTemplateContextProof(current, f.capability), 'proxy-a', current);
+      expect(response.body.error, JSON.stringify(response.body)).toBeUndefined();
+    }
+    expect(f.prepare).toHaveBeenCalledTimes(2);
+    expect(f.prepare.mock.calls[1][1]).toEqual(renewedContext);
+    expect(f.prepare.mock.calls[1][3]).toBeDefined();
+    expect(f.bridgeConfigs[1].logicalTemplateSessionId).toBe(f.bridgeConfigs[0].logicalTemplateSessionId);
+    expect(f.bridgeConfigs[1].logicalTemplateBindingId).toBe(f.bridgeConfigs[0].logicalTemplateBindingId);
+  });
+
   it('never prepares signed caller templates in disabled mode', async () => {
     const f = fixture('disabled');
     const response = await f.post(createTemplateContextProof(context, f.capability));
     expect(response.status).toBe(400);
+    expect(f.bridgeConfigs).toHaveLength(0);
     expect(f.prepare).not.toHaveBeenCalled();
   });
 
@@ -145,9 +169,9 @@ describe('modern ingress reauthorizes signed template memberships', () => {
     const response = await f.post();
     expect(response.body.error).toBeUndefined();
     expect(f.prepare).toHaveBeenCalledWith(
-      createProjectBindingId('proxy-a', context),
+      'proxy-a',
       context,
-      expect.objectContaining({ logicalTemplateSessionId: createProjectBindingId('proxy-a', context) }),
+      expect.objectContaining({ logicalTemplateSessionId: 'proxy-a' }),
     );
   });
 });
