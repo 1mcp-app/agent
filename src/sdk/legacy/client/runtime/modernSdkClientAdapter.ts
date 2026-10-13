@@ -466,8 +466,8 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
       }),
       cursorCost,
     );
-    if (costs.nodes > JSON_VALUE_LIMITS.maxNodes || costs.stringLength > JSON_VALUE_LIMITS.maxTotalStringLength)
-      throw new OneMcpProtocolError(-32603, 'Tool header catalog exceeds the JSON budget');
+    // Cache admission must not turn a valid capability list into a provider failure.
+    if (costs.nodes > JSON_VALUE_LIMITS.maxNodes || costs.stringLength > JSON_VALUE_LIMITS.maxTotalStringLength) return;
     this.toolHeaders.clear();
     for (const [name, declarations] of headers) this.toolHeaders.set(name, declarations);
     this.toolHeaderCursors.clear();

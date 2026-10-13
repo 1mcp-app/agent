@@ -19,6 +19,7 @@ import {
   runWithNativeInitialInputResponses,
   withSelectedNativeInputResponses,
 } from '@src/gateway/interactions/nativeInputResponses.js';
+import { JSON_VALUE_LIMITS } from '@src/sdk/contracts/index.js';
 import { withRequestProgress } from '@src/sdk/contracts/requestProgress.js';
 
 import { describe, expect, it, vi } from 'vitest';
@@ -776,6 +777,39 @@ describe('ModernSdkClientAdapter custom HTTP headers', () => {
     }
     expect(request).toHaveBeenCalledTimes(4);
   });
+  it.each(['node', 'string'] as const)(
+    'returns the list when its header cache exceeds the %s budget',
+    async (budget) => {
+      const { adapter, request } = mockedHttpAdapter();
+      const tools = Array.from({ length: budget === 'node' ? 49 : 2 }, (_, index) => ({
+        name: `overflow-${index}`,
+        inputSchema: {
+          type: 'object',
+          ...(budget === 'string' ? { description: 'x'.repeat(JSON_VALUE_LIMITS.maxTotalStringLength / 2) } : {}),
+          properties: {
+            ...Object.fromEntries(
+              Array.from({ length: budget === 'node' ? 110 : 0 }, (_, field) => [`field-${field}`, { type: 'string' }]),
+            ),
+            region: { type: 'string', 'x-mcp-header': 'Region' },
+          },
+        },
+      }));
+      request.mockResolvedValueOnce({ tools } as never);
+
+      await expect(list(adapter)).resolves.toEqual({ tools });
+      await adapter.request({
+        id: 'overflow-call' as never,
+        method: 'tools/call',
+        params: { name: tools[0].name, arguments: { region: 'west' } },
+      });
+      expect(request.mock.calls.at(-1)?.at(-1)).toMatchObject({ headers: {} });
+
+      request.mockResolvedValueOnce({ tools: [tool] } as never);
+      await list(adapter);
+      await call(adapter);
+      expect(request.mock.calls.at(-1)?.at(-1)).toMatchObject({ headers: { 'Mcp-Param-Region': 'west' } });
+    },
+  );
 
   it('excludes invalid annotations while retaining healthy tools and opaque malformed siblings', async () => {
     const { adapter, request } = mockedHttpAdapter();
@@ -1092,17 +1126,26 @@ describe('ModernSdkClientAdapter custom HTTP headers', () => {
   it('caps retained declarations across individually bounded catalog pages', async () => {
     const { adapter, request } = mockedHttpAdapter();
     for (let index = 0; index < 4; index++) {
-      request.mockResolvedValueOnce({
+      const page = {
         tools: [
           { ...tool, name: `tool-${index}`, inputSchema: { ...tool.inputSchema, description: 'x'.repeat(300_000) } },
         ],
         nextCursor: String(index + 1),
-      } as never);
+      };
+      request.mockResolvedValueOnce(page as never);
       const pending = list(adapter, index === 0 ? undefined : String(index));
-      if (index === 3) await expect(pending).rejects.toBeDefined();
-      else await expect(pending).resolves.toHaveProperty('tools');
+      await expect(pending).resolves.toEqual(page);
     }
-    expect(request).toHaveBeenCalledTimes(4);
+    for (const index of [0, 3]) {
+      await adapter.request({
+        id: `page-call-${index}` as never,
+        method: 'tools/call',
+        params: { name: `tool-${index}`, arguments: { region: 'west' } },
+      });
+      expect(request.mock.calls.at(-1)?.at(-1)).toMatchObject({
+        headers: index === 0 ? { 'Mcp-Param-Region': 'west' } : {},
+      });
+    }
   });
 
   it.each(['new listing', 'list changed', 'transport replacement', 'close'] as const)(
@@ -1158,11 +1201,13 @@ describe('ModernSdkClientAdapter custom HTTP headers', () => {
       const nextCursor = String(index).repeat(400_000);
       request.mockResolvedValueOnce({ tools: [], nextCursor } as never);
       const pending = list(adapter, cursor);
-      if (index === 2) await expect(pending).rejects.toBeDefined();
-      else await expect(pending).resolves.toHaveProperty('nextCursor', nextCursor);
+      await expect(pending).resolves.toEqual({ tools: [], nextCursor });
       cursor = nextCursor;
     }
-    expect(request).toHaveBeenCalledTimes(3);
+    request.mockResolvedValueOnce({ tools: [tool] } as never);
+    await list(adapter, cursor);
+    await call(adapter);
+    expect(request.mock.calls.at(-1)?.at(-1)).toMatchObject({ headers: {} });
   });
 
   it('retains derived headers on MRTR continuations without validating unfinished output as complete', async () => {
