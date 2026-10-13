@@ -57,6 +57,10 @@ If project config is present, `proxy` can also merge settings from `.1mcprc`.
 
 `.1mcprc` is useful when you repeatedly bridge the same project or client to the same preset or filtered runtime view.
 
+Inside a Git repository, discovery searches from the current directory up to the checkout root and stops there. A configuration above the repository is ignored. The nearest local file supplies the complete configuration; its directory does not change the source checkout passed to template servers.
+
+A linked Git worktree without a local file borrows the main checkout's root `.1mcprc` from the same repository. The linked checkout remains the source target. Adding a local file replaces the inherited configuration as a whole, including when the local file contains only one field. Invalid local configuration does not fall back to inherited defaults. If Git cannot identify an available main checkout, the linked target remains correct and ordinary defaults apply.
+
 Example:
 
 ```json
