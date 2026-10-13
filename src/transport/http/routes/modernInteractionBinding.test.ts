@@ -52,6 +52,38 @@ function fixture() {
 }
 
 describe('modern interaction route binding', () => {
+  it('routes same-grant interactions within logical per-client sessions and context generations', async () => {
+    const first = fixture();
+    const second = fixture();
+    const connections = new Map([
+      ['server:proxy-a', first.connection],
+      ['server:proxy-b', second.connection],
+    ]);
+    const manager = { getClients: () => connections };
+    const config = { logicalTemplateSessionId: 'proxy-a', logicalTemplateBindingId: 'context-a' };
+    const acquire = (current = config) =>
+      createModernInteractionBinding(
+        manager,
+        current,
+        'tools/call',
+        { name: 'server_1mcp_echo', arguments: {} },
+        auth,
+        {},
+      );
+    const a = await acquire();
+    const b = await acquire({ logicalTemplateSessionId: 'proxy-b', logicalTemplateBindingId: 'context-b' });
+    expect(a).toBeDefined();
+    expect(b).toBeDefined();
+    expect(a?.principal).toBe(b?.principal);
+    expect(a?.request).not.toBe(b?.request);
+    expect(a?.generation).not.toBe(b?.generation);
+    expect((await acquire({ ...config, logicalTemplateBindingId: 'context-new' }))?.request).not.toBe(a?.request);
+    await withModernInteractionBinding(a!, async () => {
+      expect(() => assertInteractionRoute(first.connection.adapter, 'tools/call', { name: 'echo' })).not.toThrow();
+      expect(() => assertInteractionRoute(second.connection.adapter, 'tools/call', { name: 'echo' })).toThrow();
+    });
+  });
+
   it('uses the same canonical resource visibility as the bridge before resolving an opaque handle', async () => {
     const owner = createResourceRouteOwner();
     const context = { sessionId: 'private' };

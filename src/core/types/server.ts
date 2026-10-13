@@ -45,6 +45,10 @@ export interface InboundConnectionConfig extends TemplateConfig {
   readonly enablePagination?: boolean;
   /** Stateless bridges must not take ownership of shared upstream callbacks. */
   readonly requestOnly?: boolean;
+  /** Authorized logical Request Session; independent of a private bridge connection. */
+  readonly logicalTemplateSessionId?: string;
+  /** Opaque generation of the authorized stable contextual binding. */
+  readonly logicalTemplateBindingId?: string;
   /** Private modern subscription bridge list coverage; absent for retained legacy connections. */
   readonly subscriptionListKinds?: readonly ('tools' | 'resources' | 'prompts')[];
   /** Trusted private bridge provenance; never populated from client-supplied configuration. */

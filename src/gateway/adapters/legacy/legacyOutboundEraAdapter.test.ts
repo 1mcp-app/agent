@@ -54,13 +54,22 @@ describe('LegacyOutboundEraAdapter', () => {
       resultLimits: RESPONSE_JSON_VALUE_LIMITS,
     });
 
-    await expect(adapter.request(request())).resolves.toEqual({
+    await expect(adapter.request(request({ operation: 'tools/call' }))).resolves.toEqual({
       _meta: { other: 'preserved' },
       structuredContent: result.structuredContent,
     });
     const upstreamAdapter = new LegacyOutboundEraAdapter(legacy, LEGACY_PIN, { now: () => 1_000 });
-    await expect(upstreamAdapter.request(request())).rejects.toMatchObject({ kind: 'transport' });
+    await expect(upstreamAdapter.request(request({ operation: 'tools/call' }))).rejects.toMatchObject({
+      kind: 'transport',
+    });
     expect(result._meta.baggage).toBe('private');
+  });
+  it('uses the response JSON budget for capability lists by default', async () => {
+    const result = { tools: Array.from({ length: JSON_VALUE_LIMITS.maxNodes }, () => 0) };
+    const legacy = legacyAdapter(result);
+    const adapter = new LegacyOutboundEraAdapter(legacy, LEGACY_PIN, { now: () => 1_000 });
+
+    await expect(adapter.request(request())).resolves.toEqual(result);
   });
 
   it('maps the gateway request id and remaining absolute deadline to the legacy adapter', async () => {

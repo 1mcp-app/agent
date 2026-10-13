@@ -44,9 +44,80 @@ describe('StdioProxyTransport', () => {
     if (proxy) {
       await proxy.close();
     }
+    vi.useRealTimers();
   });
 
   describe('client information extraction and headers', () => {
+    it('preserves logical session facts when later requests regenerate proofs', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-10-12T12:00:00.000Z'));
+      const createContextProof = vi.fn().mockResolvedValue(undefined);
+      proxy = new StdioProxyTransport({ serverUrl: 'http://localhost:3050/mcp', createContextProof });
+      await proxy.start();
+      const meta = {
+        'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+        'io.modelcontextprotocol/clientInfo': { name: 'modern-client', version: '2.0' },
+      };
+      await proxy['stdioTransport'].onmessage!({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'server/discover',
+        params: { _meta: meta },
+      });
+      vi.setSystemTime(new Date('2026-10-12T12:01:00.000Z'));
+      await proxy['stdioTransport'].onmessage!({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/list',
+        params: { _meta: meta },
+      });
+
+      expect(createContextProof).toHaveBeenCalledTimes(2);
+      const [firstContext] = createContextProof.mock.calls[0];
+      const [secondContext] = createContextProof.mock.calls[1];
+      expect(secondContext).toEqual(firstContext);
+      expect(secondContext.transport.connectionTimestamp).toBe('2026-10-12T12:00:00.000Z');
+    });
+
+    it('forwards modern discovery client facts in the signed template context', async () => {
+      const createContextProof = vi.fn().mockResolvedValue(undefined);
+      proxy = new StdioProxyTransport({ serverUrl: 'http://localhost:3050/mcp', createContextProof });
+      await proxy.start();
+
+      await proxy['stdioTransport'].onmessage!({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'server/discover',
+        params: {
+          _meta: {
+            'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+            'io.modelcontextprotocol/clientInfo': { name: 'modern-client', version: '2.0', title: 'Modern Client' },
+          },
+        },
+      });
+
+      expect(proxy['httpTransport'].send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          params: expect.objectContaining({
+            _meta: expect.objectContaining({
+              context: expect.objectContaining({
+                transport: expect.objectContaining({
+                  client: { name: 'modern-client', version: '2.0', title: 'Modern Client' },
+                }),
+              }),
+            }),
+          }),
+        }),
+      );
+      expect(createContextProof).toHaveBeenCalledWith(
+        expect.objectContaining({
+          transport: expect.objectContaining({
+            client: { name: 'modern-client', version: '2.0', title: 'Modern Client' },
+          }),
+        }),
+      );
+    });
+
     it('should extract client info from initialize request and update context', async () => {
       proxy = new StdioProxyTransport({
         serverUrl: 'http://localhost:3050/mcp',

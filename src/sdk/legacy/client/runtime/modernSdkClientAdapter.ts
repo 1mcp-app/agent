@@ -27,6 +27,7 @@ import { injectTraceContext, stripBaggage } from '@src/observability/tracing/con
 import { reportCatalogCoverageLoss } from '@src/sdk/contracts/catalogCoverageInvalidation.js';
 import {
   createLegacyTimeoutMs,
+  isCapabilityListMethod,
   JSON_VALUE_LIMITS,
   type JsonValue,
   type JsonValueCost,
@@ -40,6 +41,7 @@ import {
   type LegacySdkResponse,
   measureJsonValue,
   OneMcpProtocolError,
+  RESPONSE_JSON_VALUE_LIMITS,
   toJsonValue,
 } from '@src/sdk/contracts/index.js';
 import { currentRequestProgress } from '@src/sdk/contracts/requestProgress.js';
@@ -76,7 +78,6 @@ const LIST_CHANGED_METHODS = [
 
 // Catalog capture validates each source object independently, preserving healthy siblings.
 const capabilityListResultSchema = z.looseObject({});
-const capabilityListMethods = new Set(['tools/list', 'prompts/list', 'resources/list', 'resources/templates/list']);
 
 interface ModernHandles {
   readonly client: Client;
@@ -266,6 +267,7 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
             },
           },
         ),
+        isCapabilityListMethod(request.method) ? RESPONSE_JSON_VALUE_LIMITS : undefined,
       );
     } finally {
       this.gatewayRequests.delete(request.id);
@@ -391,7 +393,7 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
         ...(request.timeoutMs === undefined ? {} : { timeout: request.timeoutMs }),
         ...(headers === undefined ? {} : { headers }),
       };
-      const result = capabilityListMethods.has(request.method)
+      const result = isCapabilityListMethod(request.method)
         ? await this.handles.client.request(message as never, capabilityListResultSchema, options)
         : await this.handles.client.request(message as never, options);
       // The SDK has decoded the modern MRTR variant; complete Tool validation belongs after the broker's loop.
@@ -441,11 +443,13 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
       if (typeof tool.name !== 'string' || tool.inputSchema === undefined) return true;
       const scan = scanMcpParamDeclarations(tool.inputSchema);
       headers.delete(tool.name);
+      // A current page invalidates old declarations even when replacements cannot be admitted.
+      if (current) this.toolHeaders.delete(tool.name);
       if (!scan.valid) return false;
       if (scan.declarations.length) {
         headers.set(tool.name, {
           declarations: scan.declarations,
-          cost: measureJsonValue({ name: tool.name, inputSchema: tool.inputSchema }, JSON_VALUE_LIMITS),
+          cost: measureJsonValue({ name: tool.name, inputSchema: tool.inputSchema }, RESPONSE_JSON_VALUE_LIMITS),
         });
       }
       return true;
@@ -464,8 +468,8 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
       }),
       cursorCost,
     );
-    if (costs.nodes > JSON_VALUE_LIMITS.maxNodes || costs.stringLength > JSON_VALUE_LIMITS.maxTotalStringLength)
-      throw new OneMcpProtocolError(-32603, 'Tool header catalog exceeds the JSON budget');
+    // Cache admission must not turn a valid capability list into a provider failure.
+    if (costs.nodes > JSON_VALUE_LIMITS.maxNodes || costs.stringLength > JSON_VALUE_LIMITS.maxTotalStringLength) return;
     this.toolHeaders.clear();
     for (const [name, declarations] of headers) this.toolHeaders.set(name, declarations);
     this.toolHeaderCursors.clear();
