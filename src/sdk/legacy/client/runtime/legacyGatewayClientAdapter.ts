@@ -4,10 +4,12 @@ import { gatewayOperationSchema } from '@src/gateway/contracts/gatewayRequest.js
 import { toImmutableJsonValue } from '@src/gateway/contracts/immutableJson.js';
 import {
   createLegacyTimeoutMs,
+  isCapabilityListMethod,
   type JsonValue,
   type LegacyRequestId,
   type LegacySdkAdapter,
   type LegacySdkRequest,
+  RESPONSE_JSON_VALUE_LIMITS,
   toJsonValue,
 } from '@src/sdk/contracts/index.js';
 import type { Client } from '@src/sdk/legacy/client/index.js';
@@ -52,18 +54,17 @@ export class LegacyGatewayClientAdapter extends LegacySdkClientAdapter {
     this.gatewayRequests.add(request.id);
     try {
       const timeoutMs = request.timeoutMs ?? createLegacyTimeoutMs(60_000);
-      return toJsonValue(
-        await this.outbound.request({
-          requestId: request.id,
-          operation: operation.data,
-          ...(params === undefined ? {} : { params: toImmutableJsonValue(params) }),
-          authority: createEffectiveRequestAuthority({
-            connectionIds: [this.connectionId],
-            provenance: ['configured-backend'],
-          }),
-          deadlineUnixMs: Date.now() + timeoutMs,
+      const result = await this.outbound.request({
+        requestId: request.id,
+        operation: operation.data,
+        ...(params === undefined ? {} : { params: toImmutableJsonValue(params) }),
+        authority: createEffectiveRequestAuthority({
+          connectionIds: [this.connectionId],
+          provenance: ['configured-backend'],
         }),
-      );
+        deadlineUnixMs: Date.now() + timeoutMs,
+      });
+      return toJsonValue(result, isCapabilityListMethod(request.method) ? RESPONSE_JSON_VALUE_LIMITS : undefined);
     } finally {
       this.gatewayRequests.delete(request.id);
     }

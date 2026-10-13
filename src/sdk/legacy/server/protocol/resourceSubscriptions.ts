@@ -3,6 +3,7 @@ import {
   type RuntimeCapabilitySnapshot,
 } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { getRequestSession, resolveCapabilityVisibility } from '@src/core/protocol/requestHandlerUtils.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ClientStatus, type InboundConnection, ServerStatus } from '@src/core/types/index.js';
 import { getProjectBinding, withProjectBinding } from '@src/domains/project-selection/projectBindingScope.js';
 import logger from '@src/logger/logger.js';
@@ -51,21 +52,21 @@ interface Watch {
   ready: Promise<void>;
   authorize?: () => Promise<boolean>;
 }
+interface CatalogSource {
+  connection: LegacyOutboundConnection;
+  adapter: LegacyOutboundConnection['adapter'];
+  connectionKey: string;
+  kind: 'tools' | 'resources' | 'prompts';
+}
 interface Owner {
   readonly binding?: ReturnType<typeof getProjectBinding>;
   readonly bindingId?: string;
   readonly inbound: InboundConnection;
   readonly connections: LegacyOutboundConnections;
   readonly watches: Map<string, Watch>;
-  readonly catalogs: Map<
-    string,
-    {
-      connection: LegacyOutboundConnection;
-      adapter: LegacyOutboundConnection['adapter'];
-      connectionKey: string;
-      kind: 'tools' | 'resources' | 'prompts';
-    }
-  >;
+  readonly catalogs: Map<string, CatalogSource>;
+  readonly catalogKinds: Set<'tools' | 'resources' | 'prompts'>;
+  refreshCatalog?: () => Promise<void>;
   readonly abort: AbortController;
   closed: boolean;
   setups: number;
@@ -164,7 +165,7 @@ function removeReservation(watch: Watch): void {
   watch.active = false;
   watchCount--;
   if (watch.owner.watches.get(watch.uri) === watch) watch.owner.watches.delete(watch.uri);
-  if (!watch.owner.watches.size && !watch.owner.authorize && !watch.owner.catalogs.size) {
+  if (!watch.owner.watches.size && !watch.owner.authorize && !watch.owner.catalogKinds.size) {
     clearInterval(watch.owner.monitor);
     watch.owner.monitor = undefined;
   }
@@ -276,6 +277,7 @@ function getOwner(connections: LegacyOutboundConnections, inbound: InboundConnec
       connections,
       watches: new Map(),
       catalogs: new Map(),
+      catalogKinds: new Set(),
       abort: new AbortController(),
       closed: false,
       setups: 0,
@@ -312,19 +314,65 @@ function supportsListChanged(connection: LegacyOutboundConnection, kind: 'tools'
   return capability.listChanged === true;
 }
 
-function assertCatalogCurrent(owner: Owner): void {
+async function assertCatalogCurrent(owner: Owner): Promise<void> {
+  if (owner.inbound.subscriptionListKinds === undefined) {
+    await refreshOrdinaryCatalog(owner);
+    return;
+  }
   for (const source of owner.catalogs.values()) {
-    const visibility = ownerVisibility(owner, source.kind);
-    if (
-      owner.connections.get(source.connectionKey) !== source.connection ||
-      source.connection.adapter !== source.adapter ||
-      source.connection.status !== ClientStatus.Connected ||
-      !supportsListChanged(source.connection, source.kind) ||
-      !visibility.serverCandidates.has(source.connectionKey)
-    ) {
-      throw new Error('Catalog subscription coverage changed');
+    if (!isCatalogSourceCurrent(owner, source)) throw new Error('Catalog subscription coverage changed');
+  }
+}
+
+function isCatalogSourceCurrent(owner: Owner, source: CatalogSource): boolean {
+  const current = owner.connections.get(source.connectionKey);
+  if (current !== source.connection) return false;
+  if (current.adapter !== source.adapter) return false;
+  if (current.status !== ClientStatus.Connected) return false;
+  if (!supportsListChanged(current, source.kind)) return false;
+  const visibility = ownerVisibility(owner, source.kind);
+  return visibility.serverCandidates.has(source.connectionKey);
+}
+
+/** Ordinary clients follow the current catalog; an explicit modern filter pins its sources. */
+async function refreshOrdinaryCatalog(owner: Owner): Promise<void> {
+  let changed = false;
+  for (const [key, source] of owner.catalogs) {
+    if (isCatalogSourceCurrent(owner, source)) continue;
+    owner.catalogs.delete(key);
+    if (!Array.from(owner.catalogs.values()).some((entry) => entry.connection === source.connection))
+      catalogOwners.get(source.connection)?.delete(owner);
+    changed = true;
+  }
+  for (const [key, connection] of owner.connections) {
+    if (connection.status !== ClientStatus.Connected) continue;
+    for (const kind of owner.catalogKinds) {
+      if (!supportsListChanged(connection, kind)) continue;
+      const visibility = ownerVisibility(owner, kind);
+      if (!visibility.serverCandidates.has(key)) continue;
+      if (!owner.catalogs.has(`${key}\0${kind}`)) changed = true;
     }
   }
+  if (!changed) return;
+  const bind = async () => {
+    if (owner.refreshCatalog) await owner.refreshCatalog();
+    for (const kind of owner.catalogKinds) bindOwnedCatalogConnections(owner.connections, owner.inbound, kind);
+  };
+  if (owner.binding) await withProjectBinding(owner.binding.bindingId, owner.binding.context, bind);
+  else await bind();
+}
+
+/** Install generation-aware forwarding again after ordinary catalog ownership changes. */
+export function bindOwnedCatalogRefresh(
+  connections: LegacyOutboundConnections,
+  inbound: InboundConnection,
+  refresh: () => Promise<void>,
+): void {
+  if (inbound.requestOnly || inbound.subscriptionListKinds !== undefined) return;
+  const owner = getOwner(connections, inbound);
+  owner.refreshCatalog = refresh;
+  for (const kind of ['tools', 'resources', 'prompts'] as const) owner.catalogKinds.add(kind);
+  monitorOwner(owner);
 }
 
 function monitorOwner(owner: Owner): void {
@@ -335,9 +383,9 @@ function monitorOwner(owner: Owner): void {
     void deliverBounded(owner, async () => {
       if (owner.inbound.status === ServerStatus.Connecting) return;
       if (owner.inbound.status !== ServerStatus.Connected) throw new Error('Subscription owner disconnected');
-      assertCatalogCurrent(owner);
       if (owner.requiresAuthorization && !owner.authorize) return;
       if (owner.authorize && !(await owner.authorize())) throw new Error('Subscription authorization lost');
+      await assertCatalogCurrent(owner);
       const watches = Array.from(owner.watches.values()).filter((watch) => watch.active && watch.connection);
       if (!watches.length) return;
       const snapshot = await acquireOwnerCatalog(owner);
@@ -397,8 +445,8 @@ function enqueue(owner: Owner, bytes: number, delivery: () => Promise<void>): vo
       if (owner.closed) return;
       await deliverBounded(owner, async () => {
         if (owner.inbound.status !== ServerStatus.Connected) throw new Error('Subscription owner disconnected');
-        assertCatalogCurrent(owner);
         if (owner.authorize && !(await owner.authorize())) throw new Error('Subscription authorization lost');
+        await assertCatalogCurrent(owner);
         if (owner.closed) return;
         await delivery();
       });
@@ -421,6 +469,7 @@ export function registerOwnedCatalogConnection(
 ): void {
   if (inbound.requestOnly) return;
   const selected = inbound.subscriptionListKinds;
+  if (connection.status !== ClientStatus.Connected) return;
   if (selected && !selected.includes(kind)) return;
   if (!supportsListChanged(connection, kind)) return;
   const key = Array.from(connections).find(([, candidate]) => candidate === connection)?.[0];
@@ -428,11 +477,19 @@ export function registerOwnedCatalogConnection(
   const visibility = resolveCapabilityVisibility(connections, inbound, getRequestSession(inbound), kind);
   if (!visibility.serverCandidates.has(key)) return;
   const owner = getOwner(connections, inbound);
+  owner.catalogKinds.add(kind);
   const coverageKey = `${key}\0${kind}`;
   const existing = owner.catalogs.get(coverageKey);
   if (existing) {
-    if (existing.connection !== connection || existing.adapter !== connection.adapter) terminate(owner);
-    return;
+    if (existing.connection === connection && existing.adapter === connection.adapter) return;
+    if (selected !== undefined) {
+      terminate(owner);
+      return;
+    }
+    owner.catalogs.delete(coverageKey);
+    if (!Array.from(owner.catalogs.values()).some((source) => source.connection === existing.connection)) {
+      catalogOwners.get(existing.connection)?.delete(owner);
+    }
   }
   if (owner.catalogs.size >= 128) {
     terminate(owner);
@@ -487,7 +544,15 @@ export function enqueueOwnedCatalogNotification(
     const covered = Array.from(owner.catalogs.values()).some(
       (source) => source.connection === connection && source.adapter === connection.adapter && source.kind === kind,
     );
-    if (covered) enqueueOwnerNotification(owner, notification);
+    if (!covered) continue;
+    const adapter = connection.adapter;
+    enqueueOwnerNotification(owner, notification, () => {
+      if (connection.adapter !== adapter) return false;
+      if (connection.status !== ClientStatus.Connected) return false;
+      return Array.from(owner.catalogs.values()).some(
+        (source) => source.connection === connection && source.adapter === adapter && source.kind === kind,
+      );
+    });
   }
 }
 
@@ -496,6 +561,7 @@ export function enqueueOwnedNotification(
   connections: LegacyOutboundConnections,
   inbound: InboundConnection,
   notification: Update,
+  isCurrent?: () => boolean,
 ): void {
   if (inbound.requestOnly) return;
   const kinds = {
@@ -504,15 +570,23 @@ export function enqueueOwnedNotification(
     'notifications/prompts/list_changed': 'prompts',
   } as const;
   const kind = kinds[notification.method as keyof typeof kinds];
+  if (kind && !AgentConfigManager.getInstance().get('features').clientNotifications) return;
   if (kind && inbound.subscriptionListKinds && !inbound.subscriptionListKinds.includes(kind)) return;
   const owner = getOwner(connections, inbound);
-  enqueueOwnerNotification(owner, notification);
+  enqueueOwnerNotification(owner, notification, isCurrent);
 }
 
-function enqueueOwnerNotification(owner: Owner, notification: Update): void {
+function enqueueOwnerNotification(owner: Owner, notification: Update, isCurrent?: () => boolean): void {
+  if (owner.inbound.requestOnly) return;
+  if (
+    notification.method.endsWith('/list_changed') &&
+    !AgentConfigManager.getInstance().get('features').clientNotifications
+  )
+    return;
   const encoded = JSON.stringify(notification);
   const snapshot = structuredClone(notification);
   enqueue(owner, Buffer.byteLength(encoded), async () => {
+    if (isCurrent && !isCurrent()) return;
     await owner.inbound.adapter.notify({ method: snapshot.method, params: toJsonValue(snapshot.params ?? {}) });
   });
 }
@@ -528,8 +602,36 @@ export async function subscribeOwnedResource(
   const owner = getOwner(connections, inbound);
   if (owner.closed) throw new Error('Resource subscription owner is closed');
   if (authorize) owner.authorize ??= authorize;
-  const existing = owner.watches.get(uri);
-  if (existing) return existing.ready;
+  // Recheck ownership after each await: another request or the monitor may retire
+  // the observed watch. The fresh reservation below is made without an await.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const existing = owner.watches.get(uri);
+    if (!existing) break;
+    await existing.ready;
+    if (owner.closed) throw new Error('Resource subscription owner is closed');
+    if (owner.watches.get(uri) !== existing || !existing.active) continue;
+    try {
+      await assertWatchCurrent(existing);
+      if (owner.watches.get(uri) !== existing || !existing.active) continue;
+      return;
+    } catch (error) {
+      if (owner.inbound.subscriptionListKinds !== undefined) {
+        terminate(owner);
+        throw error;
+      }
+      if (owner.inbound.status !== ServerStatus.Connected) {
+        terminate(owner);
+        throw error;
+      }
+      if (existing.authorize && !(await existing.authorize())) {
+        terminate(owner);
+        throw error;
+      }
+      await detach(existing).catch(() => undefined);
+    }
+  }
+  if (owner.closed) throw new Error('Resource subscription owner is closed');
+  if (owner.watches.has(uri)) throw new Error('Resource subscription coverage changed during setup');
   if (Buffer.byteLength(uri) > MAX_URI_BYTES) throw new Error('Resource subscription URI exceeds limit');
   releaseClosedUpstreamReservations();
   if (

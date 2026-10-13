@@ -26,6 +26,7 @@ vi.mock('./requestInteractionScope.js', () => ({
   registerLegacyNotificationOwner: vi.fn(),
 }));
 vi.mock('./resourceSubscriptions.js', () => ({
+  bindOwnedCatalogRefresh: vi.fn(),
   enqueueOwnedCatalogNotification: vi.fn(),
   registerOwnedCatalogConnection: vi.fn(),
   setupOwnedResourceNotifications: vi.fn(),
@@ -80,6 +81,13 @@ describe('modern catalog coverage for legacy connections', () => {
       tools: { listChanged: true },
       resources: { listChanged: false, subscribe: true },
     });
+  });
+
+  it('does not reopen catalog coverage on a disconnected modern backend', async () => {
+    const { connection, coverage, connections } = fixture();
+    Object.assign(connection, { status: 'disconnected' });
+    await setupClientToServerNotifications(connections, createMockInboundConnection());
+    expect(coverage).not.toHaveBeenCalled();
   });
 
   it('does not request unselected catalog coverage for a resource-only bridge', async () => {

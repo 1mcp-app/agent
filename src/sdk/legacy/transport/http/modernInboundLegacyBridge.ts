@@ -180,7 +180,7 @@ async function prepareCatalogFilter(
   signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
   const visible = FilteringService.getFilteredConnections(
-    filterConnectionsForSession(serverManager.getClients(), config.bindingId),
+    filterConnectionsForSession(serverManager.getClients(), config.bindingId ?? config.logicalTemplateSessionId),
     config,
   );
   const accepted: Record<string, unknown> = {};

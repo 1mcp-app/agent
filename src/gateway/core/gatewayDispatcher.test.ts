@@ -66,6 +66,14 @@ describe('GatewayDispatcher', () => {
     expect(Object.isFrozen(fixture.requests[0])).toBe(true);
   });
 
+  it('preserves capability lists larger than the default JSON budget', async () => {
+    const response = { tools: Array.from({ length: 5_000 }, (_, index) => ({ name: `tool-${index}` })) };
+    const fixture = adapter(Object.freeze({ era: 'legacy', revision: '2025-11-25' }), response);
+    const dispatcher = new GatewayDispatcher({ resolveOutbound: () => fixture.port, now: () => 1_000 });
+
+    await expect(dispatcher.dispatch(request(fixture.port.pin))).resolves.toEqual({ ok: true, value: response });
+  });
+
   it('rejects unauthorized, expired, and mismatched requests before outbound dispatch', async () => {
     const fixture = adapter(Object.freeze({ era: 'legacy', revision: '2025-11-25' }));
     const dispatcher = new GatewayDispatcher({ resolveOutbound: () => fixture.port, now: () => 2_000 });
