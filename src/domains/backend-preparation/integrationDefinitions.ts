@@ -141,8 +141,22 @@ export function resolveIntegrationDefinition(
       (item) => item.reference === value || item.declaredPath === candidate || item.path === candidate,
     );
     if (helper) return helper.path;
+    const literal = value.replace(/\{input:[^}]+\}/g, '');
     for (const item of helpers) {
-      if ([item.reference, path.normalize(item.reference), item.path].some((reference) => value.includes(reference))) {
+      const aliases = [
+        item.reference,
+        path.normalize(item.reference),
+        item.declaredPath,
+        item.path,
+        path.basename(item.declaredPath),
+        path.basename(item.path),
+      ];
+      if (source)
+        aliases.push(
+          path.relative(path.dirname(source), item.declaredPath),
+          path.relative(path.dirname(source), item.path),
+        );
+      if (aliases.some((reference) => reference.length > 0 && literal.includes(reference))) {
         throw new Error(
           'Declared helper references must occupy a whole executable or argv argument; embedded references are unsupported',
         );
@@ -161,12 +175,10 @@ export function resolveIntegrationDefinition(
       command.executable = path.resolve(path.dirname(source), command.executable);
     }
     command.args = command.args.map((argument) =>
-      bindHelperReference(
-        argument.replace(/\{input:([^}]+)\}/g, (_match, name: string) => {
-          if (!Object.hasOwn(inputs, name)) throw new Error(`Missing integration input for command: ${name}`);
-          return inputs[name];
-        }),
-      ),
+      bindHelperReference(argument).replace(/\{input:([^}]+)\}/g, (_match, name: string) => {
+        if (!Object.hasOwn(inputs, name)) throw new Error(`Missing integration input for command: ${name}`);
+        return inputs[name];
+      }),
     );
   }
   const validatedIntegration = ConfiguredCommandIntegrationSchema.parse(integration);

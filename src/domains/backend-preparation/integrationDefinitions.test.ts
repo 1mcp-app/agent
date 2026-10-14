@@ -253,6 +253,44 @@ describe('runtime-owned integration definitions', () => {
     },
   );
 
+  it.each(['helper.cjs', 'search helper.cjs text'])(
+    'preserves literal operator query %s beside a static helper reference',
+    (query) => {
+      const { file, directory } = definitionFile();
+      const helper = path.join(directory, 'helper.cjs');
+      fs.writeFileSync(helper, 'process.exit(0);');
+      const definition = JSON.parse(fs.readFileSync(file, 'utf8'));
+      definition.inputs = { query: { required: true } };
+      definition.helperFiles = ['./helper.cjs'];
+      const command = { executable: process.execPath, args: ['./helper.cjs', '{input:query}'] };
+      definition.integration.probe = command;
+      definition.integration.actions.initialize = command;
+      fs.writeFileSync(file, JSON.stringify(definition));
+      const resolved = resolveIntegrationDefinition({ id: 'local-test', file, inputs: { query } });
+      expect(resolved.integration.probe.args).toEqual([fs.realpathSync(helper), query]);
+      expect(resolved.integration.actions.initialize?.args).toEqual([fs.realpathSync(helper), query]);
+    },
+  );
+
+  it.each([
+    ['interpreter source', ['-e', 'require("./helper.cjs")']],
+    ['compound flag', ['--require=./helper.cjs']],
+  ])('rejects relative static helper references in %s when the helper declaration is absolute', (_kind, args) => {
+    const { file, directory } = definitionFile();
+    const helper = path.join(directory, 'helper.cjs');
+    fs.writeFileSync(helper, 'process.exit(10);');
+    const checkout = path.join(directory, 'checkout');
+    fs.mkdirSync(checkout);
+    fs.writeFileSync(path.join(checkout, 'helper.cjs'), 'process.exit(0);');
+    const definition = JSON.parse(fs.readFileSync(file, 'utf8'));
+    definition.helperFiles = [helper];
+    definition.integration.probe = { executable: process.execPath, args };
+    fs.writeFileSync(file, JSON.stringify(definition));
+    expect(() => resolveIntegrationDefinition({ id: 'local-test', file, inputs: { backend: 'backend' } })).toThrow(
+      /embedded references are unsupported/,
+    );
+  });
+
   it('rejects operator inputs that could be reinterpreted as runtime command markers', () => {
     const { file } = definitionFile();
     for (const backend of ['{checkout}', '{operation}', '{input:backend}']) {
