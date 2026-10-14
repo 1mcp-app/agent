@@ -63,6 +63,24 @@ describe('OAuth network boundary', () => {
     await expect(fetch(origin + '/messages?session=2', { method: 'POST' })).rejects.toThrow(/OAuth/);
   });
 
+  it('identifies itself with a user-agent and keeps an explicit one', async () => {
+    const seen: Array<string | undefined> = [];
+    const base = await endpoint((req, res) => {
+      seen.push(req.headers['user-agent']);
+      res.setHeader('content-type', 'application/json');
+      res.end('{"ok":true}');
+    });
+    const resource = base.replace('127.0.0.1', 'localhost') + '/mcp';
+    vi.mocked(dns.lookup).mockResolvedValue([{ address: '127.0.0.1', family: 4 }] as never);
+    const fetch = guarded(resource);
+
+    await fetch(resource.replace('/mcp', '/metadata'));
+    expect(seen.at(-1)).toMatch(/^1mcp\//);
+
+    await fetch(resource.replace('/mcp', '/metadata'), { headers: { 'user-agent': 'caller-agent' } });
+    expect(seen.at(-1)).toBe('caller-agent');
+  });
+
   it.each([
     '0.0.0.0',
     '127.0.0.1',
