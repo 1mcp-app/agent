@@ -49,6 +49,34 @@ An optional `status` command uses the same executable/args format and returns ex
 
 Preparation commands must stay in the runtime-owned process group and keep descendants attached. The current containment implementation supports Linux and macOS. Unsupported platforms reject preparation before launching an action. Declaring containment is an operator assertion about integration scripts; escaping or detached writers are outside this contract. Native writer coordination remains the integration's responsibility. The runtime never kills foreign work or breaks another writer's lock.
 
+## Reusable local definitions (advanced)
+
+A runtime operator can select a reusable JSON definition by its identity and **absolute local file path**. The file is read from that location, independent of the caller's working directory. Project preferences and tool arguments cannot select definitions or introduce executable commands.
+
+```json
+{
+  "preparation": {
+    "adapter": "configured-command",
+    "definition": {
+      "id": "local-source-search",
+      "file": "/opt/1mcp/integrations/source-search.json",
+      "inputs": { "database": "/opt/source-search/database" }
+    },
+    "allowedActions": ["initialize", "sync"]
+  }
+}
+```
+
+A definition has `schemaVersion: 1`, a unique `id`, `revision`, `helperRevision`, `compatibility` (backend, versions, platforms, readiness scope), input declarations, `affectedTools`, and an `integration` using the configured-command format above. Use `{input:database}` in argument strings to substitute declared operator inputs literally. Readiness and backend identity still require the configured native probe; compatibility metadata alone is not evidence of readiness.
+
+The definition's identity must match the selected identity. Unsupported schema versions, duplicate built-in identities, local definitions impersonating built-ins, missing or unknown inputs, and conflicting named/inline recipes are errors. Do not combine `definition` with an inline `integration`. Named definitions own their affected-tool list; a configured list must agree exactly.
+
+Runtime `allowedActions` remain separate from definition defaults. A changed definition cannot grant a new action. Effective definition content and recipe revisions participate in preparation identity so incompatible changes cannot reuse old jobs or readiness evidence. Running jobs retain their resolved configuration snapshot. Operators maintaining custom helpers must update `helperRevision` when helper behavior changes. Optional `helperFiles` lists local files whose content hashes also participate in identity; relative paths resolve beside the definition file. This identifies revisions for new admissions; it does not freeze external executables or helper files. Keep those files unchanged while admitted jobs run.
+
+Explicit runtime adoption can set `activation: "setup"` with a named definition, enabling permitted preparation for fresh authorized checkouts without a preparation preference in each project. `enabled: false` at the backend and explicit project disables take precedence. Existing inline configurations retain their project opt-in behavior; upgrades do not set activation automatically.
+
+The built-in CodeGraph, Code Review Graph, and Serena integrations have separate native acceptance gates. Do not treat support for local definitions as completion of guided setup or verified native preparation for those backends. See the [CodeGraph and Code Review Graph acceptance report](/guide/preparation-native-acceptance) and [Serena acceptance report](/guide/preparation-serena-acceptance) for measured coverage and blocking gaps.
+
 ## Project opt-in
 
 Enable automatic preparation by configured server name in the effective `.1mcprc`:
@@ -57,7 +85,7 @@ Enable automatic preparation by configured server name in the effective `.1mcprc
 { "preparation": { "source-search": { "enabled": true } } }
 ```
 
-Automatic preparation is disabled without this preference. Explicit preparation still obeys runtime action permissions and checkout authorization. Linked worktrees inherit project preferences using whole-file rules; a local configuration replaces the inherited file. See [project checkouts and sets](/guide/project-checkouts).
+For inline commands and named definitions without explicit runtime setup activation, automatic preparation is disabled without this preference. Explicit preparation still obeys runtime action permissions and checkout authorization. Linked worktrees inherit project preferences using whole-file rules; a local configuration replaces the inherited file. See [project checkouts and sets](/guide/project-checkouts).
 
 ## Controls and asynchronous admission
 

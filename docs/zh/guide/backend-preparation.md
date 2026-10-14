@@ -48,6 +48,34 @@ description: 配置副本专属的只读就绪探测，以及运行时拥有的�
 
 准备命令及后代必须保持在运行时拥有的进程组内。当前实现支持 Linux 和 macOS；其他平台在动作启动前拒绝准备。containment 声明由操作人员确认集成脚本满足约束，脱离进程组或后台分离的写入者不属于此契约。原生写入者协调由集成负责；运行时不终止外部进程，也不破坏外部锁。
 
+## 可复用本地定义（高级）
+
+运行时操作者可通过定义标识和**绝对本地 JSON 文件路径**选择可复用定义。加载不依赖调用方工作目录；项目偏好和工具参数不能选择可执行定义或增加权限。
+
+```json
+{
+  "preparation": {
+    "adapter": "configured-command",
+    "definition": {
+      "id": "local-source-search",
+      "file": "/opt/1mcp/integrations/source-search.json",
+      "inputs": { "database": "/opt/source-search/database" }
+    },
+    "allowedActions": ["initialize", "sync"]
+  }
+}
+```
+
+定义包含 `schemaVersion: 1`、唯一 `id`、`revision`、`helperRevision`、`compatibility`（后端、版本、平台、就绪范围）、输入声明、`affectedTools` 以及前述配置命令格式的 `integration`。参数中的 `{input:database}` 按字面替换已声明的操作者输入。兼容性声明本身不证明后端身份或就绪；仍需原生探测。
+
+定义标识必须与选择一致。未知 schema 版本、重复内置标识、本地文件冒充内置定义、缺失或未知输入，以及命名定义与内联配置冲突都会报错。不能同时配置 `definition` 和内联 `integration`。命名定义拥有受影响工具列表，显式配置的列表必须完全一致。
+
+运行时 `allowedActions` 与定义默认值分离；更新定义不会授权新动作。有效定义内容和命令修订参与准备任务身份计算，不能复用不兼容的旧任务或就绪证据；运行中的任务保留已解析的配置快照。维护自定义辅助脚本时，操作者必须在行为改变后更新 `helperRevision`。可选 `helperFiles` 列出参与内容哈希的本地文件，相对路径基于定义文件目录解析。这会为新准入区分修订，但不会冻结外部可执行文件或脚本；已准入任务运行期间应保持这些文件不变。
+
+运行时可显式为命名定义设置 `activation: "setup"`，让新授权副本无需逐项目设置准备偏好。后端 `enabled: false` 和项目显式禁用优先。升级不会自动添加 activation，现有内联配置仍要求项目选择启用。
+
+CodeGraph、Code Review Graph 和 Serena 的内置集成有独立的原生验收门槛。本地定义能力不代表这三个后端的引导配置或自动准备已经完成。已测覆盖和阻塞项见 [CodeGraph 与 Code Review Graph 验收记录](/zh/guide/preparation-native-acceptance)及 [Serena 验收记录](/zh/guide/preparation-serena-acceptance)。
+
 ## 项目选择启用
 
 有效 `.1mcprc` 按配置服务器名称启用自动准备：
@@ -56,7 +84,7 @@ description: 配置副本专属的只读就绪探测，以及运行时拥有的�
 { "preparation": { "source-search": { "enabled": true } } }
 ```
 
-没有该偏好时自动准备关闭，显式准备仍遵守运行时动作权限和副本授权。关联工作树按完整文件规则继承偏好，本地配置替换继承文件。参见[项目副本与集合](/zh/guide/project-checkouts)。
+对于内联命令，以及未显式设置运行时 setup activation 的命名定义，没有该偏好时自动准备关闭。显式准备仍遵守运行时动作权限和副本授权。关联工作树按完整文件规则继承偏好，本地配置替换继承文件。参见[项目副本与集合](/zh/guide/project-checkouts)。
 
 ## 控制与异步调用
 
