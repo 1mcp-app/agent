@@ -128,6 +128,61 @@ describe('Config Change', () => {
     },
   );
 
+  it.each(['declared', 'canonical'])(
+    'rejects %s helper path markers before backup, write or reload',
+    async (location) => {
+      const original = { mcpServers: {}, unrelated: { retained: true } };
+      await writeConfig(original);
+      const directory = location === 'canonical' ? path.join(tempDir, 'runtime-{operation}') : tempDir;
+      await fs.mkdir(directory, { recursive: true });
+      const helper = path.join(directory, 'helper.cjs');
+      await fs.writeFile(helper, 'process.exit(0);');
+      const reference = location === 'declared' ? '{input:query}' : './helper.cjs';
+      // Windows cannot create the input-marker alias; validation must reject it before path lookup.
+      if (location === 'declared' && process.platform !== 'win32')
+        await fs.symlink(helper, path.join(directory, reference));
+      const file = path.join(directory, 'definition.json');
+      await fs.writeFile(
+        file,
+        JSON.stringify({
+          schemaVersion: 1,
+          id: 'local-test',
+          revision: '1',
+          helperRevision: '1',
+          helperFiles: [reference],
+          compatibility: {
+            backend: 'fixture',
+            versions: ['1'],
+            platforms: ['linux', 'darwin', 'win32'],
+            readinessScope: 'checkout',
+          },
+          inputs: {},
+          affectedTools: ['search'],
+          integration: {
+            containment: 'posix-process-group',
+            probe: { executable: process.execPath, args: [reference] },
+            readinessExitCodes: { '0': { state: 'ready' } },
+            actions: {},
+          },
+        }),
+      );
+      const service = createConfigChangeService({ reloadConfig: reload });
+      await expect(
+        service.createStaticConfiguredServerTarget({
+          targetName: 'marked-helper',
+          backup: 'required',
+          serverConfig: {
+            command: 'node',
+            preparation: { adapter: 'configured-command', definition: { id: 'local-test', file }, allowedActions: [] },
+          },
+        }),
+      ).rejects.toThrow(/reserved command marker/);
+      expect(await readConfig()).toEqual(original);
+      expect((await fs.readdir(tempDir)).filter((file) => file.includes('backup'))).toEqual([]);
+      expect(reload).not.toHaveBeenCalled();
+    },
+  );
+
   it('uses a keyed opaque fingerprint for configured server credentials', () => {
     const serverConfig = {
       type: 'http' as const,

@@ -291,6 +291,56 @@ describe('runtime-owned integration definitions', () => {
     );
   });
 
+  it('rejects a canonical helper directory marker before it can redirect a probe to a ready sibling', () => {
+    const { file, directory } = definitionFile();
+    const declared = path.join(directory, 'runtime-{operation}');
+    const alternate = path.join(directory, 'runtime-lookup');
+    fs.mkdirSync(declared);
+    fs.mkdirSync(alternate);
+    fs.writeFileSync(path.join(declared, 'helper.cjs'), 'process.exit(10);');
+    fs.writeFileSync(path.join(alternate, 'helper.cjs'), 'process.exit(0);');
+    const definition = JSON.parse(fs.readFileSync(file, 'utf8'));
+    definition.helperFiles = ['./helper.cjs'];
+    definition.integration.probe = { executable: process.execPath, args: ['./helper.cjs'] };
+    definition.integration.readinessExitCodes['10'] = {
+      state: 'required',
+      action: 'initialize',
+      instructions: 'Genuine helper is cold',
+    };
+    const selected = path.join(declared, 'definition.json');
+    fs.writeFileSync(selected, JSON.stringify(definition));
+    expect(() =>
+      resolveIntegrationDefinition({ id: 'local-test', file: selected, inputs: { backend: 'backend' } }),
+    ).toThrow(/reserved command marker/);
+  });
+
+  it('rejects a declared input-marker helper alias even when its canonical symlink target is safe', () => {
+    const { file, directory } = definitionFile();
+    fs.writeFileSync(path.join(directory, 'safe-helper.cjs'), 'process.exit(0);');
+    // Windows cannot create filenames containing a colon; rejection still precedes path lookup.
+    if (process.platform !== 'win32') fs.symlinkSync('./safe-helper.cjs', path.join(directory, '{input:backend}'));
+    const definition = JSON.parse(fs.readFileSync(file, 'utf8'));
+    definition.helperFiles = ['{input:backend}'];
+    definition.integration.probe = { executable: process.execPath, args: ['{input:backend}'] };
+    fs.writeFileSync(file, JSON.stringify(definition));
+    expect(() => resolveIntegrationDefinition({ id: 'local-test', file, inputs: { backend: 'literal data' } })).toThrow(
+      /reserved command marker/,
+    );
+  });
+
+  it('preserves unrelated curly literals in declared helper argv paths', () => {
+    const { file, directory } = definitionFile();
+    const helper = path.join(directory, 'helper{literal}.cjs');
+    fs.writeFileSync(helper, 'process.exit(0);');
+    const definition = JSON.parse(fs.readFileSync(file, 'utf8'));
+    definition.helperFiles = ['./helper{literal}.cjs'];
+    definition.integration.probe = { executable: process.execPath, args: ['./helper{literal}.cjs'] };
+    fs.writeFileSync(file, JSON.stringify(definition));
+    expect(
+      resolveIntegrationDefinition({ id: 'local-test', file, inputs: { backend: 'backend' } }).integration.probe.args,
+    ).toEqual([fs.realpathSync(helper)]);
+  });
+
   it('rejects operator inputs that could be reinterpreted as runtime command markers', () => {
     const { file } = definitionFile();
     for (const backend of ['{checkout}', '{operation}', '{input:backend}']) {

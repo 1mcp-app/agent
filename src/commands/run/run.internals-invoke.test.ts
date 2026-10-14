@@ -1,9 +1,21 @@
 import os from 'node:os';
 import { join } from 'node:path';
 
+import { SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getCliSessionCachePath, invokeTool } from './run.js';
+
+// Session routing controls the asynchronous preflight boundary. Real worker validation
+// remains covered by runUtils.schema.test.ts and schemaBoundary.test.ts.
+const schemaSeam = vi.hoisted(() => ({ admit: vi.fn(), evaluate: vi.fn() }));
+vi.mock('@src/core/validation/schemaBoundary.js', async () => {
+  const actual = await vi.importActual<typeof import('@src/core/validation/schemaBoundary.js')>(
+    '@src/core/validation/schemaBoundary.js',
+  );
+  return { ...actual, schemaBoundary: schemaSeam };
+});
 
 const mockedResolveProjectContext = vi.hoisted(() => vi.fn());
 
@@ -145,6 +157,8 @@ vi.mock('@src/utils/validation/urlDetection.js', () => ({
 
 describe('run command internals', () => {
   beforeEach(() => {
+    schemaSeam.admit.mockReset().mockImplementation(async (schema, binding) => ({ source: schema, ...binding }));
+    schemaSeam.evaluate.mockReset().mockResolvedValue({ valid: true });
     transportState.callResult = {
       content: [{ type: 'text', text: 'ok' }],
     };
@@ -193,7 +207,33 @@ describe('run command internals', () => {
     });
 
     it('validates the requested tool before using a cached session', async () => {
-      const response = await invokeTool({
+      let admissionEntered!: () => void;
+      const admissionReady = new Promise<void>((resolve) => {
+        admissionEntered = resolve;
+      });
+      let releaseAdmission!: () => void;
+      const admissionVerdict = new Promise<void>((resolve) => {
+        releaseAdmission = resolve;
+      });
+      schemaSeam.admit.mockImplementationOnce(async (schema, binding) => {
+        admissionEntered();
+        await admissionVerdict;
+        return { source: schema, ...binding };
+      });
+      let entered!: () => void;
+      const ready = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      let release!: () => void;
+      const verdict = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      schemaSeam.evaluate.mockImplementationOnce(async () => {
+        entered();
+        await verdict;
+        return { valid: true };
+      });
+      const pending = invokeTool({
         serverUrl: new URL('http://127.0.0.1:3050/mcp'),
         sessionId: 'cached-session',
         displayToolName: 'runner/echo_args',
@@ -201,7 +241,19 @@ describe('run command internals', () => {
         explicitArgs: '{"message":"hello"}',
         resolveTool: false,
       });
-
+      const schema = { type: 'object', properties: { message: { type: 'string' } } };
+      const binding = { routeKey: 'runner/echo_args', generation: 'cli-preflight', profile: 'tool-input' };
+      await admissionReady;
+      expect(transportState.instances[0].sentMessages.map((message) => message.method)).toEqual(['tools/list']);
+      expect(schemaSeam.admit).toHaveBeenCalledWith(schema, binding);
+      expect(schemaSeam.evaluate).not.toHaveBeenCalled();
+      releaseAdmission();
+      await ready;
+      expect(transportState.instances[0].sentMessages.map((message) => message.method)).toEqual(['tools/list']);
+      expect(schemaSeam.evaluate).toHaveBeenCalledWith({ source: schema, ...binding }, { message: 'hello' }, binding);
+      release();
+      const response = await pending;
+      expect(response.rawResponse).toEqual({ jsonrpc: '2.0', id: 2, result: transportState.callResult });
       expect(response.retryWithFreshSession).toBe(false);
       expect(response.sessionId).toBe('cached-session');
       expect(transportState.instances[0].sentMessages.map((message) => message.method)).toEqual([
@@ -209,6 +261,52 @@ describe('run command internals', () => {
         'tools/call',
       ]);
     });
+
+    it.each(['schema_input_invalid', 'schema_evaluation_timeout', 'schema_evaluation_unavailable'] as const)(
+      'does not dispatch or retry when preflight returns %s',
+      async (code) => {
+        schemaSeam.evaluate.mockRejectedValueOnce(
+          new SchemaBoundaryError(code, code !== 'schema_input_invalid', 'input'),
+        );
+        const response = await invokeTool({
+          serverUrl: new URL('http://127.0.0.1:3050/mcp'),
+          sessionId: 'cached-session',
+          displayToolName: 'runner/echo_args',
+          qualifiedToolName: 'runner_1mcp_echo_args',
+          explicitArgs: '{"message":42}',
+          resolveTool: false,
+        });
+        expect(response.retryWithFreshSession).toBe(false);
+        expect(response.sessionId).toBe('cached-session');
+        expect(transportState.instances[0].sentMessages.map((message) => message.method)).toEqual(['tools/list']);
+        if (code === 'schema_input_invalid') {
+          expect(response.rawResponse).toMatchObject({
+            result: { isError: true, content: [{ type: 'text', text: 'schema_input_invalid' }] },
+          });
+        } else {
+          expect(response.rawResponse).toMatchObject({ error: { code: -32000, message: code } });
+        }
+      },
+    );
+    it.each(['schema_compile_failed', 'schema_evaluation_timeout', 'schema_evaluation_unavailable'] as const)(
+      'does not evaluate or dispatch when admission fails with %s',
+      async (code) => {
+        schemaSeam.admit.mockRejectedValueOnce(new SchemaBoundaryError(code));
+        const response = await invokeTool({
+          serverUrl: new URL('http://127.0.0.1:3050/mcp'),
+          sessionId: 'cached-session',
+          displayToolName: 'runner/echo_args',
+          qualifiedToolName: 'runner_1mcp_echo_args',
+          explicitArgs: '{"message":"hello"}',
+          resolveTool: false,
+        });
+        expect(schemaSeam.evaluate).not.toHaveBeenCalled();
+        expect(response.rawResponse).toMatchObject({ error: { code: -32000, message: code } });
+        expect(response.retryWithFreshSession).toBe(false);
+        expect(response.sessionId).toBe('cached-session');
+        expect(transportState.instances[0].sentMessages.map((message) => message.method)).toEqual(['tools/list']);
+      },
+    );
 
     it('retries with a fresh session when a cached session does not expose the requested tool', async () => {
       transportState.toolName = 'runner_1mcp_different_tool';

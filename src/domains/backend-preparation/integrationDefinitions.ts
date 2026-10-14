@@ -12,12 +12,13 @@ import {
 
 const identitySchema = z.string().regex(/^[a-z][a-z0-9-]{0,127}$/);
 const inputNameSchema = z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,127}$/);
+const reservedCommandMarkerPattern = /\{(?:checkout|operation|input:[^}]*)\}/;
 const inputValueSchema = z
   .string()
   .min(1)
   .max(16384)
   .refine((value) => !value.includes('\0'), 'Input cannot contain NUL')
-  .refine((value) => !/\{(?:checkout|operation|input:[^}]*)\}/.test(value), 'Input contains a reserved command marker');
+  .refine((value) => !reservedCommandMarkerPattern.test(value), 'Input contains a reserved command marker');
 export const AffectedPreparationToolsSchema = z.union([
   z.literal('all'),
   z.array(z.string().min(1).max(256)).min(1).max(4096),
@@ -119,9 +120,13 @@ export function resolveIntegrationDefinition(
   }
   let helperBytes = 0;
   const helpers = (definition.helperFiles ?? []).map((file) => {
+    if (reservedCommandMarkerPattern.test(file))
+      throw new Error('Declared helper reference contains a reserved command marker');
     if (!path.isAbsolute(file) && !source) throw new Error('Built-in helper file paths must be absolute');
     const declaredPath = path.isAbsolute(file) ? path.normalize(file) : path.resolve(path.dirname(source!), file);
     const helper = fs.realpathSync(declaredPath);
+    if (reservedCommandMarkerPattern.test(helper))
+      throw new Error('Canonical helper path contains a reserved command marker');
     const stat = fs.statSync(helper);
     helperBytes += stat.size;
     if (!stat.isFile() || helperBytes > 1024 * 1024)
