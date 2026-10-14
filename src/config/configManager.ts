@@ -13,6 +13,7 @@ import {
   TemplateSettings,
   transportConfigSchema,
 } from '@src/core/types/transport.js';
+import { validatePreparationConfig } from '@src/domains/backend-preparation/integrationDefinitions.js';
 import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { HandlebarsTemplateRenderer } from '@src/template/handlebarsTemplateRenderer.js';
@@ -432,7 +433,9 @@ export class ConfigManager extends EventEmitter {
    */
   private validateServerConfig(serverName: string, config: unknown): MCPServerParams {
     try {
-      return transportConfigSchema.parse(config);
+      const validated = transportConfigSchema.parse(config);
+      if (validated.preparation) validatePreparationConfig(validated.preparation);
+      return validated;
     } catch (error) {
       if (error instanceof z.ZodError) {
         const fieldErrors = error.issues.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');

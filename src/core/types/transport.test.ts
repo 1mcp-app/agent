@@ -56,6 +56,22 @@ describe.each([
     for (const preparation of [
       { adapter: 'configured-command', affectedTools: 'all', allowedActions: [] },
       { adapter: 'configured-command', affectedTools: ['lookup'], allowedActions: ['initialize'], integration },
+      {
+        adapter: 'configured-command',
+        definition: { id: 'native-test' },
+        activation: 'setup',
+        allowedActions: ['initialize'],
+      },
+      {
+        adapter: 'configured-command',
+        definition: { id: 'native-test', file: '/installed/definition.json', inputs: { backend: 'installed' } },
+        enabled: false,
+        allowedActions: [],
+      },
+      { adapter: 'configured-command', definition: { id: 'native-test' }, integration, allowedActions: [] },
+      { adapter: 'configured-command', integration, allowedActions: [] },
+      { adapter: 'configured-command', affectedTools: 'all', activation: 'setup', allowedActions: [] },
+      { adapter: 'configured-command', definition: { id: 'native-test', file: './relative.json' }, allowedActions: [] },
       { adapter: 'configured-command', affectedTools: [], allowedActions: [] },
       {
         adapter: 'configured-command',
@@ -243,5 +259,20 @@ describe('transportConfigSchema tool description overrides', () => {
         toolDescriptionOverrides: { ' search ': 'first', search: 'second' },
       }),
     ).toThrow();
+  });
+});
+
+describe('named preparation selection', () => {
+  it('accepts named definitions without requiring handwritten affected tools', () => {
+    expect(
+      transportConfigSchema.safeParse({
+        preparation: {
+          adapter: 'configured-command',
+          definition: { id: 'codegraph' },
+          activation: 'setup',
+          allowedActions: ['initialize', 'sync'],
+        },
+      }).success,
+    ).toBe(true);
   });
 });
