@@ -1,5 +1,7 @@
+import { once } from 'node:events';
 import fs from 'node:fs';
 import type { Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 
 import type { BackendOAuthDashboardResult, OAuthAuthorizationFlow } from '@src/auth/oauthAuthorizationFlow.js';
@@ -132,7 +134,7 @@ describe('admin routes', () => {
 
   afterEach(async () => {
     try {
-      const servers = [...requestServers.values()];
+      const servers = [...requestServers.values()].filter((server) => server.listening);
       for (const server of servers) server.closeAllConnections();
       await Promise.all(
         servers.map(
@@ -140,7 +142,7 @@ describe('admin routes', () => {
             new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))),
         ),
       );
-      for (const server of servers) expect(server.listening).toBe(false);
+      for (const server of requestServers.values()) expect(server.listening).toBe(false);
     } finally {
       requestServers.clear();
       fs.rmSync(storageDir, { recursive: true, force: true });
@@ -148,16 +150,19 @@ describe('admin routes', () => {
     }
   });
 
-  function request(app: express.Express | Server) {
-    if (typeof app !== 'function') return supertest(app);
+  async function ensureListening(app: express.Express): Promise<Server> {
     let server = requestServers.get(app);
     if (!server) {
-      // Match Supertest's synchronous bind, keeping one listener for the whole fixture.
-      server = app.listen(0);
+      // Reserve the same IPv4 address Supertest connects to, including on Darwin.
+      server = app.listen(0, '127.0.0.1');
       requestServers.set(app, server);
-      if (!server.address()) throw new Error('Admin route test server did not bind synchronously');
     }
-    return supertest(server);
+    if (!server.listening) await once(server, 'listening');
+    return server;
+  }
+
+  async function request(app: express.Express | Server) {
+    return supertest(typeof app === 'function' ? await ensureListening(app) : app);
   }
 
   function mountAdminRoutes(
@@ -279,12 +284,31 @@ describe('admin routes', () => {
     return assetsRoot;
   }
 
+  it('reserves its IPv4 listener against a competing fixture and preserves admin authorization', async () => {
+    const app = mountAdminRoutes();
+    await request(app);
+    const server = requestServers.get(app)!;
+    const address = server.address() as AddressInfo;
+    expect(address).toMatchObject({ address: '127.0.0.1', family: 'IPv4' });
+    const contender = express().listen(address.port, '127.0.0.1');
+    try {
+      await expect(once(contender, 'listening')).rejects.toMatchObject({ code: 'EADDRINUSE' });
+      expect(contender.listening).toBe(false);
+    } finally {
+      if (contender.listening) await new Promise<void>((resolve) => contender.close(() => resolve()));
+    }
+    expect((await (await request(app)).get('/admin/api/logs/snapshot')).status).toBe(401);
+    expect(requestServers.get(app)).toBe(server);
+  });
+
   it('rejects new browser and CLI admin mutations with a retryable drain response', async () => {
     const app = mountAdminRoutes();
     const login = vi.spyOn(adminService, 'login');
     runtimeAdmission.close();
     try {
-      const browser = await request(app)
+      const browser = await (
+        await request(app)
+      )
         .post('/admin/api/session/login')
         .send({ username: 'operator', password: 'correct horse battery staple' });
       expect(browser.status).toBe(503);
@@ -293,7 +317,7 @@ describe('admin routes', () => {
         retryable: true,
         details: { reason: 'runtime_draining' },
       });
-      const cli = await request(app).post('/admin/cli/v1/session/login').send({});
+      const cli = await (await request(app)).post('/admin/cli/v1/session/login').send({});
       expect(cli.status).toBe(503);
       expect(cli.body).toMatchObject({
         ok: false,
@@ -344,24 +368,30 @@ describe('admin routes', () => {
       activateTemplate,
     } as unknown as AdminInstructionTemplateOperations;
     const app = mountAdminRoutes({ instructionTemplateService: service });
-    expect((await request(app).get('/admin/api/instruction-templates')).status).toBe(401);
+    expect((await (await request(app)).get('/admin/api/instruction-templates')).status).toBe(401);
 
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
-    const login = await request(app)
+    const login = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = login.headers['set-cookie'][0];
-    expect((await request(app).get('/admin/api/instruction-templates').set('Cookie', cookie)).status).toBe(200);
+    expect((await (await request(app)).get('/admin/api/instruction-templates').set('Cookie', cookie)).status).toBe(200);
     expect(
       (
-        await request(app)
+        await (
+          await request(app)
+        )
           .post('/admin/api/instruction-templates/team/activate')
           .set('Cookie', cookie)
           .send({ expectedConfigFingerprint: 'config-1', previewFingerprint: 'preview-1' })
       ).status,
     ).toBe(403);
 
-    const response = await request(app)
+    const response = await (
+      await request(app)
+    )
       .post('/admin/api/instruction-templates/team/activate')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', login.body.csrfToken)
@@ -397,11 +427,15 @@ describe('admin routes', () => {
     });
     const app = mountAdminRoutes();
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
-    const login = await request(app)
+    const login = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
 
-    const response = await request(app)
+    const response = await (
+      await request(app)
+    )
       .post('/admin/api/configured-servers/mcpTemplates/shared/preview')
       .set('Cookie', login.headers['set-cookie'][0])
       .set('X-CSRF-Token', login.body.csrfToken)
@@ -434,11 +468,11 @@ describe('admin routes', () => {
       app.use('/admin', adminRoutes);
     }
 
-    expect((await request(app).get('/admin')).status).toBe(404);
-    expect((await request(app).get('/admin/cli/v1/capabilities')).status).toBe(404);
-    expect((await request(app).post('/admin/cli/v1/session/login').send({})).status).toBe(404);
-    expect((await request(app).get('/admin/cli/v1/session/status')).status).toBe(404);
-    expect((await request(app).post('/admin/cli/v1/session/logout')).status).toBe(404);
+    expect((await (await request(app)).get('/admin')).status).toBe(404);
+    expect((await (await request(app)).get('/admin/cli/v1/capabilities')).status).toBe(404);
+    expect((await (await request(app)).post('/admin/cli/v1/session/login').send({})).status).toBe(404);
+    expect((await (await request(app)).get('/admin/cli/v1/session/status')).status).toBe(404);
+    expect((await (await request(app)).post('/admin/cli/v1/session/logout')).status).toBe(404);
     expect(adminService.validateSession(login.sessionToken)).toBeNull();
   });
 
@@ -450,12 +484,14 @@ describe('admin routes', () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes({ backendLogBroker: broker });
 
-    expect((await request(app).get('/admin/api/logs/snapshot')).status).toBe(401);
-    const login = await request(app)
+    expect((await (await request(app)).get('/admin/api/logs/snapshot')).status).toBe(401);
+    const login = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = login.headers['set-cookie'][0];
-    const snapshot = await request(app).get('/admin/api/logs/snapshot').set('Cookie', cookie);
+    const snapshot = await (await request(app)).get('/admin/api/logs/snapshot').set('Cookie', cookie);
 
     expect(snapshot.status).toBe(200);
     expect(snapshot.body).toEqual({
@@ -475,15 +511,21 @@ describe('admin routes', () => {
     broker.publish({ sourceId: search.id, kind: 'line', content: 'search entry' });
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes({ backendLogBroker: broker });
-    const login = await request(app)
+    const login = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
 
-    const filtered = await request(app)
+    const filtered = await (
+      await request(app)
+    )
       .get('/admin/api/logs/snapshot')
       .query({ sourceId: filesystem.id })
       .set('Cookie', login.headers['set-cookie'][0]);
-    const invalid = await request(app)
+    const invalid = await (
+      await request(app)
+    )
       .get('/admin/api/logs/snapshot?sourceId=')
       .set('Cookie', login.headers['set-cookie'][0]);
 
@@ -497,13 +539,15 @@ describe('admin routes', () => {
   it('returns unavailable for authenticated backend log routes when no broker is configured', async () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes();
-    const login = await request(app)
+    const login = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = login.headers['set-cookie'][0];
 
-    const snapshotResponse = await request(app).get('/admin/api/logs/snapshot').set('Cookie', cookie);
-    const streamResponse = await request(app).get('/admin/api/logs/stream').set('Cookie', cookie);
+    const snapshotResponse = await (await request(app)).get('/admin/api/logs/snapshot').set('Cookie', cookie);
+    const streamResponse = await (await request(app)).get('/admin/api/logs/stream').set('Cookie', cookie);
 
     expect(snapshotResponse.status).toBe(404);
     expect(snapshotResponse.body).toEqual({ error: 'admin_backend_logs_unavailable' });
@@ -514,18 +558,20 @@ describe('admin routes', () => {
     let broker = new BackendLogBroker();
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes({ getBackendLogBroker: () => broker });
-    const login = await request(app)
+    const login = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = login.headers['set-cookie'][0];
 
-    expect((await request(app).get('/admin/api/logs/snapshot').set('Cookie', cookie)).body.sequence).toBe(0);
+    expect((await (await request(app)).get('/admin/api/logs/snapshot').set('Cookie', cookie)).body.sequence).toBe(0);
     broker = new BackendLogBroker();
     const source = staticBackendLogSource('replacement');
     broker.registerSource(source);
     broker.publish({ sourceId: source.id, kind: 'line', content: 'replacement entry' });
 
-    expect((await request(app).get('/admin/api/logs/snapshot').set('Cookie', cookie)).body).toEqual(
+    expect((await (await request(app)).get('/admin/api/logs/snapshot').set('Cookie', cookie)).body).toEqual(
       expect.objectContaining({ sequence: 1, entries: [expect.objectContaining({ sourceId: source.id })] }),
     );
   });
@@ -539,14 +585,15 @@ describe('admin routes', () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes({ backendLogBroker: broker });
 
-    expect((await request(app).get('/admin/api/logs/stream')).status).toBe(401);
-    const login = await request(app)
+    expect((await (await request(app)).get('/admin/api/logs/stream')).status).toBe(401);
+    const login = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
-    const server = app.listen(0, '127.0.0.1');
+    const server = await ensureListening(app);
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     try {
-      await new Promise<void>((resolve) => server.once('listening', resolve));
       const address = server.address();
       if (!address || typeof address === 'string') throw new Error('Admin route test server did not bind');
       const response = await fetch(`http://127.0.0.1:${address.port}/admin/api/logs/stream`, {
@@ -587,12 +634,13 @@ describe('admin routes', () => {
     broker.publish({ sourceId: source.id, kind: 'line', content: 'evicted' });
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes({ backendLogBroker: broker });
-    const login = await request(app)
+    const login = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
-    const server = app.listen(0, '127.0.0.1');
+    const server = await ensureListening(app);
     try {
-      await new Promise<void>((resolve) => server.once('listening', resolve));
       const address = server.address();
       if (!address || typeof address === 'string') throw new Error('Admin route test server did not bind');
       const response = await fetch(`http://127.0.0.1:${address.port}/admin/api/logs/stream`, {
@@ -622,7 +670,7 @@ describe('admin routes', () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes();
 
-    const response = await request(app).get('/admin/cli/v1/capabilities').set('X-Request-Id', 'req_caps');
+    const response = await (await request(app)).get('/admin/cli/v1/capabilities').set('X-Request-Id', 'req_caps');
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
@@ -680,8 +728,8 @@ describe('admin routes', () => {
       app.use('/admin', adminRoutes);
     }
 
-    const adminResponse = await request(app).get('/admin');
-    const capabilitiesResponse = await request(app).get('/admin/cli/v1/capabilities');
+    const adminResponse = await (await request(app)).get('/admin');
+    const capabilitiesResponse = await (await request(app)).get('/admin/cli/v1/capabilities');
 
     expect(adminResponse.status).toBe(200);
     expect(adminResponse.headers['content-type']).toContain('text/html');
@@ -729,7 +777,7 @@ describe('admin routes', () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes({ adminConsoleAssetsDir: createAdminAssetFixture() });
 
-    const response = await request(app).get('/admin');
+    const response = await (await request(app)).get('/admin');
 
     expect(response.status).toBe(200);
     expect(response.headers['content-type']).toContain('text/html');
@@ -745,7 +793,7 @@ describe('admin routes', () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes({ adminConsoleAssetsDir: createAdminAssetFixture(`${storageDir}/.worktrees`) });
 
-    const response = await request(app).get('/admin');
+    const response = await (await request(app)).get('/admin');
 
     expect(response.status).toBe(200);
     expect(response.headers['content-type']).toContain('text/html');
@@ -756,7 +804,7 @@ describe('admin routes', () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes({ adminConsoleAssetsDir: createAdminAssetFixture() });
 
-    const response = await request(app).get('/admin/workflows/runtime');
+    const response = await (await request(app)).get('/admin/workflows/runtime');
 
     expect(response.status).toBe(200);
     expect(response.headers['content-type']).toContain('text/html');
@@ -767,7 +815,7 @@ describe('admin routes', () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes({ adminConsoleAssetsDir: createAdminAssetFixture() });
 
-    const response = await request(app).get('/admin/assets/admin-console.js');
+    const response = await (await request(app)).get('/admin/assets/admin-console.js');
 
     expect(response.status).toBe(200);
     expect(response.headers['content-type']).toContain('javascript');
@@ -787,9 +835,9 @@ describe('admin routes', () => {
     };
     const app = mountAdminRoutes();
 
-    const indexResponse = await request(app).get('/admin/');
-    const jsResponse = await request(app).get('/admin/assets/admin-console.js');
-    const cssResponse = await request(app).get('/admin/assets/admin-console.css');
+    const indexResponse = await (await request(app)).get('/admin/');
+    const jsResponse = await (await request(app)).get('/admin/assets/admin-console.js');
+    const cssResponse = await (await request(app)).get('/admin/assets/admin-console.css');
 
     expect(indexResponse.status).toBe(200);
     expect(indexResponse.text).toContain('/admin/assets/admin-console.js');
@@ -813,7 +861,7 @@ describe('admin routes', () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes({ adminConsoleAssetsDir: createAdminAssetFixture() });
 
-    const response = await request(app).get('/admin/assets/missing.js');
+    const response = await (await request(app)).get('/admin/assets/missing.js');
 
     expect(response.status).toBe(404);
     expect(response.headers['content-type']).toContain('text/plain');
@@ -824,8 +872,8 @@ describe('admin routes', () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes({ adminConsoleAssetsDir: createAdminAssetFixture() });
 
-    const sessionResponse = await request(app).get('/admin/api/session');
-    const capabilitiesResponse = await request(app).get('/admin/cli/v1/capabilities');
+    const sessionResponse = await (await request(app)).get('/admin/api/session');
+    const capabilitiesResponse = await (await request(app)).get('/admin/cli/v1/capabilities');
 
     expect(sessionResponse.status).toBe(200);
     expect(sessionResponse.body).toEqual({ authenticated: false });
@@ -847,13 +895,15 @@ describe('admin routes', () => {
   it('does not fall unknown admin API or CLI paths back to the SPA entrypoint', async () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes({ adminConsoleAssetsDir: createAdminAssetFixture() });
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = loginResponse.headers['set-cookie']?.[0] as string;
 
-    const apiResponse = await request(app).get('/admin/api/unknown').set('Cookie', cookie);
-    const cliResponse = await request(app).get('/admin/cli/v1/unknown');
+    const apiResponse = await (await request(app)).get('/admin/api/unknown').set('Cookie', cookie);
+    const cliResponse = await (await request(app)).get('/admin/cli/v1/unknown');
 
     expect(apiResponse.status).toBe(404);
     expect(apiResponse.text).not.toContain('<div id="admin-root"></div>');
@@ -864,7 +914,7 @@ describe('admin routes', () => {
   it('serves setup-required state through the admin session API without account management facts', async () => {
     const app = mountAdminRoutes({ adminConsoleAssetsDir: createAdminAssetFixture() });
 
-    const response = await request(app).get('/admin/api/session');
+    const response = await (await request(app)).get('/admin/api/session');
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ authenticated: false, adminStatus: 'setupRequired' });
@@ -875,7 +925,7 @@ describe('admin routes', () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes({ adminConsoleAssetsDir: createAdminAssetFixture() });
 
-    const response = await request(app).get('/admin');
+    const response = await (await request(app)).get('/admin');
 
     expect(response.text).not.toContain('document.visibilityState');
     expect(response.text).not.toContain('async function enableServer');
@@ -886,7 +936,9 @@ describe('admin routes', () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes();
 
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
 
@@ -903,7 +955,7 @@ describe('admin routes', () => {
     expect(cookie).toContain('SameSite=Strict');
     expect(cookie).toContain('Secure');
 
-    const currentResponse = await request(app).get('/admin/api/session').set('Cookie', cookie);
+    const currentResponse = await (await request(app)).get('/admin/api/session').set('Cookie', cookie);
     expect(currentResponse.status).toBe(200);
     expect(currentResponse.body).toMatchObject({
       authenticated: true,
@@ -911,10 +963,12 @@ describe('admin routes', () => {
       csrfToken: loginResponse.body.csrfToken,
     });
 
-    const rejectedLogout = await request(app).post('/admin/api/session/logout').set('Cookie', cookie);
+    const rejectedLogout = await (await request(app)).post('/admin/api/session/logout').set('Cookie', cookie);
     expect(rejectedLogout.status).toBe(403);
 
-    const logoutResponse = await request(app)
+    const logoutResponse = await (
+      await request(app)
+    )
       .post('/admin/api/session/logout')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', loginResponse.body.csrfToken);
@@ -928,14 +982,18 @@ describe('admin routes', () => {
     const app = mountAdminRoutes();
 
     for (let attempt = 0; attempt < 5; attempt++) {
-      const response = await request(app)
+      const response = await (
+        await request(app)
+      )
         .post('/admin/api/session/login')
         .set('Origin', `https://console-${attempt}.example.com`)
         .send({ username: 'operator', password: 'wrong password' });
       expect(response.status).toBe(401);
     }
 
-    const limitedResponse = await request(app)
+    const limitedResponse = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .set('Origin', 'https://rotated-console.example.com')
       .send({ username: 'operator', password: 'correct horse battery staple' });
@@ -950,10 +1008,14 @@ describe('admin routes', () => {
       rateLimit: rateLimitPolicy({ login: { maxRequests: 100, maxFailedAttempts: 1 } }),
     });
 
-    const failed = await request(app)
+    const failed = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/session/login')
       .send({ username: ' operator ', password: 'wrong password' });
-    const limited = await request(app)
+    const limited = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
 
@@ -969,11 +1031,15 @@ describe('admin routes', () => {
       rateLimit: rateLimitPolicy({ login: { maxRequests: 100, maxFailedAttempts: 1 } }),
     });
 
-    const failed = await request(app)
+    const failed = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .set('X-Forwarded-For', '203.0.113.10')
       .send({ username: 'operator', password: 'wrong password' });
-    const differentClient = await request(app)
+    const differentClient = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .set('X-Forwarded-For', '198.51.100.20')
       .send({ username: 'operator', password: 'correct horse battery staple' });
@@ -989,11 +1055,15 @@ describe('admin routes', () => {
       rateLimit: rateLimitPolicy({ login: { maxRequests: 100, maxFailedAttempts: 1 } }),
     });
 
-    const failed = await request(app)
+    const failed = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .set('X-Forwarded-For', '203.0.113.10')
       .send({ username: 'operator', password: 'wrong password' });
-    const collapsedClient = await request(app)
+    const collapsedClient = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .set('X-Forwarded-For', '198.51.100.20')
       .send({ username: 'operator', password: 'correct horse battery staple' });
@@ -1008,10 +1078,14 @@ describe('admin routes', () => {
     const firstApp = mountAdminRoutes({ rateLimit: policy });
     const secondApp = mountAdminRoutes({ rateLimit: policy });
 
-    const failed = await request(firstApp)
+    const failed = await (
+      await request(firstApp)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'wrong password' });
-    const isolated = await request(secondApp)
+    const isolated = await (
+      await request(secondApp)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
 
@@ -1025,10 +1099,14 @@ describe('admin routes', () => {
       rateLimit: rateLimitPolicy({ login: { maxRequests: 1, maxFailedAttempts: 100 } }),
     });
 
-    const failed = await request(app)
+    const failed = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'wrong password' });
-    const burstLimited = await request(app)
+    const burstLimited = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/session/login')
       .send({ username: 'other-operator', password: 'wrong password' });
 
@@ -1042,14 +1120,16 @@ describe('admin routes', () => {
     const app = mountAdminRoutes({
       rateLimit: rateLimitPolicy({ status: { maxRequests: 1 } }),
     });
-    const login = await request(app)
+    const login = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = login.headers['set-cookie']?.[0] as string;
 
-    const status = await request(app).get('/admin/api/status').set('Cookie', cookie);
-    const snapshot = await request(app).get('/admin/api/logs/snapshot').set('Cookie', cookie);
-    const session = await request(app).get('/admin/api/session').set('Cookie', cookie);
+    const status = await (await request(app)).get('/admin/api/status').set('Cookie', cookie);
+    const snapshot = await (await request(app)).get('/admin/api/logs/snapshot').set('Cookie', cookie);
+    const session = await (await request(app)).get('/admin/api/session').set('Cookie', cookie);
 
     expect(status.status).toBe(200);
     expect(snapshot.status).toBe(429);
@@ -1065,22 +1145,28 @@ describe('admin routes', () => {
     const app = mountAdminRoutes({
       rateLimit: rateLimitPolicy({ sensitive: { maxRequests: 1 } }),
     });
-    const login = await request(app)
+    const login = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = login.headers['set-cookie']?.[0] as string;
 
-    const authorized = await request(app)
+    const authorized = await (
+      await request(app)
+    )
       .post('/admin/api/oauth/github/authorize')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', login.body.csrfToken as string)
       .set('Idempotency-Key', 'oauth-authorize-policy');
-    const limited = await request(app)
+    const limited = await (
+      await request(app)
+    )
       .post('/admin/api/oauth/github/restart')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', login.body.csrfToken as string)
       .set('Idempotency-Key', 'oauth-restart-policy');
-    const unaffected = await request(app).get('/admin/api/session').set('Cookie', cookie);
+    const unaffected = await (await request(app)).get('/admin/api/session').set('Cookie', cookie);
 
     expect(authorized.status).toBe(200);
     expect(limited.status).toBe(429);
@@ -1095,7 +1181,7 @@ describe('admin routes', () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes();
 
-    const response = await request(app).get('/admin/api/status');
+    const response = await (await request(app)).get('/admin/api/status');
 
     expect(response.status).toBe(401);
     expect(response.body).toEqual({ authenticated: false });
@@ -1105,7 +1191,9 @@ describe('admin routes', () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes({ externalUrl: 'http://localhost:3050' });
 
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
 
@@ -1117,7 +1205,9 @@ describe('admin routes', () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes();
 
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/session/login')
       .set('X-Request-Id', 'req_cli_login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
@@ -1143,7 +1233,9 @@ describe('admin routes', () => {
       /password|hash|disabled|createdAt|updatedAt|id/i,
     );
 
-    const invalidResponse = await request(app)
+    const invalidResponse = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/session/login')
       .set('X-Request-Id', 'req_cli_bad_login')
       .send({ username: 'operator', password: 'wrong password' });
@@ -1171,10 +1263,14 @@ describe('admin routes', () => {
     const login = vi.spyOn(adminService, 'login');
     const app = mountAdminRoutes();
 
-    const browserResponse = await request(app)
+    const browserResponse = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'x'.repeat(257), password: 'wrong password' });
-    const cliResponse = await request(app)
+    const cliResponse = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/session/login')
       .send({ username: 'operator', password: 123 });
 
@@ -1189,25 +1285,35 @@ describe('admin routes', () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const validateSpy = vi.spyOn(adminService, 'validateSession');
     const app = mountAdminRoutes();
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const sessionToken = loginResponse.body.result.sessionToken as string;
     validateSpy.mockClear();
 
-    const authenticatedResponse = await request(app)
+    const authenticatedResponse = await (
+      await request(app)
+    )
       .get('/admin/cli/v1/session/status')
       .set('Authorization', `Bearer ${sessionToken}`)
       .set('X-Request-Id', 'req_cli_status');
-    const unauthenticatedResponse = await request(app)
+    const unauthenticatedResponse = await (
+      await request(app)
+    )
       .get('/admin/cli/v1/session/status')
       .set('Authorization', 'Bearer admin_sess_missing')
       .set('X-Request-Id', 'req_cli_status_missing');
-    const spacedResponse = await request(app)
+    const spacedResponse = await (
+      await request(app)
+    )
       .get('/admin/cli/v1/session/status')
       .set('Authorization', `Bearer${' '.repeat(2048)}${sessionToken}`)
       .set('X-Request-Id', 'req_cli_status_spaced');
-    const malformedResponse = await request(app)
+    const malformedResponse = await (
+      await request(app)
+    )
       .get('/admin/cli/v1/session/status')
       .set('Authorization', `Bearer\t${sessionToken}`)
       .set('X-Request-Id', 'req_cli_status_malformed');
@@ -1256,13 +1362,17 @@ describe('admin routes', () => {
   it('logs out through the CLI adapter by revoking the bearer session server-side', async () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes();
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const sessionToken = loginResponse.body.result.sessionToken as string;
     expect(adminService.validateSession(sessionToken)).not.toBeNull();
 
-    const logoutResponse = await request(app)
+    const logoutResponse = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/session/logout')
       .set('Authorization', `Bearer ${sessionToken}`)
       .set('X-Request-Id', 'req_cli_logout');
@@ -1329,23 +1439,31 @@ describe('admin routes', () => {
       },
     });
     const app = mountAdminRoutes();
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const sessionToken = loginResponse.body.result.sessionToken as string;
 
-    const rejected = await request(app)
+    const rejected = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/operations/enable-server')
       .set('X-Request-Id', 'req_cli_enable_rejected')
       .set('Idempotency-Key', 'enable-key')
       .send({ targetName: 'filesystem' });
-    const enabled = await request(app)
+    const enabled = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/operations/enable-server')
       .set('Authorization', `Bearer ${sessionToken}`)
       .set('X-Request-Id', 'req_cli_enable')
       .set('Idempotency-Key', 'enable-key')
       .send({ targetName: 'filesystem' });
-    const disabled = await request(app)
+    const disabled = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/operations/disable-server')
       .set('Authorization', `Bearer ${sessionToken}`)
       .set('X-Request-Id', 'req_cli_disable')
@@ -1525,30 +1643,40 @@ describe('admin routes', () => {
         },
       });
     const app = mountAdminRoutes();
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const sessionToken = loginResponse.body.result.sessionToken as string;
 
-    const restarted = await request(app)
+    const restarted = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/operations/restart-server')
       .set('Authorization', `Bearer ${sessionToken}`)
       .set('X-Request-Id', 'req_cli_restart')
       .set('Idempotency-Key', 'restart-key')
       .send({ targetName: 'github', instance: 'abcdef012345' });
-    const ambiguous = await request(app)
+    const ambiguous = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/operations/restart-server')
       .set('Authorization', `Bearer ${sessionToken}`)
       .set('X-Request-Id', 'req_cli_restart_ambiguous')
       .set('Idempotency-Key', 'restart-key-ambiguous')
       .send({ targetName: 'github', instance: 'abcdef' });
-    const healthy = await request(app)
+    const healthy = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/operations/restart-server')
       .set('Authorization', `Bearer ${sessionToken}`)
       .set('X-Request-Id', 'req_cli_restart_healthy')
       .set('Idempotency-Key', 'restart-key-healthy')
       .send({ targetName: 'github' });
-    const disabled = await request(app)
+    const disabled = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/operations/restart-server')
       .set('Authorization', `Bearer ${sessionToken}`)
       .set('X-Request-Id', 'req_cli_restart_disabled')
@@ -1605,11 +1733,15 @@ describe('admin routes', () => {
   it('rejects conflicting backend restart selectors before invoking the domain operation', async () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes();
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
 
-    const response = await request(app)
+    const response = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/operations/restart-server')
       .set('Authorization', `Bearer ${loginResponse.body.result.sessionToken}`)
       .send({ targetName: 'github', instance: 'abcdef', allInstances: true });
@@ -1646,11 +1778,15 @@ describe('admin routes', () => {
       },
     });
     const app = mountAdminRoutes();
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
 
-    const response = await request(app)
+    const response = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/operations/enable-server')
       .set('Authorization', `Bearer ${loginResponse.body.result.sessionToken}`)
       .set('X-Request-Id', 'req_cli_preview')
@@ -1686,11 +1822,15 @@ describe('admin routes', () => {
   it('rejects a non-boolean CLI dryRun without invoking a live mutation', async () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes();
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
 
-    const response = await request(app)
+    const response = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/operations/enable-server')
       .set('Authorization', `Bearer ${loginResponse.body.result.sessionToken}`)
       .send({ targetName: 'filesystem', dryRun: 'true' });
@@ -1711,11 +1851,15 @@ describe('admin routes', () => {
       retryAfterMs: 250,
     });
     const app = mountAdminRoutes();
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
 
-    const response = await request(app)
+    const response = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/operations/enable-server')
       .set('Authorization', `Bearer ${loginResponse.body.result.sessionToken}`)
       .set('X-Request-Id', 'req_cli_recovery')
@@ -1768,11 +1912,15 @@ describe('admin routes', () => {
       },
     });
     const app = mountAdminRoutes();
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
 
-    const response = await request(app)
+    const response = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/operations/enable-server')
       .set('Authorization', `Bearer ${loginResponse.body.result.sessionToken}`)
       .set('X-Request-Id', 'req_cli_large_success')
@@ -1811,11 +1959,15 @@ describe('admin routes', () => {
       error: oversizedValue,
     });
     const app = mountAdminRoutes();
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
 
-    const response = await request(app)
+    const response = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/operations/enable-server')
       .set('Authorization', `Bearer ${loginResponse.body.result.sessionToken}`)
       .set('X-Request-Id', 'req_cli_large_error')
@@ -1850,12 +2002,20 @@ describe('admin routes', () => {
         reason: 'writer_lock_unavailable',
       },
     });
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
 
-    const capabilities = await request(app).get('/admin/cli/v1/capabilities').set('X-Request-Id', 'req_caps_locked');
-    const mutation = await request(app)
+    const capabilities = await (
+      await request(app)
+    )
+      .get('/admin/cli/v1/capabilities')
+      .set('X-Request-Id', 'req_caps_locked');
+    const mutation = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/operations/enable-server')
       .set('Authorization', `Bearer ${loginResponse.body.result.sessionToken}`)
       .set('X-Request-Id', 'req_cli_locked')
@@ -1921,16 +2081,22 @@ describe('admin routes', () => {
       },
     });
     const app = mountAdminRoutes();
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
 
-    await request(app)
+    await (
+      await request(app)
+    )
       .post('/admin/cli/v1/operations/enable-server')
       .set('Authorization', `Bearer ${loginResponse.body.result.sessionToken}`)
       .set('Idempotency-Key', 'enable-key-a')
       .send({ targetName: 'filesystem', ignored: 'first' });
-    await request(app)
+    await (
+      await request(app)
+    )
       .post('/admin/cli/v1/operations/enable-server')
       .set('Authorization', `Bearer ${loginResponse.body.result.sessionToken}`)
       .set('Idempotency-Key', 'enable-key-b')
@@ -1949,12 +2115,20 @@ describe('admin routes', () => {
   it('does not advertise or expose CLI configured-server mutations when the service is unavailable', async () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes({ configuredServerService: null });
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
 
-    const capabilities = await request(app).get('/admin/cli/v1/capabilities').set('X-Request-Id', 'req_caps_no_mcp');
-    const mutation = await request(app)
+    const capabilities = await (
+      await request(app)
+    )
+      .get('/admin/cli/v1/capabilities')
+      .set('X-Request-Id', 'req_caps_no_mcp');
+    const mutation = await (
+      await request(app)
+    )
       .post('/admin/cli/v1/operations/enable-server')
       .set('Authorization', `Bearer ${loginResponse.body.result.sessionToken}`)
       .set('X-Request-Id', 'req_cli_no_mcp')
@@ -1995,15 +2169,21 @@ describe('admin routes', () => {
   it('rejects unsafe admin API requests without a valid session-bound CSRF token', async () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes();
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = loginResponse.headers['set-cookie']?.[0] as string;
 
-    expect((await request(app).post('/admin/api/session/logout').set('Cookie', cookie).send({})).status).toBe(403);
+    expect((await (await request(app)).post('/admin/api/session/logout').set('Cookie', cookie).send({})).status).toBe(
+      403,
+    );
     expect(
       (
-        await request(app)
+        await (
+          await request(app)
+        )
           .post('/admin/api/session/logout')
           .set('Cookie', cookie)
           .set('X-CSRF-Token', 'admin_csrf_wrong')
@@ -2015,12 +2195,16 @@ describe('admin routes', () => {
   it('does not expose password management from the browser API', async () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes();
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = loginResponse.headers['set-cookie']?.[0] as string;
 
-    const passwordResponse = await request(app)
+    const passwordResponse = await (
+      await request(app)
+    )
       .post('/admin/api/session/password')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', loginResponse.body.csrfToken)
@@ -2036,16 +2220,22 @@ describe('admin routes', () => {
       password: 'correct horse battery staple',
     });
     const app = mountAdminRoutes();
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = loginResponse.headers['set-cookie']?.[0] as string;
 
-    const disableResponse = await request(app)
+    const disableResponse = await (
+      await request(app)
+    )
       .post(`/admin/api/accounts/${account.id}/disable`)
       .set('Cookie', cookie)
       .set('X-CSRF-Token', loginResponse.body.csrfToken);
-    const deleteResponse = await request(app)
+    const deleteResponse = await (
+      await request(app)
+    )
       .delete(`/admin/api/accounts/${account.id}`)
       .set('Cookie', cookie)
       .set('X-CSRF-Token', loginResponse.body.csrfToken);
@@ -2097,12 +2287,14 @@ describe('admin routes', () => {
       },
     });
     const app = mountAdminRoutes();
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = loginResponse.headers['set-cookie']?.[0] as string;
 
-    const response = await request(app).get('/admin/api/configured-servers').set('Cookie', cookie);
+    const response = await (await request(app)).get('/admin/api/configured-servers').set('Cookie', cookie);
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
@@ -2250,12 +2442,16 @@ describe('admin routes', () => {
       },
     });
     const app = mountAdminRoutes();
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = loginResponse.headers['set-cookie']?.[0] as string;
 
-    const response = await request(app)
+    const response = await (
+      await request(app)
+    )
       .get('/admin/api/configured-servers/github%2Fapi%20server')
       .query({ model: 'gpt-4o-mini' })
       .set('Cookie', cookie);
@@ -2328,22 +2524,30 @@ describe('admin routes', () => {
     });
     const app = mountAdminRoutes();
 
-    const unauthenticated = await request(app)
+    const unauthenticated = await (
+      await request(app)
+    )
       .post('/admin/api/configured-servers/mcpTemplates/project/tool-inventory/refresh')
       .send({ model: 'gpt-4o-mini' });
     expect(unauthenticated.status).toBe(401);
 
-    const login = await request(app)
+    const login = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = login.headers['set-cookie']?.[0] as string;
-    const csrfRejected = await request(app)
+    const csrfRejected = await (
+      await request(app)
+    )
       .post('/admin/api/configured-servers/mcpTemplates/project/tool-inventory/refresh')
       .set('Cookie', cookie)
       .send({ model: 'gpt-4o-mini' });
     expect(csrfRejected.status).toBe(403);
 
-    const response = await request(app)
+    const response = await (
+      await request(app)
+    )
       .post('/admin/api/configured-servers/mcpTemplates/project/tool-inventory/refresh')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', login.body.csrfToken)
@@ -2372,12 +2576,14 @@ describe('admin routes', () => {
       new AdminConfiguredServerNotFoundError('missing'),
     );
     const app = mountAdminRoutes();
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = loginResponse.headers['set-cookie']?.[0] as string;
 
-    const response = await request(app).get('/admin/api/configured-servers/missing').set('Cookie', cookie);
+    const response = await (await request(app)).get('/admin/api/configured-servers/missing').set('Cookie', cookie);
 
     expect(response.status).toBe(404);
     expect(response.body).toEqual({
@@ -2409,10 +2615,14 @@ describe('admin routes', () => {
       result: { qualifiedId: 'mcpTemplates/project' },
     } as Awaited<ReturnType<NonNullable<AdminConfiguredServerOperations['deleteConfiguredServer']>>>);
     const app = mountAdminRoutes();
-    const unauthenticatedPreview = await request(app)
+    const unauthenticatedPreview = await (
+      await request(app)
+    )
       .post('/admin/api/configured-servers/mcpTemplates/project/delete-preview')
       .send({});
-    const unauthenticatedDelete = await request(app)
+    const unauthenticatedDelete = await (
+      await request(app)
+    )
       .delete('/admin/api/configured-servers/mcpTemplates/project')
       .set('Idempotency-Key', 'delete-project-unauthenticated')
       .send({
@@ -2425,15 +2635,21 @@ describe('admin routes', () => {
     expect(unauthenticatedPreview.status).toBe(401);
     expect(unauthenticatedDelete.status).toBe(401);
 
-    const login = await request(app)
+    const login = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = login.headers['set-cookie']?.[0] as string;
-    const csrfRejectedPreview = await request(app)
+    const csrfRejectedPreview = await (
+      await request(app)
+    )
       .post('/admin/api/configured-servers/mcpTemplates/project/delete-preview')
       .set('Cookie', cookie)
       .send({});
-    const csrfRejectedDelete = await request(app)
+    const csrfRejectedDelete = await (
+      await request(app)
+    )
       .delete('/admin/api/configured-servers/mcpTemplates/project')
       .set('Cookie', cookie)
       .set('Idempotency-Key', 'delete-project-no-csrf')
@@ -2449,23 +2665,31 @@ describe('admin routes', () => {
     expect(configuredServerService.previewConfiguredServerDelete).not.toHaveBeenCalled();
     expect(configuredServerService.deleteConfiguredServer).not.toHaveBeenCalled();
 
-    const preview = await request(app)
+    const preview = await (
+      await request(app)
+    )
       .post('/admin/api/configured-servers/mcpTemplates/project/delete-preview')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', login.body.csrfToken)
       .send({});
-    const missingKey = await request(app)
+    const missingKey = await (
+      await request(app)
+    )
       .delete('/admin/api/configured-servers/mcpTemplates/project')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', login.body.csrfToken)
       .send({ previewFingerprint: 'delete_preview_1' });
-    const malformed = await request(app)
+    const malformed = await (
+      await request(app)
+    )
       .delete('/admin/api/configured-servers/mcpTemplates/project')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', login.body.csrfToken)
       .set('Idempotency-Key', 'delete-project-malformed')
       .send({ previewFingerprint: '', confirmationFacts: { targetIdentityConfirmed: 42 } });
-    const missingPreview = await request(app)
+    const missingPreview = await (
+      await request(app)
+    )
       .delete('/admin/api/configured-servers/mcpTemplates/project')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', login.body.csrfToken)
@@ -2476,13 +2700,17 @@ describe('admin routes', () => {
           targetIdentityConfirmed: 'mcpTemplates/project',
         },
       });
-    const missingConfirmation = await request(app)
+    const missingConfirmation = await (
+      await request(app)
+    )
       .delete('/admin/api/configured-servers/mcpTemplates/project')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', login.body.csrfToken)
       .set('Idempotency-Key', 'delete-project-missing-confirmation')
       .send({ previewFingerprint: 'delete_preview_1' });
-    const applied = await request(app)
+    const applied = await (
+      await request(app)
+    )
       .delete('/admin/api/configured-servers/mcpTemplates/project')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', login.body.csrfToken)
@@ -2548,16 +2776,22 @@ describe('admin routes', () => {
       result: { qualifiedId: 'mcpTemplates/project' },
     } as Awaited<ReturnType<NonNullable<AdminConfiguredServerOperations['applyConfiguredServerLifecycle']>>>);
     const app = mountAdminRoutes();
-    const login = await request(app)
+    const login = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = login.headers['set-cookie']?.[0] as string;
-    const preview = await request(app)
+    const preview = await (
+      await request(app)
+    )
       .post('/admin/api/configured-servers/mcpTemplates/project/lifecycle-preview')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', login.body.csrfToken)
       .send({ enabled: false });
-    const applied = await request(app)
+    const applied = await (
+      await request(app)
+    )
       .post('/admin/api/configured-servers/mcpTemplates/project/lifecycle')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', login.body.csrfToken)
@@ -2637,12 +2871,14 @@ describe('admin routes', () => {
       }),
     );
     const app = mountAdminRoutes();
-    const login = await request(app)
+    const login = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = login.headers['set-cookie']?.[0] as string;
-    const sendLifecycle = (body: Record<string, unknown>) =>
-      request(app)
+    const sendLifecycle = async (body: Record<string, unknown>) =>
+      (await request(app))
         .post('/admin/api/configured-servers/mcpTemplates/worker/lifecycle')
         .set('Cookie', cookie)
         .set('X-CSRF-Token', login.body.csrfToken)
@@ -2712,12 +2948,14 @@ describe('admin routes', () => {
       }),
     );
     const app = mountAdminRoutes();
-    const login = await request(app)
+    const login = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = login.headers['set-cookie']?.[0] as string;
-    const sendDelete = (body: Record<string, unknown>) =>
-      request(app)
+    const sendDelete = async (body: Record<string, unknown>) =>
+      (await request(app))
         .delete('/admin/api/configured-servers/mcpServers/shared')
         .set('Cookie', cookie)
         .set('X-CSRF-Token', login.body.csrfToken)
@@ -2756,12 +2994,16 @@ describe('admin routes', () => {
       new AdminConfiguredServerNotFoundError('missing'),
     );
     const app = mountAdminRoutes();
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = loginResponse.headers['set-cookie']?.[0] as string;
 
-    const response = await request(app)
+    const response = await (
+      await request(app)
+    )
       .post('/admin/api/configured-servers/missing/preview')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', loginResponse.body.csrfToken)
@@ -2785,12 +3027,16 @@ describe('admin routes', () => {
         mcpServers: {},
       })),
     });
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = loginResponse.headers['set-cookie']?.[0] as string;
 
-    const response = await request(app)
+    const response = await (
+      await request(app)
+    )
       .post('/admin/api/configured-servers/missing/preview')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', loginResponse.body.csrfToken)
@@ -2851,7 +3097,9 @@ describe('admin routes', () => {
       },
     });
     const app = mountAdminRoutes();
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = loginResponse.headers['set-cookie']?.[0] as string;
@@ -2866,11 +3114,15 @@ describe('admin routes', () => {
       ],
     };
 
-    const rejected = await request(app)
+    const rejected = await (
+      await request(app)
+    )
       .post('/admin/api/configured-servers/github%2Fapi/preview')
       .set('Cookie', cookie)
       .send({ edit });
-    const response = await request(app)
+    const response = await (
+      await request(app)
+    )
       .post('/admin/api/configured-servers/github%2Fapi/preview')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', loginResponse.body.csrfToken)
@@ -2958,7 +3210,9 @@ describe('admin routes', () => {
       },
     });
     const app = mountAdminRoutes();
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = loginResponse.headers['set-cookie']?.[0] as string;
@@ -2982,12 +3236,16 @@ describe('admin routes', () => {
       },
     };
 
-    const csrfRejected = await request(app)
+    const csrfRejected = await (
+      await request(app)
+    )
       .post('/admin/api/configured-servers/github%2Fapi/apply')
       .set('Cookie', cookie)
       .set('Idempotency-Key', 'apply-1')
       .send(body);
-    const response = await request(app)
+    const response = await (
+      await request(app)
+    )
       .post('/admin/api/configured-servers/github%2Fapi/apply')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', loginResponse.body.csrfToken)
@@ -3031,10 +3289,14 @@ describe('admin routes', () => {
       error: 'configured_server_stale_preview',
     });
     const app = mountAdminRoutes();
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
-    const response = await request(app)
+    const response = await (
+      await request(app)
+    )
       .post('/admin/api/configured-servers/alpha/apply')
       .set('Cookie', loginResponse.headers['set-cookie']?.[0] as string)
       .set('X-CSRF-Token', loginResponse.body.csrfToken)
@@ -3091,12 +3353,16 @@ describe('admin routes', () => {
       },
     });
     const app = mountAdminRoutes();
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = loginResponse.headers['set-cookie']?.[0] as string;
 
-    const response = await request(app)
+    const response = await (
+      await request(app)
+    )
       .post('/admin/api/configured-servers/github%2Fapi/preview')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', loginResponse.body.csrfToken)
@@ -3137,12 +3403,14 @@ describe('admin routes', () => {
       },
     ]);
     const app = mountAdminRoutes();
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = loginResponse.headers['set-cookie']?.[0] as string;
 
-    const response = await request(app).get('/admin/api/status').set('Cookie', cookie);
+    const response = await (await request(app)).get('/admin/api/status').set('Cookie', cookie);
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
@@ -3228,12 +3496,14 @@ describe('admin routes', () => {
     if (adminRoutes) {
       app.use('/admin', adminRoutes);
     }
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = loginResponse.headers['set-cookie']?.[0] as string;
 
-    const response = await request(app).get('/admin/api/status').set('Cookie', cookie);
+    const response = await (await request(app)).get('/admin/api/status').set('Cookie', cookie);
 
     expect(response.status).toBe(200);
     expect(JSON.stringify(response.body)).not.toContain('raw-secret');
@@ -3269,12 +3539,14 @@ describe('admin routes', () => {
         ],
       },
     });
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = loginResponse.headers['set-cookie']?.[0] as string;
 
-    const response = await request(app).get('/admin/api/status').set('Cookie', cookie);
+    const response = await (await request(app)).get('/admin/api/status').set('Cookie', cookie);
 
     expect(response.status).toBe(200);
     expect(response.body.oauth.services).toMatchObject([
@@ -3305,7 +3577,9 @@ describe('admin routes', () => {
     });
     const app = mountAdminRoutes();
 
-    const unauthenticatedResponse = await request(app)
+    const unauthenticatedResponse = await (
+      await request(app)
+    )
       .post('/admin/api/oauth/context7%3A0123456789abcdef/authorize')
       .set('X-CSRF-Token', 'csrf_invalid')
       .set('Idempotency-Key', 'oauth-authorize-unauthenticated');
@@ -3313,13 +3587,17 @@ describe('admin routes', () => {
     expect(unauthenticatedResponse.status).toBe(401);
     expect(oauthFlow.startBackendOAuth).not.toHaveBeenCalled();
 
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = loginResponse.headers['set-cookie']?.[0] as string;
     const csrfToken = loginResponse.body.csrfToken as string;
 
-    const missingCsrfResponse = await request(app)
+    const missingCsrfResponse = await (
+      await request(app)
+    )
       .post('/admin/api/oauth/context7%3A0123456789abcdef/authorize')
       .set('Cookie', cookie)
       .set('Idempotency-Key', 'oauth-authorize-no-csrf');
@@ -3327,7 +3605,9 @@ describe('admin routes', () => {
     expect(missingCsrfResponse.status).toBe(403);
     expect(oauthFlow.startBackendOAuth).not.toHaveBeenCalled();
 
-    const response = await request(app)
+    const response = await (
+      await request(app)
+    )
       .post('/admin/api/oauth/context7%3A0123456789abcdef/authorize')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', csrfToken)
@@ -3356,25 +3636,33 @@ describe('admin routes', () => {
     });
     const app = mountAdminRoutes();
 
-    const unauthenticatedResponse = await request(app)
+    const unauthenticatedResponse = await (
+      await request(app)
+    )
       .post('/admin/api/oauth/context7%3A0123456789abcdef/restart')
       .set('X-CSRF-Token', 'csrf_invalid')
       .set('Idempotency-Key', 'oauth-restart-unauthenticated');
     expect(unauthenticatedResponse.status).toBe(401);
 
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = loginResponse.headers['set-cookie']?.[0] as string;
     const csrfToken = loginResponse.body.csrfToken as string;
-    const missingCsrfResponse = await request(app)
+    const missingCsrfResponse = await (
+      await request(app)
+    )
       .post('/admin/api/oauth/context7%3A0123456789abcdef/restart')
       .set('Cookie', cookie)
       .set('Idempotency-Key', 'oauth-restart-no-csrf');
     expect(missingCsrfResponse.status).toBe(403);
     expect(oauthFlow.restartBackendOAuth).not.toHaveBeenCalled();
 
-    const response = await request(app)
+    const response = await (
+      await request(app)
+    )
       .post('/admin/api/oauth/context7%3A0123456789abcdef/restart')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', csrfToken)
@@ -3396,12 +3684,16 @@ describe('admin routes', () => {
     async (action) => {
       await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
       const app = mountAdminRoutes();
-      const loginResponse = await request(app)
+      const loginResponse = await (
+        await request(app)
+      )
         .post('/admin/api/session/login')
         .send({ username: 'operator', password: 'correct horse battery staple' });
       const serviceId = 'a'.repeat(257);
 
-      const response = await request(app)
+      const response = await (
+        await request(app)
+      )
         .post(`/admin/api/oauth/${serviceId}/${action}`)
         .set('Cookie', loginResponse.headers['set-cookie']?.[0] as string)
         .set('X-CSRF-Token', loginResponse.body.csrfToken as string)
@@ -3443,12 +3735,16 @@ describe('admin routes', () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     vi.mocked(oauthFlow.startBackendOAuth).mockResolvedValue(testCase.flowResult);
     const app = mountAdminRoutes();
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = loginResponse.headers['set-cookie']?.[0] as string;
 
-    const response = await request(app)
+    const response = await (
+      await request(app)
+    )
       .post('/admin/api/oauth/github/authorize')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', loginResponse.body.csrfToken as string)
@@ -3508,21 +3804,29 @@ describe('admin routes', () => {
       },
     });
     const app = mountAdminRoutes();
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = loginResponse.headers['set-cookie']?.[0] as string;
 
-    const rejected = await request(app)
+    const rejected = await (
+      await request(app)
+    )
       .post('/admin/api/configured-servers/filesystem/enable')
       .set('Cookie', cookie)
       .set('Idempotency-Key', 'enable-key');
-    const enabled = await request(app)
+    const enabled = await (
+      await request(app)
+    )
       .post('/admin/api/configured-servers/filesystem/enable')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', loginResponse.body.csrfToken)
       .set('Idempotency-Key', 'enable-key');
-    const disabled = await request(app)
+    const disabled = await (
+      await request(app)
+    )
       .post('/admin/api/configured-servers/filesystem/disable')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', loginResponse.body.csrfToken)
@@ -3637,24 +3941,36 @@ describe('admin routes', () => {
     });
     const draft = { name: 'custom', enabled: true, transport: { type: 'stdio', command: 'node' } };
     const app = mountAdminRoutes();
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = loginResponse.headers['set-cookie']?.[0] as string;
     const csrfToken = loginResponse.body.csrfToken as string;
 
-    const contract = await request(app).get('/admin/api/configured-servers/create-contract').set('Cookie', cookie);
-    const preview = await request(app)
+    const contract = await (
+      await request(app)
+    )
+      .get('/admin/api/configured-servers/create-contract')
+      .set('Cookie', cookie);
+    const preview = await (
+      await request(app)
+    )
       .post('/admin/api/configured-servers/create-preview')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', csrfToken)
       .send({ draft, connectivityCheck: 'auto' });
-    const rejected = await request(app)
+    const rejected = await (
+      await request(app)
+    )
       .post('/admin/api/configured-servers')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', csrfToken)
       .send({ draft, previewFingerprint: 'preview_123', confirmationFacts: {} });
-    const applied = await request(app)
+    const applied = await (
+      await request(app)
+    )
       .post('/admin/api/configured-servers')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', csrfToken)
@@ -3701,12 +4017,16 @@ describe('admin routes', () => {
       new AdminConfiguredServerApplyError('configured_server_stale_preview'),
     );
     const app = mountAdminRoutes();
-    const loginResponse = await request(app)
+    const loginResponse = await (
+      await request(app)
+    )
       .post('/admin/api/session/login')
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = loginResponse.headers['set-cookie']?.[0] as string;
 
-    const response = await request(app)
+    const response = await (
+      await request(app)
+    )
       .post('/admin/api/configured-servers')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', loginResponse.body.csrfToken as string)
@@ -3739,7 +4059,9 @@ describe('admin routes', () => {
       operationName: 'applyConfiguredServerCreate',
       error: 'configured_server_create_failed',
     });
-    const persistenceFailure = await request(app)
+    const persistenceFailure = await (
+      await request(app)
+    )
       .post('/admin/api/configured-servers')
       .set('Cookie', cookie)
       .set('X-CSRF-Token', loginResponse.body.csrfToken as string)
