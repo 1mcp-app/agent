@@ -14,7 +14,6 @@ import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { createConnectionResolver } from '@src/core/server/connectionResolver.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
 import type { InboundConnectionConfig } from '@src/core/types/server.js';
-import { type MCPServerParams, transportConfigSchema } from '@src/core/types/transport.js';
 import { PreparationAdapterRegistry } from '@src/domains/backend-preparation/adapterRegistry.js';
 import { ConfiguredCommandPreparationAdapter } from '@src/domains/backend-preparation/configuredCommandAdapter.js';
 import type {
@@ -26,6 +25,10 @@ import type {
   PreparationStatus,
   PreparationTarget,
 } from '@src/domains/backend-preparation/contracts.js';
+import {
+  type EffectivePreparationConfig,
+  validatePreparationConfig,
+} from '@src/domains/backend-preparation/integrationDefinitions.js';
 import {
   BackendPolicySchema,
   preparationKey,
@@ -44,7 +47,7 @@ import {
 
 import { z } from 'zod';
 
-type RuntimePreparationConfig = NonNullable<MCPServerParams['preparation']>;
+type RuntimePreparationConfig = EffectivePreparationConfig;
 type OwnedAdapter = BackendPreparationAdapter & { dispose?: () => void | Promise<void> };
 export type PreparationControl = 'inspect' | 'prepare' | 'status' | 'wait' | 'cancel' | 'retry';
 export interface PreparationGrant {
@@ -280,7 +283,8 @@ export class BackendPreparationCoordinator {
     )
       throw new Error('Backend is unavailable for this selection');
     // Runtime-owned settings are read from the unrendered definition. Context cannot interpolate executable or permissions.
-    const config = definition.preparation;
+    const config = definition.preparation ? validatePreparationConfig(definition.preparation) : undefined;
+    const backendIdentity = digest(definition);
     const checkoutRoot = await fs.promises.realpath(input.checkoutPath);
     if (!(await fs.promises.stat(checkoutRoot)).isDirectory()) throw new Error('Project Checkout is not a directory');
     const { projectConfig } = await resolveProjectContext(checkoutRoot);
@@ -304,18 +308,26 @@ export class BackendPreparationCoordinator {
     }
     const configurationKey = digest(config ?? { unsupported: true });
     if (config?.integration) this.register(input.backendName, configurationKey, config);
+    const preferences = structuredClone(projectConfig?.preparation ?? {});
+    if (config?.activation === 'setup') {
+      if (preferences[input.backendName] === undefined) preferences[input.backendName] = { enabled: true };
+    }
+    if (config?.enabled === false) preferences[input.backendName] = { enabled: false };
+    let allowedActions = config?.allowedActions ?? [];
+    if (config?.enabled === false) allowedActions = [];
+    if (config?.definition && preferences[input.backendName]?.enabled === false) allowedActions = [];
     const grant: PreparationGrant = {
       owner: input.owner,
       integrationAvailable: Boolean(config?.integration),
-      target: { checkoutRoot, backendName: input.backendName, backendIdentity: digest(definition), configurationKey },
+      target: { checkoutRoot, backendName: input.backendName, backendIdentity, configurationKey },
       policy: config
         ? {
-            allowedActions: config.allowedActions,
+            allowedActions,
             executionDeadlineMs: config.executionDeadlineMs,
             transientRetryLimit: config.transientRetryLimit,
           }
         : { allowedActions: [] },
-      preferences: projectConfig?.preparation ?? {},
+      preferences,
     };
     this.grantInputs.set(grant, structuredClone(input));
     return grant;
@@ -585,7 +597,11 @@ export class BackendPreparationCoordinator {
     const current = ConfigManager.getInstance().loadDeclaredServerConfigs();
     const definition =
       current.templateServers[grant.target.backendName] ?? current.staticServers[grant.target.backendName];
+    const configurationKey = definition?.preparation
+      ? digest(validatePreparationConfig(definition.preparation))
+      : digest({ unsupported: true });
     if (
+      configurationKey !== grant.target.configurationKey ||
       !input ||
       current.errors.length ||
       !definition ||
@@ -661,7 +677,6 @@ export class BackendPreparationCoordinator {
   }
 
   private register(backendName: string, configurationKey: string, config: RuntimePreparationConfig): void {
-    transportConfigSchema.shape.preparation.parse(config);
     const adapterKey = `${backendName}:${configurationKey}`;
     this.latestAdapters.set(backendName, adapterKey);
     this.recycle();
@@ -864,6 +879,10 @@ export async function refreshPreparedBackendCapabilities(
   const definition = declared.templateServers[target.backendName] ?? declared.staticServers[target.backendName];
   if (declared.errors.length || !definition || definition.disabled || digest(definition) !== target.backendIdentity)
     return;
+  if (definition.preparation?.definition) {
+    const currentConfigurationKey = digest(validatePreparationConfig(definition.preparation));
+    if (currentConfigurationKey !== target.configurationKey) return;
+  }
   const manager = serverManager.getTemplateServerManager();
   const bindingContexts = manager.getBindingContexts();
   const resolver = createConnectionResolver(serverManager.getClients(), {

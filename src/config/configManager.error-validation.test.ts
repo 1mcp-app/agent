@@ -211,6 +211,30 @@ describe('ConfigManager (Integration)', () => {
       expect(config['valid-server'].timeout).toBe(5000);
     });
 
+    it('rejects unknown named definitions for static and unrendered template runtime targets', async () => {
+      const target = {
+        command: 'node',
+        preparation: {
+          adapter: 'configured-command',
+          definition: { id: 'not-installed' },
+          allowedActions: ['initialize'],
+        },
+      };
+      await fsPromises.writeFile(
+        configFilePath,
+        JSON.stringify({
+          mcpServers: { invalid: target, valid: { command: 'node' } },
+          mcpTemplates: { invalidTemplate: { ...target, template: {} } },
+        }),
+      );
+      await configManager.reloadConfig();
+      const declared = configManager.loadDeclaredServerConfigs();
+      expect(declared.staticServers.invalid).toBeUndefined();
+      expect(declared.templateServers.invalidTemplate).toBeUndefined();
+      expect(declared.errors.join(' ')).toContain('Unknown integration definition');
+      expect(declared.staticServers['test-server-1'].command).toBe('node');
+    });
+
     it('should skip invalid server configurations', async () => {
       const invalidConfig = {
         mcpServers: {

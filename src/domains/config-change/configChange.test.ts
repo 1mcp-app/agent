@@ -51,6 +51,30 @@ describe('Config Change', () => {
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
+  it('rejects unknown named definitions before backup, durable write, or reload', async () => {
+    const original = { mcpServers: {}, unrelated: { retained: true } };
+    await writeConfig(original);
+    const service = createConfigChangeService({ reloadConfig: reload });
+    await expect(
+      service.createStaticConfiguredServerTarget({
+        targetName: 'unsupported',
+        backup: 'required',
+        serverConfig: {
+          command: 'node',
+          preparation: {
+            adapter: 'configured-command',
+            definition: { id: 'not-installed' },
+            activation: 'setup',
+            allowedActions: ['initialize'],
+          },
+        },
+      }),
+    ).rejects.toThrow(/Unknown integration definition/);
+    expect(await readConfig()).toEqual(original);
+    expect((await fs.readdir(tempDir)).filter((file) => file.includes('backup'))).toEqual([]);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
   it('uses a keyed opaque fingerprint for configured server credentials', () => {
     const serverConfig = {
       type: 'http' as const,

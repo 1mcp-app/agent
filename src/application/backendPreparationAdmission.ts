@@ -21,6 +21,7 @@ import type { ServerManager } from '@src/core/server/serverManager.js';
 import type { InboundConnectionConfig } from '@src/core/types/server.js';
 import type { MCPServerParams } from '@src/core/types/transport.js';
 import { admitToolSchemas, prepareToolValidation } from '@src/core/validation/toolSchemaBoundary.js';
+import { validatePreparationConfig } from '@src/domains/backend-preparation/integrationDefinitions.js';
 import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import { projectToolArguments } from '@src/domains/project-selection/projectPolicy.js';
 import { isProjectBackendVisible, resolveProjectPolicies } from '@src/domains/project-selection/projectPolicy.js';
@@ -175,8 +176,9 @@ function nativeTarget(request: PreparationToolRequest, backendNames: string[]) {
 
 function isPreparationAffected(config: MCPServerParams['preparation'], toolName: string): boolean {
   if (!config) return false;
-  if (config.affectedTools === 'all') return true;
-  return config.affectedTools.includes(toolName);
+  const { affectedTools } = validatePreparationConfig(config);
+  if (affectedTools === 'all') return true;
+  return affectedTools.includes(toolName);
 }
 
 export async function admitBackendPreparationTool(
