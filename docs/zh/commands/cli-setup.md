@@ -18,7 +18,7 @@ npx -y @1mcp/agent cli-setup (--codex | --claude) [选项]
 `cli-setup` 会安装轻量级引导文件，让 Codex 或 Claude 会话按 1MCP CLI 工作流启动。它会写入：
 
 - 受管理的 `1MCP.md` 引导文档
-- 在会话开始时注入启动文档的钩子配置
+- 受管理的 `SessionStart` 和 `SubagentStart` 引导命令钩子
 - 从 `AGENTS.md` 或 `CLAUDE.md` 指向启动文档的引用
 
 `cli-setup` 不会替代 [`instructions`](./instructions.md)。它的作用是确保会话准备好按正确顺序使用 `instructions`、`inspect` 和 `run`。
@@ -101,7 +101,31 @@ npx -y @1mcp/agent cli-setup --codex --scope all
 
 搜索默认使用不区分大小写的字面子串匹配。使用带引号的 `--search 'filesystem/*read?' --glob` 可按 `*`/`?` 对整个引用匹配。`--include-descriptions` 将有效描述纳入匹配；`--show-descriptions` 独立控制描述显示。
 
-重新运行相同的 `cli-setup` 命令即可更新任意范围的受管理指引。重复执行是幂等的，并保留无关的启动文档内容和 hooks。启动引用保持轻量，hooks 仍调用 `1mcp instructions`。
+重新运行相同的 `cli-setup` 命令即可更新任意范围的受管理指引。重复执行保持文件字节稳定，并保留无关的启动文档内容和 hooks，包括与受管理命令混在同一条目中的自定义命令。完全匹配的旧 `1mcp instructions` 钩子会替换为两个事件各自的无条件 `1mcp bootstrap --client <client> --event <event>` 钩子；带额外参数的自定义命令仍由用户管理。全局和仓库钩子可能重复交付指引，重复交付不会抑制另一个目标的 worker 指令。
+
+## Worker 引导与项目分配
+
+`bootstrap` 从 stdin 读取客户端钩子 JSON，为指定事件输出 `hookSpecificOutput.additionalContext`。[Codex](https://developers.openai.com/codex/hooks) 和 [Claude](https://code.claude.com/docs/en/hooks) 均支持该格式。stdin 上限为 64 KiB，等待期限为一秒；运行时指令获取期限为五秒，输出上限为 32 KiB，最终上下文预算为 9,000 字符。超过限制时交付通用指引并报告覆盖缺口，不声称已经交付完整项目指令。
+
+上下文预算包含转义后的项目分配和恢复指引。无法完整容纳的分配会整体省略；引导会报告交付上下文中的项目选择未解决，并要求 worker 从派发指令中恢复原始目标参数。
+
+`SessionStart` 可获取普通会话的运行时指令。`SubagentStart` 没有明确分配时，只交付 inspect-before-run 指引并报告项目选择未解决；不会用钩子 cwd 或父会话身份选择父 checkout。客户端官方钩子 schema 没有 worker 项目分配字段。
+
+Bootstrap 从显式 CLI 参数解析选项，不使用继承的 `ONE_MCP_*` 选项。获取指令的子进程去除继承的 `ONE_MCP_PROJECT` 和 `ONE_MCP_PROJECT_SET`，保留其它环境传递。父任务的环境目标参数不会给未分配的 worker 自动指定目标。
+
+在派发任务的上下文中，为每个 worker 写明绝对 checkout 路径或项目集合定义文件的绝对路径。Worker 在获取项目指令或调用工具之前执行其中一种命令：
+
+```bash
+1mcp bootstrap --client codex --event SubagentStart --project /absolute/frontend-checkout
+1mcp bootstrap --client claude --event SubagentStart --project-set /absolute/feature-projects.json
+1mcp bootstrap --client codex --event SubagentStart --project-set /absolute/feature-projects.json --project backend --project frontend
+```
+
+不使用项目集合时，只分配一个绝对 checkout 路径。使用 `--project-set` 时，可重复传入 `--project` 选择有序成员标签，并覆盖定义中可选的 `selection`。在后续 `instructions`、`inspect` 和 `run` 调用中保留目标参数。多个项目的分配要求对 checkout 专属工具明确选择 checkout；单项目工具由 agent 协调分别调用。获取指令时参数通过 argv 传递，不经过 shell。定义格式和后端目标契约参见 [项目 Checkout 与集合](../guide/project-checkouts.md)。
+
+## 验证钩子交付
+
+生成钩子配置不证明客户端已经启用或信任它、钩子实际执行、运行时可用或目标 checkout 索引就绪。应检查客户端在两个事件中实际收到 `additionalContext`。禁用或未信任的钩子、因包含注释而保留未修改的配置、运行时失败和未解决的 worker 分配都属于引导覆盖缺口。项目工具调用前先解决缺口；setup 不会自动开启钩子或修改信任设置。
 
 ## 另请参阅
 

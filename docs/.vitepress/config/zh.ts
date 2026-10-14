@@ -106,6 +106,7 @@ function sidebar(): DefaultTheme.Sidebar {
         items: [
           { text: '核心功能', link: '/zh/guide/essentials/core-features' },
           { text: '配置', link: '/zh/guide/essentials/configuration' },
+          { text: '项目 Checkout 与集合', link: '/zh/guide/project-checkouts' },
           { text: '服务器管理', link: '/zh/guide/essentials/server-management' },
         ],
       },
