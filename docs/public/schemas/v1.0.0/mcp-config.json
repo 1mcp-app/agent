@@ -142,7 +142,7 @@
         "type": "object",
         "properties": {
           "preparation": {
-            "description": "Runtime-owned command integration and explicit action permissions",
+            "description": "Runtime-owned definition or inline commands and explicit action permissions",
             "type": "object",
             "properties": {
               "adapter": {
@@ -377,6 +377,44 @@
                 ],
                 "additionalProperties": false
               },
+              "definition": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,127}$"
+                  },
+                  "file": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096,
+                    "pattern": "^/"
+                  },
+                  "inputs": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string",
+                      "pattern": "^[a-zA-Z][a-zA-Z0-9_]{0,127}$"
+                    },
+                    "additionalProperties": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 16384
+                    }
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false
+              },
+              "activation": {
+                "type": "string",
+                "const": "setup"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
               "allowedActions": {
                 "maxItems": 5,
                 "type": "array",
@@ -404,10 +442,42 @@
             },
             "required": [
               "adapter",
-              "affectedTools",
               "allowedActions"
             ],
-            "additionalProperties": false
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "required": [
+                    "definition"
+                  ]
+                },
+                "then": {
+                  "not": {
+                    "required": [
+                      "integration"
+                    ]
+                  }
+                },
+                "else": {
+                  "required": [
+                    "affectedTools"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "required": [
+                    "activation"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "definition"
+                  ]
+                }
+              }
+            ]
           },
           "projectTarget": {
             "description": "Runtime-owned project targeting; templates default to single and static backends to independent",
@@ -727,7 +797,7 @@
         "type": "object",
         "properties": {
           "preparation": {
-            "description": "Runtime-owned command integration and explicit action permissions",
+            "description": "Runtime-owned definition or inline commands and explicit action permissions",
             "type": "object",
             "properties": {
               "adapter": {
@@ -962,6 +1032,44 @@
                 ],
                 "additionalProperties": false
               },
+              "definition": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,127}$"
+                  },
+                  "file": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096,
+                    "pattern": "^/"
+                  },
+                  "inputs": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string",
+                      "pattern": "^[a-zA-Z][a-zA-Z0-9_]{0,127}$"
+                    },
+                    "additionalProperties": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 16384
+                    }
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false
+              },
+              "activation": {
+                "type": "string",
+                "const": "setup"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
               "allowedActions": {
                 "maxItems": 5,
                 "type": "array",
@@ -989,10 +1097,42 @@
             },
             "required": [
               "adapter",
-              "affectedTools",
               "allowedActions"
             ],
-            "additionalProperties": false
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "required": [
+                    "definition"
+                  ]
+                },
+                "then": {
+                  "not": {
+                    "required": [
+                      "integration"
+                    ]
+                  }
+                },
+                "else": {
+                  "required": [
+                    "affectedTools"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "required": [
+                    "activation"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "definition"
+                  ]
+                }
+              }
+            ]
           },
           "projectTarget": {
             "description": "Runtime-owned project targeting; templates default to single and static backends to independent",

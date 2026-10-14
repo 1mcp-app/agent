@@ -204,10 +204,10 @@ class DefaultConfigChangeService implements ConfigChangeService {
         return resultWithoutReload;
       }
 
-      const backup = this.createBackupIfNeeded(configPath, input.backup ?? backupPolicyFor(operation));
       const existingTarget = target as Required<ConfiguredServerTargetRef>;
       removeTarget(config, existingTarget);
       this.validateConfig(configPath, config);
+      const backup = this.createBackupIfNeeded(configPath, input.backup ?? backupPolicyFor(operation));
       this.writeConfig(configPath, config);
       const retentionCleanup = this.cleanupBackups(configPath, backup);
 
@@ -351,10 +351,10 @@ class DefaultConfigChangeService implements ConfigChangeService {
         return resultWithoutReload;
       }
 
-      const backup = this.createBackupIfNeeded(configPath, input.backup ?? backupPolicyFor(operation));
       config.mcpServers = normalizeServerRecord(config.mcpServers);
       config.mcpServers[input.targetName] = input.serverConfig;
       this.validateConfig(configPath, config);
+      const backup = this.createBackupIfNeeded(configPath, input.backup ?? backupPolicyFor(operation));
       this.writeConfig(configPath, config);
       const retentionCleanup = this.cleanupBackups(configPath, backup);
 
@@ -445,10 +445,10 @@ class DefaultConfigChangeService implements ConfigChangeService {
         };
       }
 
-      const backup = this.createBackupIfNeeded(configPath, input.backup ?? 'skip');
       config.mcpServers = normalizeServerRecord(config.mcpServers);
       config.mcpServers[input.targetName] = input.serverConfig;
       this.validateConfig(configPath, config);
+      const backup = this.createBackupIfNeeded(configPath, input.backup ?? 'skip');
       this.writeConfig(configPath, config);
       const retentionCleanup = this.cleanupBackups(configPath, backup);
       resultWithoutReload = {
@@ -531,10 +531,10 @@ class DefaultConfigChangeService implements ConfigChangeService {
         };
       }
 
-      const backup = this.createBackupIfNeeded(configPath, input.backup ?? 'skip');
       config.mcpTemplates = normalizeServerRecord(config.mcpTemplates);
       config.mcpTemplates[input.targetName] = input.serverConfig;
       this.validateConfig(configPath, config);
+      const backup = this.createBackupIfNeeded(configPath, input.backup ?? 'skip');
       this.writeConfig(configPath, config);
       const retentionCleanup = this.cleanupBackups(configPath, backup);
       resultWithoutReload = {
@@ -650,7 +650,6 @@ class DefaultConfigChangeService implements ConfigChangeService {
         return resultWithoutReload;
       }
 
-      const backup = this.createBackupIfNeeded(configPath, input.backup ?? 'required');
       const updatedConfig: MCPServerParams = {
         ...existingConfig,
         disabled: !input.enabled,
@@ -661,6 +660,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
       config[target.source] = normalizeServerRecord(config[target.source]);
       config[target.source]![input.targetName] = updatedConfig;
       this.validateConfig(configPath, config);
+      const backup = this.createBackupIfNeeded(configPath, input.backup ?? 'required');
       this.writeConfig(configPath, config);
       const retentionCleanup = this.cleanupBackups(configPath, backup);
 

@@ -117,6 +117,23 @@ function preserveMcpInputRefinements(schema: Record<string, unknown>): void {
   for (const field of ['mcpServers', 'mcpTemplates']) {
     const transport = properties?.[field]?.additionalProperties as Record<string, unknown> | undefined;
     const transportProperties = transport?.properties as Record<string, Record<string, unknown>> | undefined;
+    const preparation = transportProperties?.preparation;
+    if (preparation) {
+      preparation.allOf = [
+        {
+          if: { required: ['definition'] },
+          then: { not: { required: ['integration'] } },
+          else: { required: ['affectedTools'] },
+        },
+        { if: { required: ['activation'] }, then: { required: ['definition'] } },
+      ];
+      const preparationProperties = preparation.properties as Record<string, Record<string, unknown>>;
+      const selectionProperties = preparationProperties.definition.properties as Record<
+        string,
+        Record<string, unknown>
+      >;
+      selectionProperties.file.pattern = '^/';
+    }
     const overrides = transportProperties?.toolDescriptionOverrides;
     if (overrides) {
       overrides.propertyNames = {
