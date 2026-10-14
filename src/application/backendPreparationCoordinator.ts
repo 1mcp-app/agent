@@ -218,6 +218,7 @@ export class BackendPreparationCoordinator {
     PreparationGrant,
     { backendName: string; checkoutPath: string; owner: string; filterConfig: InboundConnectionConfig }
   >();
+  private readonly namedGrants = new WeakSet<PreparationGrant>();
   readonly service: BackendPreparationService;
   private readonly registry = new PreparationAdapterRegistry();
   private readonly adapters = new Map<string, OwnedAdapter>();
@@ -329,12 +330,14 @@ export class BackendPreparationCoordinator {
         : { allowedActions: [] },
       preferences,
     };
+    if (config?.definition) this.namedGrants.add(grant);
     this.grantInputs.set(grant, structuredClone(input));
     return grant;
   }
 
   async control(grant: PreparationGrant, request: PreparationControlRequest): Promise<PreparationControlResult> {
     if (this.closed) throw new Error('Preparation coordinator is stopped');
+    if (!request.id) this.assertNamedGrantCurrent(grant);
     if (grant.integrationAvailable === false)
       return {
         state: 'unsupported',
@@ -366,8 +369,10 @@ export class BackendPreparationCoordinator {
               probeOptions(),
             )
           : await this.service.inspect(grant.target, operation, probeOptions());
+      this.assertNamedGrantCurrent(grant);
       if (!current) return readiness;
       const progress = await this.service.inspectProgress(grant.target, operation, probeOptions());
+      this.assertNamedGrantCurrent(grant);
       return { state: 'job', status: this.presentStatus(grant, key, { ...current, readiness, progress }) };
     }
     if (!request.id) {
@@ -443,6 +448,7 @@ export class BackendPreparationCoordinator {
         },
         probeOptions(),
       );
+      this.assertNamedGrantCurrent(grant);
       if (readiness.state === 'ready') {
         this.service.clearResolvedFailure(grant.target, operation, grant.policy, readiness);
         this.recycle();
@@ -485,6 +491,7 @@ export class BackendPreparationCoordinator {
     }
     if (request.action === 'status') {
       const readiness = await this.service.inspect(grant.target, operation, probeOptions());
+      this.assertNamedGrantCurrent(grant);
       if (readiness.state === 'ready') {
         this.service.clearResolvedFailure(grant.target, operation, grant.policy, readiness);
         this.recycle();
@@ -523,6 +530,7 @@ export class BackendPreparationCoordinator {
     } = {},
   ): Promise<PublicPreparationAdmission | BackendReadiness> {
     if (this.closed) throw new Error('Preparation coordinator is stopped');
+    this.assertNamedGrantCurrent(grant);
     if (grant.integrationAvailable === false)
       return {
         state: 'unsupported',
@@ -540,8 +548,10 @@ export class BackendPreparationCoordinator {
       });
       if (!status) throw new Error('Preparation recovery status is unavailable');
       if (status.state === 'ready' && 'readiness' in status && status.readiness?.state === 'ready') {
-        if (!('operation' in status) || status.operation === operation)
+        if (!('operation' in status) || status.operation === operation) {
+          this.assertNamedGrantCurrent(grant);
           return { state: 'ready', readiness: status.readiness };
+        }
       }
       if (this.store.get(recovered.key)) {
         if ('id' in status) return { state: 'job', status };
@@ -559,11 +569,13 @@ export class BackendPreparationCoordinator {
             this.revalidateGrant(grant, options.validateAdmission, true, expiresAt, options.signal),
         });
         if (result.state === 'ready') {
+          this.assertNamedGrantCurrent(grant);
           const current = this.currentStatus(key);
           if (current?.state === 'ready') await this.refreshReadyStatus(current);
           const saved = this.store.get(key);
           if (saved?.operation === operation) this.store.delete(key);
           this.recycle();
+          this.assertNamedGrantCurrent(grant);
           return result;
         }
         if (result.state === 'pending') return { ...result, status: this.publishStatus(grant, key, result.status) };
@@ -589,6 +601,15 @@ export class BackendPreparationCoordinator {
       });
     } finally {
       release?.();
+    }
+  }
+
+  private assertNamedGrantCurrent(grant: PreparationGrant): void {
+    if (!this.namedGrants.has(grant)) return;
+    try {
+      this.assertGrantCurrent(grant);
+    } catch {
+      throw new PreparationAuthorizationChangedError();
     }
   }
 
@@ -685,7 +706,8 @@ export class BackendPreparationCoordinator {
         throw new Error('Preparation adapter capacity reached');
       this.adapters.set(
         adapterKey,
-        this.ports.adapterFactory?.(config) ?? new ConfiguredCommandPreparationAdapter(config.integration!),
+        this.ports.adapterFactory?.(config) ??
+          new ConfiguredCommandPreparationAdapter(config.integration!, config.helperSnapshots),
       );
     }
     if (this.registered.has(backendName)) return;
@@ -735,6 +757,7 @@ export class BackendPreparationCoordinator {
     key: string,
     result: PreparationResult | PreparationAdmission,
   ): PublicPreparationAdmission {
+    if (result.state === 'ready') this.assertNamedGrantCurrent(grant);
     if (result.state === 'pending') return { ...result, status: this.publishStatus(grant, key, result.status) };
     if (result.state !== 'job') return result;
     return { ...result, status: this.publishStatus(grant, key, result.status) };

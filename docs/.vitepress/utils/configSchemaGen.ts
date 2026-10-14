@@ -132,7 +132,7 @@ function preserveMcpInputRefinements(schema: Record<string, unknown>): void {
         string,
         Record<string, unknown>
       >;
-      selectionProperties.file.pattern = '^/';
+      selectionProperties.file.pattern = '^(?:[/\\\\]|[A-Za-z]:[/\\\\])';
     }
     const overrides = transportProperties?.toolDescriptionOverrides;
     if (overrides) {

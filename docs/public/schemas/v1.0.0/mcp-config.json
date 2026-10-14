@@ -388,7 +388,7 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 4096,
-                    "pattern": "^/"
+                    "pattern": "^(?:[/\\\\]|[A-Za-z]:[/\\\\])"
                   },
                   "inputs": {
                     "type": "object",
@@ -1043,7 +1043,7 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 4096,
-                    "pattern": "^/"
+                    "pattern": "^(?:[/\\\\]|[A-Za-z]:[/\\\\])"
                   },
                   "inputs": {
                     "type": "object",

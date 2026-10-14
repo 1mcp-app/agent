@@ -75,6 +75,59 @@ describe('Config Change', () => {
     expect(reload).not.toHaveBeenCalled();
   });
 
+  it.each(['probe', 'status', 'initialize'])(
+    'rejects oversized expanded %s argv before backup, write or reload',
+    async (commandKind) => {
+      const original = { mcpServers: {}, unrelated: { retained: true } };
+      await writeConfig(original);
+      const file = path.join(tempDir, 'definition.json');
+      const command = { executable: process.execPath, args: ['prefix:{input:value}'] };
+      const integration = {
+        containment: 'posix-process-group',
+        probe: commandKind === 'probe' ? command : { executable: process.execPath, args: [] },
+        readinessExitCodes: { '0': { state: 'ready' } },
+        actions: commandKind === 'initialize' ? { initialize: command } : {},
+        ...(commandKind === 'status' ? { status: command } : {}),
+      };
+      await fs.writeFile(
+        file,
+        JSON.stringify({
+          schemaVersion: 1,
+          id: 'local-test',
+          revision: '1',
+          helperRevision: '1',
+          compatibility: {
+            backend: 'fixture',
+            versions: ['1'],
+            platforms: ['linux', 'darwin', 'win32'],
+            readinessScope: 'checkout',
+          },
+          inputs: { value: { required: true } },
+          affectedTools: ['search'],
+          integration,
+        }),
+      );
+      const service = createConfigChangeService({ reloadConfig: reload });
+      await expect(
+        service.createStaticConfiguredServerTarget({
+          targetName: 'oversized',
+          backup: 'required',
+          serverConfig: {
+            command: 'node',
+            preparation: {
+              adapter: 'configured-command',
+              definition: { id: 'local-test', file, inputs: { value: 'x'.repeat(16384) } },
+              allowedActions: [],
+            },
+          },
+        }),
+      ).rejects.toThrow(/16384/);
+      expect(await readConfig()).toEqual(original);
+      expect((await fs.readdir(tempDir)).filter((file) => file.includes('backup'))).toEqual([]);
+      expect(reload).not.toHaveBeenCalled();
+    },
+  );
+
   it('uses a keyed opaque fingerprint for configured server credentials', () => {
     const serverConfig = {
       type: 'http' as const,

@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 import { Ajv } from 'ajv';
 import addFormats from 'ajv-formats';
@@ -32,6 +33,38 @@ describe.each([
           [field]: { [identity]: { initialization: 'init', cli: 'cli', ...(extra ? { extra: 'stripped' } : {}) } },
         };
         expect(validate(config), JSON.stringify(config)).toBe(mcpServerConfigSchema.safeParse(config).success);
+      }
+    },
+  );
+
+  it.each(['mcpServers', 'mcpTemplates'] as const)(
+    'represents native Windows absolute definition paths for %s',
+    (source) => {
+      for (const file of [
+        String.raw`C:\defs\recipe.json`,
+        'C:/defs/recipe.json',
+        String.raw`\server\share\recipe.json`,
+        String.raw`\defs\recipe.json`,
+        '/defs/recipe.json',
+        String.raw`C:defs\recipe.json`,
+        './recipe.json',
+        'https://host/recipe.json',
+      ]) {
+        const config = {
+          mcpServers: {},
+          [source]: {
+            backend: {
+              command: 'node',
+              preparation: {
+                adapter: 'configured-command',
+                definition: { id: 'native-test', file },
+                allowedActions: [],
+              },
+            },
+          },
+        };
+        expect(validate(config), file).toBe(path.win32.isAbsolute(file));
+        expect(mcpServerConfigSchema.safeParse(config).success, file).toBe(path.isAbsolute(file));
       }
     },
   );

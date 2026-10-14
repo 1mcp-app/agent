@@ -70,11 +70,15 @@ description: 配置副本专属的只读就绪探测，以及运行时拥有的�
 
 定义标识必须与选择一致。未知 schema 版本、重复内置标识、本地文件冒充内置定义、缺失或未知输入，以及命名定义与内联配置冲突都会报错。不能同时配置 `definition` 和内联 `integration`。命名定义拥有受影响工具列表，显式配置的列表必须完全一致。
 
-运行时 `allowedActions` 与定义默认值分离；更新定义不会授权新动作。有效定义内容和命令修订参与准备任务身份计算，不能复用不兼容的旧任务或就绪证据；运行中的任务保留已解析的配置快照。维护自定义辅助脚本时，操作者必须在行为改变后更新 `helperRevision`。可选 `helperFiles` 列出参与内容哈希的本地文件，相对路径基于定义文件目录解析。这会为新准入区分修订，但不会冻结外部可执行文件或脚本；已准入任务运行期间应保持这些文件不变。
+运行时 `allowedActions` 与定义默认值分离；更新定义不会授权新动作。有效定义内容和命令修订参与准备任务身份计算，不能复用不兼容的旧任务或就绪证据；运行中的任务保留已解析的配置快照。就绪检查与工具最终分发屏障都会拒绝已改变的有效定义。
+
+维护自定义辅助脚本时，操作者必须在行为改变后更新 `helperRevision`。可选 `helperFiles` 最多列出八个本地文件，总大小不超过 1 MiB，文件内容哈希参与身份计算。相对声明基于定义文件目录解析。作为完整可执行路径或 argv 参数引用的已声明脚本会绑定到规范绝对路径，包括 `helper.cjs` 与 `./helper.cjs` 写法；之后改变符号链接不会重定向已保留的命令。复合参数或解释器源码字符串中的嵌入引用不受支持，会被拒绝；运行时不解析任意解释器代码。
+
+每个保留的适配器拥有自己的预期脚本哈希，在启动命令前和接受探测、进度或动作完成结果前验证。已声明脚本改变或缺失时，探测报告 unknown，动作产生稳定且不可自动重试的 `helper_revision_changed` 失败；不能以旧身份触发 ready 能力刷新。应重新解析更新后的定义并显式重试。这些检查不会冻结外部文件，也不提供原子化的可执行内容快照；已准入任务运行期间仍应保持外部可执行文件与脚本不变。
 
 运行时可显式为命名定义设置 `activation: "setup"`，让新授权副本无需逐项目设置准备偏好。后端 `enabled: false` 和项目显式禁用优先。升级不会自动添加 activation，现有内联配置仍要求项目选择启用。
 
-CodeGraph、Code Review Graph 和 Serena 的内置集成有独立的原生验收门槛。本地定义能力不代表这三个后端的引导配置或自动准备已经完成。已测覆盖和阻塞项见 [CodeGraph 与 Code Review Graph 验收记录](/zh/guide/preparation-native-acceptance)及 [Serena 验收记录](/zh/guide/preparation-serena-acceptance)。
+当前内置定义注册表为空。计划中的 CodeGraph、Code Review Graph 和 Serena 集成因原生验收仍被阻塞，尚不可用；这个 Draft 不增加仅提供配置的目录条目。本地定义能力不代表这三个后端的引导配置或自动准备已经完成。已测覆盖和阻塞项见 [CodeGraph 与 Code Review Graph 验收记录](/zh/guide/preparation-native-acceptance)及 [Serena 验收记录](/zh/guide/preparation-serena-acceptance)。
 
 ## 项目选择启用
 

@@ -256,6 +256,9 @@ async function admitScopedPreparationTool(
   } catch {
     return blocked({ state: 'forbidden', instructions: 'The selected binding authority is invalid.' });
   }
+  const preparationRevision = definition.preparation?.definition
+    ? validatePreparationConfig(definition.preparation).effectiveRevision
+    : undefined;
   const synchronousAuthorization = () => {
     if (!input.bindingId || !context || !authority || !ownerSessionId) return false;
     const currentContext = manager.getBindingContexts().get(input.bindingId);
@@ -279,6 +282,14 @@ async function admitScopedPreparationTool(
     if (current.errors.length) return false;
     const currentDefinition = current.templateServers[target.backendName] ?? current.staticServers[target.backendName];
     if (JSON.stringify(currentDefinition) !== JSON.stringify(definition)) return false;
+    if (preparationRevision !== undefined) {
+      try {
+        if (validatePreparationConfig(currentDefinition?.preparation).effectiveRevision !== preparationRevision)
+          return false;
+      } catch {
+        return false;
+      }
+    }
     if (
       currentDefinition?.disabled ||
       getDisabledSourceToolError(

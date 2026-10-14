@@ -639,6 +639,164 @@ describe('runtime preparation controls', () => {
     expect(await fs.readFile(path.join(f.checkout, 'action'), 'utf8')).toBe('old');
   });
 
+  it.skipIf(process.platform === 'win32')(
+    'fails retained work without a ready refresh when its helper changes during the action',
+    async () => {
+      const overrides: Partial<MCPServerParams> = {};
+      const f = await fixture(undefined, overrides);
+      const onReady = vi.fn(async () => undefined);
+      const coordinator = new BackendPreparationCoordinator({
+        options: { requestWaitMs: 2000, executionDeadlineMs: 5000 },
+        onReady,
+      });
+      coordinators.push(coordinator);
+      const resolve = () =>
+        coordinator.resolveGrant({
+          backendName: 'codegraph',
+          checkoutPath: f.checkout,
+          owner: 'owner',
+          filterConfig: { tagFilterMode: 'none' },
+        });
+      const helper = path.join(f.directory, 'helper.cjs');
+      await fs.writeFile(
+        helper,
+        'const fs=require("fs"); if(process.argv[2]==="probe") process.exit(10); fs.writeFileSync("running","yes"); const timer=setInterval(()=>{ if(!fs.existsSync("release")) return; clearInterval(timer); },10);',
+      );
+      const file = path.join(f.directory, 'definition.json');
+      await fs.writeFile(
+        file,
+        JSON.stringify({
+          schemaVersion: 1,
+          id: 'native-test',
+          revision: '1',
+          helperRevision: '1',
+          helperFiles: ['./helper.cjs'],
+          compatibility: {
+            backend: 'fixture',
+            versions: ['1'],
+            platforms: ['linux', 'darwin', 'win32'],
+            readinessScope: 'checkout',
+          },
+          inputs: {},
+          affectedTools: ['codegraph_explore'],
+          integration: {
+            containment: 'posix-process-group',
+            probe: { executable: process.execPath, args: ['./helper.cjs', 'probe'] },
+            readinessExitCodes: {
+              '0': { state: 'ready' },
+              '10': { state: 'required', action: 'initialize', instructions: 'Initialize' },
+            },
+            actions: { initialize: { executable: process.execPath, args: ['./helper.cjs', 'prepare'] } },
+          },
+        }),
+      );
+      overrides.preparation = {
+        adapter: 'configured-command',
+        definition: { id: 'native-test', file },
+        allowedActions: ['initialize'],
+      };
+      const original = await resolve();
+      const started = await job(coordinator, original);
+      await vi.waitFor(async () => expect(await fs.readFile(path.join(f.checkout, 'running'), 'utf8')).toBe('yes'));
+      await fs.writeFile(helper, 'process.exit(0);');
+      expect((await resolve()).target.configurationKey).not.toBe(original.target.configurationKey);
+      await fs.writeFile(path.join(f.checkout, 'release'), 'yes');
+      expect(await coordinator.control(original, { action: 'wait', id: started.id, waitMs: 3000 })).toMatchObject({
+        state: 'failed',
+        failure: { code: 'helper_revision_changed', retryable: false },
+      });
+      expect(onReady).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['admit', 'inspect', 'prepare'] as const)(
+    'rejects a changed definition JSON before accepting a ready %s result',
+    async (surface) => {
+      const overrides: Partial<MCPServerParams> = {};
+      let file = '';
+      let recipe: Record<string, unknown>;
+      const native: BackendPreparationAdapter = {
+        inspect: async () => {
+          await fs.writeFile(file, JSON.stringify({ ...recipe, revision: '2' }));
+          return ready;
+        },
+        prepare: async () => undefined,
+        classifyFailure: () => ({ code: 'failed', message: 'Failed', retryable: false, instructions: 'Retry' }),
+      };
+      const f = await fixture(native, overrides);
+      file = path.join(f.directory, 'definition.json');
+      await fs.writeFile(path.join(f.directory, 'helper.txt'), 'unchanged helper bytes');
+      recipe = {
+        schemaVersion: 1,
+        id: 'native-test',
+        revision: '1',
+        helperRevision: '1',
+        helperFiles: ['./helper.txt'],
+        compatibility: {
+          backend: 'fixture',
+          versions: ['1'],
+          platforms: ['linux', 'darwin', 'win32'],
+          readinessScope: 'checkout',
+        },
+        inputs: {},
+        affectedTools: ['codegraph_explore'],
+        integration: config.preparation!.integration,
+      };
+      await fs.writeFile(file, JSON.stringify(recipe));
+      overrides.preparation = {
+        adapter: 'configured-command',
+        definition: { id: 'native-test', file },
+        allowedActions: ['initialize'],
+      };
+      const original = await f.resolve();
+      const result =
+        surface === 'admit'
+          ? f.coordinator.admit(original, 'query')
+          : f.coordinator.control(original, { action: surface, operation: 'query' });
+      await expect(result).rejects.toThrow('Preparation authorization changed');
+      expect(await fs.readFile(path.join(f.directory, 'helper.txt'), 'utf8')).toBe('unchanged helper bytes');
+    },
+  );
+
+  it('rejects a stale ready grant before launching its probe after a JSON-only definition update', async () => {
+    const overrides: Partial<MCPServerParams> = {};
+    const inspect = vi.fn(async () => ready);
+    const f = await fixture(
+      {
+        inspect,
+        prepare: async () => undefined,
+        classifyFailure: () => ({ code: 'failed', message: 'Failed', retryable: false, instructions: 'Retry' }),
+      },
+      overrides,
+    );
+    const file = path.join(f.directory, 'definition.json');
+    const recipe = {
+      schemaVersion: 1,
+      id: 'native-test',
+      revision: '1',
+      helperRevision: '1',
+      compatibility: {
+        backend: 'fixture',
+        versions: ['1'],
+        platforms: ['linux', 'darwin', 'win32'],
+        readinessScope: 'checkout',
+      },
+      inputs: {},
+      affectedTools: ['codegraph_explore'],
+      integration: config.preparation!.integration,
+    };
+    await fs.writeFile(file, JSON.stringify(recipe));
+    overrides.preparation = {
+      adapter: 'configured-command',
+      definition: { id: 'native-test', file },
+      allowedActions: ['initialize'],
+    };
+    const original = await f.resolve();
+    await fs.writeFile(file, JSON.stringify({ ...recipe, revision: '2' }));
+    await expect(f.coordinator.admit(original, 'query')).rejects.toThrow('Preparation authorization changed');
+    expect(inspect).not.toHaveBeenCalled();
+  });
+
   it('keeps named configuration inactive until explicitly adopted through setup', async () => {
     const overrides: Partial<MCPServerParams> = {};
     const f = await fixture(undefined, overrides);

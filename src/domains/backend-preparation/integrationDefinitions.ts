@@ -5,7 +5,10 @@ import path from 'node:path';
 import { z } from 'zod';
 
 import { builtInIntegrationDefinitions } from './builtInIntegrationDefinitions.js';
-import { ConfiguredCommandIntegrationSchema } from './configuredCommandAdapter.js';
+import {
+  type ConfiguredCommandHelperSnapshot,
+  ConfiguredCommandIntegrationSchema,
+} from './configuredCommandAdapter.js';
 
 const identitySchema = z.string().regex(/^[a-z][a-z0-9-]{0,127}$/);
 const inputNameSchema = z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,127}$/);
@@ -64,6 +67,7 @@ export interface ResolvedIntegrationDefinition {
   readonly integration: z.output<typeof ConfiguredCommandIntegrationSchema>;
   readonly affectedTools: z.infer<typeof AffectedPreparationToolsSchema>;
   readonly revision: string;
+  readonly helperSnapshots: readonly ConfiguredCommandHelperSnapshot[];
 }
 
 /** Read-only resolution from runtime-owned inputs. Never reads caller or project configuration. */
@@ -113,36 +117,69 @@ export function resolveIntegrationDefinition(
     }
     inputs[name] = value;
   }
+  let helperBytes = 0;
+  const helpers = (definition.helperFiles ?? []).map((file) => {
+    if (!path.isAbsolute(file) && !source) throw new Error('Built-in helper file paths must be absolute');
+    const declaredPath = path.isAbsolute(file) ? path.normalize(file) : path.resolve(path.dirname(source!), file);
+    const helper = fs.realpathSync(declaredPath);
+    const stat = fs.statSync(helper);
+    helperBytes += stat.size;
+    if (!stat.isFile() || helperBytes > 1024 * 1024)
+      throw new Error('Declared helpers must be local files totaling no more than 1 MiB');
+    return {
+      reference: file,
+      declaredPath,
+      path: helper,
+      digest: createHash('sha256').update(fs.readFileSync(helper)).digest('hex'),
+    };
+  });
+  const bindHelperReference = (value: string): string => {
+    let candidate: string | undefined;
+    if (path.isAbsolute(value)) candidate = path.normalize(value);
+    else if (source) candidate = path.resolve(path.dirname(source), value);
+    const helper = helpers.find(
+      (item) => item.reference === value || item.declaredPath === candidate || item.path === candidate,
+    );
+    if (helper) return helper.path;
+    for (const item of helpers) {
+      if ([item.reference, path.normalize(item.reference), item.path].some((reference) => value.includes(reference))) {
+        throw new Error(
+          'Declared helper references must occupy a whole executable or argv argument; embedded references are unsupported',
+        );
+      }
+    }
+    return value;
+  };
   const integration = structuredClone(definition.integration);
   const commands = [integration.probe, integration.status, ...Object.values(integration.actions)];
   for (const command of commands) {
     if (!command) continue;
     if (command.executable.includes('{')) throw new Error('Definition executable cannot contain placeholders');
+    command.executable = bindHelperReference(command.executable);
     if (!path.isAbsolute(command.executable) && /[/\\]/.test(command.executable)) {
       if (!source) throw new Error('Built-in definition executable paths must be absolute');
       command.executable = path.resolve(path.dirname(source), command.executable);
     }
     command.args = command.args.map((argument) =>
-      argument.replace(/\{input:([^}]+)\}/g, (_match, name: string) => {
-        if (!Object.hasOwn(inputs, name)) throw new Error(`Missing integration input for command: ${name}`);
-        return inputs[name];
-      }),
+      bindHelperReference(
+        argument.replace(/\{input:([^}]+)\}/g, (_match, name: string) => {
+          if (!Object.hasOwn(inputs, name)) throw new Error(`Missing integration input for command: ${name}`);
+          return inputs[name];
+        }),
+      ),
     );
   }
-  let helperBytes = 0;
-  const helpers = (definition.helperFiles ?? []).map((file) => {
-    if (!path.isAbsolute(file) && !source) throw new Error('Built-in helper file paths must be absolute');
-    const helper = fs.realpathSync(path.isAbsolute(file) ? file : path.resolve(path.dirname(source!), file));
-    const stat = fs.statSync(helper);
-    helperBytes += stat.size;
-    if (!stat.isFile() || helperBytes > 1024 * 1024)
-      throw new Error('Declared helpers must be local files totaling no more than 1 MiB');
-    return { path: helper, digest: createHash('sha256').update(fs.readFileSync(helper)).digest('hex') };
-  });
+  const validatedIntegration = ConfiguredCommandIntegrationSchema.parse(integration);
   const revision = createHash('sha256')
-    .update(JSON.stringify({ definition, integration, inputs, source, helpers }))
+    .update(JSON.stringify({ definition, integration: validatedIntegration, inputs, source, helpers }))
     .digest('hex');
-  return { definition, integration, affectedTools: definition.affectedTools, revision };
+  return {
+    definition,
+    integration: validatedIntegration,
+    affectedTools: definition.affectedTools,
+    revision,
+    helperSnapshots: helpers.map(({ path, digest }) => ({ path, digest })),
+  };
 }
 
 export const PreparationConfigSchema = z
@@ -182,6 +219,7 @@ export type PreparationConfig = z.output<typeof PreparationConfigSchema>;
 export type EffectivePreparationConfig = PreparationConfig & {
   affectedTools: z.infer<typeof AffectedPreparationToolsSchema>;
   effectiveRevision?: string;
+  helperSnapshots?: readonly ConfiguredCommandHelperSnapshot[];
 };
 
 /** Validate setup/config changes without launching commands or applying configuration. */
@@ -200,5 +238,6 @@ export function validatePreparationConfig(
     integration: resolved.integration,
     affectedTools: resolved.affectedTools,
     effectiveRevision: resolved.revision,
+    helperSnapshots: resolved.helperSnapshots,
   };
 }
