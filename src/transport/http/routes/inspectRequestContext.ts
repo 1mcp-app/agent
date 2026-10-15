@@ -10,7 +10,10 @@ import {
   deriveContextSessionId,
   extractTemplateContextRequest,
 } from '@src/transport/http/utils/contextExtractor.js';
-import { authorizeRequestTemplateContext } from '@src/transport/http/utils/templateContextAuthority.js';
+import {
+  authorizeRequestTemplateContext,
+  getRequestProjectPreparationAuthority,
+} from '@src/transport/http/utils/templateContextAuthority.js';
 
 import { Request, Response } from 'express';
 
@@ -25,8 +28,10 @@ export function createRequestContextPreparationDependencies(
   serverManager: ServerManager,
 ): RequestContextPreparationDependencies {
   return {
-    async registerBindingContext(bindingId, context, filterConfig) {
-      return serverManager.getTemplateServerManager().registerBindingContext?.(bindingId, context, filterConfig);
+    async registerBindingContext(bindingId, context, filterConfig, authority) {
+      return serverManager
+        .getTemplateServerManager()
+        .registerBindingContext?.(bindingId, context, filterConfig, ...(authority ? [authority] : []));
     },
     deriveSessionId: deriveContextSessionId,
     async loadRenderedTemplates(context) {
@@ -47,6 +52,7 @@ export function createRequestContextPreparationDependencies(
       outboundConns,
       transports,
       lifecycle,
+      authority,
     ) {
       return serverManager
         .getTemplateServerManager()
@@ -58,6 +64,7 @@ export function createRequestContextPreparationDependencies(
           outboundConns,
           transports,
           lifecycle,
+          ...(authority ? [authority] : []),
         );
     },
     hasTemplateAdapter(templateName) {
@@ -98,6 +105,7 @@ export async function prepareHttpRequestContext(
     context,
     transportSessionId,
     filterConfig,
+    authority: getRequestProjectPreparationAuthority(authorization),
   });
 
   if (result.status === 'no_context') {

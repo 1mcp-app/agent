@@ -1,4 +1,8 @@
 import {
+  createProjectPreparationAuthority,
+  type ProjectPreparationAuthority,
+} from '@src/core/context/projectPreparationAuthority.js';
+import {
   authorizeTemplateContext,
   type TemplateContextAuthorization,
   type TemplateContextCapability,
@@ -16,6 +20,14 @@ export interface AuthorizeRequestTemplateContextInput {
   proof?: TemplateContextProof;
   transportSessionId?: string;
   source: 'meta' | 'query' | 'persisted';
+}
+
+const projectPreparationAuthorities = new WeakMap<TemplateContextAuthorization, ProjectPreparationAuthority>();
+
+export function getRequestProjectPreparationAuthority(
+  authorization: TemplateContextAuthorization | undefined,
+): ProjectPreparationAuthority | undefined {
+  return authorization ? projectPreparationAuthorities.get(authorization) : undefined;
 }
 
 /**
@@ -36,15 +48,13 @@ function readCapabilityFailClosed(storagePath: string): TemplateContextCapabilit
   }
 }
 
-export function authorizeRequestTemplateContext(
-  input: AuthorizeRequestTemplateContextInput,
-): TemplateContextAuthorization {
+function verifyRequestTemplateContext(input: AuthorizeRequestTemplateContextInput): TemplateContextAuthorization {
   const config = AgentConfigManager.getInstance();
   const mode = config.get('templateContext')?.trust ?? 'verified';
   const storagePath = config.get('runtimeScopeStoragePath');
   const sessionTtlMinutes = config.get('auth')?.sessionTtlMinutes ?? 1440;
   const capability = mode === 'verified' && storagePath ? readCapabilityFailClosed(storagePath) : undefined;
-  const result = authorizeTemplateContext({
+  return authorizeTemplateContext({
     mode,
     context: input.context,
     proof: input.proof,
@@ -52,6 +62,24 @@ export function authorizeRequestTemplateContext(
     transportSessionId: input.transportSessionId,
     maxAgeMs: sessionTtlMinutes * 60 * 1000,
   });
+}
+
+export function authorizeRequestTemplateContext(
+  input: AuthorizeRequestTemplateContextInput,
+): TemplateContextAuthorization {
+  const result = verifyRequestTemplateContext(input);
+  const authority = createProjectPreparationAuthority({
+    ...input,
+    authorization: result,
+    verify: (context, proof, transportSessionId) =>
+      verifyRequestTemplateContext({
+        context,
+        proof,
+        transportSessionId,
+        source: input.source,
+      }),
+  });
+  if (authority) projectPreparationAuthorities.set(result, authority);
 
   const auditLog = result.status === 'trusted' ? infoIf : warnIf;
   auditLog(() => ({

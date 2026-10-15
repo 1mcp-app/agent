@@ -494,24 +494,46 @@ describe('Error Scenarios E2E', () => {
       const serverName = 'rapid-test-server';
 
       // Add server
-      await runner.runMcpCommand('add', {
+      const added = await runner.runMcpCommand('add', {
         args: [serverName, '--type', 'stdio', '--command', 'echo'],
       });
+      runner.assertSuccess(added);
 
-      // Perform rapid operations
-      const operations = [];
-      for (let i = 0; i < 20; i++) {
-        operations.push(runner.runMcpCommand('status', { args: [serverName] }));
+      try {
+        // Allow concurrent Node startup on hosted runners within the 60-second test budget.
+        const operations = [];
+        for (let i = 0; i < 20; i++) {
+          operations.push(runner.runMcpCommand('status', { args: [serverName], timeout: 30_000 }));
+        }
+
+        const results = await Promise.allSettled(operations);
+        const errorText = (error: unknown) => {
+          if (error === undefined) return null;
+          return (error instanceof Error ? error.message : String(error)).slice(0, 2048);
+        };
+        const failures = results
+          .map((result, index) => {
+            if (result.status === 'rejected') {
+              return { index, exitCode: null, duration: null, error: errorText(result.reason), stdout: '', stderr: '' };
+            }
+            if (result.value.exitCode === 0) return undefined;
+            return {
+              index,
+              exitCode: result.value.exitCode,
+              duration: result.value.duration,
+              error: errorText(result.value.error),
+              stdout: result.value.stdout.slice(0, 2048),
+              stderr: result.value.stderr.slice(0, 2048),
+            };
+          })
+          .filter((result) => result !== undefined);
+
+        // Every actual parallel status command must succeed; retain each failure's cause.
+        const successful = results.filter((result) => result.status === 'fulfilled' && result.value.exitCode === 0);
+        expect(successful.length, `Failed status operations: ${JSON.stringify(failures)}`).toBe(20);
+      } finally {
+        await runner.runMcpCommand('remove', { args: [serverName] });
       }
-
-      const results = await Promise.allSettled(operations);
-
-      // All status operations should succeed
-      const successful = results.filter((r) => r.status === 'fulfilled' && r.value.exitCode === 0);
-      expect(successful.length).toBe(20);
-
-      // Clean up
-      await runner.runMcpCommand('remove', { args: [serverName] });
     });
   });
 

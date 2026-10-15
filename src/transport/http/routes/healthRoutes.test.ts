@@ -1,3 +1,5 @@
+import { createServer, type Server } from 'node:http';
+
 import { HealthStatus } from '@src/application/services/healthService.js';
 
 import express from 'express';
@@ -57,6 +59,24 @@ vi.mock('@src/application/services/healthService.js', () => {
 describe('Health Routes', () => {
   let app: express.Application;
   let mockHealthService: any;
+  const listeners = new Map<express.Application, Server>();
+
+  async function get(application: express.Application, path: string) {
+    let listener = listeners.get(application);
+    if (!listener) {
+      listener = createServer(application);
+      const created = listener;
+      await new Promise<void>((resolve, reject) => {
+        created.once('error', reject);
+        created.listen(0, '127.0.0.1', () => {
+          created.off('error', reject);
+          resolve();
+        });
+      });
+      listeners.set(application, listener);
+    }
+    return request(listener).get(path);
+  }
 
   beforeEach(async () => {
     mockRuntimeConnections.clear();
@@ -70,7 +90,18 @@ describe('Health Routes', () => {
     mockHealthService = HealthService.getInstance();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await Promise.all(
+      Array.from(
+        listeners.values(),
+        (listener) =>
+          new Promise<void>((resolve, reject) => {
+            listener.close((error) => (error ? reject(error) : resolve()));
+            listener.closeIdleConnections();
+          }),
+      ),
+    );
+    listeners.clear();
     vi.clearAllMocks();
   });
 
@@ -118,7 +149,7 @@ describe('Health Routes', () => {
       mockHealthService.performHealthCheck.mockResolvedValue(mockHealthData);
       mockHealthService.getHttpStatusCode.mockReturnValue(200);
 
-      const response = await request(app).get('/health');
+      const response = await get(app, '/health');
 
       expect(response.status).toBe(200);
       expect(response.headers['content-type']).toMatch(/application\/json/);
@@ -156,7 +187,7 @@ describe('Health Routes', () => {
       mockHealthService.performHealthCheck.mockResolvedValue(mockHealthData);
       mockHealthService.getHttpStatusCode.mockReturnValue(200);
 
-      const response = await request(app).get('/health');
+      const response = await get(app, '/health');
 
       expect(response.status).toBe(200);
       expect(response.body.status).toBe(HealthStatus.DEGRADED);
@@ -189,7 +220,7 @@ describe('Health Routes', () => {
       mockHealthService.performHealthCheck.mockResolvedValue(mockHealthData);
       mockHealthService.getHttpStatusCode.mockReturnValue(503);
 
-      const response = await request(app).get('/health');
+      const response = await get(app, '/health');
 
       expect(response.status).toBe(503);
       expect(response.body.status).toBe(HealthStatus.UNHEALTHY);
@@ -199,7 +230,7 @@ describe('Health Routes', () => {
       const error = new Error('Health check failed');
       mockHealthService.performHealthCheck.mockRejectedValue(error);
 
-      const response = await request(app).get('/health');
+      const response = await get(app, '/health');
 
       expect(response.status).toBe(500);
       expect(response.body).toEqual({
@@ -214,7 +245,7 @@ describe('Health Routes', () => {
       const error = 'Unknown error';
       mockHealthService.performHealthCheck.mockRejectedValue(error);
 
-      const response = await request(app).get('/health');
+      const response = await get(app, '/health');
 
       expect(response.status).toBe(500);
       expect(response.body).toEqual({
@@ -228,7 +259,7 @@ describe('Health Routes', () => {
 
   describe('GET /health/live', () => {
     it('should return liveness status with 200', async () => {
-      const response = await request(app).get('/health/live');
+      const response = await get(app, '/health/live');
 
       expect(response.status).toBe(200);
       expect(response.headers['content-type']).toMatch(/application\/json/);
@@ -243,7 +274,7 @@ describe('Health Routes', () => {
       // This should not affect liveness check
       mockHealthService.performHealthCheck.mockRejectedValue(new Error('Health check failed'));
 
-      const response = await request(app).get('/health/live');
+      const response = await get(app, '/health/live');
 
       expect(response.status).toBe(200);
       expect(response.body.status).toBe('alive');
@@ -260,11 +291,12 @@ describe('Health Routes', () => {
       const readStatus = vi.fn(() => credentialStorage);
       const scopedApp = express();
       scopedApp.use('/health', createHealthRoutes(undefined, undefined, readStatus));
-      const response = await request(scopedApp).get('/health/ready');
+      const response = await get(scopedApp, '/health/ready');
       expect(response.status).toBe(200);
       expect(response.body.credentialStorage).toEqual(credentialStorage);
       expect(readStatus).toHaveBeenCalledOnce();
-      await request(scopedApp).get('/health/live').expect(200);
+      const live = await get(scopedApp, '/health/live');
+      expect(live.status).toBe(200);
       expect(readStatus).toHaveBeenCalledOnce();
     });
 
@@ -280,7 +312,7 @@ describe('Health Routes', () => {
 
       mockHealthService.performHealthCheck.mockResolvedValue(mockHealthData);
 
-      const response = await request(app).get('/health/ready');
+      const response = await get(app, '/health/ready');
 
       expect(response.status).toBe(200);
       expect(response.headers['content-type']).toMatch(/application\/json/);
@@ -305,7 +337,7 @@ describe('Health Routes', () => {
 
       mockHealthService.performHealthCheck.mockResolvedValue(mockHealthData);
 
-      const response = await request(app).get('/health/ready');
+      const response = await get(app, '/health/ready');
 
       expect(response.status).toBe(503);
       expect(response.body).toEqual({
@@ -335,8 +367,8 @@ describe('Health Routes', () => {
           },
         });
 
-        const readiness = await request(app).get('/health/ready');
-        const liveness = await request(app).get('/health/live');
+        const readiness = await get(app, '/health/ready');
+        const liveness = await get(app, '/health/live');
 
         expect(readiness.status).toBe(503);
         expect(readiness.body.backendSupervision.worker.state).toBe(state);
@@ -368,7 +400,7 @@ describe('Health Routes', () => {
         stopped: 0,
       });
 
-      const response = await request(app).get('/health/ready');
+      const response = await get(app, '/health/ready');
 
       expect(response.status).toBe(503);
       expect(response.body.backendSupervision).toEqual({
@@ -389,7 +421,7 @@ describe('Health Routes', () => {
       const error = new Error('Readiness check failed');
       mockHealthService.performHealthCheck.mockRejectedValue(error);
 
-      const response = await request(app).get('/health/ready');
+      const response = await get(app, '/health/ready');
 
       expect(response.status).toBe(503);
       expect(response.body).toEqual({
@@ -432,7 +464,7 @@ describe('Health Routes', () => {
         },
       });
 
-      const response = await request(templateApp).get('/health/mcp/worker');
+      const response = await get(templateApp, '/health/mcp/worker');
 
       expect(response.status).toBe(503);
       expect(response.body).toMatchObject({
@@ -445,7 +477,7 @@ describe('Health Routes', () => {
       });
     });
 
-    it('returns aggregate supervision for a template target at minimal detail', async () => {
+    it('returns only aggregate supervision at minimal detail when the timestamp contains the worker PID', async () => {
       const loadingManager = {
         getStateTracker: () => ({ getServerState: vi.fn() }),
       } as any;
@@ -471,17 +503,27 @@ describe('Health Routes', () => {
         stopped: 0,
       });
 
-      const response = await request(templateApp).get('/health/mcp/worker');
+      const timestamp = '2026-10-10T21:52:04.101Z';
+      const timestampSpy = vi.spyOn(Date.prototype, 'toISOString').mockReturnValue(timestamp);
+      try {
+        const response = await get(templateApp, '/health/mcp/worker');
 
-      expect(response.status).toBe(200);
-      expect(response.body).toMatchObject({
-        name: 'worker',
-        state: 'connected',
-        backendSupervision: { total: 1, connected: 1 },
-      });
-      expect(response.body.instances).toBeUndefined();
-      expect(JSON.stringify(response.body)).not.toContain('template:worker');
-      expect(JSON.stringify(response.body)).not.toContain('101');
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({
+          name: 'worker',
+          state: 'connected',
+          backendSupervision: {
+            total: 1,
+            connected: 1,
+            restarting: 0,
+            crashLoop: 0,
+            stopped: 0,
+          },
+          timestamp,
+        });
+      } finally {
+        timestampSpy.mockRestore();
+      }
     });
 
     it('reports a stopped template target as unavailable', async () => {
@@ -503,7 +545,7 @@ describe('Health Routes', () => {
         },
       });
 
-      const response = await request(templateApp).get('/health/mcp/worker');
+      const response = await get(templateApp, '/health/mcp/worker');
 
       expect(response.status).toBe(503);
       expect(response.headers['x-server-state']).toBe('stopped');
@@ -520,8 +562,8 @@ describe('Health Routes', () => {
       const limitedApp = express();
       limitedApp.use('/health', createHealthRoutes(undefined, { windowMs: 60_000, maxRequests: 1 }));
 
-      const first = await request(limitedApp).get('/health/live');
-      const limited = await request(limitedApp).get('/health/ready');
+      const first = await get(limitedApp, '/health/live');
+      const limited = await get(limitedApp, '/health/ready');
 
       expect(first.status).toBe(200);
       expect(limited.status).toBe(429);

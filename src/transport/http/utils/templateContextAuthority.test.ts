@@ -1,4 +1,14 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 import * as templateContextTrust from '@src/core/context/templateContextTrust.js';
+import {
+  bindProjectPreparationAuthority,
+  normalizeProjectPreparationAuthority,
+  validateProjectPreparationAuthority,
+} from '@src/core/context/projectPreparationAuthority.js';
+import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
 import type { ContextData } from '@src/types/context.js';
@@ -7,6 +17,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   authorizeRequestTemplateContext,
+  getRequestProjectPreparationAuthority,
   redactContextForAudit,
   redactTemplateContextBodyForLogging,
   redactTemplateContextQueryForLogging,
@@ -17,6 +28,57 @@ afterEach(() => {
 });
 
 describe('template context session policy', () => {
+  it('mints only at the verified-local boundary and rechecks live trust and TTL for a retained binding', () => {
+    const storageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'preparation-authority-'));
+    let trust: 'verified' | 'legacy' = 'verified';
+    vi.spyOn(AgentConfigManager, 'getInstance').mockReturnValue({
+      get: vi.fn((key: string) => {
+        if (key === 'runtimeScopeStoragePath') return storageDir;
+        if (key === 'templateContext') return { trust };
+        if (key === 'auth') return { sessionTtlMinutes: 1 };
+        return undefined;
+      }),
+    } as unknown as AgentConfigManager);
+    try {
+      const runtimeScopeId = new RuntimeIdentityService({ storageDir }).getRuntimeScopeId();
+      const capability = new templateContextTrust.TemplateContextCapabilityStore({
+        storageDir,
+        runtimeScopeId,
+      }).getOrCreate();
+      const context: ContextData = { project: { path: '/repo' }, user: {}, environment: {}, sessionId: 'session-a' };
+      const proof = templateContextTrust.createTemplateContextProof(context, capability);
+      const result = authorizeRequestTemplateContext({
+        context,
+        proof,
+        transportSessionId: 'session-a',
+        source: 'meta',
+      });
+      const receipt = getRequestProjectPreparationAuthority(result);
+      expect(receipt).toBeDefined();
+      const bound = bindProjectPreparationAuthority(
+        normalizeProjectPreparationAuthority(receipt, context, context),
+        'binding-a',
+        context,
+      );
+      const admission = { bindingId: 'binding-a', context, ownerSessionId: 'session-a' };
+      expect(validateProjectPreparationAuthority(bound, admission)).toBe(true);
+      expect(getRequestProjectPreparationAuthority({ ...result })).toBeUndefined();
+      trust = 'legacy';
+      expect(validateProjectPreparationAuthority(bound, admission)).toBe(false);
+      expect(
+        getRequestProjectPreparationAuthority(
+          authorizeRequestTemplateContext({ context, proof, transportSessionId: 'session-a', source: 'meta' }),
+        ),
+      ).toBeUndefined();
+      trust = 'verified';
+      vi.useFakeTimers();
+      vi.setSystemTime(Date.parse(proof.issuedAt) + 60001);
+      expect(validateProjectPreparationAuthority(bound, admission)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+      fs.rmSync(storageDir, { recursive: true, force: true });
+    }
+  });
   it('uses the same effective TTL for transport sessions and proof verification', () => {
     const sessionTtlMinutes = 37;
     vi.spyOn(AgentConfigManager, 'getInstance').mockReturnValue({

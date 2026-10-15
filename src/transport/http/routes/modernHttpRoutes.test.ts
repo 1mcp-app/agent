@@ -5,6 +5,7 @@ import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { Writable } from 'node:stream';
 
+import * as backendPreparationAdmission from '@src/application/backendPreparationAdmission.js';
 import * as templateContextAuthority from '@src/transport/http/utils/templateContextAuthority.js';
 import { type CatalogCursorOwner, isCatalogCursorOwnerCurrent } from '@src/core/capabilities/capabilityCatalog.js';
 import { isResourceRouteOwnerActive, type ResourceRouteOwner } from '@src/core/capabilities/capabilityVisibility.js';
@@ -888,6 +889,38 @@ describe('modern HTTP admission', () => {
       },
     });
     expect(createBridge).toHaveBeenCalledTimes(1);
+  });
+
+  it('projects preparation authorization loss through the tools/call handler without allocating a bridge', async () => {
+    const revalidate = vi.fn(async () => false);
+    const beforeDispatch = vi.fn(async () => true);
+    const setupDeadline = vi.fn(() => ({ signal: new AbortController().signal, stop: vi.fn() }));
+    const admission = vi.spyOn(backendPreparationAdmission, 'admitBackendPreparationTool').mockResolvedValue({
+      kind: 'ready',
+      revalidate,
+      beforeDispatch,
+      setupDeadline,
+    });
+    try {
+      const response = await modernPost(await ensureListening(app()), {
+        jsonrpc: '2.0',
+        id: 41,
+        method: 'tools/call',
+        params: { name: 'echo', arguments: {}, _meta: modernMeta },
+      }).set('Mcp-Name', 'echo');
+      expect(response.body).toEqual({
+        jsonrpc: '2.0',
+        id: 41,
+        error: { code: -32602, message: 'Preparation authorization changed' },
+      });
+      expect(admission).toHaveBeenCalledOnce();
+      expect(revalidate).toHaveBeenCalledOnce();
+      expect(beforeDispatch).not.toHaveBeenCalled();
+      expect(setupDeadline).not.toHaveBeenCalled();
+      expect(createBridge).not.toHaveBeenCalled();
+    } finally {
+      admission.mockRestore();
+    }
   });
 
   it('supports request-scoped SSE without enabling GET or redelivery semantics', async () => {

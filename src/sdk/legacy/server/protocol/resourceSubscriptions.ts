@@ -1,9 +1,16 @@
+import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
+import { registerCapabilityPaginationNotifications } from '@src/core/capabilities/capabilityPagination.js';
 import {
   acquireRuntimeCapabilityCatalog,
   type RuntimeCapabilitySnapshot,
 } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
+import {
+  getProjectPreparationAuthorityIdentity,
+  validateProjectPreparationAuthority,
+} from '@src/core/context/projectPreparationAuthority.js';
 import { getRequestSession, resolveCapabilityVisibility } from '@src/core/protocol/requestHandlerUtils.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, type InboundConnection, ServerStatus } from '@src/core/types/index.js';
 import { getProjectBinding, withProjectBinding } from '@src/domains/project-selection/projectBindingScope.js';
 import logger from '@src/logger/logger.js';
@@ -57,6 +64,7 @@ interface CatalogSource {
   adapter: LegacyOutboundConnection['adapter'];
   connectionKey: string;
   kind: 'tools' | 'resources' | 'prompts';
+  preparationIdentity?: string;
 }
 interface Owner {
   readonly binding?: ReturnType<typeof getProjectBinding>;
@@ -314,6 +322,30 @@ function supportsListChanged(connection: LegacyOutboundConnection, kind: 'tools'
   return capability.listChanged === true;
 }
 
+/** Runtime-generated preparation changes require a current verified binding and configured adapter. */
+function preparationCatalogIdentity(connection: LegacyOutboundConnection, bindingId?: string): string | undefined {
+  if (!bindingId) return undefined;
+  const definition = getConfiguredServerTargets()[connection.name];
+  const preparation = definition?.preparation;
+  if (
+    definition?.disabled ||
+    preparation?.adapter !== 'configured-command' ||
+    !preparation.integration ||
+    !preparation.allowedActions.length
+  )
+    return undefined;
+  const manager = ServerManager.current.getTemplateServerManager();
+  const context = manager.getBindingContext?.(bindingId);
+  const authority = manager.getBindingAuthority?.(bindingId);
+  if (
+    !context?.sessionId ||
+    !authority ||
+    !validateProjectPreparationAuthority(authority, { bindingId, context, ownerSessionId: context.sessionId })
+  )
+    return undefined;
+  return JSON.stringify({ definition, authority: getProjectPreparationAuthorityIdentity(authority, context) });
+}
+
 async function assertCatalogCurrent(owner: Owner): Promise<void> {
   if (owner.inbound.subscriptionListKinds === undefined) {
     await refreshOrdinaryCatalog(owner);
@@ -329,7 +361,9 @@ function isCatalogSourceCurrent(owner: Owner, source: CatalogSource): boolean {
   if (current !== source.connection) return false;
   if (current.adapter !== source.adapter) return false;
   if (current.status !== ClientStatus.Connected) return false;
-  if (!supportsListChanged(current, source.kind)) return false;
+  if (source.preparationIdentity) {
+    if (preparationCatalogIdentity(current, owner.bindingId) !== source.preparationIdentity) return false;
+  } else if (!supportsListChanged(current, source.kind)) return false;
   const visibility = ownerVisibility(owner, source.kind);
   return visibility.serverCandidates.has(source.connectionKey);
 }
@@ -347,7 +381,11 @@ async function refreshOrdinaryCatalog(owner: Owner): Promise<void> {
   for (const [key, connection] of owner.connections) {
     if (connection.status !== ClientStatus.Connected) continue;
     for (const kind of owner.catalogKinds) {
-      if (!supportsListChanged(connection, kind)) continue;
+      if (
+        !supportsListChanged(connection, kind) &&
+        !(kind === 'tools' && preparationCatalogIdentity(connection, owner.bindingId))
+      )
+        continue;
       const visibility = ownerVisibility(owner, kind);
       if (!visibility.serverCandidates.has(key)) continue;
       if (!owner.catalogs.has(`${key}\0${kind}`)) changed = true;
@@ -448,6 +486,9 @@ function enqueue(owner: Owner, bytes: number, delivery: () => Promise<void>): vo
         if (owner.authorize && !(await owner.authorize())) throw new Error('Subscription authorization lost');
         await assertCatalogCurrent(owner);
         if (owner.closed) return;
+        if (owner.inbound.status !== ServerStatus.Connected) throw new Error('Subscription owner disconnected');
+        // Authorization may await a provider while this binding or preparation grant is revoked.
+        await assertCatalogCurrent(owner);
         await delivery();
       });
     })
@@ -471,7 +512,10 @@ export function registerOwnedCatalogConnection(
   const selected = inbound.subscriptionListKinds;
   if (connection.status !== ClientStatus.Connected) return;
   if (selected && !selected.includes(kind)) return;
-  if (!supportsListChanged(connection, kind)) return;
+  const nativeChanges = supportsListChanged(connection, kind);
+  const preparationIdentity =
+    kind === 'tools' && !nativeChanges ? preparationCatalogIdentity(connection, getRequestSession(inbound)) : undefined;
+  if (!nativeChanges && !preparationIdentity) return;
   const key = Array.from(connections).find(([, candidate]) => candidate === connection)?.[0];
   if (key === undefined) return;
   const visibility = resolveCapabilityVisibility(connections, inbound, getRequestSession(inbound), kind);
@@ -495,10 +539,35 @@ export function registerOwnedCatalogConnection(
     terminate(owner);
     throw new Error('Catalog subscription source limit exceeded');
   }
-  owner.catalogs.set(coverageKey, { connection, adapter: connection.adapter, connectionKey: key, kind });
+  owner.catalogs.set(coverageKey, {
+    connection,
+    adapter: connection.adapter,
+    connectionKey: key,
+    kind,
+    ...(preparationIdentity ? { preparationIdentity } : {}),
+  });
   let listeners = catalogOwners.get(connection);
   if (!listeners) catalogOwners.set(connection, (listeners = new Set()));
   listeners.add(owner);
+  registerCapabilityPaginationNotifications(
+    connections,
+    connection,
+    inbound,
+    async (notification) => {
+      enqueueOwnedCatalogNotification(
+        connections,
+        inbound,
+        connection,
+        {
+          method: notification.method,
+          params: { ...notification.params, server: connection.name },
+        },
+        notification.origin,
+      );
+    },
+    // A native-only initial forwarder cannot tag synthetic changes for this source.
+    preparationIdentity ? undefined : { preserveExisting: true },
+  );
   setupOwnedResourceNotifications(connection);
   monitorOwner(owner);
 }
@@ -537,12 +606,18 @@ export function enqueueOwnedCatalogNotification(
   inbound: InboundConnection,
   connection: LegacyOutboundConnection,
   notification: Update,
+  origin?: 'runtime-preparation',
 ): void {
   const kind = notification.method.split('/')[1];
   for (const owner of owners.get(inbound)?.values() ?? []) {
     if (owner.closed) continue;
+    if (!allowsOwnedNotification(owner.inbound, notification)) continue;
     const covered = Array.from(owner.catalogs.values()).some(
-      (source) => source.connection === connection && source.adapter === connection.adapter && source.kind === kind,
+      (source) =>
+        source.connection === connection &&
+        source.adapter === connection.adapter &&
+        source.kind === kind &&
+        (!source.preparationIdentity || origin === 'runtime-preparation'),
     );
     if (!covered) continue;
     const adapter = connection.adapter;
@@ -563,26 +638,26 @@ export function enqueueOwnedNotification(
   notification: Update,
   isCurrent?: () => boolean,
 ): void {
-  if (inbound.requestOnly) return;
+  if (!allowsOwnedNotification(inbound, notification)) return;
+  const owner = getOwner(connections, inbound);
+  enqueueOwnerNotification(owner, notification, isCurrent);
+}
+
+function allowsOwnedNotification(inbound: InboundConnection, notification: Update): boolean {
+  if (inbound.requestOnly) return false;
   const kinds = {
     'notifications/tools/list_changed': 'tools',
     'notifications/resources/list_changed': 'resources',
     'notifications/prompts/list_changed': 'prompts',
   } as const;
   const kind = kinds[notification.method as keyof typeof kinds];
-  if (kind && !AgentConfigManager.getInstance().get('features').clientNotifications) return;
-  if (kind && inbound.subscriptionListKinds && !inbound.subscriptionListKinds.includes(kind)) return;
-  const owner = getOwner(connections, inbound);
-  enqueueOwnerNotification(owner, notification, isCurrent);
+  if (kind && !AgentConfigManager.getInstance().get('features').clientNotifications) return false;
+  if (kind && inbound.subscriptionListKinds && !inbound.subscriptionListKinds.includes(kind)) return false;
+  return true;
 }
 
 function enqueueOwnerNotification(owner: Owner, notification: Update, isCurrent?: () => boolean): void {
-  if (owner.inbound.requestOnly) return;
-  if (
-    notification.method.endsWith('/list_changed') &&
-    !AgentConfigManager.getInstance().get('features').clientNotifications
-  )
-    return;
+  if (!allowsOwnedNotification(owner.inbound, notification)) return;
   const encoded = JSON.stringify(notification);
   const snapshot = structuredClone(notification);
   enqueue(owner, Buffer.byteLength(encoded), async () => {

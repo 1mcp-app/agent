@@ -32,7 +32,7 @@ export type BackendReadiness =
     }
   | {
       readonly state: 'unknown';
-      readonly reason: 'inspection_timeout' | 'caller_disconnected';
+      readonly reason: 'inspection_timeout' | 'caller_disconnected' | 'unmapped_exit' | 'probe_failed';
       readonly instructions: string;
     }
   | { readonly state: 'unsupported' | 'conflict'; readonly instructions: string };
@@ -50,17 +50,30 @@ export interface PreparationRecoveryHint {
   readonly previousState: string;
 }
 
+export interface PreparationProgress {
+  readonly message?: string;
+  readonly completed?: number;
+  readonly total?: number;
+  readonly unit?: string;
+}
+
 export interface BackendPreparationAdapter {
+  /** Optional read-only status command; missing or invalid data means progress unavailable. */
+  progress?(
+    target: PreparationTarget,
+    operation: string,
+    options?: { readonly signal?: AbortSignal; readonly waitMs?: number },
+  ): Promise<PreparationProgress | undefined>;
   inspect(
     target: PreparationTarget,
     operation: string,
-    options?: { readonly signal?: AbortSignal },
+    options?: { readonly signal?: AbortSignal; readonly waitMs?: number },
   ): Promise<BackendReadiness>;
   /** Must settle only once owned work has stopped. Abort must never stop foreign work. */
   prepare(
     target: PreparationTarget,
     action: PreparationAction,
-    options: { readonly signal: AbortSignal; readonly executionDeadlineMs: number },
+    options: { readonly signal: AbortSignal; readonly executionDeadlineMs: number; readonly operation?: string },
   ): Promise<void>;
   classifyFailure(error: unknown): PreparationFailure;
   /** Must reconcile native readiness and ownership; unsupported recovery reports conflict. */
@@ -68,7 +81,7 @@ export interface BackendPreparationAdapter {
     target: PreparationTarget,
     operation: string,
     advisory: PreparationRecoveryHint,
-    options?: { readonly signal?: AbortSignal },
+    options?: { readonly signal?: AbortSignal; readonly waitMs?: number },
   ): Promise<BackendReadiness>;
 }
 
@@ -89,7 +102,7 @@ export interface PreparationRequestOptions {
   readonly validateAdmission?: () => Promise<void>;
 }
 
-export type PreparationState = 'queued' | 'running' | 'cancelling' | 'ready' | 'failed' | 'cancelled';
+export type PreparationState = 'queued' | 'running' | 'cancelling' | 'ready' | 'not_ready' | 'failed' | 'cancelled';
 
 export interface PreparationStatus {
   readonly id: string;
@@ -99,6 +112,8 @@ export interface PreparationStatus {
   readonly state: PreparationState;
   readonly attempt: number;
   readonly executionDeadlineMs: number;
+  readonly elapsedMs?: number;
+  readonly progress?: PreparationProgress;
   readonly readiness?: BackendReadiness;
   readonly failure?: PreparationFailure;
 }

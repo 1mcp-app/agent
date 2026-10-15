@@ -81,8 +81,10 @@ describe('HTTP project binding lifetime and inspect admission', () => {
   function removeBindingDuringPreparation() {
     load.mockImplementation(async (preparedContext: ContextData) => {
       // Preparation has registered the real binding before awaiting template rendering.
+      expect(templates.getBindingContexts().size).toBeGreaterThan(0);
       await Promise.resolve();
       await templates.cleanupTemplateServers(preparedContext.sessionId!, clients, {});
+      expect(templates.getBindingContexts().size).toBe(0);
       return { templateServers: {}, staticServers: {}, errors: [] };
     });
   }

@@ -68,11 +68,15 @@ export interface CapabilityRefreshResult {
   shouldNotifyListChanged?: boolean;
 }
 
+export type ToolDispatchDecision = boolean | { result: unknown } | { assertCurrent: () => boolean };
+
 export interface CapabilityCatalogQueryOptions {
   refreshIntent?: CapabilityRefreshIntent;
   signal?: AbortSignal;
   /** Request-scoped registry, e.g. built from the snapshot the request already captured. */
   toolRegistry?: ToolRegistry;
+  /** Runtime-owned authorization fence after asynchronous schema and route admission. */
+  beforeDispatch?: () => Promise<ToolDispatchDecision>;
 }
 
 export interface CapabilityRoute extends CatalogRoute {
@@ -776,6 +780,7 @@ export class CapabilityCatalog {
 
     const { route } = access;
     const connection = access.connection ?? this.deps.outboundConnections.get(route.connectionKey);
+    const admittedGeneration = getCapabilityPaginationGeneration(this.deps.outboundConnections, 'tools');
     const diagnosticRoute = {
       ...requested,
       server: route.server,
@@ -844,6 +849,50 @@ export class CapabilityCatalog {
         (current.tool.definition && JSON.stringify(current.tool.definition) !== JSON.stringify(definition))
       )
         throw new SchemaBoundaryError('schema_invalid');
+      const final = await this.resolveVisibleToolAccess(args, visibility, queryOptions.toolRegistry);
+      if (
+        final.error ||
+        JSON.stringify(final.route) !== JSON.stringify(route) ||
+        (final.tool.definition && JSON.stringify(final.tool.definition) !== JSON.stringify(definition)) ||
+        getCapabilityPaginationGeneration(this.deps.outboundConnections, 'tools') !== admittedGeneration ||
+        queryOptions.toolRegistry?.isCurrent() === false ||
+        queryOptions.signal?.aborted ||
+        this.deps.outboundConnections.get(route.connectionKey) !== connection ||
+        connection.adapter !== adapter
+      )
+        throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
+      if (queryOptions.beforeDispatch) {
+        const decision = await queryOptions.beforeDispatch();
+        if (decision === false) throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
+        if (typeof decision === 'object' && 'result' in decision)
+          return { result: decision.result, server: route.server, tool: route.toolName, route, refresh };
+        if (typeof decision === 'object' && !decision.assertCurrent())
+          throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
+        const registry = queryOptions.toolRegistry ?? this.deps.getToolRegistry();
+        if (registry instanceof Promise) {
+          void registry.catch(() => undefined);
+          throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
+        }
+        const effectiveVisibility = visibility ?? this.deps.defaultVisibility;
+        const selectedRegistry = effectiveVisibility
+          ? registry.filterByServerCandidates(effectiveVisibility.serverCandidates)
+          : registry;
+        const tool = selectedRegistry.getTool(route.server, route.toolName);
+        if (
+          !tool ||
+          connection.status !== ClientStatus.Connected ||
+          registry.isCurrent() === false ||
+          JSON.stringify(this.resolveRoute(tool, visibility)) !== JSON.stringify(route) ||
+          JSON.stringify(tool.definition?.inputSchema ?? tool.inputSchema) !== JSON.stringify(definition.inputSchema) ||
+          JSON.stringify(tool.definition?.outputSchema) !== JSON.stringify(definition.outputSchema) ||
+          isSourceToolDisabled(this.deps.getServerConfigs(), route.server, route.toolName) ||
+          getCapabilityPaginationGeneration(this.deps.outboundConnections, 'tools') !== admittedGeneration ||
+          queryOptions.signal?.aborted ||
+          this.deps.outboundConnections.get(route.connectionKey) !== connection ||
+          connection.adapter !== adapter
+        )
+          throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
+      }
       phase = 'upstream';
       writeLocalDiagnostic('debug', 'tool.dispatch', () => ({ ...diagnosticRoute, phase }));
       const result = await requestLegacyAdapter(

@@ -3,6 +3,9 @@ import { Stream } from 'node:stream';
 
 import { z } from 'zod';
 
+import { ConfiguredCommandIntegrationSchema } from '../../domains/backend-preparation/configuredCommandAdapter.js';
+import { PreparationOptionsSchema } from '../../domains/backend-preparation/policy.js';
+
 const ENVIRONMENT_REFERENCE_PATTERN = /\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*/u;
 const transportUrlSchema = z.union([
   z.string().url(),
@@ -101,6 +104,7 @@ export interface GlobalTransportConfig {
  * CLI args and ONE_MCP_* env vars always take precedence over these values.
  */
 export interface ApplicationConfig {
+  readonly preparation?: Partial<z.infer<typeof PreparationOptionsSchema>>;
   readonly transport?: 'http' | 'sse' | 'stdio';
   readonly port?: number;
   readonly host?: string;
@@ -263,6 +267,18 @@ export const templateServerConfigSchema = z.object({
  * Zod schema for transport configuration
  */
 export const transportConfigSchema = z.object({
+  preparation: z
+    .object({
+      adapter: z.literal('configured-command'),
+      affectedTools: z.union([z.literal('all'), z.array(z.string().min(1).max(256)).min(1).max(4096)]),
+      integration: ConfiguredCommandIntegrationSchema.optional(),
+      allowedActions: z.array(z.enum(['initialize', 'sync', 'rebuild', 'install', 'paid'])).max(5),
+      executionDeadlineMs: z.number().int().min(1).max(86_400_000).optional(),
+      transientRetryLimit: z.number().int().min(0).max(3).optional(),
+    })
+    .strict()
+    .optional()
+    .describe('Runtime-owned command integration and explicit action permissions'),
   projectTarget: z
     .discriminatedUnion('mode', [
       z
@@ -379,6 +395,7 @@ export const transportConfigSchema = z.object({
  * Zod schema for application-level configuration
  */
 export const applicationConfigSchema = z.object({
+  preparation: PreparationOptionsSchema.partial().optional(),
   transport: z.enum(['http', 'sse', 'stdio']).optional().describe('Transport type for the 1MCP server'),
   port: z.number().int().min(1).max(65535).optional().describe('HTTP port to listen on'),
   host: z.string().optional().describe('HTTP host to listen on'),

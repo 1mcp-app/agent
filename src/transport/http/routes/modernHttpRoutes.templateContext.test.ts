@@ -11,6 +11,7 @@ import { setupModernHttpRoutes } from './modernHttpRoutes.js';
 const { authorize } = vi.hoisted(() => ({ authorize: vi.fn() }));
 vi.mock('@src/transport/http/utils/templateContextAuthority.js', () => ({
   authorizeRequestTemplateContext: authorize,
+  getRequestProjectPreparationAuthority: () => undefined,
 }));
 vi.mock('./modernToolHeaderRegistry.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./modernToolHeaderRegistry.js')>()),

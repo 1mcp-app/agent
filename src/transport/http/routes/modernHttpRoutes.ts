@@ -15,6 +15,11 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
+import {
+  admitBackendPreparationTool,
+  revalidatePreparationAuthentication,
+  withPreparationRequestScope,
+} from '@src/application/backendPreparationAdmission.js';
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION, STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
 import {
   type CatalogCursorOwner,
@@ -35,6 +40,8 @@ import {
 import { filterConnectionsForSession } from '@src/core/protocol/requestHandlerUtils.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
 import type { InboundConnectionConfig } from '@src/core/types/index.js';
+import { SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
+import { schemaInputErrorResult } from '@src/core/validation/toolSchemaBoundary.js';
 import { createProjectBindingId } from '@src/domains/project-selection/projectSelection.js';
 import { ModernInboundEraAdapter } from '@src/gateway/adapters/modern/modernInboundEraAdapter.js';
 import { createEffectiveRequestAuthority } from '@src/gateway/contracts/effectiveRequestAuthority.js';
@@ -74,12 +81,17 @@ import {
   revalidateAuthInfo,
 } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
 import {
+  CONTEXT_HEADERS,
   extractTemplateContextRequest,
   hasExplicitTemplateContextProof,
 } from '@src/transport/http/utils/contextExtractor.js';
-import { authorizeRequestTemplateContext } from '@src/transport/http/utils/templateContextAuthority.js';
+import {
+  authorizeRequestTemplateContext,
+  getRequestProjectPreparationAuthority,
+} from '@src/transport/http/utils/templateContextAuthority.js';
 
 import type { NextFunction, Request, RequestHandler, Response, Router } from 'express';
+import { z } from 'zod';
 
 import {
   createModernInteractionBinding,
@@ -483,9 +495,9 @@ export function setupModernHttpRoutes(
       }
 
       if (hasExplicitTemplateContextProof(req)) {
-        const extracted = extractTemplateContextRequest(req);
-        const authorization = extracted
-          ? authorizeRequestTemplateContext({ ...extracted, transportSessionId: req.get('mcp-session-id') })
+        const extractedContext = extractTemplateContextRequest(req);
+        const authorization = extractedContext
+          ? authorizeRequestTemplateContext({ ...extractedContext, transportSessionId: req.get('mcp-session-id') })
           : undefined;
         if (authorization?.status !== 'trusted') {
           res.status(400).json({
@@ -497,6 +509,7 @@ export function setupModernHttpRoutes(
         }
       }
       let config: InboundConnectionConfig = buildConfig(req, res);
+      let bindingId: string | undefined;
       const prepareTemplates = async () => {
         const extracted = extractTemplateContextRequest(req);
         if (!extracted) return;
@@ -509,14 +522,20 @@ export function setupModernHttpRoutes(
           authorization.context,
           createProjectBindingId(authorization.context.sessionId!, authorization.context),
         );
-        const context = initial.context;
+        const context = authorization.context;
         const sessionId = initial.sessionId;
         config = { ...config, context, logicalTemplateSessionId: sessionId, logicalTemplateBindingId: initial.id };
         releaseTemplateSession = serverManager.retainLogicalTemplateSession(sessionId);
-        const bindingId = await serverManager.prepareLogicalTemplateSession(sessionId, context, config);
+        const authority = getRequestProjectPreparationAuthority(authorization);
+        bindingId = await serverManager.prepareLogicalTemplateSession(
+          sessionId,
+          context,
+          config,
+          ...(authority ? [authority] : []),
+        );
         const projectContext = bindingId
           ? serverManager.getTemplateServerManager().getBindingContext(bindingId)
-          : context;
+          : initial.context;
         if (!projectContext) throw new Error('Project binding is no longer available');
         const binding = initial;
         config = {
@@ -586,6 +605,56 @@ export function setupModernHttpRoutes(
             }
             activeModernToolHeaderAdmissions++;
             ownsHeaderAdmission = true;
+            const call = z
+              .object({ name: z.string(), arguments: z.record(z.string(), z.unknown()).optional() })
+              .loose()
+              .safeParse((req.body as { params?: unknown } | null)?.params);
+            if (call.success) {
+              const rawOwner = req.headers?.[CONTEXT_HEADERS.SESSION_ID];
+              const auth = getAuthInfo(res);
+              let preparation;
+              try {
+                preparation = await admitBackendPreparationTool({
+                  serverManager,
+                  bindingId,
+                  ownerSessionId: Array.isArray(rawOwner) ? rawOwner[0] : rawOwner,
+                  filterConfig: { ...config, projectFilterMode: getTagFilterMode(res) },
+                  authentication: auth
+                    ? [auth.clientId, auth.token, [...auth.grantedScopes].sort(), [...auth.grantedTags].sort()]
+                    : undefined,
+                  revalidateAuth: () => revalidatePreparationAuthentication(auth, () => revalidateAuthInfo(auth)),
+                  request: call.data,
+                  signal: disconnect.controller.signal,
+                });
+              } catch (error) {
+                if (!(error instanceof SchemaBoundaryError) || error.code !== 'schema_input_invalid') throw error;
+                const invalid = new Server(
+                  { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
+                  { capabilities: { tools: {} } },
+                );
+                invalid.setRequestHandler('tools/call', async () => schemaInputErrorResult());
+                return invalid;
+              }
+
+              if (preparation.kind === 'blocked') {
+                const pending = new Server(
+                  { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
+                  { capabilities: { tools: {} } },
+                );
+                pending.setRequestHandler('tools/call', async () => preparation.result as never);
+                return pending;
+              }
+              if (preparation.kind === 'ready' && !(await preparation.revalidate())) {
+                const changed = new Server(
+                  { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
+                  { capabilities: { tools: {} } },
+                );
+                changed.setRequestHandler('tools/call', async () => {
+                  throw new ProtocolError(-32602, 'Preparation authorization changed');
+                });
+                return changed;
+              }
+            }
           }
           const headerRegistry = await resolveModernToolHeaderRegistry(
             serverManager,
@@ -829,7 +898,20 @@ export function setupModernHttpRoutes(
       );
 
       try {
-        await writeWebResponse(await handler.fetch(request, { parsedBody: req.body }), res);
+        const auth = getAuthInfo(res);
+        const rawOwner = req.headers?.[CONTEXT_HEADERS.SESSION_ID];
+        const response = await withPreparationRequestScope(
+          {
+            ownerSessionId: Array.isArray(rawOwner) ? rawOwner[0] : rawOwner,
+            filterConfig: { ...config, projectFilterMode: getTagFilterMode(res) },
+            authentication: auth
+              ? [auth.clientId, auth.token, [...auth.grantedScopes].sort(), [...auth.grantedTags].sort()]
+              : undefined,
+            revalidateAuth: () => revalidatePreparationAuthentication(auth, () => revalidateAuthInfo(auth)),
+          },
+          () => handler.fetch(request, { parsedBody: req.body }),
+        );
+        await writeWebResponse(response, res);
       } finally {
         try {
           await handler.close();

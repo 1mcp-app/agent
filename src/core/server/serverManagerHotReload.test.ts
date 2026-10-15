@@ -93,6 +93,8 @@ vi.mock('./templateServerManager.js', () => ({
       retireTemplatesForRuntimeEnvironment: mockState.retireTemplatesForRuntimeEnvironment,
       createTemplateBasedServers: mockState.createTemplateBasedServers,
       getBindingContext: mockState.getBindingContext,
+      getBindingAuthority: vi.fn(),
+      getBindingConfiguration: vi.fn(),
     };
   }),
 }));
@@ -342,6 +344,7 @@ describe('ServerManager hot-reload lifecycle facade', () => {
       outboundConns,
       transports,
       'persistent',
+      undefined,
     );
   });
 
@@ -384,6 +387,7 @@ describe('ServerManager hot-reload lifecycle facade', () => {
       outboundConns,
       transports,
       'ephemeral',
+      undefined,
     );
     expect(mockState.createTemplateBasedServers).toHaveBeenCalledOnce();
     expect(refreshCapabilities).toHaveBeenCalledOnce();

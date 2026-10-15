@@ -231,9 +231,11 @@ afterEach(async () => {
           `Unexpected process inspection in ${s.directory}: ${JSON.stringify(entries.filter((entry) => entry.kind === 'attempt'))}`,
         );
     }
-    fs.rmSync(s.directory, { recursive: true, force: true });
+    // Windows can retain process file handles briefly after the owner releases its scope.
+    fs.rmSync(s.directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
-  for (const directory of temporaryDirectories.splice(0)) fs.rmSync(directory, { recursive: true, force: true });
+  for (const directory of temporaryDirectories.splice(0))
+    fs.rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   expect(failures).toEqual([]);
 });
 
