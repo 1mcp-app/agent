@@ -1,4 +1,7 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { runInNewContext } from 'node:vm';
 
 import { describe, expect, it } from 'vitest';
@@ -118,12 +121,10 @@ describe('release-pipeline workflow', () => {
       expect(jobRuns(workflow.jobs.finalize.if, { ...needs, release: { result } })).toBe(false);
     expect(
       jobRuns(workflow.jobs.finalize.if, { ...needs, validate: { outputs: { release_ref: 'release-1.2' } } }),
-    ).toBe(false);
+    ).toBe(true);
   });
   it('creates maintenance branches for prereleases and retains always-run evidence', () => {
-    expect(workflow.jobs.finalize.if).toBe(
-      "${{ !cancelled() && needs.release.result == 'success' && needs.validate.outputs.release_ref == 'main' }}",
-    );
+    expect(workflow.jobs.finalize.if).toBe("${{ !cancelled() && needs.release.result == 'success' }}");
     expect(workflow.jobs.summary.if).toBe('always()');
     expect(workflow.jobs.summary.steps[0].with.ref).toBe('${{ github.sha }}');
     expect(workflow.jobs.summary.permissions.contents).toBe('read');
@@ -132,5 +133,43 @@ describe('release-pipeline workflow', () => {
     expect(workflow.jobs.summary.needs).toContain('release');
     expect(workflow.concurrency['cancel-in-progress']).toBe(false);
     expect(JSON.stringify(workflow)).not.toContain('secrets: inherit');
+  });
+});
+
+describe('maintenance branch publication', () => {
+  it('creates, advances and retries the branch, but rejects a rewind or divergence', () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'release-branch-'));
+    const git = (...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: 'pipe' }).trim();
+    const step = workflow.jobs.finalize.steps.find((item: { run?: string }) => item.run);
+    const publish = (sha: string) =>
+      execFileSync('bash', ['-c', step.run], {
+        cwd,
+        env: { ...process.env, RELEASE_SHA: sha, EXPECTED_RELEASE_BRANCH: 'release-v1.2' },
+        stdio: 'pipe',
+      });
+    const branchHead = () => git('--git-dir=remote.git', 'rev-parse', 'refs/heads/release-v1.2');
+    try {
+      git('init');
+      git('config', 'user.email', 'test@example.com');
+      git('config', 'user.name', 'Release test');
+      git('init', '--bare', 'remote.git');
+      git('remote', 'add', 'origin', path.join(cwd, 'remote.git'));
+      git('commit', '--allow-empty', '-m', 'first release');
+      const first = git('rev-parse', 'HEAD');
+      publish(first);
+      expect(branchHead()).toBe(first);
+      git('commit', '--allow-empty', '-m', 'patch release');
+      const next = git('rev-parse', 'HEAD');
+      publish(next);
+      publish(next);
+      expect(branchHead()).toBe(next);
+      expect(() => publish(first)).toThrow();
+      git('checkout', '--detach', first);
+      git('commit', '--allow-empty', '-m', 'divergent release');
+      expect(() => publish(git('rev-parse', 'HEAD'))).toThrow();
+      expect(branchHead()).toBe(next);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
   });
 });

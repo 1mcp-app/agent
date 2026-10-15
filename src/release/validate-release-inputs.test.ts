@@ -32,7 +32,7 @@ describe('validateReleaseInputs', () => {
     expect(result).toMatchObject({
       version,
       versionTag: `v${version}`,
-      expectedReleaseBranch: 'release-1.2',
+      expectedReleaseBranch: 'release-v1.2',
       isPrerelease: true,
       npmTag,
       dockerRawTag,
@@ -57,5 +57,16 @@ describe('validateReleaseInputs', () => {
     ).toThrow('prerelease channel must start with a letter so it can be used as an npm dist-tag.');
 
     expect(Date.now() - startedAt).toBeLessThan(100);
+  });
+});
+
+describe('maintenance branch naming', () => {
+  it.each(['main', 'release-v1.2', 'release-1.2'])('accepts %s and targets release-v1.2', (targetRef) => {
+    expect(validateReleaseInputs({ targetRef, version: '1.2.3', tagExists: () => false }).expectedReleaseBranch).toBe(
+      'release-v1.2',
+    );
+  });
+  it.each(['release-v1.3', 'release-1.3', 'release-v1.2.3'])('rejects mismatched source %s', (targetRef) => {
+    expect(() => validateReleaseInputs({ targetRef, version: '1.2.3', tagExists: () => false })).toThrow();
   });
 });

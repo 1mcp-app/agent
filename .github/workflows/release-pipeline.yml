@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       target_ref:
-        description: 'New release source: main or release-<major>.<minor>. Recovery derives its source.'
+        description: 'New release source: main or release-v<major>.<minor> (legacy release-<major>.<minor> accepted). Recovery derives its source.'
         required: false
         default: main
         type: string
@@ -201,12 +201,10 @@ jobs:
       packages: write
       actions: read
 
-  # Cuts the release-X.Y maintenance branch only after npm + docker + GitHub
-  # release all succeeded. Skipped for releases that already ran from a
-  # release-X.Y branch.
+  # Create or advance the release-vX.Y branch only after publication succeeds.
   finalize:
     needs: [validate, candidate, release]
-    if: ${{ !cancelled() && needs.release.result == 'success' && needs.validate.outputs.release_ref == 'main' }}
+    if: ${{ !cancelled() && needs.release.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -216,28 +214,17 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create release branch
+      - name: Create or update release branch
         env:
           RELEASE_SHA: ${{ needs.candidate.outputs.release_sha }}
           EXPECTED_RELEASE_BRANCH: ${{ needs.validate.outputs.expected_release_branch }}
         run: |
           set -euo pipefail
 
-          if git ls-remote --exit-code --heads origin "refs/heads/${EXPECTED_RELEASE_BRANCH}" >/dev/null 2>&1; then
-            echo "${EXPECTED_RELEASE_BRANCH} already exists; not creating it."
-            exit 0
-          fi
-
-          if ! git push origin "${RELEASE_SHA}:refs/heads/${EXPECTED_RELEASE_BRANCH}"; then
-            if git ls-remote --exit-code --heads origin "refs/heads/${EXPECTED_RELEASE_BRANCH}" >/dev/null 2>&1; then
-              echo "${EXPECTED_RELEASE_BRANCH} was created concurrently; treating as success."
-              exit 0
-            fi
-
-            echo "::error::Failed to create ${EXPECTED_RELEASE_BRANCH}."
-            exit 1
-          fi
-          echo "Created ${EXPECTED_RELEASE_BRANCH} at ${RELEASE_SHA}."
+          # A normal push creates missing branches and fast-forwards existing ones.
+          # Reject divergent history or older recovery candidates instead of overwriting them.
+          git push origin "${RELEASE_SHA}:refs/heads/${EXPECTED_RELEASE_BRANCH}"
+          echo "Updated ${EXPECTED_RELEASE_BRANCH} to ${RELEASE_SHA}."
 
   summary:
     if: always()
