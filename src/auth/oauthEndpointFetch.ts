@@ -5,8 +5,10 @@ import { isIP } from 'node:net';
 import { Readable, Transform } from 'node:stream';
 
 import { MCP_SERVER_VERSION } from '@src/constants.js';
+import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 
 import { oauthAuthorityError } from './oauthAuthority.js';
+import { oauthDiagnosticMessage, type OAuthDiagnosticReason, readOAuthDiagnostic } from './oauthDiagnostics.js';
 
 export const OAUTH_RESPONSE_LIMIT = 1024 * 1024;
 export const OAUTH_FETCH_TIMEOUT_MS = 10_000;
@@ -87,11 +89,25 @@ export function createOAuthEndpointFetch(options: {
   beforeRequest: (url: URL, init: RequestInit) => Promise<RequestInit>;
   pinDestination: (host: string, addresses: string, init: RequestInit) => Promise<void>;
   onFailure: (resourceRequest: boolean) => void;
+  onDiagnostic?: (resourceRequest: boolean, message: string) => void;
+  validateResponseStatus?: (status: number, init: RequestInit) => void;
   response: (value: Record<string, unknown>, url: URL, init: RequestInit) => void;
   metadata: (value: Record<string, unknown>, url: URL, init: RequestInit) => Record<string, unknown>;
 }): typeof fetch {
   return async (input, init) => {
     let resourceRequest = false;
+    let reason: OAuthDiagnosticReason = 'authority_mismatch';
+    let httpStatus: number | undefined;
+    const report = () => {
+      const message = oauthDiagnosticMessage(reason, httpStatus);
+      try {
+        options.onDiagnostic?.(resourceRequest, message);
+        writeLocalDiagnostic('warn', 'oauth.endpoint.failed', { ...readOAuthDiagnostic(message)! });
+      } catch {
+        // Diagnostic reporting must not change authorization outcomes.
+      }
+      return message;
+    };
     try {
       const request = input instanceof Request ? input : undefined;
       const target = new URL(request?.url ?? String(input));
@@ -114,6 +130,7 @@ export function createOAuthEndpointFetch(options: {
         : init;
       const safeInit = await options.beforeRequest(url, { ...inputInit, signal: isResource ? signal : boundedSignal });
       const hostname = url.hostname.replace(/^\[|\]$/g, '');
+      reason = 'network_failure';
       const addresses = isIP(hostname)
         ? [{ address: hostname, family: isIP(hostname) }]
         : await Promise.race([
@@ -123,6 +140,7 @@ export function createOAuthEndpointFetch(options: {
             ),
           ]);
       const localException = isResource || isConfiguredLocalOrigin(url, options.resource, options.issuer);
+      reason = 'authority_mismatch';
       if (!addresses.length || (!localException && addresses.some((item) => isPrivateOAuthAddress(item.address))))
         throw oauthAuthorityError();
       const resolved = addresses
@@ -136,6 +154,7 @@ export function createOAuthEndpointFetch(options: {
       const body = safeInit.body;
       if (body !== undefined && body !== null && typeof body !== 'string' && !(body instanceof URLSearchParams))
         throw oauthAuthorityError();
+      reason = 'network_failure';
       const response = await new Promise<http.IncomingMessage>((resolve, reject) => {
         const outgoing = (url.protocol === 'https:' ? https : http).request(
           url,
@@ -157,6 +176,7 @@ export function createOAuthEndpointFetch(options: {
       });
       const status = response.statusCode ?? 500;
       if (status >= 300 && status < 400) {
+        reason = 'authority_mismatch';
         response.destroy();
         if (isResource) throw new OAuthResourceRedirectError();
         throw oauthAuthorityError();
@@ -226,9 +246,15 @@ export function createOAuthEndpointFetch(options: {
       }
       let text = Buffer.concat(chunks).toString('utf8');
       if (status >= 200 && status < 300 && (safeInit.method ?? 'GET') === 'GET') {
+        reason = 'invalid_metadata';
         const value: unknown = JSON.parse(text);
         if (!value || typeof value !== 'object' || Array.isArray(value)) throw oauthAuthorityError();
-        text = JSON.stringify(options.metadata(value as Record<string, unknown>, url, safeInit));
+        try {
+          text = JSON.stringify(options.metadata(value as Record<string, unknown>, url, safeInit));
+        } catch (error) {
+          if (error instanceof Error && error.message === oauthAuthorityError().message) reason = 'authority_mismatch';
+          throw error;
+        }
       }
       if (status >= 200 && status < 300 && (safeInit.method ?? 'GET') === 'POST') {
         const value: unknown = JSON.parse(text);
@@ -237,6 +263,12 @@ export function createOAuthEndpointFetch(options: {
       }
       // Provider error descriptions are untrusted and may echo secrets.
       if (status >= 400) {
+        if ((safeInit.method ?? 'GET') === 'GET') {
+          reason = 'metadata_http_error';
+          httpStatus = status;
+          report();
+        }
+        options.validateResponseStatus?.(status, safeInit);
         let code = 'server_error';
         try {
           const value: unknown = JSON.parse(text);
@@ -258,9 +290,11 @@ export function createOAuthEndpointFetch(options: {
       responseHeaders.delete('content-encoding');
       return new Response(status === 204 || status === 205 ? null : text, { status, headers: responseHeaders });
     } catch (error) {
+      const retained = error instanceof Error ? readOAuthDiagnostic(error.message) : undefined;
+      const message = retained ? oauthDiagnosticMessage(retained.reason, retained.httpStatus) : report();
       options.onFailure(resourceRequest);
       if (error instanceof OAuthResourceRedirectError) throw error;
-      throw oauthAuthorityError();
+      throw new Error(message);
     }
   };
 }

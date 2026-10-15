@@ -5,6 +5,7 @@ import type { LegacySdkAdapter } from '@src/sdk/contracts/index.js';
 import { tagsToScopes, validateScopes } from '@src/utils/validation/scopeValidation.js';
 
 import { OAuthAuthorizationDeniedError } from './oauthAuthority.js';
+import { safeOAuthDiagnosticMessage } from './oauthDiagnostics.js';
 
 export type OAuthConsentAction = 'approve' | 'deny';
 
@@ -428,7 +429,9 @@ export function createOAuthAuthorizationFlow(dependencies: OAuthAuthorizationFlo
         status: clientInfo.status,
         authorizationUrl: clientInfo.authorizationUrl,
         oauthStartTime: clientInfo.oauthStartTime,
-        lastError: clientInfo.lastError?.message,
+        lastError: clientInfo.lastError
+          ? (safeOAuthDiagnosticMessage(clientInfo.lastError) ?? 'Backend OAuth failed. Check local OAuth diagnostics.')
+          : undefined,
         lastConnected: clientInfo.lastConnected,
         requiresOAuth: requiresBackendOAuth(clientInfo),
       }));
@@ -492,6 +495,8 @@ type InitiateBackendOAuthResult =
       errorDescription: string;
     };
 
+const diagnosticAttempts = new WeakMap<OAuthBackendClientInfoForFlow, object>();
+
 async function initiateBackendOAuth(
   serverName: string,
   dependencies: OAuthAuthorizationFlowDependencies,
@@ -519,7 +524,19 @@ async function initiateBackendOAuth(
     };
   }
 
-  await dependencies.clientRuntime.initiateOAuth(serverName, options);
+  const attempt = {};
+  diagnosticAttempts.set(clientInfo, attempt);
+  clientInfo.lastError = undefined;
+  try {
+    await dependencies.clientRuntime.initiateOAuth(serverName, options);
+  } catch (error) {
+    const message = safeOAuthDiagnosticMessage(error);
+    if (!message) throw error;
+    if (diagnosticAttempts.get(clientInfo) === attempt) clientInfo.lastError = { message };
+    return { status: 'oauth_url_unavailable', errorDescription: message };
+  } finally {
+    if (diagnosticAttempts.get(clientInfo) === attempt) diagnosticAttempts.delete(clientInfo);
+  }
 
   if (!clientInfo.authorizationUrl) {
     return {
