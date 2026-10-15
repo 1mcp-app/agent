@@ -3435,7 +3435,7 @@ describe('admin routes', () => {
             displayName: 'github',
             status: 'awaiting_oauth',
             requiresOAuth: true,
-            lastError: 'token: [REDACTED]',
+            lastError: 'Backend OAuth failed. Check local OAuth diagnostics.',
           },
         ],
       },
@@ -3507,7 +3507,7 @@ describe('admin routes', () => {
 
     expect(response.status).toBe(200);
     expect(JSON.stringify(response.body)).not.toContain('raw-secret');
-    expect(response.body.oauth.services[0].lastError).toBe('token: [REDACTED]');
+    expect(response.body.oauth.services[0].lastError).toBe('Backend OAuth failed. Check local OAuth diagnostics.');
   });
 
   it('projects full OAuth service ids separately from compact operator display names', async () => {
@@ -3731,6 +3731,17 @@ describe('admin routes', () => {
       expectedStatus: 502,
       expectedError: 'backend_oauth_authorization_start_failed',
     },
+    {
+      flowResult: {
+        status: 'oauth_url_unavailable' as const,
+        errorDescription:
+          'OAuth metadata: metadata_http_error (HTTP 403). Check provider metadata availability and access policy.',
+      },
+      expectedStatus: 502,
+      expectedError: 'backend_oauth_authorization_start_failed',
+      expectedDiagnostic:
+        'OAuth metadata: metadata_http_error (HTTP 403). Check provider metadata availability and access policy.',
+    },
   ])('maps backend OAuth failures to $expectedError without exposing details', async (testCase) => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     vi.mocked(oauthFlow.startBackendOAuth).mockResolvedValue(testCase.flowResult);
@@ -3751,8 +3762,13 @@ describe('admin routes', () => {
       .set('Idempotency-Key', `oauth-error-${testCase.expectedError}`);
 
     expect(response.status).toBe(testCase.expectedStatus);
-    expect(response.body).toEqual({ ok: false, error: testCase.expectedError });
-    expect(JSON.stringify(response.body)).not.toContain(testCase.flowResult.errorDescription);
+    expect(response.body).toEqual({
+      ok: false,
+      error: testCase.expectedError,
+      ...('expectedDiagnostic' in testCase ? { diagnostic: testCase.expectedDiagnostic } : {}),
+    });
+    if (!('expectedDiagnostic' in testCase))
+      expect(JSON.stringify(response.body)).not.toContain(testCase.flowResult.errorDescription);
   });
 
   it('enables and disables configured servers through CSRF-protected admin API mutations', async () => {

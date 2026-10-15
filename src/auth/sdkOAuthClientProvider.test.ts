@@ -1,5 +1,7 @@
+import * as dns from 'node:dns/promises';
 import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -9,6 +11,8 @@ import { authoritySlot, OAUTH_ATTEMPT_TTL_MS, oauthDigest } from './oauthAuthori
 import { type OAuthClientConfig, SDKOAuthClientProvider } from './sdkOAuthClientProvider.js';
 import { ClientSessionRepository } from './storage/clientSessionRepository.js';
 import { FileStorageService } from './storage/fileStorageService.js';
+
+vi.mock('node:dns/promises', { spy: true });
 
 let dir: string;
 const providers: SDKOAuthClientProvider[] = [];
@@ -40,6 +44,64 @@ function provider(changes: Partial<OAuthClientConfig> = {}, name = 'backend') {
   providers.push(result);
   return result;
 }
+
+it('retains the first endpoint failure through SDK fallback and clears it for a new operation', async () => {
+  const target = provider();
+  target.discoveryState();
+  const lookup = vi.spyOn(dns, 'lookup').mockRejectedValue(new Error('provider-secret-sentinel'));
+  try {
+    await expect(target.fetch!(issuer + '/.well-known/oauth-authorization-server')).rejects.toThrow('network_failure');
+    await expect(target.fetch!('https://user:secret@issuer.example/metadata')).rejects.toThrow('authority_mismatch');
+    await expect(target.saveDiscoveryState(discovery)).rejects.toThrow('network_failure');
+    target.discoveryState();
+    await expect(target.saveDiscoveryState(discovery)).resolves.toBeUndefined();
+  } finally {
+    lookup.mockRestore();
+  }
+});
+
+it.each([403, 404])('retains HTTP %s only when useful and clears recovered discovery failures', async (status) => {
+  const server = http.createServer((_request, response) => {
+    response.writeHead(status);
+    response.end('provider-secret-sentinel');
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Missing fixture address');
+  const base = `http://127.0.0.1:${address.port}`;
+  const target = provider({
+    authority: { ...config.authority!, route: { ...config.authority!.route, url: base + '/mcp' } },
+  });
+  const state = {
+    ...discovery,
+    authorizationServerUrl: base,
+    resourceMetadata: { resource: base + '/mcp', authorization_servers: [base] },
+    authorizationServerMetadata: {
+      ...discovery.authorizationServerMetadata,
+      issuer: base,
+      authorization_endpoint: base + '/authorize',
+      token_endpoint: base + '/token',
+      registration_endpoint: base + '/register',
+    },
+  };
+  try {
+    target.discoveryState();
+    expect((await target.fetch!(base + '/metadata')).status).toBe(status);
+    const invalid = {
+      ...state,
+      authorizationServerMetadata: { ...state.authorizationServerMetadata, issuer: 'https://other.example' },
+    };
+    await expect(target.saveDiscoveryState(invalid)).rejects.toThrow(
+      status === 403 ? 'metadata_http_error (HTTP 403)' : 'OAuth authority',
+    );
+    await target.saveDiscoveryState(state);
+    await expect(target.fetch!('https://user:secret@issuer.example/metadata')).rejects.toThrow('authority_mismatch');
+    await expect(target.saveDiscoveryState(state)).rejects.toThrow('authority_mismatch');
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
 async function bound(changes: Partial<OAuthClientConfig> = {}) {
   const result = provider(changes);
   await result.saveDiscoveryState(discovery);

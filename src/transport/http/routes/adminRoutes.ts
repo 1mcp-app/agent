@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { BackendOAuthDashboardResult } from '@src/auth/oauthAuthorizationFlow.js';
+import { safeOAuthDiagnosticMessage } from '@src/auth/oauthDiagnostics.js';
 import { MCP_PROJECT_METADATA } from '@src/constants.js';
 import { RuntimeIdentity } from '@src/core/runtime/runtimeIdentityService.js';
 import { runtimeAdmission, RuntimeDrainingError } from '@src/core/server/runtimeDrain.js';
@@ -2255,7 +2256,12 @@ function sendAdminOAuthOperationResult<T>(res: Response, result: AdminOperationR
         : result.error === 'backend_oauth_runtime_unavailable'
           ? 503
           : 502;
-    res.status(status).json({ ok: false, error: result.error });
+    const diagnostic = safeOAuthDiagnosticMessage(result.error);
+    res.status(status).json({
+      ok: false,
+      error: diagnostic ? 'backend_oauth_authorization_start_failed' : result.error,
+      ...(diagnostic ? { diagnostic } : {}),
+    });
     return;
   }
 
@@ -2773,7 +2779,9 @@ function sanitizeOAuthDashboard(dashboard: BackendOAuthDashboardResult): Backend
       ...service,
       id: service.name,
       displayName: backendOAuthServiceDisplayName(service.name),
-      lastError: service.lastError ? sanitizeErrorMessage(service.lastError) : undefined,
+      lastError: service.lastError
+        ? (safeOAuthDiagnosticMessage(service.lastError) ?? 'Backend OAuth failed. Check local OAuth diagnostics.')
+        : undefined,
     })),
   };
 }

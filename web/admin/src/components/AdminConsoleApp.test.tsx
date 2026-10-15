@@ -5,11 +5,52 @@ import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 
 import { createMockBackendLogEntry, createMockBackendLogSource } from '../../../../test/unit-utils/MockFactories';
+import { AdminApiError } from '../api/adminApi';
 import { createInitialState } from '../state/adminConsoleState';
 import { AdminConsoleApp } from './AdminConsoleApp';
 import { configuredServerDetailState, consoleState, fixtureSession, renderApp } from './AdminConsoleApp.fixtures';
 
 describe('AdminConsoleApp', () => {
+  it('renders bounded OAuth stage, reason and action from API feedback and service status', async () => {
+    const diagnostic =
+      'OAuth metadata: metadata_http_error (HTTP 403). Check provider metadata availability and access policy.';
+    const failure = new AdminApiError(
+      502,
+      {
+        error: 'backend_oauth_authorization_start_failed',
+        diagnostic,
+      },
+      'backend_oauth_authorization_start_failed',
+    ).failure;
+    const state = consoleState();
+    state.status!.oauth.services = [
+      {
+        id: 'backend',
+        name: 'backend',
+        displayName: 'backend',
+        status: 'error',
+        requiresOAuth: true,
+        lastError: diagnostic,
+      },
+      {
+        id: 'unsafe',
+        name: 'unsafe',
+        displayName: 'unsafe',
+        status: 'error',
+        requiresOAuth: true,
+        lastError: 'sensitive-sentinel',
+      },
+    ];
+    renderApp(state, {
+      navigation: { route: 'oauth' },
+      oauth: {
+        operationFeedback: { kind: 'error', message: failure.message },
+      },
+    });
+    expect(await screen.findByRole('alert')).toHaveTextContent(diagnostic);
+    expect(screen.getAllByText(diagnostic)).toHaveLength(2);
+    expect(screen.queryByText('sensitive-sentinel')).not.toBeInTheDocument();
+  });
   it('renders managed, ended, and unavailable backend log states as text', async () => {
     const user = userEvent.setup();
     const select = vi.fn();
