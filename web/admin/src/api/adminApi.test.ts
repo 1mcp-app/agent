@@ -73,6 +73,33 @@ function lifecycleApplyEnvelope() {
 }
 
 describe('admin API client', () => {
+  it.each([
+    ['OAuth metadata: metadata_http_error (HTTP 403). Check provider metadata availability and access policy.', true],
+    ['OAuth metadata: metadata_http_error (HTTP 999). Check provider metadata availability and access policy.', false],
+    ['sensitive-sentinel https://provider.example?token=secret', false],
+  ])('admits only canonical OAuth operation guidance: %s', async (diagnostic, admitted) => {
+    const api = createAdminApi({
+      fetch: async () =>
+        jsonResponse(
+          {
+            ok: false,
+            error: 'backend_oauth_authorization_start_failed',
+            diagnostic,
+          },
+          502,
+        ),
+    });
+    try {
+      await api.authorizeOAuthService({ serviceId: 'backend', csrfToken: 'csrf' });
+      expect.fail('Expected failed authorization');
+    } catch (error) {
+      expect(error).toBeInstanceOf(AdminApiError);
+      const failure = (error as AdminApiError).failure;
+      expect(failure).toMatchObject({ status: 502, code: 'backend_oauth_authorization_start_failed' });
+      if (admitted) expect(failure.message).toBe(diagnostic);
+      else expect(failure.message).not.toContain(diagnostic);
+    }
+  });
   it('uses only source-qualified routes and exact confirmation facts for configured-server deletion', async () => {
     const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     const api = createAdminApi({

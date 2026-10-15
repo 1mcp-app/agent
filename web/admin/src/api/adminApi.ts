@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { safeOAuthDiagnosticMessage } from '../../../../src/auth/oauthDiagnostics.js';
+
 export interface AdminAccount {
   id: string;
   username: string;
@@ -1599,7 +1601,10 @@ function friendlyAdminError(error: AdminApiError, code: string): string {
     case 'backend_oauth_runtime_unavailable':
       return 'Backend OAuth operations are not available on this runtime.';
     case 'backend_oauth_authorization_start_failed':
-      return 'The runtime could not start backend OAuth authorization. Refresh the OAuth status and try again.';
+      return (
+        safeOAuthDiagnosticMessage((error.body as { diagnostic?: unknown } | null)?.diagnostic) ??
+        'The runtime could not start backend OAuth authorization. Refresh the OAuth status and try again.'
+      );
     case 'mutation_failed':
       return 'The runtime could not apply the server change. Refresh the console and inspect the current state.';
     case 'configured_server_stale_preview':

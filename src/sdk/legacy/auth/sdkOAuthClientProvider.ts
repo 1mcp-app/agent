@@ -13,18 +13,22 @@ import {
   oauthDigest,
   sameAuthority,
 } from '@src/auth/oauthAuthority.js';
+import { oauthDiagnosticMessage, readOAuthDiagnostic } from '@src/auth/oauthDiagnostics.js';
 import { createOAuthEndpointFetch, validateOAuthEndpoint } from '@src/auth/oauthEndpointFetch.js';
 import { ClientSessionRepository } from '@src/auth/storage/clientSessionRepository.js';
 import { createUpstreamOAuthStorage, type UpstreamOAuthStorage } from '@src/auth/storage/upstreamOAuthStorage.js';
 import { AUTH_CONFIG } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
-import type { OAuthClientProvider, OAuthDiscoveryState } from '@src/sdk/legacy/client/auth.js';
+import { buildDiscoveryUrls, type OAuthClientProvider, type OAuthDiscoveryState } from '@src/sdk/legacy/client/auth.js';
 import {
   type OAuthClientInformationFull,
   OAuthClientInformationFullSchema,
   type OAuthClientMetadata,
+  OAuthMetadataSchema,
+  OAuthProtectedResourceMetadataSchema,
   type OAuthTokens,
   OAuthTokensSchema,
+  OpenIdProviderDiscoveryMetadataSchema,
 } from '@src/sdk/legacy/shared/auth.js';
 
 export interface OAuthClientConfig {
@@ -60,13 +64,15 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
   private callbackTail: Promise<unknown> = Promise.resolve();
   private readonly operations = new AsyncLocalStorage<{
     failed: boolean;
+    discoveryIssuer?: string;
+    diagnostic?: string;
     requestVersion?: number;
     responses: Record<'token' | 'registration' | 'discovery', Map<string, OAuthResponseTicket>>;
   }>();
   private sseEndpoint?: string;
   private readonly tokenRequests = new WeakMap<
     RequestInit,
-    OAuthResponseTicket & { kind: 'token' | 'registration' | 'discovery' }
+    OAuthResponseTicket & { kind: 'token' | 'registration' | 'discovery'; discoveryIssuer?: string }
   >();
   private readonly tokenResponses = new Map<string, OAuthResponseTicket>();
   private readonly registrationResponses = new Map<string, OAuthResponseTicket>();
@@ -145,6 +151,20 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
         const operation = this.operations.getStore();
         if (!resourceRequest && operation) operation.failed = true;
       },
+      onDiagnostic: (resourceRequest, message) => {
+        const operation = this.operations.getStore();
+        if (readOAuthDiagnostic(message)?.httpStatus === 404) return;
+        if (!resourceRequest && operation) operation.diagnostic ??= message;
+      },
+      validateResponseStatus: (status, init) => {
+        if (status < 500) return;
+        // Modern discovery treats a gateway 502 as an optional endpoint miss.
+        if (status === 502 && !this.config.legacy) return;
+        const ticket = this.tokenRequests.get(init);
+        if (ticket?.kind !== 'discovery' || !ticket.discoveryIssuer) return;
+        // Terminal AS failures otherwise escape before the SDK saves discovery state.
+        throw new Error(oauthDiagnosticMessage('metadata_http_error', status));
+      },
       response: (value, _url, init) => {
         const ticket = this.tokenRequests.get(init);
         if (!ticket) return;
@@ -160,9 +180,10 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
         }
       },
       metadata: (value, url, init) => {
-        const validated = this.validateMetadata(value, url);
         const ticket = this.tokenRequests.get(init);
-        if (typeof value.issuer === 'string' && ticket)
+        if (!ticket || ticket.kind !== 'discovery') throw oauthAuthorityError();
+        const validated = this.validateMetadata(value, url, ticket.discoveryIssuer);
+        if (ticket.discoveryIssuer)
           this.recordResponse(this.responseMap('discovery'), this.discoveryKey(value), ticket);
         return validated;
       },
@@ -443,12 +464,26 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
     // callback resumes the exact discovery snapshot captured by its durable attempt.
     if (!this.callbacks.getStore() || !current?.discovery) return undefined;
     try {
-      return JSON.parse(current.discovery) as OAuthDiscoveryState;
+      const state = JSON.parse(current.discovery) as OAuthDiscoveryState;
+      this.operations.getStore()!.discoveryIssuer = state.authorizationServerUrl;
+      return state;
     } catch {
       throw oauthAuthorityError();
     }
   }
   async saveDiscoveryState(state: OAuthDiscoveryState): Promise<void> {
+    try {
+      await this.saveValidatedDiscoveryState(state);
+      const operation = this.operations.getStore();
+      if (operation) operation.diagnostic = undefined;
+    } catch (error) {
+      const diagnostic = this.operations.getStore()?.diagnostic;
+      if (diagnostic) throw new Error(diagnostic);
+      throw error;
+    }
+  }
+
+  private async saveValidatedDiscoveryState(state: OAuthDiscoveryState): Promise<void> {
     await this.migration;
     this.assertOperation();
     if (!this.context || !this.slot) throw oauthAuthorityError();
@@ -541,9 +576,15 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
       throw oauthAuthorityError();
   }
 
-  private validateMetadata(value: Record<string, unknown>, url: URL): Record<string, unknown> {
+  private validateMetadata(
+    value: Record<string, unknown>,
+    url: URL,
+    discoveryIssuer?: string,
+  ): Record<string, unknown> {
     if (!this.context) throw oauthAuthorityError();
-    if (Array.isArray(value.authorization_servers)) {
+    if (!discoveryIssuer) {
+      OAuthProtectedResourceMetadataSchema.parse(value);
+      if (!Array.isArray(value.authorization_servers)) throw oauthAuthorityError();
       const issuers = value.authorization_servers;
       if (!issuers.length || issuers.length > 16 || issuers.some((issuer) => typeof issuer !== 'string'))
         throw oauthAuthorityError();
@@ -556,20 +597,31 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
       if (!selected || (this.config.issuer && selected !== this.config.issuer)) throw oauthAuthorityError();
       if (typeof value.resource !== 'string') throw oauthAuthorityError();
       this.selectResourceURL(this.context.route.url, value.resource);
+      const operation = this.operations.getStore();
+      if (operation) operation.discoveryIssuer = selected;
       return {
         ...value,
         authorization_servers: [selected],
         ...(this.config.scopes ? { scopes_supported: this.config.scopes } : {}),
       };
     }
-    if (typeof value.issuer === 'string') {
-      const issuer = validateOAuthEndpoint(value.issuer, this.context.route.url, undefined, this.config.issuer);
-      if (issuer.origin !== url.origin || (this.config.issuer && value.issuer !== this.config.issuer))
-        throw oauthAuthorityError();
-      for (const key of ['authorization_endpoint', 'token_endpoint', 'registration_endpoint', 'jwks_uri']) {
-        if (value[key] !== undefined)
-          validateOAuthEndpoint(String(value[key]), this.context.route.url, undefined, this.config.issuer);
-      }
+    const discoveryType = buildDiscoveryUrls(discoveryIssuer).find(
+      (candidate) => candidate.url.href === url.href,
+    )?.type;
+    if (discoveryType === 'oidc') OpenIdProviderDiscoveryMetadataSchema.parse(value);
+    else OAuthMetadataSchema.parse(value);
+    if (value.issuer !== discoveryIssuer) throw oauthAuthorityError();
+    const issuer = validateOAuthEndpoint(discoveryIssuer, this.context.route.url, undefined, this.config.issuer);
+    if (issuer.origin !== url.origin || (this.config.issuer && discoveryIssuer !== this.config.issuer))
+      throw oauthAuthorityError();
+    for (const key of ['authorization_endpoint', 'token_endpoint']) {
+      if (typeof value[key] !== 'string') throw oauthAuthorityError();
+      validateOAuthEndpoint(value[key], this.context.route.url, undefined, this.config.issuer);
+    }
+    for (const key of ['registration_endpoint', 'jwks_uri']) {
+      if (value[key] === undefined) continue;
+      if (typeof value[key] !== 'string') throw oauthAuthorityError();
+      validateOAuthEndpoint(value[key], this.context.route.url, undefined, this.config.issuer);
     }
     return value;
   }
@@ -583,12 +635,17 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
     if (isDiscovery) {
       this.assertOperation();
       const requestVersion = await this.reserveRequest();
-      if (url.search) throw oauthAuthorityError();
+      const operation = this.operations.getStore();
+      const issuer = operation?.discoveryIssuer;
+      const discoveryIssuer =
+        issuer && buildDiscoveryUrls(issuer).some((candidate) => candidate.url.href === url.href) ? issuer : undefined;
+      if (operation && !issuer) operation.discoveryIssuer = new URL('/', resource).href;
       const request: RequestInit = { ...init, headers: { accept: 'application/json' }, redirect: 'error' };
       this.tokenRequests.set(request, {
         generation: this.claim!,
         revision: this.record?.revision ?? 0,
         kind: 'discovery',
+        discoveryIssuer,
         requestVersion,
       });
       return request;
@@ -654,11 +711,12 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
   private rejectOperation(): never {
     const operation = this.operations.getStore();
     if (operation) operation.failed = true;
-    throw oauthAuthorityError();
+    throw new Error(operation?.diagnostic ?? oauthAuthorityError().message);
   }
 
   private assertOperation(): void {
-    if (this.operations.getStore()?.failed) throw oauthAuthorityError();
+    const operation = this.operations.getStore();
+    if (operation?.failed) throw new Error(operation.diagnostic ?? oauthAuthorityError().message);
   }
 
   private async reserveRequest(): Promise<number> {

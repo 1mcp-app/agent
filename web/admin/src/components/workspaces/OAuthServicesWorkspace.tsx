@@ -4,6 +4,7 @@ import { Clipboard, KeyRound, Plus, RotateCcw } from 'lucide-react';
 import type { MouseEvent } from 'react';
 import { useState } from 'react';
 
+import { safeOAuthDiagnosticMessage } from '../../../../../src/auth/oauthDiagnostics.js';
 import type { OAuthServiceStatus } from '../../api/adminApi';
 import type {
   AdminConsoleSessionModel,
@@ -123,7 +124,7 @@ function OAuthServiceRow({
           </Text>
           {service.lastError ? (
             <Text size="sm" c="red">
-              {service.lastError}
+              {safeOAuthDiagnosticMessage(service.lastError) ?? 'Backend OAuth failed. Check local OAuth diagnostics.'}
             </Text>
           ) : null}
           <details className="oauth-service-identity">
