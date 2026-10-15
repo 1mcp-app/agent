@@ -57,6 +57,25 @@ Force reinstallation:
 npx -y @1mcp/agent mcp install <server-name> --force
 ```
 
+## Maintained examples
+
+Run `1mcp mcp install` to choose CodeGraph, Code Review Graph, Serena, or registry browsing. With the backend already installed, the examples need no handwritten configuration:
+
+```bash
+1mcp mcp install --known codegraph
+1mcp mcp install --known code-review-graph
+1mcp mcp install --known serena
+```
+
+- `--known <id>`: select a maintained example instead of a positional registry ID.
+- `--executable <path>`: override discovery of its installed executable on PATH.
+- `--checkout <absolute-path>`: configure a static target; omitted means a reusable checkout-bound template.
+- `--name <name>`: override the local target name, which defaults to the example ID.
+- `--dry-run`: validate and preview without saving or launching the backend.
+- `--force`: explicitly reconfigure an existing example while retaining unrelated settings and overrides; equivalent setup is already a no-op.
+
+Setup never downloads backend dependencies, initializes indexes, or grants checkout access. Native setup/onboarding can remain necessary. Configuration success is not a freshness claim, and these examples do not enable automatic preparation. See [backend preparation](/guide/backend-preparation) for prerequisites, template behavior, and advanced configuration.
+
 ## Arguments
 
 - **`<server-name>`** (optional)

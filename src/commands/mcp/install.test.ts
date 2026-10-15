@@ -3,10 +3,13 @@ import { createServerInstallationWorkflow } from '@src/domains/installation/serv
 import { createRegistryClient } from '@src/domains/registry/mcpRegistryClient.js';
 import printer from '@src/utils/ui/printer.js';
 
+import prompts from 'prompts';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildInstallCommand, installCommand } from './install.js';
 import { InstallWizard } from './utils/installWizard.js';
+
+vi.mock('prompts', () => ({ default: vi.fn() }));
 
 const registryMocks = vi.hoisted(() => ({
   getServerById: vi.fn(),
@@ -93,6 +96,7 @@ console.log = consoleLogMock;
 describe('Install Command', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(prompts).mockResolvedValue({ example: 'registry' });
     mockWorkflowRun.mockResolvedValue({
       status: 'applied',
       targetName: 'test-server',

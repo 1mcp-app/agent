@@ -10,6 +10,7 @@ import { createRegistryClient } from '@src/domains/registry/mcpRegistryClient.js
 import type { RegistryServer } from '@src/domains/registry/types.js';
 import { hasHttpErrorCode } from '@src/sdk/contracts/index.js';
 
+import { setupKnownServer } from './knownServerSetup.js';
 import {
   resolveDirectInstallTarget,
   resolveRegistryInstallTarget,
@@ -30,6 +31,7 @@ import type {
 export type {
   DirectInstallationSource,
   DirectInstallTransport,
+  KnownInstallationSource,
   RegistryInstallationSource,
   SelectedRegistryEndpoint,
   ServerInstallationMetadata,
@@ -53,6 +55,9 @@ class DefaultServerInstallationWorkflow implements ServerInstallationWorkflow {
   constructor(private readonly ports: ServerInstallationWorkflowPorts) {}
 
   async run(input: ServerInstallationWorkflowInput): Promise<ServerInstallationWorkflowResult> {
+    if (input.source.type === 'known') {
+      return setupKnownServer({ ...input, source: input.source }, this.ports.knownSetup);
+    }
     const resolved = await this.resolveInstallTarget(input.source);
     if (!isResolvedTarget(resolved)) {
       return {
@@ -126,7 +131,9 @@ class DefaultServerInstallationWorkflow implements ServerInstallationWorkflow {
     };
   }
 
-  private async resolveInstallTarget(source: ServerInstallationWorkflowSource): Promise<TargetResolution> {
+  private async resolveInstallTarget(
+    source: Exclude<ServerInstallationWorkflowSource, { type: 'known' }>,
+  ): Promise<TargetResolution> {
     if (source.type === 'direct') {
       return resolveDirectInstallTarget(source);
     }
