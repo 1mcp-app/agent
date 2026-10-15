@@ -32,7 +32,11 @@ function verifyRecoveryRun(run, summary, repository, runId) {
     version: summary.version,
     tagExists: () => false,
   });
-  if (!['main', policy.expectedReleaseBranch].includes(run.head_branch))
+  if (
+    !['main', policy.expectedReleaseBranch, policy.expectedReleaseBranch.replace('release-v', 'release-')].includes(
+      run.head_branch,
+    )
+  )
     throw new Error('Recovery run was dispatched from an unapproved branch');
   if (summary.channel !== policy.npmTag) throw new Error('Recovery candidate channel mismatch');
   const identity = candidate({

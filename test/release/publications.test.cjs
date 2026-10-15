@@ -409,7 +409,7 @@ function recoveryFixture(identity = stable, releaseRef = 'main') {
 
 test('recovery derives stable, beta and maintenance identity using only the original run ID', () => {
   for (const identity of [stable, beta]) {
-    for (const source of ['main', 'release-1.2']) {
+    for (const source of ['main', 'release-1.2', 'release-v1.2']) {
       const { run, summary } = recoveryFixture(identity, source);
       const result = resolveDispatch({ runId: '123', targetRef: 'main', version: '' }, (runId) =>
         verifyRecoveryRun(run, summary, '1mcp-app/agent', runId),

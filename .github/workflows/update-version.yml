@@ -38,7 +38,7 @@ jobs:
           RELEASE_REF: ${{ inputs.release_ref }}
         run: |
           set -euo pipefail
-          if [[ "$RELEASE_REF" != "main" && ! "$RELEASE_REF" =~ ^release-[0-9]+\.[0-9]+$ ]]; then
+          if [[ "$RELEASE_REF" != "main" && ! "$RELEASE_REF" =~ ^release-v?[0-9]+\.[0-9]+$ ]]; then
             echo "::error::Invalid release ref: $RELEASE_REF"
             exit 1
           fi

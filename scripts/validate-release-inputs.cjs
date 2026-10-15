@@ -6,7 +6,7 @@ const fs = require('fs');
 const VERSION_CORE_PART_REGEX = /^(0|[1-9][0-9]*)$/;
 const PRERELEASE_IDENTIFIER_REGEX = /^[0-9A-Za-z-]+$/;
 const RELEASE_CHANNEL_REGEX = /^[A-Za-z][0-9A-Za-z-]*$/;
-const RELEASE_REF_REGEX = /^release-[0-9]+\.[0-9]+$/;
+const RELEASE_REF_REGEX = /^release-v?[0-9]+\.[0-9]+$/;
 const NEXT_NPM_CHANNEL_REGEX = /^(alpha|beta|rc)([0-9-].*)?$/;
 
 function defaultTagExists(tagName) {
@@ -75,7 +75,9 @@ function resolveNpmTag(releaseChannel) {
 
 function validateReleaseInputs({ targetRef, version, tagExists = defaultTagExists }) {
   if (targetRef !== 'main' && !RELEASE_REF_REGEX.test(targetRef)) {
-    throw new Error('target_ref must be main or release-<major>.<minor>.');
+    throw new Error(
+      'target_ref must be main or release-v<major>.<minor> (legacy release-<major>.<minor> is also accepted).',
+    );
   }
 
   const parsedVersion = parseVersion(version);
@@ -84,7 +86,7 @@ function validateReleaseInputs({ targetRef, version, tagExists = defaultTagExist
   }
 
   const { major, minor, prerelease } = parsedVersion;
-  const expectedReleaseBranch = `release-${major}.${minor}`;
+  const expectedReleaseBranch = `release-v${major}.${minor}`;
   const releaseChannel = prerelease?.split('.')[0];
   const isPrerelease = releaseChannel !== undefined;
 
@@ -96,7 +98,7 @@ function validateReleaseInputs({ targetRef, version, tagExists = defaultTagExist
     throw new Error('prerelease channel is reserved for stable release aliases.');
   }
 
-  if (targetRef !== 'main' && targetRef !== expectedReleaseBranch) {
+  if (targetRef !== 'main' && targetRef !== expectedReleaseBranch && targetRef !== `release-${major}.${minor}`) {
     const releaseType = isPrerelease ? 'Prerelease' : 'Stable';
     throw new Error(`${releaseType} release ${version} must run from main or ${expectedReleaseBranch}.`);
   }
