@@ -4,6 +4,8 @@ import https from 'node:https';
 import { isIP } from 'node:net';
 import { Readable, Transform } from 'node:stream';
 
+import { MCP_SERVER_VERSION } from '@src/constants.js';
+
 import { oauthAuthorityError } from './oauthAuthority.js';
 
 export const OAUTH_RESPONSE_LIMIT = 1024 * 1024;
@@ -130,6 +132,7 @@ export function createOAuthEndpointFetch(options: {
       await options.pinDestination(url.host, resolved, safeInit);
       if (boundedSignal.aborted) throw oauthAuthorityError();
       const headers = new Headers(safeInit.headers);
+      if (!headers.has('user-agent')) headers.set('user-agent', `1mcp/${MCP_SERVER_VERSION}`);
       const body = safeInit.body;
       if (body !== undefined && body !== null && typeof body !== 'string' && !(body instanceof URLSearchParams))
         throw oauthAuthorityError();
