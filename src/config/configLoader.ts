@@ -13,6 +13,7 @@ import {
   MCPServerParams,
   transportConfigSchema,
 } from '@src/core/types/transport.js';
+import { validatePreparationConfig } from '@src/domains/backend-preparation/integrationDefinitions.js';
 import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
@@ -262,7 +263,9 @@ export class ConfigLoader {
 
   public validateServerConfig(serverName: string, config: unknown): MCPServerParams {
     try {
-      return transportConfigSchema.parse(config);
+      const validated = transportConfigSchema.parse(config);
+      if (validated.preparation) validatePreparationConfig(validated.preparation);
+      return validated;
     } catch (error) {
       throw new Error(getValidationErrorMessage(`Invalid configuration for server '${serverName}'`, error));
     }

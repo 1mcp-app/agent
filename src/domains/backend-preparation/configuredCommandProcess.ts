@@ -25,6 +25,7 @@ interface CommandOptions {
   readonly deadlineMs: number;
   readonly outputLimitBytes: number;
   readonly terminationGraceMs: number;
+  readonly beforeLaunch?: () => void;
 }
 
 /** Only invocations whose descendants stay in their new process group are supported. */
@@ -92,6 +93,7 @@ export async function runConfiguredCommand(
       field === 'checkout' ? options.checkoutRoot : options.operation,
     ),
   );
+  options.beforeLaunch?.();
   return new Promise((resolve, reject) => {
     const child = spawn(command.executable, args, {
       cwd: options.checkoutRoot,

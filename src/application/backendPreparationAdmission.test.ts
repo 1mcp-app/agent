@@ -1,5 +1,9 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 import * as toolSchemaBoundary from '@src/core/validation/toolSchemaBoundary.js';
 import { ConfigManager } from '@src/config/configManager.js';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
@@ -180,6 +184,9 @@ function fixture(waitMs = 5000) {
     ports: { coordinator, toolDefinition, validateArguments, refresh },
     grant,
     renderConfig,
+    configurePreparation: (preparation: MCPServerParams['preparation']) => {
+      currentDefinition = { ...currentDefinition, preparation };
+    },
     configureVisibility: (value: string) => {
       currentDefinition = { ...currentDefinition, env: { CODEGRAPH_MCP_TOOLS: value } };
     },
@@ -210,6 +217,86 @@ beforeEach(() => {
 afterAll(() => shutdownSchemaBoundary());
 
 describe('source operation preparation admission', () => {
+  it('rejects a definition JSON change at the final synchronous dispatch barrier', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'preparation-dispatch-'));
+    try {
+      const file = path.join(directory, 'definition.json');
+      const recipe = {
+        schemaVersion: 1,
+        id: 'native-test',
+        revision: '1',
+        helperRevision: '1',
+        compatibility: {
+          backend: 'fixture',
+          versions: ['1'],
+          platforms: ['linux', 'darwin', 'win32'],
+          readinessScope: 'checkout',
+        },
+        inputs: {},
+        affectedTools: ['codegraph_explore'],
+        integration: definition.preparation!.integration,
+      };
+      fs.writeFileSync(file, JSON.stringify(recipe));
+      const f = fixture();
+      f.configurePreparation({
+        adapter: 'configured-command',
+        definition: { id: 'native-test', file },
+        allowedActions: [],
+      });
+      const admission = await admitBackendPreparationTool(f.input, f.ports);
+      expect(admission.kind).toBe('ready');
+      if (admission.kind !== 'ready') throw new Error('Expected readiness');
+      const barrier = await admission.beforeDispatch();
+      if (!barrier || typeof barrier !== 'object' || !('assertCurrent' in barrier))
+        throw new Error('Expected dispatch barrier');
+      fs.writeFileSync(file, JSON.stringify({ ...recipe, revision: '2' }));
+      expect(barrier.assertCurrent()).toBe(false);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('blocks final dispatch when definition JSON changes during its ready probe', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'preparation-dispatch-'));
+    try {
+      const file = path.join(directory, 'definition.json');
+      const recipe = {
+        schemaVersion: 1,
+        id: 'native-test',
+        revision: '1',
+        helperRevision: '1',
+        compatibility: {
+          backend: 'fixture',
+          versions: ['1'],
+          platforms: ['linux', 'darwin', 'win32'],
+          readinessScope: 'checkout',
+        },
+        inputs: {},
+        affectedTools: ['codegraph_explore'],
+        integration: definition.preparation!.integration,
+      };
+      fs.writeFileSync(file, JSON.stringify(recipe));
+      const f = fixture();
+      f.configurePreparation({
+        adapter: 'configured-command',
+        definition: { id: 'native-test', file },
+        allowedActions: [],
+      });
+      const admission = await admitBackendPreparationTool(f.input, f.ports);
+      if (admission.kind !== 'ready') throw new Error('Expected readiness');
+      f.ports.coordinator.admit.mockImplementationOnce(async () => {
+        fs.writeFileSync(file, JSON.stringify({ ...recipe, revision: '2' }));
+        return {
+          state: 'ready',
+          readiness: { state: 'ready', evidence: { freshness: 'current', coverage: 'complete', detail: 'ready' } },
+        };
+      });
+      expect(await admission.beforeDispatch()).toMatchObject({ result: { preparation: { state: 'forbidden' } } });
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     'changed',
     'warm',

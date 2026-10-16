@@ -16,6 +16,7 @@ import {
   installationWorkflowFailureMessage,
   validateRegistryServerId,
 } from './installSource.js';
+import { installKnownServer, selectInstallationExample } from './knownServerInstall.js';
 import { InstallWizard } from './utils/installWizard.js';
 import { getAllServers, initializeConfigContext } from './utils/mcpServerConfig.js';
 import { generateOperationId, parseServerNameVersion, validateVersion } from './utils/serverUtils.js';
@@ -26,6 +27,10 @@ export interface InstallCommandArgs extends GlobalOptions, RegistryYargsOptions 
   dryRun?: boolean;
   verbose?: boolean;
   interactive?: boolean;
+  known?: string;
+  executable?: string;
+  checkout?: string;
+  name?: string;
 }
 
 /**
@@ -42,6 +47,22 @@ export function buildInstallCommand(yargs: Argv) {
       describe: 'Force installation even if already exists',
       type: 'boolean',
       default: false,
+    })
+    .option('known', {
+      describe: 'Set up a maintained example: codegraph, code-review-graph, or serena (no downloads)',
+      type: 'string',
+    })
+    .option('executable', {
+      describe: 'Installed example executable path (otherwise discover on PATH)',
+      type: 'string',
+    })
+    .option('checkout', {
+      describe: 'Explicit checkout for a static example target (default: reusable checkout-bound template)',
+      type: 'string',
+    })
+    .option('name', {
+      describe: 'Local target name for a maintained example (default: example ID)',
+      type: 'string',
     })
     .option('dry-run', {
       describe: 'Show what would be installed without installing',
@@ -63,6 +84,8 @@ export function buildInstallCommand(yargs: Argv) {
     .options(registryOptions)
     .example([
       ['$0 mcp install', 'Launch interactive installation wizard'],
+      ['$0 mcp install --known codegraph', 'Configure the installed CodeGraph for authorized checkouts'],
+      ['$0 mcp install --known serena --checkout /absolute/project', 'Configure a static Serena target'],
       ['$0 mcp install filesystem', 'Install latest version (requires exact registry ID)'],
       ['$0 mcp install io.github.user/filesystem', 'Install with full registry ID'],
       ['1mcp registry search mysql && 1mcp mcp install <registry-id>', 'Search then install workflow'],
@@ -91,6 +114,25 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
   try {
     // Initialize configuration context
     initializeConfigContext(configPath, configDir);
+
+    if (argv.known !== undefined) {
+      if (inputServerName) {
+        throw new Error('Choose either --known or a registry server name, not both.');
+      }
+      await installKnownServer(argv);
+      return;
+    }
+    if (argv.executable !== undefined || argv.checkout !== undefined || argv.name !== undefined) {
+      throw new Error('--executable, --checkout, and --name require --known.');
+    }
+    if (!inputServerName) {
+      const selection = await selectInstallationExample();
+      if (selection === undefined) return;
+      if (selection !== 'registry') {
+        await installKnownServer({ ...argv, known: selection, interactive: true });
+        return;
+      }
+    }
 
     if (verbose) {
       logger.info('install.starting.installation.process.9f68ffb6');

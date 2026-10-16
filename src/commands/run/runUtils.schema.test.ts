@@ -14,4 +14,12 @@ describe('CLI schema preflight', () => {
     expect(failure).toEqual({ valid: false, errorMessage: 'schema_input_invalid' });
     expect(JSON.stringify(failure)).not.toContain('private');
   });
+  it('validates the cached-session fixture schema with real workers', async () => {
+    const schema = { type: 'object', properties: { message: { type: 'string' } } };
+    expect(await validateToolArgs({ message: 'hello' }, schema, 'runner/echo_args')).toEqual({ valid: true });
+    expect(await validateToolArgs({ message: 42 }, schema, 'runner/echo_args')).toEqual({
+      valid: false,
+      errorMessage: 'schema_input_invalid',
+    });
+  });
 });

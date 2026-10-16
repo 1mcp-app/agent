@@ -109,7 +109,9 @@ describe('modern HTTP template ingress', () => {
   });
   it('rechecks trust on every request and never lends existing membership to untrusted context', async () => {
     const fixture = app();
-    await post(fixture.instance, 'tools/list');
+    const accepted = await post(fixture.instance, 'tools/list');
+    expect(accepted.status, JSON.stringify(accepted.body)).toBe(200);
+    expect(accepted.body.error, JSON.stringify(accepted.body)).toBeUndefined();
     authorize.mockReturnValue({ status: 'untrusted', reason: 'proof_invalid', contextHash: 'tampered' });
     const rejected = await post(fixture.instance, 'tools/list');
     expect(rejected.status).toBe(200);
