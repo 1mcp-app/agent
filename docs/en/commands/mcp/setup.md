@@ -61,8 +61,12 @@ Successful setup reports configuration changes and reload observation separately
 
 Install backend executables and language dependencies first. Missing prerequisites produce guidance; setup does not download dependencies, initialize indexes, complete onboarding, or grant checkout access. It does not enable automatic preparation or prove source freshness. If a runtime is running, saving a static backend can start it through normal configuration reload; native startup retains its own behavior.
 
+## Tested versions
+
+The setup examples were tested on macOS 26.6.2 arm64 with Node.js 26.4.0, CodeGraph 1.6.2, Code Review Graph 2.3.9, and Serena 2.0.0 (individual-tools interface). The Serena TypeScript example used TypeScript 5.9.3 and typescript-language-server 5.1.3. Other versions, platforms, languages, and large repositories are outside this tested scope. These setup checks do not establish automatic preparation support.
+
 ## See also
 
-- [Backend preparation](/guide/backend-preparation) — prerequisites, tested versions, and advanced operator configuration.
+- [Backend preparation](/guide/backend-preparation) — current support, supplied recipes, and preparation progress.
 - [Project checkouts](/guide/project-checkouts) — target selection and authorization.
 - [mcp install](/commands/mcp/install) — registry installation.

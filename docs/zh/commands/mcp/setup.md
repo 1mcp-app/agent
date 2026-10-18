@@ -61,8 +61,12 @@ setup 是生成服务器配置的便捷入口。若要定制或共享自动准�
 
 请先安装后端可执行文件及语言依赖。缺少前置条件时会提供指引；setup 不下载依赖、不初始化索引、不完成 onboarding，也不授予副本访问权限。它不启用自动准备，也不证明源码新鲜度。运行时已启动时，保存静态后端可能通过普通配置重载启动它；原生启动仍保留自身行为。
 
+## 已测版本
+
+配置示例在 macOS 26.6.2 arm64、Node.js 26.4.0、CodeGraph 1.6.2、Code Review Graph 2.3.9 和 Serena 2.0.0（individual-tools 接口）上验证。Serena 的 TypeScript 示例使用 TypeScript 5.9.3 和 typescript-language-server 5.1.3。其他版本、平台、语言和大型仓库不在已测范围内。这些配置检查不证明自动准备支持。
+
 ## 另请参阅
 
-- [后端准备](/zh/guide/backend-preparation) — 前置条件、已测版本及高级操作者配置。
+- [后端准备](/zh/guide/backend-preparation) — 当前支持范围、已有配方和准备进度。
 - [项目副本](/zh/guide/project-checkouts) — 目标选择与授权。
 - [mcp install](/zh/commands/mcp/install) — 注册表安装。

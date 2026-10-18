@@ -1,253 +1,98 @@
 ---
 title: 后端准备
-description: 配置副本专属的只读就绪探测，以及运行时拥有的异步准备命令。
+description: 了解服务器何时需要准备、如何启用已有配方，以及如何查看准备进度。
 ---
 
 # 后端准备
 
-运行时为选定的 Project Checkout 管理准备任务。集成提供只读就绪探测和前台准备命令；后端名称、版本、索引文件、Git HEAD、连接状态和命令日志本身都不证明就绪。
+有些 MCP 服务器需要先初始化项目或更新索引，才能处理请求。**准备功能**让 1MCP 执行这些步骤，并检查服务器是否已准备好处理你选定的项目。
 
-## 配置引用式准备配方
+只有在你已有适用于服务器的配方时，才需要配置准备功能。**配方**是一个 JSON 文件，告诉 1MCP 如何检查就绪状态，以及运行哪些准备命令。它可以由你的团队或集成维护者提供。
 
-如果你希望无需重新构建 1MCP 就能编辑和共享准备行为，请使用本指南。在 `mcp.json` 中保留本机输入和操作权限，通过本地 JSON 配方引用就绪探测与准备命令。内联命令和引用式配方使用同一个 configured-command 运行时，无需 TypeScript 插件加载器。
+## 目前支持什么？
 
-下面的配置使用**演示 fixture**，并非 CodeGraph、Code Review Graph 或 Serena 集成。请将绝对路径替换为你的仓库和 Node 安装路径。完整配方和辅助程序位于 [examples/preparation](https://github.com/1mcp-app/agent/tree/main/examples/preparation)；这些文件属于源码仓库示例，不包含在 npm 包中。
+**1MCP 目前没有内置 CodeGraph、Code Review Graph 或 Serena 的自动准备配方。** `mcp setup` 配置这些服务器的启动方式；它们各自的原生项目设置仍需单独完成。
 
-::: v-pre
+| 服务器            | 配置完成后需要做什么                                                              |
+| ----------------- | --------------------------------------------------------------------------------- |
+| CodeGraph         | 使用 CodeGraph 初始化选定项目，并在源文件变化后同步。setup 示例禁用了文件监听器。 |
+| Code Review Graph | 使用 Code Review Graph 构建项目图，并按需更新。                                   |
+| Serena            | 安装项目所需的语言服务器依赖，按照 Serena 的指引完成项目设置和 onboarding。       |
 
-```json
-{
-  "mcpServers": {},
-  "mcpTemplates": {
-    "fixture": {
-      "command": "/absolute/path/to/node",
-      "args": ["/absolute/agent/examples/preparation/fixture.mjs", "serve", "{{{project.path}}}"],
-      "cwd": "{{{project.path}}}",
-      "preparation": {
-        "adapter": "configured-command",
-        "definition": {
-          "id": "fixture-source",
-          "file": "/absolute/agent/examples/preparation/recipe.json",
-          "inputs": { "label": "my local environment" }
-        },
-        "activation": "setup",
-        "allowedActions": ["initialize", "sync"]
-      }
-    }
-  }
-}
-```
+配置其中一个服务器时，请参阅 [mcp setup](/zh/commands/mcp/setup)。使用它们不需要自己编写准备配方。配置完成后，通过 `--project` 选择已授权项目；同一个服务器模板可以用于多个项目，但每个项目仍可能需要原生初始化。
 
-:::
+## 使用为服务器提供的配方
 
-配方声明可用操作，`allowedActions` 授予执行权限。`activation: "setup"` 显式启用已授权新副本的自动准备，无需在每个 `.1mcprc` 中添加准备偏好。后端和项目级禁用仍优先。复制配方或升级 1MCP 都不会授予新权限或副本访问权。
+如果团队或集成维护者提供了配方，请将它和随附的辅助文件保存在本机。按照配方说明确认后端版本、依赖、必需输入和允许执行的操作。自动准备目前支持 Linux 和 macOS。
 
-共享配方及其声明的辅助文件。每个用户在 `mcp.json` 中填写绝对配方路径和本机输入；凭据保留在现有秘密配置中。修改输入不需要重新构建 1MCP。配方参数按字面传递，不经过 shell。声明的辅助文件路径相对配方解析。fixture 使用运行时 PATH 中的 `node`；需要时将配方的 executable 字段改成本机 Node 绝对路径。可执行文件不支持占位符；输入仅替换参数值。
-
-如果原生公共 CLI 已提供可靠的就绪结果，可直接调用。需要转换输出时，通过相同的 executable/args 契约引用小型外部辅助程序。辅助程序可以用 TypeScript 编写并编译为 JavaScript；它作为子进程执行，不是加载到 1MCP 内的插件。配方或辅助程序无法使不可靠的原生新鲜度或所有权检查变得可靠。
-
-## 运行完整 fixture 示例
-
-需要已安装依赖的源码仓库、PATH 中的 Node 和 Git，以及 Linux 或 macOS。在 1MCP 仓库运行：
-
-```bash
-pnpm build
-node examples/preparation/create-demo.mjs
-```
-
-生成器在新的临时目录中创建两个可丢弃的 Git 副本和 `config/mcp.json`。它不会修改你的项目配置、启动运行时或安装依赖。将输出的 `DEMO=...` 赋值复制到两个终端。fixture 的就绪范围**仅为 `source.txt` 的精确字节内容**，并非原生索引集成。
-
-在第一个终端使用空闲端口启动独立演示运行时：
-
-```bash
-node build/index.js serve --config "$DEMO/config/mcp.json" --config-dir "$DEMO/config" --port 3059
-```
-
-在第二个终端检查并初始化第一个副本：
-
-```bash
-node build/index.js preparation inspect fixture --operation source --project "$DEMO/first" --config-dir "$DEMO/config" --url http://localhost:3059/mcp --format json
-node build/index.js prepare fixture --operation source --project "$DEMO/first" --config-dir "$DEMO/config" --url http://localhost:3059/mcp --format json
-```
-
-冷启动 fixture 最初没有公开工具，因此先通过准备控制命令初始化。复制任务响应中的 `status.id`，然后等待并查询：
-
-```bash
-JOB_ID='replace-with-status.id'
-node build/index.js preparation wait fixture "$JOB_ID" --wait-ms 5000 --project "$DEMO/first" --config-dir "$DEMO/config" --url http://localhost:3059/mcp --format json
-node build/index.js inspect fixture/source --project "$DEMO/first" --config-dir "$DEMO/config" --url http://localhost:3059/mcp
-node build/index.js run fixture/source --args '{}' --project "$DEMO/first" --config-dir "$DEMO/config" --url http://localhost:3059/mcp --format json
-```
-
-若任务仍在运行，请再次等待。就绪查询返回 `first checkout source`。将路径替换为 `$DEMO/second` 重复执行：同一个模板和配方准备独立快照并返回 `second checkout source`，两个副本都无需添加 `.1mcprc` 准备配置。
-
-编辑 `$DEMO/first/source.txt` 后再次调用 `fixture/source`。运行时返回准备中的响应，并执行已授权的 `sync` 操作。等待该任务后提交**新的**工具请求；原始请求不会执行或排队重放。操作成功退出本身不证明就绪，必须再次探测并验证更新后的快照。
-
-| 情况                             | 结果                       |
-| -------------------------------- | -------------------------- |
-| 快照匹配 `source.txt`            | 执行工具                   |
-| 缺少快照                         | 需要初始化                 |
-| 源文件字节变化                   | 需要同步                   |
-| fixture 写入者持有 `writer.lock` | 冲突，不启动竞争操作       |
-| 存在 `unknown.marker`            | 探测退出码未映射，就绪未知 |
-| `allowedActions` 中没有所需操作  | 拒绝操作                   |
-| 后端或项目显式禁用准备           | 不自动准备                 |
-
-fixture 的共享目录锁只协调自身的演示写入者。进程终止可能留下 fixture 锁；没有自动锁修复。丢弃临时目录前先停止演示运行时。该示例不证明原生后端的所有权、取消或新鲜度支持。
-
-## 维护的示例：无需手写配置
-
-先安装后端可执行文件，然后在 `1mcp mcp setup` 中选择示例，或运行：
-
-```bash
-1mcp mcp setup --known codegraph
-1mcp mcp setup --known code-review-graph
-1mcp mcp setup --known serena
-```
-
-前置依赖已在 PATH 中时，选择示例并确认默认项即可，无需编写 JSON、脚本、退出码映射或工具清单。命令不在 PATH 中时使用 `--executable /absolute/path/to/backend`。缺少依赖时提供明确指引，配置过程不下载依赖，也不初始化原生索引。
-
-默认创建可复用的副本绑定模板，使用现有项目上下文流程选定并授权的副本，而非配置命令的当前目录。新授权的工作树无需重复配置 1MCP，但仍可能需要原生初始化或 onboarding。固定目标示例：
-
-```bash
-1mcp mcp setup --known serena --checkout /absolute/project --name project-serena --dry-run
-```
-
-去掉 `--dry-run` 后保存。等价配置保持不变；保留已有覆盖项、密钥引用、禁用项及准备限制。有实质变化的重新配置需要 `--force`。静态/模板名称冲突会被拒绝，不静默迁移。输出区分配置变更、重载观察和原生就绪。配置不扩大副本访问权限。
-
-| 示例              | 原生前置条件及后续步骤                                                                                    | 自动准备     |
-| ----------------- | --------------------------------------------------------------------------------------------------------- | ------------ |
-| CodeGraph         | 已安装公共 CLI；索引查询前，对选定副本完成原生初始化和同步。                                              | 配置时不启用 |
-| Code Review Graph | 已安装公共 CLI；图查询前，对选定仓库完成原生构建和更新。                                                  | 配置时不启用 |
-| Serena            | 已安装公共 CLI 及语言工具链/语言服务器；按需完成原生项目设置和 onboarding。可选预热不阻止本已可用的操作。 | 配置时不启用 |
-
-配置成功不证明源码新鲜度。这些示例不启用自动准备；查询副本前应完成原生前置步骤。
-
-完成所需原生步骤后，使用 `1mcp serve` 启动已配置的运行时。在另一终端中检查或调用模板时选择副本：
-
-```bash
-1mcp inspect codegraph --project /absolute/project
-1mcp inspect code-review-graph --project /absolute/project
-1mcp inspect serena --project /absolute/project
-```
-
-调用前读取选定服务器的说明和工具 schema。切换到另一授权工作树时使用 `--project /absolute/other-worktree`，无需重复配置或编辑模板。CodeGraph 在同一运行时内共享渲染配置等价的实例，避免同一副本出现竞争写入者；不同副本路径仍保持独立。其示例禁用 watcher、daemon 启动及下载，因此同步通过原生流程显式完成。Serena 示例采用公共的独立工具接口，保留客户端实例隔离。已有显式模板/环境覆盖项保持不变，可能改变这些默认行为。含环境/模板标记的字面路径被拒绝，不会解释执行。
-
-数组形式的环境设置保持原样，包括继承的全局数组。配置不会用对象形式的默认值替换它们，也不会把密钥值写入配置。若因此无法添加示例环境默认值，配置会提示在启动前核对原生下载/daemon 行为。即使使用 `--force`，也不会把固定或自定义绑定静默转换为可复用模板。
-
-配置命令不调用依赖安装器或原生初始化命令。运行时已启动时，普通配置重载可能启动静态后端，后端仍保留自身启动行为，并可能写入原生状态。尤其应在启动 Serena 前安装语言依赖：原生依赖获取不受 1MCP 可选准备权限控制。缺少语言依赖不在已验证示例范围内；仅找到可执行文件不代表这些依赖已通过验证。
-
-## 已测支持范围
-
-配置示例在 macOS 26.6.2 arm64、Node.js 26.4.0 上测试，使用 CodeGraph 1.6.2、Code Review Graph 2.3.9 和 Serena 2.0.0（独立工具接口）。Serena 还需要相应语言工具链；已测 TypeScript 组合使用 TypeScript 5.9.3 和 typescript-language-server 5.1.3。其他版本、平台、语言及大型仓库不在此测试范围内。
-
-配置成功不证明索引新鲜度，也不启用自动准备。选项见 [setup 命令参考](/zh/commands/mcp/setup)，复现步骤和证据见[贡献者验证说明](https://github.com/1mcp-app/agent/blob/main/docs/development/backend-preparation-acceptance.md)。
-
-## 配方定义契约（高级）
-
-运行时操作者可通过定义标识和**绝对本地 JSON 文件路径**选择可复用定义。加载不依赖调用方工作目录；项目偏好和工具参数不能选择可执行定义或增加权限。
+在 `mcp.json` 的 `mcpServers` 或 `mcpTemplates` 中，找到已有的服务器条目并添加 `preparation`。以下示例仅展示配置结构：**`team-source-search` 和文件路径都是占位示例，不是内置配方**。请替换为配方提供的 ID 和绝对路径。
 
 ```json
 {
   "preparation": {
     "adapter": "configured-command",
     "definition": {
-      "id": "local-source-search",
-      "file": "/opt/1mcp/integrations/source-search.json",
-      "inputs": { "database": "/opt/source-search/database" }
+      "id": "team-source-search",
+      "file": "/absolute/path/to/source-search.json"
     },
+    "activation": "setup",
     "allowedActions": ["initialize", "sync"]
   }
 }
 ```
 
-定义包含 `schemaVersion: 1`、唯一 `id`、`revision`、`helperRevision`、`compatibility`（后端、版本、平台、就绪范围）、输入声明、`affectedTools` 以及前述配置命令格式的 `integration`。参数中的 `{input:database}` 按字面替换已声明的操作者输入。兼容性声明本身不证明后端身份或就绪；仍需原生探测。
+| 设置                  | 填写内容                                                                      |
+| --------------------- | ----------------------------------------------------------------------------- |
+| `definition.id`       | 配方中声明的 ID。                                                             |
+| `definition.file`     | 本机配方文件的绝对路径。                                                      |
+| `definition.inputs`   | 仅当配方需要本机输入时添加此对象，使用配方说明中的输入名称。                  |
+| `activation: "setup"` | 为使用此服务器的已授权项目启用自动准备，无需逐个项目启用。                    |
+| `allowedActions`      | 你允许执行的操作。仅当配方支持且你希望执行时，才加入 `initialize` 和 `sync`。 |
 
-定义标识必须与选择一致。未知 schema 版本、重复内置标识、本地文件冒充内置定义、缺失或未知输入，以及命名定义与内联配置冲突都会报错。不能同时配置 `definition` 和内联 `integration`。命名定义拥有受影响工具列表，显式配置的列表必须完全一致。
+可以与队友共享配方及随附文件。每个人在自己的 `mcp.json` 中填写本机路径和输入。更新配方不会授予额外操作权限。已有的内联准备配置仍然有效，无需转换。
 
-运行时 `allowedActions` 与定义默认值分离；更新定义不会授权新动作。有效定义内容和命令修订参与准备任务身份计算，不能复用不兼容的旧任务或就绪证据；运行中的任务保留已解析的配置快照。就绪检查与工具最终分发屏障都会拒绝已改变的有效定义。
-
-维护自定义辅助脚本时，操作者必须在行为改变后更新 `helperRevision`。可选 `helperFiles` 最多列出八个本地文件，总大小不超过 1 MiB，文件内容哈希参与身份计算。相对声明基于定义文件目录解析。声明的脚本引用和规范脚本路径不能包含保留标记 `{checkout}`、`{operation}` 或 `{input:name}`。作为完整可执行路径或 argv 参数引用的已声明脚本会绑定到规范绝对路径，包括 `helper.cjs` 与 `./helper.cjs` 写法；之后改变符号链接不会重定向已保留的命令。复合参数或解释器源码字符串中的嵌入引用不受支持，会被拒绝；运行时不解析任意解释器代码。静态声明的脚本引用先进行规范路径绑定或拒绝，之后才替换操作者输入；输入值即使等于或包含脚本文件名，也始终按字面保留。
-
-每个保留的适配器拥有自己的预期脚本哈希，在启动命令前和接受探测、进度或动作完成结果前验证。已声明脚本改变或缺失时，探测报告 unknown，动作产生稳定且不可自动重试的 `helper_revision_changed` 失败；不能以旧身份触发 ready 能力刷新。应重新解析更新后的定义并显式重试。这些检查不会冻结外部文件，也不提供原子化的可执行内容快照；已准入任务运行期间仍应保持外部可执行文件与脚本不变。
-
-运行时可显式为命名定义设置 `activation: "setup"`，让新授权副本无需逐项目设置准备偏好。后端 `enabled: false` 和项目显式禁用优先。升级不会自动添加 activation，现有内联配置仍要求项目选择启用。
-
-内置准备定义注册表为空，与上述三个配置示例相互独立。自动准备需要通过公共接口实现并单独验收。本地定义仍是由操作者管理的高级接口；配置示例不表示原生准备缺口已解决。
-
-## 内联命令（高级）
-
-在现有服务器定义中添加以下元数据，并将示例路径替换为已安装的集成脚本：
+若要关闭某个项目的自动准备，在其生效的 `.1mcprc` 中添加以下配置，将 `source-search` 替换为 `mcp.json` 中的**服务器配置名称**：
 
 ```json
-{
-  "preparation": {
-    "adapter": "configured-command",
-    "affectedTools": ["lookup"],
-    "allowedActions": ["initialize", "sync"],
-    "integration": {
-      "probe": { "executable": "/absolute/path/to/readiness-wrapper", "args": ["{checkout}", "{operation}"] },
-      "readinessExitCodes": {
-        "0": { "state": "ready" },
-        "2": { "state": "required", "action": "initialize", "instructions": "初始化选定副本。" },
-        "3": { "state": "required", "action": "sync", "instructions": "同步源码变更。" },
-        "4": { "state": "conflict", "instructions": "先核对现有写入者的所有权。" }
-      },
-      "actions": {
-        "initialize": {
-          "executable": "/absolute/path/to/prepare-wrapper",
-          "args": ["initialize", "{checkout}", "{operation}"]
-        },
-        "sync": { "executable": "/absolute/path/to/prepare-wrapper", "args": ["sync", "{checkout}", "{operation}"] }
-      },
-      "containment": "posix-process-group"
-    }
-  }
-}
+{ "preparation": { "source-search": { "enabled": false } } }
 ```
 
-命令使用 executable 和参数数组，不进行隐式 shell 解析。参数中的 `{checkout}`、`{operation}` 会被替换，工作目录是选定的规范副本路径。命令仅由运行时配置授权，项目偏好和请求参数不能新增命令。
+项目的显式禁用优先于 `activation: "setup"`。若要禁用整个服务器的准备功能，在 `mcp.json` 中该服务器的 `preparation` 内设置 `enabled: false`。
 
-探测必须确认实际副本及操作的源码新鲜度和覆盖范围，包括未提交变更。未映射退出码和超时报告 unknown；日志只是有界诊断。无法证明新鲜度时应报告 unknown。`affectedTools` 可以是明确的上游工具名称数组或 `"all"`；其他工具保持原有行为。被保护的后端缺少 integration 时报告 unsupported。
+## 工具需要准备时
 
-每个动作可配置 `successExitCodes`（默认 `[0]`）和 `transientExitCodes`，两者不能重叠。只有明确分类的瞬时失败可以在 `transientRetryLimit` 和任务截止时间内自动重试。重建、安装依赖和付费服务分别要求运行时显式授予 `rebuild`、`install`、`paid`，项目不能扩大权限。
+照常调用工具。如果需要准备，1MCP 会返回任务 ID，而不会执行工具。等待任务就绪后，**重新调用工具**。原来的请求不会自动重放。
 
-可选 `status` 使用相同的命令结构，退出零时输出 JSON，支持可选字段 `message`、`completed`、`total`、`unit`。显式检查验证这些进度字段；缺少进度时报告不可用，不从日志推算百分比。probe/status 必须只读且有界。`inspectionTimeoutMs` 默认 5000，`outputLimitBytes` 默认 16384。
+如果准备失败，或检查无法确认就绪，受影响的工具会继续被阻止。不需要准备的其他工具仍然可用。
 
-准备命令及后代必须保持在运行时拥有的进程组内。当前实现支持 Linux 和 macOS；其他平台在动作启动前拒绝准备。containment 声明由操作人员确认集成脚本满足约束，脱离进程组或后台分离的写入者不属于此契约。原生写入者协调由集成负责；运行时不终止外部进程，也不破坏外部锁。
-
-## 项目选择启用
-
-有效 `.1mcprc` 按配置服务器名称启用自动准备：
-
-```json
-{ "preparation": { "source-search": { "enabled": true } } }
-```
-
-对于内联命令，以及未显式设置运行时 setup activation 的命名定义，没有该偏好时自动准备关闭。显式准备仍遵守运行时动作权限和副本授权。关联工作树按完整文件规则继承偏好，本地配置替换继承文件。参见[项目副本与集合](/zh/guide/project-checkouts)。
-
-## 控制与异步调用
-
-初始工具发现为空时也能使用准备控制：
+你也可以自行检查或启动准备。下面的例子中，将 `source-search` 替换为服务器配置名称，`lookup` 替换为配方覆盖的工具名称，`/work/project` 替换为已授权的项目路径：
 
 ```bash
-1mcp preparation inspect source-search --project /work/frontend --operation lookup --format json
-1mcp prepare source-search --project /work/frontend --operation lookup --format json
-OPERATION_ID='replace-with-returned-job-id'
-1mcp preparation status source-search "$OPERATION_ID" --project /work/frontend
-1mcp preparation wait source-search "$OPERATION_ID" --project /work/frontend --wait-ms 5000
-1mcp preparation cancel source-search "$OPERATION_ID" --project /work/frontend
-1mcp preparation retry source-search "$OPERATION_ID" --project /work/frontend
+1mcp preparation inspect source-search --project /work/project --operation lookup
+1mcp prepare source-search --project /work/project --operation lookup
 ```
 
-`inspect` 只读取就绪证据、任务状态、动作、已用时间和明确可用的进度，不调度准备、不修复状态、不重试失败。句柄绑定认证主体、目标、操作和有效配置。带 ID 的控制自动恢复其操作，显式冲突的操作会被拒绝。
+`inspect` 只检查就绪状态，不启动准备。`prepare` 在需要时启动已允许的操作，即使服务器尚未列出任何工具，也可以使用。
 
-未就绪的受保护工具调用及时返回任务 ID 和状态。**原始操作没有执行，也没有排队等待回放**，即使准备很快完成也一样；确认就绪后需重新提交工具请求。兼容请求共享任务，不同副本、操作或策略不共享。调用方断开不会取消共享任务。
+使用返回的任务 ID 查看进度：
 
-每个任务只执行一个动作。动作退出成功后重新探测，只有确认 ready 才刷新允许的能力，包括初始为空的工具清单。仍需另一动作时任务以 `not_ready` 结束。显式重试会重新探测，仅在运行时策略允许时将新要求的动作作为独立任务调度，并保留原任务的终态记录；不会自动串联动作。终态失败保留到显式重试。其他未受保护或已就绪工具保持可用。
+```bash
+1mcp preparation wait source-search JOB_ID --project /work/project --wait-ms 5000
+```
 
-## 限额与恢复
+如果任务仍在运行，请再次等待。你也可以使用 `preparation status`、`preparation cancel` 或 `preparation retry`，传入相同的服务器名称、任务 ID 和项目。
 
-默认同时运行一个昂贵任务，最多排队 16 个，执行期限 120000 毫秒且不含排队时间，请求检查/等待预算 5000 毫秒。应用 `[preparation]` 设置调度限额，后端元数据可设 `executionDeadlineMs`、`transientRetryLimit`。延长期限需要明确修改运行时配置。
+## 准备无法完成时
 
-取消和执行超时停止拥有的动作进程及附属后代，直接子进程退出不能证明后代已停止。重启仅将保存状态视为参考：配置的只读探测核对当前就绪状态和原生写入者协调。原生 conflict 在外部核对并解决前保持阻止；解决后 inspect 可只读报告当前状态，显式重试可调度仍需执行的准备。保存的 PID 或标志不授权终止进程、重复写入、删除索引或破坏外部锁；检查不会抹去这些事实。
+| 结果                   | 应对方式                                 |
+| ---------------------- | ---------------------------------------- |
+| 已就绪                 | 重新提交工具请求。                       |
+| 排队中或运行中         | 等待任务，并查看结果。                   |
+| 已禁用或操作未授权     | 检查服务器准备权限和项目设置。           |
+| 冲突                   | 等待另一个后端操作完成，然后重新检查。   |
+| 未知或不支持           | 按配方指引处理，或使用后端原生设置流程。 |
+| 失败、已取消或尚未就绪 | 阅读原因，解决问题后按需显式重试。       |
+
+准备命令结束不一定意味着服务器已就绪：1MCP 会再次检查，确认后才允许工具运行。每个任务只执行一个操作，因此结果可能提示你重试以完成下一步。
+
+项目选择和设置继承规则见[项目副本与项目集](/zh/guide/project-checkouts)。如果你要开发配方，请参阅单独的[集成作者指南](https://github.com/1mcp-app/agent/blob/main/docs/development/backend-preparation-recipes.md)。
