@@ -5,6 +5,8 @@ description: 配置副本专属的只读就绪探测，以及运行时拥有的�
 
 # 后端准备
 
+命令语法、选项、适用人群和恢复示例请参阅 [Prepare 命令参考](/zh/commands/prepare)。
+
 运行时为选定的 Project Checkout 管理准备任务。集成提供只读就绪探测和前台准备命令；后端名称、版本、索引文件、Git HEAD、连接状态和命令日志本身都不证明就绪。
 
 ## 运行时配置
@@ -63,13 +65,13 @@ description: 配置副本专属的只读就绪探测，以及运行时拥有的�
 初始工具发现为空时也能使用准备控制：
 
 ```bash
-1mcp preparation inspect source-search --project /work/frontend --operation lookup --format json
+1mcp prepare inspect source-search --project /work/frontend --operation lookup --format json
 1mcp prepare source-search --project /work/frontend --operation lookup --format json
 OPERATION_ID='replace-with-returned-job-id'
-1mcp preparation status source-search "$OPERATION_ID" --project /work/frontend
-1mcp preparation wait source-search "$OPERATION_ID" --project /work/frontend --wait-ms 5000
-1mcp preparation cancel source-search "$OPERATION_ID" --project /work/frontend
-1mcp preparation retry source-search "$OPERATION_ID" --project /work/frontend
+1mcp prepare status source-search "$OPERATION_ID" --project /work/frontend
+1mcp prepare wait source-search "$OPERATION_ID" --project /work/frontend --wait-ms 5000
+1mcp prepare cancel source-search "$OPERATION_ID" --project /work/frontend
+1mcp prepare retry source-search "$OPERATION_ID" --project /work/frontend
 ```
 
 `inspect` 只读取就绪证据、任务状态、动作、已用时间和明确可用的进度，不调度准备、不修复状态、不重试失败。句柄绑定认证主体、目标、操作和有效配置。带 ID 的控制自动恢复其操作，显式冲突的操作会被拒绝。

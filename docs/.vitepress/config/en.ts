@@ -205,6 +205,7 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: 'inspect', link: '/commands/inspect' },
           { text: 'run', link: '/commands/run' },
           { text: 'wait', link: '/commands/wait' },
+          { text: 'prepare', link: '/commands/prepare' },
           { text: 'cli-setup', link: '/commands/cli-setup' },
           { text: 'auth', link: '/commands/auth' },
           { text: 'Runtime Target Contexts', link: '/commands/target' },

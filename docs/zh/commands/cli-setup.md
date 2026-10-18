@@ -134,3 +134,9 @@ Bootstrap 从显式 CLI 参数解析选项，不使用继承的 `ONE_MCP_*` 选�
 - **[Inspect 命令](./inspect.md)** - 发现工具和查看 schema
 - **[Run 命令](./run.md)** - 调用选中的工具
 - **[Codex 集成指南](../guide/integrations/codex.md)** - Codex 的完整配置流程
+
+## 准备工作指引
+
+托管的 `SessionStart` 和 `SubagentStart` hooks 调用 `1mcp bootstrap`。Bootstrap 传递托管操作指引，并在目标已解析时获取运行时指令。指引包含 [prepare 工作流](/zh/commands/prepare)：检查就绪状态、请求已授权的准备工作、监控任务、验证就绪状态、刷新发现结果，然后重新发起工具调用。工作智能体的项目分配未解析时，必须先恢复分配，再执行项目相关的准备操作。
+
+Setup 只安装指引，不会启动准备工作、启用自动准备或更改操作权限。保留 bootstrap hooks。若 hooks 已传递当前指令，则无需重复获取；否则使用独立的 `1mcp instructions` 入口。重新运行 `cli-setup` 可刷新所选范围内的托管指引。

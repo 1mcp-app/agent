@@ -4,7 +4,9 @@ import { validateProjectConfig } from '@src/config/projectConfigTypes.js';
 import { applicationConfigSchema, transportConfigSchema } from '@src/core/types/transport.js';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import yargs from 'yargs';
 
+import { setupPreparationCommands } from './index.js';
 import { formatPreparationOutput, preparationCommand } from './preparation.js';
 
 vi.mock('@src/commands/shared/clientSurfaceAttachment.js', () => ({
@@ -19,6 +21,58 @@ afterEach(() => {
 });
 
 describe('preparation CLI', () => {
+  it.each(['inspect', 'status', 'wait', 'cancel', 'retry'])(
+    'sends identical authorized runtime requests for canonical and legacy %s',
+    async (action) => {
+      const post = vi
+        .spyOn(ApiClient.prototype, 'post')
+        .mockResolvedValue({ ok: true, status: 200, data: { state: 'ready' } });
+      vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+      const context = { project: { path: '/selected' }, user: {}, environment: {} };
+      const contextProof = { version: 1, signature: 'proof' };
+      vi.mocked(attachReusableClientSurface).mockImplementation(async (input) => {
+        expect(input.options).toMatchObject({ project: ['/selected'], context: 'local', operation: 'lookup' });
+        return input.rest({
+          baseUrl: 'http://localhost',
+          options: input.options,
+          context,
+          contextProof,
+          sessionId: 'session',
+        } as never) as never;
+      });
+      const id = '00000000-0000-4000-8000-000000000001';
+      for (const command of ['prepare', 'preparation']) {
+        await setupPreparationCommands(yargs([]).exitProcess(false).strict()).parseAsync([
+          command,
+          action,
+          'source-search',
+          ...(action === 'inspect' ? [] : [id]),
+          '--project',
+          '/selected',
+          '--context',
+          'local',
+          '--operation',
+          'lookup',
+          '--tags',
+          'code',
+          '--format',
+          'json',
+          ...(action === 'wait' ? ['--wait-ms', '500'] : []),
+        ]);
+      }
+      expect(post).toHaveBeenCalledTimes(2);
+      expect(post.mock.calls[0]).toEqual(post.mock.calls[1]);
+      expect(post.mock.calls[0][0]).toBe('/api/v1/preparation?tags=code');
+      expect(post.mock.calls[0][1]).toMatchObject({
+        action,
+        backend: 'source-search',
+        operation: 'lookup',
+        ...(action === 'inspect' ? {} : { id }),
+        _meta: { context, contextProof },
+      });
+    },
+  );
+
   it('uses runtime REST attachment and carries proof plus context without upstream fallback', async () => {
     const post = vi
       .spyOn(ApiClient.prototype, 'post')
