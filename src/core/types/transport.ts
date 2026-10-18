@@ -3,7 +3,7 @@ import { Stream } from 'node:stream';
 
 import { z } from 'zod';
 
-import { ConfiguredCommandIntegrationSchema } from '../../domains/backend-preparation/configuredCommandAdapter.js';
+import { PreparationConfigSchema } from '../../domains/backend-preparation/integrationDefinitions.js';
 import { PreparationOptionsSchema } from '../../domains/backend-preparation/policy.js';
 
 const ENVIRONMENT_REFERENCE_PATTERN = /\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*/u;
@@ -267,18 +267,9 @@ export const templateServerConfigSchema = z.object({
  * Zod schema for transport configuration
  */
 export const transportConfigSchema = z.object({
-  preparation: z
-    .object({
-      adapter: z.literal('configured-command'),
-      affectedTools: z.union([z.literal('all'), z.array(z.string().min(1).max(256)).min(1).max(4096)]),
-      integration: ConfiguredCommandIntegrationSchema.optional(),
-      allowedActions: z.array(z.enum(['initialize', 'sync', 'rebuild', 'install', 'paid'])).max(5),
-      executionDeadlineMs: z.number().int().min(1).max(86_400_000).optional(),
-      transientRetryLimit: z.number().int().min(0).max(3).optional(),
-    })
-    .strict()
-    .optional()
-    .describe('Runtime-owned command integration and explicit action permissions'),
+  preparation: PreparationConfigSchema.optional().describe(
+    'Runtime-owned definition or inline commands and explicit action permissions',
+  ),
   projectTarget: z
     .discriminatedUnion('mode', [
       z

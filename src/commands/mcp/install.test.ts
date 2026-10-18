@@ -131,6 +131,25 @@ describe('Install Command', () => {
   });
 
   describe('installCommand', () => {
+    it('opens the registry wizard directly when no server name is supplied', async () => {
+      registryMocks.wizardRun.mockResolvedValue({
+        cancelled: false,
+        serverId: 'io.example/server',
+        localName: 'server',
+        installAnother: false,
+      });
+      vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+      vi.spyOn(console, 'clear').mockImplementation(() => undefined);
+      await installCommand({} as any);
+      expect(InstallWizard).toHaveBeenCalledOnce();
+      expect(createRegistryClient).toHaveBeenCalledOnce();
+      expect(mockWorkflowRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source: expect.objectContaining({ type: 'registry' }),
+        }),
+      );
+    });
+
     it('should reject on invalid version format', async () => {
       const args = {
         serverName: 'test-server@bad',

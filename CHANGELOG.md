@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Configure installed CodeGraph, Code Review Graph, and Serena backends with `1mcp mcp setup --known <name>`; registry installation remains available through `mcp install`.
+
 ## [0.39.2] - 2026-10-13
 
 ### 🐛 Bug Fixes

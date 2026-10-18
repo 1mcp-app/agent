@@ -220,6 +220,8 @@ npx -y @1mcp/agent mcp install filesystem
 
 ## See Also
 
+- **[mcp setup](/commands/mcp/setup)** - Configure an already installed supported backend
+
 - **[Registry Search](../registry/search.md)** - Search the registry for available servers
 - **[mcp uninstall](uninstall.md)** - Remove installed servers
 - **[mcp update](update.md)** - Update installed servers

@@ -21,6 +21,10 @@ import type { ServerManager } from '@src/core/server/serverManager.js';
 import type { InboundConnectionConfig } from '@src/core/types/server.js';
 import type { MCPServerParams } from '@src/core/types/transport.js';
 import { admitToolSchemas, prepareToolValidation } from '@src/core/validation/toolSchemaBoundary.js';
+import {
+  PreparationConfigurationError,
+  validatePreparationConfig,
+} from '@src/domains/backend-preparation/integrationDefinitions.js';
 import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import { projectToolArguments } from '@src/domains/project-selection/projectPolicy.js';
 import { isProjectBackendVisible, resolveProjectPolicies } from '@src/domains/project-selection/projectPolicy.js';
@@ -175,8 +179,18 @@ function nativeTarget(request: PreparationToolRequest, backendNames: string[]) {
 
 function isPreparationAffected(config: MCPServerParams['preparation'], toolName: string): boolean {
   if (!config) return false;
-  if (config.affectedTools === 'all') return true;
-  return config.affectedTools.includes(toolName);
+  let affectedTools = config.affectedTools;
+  if (config.definition) {
+    try {
+      affectedTools = validatePreparationConfig(config).affectedTools;
+    } catch {
+      // Route an unreadable recipe through admission so the backend fails closed.
+      return true;
+    }
+  }
+  if (!affectedTools) return true;
+  if (affectedTools === 'all') return true;
+  return affectedTools.includes(toolName);
 }
 
 export async function admitBackendPreparationTool(
@@ -200,6 +214,14 @@ export async function admitBackendPreparationTool(
   try {
     return await admitScopedPreparationTool(input, ports);
   } catch (error) {
+    if (error instanceof PreparationConfigurationError)
+      return {
+        kind: 'blocked',
+        result: preparationToolResult({
+          state: 'forbidden',
+          instructions: 'Preparation configuration is unavailable. Repair the recipe before invoking again.',
+        }),
+      };
     if (error instanceof PreparationAuthorizationChangedError)
       return { kind: 'blocked', result: preparationToolResult({ state: 'forbidden', instructions: error.message }) };
     if (!(error instanceof PreparationCallerStopped)) throw error;
@@ -254,6 +276,9 @@ async function admitScopedPreparationTool(
   } catch {
     return blocked({ state: 'forbidden', instructions: 'The selected binding authority is invalid.' });
   }
+  const preparationRevision = definition.preparation?.definition
+    ? validatePreparationConfig(definition.preparation).effectiveRevision
+    : undefined;
   const synchronousAuthorization = () => {
     if (!input.bindingId || !context || !authority || !ownerSessionId) return false;
     const currentContext = manager.getBindingContexts().get(input.bindingId);
@@ -277,6 +302,14 @@ async function admitScopedPreparationTool(
     if (current.errors.length) return false;
     const currentDefinition = current.templateServers[target.backendName] ?? current.staticServers[target.backendName];
     if (JSON.stringify(currentDefinition) !== JSON.stringify(definition)) return false;
+    if (preparationRevision !== undefined) {
+      try {
+        if (validatePreparationConfig(currentDefinition?.preparation).effectiveRevision !== preparationRevision)
+          return false;
+      } catch {
+        return false;
+      }
+    }
     if (
       currentDefinition?.disabled ||
       getDisabledSourceToolError(

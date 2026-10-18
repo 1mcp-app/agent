@@ -1,6 +1,9 @@
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+
 import { z } from 'zod';
 
-import { ConfiguredCommandError, runConfiguredCommand } from './configuredCommandProcess.js';
+import { type ConfiguredCommand, ConfiguredCommandError, runConfiguredCommand } from './configuredCommandProcess.js';
 import type {
   BackendPreparationAdapter,
   BackendReadiness,
@@ -60,10 +63,53 @@ export const PreparationProgressSchema = z
     'Completed progress exceeds total',
   );
 
+export interface ConfiguredCommandHelperSnapshot {
+  readonly path: string;
+  readonly digest: string;
+}
+
 export class ConfiguredCommandPreparationAdapter implements BackendPreparationAdapter {
   private readonly integration: z.output<typeof ConfiguredCommandIntegrationSchema>;
-  constructor(integration: ConfiguredCommandIntegration) {
+  private readonly helpers: readonly ConfiguredCommandHelperSnapshot[];
+  constructor(integration: ConfiguredCommandIntegration, helpers: readonly ConfiguredCommandHelperSnapshot[] = []) {
     this.integration = ConfiguredCommandIntegrationSchema.parse(integration);
+    this.helpers = helpers.map((helper) => ({ ...helper }));
+  }
+
+  private assertHelpersCurrent(): void {
+    let remaining = 1024 * 1024;
+    try {
+      for (const helper of this.helpers) {
+        const fd = fs.openSync(helper.path, 'r');
+        try {
+          const stat = fs.fstatSync(fd);
+          if (!stat.isFile() || stat.size > remaining) throw new Error('Helper size changed');
+          const buffer = Buffer.alloc(stat.size + 1);
+          const bytes = fs.readSync(fd, buffer, 0, buffer.length, 0);
+          if (bytes !== stat.size) throw new Error('Helper size changed during verification');
+          remaining -= bytes;
+          const digest = createHash('sha256').update(buffer.subarray(0, bytes)).digest('hex');
+          if (digest !== helper.digest) throw new Error('Helper content changed');
+        } finally {
+          fs.closeSync(fd);
+        }
+      }
+    } catch {
+      throw new ConfiguredCommandError(
+        'helper_revision_changed',
+        'Declared helper content changed or is unavailable; resolve the current definition before explicit retry.',
+      );
+    }
+  }
+
+  private async runCommand(command: ConfiguredCommand, options: Parameters<typeof runConfiguredCommand>[1]) {
+    this.assertHelpersCurrent();
+    try {
+      return await runConfiguredCommand(command, { ...options, beforeLaunch: () => this.assertHelpersCurrent() });
+    } finally {
+      // No command result, including a completion probe, can establish evidence under changed helper bytes.
+      this.assertHelpersCurrent();
+    }
   }
   async inspect(
     target: PreparationTarget,
@@ -77,7 +123,7 @@ export class ConfiguredCommandPreparationAdapter implements BackendPreparationAd
         instructions: 'No inspection budget remains; no command was launched.',
       };
     try {
-      const result = await runConfiguredCommand(this.integration.probe, {
+      const result = await this.runCommand(this.integration.probe, {
         checkoutRoot: target.checkoutRoot,
         operation,
         signal: options.signal,
@@ -125,7 +171,7 @@ export class ConfiguredCommandPreparationAdapter implements BackendPreparationAd
   ): Promise<void> {
     const command = this.integration.actions[action];
     if (!command) throw new ConfiguredCommandError('unsupported_action', `No configured command supports ${action}.`);
-    const result = await runConfiguredCommand(command, {
+    const result = await this.runCommand(command, {
       checkoutRoot: target.checkoutRoot,
       operation: options.operation ?? '',
       signal: options.signal,
@@ -147,7 +193,7 @@ export class ConfiguredCommandPreparationAdapter implements BackendPreparationAd
   ): Promise<PreparationProgress | undefined> {
     if (!this.integration.status || options.waitMs === 0) return undefined;
     try {
-      const result = await runConfiguredCommand(this.integration.status, {
+      const result = await this.runCommand(this.integration.status, {
         checkoutRoot: target.checkoutRoot,
         operation,
         signal: options.signal,

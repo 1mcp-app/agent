@@ -210,6 +210,8 @@ npx -y @1mcp/agent mcp install filesystem
 
 ## 另请参阅
 
+- **[mcp setup](/zh/commands/mcp/setup)** - 配置已安装的受支持后端
+
 - **[注册表搜索](../registry/search.md)** - 在注册表中搜索可用服务器
 - **[mcp uninstall](uninstall.md)** - 移除已安装的服务器
 - **[mcp update](update.md)** - 更新已安装的服务器

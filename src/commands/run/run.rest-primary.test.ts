@@ -229,6 +229,44 @@ describe('runCommand REST-first path', () => {
     return makeRestResponse(200, { kind: 'server', server: 'runner', status: 'connected', available: true });
   }
 
+  it.each(['json', 'text', 'toon'] as const)(
+    'prints deferred REST preparation in %s without fallback or replay',
+    async (format) => {
+      await writeCliSessionCache(cachePath, {
+        sessionId: 'cached-session',
+        serverUrl: 'http://127.0.0.1:3050/mcp',
+        contextHash: makeContextHash('/tmp/project', 'run', 'run'),
+        savedAt: Date.now(),
+        hasRestEndpoint: true,
+      });
+      const pending = {
+        preparation: { state: 'pending', status: { id: 'prepare-1', state: 'running' } },
+        operationExecuted: false,
+        operationQueued: false,
+      };
+      mockFetch.mockResolvedValueOnce(makeConnectedServerResponse());
+      mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
+      mockFetch.mockResolvedValueOnce(makeRestResponse(200, { result: pending, server: 'runner', tool: 'echo_args' }));
+      const output: string[] = [];
+      vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+        output.push(String(chunk));
+        return true;
+      });
+      const { runCommand } = await import('./run.js');
+      await runCommand({
+        tool: 'runner/echo_args',
+        args: '{}',
+        format,
+        'config-dir': cacheDir,
+        'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
+      } as never);
+      expect(output.join('')).toContain('prepare-1');
+      if (format === 'json') expect(JSON.parse(output.join(''))).toEqual(pending);
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+      expect(transportState.instances).toHaveLength(0);
+    },
+  );
+
   it('uses REST when hasRestEndpoint is true in cache and skips MCP', async () => {
     await writeCliSessionCache(cachePath, {
       sessionId: 'cached-session',

@@ -64,7 +64,18 @@ export class CliTestRunner {
    * Execute MCP management commands (mcp subcommand)
    */
   async runMcpCommand(
-    action: 'add' | 'remove' | 'enable' | 'disable' | 'list' | 'status' | 'update' | 'install' | 'uninstall' | 'search',
+    action:
+      | 'add'
+      | 'remove'
+      | 'enable'
+      | 'disable'
+      | 'list'
+      | 'status'
+      | 'update'
+      | 'install'
+      | 'setup'
+      | 'uninstall'
+      | 'search',
     options: CommandExecutionOptions = {},
   ): Promise<CommandResult> {
     const args = ['mcp', action];

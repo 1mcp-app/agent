@@ -12,6 +12,10 @@ import { getRequestSession, resolveCapabilityVisibility } from '@src/core/protoc
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, type InboundConnection, ServerStatus } from '@src/core/types/index.js';
+import {
+  PreparationConfigurationError,
+  validatePreparationConfig,
+} from '@src/domains/backend-preparation/integrationDefinitions.js';
 import { getProjectBinding, withProjectBinding } from '@src/domains/project-selection/projectBindingScope.js';
 import logger from '@src/logger/logger.js';
 import { toJsonValue } from '@src/sdk/contracts/index.js';
@@ -326,7 +330,13 @@ function supportsListChanged(connection: LegacyOutboundConnection, kind: 'tools'
 function preparationCatalogIdentity(connection: LegacyOutboundConnection, bindingId?: string): string | undefined {
   if (!bindingId) return undefined;
   const definition = getConfiguredServerTargets()[connection.name];
-  const preparation = definition?.preparation;
+  let preparation;
+  try {
+    preparation = definition?.preparation ? validatePreparationConfig(definition.preparation) : undefined;
+  } catch (error) {
+    if (error instanceof PreparationConfigurationError) return undefined;
+    throw error;
+  }
   if (
     definition?.disabled ||
     preparation?.adapter !== 'configured-command' ||
@@ -343,7 +353,11 @@ function preparationCatalogIdentity(connection: LegacyOutboundConnection, bindin
     !validateProjectPreparationAuthority(authority, { bindingId, context, ownerSessionId: context.sessionId })
   )
     return undefined;
-  return JSON.stringify({ definition, authority: getProjectPreparationAuthorityIdentity(authority, context) });
+  return JSON.stringify({
+    definition,
+    effectiveRevision: preparation.effectiveRevision,
+    authority: getProjectPreparationAuthorityIdentity(authority, context),
+  });
 }
 
 async function assertCatalogCurrent(owner: Owner): Promise<void> {

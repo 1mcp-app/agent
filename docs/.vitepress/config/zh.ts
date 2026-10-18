@@ -169,6 +169,7 @@ function sidebar(): DefaultTheme.Sidebar {
             text: 'mcp',
             link: '/zh/commands/mcp/',
             items: [
+              { text: 'setup', link: '/zh/commands/mcp/setup' },
               { text: 'install', link: '/zh/commands/mcp/install' },
               { text: 'uninstall', link: '/zh/commands/mcp/uninstall' },
               { text: 'search', link: '/zh/commands/mcp/search' },

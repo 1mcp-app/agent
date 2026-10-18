@@ -24,22 +24,36 @@ describe('worker bootstrap client contracts', () => {
     ['codex', 'SubagentStart'],
     ['claude', 'SessionStart'],
     ['claude', 'SubagentStart'],
-  ] as const)('delivers preparation recovery in %s %s context and budget fallback', async (client, event) => {
-    for (const excessive of [false, true]) {
-      const output = await renderBootstrapContext(
-        { client, event, project: ['/selected'] },
-        JSON.stringify({ hook_event_name: event }),
-        async () => (excessive ? 'x'.repeat(BOOTSTRAP_CONTEXT_LIMIT) : 'Selected runtime instructions'),
-      );
-      expect(output).toContain('1mcp prepare inspect <backend>');
-      expect(output).toContain('1mcp prepare start <backend>');
-      expect(output).toContain('never executes or replays the original tool call');
-      expect(output).toContain('do not run `1mcp instructions` again');
-      expect(output.length).toBeLessThanOrEqual(BOOTSTRAP_CONTEXT_LIMIT);
-      if (excessive) expect(output).toContain('coverage gap');
-      else expect(output).toContain('Selected runtime instructions');
-    }
-  });
+  ] as const)(
+    'delivers preparation recovery in %s %s context, advisory, and runtime fallback',
+    async (client, event) => {
+      for (const scenario of ['short', 'large', 'unavailable']) {
+        const instructions =
+          scenario === 'large'
+            ? 'x'.repeat(BOOTSTRAP_INSTRUCTIONS_ADVISORY_THRESHOLD + 1)
+            : 'Selected runtime instructions';
+        const output = await renderBootstrapContext(
+          { client, event, project: ['/selected'] },
+          JSON.stringify({ hook_event_name: event }),
+          async () => {
+            if (scenario === 'unavailable') throw new Error('Runtime unavailable');
+            return instructions;
+          },
+        );
+        expect(output).toContain('1mcp prepare inspect <backend>');
+        expect(output).toContain('1mcp prepare start <backend>');
+        expect(output).toContain('never executes or replays the original tool call');
+        expect(output).toContain('do not run `1mcp instructions` again');
+        if (scenario === 'unavailable') {
+          expect(output).toContain('coverage gap');
+          continue;
+        }
+        expect(output).toContain(instructions);
+        expect(output).not.toContain('coverage gap');
+        expect(output.includes('PRESET ADVISORY')).toBe(scenario === 'large');
+      }
+    },
+  );
 
   it.each(['codex', 'claude'] as const)('ignores %s parent cwd and undocumented assignment fields', async (client) => {
     const render = vi.fn();

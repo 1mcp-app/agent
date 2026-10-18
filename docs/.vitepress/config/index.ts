@@ -26,10 +26,8 @@ export default withMermaid(
       'adr/**',
       'research/**',
       'runbooks/**',
-      'AGENTS.md',
-      'CLAUDE.md',
-      'README.md',
-      'ROADMAP.md',
+      'development/**', // Contributor notes are linked as repository files, not public pages.
+      '*.md', // Root Markdown files are repository-only documentation.
     ],
 
     rewrites: {

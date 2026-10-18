@@ -11,6 +11,16 @@ description: 浏览用于添加、维护和检查 1MCP 后端服务器的命令�
 
 有关服务器管理的详细指南，包括传输类型和最佳实践，请参阅 **[服务器管理指南](../../guide/essentials/server-management)**。
 
+## 配置已安装的后端
+
+### [setup](/zh/commands/mcp/setup)
+
+使用维护的示例配置 CodeGraph、Code Review Graph 或 Serena：
+
+```bash
+1mcp mcp setup --known codegraph
+```
+
 ## 命令
 
 ### [add](./add)

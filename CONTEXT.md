@@ -380,6 +380,10 @@ _Avoid_: temp copy, old config file
 The domain workflow that turns installation input into an installable static **Configured Server Target** and structured installation facts. It does not create **Template Server** definitions.
 _Avoid_: install command, installation adapter, registry install
 
+**Known Server Setup**:
+The domain workflow that configures an already installed backend from a maintained example as a static **Configured Server Target** or reusable **Template Server**. It preserves operator overrides through **Config Change** and does not establish native readiness or install backend dependencies. The CLI exposes it through `mcp setup`, separately from **Server Installation Workflow**.
+_Avoid_: registry installation, backend preparation, index initialization
+
 **Conformance Harness**:
 The deterministic evidence system that exercises the **Aggregated Runtime** across supported protocol eras, peer roles, and transport profiles without changing production behavior.
 _Avoid_: E2E suite, release test script
