@@ -1,6 +1,8 @@
 import * as dns from 'node:dns/promises';
 import http from 'node:http';
 
+import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -9,6 +11,8 @@ import {
   OAUTH_RESPONSE_LIMIT,
   validateOAuthEndpoint,
 } from './oauthEndpointFetch.js';
+
+vi.mock('@src/logger/localDiagnostics.js', () => ({ writeLocalDiagnostic: vi.fn() }));
 
 vi.mock('node:dns/promises', async (importOriginal) => ({ ...(await importOriginal<typeof dns>()), lookup: vi.fn() }));
 const close: Array<() => Promise<void>> = [];
@@ -43,6 +47,47 @@ function guarded(resource: string, overrides: Partial<Parameters<typeof createOA
   });
 }
 describe('OAuth network boundary', () => {
+  it.each([
+    ['network_failure', 'network', 'Check provider reachability and DNS.', undefined],
+    ['metadata_http_error', 'metadata', 'Check provider metadata availability and access policy.', 403],
+    ['invalid_metadata', 'metadata', 'Check the provider OAuth metadata format.', 200],
+    ['authority_mismatch', 'authority', 'Check the configured resource and issuer against provider metadata.', 200],
+  ] as const)(
+    'reports bounded %s without exposing provider data or changing HTTP outcomes',
+    async (reason, stage, guidance, status) => {
+      const secret = 'sensitive-sentinel';
+      const base = await endpoint((_req, res) => {
+        res.writeHead(status ?? 200);
+        res.end(reason === 'authority_mismatch' ? '{}' : secret);
+      });
+      const resource = base + '/mcp';
+      const onDiagnostic = vi.fn();
+      const fetch = guarded(resource, {
+        onDiagnostic,
+        metadata: () => {
+          throw new Error('OAuth authority or authorization attempt is no longer valid; start authorization again');
+        },
+      });
+      if (reason === 'network_failure') {
+        vi.mocked(dns.lookup).mockRejectedValue(new Error(secret));
+        await expect(fetch('https://provider.example/metadata?token=' + secret)).rejects.toThrow('network_failure');
+      } else if (reason === 'metadata_http_error') {
+        expect((await fetch(base + '/metadata?token=' + secret)).status).toBe(403);
+      } else {
+        await expect(fetch(base + '/metadata?token=' + secret)).rejects.toThrow(reason);
+      }
+      expect(onDiagnostic).toHaveBeenCalledWith(false, expect.stringContaining(reason));
+      const call = vi.mocked(writeLocalDiagnostic).mock.calls.at(-1)!;
+      expect(call.slice(0, 2)).toEqual(['warn', 'oauth.endpoint.failed']);
+      expect(call[2]).toEqual({
+        stage,
+        reason,
+        guidance,
+        ...(reason === 'metadata_http_error' ? { httpStatus: 403 } : {}),
+      });
+      expect(JSON.stringify([onDiagnostic.mock.calls, call])).not.toContain(secret);
+    },
+  );
   it('connects to an exact configured internal HTTP hostname but rejects its discovered OAuth endpoint', async () => {
     const base = await endpoint((_req, res) => res.end('resource-ok'));
     const resource = base.replace('127.0.0.1', 'mcp-server') + '/mcp';
@@ -61,6 +106,24 @@ describe('OAuth network boundary', () => {
     });
     expect(await (await fetch(origin + '/messages?session=1', { method: 'POST' })).text()).toBe('sse-ok');
     await expect(fetch(origin + '/messages?session=2', { method: 'POST' })).rejects.toThrow(/OAuth/);
+  });
+
+  it('identifies itself with a user-agent and keeps an explicit one', async () => {
+    const seen: Array<string | undefined> = [];
+    const base = await endpoint((req, res) => {
+      seen.push(req.headers['user-agent']);
+      res.setHeader('content-type', 'application/json');
+      res.end('{"ok":true}');
+    });
+    const resource = base.replace('127.0.0.1', 'localhost') + '/mcp';
+    vi.mocked(dns.lookup).mockResolvedValue([{ address: '127.0.0.1', family: 4 }] as never);
+    const fetch = guarded(resource);
+
+    await fetch(resource.replace('/mcp', '/metadata'));
+    expect(seen.at(-1)).toMatch(/^1mcp\//);
+
+    await fetch(resource.replace('/mcp', '/metadata'), { headers: { 'user-agent': 'caller-agent' } });
+    expect(seen.at(-1)).toBe('caller-agent');
   });
 
   it.each([

@@ -9,8 +9,8 @@ import { describe, expect, it, vi } from 'vitest';
 import yargs from 'yargs';
 
 import {
-  BOOTSTRAP_CONTEXT_LIMIT,
   BOOTSTRAP_INPUT_LIMIT,
+  BOOTSTRAP_INSTRUCTIONS_ADVISORY_THRESHOLD,
   bootstrapCommand,
   buildInstructionsArguments,
   readBootstrapInput,
@@ -24,22 +24,36 @@ describe('worker bootstrap client contracts', () => {
     ['codex', 'SubagentStart'],
     ['claude', 'SessionStart'],
     ['claude', 'SubagentStart'],
-  ] as const)('delivers preparation recovery in %s %s context and budget fallback', async (client, event) => {
-    for (const excessive of [false, true]) {
-      const output = await renderBootstrapContext(
-        { client, event, project: ['/selected'] },
-        JSON.stringify({ hook_event_name: event }),
-        async () => (excessive ? 'x'.repeat(BOOTSTRAP_CONTEXT_LIMIT) : 'Selected runtime instructions'),
-      );
-      expect(output).toContain('1mcp prepare inspect <backend>');
-      expect(output).toContain('1mcp prepare start <backend>');
-      expect(output).toContain('never executes or replays the original tool call');
-      expect(output).toContain('do not run `1mcp instructions` again');
-      expect(output.length).toBeLessThanOrEqual(BOOTSTRAP_CONTEXT_LIMIT);
-      if (excessive) expect(output).toContain('coverage gap');
-      else expect(output).toContain('Selected runtime instructions');
-    }
-  });
+  ] as const)(
+    'delivers preparation recovery in %s %s context, advisory, and runtime fallback',
+    async (client, event) => {
+      for (const scenario of ['short', 'large', 'unavailable']) {
+        const instructions =
+          scenario === 'large'
+            ? 'x'.repeat(BOOTSTRAP_INSTRUCTIONS_ADVISORY_THRESHOLD + 1)
+            : 'Selected runtime instructions';
+        const output = await renderBootstrapContext(
+          { client, event, project: ['/selected'] },
+          JSON.stringify({ hook_event_name: event }),
+          async () => {
+            if (scenario === 'unavailable') throw new Error('Runtime unavailable');
+            return instructions;
+          },
+        );
+        expect(output).toContain('1mcp prepare inspect <backend>');
+        expect(output).toContain('1mcp prepare start <backend>');
+        expect(output).toContain('never executes or replays the original tool call');
+        expect(output).toContain('do not run `1mcp instructions` again');
+        if (scenario === 'unavailable') {
+          expect(output).toContain('coverage gap');
+          continue;
+        }
+        expect(output).toContain(instructions);
+        expect(output).not.toContain('coverage gap');
+        expect(output.includes('PRESET ADVISORY')).toBe(scenario === 'large');
+      }
+    },
+  );
 
   it.each(['codex', 'claude'] as const)('ignores %s parent cwd and undocumented assignment fields', async (client) => {
     const render = vi.fn();
@@ -132,7 +146,7 @@ describe('worker bootstrap client contracts', () => {
     },
   );
 
-  it('bounds an oversized assignment before it can expand hook output', async () => {
+  it('rejects an assignment exceeding the schema limit before runtime use', async () => {
     const render = vi.fn();
     const output = await renderBootstrapContext(
       { client: 'codex', event: 'SubagentStart', project: [`/${'x'.repeat(10000)}`] },
@@ -140,57 +154,90 @@ describe('worker bootstrap client contracts', () => {
       render,
     );
     expect(output).toContain('coverage gap');
-    expect(output.length).toBeLessThan(BOOTSTRAP_CONTEXT_LIMIT);
     expect(render).not.toHaveBeenCalled();
   });
 
   it.each(['project', 'project-set'] as const)(
-    'budgets the escaped %s assignment with complete recovery guidance',
+    'preserves the complete escaped %s assignment without an advisory for short instructions',
     async (selector) => {
       const project = `/${Array(16).fill('"'.repeat(250)).join('/')}`;
-      expect(project.length).toBe(4016);
       const render = vi.fn(async () => 'Instructions');
-      const output = await renderBootstrapContext(
-        {
-          client: 'claude',
-          event: 'SubagentStart',
-          ...(selector === 'project' ? { project: [project] } : { 'project-set': project }),
-        },
-        '',
-        render,
+      const options = {
+        client: 'claude' as const,
+        event: 'SubagentStart' as const,
+        ...(selector === 'project' ? { project: [project] } : { 'project-set': project }),
+      };
+      const output = await renderBootstrapContext(options, '', render);
+      expect(output.length).toBeGreaterThan(BOOTSTRAP_INSTRUCTIONS_ADVISORY_THRESHOLD);
+      const assignmentLine = output
+        .split('\n')
+        .find((line) => line.startsWith('Explicit Worker Project Assignment: '))!;
+      expect(JSON.parse(assignmentLine.slice('Explicit Worker Project Assignment: '.length))).toEqual(
+        selector === 'project' ? [project] : { projectSet: project },
       );
-      expect(output.length).toBeLessThanOrEqual(BOOTSTRAP_CONTEXT_LIMIT);
-      expect(output).toContain('escaped assignment exceeds');
-      expect(output).toContain('Worker Project Assignment unresolved');
-      expect(output).toContain('original assignment from dispatch');
-      expect(output).toContain('--project or --project-set');
-      expect(output).not.toContain(project);
-      expect(output).not.toContain('Explicit Worker Project Assignment:');
-      expect(render).not.toHaveBeenCalled();
-      const envelope = JSON.parse(
-        JSON.stringify({ hookSpecificOutput: { hookEventName: 'SubagentStart', additionalContext: output } }),
-      );
-      expect(envelope.hookSpecificOutput.additionalContext.length).toBeLessThanOrEqual(BOOTSTRAP_CONTEXT_LIMIT);
+      expect(output).toContain('Instructions');
+      expect(output).not.toContain('PRESET ADVISORY');
+      expect(output).not.toContain('coverage gap');
+      expect(render).toHaveBeenCalledWith(options);
     },
   );
 
-  it('reserves room for the fallback even when the escaped prefix alone fits', async () => {
-    const render = vi.fn(async () => 'x'.repeat(BOOTSTRAP_CONTEXT_LIMIT));
-    const short = await renderBootstrapContext(
-      { client: 'claude', event: 'SubagentStart', project: ['/'] },
-      '',
-      async () => '',
-    );
-    // Two output characters per quote: leave less space than the fallback requires.
-    const project = `/${'"'.repeat(Math.floor((BOOTSTRAP_CONTEXT_LIMIT - short.length - 30) / 2))}`;
-    const output = await renderBootstrapContext(
-      { client: 'claude', event: 'SubagentStart', project: [project] },
-      '',
-      render,
-    );
-    expect(output.length).toBeLessThanOrEqual(BOOTSTRAP_CONTEXT_LIMIT);
-    expect(output).toContain('escaped assignment exceeds');
-    expect(render).not.toHaveBeenCalled();
+  it.each([8999, 9000, 9001])(
+    'delivers all %i instruction characters with an advisory only above the threshold',
+    async (length) => {
+      // Astral characters ensure the threshold uses JavaScript string length, not bytes or code points.
+      const instructions = '🚀'.repeat(Math.floor(length / 2)) + 'x'.repeat(length % 2);
+      expect(instructions.length).toBe(length);
+      const output = await renderBootstrapContext(
+        { client: 'codex', event: 'SessionStart' },
+        '',
+        async () => instructions,
+      );
+      expect(output).toContain(instructions);
+      expect(output).not.toContain('coverage gap');
+      expect(output.split('=== PRESET ADVISORY FOR THE AGENT ===').length - 1).toBe(length > 9000 ? 1 : 0);
+      if (length > 9000) {
+        expect(output.indexOf('=== PRESET ADVISORY')).toBeGreaterThan(output.indexOf(instructions));
+        expect(output).toContain('Inform the user briefly');
+        expect(output).toContain('1mcp instructions --preset <name>');
+        expect(output).toContain('All instructions have been delivered; continue the current task.');
+        expect(output).toContain("Do not change the user's configuration automatically.");
+      }
+    },
+  );
+
+  it.each([
+    ['codex', 'SessionStart'],
+    ['codex', 'SubagentStart'],
+    ['claude', 'SessionStart'],
+    ['claude', 'SubagentStart'],
+  ] as const)('delivers large instructions and an escaped assignment through the %s %s hook', async (client, event) => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bootstrap-large-'));
+    const entry = path.join(directory, 'instructions.mjs');
+    const instructions = 'Server instructions: 工具 🚀\n'.repeat(2000) + 'END OF INSTRUCTIONS';
+    const project = `/${Array(16).fill('"'.repeat(250)).join('/')}`;
+    await fs.writeFile(entry, `process.stdout.write(${JSON.stringify(instructions)});`);
+    const input = Readable.from([JSON.stringify({ hook_event_name: event })]);
+    const stdin = vi.spyOn(process, 'stdin', 'get').mockReturnValue(input as typeof process.stdin);
+    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const previousEntry = process.argv[1];
+    process.argv[1] = entry;
+    try {
+      await bootstrapCommand({ client, event, project: [project] });
+      expect(stdout).toHaveBeenCalledTimes(1);
+      const envelope = JSON.parse(String(stdout.mock.calls[0][0]));
+      expect(envelope.hookSpecificOutput.hookEventName).toBe(event);
+      const context = envelope.hookSpecificOutput.additionalContext;
+      expect(context).toContain(instructions);
+      expect(context).toContain(`Explicit Worker Project Assignment: ${JSON.stringify([project])}`);
+      expect(context.split('=== PRESET ADVISORY FOR THE AGENT ===')).toHaveLength(2);
+      expect(context).not.toContain('coverage gap');
+    } finally {
+      process.argv[1] = previousEntry;
+      stdin.mockRestore();
+      stdout.mockRestore();
+      await fs.rm(directory, { recursive: true, force: true });
+    }
   });
 
   it('delivers different explicit assignments independently, including repeat deliveries', async () => {
@@ -268,16 +315,13 @@ describe('worker bootstrap client contracts', () => {
     expect(render).not.toHaveBeenCalled();
   });
 
-  it('reports unavailable runtime and excessive client context without claiming delivery', async () => {
+  it('reports unavailable runtime without claiming delivery', async () => {
     const options = { client: 'claude', event: 'SessionStart' } as const;
     const failed = await renderBootstrapContext(options, '', async () => {
       throw new Error('private secret');
     });
     expect(failed).toContain('coverage gap');
     expect(failed).not.toContain('private secret');
-    const excessive = await renderBootstrapContext(options, '', async () => 'x'.repeat(BOOTSTRAP_CONTEXT_LIMIT));
-    expect(excessive.length).toBeLessThan(BOOTSTRAP_CONTEXT_LIMIT);
-    expect(excessive).toContain('exceed the client context budget');
   });
 
   it('bounds stdin bytes and waiting', async () => {
@@ -389,11 +433,17 @@ describe('owned instructions subprocess', () => {
     );
     expect(Date.now() - start).toBeLessThan(1500);
   });
-  it('reports failed, empty, and excessive subprocess output', async () => {
+  it('reports failed and empty subprocess output', async () => {
     await expect(runInstructionsProcess(process.execPath, ['-e', 'process.exit(2)'])).rejects.toThrow('failed');
     await expect(runInstructionsProcess(process.execPath, ['-e', ''])).rejects.toThrow('no instructions');
-    await expect(
-      runInstructionsProcess(process.execPath, ['-e', 'process.stdout.write("x".repeat(40000))']),
-    ).rejects.toThrow('output limit');
+  });
+  it('preserves subprocess output above 32 KiB including Unicode across writes', async () => {
+    const instructions = '工具 🚀'.repeat(10000) + 'END';
+    const output = await runInstructionsProcess(process.execPath, [
+      '-e',
+      "const data = Buffer.from('工具 🚀'.repeat(10000) + 'END'); process.stdout.write(data.subarray(0, 1)); setTimeout(() => process.stdout.write(data.subarray(1)), 10);",
+    ]);
+    expect(Buffer.byteLength(instructions)).toBeGreaterThan(32 * 1024);
+    expect(output).toBe(instructions);
   });
 });

@@ -1,4 +1,5 @@
 import type { OAuthAuthorizationFlow } from '@src/auth/oauthAuthorizationFlow.js';
+import { safeOAuthDiagnosticMessage } from '@src/auth/oauthDiagnostics.js';
 
 import type { AdminOperationContext, AdminOperationResult, AdminOperationService } from './adminOperationService.js';
 
@@ -42,8 +43,8 @@ export class AdminOAuthService implements AdminOAuthOperations {
             serverName: input.serviceId,
             ...(input.adminReturnOrigin ? { adminReturnOrigin: input.adminReturnOrigin } : {}),
           });
-        } catch {
-          throw new Error('backend_oauth_authorization_start_failed');
+        } catch (error) {
+          throw new Error(safeOAuthDiagnosticMessage(error) ?? 'backend_oauth_authorization_start_failed');
         }
         if (result.status === 'service_not_found') {
           throw new Error('backend_oauth_service_not_found');
@@ -52,7 +53,9 @@ export class AdminOAuthService implements AdminOAuthOperations {
           throw new Error('backend_oauth_runtime_unavailable');
         }
         if (result.status !== 'redirect') {
-          throw new Error('backend_oauth_authorization_start_failed');
+          throw new Error(
+            safeOAuthDiagnosticMessage(result.errorDescription) ?? 'backend_oauth_authorization_start_failed',
+          );
         }
 
         return {
@@ -79,8 +82,8 @@ export class AdminOAuthService implements AdminOAuthOperations {
             serverName: input.serviceId,
             ...(input.adminReturnOrigin ? { adminReturnOrigin: input.adminReturnOrigin } : {}),
           });
-        } catch {
-          throw new Error('backend_oauth_authorization_start_failed');
+        } catch (error) {
+          throw new Error(safeOAuthDiagnosticMessage(error) ?? 'backend_oauth_authorization_start_failed');
         }
         if (result.status === 'service_not_found') {
           throw new Error('backend_oauth_service_not_found');
@@ -89,7 +92,10 @@ export class AdminOAuthService implements AdminOAuthOperations {
           throw new Error('backend_oauth_runtime_unavailable');
         }
         if (result.status !== 'restarted' || !result.redirectUrl) {
-          throw new Error('backend_oauth_authorization_start_failed');
+          throw new Error(
+            safeOAuthDiagnosticMessage('errorDescription' in result ? result.errorDescription : undefined) ??
+              'backend_oauth_authorization_start_failed',
+          );
         }
 
         return {

@@ -3,6 +3,7 @@ import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createOAuthAuthorizationFlow } from './oauthAuthorizationFlow.js';
+import { oauthDiagnosticMessage } from './oauthDiagnostics.js';
 
 vi.mock('@src/logger/localDiagnostics.js', () => ({ writeLocalDiagnostic: vi.fn() }));
 
@@ -47,6 +48,52 @@ describe('OAuth Authorization Flow', () => {
       }),
     };
   };
+
+  it('shows only the current safe failure in operation results and the OAuth dashboard', async () => {
+    const client = { status: 'error', requiresOAuth: true, lastError: { message: 'sensitive-sentinel' } };
+    const initiateOAuth = vi.fn().mockRejectedValue(new Error(oauthDiagnosticMessage('network_failure')));
+    const { flow } = createFlow({
+      serverRuntime: { getClient: () => client as never, getClients: () => new Map([['backend', client]]) as never },
+      clientRuntime: { initiateOAuth },
+    });
+    expect(JSON.stringify(flow.getBackendOAuthDashboard())).not.toContain('sensitive-sentinel');
+    await expect(flow.startBackendOAuth({ serverName: 'backend' })).resolves.toEqual({
+      status: 'oauth_url_unavailable',
+      errorDescription: oauthDiagnosticMessage('network_failure'),
+    });
+    expect(flow.getBackendOAuthDashboard()).toMatchObject({
+      services: [{ lastError: oauthDiagnosticMessage('network_failure') }],
+    });
+    initiateOAuth.mockResolvedValue(undefined);
+    await expect(flow.startBackendOAuth({ serverName: 'backend' })).resolves.toEqual({
+      status: 'oauth_url_unavailable',
+      errorDescription: 'Failed to generate OAuth URL',
+    });
+    expect(JSON.stringify(flow.getBackendOAuthDashboard())).not.toContain('network_failure');
+  });
+
+  it('does not restore a superseded failure after a newer authorization succeeds', async () => {
+    let rejectOlder!: (error: Error) => void;
+    const older = new Promise<void>((_resolve, reject) => {
+      rejectOlder = reject;
+    });
+    const client = { status: 'error', requiresOAuth: true, authorizationUrl: undefined as string | undefined };
+    const initiateOAuth = vi
+      .fn()
+      .mockReturnValueOnce(older)
+      .mockImplementationOnce(async () => {
+        client.authorizationUrl = 'https://provider.example/authorize?state=new-attempt';
+      });
+    const { flow } = createFlow({
+      serverRuntime: { getClient: () => client as never, getClients: () => new Map([['backend', client]]) as never },
+      clientRuntime: { initiateOAuth },
+    });
+    const pending = flow.startBackendOAuth({ serverName: 'backend' });
+    await expect(flow.startBackendOAuth({ serverName: 'backend' })).resolves.toMatchObject({ status: 'redirect' });
+    rejectOlder(new Error(oauthDiagnosticMessage('network_failure')));
+    await expect(pending).resolves.toMatchObject({ status: 'oauth_url_unavailable' });
+    expect(flow.getBackendOAuthDashboard()).toMatchObject({ services: [{ lastError: undefined }] });
+  });
 
   it('reports callback failure stage without provider credentials or error text', async () => {
     vi.mocked(writeLocalDiagnostic).mockClear();
@@ -508,7 +555,7 @@ describe('OAuth Authorization Flow', () => {
         {
           name: 'oauth-connected',
           status: 'connected',
-          lastError: 'token expired',
+          lastError: 'Backend OAuth failed. Check local OAuth diagnostics.',
           authorizationUrl: undefined,
           oauthStartTime: undefined,
           lastConnected: undefined,

@@ -5,7 +5,7 @@ import type { Argv } from 'yargs';
 export function setupBootstrapCommand(yargs: Argv): Argv {
   return yargs.command(
     'bootstrap',
-    'Deliver bounded SessionStart or SubagentStart instructions to Codex or Claude hooks',
+    'Deliver SessionStart or SubagentStart instructions to Codex or Claude hooks',
     (command) =>
       command
         .env(false)

@@ -7,7 +7,6 @@ const VERSION_CORE_PART_REGEX = /^(0|[1-9][0-9]*)$/;
 const PRERELEASE_IDENTIFIER_REGEX = /^[0-9A-Za-z-]+$/;
 const RELEASE_CHANNEL_REGEX = /^[A-Za-z][0-9A-Za-z-]*$/;
 const RELEASE_REF_REGEX = /^release-[0-9]+\.[0-9]+$/;
-const NEXT_NPM_CHANNEL_REGEX = /^(alpha|beta|rc)([0-9-].*)?$/;
 
 function defaultTagExists(tagName) {
   try {
@@ -70,7 +69,7 @@ function resolveNpmTag(releaseChannel) {
     return 'latest';
   }
 
-  return NEXT_NPM_CHANNEL_REGEX.test(releaseChannel) ? 'next' : releaseChannel;
+  return 'next';
 }
 
 function validateReleaseInputs({ targetRef, version, tagExists = defaultTagExists }) {
@@ -89,7 +88,7 @@ function validateReleaseInputs({ targetRef, version, tagExists = defaultTagExist
   const isPrerelease = releaseChannel !== undefined;
 
   if (isPrerelease && !RELEASE_CHANNEL_REGEX.test(releaseChannel)) {
-    throw new Error('prerelease channel must start with a letter so it can be used as an npm dist-tag.');
+    throw new Error('prerelease channel must start with a letter so it can be used as a Docker tag.');
   }
 
   if (releaseChannel === 'latest' || releaseChannel === 'lite' || /^v[0-9]+(?:-lite)?$/.test(releaseChannel || '')) {

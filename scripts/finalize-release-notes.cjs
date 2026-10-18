@@ -3,7 +3,7 @@
 const fs = require('fs');
 
 const VERSION_TAG_REGEX = /^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/;
-const NPM_TAG_REGEX = /^[A-Za-z][0-9A-Za-z-]*$|^latest$/;
+const NPM_TAG_REGEX = /^(latest|next)$/;
 
 function validateInputs({ versionTag, previousTag, npmTag }) {
   if (!VERSION_TAG_REGEX.test(versionTag)) {
@@ -15,7 +15,7 @@ function validateInputs({ versionTag, previousTag, npmTag }) {
   }
 
   if (!NPM_TAG_REGEX.test(npmTag)) {
-    throw new Error('npm_tag must be latest or a valid npm dist-tag.');
+    throw new Error('npm_tag must be latest or next.');
   }
 }
 

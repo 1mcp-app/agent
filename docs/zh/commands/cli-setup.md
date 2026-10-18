@@ -105,9 +105,9 @@ npx -y @1mcp/agent cli-setup --codex --scope all
 
 ## Worker 引导与项目分配
 
-`bootstrap` 从 stdin 读取客户端钩子 JSON，为指定事件输出 `hookSpecificOutput.additionalContext`。[Codex](https://developers.openai.com/codex/hooks) 和 [Claude](https://code.claude.com/docs/en/hooks) 均支持该格式。stdin 上限为 64 KiB，等待期限为一秒；运行时指令获取期限为五秒，输出上限为 32 KiB，最终上下文预算为 9,000 字符。超过限制时交付通用指引并报告覆盖缺口，不声称已经交付完整项目指令。
+`bootstrap` 从 stdin 读取客户端钩子 JSON，为指定事件输出 `hookSpecificOutput.additionalContext`。[Codex](https://developers.openai.com/codex/hooks) 和 [Claude](https://code.claude.com/docs/en/hooks) 均支持该格式。stdin 上限为 64 KiB，等待期限为一秒；运行时指令获取期限为五秒。成功获取的指令会完整交付，不再设置子进程输出大小上限或上下文大小截断。输入无效或运行时失败时仍交付通用指引并报告覆盖缺口，不声称已经交付完整项目指令。
 
-上下文预算包含转义后的项目分配和恢复指引。无法完整容纳的分配会整体省略；引导会报告交付上下文中的项目选择未解决，并要求 worker 从派发指令中恢复原始目标参数。
+当渲染后的运行时指令超过 9,000 字符（按 JavaScript 字符串长度计算）时，bootstrap 会附加一条建议，要求 agent 简短告知用户，并推荐使用 1MCP preset 在未来会话中选择更少的相关 MCP 服务器，例如 `1mcp instructions --preset <name>`。该阈值不包含静态指引和序列化后的项目分配。所有指令和有效项目分配均完整保留；agent 继续当前任务，不自动修改配置。指令长度小于或等于阈值时不附加建议。
 
 `SessionStart` 可获取普通会话的运行时指令。`SubagentStart` 没有明确分配时，只交付 inspect-before-run 指引并报告项目选择未解决；不会用钩子 cwd 或父会话身份选择父 checkout。客户端官方钩子 schema 没有 worker 项目分配字段。
 

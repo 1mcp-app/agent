@@ -27,6 +27,17 @@ describe('finalizeReleaseNotes', () => {
     expect(finalized).not.toContain('@1mcp/agent@beta1');
   });
 
+  it.each(['candidate-1-2-3', 'canary', 'beta'])('rejects unsupported npm tag %s', (npmTag) => {
+    expect(() =>
+      finalizeReleaseNotes({
+        content: '',
+        versionTag: 'v1.2.3',
+        previousTag: 'v1.2.2',
+        npmTag,
+      }),
+    ).toThrow('npm_tag must be latest or next.');
+  });
+
   it('rejects release notes that point at the wrong download tag', () => {
     expect(() =>
       finalizeReleaseNotes({
@@ -35,7 +46,7 @@ describe('finalizeReleaseNotes', () => {
           '**Full Changelog**: https://github.com/1mcp-app/agent/compare/v0.32.2...v0.33.0-beta1',
         versionTag: 'v0.33.0-beta1',
         previousTag: 'v0.32.2',
-        npmTag: 'beta1',
+        npmTag: 'next',
       }),
     ).toThrow('Release notes do not link to v0.33.0-beta1 downloads.');
   });
@@ -48,7 +59,7 @@ describe('finalizeReleaseNotes', () => {
           '**Full Changelog**: https://github.com/1mcp-app/agent/compare/v0.32.1...v0.32.2',
         versionTag: 'v0.33.0-beta1',
         previousTag: 'v0.32.2',
-        npmTag: 'beta1',
+        npmTag: 'next',
       }),
     ).toThrow('Release notes do not compare v0.32.2...v0.33.0-beta1.');
   });
