@@ -1,3 +1,5 @@
+import { PREPARATION_GUIDANCE } from './preparationGuidance.js';
+
 export interface ServerSummaryData {
   type?: string;
   status?: string;
@@ -367,6 +369,8 @@ export const DEFAULT_CLI_INSTRUCTION_TEMPLATE = `1MCP CLI Instructions
 
 Search uses case-insensitive literal substring matching on server/tool references. Use a quoted pattern such as \`--search "filesystem/*read?" --glob\` for whole-reference matching with only \`*\` and \`?\` wildcards.
 \`--include-descriptions\` also matches effective descriptions using the selected matching mode; \`--show-descriptions\` independently displays descriptions without changing matches.
+
+${PREPARATION_GUIDANCE}
 
 === SERVER SUMMARY ===
 {{#each servers}}

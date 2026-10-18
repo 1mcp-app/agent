@@ -216,6 +216,7 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: 'inspect', link: '/zh/commands/inspect' },
           { text: 'run', link: '/zh/commands/run' },
           { text: 'wait', link: '/zh/commands/wait' },
+          { text: 'prepare', link: '/zh/commands/prepare' },
           { text: 'cli-setup', link: '/zh/commands/cli-setup' },
           { text: 'auth', link: '/zh/commands/auth' },
           { text: 'Runtime Target Context', link: '/zh/commands/target' },

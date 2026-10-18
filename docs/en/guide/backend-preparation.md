@@ -5,6 +5,8 @@ description: Understand when a server needs preparation, enable a supplied recip
 
 # Backend Preparation
 
+See the [Prepare command reference](/commands/prepare) for syntax, options, audiences, and recovery examples.
+
 Some MCP servers need to initialize a project or update an index before they can answer a request. **Preparation** lets 1MCP run those steps and check whether the server is ready for your selected project.
 
 You only need to configure preparation if you have a recipe for your server. A **recipe** is a JSON file that tells 1MCP how to check readiness and which preparation commands to run. It may be supplied by your team or integration maintainer.
@@ -68,7 +70,7 @@ If preparation fails or its check cannot confirm readiness, the affected tool st
 You can also inspect or start preparation yourself. In these examples, replace `source-search` with your configured server name, `lookup` with the tool name covered by the recipe, and `/work/project` with your authorized project path:
 
 ```bash
-1mcp preparation inspect source-search --project /work/project --operation lookup
+1mcp prepare inspect source-search --project /work/project --operation lookup
 1mcp prepare source-search --project /work/project --operation lookup
 ```
 
@@ -77,10 +79,10 @@ You can also inspect or start preparation yourself. In these examples, replace `
 Use the returned job ID to follow progress:
 
 ```bash
-1mcp preparation wait source-search JOB_ID --project /work/project --wait-ms 5000
+1mcp prepare wait source-search JOB_ID --project /work/project --wait-ms 5000
 ```
 
-If the job is still running, wait again. You can also use `preparation status`, `preparation cancel`, or `preparation retry` with the same server name, job ID, and project.
+If the job is still running, wait again. You can also use `prepare status`, `prepare cancel`, or `prepare retry` with the same server name, job ID, and project.
 
 ## If preparation cannot finish
 

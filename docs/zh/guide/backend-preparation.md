@@ -5,6 +5,8 @@ description: 了解服务器何时需要准备、如何启用已有配方，以�
 
 # 后端准备
 
+命令语法、选项、适用人群和恢复示例请参阅 [Prepare 命令参考](/zh/commands/prepare)。
+
 有些 MCP 服务器需要先初始化项目或更新索引，才能处理请求。**准备功能**让 1MCP 执行这些步骤，并检查服务器是否已准备好处理你选定的项目。
 
 只有在你已有适用于服务器的配方时，才需要配置准备功能。**配方**是一个 JSON 文件，告诉 1MCP 如何检查就绪状态，以及运行哪些准备命令。它可以由你的团队或集成维护者提供。
@@ -68,7 +70,7 @@ description: 了解服务器何时需要准备、如何启用已有配方，以�
 你也可以自行检查或启动准备。下面的例子中，将 `source-search` 替换为服务器配置名称，`lookup` 替换为配方覆盖的工具名称，`/work/project` 替换为已授权的项目路径：
 
 ```bash
-1mcp preparation inspect source-search --project /work/project --operation lookup
+1mcp prepare inspect source-search --project /work/project --operation lookup
 1mcp prepare source-search --project /work/project --operation lookup
 ```
 
@@ -77,10 +79,10 @@ description: 了解服务器何时需要准备、如何启用已有配方，以�
 使用返回的任务 ID 查看进度：
 
 ```bash
-1mcp preparation wait source-search JOB_ID --project /work/project --wait-ms 5000
+1mcp prepare wait source-search JOB_ID --project /work/project --wait-ms 5000
 ```
 
-如果任务仍在运行，请再次等待。你也可以使用 `preparation status`、`preparation cancel` 或 `preparation retry`，传入相同的服务器名称、任务 ID 和项目。
+如果任务仍在运行，请再次等待。你也可以使用 `prepare status`、`prepare cancel` 或 `prepare retry`，传入相同的服务器名称、任务 ID 和项目。
 
 ## 准备无法完成时
 

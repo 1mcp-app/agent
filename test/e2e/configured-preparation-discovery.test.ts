@@ -174,7 +174,20 @@ describe.skipIf(process.platform !== 'linux' && process.platform !== 'darwin').e
         for (const checkout of [linked, independent]) {
           const initial = await cli(checkout, ['inspect', 'fixture', '--format', 'json']);
           expect(initial.tools).toEqual([]);
-          const job = await cli(checkout, ['prepare', 'fixture', '--operation', 'source', '--format', 'json']);
+          const readiness = await cli(checkout, [
+            'prepare',
+            'inspect',
+            'fixture',
+            '--operation',
+            'source',
+            '--format',
+            'json',
+          ]);
+          expect(JSON.stringify(readiness)).toContain('required');
+          await expect(readFile(path.join(checkout, 'preparation-started.marker'), 'utf8')).rejects.toMatchObject({
+            code: 'ENOENT',
+          });
+          const job = await cli(checkout, ['prepare', 'start', 'fixture', '--operation', 'source', '--format', 'json']);
           expect(job).toMatchObject({ state: 'job', status: { id: expect.any(String) } });
           await expect
             .poll(() => readFile(path.join(checkout, 'preparation-started.marker'), 'utf8'), { timeout: 5000 })
@@ -200,7 +213,7 @@ describe.skipIf(process.platform !== 'linux' && process.platform !== 'darwin').e
           let status = job.status;
           for (let attempt = 0; attempt < 20 && status.state !== 'ready'; attempt++) {
             status = await cli(checkout, [
-              'preparation',
+              'prepare',
               'wait',
               'fixture',
               job.status.id,
@@ -227,7 +240,7 @@ describe.skipIf(process.platform !== 'linux' && process.platform !== 'darwin').e
             expect(await readFile(path.join(checkout, 'input.txt'), 'utf8')).toBe(literalLabel);
             await writeFile(path.join(checkout, 'source.txt'), 'changed source for ' + checkout);
             const inspection = await cli(checkout, [
-              'preparation',
+              'prepare',
               'inspect',
               'fixture',
               '--operation',
@@ -247,7 +260,7 @@ describe.skipIf(process.platform !== 'linux' && process.platform !== 'darwin').e
             let synced = sync.status;
             for (let attempt = 0; attempt < 20 && synced.state !== 'ready'; attempt++) {
               synced = await cli(checkout, [
-                'preparation',
+                'prepare',
                 'wait',
                 'fixture',
                 sync.status.id,

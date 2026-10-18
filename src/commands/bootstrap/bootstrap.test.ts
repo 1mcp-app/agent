@@ -19,6 +19,28 @@ import {
 } from './bootstrap.js';
 
 describe('worker bootstrap client contracts', () => {
+  it.each([
+    ['codex', 'SessionStart'],
+    ['codex', 'SubagentStart'],
+    ['claude', 'SessionStart'],
+    ['claude', 'SubagentStart'],
+  ] as const)('delivers preparation recovery in %s %s context and budget fallback', async (client, event) => {
+    for (const excessive of [false, true]) {
+      const output = await renderBootstrapContext(
+        { client, event, project: ['/selected'] },
+        JSON.stringify({ hook_event_name: event }),
+        async () => (excessive ? 'x'.repeat(BOOTSTRAP_CONTEXT_LIMIT) : 'Selected runtime instructions'),
+      );
+      expect(output).toContain('1mcp prepare inspect <backend>');
+      expect(output).toContain('1mcp prepare start <backend>');
+      expect(output).toContain('never executes or replays the original tool call');
+      expect(output).toContain('do not run `1mcp instructions` again');
+      expect(output.length).toBeLessThanOrEqual(BOOTSTRAP_CONTEXT_LIMIT);
+      if (excessive) expect(output).toContain('coverage gap');
+      else expect(output).toContain('Selected runtime instructions');
+    }
+  });
+
   it.each(['codex', 'claude'] as const)('ignores %s parent cwd and undocumented assignment fields', async (client) => {
     const render = vi.fn();
     const output = await renderBootstrapContext(
@@ -39,6 +61,8 @@ describe('worker bootstrap client contracts', () => {
     expect(output).not.toContain('/parent');
     expect(output).not.toContain('/invented');
     expect(output).toContain('inspect <server>/<tool>');
+    expect(output).toContain('1mcp prepare inspect <backend>');
+    expect(output).toContain('assigned --project/--project-set');
   });
 
   it.each(['codex', 'claude'] as const)('emits a documented %s additionalContext envelope', async (client) => {

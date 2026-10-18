@@ -190,13 +190,13 @@ For inline commands and named definitions without explicit runtime setup activat
 Preparation controls remain accessible even if initial tool discovery is empty:
 
 ```bash
-1mcp preparation inspect source-search --project /work/frontend --operation lookup --format json
+1mcp prepare inspect source-search --project /work/frontend --operation lookup --format json
 1mcp prepare source-search --project /work/frontend --operation lookup --format json
 OPERATION_ID='replace-with-returned-job-id'
-1mcp preparation status source-search "$OPERATION_ID" --project /work/frontend
-1mcp preparation wait source-search "$OPERATION_ID" --project /work/frontend --wait-ms 5000
-1mcp preparation cancel source-search "$OPERATION_ID" --project /work/frontend
-1mcp preparation retry source-search "$OPERATION_ID" --project /work/frontend
+1mcp prepare status source-search "$OPERATION_ID" --project /work/frontend
+1mcp prepare wait source-search "$OPERATION_ID" --project /work/frontend --wait-ms 5000
+1mcp prepare cancel source-search "$OPERATION_ID" --project /work/frontend
+1mcp prepare retry source-search "$OPERATION_ID" --project /work/frontend
 ```
 
 `inspect` reads readiness and current job state, action, elapsed time, and available progress. It does not schedule preparation, repair state, or retry failed jobs. Handles are bound to the authenticated owner, target, operation, and effective configuration. Controls using an ID recover its operation automatically; an explicitly conflicting operation is rejected.

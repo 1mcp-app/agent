@@ -2,6 +2,8 @@ import path from 'node:path';
 
 import { z } from 'zod';
 
+import { PREPARATION_GUIDANCE } from './preparationGuidance.js';
+
 const instructionServerSummarySchema = z.object({
   server: z.string(),
   type: z.string().optional(),
@@ -200,6 +202,8 @@ export function renderManagedDocContent(): string {
     'If the startup hook cannot resolve the assignment, run `1mcp bootstrap --client codex|claude --event SubagentStart --project <absolute-checkout>` or use `--project-set <absolute-definition>` before project-specific instructions or calls. Do not infer a worker target from parent cwd or session identity.',
     'Retain the assigned `--project` and/or `--project-set` selectors for instructions and tool calls. With a project set, repeat `--project <label>` to select its ordered members. A multi-project set requires explicit selection for checkout-specific calls; coordinate separate calls for single-project tools.',
     'Identical hook delivery may repeat across global and repository sources. Never suppress instructions for a different assigned target. Configuration files alone do not prove enabled, trusted hook delivery or runtime readiness.',
+    '',
+    PREPARATION_GUIDANCE,
     '',
   ].join('\n');
 }
