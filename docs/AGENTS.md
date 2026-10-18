@@ -33,7 +33,7 @@ pnpm docs:preview
 
 ## Development Documentation Placement
 
-- Put contributor implementation notes, diagnostic reproduction steps, test harness instructions, and acceptance evidence directly in `docs/` as Markdown files (for example, `docs/backend-preparation-acceptance.md`).
+- Put contributor implementation notes, diagnostic reproduction steps, test harness instructions, and acceptance evidence directly in `docs/developement` as Markdown files (for example, `docs/developement/backend-preparation-acceptance.md`).
 - Root Markdown files are excluded from VitePress through `srcExclude`; public pages belong in the locale directories.
 - Keep these development documents outside `docs/en/` and `docs/zh/` and out of public site navigation. Maintain development documents in English only; both site locales link to the same English repository file.
 - Keep user-facing setup instructions, prerequisites, supported behavior, and limitations in the localized site. The existing public development guide may link to repository notes rather than embedding their evidence or harness details.
