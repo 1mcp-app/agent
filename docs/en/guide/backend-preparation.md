@@ -9,12 +9,12 @@ The runtime coordinates preparation jobs for a selected Project Checkout. Integr
 
 ## Maintained examples: no handwritten configuration
 
-Install the backend executable first, then select an example in `1mcp mcp install`, or use:
+Install the backend executable first, then select an example in `1mcp mcp setup`, or use:
 
 ```bash
-1mcp mcp install --known codegraph
-1mcp mcp install --known code-review-graph
-1mcp mcp install --known serena
+1mcp mcp setup --known codegraph
+1mcp mcp setup --known code-review-graph
+1mcp mcp setup --known serena
 ```
 
 With prerequisites on PATH, selecting an example and accepting defaults needs no JSON, scripts, exit-code mappings, or tool lists. Use `--executable /absolute/path/to/backend` when the installed command is not on PATH. Missing dependencies produce actionable guidance; setup never downloads them or initializes native indexes.
@@ -22,7 +22,7 @@ With prerequisites on PATH, selecting an example and accepting defaults needs no
 The default is a reusable checkout-bound template, using the checkout selected and authorized by the existing project-context workflow, not the setup command's working directory. Fresh authorized worktrees need no repeated 1MCP configuration, although native initialization/onboarding may still be required. For a fixed target:
 
 ```bash
-1mcp mcp install --known serena --checkout /absolute/project --name project-serena --dry-run
+1mcp mcp setup --known serena --checkout /absolute/project --name project-serena --dry-run
 ```
 
 Remove `--dry-run` to save. Equivalent setup is unchanged. Existing overrides, secret references, disables, and preparation restrictions are preserved; meaningful reconfiguration requires `--force`. Static/template name collisions fail rather than silently moving a target. Output distinguishes configuration changes and reload observation from native readiness. Setup grants no additional checkout access.
@@ -33,7 +33,7 @@ Remove `--dry-run` to save. Equivalent setup is unchanged. Existing overrides, s
 | Code Review Graph | Installed public CLI; native build/update for the selected repository before graph queries.                                                                         | Not enabled by setup  |
 | Serena            | Installed public CLI and language toolchain/server; native project setup and onboarding when requested. Optional warmup does not block otherwise usable operations. | Not enabled by setup  |
 
-All examples share declarative setup and the normal configuration transaction. No native patches, private database manipulation, or foreign-lock repair is performed. Connectivity does not prove freshness. Ordinary native operations retain their behavior; explicitly readiness-gated operations still require verified evidence. See the [graph diagnostics](/guide/preparation-native-acceptance) and [Serena diagnostics](/guide/preparation-serena-acceptance) for automatic-preparation limitations.
+Configuration success does not prove source freshness. These examples do not enable automatic preparation; complete the native prerequisites before querying a checkout.
 
 After completing any required native steps, start your configured runtime with `1mcp serve`. In another terminal, select the checkout when inspecting or calling a template:
 
@@ -49,32 +49,11 @@ Array-form environment settings are retained verbatim, including inherited globa
 
 The setup command does not invoke a dependency installer or native initialization command. If a runtime is already running, normal configuration reload can start a static backend. That backend retains its own startup behavior and may write native state. In particular, install Serena's language dependencies before starting it: native dependency acquisition is not controlled by 1MCP's optional preparation permissions. Missing language dependencies are outside the verified example scope; executable discovery alone does not validate them.
 
-## Verified example scope
+## Tested support scope
 
-On 2026-10-16, the installed backends below passed setup and native-source acceptance on macOS 26.6.2 arm64 with Node.js 26.4.0. These are tested combinations, not a guarantee for other versions, platforms, languages, or repository sizes.
+The setup examples were tested on macOS 26.6.2 arm64 with Node.js 26.4.0 using CodeGraph 1.6.2, Code Review Graph 2.3.9, and Serena 2.0.0 (individual-tools interface). Serena also requires its language toolchain; the tested TypeScript combination used TypeScript 5.9.3 and typescript-language-server 5.1.3. Other versions, platforms, languages, and large repositories are outside this tested scope.
 
-| Example           | Tested version                    | Representative public operation                                        | Result                             |
-| ----------------- | --------------------------------- | ---------------------------------------------------------------------- | ---------------------------------- |
-| CodeGraph         | 1.6.2                             | `codegraph_explore` returns selected-checkout source                   | Template and static targets passed |
-| Code Review Graph | 2.3.9                             | `get_minimal_context_tool`, then `get_review_context_tool` with source | Template and static targets passed |
-| Serena            | 2.0.0, individual-tools interface | Native instructions/onboarding guidance, then `find_symbol` with body  | Template and static targets passed |
-
-Each backend returned unique source bodies from a main checkout, a linked worktree, and an independent repository. One reusable template configuration served all three, and main was queried again after the other checkouts. Fixtures included spaces, an ampersand, and an apostrophe in their paths. Dry runs, equivalent repeats (including `--force`), and preservation of unrelated configuration/secret references passed. All 21 native source queries passed across 12 isolated runtime lifecycles.
-
-The fixtures contain one TypeScript source file per checkout. Serena used preinstalled TypeScript 5.9.3 and typescript-language-server 5.1.3 copied into an isolated home without downloads. Native initialization was explicit fixture setup: CodeGraph `init`, CRG `build`, and Serena `project create`. Native onboarding guidance was retained, not completed or fabricated by 1MCP. No automatic-preparation freshness, native-writer coordination, cancellation, or large-repository performance support is claimed.
-
-Reproduce from a built source checkout with the named dependencies already installed:
-
-```bash
-python3 -B scripts/verify-known-server-setup.py \
-  --cli "$PWD/build/index.js" \
-  --codegraph /absolute/bin/codegraph \
-  --crg /absolute/bin/code-review-graph \
-  --serena /absolute/bin/serena \
-  --serena-resources /absolute/serena-home
-```
-
-The harness writes commands, results, and `evidence.json` to a new OS temporary directory. It uses public 1MCP inspection/invocation and generated configurations, not placeholder substitution or native private APIs. Its cleanup verifies foreground process groups and observed descendants. Arbitrary fast daemonization/reparenting between observations is outside that harness contract; it is not a universal process-containment or runtime-preparation cancellation test.
+Configuration success does not establish index freshness or enable automatic preparation. See the [setup reference](/commands/mcp/setup) for flags and the [contributor verification notes](/development/backend-preparation-acceptance) for reproduction and evidence.
 
 ## Runtime configuration (advanced)
 
@@ -185,7 +164,3 @@ One job performs one action. Successful action exit triggers a fresh probe. Only
 Runtime defaults are one active expensive job, at most 16 queued jobs, a 120,000 ms execution deadline independent of queue time, and a 5,000 ms request inspection/wait budget. Configure scheduler bounds through the application's `[preparation]` settings. Backend metadata can set `executionDeadlineMs` and `transientRetryLimit`; increasing deadlines requires an explicit runtime configuration change.
 
 Cancellation and execution expiry stop owned action processes and their attached descendants. A direct child exiting does not prove descendants stopped. Restart treats saved state as advisory: the configured read-only probe verifies current readiness and native writer coordination. A native conflict stays blocked until external reconciliation; inspect can then report readiness without starting work, and explicit retry can admit required preparation. No saved PID or flag authorizes signalling, duplicate writers, index deletion, or foreign-lock recovery. Inspection does not erase these facts.
-
-## Real integration acceptance
-
-CodeGraph and Code Review Graph use this same configured-command contract through external wrappers. Repository examples are in `examples/backend-preparation/README.md`, with a bounded native fixture wrapper and `scripts/verify-configured-preparation.mjs` for repeatable acceptance. Code Review Graph status alone does not establish dirty-source freshness; its wrapper must verify that separately or report the coverage gap. Runtime core contains no backend-specific readiness parser. Acceptance evidence must identify backend version, platform, checkout/source size, cold preparation time, warm probe overhead, shared jobs, unrelated ready-tool latency, cancellation coverage, and available CPU/memory observations. Passing local tests does not establish deployment or live client activation.

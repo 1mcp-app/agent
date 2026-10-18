@@ -24,6 +24,16 @@ These commands allow you to discover, install, configure, and manage the lifecyc
 
 For a detailed guide on server management, including registry-based installation and best practices, please see the **[Server Management Guide](../../guide/essentials/server-management)**.
 
+## Configure installed backends
+
+### [setup](/commands/mcp/setup)
+
+Configure CodeGraph, Code Review Graph, or Serena with a maintained example:
+
+```bash
+1mcp mcp setup --known codegraph
+```
+
 ## Registry-Based Commands (Recommended)
 
 ### [install](./install)

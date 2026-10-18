@@ -152,7 +152,21 @@ function sidebar(): DefaultTheme.Sidebar {
       },
       {
         text: '开发',
-        items: [{ text: '开发指南', link: '/zh/guide/development' }],
+        items: [
+          { text: '开发指南', link: '/zh/guide/development' },
+          { text: '后端集成验证', link: '/zh/development/backend-preparation-acceptance' },
+        ],
+      },
+    ],
+    '/zh/development/': [
+      {
+        text: '后端集成验证',
+        items: [
+          { text: '开发指南', link: '/zh/guide/development' },
+          { text: '后端集成验证', link: '/zh/development/backend-preparation-acceptance' },
+          { text: 'CodeGraph / Code Review Graph', link: '/zh/development/preparation-native-acceptance' },
+          { text: 'Serena', link: '/zh/development/preparation-serena-acceptance' },
+        ],
       },
     ],
     '/zh/commands/': [
@@ -169,6 +183,7 @@ function sidebar(): DefaultTheme.Sidebar {
             text: 'mcp',
             link: '/zh/commands/mcp/',
             items: [
+              { text: 'setup', link: '/zh/commands/mcp/setup' },
               { text: 'install', link: '/zh/commands/mcp/install' },
               { text: 'uninstall', link: '/zh/commands/mcp/uninstall' },
               { text: 'search', link: '/zh/commands/mcp/search' },

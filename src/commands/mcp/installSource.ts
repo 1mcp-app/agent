@@ -54,7 +54,9 @@ export function deriveLocalServerName(registryId: string): string {
   return sanitized;
 }
 
-export function installationWorkflowFailureMessage(result: ServerInstallationWorkflowResult): string {
+export function installationWorkflowFailureMessage<
+  Result extends Pick<ServerInstallationWorkflowResult, 'error' | 'fieldErrors'> & { status: string },
+>(result: Result, workflow = 'Installation'): string {
   if (result.error) {
     return result.error;
   }
@@ -68,7 +70,7 @@ export function installationWorkflowFailureMessage(result: ServerInstallationWor
     }
   }
 
-  return `Installation workflow returned ${result.status}`;
+  return `${workflow} workflow returned ${result.status}`;
 }
 
 export function createRegistryInstallSource(input: {

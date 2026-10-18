@@ -3,13 +3,10 @@ import { createServerInstallationWorkflow } from '@src/domains/installation/serv
 import { createRegistryClient } from '@src/domains/registry/mcpRegistryClient.js';
 import printer from '@src/utils/ui/printer.js';
 
-import prompts from 'prompts';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildInstallCommand, installCommand } from './install.js';
 import { InstallWizard } from './utils/installWizard.js';
-
-vi.mock('prompts', () => ({ default: vi.fn() }));
 
 const registryMocks = vi.hoisted(() => ({
   getServerById: vi.fn(),
@@ -96,7 +93,6 @@ console.log = consoleLogMock;
 describe('Install Command', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(prompts).mockResolvedValue({ example: 'registry' });
     mockWorkflowRun.mockResolvedValue({
       status: 'applied',
       targetName: 'test-server',
@@ -135,6 +131,25 @@ describe('Install Command', () => {
   });
 
   describe('installCommand', () => {
+    it('opens the registry wizard directly when no server name is supplied', async () => {
+      registryMocks.wizardRun.mockResolvedValue({
+        cancelled: false,
+        serverId: 'io.example/server',
+        localName: 'server',
+        installAnother: false,
+      });
+      vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+      vi.spyOn(console, 'clear').mockImplementation(() => undefined);
+      await installCommand({} as any);
+      expect(InstallWizard).toHaveBeenCalledOnce();
+      expect(createRegistryClient).toHaveBeenCalledOnce();
+      expect(mockWorkflowRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source: expect.objectContaining({ type: 'registry' }),
+        }),
+      );
+    });
+
     it('should reject on invalid version format', async () => {
       const args = {
         serverName: 'test-server@bad',

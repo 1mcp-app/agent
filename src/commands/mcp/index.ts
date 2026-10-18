@@ -11,6 +11,7 @@ import { buildInstallCommand } from './install.js';
 import { buildListCommand } from './list.js';
 import { buildRemoveCommand } from './remove.js';
 import { buildRestartCommand } from './restart.js';
+import { buildSetupCommand } from './setup.js';
 import { buildStatusCommand } from './status.js';
 import { buildTokensCommand } from './tokens.js';
 import { setupMcpToolsCommands } from './tools.js';
@@ -52,6 +53,15 @@ export function setupMcpCommands(yargs: Argv): Argv {
             } else {
               await addCommand(argv);
             }
+          },
+        })
+        .command({
+          command: 'setup',
+          describe: 'Configure an installed backend from a maintained example',
+          builder: buildSetupCommand,
+          handler: async (argv) => {
+            const { setupCommand } = await import('./setup.js');
+            await setupCommand(argv);
           },
         })
         .command({
@@ -203,7 +213,8 @@ MCP Command Group - Local MCP Server Configuration Management
 The mcp command group helps you manage local MCP server configurations in your 1mcp instance.
 
 This allows you to:
-• Install MCP servers from the registry
+• Install static MCP servers from the registry
+• Set up installed backends as reusable templates or explicit static targets
 • Add new MCP servers with various transport types (stdio, HTTP, SSE)
 • Remove or uninstall servers you no longer need
 • Update server configurations including environment variables and tags

@@ -7,7 +7,7 @@ import type { ContextData } from '@src/types/context.js';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createServerInstallationWorkflow } from './serverInstallationWorkflow.js';
+import { createKnownServerSetupWorkflow } from './knownServerSetup.js';
 
 vi.mock('@src/transport/transportFactory.js', () => ({
   createTransportsWithContext: vi.fn(async () => ({
@@ -40,11 +40,9 @@ describe('known CodeGraph template instance sharing', () => {
     const alias = path.join(directory, 'alias');
     await Promise.all([mkdir(main), mkdir(linked), mkdir(independent)]);
     await symlink(main, alias);
-    const result = await createServerInstallationWorkflow({
-      knownSetup: {
-        readConfiguration: () => ({ mcpServers: {} }),
-        resolveExecutable: async () => '/trusted/bin/codegraph',
-      },
+    const result = await createKnownServerSetupWorkflow({
+      readConfiguration: () => ({ mcpServers: {} }),
+      resolveExecutable: async () => '/trusted/bin/codegraph',
     }).run({ mode: 'preview', source: { type: 'known', exampleId: 'codegraph' } });
     expect(result.status).toBe('preview');
     const config = result.config!;

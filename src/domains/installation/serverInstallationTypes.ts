@@ -6,18 +6,14 @@ import type {
 } from '@src/domains/config-change/configChange.js';
 import type { RegistryServer } from '@src/domains/registry/types.js';
 
-import type { KnownServerSetupPorts } from './knownServerSetup.js';
-
 export type ServerInstallationWorkflowMode = 'preview' | 'apply';
-export type ServerInstallationWorkflowSourceType = 'registry' | 'direct' | 'known';
+export type ServerInstallationWorkflowSourceType = 'registry' | 'direct';
 export type DirectInstallTransport = 'stdio' | 'http' | 'sse';
 export type ServerInstallationWorkflowStatus =
   | 'preview'
   | 'applied'
-  | 'unchanged'
   | 'exists'
   | 'template_conflict'
-  | 'setup_conflict'
   | 'invalid_input'
   | 'not_found'
   | 'registry_unavailable'
@@ -54,23 +50,13 @@ export interface DirectInstallationSource {
   package?: string;
 }
 
-export interface KnownInstallationSource {
-  type: 'known';
-  exampleId: string;
-  localName?: string;
-  executable?: string;
-  checkout?: string;
-}
-
-export type ServerInstallationWorkflowSource =
-  RegistryInstallationSource | DirectInstallationSource | KnownInstallationSource;
+export type ServerInstallationWorkflowSource = RegistryInstallationSource | DirectInstallationSource;
 
 export interface ServerInstallationWorkflowInput {
   mode: ServerInstallationWorkflowMode;
   source: ServerInstallationWorkflowSource;
   force?: boolean;
   backup?: ConfigBackupPolicy;
-  expectedSetupFingerprint?: string;
 }
 
 export type SelectedRegistryEndpoint =
@@ -93,9 +79,6 @@ export interface ServerInstallationMetadata {
 }
 
 export interface ServerInstallationWorkflowResult {
-  setupFingerprint?: string;
-  exampleId?: string;
-  targetSource?: 'mcpServers' | 'mcpTemplates';
   status: ServerInstallationWorkflowStatus;
   mode: ServerInstallationWorkflowMode;
   sourceType: ServerInstallationWorkflowSourceType;
@@ -112,7 +95,6 @@ export interface ServerInstallationWorkflowResult {
 }
 
 export interface ServerInstallationWorkflowPorts {
-  knownSetup?: KnownServerSetupPorts;
   getRegistryServer?: (registryId: string, version?: string) => Promise<RegistryServer | null>;
   findConfiguredTarget?: (targetName: string) => ConfiguredServerTargetRef | null;
   applyConfigChange?: (input: {

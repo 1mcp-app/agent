@@ -339,7 +339,7 @@ class Acceptance:
                     "env": {"UNRELATED_SECRET": "${NATIVE_ACCEPTANCE_SECRET}"}}
         if not config.exists():
             config.write_text(json.dumps({"mcpServers": {"unrelated": sentinel}}, indent=2) + "\n")
-        argv = ["mcp", "install", "--known", backend, "--executable", self.executables[backend],
+        argv = ["mcp", "setup", "--known", backend, "--executable", self.executables[backend],
                 "--name", backend]
         if mode == "static":
             argv += ["--checkout", checkout]

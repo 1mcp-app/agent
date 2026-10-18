@@ -19,12 +19,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { knownServerExamples } from './knownServerCatalog.js';
 import {
+  createKnownServerSetupWorkflow,
   type KnownServerConfiguration,
   type KnownServerSetupPorts,
   resolveKnownServerExecutable,
 } from './knownServerSetup.js';
-import type { KnownInstallationSource } from './serverInstallationTypes.js';
-import { createServerInstallationWorkflow } from './serverInstallationWorkflow.js';
+import type { KnownServerSetupSource } from './knownServerSetupTypes.js';
 
 describe('known server setup', () => {
   let directory: string;
@@ -60,8 +60,8 @@ describe('known server setup', () => {
     await rm(directory, { recursive: true, force: true });
   });
 
-  function run(source: Partial<KnownInstallationSource> = {}, mode: 'apply' | 'preview' = 'apply', force = false) {
-    return createServerInstallationWorkflow({ knownSetup: ports }).run({
+  function run(source: Partial<KnownServerSetupSource> = {}, mode: 'apply' | 'preview' = 'apply', force = false) {
+    return createKnownServerSetupWorkflow(ports).run({
       mode,
       source: { type: 'known', exampleId: 'codegraph', ...source },
       force,
@@ -163,9 +163,7 @@ describe('known server setup', () => {
     expect((await run({ exampleId: 'unknown' })).status).toBe('not_found');
     expect((await run({ localName: '../bad' })).status).toBe('invalid_input');
     const source = { type: 'known' as const, exampleId: 'codegraph', args: ['injected'] };
-    expect((await createServerInstallationWorkflow({ knownSetup: ports }).run({ mode: 'apply', source })).status).toBe(
-      'invalid_input',
-    );
+    expect((await createKnownServerSetupWorkflow(ports).run({ mode: 'apply', source })).status).toBe('invalid_input');
     expect(ports.resolveExecutable).not.toHaveBeenCalled();
   });
 
@@ -285,6 +283,70 @@ describe('known server setup', () => {
     expect(repeated.warnings.join(' ')).toContain('version compatibility');
   });
 
+  it.each(['new-template', 'new-static', 'existing-template', 'existing-static'] as const)(
+    'preserves inherited object env keys and supplies only absent defaults for %s setup',
+    async (scenario) => {
+      const defaults = { env: { CODEGRAPH_NO_DOWNLOAD: '${DOWNLOAD_POLICY}', SECRET: '${TOKEN}' } };
+      configuration.serverDefaults = defaults;
+      const isStatic = scenario.endsWith('static');
+      const section = isStatic ? 'mcpServers' : 'mcpTemplates';
+      const source: Partial<KnownServerSetupSource> = isStatic ? { checkout: directory } : {};
+      if (scenario.startsWith('existing')) {
+        const target = existing(
+          isStatic ? { cwd: directory, args: ['serve', '--mcp', '--path', directory, '--no-watch'] } : {},
+        );
+        delete target.env;
+        configuration[section] = { codegraph: target };
+        source.executable = '/other/bin/codegraph';
+        ports.resolveExecutable = vi.fn(async () => '/other/bin/codegraph');
+        expect((await run(source)).status).toBe('exists');
+        expect(ports.editTarget).not.toHaveBeenCalled();
+      }
+      const preview = await run(source, 'preview', true);
+      expect(preview.status).toBe('preview');
+      expect(preview.config?.env).toEqual({ CODEGRAPH_NO_DAEMON: '1' });
+      const applied = await run(source, 'apply', true);
+      expect(applied.status).toBe('applied');
+      expect(mergeGlobalAndServerConfig(defaults, applied.config!).env).toEqual({
+        ...defaults.env,
+        CODEGRAPH_NO_DAEMON: '1',
+      });
+      expect(configuration.serverDefaults).toEqual(defaults);
+      configuration[section] = { codegraph: applied.config! };
+      vi.mocked(ports.editTarget).mockClear();
+      for (const force of [false, true]) {
+        expect((await run(source, 'apply', force)).status).toBe('unchanged');
+      }
+      expect(ports.editTarget).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['template', 'static'] as const)(
+    'preserves inherited empty values and target overrides during forced %s reconfiguration',
+    async (binding) => {
+      const defaults = { env: { CODEGRAPH_NO_DOWNLOAD: '0', CODEGRAPH_NO_DAEMON: '' } };
+      configuration.serverDefaults = defaults;
+      const isStatic = binding === 'static';
+      const section = isStatic ? 'mcpServers' : 'mcpTemplates';
+      const target = existing(
+        isStatic ? { cwd: directory, args: ['serve', '--mcp', '--path', directory, '--no-watch'] } : {},
+      );
+      delete target.env;
+      configuration[section] = { codegraph: target };
+      const source = isStatic ? { checkout: directory } : {};
+      expect((await run(source)).status).toBe('unchanged');
+      target.env = { CODEGRAPH_NO_DOWNLOAD: '${TARGET_POLICY}', SECRET: '${TARGET_SECRET}' };
+      ports.resolveExecutable = vi.fn(async () => '/other/bin/codegraph');
+      const changed = await run({ ...source, executable: '/other/bin/codegraph' }, 'apply', true);
+      expect(changed.status).toBe('applied');
+      expect(changed.config?.env).toEqual(target.env);
+      expect(mergeGlobalAndServerConfig(defaults, changed.config!).env).toEqual({
+        ...defaults.env,
+        ...target.env,
+      });
+    },
+  );
+
   it('preserves explicit array environment assignments and inheritance on repeat and forced reconfiguration', async () => {
     const env = ['API_KEY=${TOKEN}', 'CODEGRAPH_NO_DOWNLOAD=0', 'INHERITED', 'EQUALS=a=b'];
     const target = { ...existing(), env };
@@ -314,7 +376,7 @@ describe('known server setup', () => {
       const isExisting = scenario.startsWith('existing');
       const isStatic = scenario.endsWith('static');
       const section = isStatic ? 'mcpServers' : 'mcpTemplates';
-      const source: KnownInstallationSource = {
+      const source: KnownServerSetupSource = {
         type: 'known',
         exampleId: 'codegraph',
         ...(isStatic ? { checkout: directory } : {}),
@@ -328,7 +390,7 @@ describe('known server setup', () => {
         source.executable = '/other/bin/codegraph';
         ports.resolveExecutable = vi.fn(async () => '/other/bin/codegraph');
       }
-      const workflow = createServerInstallationWorkflow({ knownSetup: ports });
+      const workflow = createKnownServerSetupWorkflow(ports);
       const preview = await workflow.run({ mode: 'preview', source, force: true });
       expect(preview.status).toBe('preview');
       expect(preview.config?.env).toBeUndefined();
@@ -379,8 +441,8 @@ describe('known server setup', () => {
   });
 
   it('returns a stable setup fingerprint for preview and unchanged results and accepts the reviewed apply token', async () => {
-    const workflow = createServerInstallationWorkflow({ knownSetup: ports });
-    const source: KnownInstallationSource = { type: 'known', exampleId: 'codegraph' };
+    const workflow = createKnownServerSetupWorkflow(ports);
+    const source: KnownServerSetupSource = { type: 'known', exampleId: 'codegraph' };
     const preview = await workflow.run({ mode: 'preview', source });
     expect(preview.setupFingerprint).toEqual(expect.any(String));
     expect((await workflow.run({ mode: 'preview', source })).setupFingerprint).toBe(preview.setupFingerprint);
@@ -403,8 +465,8 @@ describe('known server setup', () => {
     'rejects concurrent %s changes after preview without configuration side effects',
     async (change) => {
       configuration.mcpTemplates = { codegraph: existing() };
-      const workflow = createServerInstallationWorkflow({ knownSetup: ports });
-      const source: KnownInstallationSource = { type: 'known', exampleId: 'codegraph' };
+      const workflow = createKnownServerSetupWorkflow(ports);
+      const source: KnownServerSetupSource = { type: 'known', exampleId: 'codegraph' };
       const preview = await workflow.run({ mode: 'preview', source, force: true });
       if (change === 'target') configuration.mcpTemplates.codegraph = existing({ disabled: true });
       if (change === 'command')
@@ -433,8 +495,8 @@ describe('known server setup', () => {
     const checkout = path.join(directory, 'selected');
     await Promise.all([mkdir(first), mkdir(second)]);
     await symlink(first, checkout);
-    const workflow = createServerInstallationWorkflow({ knownSetup: ports });
-    const source: KnownInstallationSource = { type: 'known', exampleId: 'codegraph', checkout };
+    const workflow = createKnownServerSetupWorkflow(ports);
+    const source: KnownServerSetupSource = { type: 'known', exampleId: 'codegraph', checkout };
     const preview = await workflow.run({ mode: 'preview', source });
     expect(preview.config?.cwd).toBe(first);
     await rm(checkout);
@@ -453,8 +515,8 @@ describe('known server setup', () => {
     ports.resolveExecutable = vi.fn(async (executable) =>
       executable.startsWith('/') ? executable : '/trusted/bin/codegraph',
     );
-    const workflow = createServerInstallationWorkflow({ knownSetup: ports });
-    const source: KnownInstallationSource = { type: 'known', exampleId: 'codegraph' };
+    const workflow = createKnownServerSetupWorkflow(ports);
+    const source: KnownServerSetupSource = { type: 'known', exampleId: 'codegraph' };
     const preview = await workflow.run({ mode: 'preview', source });
     const changed = await workflow.run({
       mode: 'apply',
@@ -476,16 +538,14 @@ describe('known server setup', () => {
     const reload = vi.fn();
     const service = createConfigChangeService({ getConfigPath: () => configPath, reloadConfig: reload });
     const concurrent = { mcpServers: {}, serverDefaults: { timeout: 4567 } };
-    const workflow = createServerInstallationWorkflow({
-      knownSetup: {
-        resolveExecutable: ports.resolveExecutable,
-        createTemplate: async (input) => {
-          await writeFile(configPath, JSON.stringify(concurrent));
-          return service.createTemplateConfiguredServerTarget(input);
-        },
+    const workflow = createKnownServerSetupWorkflow({
+      resolveExecutable: ports.resolveExecutable,
+      createTemplate: async (input) => {
+        await writeFile(configPath, JSON.stringify(concurrent));
+        return service.createTemplateConfiguredServerTarget(input);
       },
     });
-    const source: KnownInstallationSource = { type: 'known', exampleId: 'codegraph' };
+    const source: KnownServerSetupSource = { type: 'known', exampleId: 'codegraph' };
     const preview = await workflow.run({ mode: 'preview', source });
     const result = await workflow.run({ mode: 'apply', source, expectedSetupFingerprint: preview.setupFingerprint });
     expect(result.status).toBe('failed');
@@ -688,15 +748,13 @@ describe('known server setup', () => {
       const reload = vi.fn();
       const service = createConfigChangeService({ getConfigPath: () => configPath, reloadConfig: reload });
       const resolveExecutable = vi.fn(async () => '/trusted/bin/codegraph');
-      const workflow = createServerInstallationWorkflow({
-        knownSetup: {
-          resolveExecutable,
-          createTemplate: service.createTemplateConfiguredServerTarget.bind(service),
-          createStatic: service.createStaticConfiguredServerTarget.bind(service),
-          editTarget: service.editConfiguredServerTarget.bind(service),
-        },
+      const workflow = createKnownServerSetupWorkflow({
+        resolveExecutable,
+        createTemplate: service.createTemplateConfiguredServerTarget.bind(service),
+        createStatic: service.createStaticConfiguredServerTarget.bind(service),
+        editTarget: service.editConfiguredServerTarget.bind(service),
       });
-      const source: KnownInstallationSource = {
+      const source: KnownServerSetupSource = {
         type: 'known',
         exampleId: 'codegraph',
         ...(kind === 'static' ? { checkout: directory } : {}),
@@ -735,11 +793,9 @@ describe('known server setup', () => {
     await writeFile(configPath, JSON.stringify(original));
     const reload = vi.fn();
     const service = createConfigChangeService({ getConfigPath: () => configPath, reloadConfig: reload });
-    const workflow = createServerInstallationWorkflow({
-      knownSetup: {
-        resolveExecutable: ports.resolveExecutable,
-        createTemplate: service.createTemplateConfiguredServerTarget.bind(service),
-      },
+    const workflow = createKnownServerSetupWorkflow({
+      resolveExecutable: ports.resolveExecutable,
+      createTemplate: service.createTemplateConfiguredServerTarget.bind(service),
     });
     expect(
       (await workflow.run({ mode: 'apply', source: { type: 'known', exampleId: 'codegraph' }, backup: 'required' }))

@@ -45,25 +45,6 @@ npx -y @1mcp/agent mcp install <server-name> --dry-run
 npx -y @1mcp/agent mcp install <server-name> --force
 ```
 
-## 维护的示例
-
-运行 `1mcp mcp install` 可选择 CodeGraph、Code Review Graph、Serena 或注册表浏览。后端已安装时，无需手写配置：
-
-```bash
-1mcp mcp install --known codegraph
-1mcp mcp install --known code-review-graph
-1mcp mcp install --known serena
-```
-
-- `--known <id>`：选择维护的示例，不能同时传位置参数中的注册表 ID。
-- `--executable <path>`：指定已安装的可执行文件，否则从 PATH 查找。
-- `--checkout <absolute-path>`：创建静态目标；省略时创建可复用的副本绑定模板。
-- `--name <name>`：覆盖本地目标名称，默认为示例 ID。
-- `--dry-run`：验证并预览，不保存配置也不启动后端。
-- `--force`：显式重新配置已有示例，保留无关设置和覆盖项；等价配置本身就是无操作。
-
-配置不下载后端依赖、不初始化索引，也不授予副本访问权限。仍可能需要原生项目设置或 onboarding。配置成功不证明新鲜度，这些示例不启用自动准备。前置条件、模板行为及高级配置见[后端准备](/zh/guide/backend-preparation)。
-
 ## 参数
 
 - **`<server-name>`** (可选)
@@ -228,6 +209,8 @@ npx -y @1mcp/agent mcp install filesystem
 ```
 
 ## 另请参阅
+
+- **[mcp setup](/zh/commands/mcp/setup)** - 配置已安装的受支持后端
 
 - **[注册表搜索](../registry/search.md)** - 在注册表中搜索可用服务器
 - **[mcp uninstall](uninstall.md)** - 移除已安装的服务器

@@ -142,7 +142,21 @@ function sidebar(): DefaultTheme.Sidebar {
       },
       {
         text: 'Development',
-        items: [{ text: 'Development Guide', link: '/guide/development' }],
+        items: [
+          { text: 'Development Guide', link: '/guide/development' },
+          { text: 'Backend Integration Verification', link: '/development/backend-preparation-acceptance' },
+        ],
+      },
+    ],
+    '/development/': [
+      {
+        text: 'Backend Integration Verification',
+        items: [
+          { text: 'Development Guide', link: '/guide/development' },
+          { text: 'Backend Integration Verification', link: '/development/backend-preparation-acceptance' },
+          { text: 'CodeGraph / Code Review Graph', link: '/development/preparation-native-acceptance' },
+          { text: 'Serena', link: '/development/preparation-serena-acceptance' },
+        ],
       },
     ],
     '/commands/': [
@@ -159,6 +173,7 @@ function sidebar(): DefaultTheme.Sidebar {
             text: 'mcp',
             link: '/commands/mcp/',
             items: [
+              { text: 'setup', link: '/commands/mcp/setup' },
               { text: 'install', link: '/commands/mcp/install' },
               { text: 'uninstall', link: '/commands/mcp/uninstall' },
               { text: 'search', link: '/commands/mcp/search' },

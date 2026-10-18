@@ -9,12 +9,12 @@ description: 配置副本专属的只读就绪探测，以及运行时拥有的�
 
 ## 维护的示例：无需手写配置
 
-先安装后端可执行文件，然后在 `1mcp mcp install` 中选择示例，或运行：
+先安装后端可执行文件，然后在 `1mcp mcp setup` 中选择示例，或运行：
 
 ```bash
-1mcp mcp install --known codegraph
-1mcp mcp install --known code-review-graph
-1mcp mcp install --known serena
+1mcp mcp setup --known codegraph
+1mcp mcp setup --known code-review-graph
+1mcp mcp setup --known serena
 ```
 
 前置依赖已在 PATH 中时，选择示例并确认默认项即可，无需编写 JSON、脚本、退出码映射或工具清单。命令不在 PATH 中时使用 `--executable /absolute/path/to/backend`。缺少依赖时提供明确指引，配置过程不下载依赖，也不初始化原生索引。
@@ -22,7 +22,7 @@ description: 配置副本专属的只读就绪探测，以及运行时拥有的�
 默认创建可复用的副本绑定模板，使用现有项目上下文流程选定并授权的副本，而非配置命令的当前目录。新授权的工作树无需重复配置 1MCP，但仍可能需要原生初始化或 onboarding。固定目标示例：
 
 ```bash
-1mcp mcp install --known serena --checkout /absolute/project --name project-serena --dry-run
+1mcp mcp setup --known serena --checkout /absolute/project --name project-serena --dry-run
 ```
 
 去掉 `--dry-run` 后保存。等价配置保持不变；保留已有覆盖项、密钥引用、禁用项及准备限制。有实质变化的重新配置需要 `--force`。静态/模板名称冲突会被拒绝，不静默迁移。输出区分配置变更、重载观察和原生就绪。配置不扩大副本访问权限。
@@ -33,7 +33,7 @@ description: 配置副本专属的只读就绪探测，以及运行时拥有的�
 | Code Review Graph | 已安装公共 CLI；图查询前，对选定仓库完成原生构建和更新。                                                  | 配置时不启用 |
 | Serena            | 已安装公共 CLI 及语言工具链/语言服务器；按需完成原生项目设置和 onboarding。可选预热不阻止本已可用的操作。 | 配置时不启用 |
 
-所有示例共用声明式配置及普通配置事务。不修改原生包或私有数据库，也不修复外部锁。连接成功不证明源码新鲜度。普通原生操作保持原有行为；显式要求就绪的操作仍需验证证据。自动准备限制见[图后端诊断](/zh/guide/preparation-native-acceptance)及 [Serena 诊断](/zh/guide/preparation-serena-acceptance)。
+配置成功不证明源码新鲜度。这些示例不启用自动准备；查询副本前应完成原生前置步骤。
 
 完成所需原生步骤后，使用 `1mcp serve` 启动已配置的运行时。在另一终端中检查或调用模板时选择副本：
 
@@ -49,32 +49,11 @@ description: 配置副本专属的只读就绪探测，以及运行时拥有的�
 
 配置命令不调用依赖安装器或原生初始化命令。运行时已启动时，普通配置重载可能启动静态后端，后端仍保留自身启动行为，并可能写入原生状态。尤其应在启动 Serena 前安装语言依赖：原生依赖获取不受 1MCP 可选准备权限控制。缺少语言依赖不在已验证示例范围内；仅找到可执行文件不代表这些依赖已通过验证。
 
-## 已验证的示例范围
+## 已测支持范围
 
-2026-10-16，下列已安装后端在 macOS 26.6.2 arm64、Node.js 26.4.0 上通过配置及原生源码验收。这些是已测组合，不保证其他版本、平台、语言或仓库规模。
+配置示例在 macOS 26.6.2 arm64、Node.js 26.4.0 上测试，使用 CodeGraph 1.6.2、Code Review Graph 2.3.9 和 Serena 2.0.0（独立工具接口）。Serena 还需要相应语言工具链；已测 TypeScript 组合使用 TypeScript 5.9.3 和 typescript-language-server 5.1.3。其他版本、平台、语言及大型仓库不在此测试范围内。
 
-| 示例              | 已测版本            | 代表性公共操作                                                       | 结果               |
-| ----------------- | ------------------- | -------------------------------------------------------------------- | ------------------ |
-| CodeGraph         | 1.6.2               | `codegraph_explore` 返回选定副本的源码                               | 模板及静态目标通过 |
-| Code Review Graph | 2.3.9               | `get_minimal_context_tool`，再调用带源码的 `get_review_context_tool` | 模板及静态目标通过 |
-| Serena            | 2.0.0，独立工具接口 | 原生说明/onboarding 指引，再调用包含函数体的 `find_symbol`           | 模板及静态目标通过 |
-
-每个后端均从主副本、关联工作树和独立仓库返回各自独有的源码。同一份可复用模板配置服务三个副本，并在访问其他副本后再次查询主副本。夹具路径包含空格、与号及单引号。dry-run、等价重复配置（包括 `--force`）以及无关配置/密钥引用保留均通过。12 次隔离运行时生命周期中的 21 次原生源码查询全部通过。
-
-每个副本只有一个 TypeScript 源文件。Serena 使用预装的 TypeScript 5.9.3 和 typescript-language-server 5.1.3，复制到隔离 home，无下载。原生初始化属于显式夹具准备：CodeGraph `init`、CRG `build` 和 Serena `project create`。保留原生 onboarding 指引，1MCP 不完成或伪造 onboarding。不宣称自动准备的新鲜度、原生写入者协调、取消或大仓库性能支持。
-
-在已构建的源码副本中，预先安装指定依赖后复现：
-
-```bash
-python3 -B scripts/verify-known-server-setup.py \
-  --cli "$PWD/build/index.js" \
-  --codegraph /absolute/bin/codegraph \
-  --crg /absolute/bin/code-review-graph \
-  --serena /absolute/bin/serena \
-  --serena-resources /absolute/serena-home
-```
-
-验证脚本把命令、结果和 `evidence.json` 写入新的系统临时目录。它通过公共 1MCP 检查/调用接口及生成的配置验证，不手工替换模板或访问原生私有接口。清理验证范围是前台进程组及已观察到的后代。两次观察之间快速后台化/重新托管的任意进程不在脚本契约内；它不是通用进程约束或运行时准备取消测试。
+配置成功不证明索引新鲜度，也不启用自动准备。选项见 [setup 命令参考](/zh/commands/mcp/setup)，复现步骤和证据见[贡献者验证说明](/zh/development/backend-preparation-acceptance)。
 
 ## 运行时配置（高级）
 
@@ -184,7 +163,3 @@ OPERATION_ID='replace-with-returned-job-id'
 默认同时运行一个昂贵任务，最多排队 16 个，执行期限 120000 毫秒且不含排队时间，请求检查/等待预算 5000 毫秒。应用 `[preparation]` 设置调度限额，后端元数据可设 `executionDeadlineMs`、`transientRetryLimit`。延长期限需要明确修改运行时配置。
 
 取消和执行超时停止拥有的动作进程及附属后代，直接子进程退出不能证明后代已停止。重启仅将保存状态视为参考：配置的只读探测核对当前就绪状态和原生写入者协调。原生 conflict 在外部核对并解决前保持阻止；解决后 inspect 可只读报告当前状态，显式重试可调度仍需执行的准备。保存的 PID 或标志不授权终止进程、重复写入、删除索引或破坏外部锁；检查不会抹去这些事实。
-
-## 真实集成验收
-
-CodeGraph 与 Code Review Graph 通过外部包装脚本使用相同配置命令契约。仓库 `examples/backend-preparation/README.md` 提供有界原生验收包装器，`scripts/verify-configured-preparation.mjs` 用于重复运行验收。Code Review Graph 的 status 本身不证明未提交源码新鲜度，包装脚本需要单独核验或明确报告缺口。运行时核心不解析后端专属就绪字段。验收证据需记录后端版本、平台、副本源码规模、冷准备时间、热探测开销、共享任务数、其他已就绪工具延迟、取消覆盖和可取得的 CPU/内存观察。通过本地测试不代表部署或客户端已激活。

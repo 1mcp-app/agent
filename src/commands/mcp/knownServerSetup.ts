@@ -1,31 +1,30 @@
 import { knownServerExamples } from '@src/domains/installation/knownServerCatalog.js';
-import { createServerInstallationWorkflow } from '@src/domains/installation/serverInstallationWorkflow.js';
+import { createKnownServerSetupWorkflow } from '@src/domains/installation/knownServerSetup.js';
 import printer from '@src/utils/ui/printer.js';
 
 import prompts from 'prompts';
 
-import type { InstallCommandArgs } from './install.js';
 import { installationWorkflowFailureMessage } from './installSource.js';
+import type { SetupCommandArgs } from './setup.js';
 
-export async function selectInstallationExample(): Promise<string | undefined> {
+export async function selectSetupExample(): Promise<string | undefined> {
   const answer = await prompts({
     type: 'select',
     name: 'example',
-    message: 'Choose a maintained example or browse the registry',
+    message: 'Choose an installed backend to configure',
     choices: [
       ...knownServerExamples.map((example) => ({
         title: example.label,
         description: example.description,
         value: example.id,
       })),
-      { title: 'Browse the registry', value: 'registry' },
     ],
   });
   return typeof answer.example === 'string' ? answer.example : undefined;
 }
 
-export async function installKnownServer(argv: InstallCommandArgs): Promise<void> {
-  const workflow = createServerInstallationWorkflow();
+export async function setupKnownServer(argv: SetupCommandArgs): Promise<void> {
+  const workflow = createKnownServerSetupWorkflow();
   const source = {
     type: 'known' as const,
     exampleId: argv.known ?? '',
@@ -35,7 +34,7 @@ export async function installKnownServer(argv: InstallCommandArgs): Promise<void
   };
   let preview = await workflow.run({ mode: 'preview', force: argv.force, source });
   if (argv.interactive && !argv.dryRun && preview.fieldErrors?.executable) {
-    printer.warn(installationWorkflowFailureMessage(preview));
+    printer.warn(installationWorkflowFailureMessage(preview, 'Setup'));
     const answer = await prompts({
       type: 'text',
       name: 'executable',
@@ -49,7 +48,7 @@ export async function installKnownServer(argv: InstallCommandArgs): Promise<void
     preview = await workflow.run({ mode: 'preview', force: argv.force, source });
   }
   if (preview.status !== 'preview' && preview.status !== 'unchanged') {
-    throw new Error(installationWorkflowFailureMessage(preview));
+    throw new Error(installationWorkflowFailureMessage(preview, 'Setup'));
   }
 
   printer.keyValue({
@@ -89,7 +88,7 @@ export async function installKnownServer(argv: InstallCommandArgs): Promise<void
     expectedSetupFingerprint: preview.setupFingerprint,
   });
   if (result.status !== 'applied' && result.status !== 'unchanged') {
-    throw new Error(installationWorkflowFailureMessage(result));
+    throw new Error(installationWorkflowFailureMessage(result, 'Setup'));
   }
   printer.success(`Configured example '${result.targetName ?? source.exampleId}'.`);
   if (result.configChange) {

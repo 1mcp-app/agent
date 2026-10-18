@@ -20,11 +20,7 @@ import {
 import { z } from 'zod';
 
 import { knownServerExamples } from './knownServerCatalog.js';
-import type {
-  KnownInstallationSource,
-  ServerInstallationWorkflowInput,
-  ServerInstallationWorkflowResult,
-} from './serverInstallationTypes.js';
+import type { KnownServerSetupInput, KnownServerSetupResult } from './knownServerSetupTypes.js';
 import { isValidServerName } from './validators/serverNameValidator.js';
 
 const checkoutMarker = '{{{project.path}}}';
@@ -112,11 +108,17 @@ export async function resolveKnownServerExecutable(executable: string): Promise<
   return undefined;
 }
 
+export function createKnownServerSetupWorkflow(ports: KnownServerSetupPorts = {}) {
+  return {
+    run: (input: KnownServerSetupInput): Promise<KnownServerSetupResult> => setupKnownServer(input, ports),
+  };
+}
+
 export async function setupKnownServer(
-  input: Omit<ServerInstallationWorkflowInput, 'source'> & { source: KnownInstallationSource },
+  input: KnownServerSetupInput,
   ports: KnownServerSetupPorts = {},
-): Promise<ServerInstallationWorkflowResult> {
-  const base: ServerInstallationWorkflowResult = {
+): Promise<KnownServerSetupResult> {
+  const base: KnownServerSetupResult = {
     status: 'invalid_input',
     mode: input.mode,
     sourceType: 'known',
@@ -145,7 +147,7 @@ export async function setupKnownServer(
 
   const targetName = source.localName ?? example.id;
   const targetSource: 'mcpTemplates' | 'mcpServers' = source.checkout === undefined ? 'mcpTemplates' : 'mcpServers';
-  const result: ServerInstallationWorkflowResult = {
+  const result: KnownServerSetupResult = {
     ...base,
     targetName,
     targetSource,
@@ -186,7 +188,11 @@ export async function setupKnownServer(
       .object({ env: z.unknown().optional() })
       .loose()
       .parse(configuration.serverDefaults ?? {}).env;
-    const exampleEnv = Array.isArray(inheritedEnv) ? undefined : example.env;
+    let exampleEnv = Array.isArray(inheritedEnv) ? undefined : example.env;
+    if (exampleEnv && inheritedEnv !== null && typeof inheritedEnv === 'object') {
+      const missingDefaults = Object.entries(exampleEnv).filter(([key]) => !Object.hasOwn(inheritedEnv, key));
+      exampleEnv = missingDefaults.length > 0 ? Object.fromEntries(missingDefaults) : undefined;
+    }
     if (example.env && (Array.isArray(inheritedEnv) || Array.isArray(existing?.env))) {
       result.warnings.push(
         'Preserved array-form environment inheritance; example environment defaults are not added. Review native download and daemon settings before starting the backend.',
@@ -340,7 +346,7 @@ export async function setupKnownServer(
         expectedConfigFingerprint: configurationFingerprint,
       });
     }
-    let status: ServerInstallationWorkflowResult['status'] = 'failed';
+    let status: KnownServerSetupResult['status'] = 'failed';
     if (change.status === 'changed') status = 'applied';
     if (change.status === 'unchanged') status = 'unchanged';
     if (change.status === 'destination_conflict') status = 'exists';
