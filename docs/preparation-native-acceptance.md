@@ -5,7 +5,7 @@ description: Reproduce native graph ownership and freshness diagnostics without 
 
 # Native graph preparation acceptance
 
-Use this page to reproduce the native safety investigation for CodeGraph and Code Review Graph. These diagnostics are **not preparation integrations**. They do not enable setup entries, establish readiness, or install dependencies. See [Backend preparation](/guide/backend-preparation) for the existing configured-command lifecycle.
+Use this page to reproduce the native safety investigation for CodeGraph and Code Review Graph. These diagnostics are **not preparation integrations**. They do not enable setup entries, establish readiness, or install dependencies. See [Backend preparation](https://docs.1mcp.app/guide/backend-preparation) for the existing configured-command lifecycle.
 
 ## Reproduce the investigation
 

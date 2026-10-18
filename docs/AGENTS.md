@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This file tells coding agents how to edit the `docs/` site in this repository.
+This file tells coding agents how to edit public documentation and repository development notes under `docs/`.
 
 ## Mission
 
@@ -19,8 +19,8 @@ Do not turn one page into multiple content types at once.
 
 - Keep the current `docs/en/**` and `docs/zh/**` file layout unless explicitly asked to restructure it.
 - Preserve SEO-sensitive URLs.
-- Update both locales for any user-facing page you materially change.
-- Use absolute internal links.
+- Update both locales for any user-facing page you materially change. Repository development notes are English-only.
+- Use absolute internal site links for public pages; use repository file links as described below for development notes.
 - Run `pnpm docs:build` after docs edits.
 
 ## Docs-Specific Commands
@@ -30,6 +30,15 @@ pnpm docs:dev
 pnpm docs:build
 pnpm docs:preview
 ```
+
+## Development Documentation Placement
+
+- Put contributor implementation notes, diagnostic reproduction steps, test harness instructions, and acceptance evidence directly in `docs/` as Markdown files (for example, `docs/backend-preparation-acceptance.md`).
+- Root Markdown files are excluded from VitePress through `srcExclude`; public pages belong in the locale directories.
+- Keep these development documents outside `docs/en/` and `docs/zh/` and out of public site navigation. Maintain development documents in English only; both site locales link to the same English repository file.
+- Keep user-facing setup instructions, prerequisites, supported behavior, and limitations in the localized site. The existing public development guide may link to repository notes rather than embedding their evidence or harness details.
+- Use relative file links between repository notes and full documentation-site URLs for links from notes to public pages. Public pages linking to repository notes must use GitHub file URLs, not VitePress routes.
+- When moving development content, update all incoming links and navigation. Retain a short routing page only for an existing public URL that must remain accessible.
 
 ## Content-Type Rules
 

@@ -140,3 +140,11 @@ Every user-facing docs change should aim for:
 - Workflow: `.github/workflows/deploy-documentation.yml`
 
 The site is built from the existing docs tree. Preserve path stability unless there is a deliberate migration plan.
+
+## Repository development notes
+
+Contributor diagnostics and acceptance evidence live directly in `docs/`, outside the localized public site:
+
+- [Backend setup and preparation verification](backend-preparation-acceptance.md)
+- [CodeGraph and Code Review Graph diagnostics](preparation-native-acceptance.md)
+- [Serena diagnostics](preparation-serena-acceptance.md)

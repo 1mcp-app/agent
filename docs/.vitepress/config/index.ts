@@ -26,10 +26,7 @@ export default withMermaid(
       'adr/**',
       'research/**',
       'runbooks/**',
-      'AGENTS.md',
-      'CLAUDE.md',
-      'README.md',
-      'ROADMAP.md',
+      '*.md', // Root Markdown files are repository-only documentation.
     ],
 
     rewrites: {

@@ -53,7 +53,7 @@ The setup command does not invoke a dependency installer or native initializatio
 
 The setup examples were tested on macOS 26.6.2 arm64 with Node.js 26.4.0 using CodeGraph 1.6.2, Code Review Graph 2.3.9, and Serena 2.0.0 (individual-tools interface). Serena also requires its language toolchain; the tested TypeScript combination used TypeScript 5.9.3 and typescript-language-server 5.1.3. Other versions, platforms, languages, and large repositories are outside this tested scope.
 
-Configuration success does not establish index freshness or enable automatic preparation. See the [setup reference](/commands/mcp/setup) for flags and the [contributor verification notes](/development/backend-preparation-acceptance) for reproduction and evidence.
+Configuration success does not establish index freshness or enable automatic preparation. See the [setup reference](/commands/mcp/setup) for flags and the [contributor verification notes](https://github.com/1mcp-app/agent/blob/main/docs/backend-preparation-acceptance.md) for reproduction and evidence.
 
 ## Runtime configuration (advanced)
 

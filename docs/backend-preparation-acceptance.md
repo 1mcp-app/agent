@@ -5,7 +5,7 @@ description: Contributor reproduction steps, recorded setup evidence, and accept
 
 # Backend setup and preparation verification
 
-For contributors developing or reviewing backend integrations. End users should start with [backend preparation](/guide/backend-preparation) and [mcp setup](/commands/mcp/setup).
+For contributors developing or reviewing backend integrations. End users should start with [backend preparation](https://docs.1mcp.app/guide/backend-preparation) and [mcp setup](https://docs.1mcp.app/commands/mcp/setup).
 
 These are historical results retained from the PR head before the `mcp setup` command split. They have not been rerun for the current head; the reproduction command below is for a new verification run.
 
@@ -42,5 +42,5 @@ CodeGraph and Code Review Graph use this same configured-command contract throug
 
 ## Native diagnostics
 
-- [Graph backend diagnostics](/development/preparation-native-acceptance)
-- [Serena diagnostics](/development/preparation-serena-acceptance)
+- [Graph backend diagnostics](preparation-native-acceptance.md)
+- [Serena diagnostics](preparation-serena-acceptance.md)

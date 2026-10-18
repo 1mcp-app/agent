@@ -142,21 +142,7 @@ function sidebar(): DefaultTheme.Sidebar {
       },
       {
         text: 'Development',
-        items: [
-          { text: 'Development Guide', link: '/guide/development' },
-          { text: 'Backend Integration Verification', link: '/development/backend-preparation-acceptance' },
-        ],
-      },
-    ],
-    '/development/': [
-      {
-        text: 'Backend Integration Verification',
-        items: [
-          { text: 'Development Guide', link: '/guide/development' },
-          { text: 'Backend Integration Verification', link: '/development/backend-preparation-acceptance' },
-          { text: 'CodeGraph / Code Review Graph', link: '/development/preparation-native-acceptance' },
-          { text: 'Serena', link: '/development/preparation-serena-acceptance' },
-        ],
+        items: [{ text: 'Development Guide', link: '/guide/development' }],
       },
     ],
     '/commands/': [

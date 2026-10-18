@@ -273,4 +273,4 @@ Contributions are welcome! Please read our [CONTRIBUTING.md](https://github.com/
 
 ## Backend integration verification
 
-For setup reproduction, native diagnostics, and preparation acceptance gates, see [backend integration verification](/development/backend-preparation-acceptance).
+For setup reproduction, native diagnostics, and preparation acceptance gates, see [backend integration verification](https://github.com/1mcp-app/agent/blob/main/docs/backend-preparation-acceptance.md).

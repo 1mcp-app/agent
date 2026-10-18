@@ -270,4 +270,4 @@ echo '{"jsonrpc":"2.0","method":"initialize","params":{}}' | node build/index.js
 
 ## 后端集成验证
 
-配置复现、原生诊断及准备验收门槛见[后端集成验证](/zh/development/backend-preparation-acceptance)。
+配置复现、原生诊断及准备验收门槛见[后端集成验证](https://github.com/1mcp-app/agent/blob/main/docs/backend-preparation-acceptance.md)。

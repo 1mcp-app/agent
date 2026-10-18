@@ -53,7 +53,7 @@ description: 配置副本专属的只读就绪探测，以及运行时拥有的�
 
 配置示例在 macOS 26.6.2 arm64、Node.js 26.4.0 上测试，使用 CodeGraph 1.6.2、Code Review Graph 2.3.9 和 Serena 2.0.0（独立工具接口）。Serena 还需要相应语言工具链；已测 TypeScript 组合使用 TypeScript 5.9.3 和 typescript-language-server 5.1.3。其他版本、平台、语言及大型仓库不在此测试范围内。
 
-配置成功不证明索引新鲜度，也不启用自动准备。选项见 [setup 命令参考](/zh/commands/mcp/setup)，复现步骤和证据见[贡献者验证说明](/zh/development/backend-preparation-acceptance)。
+配置成功不证明索引新鲜度，也不启用自动准备。选项见 [setup 命令参考](/zh/commands/mcp/setup)，复现步骤和证据见[贡献者验证说明](https://github.com/1mcp-app/agent/blob/main/docs/backend-preparation-acceptance.md)。
 
 ## 运行时配置（高级）
 
