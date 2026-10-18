@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "fixture-source",
+  "revision": "1",
+  "helperRevision": "1",
+  "helperFiles": ["fixture.mjs"],
+  "compatibility": {
+    "backend": "recipe-fixture",
+    "versions": ["1"],
+    "platforms": ["darwin", "linux"],
+    "readinessScope": "Exact bytes of source.txt in the selected fixture checkout only"
+  },
+  "inputs": { "label": { "default": "demo" } },
+  "affectedTools": ["source"],
+  "integration": {
+    "probe": { "executable": "node", "args": ["fixture.mjs", "probe", "{checkout}"] },
+    "readinessExitCodes": {
+      "0": { "state": "ready" },
+      "10": { "state": "required", "action": "initialize", "instructions": "Initialize the fixture snapshot." },
+      "11": { "state": "required", "action": "sync", "instructions": "Synchronize the changed source.txt." },
+      "12": { "state": "conflict", "instructions": "Wait for the fixture writer to finish." }
+    },
+    "actions": {
+      "initialize": { "executable": "node", "args": ["fixture.mjs", "initialize", "{checkout}", "{input:label}"] },
+      "sync": { "executable": "node", "args": ["fixture.mjs", "sync", "{checkout}", "{input:label}"] }
+    },
+    "containment": "posix-process-group"
+  }
+}

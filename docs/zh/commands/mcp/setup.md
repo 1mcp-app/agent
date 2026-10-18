@@ -7,6 +7,8 @@ description: 使用维护的示例配置已安装的 CodeGraph、Code Review Gra
 
 无需手写 JSON 即可配置已安装的后端。此命令支持 CodeGraph、Code Review Graph 和 Serena。浏览及安装注册表服务器请使用 [mcp install](/zh/commands/mcp/install)。
 
+setup 是生成服务器配置的便捷入口。若要定制或共享自动准备，请在 `mcp.json` 中通过 `preparation.definition` 配置[引用式配方](/zh/guide/backend-preparation)。即使使用 `--force`，setup 也会保留已有自定义配方、输入、启用选择、禁用设置及权限。三个维护的示例不提供已验证的原生准备配方。
+
 ## 命令语法
 
 交互式选择维护的示例：

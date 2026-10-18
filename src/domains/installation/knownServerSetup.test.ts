@@ -106,7 +106,7 @@ describe('known server setup', () => {
       config: { type: 'stdio', command: '/trusted/bin/codegraph', args: example.args, cwd: '{{{project.path}}}' },
     });
     expect(result.config?.preparation).toBeUndefined();
-    expect(result.warnings.join(' ')).toContain('Automatic preparation is unsupported');
+    expect(result.warnings.join(' ')).toContain('Maintained setup examples do not enable automatic preparation');
     expect(ports.resolveExecutable).toHaveBeenCalledWith(example.executable);
     expect(ports.createTemplate).not.toHaveBeenCalled();
     expect(ports.createStatic).not.toHaveBeenCalled();
@@ -206,6 +206,58 @@ describe('known server setup', () => {
     expect(ports.createStatic).not.toHaveBeenCalled();
     expect(ports.editTarget).not.toHaveBeenCalled();
   });
+
+  it.each([true, false])(
+    'preserves a referenced recipe and activation during forced edits with enabled=%s',
+    async (enabled) => {
+      const recipe = path.join(directory, 'recipe.json');
+      await writeFile(
+        recipe,
+        JSON.stringify({
+          schemaVersion: 1,
+          id: 'custom-source',
+          revision: '1',
+          helperRevision: '1',
+          compatibility: {
+            backend: 'custom',
+            versions: ['1'],
+            platforms: [process.platform],
+            readinessScope: 'fixture',
+          },
+          inputs: { label: { required: true } },
+          affectedTools: ['source'],
+          integration: {
+            probe: { executable: '/trusted/probe', args: ['{checkout}', '{input:label}'] },
+            readinessExitCodes: { '0': { state: 'ready' } },
+            actions: { initialize: { executable: '/trusted/initialize', args: ['{checkout}'] } },
+            containment: 'posix-process-group',
+          },
+        }),
+      );
+      const preparation: NonNullable<MCPServerParams['preparation']> = {
+        adapter: 'configured-command',
+        definition: { id: 'custom-source', file: recipe, inputs: { label: 'literal ; & value' } },
+        activation: 'setup',
+        enabled,
+        allowedActions: [],
+        executionDeadlineMs: 5000,
+        transientRetryLimit: 0,
+      };
+      configuration.mcpTemplates = { codegraph: existing({ preparation }) };
+      expect((await run()).status).toBe('unchanged');
+      ports.resolveExecutable = vi.fn(async () => '/other/bin/codegraph');
+      const edited = await run({ executable: '/other/bin/codegraph' }, 'apply', true);
+      expect(edited.status).toBe('applied');
+      expect(edited.config?.preparation).toEqual(preparation);
+      expect(ports.editTarget).toHaveBeenCalledWith(
+        expect.objectContaining({
+          serverConfig: expect.objectContaining({ preparation }),
+        }),
+      );
+      expect(edited.warnings.join(' ')).toContain('Existing custom preparation recipes are preserved');
+      expect(configuration.mcpTemplates.codegraph.preparation).toEqual(preparation);
+    },
+  );
 
   it('preserves secrets, native preparation disables, readiness gates, and operator overrides on repeats', async () => {
     const target = existing({

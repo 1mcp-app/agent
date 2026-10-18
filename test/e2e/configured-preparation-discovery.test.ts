@@ -16,10 +16,12 @@ const fixtureServer = path.resolve('test/e2e/fixtures/configured-preparation-ser
 
 // Positive launch acceptance is limited to the implemented containment platforms.
 // Configured-command unit tests cover rejection on unsupported platforms.
-describe.skipIf(process.platform !== 'linux' && process.platform !== 'darwin')(
-  'configured preparation runtime discovery',
-  () => {
-    it('refreshes initially empty tools for the selected checkout without restart or operation replay', async () => {
+describe.skipIf(process.platform !== 'linux' && process.platform !== 'darwin').each(['inline', 'referenced'] as const)(
+  'configured %s preparation runtime discovery',
+  (kind) => {
+    it('refreshes initially empty tools across checkouts without restart or replay', async () => {
+      const backend = kind === 'referenced' ? path.resolve('examples/preparation/fixture.mjs') : fixtureServer;
+      const literalLabel = "local ; & 'quoted' value";
       const directory = await mkdtemp(path.join(tmpdir(), '1mcp-configured-discovery-'));
       const configDirectory = path.join(directory, 'config');
       const main = path.join(directory, 'main');
@@ -55,29 +57,43 @@ describe.skipIf(process.platform !== 'linux' && process.platform !== 'darwin')(
         await writeFile(path.join(independent, 'source.txt'), 'independent-unique-576');
         await execute('git', ['-C', independent, 'init', '-q']);
         const preferences = JSON.stringify({ preparation: { fixture: { enabled: true } } });
-        await writeFile(path.join(main, '.1mcprc'), preferences);
-        await writeFile(path.join(independent, '.1mcprc'), preferences);
-        const command = (mode: string) => ({ executable: process.execPath, args: [fixtureServer, mode, '{checkout}'] });
+        if (kind === 'inline') {
+          await writeFile(path.join(main, '.1mcprc'), preferences);
+          await writeFile(path.join(independent, '.1mcprc'), preferences);
+        }
+        const command = (mode: string) => ({ executable: process.execPath, args: [backend, mode, '{checkout}'] });
         const configuration = {
           mcpServers: { ready: { command: process.execPath, args: [fixtureServer, 'serve', readyCheckout] } },
           mcpTemplates: {
             fixture: {
               command: process.execPath,
-              args: [fixtureServer, 'serve', '{{project.path}}'],
-              preparation: {
-                adapter: 'configured-command',
-                affectedTools: 'all',
-                allowedActions: ['initialize'],
-                integration: {
-                  probe: command('probe'),
-                  actions: { initialize: command('initialize') },
-                  containment: 'posix-process-group',
-                  readinessExitCodes: {
-                    0: { state: 'ready' },
-                    10: { state: 'required', action: 'initialize', instructions: 'Initialize fixture' },
-                  },
-                },
-              },
+              args: [backend, 'serve', '{{{project.path}}}'],
+              preparation:
+                kind === 'referenced'
+                  ? {
+                      adapter: 'configured-command',
+                      definition: {
+                        id: 'fixture-source',
+                        file: path.resolve('examples/preparation/recipe.json'),
+                        inputs: { label: literalLabel },
+                      },
+                      activation: 'setup',
+                      allowedActions: ['initialize', 'sync'],
+                    }
+                  : {
+                      adapter: 'configured-command',
+                      affectedTools: 'all',
+                      allowedActions: ['initialize'],
+                      integration: {
+                        probe: command('probe'),
+                        actions: { initialize: command('initialize') },
+                        containment: 'posix-process-group',
+                        readinessExitCodes: {
+                          0: { state: 'ready' },
+                          10: { state: 'required', action: 'initialize', instructions: 'Initialize fixture' },
+                        },
+                      },
+                    },
             },
           },
         };
@@ -206,6 +222,47 @@ describe.skipIf(process.platform !== 'linux' && process.platform !== 'darwin')(
           );
           expect(await readFile(path.join(checkout, 'preparations.log'), 'utf8')).toBe('initialize\n');
           expect(await readFile(path.join(checkout, 'operations.log'), 'utf8')).toBe('source\n');
+          if (kind === 'referenced') {
+            await expect(readFile(path.join(checkout, '.1mcprc'))).rejects.toMatchObject({ code: 'ENOENT' });
+            expect(await readFile(path.join(checkout, 'input.txt'), 'utf8')).toBe(literalLabel);
+            await writeFile(path.join(checkout, 'source.txt'), 'changed source for ' + checkout);
+            const inspection = await cli(checkout, [
+              'preparation',
+              'inspect',
+              'fixture',
+              '--operation',
+              'source',
+              '--format',
+              'json',
+            ]);
+            expect(JSON.stringify(inspection)).toContain('sync');
+            const admission = await cli(checkout, ['run', 'fixture/source', '--args', '{}', '--format', 'json']);
+            const pending = admission.result ?? admission;
+            expect(pending).toMatchObject({
+              operationExecuted: false,
+              operationQueued: false,
+              preparation: { state: 'pending' },
+            });
+            const sync = pending.preparation;
+            let synced = sync.status;
+            for (let attempt = 0; attempt < 20 && synced.state !== 'ready'; attempt++) {
+              synced = await cli(checkout, [
+                'preparation',
+                'wait',
+                'fixture',
+                sync.status.id,
+                '--wait-ms',
+                '500',
+                '--format',
+                'json',
+              ]);
+            }
+            expect(synced.state).toBe('ready');
+            expect(await readFile(path.join(checkout, 'operations.log'), 'utf8')).toBe('source\n');
+            expect(await readFile(path.join(checkout, 'preparations.log'), 'utf8')).toBe('initialize\nsync\n');
+            const updated = await cli(checkout, ['run', 'fixture/source', '--args', '{}', '--format', 'json']);
+            expect(JSON.stringify(updated)).toContain('changed source for ' + checkout);
+          }
         }
         await expect(readFile(path.join(main, 'prepared.marker'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
         expect(runtime.exitCode).toBeNull();

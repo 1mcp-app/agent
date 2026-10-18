@@ -7,6 +7,94 @@ description: 配置副本专属的只读就绪探测，以及运行时拥有的�
 
 运行时为选定的 Project Checkout 管理准备任务。集成提供只读就绪探测和前台准备命令；后端名称、版本、索引文件、Git HEAD、连接状态和命令日志本身都不证明就绪。
 
+## 配置引用式准备配方
+
+如果你希望无需重新构建 1MCP 就能编辑和共享准备行为，请使用本指南。在 `mcp.json` 中保留本机输入和操作权限，通过本地 JSON 配方引用就绪探测与准备命令。内联命令和引用式配方使用同一个 configured-command 运行时，无需 TypeScript 插件加载器。
+
+下面的配置使用**演示 fixture**，并非 CodeGraph、Code Review Graph 或 Serena 集成。请将绝对路径替换为你的仓库和 Node 安装路径。完整配方和辅助程序位于 [examples/preparation](https://github.com/1mcp-app/agent/tree/main/examples/preparation)；这些文件属于源码仓库示例，不包含在 npm 包中。
+
+::: v-pre
+
+```json
+{
+  "mcpServers": {},
+  "mcpTemplates": {
+    "fixture": {
+      "command": "/absolute/path/to/node",
+      "args": ["/absolute/agent/examples/preparation/fixture.mjs", "serve", "{{{project.path}}}"],
+      "cwd": "{{{project.path}}}",
+      "preparation": {
+        "adapter": "configured-command",
+        "definition": {
+          "id": "fixture-source",
+          "file": "/absolute/agent/examples/preparation/recipe.json",
+          "inputs": { "label": "my local environment" }
+        },
+        "activation": "setup",
+        "allowedActions": ["initialize", "sync"]
+      }
+    }
+  }
+}
+```
+
+:::
+
+配方声明可用操作，`allowedActions` 授予执行权限。`activation: "setup"` 显式启用已授权新副本的自动准备，无需在每个 `.1mcprc` 中添加准备偏好。后端和项目级禁用仍优先。复制配方或升级 1MCP 都不会授予新权限或副本访问权。
+
+共享配方及其声明的辅助文件。每个用户在 `mcp.json` 中填写绝对配方路径和本机输入；凭据保留在现有秘密配置中。修改输入不需要重新构建 1MCP。配方参数按字面传递，不经过 shell。声明的辅助文件路径相对配方解析。fixture 使用运行时 PATH 中的 `node`；需要时将配方的 executable 字段改成本机 Node 绝对路径。可执行文件不支持占位符；输入仅替换参数值。
+
+如果原生公共 CLI 已提供可靠的就绪结果，可直接调用。需要转换输出时，通过相同的 executable/args 契约引用小型外部辅助程序。辅助程序可以用 TypeScript 编写并编译为 JavaScript；它作为子进程执行，不是加载到 1MCP 内的插件。配方或辅助程序无法使不可靠的原生新鲜度或所有权检查变得可靠。
+
+## 运行完整 fixture 示例
+
+需要已安装依赖的源码仓库、PATH 中的 Node 和 Git，以及 Linux 或 macOS。在 1MCP 仓库运行：
+
+```bash
+pnpm build
+node examples/preparation/create-demo.mjs
+```
+
+生成器在新的临时目录中创建两个可丢弃的 Git 副本和 `config/mcp.json`。它不会修改你的项目配置、启动运行时或安装依赖。将输出的 `DEMO=...` 赋值复制到两个终端。fixture 的就绪范围**仅为 `source.txt` 的精确字节内容**，并非原生索引集成。
+
+在第一个终端使用空闲端口启动独立演示运行时：
+
+```bash
+node build/index.js serve --config "$DEMO/config/mcp.json" --config-dir "$DEMO/config" --port 3059
+```
+
+在第二个终端检查并初始化第一个副本：
+
+```bash
+node build/index.js preparation inspect fixture --operation source --project "$DEMO/first" --config-dir "$DEMO/config" --url http://localhost:3059/mcp --format json
+node build/index.js prepare fixture --operation source --project "$DEMO/first" --config-dir "$DEMO/config" --url http://localhost:3059/mcp --format json
+```
+
+冷启动 fixture 最初没有公开工具，因此先通过准备控制命令初始化。复制任务响应中的 `status.id`，然后等待并查询：
+
+```bash
+JOB_ID='replace-with-status.id'
+node build/index.js preparation wait fixture "$JOB_ID" --wait-ms 5000 --project "$DEMO/first" --config-dir "$DEMO/config" --url http://localhost:3059/mcp --format json
+node build/index.js inspect fixture/source --project "$DEMO/first" --config-dir "$DEMO/config" --url http://localhost:3059/mcp
+node build/index.js run fixture/source --args '{}' --project "$DEMO/first" --config-dir "$DEMO/config" --url http://localhost:3059/mcp --format json
+```
+
+若任务仍在运行，请再次等待。就绪查询返回 `first checkout source`。将路径替换为 `$DEMO/second` 重复执行：同一个模板和配方准备独立快照并返回 `second checkout source`，两个副本都无需添加 `.1mcprc` 准备配置。
+
+编辑 `$DEMO/first/source.txt` 后再次调用 `fixture/source`。运行时返回准备中的响应，并执行已授权的 `sync` 操作。等待该任务后提交**新的**工具请求；原始请求不会执行或排队重放。操作成功退出本身不证明就绪，必须再次探测并验证更新后的快照。
+
+| 情况                             | 结果                       |
+| -------------------------------- | -------------------------- |
+| 快照匹配 `source.txt`            | 执行工具                   |
+| 缺少快照                         | 需要初始化                 |
+| 源文件字节变化                   | 需要同步                   |
+| fixture 写入者持有 `writer.lock` | 冲突，不启动竞争操作       |
+| 存在 `unknown.marker`            | 探测退出码未映射，就绪未知 |
+| `allowedActions` 中没有所需操作  | 拒绝操作                   |
+| 后端或项目显式禁用准备           | 不自动准备                 |
+
+fixture 的共享目录锁只协调自身的演示写入者。进程终止可能留下 fixture 锁；没有自动锁修复。丢弃临时目录前先停止演示运行时。该示例不证明原生后端的所有权、取消或新鲜度支持。
+
 ## 维护的示例：无需手写配置
 
 先安装后端可执行文件，然后在 `1mcp mcp setup` 中选择示例，或运行：
@@ -53,9 +141,41 @@ description: 配置副本专属的只读就绪探测，以及运行时拥有的�
 
 配置示例在 macOS 26.6.2 arm64、Node.js 26.4.0 上测试，使用 CodeGraph 1.6.2、Code Review Graph 2.3.9 和 Serena 2.0.0（独立工具接口）。Serena 还需要相应语言工具链；已测 TypeScript 组合使用 TypeScript 5.9.3 和 typescript-language-server 5.1.3。其他版本、平台、语言及大型仓库不在此测试范围内。
 
-配置成功不证明索引新鲜度，也不启用自动准备。选项见 [setup 命令参考](/zh/commands/mcp/setup)，复现步骤和证据见[贡献者验证说明](https://github.com/1mcp-app/agent/blob/main/docs/backend-preparation-acceptance.md)。
+配置成功不证明索引新鲜度，也不启用自动准备。选项见 [setup 命令参考](/zh/commands/mcp/setup)，复现步骤和证据见[贡献者验证说明](https://github.com/1mcp-app/agent/blob/main/docs/development/backend-preparation-acceptance.md)。
 
-## 运行时配置（高级）
+## 配方定义契约（高级）
+
+运行时操作者可通过定义标识和**绝对本地 JSON 文件路径**选择可复用定义。加载不依赖调用方工作目录；项目偏好和工具参数不能选择可执行定义或增加权限。
+
+```json
+{
+  "preparation": {
+    "adapter": "configured-command",
+    "definition": {
+      "id": "local-source-search",
+      "file": "/opt/1mcp/integrations/source-search.json",
+      "inputs": { "database": "/opt/source-search/database" }
+    },
+    "allowedActions": ["initialize", "sync"]
+  }
+}
+```
+
+定义包含 `schemaVersion: 1`、唯一 `id`、`revision`、`helperRevision`、`compatibility`（后端、版本、平台、就绪范围）、输入声明、`affectedTools` 以及前述配置命令格式的 `integration`。参数中的 `{input:database}` 按字面替换已声明的操作者输入。兼容性声明本身不证明后端身份或就绪；仍需原生探测。
+
+定义标识必须与选择一致。未知 schema 版本、重复内置标识、本地文件冒充内置定义、缺失或未知输入，以及命名定义与内联配置冲突都会报错。不能同时配置 `definition` 和内联 `integration`。命名定义拥有受影响工具列表，显式配置的列表必须完全一致。
+
+运行时 `allowedActions` 与定义默认值分离；更新定义不会授权新动作。有效定义内容和命令修订参与准备任务身份计算，不能复用不兼容的旧任务或就绪证据；运行中的任务保留已解析的配置快照。就绪检查与工具最终分发屏障都会拒绝已改变的有效定义。
+
+维护自定义辅助脚本时，操作者必须在行为改变后更新 `helperRevision`。可选 `helperFiles` 最多列出八个本地文件，总大小不超过 1 MiB，文件内容哈希参与身份计算。相对声明基于定义文件目录解析。声明的脚本引用和规范脚本路径不能包含保留标记 `{checkout}`、`{operation}` 或 `{input:name}`。作为完整可执行路径或 argv 参数引用的已声明脚本会绑定到规范绝对路径，包括 `helper.cjs` 与 `./helper.cjs` 写法；之后改变符号链接不会重定向已保留的命令。复合参数或解释器源码字符串中的嵌入引用不受支持，会被拒绝；运行时不解析任意解释器代码。静态声明的脚本引用先进行规范路径绑定或拒绝，之后才替换操作者输入；输入值即使等于或包含脚本文件名，也始终按字面保留。
+
+每个保留的适配器拥有自己的预期脚本哈希，在启动命令前和接受探测、进度或动作完成结果前验证。已声明脚本改变或缺失时，探测报告 unknown，动作产生稳定且不可自动重试的 `helper_revision_changed` 失败；不能以旧身份触发 ready 能力刷新。应重新解析更新后的定义并显式重试。这些检查不会冻结外部文件，也不提供原子化的可执行内容快照；已准入任务运行期间仍应保持外部可执行文件与脚本不变。
+
+运行时可显式为命名定义设置 `activation: "setup"`，让新授权副本无需逐项目设置准备偏好。后端 `enabled: false` 和项目显式禁用优先。升级不会自动添加 activation，现有内联配置仍要求项目选择启用。
+
+内置准备定义注册表为空，与上述三个配置示例相互独立。自动准备需要通过公共接口实现并单独验收。本地定义仍是由操作者管理的高级接口；配置示例不表示原生准备缺口已解决。
+
+## 内联命令（高级）
 
 在现有服务器定义中添加以下元数据，并将示例路径替换为已安装的集成脚本：
 
@@ -95,38 +215,6 @@ description: 配置副本专属的只读就绪探测，以及运行时拥有的�
 可选 `status` 使用相同的命令结构，退出零时输出 JSON，支持可选字段 `message`、`completed`、`total`、`unit`。显式检查验证这些进度字段；缺少进度时报告不可用，不从日志推算百分比。probe/status 必须只读且有界。`inspectionTimeoutMs` 默认 5000，`outputLimitBytes` 默认 16384。
 
 准备命令及后代必须保持在运行时拥有的进程组内。当前实现支持 Linux 和 macOS；其他平台在动作启动前拒绝准备。containment 声明由操作人员确认集成脚本满足约束，脱离进程组或后台分离的写入者不属于此契约。原生写入者协调由集成负责；运行时不终止外部进程，也不破坏外部锁。
-
-## 可复用本地定义（高级）
-
-运行时操作者可通过定义标识和**绝对本地 JSON 文件路径**选择可复用定义。加载不依赖调用方工作目录；项目偏好和工具参数不能选择可执行定义或增加权限。
-
-```json
-{
-  "preparation": {
-    "adapter": "configured-command",
-    "definition": {
-      "id": "local-source-search",
-      "file": "/opt/1mcp/integrations/source-search.json",
-      "inputs": { "database": "/opt/source-search/database" }
-    },
-    "allowedActions": ["initialize", "sync"]
-  }
-}
-```
-
-定义包含 `schemaVersion: 1`、唯一 `id`、`revision`、`helperRevision`、`compatibility`（后端、版本、平台、就绪范围）、输入声明、`affectedTools` 以及前述配置命令格式的 `integration`。参数中的 `{input:database}` 按字面替换已声明的操作者输入。兼容性声明本身不证明后端身份或就绪；仍需原生探测。
-
-定义标识必须与选择一致。未知 schema 版本、重复内置标识、本地文件冒充内置定义、缺失或未知输入，以及命名定义与内联配置冲突都会报错。不能同时配置 `definition` 和内联 `integration`。命名定义拥有受影响工具列表，显式配置的列表必须完全一致。
-
-运行时 `allowedActions` 与定义默认值分离；更新定义不会授权新动作。有效定义内容和命令修订参与准备任务身份计算，不能复用不兼容的旧任务或就绪证据；运行中的任务保留已解析的配置快照。就绪检查与工具最终分发屏障都会拒绝已改变的有效定义。
-
-维护自定义辅助脚本时，操作者必须在行为改变后更新 `helperRevision`。可选 `helperFiles` 最多列出八个本地文件，总大小不超过 1 MiB，文件内容哈希参与身份计算。相对声明基于定义文件目录解析。声明的脚本引用和规范脚本路径不能包含保留标记 `{checkout}`、`{operation}` 或 `{input:name}`。作为完整可执行路径或 argv 参数引用的已声明脚本会绑定到规范绝对路径，包括 `helper.cjs` 与 `./helper.cjs` 写法；之后改变符号链接不会重定向已保留的命令。复合参数或解释器源码字符串中的嵌入引用不受支持，会被拒绝；运行时不解析任意解释器代码。静态声明的脚本引用先进行规范路径绑定或拒绝，之后才替换操作者输入；输入值即使等于或包含脚本文件名，也始终按字面保留。
-
-每个保留的适配器拥有自己的预期脚本哈希，在启动命令前和接受探测、进度或动作完成结果前验证。已声明脚本改变或缺失时，探测报告 unknown，动作产生稳定且不可自动重试的 `helper_revision_changed` 失败；不能以旧身份触发 ready 能力刷新。应重新解析更新后的定义并显式重试。这些检查不会冻结外部文件，也不提供原子化的可执行内容快照；已准入任务运行期间仍应保持外部可执行文件与脚本不变。
-
-运行时可显式为命名定义设置 `activation: "setup"`，让新授权副本无需逐项目设置准备偏好。后端 `enabled: false` 和项目显式禁用优先。升级不会自动添加 activation，现有内联配置仍要求项目选择启用。
-
-内置准备定义注册表为空，与上述三个配置示例相互独立。自动准备需要通过公共接口实现并单独验收。本地定义仍是由操作者管理的高级接口；配置示例不表示原生准备缺口已解决。
 
 ## 项目选择启用
 

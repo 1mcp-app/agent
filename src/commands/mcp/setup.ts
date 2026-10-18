@@ -34,7 +34,7 @@ export function buildSetupCommand(yargs: Argv) {
       type: 'string',
     })
     .option('force', {
-      describe: 'Explicitly reconfigure an existing target',
+      describe: 'Explicitly reconfigure an existing target while preserving custom preparation recipes',
       type: 'boolean',
       default: false,
     })

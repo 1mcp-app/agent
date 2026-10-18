@@ -7,6 +7,8 @@ description: Configure installed CodeGraph, Code Review Graph, or Serena backend
 
 Configure an already installed backend without writing JSON. This command supports CodeGraph, Code Review Graph, and Serena. Use [mcp install](/commands/mcp/install) to browse and install registry servers.
 
+Setup is a convenience for generating server configuration. To customize or share automatic preparation, configure `preparation.definition` in `mcp.json` using a [referenced recipe](/guide/backend-preparation). Setup preserves existing custom recipes, inputs, activation choices, disables, and permissions, including with `--force`. The three maintained examples do not supply verified native preparation recipes.
+
 ## Synopsis
 
 Choose a maintained example interactively:

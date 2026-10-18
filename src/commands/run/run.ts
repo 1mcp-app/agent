@@ -48,6 +48,27 @@ import {
 } from '@src/sdk/contracts/index.js';
 import type { ContextData } from '@src/types/context.js';
 
+import { z } from 'zod';
+
+const deferredPreparationSchema = z.object({
+  preparation: z.object({ state: z.string() }).loose(),
+  operationExecuted: z.literal(false),
+  operationQueued: z.literal(false),
+});
+
+// REST preparation controls return a bare payload, unlike ordinary MCP tool results.
+function normalizeRestToolResult(result: CallToolResult): CallToolResult {
+  if (Array.isArray(result.content)) return result;
+  const pending = deferredPreparationSchema.safeParse(result);
+  if (!pending.success) return result;
+  const payload = {
+    preparation: toJsonValue(pending.data.preparation),
+    operationExecuted: false,
+    operationQueued: false,
+  };
+  return { content: [{ type: 'text', text: JSON.stringify(payload) }], structuredContent: payload };
+}
+
 function schemaPreflightError(code: string) {
   return gatewayFailureToMcp(
     createGatewayFailure({
@@ -255,7 +276,7 @@ async function tryRunRest(
 
   const rawResponse: JsonRpcResponse<CallToolResult> =
     apiResponse.ok && apiResponse.data
-      ? { jsonrpc: '2.0', id: 0, result: apiResponse.data.result }
+      ? { jsonrpc: '2.0', id: 0, result: normalizeRestToolResult(apiResponse.data.result) }
       : {
           jsonrpc: '2.0',
           id: 0,

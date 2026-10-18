@@ -154,7 +154,7 @@ export async function setupKnownServer(
     exampleId: example.id,
     metadata: { localName: targetName },
     warnings: [
-      'Automatic preparation is unsupported; setup does not establish native readiness.',
+      'Maintained setup examples do not enable automatic preparation. Existing custom preparation recipes are preserved; setup does not verify their native readiness.',
       'Executable identity does not establish backend version compatibility or operation-specific readiness.',
       ...example.nativeNextSteps,
     ],
