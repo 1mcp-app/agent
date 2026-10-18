@@ -288,6 +288,9 @@ async function main(command, options = {}) {
         }
       }
       if (npmDecision === 'publish-missing') {
+        const priorNpmTags = await readTags();
+        // Publishing moves the public channel immediately, even if a later registry fails.
+        mark('aliases', 'npm', { status: 'attempting', tag: identity.channel, version: identity.version });
         mark('publications', 'npm', { status: 'attempting' });
         const output = execute('npm', [
           'publish',
@@ -296,7 +299,7 @@ async function main(command, options = {}) {
           'public',
           '--provenance',
           '--tag',
-          `candidate-${identity.version.replace(/[^A-Za-z0-9-]/g, '-')}`,
+          identity.channel,
         ]);
         // Record command completion without copying npm inventories or credential-bearing diagnostics.
         mark('publications', 'npm', {
@@ -306,6 +309,8 @@ async function main(command, options = {}) {
         });
         await waitForPublishedNpm(readNpm, identity, npm.files[0], options.waitForNpmReadback);
         mark('publications', 'npm', { status: 'verified', integrity: npm.files[0].integrity });
+        await waitForNpmAlias(readTags, identity, priorNpmTags[identity.channel], options.waitForNpmReadback);
+        mark('aliases', 'npm', { status: 'verified', tag: identity.channel, version: identity.version });
       }
       for (const item of oci) {
         if (item.decision === 'publish-missing') {

@@ -73,7 +73,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "$RELEASE_REF" != "main" && ! "$RELEASE_REF" =~ ^release-v?[0-9]+\.[0-9]+$ ]]; then
+          if [[ "$RELEASE_REF" != "main" && ! "$RELEASE_REF" =~ ^release-[0-9]+\.[0-9]+$ ]]; then
             echo "::error::Invalid release ref: $RELEASE_REF"
             exit 1
           fi
@@ -96,13 +96,21 @@ jobs:
           ref: ${{ inputs.release_sha || format('refs/heads/{0}', inputs.release_ref || 'main') }}
           persist-credentials: false
 
+      - name: Check out trusted artifact policy
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: .release-policy
+          sparse-checkout: scripts
+          persist-credentials: false
+
       - name: Check candidate source and version
         if: inputs.release_sha != ''
         shell: bash
         env:
           RELEASE_SHA: ${{ inputs.release_sha }}
           VERSION: ${{ inputs.version }}
-        run: node scripts/release-artifacts.cjs candidate
+        run: node .release-policy/scripts/release-artifacts.cjs candidate
 
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node-pnpm
@@ -169,7 +177,7 @@ jobs:
           RELEASE_SHA: ${{ inputs.release_sha }}
           VERSION: ${{ inputs.version }}
           ARTIFACT_KIND: sea-${{ matrix.platform }}
-        run: node scripts/release-artifacts.cjs record .
+        run: node .release-policy/scripts/release-artifacts.cjs record .
 
       - name: Upload compressed archive artifact
         uses: actions/upload-artifact@v7

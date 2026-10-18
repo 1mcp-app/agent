@@ -144,10 +144,10 @@ describe('maintenance branch publication', () => {
     const publish = (sha: string) =>
       execFileSync('bash', ['-c', step.run], {
         cwd,
-        env: { ...process.env, RELEASE_SHA: sha, EXPECTED_RELEASE_BRANCH: 'release-v1.2' },
+        env: { ...process.env, RELEASE_SHA: sha, EXPECTED_RELEASE_BRANCH: 'release-1.2' },
         stdio: 'pipe',
       });
-    const branchHead = () => git('--git-dir=remote.git', 'rev-parse', 'refs/heads/release-v1.2');
+    const branchHead = () => git('--git-dir=remote.git', 'rev-parse', 'refs/heads/release-1.2');
     try {
       git('init');
       git('config', 'user.email', 'test@example.com');

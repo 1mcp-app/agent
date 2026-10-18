@@ -21,7 +21,9 @@ describe('validateReleaseInputs', () => {
     ['1.2.3-beta1', 'next', 'beta1'],
     ['1.2.3-beta.1', 'next', 'beta'],
     ['1.2.3-rc1', 'next', 'rc1'],
-    ['1.2.3-canary.1', 'canary', 'canary'],
+    ['1.2.3-canary.1', 'next', 'canary'],
+    ['1.2.3-preview.1', 'next', 'preview'],
+    ['1.2.3-candidate.1', 'next', 'candidate'],
   ])('maps semver prerelease version %s to npm tag %s', (version, npmTag, dockerRawTag) => {
     const result = validateReleaseInputs({
       targetRef: 'main',
@@ -32,7 +34,7 @@ describe('validateReleaseInputs', () => {
     expect(result).toMatchObject({
       version,
       versionTag: `v${version}`,
-      expectedReleaseBranch: 'release-v1.2',
+      expectedReleaseBranch: 'release-1.2',
       isPrerelease: true,
       npmTag,
       dockerRawTag,
@@ -54,19 +56,19 @@ describe('validateReleaseInputs', () => {
         version: `0.0.0-0.${'--.'.repeat(250)}x`,
         tagExists: () => false,
       }),
-    ).toThrow('prerelease channel must start with a letter so it can be used as an npm dist-tag.');
+    ).toThrow('prerelease channel must start with a letter so it can be used as a Docker tag.');
 
     expect(Date.now() - startedAt).toBeLessThan(100);
   });
 });
 
 describe('maintenance branch naming', () => {
-  it.each(['main', 'release-v1.2', 'release-1.2'])('accepts %s and targets release-v1.2', (targetRef) => {
+  it.each(['main', 'release-1.2'])('accepts %s and targets release-1.2', (targetRef) => {
     expect(validateReleaseInputs({ targetRef, version: '1.2.3', tagExists: () => false }).expectedReleaseBranch).toBe(
-      'release-v1.2',
+      'release-1.2',
     );
   });
-  it.each(['release-v1.3', 'release-1.3', 'release-v1.2.3'])('rejects mismatched source %s', (targetRef) => {
+  it.each(['release-1.3', 'release-v1.2', 'release-1.2.3'])('rejects mismatched source %s', (targetRef) => {
     expect(() => validateReleaseInputs({ targetRef, version: '1.2.3', tagExists: () => false })).toThrow();
   });
 });

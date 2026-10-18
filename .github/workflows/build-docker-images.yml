@@ -81,7 +81,7 @@ jobs:
           IS_PRERELEASE: ${{ inputs.is_prerelease }}
         run: |
           set -euo pipefail
-          if [[ "$RELEASE_REF" != "main" && ! "$RELEASE_REF" =~ ^release-v?[0-9]+\.[0-9]+$ ]]; then
+          if [[ "$RELEASE_REF" != "main" && ! "$RELEASE_REF" =~ ^release-[0-9]+\.[0-9]+$ ]]; then
             echo "::error::Invalid release ref: $RELEASE_REF"
             exit 1
           fi
@@ -145,11 +145,19 @@ jobs:
             org.opencontainers.image.revision=${{ inputs.release_sha }}
             org.opencontainers.image.version=${{ inputs.version }}
 
+      - name: Check out trusted artifact policy
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: .release-policy
+          sparse-checkout: scripts
+          persist-credentials: false
+
       - name: Check candidate source and version
         env:
           RELEASE_SHA: ${{ inputs.release_sha }}
           VERSION: ${{ inputs.version }}
-        run: node scripts/release-artifacts.cjs candidate
+        run: node .release-policy/scripts/release-artifacts.cjs candidate
 
       - name: Read Node.js version
         id: node-version
@@ -191,7 +199,7 @@ jobs:
           VERSION: ${{ inputs.version }}
           BUILD_DIGEST: ${{ steps.build.outputs.digest }}
           ARTIFACT_KIND: oci-${{ matrix.target }}-${{ matrix.platform_name }}
-        run: node scripts/release-artifacts.cjs record-digest docker-metadata
+        run: node .release-policy/scripts/release-artifacts.cjs record-digest docker-metadata
 
       - name: Upload Docker metadata
         uses: actions/upload-artifact@v7

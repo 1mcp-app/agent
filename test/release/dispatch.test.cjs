@@ -140,7 +140,7 @@ test('recovery CLI derives all workflow outputs from the selected original run',
   assert.equal(outputs.version, '1.2.3-beta.1');
   assert.equal(outputs.version_tag, 'v1.2.3-beta.1');
   assert.equal(outputs.release_ref, 'release-1.2');
-  assert.equal(outputs.expected_release_branch, 'release-v1.2');
+  assert.equal(outputs.expected_release_branch, 'release-1.2');
   assert.equal(outputs.npm_tag, 'next');
   assert.equal(outputs.docker_raw_tag, 'beta');
   assert.equal(outputs.is_prerelease, 'true');

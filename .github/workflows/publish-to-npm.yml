@@ -20,7 +20,7 @@ on:
         required: true
         type: string
       npm_tag:
-        description: npm dist-tag to publish.
+        description: npm dist-tag to publish (latest or next).
         required: true
         type: string
       is_prerelease:
@@ -59,6 +59,13 @@ jobs:
           ref: ${{ inputs.release_sha }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Check out trusted publication policy
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: .release-policy
+          sparse-checkout: scripts
+          persist-credentials: false
       - uses: ./.github/actions/setup-node-pnpm
         with:
           install-deps: 'false'
@@ -71,7 +78,7 @@ jobs:
           VERSION: ${{ inputs.version }}
           NPM_TAG: ${{ inputs.npm_tag }}
         run: |
-          node scripts/release-artifacts.cjs candidate
+          node .release-policy/scripts/release-artifacts.cjs candidate
       - name: Download tested npm archive
         uses: actions/download-artifact@v8
         with:
@@ -104,7 +111,7 @@ jobs:
         env:
           VERSION_TAG: ${{ inputs.version_tag }}
           RELEASE_SHA: ${{ inputs.release_sha }}
-        run: node scripts/resolve-release-notes-range.cjs "$VERSION_TAG" "$RELEASE_SHA"
+        run: node .release-policy/scripts/resolve-release-notes-range.cjs "$VERSION_TAG" "$RELEASE_SHA"
 
       - name: Generate release changelog
         uses: orhun/git-cliff-action@v4
@@ -125,7 +132,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          node scripts/finalize-release-notes.cjs "$GIT_CLIFF_OUTPUT" release-notes.md "$VERSION_TAG" "$PREVIOUS_TAG" "$NPM_TAG"
+          node .release-policy/scripts/finalize-release-notes.cjs "$GIT_CLIFF_OUTPUT" release-notes.md "$VERSION_TAG" "$PREVIOUS_TAG" "$NPM_TAG"
           echo "path=release-notes.md" >> "$GITHUB_OUTPUT"
 
       - name: Publish missing versioned identities and read back all required publications
@@ -138,7 +145,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         # npm provenance must match GitHub's signed dispatch context. The retained
         # archive's gitHead and checksums independently bind it to RELEASE_SHA.
-        run: node scripts/release-publications.cjs versions
+        run: node .release-policy/scripts/release-publications.cjs versions
       - name: Retain publication outcomes even on partial failure
         if: always()
         uses: actions/upload-artifact@v7
@@ -161,6 +168,13 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.release_sha }}
+          persist-credentials: false
+      - name: Check out trusted publication policy
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: .release-policy
+          sparse-checkout: scripts
           persist-credentials: false
       - uses: ./.github/actions/setup-node-pnpm
         with:
@@ -202,7 +216,7 @@ jobs:
           NPM_TAG: ${{ inputs.npm_tag }}
           RECOVERY: ${{ inputs.recovery }}
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/release-publications.cjs promote
+        run: node .release-policy/scripts/release-publications.cjs promote
       - name: Retain alias outcomes even on partial failure
         if: always()
         uses: actions/upload-artifact@v7

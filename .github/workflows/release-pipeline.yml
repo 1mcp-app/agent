@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       target_ref:
-        description: 'New release source: main or release-v<major>.<minor> (legacy release-<major>.<minor> accepted). Recovery derives its source.'
+        description: 'New release source: main or release-<major>.<minor>. Recovery derives its source.'
         required: false
         default: main
         type: string
@@ -125,6 +125,13 @@ jobs:
         with:
           ref: ${{ needs.candidate.outputs.release_sha }}
           persist-credentials: false
+      - name: Check out trusted artifact policy
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: .release-policy
+          sparse-checkout: scripts
+          persist-credentials: false
       - uses: ./.github/actions/setup-node-pnpm
         with:
           cache-deps: 'false'
@@ -135,7 +142,7 @@ jobs:
           ARTIFACT_KIND: npm
         run: |
           set -euo pipefail
-          node scripts/release-artifacts.cjs candidate
+          node .release-policy/scripts/release-artifacts.cjs candidate
           pnpm build
           npm pkg set "gitHead=$RELEASE_SHA"
           mkdir -p npm-artifact
@@ -143,7 +150,7 @@ jobs:
           npm install --prefix "$RUNNER_TEMP/npm-smoke" ./npm-artifact/*.tgz --ignore-scripts --omit=dev --no-audit --no-fund
           observed=$("$RUNNER_TEMP/npm-smoke/node_modules/.bin/1mcp" --version)
           test "$observed" = "$VERSION"
-          node scripts/release-artifacts.cjs record npm-artifact
+          node .release-policy/scripts/release-artifacts.cjs record npm-artifact
       - uses: actions/upload-artifact@v7
         with:
           name: npm-candidate
@@ -201,7 +208,7 @@ jobs:
       packages: write
       actions: read
 
-  # Create or advance the release-vX.Y branch only after publication succeeds.
+  # Create or advance the release-X.Y branch only after publication succeeds.
   finalize:
     needs: [validate, candidate, release]
     if: ${{ !cancelled() && needs.release.result == 'success' }}
