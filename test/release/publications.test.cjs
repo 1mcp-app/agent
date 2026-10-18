@@ -66,6 +66,7 @@ function fixture(t, identity = stable, existing = false) {
       }
     : null;
   const writes = [];
+  const npmCommands = [];
   let npmAlias = '0.9.0';
   const options = {
     identity,
@@ -81,7 +82,11 @@ function fixture(t, identity = stable, existing = false) {
     ghApi: (endpoint) =>
       endpoint.includes('/git/ref/') ? (release ? { object: { type: 'commit', sha } } : null) : release,
     run: (command, args) => {
-      if (args[0] === 'publish') {
+      if (command === 'npm') npmCommands.push(args);
+      if (command === 'npm' && args[0] === 'publish') {
+        const tag = args[args.indexOf('--tag') + 1];
+        assert.equal(tag, identity.channel);
+        npmAlias = identity.version;
         writes.push('npm');
         npm = { name: '@1mcp/agent', version: identity.version, gitHead: sha, dist: { integrity } };
       } else if (command === 'npm' && args[0] === 'dist-tag') {
@@ -120,6 +125,7 @@ function fixture(t, identity = stable, existing = false) {
   return {
     options,
     writes,
+    npmCommands,
     directory,
     records,
     get release() {
@@ -131,6 +137,63 @@ function fixture(t, identity = stable, existing = false) {
     index,
   };
 }
+
+test('fresh stable and prerelease publications use only latest and next without staging tags', async (t) => {
+  for (const identity of [stable, beta, { ...beta, version: '1.2.3-canary.1', versionTag: 'v1.2.3-canary.1' }]) {
+    const f = fixture(t, identity);
+    await main('versions', f.options);
+    await main('promote', f.options);
+    assert.equal(f.npmCommands.length, 1);
+    const args = f.npmCommands[0];
+    assert.equal(args[0], 'publish');
+    assert.equal(args[args.indexOf('--tag') + 1], identity.channel);
+    assert.ok(args.includes('--provenance'));
+    assert.deepEqual(JSON.parse(fs.readFileSync(f.options.statePath)).aliases.npm, {
+      status: 'verified',
+      tag: identity.channel,
+      version: identity.version,
+    });
+  }
+});
+
+test('direct publication waits for channel propagation without another npm write', async (t) => {
+  const f = fixture(t);
+  const readTags = f.options.npmTagsReadback;
+  let reads = 0;
+  let waits = 0;
+  f.options.npmTagsReadback = async () => (++reads <= 3 ? { latest: '0.9.0' } : readTags());
+  f.options.waitForNpmReadback = async () => {
+    waits++;
+  };
+  await main('versions', f.options);
+  assert.equal(waits, 2);
+  assert.equal(f.npmCommands.length, 1);
+  assert.equal(JSON.parse(fs.readFileSync(f.options.statePath)).aliases.npm.status, 'verified');
+});
+
+test('direct publication channel conflicts and read errors stop before other registries', async (t) => {
+  for (const observed of [{ latest: '9.9.9' }, new Error('Registry unavailable')]) {
+    const f = fixture(t);
+    let reads = 0;
+    f.options.npmTagsReadback = async () => {
+      if (++reads === 1) return { latest: '0.9.0' };
+      if (observed instanceof Error) throw observed;
+      return observed;
+    };
+    await assert.rejects(main('versions', f.options));
+    assert.deepEqual(f.writes, ['npm']);
+    assert.equal(JSON.parse(fs.readFileSync(f.options.statePath)).aliases.npm.status, 'attempting');
+  }
+});
+
+test('invalid staging or custom npm channels are rejected by artifact identity validation', () => {
+  for (const npmTag of ['candidate-1-2-3', 'canary', 'beta']) {
+    assert.throws(
+      () => candidate({ ...beta, actualSha: sha, actualVersion: beta.version, npmTag }),
+      /channel mismatch/,
+    );
+  }
+});
 
 test('case 1: failure before publication rejects stale source/channel/gates and has zero writes', async (t) => {
   for (const overrides of [{ actualSha: 'b'.repeat(40) }, { actualVersion: '9.9.9' }, { npmTag: 'next' }])
@@ -153,6 +216,7 @@ test('successful npm command with absent readback records uncertainty and stops 
   const state = JSON.parse(fs.readFileSync(f.options.statePath));
   assert.equal(state.publications.npm.commandCompleted, true);
   assert.equal(state.publications.npm.status, 'attempting');
+  assert.equal(state.aliases.npm.status, 'attempting');
   assert.deepEqual(f.writes, ['npm']);
 });
 
@@ -239,7 +303,7 @@ test('case 2: partial publication stops, explicit owner resume reuses npm and re
   let state = JSON.parse(fs.readFileSync(f.options.statePath));
   assert.equal(state.publications.npm.status, 'verified');
   assert.equal(state.publications['oci-basic'].status, 'attempting');
-  assert.deepEqual(state.aliases, {});
+  assert.deepEqual(state.aliases.npm, { status: 'verified', tag: 'latest', version: stable.version });
   // Ordinary rerun stops even on matching existing content.
   await assert.rejects(main('versions', f.options), /explicit owner recovery/);
   fail = false;
@@ -248,7 +312,7 @@ test('case 2: partial publication stops, explicit owner resume reuses npm and re
   assert.equal(f.writes.filter((write) => write === 'npm').length, 1);
   state = JSON.parse(fs.readFileSync(f.options.statePath));
   assert.equal(state.publications.github.status, 'verified');
-  assert.deepEqual(state.aliases, {});
+  assert.deepEqual(state.aliases.npm, { status: 'verified', tag: 'latest', version: stable.version });
 });
 
 test('case 3: alias partial movement is truthful, explicit resumption does not republish versions', async (t) => {
@@ -354,6 +418,21 @@ test('case 4: conflicting existing npm/OCI/GitHub identities and ambiguous readb
     assert.deepEqual(f.writes, []);
   }
   assert.throws(() => publicationDecision({}, false));
+});
+
+test('historical custom-channel recovery stops without rewriting the recorded identity', () => {
+  const identity = { ...beta, version: '1.2.3-canary.1', versionTag: 'v1.2.3-canary.1', channel: 'canary' };
+  const { run, summary } = recoveryFixture(identity);
+  assert.throws(() => verifyRecoveryRun(run, summary, '1mcp-app/agent', '123'), /maintainer reconciliation/);
+  assert.equal(summary.channel, 'canary');
+});
+
+test('recovery rejects v-prefixed maintenance sources and dispatch branches', () => {
+  for (const field of ['source', 'dispatch']) {
+    const { run, summary } = recoveryFixture(stable, field === 'source' ? 'release-v1.2' : 'release-1.2');
+    if (field === 'dispatch') run.head_branch = 'release-v1.2';
+    assert.throws(() => verifyRecoveryRun(run, summary, '1mcp-app/agent', '123'));
+  }
 });
 
 test('beta promotes next and beta only, never stable aliases or GitHub latest', async (t) => {
@@ -593,7 +672,7 @@ test('custom prerelease channels cannot collide with stable aliases', () => {
 
 test('safe hyphenated prerelease channels keep their full OCI alias', () => {
   for (const channel of ['latest-preview', 'preview-internal'])
-    assert.deepEqual(aliasNames({ ...stable, version: `1.2.3-${channel}.1`, channel }, 'extended'), [channel]);
+    assert.deepEqual(aliasNames({ ...stable, version: `1.2.3-${channel}.1`, channel: 'next' }, 'extended'), [channel]);
 });
 
 test('trusted resolver only parses candidate data and requires approved branch ancestry before output', () => {

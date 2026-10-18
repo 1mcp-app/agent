@@ -34,7 +34,10 @@ function verifyRecoveryRun(run, summary, repository, runId) {
   });
   if (!['main', policy.expectedReleaseBranch].includes(run.head_branch))
     throw new Error('Recovery run was dispatched from an unapproved branch');
-  if (summary.channel !== policy.npmTag) throw new Error('Recovery candidate channel mismatch');
+  if (summary.channel !== policy.npmTag)
+    throw new Error(
+      'Recovery candidate channel mismatch; historical channels outside latest/next require maintainer reconciliation without rewriting retained artifacts',
+    );
   const identity = candidate({
     sha: summary.sha,
     actualSha: summary.sha,
