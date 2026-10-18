@@ -270,7 +270,3 @@ Contributions are welcome! Please read our [CONTRIBUTING.md](https://github.com/
 - [Configuration Deep Dive](/guide/essentials/configuration) - Detailed setup options
 - [Architecture Reference](/reference/architecture) - System design and patterns
 - [Contributing Guide](https://github.com/1mcp-app/agent/blob/main/CONTRIBUTING.md) - How to contribute
-
-## Backend integration verification
-
-For setup reproduction, native diagnostics, and preparation acceptance gates, see [backend integration verification](https://github.com/1mcp-app/agent/blob/main/docs/backend-preparation-acceptance.md).

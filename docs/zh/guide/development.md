@@ -267,7 +267,3 @@ echo '{"jsonrpc":"2.0","method":"initialize","params":{}}' | node build/index.js
 - [配置深入指南](/zh/guide/essentials/configuration) - 详细设置选项
 - [架构参考](/zh/reference/architecture) - 系统设计和模式
 - [贡献指南](https://github.com/1mcp-app/agent/blob/main/CONTRIBUTING.md) - 如何贡献
-
-## 后端集成验证
-
-配置复现、原生诊断及准备验收门槛见[后端集成验证](https://github.com/1mcp-app/agent/blob/main/docs/backend-preparation-acceptance.md)。
