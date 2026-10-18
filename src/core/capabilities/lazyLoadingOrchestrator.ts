@@ -10,6 +10,7 @@ import type { Tool } from '@src/sdk/contracts/index.js';
 import { AsyncLoadingOrchestrator } from './asyncLoadingOrchestrator.js';
 import { AsyncLoadingOrchestratorEvent } from './asyncLoadingOrchestratorEvent.js';
 import { AggregatedCapabilities, CapabilityAggregator } from './capabilityAggregator.js';
+import type { ToolDispatchDecision } from './capabilityCatalog.js';
 import { type CapabilityVisibility, getCapabilityVisibleServerNames } from './capabilityVisibility.js';
 import { MetaToolProvider } from './metaToolProvider.js';
 import type { RuntimeCapabilitySnapshot } from './runtimeCapabilityCatalog.js';
@@ -519,12 +520,13 @@ export class LazyLoadingOrchestrator extends EventEmitter {
     visibility?: CapabilityVisibility,
     signal?: AbortSignal,
     toolRegistry?: ToolRegistry,
+    beforeDispatch?: () => Promise<ToolDispatchDecision>,
   ): Promise<unknown> {
     if (!this.metaToolProvider) {
       throw new Error('Meta-tool provider not initialized');
     }
 
-    return this.metaToolProvider.callMetaTool(name, args, visibility, signal, toolRegistry);
+    return this.metaToolProvider.callMetaTool(name, args, visibility, signal, toolRegistry, beforeDispatch);
   }
 
   /**

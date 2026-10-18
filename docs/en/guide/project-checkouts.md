@@ -101,7 +101,7 @@ Include an absolute checkout path, or an absolute project-set definition path an
 
 Workers assigned several members can repeat `--project` labels, then use one label per single-project call or the selected labels for a supported native combined call. For Claude, use `--client claude`.
 
-[`cli-setup`](../commands/cli-setup.md) configures managed `SessionStart` and `SubagentStart` handlers for the selected client and scope. `SessionStart` can fetch ordinary runtime instructions. Each worker receives the inspect-before-run playbook independently. The supported client hook payloads carry identity and cwd, but no project assignment field; the worker therefore obtains its assignment through dispatch instructions and an explicit bootstrap invocation.
+[`cli-setup`](/commands/cli-setup) configures managed `SessionStart` and `SubagentStart` handlers for the selected client and scope. `SessionStart` can fetch ordinary runtime instructions. Each worker receives the inspect-before-run playbook independently. The supported client hook payloads carry identity and cwd, but no project assignment field; the worker therefore obtains its assignment through dispatch instructions and an explicit bootstrap invocation.
 
 An unassigned `SubagentStart` hook reports unresolved selection and supplies the general playbook. It does not choose the parent's checkout from cwd or session identity. Global and repository hook sources may both deliver instructions; repeat delivery does not suppress another worker's assigned target.
 
@@ -113,4 +113,4 @@ Generated hook files alone do not prove that hooks are enabled, trusted, or exec
 
 Check checkout-specific backend evidence before relying on results. A connected backend, successful bootstrap, or index for another checkout does not prove index coverage for the selected source. This guide describes selection and bootstrap; backend preparation requires its own supported policy and readiness checks.
 
-See also [CLI mode](./integrations/cli-mode.md), [configuration](./essentials/configuration.md), and [CLI setup](../commands/cli-setup.md).
+See also [CLI mode](/guide/integrations/cli-mode), [configuration](/guide/essentials/configuration), and [CLI setup](/commands/cli-setup).

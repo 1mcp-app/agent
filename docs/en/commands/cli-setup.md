@@ -131,7 +131,7 @@ Give every worker its absolute checkout path or project-set definition path in d
 1mcp bootstrap --client codex --event SubagentStart --project-set /absolute/feature-projects.json --project backend --project frontend
 ```
 
-Without a project set, assign exactly one absolute checkout path. With `--project-set`, repeated `--project` values select ordered member labels and override the definition's optional saved `selection`. Retain the selectors on subsequent `instructions`, `inspect`, and `run` calls. A multi-project assignment requires explicit checkout selection for checkout-specific tools; coordinate separate calls for tools that accept one project. Arguments are passed to the runtime-facing instructions command without a shell. See [Project Checkouts and Sets](../guide/project-checkouts.md) for the definition format and backend target contracts.
+Without a project set, assign exactly one absolute checkout path. With `--project-set`, repeated `--project` values select ordered member labels and override the definition's optional saved `selection`. Retain the selectors on subsequent `instructions`, `inspect`, and `run` calls. A multi-project assignment requires explicit checkout selection for checkout-specific tools; coordinate separate calls for tools that accept one project. Arguments are passed to the runtime-facing instructions command without a shell. See [Project Checkouts and Sets](/guide/project-checkouts) for the definition format and backend target contracts.
 
 ## Verify Hook Delivery
 
@@ -144,3 +144,9 @@ Writing hook configuration does not establish that the client enabled or trusted
 - **[Inspect Command](./inspect.md)** - Discover tools and schemas
 - **[Run Command](./run.md)** - Invoke a selected tool
 - **[Codex Integration Guide](../guide/integrations/codex.md)** - End-to-end setup for Codex
+
+## Preparation guidance
+
+The managed `SessionStart` and `SubagentStart` hooks invoke `1mcp bootstrap`. Bootstrap delivers the managed playbook and, when selection is resolved, runtime instructions. The playbook teaches the [prepare workflow](/commands/prepare): inspect readiness, request authorized work, monitor its job, verify readiness, refresh discovery, and make a fresh tool call. An unresolved worker assignment must be recovered before project-specific preparation.
+
+Setup installs this guidance; it does not start preparation, enable automatic preparation, or change action permissions. Keep the bootstrap hooks. If current instructions were already delivered by hooks, do not fetch them again; otherwise use the standalone `1mcp instructions` entrypoint. Rerun `cli-setup` to refresh managed guidance in the selected scope.

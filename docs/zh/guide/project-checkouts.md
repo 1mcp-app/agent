@@ -101,7 +101,7 @@ description: 显式选择源码 checkout 和已保存的项目集合，区分配
 
 多个成员的分配可重复传入 `--project`；单项目调用每次选择一个标签，支持原生组合调用时一起选择所需标签。Claude 使用 `--client claude`。
 
-[`cli-setup`](../commands/cli-setup.md) 为指定客户端和范围配置受管理的 `SessionStart` 与 `SubagentStart` 钩子。`SessionStart` 可获取普通会话的运行时指令；每个 worker 独立收到 inspect-before-run 指引。官方客户端钩子载荷提供身份和 cwd，但没有项目分配字段，因此 worker 通过派发指令及显式 bootstrap 调用取得分配。
+[`cli-setup`](/zh/commands/cli-setup) 为指定客户端和范围配置受管理的 `SessionStart` 与 `SubagentStart` 钩子。`SessionStart` 可获取普通会话的运行时指令；每个 worker 独立收到 inspect-before-run 指引。官方客户端钩子载荷提供身份和 cwd，但没有项目分配字段，因此 worker 通过派发指令及显式 bootstrap 调用取得分配。
 
 未分配目标的 `SubagentStart` 只提供通用指引并报告选择未解决，不会根据 cwd 或会话身份选择父 checkout。全局与仓库钩子可能同时交付内容；重复交付不会抑制另一个 worker 的目标指令。
 
@@ -113,4 +113,4 @@ Bootstrap 要求显式 CLI 分配参数；其参数解析忽略继承的 `ONE_MC
 
 依赖结果前检查所选 checkout 的后端证据。后端已连接、bootstrap 成功或另一个 checkout 有索引，都不证明当前源码的索引覆盖情况。本指南说明目标选择与引导，后端准备另需适用策略和就绪检查。
 
-另见 [CLI 模式](./integrations/cli-mode.md)、[配置](./essentials/configuration.md) 和 [CLI setup](../commands/cli-setup.md)。
+另见 [CLI 模式](/zh/guide/integrations/cli-mode)、[配置](/zh/guide/essentials/configuration) 和 [CLI setup](/zh/commands/cli-setup)。

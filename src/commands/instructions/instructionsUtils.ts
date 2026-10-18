@@ -1,3 +1,5 @@
+import { PREPARATION_GUIDANCE } from '@src/core/instructions/preparationGuidance.js';
+
 import chalk from 'chalk';
 
 export interface InstructionsServerSummary {
@@ -78,6 +80,8 @@ export function formatInstructionsOutput(output: InstructionsOutput): string {
       '',
       'Search uses case-insensitive literal substring matching on server/tool references. Use a quoted pattern such as `--search "filesystem/*read?" --glob` for whole-reference matching with only `*` and `?` wildcards.',
       '`--include-descriptions` also matches effective descriptions using the selected matching mode; `--show-descriptions` independently displays descriptions without changing matches.',
+      '',
+      PREPARATION_GUIDANCE,
     ].join('\n'),
   ];
 

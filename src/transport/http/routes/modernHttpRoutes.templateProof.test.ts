@@ -3,6 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
+  normalizeProjectPreparationAuthority,
+  type ProjectPreparationAuthority,
+} from '@src/core/context/projectPreparationAuthority.js';
+import {
   createTemplateContextProof,
   TemplateContextCapabilityStore,
   type TemplateContextProof,
@@ -44,7 +48,17 @@ function fixture(mode: 'verified' | 'disabled' | 'legacy' = 'verified') {
       return undefined;
     },
   } as AgentConfigManager);
-  const prepare = vi.fn(async () => undefined);
+  const prepare = vi.fn(
+    async (
+      _session: string,
+      receivedContext: ContextData,
+      _config: InboundConnectionConfig,
+      authority?: ProjectPreparationAuthority,
+    ) => {
+      normalizeProjectPreparationAuthority(authority, receivedContext, receivedContext);
+      return undefined;
+    },
+  );
   const bridgeConfigs: InboundConnectionConfig[] = [];
   const manager = {
     registerCleanup: vi.fn(),
@@ -75,7 +89,7 @@ function fixture(mode: 'verified' | 'disabled' | 'legacy' = 'verified') {
     },
     { allowsHost: () => true, allowsOrigin: () => true },
   );
-  const post = (proof?: TemplateContextProof, session = 'proxy-a') =>
+  const post = (proof?: TemplateContextProof, session = 'proxy-a', requestContext = context) =>
     request(instance)
       .post('/mcp')
       .set('MCP-Protocol-Version', '2026-07-28')
@@ -85,7 +99,7 @@ function fixture(mode: 'verified' | 'disabled' | 'legacy' = 'verified') {
         jsonrpc: '2.0',
         id: 1,
         method: 'tools/list',
-        params: { _meta: { ...meta, context, contextProof: proof } },
+        params: { _meta: { ...meta, context: requestContext, contextProof: proof } },
       });
   return { capability, post, prepare, bridgeConfigs };
 }
@@ -120,6 +134,27 @@ describe('modern ingress reauthorizes signed template memberships', () => {
       }
     },
   );
+
+  it('prepares renewed signed transport context without changing logical membership', async () => {
+    const f = fixture();
+    const firstContext: ContextData = {
+      ...context,
+      transport: { type: 'stdio', connectionTimestamp: '2026-10-12T00:00:00Z' },
+    };
+    const renewedContext: ContextData = {
+      ...firstContext,
+      transport: { ...firstContext.transport!, connectionTimestamp: '2026-10-12T00:01:00Z' },
+    };
+    for (const current of [firstContext, renewedContext]) {
+      const response = await f.post(createTemplateContextProof(current, f.capability), 'proxy-a', current);
+      expect(response.body.error, JSON.stringify(response.body)).toBeUndefined();
+    }
+    expect(f.prepare).toHaveBeenCalledTimes(2);
+    expect(f.prepare.mock.calls[1][1]).toEqual(renewedContext);
+    expect(f.prepare.mock.calls[1][3]).toBeDefined();
+    expect(f.bridgeConfigs[1].logicalTemplateSessionId).toBe(f.bridgeConfigs[0].logicalTemplateSessionId);
+    expect(f.bridgeConfigs[1].logicalTemplateBindingId).toBe(f.bridgeConfigs[0].logicalTemplateBindingId);
+  });
 
   it('never prepares signed caller templates in disabled mode', async () => {
     const f = fixture('disabled');

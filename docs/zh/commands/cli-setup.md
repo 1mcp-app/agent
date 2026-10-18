@@ -121,7 +121,7 @@ Bootstrap 从显式 CLI 参数解析选项，不使用继承的 `ONE_MCP_*` 选�
 1mcp bootstrap --client codex --event SubagentStart --project-set /absolute/feature-projects.json --project backend --project frontend
 ```
 
-不使用项目集合时，只分配一个绝对 checkout 路径。使用 `--project-set` 时，可重复传入 `--project` 选择有序成员标签，并覆盖定义中可选的 `selection`。在后续 `instructions`、`inspect` 和 `run` 调用中保留目标参数。多个项目的分配要求对 checkout 专属工具明确选择 checkout；单项目工具由 agent 协调分别调用。获取指令时参数通过 argv 传递，不经过 shell。定义格式和后端目标契约参见 [项目 Checkout 与集合](../guide/project-checkouts.md)。
+不使用项目集合时，只分配一个绝对 checkout 路径。使用 `--project-set` 时，可重复传入 `--project` 选择有序成员标签，并覆盖定义中可选的 `selection`。在后续 `instructions`、`inspect` 和 `run` 调用中保留目标参数。多个项目的分配要求对 checkout 专属工具明确选择 checkout；单项目工具由 agent 协调分别调用。获取指令时参数通过 argv 传递，不经过 shell。定义格式和后端目标契约参见 [项目 Checkout 与集合](/zh/guide/project-checkouts)。
 
 ## 验证钩子交付
 
@@ -134,3 +134,9 @@ Bootstrap 从显式 CLI 参数解析选项，不使用继承的 `ONE_MCP_*` 选�
 - **[Inspect 命令](./inspect.md)** - 发现工具和查看 schema
 - **[Run 命令](./run.md)** - 调用选中的工具
 - **[Codex 集成指南](../guide/integrations/codex.md)** - Codex 的完整配置流程
+
+## 准备工作指引
+
+托管的 `SessionStart` 和 `SubagentStart` hooks 调用 `1mcp bootstrap`。Bootstrap 传递托管操作指引，并在目标已解析时获取运行时指令。指引包含 [prepare 工作流](/zh/commands/prepare)：检查就绪状态、请求已授权的准备工作、监控任务、验证就绪状态、刷新发现结果，然后重新发起工具调用。工作智能体的项目分配未解析时，必须先恢复分配，再执行项目相关的准备操作。
+
+Setup 只安装指引，不会启动准备工作、启用自动准备或更改操作权限。保留 bootstrap hooks。若 hooks 已传递当前指令，则无需重复获取；否则使用独立的 `1mcp instructions` 入口。重新运行 `cli-setup` 可刷新所选范围内的托管指引。
