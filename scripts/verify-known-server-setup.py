@@ -23,7 +23,6 @@ import shutil
 import signal
 import socket
 import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -153,6 +152,7 @@ def stop_owned(process, tracker=None):
         try:
             process.wait(timeout=10)
         except subprocess.TimeoutExpired:
+            # Continue with tracked descendant termination and escalation below.
             pass
     tree.close()
     for native_signal in (signal.SIGTERM, signal.SIGKILL):
@@ -162,6 +162,7 @@ def stop_owned(process, tracker=None):
             try:
                 os.kill(pid, native_signal)
             except ProcessLookupError:
+                # The observed process can exit before the signal is delivered.
                 pass
         deadline = time.monotonic() + 3
         while True:
