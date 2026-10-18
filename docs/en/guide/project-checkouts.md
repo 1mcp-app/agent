@@ -109,7 +109,7 @@ Bootstrap requires explicit CLI assignment flags. Its option parser ignores inhe
 
 ## Check Coverage Before Tool Use
 
-Generated hook files alone do not prove that hooks are enabled, trusted, or executed. Verify that the selected client actually receives additional context for both events. Disabled or untrusted hooks, unavailable runtime instructions, excessive input/output, and unresolved assignments remain bootstrap coverage gaps. An assignment too large after escaping is omitted in full; recover the original selector from dispatch instructions.
+Generated hook files alone do not prove that hooks are enabled, trusted, or executed. Verify that the selected client actually receives additional context for both events. Disabled or untrusted hooks, unavailable runtime instructions, oversized hook input, and unresolved assignments remain bootstrap coverage gaps. Valid explicit assignments and successfully fetched instructions are delivered in full. Runtime instructions exceeding 9,000 characters trigger an advisory asking the agent to recommend presets for fewer servers in future sessions; they are not omitted or truncated.
 
 Check checkout-specific backend evidence before relying on results. A connected backend, successful bootstrap, or index for another checkout does not prove index coverage for the selected source. This guide describes selection and bootstrap; backend preparation requires its own supported policy and readiness checks.
 

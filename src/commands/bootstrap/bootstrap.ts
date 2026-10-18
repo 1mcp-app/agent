@@ -10,9 +10,8 @@ import { isSea } from 'node:sea';
 import { z } from 'zod';
 
 export const BOOTSTRAP_INPUT_LIMIT = 64 * 1024;
-export const BOOTSTRAP_CONTEXT_LIMIT = 9000;
+export const BOOTSTRAP_INSTRUCTIONS_ADVISORY_THRESHOLD = 9000;
 export const BOOTSTRAP_DEADLINE_MS = 5000;
-const RUNTIME_OUTPUT_LIMIT = 32 * 1024;
 export const bootstrapOptionsSchema = z
   .object({
     client: z.enum(['codex', 'claude']),
@@ -124,7 +123,6 @@ export async function runInstructionsProcess(
     }
     const child = spawn(executable, args, { shell: false, env: environment, stdio: ['ignore', 'pipe', 'pipe'] });
     const chunks: Buffer[] = [];
-    let bytes = 0;
     let settled = false;
     const finish = (error?: Error) => {
       if (settled) return;
@@ -141,11 +139,6 @@ export async function runInstructionsProcess(
     };
     const timer = setTimeout(() => finish(new Error('Runtime instructions deadline exceeded')), deadlineMs);
     child.stdout.on('data', (chunk: Buffer) => {
-      bytes += chunk.length;
-      if (bytes > RUNTIME_OUTPUT_LIMIT) {
-        finish(new Error('Runtime instructions exceeded output limit'));
-        return;
-      }
       chunks.push(chunk);
     });
     // Drain stderr without retaining potentially sensitive runtime diagnostics.
@@ -178,15 +171,9 @@ export async function renderBootstrapContext(
     }
     const selection = assignment ? `Explicit Worker Project Assignment: ${JSON.stringify(assignment)}\n` : '';
     const prefix = `${playbook}\n${selection}`;
-    const budgetGap =
-      'Bootstrap coverage gap: runtime instructions exceed the client context budget. Fetch scoped instructions explicitly before using a server.\n';
-    if (prefix.length + budgetGap.length > BOOTSTRAP_CONTEXT_LIMIT) {
-      return `${playbook}\nBootstrap coverage gap: the escaped assignment exceeds the client context budget and was omitted. Worker Project Assignment unresolved in delivered context. Obtain the original assignment from dispatch instructions and use its explicit --project or --project-set selector to fetch scoped instructions before project-specific tool use.\n`;
-    }
     const rendered = await renderInstructions(options);
-    const remaining = BOOTSTRAP_CONTEXT_LIMIT - prefix.length;
-    if (rendered.length > remaining) {
-      return `${prefix}${budgetGap}`;
+    if (rendered.length > BOOTSTRAP_INSTRUCTIONS_ADVISORY_THRESHOLD) {
+      return `${prefix}${rendered}\n\n=== PRESET ADVISORY FOR THE AGENT ===\nInform the user briefly that the 1MCP instructions are large. Recommend using a 1MCP preset to select fewer relevant MCP servers in future sessions, for example \`1mcp instructions --preset <name>\`. All instructions have been delivered; continue the current task. Do not change the user's configuration automatically.\n`;
     }
     return `${prefix}${rendered}`;
   } catch {
