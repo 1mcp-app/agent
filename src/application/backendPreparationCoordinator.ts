@@ -27,6 +27,7 @@ import type {
 } from '@src/domains/backend-preparation/contracts.js';
 import {
   type EffectivePreparationConfig,
+  PreparationConfigurationError,
   validatePreparationConfig,
 } from '@src/domains/backend-preparation/integrationDefinitions.js';
 import {
@@ -618,9 +619,15 @@ export class BackendPreparationCoordinator {
     const current = ConfigManager.getInstance().loadDeclaredServerConfigs();
     const definition =
       current.templateServers[grant.target.backendName] ?? current.staticServers[grant.target.backendName];
-    const configurationKey = definition?.preparation
-      ? digest(validatePreparationConfig(definition.preparation))
-      : digest({ unsupported: true });
+    let configurationKey: string;
+    try {
+      configurationKey = definition?.preparation
+        ? digest(validatePreparationConfig(definition.preparation))
+        : digest({ unsupported: true });
+    } catch (error) {
+      if (error instanceof PreparationConfigurationError) throw new PreparationAuthorizationChangedError();
+      throw error;
+    }
     if (
       configurationKey !== grant.target.configurationKey ||
       !input ||
@@ -903,8 +910,13 @@ export async function refreshPreparedBackendCapabilities(
   if (declared.errors.length || !definition || definition.disabled || digest(definition) !== target.backendIdentity)
     return;
   if (definition.preparation?.definition) {
-    const currentConfigurationKey = digest(validatePreparationConfig(definition.preparation));
-    if (currentConfigurationKey !== target.configurationKey) return;
+    try {
+      const currentConfigurationKey = digest(validatePreparationConfig(definition.preparation));
+      if (currentConfigurationKey !== target.configurationKey) return;
+    } catch (error) {
+      if (error instanceof PreparationConfigurationError) return;
+      throw error;
+    }
   }
   const manager = serverManager.getTemplateServerManager();
   const bindingContexts = manager.getBindingContexts();

@@ -115,6 +115,7 @@ def release(proc):
 
 
 def main():
+    BASE.mkdir(parents=True, exist_ok=True)
     bundle_meta = json.loads((CG/'package.json').read_text())
     version = checked([CRG, '-B', '-c',
         'import code_review_graph; print(code_review_graph.__version__); print(code_review_graph.__file__)'], BASE)

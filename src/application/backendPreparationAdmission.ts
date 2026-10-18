@@ -21,7 +21,10 @@ import type { ServerManager } from '@src/core/server/serverManager.js';
 import type { InboundConnectionConfig } from '@src/core/types/server.js';
 import type { MCPServerParams } from '@src/core/types/transport.js';
 import { admitToolSchemas, prepareToolValidation } from '@src/core/validation/toolSchemaBoundary.js';
-import { validatePreparationConfig } from '@src/domains/backend-preparation/integrationDefinitions.js';
+import {
+  PreparationConfigurationError,
+  validatePreparationConfig,
+} from '@src/domains/backend-preparation/integrationDefinitions.js';
 import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import { projectToolArguments } from '@src/domains/project-selection/projectPolicy.js';
 import { isProjectBackendVisible, resolveProjectPolicies } from '@src/domains/project-selection/projectPolicy.js';
@@ -176,7 +179,16 @@ function nativeTarget(request: PreparationToolRequest, backendNames: string[]) {
 
 function isPreparationAffected(config: MCPServerParams['preparation'], toolName: string): boolean {
   if (!config) return false;
-  const { affectedTools } = validatePreparationConfig(config);
+  let affectedTools = config.affectedTools;
+  if (config.definition) {
+    try {
+      affectedTools = validatePreparationConfig(config).affectedTools;
+    } catch {
+      // Route an unreadable recipe through admission so the backend fails closed.
+      return true;
+    }
+  }
+  if (!affectedTools) return true;
   if (affectedTools === 'all') return true;
   return affectedTools.includes(toolName);
 }
@@ -202,6 +214,14 @@ export async function admitBackendPreparationTool(
   try {
     return await admitScopedPreparationTool(input, ports);
   } catch (error) {
+    if (error instanceof PreparationConfigurationError)
+      return {
+        kind: 'blocked',
+        result: preparationToolResult({
+          state: 'forbidden',
+          instructions: 'Preparation configuration is unavailable. Repair the recipe before invoking again.',
+        }),
+      };
     if (error instanceof PreparationAuthorizationChangedError)
       return { kind: 'blocked', result: preparationToolResult({ state: 'forbidden', instructions: error.message }) };
     if (!(error instanceof PreparationCallerStopped)) throw error;

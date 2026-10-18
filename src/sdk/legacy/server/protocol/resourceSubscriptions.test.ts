@@ -1,5 +1,6 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
+import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import type { InboundConnection, OutboundConnection } from '@src/core/types/index.js';
 import { ServerStatus } from '@src/core/types/index.js';
@@ -28,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   notification: vi.fn(),
   openModern: vi.fn(),
 }));
+vi.mock('@src/config/configuredServerTargets.js', () => ({ getConfiguredServerTargets: vi.fn(() => ({})) }));
 vi.mock('@src/core/capabilities/runtimeCapabilityCatalog.js', () => ({
   acquireRuntimeCapabilityCatalog: mocks.acquire,
 }));
@@ -68,6 +70,7 @@ describe('owned legacy resource subscriptions', () => {
   let upstream: OutboundConnection;
   let connections: Map<string, OutboundConnection>;
   beforeEach(() => {
+    vi.mocked(getConfiguredServerTargets).mockReset().mockReturnValue({});
     mocks.request.mockReset().mockResolvedValue({});
     mocks.acquire.mockReset().mockResolvedValue({});
     mocks.notification.mockClear();
@@ -454,6 +457,27 @@ describe('owned legacy resource subscriptions', () => {
     mocks.openModern.mock.calls[0][3]();
     expect(secondHandle.close).toHaveBeenCalledOnce();
     expect(owner.adapter.close).toHaveBeenCalledOnce();
+  });
+
+  it('isolates an unavailable preparation recipe from native catalog subscriptions', () => {
+    const owner = fixture();
+    Object.assign(upstream, { status: 'connected' });
+    vi.mocked(getConfiguredServerTargets).mockReturnValue({
+      backend: {
+        command: 'fixture',
+        preparation: {
+          adapter: 'configured-command',
+          definition: { id: 'missing-recipe' },
+          allowedActions: ['initialize'],
+        },
+      },
+    });
+    expect(() => registerOwnedCatalogConnection(connections, owner, upstream, 'tools')).not.toThrow();
+    expect(mocks.notification).not.toHaveBeenCalled();
+    Object.assign(upstream, { capabilities: { tools: { listChanged: true } } });
+    registerOwnedCatalogConnection(connections, owner, upstream, 'tools');
+    expect(mocks.notification).toHaveBeenCalled();
+    expect(owner.adapter.close).not.toHaveBeenCalled();
   });
 
   it('does not terminate a resource-only modern bridge when catalog coverage is lost', async () => {

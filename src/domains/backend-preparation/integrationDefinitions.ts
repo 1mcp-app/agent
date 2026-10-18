@@ -239,6 +239,13 @@ export type EffectivePreparationConfig = PreparationConfig & {
   helperSnapshots?: readonly ConfiguredCommandHelperSnapshot[];
 };
 
+export class PreparationConfigurationError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : 'Preparation configuration is unavailable', { cause });
+    this.name = 'PreparationConfigurationError';
+  }
+}
+
 /** Validate setup/config changes without launching commands or applying configuration. */
 export function validatePreparationConfig(
   config: unknown,
@@ -246,7 +253,18 @@ export function validatePreparationConfig(
 ): EffectivePreparationConfig {
   const parsed = PreparationConfigSchema.parse(config);
   if (!parsed.definition) return { ...parsed, affectedTools: parsed.affectedTools! };
-  const resolved = resolveIntegrationDefinition(parsed.definition, builtins);
+  try {
+    return resolvePreparationConfig(parsed, builtins);
+  } catch (error) {
+    throw new PreparationConfigurationError(error);
+  }
+}
+
+function resolvePreparationConfig(
+  parsed: PreparationConfig,
+  builtins: readonly IntegrationDefinition[],
+): EffectivePreparationConfig {
+  const resolved = resolveIntegrationDefinition(parsed.definition!, builtins);
   if (parsed.affectedTools && JSON.stringify(parsed.affectedTools) !== JSON.stringify(resolved.affectedTools)) {
     throw new Error('Configured affectedTools conflicts with the selected definition');
   }

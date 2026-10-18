@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { ConfigManager } from '@src/config/configManager.js';
+import type { ServerManager } from '@src/core/server/serverManager.js';
 import type { MCPServerParams } from '@src/core/types/transport.js';
 import { ConfiguredCommandPreparationAdapter } from '@src/domains/backend-preparation/configuredCommandAdapter.js';
 import type { BackendPreparationAdapter, BackendReadiness } from '@src/domains/backend-preparation/contracts.js';
@@ -13,6 +14,7 @@ import {
   BackendPreparationCoordinator,
   type PreparationGrant,
   type PublicPreparationStatus,
+  refreshPreparedBackendCapabilities,
 } from './backendPreparationCoordinator.js';
 
 vi.mock('@src/config/configManager.js', () => ({ ConfigManager: { getInstance: vi.fn() } }));
@@ -758,44 +760,53 @@ describe('runtime preparation controls', () => {
     },
   );
 
-  it('rejects a stale ready grant before launching its probe after a JSON-only definition update', async () => {
-    const overrides: Partial<MCPServerParams> = {};
-    const inspect = vi.fn(async () => ready);
-    const f = await fixture(
-      {
-        inspect,
-        prepare: async () => undefined,
-        classifyFailure: () => ({ code: 'failed', message: 'Failed', retryable: false, instructions: 'Retry' }),
-      },
-      overrides,
-    );
-    const file = path.join(f.directory, 'definition.json');
-    const recipe = {
-      schemaVersion: 1,
-      id: 'native-test',
-      revision: '1',
-      helperRevision: '1',
-      compatibility: {
-        backend: 'fixture',
-        versions: ['1'],
-        platforms: ['linux', 'darwin', 'win32'],
-        readinessScope: 'checkout',
-      },
-      inputs: {},
-      affectedTools: ['codegraph_explore'],
-      integration: config.preparation!.integration,
-    };
-    await fs.writeFile(file, JSON.stringify(recipe));
-    overrides.preparation = {
-      adapter: 'configured-command',
-      definition: { id: 'native-test', file },
-      allowedActions: ['initialize'],
-    };
-    const original = await f.resolve();
-    await fs.writeFile(file, JSON.stringify({ ...recipe, revision: '2' }));
-    await expect(f.coordinator.admit(original, 'query')).rejects.toThrow('Preparation authorization changed');
-    expect(inspect).not.toHaveBeenCalled();
-  });
+  it.each(['changed', 'invalid', 'missing'] as const)(
+    'rejects a %s recipe before probing or refreshing a stale ready grant',
+    async (state) => {
+      const overrides: Partial<MCPServerParams> = {};
+      const inspect = vi.fn(async () => ready);
+      const f = await fixture(
+        {
+          inspect,
+          prepare: async () => undefined,
+          classifyFailure: () => ({ code: 'failed', message: 'Failed', retryable: false, instructions: 'Retry' }),
+        },
+        overrides,
+      );
+      const file = path.join(f.directory, 'definition.json');
+      const recipe = {
+        schemaVersion: 1,
+        id: 'native-test',
+        revision: '1',
+        helperRevision: '1',
+        compatibility: {
+          backend: 'fixture',
+          versions: ['1'],
+          platforms: ['linux', 'darwin', 'win32'],
+          readinessScope: 'checkout',
+        },
+        inputs: {},
+        affectedTools: ['codegraph_explore'],
+        integration: config.preparation!.integration,
+      };
+      await fs.writeFile(file, JSON.stringify(recipe));
+      overrides.preparation = {
+        adapter: 'configured-command',
+        definition: { id: 'native-test', file },
+        allowedActions: ['initialize'],
+      };
+      const original = await f.resolve();
+      if (state === 'missing') await fs.unlink(file);
+      else await fs.writeFile(file, state === 'invalid' ? '{' : JSON.stringify({ ...recipe, revision: '2' }));
+      await expect(f.coordinator.admit(original, 'query')).rejects.toThrow('Preparation authorization changed');
+      expect(inspect).not.toHaveBeenCalled();
+      const getTemplateServerManager = vi.fn();
+      await expect(
+        refreshPreparedBackendCapabilities({ getTemplateServerManager } as unknown as ServerManager, original.target),
+      ).resolves.toBeUndefined();
+      expect(getTemplateServerManager).not.toHaveBeenCalled();
+    },
+  );
 
   it('keeps named configuration inactive until explicitly adopted through setup', async () => {
     const overrides: Partial<MCPServerParams> = {};

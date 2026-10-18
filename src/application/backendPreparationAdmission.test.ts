@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import * as toolSchemaBoundary from '@src/core/validation/toolSchemaBoundary.js';
 import { ConfigManager } from '@src/config/configManager.js';
+import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { CapabilityCatalog } from '@src/core/capabilities/capabilityCatalog.js';
 import { buildCatalogGeneration } from '@src/core/capabilities/catalogGeneration.js';
@@ -38,7 +39,7 @@ import {
 import type { BackendPreparationCoordinator, PreparationGrant } from './backendPreparationCoordinator.js';
 
 vi.mock('@src/config/configuredServerTargets.js', () => ({
-  getConfiguredServerTargets: () => ({ codegraph: definition }),
+  getConfiguredServerTargets: vi.fn(() => ({ codegraph: definition })),
 }));
 vi.mock('@src/config/configManager.js', () => ({ ConfigManager: { getInstance: vi.fn() } }));
 vi.mock('@src/core/runtime/runtimeIdentityService.js', () => ({
@@ -212,11 +213,47 @@ function fixture(waitMs = 5000) {
 
 beforeEach(() => {
   vi.useRealTimers();
+  vi.mocked(getConfiguredServerTargets)
+    .mockReset()
+    .mockImplementation(() => ({ codegraph: definition }));
   authenticationEnabled = true;
 });
 afterAll(() => shutdownSchemaBoundary());
 
 describe('source operation preparation admission', () => {
+  it.each(['missing', 'invalid'] as const)(
+    'blocks a recipe that is %s without throwing or dispatching',
+    async (state) => {
+      const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'preparation-invalid-'));
+      try {
+        const file = path.join(directory, 'definition.json');
+        if (state === 'invalid') fs.writeFileSync(file, '{');
+        const preparation: MCPServerParams['preparation'] = {
+          adapter: 'configured-command',
+          definition: { id: 'native-test', file },
+          allowedActions: ['initialize'],
+        };
+        const f = fixture();
+        f.configurePreparation(preparation);
+        vi.mocked(getConfiguredServerTargets).mockReturnValue({ codegraph: { ...definition, preparation } });
+        await expect(admitBackendPreparationTool(f.input, f.ports)).resolves.toMatchObject({
+          kind: 'blocked',
+          result: {
+            structuredContent: {
+              preparation: { state: 'forbidden' },
+              operationExecuted: false,
+              operationQueued: false,
+            },
+          },
+        });
+        expect(f.ports.coordinator.admit).not.toHaveBeenCalled();
+        expect(f.ports.toolDefinition).not.toHaveBeenCalled();
+      } finally {
+        fs.rmSync(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
   it('rejects a definition JSON change at the final synchronous dispatch barrier', async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'preparation-dispatch-'));
     try {

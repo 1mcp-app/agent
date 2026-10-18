@@ -143,8 +143,8 @@ The site is built from the existing docs tree. Preserve path stability unless th
 
 ## Repository development notes
 
-Contributor diagnostics and acceptance evidence live directly in `docs/`, outside the localized public site:
+Contributor diagnostics and acceptance evidence live in `docs/development/`, outside the localized public site:
 
-- [Backend setup and preparation verification](backend-preparation-acceptance.md)
-- [CodeGraph and Code Review Graph diagnostics](preparation-native-acceptance.md)
-- [Serena diagnostics](preparation-serena-acceptance.md)
+- [Backend setup and preparation verification](development/backend-preparation-acceptance.md)
+- [CodeGraph and Code Review Graph diagnostics](development/preparation-native-acceptance.md)
+- [Serena diagnostics](development/preparation-serena-acceptance.md)

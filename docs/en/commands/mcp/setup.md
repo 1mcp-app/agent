@@ -57,7 +57,7 @@ Remove `--dry-run` to save. By default, the template uses the checkout selected 
 
 ## Results and limitations
 
-Successful setup reports configuration changes and reload observation separately from native readiness. Repeating equivalent setup leaves the configuration unchanged. Meaningful reconfiguration requires `--force`; static/template name collisions fail rather than silently moving a target. Existing overrides, secret references, disables, and preparation restrictions are preserved.
+Successful setup reports configuration changes and reload observation, but does not report native readiness. Repeating equivalent setup leaves the configuration unchanged. Meaningful reconfiguration requires `--force`; static/template name collisions fail rather than silently moving a target. Existing overrides, secret references, disables, and preparation restrictions are preserved.
 
 Install backend executables and language dependencies first. Missing prerequisites produce guidance; setup does not download dependencies, initialize indexes, complete onboarding, or grant checkout access. It does not enable automatic preparation or prove source freshness. If a runtime is running, saving a static backend can start it through normal configuration reload; native startup retains its own behavior.
 
