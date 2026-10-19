@@ -29,9 +29,17 @@ import { HandlebarsTemplateRenderer } from '@src/template/handlebarsTemplateRend
 import { ManagedStdioStderr } from '@src/transport/managedStdioStderr.js';
 import type { ContextData } from '@src/types/context.js';
 
+import { Agent } from 'undici';
 import { z, ZodError } from 'zod';
 
 import type { AuthProviderTransport } from '../client/runtime/legacyTransport.js';
+
+// SSE connections may legitimately stay silent for longer than Undici's default
+// 300-second response-body timeout. Use a dedicated dispatcher instead of
+// disabling timeouts for regular HTTP requests or all Node.js fetch calls.
+const sseDispatcher = new Agent({ bodyTimeout: 0 });
+const fetchSseStream: typeof fetch = (input, init) =>
+  fetch(input, { ...init, dispatcher: sseDispatcher } as RequestInit);
 
 type ValidatedTransport = z.infer<typeof transportConfigSchema>;
 
@@ -160,6 +168,9 @@ function createSSETransport(name: string, validatedTransport: ValidatedTransport
     requestInit: {
       headers: validatedTransport.headers,
     },
+    // Both modern and legacy MCP SSE clients honour eventSourceInit.fetch.
+    // Reconnection preserves it via TransportRecreator's _eventSourceInit.
+    eventSourceInit: { fetch: fetchSseStream },
   };
 
   const oauthProvider = createOAuthProvider(name, validatedTransport);
