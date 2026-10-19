@@ -120,7 +120,7 @@ async function run(mode, round) {
       };
     }
     await batch(plan.warmupRequests, false);
-    if (mode === 'healthy' || mode === 'outage') await delay(65_000);
+    await delay(plan.settleMs);
     // Leave at least one full probe interval after warm-up.
     await delay(300);
     await writeFile(probe, '');

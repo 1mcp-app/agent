@@ -50,5 +50,6 @@
     ]
   },
   "minimumMeasuredSeconds": 60,
-  "activeModeSettleSeconds": 65
+  "settleMs": 65000,
+  "settleReason": "All four modes settle equally after the same warmup to match process age, background JIT and timer activity before measurement"
 }

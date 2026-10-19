@@ -75,11 +75,12 @@ baseline. Rerun preparation after any source/build change.
 Measurement requires a clean matching source commit. Every mode uses the same
 preload probe in the actual foreground runtime for RSS and event-loop delay. The
 healthy/outage comparison uses a loopback fake Collector (valid empty protobuf
-responses / HTTP 503), distinct from real Collector integration. Active modes
-settle for 65 seconds; each measurement performs at least 10,000 operations and
+responses / HTTP 503), distinct from real Collector integration. All four modes
+use the recorded `settleMs: 65000` after the same warmup, matching process age,
+background JIT and timer activity before measurement. Each measurement performs at least 10,000 operations and
 lasts at least 60 seconds. Mode order rotates over at least three paired rounds.
-Run on an otherwise idle host after broad tests stop. This takes about 25 minutes
-for three rounds; increase repetitions when intervals remain inconclusive.
+Run on an otherwise idle host after broad tests stop. This takes at least 25 minutes
+for three rounds, plus startup and warmup; increase repetitions when intervals remain inconclusive.
 
 The report retains exact source/platform/workload and paired conservative 95%
 intervals for p95/throughput ratios, RSS differences, and event-loop p99 differences.
