@@ -72,6 +72,10 @@ jobs:
           NODE_COMPILE_CACHE: ${{ runner.temp }}/lifecycle-node-compile-cache
         run: pnpm test:e2e test/e2e/commands/cooperative-runtime.test.ts --retry=0
 
+      - name: Verify active telemetry lifecycle with Node
+        if: matrix.runtime == 'Node'
+        run: pnpm exec vitest run --config test/telemetry/vitest.config.ts test/telemetry/lifecycle.integration.test.mjs
+
       # Each runtime has its own runner; SEA cannot overwrite the Node job artifacts.
       - name: Build SEA bundle
         if: matrix.runtime == 'SEA'
@@ -92,6 +96,12 @@ jobs:
         env:
           ONE_MCP_TEST_BINARY: ${{ github.workspace }}/${{ matrix.binary }}
         run: pnpm test:e2e test/e2e/commands/cooperative-runtime.test.ts --retry=0
+
+      - name: Verify active telemetry lifecycle with packaged executable
+        if: matrix.runtime == 'SEA'
+        env:
+          ONE_MCP_TEST_BINARY: ${{ github.workspace }}/${{ matrix.binary }}
+        run: pnpm exec vitest run --config test/telemetry/vitest.config.ts test/telemetry/lifecycle.integration.test.mjs
 
   # Keep the original branch-protection check names. All six combinations must pass.
   lifecycle:
