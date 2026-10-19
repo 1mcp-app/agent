@@ -7,6 +7,54 @@ import { createCollector } from './fake-collector.mjs';
 import { startRuntime, waitUntil } from './runtime-fixture.mjs';
 import { createModernBackend } from './workload-modern-backend.mjs';
 
+async function closeSmokeResources(...resources) {
+  const errors = [];
+  for (const resource of resources) {
+    try {
+      await resource?.close();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  if (errors.length) throw new AggregateError(errors, 'Smoke cleanup failed');
+}
+
+test('smoke cleanup attempts every owner and reports all cleanup failures', async () => {
+  const called = [];
+  const first = new Error('owners cleanup failed');
+  const second = new Error('runtime cleanup failed');
+  const resources = [
+    {
+      close: async () => {
+        called.push('owners');
+        throw first;
+      },
+    },
+    {
+      close: () => {
+        called.push('runtime');
+        throw second;
+      },
+    },
+    {
+      close: async () => {
+        called.push('backend');
+      },
+    },
+    {
+      close: async () => {
+        called.push('collector');
+      },
+    },
+  ];
+  await assert.rejects(closeSmokeResources(...resources), (error) => {
+    assert.deepEqual(called, ['owners', 'runtime', 'backend', 'collector']);
+    assert(error instanceof AggregateError);
+    assert.deepEqual(error.errors, [first, second]);
+    return true;
+  });
+});
+
 test(
   'two independent owners admit 32 held calls while one owner rejects its 17th call',
   { timeout: 45000 },
@@ -16,17 +64,17 @@ test(
     let gate = new Promise((resolve) => {
       release = resolve;
     });
-    const backend = await createModernBackend({
-      toolCount: 1,
-      onCapacityCall: async () => {
-        entered++;
-        await gate;
-      },
-    });
-    const collector = await createCollector();
-    let runtime, owners;
+    let backend, collector, runtime, owners;
     let pending = [];
     try {
+      backend = await createModernBackend({
+        toolCount: 1,
+        onCapacityCall: async () => {
+          entered++;
+          await gate;
+        },
+      });
+      collector = await createCollector();
       runtime = await startRuntime({
         collector,
         logLevel: 'error',
@@ -67,10 +115,7 @@ test(
     } finally {
       release();
       await Promise.allSettled(pending);
-      await owners?.close();
-      await runtime?.close();
-      await backend.close();
-      await collector.close();
+      await closeSmokeResources(owners, runtime, backend, collector);
     }
   },
 );
