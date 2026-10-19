@@ -137,21 +137,34 @@ After the final integration build is clean and the host is otherwise idle:
 OTELCOL_BINARY=/absolute/path/to/otelcol node scripts/telemetry/capacity.mjs /tmp/telemetry-capacity.json
 ```
 
-This separate gate records `capacity-workload.json` before work: 10,000 actual
-tool identities, max 8,192-span queue/2,048 batch, stalled 30-second export and six
-10-second pressure windows. It checks returned data/readiness, dropped/high queue
-state, RSS envelope/plateau, recovery and decoded real-Collector series caps.
-It persists partial results on failure. The fault relay forwards only synthetic
-OTLP protobuf to the loopback pinned Collector after recovery and never forwards
-secret request headers. Run this alongside the matched timing gate only when
-explicitly scheduled; source changes require rerunning both gates.
+Plan v3 predeclares two complementary risks before new samples:
 
-Capacity plan v2 uses two independently initialized anonymous legacy HTTP sessions
-with 16 workers each (32 aggregate), respecting the existing per-owner16 and
-per-route32 interaction limits. The previous single-owner32 plan failed admission
-on Ubuntu before any resource windows; its failed evidence remains retained.
-The 10,000 tool identities, warmup, queue/batch sizes, pressure windows, recovery
-and RSS budgets are unchanged. This topology revision is declared before new
-capacity samples; it does not alter the separate performance workload.
-The bounded `capacity-owners.test.mjs` smoke holds upstream responses open to
-prove one owner rejects its 17th call and two owners admit all32 calls.
+- **A — identity privacy and SDK cardinality:** `real-capacity.integration.test.mjs`
+  attempts 10,000 distinct forbidden identities per instrument, split between
+  unknown keys and forbidden values in recognized dimensions. Every attempt must
+  return false. Accepted controls must export through the actual SDK and pinned
+  Collector; decoded cumulative counts and series must contain only the 1,188
+  accepted combinations across at least two collection intervals. Positive
+  approved combinations must reach the histogram/counter/up-down caps of
+  1,024/512/256 with standard overflow. Empty exports cannot pass.
+- **B — sustained runtime resources:** `capacity-workload.json` uses one fixed
+  capacity tool plus three functional tools. Two independently initialized legacy
+  HTTP owners each run 16 workers (32 aggregate), respecting existing owner and
+  route admission. All 10,000 warmup operations, 8,192-span queue/2,048 batch,
+  30-second stalled export, six 10-second windows and minimum 2,048 operations per
+  window remain unchanged. Final three windows must actually observe high queue
+  and drops. Readiness/results, 64 MiB RSS envelope, 16 MiB final-three-window
+  plateau spread, 40-second recovery and decoded export checks remain mandatory.
+
+The former 10,000-configured-tool catalog workload failed during warmup with
+schema evaluation timeouts; its single-owner variant also exceeded admission.
+Those adverse reports remain evidence, and **10k catalog scalability remains an
+explicit coverage gap**. Rejecting 10,000 identity values is not evidence that
+10,000 configured tools can sustain this request rate. Plan v3 isolates the
+telemetry risks without changing their budgets or the matched timing workload.
+
+The capacity harness persists partial results and cleanup verdicts on failure.
+Its relay forwards only synthetic OTLP protobuf to the pinned loopback Collector
+and never forwards secret request headers. Source changes require new recorded
+acceptance runs. The bounded `capacity-owners.test.mjs` smoke proves one owner
+rejects its 17th held call while two owners admit all 32; it is not an RSS proof.

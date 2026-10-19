@@ -1,5 +1,5 @@
 {
-  "name": "issue489-real-runtime-max-capacity-v2",
+  "name": "issue489-real-runtime-max-capacity-v3",
   "recordBeforeRun": true,
   "topology": {
     "inboundEra": "legacy",
@@ -12,12 +12,13 @@
     "reason": "Parallel workloads require modern HTTP upstream; the legacy upstream connection intentionally admits one operation",
     "inboundOwners": 2,
     "workersPerOwner": 16,
-    "ownerReason": "Anonymous legacy HTTP sessions have a public per-owner limit of16; two independently initialized sessions preserve aggregate32 workers at the shared per-route limit32"
+    "ownerReason": "Anonymous legacy HTTP sessions have a public per-owner limit of16; two independently initialized sessions preserve aggregate32 workers at the shared per-route limit32",
+    "fixedCatalog": "one capacity tool plus echo, reverse and error functional tools"
   },
   "queueSize": 8192,
   "batchSize": 2048,
   "exportTimeoutMs": 30000,
-  "uniqueToolIdentities": 10000,
+  "uniqueToolIdentities": 1,
   "concurrency": 32,
   "warmupOperations": 10000,
   "windows": 6,
@@ -35,5 +36,10 @@
   "recoveryDeadlineMs": 40000,
   "budgetTimingVerdict": "separate matchedperformance command; this run checks resource bounds, data invariance, read-only state and recovery",
   "logging": "error in all capacity phases; avoid diagnostic file IO becoming the workload",
-  "warmupRationale": "Visit all10000business tool schemas before RSSbaseline so normal schema cache growth is not attributed to telemetry"
+  "warmupRationale": "Run10000operations over the fixed catalog before RSSbaseline; catalog scalability is outside this telemetry resource-isolation gate",
+  "riskMapping": {
+    "A": "real-capacity.integration.test.mjs:10000distinct forbidden identity attempts per instrument, unknown keys and forbidden recognized-dimension values, exact accepted measurement totals and bounded series over two collection intervals; positive approved-combination overflow at1024/512/256",
+    "B": "Actual runtime fixed catalog under unchanged32worker maxqueue/RSS pressure, readiness/results and recovery budgets",
+    "coverageGap": "No10000configured-tool catalog scalability claim. Prior catalog runs failed warmup with schema_evaluation_timeout, or single-owner admission, before resource windows; retain adverse evidence. Telemetry privacy rejection is not catalog scalability."
+  }
 }
