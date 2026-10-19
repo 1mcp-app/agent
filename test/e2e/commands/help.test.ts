@@ -39,9 +39,9 @@ const commandPaths = [
     'tools enable',
   ].map((sub) => `mcp ${sub}`.trim()),
   ...['', 'edit', 'create', 'show', 'list', 'url', 'delete', 'test'].map((sub) => `preset ${sub}`.trim()),
-  ...['', 'start', 'inspect', 'status', 'wait', 'cancel', 'retry'].map((sub) => `prepare ${sub}`.trim()),
-  'preparation inspect example',
-  'prepare example',
+  ...['', 'start', 'inspect', 'status', 'wait', 'cancel', 'retry'].map((sub) => `project prepare ${sub}`.trim()),
+  'project',
+  'project prepare example',
   ...['', 'search', 'status', 'show', 'versions'].map((sub) => `registry ${sub}`.trim()),
   ...['', 'add', 'use', 'export', 'import', 'doctor', 'current', 'list', 'inspect', 'delete', 'rename', 'verify'].map(
     (sub) => `target ${sub}`.trim(),
@@ -81,7 +81,8 @@ describe('CLI help', () => {
     expect(root.stdout).toContain('Examples:');
     expect(root.stdout).not.toContain('--async-max-retries');
     expect(root.stdout).not.toContain('--transport');
-    expect(root.stdout).toContain('1mcp prepare');
+    expect(root.stdout).toContain('1mcp project');
+    expect(root.stdout).not.toContain('1mcp prepare');
     expect(root.stdout).not.toContain('1mcp preparation');
     const serve = await runner.runCommand('serve', '', { args: ['--help'] });
     for (const group of [
@@ -115,6 +116,13 @@ describe('CLI help', () => {
     expect(result.stdout).toBe('');
     expect(result.stderr).toContain('Unknown');
     expect(result.stderr).toContain('1mcp');
+  });
+
+  it.each(['prepare', 'preparation'])('rejects removed root command %s', async (command) => {
+    const result = await runner.runCommand(command, '', { args: ['inspect', 'example'] });
+    runner.assertFailure(result, 1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('Unknown');
   });
 
   it('preserves errors and command help from rejected async handlers', async () => {

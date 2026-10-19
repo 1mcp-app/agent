@@ -76,7 +76,7 @@ npx -y @1mcp/agent run context7/query-docs --args '{"libraryId":"/mongodb/docs",
 - **[inspect](/zh/commands/inspect)** - 发现工具并查看 schema
 - **[run](/zh/commands/run)** - 执行工具调用
 - **[wait](/zh/commands/wait)** - 等待已配置静态服务器连接且可用
-- **[prepare](/zh/commands/prepare)** - 检查就绪状态并管理检出目录的准备任务
+- **[project prepare](/zh/commands/prepare)** - 检查就绪状态并管理检出目录的准备任务
 - **[cli-setup](/zh/commands/cli-setup)** - 安装 Codex 或 Claude 的引导文件
 - **[auth](/zh/commands/auth)** - 管理受保护服务器的认证配置
 

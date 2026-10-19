@@ -1,16 +1,19 @@
 ---
-title: Prepare Command - Backend Readiness and Preparation Jobs
+title: Project Prepare Command - Backend Readiness and Preparation Jobs
 description: Inspect checkout-specific backend readiness, request authorized preparation, and monitor, cancel, or retry asynchronous jobs with 1MCP.
 head:
-  - ['meta', { name: 'keywords', content: '1MCP prepare,preparation,backend readiness,job status,agent bootstrap' }]
-  - ['meta', { property: 'og:title', content: '1MCP Prepare Command Reference' }]
+  - [
+      'meta',
+      { name: 'keywords', content: '1MCP project prepare,preparation,backend readiness,job status,agent bootstrap' },
+    ]
+  - ['meta', { property: 'og:title', content: '1MCP Project Prepare Command Reference' }]
   - [
       'meta',
       { property: 'og:description', content: 'Check backend readiness and manage runtime-owned preparation jobs.' },
     ]
 ---
 
-# Prepare Command
+# Project Prepare Command
 
 Make a configured backend ready for a selected checkout and operation, for example by initializing an index or synchronizing changed source. Preparation uses integration commands and action permissions configured by the runtime operator. It requires a runtime with the HTTP preparation endpoint; there is no upstream MCP fallback.
 
@@ -24,18 +27,18 @@ Make a configured backend ready for a selected checkout and operation, for examp
 ## Synopsis
 
 ```bash
-1mcp prepare <backend> [options]
-1mcp prepare start <backend> [options]
-1mcp prepare inspect <backend> [options]
-1mcp prepare status <backend> [id] [options]
-1mcp prepare wait <backend> <id> [options]
-1mcp prepare cancel <backend> <id> [options]
-1mcp prepare retry <backend> [id] [options]
+1mcp project prepare <backend> [options]
+1mcp project prepare start <backend> [options]
+1mcp project prepare inspect <backend> [options]
+1mcp project prepare status <backend> [id] [options]
+1mcp project prepare wait <backend> <id> [options]
+1mcp project prepare cancel <backend> <id> [options]
+1mcp project prepare retry <backend> [id] [options]
 ```
 
-`backend` is the configured server name, not an executable or tool reference. `prepare <backend>` is shorthand for `prepare start <backend>`. Use explicit `start` for names matching subcommands, such as `1mcp prepare start status`.
+`backend` is the configured server name, not an executable or tool reference. `project prepare <backend>` is shorthand for `project prepare start <backend>`. Use explicit `start` for names matching subcommands, such as `1mcp project prepare start status`.
 
-The existing `1mcp preparation <action> <backend> [id]` syntax remains a compatibility alias for `inspect`, `status`, `wait`, `cancel`, and `retry`, without deprecation warnings.
+The previous root commands `1mcp prepare` and `1mcp preparation` have been removed. Use `1mcp project prepare` for all preparation operations; no compatibility aliases are registered.
 
 ## Actions
 
@@ -63,19 +66,19 @@ The existing `1mcp preparation <action> <backend> [id]` syntax remains a compati
 | `--format <text\|json>`                                         | Output format; defaults to `text`. Agents can use `json` for structured states and job IDs.                                        |
 | `--wait-ms <milliseconds>`                                      | Only for `wait`; integer from 0 to 3,600,000. Omission uses the runtime default. This does not extend the job execution deadline.  |
 
-Global configuration options also apply. Use `1mcp prepare --help` and subcommand help to see available flags. Keep the same runtime, filters, checkout, and operation across controls and subsequent tool calls.
+Global configuration options also apply. Use `1mcp project prepare --help` and subcommand help to see available flags. Keep the same runtime, filters, checkout, and operation across controls and subsequent tool calls.
 
 ## Example: inspect, prepare, and resume
 
 Assume an operator has configured `source-search` with a permitted preparation action for `lookup`:
 
 ```bash
-1mcp prepare inspect source-search --project /work/frontend --operation lookup --format json
-1mcp prepare start source-search --project /work/frontend --operation lookup --format json
+1mcp project prepare inspect source-search --project /work/frontend --operation lookup --format json
+1mcp project prepare start source-search --project /work/frontend --operation lookup --format json
 # If the response contains a job, copy its status.id:
 JOB_ID='replace-with-returned-job-id'
-1mcp prepare wait source-search "$JOB_ID" --project /work/frontend --wait-ms 5000 --format json
-1mcp prepare status source-search "$JOB_ID" --project /work/frontend --format json
+1mcp project prepare wait source-search "$JOB_ID" --project /work/frontend --wait-ms 5000 --format json
+1mcp project prepare status source-search "$JOB_ID" --project /work/frontend --format json
 ```
 
 If start reports `ready`, there is no job to wait for. Otherwise inspect the returned state, waiting again only while work is pending and within the task's budget. After readiness is verified:
@@ -98,8 +101,8 @@ If start reports `ready`, there is no job to wait for. Otherwise inspect the ret
 - `unknown`, `unsupported`, `conflict`, `forbidden`, `disabled`, or `busy`: follow the returned instructions and report the blocker. Do not infer readiness, break foreign locks, or change permissions to force progress.
 
 ```bash
-1mcp prepare retry source-search "$JOB_ID" --project /work/frontend --format json
-1mcp prepare cancel source-search "$JOB_ID" --project /work/frontend --format json
+1mcp project prepare retry source-search "$JOB_ID" --project /work/frontend --format json
+1mcp project prepare cancel source-search "$JOB_ID" --project /work/frontend --format json
 ```
 
 These are alternative recovery actions, not a sequence to execute routinely. Read-only inspection never starts preparation. Command success alone does not prove backend readiness; the response state and probe evidence determine the next step. Preparation requires a configured integration, and process containment currently supports Linux and macOS.

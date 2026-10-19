@@ -147,6 +147,8 @@ Writing hook configuration does not establish that the client enabled or trusted
 
 ## Preparation guidance
 
-The managed `SessionStart` and `SubagentStart` hooks invoke `1mcp bootstrap`. Bootstrap delivers the managed playbook and, when selection is resolved, runtime instructions. The playbook teaches the [prepare workflow](/commands/prepare): inspect readiness, request authorized work, monitor its job, verify readiness, refresh discovery, and make a fresh tool call. An unresolved worker assignment must be recovered before project-specific preparation.
+The managed `SessionStart` and `SubagentStart` hooks invoke `1mcp bootstrap`. Bootstrap delivers the managed playbook and, when selection is resolved, runtime instructions. The playbook teaches the [project prepare workflow](/commands/prepare): inspect readiness, request authorized work, monitor its job, verify readiness, refresh discovery, and make a fresh tool call. An unresolved worker assignment must be recovered before project-specific preparation.
 
 Setup installs this guidance; it does not start preparation, enable automatic preparation, or change action permissions. Keep the bootstrap hooks. If current instructions were already delivered by hooks, do not fetch them again; otherwise use the standalone `1mcp instructions` entrypoint. Rerun `cli-setup` to refresh managed guidance in the selected scope.
+
+Worker terminal events are not currently supported. `SubagentStop` means a worker has stopped responding for now and can continue later; it is not verified session termination and must not release its ownership. Workers must use `1mcp project release` explicitly when finished. Idle expiry remains the fallback for missed end events and crashes.

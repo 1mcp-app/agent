@@ -40,8 +40,8 @@ describe('worker bootstrap client contracts', () => {
             return instructions;
           },
         );
-        expect(output).toContain('1mcp prepare inspect <backend>');
-        expect(output).toContain('1mcp prepare start <backend>');
+        expect(output).toContain('1mcp project prepare inspect <backend>');
+        expect(output).toContain('1mcp project prepare start <backend>');
         expect(output).toContain('never executes or replays the original tool call');
         expect(output).toContain('do not run `1mcp instructions` again');
         if (scenario === 'unavailable') {
@@ -75,7 +75,7 @@ describe('worker bootstrap client contracts', () => {
     expect(output).not.toContain('/parent');
     expect(output).not.toContain('/invented');
     expect(output).toContain('inspect <server>/<tool>');
-    expect(output).toContain('1mcp prepare inspect <backend>');
+    expect(output).toContain('1mcp project prepare inspect <backend>');
     expect(output).toContain('assigned --project/--project-set');
   });
 

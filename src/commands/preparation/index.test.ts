@@ -1,32 +1,50 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import yargs from 'yargs';
 
-import { setupPreparationCommands } from './index.js';
+import { setupProjectCommands } from '../project/index.js';
 
 const preparationCommand = vi.hoisted(() => vi.fn());
 vi.mock('./preparation.js', () => ({ preparationCommand }));
 vi.mock('@src/logger/configureGlobalLogger.js', () => ({ configureGlobalLogger: vi.fn() }));
 
 async function parse(args: string[]) {
-  return setupPreparationCommands(yargs([]).exitProcess(false).help().version(false).strict())
+  return setupProjectCommands(yargs([]).exitProcess(false).help().version(false).strict())
     .showHelpOnFail(false)
-    .parseAsync(args);
+    .parseAsync(['project', ...args]);
 }
 
 afterEach(() => vi.clearAllMocks());
 
 describe('prepare command family', () => {
-  it('advertises prepare while explaining the legacy alias only in its own help', async () => {
-    const parser = setupPreparationCommands(yargs([]).scriptName('1mcp').exitProcess(false).help().version(false));
+  it.each(['preparation', 'preparation inspect source-search'])(
+    'rejects removed compatibility entry point %s',
+    async (command) => {
+      await expect(parse(command.split(' '))).rejects.toThrow();
+      expect(preparationCommand).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['prepare', 'preparation'])('rejects removed root command %s', async (command) => {
+    const parser = setupProjectCommands(yargs([]).exitProcess(false).strict()).showHelpOnFail(false);
+    await expect(async () => parser.parseAsync([command, 'inspect', 'source-search'])).rejects.toThrow();
+    expect(preparationCommand).not.toHaveBeenCalled();
+  });
+
+  it('advertises the project group and nested preparation family without invoking work', async () => {
     const outputs: string[] = [];
-    for (const args of [['--help'], ['preparation', '--help']]) {
-      await parser.parseAsync(args, {}, (_error, _argv, help) => {
-        outputs.push(help.replace(/\s+/g, ' '));
-      });
+    for (const args of [['--help'], ['project', '--help']]) {
+      await setupProjectCommands(yargs([]).scriptName('1mcp').exitProcess(false).help().version(false)).parseAsync(
+        args,
+        {},
+        (_error, _argv, help) => {
+          outputs.push(help.replace(/\s+/g, ' '));
+        },
+      );
     }
-    expect(outputs[0]).toContain('1mcp prepare');
+    expect(outputs[0]).toContain('1mcp project');
+    expect(outputs[0]).not.toContain('1mcp prepare');
     expect(outputs[0]).not.toContain('1mcp preparation');
-    expect(outputs[1]).toContain('Legacy compatibility alias. Use 1mcp prepare <action> <backend> [id] instead.');
+    expect(outputs[1]).toContain('1mcp project prepare');
     expect(preparationCommand).not.toHaveBeenCalled();
   });
 
@@ -40,7 +58,7 @@ describe('prepare command family', () => {
     );
   });
 
-  it.each(['inspect', 'status', 'wait', 'cancel', 'retry'])('supports %s and its legacy alias', async (action) => {
+  it.each(['inspect', 'status', 'wait', 'cancel', 'retry'])('supports %s', async (action) => {
     const id = '00000000-0000-4000-8000-000000000001';
     const tail = action === 'inspect' ? [] : [id];
     const selection = [
@@ -60,24 +78,22 @@ describe('prepare command family', () => {
       'json',
     ];
     if (action === 'wait') selection.push('--wait-ms', '5000');
-    for (const command of ['prepare', 'preparation']) {
-      await parse([command, action, 'source-search', ...tail, ...selection]);
-      expect(preparationCommand).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          action,
-          backend: 'source-search',
-          ...(tail.length ? { id } : {}),
-          project: ['/selected'],
-          context: 'local',
-          url: 'http://localhost:3050',
-          operation: 'lookup',
-          preset: 'code',
-          tags: ['source'],
-          format: 'json',
-          ...(action === 'wait' ? { 'wait-ms': 5000 } : {}),
-        }),
-      );
-    }
+    await parse(['prepare', action, 'source-search', ...tail, ...selection]);
+    expect(preparationCommand).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        action,
+        backend: 'source-search',
+        ...(tail.length ? { id } : {}),
+        project: ['/selected'],
+        context: 'local',
+        url: 'http://localhost:3050',
+        operation: 'lookup',
+        preset: 'code',
+        tags: ['source'],
+        format: 'json',
+        ...(action === 'wait' ? { 'wait-ms': 5000 } : {}),
+      }),
+    );
   });
 
   it.each(['start', 'inspect', 'status', 'wait', 'cancel', 'retry'])(
@@ -111,8 +127,8 @@ describe('prepare command family', () => {
 
   it('shows controls and start in prepare help without invoking work', async () => {
     let output = '';
-    await setupPreparationCommands(yargs([]).exitProcess(false).help().version(false)).parseAsync(
-      ['prepare', '--help'],
+    await setupProjectCommands(yargs([]).exitProcess(false).help().version(false)).parseAsync(
+      ['project', 'prepare', '--help'],
       (_error: Error | undefined, _argv: unknown, help: string) => {
         output = help;
       },

@@ -70,8 +70,8 @@ description: 了解服务器何时需要准备、如何启用已有配方，以�
 你也可以自行检查或启动准备。下面的例子中，将 `source-search` 替换为服务器配置名称，`lookup` 替换为配方覆盖的工具名称，`/work/project` 替换为已授权的项目路径：
 
 ```bash
-1mcp prepare inspect source-search --project /work/project --operation lookup
-1mcp prepare source-search --project /work/project --operation lookup
+1mcp project prepare inspect source-search --project /work/project --operation lookup
+1mcp project prepare source-search --project /work/project --operation lookup
 ```
 
 `inspect` 只检查就绪状态，不启动准备。`prepare` 在需要时启动已允许的操作，即使服务器尚未列出任何工具，也可以使用。
@@ -79,7 +79,7 @@ description: 了解服务器何时需要准备、如何启用已有配方，以�
 使用返回的任务 ID 查看进度：
 
 ```bash
-1mcp prepare wait source-search JOB_ID --project /work/project --wait-ms 5000
+1mcp project prepare wait source-search JOB_ID --project /work/project --wait-ms 5000
 ```
 
 如果任务仍在运行，请再次等待。你也可以使用 `prepare status`、`prepare cancel` 或 `prepare retry`，传入相同的服务器名称、任务 ID 和项目。

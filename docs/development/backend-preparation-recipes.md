@@ -72,15 +72,15 @@ node build/index.js serve --config "$DEMO/config/mcp.json" --config-dir "$DEMO/c
 In the second terminal, inspect and initialize the first checkout:
 
 ```bash
-node build/index.js preparation inspect fixture --operation source --project "$DEMO/first" --config-dir "$DEMO/config" --url http://localhost:3059/mcp --format json
-node build/index.js prepare fixture --operation source --project "$DEMO/first" --config-dir "$DEMO/config" --url http://localhost:3059/mcp --format json
+node build/index.js project prepare inspect fixture --operation source --project "$DEMO/first" --config-dir "$DEMO/config" --url http://localhost:3059/mcp --format json
+node build/index.js project prepare fixture --operation source --project "$DEMO/first" --config-dir "$DEMO/config" --url http://localhost:3059/mcp --format json
 ```
 
 The cold fixture initially advertises no tools, so this example uses the preparation control to initialize it. Copy `status.id` from the job response, then wait and query:
 
 ```bash
 JOB_ID='replace-with-status.id'
-node build/index.js preparation wait fixture "$JOB_ID" --wait-ms 5000 --project "$DEMO/first" --config-dir "$DEMO/config" --url http://localhost:3059/mcp --format json
+node build/index.js project prepare wait fixture "$JOB_ID" --wait-ms 5000 --project "$DEMO/first" --config-dir "$DEMO/config" --url http://localhost:3059/mcp --format json
 node build/index.js inspect fixture/source --project "$DEMO/first" --config-dir "$DEMO/config" --url http://localhost:3059/mcp
 node build/index.js run fixture/source --args '{}' --project "$DEMO/first" --config-dir "$DEMO/config" --url http://localhost:3059/mcp --format json
 ```
@@ -190,13 +190,13 @@ For inline commands and named definitions without explicit runtime setup activat
 Preparation controls remain accessible even if initial tool discovery is empty:
 
 ```bash
-1mcp prepare inspect source-search --project /work/frontend --operation lookup --format json
-1mcp prepare source-search --project /work/frontend --operation lookup --format json
+1mcp project prepare inspect source-search --project /work/frontend --operation lookup --format json
+1mcp project prepare source-search --project /work/frontend --operation lookup --format json
 OPERATION_ID='replace-with-returned-job-id'
-1mcp prepare status source-search "$OPERATION_ID" --project /work/frontend
-1mcp prepare wait source-search "$OPERATION_ID" --project /work/frontend --wait-ms 5000
-1mcp prepare cancel source-search "$OPERATION_ID" --project /work/frontend
-1mcp prepare retry source-search "$OPERATION_ID" --project /work/frontend
+1mcp project prepare status source-search "$OPERATION_ID" --project /work/frontend
+1mcp project prepare wait source-search "$OPERATION_ID" --project /work/frontend --wait-ms 5000
+1mcp project prepare cancel source-search "$OPERATION_ID" --project /work/frontend
+1mcp project prepare retry source-search "$OPERATION_ID" --project /work/frontend
 ```
 
 `inspect` reads readiness and current job state, action, elapsed time, and available progress. It does not schedule preparation, repair state, or retry failed jobs. Handles are bound to the authenticated owner, target, operation, and effective configuration. Controls using an ID recover its operation automatically; an explicitly conflicting operation is rejected.

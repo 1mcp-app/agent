@@ -12,7 +12,7 @@ describe('preparation guidance delivery', () => {
     ['standalone formatter', formatInstructionsOutput({ servers: [], details: [] })],
   ])('teaches authorized recovery through %s', (_surface, content) => {
     for (const action of ['inspect', 'start', 'status', 'wait', 'cancel', 'retry']) {
-      expect(content).toContain(`1mcp prepare ${action} <backend>`);
+      expect(content).toContain(`1mcp project prepare ${action} <backend>`);
     }
     expect(content).toContain('same runtime (--url/--context)');
     expect(content).toContain('assigned --project/--project-set');

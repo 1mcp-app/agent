@@ -1,13 +1,13 @@
 ---
-title: Prepare 命令 - 后端就绪检查和准备任务
+title: Project Prepare 命令 - 后端就绪检查和准备任务
 description: 使用 1MCP 检查检出目录的后端就绪状态，请求已授权的准备工作，并监控、取消或重试异步任务。
 head:
-  - ['meta', { name: 'keywords', content: '1MCP prepare,preparation,后端就绪,任务状态,智能体引导' }]
-  - ['meta', { property: 'og:title', content: '1MCP Prepare 命令参考' }]
+  - ['meta', { name: 'keywords', content: '1MCP project prepare,preparation,后端就绪,任务状态,智能体引导' }]
+  - ['meta', { property: 'og:title', content: '1MCP Project Prepare 命令参考' }]
   - ['meta', { property: 'og:description', content: '检查后端就绪状态并管理运行时拥有的准备任务。' }]
 ---
 
-# Prepare 命令
+# Project Prepare 命令
 
 为选定的检出目录和操作准备已配置的后端，例如初始化索引或同步变更的源码。准备工作使用运行时管理员配置的集成命令和操作权限。此功能需要运行时的 HTTP preparation 端点，不会回退到直接调用上游 MCP。
 
@@ -21,18 +21,18 @@ head:
 ## 语法
 
 ```bash
-1mcp prepare <backend> [options]
-1mcp prepare start <backend> [options]
-1mcp prepare inspect <backend> [options]
-1mcp prepare status <backend> [id] [options]
-1mcp prepare wait <backend> <id> [options]
-1mcp prepare cancel <backend> <id> [options]
-1mcp prepare retry <backend> [id] [options]
+1mcp project prepare <backend> [options]
+1mcp project prepare start <backend> [options]
+1mcp project prepare inspect <backend> [options]
+1mcp project prepare status <backend> [id] [options]
+1mcp project prepare wait <backend> <id> [options]
+1mcp project prepare cancel <backend> <id> [options]
+1mcp project prepare retry <backend> [id] [options]
 ```
 
-`backend` 是配置中的服务器名称，不是可执行文件或工具引用。`prepare <backend>` 是 `prepare start <backend>` 的简写。服务器名称与子命令重名时，请显式使用 `start`，例如 `1mcp prepare start status`。
+`backend` 是配置中的服务器名称，不是可执行文件或工具引用。`project prepare <backend>` 是 `project prepare start <backend>` 的简写。服务器名称与子命令重名时，请显式使用 `start`，例如 `1mcp project prepare start status`。
 
-现有的 `1mcp preparation <action> <backend> [id]` 语法保留为 `inspect`、`status`、`wait`、`cancel` 和 `retry` 的兼容别名，不输出弃用警告。
+原根命令 `1mcp prepare` 和 `1mcp preparation` 已移除。所有准备操作请使用 `1mcp project prepare`，不提供兼容别名。
 
 ## 操作
 
@@ -60,19 +60,19 @@ head:
 | `--format <text\|json>`                                         | 输出格式，默认 `text`。智能体可使用 `json` 读取结构化状态和任务 ID。                        |
 | `--wait-ms <milliseconds>`                                      | 仅供 `wait` 使用，整数范围为 0 至 3,600,000。省略时使用运行时默认值，不会延长任务执行期限。 |
 
-全局配置选项同样适用。使用 `1mcp prepare --help` 和子命令帮助查看可用参数。控制任务和后续工具调用时应保持相同的运行时、过滤器、检出目录和操作。
+全局配置选项同样适用。使用 `1mcp project prepare --help` 和子命令帮助查看可用参数。控制任务和后续工具调用时应保持相同的运行时、过滤器、检出目录和操作。
 
 ## 示例：检查、准备和恢复调用
 
 假设管理员已为 `source-search` 的 `lookup` 操作配置并授权准备动作：
 
 ```bash
-1mcp prepare inspect source-search --project /work/frontend --operation lookup --format json
-1mcp prepare start source-search --project /work/frontend --operation lookup --format json
+1mcp project prepare inspect source-search --project /work/frontend --operation lookup --format json
+1mcp project prepare start source-search --project /work/frontend --operation lookup --format json
 # 如果响应包含任务，复制其 status.id：
 JOB_ID='replace-with-returned-job-id'
-1mcp prepare wait source-search "$JOB_ID" --project /work/frontend --wait-ms 5000 --format json
-1mcp prepare status source-search "$JOB_ID" --project /work/frontend --format json
+1mcp project prepare wait source-search "$JOB_ID" --project /work/frontend --wait-ms 5000 --format json
+1mcp project prepare status source-search "$JOB_ID" --project /work/frontend --format json
 ```
 
 如果启动操作返回 `ready`，则无需等待任务。否则应检查响应状态，只在任务仍未完成且未超出当前任务预算时继续等待。验证就绪后：
@@ -95,8 +95,8 @@ JOB_ID='replace-with-returned-job-id'
 - `unknown`、`unsupported`、`conflict`、`forbidden`、`disabled` 或 `busy`：按照返回的指引处理并报告阻塞，不猜测就绪状态、破坏外部锁或更改权限来强制推进。
 
 ```bash
-1mcp prepare retry source-search "$JOB_ID" --project /work/frontend --format json
-1mcp prepare cancel source-search "$JOB_ID" --project /work/frontend --format json
+1mcp project prepare retry source-search "$JOB_ID" --project /work/frontend --format json
+1mcp project prepare cancel source-search "$JOB_ID" --project /work/frontend --format json
 ```
 
 以上是可选的恢复操作，不是应依次执行的常规步骤。只读检查不会启动准备工作。命令成功本身不能证明后端就绪，下一步应由响应状态和探测证据决定。准备工作需要已配置的集成，目前进程隔离支持 Linux 和 macOS。
