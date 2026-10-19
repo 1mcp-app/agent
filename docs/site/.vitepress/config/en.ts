@@ -58,7 +58,7 @@ export default function createConfig(version: string) {
       },
 
       editLink: {
-        pattern: 'https://github.com/1mcp-app/agent/edit/main/docs/:path',
+        pattern: 'https://github.com/1mcp-app/agent/edit/main/docs/site/:path',
         text: 'Edit this page on GitHub',
       },
     },

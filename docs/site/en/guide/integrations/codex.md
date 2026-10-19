@@ -1,6 +1,6 @@
 ---
 title: Codex Integration
-description: "Choose one 1MCP workflow for Codex: CLI mode, direct HTTP, or the stdio proxy."
+description: 'Choose one 1MCP workflow for Codex: CLI mode, direct HTTP, or the stdio proxy.'
 head:
   - ['meta', { name: 'keywords', content: '1MCP Codex integration,Codex MCP,config.toml,stdio proxy' }]
   - ['meta', { property: 'og:title', content: '1MCP Codex Integration' }]
@@ -19,11 +19,11 @@ Current Codex supports MCP configuration in a trusted project's `.codex/config.t
 
 Choose exactly one agent-facing 1MCP mode for a Codex project. Do not keep a direct HTTP entry, a proxy entry, and the CLI workflow enabled together: they expose duplicate tool surfaces and make tool selection ambiguous.
 
-| Mode | Use it when | Do not configure |
-| --- | --- | --- |
-| CLI mode | Codex should use 1MCP commands progressively through its bootstrap instructions. | A 1MCP MCP-server entry in Codex. |
-| Direct HTTP | A trusted project only needs the aggregate 1MCP MCP endpoint. | `1mcp proxy` for the same project. |
-| Stdio proxy | The project needs `.1mcprc` preset/filter selection or a stdio bridge. | The direct HTTP entry for the same project. |
+| Mode        | Use it when                                                                      | Do not configure                            |
+| ----------- | -------------------------------------------------------------------------------- | ------------------------------------------- |
+| CLI mode    | Codex should use 1MCP commands progressively through its bootstrap instructions. | A 1MCP MCP-server entry in Codex.           |
+| Direct HTTP | A trusted project only needs the aggregate 1MCP MCP endpoint.                    | `1mcp proxy` for the same project.          |
+| Stdio proxy | The project needs `.1mcprc` preset/filter selection or a stdio bridge.           | The direct HTTP entry for the same project. |
 
 All examples below use the default 1MCP port, `3050`. Replace it consistently when `1mcp serve` runs on another port.
 

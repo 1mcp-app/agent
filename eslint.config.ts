@@ -28,8 +28,8 @@ export default [
       '.scratch/**',
       '.pnpm-store',
       'eslint.config.*',
-      'docs/.vitepress/dist',
-      'docs/.vitepress/cache',
+      'docs/site/.vitepress/dist',
+      'docs/site/.vitepress/cache',
       '.claude/**',
       '.agents/**',
     ],
@@ -187,7 +187,7 @@ export default [
   },
   // Disable typed linting for VitePress site config files to avoid tsconfig project inclusion issues
   {
-    files: ['docs/.vitepress/**/*.ts'],
+    files: ['docs/site/.vitepress/**/*.ts'],
     languageOptions: {
       parser: tsParser,
       parserOptions: {

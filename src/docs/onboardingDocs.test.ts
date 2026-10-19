@@ -10,18 +10,18 @@ function readRepoFile(path: string): string {
 
 describe('onboarding documentation', () => {
   it('keeps the first-run installation, runtime, OAuth, and Codex contracts aligned', () => {
-    const enGettingStarted = readRepoFile('docs/en/guide/getting-started.md');
-    const zhGettingStarted = readRepoFile('docs/zh/guide/getting-started.md');
-    const enQuickStart = readRepoFile('docs/en/guide/quick-start.md');
-    const zhQuickStart = readRepoFile('docs/zh/guide/quick-start.md');
-    const enInstallation = readRepoFile('docs/en/guide/installation.md');
-    const zhInstallation = readRepoFile('docs/zh/guide/installation.md');
-    const enCodex = readRepoFile('docs/en/guide/integrations/codex.md');
-    const zhCodex = readRepoFile('docs/zh/guide/integrations/codex.md');
-    const enDevelopment = readRepoFile('docs/en/guide/development.md');
-    const zhDevelopment = readRepoFile('docs/zh/guide/development.md');
-    const enHome = readRepoFile('docs/en/index.md');
-    const zhHome = readRepoFile('docs/zh/index.md');
+    const enGettingStarted = readRepoFile('docs/site/en/guide/getting-started.md');
+    const zhGettingStarted = readRepoFile('docs/site/zh/guide/getting-started.md');
+    const enQuickStart = readRepoFile('docs/site/en/guide/quick-start.md');
+    const zhQuickStart = readRepoFile('docs/site/zh/guide/quick-start.md');
+    const enInstallation = readRepoFile('docs/site/en/guide/installation.md');
+    const zhInstallation = readRepoFile('docs/site/zh/guide/installation.md');
+    const enCodex = readRepoFile('docs/site/en/guide/integrations/codex.md');
+    const zhCodex = readRepoFile('docs/site/zh/guide/integrations/codex.md');
+    const enDevelopment = readRepoFile('docs/site/en/guide/development.md');
+    const zhDevelopment = readRepoFile('docs/site/zh/guide/development.md');
+    const enHome = readRepoFile('docs/site/en/index.md');
+    const zhHome = readRepoFile('docs/site/zh/index.md');
     const releaseWorkflow = readRepoFile('.github/workflows/build-binaries.yml');
 
     for (const page of [

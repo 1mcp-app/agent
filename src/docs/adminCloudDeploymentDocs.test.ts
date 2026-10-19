@@ -11,20 +11,20 @@ function readRepoFile(path: string): string {
 
 describe('admin cloud deployment docs', () => {
   it('documents the blessed Caddy deployment path and links it from the docs navigation', () => {
-    const enGuide = readRepoFile('docs/en/guide/advanced/cloud-deployment.md');
-    const zhGuide = readRepoFile('docs/zh/guide/advanced/cloud-deployment.md');
-    const enConfig = readRepoFile('docs/.vitepress/config/en.ts');
-    const zhConfig = readRepoFile('docs/.vitepress/config/zh.ts');
-    const enReverseProxy = readRepoFile('docs/en/guide/advanced/reverse-proxy.md');
-    const zhReverseProxy = readRepoFile('docs/zh/guide/advanced/reverse-proxy.md');
-    const enGettingStarted = readRepoFile('docs/en/guide/getting-started.md');
-    const zhGettingStarted = readRepoFile('docs/zh/guide/getting-started.md');
-    const enServe = readRepoFile('docs/en/commands/serve.md');
-    const zhServe = readRepoFile('docs/zh/commands/serve.md');
-    const enRuntimeConfig = readRepoFile('docs/en/guide/essentials/configuration.md');
-    const zhRuntimeConfig = readRepoFile('docs/zh/guide/essentials/configuration.md');
-    const enTrustProxy = readRepoFile('docs/en/reference/trust-proxy.md');
-    const zhTrustProxy = readRepoFile('docs/zh/reference/trust-proxy.md');
+    const enGuide = readRepoFile('docs/site/en/guide/advanced/cloud-deployment.md');
+    const zhGuide = readRepoFile('docs/site/zh/guide/advanced/cloud-deployment.md');
+    const enConfig = readRepoFile('docs/site/.vitepress/config/en.ts');
+    const zhConfig = readRepoFile('docs/site/.vitepress/config/zh.ts');
+    const enReverseProxy = readRepoFile('docs/site/en/guide/advanced/reverse-proxy.md');
+    const zhReverseProxy = readRepoFile('docs/site/zh/guide/advanced/reverse-proxy.md');
+    const enGettingStarted = readRepoFile('docs/site/en/guide/getting-started.md');
+    const zhGettingStarted = readRepoFile('docs/site/zh/guide/getting-started.md');
+    const enServe = readRepoFile('docs/site/en/commands/serve.md');
+    const zhServe = readRepoFile('docs/site/zh/commands/serve.md');
+    const enRuntimeConfig = readRepoFile('docs/site/en/guide/essentials/configuration.md');
+    const zhRuntimeConfig = readRepoFile('docs/site/zh/guide/essentials/configuration.md');
+    const enTrustProxy = readRepoFile('docs/site/en/reference/trust-proxy.md');
+    const zhTrustProxy = readRepoFile('docs/site/zh/reference/trust-proxy.md');
 
     expect(enGuide).toContain('Caddy');
     expect(enGuide).toContain('reverse_proxy 127.0.0.1:3050');

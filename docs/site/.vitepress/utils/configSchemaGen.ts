@@ -9,7 +9,7 @@ import { dirname } from 'path';
 
 import { z } from 'zod';
 
-import { SCHEMA_BASE_URL, SCHEMA_VERSION } from '../../../src/constants/schema.js';
+import { SCHEMA_BASE_URL, SCHEMA_VERSION } from '../../../../src/constants/schema.js';
 
 /**
  * Generate JSON Schema from Zod schema with proper metadata
@@ -177,4 +177,4 @@ export function addSchemaPropertySupport(baseSchema: Record<string, unknown>): R
 /**
  * Re-export schema constants for use in the plugin
  */
-export { SCHEMA_BASE_URL, SCHEMA_VERSION } from '../../../src/constants/schema.js';
+export { SCHEMA_BASE_URL, SCHEMA_VERSION } from '../../../../src/constants/schema.js';

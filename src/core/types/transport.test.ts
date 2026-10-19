@@ -6,13 +6,15 @@ import addFormats from 'ajv-formats';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
-import { generateMcpConfigSchema } from '../../../docs/.vitepress/utils/configSchemaGen.js';
+import { generateMcpConfigSchema } from '../../../docs/site/.vitepress/utils/configSchemaGen.js';
 import { mcpServerConfigSchema, transportConfigSchema } from './transport.js';
 
 describe.each([
   [
     'published',
-    JSON.parse(readFileSync(new URL('../../../docs/public/schemas/v1.0.0/mcp-config.json', import.meta.url), 'utf8')),
+    JSON.parse(
+      readFileSync(new URL('../../../docs/site/public/schemas/v1.0.0/mcp-config.json', import.meta.url), 'utf8'),
+    ),
   ],
   ['generated', generateMcpConfigSchema(transportConfigSchema, mcpServerConfigSchema)],
 ])('%s project target schema', (_name, schema) => {

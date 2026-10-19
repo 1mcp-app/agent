@@ -191,10 +191,7 @@
                         }
                       }
                     },
-                    "required": [
-                      "executable",
-                      "args"
-                    ],
+                    "required": ["executable", "args"],
                     "additionalProperties": false
                   },
                   "status": {
@@ -214,10 +211,7 @@
                         }
                       }
                     },
-                    "required": [
-                      "executable",
-                      "args"
-                    ],
+                    "required": ["executable", "args"],
                     "additionalProperties": false
                   },
                   "readinessExitCodes": {
@@ -236,9 +230,7 @@
                               "const": "ready"
                             }
                           },
-                          "required": [
-                            "state"
-                          ],
+                          "required": ["state"],
                           "additionalProperties": false
                         },
                         {
@@ -250,13 +242,7 @@
                             },
                             "action": {
                               "type": "string",
-                              "enum": [
-                                "initialize",
-                                "sync",
-                                "rebuild",
-                                "install",
-                                "paid"
-                              ]
+                              "enum": ["initialize", "sync", "rebuild", "install", "paid"]
                             },
                             "instructions": {
                               "type": "string",
@@ -264,11 +250,7 @@
                               "maxLength": 4096
                             }
                           },
-                          "required": [
-                            "state",
-                            "action",
-                            "instructions"
-                          ],
+                          "required": ["state", "action", "instructions"],
                           "additionalProperties": false
                         },
                         {
@@ -284,10 +266,7 @@
                               "maxLength": 4096
                             }
                           },
-                          "required": [
-                            "state",
-                            "instructions"
-                          ],
+                          "required": ["state", "instructions"],
                           "additionalProperties": false
                         }
                       ]
@@ -297,13 +276,7 @@
                     "type": "object",
                     "propertyNames": {
                       "type": "string",
-                      "enum": [
-                        "initialize",
-                        "sync",
-                        "rebuild",
-                        "install",
-                        "paid"
-                      ]
+                      "enum": ["initialize", "sync", "rebuild", "install", "paid"]
                     },
                     "additionalProperties": {
                       "type": "object",
@@ -322,9 +295,7 @@
                           }
                         },
                         "successExitCodes": {
-                          "default": [
-                            0
-                          ],
+                          "default": [0],
                           "minItems": 1,
                           "type": "array",
                           "items": {
@@ -343,10 +314,7 @@
                           }
                         }
                       },
-                      "required": [
-                        "executable",
-                        "args"
-                      ],
+                      "required": ["executable", "args"],
                       "additionalProperties": false
                     }
                   },
@@ -369,12 +337,7 @@
                     "maximum": 5000
                   }
                 },
-                "required": [
-                  "containment",
-                  "probe",
-                  "readinessExitCodes",
-                  "actions"
-                ],
+                "required": ["containment", "probe", "readinessExitCodes", "actions"],
                 "additionalProperties": false
               },
               "definition": {
@@ -403,9 +366,7 @@
                     }
                   }
                 },
-                "required": [
-                  "id"
-                ],
+                "required": ["id"],
                 "additionalProperties": false
               },
               "activation": {
@@ -420,13 +381,7 @@
                 "type": "array",
                 "items": {
                   "type": "string",
-                  "enum": [
-                    "initialize",
-                    "sync",
-                    "rebuild",
-                    "install",
-                    "paid"
-                  ]
+                  "enum": ["initialize", "sync", "rebuild", "install", "paid"]
                 }
               },
               "executionDeadlineMs": {
@@ -440,41 +395,28 @@
                 "maximum": 3
               }
             },
-            "required": [
-              "adapter",
-              "allowedActions"
-            ],
+            "required": ["adapter", "allowedActions"],
             "additionalProperties": false,
             "allOf": [
               {
                 "if": {
-                  "required": [
-                    "definition"
-                  ]
+                  "required": ["definition"]
                 },
                 "then": {
                   "not": {
-                    "required": [
-                      "integration"
-                    ]
+                    "required": ["integration"]
                   }
                 },
                 "else": {
-                  "required": [
-                    "affectedTools"
-                  ]
+                  "required": ["affectedTools"]
                 }
               },
               {
                 "if": {
-                  "required": [
-                    "activation"
-                  ]
+                  "required": ["activation"]
                 },
                 "then": {
-                  "required": [
-                    "definition"
-                  ]
+                  "required": ["definition"]
                 }
               }
             ]
@@ -487,19 +429,14 @@
                 "properties": {
                   "mode": {
                     "type": "string",
-                    "enum": [
-                      "independent",
-                      "single"
-                    ]
+                    "enum": ["independent", "single"]
                   },
                   "argument": {
                     "type": "string",
                     "minLength": 1
                   }
                 },
-                "required": [
-                  "mode"
-                ],
+                "required": ["mode"],
                 "additionalProperties": false
               },
               {
@@ -514,10 +451,7 @@
                     "minLength": 1
                   }
                 },
-                "required": [
-                  "mode",
-                  "argument"
-                ],
+                "required": ["mode", "argument"],
                 "additionalProperties": false
               }
             ]
@@ -525,21 +459,12 @@
           "type": {
             "description": "Transport type for connecting to the MCP server",
             "type": "string",
-            "enum": [
-              "stdio",
-              "sse",
-              "http",
-              "streamableHttp"
-            ]
+            "enum": ["stdio", "sse", "http", "streamableHttp"]
           },
           "protocolVersion": {
             "description": "Outbound MCP protocol negotiation mode (defaults to auto when omitted)",
             "type": "string",
-            "enum": [
-              "auto",
-              "legacy",
-              "2026-07-28"
-            ]
+            "enum": ["auto", "legacy", "2026-07-28"]
           },
           "disabled": {
             "description": "Disable this server. Can be a boolean value or a template string that evaluates to a boolean (e.g., \"{?project.environment=production}\")",
@@ -681,12 +606,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "enum": [
-                  "inherit",
-                  "ignore",
-                  "overlapped",
-                  "pipe"
-                ]
+                "enum": ["inherit", "ignore", "overlapped", "pipe"]
               },
               {
                 "type": "integer",
@@ -846,10 +766,7 @@
                         }
                       }
                     },
-                    "required": [
-                      "executable",
-                      "args"
-                    ],
+                    "required": ["executable", "args"],
                     "additionalProperties": false
                   },
                   "status": {
@@ -869,10 +786,7 @@
                         }
                       }
                     },
-                    "required": [
-                      "executable",
-                      "args"
-                    ],
+                    "required": ["executable", "args"],
                     "additionalProperties": false
                   },
                   "readinessExitCodes": {
@@ -891,9 +805,7 @@
                               "const": "ready"
                             }
                           },
-                          "required": [
-                            "state"
-                          ],
+                          "required": ["state"],
                           "additionalProperties": false
                         },
                         {
@@ -905,13 +817,7 @@
                             },
                             "action": {
                               "type": "string",
-                              "enum": [
-                                "initialize",
-                                "sync",
-                                "rebuild",
-                                "install",
-                                "paid"
-                              ]
+                              "enum": ["initialize", "sync", "rebuild", "install", "paid"]
                             },
                             "instructions": {
                               "type": "string",
@@ -919,11 +825,7 @@
                               "maxLength": 4096
                             }
                           },
-                          "required": [
-                            "state",
-                            "action",
-                            "instructions"
-                          ],
+                          "required": ["state", "action", "instructions"],
                           "additionalProperties": false
                         },
                         {
@@ -939,10 +841,7 @@
                               "maxLength": 4096
                             }
                           },
-                          "required": [
-                            "state",
-                            "instructions"
-                          ],
+                          "required": ["state", "instructions"],
                           "additionalProperties": false
                         }
                       ]
@@ -952,13 +851,7 @@
                     "type": "object",
                     "propertyNames": {
                       "type": "string",
-                      "enum": [
-                        "initialize",
-                        "sync",
-                        "rebuild",
-                        "install",
-                        "paid"
-                      ]
+                      "enum": ["initialize", "sync", "rebuild", "install", "paid"]
                     },
                     "additionalProperties": {
                       "type": "object",
@@ -977,9 +870,7 @@
                           }
                         },
                         "successExitCodes": {
-                          "default": [
-                            0
-                          ],
+                          "default": [0],
                           "minItems": 1,
                           "type": "array",
                           "items": {
@@ -998,10 +889,7 @@
                           }
                         }
                       },
-                      "required": [
-                        "executable",
-                        "args"
-                      ],
+                      "required": ["executable", "args"],
                       "additionalProperties": false
                     }
                   },
@@ -1024,12 +912,7 @@
                     "maximum": 5000
                   }
                 },
-                "required": [
-                  "containment",
-                  "probe",
-                  "readinessExitCodes",
-                  "actions"
-                ],
+                "required": ["containment", "probe", "readinessExitCodes", "actions"],
                 "additionalProperties": false
               },
               "definition": {
@@ -1058,9 +941,7 @@
                     }
                   }
                 },
-                "required": [
-                  "id"
-                ],
+                "required": ["id"],
                 "additionalProperties": false
               },
               "activation": {
@@ -1075,13 +956,7 @@
                 "type": "array",
                 "items": {
                   "type": "string",
-                  "enum": [
-                    "initialize",
-                    "sync",
-                    "rebuild",
-                    "install",
-                    "paid"
-                  ]
+                  "enum": ["initialize", "sync", "rebuild", "install", "paid"]
                 }
               },
               "executionDeadlineMs": {
@@ -1095,41 +970,28 @@
                 "maximum": 3
               }
             },
-            "required": [
-              "adapter",
-              "allowedActions"
-            ],
+            "required": ["adapter", "allowedActions"],
             "additionalProperties": false,
             "allOf": [
               {
                 "if": {
-                  "required": [
-                    "definition"
-                  ]
+                  "required": ["definition"]
                 },
                 "then": {
                   "not": {
-                    "required": [
-                      "integration"
-                    ]
+                    "required": ["integration"]
                   }
                 },
                 "else": {
-                  "required": [
-                    "affectedTools"
-                  ]
+                  "required": ["affectedTools"]
                 }
               },
               {
                 "if": {
-                  "required": [
-                    "activation"
-                  ]
+                  "required": ["activation"]
                 },
                 "then": {
-                  "required": [
-                    "definition"
-                  ]
+                  "required": ["definition"]
                 }
               }
             ]
@@ -1142,19 +1004,14 @@
                 "properties": {
                   "mode": {
                     "type": "string",
-                    "enum": [
-                      "independent",
-                      "single"
-                    ]
+                    "enum": ["independent", "single"]
                   },
                   "argument": {
                     "type": "string",
                     "minLength": 1
                   }
                 },
-                "required": [
-                  "mode"
-                ],
+                "required": ["mode"],
                 "additionalProperties": false
               },
               {
@@ -1169,10 +1026,7 @@
                     "minLength": 1
                   }
                 },
-                "required": [
-                  "mode",
-                  "argument"
-                ],
+                "required": ["mode", "argument"],
                 "additionalProperties": false
               }
             ]
@@ -1180,21 +1034,12 @@
           "type": {
             "description": "Transport type for connecting to the MCP server",
             "type": "string",
-            "enum": [
-              "stdio",
-              "sse",
-              "http",
-              "streamableHttp"
-            ]
+            "enum": ["stdio", "sse", "http", "streamableHttp"]
           },
           "protocolVersion": {
             "description": "Outbound MCP protocol negotiation mode (defaults to auto when omitted)",
             "type": "string",
-            "enum": [
-              "auto",
-              "legacy",
-              "2026-07-28"
-            ]
+            "enum": ["auto", "legacy", "2026-07-28"]
           },
           "disabled": {
             "description": "Disable this server. Can be a boolean value or a template string that evaluates to a boolean (e.g., \"{?project.environment=production}\")",
@@ -1336,12 +1181,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "enum": [
-                  "inherit",
-                  "ignore",
-                  "overlapped",
-                  "pipe"
-                ]
+                "enum": ["inherit", "ignore", "overlapped", "pipe"]
               },
               {
                 "type": "integer",
@@ -1452,10 +1292,7 @@
         "failureMode": {
           "description": "How to handle template processing failures (strict = throw error, graceful = log and continue)",
           "type": "string",
-          "enum": [
-            "strict",
-            "graceful"
-          ]
+          "enum": ["strict", "graceful"]
         },
         "cacheContext": {
           "description": "Whether to cache processed templates based on context hash",
@@ -1485,10 +1322,7 @@
             "description": "Complete Handlebars template for direct CLI instructions"
           }
         },
-        "required": [
-          "initialization",
-          "cli"
-        ]
+        "required": ["initialization", "cli"]
       }
     },
     "publishedInstructionTemplates": {
@@ -1513,10 +1347,7 @@
             "description": "Complete Handlebars template for direct CLI instructions"
           }
         },
-        "required": [
-          "initialization",
-          "cli"
-        ]
+        "required": ["initialization", "cli"]
       }
     },
     "activeInstructionTemplate": {
@@ -1525,7 +1356,5 @@
       "minLength": 1
     }
   },
-  "required": [
-    "mcpServers"
-  ]
+  "required": ["mcpServers"]
 }

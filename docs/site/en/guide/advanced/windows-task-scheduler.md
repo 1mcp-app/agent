@@ -170,15 +170,15 @@ $action = New-ScheduledTaskAction `
 
 ## Key Settings Explained
 
-| Setting                            | Value                     | Why                                                                                                                                         |
-| ---------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MultipleInstances`                | `IgnoreNew`               | Prevents a second daemon from starting if the first has not exited yet after a fast reboot                                                  |
-| `ExecutionTimeLimit`               | `PT0S` (zero = unlimited) | A running daemon must not be killed by a default 72-hour execution cap                                                                      |
+| Setting                            | Value                     | Why                                                                                                                                                                                   |
+| ---------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MultipleInstances`                | `IgnoreNew`               | Prevents a second daemon from starting if the first has not exited yet after a fast reboot                                                                                            |
+| `ExecutionTimeLimit`               | `PT0S` (zero = unlimited) | A running daemon must not be killed by a default 72-hour execution cap                                                                                                                |
 | `RestartCount` / `RestartInterval` | 5 × 2 min                 | Requests up to five native restarts, two minutes apart, for failures that Task Scheduler treats as restart-eligible; it does not guarantee retries for every nonzero application exit |
-| `StartWhenAvailable`               | `true`                    | Retained for missed time-based launches. Does **not** recover an `AtStartup` launch (the trigger fires every boot regardless).              |
-| `RunLevel`                         | `Limited`                 | Runs without elevated privileges; use the minimum permissions needed                                                                        |
-| `LogonType`                        | `Password`                | Runs at boot via Session 0 (no desktop window). Password prompted via `Get-Credential`, stored encrypted in Windows Credential Manager.     |
-| No boot delay                      | —                         | Add a fixed delay only if your environment requires a VPN or domain authentication to be established before 1MCP can reach upstream servers |
+| `StartWhenAvailable`               | `true`                    | Retained for missed time-based launches. Does **not** recover an `AtStartup` launch (the trigger fires every boot regardless).                                                        |
+| `RunLevel`                         | `Limited`                 | Runs without elevated privileges; use the minimum permissions needed                                                                                                                  |
+| `LogonType`                        | `Password`                | Runs at boot via Session 0 (no desktop window). Password prompted via `Get-Credential`, stored encrypted in Windows Credential Manager.                                               |
+| No boot delay                      | —                         | Add a fixed delay only if your environment requires a VPN or domain authentication to be established before 1MCP can reach upstream servers                                           |
 
 ## Runtime Scope and `--config-dir`
 
