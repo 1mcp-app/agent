@@ -1,4 +1,4 @@
-import { globalOptions } from '@src/globalOptions.js';
+import { withGlobalOptions } from '@src/globalOptions.js';
 import printer from '@src/utils/ui/printer.js';
 
 import type { Argv } from 'yargs';
@@ -21,12 +21,11 @@ import { buildStatusCommand } from './status.js';
  * Register app command group and subcommands
  */
 export function setupAppCommands(yargs: Argv): Argv {
-  return yargs.command(
+  return withGlobalOptions(yargs).command(
     'app',
-    'Manage desktop application MCP configurations',
+    'Manage desktop app configurations',
     (yargs) => {
       return yargs
-        .options(globalOptions || {})
         .command({
           command: 'consolidate [app-name..]',
           describe: 'Consolidate MCP servers from desktop applications into 1mcp',
@@ -82,20 +81,9 @@ export function setupAppCommands(yargs: Argv): Argv {
           },
         })
         .demandCommand(1, 'You must specify a subcommand')
-        .help().epilogue(`
-App Command Group - Desktop Application MCP Configuration Management
-
-The app command group helps you consolidate MCP servers from various desktop
-applications (Claude Desktop, Cursor, VS Code, etc.) into a unified 1mcp proxy.
-
-This simplifies configuration management by:
-• Moving all MCP servers to a single 1mcp instance
-• Replacing individual app configs with one 1mcp connection
-• Providing safe backup and restore capabilities
-• Supporting both automatic and manual setup workflows
-
-For more information about each command, use: $0 app <command> --help
-        `);
+        .help()
+        .alias('help', 'h')
+        .epilogue('Run 1mcp app <command> --help for configuration, discovery, and backup options.');
     },
     () => {
       // This handler runs when 'app' is called without a subcommand

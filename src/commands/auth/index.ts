@@ -1,12 +1,12 @@
 import { runCliCommand } from '@src/commands/shared/commandRunner.js';
-import { globalOptions } from '@src/globalOptions.js';
+import { withGlobalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
 
 export function setupAuthCommands(yargs: Argv): Argv {
-  return yargs.command(
+  return withGlobalOptions(yargs).command(
     'auth <subcommand>',
-    'Manage authentication profiles for secured 1MCP serve instances',
+    'Manage authentication profiles for running servers',
     (commandYargs) => {
       commandYargs
         .command(
@@ -14,7 +14,6 @@ export function setupAuthCommands(yargs: Argv): Argv {
           'Save a bearer token for a 1MCP server URL',
           (sub) =>
             sub
-              .options(globalOptions || {})
               .option('context', {
                 describe: 'Runtime Target Context name',
                 type: 'string',
@@ -39,7 +38,6 @@ export function setupAuthCommands(yargs: Argv): Argv {
           'Show saved authentication profiles',
           (sub) =>
             sub
-              .options(globalOptions || {})
               .option('context', {
                 describe: 'Runtime Target Context name',
                 type: 'string',
@@ -59,7 +57,6 @@ export function setupAuthCommands(yargs: Argv): Argv {
           'Remove a saved authentication profile',
           (sub) =>
             sub
-              .options(globalOptions || {})
               .option('context', {
                 describe: 'Runtime Target Context name',
                 type: 'string',
@@ -89,7 +86,6 @@ export function setupAuthCommands(yargs: Argv): Argv {
           'Explicitly export native inbound and upstream OAuth credentials to plaintext files in a stopped local Runtime Scope',
           (sub) =>
             sub
-              .options(globalOptions || {})
               .option('session-storage-path', { type: 'string', describe: 'Session storage base used by the runtime' })
               .option('confirm-plaintext-export', {
                 type: 'boolean',
@@ -109,7 +105,6 @@ export function setupAuthCommands(yargs: Argv): Argv {
           'Explicitly export native upstream OAuth credentials to plaintext files in a stopped local Runtime Scope',
           (sub) =>
             sub
-              .options(globalOptions || {})
               .option('session-storage-path', { type: 'string', describe: 'Session storage base used by the runtime' })
               .option('confirm-plaintext-export', {
                 type: 'boolean',

@@ -1,6 +1,7 @@
 import { MCP_SERVER_VERSION } from '@src/constants.js';
-import { GlobalOptions, globalOptions } from '@src/globalOptions.js';
+import { GlobalOptions, globalOptions, withGlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
+import { helpWidth, styleHelp } from '@src/utils/cli/help.js';
 import { normalizeCliArgv, normalizedArgv } from '@src/utils/cli/normalizedArgv.js';
 
 import 'source-map-support/register.js';
@@ -27,18 +28,31 @@ import { configureGlobalLogger } from './logger/configureGlobalLogger.js';
 export { normalizeCliArgv, normalizedArgv };
 
 // Parse command line arguments and set up commands
-let yargsInstance = yargs(normalizedArgv);
+let yargsInstance = withGlobalOptions(yargs(normalizedArgv));
+const width = helpWidth(process.stdout);
 
 // Set up base yargs with global options
 yargsInstance = yargsInstance
-  .usage('Usage: $0 [command] [options]')
-  .options(globalOptions)
-  .command('$0', 'Start the 1mcp server (default)', serverOptions, async (argv) => {
-    // Default command - redirect to serve command
-    configureGlobalLogger(argv as GlobalOptions, argv.transport);
-    const { serveCommand } = await import('./commands/serve/serve.js');
-    await serveCommand(argv as Parameters<typeof serveCommand>[0]);
-  })
+  .scriptName('1mcp')
+  .wrap(width < 80 ? null : width)
+  .usage('1MCP — One MCP server to aggregate them all\n\nUsage: $0 [command] [options]')
+  .example('$0 serve', 'Start the HTTP server')
+  .example('$0 mcp list', 'List configured MCP servers')
+  .example('$0 inspect', 'Discover servers in a running instance')
+  .epilogue(
+    'Run 1mcp <command> --help for command details.\nRun 1mcp serve --help for all server options (also accepted at root).',
+  )
+  .command(
+    '$0',
+    'Start the 1MCP server (default)',
+    (command) => command.options(serverOptions).group(Object.keys(serverOptions), 'Server options:'),
+    async (argv) => {
+      // Default command - redirect to serve command
+      configureGlobalLogger(argv as GlobalOptions, argv.transport);
+      const { serveCommand } = await import('./commands/serve/serve.js');
+      await serveCommand(argv as Parameters<typeof serveCommand>[0]);
+    },
+  )
   .version(MCP_SERVER_VERSION)
   .env('ONE_MCP') // Enable environment variable parsing with ONE_MCP prefix
   .help()
@@ -52,7 +66,9 @@ yargsInstance = yargsInstance
     if (err) {
       console.error(`❌ ${err.message}\n`);
     }
-    yargs.showHelp();
+    const errorWidth = helpWidth(process.stderr);
+    yargs.wrap(errorWidth < 80 ? null : errorWidth);
+    yargs.showHelp((text) => console.error(styleHelp(text, Boolean(process.stderr.isTTY), errorWidth)));
     process.exit(1);
   });
 
@@ -154,7 +170,12 @@ async function main() {
   checkGlobalOptionConflicts(['node', 'cli', ...normalizedArgv]);
 
   // Let yargs handle all command processing
-  await yargsInstance.parse();
+  await yargsInstance.parseAsync(normalizedArgv, {}, (error, argv, output) => {
+    if (error) throw error;
+    if (output) console.log(styleHelp(output));
+    // Keep help/version terminal: imported runtime modules may own open handles.
+    if (argv.help || argv.version) process.exit(0);
+  });
 }
 
 main().catch((error) => {

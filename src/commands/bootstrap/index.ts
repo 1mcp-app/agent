@@ -1,15 +1,15 @@
-import { globalOptions } from '@src/globalOptions.js';
+import { withGlobalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
 
 export function setupBootstrapCommand(yargs: Argv): Argv {
-  return yargs.command(
+  return withGlobalOptions(yargs).command(
     'bootstrap',
-    'Deliver SessionStart or SubagentStart instructions to Codex or Claude hooks',
+    'Deliver agent hook instructions',
     (command) =>
       command
         .env(false)
-        .options(globalOptions)
+
         .option('client', { type: 'string', choices: ['codex', 'claude'], demandOption: true })
         .option('event', { type: 'string', choices: ['SessionStart', 'SubagentStart'], demandOption: true })
         .option('project', {

@@ -1,15 +1,14 @@
 import { runCliCommand } from '@src/commands/shared/commandRunner.js';
-import { globalOptions } from '@src/globalOptions.js';
+import { withGlobalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
 
 export function setupWaitCommand(yargs: Argv): Argv {
-  return yargs.command(
+  return withGlobalOptions(yargs).command(
     'wait [server]',
-    'Wait for configured static MCP servers to become connected and available',
+    'Wait for static servers to be ready',
     (commandYargs) =>
       commandYargs
-        .options(globalOptions || {})
         .positional('server', { describe: 'Configured static server to wait for', type: 'string' })
         .option('url', { alias: 'u', describe: 'Override auto-detected 1MCP server URL', type: 'string' })
         .option('context', { describe: 'Use a named Runtime Target Context', type: 'string' })

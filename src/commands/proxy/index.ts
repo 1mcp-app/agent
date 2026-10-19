@@ -1,4 +1,4 @@
-import { GlobalOptions, globalOptions } from '@src/globalOptions.js';
+import { GlobalOptions, withGlobalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
 
@@ -22,12 +22,11 @@ export interface ProxyOptions extends GlobalOptions {
  * Register proxy command
  */
 export function setupProxyCommand(yargs: Argv): Argv {
-  return yargs.command(
+  return withGlobalOptions(yargs).command(
     'proxy',
-    'Start STDIO proxy to running 1MCP HTTP server',
+    'Connect STDIO clients to an HTTP server',
     (yargs) => {
       return yargs
-        .options(globalOptions || {})
         .option('url', {
           alias: 'u',
           describe: 'Override auto-detected 1MCP server URL',
@@ -65,48 +64,10 @@ export function setupProxyCommand(yargs: Argv): Argv {
           ['$0 proxy --filter "web,api"', 'Connect with filter expression'],
           ['$0 proxy --preset my-preset', 'Connect using preset configuration'],
           ['$0 proxy --config-dir .tmp-test', 'Use custom config directory for discovery'],
-        ]).epilogue(`
-AUTO-DISCOVERY:
-  The proxy automatically discovers running 1MCP servers using:
-  1. PID file in config directory (~/.config/1mcp/server.pid)
-  2. Port scanning on common ports (3050, 3051, 3052)
-  3. Environment variables (ONE_MCP_HOST, ONE_MCP_PORT)
-
-PROJECT CONFIGURATION (.1mcprc):
-  Create a .1mcprc file in your project directory to set default connection settings:
-
-  {
-    "preset": "my-preset",    // Use preset configuration
-    "filter": "web,api",      // Or use filter expression
-    "tags": ["web", "api"]    // Or use simple tags
-  }
-
-  Priority: CLI options > .1mcprc > defaults
-  Only one of preset/filter/tags will be used (preset > filter > tags)
-
-USAGE:
-  This command provides a STDIO interface for MCP clients that only support
-  STDIO transport. It proxies all requests to a centralized 1MCP HTTP server.
-
-  Before using the proxy, ensure a 1MCP server is running:
-    1mcp serve
-
-FILTERING OPTIONS (priority order):
-  1. --preset <name>      Use preset configuration (highest priority)
-  2. --filter <expr>      Filter expression for server selection
-  3. --tags <tag1,tag2>   Simple comma-separated tags (lowest priority)
-
-AUTHENTICATION:
-  STDIO transport does not support OAuth authentication. Since the server
-  has auth disabled by default, the proxy will work out of the box.
-
-  If you enabled auth on the server (--enable-auth), STDIO clients cannot
-  authenticate. You must either:
-  • Use HTTP/SSE clients instead of STDIO
-  • Run a separate server instance without auth for STDIO clients
-
-For more information: https://docs.1mcp.app/guide/commands#proxy
-        `);
+        ])
+        .epilogue(
+          'Requires a running 1mcp serve instance. Connection settings can be saved in .1mcprc; CLI options take precedence.\nFilter priority: --preset, then --filter, then --tags.\nSTDIO clients cannot authenticate to an auth-enabled server. Use an HTTP client or a separate server without authentication.\nMore: https://docs.1mcp.app/guide/commands#proxy',
+        );
     },
     async (argv) => {
       const { configureGlobalLogger } = await import('@src/logger/configureGlobalLogger.js');

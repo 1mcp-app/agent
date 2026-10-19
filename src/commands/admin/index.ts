@@ -1,12 +1,12 @@
 import { runCliCommand } from '@src/commands/shared/commandRunner.js';
-import { globalOptions } from '@src/globalOptions.js';
+import { withGlobalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
 
 export function setupAdminCommands(yargs: Argv): Argv {
-  return yargs.command(
+  return withGlobalOptions(yargs).command(
     'admin <subcommand>',
-    'Manage CLI Admin sessions for Runtime Target Contexts',
+    'Manage CLI admin sessions for runtime targets',
     (commandYargs) => {
       commandYargs
         .command(
@@ -14,7 +14,6 @@ export function setupAdminCommands(yargs: Argv): Argv {
           'Create the first Admin Account for the selected local Runtime Scope',
           (sub) =>
             sub
-              .options(globalOptions || {})
               .option('username', {
                 describe: 'Admin username',
                 type: 'string',
@@ -38,7 +37,6 @@ export function setupAdminCommands(yargs: Argv): Argv {
           'Create a CLI Admin session for a Runtime Target Context',
           (sub) =>
             sub
-              .options(globalOptions || {})
               .option('context', {
                 describe: 'Runtime Target Context name',
                 type: 'string',
@@ -70,7 +68,6 @@ export function setupAdminCommands(yargs: Argv): Argv {
           'Show CLI Admin session status for a Runtime Target Context',
           (sub) =>
             sub
-              .options(globalOptions || {})
               .option('context', {
                 describe: 'Runtime Target Context name',
                 type: 'string',
@@ -94,7 +91,6 @@ export function setupAdminCommands(yargs: Argv): Argv {
           'Revoke a CLI Admin session for a Runtime Target Context',
           (sub) =>
             sub
-              .options(globalOptions || {})
               .option('context', {
                 describe: 'Runtime Target Context name',
                 type: 'string',

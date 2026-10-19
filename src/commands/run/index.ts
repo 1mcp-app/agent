@@ -1,15 +1,14 @@
 import { runCliCommand } from '@src/commands/shared/commandRunner.js';
-import { globalOptions } from '@src/globalOptions.js';
+import { withGlobalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
 
 export function setupRunCommand(yargs: Argv): Argv {
-  return yargs.command(
+  return withGlobalOptions(yargs).command(
     'run <tool>',
-    'Run an MCP tool against a running 1MCP serve instance',
+    'Run a tool on a connected server',
     (commandYargs) =>
       commandYargs
-        .options(globalOptions || {})
         .positional('tool', {
           describe: 'Tool reference in the format <server>/<tool>',
           type: 'string',
