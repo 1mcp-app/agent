@@ -54,6 +54,14 @@ describe('help presentation', () => {
     expect(helpWidth({ isTTY: true })).toBe(80);
   });
 
+  it('reflows unwrapped cached help for redirected error output', () => {
+    const text =
+      'Options:\n  --confirm-untrusted-template-context  Confirm legacy template context trust when listening on a non-loopback host  [boolean]';
+    const result = styleHelp(text, false, 80);
+    expect(result).toContain('--confirm-untrusted-template-context');
+    expect(result.split('\n').every((line) => line.length <= 80)).toBe(true);
+  });
+
   it('styles headings and commands without changing text or spacing', () => {
     const previous = chalk.level;
     chalk.level = 1;

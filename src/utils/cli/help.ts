@@ -48,7 +48,9 @@ export function styleHelp(
     .split('\n\n')
     .filter((section) => !section.startsWith('Server options:\n'))
     .join('\n\n');
-  const formatted = width < 80 ? stackNarrowHelp(overview, width) : overview;
+  // Handler failures can reuse help cached for a differently sized stdout.
+  const needsStack = width < 80 || overview.split('\n').some((line) => line.length > width);
+  const formatted = needsStack ? stackNarrowHelp(overview, width) : overview;
   return formatted
     .split('\n')
     .map((line) => {

@@ -84,7 +84,7 @@ describe('Preset Basic Commands E2E', () => {
       });
 
       runner.assertSuccess(result);
-      runner.assertOutputContains(result, 'Manage server presets for dynamic filtering');
+      runner.assertOutputContains(result, 'Manage server filtering presets');
     });
 
     it('should show help for create subcommand', async () => {

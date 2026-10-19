@@ -5,7 +5,7 @@ import { helpWidth, styleHelp } from '@src/utils/cli/help.js';
 import { normalizeCliArgv, normalizedArgv } from '@src/utils/cli/normalizedArgv.js';
 
 import 'source-map-support/register.js';
-import yargs from 'yargs';
+import yargs, { type Argv } from 'yargs';
 
 import { setupAdminCommands } from './commands/admin/index.js';
 import { setupAppCommands } from './commands/app/index.js';
@@ -26,6 +26,15 @@ import { setupWaitCommand } from './commands/wait/index.js';
 import { configureGlobalLogger } from './logger/configureGlobalLogger.js';
 
 export { normalizeCliArgv, normalizedArgv };
+
+function showCliFailure(msg: string | undefined, err: Error | undefined, parser: Argv): never {
+  if (msg) console.error(`❌ Error: ${msg}\n`);
+  if (err) console.error(`❌ ${err.message}\n`);
+  const errorWidth = helpWidth(process.stderr);
+  parser.wrap(errorWidth < 80 ? null : errorWidth);
+  parser.showHelp((text) => console.error(styleHelp(text, Boolean(process.stderr.isTTY), errorWidth)));
+  process.exit(1);
+}
 
 // Parse command line arguments and set up commands
 let yargsInstance = withGlobalOptions(yargs(normalizedArgv));
@@ -58,19 +67,7 @@ yargsInstance = yargsInstance
   .help()
   .alias('help', 'h')
   .strict() // Enable strict mode to reject unknown commands
-  .fail((msg, err, yargs) => {
-    // Custom error handler for unknown commands
-    if (msg) {
-      console.error(`❌ Error: ${msg}\n`);
-    }
-    if (err) {
-      console.error(`❌ ${err.message}\n`);
-    }
-    const errorWidth = helpWidth(process.stderr);
-    yargs.wrap(errorWidth < 80 ? null : errorWidth);
-    yargs.showHelp((text) => console.error(styleHelp(text, Boolean(process.stderr.isTTY), errorWidth)));
-    process.exit(1);
-  });
+  .fail(showCliFailure);
 
 // Register command groups with global options
 yargsInstance = setupAdminCommands(yargsInstance);
@@ -171,7 +168,8 @@ async function main() {
 
   // Let yargs handle all command processing
   await yargsInstance.parseAsync(normalizedArgv, {}, (error, argv, output) => {
-    if (error) throw error;
+    // A parse callback disables Yargs' automatic async-handler failure reporting.
+    if (error) showCliFailure(undefined, error, yargsInstance);
     if (output) console.log(styleHelp(output));
     // Keep help/version terminal: imported runtime modules may own open handles.
     if (argv.help || argv.version) process.exit(0);

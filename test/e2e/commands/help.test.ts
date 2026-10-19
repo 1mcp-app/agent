@@ -115,6 +115,14 @@ describe('CLI help', () => {
     expect(result.stderr).toContain('1mcp');
   });
 
+  it('preserves errors and command help from rejected async handlers', async () => {
+    const result = await runner.runCommand('mcp', 'update', { args: ['example', '--'] });
+    runner.assertFailure(result, 1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('No command specified after " -- "');
+    expect(result.stderr).toContain('1mcp mcp update <name>');
+  });
+
   it('accepts legacy root flags and suppresses color in redirected help', async () => {
     const result = await runner.runCommand('--transport', 'stdio', {
       args: ['--port', '3051', '-h'],
