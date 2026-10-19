@@ -13,6 +13,7 @@ import { createTransports } from '@src/transport/transportFactory.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { parseTelemetryConfig, type TelemetryEnvironment } from '../config/telemetryConfig.js';
+import { dimensionsSchema } from './signals/schema.js';
 import {
   getTelemetryStatus,
   OUTCOMES,
@@ -549,6 +550,59 @@ describe('operational telemetry accepted export and lifecycle boundary', () => {
       );
       expect(histograms.map((metric) => metric.points[0].count)).toEqual([1, 2]);
       expect(getTelemetryStatus().metrics.shutdown).toBe('success');
+    } finally {
+      await target.close();
+    }
+  });
+  it('keeps mutable caller dimensions independent, canonical series stable and unsampled metrics complete', async () => {
+    // Fixed-position metric keys reserve empty fields and NUL separators.
+    // Keep this invariant explicit if any closed dimension enum is extended.
+    for (const dimension of Object.values(dimensionsSchema.shape)) {
+      for (const value of dimension.unwrap().options) {
+        expect(value.length).toBeGreaterThan(0);
+        expect(value).not.toContain('\0');
+      }
+    }
+    const target = await collector();
+    try {
+      await active(target.endpoint, { OTEL_METRICS_EXPORTER: 'otlp', OTEL_TRACES_SAMPLER: 'always_off' });
+      const dimensions: { phase: 'operation'; outcome: 'success' | 'tool-error' } = {
+        phase: 'operation',
+        outcome: 'success',
+      };
+      expect(recordTelemetryMeasurement('gateway.phase.duration', 1, dimensions)).toBe(true);
+      expect(
+        recordTelemetryMeasurement('gateway.phase.duration', 1, {
+          outcome: 'success',
+          phase: 'operation',
+          transport: undefined,
+        }),
+      ).toBe(true);
+      dimensions.outcome = 'tool-error';
+      expect(recordTelemetryMeasurement('gateway.phase.duration', 1, dimensions)).toBe(true);
+      Reflect.set(dimensions, 'outcome', 'success\0tool-error');
+      expect(recordTelemetryMeasurement('gateway.phase.duration', 1, dimensions)).toBe(false);
+      Reflect.set(dimensions, 'outcome', 'PRIVATE_MUTATED_IDENTITY');
+      expect(recordTelemetryMeasurement('gateway.phase.duration', 1, dimensions)).toBe(false);
+      const operation = startTelemetryOperation({ kind: 'server', method: 'tools/call' });
+      await operation.run(async () => {
+        const carrier = injectTraceContext({});
+        expect(JSON.stringify(carrier)).toMatch(/-00/);
+      });
+      operation.end('upstream-error');
+      await stopTelemetry({ deadlineMs: Date.now() + 2000 });
+      expect(spans(target.payloads)).toHaveLength(0);
+      const metrics = metricPayloads(target.payloads);
+      const points = metrics.find((metric) => metric.name === 'gateway.phase.duration')?.points ?? [];
+      expect(points).toHaveLength(2);
+      expect(points.map((point) => point.count).sort()).toEqual([1, 2]);
+      expect(
+        points.map((point) => point.attributes.find((attribute) => attribute.key === 'outcome')?.value).sort(),
+      ).toEqual(['success', 'tool-error']);
+      expect(metrics.find((metric) => metric.name === 'mcp.server.operation.duration')?.points[0].count).toBe(1);
+      expect(
+        Buffer.concat(target.payloads.map((payload) => payload.body)).includes(Buffer.from('PRIVATE_MUTATED_IDENTITY')),
+      ).toBe(false);
     } finally {
       await target.close();
     }

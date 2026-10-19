@@ -245,7 +245,7 @@ export class TelemetrySdk {
   private traceQueue?: TraceQueue;
   private metricReader?: BoundedMetricReader;
   private instruments = new Map<MeasurementName, Counter | Histogram | UpDownCounter | Gauge>();
-  private series = new Map<MeasurementName, Set<string>>();
+  private series = new Map<MeasurementName, Map<string, MeasurementDimensions>>();
   private ticker: ReturnType<typeof setInterval>;
   private stopping?: Promise<void>;
   private shutdownDeadline?: ShutdownDeadline;
@@ -366,10 +366,12 @@ export class TelemetrySdk {
   }
   finish(span: Span | undefined, attributes: MeasurementDimensions, error: boolean): void {
     if (!span) return;
-    for (const [key, value] of Object.entries(attributes))
-      if (value !== undefined && Buffer.byteLength(value) <= this.config.limits.attributeBytes)
-        span.setAttribute(key, value);
-    if (error) span.setStatus({ code: SpanStatusCode.ERROR, message: 'Operation failed' });
+    if (span.isRecording()) {
+      for (const [key, value] of Object.entries(attributes))
+        if (value !== undefined && Buffer.byteLength(value) <= this.config.limits.attributeBytes)
+          span.setAttribute(key, value);
+      if (error) span.setStatus({ code: SpanStatusCode.ERROR, message: 'Operation failed' });
+    }
     span.end();
   }
   measure(name: MeasurementName, value: number, attributes: MeasurementDimensions): void {
@@ -377,20 +379,26 @@ export class TelemetrySdk {
     const instrument = this.instruments.get(name);
     if (!instrument) return;
     const spec = METRIC_REGISTRY[name];
-    const sorted = Object.entries(attributes)
-      .filter(([, v]) => v !== undefined)
-      .sort(([a], [b]) => a.localeCompare(b));
-    const key = JSON.stringify(sorted);
-    const seen = this.series.get(name) ?? new Set<string>();
-    this.series.set(name, seen);
-    // Bounded local detection mirrors the SDK cumulative series cap (including overflow series).
-    if (!seen.has(key)) {
-      if (seen.size < spec.cap - 1) seen.add(key);
-      else {
+    // Closed enum values never contain NUL or empty strings. Fixed positions
+    // distinguish omitted fields without sort/serialization or per-field strings.
+    const key = METRIC_ATTRIBUTE_KEYS.map((field) => attributes[field as keyof MeasurementDimensions] ?? '').join('\0');
+    let seen = this.series.get(name);
+    if (!seen) {
+      seen = new Map();
+      this.series.set(name, seen);
+    }
+    let canonical = seen.get(key);
+    // Retain only cap-1 immutable copies; the final SDK series is overflow.
+    if (!canonical) {
+      if (seen.size < spec.cap - 1) {
+        canonical = Object.freeze(Object.fromEntries(Object.entries(attributes).filter(([, v]) => v !== undefined)));
+        seen.set(key, canonical);
+      } else {
         this.metrics.cardinality();
-        attributes = { 'otel.metric.overflow': true } as MeasurementDimensions;
+        canonical = { 'otel.metric.overflow': true } as MeasurementDimensions;
       }
     }
+    attributes = canonical;
     if ('record' in instrument) instrument.record(value, attributes, ROOT_CONTEXT);
     else instrument.add(value, attributes, ROOT_CONTEXT);
   }
