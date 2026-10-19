@@ -18,7 +18,7 @@ npx -y @1mcp/agent cli-setup (--codex | --claude) [选项]
 `cli-setup` 会安装轻量级引导文件，让 Codex 或 Claude 会话按 1MCP CLI 工作流启动。它会写入：
 
 - 受管理的 `1MCP.md` 引导文档
-- 受管理的 `SessionStart` 和 `SubagentStart` 引导命令钩子
+- 受管理的 `SessionStart`、`SubagentStart` 引导命令钩子及 `SessionEnd` 调用方清理
 - 从 `AGENTS.md` 或 `CLAUDE.md` 指向启动文档的引用
 
 `cli-setup` 不会替代 [`instructions`](./instructions.md)。它的作用是确保会话准备好按正确顺序使用 `instructions`、`inspect` 和 `run`。
@@ -140,5 +140,7 @@ Bootstrap 从显式 CLI 参数解析选项，不使用继承的 `ONE_MCP_*` 选�
 托管的 `SessionStart` 和 `SubagentStart` hooks 调用 `1mcp bootstrap`。Bootstrap 传递托管操作指引，并在目标已解析时获取运行时指令。指引包含 [project prepare 工作流](/zh/commands/prepare)：检查就绪状态、请求已授权的准备工作、监控任务、验证就绪状态、刷新发现结果，然后重新发起工具调用。工作智能体的项目分配未解析时，必须先恢复分配，再执行项目相关的准备操作。
 
 Setup 只安装指引，不会启动准备工作、启用自动准备或更改操作权限。保留 bootstrap hooks。若 hooks 已传递当前指令，则无需重复获取；否则使用独立的 `1mcp instructions` 入口。重新运行 `cli-setup` 可刷新所选范围内的托管指引。
+
+启动钩子为每个已验证的宿主会话或工作智能体创建私有所有者凭证。每次 CLI 调用（包括带明确分配的手动 bootstrap 重试）均应保留注入的 `--project-owner` 文件路径。`SessionEnd` 在有限钩子期限内仅释放当前会话记录过的选择。阻塞项、操作员排空及管理器移除流程请参见 [Project 生命周期](/zh/commands/project)。
 
 当前不支持工作智能体的终止事件。`SubagentStop` 表示工作智能体暂时停止响应，之后仍可继续，并不证明会话已终止，因此不能据此释放其所有权。工作智能体完成后须显式使用 `1mcp project release`。对于遗漏的结束事件和崩溃，保留空闲过期作为恢复兜底。

@@ -12,6 +12,11 @@
 import type { Argv } from 'yargs';
 
 export const globalOptions = {
+  'project-owner': {
+    describe: 'Private caller credential file supplied by agent bootstrap (env: ONE_MCP_PROJECT_OWNER)',
+    type: 'string' as const,
+    default: undefined,
+  },
   project: {
     describe: 'Explicit checkout path, or selected labels from --project-set',
     type: 'array' as const,
@@ -66,6 +71,7 @@ export function withGlobalOptions(yargs: Argv): Argv<GlobalOptions> {
  * Type definition for global options interface
  */
 export interface GlobalOptions {
+  'project-owner'?: string;
   project?: string[];
   'project-set'?: string;
   config?: string;

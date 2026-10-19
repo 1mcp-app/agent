@@ -49,6 +49,11 @@ describe('cli-setup command E2E', () => {
     expect(hooks.SubagentStart).toEqual([
       { hooks: [{ type: 'command', command: '1mcp bootstrap --client codex --event SubagentStart', timeout: 10 }] },
     ]);
+    expect(hooks.SessionEnd).toEqual([
+      { hooks: [{ type: 'command', command: '1mcp bootstrap --client codex --event SessionEnd', timeout: 3 }] },
+    ]);
+    expect(hooks.Stop).toBeUndefined();
+    expect(hooks.SubagentStop).toBeUndefined();
     expect(agents).toBe(`@${path.join(homeDir, '.codex', '1MCP.md').replace(/\\/g, '/')}\n`);
   });
 

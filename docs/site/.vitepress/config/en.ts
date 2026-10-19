@@ -207,6 +207,7 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: 'run', link: '/commands/run' },
           { text: 'wait', link: '/commands/wait' },
           { text: 'project prepare', link: '/commands/prepare' },
+          { text: 'project lifecycle', link: '/commands/project' },
           { text: 'cli-setup', link: '/commands/cli-setup' },
           { text: 'auth', link: '/commands/auth' },
           { text: 'Runtime Target Contexts', link: '/commands/target' },

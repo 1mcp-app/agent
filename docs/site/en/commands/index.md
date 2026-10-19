@@ -83,6 +83,7 @@ npx -y @1mcp/agent run context7/query-docs --args '{"libraryId":"/mongodb/docs",
 - **[run](/commands/run)** - Execute a tool call
 - **[wait](/commands/wait)** - Wait for configured static servers to become connected and available
 - **[project prepare](/commands/prepare)** - Inspect readiness and manage checkout preparation jobs
+- **[project lifecycle](/commands/project)** - Release caller bindings, inspect blockers, drain and resume checkout admission
 - **[cli-setup](/commands/cli-setup)** - Install Codex or Claude bootstrap files
 - **[auth](/commands/auth)** - Manage authentication profiles for secured servers
 

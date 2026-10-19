@@ -19,6 +19,25 @@ import {
 } from './bootstrap.js';
 
 describe('worker bootstrap client contracts', () => {
+  it('emits sanitized SessionEnd failure diagnostics on stderr for clients that discard JSON', async () => {
+    const stdin = vi
+      .spyOn(process, 'stdin', 'get')
+      .mockReturnValue(Readable.from(['{"hook_event_name":"SessionEnd"}']) as typeof process.stdin);
+    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const previousExitCode = process.exitCode;
+    try {
+      await bootstrapCommand({ client: 'claude', event: 'SessionEnd' });
+      expect(process.exitCode).toBe(1);
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('Ownership cleanup coverage gap'));
+      expect(JSON.parse(String(stdout.mock.calls[0][0]))).toHaveProperty('systemMessage');
+    } finally {
+      process.exitCode = previousExitCode;
+      stdin.mockRestore();
+      stdout.mockRestore();
+      stderr.mockRestore();
+    }
+  });
   it.each([
     ['codex', 'SessionStart'],
     ['codex', 'SubagentStart'],
@@ -217,13 +236,19 @@ describe('worker bootstrap client contracts', () => {
     const instructions = 'Server instructions: 工具 🚀\n'.repeat(2000) + 'END OF INSTRUCTIONS';
     const project = `/${Array(16).fill('"'.repeat(250)).join('/')}`;
     await fs.writeFile(entry, `process.stdout.write(${JSON.stringify(instructions)});`);
-    const input = Readable.from([JSON.stringify({ hook_event_name: event })]);
+    const input = Readable.from([
+      JSON.stringify({
+        hook_event_name: event,
+        session_id: 'test-session',
+        ...(event === 'SubagentStart' ? { agent_id: 'test-worker' } : {}),
+      }),
+    ]);
     const stdin = vi.spyOn(process, 'stdin', 'get').mockReturnValue(input as typeof process.stdin);
     const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
     const previousEntry = process.argv[1];
     process.argv[1] = entry;
     try {
-      await bootstrapCommand({ client, event, project: [project] });
+      await bootstrapCommand({ client, event, project: [project], 'config-dir': directory });
       expect(stdout).toHaveBeenCalledTimes(1);
       const envelope = JSON.parse(String(stdout.mock.calls[0][0]));
       expect(envelope.hookSpecificOutput.hookEventName).toBe(event);
@@ -231,6 +256,7 @@ describe('worker bootstrap client contracts', () => {
       expect(context).toContain(instructions);
       expect(context).toContain(`Explicit Worker Project Assignment: ${JSON.stringify([project])}`);
       expect(context.split('=== PRESET ADVISORY FOR THE AGENT ===')).toHaveLength(2);
+      expect(context).toContain('--project-owner');
       expect(context).not.toContain('coverage gap');
     } finally {
       process.argv[1] = previousEntry;
