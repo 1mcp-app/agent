@@ -81,6 +81,8 @@ describe('CLI help', () => {
     expect(root.stdout).toContain('Examples:');
     expect(root.stdout).not.toContain('--async-max-retries');
     expect(root.stdout).not.toContain('--transport');
+    expect(root.stdout).toContain('1mcp prepare');
+    expect(root.stdout).not.toContain('1mcp preparation');
     const serve = await runner.runCommand('serve', '', { args: ['--help'] });
     for (const group of [
       'Runtime:',

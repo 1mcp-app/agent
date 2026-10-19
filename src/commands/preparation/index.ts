@@ -60,8 +60,11 @@ export function setupPreparationCommands(yargs: Argv): Argv {
     })
     .command(
       'preparation <action> <backend> [id]',
-      'Compatibility alias for prepare inspect/status/wait/cancel/retry',
-      (command) => jobOptions(command).positional('action', { type: 'string', choices: controls }),
+      false,
+      (command) =>
+        jobOptions(command)
+          .positional('action', { type: 'string', choices: controls })
+          .epilogue('Legacy compatibility alias. Use 1mcp prepare <action> <backend> [id] instead.'),
       invoke,
     );
 }
