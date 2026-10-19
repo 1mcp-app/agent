@@ -68,7 +68,7 @@ import {
   validateInteractionResponse,
 } from '@src/gateway/interactions/validateInteractionResponse.js';
 import type { GatewayInteractionRequest } from '@src/gateway/ports/outboundEraAdapter.js';
-import { withMcpTraceContext } from '@src/observability/tracing/context.js';
+import { withProtocolTelemetry } from '@src/gateway/telemetryOperation.js';
 import { withRequestProgress } from '@src/sdk/contracts/requestProgress.js';
 import {
   type AuthInfo,
@@ -481,6 +481,15 @@ export function setupModernHttpRoutes(
   router.delete(STREAMABLE_HTTP_ENDPOINT, modernAdmission, ...middlewares, rejectUnsupportedTransportMethod);
   router.post(STREAMABLE_HTTP_ENDPOINT, modernAdmission, ...middlewares, async (req: Request, res: Response) => {
     const disconnect = bindDisconnectAbort(req, res);
+    const responseComplete = new Promise<void>((resolve) => {
+      const complete = () => {
+        res.off('finish', complete);
+        res.off('close', complete);
+        resolve();
+      };
+      res.once('finish', complete);
+      res.once('close', complete);
+    });
     let releaseTemplateSession: (() => void) | undefined;
     try {
       const request = webRequest(req, disconnect.controller.signal);
@@ -708,8 +717,14 @@ export function setupModernHttpRoutes(
                 context.mcpReq._meta?.progressToken,
                 (notification) => context.mcpReq.notify(notification),
                 () =>
-                  withMcpTraceContext(
-                    (req.body as { params?: unknown } | undefined)?.params,
+                  withProtocolTelemetry(
+                    {
+                      kind: 'server',
+                      method: operation,
+                      transport: 'streamable-http',
+                      inboundEra: 'modern',
+                      remoteParams: (req.body as { params?: unknown } | undefined)?.params,
+                    },
                     async () => {
                       if (activeModernRequests >= MAX_ACTIVE_MODERN_REQUESTS) {
                         throw requestCapacityError();
@@ -887,6 +902,7 @@ export function setupModernHttpRoutes(
                       }
                     },
                     context.mcpReq.signal,
+                    responseComplete,
                   ),
                 context.mcpReq.signal,
               ),
@@ -900,18 +916,33 @@ export function setupModernHttpRoutes(
       try {
         const auth = getAuthInfo(res);
         const rawOwner = req.headers?.[CONTEXT_HEADERS.SESSION_ID];
-        const response = await withPreparationRequestScope(
-          {
-            ownerSessionId: Array.isArray(rawOwner) ? rawOwner[0] : rawOwner,
-            filterConfig: { ...config, projectFilterMode: getTagFilterMode(res) },
-            authentication: auth
-              ? [auth.clientId, auth.token, [...auth.grantedScopes].sort(), [...auth.grantedTags].sort()]
-              : undefined,
-            revalidateAuth: () => revalidatePreparationAuthentication(auth, () => revalidateAuthInfo(auth)),
-          },
-          () => handler.fetch(request, { parsedBody: req.body }),
-        );
-        await writeWebResponse(response, res);
+        const execute = async () => {
+          const response = await withPreparationRequestScope(
+            {
+              ownerSessionId: Array.isArray(rawOwner) ? rawOwner[0] : rawOwner,
+              filterConfig: { ...config, projectFilterMode: getTagFilterMode(res) },
+              authentication: auth
+                ? [auth.clientId, auth.token, [...auth.grantedScopes].sort(), [...auth.grantedTags].sort()]
+                : undefined,
+              revalidateAuth: () => revalidatePreparationAuthentication(auth, () => revalidateAuthInfo(auth)),
+            },
+            () => handler.fetch(request, { parsedBody: req.body }),
+          );
+          await writeWebResponse(response, res);
+        };
+        if (gatewayOperationSchema.safeParse(method).success) await execute();
+        else
+          await withProtocolTelemetry(
+            {
+              kind: 'server',
+              method: typeof method === 'string' ? method : undefined,
+              inboundEra: 'modern',
+              transport: 'streamable-http',
+              remoteParams: (req.body as { params?: unknown } | undefined)?.params,
+            },
+            execute,
+            disconnect.controller.signal,
+          );
       } finally {
         try {
           await handler.close();

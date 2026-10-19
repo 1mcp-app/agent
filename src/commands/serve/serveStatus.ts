@@ -13,6 +13,7 @@ import {
   RuntimeScopeOwnedError,
   type RuntimeScopeOwnershipRecord,
 } from '@src/core/server/runtimeScopeOwnership.js';
+import type { getTelemetryStatus } from '@src/observability/telemetry.js';
 
 import { cooperativeRuntimeStatus } from './cooperativeRuntime.js';
 
@@ -26,6 +27,7 @@ import { cooperativeRuntimeStatus } from './cooperativeRuntime.js';
 export type ServeRuntimeStatus = RuntimeStatus | 'restarting' | 'crash-loop' | 'orphaned';
 
 export interface RuntimeStatusReport {
+  telemetry?: ReturnType<typeof getTelemetryStatus>;
   status: ServeRuntimeStatus;
   /** The Runtime Scope (resolved configuration directory). */
   configDir: string;
@@ -89,6 +91,7 @@ export async function getRuntimeStatusReport(
         info: description.runtime,
         cooperativeState: description.state,
         runtimeVersion: description.version,
+        telemetry: description.telemetry,
         supervisorState,
         status,
       };
@@ -259,6 +262,7 @@ function statusError(configDir: string, error: unknown): RuntimeStatusReport {
 export function formatRuntimeStatusReport(report: RuntimeStatusReport): string {
   const { status, configDir, info } = report;
   const lines: string[] = [`Runtime Scope: ${configDir}`];
+  if (report.telemetry) lines.push(`Telemetry: ${report.telemetry.state}`);
   if (report.cooperativeState) lines.push(`Lifecycle: ${report.cooperativeState} (version ${report.runtimeVersion})`);
 
   if (report.ownership) {

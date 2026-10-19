@@ -2,6 +2,10 @@ import { createHash } from 'node:crypto';
 import { availableParallelism } from 'node:os';
 import { Worker } from 'node:worker_threads';
 
+import { changeTelemetryQueueDepth } from '@src/core/server/runtimeTelemetryMeasurements.js';
+import { withProtocolTelemetry } from '@src/gateway/telemetryOperation.js';
+import { recordTelemetryMeasurement } from '@src/observability/telemetry.js';
+
 import { captureJson, SCHEMA_LIMITS, SchemaBoundaryError, type SchemaFailureCode } from './schemaPolicy.js';
 
 export { SCHEMA_LIMITS, SchemaBoundaryError } from './schemaPolicy.js';
@@ -94,11 +98,19 @@ export class SchemaBoundary {
       generation: binding.generation,
     });
     const verdictKey = `${dialect}\0${contract.digest}`;
+    recordTelemetryMeasurement('gateway.cache.outcomes', 1, {
+      cache: 'schema',
+      cache_outcome: this.compiled.has(verdictKey) ? 'hit' : 'miss',
+    });
     if (this.compiled.has(verdictKey)) {
       if (this.closing || binding.signal?.aborted) throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
       this.compiled.delete(verdictKey);
     } else {
-      await this.run(contract, 'compile', undefined, binding.signal);
+      await withProtocolTelemetry(
+        { kind: 'internal', phase: 'schema' },
+        () => this.run(contract, 'compile', undefined, binding.signal),
+        binding.signal,
+      );
       if (this.compiled.size >= COMPILED_SCHEMA_ENTRIES) this.compiled.delete(this.compiled.values().next().value!);
     }
     this.compiled.add(verdictKey);
@@ -123,7 +135,11 @@ export class SchemaBoundary {
     } catch (error) {
       throw new SchemaBoundaryError(error instanceof SchemaBoundaryError ? error.code : 'schema_invalid', false, phase);
     }
-    const verdict = await this.run(contract, 'evaluate', captured.value, binding.signal);
+    const verdict = await withProtocolTelemetry(
+      { kind: 'internal', phase: 'schema' },
+      () => this.run(contract, 'evaluate', captured.value, binding.signal),
+      binding.signal,
+    );
     if (verdict.valid) return verdict;
     const code = contract.profile === 'tool-output' ? 'schema_output_invalid' : 'schema_input_invalid';
     if (binding.mode !== 'report-only') throw new SchemaBoundaryError(code, false, phase);
@@ -135,8 +151,12 @@ export class SchemaBoundary {
     instance?: unknown,
     signal?: AbortSignal,
   ): Promise<SchemaVerdict> {
-    if (this.closing || signal?.aborted || this.queue.length >= SCHEMA_LIMITS.queue)
+    if (this.closing || signal?.aborted)
       return Promise.reject(new SchemaBoundaryError('schema_evaluation_unavailable', true));
+    if (this.queue.length >= SCHEMA_LIMITS.queue) {
+      recordTelemetryMeasurement('gateway.queue.overflow', 1, { queue: 'admission' });
+      return Promise.reject(new SchemaBoundaryError('schema_evaluation_unavailable', true));
+    }
     return new Promise((resolve, reject) => {
       const job: Job = { id: ++this.nextId, contract, operation, instance, resolve, reject, signal };
       job.abort = () => {
@@ -144,7 +164,10 @@ export class SchemaBoundary {
         if (slot) this.remove(slot, 'schema_evaluation_unavailable');
         else {
           const index = this.queue.indexOf(job);
-          if (index >= 0) this.queue.splice(index, 1);
+          if (index >= 0) {
+            this.queue.splice(index, 1);
+            changeTelemetryQueueDepth('admission', -1);
+          }
           this.finish(job, 'schema_evaluation_unavailable');
         }
       };
@@ -152,6 +175,7 @@ export class SchemaBoundary {
       // Queue waiting is bounded independently of hostile worker execution.
       job.timer = setTimeout(job.abort, SCHEMA_LIMITS.shutdownMs);
       this.queue.push(job);
+      changeTelemetryQueueDepth('admission', 1);
       this.schedule();
     });
   }
@@ -163,7 +187,10 @@ export class SchemaBoundary {
             this.spawn();
           } catch {
             this.replacementAfter = Date.now() + 1000;
-            for (const job of this.queue.splice(0)) this.finish(job, 'schema_evaluation_unavailable');
+            for (const job of this.queue.splice(0)) {
+              changeTelemetryQueueDepth('admission', -1);
+              this.finish(job, 'schema_evaluation_unavailable');
+            }
             break;
           }
         }
@@ -176,6 +203,7 @@ export class SchemaBoundary {
     for (const slot of this.slots) {
       if (!slot.ready || slot.job || !this.queue.length) continue;
       const job = this.queue.shift()!;
+      changeTelemetryQueueDepth('admission', -1);
       clearTimeout(job.timer);
       slot.job = job;
       slot.worker.ref();
@@ -273,7 +301,10 @@ export class SchemaBoundary {
   async shutdown(): Promise<void> {
     this.closing = true;
     clearTimeout(this.replacementTimer);
-    for (const job of this.queue.splice(0)) this.finish(job, 'schema_evaluation_unavailable');
+    for (const job of this.queue.splice(0)) {
+      changeTelemetryQueueDepth('admission', -1);
+      this.finish(job, 'schema_evaluation_unavailable');
+    }
     const drainUntil = Date.now() + SCHEMA_LIMITS.shutdownMs;
     while ([...this.slots].some((slot) => slot.job) && Date.now() < drainUntil)
       await new Promise((resolve) => setTimeout(resolve, 10));

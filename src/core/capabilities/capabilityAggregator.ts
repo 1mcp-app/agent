@@ -3,6 +3,7 @@ import { EventEmitter } from 'events';
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { InternalCapabilitiesProvider } from '@src/core/capabilities/internalCapabilitiesProvider.js';
 import type { OutboundConnections } from '@src/core/types/index.js';
+import { withProtocolTelemetry } from '@src/gateway/telemetryOperation.js';
 import type { Prompt, Resource, ResourceTemplate, Tool } from '@src/sdk/contracts/index.js';
 
 import { CapabilityProvidersUnavailableError } from './capabilityPagination.js';
@@ -73,6 +74,10 @@ export class CapabilityAggregator extends EventEmitter {
   }
 
   public async updateCapabilities(): Promise<CapabilityChanges> {
+    return withProtocolTelemetry({ kind: 'internal', phase: 'aggregation' }, () => this.updateCapabilitiesOperation());
+  }
+
+  private async updateCapabilitiesOperation(): Promise<CapabilityChanges> {
     const sequence = ++this.refreshSequence;
     const internal = InternalCapabilitiesProvider.getInstance();
     await internal.initialize();

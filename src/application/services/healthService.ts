@@ -5,6 +5,7 @@ import type { BackendSupervisionSnapshot, BackendSupervisionState } from '@src/c
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, type OutboundSupervisionSnapshot } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
+import type { getTelemetryStatus } from '@src/observability/telemetry.js';
 
 /**
  * Health status levels
@@ -49,6 +50,7 @@ export interface SystemHealth {
  * Complete health check response
  */
 export interface HealthCheckResponse {
+  telemetry?: ReturnType<typeof getTelemetryStatus>;
   status: HealthStatus;
   timestamp: string;
   version: string;

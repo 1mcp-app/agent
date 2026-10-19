@@ -284,6 +284,32 @@ describe('admin routes', () => {
     return assetsRoot;
   }
 
+  it('projects telemetry only through authenticated runtime health without changing health status', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes();
+    const denied = await (await request(app)).get('/admin/api/runtime/health');
+    expect(denied.status).toBe(401);
+    expect(denied.body).not.toHaveProperty('telemetry');
+    const login = await (
+      await request(app)
+    )
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const health = await (
+      await request(app)
+    )
+      .get('/admin/api/runtime/health')
+      .set('Cookie', login.headers['set-cookie'][0]);
+    expect(health.status).toBe(200);
+    expect(health.body.telemetry).toMatchObject({
+      state: 'disabled',
+      traces: { state: 'disabled' },
+      metrics: { state: 'disabled' },
+    });
+    expect(health.body).toHaveProperty('configuration.loaded');
+    expect(JSON.stringify(health.body.telemetry)).not.toMatch(/endpoint|headers|certificate|key/i);
+  });
+
   it('reserves its IPv4 listener against a competing fixture and preserves admin authorization', async () => {
     const app = mountAdminRoutes();
     await request(app);

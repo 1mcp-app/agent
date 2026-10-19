@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 
+import type { getTelemetryStatus } from '@src/observability/telemetry.js';
 import { credentialReadFlags, hasSafeCredentialPermissions } from '@src/utils/filePermissions.js';
 
 import { z } from 'zod';
@@ -41,6 +42,7 @@ export type RuntimeControlMethod =
   'describe' | 'prepare-replacement' | 'commit-replacement' | 'operation-status' | 'stop';
 const methodSchema = z.enum(['describe', 'prepare-replacement', 'commit-replacement', 'operation-status', 'stop']);
 export interface RuntimeControlDescription {
+  telemetry?: ReturnType<typeof getTelemetryStatus>;
   runtime: ServerPidInfo | null;
   runtimeScopeId: string;
   version: string;

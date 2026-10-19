@@ -124,6 +124,7 @@ describe('proxyCommand', () => {
       {
         serverUrl: 'http://127.0.0.1:3050/mcp?filter=web%2Capi',
         bearerToken: 'secret-token',
+        onclose: expect.any(Function),
         context,
       },
     ]);

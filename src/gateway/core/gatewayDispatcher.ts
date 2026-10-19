@@ -1,4 +1,5 @@
 import { runtimeAdmission, RuntimeDrainingError } from '@src/core/server/runtimeDrain.js';
+import { withProtocolTelemetry } from '@src/gateway/telemetryOperation.js';
 import { isCapabilityListMethod, RESPONSE_JSON_VALUE_LIMITS } from '@src/sdk/contracts/index.js';
 
 import { z } from 'zod';
@@ -41,6 +42,19 @@ export class GatewayDispatcher {
   }
 
   async dispatch(request: GatewayRequestEnvelope): Promise<GatewayResult<ImmutableJsonValue>> {
+    return withProtocolTelemetry(
+      {
+        kind: 'internal',
+        phase: 'routing',
+        method: request.operation,
+        inboundEra: request.inbound.era,
+        outboundEra: request.outbound.era,
+      },
+      () => this.dispatchOperation(request),
+    );
+  }
+
+  private async dispatchOperation(request: GatewayRequestEnvelope): Promise<GatewayResult<ImmutableJsonValue>> {
     if (this.active.has(request.requestId) || this.dispatched.has(request)) {
       return gatewayFailure(
         createGatewayFailure({

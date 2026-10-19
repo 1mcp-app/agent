@@ -55,11 +55,13 @@ import {
   getRuntimeScopeOwnershipPath,
   readRuntimeScopeOwnership,
 } from '@src/core/server/runtimeScopeOwnership.js';
+import { setRuntimeTelemetryShutdownDeadline } from '@src/core/server/runtimeTelemetry.js';
 import {
   readStaleCooperativeRuntime,
   retireStaleCooperativeRuntime,
 } from '@src/core/server/staleCooperativeRuntime.js';
 import { mcpServerConfigSchema } from '@src/core/types/transport.js';
+import { getTelemetryStatus } from '@src/observability/telemetry.js';
 import { normalizedArgv } from '@src/utils/cli/normalizedArgv.js';
 
 import { z } from 'zod';
@@ -140,6 +142,7 @@ const statusSchema = z.object({
   deadlineUnixMs: z.number(),
   active: z.number().int().nonnegative(),
 });
+const RUNTIME_RETIREMENT_OBSERVATION_MS = 30_000;
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 function assertEmptyScope(scope: string): void {
@@ -378,7 +381,7 @@ export async function restartCooperativeRuntime(options: ServeOptions): Promise<
         );
     }
   }
-  const until = Date.now() + 30_000;
+  const until = Date.now() + RUNTIME_RETIREMENT_OBSERVATION_MS;
   while (fs.existsSync(getRuntimeScopeOwnershipPath(runtimeScope)) && Date.now() < until) {
     if (readRuntimeScopeOwnership(runtimeScope)?.claimId !== client.descriptor.claimId)
       throw markServeLifecycleFailure(
@@ -441,7 +444,16 @@ export async function runCooperativeSupervisor(): Promise<void> {
   const stopped = new Promise<void>((resolve) => {
     stop = resolve;
   });
+  let retirementDeadlineMs: number | undefined;
   const requestStop = () => {
+    retirementDeadlineMs ??= Date.now() + RUNTIME_RETIREMENT_OBSERVATION_MS; // Existing caller retirement observation deadline.
+    if (worker?.connected) {
+      try {
+        sendChild(worker, { type: 'runtime-shutdown-deadline', deadlineMs: retirementDeadlineMs });
+      } catch {
+        /* Existing signal/escalation owner still controls worker retirement. */
+      }
+    }
     stopping = true;
     stop();
   };
@@ -491,8 +503,17 @@ export async function runCooperativeSupervisor(): Promise<void> {
   };
   const control = await startRuntimeControl(scope, ownership.record.claimId, async (method, payload, operationId) => {
     switch (method) {
-      case 'describe':
+      case 'describe': {
+        let telemetry: ReturnType<typeof getTelemetryStatus> | undefined;
+        if (worker && worker.connected) {
+          try {
+            telemetry = (await requestWorker(worker, 'telemetry')) as ReturnType<typeof getTelemetryStatus>;
+          } catch {
+            /* Missing worker status must not change runtime availability. */
+          }
+        }
         return {
+          telemetry,
           runtime,
           runtimeScopeId: new RuntimeIdentityService({ storageDir: scope }).getRuntimeScopeId(),
           version: MCP_SERVER_VERSION,
@@ -501,6 +522,7 @@ export async function runCooperativeSupervisor(): Promise<void> {
           supervisorPid: process.pid,
           state: currentState(),
         } satisfies RuntimeControlDescription;
+      }
       case 'prepare-replacement': {
         const input = prepareSchema.parse(payload);
         if (stopping) throw new Error('Runtime is retiring');
@@ -514,9 +536,13 @@ export async function runCooperativeSupervisor(): Promise<void> {
         if (!stopping) setImmediate(requestStop);
         return result;
       }
-      case 'stop':
+      case 'stop': {
+        const input = z.object({ deadlineMs: z.number().int().positive().optional() }).parse(payload ?? {});
+        if (input.deadlineMs !== undefined)
+          retirementDeadlineMs = Math.min(retirementDeadlineMs ?? Infinity, input.deadlineMs);
         if (!stopping) setImmediate(requestStop);
         return { accepted: true };
+      }
     }
   }).catch((error: unknown) => {
     // No worker has been spawned, so this process can safely release its own failed launch.
@@ -650,7 +676,7 @@ export async function authorizeCooperativeWorker(): Promise<RuntimeLaunchBootstr
   const requestSchema = z.object({
     type: z.literal('runtime-request'),
     id: z.string().uuid(),
-    action: z.enum(['close', 'resume', 'commit']),
+    action: z.enum(['close', 'resume', 'commit', 'telemetry']),
   });
   runtimeAdmission.subscribe((snapshot) => {
     if (process.connected) sendRuntimeParent({ type: 'runtime-admission', snapshot });
@@ -658,6 +684,11 @@ export async function authorizeCooperativeWorker(): Promise<RuntimeLaunchBootstr
   process.on('message', (message: unknown) => {
     if (!message || typeof message !== 'object') return;
     if (!('type' in message)) return;
+    if (message.type === 'runtime-shutdown-deadline') {
+      const deadline = z.object({ deadlineMs: z.number().int().positive() }).safeParse(message);
+      if (deadline.success) setRuntimeTelemetryShutdownDeadline(deadline.data.deadlineMs);
+      return;
+    }
     if (message.type === 'runtime-activation-recorded') {
       if (!('digest' in message)) return;
       if (message.digest !== bootstrap.digest) return;
@@ -669,6 +700,10 @@ export async function authorizeCooperativeWorker(): Promise<RuntimeLaunchBootstr
     if (!parsed.success) return;
     const { id, action } = parsed.data;
     try {
+      if (action === 'telemetry') {
+        sendRuntimeParent({ type: 'runtime-reply', id, value: getTelemetryStatus() });
+        return;
+      }
       if (action === 'close') runtimeAdmission.close();
       if (action === 'resume') runtimeAdmission.resume();
       if (action === 'commit') runtimeAdmission.commit();
@@ -715,12 +750,12 @@ export async function stopCooperativeRuntime(scope: string): Promise<boolean> {
   } catch {
     return false;
   }
+  const until = Date.now() + RUNTIME_RETIREMENT_OBSERVATION_MS;
   try {
-    await client.request('stop');
+    await client.request('stop', { deadlineMs: until });
   } catch {
     /* Verify retirement below even if the response was lost. */
   }
-  const until = Date.now() + 30_000;
   while (Date.now() < until) {
     const owner = readRuntimeScopeOwnership(scope);
     if (!owner || owner.claimId !== client.descriptor.claimId) {

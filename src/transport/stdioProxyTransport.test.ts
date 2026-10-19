@@ -437,6 +437,23 @@ describe('StdioProxyTransport', () => {
       expect(proxy['stdioTransport'].send).toHaveBeenCalledWith(message);
     });
 
+    it('answers a failed HTTP request send with a sanitized error instead of leaving initialization pending', async () => {
+      proxy = new StdioProxyTransport({ serverUrl: 'http://localhost:3050/mcp' });
+      await proxy.start();
+      proxy['httpTransport'].send = vi.fn().mockRejectedValue(new Error('private endpoint/token failure'));
+      await proxy['stdioTransport'].onmessage!({
+        jsonrpc: '2.0',
+        id: 42,
+        method: 'initialize',
+        params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'test', version: '1' } },
+      });
+      expect(proxy['stdioTransport'].send).toHaveBeenCalledWith({
+        jsonrpc: '2.0',
+        id: 42,
+        error: { code: -32603, message: 'Proxy forwarding failed', data: { code: 'gateway_transport_error' } },
+      });
+    });
+
     it('should handle errors during STDIO to HTTP forwarding', async () => {
       proxy = new StdioProxyTransport({
         serverUrl: 'http://localhost:3050/mcp',

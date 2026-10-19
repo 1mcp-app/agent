@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 
+import { withProtocolTelemetry } from '@src/gateway/telemetryOperation.js';
 import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+import { recordTelemetryMeasurement } from '@src/observability/telemetry.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
 
 import { z } from 'zod';
@@ -117,6 +119,7 @@ export class SchemaCache {
 
     if (oldestKey) {
       this.cache.delete(oldestKey);
+      recordTelemetryMeasurement('gateway.cache.outcomes', 1, { cache: 'schema', cache_outcome: 'evicted' });
       this.stats.evictions++;
       debugIf(() => ({ message: 'schemaCache.evicted.oldest.cache.entry.c2dbf641' }));
     }
@@ -153,6 +156,7 @@ export class SchemaCache {
     const cached = this.cache.get(cacheKey);
     if (cached && !this.isExpired(cached)) {
       this.stats.hits++;
+      recordTelemetryMeasurement('gateway.cache.outcomes', 1, { cache: 'schema', cache_outcome: 'hit' });
       debugIf(() => ({ message: 'schemaCache.cache.hit.77e8d34e' }));
       writeLocalDiagnostic('debug', 'schema.cache.hit', {
         loadId: cached.diagnosticLoadId,
@@ -186,6 +190,7 @@ export class SchemaCache {
 
     // Create new request
     this.stats.misses++;
+    recordTelemetryMeasurement('gateway.cache.outcomes', 1, { cache: 'schema', cache_outcome: 'miss' });
     this.activeLoads++;
     const startedAt = Date.now();
     // Connection keys can embed rendered template or session identity; never log them.
@@ -194,7 +199,11 @@ export class SchemaCache {
     const load = Promise.resolve()
       .then(() => {
         controller.signal.throwIfAborted();
-        return loader(server, toolName, controller.signal);
+        return withProtocolTelemetry(
+          { kind: 'internal', phase: 'cache' },
+          () => loader(server, toolName, controller.signal),
+          controller.signal,
+        );
       })
       .finally(() => {
         this.activeLoads--;

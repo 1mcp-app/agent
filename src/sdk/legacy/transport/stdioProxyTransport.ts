@@ -9,7 +9,9 @@ import {
   type GatewayFailure,
   type ProtocolEraPin,
 } from '@src/gateway/contracts/index.js';
+import { telemetryResultOutcome } from '@src/gateway/telemetryOutcome.js';
 import logger from '@src/logger/logger.js';
+import { startTelemetryOperation } from '@src/observability/telemetry.js';
 import { injectTraceContext, stripBaggage, withMcpTraceContext } from '@src/observability/tracing/context.js';
 import { toProtocolJSONRPCMessage } from '@src/sdk/contracts/index.js';
 import { StdioServerTransport } from '@src/sdk/legacy/server/stdio.js';
@@ -26,6 +28,7 @@ const modernClientInfoSchema = z.object({ name: z.string(), version: z.string(),
  * STDIO Proxy Transport Options
  */
 export interface StdioProxyTransportOptions {
+  onclose?: () => Promise<void>;
   serverUrl: string;
   bearerToken?: string;
   preset?: string;
@@ -54,6 +57,10 @@ function generateMcpSessionId(): string {
  * to avoid conflicts with MCP protocol message handling.
  */
 export class StdioProxyTransport {
+  private readonly pendingTelemetry = {
+    upstream: new Map<string | number, ReturnType<typeof startTelemetryOperation>[]>(),
+    downstream: new Map<string | number, ReturnType<typeof startTelemetryOperation>[]>(),
+  };
   private stdioTransport: StdioServerTransport;
   private httpTransport: StreamableHTTPClientTransport;
   private isConnected = false;
@@ -148,7 +155,7 @@ export class StdioProxyTransport {
   private setupHttpTransportMessageHandlers(): void {
     // Forward messages from HTTP server to STDIO client
     this.httpTransport.onmessage = async (message: JSONRPCMessage) =>
-      withMcpTraceContext('params' in message ? message.params : undefined, async () => {
+      this.forwardWithTelemetry(message, 'downstream', async () => {
         try {
           this.observeUpstreamFrame(message);
           if ('result' in message) message = { ...message, result: stripBaggage(message.result) };
@@ -157,8 +164,10 @@ export class StdioProxyTransport {
             ('method' in message ? { ...message, params: injectTraceContext(message.params) } : message) as never,
           );
         } catch (error) {
+          this.failTelemetry(message, 'downstream');
           logger.error('stdioProxyTransport.error.forwarding.http.message.to.stdio.8ee2e23a', { error });
           if (this.isProtocolFailure(error)) await this.failProtocolFrame(message, error);
+          else await this.failForwardedRequest(message, 'downstream');
         }
       });
 
@@ -180,7 +189,7 @@ export class StdioProxyTransport {
   private setupMessageForwarding(): void {
     // Forward messages from STDIO client to HTTP server
     this.stdioTransport.onmessage = async (message: JSONRPCMessage) =>
-      withMcpTraceContext('params' in message ? message.params : undefined, async () => {
+      this.forwardWithTelemetry(message, 'upstream', async () => {
         try {
           this.classifyDownstreamFrame(message);
           if ('result' in message) message = { ...message, result: stripBaggage(message.result) };
@@ -213,8 +222,10 @@ export class StdioProxyTransport {
           // Forward to HTTP server
           await this.httpTransport.send(enhancedMessage as never);
         } catch (error) {
+          this.failTelemetry(message, 'upstream');
           logger.error('stdioProxyTransport.error.forwarding.stdio.message.to.http.a4e22130', { error });
           if (this.isProtocolFailure(error)) await this.failProtocolFrame(message, error);
+          else await this.failForwardedRequest(message, 'upstream');
         }
       });
 
@@ -231,6 +242,94 @@ export class StdioProxyTransport {
       logger.info('stdioProxyTransport.stdio.transport.closed.6ca9f513');
       await this.close();
     };
+  }
+
+  private async failForwardedRequest(message: JSONRPCMessage, direction: 'upstream' | 'downstream'): Promise<void> {
+    if (!('method' in message) || !('id' in message)) return;
+    const origin = direction === 'upstream' ? this.stdioTransport : this.httpTransport;
+    try {
+      await origin.send({
+        jsonrpc: '2.0',
+        id: message.id,
+        error: {
+          code: -32603,
+          message: 'Proxy forwarding failed',
+          data: { code: message.method === 'tools/call' ? 'gateway_tool_outcome_unknown' : 'gateway_transport_error' },
+        },
+      } as never);
+    } catch {
+      await this.close();
+    }
+  }
+
+  private failTelemetry(message: JSONRPCMessage, direction: 'upstream' | 'downstream'): void {
+    if (!('id' in message) || message.id === null || message.id === undefined) return;
+    const requests =
+      this.pendingTelemetry['method' in message ? direction : direction === 'upstream' ? 'downstream' : 'upstream'];
+    for (const operation of requests.get(message.id) ?? []) operation.end('transport-error');
+    requests.delete(message.id);
+  }
+
+  private async forwardWithTelemetry(
+    message: JSONRPCMessage,
+    direction: 'upstream' | 'downstream',
+    forward: () => Promise<void>,
+  ): Promise<void> {
+    if (direction === 'upstream' && 'method' in message) {
+      try {
+        this.classifyDownstreamFrame(message);
+      } catch {
+        await forward();
+        return;
+      }
+    }
+    const requests = this.pendingTelemetry[direction];
+    const replies = this.pendingTelemetry[direction === 'upstream' ? 'downstream' : 'upstream'];
+    const id = 'id' in message ? message.id : undefined;
+    if ('method' in message && message.method === 'notifications/cancelled') {
+      const cancelled = message.params?.requestId;
+      if (typeof cancelled === 'string' || typeof cancelled === 'number') {
+        for (const operation of requests.get(cancelled) ?? []) operation.end('cancelled');
+        requests.delete(cancelled);
+      }
+    }
+    if ('method' in message && id !== undefined && id !== null && requests.size < 1024 && !requests.has(id)) {
+      const era = this.downstreamPin?.era;
+      const options = { method: message.method, inboundEra: era, outboundEra: era };
+      const server = startTelemetryOperation({
+        ...options,
+        kind: 'server',
+        transport: direction === 'upstream' ? 'stdio' : 'streamable-http',
+        remoteParams: message.params,
+      });
+      const phases = [server];
+      requests.set(id, phases);
+      try {
+        await server.run(async () => {
+          const boundary = startTelemetryOperation({ ...options, kind: 'internal', phase: 'proxy-forward' });
+          phases.push(boundary);
+          await boundary.run(async () => {
+            const client = startTelemetryOperation({
+              ...options,
+              kind: 'client',
+              transport: direction === 'upstream' ? 'streamable-http' : 'stdio',
+            });
+            phases.push(client);
+            await client.run(forward);
+          });
+        });
+      } catch (error) {
+        for (const operation of phases) operation.end('transport-error');
+        requests.delete(id);
+        throw error;
+      }
+      return;
+    }
+    await withMcpTraceContext('params' in message ? message.params : undefined, forward);
+    if (!('method' in message) && id !== undefined && id !== null) {
+      for (const operation of replies.get(id) ?? []) operation.end(telemetryResultOutcome(message));
+      replies.delete(id);
+    }
   }
 
   private classifyDownstreamFrame(message: JSONRPCMessage): void {
@@ -446,6 +545,12 @@ export class StdioProxyTransport {
 
     this.isConnected = false;
     this.closePromise = (async () => {
+      for (const requests of Object.values(this.pendingTelemetry)) {
+        for (const operations of requests.values()) {
+          for (const operation of operations) operation.end('aborted');
+        }
+        requests.clear();
+      }
       this.httpTransport.onmessage = undefined;
       this.httpTransport.onerror = undefined;
       this.httpTransport.onclose = undefined;
@@ -463,6 +568,7 @@ export class StdioProxyTransport {
         if (outcome.status === 'rejected') logger.error('stdioProxyTransport.error.closing.stdio.proxy.7c69038d');
       }
       logger.info('stdioProxyTransport.stdio.proxy.closed.abcc8556');
+      await this.options.onclose?.();
     })();
     return this.closePromise;
   }

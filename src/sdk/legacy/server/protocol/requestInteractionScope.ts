@@ -10,6 +10,7 @@ import {
   validateInteractionResponse,
 } from '@src/gateway/interactions/validateInteractionResponse.js';
 import type { GatewayInteractionRequest } from '@src/gateway/ports/outboundEraAdapter.js';
+import { withProtocolTelemetry } from '@src/gateway/telemetryOperation.js';
 import { captureTraceContext, injectTraceContext, stripBaggage } from '@src/observability/tracing/context.js';
 import { withLegacyInteractionLease } from '@src/sdk/legacy/client/runtime/legacyInteractionLease.js';
 import { setOutboundRequestHandler } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
@@ -192,12 +193,28 @@ export async function withRequestInteractionScope<T>(
               assertRoute();
               const response = await scope.runTrace(
                 () =>
-                  scope.extra.sendRequest(
-                    { ...request, params: injectTraceContext(request.params) } as ServerRequest,
-                    resultSchema,
+                  withProtocolTelemetry(
                     {
-                      signal: scope.extra.signal,
+                      kind: 'server',
+                      method: request.method,
+                      inboundEra: scope.adapter.protocol?.era ?? 'legacy',
+                      outboundEra: 'legacy',
+                      remoteParams: request.params,
                     },
+                    () =>
+                      withProtocolTelemetry(
+                        { kind: 'client', method: request.method, outboundEra: 'legacy' },
+                        () =>
+                          scope.extra.sendRequest(
+                            { ...request, params: injectTraceContext(request.params) } as ServerRequest,
+                            resultSchema,
+                            {
+                              signal: scope.extra.signal,
+                            },
+                          ),
+                        scope.extra.signal,
+                      ),
+                    scope.extra.signal,
                   ),
                 scope.extra.signal,
                 request.params,

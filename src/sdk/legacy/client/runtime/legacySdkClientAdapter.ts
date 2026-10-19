@@ -2,12 +2,14 @@ import { randomUUID } from 'node:crypto';
 
 import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
+import { trackTelemetryConnection } from '@src/core/server/runtimeTelemetryMeasurements.js';
 import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
 import {
   missingClientCapabilityFromBridge,
   resourceNotFoundFromBridge,
 } from '@src/gateway/contracts/gatewayFailure.js';
 import { assertInteractionRoute } from '@src/gateway/interactions/interactionRoute.js';
+import { withProtocolTelemetry } from '@src/gateway/telemetryOperation.js';
 import logger from '@src/logger/logger.js';
 import { injectTraceContext, stripBaggage } from '@src/observability/tracing/context.js';
 import {
@@ -26,6 +28,8 @@ import {
 } from '@src/sdk/contracts/index.js';
 import { currentRequestProgress } from '@src/sdk/contracts/requestProgress.js';
 import type { Client } from '@src/sdk/legacy/client/index.js';
+import { SSEClientTransport } from '@src/sdk/legacy/client/sse.js';
+import { StreamableHTTPClientTransport } from '@src/sdk/legacy/client/streamableHttp.js';
 import { StreamableHTTPError } from '@src/sdk/legacy/client/streamableHttp.js';
 import { captureCapabilityListResult } from '@src/sdk/legacy/shared/capabilityListCapture.js';
 import {
@@ -105,6 +109,7 @@ function publishAwaitingOAuth(serverName: string, error: StreamableHTTPError): v
 export class LegacySdkClientAdapter implements LegacySdkAdapter {
   private readonly interactionBridge: boolean;
   readonly connectionId = randomUUID() as LegacyConnectionId;
+  private releaseTelemetryConnection?: () => void;
   private lifecycleState: LegacySdkLifecycleState = 'idle';
   private readonly controllers = new Map<LegacyRequestId, AbortController>();
   private readonly events: LegacySdkEvent[] = [];
@@ -132,6 +137,7 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
   async start(): Promise<void> {
     if (this.lifecycleState === 'stopped') throw new Error('Legacy SDK adapter is stopped');
     this.lifecycleState = 'running';
+    if (!this.interactionBridge) this.releaseTelemetryConnection ??= trackTelemetryConnection();
   }
 
   nextEvent(): Promise<LegacySdkEvent> {
@@ -144,6 +150,25 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
   }
 
   async request(request: LegacySdkRequest): Promise<JsonValue> {
+    if (this.interactionBridge) return this.requestOperation(request);
+    return withProtocolTelemetry(
+      {
+        kind: 'client',
+        method: request.method,
+        outboundEra: 'legacy',
+        transport:
+          this.handles.transport instanceof SSEClientTransport
+            ? 'sse'
+            : this.handles.transport instanceof StreamableHTTPClientTransport
+              ? 'streamable-http'
+              : 'stdio',
+      },
+      () => this.requestOperation(request),
+      currentLegacyInteractionSignal(),
+    );
+  }
+
+  private async requestOperation(request: LegacySdkRequest): Promise<JsonValue> {
     if (!this.interactionBridge) assertInteractionRoute(this, request.method, request.params);
     if (this.lifecycleState === 'stopped' || this.lifecycleState === 'stopping') {
       throw new OneMcpProtocolError(INTERNAL_ERROR, 'Legacy SDK adapter is closed');
@@ -279,6 +304,8 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
     } catch (error) {
       throw toProtocolError(error);
     } finally {
+      this.releaseTelemetryConnection?.();
+      this.releaseTelemetryConnection = undefined;
       this.lifecycleState = 'stopped';
       this.publish({ type: 'closed' });
     }
