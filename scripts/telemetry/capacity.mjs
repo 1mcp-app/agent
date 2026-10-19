@@ -13,6 +13,19 @@ import { assertPrivatePayloads } from '../../test/telemetry/privacy-corpus.mjs';
 import { startRuntime, waitUntil } from '../../test/telemetry/runtime-fixture.mjs';
 import { startRealCollector } from './real-collector.mjs';
 
+// A rejected factory has no returned handle: retirement cannot be confirmed here.
+export async function startCapacityResource(report, name, factory) {
+  try {
+    return await factory();
+  } catch (error) {
+    (report.cleanupErrors ??= []).push({
+      name,
+      message: 'Startup failed before ownership was returned; cleanup unconfirmed',
+    });
+    throw error;
+  }
+}
+
 export async function runCapacity(output, binary) {
   assert(binary, 'Set OTELCOL_BINARY to verified official0.163.1 executable');
   const plan = JSON.parse(await readFile(new URL('./capacity-workload.json', import.meta.url)));
@@ -35,26 +48,30 @@ export async function runCapacity(output, binary) {
   await writeFile(output, JSON.stringify(report, null, 2));
   let real, collector, runtime, backend;
   try {
-    real = await startRealCollector(binary);
-    collector = await createCollector({ maxRequests: 2048 });
-    backend = await startModernBackend({
-      toolCount: plan.uniqueToolIdentities,
-      stderrPath: output + '.backend.stderr.log',
-    });
-    runtime = await startRuntime({
-      backendConfig: backend.config,
-      collector,
-      admin: true,
-      logLevel: 'error',
-      probe: output + '.probe.jsonl',
-      env: {
-        OTEL_BSP_MAX_QUEUE_SIZE: String(plan.queueSize),
-        OTEL_BSP_MAX_EXPORT_BATCH_SIZE: String(plan.batchSize),
-        OTEL_BSP_EXPORT_TIMEOUT: String(plan.exportTimeoutMs),
-        OTEL_EXPORTER_OTLP_TIMEOUT: String(plan.exportTimeoutMs),
-        OTEL_BSP_SCHEDULE_DELAY: '1000',
-      },
-    });
+    real = await startCapacityResource(report, 'collector', () => startRealCollector(binary));
+    collector = await startCapacityResource(report, 'relay', () => createCollector({ maxRequests: 2048 }));
+    backend = await startCapacityResource(report, 'backend', () =>
+      startModernBackend({
+        toolCount: plan.uniqueToolIdentities,
+        stderrPath: output + '.backend.stderr.log',
+      }),
+    );
+    runtime = await startCapacityResource(report, 'runtime', () =>
+      startRuntime({
+        backendConfig: backend.config,
+        collector,
+        admin: true,
+        logLevel: 'error',
+        probe: output + '.probe.jsonl',
+        env: {
+          OTEL_BSP_MAX_QUEUE_SIZE: String(plan.queueSize),
+          OTEL_BSP_MAX_EXPORT_BATCH_SIZE: String(plan.batchSize),
+          OTEL_BSP_EXPORT_TIMEOUT: String(plan.exportTimeoutMs),
+          OTEL_EXPORTER_OTLP_TIMEOUT: String(plan.exportTimeoutMs),
+          OTEL_BSP_SCHEDULE_DELAY: '1000',
+        },
+      }),
+    );
     const cookie = await runtime.login();
     const health = async () => {
       const response = await fetch(runtime.url + '/admin/api/runtime/health', { headers: { cookie } });
@@ -160,7 +177,7 @@ export async function runCapacity(output, binary) {
     report.verdict = 'fail';
     throw error;
   } finally {
-    report.cleanupErrors = [];
+    report.cleanupErrors ??= [];
     for (const [name, cleanup] of [
       ['runtime', () => runtime?.close()],
       ['backend', () => backend?.close()],
