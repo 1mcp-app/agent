@@ -27,6 +27,18 @@ export async function startCapacityResource(report, name, factory) {
   }
 }
 
+export async function preserveCapacityRuntimeLog(report, runtime, output) {
+  // Failure-only evidence must never replace the workload error.
+  try {
+    const bytes = Buffer.from(await runtime.readLog());
+    const tail = bytes.subarray(Math.max(0, bytes.length - 65536));
+    await writeFile(output + '.runtime-error.log', tail, { mode: 0o600 });
+    report.runtimeDiagnostic = { retainedBytes: tail.length, truncated: tail.length < bytes.length };
+  } catch {
+    report.runtimeDiagnostic = { gap: 'Runtime error log unavailable or could not be retained' };
+  }
+}
+
 export async function runCapacity(output, binary) {
   assert(binary, 'Set OTELCOL_BINARY to verified official0.163.1 executable');
   const plan = JSON.parse(await readFile(new URL('./capacity-workload.json', import.meta.url)));
@@ -178,6 +190,7 @@ export async function runCapacity(output, binary) {
   } catch (error) {
     report.error = error.message;
     report.verdict = 'fail';
+    await preserveCapacityRuntimeLog(report, runtime, output);
     throw error;
   } finally {
     report.cleanupErrors ??= [];
