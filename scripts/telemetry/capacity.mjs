@@ -39,6 +39,10 @@ export async function preserveCapacityRuntimeLog(report, runtime, output) {
   }
 }
 
+export function isCapacityRecovered(state) {
+  return state.state === 'healthy' && state.traces.state === 'healthy' && state.metrics.state === 'healthy';
+}
+
 export async function runCapacity(output, binary) {
   assert(binary, 'Set OTELCOL_BINARY to verified official0.163.1 executable');
   const plan = JSON.parse(await readFile(new URL('./capacity-workload.json', import.meta.url)));
@@ -90,22 +94,22 @@ export async function runCapacity(output, binary) {
     );
     assert.equal(plan.concurrency, plan.topology.inboundOwners * plan.topology.workersPerOwner);
     const cookie = await runtime.login();
-    const health = async () => {
-      const response = await fetch(runtime.url + '/admin/api/runtime/health', { headers: { cookie } });
+    const health = async (signal) => {
+      const response = await fetch(runtime.url + '/admin/api/runtime/health', { headers: { cookie }, signal });
       assert.equal(response.status, 200);
       return (await response.json()).telemetry;
     };
     const tools = runtime.tools.filter((tool) => tool.name.includes('private_tool_'));
     assert.equal(tools.length, plan.uniqueToolIdentities);
     let cursor = 0;
-    async function work(count, durationMs = 0) {
+    async function work(count, durationMs = 0, signal) {
       const start = performance.now();
       let admitted = 0;
       await runCapacityWorkers(owners.clients, plan.concurrency, async (client) => {
         while (admitted < count || performance.now() - start < durationMs) {
           admitted++;
           const tool = tools[cursor++ % tools.length];
-          const result = await client.callTool({ name: tool.name, arguments: {} });
+          const result = await client.callTool({ name: tool.name, arguments: {} }, undefined, { signal });
           assert.equal(result.content[0].text, 'capacity-ok');
           assert(!result.isError);
         }
@@ -159,17 +163,23 @@ export async function runCapacity(output, binary) {
       Math.max(...tail) - Math.min(...tail) <= plan.plateauLastThreeWindowSpreadMiB * 1024 ** 2,
       'RSS did not plateau under sustained pressure',
     );
+    const recoveryDeadline = performance.now() + plan.recoveryDeadlineMs;
+    const recoverySignal = AbortSignal.timeout(plan.recoveryDeadlineMs);
     collector.respond({ status: 200, forwardTo: real.url });
+    let recovered;
     await waitUntil(
       async () => {
-        await work(32);
-        return (await health()).traces.state === 'healthy';
+        await work(32, 0, recoverySignal);
+        recovered = await health(recoverySignal);
+        assert(performance.now() <= recoveryDeadline, 'Both-signal recovery exceeded the shared deadline');
+        return isCapacityRecovered(recovered);
       },
-      'Actual maxqueue status did not recover',
+      'Actual maxqueue traces, metrics and overall status did not recover',
       plan.recoveryDeadlineMs,
       1000,
     );
-    report.finalState = await health();
+    report.finalState = recovered;
+    report.recoveryMs = plan.recoveryDeadlineMs - (recoveryDeadline - performance.now());
     await runtime.stop();
     await real.stop();
     const payloads = await decodedPayloads(real);

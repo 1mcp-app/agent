@@ -5,7 +5,11 @@ import { join } from 'node:path';
 
 import test from 'node:test';
 
-import { preserveCapacityRuntimeLog, startCapacityResource } from '../../scripts/telemetry/capacity.mjs';
+import {
+  isCapacityRecovered,
+  preserveCapacityRuntimeLog,
+  startCapacityResource,
+} from '../../scripts/telemetry/capacity.mjs';
 
 for (const name of ['collector', 'relay', 'backend', 'runtime', 'clients']) {
   test(`${name} startup rejection cannot be reported as confirmed cleanup`, async () => {
@@ -81,5 +85,21 @@ test('capacity log read/write failures record a gap and preserve the workload er
     }
   } finally {
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('capacity recovery requires both enabled signals and overall health together', () => {
+  for (const [overall, traces, metrics, expected] of [
+    ['healthy', 'healthy', 'healthy', true],
+    ['degraded', 'healthy', 'degraded', false],
+    ['degraded', 'degraded', 'healthy', false],
+    ['degraded', 'healthy', 'healthy', false],
+    ['healthy', 'healthy', 'degraded', false],
+    ['healthy', 'degraded', 'healthy', false],
+  ]) {
+    assert.equal(
+      isCapacityRecovered({ state: overall, traces: { state: traces }, metrics: { state: metrics } }),
+      expected,
+    );
   }
 });

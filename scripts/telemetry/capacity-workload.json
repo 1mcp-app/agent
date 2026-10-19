@@ -41,5 +41,6 @@
     "A": "real-capacity.integration.test.mjs:10000distinct forbidden identity attempts per instrument, unknown keys and forbidden recognized-dimension values, exact accepted measurement totals and bounded series over two collection intervals; positive approved-combination overflow at1024/512/256",
     "B": "Actual runtime fixed catalog under unchanged32worker maxqueue/RSS pressure, readiness/results and recovery budgets",
     "coverageGap": "No10000configured-tool catalog scalability claim. Prior catalog runs failed warmup with schema_evaluation_timeout, or single-owner admission, before resource windows; retain adverse evidence. Telemetry privacy rejection is not catalog scalability."
-  }
+  },
+  "recoveryRequirement": "Traces, metrics and overall state must all be healthy within one shared40s deadline beginning when the Collector is restored; no per-signal deadline reset"
 }

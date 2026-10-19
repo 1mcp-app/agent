@@ -154,7 +154,9 @@ Plan v3 predeclares two complementary risks before new samples:
   30-second stalled export, six 10-second windows and minimum 2,048 operations per
   window remain unchanged. Final three windows must actually observe high queue
   and drops. Readiness/results, 64 MiB RSS envelope, 16 MiB final-three-window
-  plateau spread, 40-second recovery and decoded export checks remain mandatory.
+  plateau spread and decoded export checks remain mandatory. Traces, metrics and
+  overall health must recover together within one shared 40-second deadline from
+  Collector restoration; the deadline is never reset per signal.
 
 The former 10,000-configured-tool catalog workload failed during warmup with
 schema evaluation timeouts; its single-owner variant also exceeded admission.
