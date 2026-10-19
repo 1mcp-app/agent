@@ -29,6 +29,24 @@ describe('TransportFactory', () => {
     resetBackendLogBroker();
   });
 
+  it.each([
+    ['modern', ModernSSEClientTransport],
+    ['legacy', SSEClientTransport],
+  ])('uses an idle-safe SSE fetch for %s clients', (version, Transport) => {
+    const transport = {
+      type: 'sse' as const,
+      url: 'http://localhost:8931/sse',
+      protocolVersion: version === 'legacy' ? ('legacy' as const) : ('auto' as const),
+    };
+    const parse = transportConfigSchema.parse as any;
+    parse.mockReturnValueOnce(transport);
+    createTransports({ playwright: transport });
+    expect(Transport).toHaveBeenCalledWith(
+      new URL(transport.url),
+      expect.objectContaining({ eventSourceInit: { fetch: expect.any(Function) } }),
+    );
+  });
+
   describe('createTransports', () => {
     it('should create transports from valid configuration', () => {
       const config: Record<string, MCPServerParams> = {
