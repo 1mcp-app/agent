@@ -174,3 +174,20 @@ export function stripBaggage<T>(value: T): T {
   }
   return Object.assign(result, { _meta: cleanMeta }) as T;
 }
+
+/** Internal recording seam: honors #488 lifetime expiry, never grants request authority. */
+export function getLiveTraceContext(): Context {
+  return activeContext();
+}
+/** Internal recording seam: extraction stays identical in recording and propagation-only modes. */
+export function extractMcpParentContext(params: unknown): Context {
+  return extract(params);
+}
+/** Internal recording seam: a recording span owns the same bounded lifetime as propagation. */
+export function runWithOwnedTraceContext<T>(
+  parent: Context,
+  operation: () => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  return run(parent, operation, signal);
+}
