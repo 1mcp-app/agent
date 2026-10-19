@@ -91,6 +91,7 @@ for (const mode of ['baseline', 'propagation', 'healthy', 'outage']) {
       '--log-level',
       'error',
     ],
+    cwd: configDirectory,
     healthUrl: 'http://127.0.0.1:14319/health',
     mcpUrl: 'http://127.0.0.1:14319/mcp',
     env: {

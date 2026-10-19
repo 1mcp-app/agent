@@ -1,5 +1,6 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -7,7 +8,16 @@ import { setTimeout as delay } from 'node:timers/promises';
 export const collectorVersion = '0.163.1';
 
 /** Caller supplies an official checksum-verified executable; no implicit download. */
-export async function startRealCollector(binary, { port = 14318 } = {}) {
+export async function startRealCollector(binary, { port = 0 } = {}) {
+  if (port === 0) {
+    const reservation = createServer();
+    await new Promise((resolve, reject) => {
+      reservation.once('error', reject);
+      reservation.listen(0, '127.0.0.1', resolve);
+    });
+    port = reservation.address().port;
+    await new Promise((resolve, reject) => reservation.close((error) => (error ? reject(error) : resolve())));
+  }
   const version = execFileSync(binary, ['--version'], { encoding: 'utf8' });
   if (!version.includes(` ${collectorVersion}`)) throw new Error('Unexpected Collector version');
   const directory = await mkdtemp(join(tmpdir(), '1mcp-collector-'));
@@ -55,6 +65,10 @@ export async function startRealCollector(binary, { port = 14318 } = {}) {
     for (let attempt = 0; attempt < 100; attempt++) {
       if (spawnError) throw spawnError;
       if (hasExited()) throw new Error(`Collector exited before readiness: ${diagnostic}`);
+      if (!diagnostic.includes('Everything is ready.')) {
+        await delay(100);
+        continue;
+      }
       try {
         // Empty protobuf is valid: proves the actual receiver, not just an open TCP port.
         const response = await fetch(`http://127.0.0.1:${port}/v1/traces`, {

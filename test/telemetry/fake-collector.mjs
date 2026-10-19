@@ -37,6 +37,20 @@ export async function createCollector({
         discarded++;
       }
       const selected = { ...response };
+      if (selected.forwardTo && selected.status === 200) {
+        const target = new URL(selected.forwardTo);
+        if (target.hostname !== '127.0.0.1' || target.protocol !== 'http:')
+          throw new Error('Fixture forwarding requires loopback HTTP');
+        const delivered = await fetch(target.origin + req.url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/x-protobuf' },
+          body,
+          signal: AbortSignal.timeout(5000),
+        });
+        res.writeHead(delivered.status, { 'content-type': 'application/x-protobuf' });
+        res.end(Buffer.from(await delivered.arrayBuffer()));
+        return;
+      }
       const send = () => {
         res.writeHead(selected.status, { 'content-type': 'application/x-protobuf' });
         res.end(); // Empty Export*ServiceResponse is valid protobuf.

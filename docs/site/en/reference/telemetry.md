@@ -27,8 +27,8 @@ Use this page for exact lookup. See the [operational telemetry guide](/guide/adv
 | `OTEL_METRIC_EXPORT_TIMEOUT`             | `10000`        | 1–30000 ms                                                                                                   |
 | `OTEL_ATTRIBUTE_COUNT_LIMIT`             | `32`           | 0–32; sets general attribute ceiling                                                                         |
 | `OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT`      | `256`          | 0–256 UTF-8 bytes                                                                                            |
-| `OTEL_SPAN_ATTRIBUTE_COUNT_LIMIT`        | `32`           | May lower general ceiling; cannot raise it                                                                   |
-| `OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT` | `256`          | May lower general byte ceiling; cannot raise it                                                              |
+| `OTEL_SPAN_ATTRIBUTE_COUNT_LIMIT`        | `32`           | Overrides the general setting; hard maximum 32                                                               |
+| `OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT` | `256`          | Overrides the general setting; hard maximum 256 UTF-8 bytes                                                  |
 | `OTEL_SPAN_EVENT_COUNT_LIMIT`            | `16`           | 0–16                                                                                                         |
 | `OTEL_SPAN_LINK_COUNT_LIMIT`             | `8`            | 0–8                                                                                                          |
 | `OTEL_EVENT_ATTRIBUTE_COUNT_LIMIT`       | `16`           | 0–16                                                                                                         |
