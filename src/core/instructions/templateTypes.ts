@@ -367,6 +367,8 @@ export const DEFAULT_CLI_INSTRUCTION_TEMPLATE = `1MCP CLI Instructions
 7. Use \`--preset\`, \`--tags\`, or \`--tag-filter\` to narrow the server set when needed.
 8. If authentication is required, run \`1mcp auth login --context <name> --token <token>\` and retry.
 
+Static-server inspection (\`1mcp inspect <server>\` or \`1mcp inspect <server>/<tool>\`) does not require \`--project\` or \`--project-set\`. Retain the assigned project selectors when inspecting dynamic, project-dependent servers.
+
 Search uses case-insensitive literal substring matching on server/tool references. Use a quoted pattern such as \`--search "filesystem/*read?" --glob\` for whole-reference matching with only \`*\` and \`?\` wildcards.
 \`--include-descriptions\` also matches effective descriptions using the selected matching mode; \`--show-descriptions\` independently displays descriptions without changing matches.
 

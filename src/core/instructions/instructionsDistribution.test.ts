@@ -1,3 +1,5 @@
+import { formatInstructionsOutput } from '@src/commands/instructions/instructionsUtils.js';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -281,6 +283,24 @@ describe('instructionsDistribution', () => {
     }
     expect(DEFAULT_CLI_INSTRUCTION_TEMPLATE).toContain('1mcp wait <server>');
     expect(DEFAULT_CLI_INSTRUCTION_TEMPLATE).toContain('1mcp auth login --context <name> --token <token>');
+  });
+
+  it('limits inspection project selectors to dynamic, project-dependent servers in every playbook', () => {
+    for (const content of [
+      renderManagedDocContent(),
+      DEFAULT_CLI_INSTRUCTION_TEMPLATE,
+      formatInstructionsOutput({ servers: [], details: [] }),
+    ]) {
+      expect(content).toContain(
+        'Static-server inspection (`1mcp inspect <server>` or `1mcp inspect <server>/<tool>`) does not require `--project` or `--project-set`.',
+      );
+      expect(content).toContain(
+        'Retain the assigned project selectors when inspecting dynamic, project-dependent servers.',
+      );
+    }
+    expect(renderManagedDocContent()).toContain(
+      'Retain the assigned `--project` and/or `--project-set` selectors for project-specific instructions and tool calls.',
+    );
   });
 
   it('renders global Codex startup references as absolute managed-doc references', () => {
