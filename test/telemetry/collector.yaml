@@ -1,0 +1,29 @@
+# Pinned fixture: otel/opentelemetry-collector-contrib:0.163.1
+# Bind published ports to loopback; never use production data in this fixture.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 128
+    spike_limit_mib: 32
+  batch:
+    timeout: 1s
+exporters:
+  file/traces:
+    path: /capture/traces.json
+  file/metrics:
+    path: /capture/metrics.json
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [file/traces]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [file/metrics]
