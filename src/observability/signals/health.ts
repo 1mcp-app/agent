@@ -75,12 +75,13 @@ export class SignalHealth {
   success() {
     this.lastSuccess = Date.now();
     this.failures = 0;
-    if (this.queueSize / this.capacity >= 0.5) {
+    const firstSuccess = this.state === 'starting';
+    if (!firstSuccess && this.queueSize / this.capacity >= 0.5) {
       this.recovery = 0;
       return;
     }
     this.recovery++;
-    if (this.state === 'starting' || this.state === 'healthy' || (this.state === 'degraded' && this.recovery >= 2)) {
+    if (firstSuccess || this.state === 'healthy' || (this.state === 'degraded' && this.recovery >= 2)) {
       this.state = 'healthy';
       for (const [category, warning] of this.warnings)
         this.emit({ event: 'telemetry.recovered', signal: this.signal, category, suppressed: warning.suppressed });
