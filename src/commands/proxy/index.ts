@@ -66,7 +66,7 @@ export function setupProxyCommand(yargs: Argv): Argv {
           ['$0 proxy --config-dir .tmp-test', 'Use custom config directory for discovery'],
         ])
         .epilogue(
-          'Requires a running 1mcp serve instance. Connection settings can be saved in .1mcprc; CLI options take precedence.\nFilter priority: --preset, then --filter, then --tags.\nSTDIO clients cannot authenticate to an auth-enabled server. Use an HTTP client or a separate server without authentication.\nMore: https://docs.1mcp.app/guide/commands#proxy',
+          'Requires a running 1mcp serve instance. Connection settings can be saved in .1mcprc; CLI options take precedence.\nFilter priority: --preset, then --filter, then --tags.\nInteractive OAuth is not supported over STDIO. Use --context to connect with a saved bearer token.\nMore: https://docs.1mcp.app/commands/proxy',
         );
     },
     async (argv) => {

@@ -439,7 +439,7 @@ export function setupServeCommand(yargs: Argv): Argv {
           ['$0 serve --instructions-template=./custom-template.md', 'Use custom instructions template'],
         ])
         .epilogue(
-          'HTTP is the default transport; use --transport stdio for stdin/stdout clients.\nFilters accept comma-separated tags (OR) or boolean expressions such as "(web OR api) AND database".\nTools are exposed directly by default. --enable-lazy-loading opts into meta-tools for progressive discovery; legacy --lazy-mode and --lazy-direct-expose are accepted but ignored with a warning.\nCustom instruction templates use Handlebars.\nMore: https://docs.1mcp.app/guide/commands#serve',
+          'HTTP is the default transport; use --transport stdio for stdin/stdout clients.\nFilters accept comma-separated tags (OR) or boolean expressions such as "(web OR api) AND database".\nTools are exposed directly by default. --enable-lazy-loading opts into meta-tools for progressive discovery; legacy --lazy-mode and --lazy-direct-expose are accepted but ignored with a warning.\nCustom instruction templates use Handlebars.\nMore: https://docs.1mcp.app/commands/serve',
         );
     },
     async (argv) => {
