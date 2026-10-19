@@ -86,7 +86,7 @@ jobs:
           tar -xzf "$archive"
           echo "OTELCOL_BINARY=$RUNNER_TEMP/telemetry-collector/otelcol" >> "$GITHUB_ENV"
       - name: Verify fake and real Collector fixtures
-        run: node --test test/telemetry/collector.test.mjs test/telemetry/real-collector.test.mjs test/telemetry/capacity-startup.test.mjs
+        run: node --test test/telemetry/collector.test.mjs test/telemetry/real-collector.test.mjs test/telemetry/capacity-startup.test.mjs test/telemetry/capacity-owners.test.mjs
       - name: Verify runtime export and privacy
         run: pnpm exec vitest run --config test/telemetry/vitest.config.ts
 

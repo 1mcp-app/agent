@@ -145,3 +145,13 @@ It persists partial results on failure. The fault relay forwards only synthetic
 OTLP protobuf to the loopback pinned Collector after recovery and never forwards
 secret request headers. Run this alongside the matched timing gate only when
 explicitly scheduled; source changes require rerunning both gates.
+
+Capacity plan v2 uses two independently initialized anonymous legacy HTTP sessions
+with 16 workers each (32 aggregate), respecting the existing per-owner16 and
+per-route32 interaction limits. The previous single-owner32 plan failed admission
+on Ubuntu before any resource windows; its failed evidence remains retained.
+The 10,000 tool identities, warmup, queue/batch sizes, pressure windows, recovery
+and RSS budgets are unchanged. This topology revision is declared before new
+capacity samples; it does not alter the separate performance workload.
+The bounded `capacity-owners.test.mjs` smoke holds upstream responses open to
+prove one owner rejects its 17th call and two owners admit all32 calls.

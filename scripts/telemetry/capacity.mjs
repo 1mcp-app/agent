@@ -6,6 +6,7 @@ import { performance } from 'node:perf_hooks';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 
+import { runCapacityWorkers, startCapacityClients } from '../../test/telemetry/capacity-clients.mjs';
 import { decodedPayloads } from '../../test/telemetry/collector-payloads.mjs';
 import { createCollector } from '../../test/telemetry/fake-collector.mjs';
 import { startModernBackend } from '../../test/telemetry/modern-backend-process.mjs';
@@ -46,7 +47,7 @@ export async function runCapacity(output, binary) {
     verdict: 'incomplete',
   };
   await writeFile(output, JSON.stringify(report, null, 2));
-  let real, collector, runtime, backend;
+  let real, collector, runtime, backend, owners;
   try {
     real = await startCapacityResource(report, 'collector', () => startRealCollector(binary));
     collector = await startCapacityResource(report, 'relay', () => createCollector({ maxRequests: 2048 }));
@@ -72,6 +73,10 @@ export async function runCapacity(output, binary) {
         },
       }),
     );
+    owners = await startCapacityResource(report, 'clients', () =>
+      startCapacityClients(runtime.url, plan.topology.inboundOwners),
+    );
+    assert.equal(plan.concurrency, plan.topology.inboundOwners * plan.topology.workersPerOwner);
     const cookie = await runtime.login();
     const health = async () => {
       const response = await fetch(runtime.url + '/admin/api/runtime/health', { headers: { cookie } });
@@ -84,17 +89,15 @@ export async function runCapacity(output, binary) {
     async function work(count, durationMs = 0) {
       const start = performance.now();
       let admitted = 0;
-      await Promise.all(
-        Array.from({ length: plan.concurrency }, async () => {
-          while (admitted < count || performance.now() - start < durationMs) {
-            admitted++;
-            const tool = tools[cursor++ % tools.length];
-            const result = await runtime.client.callTool({ name: tool.name, arguments: {} });
-            assert.equal(result.content[0].text, 'capacity-ok');
-            assert(!result.isError);
-          }
-        }),
-      );
+      await runCapacityWorkers(owners.clients, plan.concurrency, async (client) => {
+        while (admitted < count || performance.now() - start < durationMs) {
+          admitted++;
+          const tool = tools[cursor++ % tools.length];
+          const result = await client.callTool({ name: tool.name, arguments: {} });
+          assert.equal(result.content[0].text, 'capacity-ok');
+          assert(!result.isError);
+        }
+      });
       return admitted;
     }
     const samples = async () =>
@@ -179,6 +182,7 @@ export async function runCapacity(output, binary) {
   } finally {
     report.cleanupErrors ??= [];
     for (const [name, cleanup] of [
+      ['clients', () => owners?.close()],
       ['runtime', () => runtime?.close()],
       ['backend', () => backend?.close()],
       ['relay', () => collector?.close()],

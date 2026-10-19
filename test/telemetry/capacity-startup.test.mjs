@@ -4,7 +4,7 @@ import test from 'node:test';
 
 import { startCapacityResource } from '../../scripts/telemetry/capacity.mjs';
 
-for (const name of ['collector', 'relay', 'backend', 'runtime']) {
+for (const name of ['collector', 'relay', 'backend', 'runtime', 'clients']) {
   test(`${name} startup rejection cannot be reported as confirmed cleanup`, async () => {
     const report = {};
     const failure = new Error('startup failed before returning an owned handle');

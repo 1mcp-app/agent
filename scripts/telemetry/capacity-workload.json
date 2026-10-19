@@ -1,5 +1,5 @@
 {
-  "name": "issue489-real-runtime-max-capacity-v1",
+  "name": "issue489-real-runtime-max-capacity-v2",
   "recordBeforeRun": true,
   "topology": {
     "inboundEra": "legacy",
@@ -9,7 +9,10 @@
     "upstreamTransport": "streamable-http",
     "inventoryPageSize": 1000,
     "upstreamProcess": "owned child with IPC readiness and OS-assigned loopback port",
-    "reason": "Parallel workloads require modern HTTP upstream; the legacy upstream connection intentionally admits one operation"
+    "reason": "Parallel workloads require modern HTTP upstream; the legacy upstream connection intentionally admits one operation",
+    "inboundOwners": 2,
+    "workersPerOwner": 16,
+    "ownerReason": "Anonymous legacy HTTP sessions have a public per-owner limit of16; two independently initialized sessions preserve aggregate32 workers at the shared per-route limit32"
   },
   "queueSize": 8192,
   "batchSize": 2048,

@@ -3,7 +3,7 @@ import { createMcpHandler, Server } from '@modelcontextprotocol/server';
 
 import { createServer } from 'node:http';
 
-export async function createModernBackend({ toolCount = 0 } = {}) {
+export async function createModernBackend({ toolCount = 0, onCapacityCall } = {}) {
   if (!Number.isInteger(toolCount) || toolCount < 0 || toolCount > 10000) throw new Error('Invalid fixture tool count');
   const capacityTools = Array.from({ length: toolCount }, (_, i) => ({
     name: `private_tool_${i}`,
@@ -34,7 +34,10 @@ export async function createModernBackend({ toolCount = 0 } = {}) {
         return { tools: tools.slice(offset, end), ...(end < tools.length ? { nextCursor: String(end) } : {}) };
       });
       server.setRequestHandler('tools/call', async (request, context) => {
-        if (capacityNames.has(request.params.name)) return { content: [{ type: 'text', text: 'capacity-ok' }] };
+        if (capacityNames.has(request.params.name)) {
+          await onCapacityCall?.();
+          return { content: [{ type: 'text', text: 'capacity-ok' }] };
+        }
         if (request.params.name === 'reverse') {
           if (context.mcpReq.requestState() === undefined)
             return {
