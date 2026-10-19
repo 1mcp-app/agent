@@ -1,16 +1,23 @@
 # 1MCP Docs Maintenance Guide
 
-This directory contains the VitePress documentation site for 1MCP. Keep the current file structure and public paths stable. Improve content quality through clearer page roles, better routing between pages, and tighter bilingual parity rather than by moving pages around.
+This directory contains the public documentation site and repository documentation. VitePress builds only `docs/site/`; contributor material stays outside the site root. Public URLs remain unchanged.
 
 ## What Lives Here
 
 ```text
 docs/
-├── .vitepress/          # VitePress config and locale navigation
-├── en/                  # English content, served from the root path
-├── zh/                  # Chinese content, served from /zh/
-├── public/              # Static assets
-├── CLAUDE.md            # Agent-facing docs editing rules
+├── site/                # Public VitePress site
+│   ├── .vitepress/      # Config, locale navigation, theme, schema generation
+│   ├── en/              # English content, served from the root path
+│   ├── zh/              # Chinese content, served from /zh/
+│   └── public/          # Static assets, LLM indexes, published schemas
+├── development/         # Contributor notes and acceptance evidence
+├── adr/                 # Architecture decisions
+├── agents/              # Agent workflows
+├── research/            # Research notes
+├── runbooks/            # Maintainer operations
+├── ROADMAP.md           # Archived roadmap
+├── AGENTS.md            # Documentation editing rules
 └── README.md            # This maintainer guide
 ```
 
@@ -40,14 +47,14 @@ The public `llms.txt`, `llms-en.txt`, `llms-zh.txt`, and `llms-full.txt` files a
 
 Every public Markdown page needs frontmatter with a clear `title` and `description`. When adding or materially changing a public English page, update the paired Chinese page with equivalent intent and meaningful Chinese metadata.
 
-Run the publishing contract check after changing static LLM artifacts, VitePress exclusions, public Chinese metadata, or maintainer guidance:
+Run the publishing contract check after changing static LLM artifacts, the site root, public Chinese metadata, or maintainer guidance:
 
 ```bash
 pnpm test:unit src/docs/publishingDocs.test.ts
 pnpm docs:build
 ```
 
-The contract check applies an explicit locale policy to each LLM artifact, resolves every route without locale remapping, and checks every backticked `1mcp` invocation against the current yargs command builders and documented option forms. It also excludes `research/**` from publication and requires Chinese title and description frontmatter.
+The contract check applies an explicit locale policy to each LLM artifact, resolves every route without locale remapping, and checks every backticked `1mcp` invocation against the current yargs command builders and documented option forms. It also keeps repository research outside the site root and requires Chinese title and description frontmatter.
 
 ## Core Writing Model
 
@@ -72,7 +79,7 @@ When editing or adding docs:
 3. Add or update frontmatter with a clear title and description.
 4. Use absolute internal links such as `/guide/quick-start` and `/zh/guide/quick-start`.
 5. Update both English and Chinese versions for any user-facing page you touch.
-6. Update `.vitepress/config/en.ts` or `.vitepress/config/zh.ts` only if navigation truly needs to change.
+6. Update `site/.vitepress/config/en.ts` or `site/.vitepress/config/zh.ts` only if navigation truly needs to change.
 7. Run `pnpm docs:build` before closing the work.
 
 ## Page-Level Standards
@@ -129,8 +136,8 @@ Every user-facing docs change should aim for:
 ## Technical Notes
 
 - English content is served from root paths; Chinese content is served from `/zh/`.
-- Locale navigation lives in `.vitepress/config/en.ts` and `.vitepress/config/zh.ts`.
-- Static assets belong in `docs/public/images/`.
+- Locale navigation lives in `site/.vitepress/config/en.ts` and `site/.vitepress/config/zh.ts`.
+- Static assets belong in `docs/site/public/images/`.
 - VitePress uses Vue rendering. If you need literal <span v-pre>`{{ }}`</span> template syntax, follow the escaping rules in [CLAUDE.md](/CLAUDE).
 
 ## Deployment

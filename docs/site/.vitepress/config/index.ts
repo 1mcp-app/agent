@@ -11,7 +11,7 @@ import zhConfig from './zh';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const packageJson = JSON.parse(readFileSync(join(__dirname, '../../../package.json'), 'utf-8'));
+const packageJson = JSON.parse(readFileSync(join(__dirname, '../../../../package.json'), 'utf-8'));
 const version = `v${packageJson.version}`;
 
 export default withMermaid(
@@ -21,14 +21,6 @@ export default withMermaid(
     lastUpdated: true,
     cleanUrls: true,
     metaChunk: true,
-    srcExclude: [
-      'agents/**',
-      'adr/**',
-      'research/**',
-      'runbooks/**',
-      'development/**', // Contributor notes are linked as repository files, not public pages.
-      '*.md', // Root Markdown files are repository-only documentation.
-    ],
 
     rewrites: {
       'en/:rest*': ':rest*',

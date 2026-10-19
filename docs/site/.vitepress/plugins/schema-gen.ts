@@ -11,8 +11,8 @@ import { fileURLToPath } from 'url';
 
 import type { Plugin } from 'vite';
 
-import { ProjectConfigSchema } from '../../../src/config/projectConfigTypes.js';
-import { mcpServerConfigSchema } from '../../../src/core/types/transport.js';
+import { ProjectConfigSchema } from '../../../../src/config/projectConfigTypes.js';
+import { mcpServerConfigSchema } from '../../../../src/core/types/transport.js';
 import {
   addSchemaPropertySupport,
   generateConfigSchema,
@@ -62,7 +62,7 @@ export function SchemaGenPlugin(options: SchemaGenPluginOptions = {}): Plugin {
         // Generate MCP config schema
         const mcpConfigSchema = generateMcpConfigSchema(mcpServerConfigSchema, mcpServerConfigSchema);
         const mcpConfigWithSchema = addSchemaPropertySupport(mcpConfigSchema);
-        const mcpConfigPath = join(process.cwd(), 'docs', outDir, SCHEMA_VERSION, 'mcp-config.json');
+        const mcpConfigPath = join(process.cwd(), 'docs/site', outDir, SCHEMA_VERSION, 'mcp-config.json');
         await writeSchemaFile(mcpConfigWithSchema, mcpConfigPath);
 
         // Generate project config schema
@@ -72,11 +72,11 @@ export function SchemaGenPlugin(options: SchemaGenPluginOptions = {}): Plugin {
           'JSON Schema for 1MCP project-level configuration files',
         );
         const projectConfigWithSchema = addSchemaPropertySupport(projectConfigSchema);
-        const projectConfigPath = join(process.cwd(), 'docs', outDir, SCHEMA_VERSION, 'project-config.json');
+        const projectConfigPath = join(process.cwd(), 'docs/site', outDir, SCHEMA_VERSION, 'project-config.json');
         await writeSchemaFile(projectConfigWithSchema, projectConfigPath);
 
         // Log generation results using process.stderr for build output
-        const docsRoot = join(process.cwd(), 'docs');
+        const docsRoot = join(process.cwd(), 'docs/site');
         process.stderr.write(`[schema-gen] Generated schemas:\n`);
         process.stderr.write(`  - ${relative(docsRoot, mcpConfigPath)}\n`);
         process.stderr.write(`  - ${relative(docsRoot, projectConfigPath)}\n`);

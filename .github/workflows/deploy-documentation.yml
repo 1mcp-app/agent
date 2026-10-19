@@ -6,9 +6,14 @@ on:
     branches:
       - main
     paths:
-      - 'docs/**'
-      - '.github/workflows/deploy-docs.yml'
+      - 'docs/site/**'
+      - '.github/workflows/deploy-documentation.yml'
       - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'scripts/validate-docs-seo.mjs'
+      - 'src/config/projectConfigTypes.ts'
+      - 'src/core/types/**'
+      - 'src/constants/schema.ts'
     tags:
       - 'v*'
 
@@ -57,12 +62,12 @@ jobs:
       - name: Build with VitePress
         run: |
           pnpm docs:build
-          touch docs/.vitepress/dist/.nojekyll
+          touch docs/site/.vitepress/dist/.nojekyll
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5
         with:
-          path: docs/.vitepress/dist
+          path: docs/site/.vitepress/dist
 
   # Deployment job
   deploy_gh:

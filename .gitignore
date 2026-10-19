@@ -12,8 +12,8 @@ logs/
 .env*
 !.env.example
 # VitePress build artifacts
-docs/.vitepress/dist
-docs/.vitepress/cache
+docs/site/.vitepress/dist
+docs/site/.vitepress/cache
 
 .cursorrules
 .cursorignore

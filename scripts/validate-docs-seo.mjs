@@ -5,28 +5,28 @@ import { join, relative } from 'node:path';
 const root = process.cwd();
 const restoredPages = [
   {
-    path: 'docs/.vitepress/dist/commands/registry/index.html',
+    path: 'docs/site/.vitepress/dist/commands/registry/index.html',
     description: 'Reference for the 1MCP registry discovery commands.',
     keywords: '1MCP registry,MCP registry commands,registry search,registry status',
     ogTitle: '1MCP Registry Commands',
     ogDescription: 'Query a configured MCP registry with the 1MCP search, status, show, and versions commands.',
   },
   {
-    path: 'docs/.vitepress/dist/commands/registry/search.html',
+    path: 'docs/site/.vitepress/dist/commands/registry/search.html',
     description: 'Search entries in the configured MCP registry.',
     keywords: '1MCP registry search,MCP server discovery,registry filters,registry pagination',
     ogTitle: '1MCP registry search',
     ogDescription: 'Search a configured MCP registry by text, status, package type, or transport with the 1MCP CLI.',
   },
   {
-    path: 'docs/.vitepress/dist/guide/advanced/performance.html',
+    path: 'docs/site/.vitepress/dist/guide/advanced/performance.html',
     description: 'Configure bounded stdio backend recovery and use 1MCP operational signals accurately.',
     keywords: '1MCP stdio recovery,restartOnExit,maxRestarts,health checks',
     ogTitle: '1MCP Performance and Recovery',
     ogDescription: 'Configure bounded stdio backend recovery and use 1MCP logs and health routes for operations.',
   },
   {
-    path: 'docs/.vitepress/dist/guide/integrations/app-consolidation.html',
+    path: 'docs/site/.vitepress/dist/guide/integrations/app-consolidation.html',
     description:
       'Consolidate supported application MCP configurations into 1MCP and restore them from centralized backups.',
     keywords: '1MCP app consolidation,MCP configuration backup,Claude Desktop,Cursor',
@@ -35,84 +35,84 @@ const restoredPages = [
       'Consolidate supported application MCP configurations into 1MCP with dry runs, backups, and restoration.',
   },
   {
-    path: 'docs/.vitepress/dist/guide/integrations/codex.html',
+    path: 'docs/site/.vitepress/dist/guide/integrations/codex.html',
     description: 'Choose one 1MCP workflow for Codex: CLI mode, direct HTTP, or the stdio proxy.',
     keywords: '1MCP Codex integration,Codex MCP,config.toml,stdio proxy',
     ogTitle: '1MCP Codex Integration',
     ogDescription: 'Choose one 1MCP workflow for Codex: CLI mode, direct HTTP, or the stdio proxy.',
   },
   {
-    path: 'docs/.vitepress/dist/reference/internal-tools.html',
+    path: 'docs/site/.vitepress/dist/reference/internal-tools.html',
     description: 'The Internal Tools reference moved to its canonical route.',
     keywords: '1MCP internal tools,MCP management tools,internal tools reference',
     ogTitle: '1MCP Internal Tools Reference',
     ogDescription: 'Continue to the canonical 1MCP Internal Tools reference for programmatic MCP server management.',
   },
   {
-    path: 'docs/.vitepress/dist/reference/internal-tools/index.html',
+    path: 'docs/site/.vitepress/dist/reference/internal-tools/index.html',
     description: 'MCP protocol reference for 1MCP internal management tools.',
     keywords: '1MCP internal tools,MCP management tools,tools call,server management',
     ogTitle: '1MCP Internal Tools',
     ogDescription: 'MCP protocol reference for optional 1MCP discovery, installation, and management tools.',
   },
   {
-    path: 'docs/.vitepress/dist/reference/internal-tools/installation.html',
+    path: 'docs/site/.vitepress/dist/reference/internal-tools/installation.html',
     description: 'Input and output lookup for the internal MCP installation tools.',
     keywords: '1MCP installation tools,mcp_install,mcp_uninstall,mcp_update,MCP tool schema',
     ogTitle: '1MCP Internal Installation Tools',
     ogDescription: 'Input and output reference for the 1MCP mcp_install, mcp_uninstall, and mcp_update tools.',
   },
   {
-    path: 'docs/.vitepress/dist/zh/commands/registry/index.html',
+    path: 'docs/site/.vitepress/dist/zh/commands/registry/index.html',
     description: '1MCP 注册表发现命令参考。',
     keywords: '1MCP 注册表,MCP 注册表命令,注册表搜索,注册表状态',
     ogTitle: '1MCP 注册表命令',
     ogDescription: '使用 1MCP 的 search、status、show 和 versions 命令查询已配置的 MCP 注册表。',
   },
   {
-    path: 'docs/.vitepress/dist/zh/commands/registry/search.html',
+    path: 'docs/site/.vitepress/dist/zh/commands/registry/search.html',
     description: '在已配置的 MCP 注册表中搜索条目。',
     keywords: '1MCP 注册表搜索,MCP 服务器发现,注册表筛选,注册表分页',
     ogTitle: '1MCP registry search',
     ogDescription: '使用 1MCP CLI 按文本、状态、包类型或传输方式搜索已配置的 MCP 注册表。',
   },
   {
-    path: 'docs/.vitepress/dist/zh/guide/advanced/performance.html',
+    path: 'docs/site/.vitepress/dist/zh/guide/advanced/performance.html',
     description: '准确配置有界 stdio 后端恢复并使用 1MCP 运维信号。',
     keywords: '1MCP stdio 恢复,restartOnExit,maxRestarts,健康检查',
     ogTitle: '1MCP 性能与恢复',
     ogDescription: '配置有界 stdio 后端恢复，并使用 1MCP 日志和健康检查路由进行运维。',
   },
   {
-    path: 'docs/.vitepress/dist/zh/guide/integrations/app-consolidation.html',
+    path: 'docs/site/.vitepress/dist/zh/guide/integrations/app-consolidation.html',
     description: '将受支持应用的 MCP 配置整合到 1MCP，并从集中备份中恢复。',
     keywords: '1MCP 应用整合,MCP 配置备份,Claude Desktop,Cursor',
     ogTitle: '1MCP 应用整合指南',
     ogDescription: '通过预览、备份和恢复，将受支持应用的 MCP 配置整合到 1MCP。',
   },
   {
-    path: 'docs/.vitepress/dist/zh/guide/integrations/codex.html',
+    path: 'docs/site/.vitepress/dist/zh/guide/integrations/codex.html',
     description: '为 Codex 选择一种 1MCP 工作流：CLI 模式、直接 HTTP 或 stdio 代理。',
     keywords: '1MCP Codex 集成,Codex MCP,config.toml,stdio 代理',
     ogTitle: '1MCP Codex 集成',
     ogDescription: '为 Codex 选择一种 1MCP 工作流：CLI 模式、直接 HTTP 或 stdio 代理。',
   },
   {
-    path: 'docs/.vitepress/dist/zh/reference/internal-tools.html',
+    path: 'docs/site/.vitepress/dist/zh/reference/internal-tools.html',
     description: '内部工具参考已迁移至规范路由。',
     keywords: '1MCP 内部工具,MCP 管理工具,内部工具参考',
     ogTitle: '1MCP 内部工具参考',
     ogDescription: '前往规范的 1MCP 内部工具参考，了解如何通过程序管理 MCP 服务器。',
   },
   {
-    path: 'docs/.vitepress/dist/zh/reference/internal-tools/index.html',
+    path: 'docs/site/.vitepress/dist/zh/reference/internal-tools/index.html',
     description: '1MCP 内部管理工具的 MCP 协议参考。',
     keywords: '1MCP 内部工具,MCP 管理工具,tools call,服务器管理',
     ogTitle: '1MCP 内部工具',
     ogDescription: '1MCP 可选发现、安装和管理工具的 MCP 协议参考。',
   },
   {
-    path: 'docs/.vitepress/dist/zh/reference/internal-tools/installation.html',
+    path: 'docs/site/.vitepress/dist/zh/reference/internal-tools/installation.html',
     description: '内部 MCP 安装工具的输入和输出查询参考。',
     keywords: '1MCP 安装工具,mcp_install,mcp_uninstall,mcp_update,MCP 工具 schema',
     ogTitle: '1MCP 内部安装工具',
@@ -165,7 +165,7 @@ for (const page of restoredPages) {
   assertSingleMeta(meta, { property: 'og:description' }, page.ogDescription, page.path);
 }
 
-const dist = join(root, 'docs/.vitepress/dist');
+const dist = join(root, 'docs/site/.vitepress/dist');
 const generatedPages = htmlFiles(dist);
 const sitemap = readFileSync(join(dist, 'sitemap.xml'), 'utf8');
 const sitemapByPage = new Map(

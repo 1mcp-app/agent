@@ -5,22 +5,22 @@ const root = process.cwd();
 const llmArtifacts = ['llms.txt', 'llms-en.txt', 'llms-zh.txt', 'llms-full.txt'] as const;
 
 const preservedSeoHeadPages = [
-  'docs/en/commands/registry/index.md',
-  'docs/en/commands/registry/search.md',
-  'docs/en/guide/advanced/performance.md',
-  'docs/en/guide/integrations/app-consolidation.md',
-  'docs/en/guide/integrations/codex.md',
-  'docs/en/reference/internal-tools.md',
-  'docs/en/reference/internal-tools/index.md',
-  'docs/en/reference/internal-tools/installation.md',
-  'docs/zh/commands/registry/index.md',
-  'docs/zh/commands/registry/search.md',
-  'docs/zh/guide/advanced/performance.md',
-  'docs/zh/guide/integrations/app-consolidation.md',
-  'docs/zh/guide/integrations/codex.md',
-  'docs/zh/reference/internal-tools.md',
-  'docs/zh/reference/internal-tools/index.md',
-  'docs/zh/reference/internal-tools/installation.md',
+  'docs/site/en/commands/registry/index.md',
+  'docs/site/en/commands/registry/search.md',
+  'docs/site/en/guide/advanced/performance.md',
+  'docs/site/en/guide/integrations/app-consolidation.md',
+  'docs/site/en/guide/integrations/codex.md',
+  'docs/site/en/reference/internal-tools.md',
+  'docs/site/en/reference/internal-tools/index.md',
+  'docs/site/en/reference/internal-tools/installation.md',
+  'docs/site/zh/commands/registry/index.md',
+  'docs/site/zh/commands/registry/search.md',
+  'docs/site/zh/guide/advanced/performance.md',
+  'docs/site/zh/guide/integrations/app-consolidation.md',
+  'docs/site/zh/guide/integrations/codex.md',
+  'docs/site/zh/reference/internal-tools.md',
+  'docs/site/zh/reference/internal-tools/index.md',
+  'docs/site/zh/reference/internal-tools/installation.md',
 ] as const;
 
 const artifactRoutePolicies = {
@@ -113,13 +113,13 @@ function routeExists(route: string): boolean {
   if (pathname.endsWith('.txt')) {
     return (
       llmArtifacts.includes(pathname.slice(1) as (typeof llmArtifacts)[number]) &&
-      existsSync(join(root, 'docs/public', pathname.slice(1)))
+      existsSync(join(root, 'docs/site/public', pathname.slice(1)))
     );
   }
 
   const segments = pathname.split('/').filter(Boolean);
   const isChinese = segments[0] === 'zh';
-  const page = join('docs', isChinese ? 'zh' : 'en', ...(isChinese ? segments.slice(1) : segments));
+  const page = join('docs/site', isChinese ? 'zh' : 'en', ...(isChinese ? segments.slice(1) : segments));
 
   return [join(root, `${page}.md`), join(root, page, 'index.md')].some(existsSync);
 }
@@ -202,13 +202,13 @@ describe('publishing documentation', () => {
       );
     }
 
-    const vitepressConfig = readRepoFile('docs/.vitepress/config/index.ts');
+    const vitepressConfig = readRepoFile('docs/site/.vitepress/config/index.ts');
     expect(vitepressConfig).not.toMatch(/name:\s*'description'/);
     expect(vitepressConfig).not.toContain("property: 'og:url', content: 'https://docs.1mcp.app/'");
     expect(vitepressConfig).toContain("head.push(['meta', { property: 'og:url', content: url }])");
 
-    for (const enPath of preservedSeoHeadPages.filter((path) => path.startsWith('docs/en/'))) {
-      const zhPath = enPath.replace('docs/en/', 'docs/zh/');
+    for (const enPath of preservedSeoHeadPages.filter((path) => path.startsWith('docs/site/en/'))) {
+      const zhPath = enPath.replace('docs/site/en/', 'docs/site/zh/');
       expect(preservedSeoHeadPages).toContain(zhPath as (typeof preservedSeoHeadPages)[number]);
     }
   });
@@ -216,7 +216,7 @@ describe('publishing documentation', () => {
   it('keeps static LLM artifact routes canonical for their intended locales', () => {
     const artifacts = llmArtifacts.map((name) => ({
       name,
-      content: readRepoFile(`docs/public/${name}`),
+      content: readRepoFile(`docs/site/public/${name}`),
     }));
 
     for (const { name, content } of artifacts) {
@@ -232,7 +232,7 @@ describe('publishing documentation', () => {
   });
 
   it('keeps every LLM command invocation tied to current yargs builders', () => {
-    const artifacts = llmArtifacts.map((name) => readRepoFile(`docs/public/${name}`));
+    const artifacts = llmArtifacts.map((name) => readRepoFile(`docs/site/public/${name}`));
 
     expect(() => validateLlmCommandForms(artifacts)).not.toThrow();
     expect(() => validateLlmCommandForms([...artifacts, '`1mcp registry info`'])).toThrow('undocumented command form');
@@ -243,9 +243,9 @@ describe('publishing documentation', () => {
 
   it('describes CLI setup writes and the Codex-only manual notice accurately', () => {
     const cliSetup = readRepoFile('src/commands/cliSetup/cliSetup.ts');
-    const enArtifact = readRepoFile('docs/public/llms-en.txt');
-    const zhArtifact = readRepoFile('docs/public/llms-zh.txt');
-    const fullArtifact = readRepoFile('docs/public/llms-full.txt');
+    const enArtifact = readRepoFile('docs/site/public/llms-en.txt');
+    const zhArtifact = readRepoFile('docs/site/public/llms-zh.txt');
+    const fullArtifact = readRepoFile('docs/site/public/llms-full.txt');
 
     expect(cliSetup).toContain('writeCliSetupFiles');
     expect(cliSetup).toContain("targets.includes('codex')");
@@ -266,16 +266,15 @@ describe('publishing documentation', () => {
   });
 
   it('keeps non-public research and Chinese metadata governed', () => {
-    const vitepressConfig = readRepoFile('docs/.vitepress/config/index.ts');
     const roadmap = readRepoFile('docs/ROADMAP.md');
     const readme = readRepoFile('docs/README.md');
 
-    expect(vitepressConfig).toContain("'research/**'");
+    expect(existsSync(join(root, 'docs/site/research'))).toBe(false);
     expect(roadmap).toContain('status: archived');
     expect(roadmap).toContain('not current product guidance');
     expect(readme).toContain('publishingDocs.test.ts');
 
-    for (const path of markdownFiles('docs/zh')) {
+    for (const path of markdownFiles('docs/site/zh')) {
       const content = readRepoFile(path);
       const frontmatter = content.match(/^---\n([\s\S]*?)\n---\n/);
       expect(frontmatter, `${path} needs frontmatter`).not.toBeNull();

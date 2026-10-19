@@ -38,7 +38,7 @@ export default function createConfig(version: string) {
       sidebar: sidebar(),
 
       editLink: {
-        pattern: 'https://github.com/1mcp-app/agent/edit/main/docs/:path',
+        pattern: 'https://github.com/1mcp-app/agent/edit/main/docs/site/:path',
         text: '在 GitHub 上编辑此页面',
       },
 

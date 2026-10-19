@@ -16,7 +16,7 @@ Follow the instructions for the checkout you are working on. The following sourc
 
 | What you need                                                          | Where to find it                                                                             |
 | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| Set up and run a development environment                               | [Development guide](docs/en/guide/development.md)                                            |
+| Set up and run a development environment                               | [Development guide](docs/site/en/guide/development.md)                                       |
 | Runtime version, package manager, dependencies, and available commands | [.node-version](.node-version), [package.json](package.json), and [lockfile](pnpm-lock.yaml) |
 | Local development configuration                                        | [.env.example](.env.example)                                                                 |
 | Repository conventions and required quality checks                     | [AGENTS.md](AGENTS.md) and any instructions in the directory you change                      |
