@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { withProjectAdmission } from '@src/application/projectLifecycle.js';
+import { getProjectLifecycle, withProjectAdmission } from '@src/application/projectLifecycle.js';
 import { createProjectOwnerCredential } from '@src/core/context/projectOwner.js';
 import { createTemplateContextProof, TemplateContextCapabilityStore } from '@src/core/context/templateContextTrust.js';
 import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
@@ -47,12 +47,14 @@ async function fixture() {
     owner = createProjectOwnerCredential(capability),
     checkout = directory,
     waitMs?: number,
+    projectSet?: ContextData['projectSet'],
   ) => {
     const context: ContextData = {
       project: { path: checkout },
       user: {},
       environment: {},
       sessionId: 'transport',
+      ...(projectSet ? { projectSet } : {}),
       owner,
     };
     const proof = createTemplateContextProof(context, capability);
@@ -295,6 +297,63 @@ describe('Project lifecycle HTTP controls', () => {
     expect((await waiting).output).toMatchObject({ results: [{ admission: 'draining', complete: true }] });
     await work;
   });
+  it.each(['active work', 'preparation recovery'])(
+    'preserves a native-set binding while its second selected checkout has %s',
+    async (blocker) => {
+      const f = await fixture();
+      const second = path.join(f.directory, 'second');
+      fs.mkdirSync(second);
+      const owner = createProjectOwnerCredential(f.capability);
+      const projectSet = {
+        projects: [
+          { label: 'a', path: f.directory },
+          { label: 'b', path: second },
+        ],
+        selection: ['a', 'b'],
+      };
+      const binding = await f.manager.registerBindingContext('shared', {
+        project: {},
+        user: {},
+        environment: {},
+        owner,
+        sessionId: 'native-set',
+        projectSet,
+      });
+      const finish = blocker === 'active work' ? getProjectLifecycle()!.begin([second]) : () => {};
+      const recoveryFile = path.join(f.directory, 'backend-preparation.json');
+      if (blocker === 'preparation recovery')
+        fs.writeFileSync(
+          recoveryFile,
+          JSON.stringify([
+            {
+              key: 'a'.repeat(64),
+              target: {
+                checkoutRoot: fs.realpathSync(second),
+                backendName: 'backend',
+                backendIdentity: 'backend',
+                configurationKey: 'config',
+              },
+              operation: 'query',
+              policy: { allowedActions: ['initialize'] },
+              action: 'initialize',
+              state: 'running',
+              previousJobId: 'recovery-job',
+            },
+          ]),
+          { mode: 0o600 },
+        );
+      try {
+        await f.invoke('release', owner, f.directory, undefined, projectSet);
+        expect(f.manager.getBindingContext(binding)).toBeDefined();
+      } finally {
+        finish();
+        if (fs.existsSync(recoveryFile)) fs.unlinkSync(recoveryFile);
+      }
+      await f.invoke('release', owner, f.directory, undefined, projectSet);
+      expect(f.manager.getBindingContext(binding)).toBeUndefined();
+    },
+  );
+
   it('preserves a binding shared with an unselected checkout', async () => {
     const f = await fixture();
     const second = path.join(f.directory, 'second');

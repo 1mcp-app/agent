@@ -1078,6 +1078,7 @@ export class TemplateServerManager {
     checkout: string,
     ownerId: string,
     selectedCheckouts: string[] = [checkout],
+    hasPreparationBlockers: (checkout: string) => boolean = () => false,
   ): Promise<void> {
     const canonical = canonicalLifecyclePath(checkout);
     if (getProjectLifecycle()?.status(canonical).blockers.length) return;
@@ -1088,6 +1089,8 @@ export class TemplateServerManager {
       const paths = projectPaths(context);
       if (!paths.includes(canonical)) continue;
       if (paths.some((entry) => !selectedCheckouts.map(canonicalLifecyclePath).includes(entry))) continue;
+      if (paths.some((entry) => getProjectLifecycle()?.status(entry).blockers.length || hasPreparationBlockers(entry)))
+        continue;
       if ((this.logicalSessions.get(context.sessionId ?? bindingId)?.retainCount ?? 0) > 0) continue;
       const instances = this.clientTemplateTracker.getClientTemplates(bindingId);
       for (const { templateName, instanceId } of instances) {

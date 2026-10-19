@@ -2,6 +2,8 @@ import { createHash, randomBytes } from 'node:crypto';
 import { link, lstat, mkdir, open, readdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 
+import { projectSetSchema } from '@src/domains/project-selection/projectSelection.js';
+import type { ProjectSetMember } from '@src/types/context.js';
 import { credentialReadFlags, hasSafeCredentialPermissions } from '@src/utils/filePermissions.js';
 
 import { z } from 'zod';
@@ -9,14 +11,18 @@ import { z } from 'zod';
 const credentialSchema = z.object({ version: z.literal(1), token: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
 const targetSchema = z
   .object({
-    project: z.array(z.string().refine(path.isAbsolute)).length(1),
+    project: z.array(z.string().refine(path.isAbsolute)).min(1).max(32),
+    'project-set': z.string().refine(path.isAbsolute).optional(),
     'config-dir': z.string().refine(path.isAbsolute),
     runtimeScopeId: z.string().min(1),
     config: z.string().refine(path.isAbsolute).optional(),
     context: z.string().optional(),
     url: z.string().url().optional(),
   })
-  .strict();
+  .strict()
+  .refine((target) => target.project.length === 1 || Boolean(target['project-set']), {
+    message: 'Native-set cleanup requires an immutable selection snapshot',
+  });
 export type ProjectOwnerTarget = z.infer<typeof targetSchema>;
 
 export interface HookOwnerIdentity {
@@ -47,7 +53,7 @@ export async function createHookProjectOwner(storageDirectory: string, identity:
 export async function readProjectOwner(file: string): Promise<string> {
   if (!path.isAbsolute(file)) throw new Error('Project owner credential must be an absolute path');
   await assertPrivateDirectory(path.dirname(file));
-  const handle = await open(file, credentialReadFlags());
+  const handle = await open(file, credentialReadFlags(), 0o600);
   try {
     const info = await handle.stat();
     if (!info.isFile() || !hasSafeCredentialPermissions(info, 0o077)) {
@@ -79,6 +85,27 @@ export async function recordProjectOwnerTarget(ownerFile: string, input: Project
   await publishPrivateRecord(file, content);
 }
 
+/** Snapshot only the canonical selected members, independent of the original definition file. */
+export async function recordProjectOwnerSelection(
+  ownerFile: string,
+  target: Omit<ProjectOwnerTarget, 'project' | 'project-set'>,
+  projects: ProjectSetMember[],
+): Promise<void> {
+  await readProjectOwner(ownerFile);
+  const selection = projectSetSchema.parse({ projects, selection: projects.map((project) => project.label) });
+  const directory = `${ownerFile}.targets`;
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  await assertPrivateDirectory(directory);
+  const content = JSON.stringify(selection);
+  const snapshot = path.join(directory, `${createHash('sha256').update(content).digest('hex')}.selection.json`);
+  await publishPrivateRecord(snapshot, content);
+  await recordProjectOwnerTarget(ownerFile, {
+    ...target,
+    project: projects.map((project) => project.path),
+    'project-set': snapshot,
+  });
+}
+
 export async function readProjectOwnerTargets(ownerFile: string): Promise<ProjectOwnerTarget[]> {
   await readProjectOwner(ownerFile);
   const directory = `${ownerFile}.targets`;
@@ -92,7 +119,7 @@ export async function readProjectOwnerTargets(ownerFile: string): Promise<Projec
   }
   const targets: ProjectOwnerTarget[] = [];
   for (const name of names.filter((entry) => /^[a-f0-9]{64}\.json$/.test(entry)).sort()) {
-    const handle = await open(path.join(directory, name), credentialReadFlags());
+    const handle = await open(path.join(directory, name), credentialReadFlags(), 0o600);
     try {
       const info = await handle.stat();
       if (!info.isFile() || info.size > 16384 || !hasSafeCredentialPermissions(info, 0o077))

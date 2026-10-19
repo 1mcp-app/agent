@@ -5,12 +5,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { releaseSessionOwner } from '@src/commands/bootstrap/bootstrapOwnership.js';
 import { createHookProjectOwner, readProjectOwnerTargets } from '@src/commands/shared/projectOwnerStore.js';
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
 import { verifyProjectOwnerCredential } from '@src/core/context/projectOwner.js';
 import { authorizeTemplateContext, TemplateContextCapabilityStore } from '@src/core/context/templateContextTrust.js';
 import { writePidFile } from '@src/core/server/pidFileManager.js';
 import { startRuntimeControl } from '@src/core/server/runtimeControl.js';
+import { loadProjectSet } from '@src/domains/project-selection/projectSelection.js';
 import type { ContextData } from '@src/types/context.js';
 
 import { describe, expect, it, vi } from 'vitest';
@@ -657,6 +659,68 @@ describe('attachReusableClientSurface', () => {
 });
 
 describe('local template context proof attachment', () => {
+  it('replays a native-set selection together on SessionEnd without selecting omitted members', async () => {
+    const storagePath = fs.mkdtempSync(path.join(os.tmpdir(), '1mcp-owner-selection-'));
+    try {
+      new TemplateContextCapabilityStore({ storageDir: storagePath, runtimeScopeId: 'scope-owner' }).getOrCreate();
+      writePidFile(storagePath, {
+        pid: process.pid,
+        url: 'http://127.0.0.1:3050/mcp',
+        port: 3050,
+        host: '127.0.0.1',
+        transport: 'http',
+        startedAt: new Date().toISOString(),
+        configDir: storagePath,
+      });
+      const parent = await createHookProjectOwner(storagePath, { client: 'codex', sessionId: 'parent' });
+      const second = path.join(storagePath, 'second');
+      fs.mkdirSync(second);
+      const projectSet = {
+        projects: [
+          { label: 'a', path: storagePath },
+          { label: 'b', path: second },
+          { label: 'omitted', path: '/unselected' },
+        ],
+        selection: ['a', 'b'],
+      };
+      const options = { 'config-dir': storagePath, 'project-owner': parent };
+      const target = makeResolvedTarget({
+        mergedOptions: options,
+        serverPid: process.pid,
+        localRuntimeScope: { storagePath },
+        projectSet,
+      });
+      await attachReusableClientSurface({
+        clientSurface: 'run',
+        version: 'run',
+        options,
+        ports: makePorts({ target }),
+        rest: async () => ({ status: 'success', value: undefined }),
+        mcp: unusedAdapter(),
+      });
+      projectSet.selection = ['omitted'];
+      const releases: unknown[] = [];
+      await releaseSessionOwner(
+        { client: 'codex', event: 'SessionEnd', 'config-dir': storagePath },
+        JSON.stringify({ hook_event_name: 'SessionEnd', session_id: 'parent' }),
+        async (_file, recorded) => {
+          releases.push(recorded);
+        },
+      );
+      expect(releases).toHaveLength(1);
+      expect(releases[0]).toMatchObject({ runtimeScopeId: 'scope-owner', context: 'local', 'config-dir': storagePath });
+      const recorded = (await readProjectOwnerTargets(parent))[0];
+      const snapshot = await loadProjectSet(recorded['project-set']!);
+      expect(snapshot.projects).toEqual([
+        { label: 'a', path: fs.realpathSync(storagePath) },
+        { label: 'b', path: fs.realpathSync(second) },
+      ]);
+      expect(snapshot.selection).toEqual(['a', 'b']);
+    } finally {
+      fs.rmSync(storagePath, { recursive: true, force: true });
+    }
+  });
+
   it('propagates the same verified owner across CLI surfaces while isolating a worker and operator authority', async () => {
     const storagePath = fs.mkdtempSync(path.join(os.tmpdir(), '1mcp-caller-owner-'));
     try {

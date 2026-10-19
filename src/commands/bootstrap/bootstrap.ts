@@ -203,7 +203,8 @@ export async function bootstrapCommand(options: BootstrapCommandOptions): Promis
     try {
       await releaseSessionOwner(options, input, async (ownerFile, target) => {
         const args = ['project', 'release', '--format=json', `--project-owner=${ownerFile}`];
-        for (const project of target.project) args.push(`--project=${project}`);
+        if (target['project-set']) args.push(`--project-set=${target['project-set']}`);
+        else for (const project of target.project) args.push(`--project=${project}`);
         for (const key of ['config-dir', 'config', 'context', 'url'] as const) {
           if (target[key]) args.push(`--${key}=${target[key]}`);
         }

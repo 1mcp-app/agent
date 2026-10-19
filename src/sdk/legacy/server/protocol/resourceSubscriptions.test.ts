@@ -1,5 +1,10 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import { getProjectLifecycle } from '@src/application/projectLifecycle.js';
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import type { InboundConnection, OutboundConnection } from '@src/core/types/index.js';
@@ -90,6 +95,77 @@ describe('owned legacy resource subscriptions', () => {
   afterEach(async () => {
     await Promise.all(inbounds.splice(0).map(cleanupOwnedResources));
     vi.useRealTimers();
+  });
+
+  describe('checkout subscription lifecycle', () => {
+    let directory: string;
+    beforeEach(() => {
+      directory = fs.mkdtempSync(path.join(os.tmpdir(), 'subscription-lifecycle-'));
+      const manager = AgentConfigManager.getInstance();
+      const get = manager.get.bind(manager);
+      vi.spyOn(manager, 'get').mockImplementation((key) => (key === 'runtimeScopeStoragePath' ? directory : get(key)));
+    });
+    afterEach(() => {
+      vi.restoreAllMocks();
+      fs.rmSync(directory, { recursive: true, force: true });
+    });
+    function checkoutOwner() {
+      const inbound = fixture();
+      Object.assign(inbound, { context: { project: { path: directory }, user: {}, environment: {} } });
+      return inbound;
+    }
+    it('allows checkout completion after rejected subscription setup while the inbound stays open', async () => {
+      const inbound = checkoutOwner();
+      await expect(subscribeOwnedResource(connections, inbound, 'x'.repeat(8193))).rejects.toThrow('URI exceeds limit');
+      expect(getProjectLifecycle()!.status(directory).complete).toBe(true);
+      expect(inbound.status).toBe(ServerStatus.Connected);
+    });
+    it('clears failed route setup but retains an unconfirmed upstream teardown', async () => {
+      const inbound = checkoutOwner();
+      mocks.route.mockImplementationOnce(() => {
+        throw new Error('Missing resource');
+      });
+      await expect(subscribeOwnedResource(connections, inbound, 'public:file:///missing')).rejects.toThrow(
+        'Missing resource',
+      );
+      expect(getProjectLifecycle()!.status(directory).complete).toBe(true);
+      await subscribeOwnedResource(connections, inbound, 'public:file:///a');
+      mocks.request.mockRejectedValueOnce(new Error('Unsubscribe failed'));
+      await expect(unsubscribeOwnedResource(inbound, 'public:file:///a')).rejects.toThrow('Unsubscribe failed');
+      expect(getProjectLifecycle()!.status(directory).complete).toBe(false);
+      await cleanupOwnedResources(inbound);
+      expect(getProjectLifecycle()!.status(directory).complete).toBe(false);
+      Object.assign(upstream.adapter, { state: 'stopped' });
+    });
+    it('retains queued delivery after the final unsubscribe until the delivery finishes', async () => {
+      const inbound = checkoutOwner();
+      await subscribeOwnedResource(connections, inbound, 'public:file:///a');
+      const delivery = deferred();
+      vi.mocked(inbound.adapter.notify).mockReturnValueOnce(delivery.promise);
+      deliverOwnedResourceUpdate(upstream, update());
+      await vi.waitFor(() => expect(inbound.adapter.notify).toHaveBeenCalledOnce());
+      await unsubscribeOwnedResource(inbound, 'public:file:///a');
+      const lifecycle = getProjectLifecycle()!;
+      lifecycle.drain(directory);
+      expect(lifecycle.status(directory).complete).toBe(false);
+      delivery.resolve();
+      await vi.waitFor(() => expect(lifecycle.status(directory).complete).toBe(true));
+    });
+    it('keeps teardown blocking drain until final unsubscribe confirms completion', async () => {
+      const inbound = checkoutOwner();
+      await subscribeOwnedResource(connections, inbound, 'public:file:///a');
+      const lifecycle = getProjectLifecycle()!;
+      lifecycle.drain(directory);
+      expect(lifecycle.status(directory).complete).toBe(false);
+      const teardown = deferred();
+      mocks.request.mockReturnValueOnce(teardown.promise);
+      const unsubscribing = unsubscribeOwnedResource(inbound, 'public:file:///a');
+      expect(lifecycle.status(directory).complete).toBe(false);
+      teardown.resolve();
+      await unsubscribing;
+      expect(lifecycle.status(directory).complete).toBe(true);
+      expect(inbound.status).toBe(ServerStatus.Connected);
+    });
   });
 
   it('round-trips generated resource identities through the actual catalog resolver and subscription updates', async () => {

@@ -2,7 +2,12 @@ import path from 'node:path';
 
 import { type AuthProfile, loadAuthProfile, normalizeServerUrl } from '@src/commands/shared/authProfileStore.js';
 import { buildCliContext, generateStreamableSessionId } from '@src/commands/shared/cliContext.js';
-import { projectOwnerId, readProjectOwner, recordProjectOwnerTarget } from '@src/commands/shared/projectOwnerStore.js';
+import {
+  projectOwnerId,
+  readProjectOwner,
+  recordProjectOwnerSelection,
+  recordProjectOwnerTarget,
+} from '@src/commands/shared/projectOwnerStore.js';
 import {
   type CliSessionCache,
   deleteCliSessionCache,
@@ -503,15 +508,17 @@ async function attachProjectOwner<TOptions extends ResolvableServeTargetOptions>
   if (!file || !target.localRuntimeScope) return;
   const selection = resolveProjectSelection(context);
   if (selection.kind === 'unresolved') return;
-  for (const project of selection.projects) {
-    await recordProjectOwnerTarget(file, {
-      project: [project.path],
-      'config-dir': path.resolve(target.localRuntimeScope.storagePath),
-      runtimeScopeId: capability.runtimeScopeId,
-      ...(options.config ? { config: path.resolve(options.config) } : {}),
-      ...(options.url ? { url: target.discoveredUrl } : { context: 'local' }),
-    });
+  const recordedTarget = {
+    'config-dir': path.resolve(target.localRuntimeScope.storagePath),
+    runtimeScopeId: capability.runtimeScopeId,
+    ...(options.config ? { config: path.resolve(options.config) } : {}),
+    ...(options.url ? { url: target.discoveredUrl } : { context: 'local' }),
+  };
+  if (selection.kind === 'native-set') {
+    await recordProjectOwnerSelection(file, recordedTarget, selection.projects);
+    return;
   }
+  await recordProjectOwnerTarget(file, { ...recordedTarget, project: [selection.projects[0].path] });
 }
 
 async function readLiveLocalCapability<TOptions extends ResolvableServeTargetOptions>(

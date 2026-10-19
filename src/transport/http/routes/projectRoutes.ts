@@ -114,7 +114,12 @@ export function createProjectHandler(serverManager: ServerManager): RequestHandl
           const cleanup: { kind: string; id: string }[] = [];
           try {
             if (action === 'release' && !jobs.length)
-              await manager.releaseProjectOwner(checkout, owner.ownerId, checkouts);
+              await manager.releaseProjectOwner(checkout, owner.ownerId, checkouts, (member) =>
+                Boolean(
+                  peekBackendPreparationCoordinator(serverManager)?.getProjectBlockers(member).length ||
+                  persistedProjectPreparationBlockers(member).length,
+                ),
+              );
             if (action === 'drain' && !jobs.length) await manager.closeUnusedProjectInstances(checkout);
           } catch {
             cleanup.push({ kind: 'cleanup-failed', id: checkout });
