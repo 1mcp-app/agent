@@ -1,0 +1,53 @@
+name: Operational telemetry
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'test/telemetry/**'
+      - 'scripts/telemetry/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/operational-telemetry.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: operational-telemetry-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  HUSKY: 0
+  CI: true
+
+jobs:
+  collector:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-pnpm
+      - name: Build runtime
+        run: pnpm build
+      - name: Install checksum-verified fixture Collector
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/telemetry-collector"
+          cd "$RUNNER_TEMP/telemetry-collector"
+          archive=otelcol_0.163.1_linux_amd64.tar.gz
+          release=https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.163.1
+          curl --fail --silent --show-error --location "$release/$archive" -o "$archive"
+          curl --fail --silent --show-error --location "$release/$archive.sha256" -o checksum
+          expected=$(awk '{print $1}' checksum)
+          printf '%s  %s\n' "$expected" "$archive" | sha256sum --check
+          tar -xzf "$archive"
+          echo "OTELCOL_BINARY=$RUNNER_TEMP/telemetry-collector/otelcol" >> "$GITHUB_ENV"
+      - name: Verify fake and real Collector fixtures
+        run: node --test test/telemetry/collector.test.mjs test/telemetry/real-collector.test.mjs
+      - name: Verify runtime export and privacy
+        run: pnpm exec vitest run --config test/telemetry/vitest.config.ts
