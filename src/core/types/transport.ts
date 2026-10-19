@@ -128,6 +128,9 @@ export interface ApplicationConfig {
     readonly trustProxy?: string;
     readonly enableScopeValidation?: boolean;
     readonly enableEnhancedSecurity?: boolean;
+    readonly cloudflareAccessIssuer?: string;
+    readonly cloudflareAccessAudience?: string;
+    readonly cloudflareAccessGroupTagMap?: Readonly<Record<string, readonly string[]>>;
   };
   readonly asyncLoading?: {
     readonly enabled?: boolean;
@@ -381,6 +384,16 @@ export const applicationConfigSchema = z.object({
       trustProxy: z.string().optional().describe('Trust proxy configuration for Express.js'),
       enableScopeValidation: z.boolean().optional().describe('Enable tag-based scope validation'),
       enableEnhancedSecurity: z.boolean().optional().describe('Enable enhanced security middleware'),
+      cloudflareAccessIssuer: z.string().url().optional().describe('Cloudflare Access team issuer URL'),
+      cloudflareAccessAudience: z
+        .string()
+        .min(1)
+        .optional()
+        .describe('Cloudflare Access Application Audience (AUD) tag'),
+      cloudflareAccessGroupTagMap: z
+        .record(z.string(), z.array(z.string()))
+        .optional()
+        .describe('Map Cloudflare Access custom group claims to 1MCP tags'),
     })
     .optional(),
   asyncLoading: z

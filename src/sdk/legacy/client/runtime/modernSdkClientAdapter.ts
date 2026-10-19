@@ -57,6 +57,7 @@ function toProtocolError(error: unknown): OneMcpProtocolError {
 /** Plain-data compatibility boundary around one v2 Client and its negotiated era. */
 export class ModernSdkClientAdapter implements LegacySdkAdapter {
   readonly connectionId = randomUUID() as LegacyConnectionId;
+  readonly protocolPin: { readonly era: 'legacy' | 'modern'; readonly revision: string };
   private lifecycleState: LegacySdkLifecycleState = 'running';
   private readonly controllers = new Map<LegacyRequestId, AbortController>();
   private readonly events: LegacySdkEvent[] = [];
@@ -70,6 +71,10 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
     this.registerListChangedNotifications();
 
     const revision = client.getNegotiatedProtocolVersion() ?? '2025-11-25';
+    this.protocolPin = Object.freeze({
+      era: client.getProtocolEra() === 'modern' ? ('modern' as const) : ('legacy' as const),
+      revision,
+    });
     const direct = this.createDirectAdapter();
     this.outbound =
       client.getProtocolEra() === 'modern'
@@ -228,6 +233,7 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
     const owner = this;
     return {
       connectionId: this.connectionId,
+      protocolPin: this.protocolPin,
       get state() {
         return owner.state;
       },
