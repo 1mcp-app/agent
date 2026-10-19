@@ -6,6 +6,7 @@ import {
 } from '@src/core/server/backgroundRuntimeSupervisor.js';
 import { ServerPidInfo } from '@src/core/server/pidFileManager.js';
 import { inspectProcessIdentity, processIdentityRecoveryMessage } from '@src/core/server/processIdentity.js';
+import { connectRuntimeControl } from '@src/core/server/runtimeControl.js';
 import { discoverScopedRuntime, RuntimeStatus } from '@src/core/server/runtimeLifecycle.js';
 import {
   readRuntimeScopeOwnership,
@@ -69,6 +70,20 @@ export interface RuntimeStatusDeps {
  * alive-and-ready.
  */
 export async function getRuntimeStatusReport(
+  configDirOption?: string,
+  deps: RuntimeStatusDeps = {},
+): Promise<RuntimeStatusReport> {
+  const report = await discoverRuntimeStatusReport(configDirOption, deps);
+  try {
+    const control = await connectRuntimeControl(report.configDir, { statusOnly: true });
+    if (control) report.telemetry = await control.request('telemetry');
+  } catch {
+    // Telemetry status never changes runtime readiness or availability.
+  }
+  return report;
+}
+
+async function discoverRuntimeStatusReport(
   configDirOption?: string,
   deps: RuntimeStatusDeps = {},
 ): Promise<RuntimeStatusReport> {
@@ -262,7 +277,15 @@ function statusError(configDir: string, error: unknown): RuntimeStatusReport {
 export function formatRuntimeStatusReport(report: RuntimeStatusReport): string {
   const { status, configDir, info } = report;
   const lines: string[] = [`Runtime Scope: ${configDir}`];
-  if (report.telemetry) lines.push(`Telemetry: ${report.telemetry.state}`);
+  if (report.telemetry) {
+    lines.push(`Telemetry: ${report.telemetry.state}`);
+    for (const signal of ['traces', 'metrics'] as const) {
+      const telemetry = report.telemetry[signal];
+      lines.push(
+        `Telemetry ${signal}: ${telemetry.state}; exporter=${telemetry.exporter}; queue=${telemetry.queueUse}; dropped=${telemetry.dropped}; overflow=${telemetry.overflow}; success-age-ms=${telemetry.successAgeMs ?? 'none'}; failure-age-ms=${telemetry.failureAgeMs ?? 'none'}; shutdown=${telemetry.shutdown}`,
+      );
+    }
+  }
   if (report.cooperativeState) lines.push(`Lifecycle: ${report.cooperativeState} (version ${report.runtimeVersion})`);
 
   if (report.ownership) {

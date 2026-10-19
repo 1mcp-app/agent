@@ -40,6 +40,7 @@ import {
   beginRuntimeTelemetryShutdown,
   finishRuntimeTelemetry,
   installTelemetryCompletionHandlers,
+  startForegroundTelemetryStatus,
   startRuntimeTelemetry,
 } from '@src/core/server/runtimeTelemetry.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
@@ -651,6 +652,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
 
     await startRuntimeTelemetry('runtime');
     installTelemetryCompletionHandlers();
+    if (runtimeOwnership) await startForegroundTelemetryStatus(runtimeScope, runtimeOwnership.record.claimId);
 
     // Initialize server and get server manager with custom config path if provided
     const setup = cooperativeLaunch

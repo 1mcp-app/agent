@@ -19,6 +19,7 @@ const descriptorSchema = z
     version: z.literal(1),
     configDir: z.string(),
     claimId: nonceSchema,
+    statusOnly: z.literal(true).optional(),
     url: z
       .string()
       .url()
@@ -39,8 +40,15 @@ const descriptorSchema = z
   .strict();
 export type RuntimeControlDescriptor = z.infer<typeof descriptorSchema>;
 export type RuntimeControlMethod =
-  'describe' | 'prepare-replacement' | 'commit-replacement' | 'operation-status' | 'stop';
-const methodSchema = z.enum(['describe', 'prepare-replacement', 'commit-replacement', 'operation-status', 'stop']);
+  'describe' | 'prepare-replacement' | 'commit-replacement' | 'operation-status' | 'stop' | 'telemetry';
+const methodSchema = z.enum([
+  'describe',
+  'prepare-replacement',
+  'commit-replacement',
+  'operation-status',
+  'stop',
+  'telemetry',
+]);
 export interface RuntimeControlDescription {
   telemetry?: ReturnType<typeof getTelemetryStatus>;
   runtime: ServerPidInfo | null;
@@ -158,7 +166,13 @@ function verify(actual: string, expected: string): void {
 }
 function assertOwner(descriptor: RuntimeControlDescriptor): void {
   const owner = readRuntimeScopeOwnership(descriptor.configDir);
-  if (owner?.claimId !== descriptor.claimId || owner.kind !== 'background-supervisor') {
+  if (owner?.claimId !== descriptor.claimId) {
+    throw new Error('Runtime control generation no longer owns this scope');
+  }
+  const validKind = descriptor.statusOnly
+    ? owner.kind === 'foreground-http' || owner.kind === 'foreground-stdio'
+    : owner.kind === 'background-supervisor';
+  if (!validKind) {
     throw new Error('Runtime control generation no longer owns this scope');
   }
 }
@@ -187,6 +201,7 @@ export async function startRuntimeControl(
   configDir: string,
   claimId: string,
   handler: RuntimeControlHandler,
+  options: { statusOnly?: true } = {},
 ): Promise<{
   descriptor: RuntimeControlDescriptor;
   close: () => Promise<void>;
@@ -218,6 +233,7 @@ export async function startRuntimeControl(
       }
       if (req.url !== '/request') throw new Error('Invalid endpoint');
       const { signature, ...request } = requestSchema.parse(body);
+      if (options.statusOnly && request.method !== 'telemetry') throw new Error('Read-only telemetry channel');
       const challenge = challenges.get(request.challenge);
       challenges.delete(request.challenge);
       if (!isValidChallenge(challenge, request)) {
@@ -248,7 +264,14 @@ export async function startRuntimeControl(
   });
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Runtime control listener unavailable');
-  descriptor = { version: 1, configDir, claimId, url: `http://127.0.0.1:${address.port}/` };
+  if (options.statusOnly) server.unref();
+  descriptor = {
+    version: 1,
+    configDir,
+    claimId,
+    ...(options.statusOnly ? { statusOnly: true as const } : {}),
+    url: `http://127.0.0.1:${address.port}/`,
+  };
   const metadata = path.join(configDir, CONTROL_FILE);
   const secretFile = secretPath(configDir, claimId);
   let createdSecret = false;
@@ -266,6 +289,7 @@ export async function startRuntimeControl(
   return {
     descriptor,
     close: async () => {
+      if (options.statusOnly) server.closeAllConnections();
       await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
       if (runtimeControlExists(configDir)) {
         const current = descriptorSchema.parse(JSON.parse(readPrivate(metadata)));
@@ -276,13 +300,17 @@ export async function startRuntimeControl(
   };
 }
 
-export async function connectRuntimeControl(configDir: string): Promise<{
+export async function connectRuntimeControl(
+  configDir: string,
+  options: { statusOnly?: true } = {},
+): Promise<{
   descriptor: RuntimeControlDescriptor;
   request: <T = unknown>(method: RuntimeControlMethod, payload?: unknown, operationId?: string) => Promise<T>;
 } | null> {
   if (!runtimeControlExists(configDir)) return null;
   configDir = fs.realpathSync(configDir);
   const descriptor = descriptorSchema.parse(JSON.parse(readPrivate(path.join(configDir, CONTROL_FILE))));
+  if (Boolean(descriptor.statusOnly) !== Boolean(options.statusOnly)) return null;
   if (descriptor.configDir !== configDir) throw new Error('Runtime control scope mismatch');
   assertOwner(descriptor);
   const secret = readPrivate(secretPath(configDir, descriptor.claimId));

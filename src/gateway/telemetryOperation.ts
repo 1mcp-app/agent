@@ -1,10 +1,22 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-import { startTelemetryOperation } from '@src/observability/telemetry.js';
+import { type OperationOutcome, startTelemetryOperation } from '@src/observability/telemetry.js';
 
 import { telemetryFailureFacts, telemetryResultOutcome } from './telemetryOutcome.js';
 
 const eraContext = new AsyncLocalStorage<{ inboundEra?: 'legacy' | 'modern'; outboundEra?: 'legacy' | 'modern' }>();
+const serverOutcome = new AsyncLocalStorage<{ outcome?: OperationOutcome }>();
+
+/** Preserve a locally known classification across compatibility error projection. */
+export function markProtocolTelemetryOutcome(outcome: OperationOutcome): void {
+  const owner = serverOutcome.getStore();
+  if (owner) owner.outcome = outcome;
+}
+
+export function runWithProtocolTelemetryOutcome<T>(execute: (owner: { outcome?: OperationOutcome }) => T): T {
+  const owner: { outcome?: OperationOutcome } = {};
+  return serverOutcome.run(owner, () => execute(owner));
+}
 
 export function runWithTelemetryEras<T>(
   eras: { inboundEra?: 'legacy' | 'modern'; outboundEra?: 'legacy' | 'modern' },
@@ -19,6 +31,21 @@ export async function withProtocolTelemetry<T>(
   execute: () => Promise<T>,
   signal?: AbortSignal,
   responseComplete?: Promise<void>,
+): Promise<T> {
+  if (options.kind === 'server') {
+    return runWithProtocolTelemetryOutcome((owner) =>
+      executeProtocolTelemetry(options, execute, signal, responseComplete, owner),
+    );
+  }
+  return executeProtocolTelemetry(options, execute, signal, responseComplete);
+}
+
+async function executeProtocolTelemetry<T>(
+  options: Parameters<typeof startTelemetryOperation>[0],
+  execute: () => Promise<T>,
+  signal?: AbortSignal,
+  responseComplete?: Promise<void>,
+  owner?: { outcome?: OperationOutcome },
 ): Promise<T> {
   const eras = {
     ...eraContext.getStore(),
@@ -35,10 +62,10 @@ export async function withProtocolTelemetry<T>(
   else signal?.addEventListener('abort', cancel, { once: true });
   try {
     const result = await eraContext.run(eras, () => operation.run(execute, signal));
-    finish(telemetryResultOutcome(result));
+    finish(owner?.outcome ?? telemetryResultOutcome(result));
     return result;
   } catch (error) {
-    finish(signal?.aborted ? 'cancelled' : telemetryFailureFacts(error));
+    finish(signal?.aborted ? 'cancelled' : (owner?.outcome ?? telemetryFailureFacts(error)));
     throw error;
   } finally {
     signal?.removeEventListener('abort', cancel);

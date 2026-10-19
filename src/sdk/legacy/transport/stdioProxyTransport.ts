@@ -11,7 +11,7 @@ import {
 } from '@src/gateway/contracts/index.js';
 import { telemetryResultOutcome } from '@src/gateway/telemetryOutcome.js';
 import logger from '@src/logger/logger.js';
-import { startTelemetryOperation } from '@src/observability/telemetry.js';
+import { getTelemetryStatus, recordTelemetryDrop, startTelemetryOperation } from '@src/observability/telemetry.js';
 import { injectTraceContext, stripBaggage, withMcpTraceContext } from '@src/observability/tracing/context.js';
 import { toProtocolJSONRPCMessage } from '@src/sdk/contracts/index.js';
 import { StdioServerTransport } from '@src/sdk/legacy/server/stdio.js';
@@ -283,6 +283,10 @@ export class StdioProxyTransport {
         return;
       }
     }
+    if (getTelemetryStatus().state === 'disabled') {
+      await withMcpTraceContext('params' in message ? message.params : undefined, forward);
+      return;
+    }
     const requests = this.pendingTelemetry[direction];
     const replies = this.pendingTelemetry[direction === 'upstream' ? 'downstream' : 'upstream'];
     const id = 'id' in message ? message.id : undefined;
@@ -324,6 +328,10 @@ export class StdioProxyTransport {
         throw error;
       }
       return;
+    }
+    if ('method' in message && id !== undefined && id !== null && requests.size >= 1024) {
+      recordTelemetryDrop('traces');
+      recordTelemetryDrop('metrics');
     }
     await withMcpTraceContext('params' in message ? message.params : undefined, forward);
     if (!('method' in message) && id !== undefined && id !== null) {

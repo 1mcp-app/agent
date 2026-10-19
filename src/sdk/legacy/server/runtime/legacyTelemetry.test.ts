@@ -5,7 +5,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 import { parseTelemetryConfig } from '@src/config/telemetryConfig.js';
 import { withProtocolTelemetry } from '@src/gateway/telemetryOperation.js';
-import { startTelemetry, stopTelemetry } from '@src/observability/telemetry.js';
+import { getTelemetryStatus, startTelemetry, stopTelemetry } from '@src/observability/telemetry.js';
 import { getActiveTraceCorrelation } from '@src/observability/tracing/context.js';
 import type { LegacyConnectionId } from '@src/sdk/contracts/legacySdkAdapter.js';
 import { Client } from '@src/sdk/legacy/client/index.js';
@@ -125,6 +125,8 @@ it('preserves request-owned propagation when telemetry bookkeeping saturates', a
     }
     await vi.waitFor(() => expect(correlations).toHaveLength(1025));
     expect(correlations[1024]).toBe((1025).toString(16).padStart(32, '0'));
+    expect(getTelemetryStatus().traces.state).toBe('degraded');
+    expect(getTelemetryStatus().traces.dropped).toBeGreaterThanOrEqual(1);
     expect(getActiveTraceCorrelation()).toBeUndefined();
     release();
     await Promise.all(requests);

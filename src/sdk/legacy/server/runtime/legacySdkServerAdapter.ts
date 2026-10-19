@@ -1,10 +1,11 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 import type { InboundConnectionAdapter } from '@src/core/types/server.js';
-import { runWithTelemetryEras } from '@src/gateway/telemetryOperation.js';
+import { runWithProtocolTelemetryOutcome, runWithTelemetryEras } from '@src/gateway/telemetryOperation.js';
 import { telemetryResultOutcome } from '@src/gateway/telemetryOutcome.js';
 import {
   getTelemetryStatus,
+  recordTelemetryDrop,
   recordTelemetryMeasurement,
   startTelemetryOperation,
 } from '@src/observability/telemetry.js';
@@ -144,6 +145,7 @@ export class LegacySdkServerAdapter implements InboundConnectionAdapter {
     const tracing = tracedServers.has(getHandles(this).server);
     interface Pending {
       operation: ReturnType<typeof startTelemetryOperation>;
+      outcome: { outcome?: Parameters<ReturnType<typeof startTelemetryOperation>['end']>[0] };
       finish: () => void;
     }
     const pending = new Map<string | number, Pending>();
@@ -212,19 +214,22 @@ export class LegacySdkServerAdapter implements InboundConnectionAdapter {
         void operation
           .run(() =>
             wireTraceOwner.run(getHandles(this).server, () =>
-              runWithTelemetryEras(
-                { inboundEra: 'legacy' },
-                () =>
-                  new Promise<void>((resolve) => {
-                    pending.set(message.id, { operation, finish: resolve });
-                    receive?.(message, extra);
-                  }),
+              runWithTelemetryEras({ inboundEra: 'legacy' }, () =>
+                runWithProtocolTelemetryOutcome(
+                  (outcome) =>
+                    new Promise<void>((resolve) => {
+                      pending.set(message.id, { operation, finish: resolve, outcome });
+                      receive?.(message, extra);
+                    }),
+                ),
               ),
             ),
           )
           .catch(() => finish(message.id, 'internal-error'));
       } else {
         if (tracing && 'method' in message && 'id' in message && pending.size >= 1024) {
+          recordTelemetryDrop('traces');
+          recordTelemetryDrop('metrics');
           recordTelemetryMeasurement('gateway.queue.overflow', 1, { queue: 'admission' });
         }
         wireTraceOwner.run(undefined, () => receive?.(message, extra));
@@ -249,7 +254,7 @@ export class LegacySdkServerAdapter implements InboundConnectionAdapter {
         }
         await send(outgoing, options);
         if ('id' in message && !('method' in message) && message.id !== undefined && message.id !== null) {
-          finish(message.id, telemetryResultOutcome(message));
+          finish(message.id, pending.get(message.id)?.outcome.outcome ?? telemetryResultOutcome(message));
         }
       } catch (error) {
         if ('id' in message && message.id !== undefined && message.id !== null) finish(message.id, 'transport-error');

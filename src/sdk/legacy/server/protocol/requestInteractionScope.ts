@@ -199,7 +199,8 @@ export async function withRequestInteractionScope<T>(
                       method: request.method,
                       inboundEra: scope.adapter.protocol?.era ?? 'legacy',
                       outboundEra: 'legacy',
-                      remoteParams: request.params,
+                      // runTrace already chose the validated remote or captured continuation parent.
+                      remoteParams: injectTraceContext(request.params),
                     },
                     () =>
                       withProtocolTelemetry(

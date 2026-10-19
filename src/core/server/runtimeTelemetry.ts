@@ -2,7 +2,20 @@ import { parseTelemetryConfig } from '@src/config/telemetryConfig.js';
 import { selectTelemetryEnvironment } from '@src/config/telemetryEnvironment.js';
 import { MCP_SERVER_VERSION } from '@src/constants.js';
 import logger from '@src/logger/logger.js';
-import { markTelemetryStopping, startTelemetry, stopTelemetry } from '@src/observability/telemetry.js';
+import {
+  getTelemetryStatus,
+  markTelemetryStopping,
+  startTelemetry,
+  stopTelemetry,
+} from '@src/observability/telemetry.js';
+
+import { startRuntimeControl } from './runtimeControl.js';
+
+let statusControl: Awaited<ReturnType<typeof startRuntimeControl>> | undefined;
+
+export async function startForegroundTelemetryStatus(scope: string, claimId: string): Promise<void> {
+  statusControl = await startRuntimeControl(scope, claimId, () => getTelemetryStatus(), { statusOnly: true });
+}
 
 /** Runtime-only entry point. Supervisors and one-shot commands never call this. */
 export async function startRuntimeTelemetry(role: 'runtime' | 'proxy'): Promise<void> {
@@ -47,6 +60,13 @@ export async function finishRuntimeTelemetry(fatal = false): Promise<void> {
     await stopTelemetry({ deadlineMs, fatal });
   } catch {
     /* Telemetry cleanup cannot change the runtime's original exit result. */
+  }
+  const control = statusControl;
+  statusControl = undefined;
+  try {
+    await control?.close();
+  } catch {
+    /* Read-only status cleanup cannot change the runtime's exit result. */
   }
 }
 
