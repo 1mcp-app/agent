@@ -61,9 +61,9 @@ jobs:
         shell: bash
         run: bash scripts/build.sh
 
-      - name: Verify released SDK lifecycle compatibility
+      - name: Verify released SDK lifecycle compatibility and project persistence
         if: matrix.runtime == 'Node'
-        run: pnpm test:unit src/sdk/legacy/client/runtime/releasedSdkLifecycle.test.ts
+        run: pnpm test:unit src/sdk/legacy/client/runtime/releasedSdkLifecycle.test.ts src/application/projectLifecycle.test.ts
 
       - name: Verify cooperative lifecycle with Node
         if: matrix.runtime == 'Node'

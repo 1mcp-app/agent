@@ -52,6 +52,7 @@ export function projectPaths(context: ContextData | undefined): string[] {
 
 export class ProjectLifecycle {
   private readonly draining: Set<string>;
+  private readonly persistenceFailures = new Set<string>();
   private readonly blockers = new Map<symbol, { paths: string[]; blocker: ProjectBlocker }>();
   private readonly active = new Map<string, number>();
   private readonly admitted = new AsyncLocalStorage<{ paths: Set<string>; pending: number; release: () => void }>();
@@ -137,26 +138,31 @@ export class ProjectLifecycle {
     const next = new Set(this.draining);
     if (closed) next.add(canonical);
     else next.delete(canonical);
+    this.persistenceFailures.add(canonical);
     fs.mkdirSync(this.storageDir, { recursive: true, mode: 0o700 });
     assertOwnerOnlyDirPermissions(this.storageDir);
     const temporary = this.file + '.' + randomUUID() + '.tmp';
     try {
-      fs.writeFileSync(temporary, JSON.stringify([...next]), { mode: 0o600, flag: 'wx' });
-      const fd = fs.openSync(temporary, 'r');
+      const fd = fs.openSync(temporary, 'wx', 0o600);
       try {
+        fs.writeFileSync(fd, JSON.stringify([...next]), { mode: 0o600 });
         fs.fsyncSync(fd);
       } finally {
         fs.closeSync(fd);
       }
       fs.renameSync(temporary, this.file);
-      const directory = fs.openSync(this.storageDir, 'r');
-      try {
-        fs.fsyncSync(directory);
-      } finally {
-        fs.closeSync(directory);
+      // Windows FlushFileBuffers requires a writable file handle; directory flush is POSIX-only.
+      if (process.platform !== 'win32') {
+        const directory = fs.openSync(this.storageDir, 'r');
+        try {
+          fs.fsyncSync(directory);
+        } finally {
+          fs.closeSync(directory);
+        }
       }
       this.draining.clear();
       for (const entry of next) this.draining.add(entry);
+      this.persistenceFailures.delete(canonical);
     } finally {
       if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
     }
@@ -167,7 +173,15 @@ export class ProjectLifecycle {
     const registered = [...this.blockers.values()]
       .filter((entry) => entry.paths.includes(checkoutPath))
       .map((entry) => entry.blocker);
-    const blockers = [...registered, ...extra, ...(count ? [{ kind: 'active-work', id: checkoutPath, count }] : [])];
+    const persistence = this.persistenceFailures.has(checkoutPath)
+      ? [{ kind: 'persistence-failed', id: checkoutPath }]
+      : [];
+    const blockers = [
+      ...registered,
+      ...extra,
+      ...persistence,
+      ...(count ? [{ kind: 'active-work', id: checkoutPath, count }] : []),
+    ];
     return {
       checkoutPath,
       admission: this.draining.has(checkoutPath) ? 'draining' : 'open',
