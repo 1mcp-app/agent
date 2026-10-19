@@ -13,12 +13,14 @@ import { createSecureContext } from 'node:tls';
 
 import type { SignalExportConfig } from '../../config/telemetryConfig.js';
 import { TelemetryConfigurationError } from '../../config/telemetryConfig.js';
+import { ownData } from '../privacy/fields.js';
 
 /** Public OTel delegate API, intentionally bypassing environment-reading exporter constructors. */
 export class SecureExporter<T> {
   private readonly exporter: OTLPExporterBase<T>;
   private readonly agent: HttpAgent;
   private stopped = false;
+  private responseRejected = false;
   constructor(config: SignalExportConfig, serializer: ISerializer<T, unknown>) {
     try {
       const ca = config.certificate ? readFileSync(config.certificate) : undefined;
@@ -38,7 +40,24 @@ export class SecureExporter<T> {
             timeoutMillis: config.timeoutMs,
             agentFactory: () => this.agent,
           },
-          serializer,
+          {
+            serializeRequest: (data) => serializer.serializeRequest(data),
+            deserializeResponse: (data) => {
+              // The SDK default response handler logs raw Collector prose. Consume only
+              // numeric rejection facts here and return no prose/bytes to that handler.
+              try {
+                const response = serializer.deserializeResponse(data);
+                const partial = ownData(response, 'partialSuccess');
+                for (const key of ['rejectedSpans', 'rejectedDataPoints']) {
+                  const count = ownData(partial, key);
+                  if (typeof count === 'number' && count > 0) this.responseRejected = true;
+                }
+              } catch {
+                this.responseRejected = true;
+              }
+              return {};
+            },
+          },
         ),
       );
     } catch {
@@ -47,10 +66,13 @@ export class SecureExporter<T> {
   }
   export(data: T): Promise<boolean> {
     if (this.stopped) return Promise.resolve(false);
+    this.responseRejected = false;
     return new Promise((resolve) => {
       try {
         context.with(suppressTracing(ROOT_CONTEXT), () =>
-          this.exporter.export(data, (result: ExportResult) => resolve(result.code === ExportResultCode.SUCCESS)),
+          this.exporter.export(data, (result: ExportResult) =>
+            resolve(result.code === ExportResultCode.SUCCESS && !this.responseRejected),
+          ),
         );
       } catch {
         resolve(false);
@@ -83,7 +105,20 @@ export function exportableSpan(span: ReadableSpan): ReadableSpan {
     isRemote: value.isRemote,
   });
   return {
-    ...span,
+    name: span.name,
+    kind: span.kind,
+    startTime: span.startTime,
+    endTime: span.endTime,
+    status: span.status,
+    attributes: span.attributes,
+    events: span.events,
+    duration: span.duration,
+    ended: span.ended,
+    resource: span.resource,
+    instrumentationScope: span.instrumentationScope,
+    droppedAttributesCount: span.droppedAttributesCount,
+    droppedEventsCount: span.droppedEventsCount,
+    droppedLinksCount: span.droppedLinksCount,
     spanContext: () => cleanContext(span.spanContext()),
     parentSpanContext: span.parentSpanContext ? cleanContext(span.parentSpanContext) : undefined,
     links: span.links.map((link) => ({ ...link, context: cleanContext(link.context) })),

@@ -132,6 +132,7 @@ export const dimensionsSchema = z.strictObject({
 export type MeasurementDimensions = z.infer<typeof dimensionsSchema>;
 export const operationSchema = z.strictObject({
   kind: z.enum(['server', 'client', 'internal', 'http']),
+  httpDirection: z.enum(['inbound', 'outbound']).optional(),
   method: z.string().optional(),
   transport: z.enum(['stdio', 'streamable-http', 'sse']).optional(),
   inboundEra: z.enum(['legacy', 'modern']).optional(),

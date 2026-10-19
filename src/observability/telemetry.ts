@@ -130,21 +130,23 @@ export function startTelemetryOperation(input: TelemetryOperationOptions): Telem
   const parent = options.kind === 'server' ? extractMcpParentContext(options.remoteParams) : live;
   const operation = classifyOperation(options.method);
   const phase = options.phase ?? 'operation';
+  let direction: MeasurementDimensions['direction'] = 'internal';
+  if (options.kind === 'server') direction = 'inbound';
+  if (options.kind === 'client') direction = 'outbound';
+  if (options.kind === 'http') direction = options.httpDirection ?? 'inbound';
   const attributes: MeasurementDimensions = {
     operation_family: operation.family as MeasurementDimensions['operation_family'],
-    direction: options.kind === 'server' ? 'inbound' : options.kind === 'client' ? 'outbound' : 'internal',
+    direction,
     era_pair: options.inboundEra && options.outboundEra ? `${options.inboundEra}-${options.outboundEra}` : 'unknown',
     transport: options.transport,
     phase,
     dispatch_state: options.dispatchState,
   };
   const name = options.kind === 'server' || options.kind === 'client' ? operation.method : phase;
-  const kind =
-    options.kind === 'server' || options.kind === 'http'
-      ? SpanKind.SERVER
-      : options.kind === 'client'
-        ? SpanKind.CLIENT
-        : SpanKind.INTERNAL;
+  let kind = SpanKind.INTERNAL;
+  if (options.kind === 'server') kind = SpanKind.SERVER;
+  if (options.kind === 'client') kind = SpanKind.CLIENT;
+  if (options.kind === 'http') kind = direction === 'outbound' ? SpanKind.CLIENT : SpanKind.SERVER;
   const owner = sdk;
   const span = isolate(() => owner?.span(name, kind, attributes, parent, options.kind === 'server' ? live : undefined));
   const owned = span ? trace.setSpan(parent, span) : parent;
@@ -218,4 +220,11 @@ export function recordTelemetryMeasurement(
   } catch {
     return false;
   }
+}
+
+/** A bounded tracing seam reports a lost record using only its closed signal name. */
+export function recordTelemetryDrop(signal: 'traces' | 'metrics' = 'traces'): boolean {
+  if (signal !== 'traces' && signal !== 'metrics') return false;
+  isolate(() => sdk?.recordDrop(signal));
+  return true;
 }

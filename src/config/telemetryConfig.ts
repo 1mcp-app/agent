@@ -154,9 +154,24 @@ export function parseTelemetryConfig(input: TelemetryEnvironment): TelemetryConf
   const rawDisabled = value(env, 'OTEL_SDK_DISABLED')?.toLowerCase();
   if (rawDisabled !== undefined && !['true', 'false'].includes(rawDisabled)) warnings.add('sdk-disabled-boolean');
   const disabled = rawDisabled === 'true';
-  const resource = pairs(value(env, 'OTEL_RESOURCE_ATTRIBUTES'), 'resource-attributes');
-  for (const key of Object.keys(resource)) if (key !== 'service.name') warnings.add('resource-attribute-dropped');
-  const serviceName = value(env, 'OTEL_SERVICE_NAME') ?? resource['service.name'] ?? '1mcp';
+  let resourceServiceName: string | undefined;
+  const rawResource = value(env, 'OTEL_RESOURCE_ATTRIBUTES');
+  if (rawResource !== undefined) {
+    for (const entry of rawResource.split(',')) {
+      const separator = entry.indexOf('=');
+      if (separator < 1) return invalid('resource-attributes');
+      if (entry.slice(0, separator).trim() !== 'service.name') {
+        warnings.add('resource-attribute-dropped');
+        continue;
+      }
+      try {
+        resourceServiceName = decodeURIComponent(entry.slice(separator + 1).trim());
+      } catch {
+        return invalid('resource-attributes');
+      }
+    }
+  }
+  const serviceName = value(env, 'OTEL_SERVICE_NAME') ?? resourceServiceName ?? '1mcp';
   if (
     !serviceName.length ||
     Buffer.byteLength(serviceName) > 256 ||
@@ -233,8 +248,8 @@ export function parseTelemetryConfig(input: TelemetryEnvironment): TelemetryConf
       timeoutMs: boundedInteger(env, 'OTEL_METRIC_EXPORT_TIMEOUT', 10000, 1, 30000),
     },
     limits: {
-      attributes: boundedInteger(env, 'OTEL_SPAN_ATTRIBUTE_COUNT_LIMIT', count, 0, Math.min(32, count)),
-      attributeBytes: boundedInteger(env, 'OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT', bytes, 0, Math.min(256, bytes)),
+      attributes: boundedInteger(env, 'OTEL_SPAN_ATTRIBUTE_COUNT_LIMIT', count, 0, 32),
+      attributeBytes: boundedInteger(env, 'OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT', bytes, 0, 256),
       events: boundedInteger(env, 'OTEL_SPAN_EVENT_COUNT_LIMIT', 16, 0, 16),
       links: boundedInteger(env, 'OTEL_SPAN_LINK_COUNT_LIMIT', 8, 0, 8),
       eventAttributes: boundedInteger(env, 'OTEL_EVENT_ATTRIBUTE_COUNT_LIMIT', 16, 0, 16),

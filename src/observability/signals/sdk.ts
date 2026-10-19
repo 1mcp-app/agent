@@ -1,4 +1,13 @@
-import { type Context, ROOT_CONTEXT, type Span, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
+import {
+  type Context,
+  diag,
+  DiagLogLevel,
+  ROOT_CONTEXT,
+  type Span,
+  SpanKind,
+  SpanStatusCode,
+  trace,
+} from '@opentelemetry/api';
 import type { Counter, Gauge, Histogram, UpDownCounter } from '@opentelemetry/api';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import {
@@ -30,16 +39,10 @@ import {
   type TelemetryDiagnostic,
   type TelemetryStatus,
 } from './health.js';
-import {
-  CONVENTION_SOURCE,
-  type MeasurementDimensions,
-  type MeasurementName,
-  METRIC_ATTRIBUTE_KEYS,
-  METRIC_REGISTRY,
-} from './schema.js';
+import { type MeasurementDimensions, type MeasurementName, METRIC_ATTRIBUTE_KEYS, METRIC_REGISTRY } from './schema.js';
 
 const instanceId = randomUUID();
-const BOUNDARIES = [0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10];
+const BOUNDARIES = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 30, 60, 120, 300];
 /** All promises started here are observed, including work that outlives a shutdown deadline. */
 async function bounded(work: Promise<unknown>, timeout: number): Promise<ShutdownOutcome> {
   if (timeout <= 0) {
@@ -231,6 +234,16 @@ export class TelemetrySdk {
   ) {
     this.traces = new SignalHealth('traces', config.batch.delayMs, config.batch.queueSize, config.traces, diagnostic);
     this.metrics = new SignalHealth('metrics', config.metricReader.intervalMs, 2, config.metrics, diagnostic);
+    // The SDK computes environment defaults before applying explicit options. Its
+    // diagnostic prose can contain raw values even when those defaults are unused.
+    // Active runtime telemetry owns this diagnostic channel; never forward args.
+    let configuring = true;
+    const diagnosticHealth = config.traces.exporter === 'otlp' ? this.traces : this.metrics;
+    const diagnose = () => diagnosticHealth.warn(configuring ? 'configuration' : 'export');
+    diag.setLogger(
+      { warn: diagnose, error: diagnose, info: () => undefined, debug: () => undefined, verbose: () => undefined },
+      { logLevel: DiagLogLevel.WARN, suppressOverrideMessage: true },
+    );
     // Resource is independently closed. No defaults/detectors or environment resource parser.
     const resource = resourceFromAttributes({
       'service.name': config.serviceName,
@@ -240,11 +253,12 @@ export class TelemetrySdk {
     try {
       if (config.traces.exporter === 'otlp') {
         const name = config.sampler.name;
-        const root = name.endsWith('always_on')
-          ? new AlwaysOnSampler()
-          : name.endsWith('always_off')
-            ? new AlwaysOffSampler()
-            : new TraceIdRatioBasedSampler(config.sampler.ratio);
+        let root;
+        if (name.endsWith('always_on')) root = new AlwaysOnSampler();
+        else if (name.endsWith('always_off')) root = new AlwaysOffSampler();
+        else if (config.sampler.ratio === 0) root = new AlwaysOffSampler();
+        else if (config.sampler.ratio === 1) root = new AlwaysOnSampler();
+        else root = new TraceIdRatioBasedSampler(config.sampler.ratio);
         const sampler = name.startsWith('parentbased_') ? new ParentBasedSampler({ root }) : root;
         this.traceQueue = new TraceQueue(config.batch, traceExporter(config.traces), this.traces);
         this.traceProvider = new BasicTracerProvider({
@@ -265,9 +279,7 @@ export class TelemetrySdk {
             attributePerLinkCountLimit: config.limits.linkAttributes,
           },
         });
-        this.tracer = this.traceProvider.getTracer('1mcp.operational', version, {
-          schemaUrl: CONVENTION_SOURCE,
-        });
+        this.tracer = this.traceProvider.getTracer('1mcp.operational', version);
       }
       if (config.metrics.exporter === 'otlp') {
         this.metricReader = new BoundedMetricReader(config.metricReader, metricExporter(config.metrics), this.metrics);
@@ -287,9 +299,7 @@ export class TelemetrySdk {
           views,
           sdkMetricsEnabled: false,
         });
-        const meter = this.meterProvider.getMeter('1mcp.operational', version, {
-          schemaUrl: CONVENTION_SOURCE,
-        });
+        const meter = this.meterProvider.getMeter('1mcp.operational', version);
         for (const [name, spec] of Object.entries(METRIC_REGISTRY)) {
           let instrument: Counter | Histogram | UpDownCounter | Gauge;
           if (spec.kind === 'histogram') instrument = meter.createHistogram(name, { unit: spec.unit });
@@ -302,8 +312,10 @@ export class TelemetrySdk {
     } catch (error) {
       this.traceQueue?.destroy();
       this.metricReader?.destroy();
+      diag.disable();
       throw error;
     }
+    configuring = false;
     this.ticker = setInterval(
       () => {
         this.traces.tick();
@@ -365,6 +377,12 @@ export class TelemetrySdk {
     const metrics = this.metrics.status();
     return { state: aggregateState([traces, metrics]), traces, metrics };
   }
+  recordDrop(signal: 'traces' | 'metrics'): void {
+    if (this.stopping) return;
+    const health = this[signal];
+    if (health.state === 'disabled' || health.state === 'stopped') return;
+    health.drop();
+  }
   markStopping(): void {
     for (const health of [this.traces, this.metrics]) {
       if (['starting', 'healthy', 'degraded'].includes(health.state)) health.state = 'stopping';
@@ -407,5 +425,6 @@ export class TelemetrySdk {
     // Destroy agents on deadlines too: no long-lived export sockets may extend runtime stop.
     this.traceQueue?.destroy();
     this.metricReader?.destroy();
+    diag.disable();
   }
 }

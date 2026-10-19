@@ -1,8 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseTelemetryConfig } from './telemetryConfig.js';
+import { parseTelemetryConfig, type TelemetryConfig } from './telemetryConfig.js';
 
 describe('telemetry configuration boundary', () => {
+  it('drops unknown Resource values before decoding them and honors span-specific limit precedence', () => {
+    const config = parseTelemetryConfig({
+      OTEL_RESOURCE_ATTRIBUTES: 'host.name=%invalid,service.name=core',
+      OTEL_ATTRIBUTE_COUNT_LIMIT: '2',
+      OTEL_SPAN_ATTRIBUTE_COUNT_LIMIT: '4',
+    });
+    expect(config.serviceName).toBe('core');
+    expect(config.warnings).toContain('resource-attribute-dropped');
+    expect(config.limits.attributes).toBe(4);
+  });
   it('keeps export absent without explicit selectors and uses bounded defaults', () => {
     const config = parseTelemetryConfig({ OTEL_EXPORTER_OTLP_ENDPOINT: 'https://collector.example' });
     expect(config.traces.exporter).toBe('none');
@@ -65,5 +75,132 @@ describe('telemetry configuration boundary', () => {
     });
     expect(config.sampler.ratio).toBe(1);
     expect(config.limits).toMatchObject({ attributes: 8, attributeBytes: 64, events: 2, links: 1 });
+  });
+});
+
+describe('standard telemetry setting matrix', () => {
+  const numeric: [string, string, string, (config: TelemetryConfig) => number][] = [
+    ['OTEL_BSP_MAX_QUEUE_SIZE', '8192', '8193', (c) => c.batch.queueSize],
+    ['OTEL_BSP_MAX_EXPORT_BATCH_SIZE', '2048', '2049', (c) => c.batch.batchSize],
+    ['OTEL_BSP_SCHEDULE_DELAY', '60000', '60001', (c) => c.batch.delayMs],
+    ['OTEL_BSP_EXPORT_TIMEOUT', '30000', '30001', (c) => c.batch.timeoutMs],
+    ['OTEL_METRIC_EXPORT_INTERVAL', '300000', '300001', (c) => c.metricReader.intervalMs],
+    ['OTEL_METRIC_EXPORT_TIMEOUT', '30000', '30001', (c) => c.metricReader.timeoutMs],
+    ['OTEL_ATTRIBUTE_COUNT_LIMIT', '32', '33', (c) => c.limits.attributes],
+    ['OTEL_SPAN_ATTRIBUTE_COUNT_LIMIT', '32', '33', (c) => c.limits.attributes],
+    ['OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT', '256', '257', (c) => c.limits.attributeBytes],
+    ['OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT', '256', '257', (c) => c.limits.attributeBytes],
+    ['OTEL_SPAN_EVENT_COUNT_LIMIT', '16', '17', (c) => c.limits.events],
+    ['OTEL_SPAN_LINK_COUNT_LIMIT', '8', '9', (c) => c.limits.links],
+    ['OTEL_EVENT_ATTRIBUTE_COUNT_LIMIT', '16', '17', (c) => c.limits.eventAttributes],
+    ['OTEL_LINK_ATTRIBUTE_COUNT_LIMIT', '16', '17', (c) => c.limits.linkAttributes],
+  ];
+  it.each(numeric)(
+    'validates valid/empty/invalid upper and lexical bounds for %s',
+    (name, maximum, excessive, pick) => {
+      expect(pick(parseTelemetryConfig({ [name]: maximum }))).toBe(Number(maximum));
+      expect(pick(parseTelemetryConfig({ [name]: '' }))).toBe(pick(parseTelemetryConfig({})));
+      for (const raw of [excessive, '-1', '1.5', 'NaN', 'Infinity', '1ms'])
+        expect(() => parseTelemetryConfig({ [name]: raw })).toThrow(/^Invalid telemetry configuration:/);
+    },
+  );
+  it.each(['', 'TRACES_', 'METRICS_'])('parses shared/per-signal exact OTLP settings %s', (signal) => {
+    const key = `OTEL_EXPORTER_OTLP_${signal}`;
+    const config = parseTelemetryConfig({
+      OTEL_TRACES_EXPORTER: 'otlp',
+      OTEL_METRICS_EXPORTER: 'otlp',
+      [key + 'ENDPOINT']: 'https://collector.test/exact',
+      [key + 'PROTOCOL']: 'HTTP/PROTOBUF',
+      [key + 'HEADERS']: 'x-token=secret%20value',
+      [key + 'TIMEOUT']: '30000',
+      [key + 'COMPRESSION']: 'GZIP',
+      [key + 'CERTIFICATE']: '/private/ca',
+      [key + 'CLIENT_CERTIFICATE']: '/private/client',
+      [key + 'CLIENT_KEY']: '/private/key',
+    });
+    const output = signal === 'METRICS_' ? config.metrics : config.traces;
+    expect(output).toMatchObject({
+      protocol: 'http/protobuf',
+      headers: { 'x-token': 'secret value' },
+      timeoutMs: 30000,
+      compression: 'gzip',
+      certificate: '/private/ca',
+      clientCertificate: '/private/client',
+      clientKey: '/private/key',
+    });
+    expect(output.endpoint).toBe(
+      signal === '' ? 'https://collector.test/exact/v1/traces' : 'https://collector.test/exact',
+    );
+    for (const [suffix, invalid] of [
+      ['PROTOCOL', 'http/json'],
+      ['TIMEOUT', '30001'],
+      ['COMPRESSION', 'brotli'],
+      ['HEADERS', 'token=%XX'],
+      ['ENDPOINT', 'http://private.internal'],
+    ])
+      expect(() => parseTelemetryConfig({ [key + suffix]: invalid })).toThrow(/^Invalid telemetry configuration:/);
+    const empty = parseTelemetryConfig({
+      [key + 'TIMEOUT']: '',
+      [key + 'HEADERS']: '',
+      [key + 'CERTIFICATE']: '',
+      [key + 'CLIENT_CERTIFICATE']: '',
+      [key + 'CLIENT_KEY']: '',
+      [key + 'COMPRESSION']: '',
+      [key + 'PROTOCOL']: '',
+      [key + 'ENDPOINT']: '',
+    });
+    expect(empty.traces).toEqual(parseTelemetryConfig({}).traces);
+    expect(empty.metrics).toEqual(parseTelemetryConfig({}).metrics);
+  });
+  it('applies every per-signal setting over shared configuration, including empty fallback', () => {
+    const config = parseTelemetryConfig({
+      OTEL_EXPORTER_OTLP_TIMEOUT: '123',
+      OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: '456',
+      OTEL_EXPORTER_OTLP_METRICS_TIMEOUT: '',
+      OTEL_EXPORTER_OTLP_COMPRESSION: 'gzip',
+      OTEL_EXPORTER_OTLP_TRACES_COMPRESSION: 'none',
+      OTEL_EXPORTER_OTLP_CERTIFICATE: '/shared-ca',
+      OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE: '/trace-ca',
+      OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE: '/shared-client',
+      OTEL_EXPORTER_OTLP_CLIENT_KEY: '/shared-key',
+      OTEL_EXPORTER_OTLP_TRACES_CLIENT_CERTIFICATE: '/trace-client',
+      OTEL_EXPORTER_OTLP_TRACES_CLIENT_KEY: '/trace-key',
+    });
+    expect(config.traces).toMatchObject({
+      timeoutMs: 456,
+      compression: 'none',
+      certificate: '/trace-ca',
+      clientCertificate: '/trace-client',
+      clientKey: '/trace-key',
+    });
+    expect(config.metrics).toMatchObject({
+      timeoutMs: 123,
+      compression: 'gzip',
+      certificate: '/shared-ca',
+      clientCertificate: '/shared-client',
+      clientKey: '/shared-key',
+    });
+  });
+  it.each([
+    'always_on',
+    'always_off',
+    'traceidratio',
+    'parentbased_always_on',
+    'parentbased_always_off',
+    'parentbased_traceidratio',
+  ])('accepts only standard sampler %s', (name) => {
+    expect(parseTelemetryConfig({ OTEL_TRACES_SAMPLER: name.toUpperCase() }).sampler.name).toBe(name);
+  });
+  it('keeps unsupported controls disabled and produces sanitized warnings once per category', () => {
+    const config = parseTelemetryConfig({
+      OTEL_PROPAGATORS: 'baggage',
+      OTEL_METRICS_EXEMPLAR_FILTER: 'always_on',
+      OTEL_NODE_RESOURCE_DETECTORS: 'all',
+      OTEL_LOG_LEVEL: 'debug',
+      OTEL_EXPORTER_OTLP_INSECURE: 'true',
+    });
+    expect(config.warnings).toEqual(['unsupported-setting']);
+    expect(JSON.stringify(config)).not.toContain('baggage');
+    expect(config.traces.endpointClass).toBe('loopback-http');
   });
 });
