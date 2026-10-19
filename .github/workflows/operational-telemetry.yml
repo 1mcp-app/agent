@@ -95,6 +95,10 @@ jobs:
     if: needs.acceptance-scope.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [capacity, performance]
     steps:
       - name: Initialize evidence directory
         run: |
@@ -129,49 +133,42 @@ jobs:
           echo "OTELCOL_BINARY=$RUNNER_TEMP/telemetry-collector/otelcol" >> "$GITHUB_ENV"
       - name: Capacity acceptance and owned-process cleanup
         id: capacity
+        if: matrix.mode == 'capacity'
         continue-on-error: true
         run: |
           timeout --kill-after=15s 15m node scripts/telemetry/capacity.mjs \
             "$EVIDENCE/capacity.json" > "$EVIDENCE/capacity.log" 2>&1
-      - name: Require confirmed capacity cleanup before timing
-        id: cleanup
-        if: ${{ !cancelled() && steps.capacity.outcome != 'skipped' }}
-        run: |
-          node --input-type=module <<'JS'
-          import assert from 'node:assert/strict';
-          import { readFileSync } from 'node:fs';
-          const report = JSON.parse(readFileSync(`${process.env.EVIDENCE}/capacity.json`, 'utf8'));
-          assert.deepEqual(report.cleanupErrors, [], 'Capacity cleanup missing or failed; timing would be contaminated');
-          JS
       - name: Prepare matched baseline from the same build
         id: preparation
-        if: ${{ !cancelled() && steps.cleanup.outcome == 'success' }}
+        if: matrix.mode == 'performance'
         continue-on-error: true
         run: |
           node scripts/telemetry/prepare-performance.mjs "$RUNNER_TEMP/telemetry-performance" 3 \
             > "$EVIDENCE/preparation.log" 2>&1
-      - name: Matched performance acceptance after capacity cleanup
+      - name: Matched performance acceptance
         id: performance
-        if: ${{ !cancelled() && steps.preparation.outcome == 'success' }}
+        if: ${{ !cancelled() && matrix.mode == 'performance' && steps.preparation.outcome == 'success' }}
         continue-on-error: true
         run: |
           timeout --kill-after=15s 45m node scripts/telemetry/measure.mjs \
             "$RUNNER_TEMP/telemetry-performance/run.json" "$EVIDENCE/performance.json" \
             > "$EVIDENCE/performance.log" 2>&1
-      - name: Require both acceptance verdicts
+      - name: Require selected acceptance verdict
         if: ${{ !cancelled() }}
         env:
+          MODE: ${{ matrix.mode }}
           CAPACITY_OUTCOME: ${{ steps.capacity.outcome }}
           PERFORMANCE_OUTCOME: ${{ steps.performance.outcome }}
         run: |
           node --input-type=module <<'JS'
           import assert from 'node:assert/strict';
           import { readFileSync } from 'node:fs';
-          for (const [name, outcome] of [['capacity', process.env.CAPACITY_OUTCOME], ['performance', process.env.PERFORMANCE_OUTCOME]]) {
-            assert.equal(outcome, 'success', `${name} execution failed or did not complete`);
-            const report = JSON.parse(readFileSync(`${process.env.EVIDENCE}/${name}.json`, 'utf8'));
-            assert.equal(report.verdict, 'pass', `${name} failed or was inconclusive`);
-          }
+          const name = process.env.MODE;
+          const outcome = name === 'capacity' ? process.env.CAPACITY_OUTCOME : process.env.PERFORMANCE_OUTCOME;
+          assert.equal(outcome, 'success', `${name} execution failed or did not complete`);
+          const report = JSON.parse(readFileSync(`${process.env.EVIDENCE}/${name}.json`, 'utf8'));
+          assert.equal(report.verdict, 'pass', `${name} failed or was inconclusive`);
+          if (name === 'capacity') assert.deepEqual(report.cleanupErrors, [], 'Capacity cleanup unconfirmed or failed');
           JS
       - name: Collect bounded evidence only
         if: always()
@@ -208,7 +205,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: telemetry-acceptance-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_attempt }}
+          name: telemetry-acceptance-${{ matrix.mode }}-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/telemetry-upload/
           if-no-files-found: error
           retention-days: 14
