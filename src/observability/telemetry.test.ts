@@ -6,6 +6,7 @@ import { createServer } from 'node:http';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { parseTelemetryConfig } from '../config/telemetryConfig.js';
+import { selectTelemetryEnvironment } from '../config/telemetryEnvironment.js';
 import {
   getTelemetryStatus,
   markTelemetryStopping,
@@ -20,6 +21,39 @@ afterEach(async () => {
   await stopTelemetry({ deadlineMs: Date.now() + 1000 });
 });
 describe('SDK-free operational telemetry facade', () => {
+  it.each([
+    'OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE',
+    'OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION',
+  ])('warns once without values for recognized unsupported %s through the active runtime boundary', async (setting) => {
+    const collector = createServer((_request, response) => response.end());
+    collector.listen(0, '127.0.0.1');
+    await once(collector, 'listening');
+    const address = collector.address();
+    if (!address || typeof address === 'string') throw new Error('fixture address');
+    const diagnostic = vi.fn();
+    try {
+      const config = parseTelemetryConfig(
+        selectTelemetryEnvironment(
+          {},
+          {
+            OTEL_METRICS_EXPORTER: 'otlp',
+            OTEL_EXPORTER_OTLP_ENDPOINT: `http://127.0.0.1:${address.port}`,
+            [setting]: 'private-unsupported-value',
+          },
+        ),
+      );
+      await startTelemetry(config, { role: 'runtime', serviceVersion: 'test', onDiagnostic: diagnostic });
+      expect(getTelemetryStatus().metrics.state).toBe('starting');
+      expect(diagnostic.mock.calls).toEqual([
+        [{ event: 'telemetry.configuration', signal: 'traces', category: 'configuration', suppressed: 0 }],
+      ]);
+      expect(JSON.stringify(diagnostic.mock.calls)).not.toContain('private-unsupported-value');
+      await stopTelemetry({ deadlineMs: Date.now() + 2000 });
+    } finally {
+      collector.closeAllConnections();
+      await new Promise<void>((resolve) => collector.close(() => resolve()));
+    }
+  });
   it('marks stopping before drain without disabling recording of existing work', async () => {
     await startTelemetry(parseTelemetryConfig({ OTEL_METRICS_EXPORTER: 'otlp' }), {
       role: 'runtime',

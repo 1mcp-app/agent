@@ -95,7 +95,11 @@ diagnostics, independently supplied MCP/HTTP carriers and RPC/Tool outcomes, plu
 authenticated Admin health, public readiness and `serve --status`.
 `lifecycle.integration.test.mjs` drives repeated shutdown signals and a real Node
 uncaught exception through a test-only preload. It requires a positive Collector
-flush attempt, so pre-provider fast exits cannot pass vacuously. Set
+export attempt, so pre-provider fast exits cannot pass vacuously. The supervised
+stop driver allows the existing 30-second owner deadline plus bounded CLI
+overhead. Its Collector-visible export interval measures receipt through socket
+closure and excludes work before the first payload arrives; complete telemetry
+shutdown budgets are verified separately through the SDK facade deadline tests. Set
 `ONE_MCP_TEST_BINARY` to the built native SEA executable to run the same
 shutdown assertions against that binary; Node results do not prove SEA coverage.
 

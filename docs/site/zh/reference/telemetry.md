@@ -51,7 +51,7 @@ description: 运维追踪与指标的标准 OTEL 环境变量、默认值及限�
 
 ## 无效或不支持的配置
 
-显式不支持的信号选择器、多个 exporter、非 HTTP/protobuf 协议、非 none 的 Logs exporter，以及非空 `OTEL_CONFIG_FILE` 均导致 readiness 前启动失败。其他被识别但不支持的 OTEL 配置仅产生一次脱敏警告，不输出值。未知 Resource 键被丢弃。上限只能降低，不能通过标准 SDK 变量提高。无配置可开启 baggage、exemplars、自动探测器或 SDK 自监控指标。
+显式不支持的信号选择器、多个 exporter、非 HTTP/protobuf 协议、非 none 的 Logs exporter，以及非空 `OTEL_CONFIG_FILE` 均导致 readiness 前启动失败。其他被识别但不支持的 OTEL 配置仅产生一次脱敏警告，不输出值；exporter 为 `none` 或 SDK 被禁用时也会输出该警告。标准指标时序性与直方图聚合偏好（`OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE` 和 `OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION`）按此方式诊断；累积指标与有界显式直方图 Views 保持固定。未知 Resource 键被丢弃。上限只能降低，不能通过标准 SDK 变量提高。无配置可开启 baggage、exemplars、自动探测器或 SDK 自监控指标。
 
 `OTEL_SDK_DISABLED=true` 关闭信号和网络导出，但不授予无效配置例外。端点、headers、密钥、证书和环境值不显示在运行状态或诊断中。版本和实例身份由运行时拥有，不能通过 Resource 属性覆盖。
 

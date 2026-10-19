@@ -51,7 +51,7 @@ A nonempty signal-specific setting overrides its shared setting. Each row lists 
 
 ## Invalid and unsupported settings
 
-Explicit unsupported signal selectors, multiple exporters, protocols other than HTTP/protobuf, non-none Logs export, and nonempty `OTEL_CONFIG_FILE` fail before readiness. Other recognized unsupported OTEL settings produce a sanitized warning once without values. Unknown Resource keys are dropped. Limits may be lowered, never raised through SDK variables. No setting enables baggage, exemplars, automatic detectors, or SDK self-metrics.
+Explicit unsupported signal selectors, multiple exporters, protocols other than HTTP/protobuf, non-none Logs export, and nonempty `OTEL_CONFIG_FILE` fail before readiness. Other recognized unsupported OTEL settings produce a sanitized warning once without values, including when exporters are `none` or the SDK is disabled. The standard metrics temporality and histogram aggregation preferences (`OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE` and `OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION`) are diagnosed this way; cumulative metrics and the bounded explicit histogram Views remain fixed. Unknown Resource keys are dropped. Limits may be lowered, never raised through SDK variables. No setting enables baggage, exemplars, automatic detectors, or SDK self-metrics.
 
 `OTEL_SDK_DISABLED=true` disables signals and network export; it does not make invalid configuration valid. Endpoint URLs, headers, keys, certificates, and environment values stay out of runtime status and diagnostics. Version and instance identity remain runtime-owned and cannot be overridden through Resource attributes.
 

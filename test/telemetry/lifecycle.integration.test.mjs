@@ -40,25 +40,25 @@ for (const variant of variants) {
       await runtime.stop();
       const stoppedAt = performance.now();
       assert(stoppedAt - began <= 30_000, 'Supervised stop exceeded the existing owner retirement limit');
-      const flushes = collector.requests.filter((request) => request.receivedAt >= began);
-      assert(flushes.length > 0, 'No post-drain telemetry flush was observed');
+      const exports = collector.requests.filter((request) => request.receivedAt >= began);
+      assert(exports.length > 0, 'No Collector-visible export was observed during stop');
       await waitUntil(
-        () => flushes.every((request) => request.closedAt !== null),
+        () => exports.every((request) => request.closedAt !== null),
         'Exporter sockets survived owner retirement',
         1000,
       );
-      const flushBegan = Math.min(...flushes.map((request) => request.receivedAt));
-      const flushEnded = Math.max(...flushes.map((request) => request.closedAt));
+      const collectorExportBegan = Math.min(...exports.map((request) => request.receivedAt));
+      const collectorExportEnded = Math.max(...exports.map((request) => request.closedAt));
       assert(
-        flushEnded - flushBegan <= 5500,
-        'Post-drain telemetry flush exceeded five seconds plus scheduling allowance',
+        collectorExportEnded - collectorExportBegan <= 5500,
+        'Collector-visible export interval exceeded five seconds plus scheduling allowance',
       );
       process.stdout.write(
         JSON.stringify({
           phase: 'supervised-stop',
-          cliAndDrainMs: flushBegan - began,
-          observedFlushMs: flushEnded - flushBegan,
-          retirementAndCliMs: stoppedAt - flushEnded,
+          beforeCollectorExportMs: collectorExportBegan - began,
+          collectorVisibleExportMs: collectorExportEnded - collectorExportBegan,
+          afterCollectorExportMs: stoppedAt - collectorExportEnded,
           totalMs: stoppedAt - began,
         }) + '\n',
       );
@@ -72,7 +72,7 @@ for (const variant of variants) {
       await runtime.close();
       await collector.close();
     }
-  });
+  }, 90_000);
   test.skipIf(process.platform === 'win32')(
     `${variant.name}: repeated shutdown signals keep the original exit result and bounded cleanup`,
     async () => {

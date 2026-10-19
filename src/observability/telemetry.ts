@@ -69,29 +69,25 @@ export function startTelemetry(config: TelemetryConfig, options: TelemetryStartO
   starting = (async () => {
     installTracingContext();
     sdk = undefined;
-    if (
-      !['runtime', 'proxy'].includes(options.role) ||
-      config.disabled ||
-      (config.traces.exporter === 'none' && config.metrics.exporter === 'none')
-    )
-      return;
+    if (!['runtime', 'proxy'].includes(options.role)) return;
+    if (config.warnings.length) {
+      try {
+        options.onDiagnostic?.({
+          event: 'telemetry.configuration',
+          signal: 'traces',
+          category: 'configuration',
+          suppressed: 0,
+        });
+      } catch {
+        /* Local diagnosis is isolated. */
+      }
+    }
+    if (config.disabled || (config.traces.exporter === 'none' && config.metrics.exporter === 'none')) return;
     if (!options.serviceVersion || Buffer.byteLength(options.serviceVersion) > 256)
       throw new TelemetryConfigurationError('service-version');
     try {
       const { TelemetrySdk } = await import('./signals/sdk.js');
       sdk = new TelemetrySdk(config, options.serviceVersion, options.onDiagnostic);
-      if (config.warnings.length) {
-        try {
-          options.onDiagnostic?.({
-            event: 'telemetry.configuration',
-            signal: 'traces',
-            category: 'configuration',
-            suppressed: 0,
-          });
-        } catch {
-          /* Local diagnosis is isolated. */
-        }
-      }
     } catch {
       throw new TelemetryConfigurationError('provider-initialization');
     }

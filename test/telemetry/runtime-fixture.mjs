@@ -99,7 +99,8 @@ export async function startRuntime({
   let stopping;
   async function stop(signal = 'SIGTERM') {
     if (background) {
-      stopping ??= execute(['serve', '--stop'], { timeout: 15000 });
+      // Observe the existing 30s owner deadline plus bounded CLI startup/return overhead.
+      stopping ??= execute(['serve', '--stop'], { timeout: 40000 });
       await stopping;
       return;
     }
