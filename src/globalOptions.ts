@@ -9,6 +9,8 @@
  * - ONE_MCP_LOG_LEVEL
  * - ONE_MCP_LOG_FILE
  */
+import type { Argv } from 'yargs';
+
 export const globalOptions = {
   project: {
     describe: 'Explicit checkout path, or selected labels from --project-set',
@@ -50,6 +52,15 @@ export const globalOptions = {
     default: undefined,
   },
 } as const;
+
+const configuredParsers = new WeakSet<Argv>();
+
+/** Register before command builders run, so nested commands inherit one copy. */
+export function withGlobalOptions(yargs: Argv): Argv<GlobalOptions> {
+  if (configuredParsers.has(yargs)) return yargs;
+  configuredParsers.add(yargs);
+  return yargs.options(globalOptions).group(Object.keys(globalOptions), 'Global options:');
+}
 
 /**
  * Type definition for global options interface

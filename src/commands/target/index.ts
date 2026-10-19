@@ -1,17 +1,16 @@
 import { runCliCommand } from '@src/commands/shared/commandRunner.js';
-import { globalOptions } from '@src/globalOptions.js';
+import { withGlobalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
 
 export function setupTargetCommands(yargs: Argv): Argv {
-  return yargs.command('target <subcommand>', 'Manage Runtime Target Contexts', (commandYargs) => {
+  return withGlobalOptions(yargs).command('target <subcommand>', 'Manage Runtime Target Contexts', (commandYargs) => {
     commandYargs
       .command(
         'add <name> <url>',
         'Add or replace a verified Runtime Target Context',
         (sub) =>
           sub
-            .options(globalOptions || {})
             .positional('name', {
               describe: 'Runtime target context name',
               type: 'string',
@@ -58,7 +57,6 @@ export function setupTargetCommands(yargs: Argv): Argv {
         'Select the current Runtime Target Context',
         (sub) =>
           sub
-            .options(globalOptions || {})
             .positional('name', {
               describe: 'Runtime target context name',
               type: 'string',
@@ -82,7 +80,7 @@ export function setupTargetCommands(yargs: Argv): Argv {
         'export',
         'Export Runtime Target Context metadata',
         (sub) =>
-          sub.options(globalOptions || {}).option('output', {
+          sub.option('output', {
             describe: 'Write the target bundle to a file instead of stdout',
             type: 'string',
           }),
@@ -96,7 +94,6 @@ export function setupTargetCommands(yargs: Argv): Argv {
         'Import Runtime Target Context metadata',
         (sub) =>
           sub
-            .options(globalOptions || {})
             .positional('file', {
               describe: 'Runtime target bundle file path, or - for stdin',
               type: 'string',
@@ -121,7 +118,6 @@ export function setupTargetCommands(yargs: Argv): Argv {
         'Diagnose and repair the local Runtime Target Store',
         (sub) =>
           sub
-            .options(globalOptions || {})
             .option('fix-secrets', {
               describe: 'Repair owner-only permissions for the target secret store',
               type: 'boolean',
@@ -140,7 +136,7 @@ export function setupTargetCommands(yargs: Argv): Argv {
       .command(
         'current',
         'Show the effective current Runtime Target Context',
-        (sub) => sub.options(globalOptions || {}),
+        (sub) => sub,
         async (argv) => {
           const { targetCurrentCommand } = await import('./target.js');
           await runCliCommand(argv as Parameters<typeof targetCurrentCommand>[0], targetCurrentCommand);
@@ -149,7 +145,7 @@ export function setupTargetCommands(yargs: Argv): Argv {
       .command(
         'list',
         'List Runtime Target Contexts without contacting runtimes',
-        (sub) => sub.options(globalOptions || {}),
+        (sub) => sub,
         async (argv) => {
           const { targetListCommand } = await import('./target.js');
           await runCliCommand(argv as Parameters<typeof targetListCommand>[0], targetListCommand);
@@ -159,7 +155,7 @@ export function setupTargetCommands(yargs: Argv): Argv {
         'inspect <name>',
         'Show detailed Runtime Target Context metadata',
         (sub) =>
-          sub.options(globalOptions || {}).positional('name', {
+          sub.positional('name', {
             describe: 'Runtime target context name',
             type: 'string',
           }),
@@ -173,7 +169,6 @@ export function setupTargetCommands(yargs: Argv): Argv {
         'Delete a stored Runtime Target Context',
         (sub) =>
           sub
-            .options(globalOptions || {})
             .positional('name', {
               describe: 'Runtime target context name',
               type: 'string',
@@ -193,7 +188,6 @@ export function setupTargetCommands(yargs: Argv): Argv {
         'Rename a stored Runtime Target Context',
         (sub) =>
           sub
-            .options(globalOptions || {})
             .positional('old', {
               describe: 'Existing runtime target context name',
               type: 'string',
@@ -212,7 +206,6 @@ export function setupTargetCommands(yargs: Argv): Argv {
         'Verify Runtime Identity for a target',
         (sub) =>
           sub
-            .options(globalOptions || {})
             .positional('name', {
               describe: 'Runtime target context name',
               type: 'string',

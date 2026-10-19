@@ -1,4 +1,4 @@
-import { globalOptions } from '@src/globalOptions.js';
+import { withGlobalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
 
@@ -24,12 +24,11 @@ import { buildUrlCommand } from './url.js';
  * Setup preset command configuration for yargs
  */
 export function setupPresetCommands(yargs: Argv): Argv {
-  return yargs.command(
+  return withGlobalOptions(yargs).command(
     'preset',
-    'Manage server presets for dynamic filtering',
+    'Manage server filtering presets',
     (yargs) => {
       return yargs
-        .options(globalOptions || {})
         .command({
           command: 'edit <name>',
           describe: 'Edit existing preset interactively',
@@ -96,58 +95,14 @@ export function setupPresetCommands(yargs: Argv): Argv {
         .demandCommand(0, 'Use --help for available commands')
         .example([
           ['$0 preset', 'Smart interactive mode - create new or edit existing'],
-          ['$0 preset edit development', 'Edit existing "development" preset'],
           ['$0 preset create dev --filter "web,database"', 'Create preset with simple filter'],
           ['$0 preset create prod --filter "web AND database"', 'Create preset with AND logic'],
-          ['$0 preset create secure --filter "(web OR api) AND NOT experimental"', 'Complex filter'],
           ['$0 preset list', 'List all available presets'],
-          ['$0 preset show development', 'Show full details of "development" preset'],
           ['$0 preset url development', 'Generate URL for existing preset'],
-          ['$0 preset delete staging', 'Delete "staging" preset'],
-          ['$0 preset test development', 'Test "development" preset'],
-        ]).epilogue(`
-PRESET MANAGEMENT SYSTEM:
-
-The preset command provides both interactive (TUI) and command-line approaches to manage
-server filtering presets. Presets generate URLs like http://localhost:3050/mcp?preset=development
-that automatically update when you modify the preset configuration.
-
-WORKFLOW EXAMPLES:
-
-1. Smart interactive approach:
-   1mcp preset
-   → Auto-detects existing presets → Offers to edit or create new
-
-2. Direct editing:
-   1mcp preset edit dev
-   → Interactive editing of existing 'dev' preset
-
-3. Command-line creation:
-   1mcp preset create dev --filter "web,database,api"
-   → Quick preset creation with comma-separated tags (OR logic)
-
-4. Complex expressions:
-   1mcp preset create prod --filter "web AND database AND monitoring"
-   → AND logic for strict requirements
-
-   1mcp preset create flexible --filter "(web OR api) AND database"
-   → Mixed boolean expressions
-
-5. Management:
-   1mcp preset list           # List all presets
-   1mcp preset url dev        # Get client URL
-   1mcp preset test dev       # Test against servers
-   1mcp preset delete old     # Remove unused preset
-
-FILTER EXPRESSIONS:
-- Simple (OR logic): "web,api,database"
-- AND logic: "web AND database"
-- Complex: "(web OR api) AND database AND NOT experimental"
-
-DYNAMIC UPDATES:
-When you modify a preset, all clients using that preset's URL automatically
-receive updated server configurations without needing to change their URLs.
-        `);
+        ])
+        .epilogue(
+          'Presets save server filters and provide reusable client URLs.\nComma-separated tags use OR logic; expressions also support AND, OR, NOT, and parentheses.\nRun 1mcp preset to create or edit interactively.',
+        );
     },
     async (argv) => {
       // Smart interactive mode when no subcommand is provided

@@ -1,15 +1,14 @@
 import { runCliCommand } from '@src/commands/shared/commandRunner.js';
-import { globalOptions } from '@src/globalOptions.js';
+import { withGlobalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
 
 export function setupInstructionsCommand(yargs: Argv): Argv {
-  return yargs.command(
+  return withGlobalOptions(yargs).command(
     'instructions',
-    'Show CLI-mode instructions for AI agents using a running 1MCP serve instance',
+    'Show instructions for connected agents',
     (commandYargs) =>
       commandYargs
-        .options(globalOptions || {})
         .option('url', {
           alias: 'u',
           describe: 'Override auto-detected 1MCP server URL',

@@ -2,7 +2,7 @@ import { TokenEstimationService, type ToolTokenInfo } from '@src/application/ser
 import { McpConnectionHelper } from '@src/commands/shared/connectionHelper.js';
 import { getDisabledTools, isToolDisabled, withToolDisabledState } from '@src/core/server/disabledTools.js';
 import type { MCPServerParams } from '@src/core/types/index.js';
-import { GlobalOptions, globalOptions } from '@src/globalOptions.js';
+import { GlobalOptions, withGlobalOptions } from '@src/globalOptions.js';
 import printer from '@src/utils/ui/printer.js';
 
 import prompts from 'prompts';
@@ -534,12 +534,11 @@ async function setToolDisabledState(argv: ToolCommandBaseArgs, disabled: boolean
 }
 
 export function setupMcpToolsCommands(yargs: Argv): Argv {
-  return yargs.command(
+  return withGlobalOptions(yargs).command(
     'tools',
     'Interactively manage per-server disabled tool lists',
     (toolsYargs) => {
       return toolsYargs
-        .options(globalOptions || {})
         .option('server', {
           describe: 'Open the interactive browser directly for one server',
           type: 'string',
@@ -612,6 +611,7 @@ export function setupMcpToolsCommands(yargs: Argv): Argv {
           },
         )
         .help()
+        .alias('help', 'h')
         .epilogue(
           [
             'MCP Tools Commands',

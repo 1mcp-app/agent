@@ -1,5 +1,5 @@
 // Import builder functions from command implementations
-import { globalOptions } from '@src/globalOptions.js';
+import { withGlobalOptions } from '@src/globalOptions.js';
 import { normalizedArgv } from '@src/utils/cli/normalizedArgv.js';
 import printer from '@src/utils/ui/printer.js';
 
@@ -29,11 +29,11 @@ import { buildUpdateCommand } from './update.js';
  * Register MCP command group and subcommands
  */
 export function setupMcpCommands(yargs: Argv): Argv {
-  return yargs.command(
+  return withGlobalOptions(yargs).command(
     'mcp',
     'Manage MCP server configurations',
     (yargs) => {
-      const commandGroup = setupMcpToolsCommands(yargs.options(globalOptions || {}));
+      const commandGroup = setupMcpToolsCommands(yargs);
 
       return commandGroup
         .command({
@@ -207,25 +207,9 @@ export function setupMcpCommands(yargs: Argv): Argv {
           },
         })
         .demandCommand(1, 'You must specify a subcommand')
-        .help().epilogue(`
-MCP Command Group - Local MCP Server Configuration Management
-
-The mcp command group helps you manage local MCP server configurations in your 1mcp instance.
-
-This allows you to:
-• Install static MCP servers from the registry
-• Set up installed backends as reusable templates or explicit static targets
-• Add new MCP servers with various transport types (stdio, HTTP, SSE)
-• Remove or uninstall servers you no longer need
-• Update server configurations including environment variables and tags
-• Enable/disable servers without removing them
-• List and filter servers by tags or status
-• Check the status and details of configured servers
-• Estimate token usage for server capabilities and tools
-
-For registry operations (search, discovery), use the 'registry' command group.
-For more information about each command, use: $0 mcp <command> --help
-        `);
+        .help()
+        .alias('help', 'h')
+        .epilogue("Use 'registry' to search and discover servers.\nRun 1mcp mcp <command> --help for command details.");
     },
     () => {
       // This handler runs when 'mcp' is called without a subcommand

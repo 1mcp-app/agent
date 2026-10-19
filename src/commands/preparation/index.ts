@@ -1,11 +1,10 @@
 import { runCliCommand } from '@src/commands/shared/commandRunner.js';
-import { globalOptions } from '@src/globalOptions.js';
+import { withGlobalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
 
 function options(yargs: Argv): Argv {
   return yargs
-    .options(globalOptions)
     .positional('backend', {
       describe: 'Configured backend name (available even before tool discovery)',
       type: 'string',
@@ -36,8 +35,8 @@ export function setupPreparationCommands(yargs: Argv): Argv {
         type: 'number',
         describe: 'Bounded wait in milliseconds (wait only; runtime default when omitted)',
       });
-  return yargs
-    .command('prepare', 'Prepare a selected checkout or inspect and control its preparation jobs', (command) => {
+  return withGlobalOptions(yargs)
+    .command('prepare', 'Prepare backends and manage jobs', (command) => {
       let family = command
         .command('$0 <backend>', 'Request preparation using runtime-owned permissions', options, start)
         .command(
@@ -61,8 +60,11 @@ export function setupPreparationCommands(yargs: Argv): Argv {
     })
     .command(
       'preparation <action> <backend> [id]',
-      'Compatibility alias for prepare inspect/status/wait/cancel/retry',
-      (command) => jobOptions(command).positional('action', { type: 'string', choices: controls }),
+      false,
+      (command) =>
+        jobOptions(command)
+          .positional('action', { type: 'string', choices: controls })
+          .epilogue('Legacy compatibility alias. Use 1mcp prepare <action> <backend> [id] instead.'),
       invoke,
     );
 }

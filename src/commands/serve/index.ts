@@ -1,4 +1,4 @@
-import { globalOptions } from '@src/globalOptions.js';
+import { withGlobalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
 
@@ -339,13 +339,80 @@ export const serverOptions = {
  * Register serve command
  */
 export function setupServeCommand(yargs: Argv): Argv {
-  return yargs.command(
+  return withGlobalOptions(yargs).command(
     'serve',
-    'Start the 1mcp server',
+    'Start the 1MCP server',
     (yargs) => {
       return yargs
-        .options(globalOptions || {})
         .options(serverOptions)
+        .group(['status', 'background', 'stop', 'restart', 'drain-timeout', 'on-drain-timeout'], 'Runtime:')
+        .group(['transport', 'port', 'host', 'external-url'], 'Transport:')
+        .group(['filter', 'preset', 'pagination', 'enable-internal-tools', 'internal-tools'], 'Filtering:')
+        .group(
+          [
+            'credential-store',
+            'enable-auth',
+            'enable-scope-validation',
+            'enable-enhanced-security',
+            'rate-limit-window',
+            'rate-limit-max',
+            'trust-proxy',
+            'template-context-trust',
+            'confirm-untrusted-template-context',
+            'health-info-level',
+          ],
+          'Security:',
+        )
+        .group(
+          [
+            'enable-async-loading',
+            'async-max-concurrent-loads',
+            'async-max-retries',
+            'async-retry-delay',
+            'async-background-retry',
+            'async-background-retry-interval',
+            'async-background-retry-max-servers',
+            'async-batch-notifications',
+            'async-batch-delay',
+            'async-notify-on-snapshot',
+            'enable-lazy-loading',
+            'lazy-cache-max-entries',
+            'lazy-preload',
+            'lazy-preload-keywords',
+            'lazy-inline-catalog',
+            'lazy-catalog-format',
+            'lazy-cache-ttl',
+            'lazy-fallback-on-error',
+            'lazy-fallback-timeout',
+            'enable-client-notifications',
+          ],
+          'Loading:',
+        )
+        .group(
+          [
+            'session-ttl',
+            'session-storage-path',
+            'enable-session-persistence',
+            'session-persist-requests',
+            'session-persist-interval',
+            'session-background-flush',
+          ],
+          'Sessions:',
+        )
+        .group(
+          [
+            'enable-config-reload',
+            'config-reload-debounce',
+            'enable-env-substitution',
+            'enable-jsonrpc-error-logging',
+            'instructions-template',
+          ],
+          'Configuration:',
+        )
+        .group(
+          ['auth', 'async-min-servers', 'async-timeout', 'async-notify-on-ready', 'lazy-mode', 'lazy-direct-expose'],
+          'Deprecated options:',
+        )
         .check((argv) => {
           // The lifecycle flags select mutually exclusive actions; combining
           // them would let handler order silently pick one and mask a typo.
@@ -370,42 +437,10 @@ export function setupServeCommand(yargs: Argv): Argv {
           ['$0 serve --internal-tools="search,list,status"', 'Enable specific internal tools'],
           ['$0 serve --internal-tools="discovery,management"', 'Enable tools by category'],
           ['$0 serve --instructions-template=./custom-template.md', 'Use custom instructions template'],
-        ]).epilogue(`
-TRANSPORT OPTIONS:
-  stdio: Use stdin/stdout for communication (for programmatic use)
-  http:  Use HTTP server with SSE for web-based clients (default)
-
-FILTERING:
-  Use --filter to limit which MCP servers are exposed:
-  • Simple: "web,api,database" (OR logic)
-  • Advanced: "web AND database" or "(web OR api) AND database"
-
-AUTHENTICATION:
-  Use --enable-auth to enable OAuth 2.1 authentication with scope validation.
-  Configure OAuth providers in your MCP configuration file.
-
-CUSTOM TEMPLATES:
-  Use --instructions-template to customize the instructions template sent to clients.
-  Template files use Handlebars syntax with variables like {{serverCount}}, {{serverList}}, etc.
-  Defaults to instructions-template.md in your config directory.
-
-INTERNAL TOOLS:
-  Use --enable-internal-tools to enable ALL internal MCP management tools.
-  Use --internal-tools with comma-separated list for selective control:
-  • Individual tools: "search,list,status,registry"
-  • Categories: "discovery,management,installation,safe"
-  • Examples: "safe" (read-only), "discovery,management" (no installation)
-
-LAZY LOADING:
-  Use --enable-lazy-loading to opt into stable meta-tool exposure for progressive discovery.
-  Omit it (the default) for full direct tool exposure. Legacy --lazy-mode and
-  --lazy-direct-expose inputs are accepted temporarily but ignored with a warning.
-  Examples:
-  • --enable-lazy-loading
-  • --enable-lazy-loading --lazy-cache-max-entries=2000
-
-For more information: https://github.com/1mcp-app/agent
-        `);
+        ])
+        .epilogue(
+          'HTTP is the default transport; use --transport stdio for stdin/stdout clients.\nFilters accept comma-separated tags (OR) or boolean expressions such as "(web OR api) AND database".\nTools are exposed directly by default. --enable-lazy-loading opts into meta-tools for progressive discovery; legacy --lazy-mode and --lazy-direct-expose are accepted but ignored with a warning.\nCustom instruction templates use Handlebars.\nMore: https://docs.1mcp.app/commands/serve',
+        );
     },
     async (argv) => {
       const { configureGlobalLogger } = await import('@src/logger/configureGlobalLogger.js');

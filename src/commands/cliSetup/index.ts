@@ -1,14 +1,13 @@
-import { globalOptions } from '@src/globalOptions.js';
+import { withGlobalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
 
 export function setupCliSetupCommand(yargs: Argv): Argv {
-  return yargs.command(
+  return withGlobalOptions(yargs).command(
     'cli-setup',
-    'Install 1MCP CLI hooks and reference files for Codex and Claude',
+    'Install Codex and Claude CLI hooks',
     (commandYargs) =>
       commandYargs
-        .options(globalOptions || {})
         .option('scope', {
           describe: 'Setup scope',
           type: 'string',

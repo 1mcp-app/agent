@@ -1,15 +1,14 @@
 import { runCliCommand } from '@src/commands/shared/commandRunner.js';
-import { globalOptions } from '@src/globalOptions.js';
+import { withGlobalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
 
 export function setupInspectCommand(yargs: Argv): Argv {
-  return yargs.command(
+  return withGlobalOptions(yargs).command(
     'inspect [target]',
-    'Inspect servers or tools from a running 1MCP serve instance',
+    'Inspect connected servers and tools',
     (commandYargs) =>
       commandYargs
-        .options(globalOptions || {})
         .positional('target', {
           describe: 'Inspect target: <server>, <server>/<tool>, or omit to list all servers',
           type: 'string',
@@ -83,7 +82,7 @@ export function setupInspectCommand(yargs: Argv): Argv {
         .example('$0 inspect filesystem', 'List the exposed tools for a server')
         .example('$0 inspect filesystem/read_file', 'Show a readable summary of a tool schema')
         .example('$0 inspect filesystem --format json', 'Output normalized server tool list JSON for scripting')
-        .example('$0 inspect filesystem --format text', 'Human-readable chalk output')
+        .example('$0 inspect filesystem --format text', 'Show a readable tool list')
         .example('$0 inspect filesystem --all', 'List all tools without pagination')
         .epilogue('This command requires a running `1mcp serve` instance. Errors are written to stderr only.'),
     async (argv) => {
