@@ -27,8 +27,8 @@ description: 运维追踪与指标的标准 OTEL 环境变量、默认值及限�
 | `OTEL_METRIC_EXPORT_TIMEOUT`             | `10000`        | 1–30000 毫秒                                                                                                      |
 | `OTEL_ATTRIBUTE_COUNT_LIMIT`             | `32`           | 0–32，通用属性数量上限                                                                                            |
 | `OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT`      | `256`          | 0–256 UTF-8 字节                                                                                                  |
-| `OTEL_SPAN_ATTRIBUTE_COUNT_LIMIT`        | `32`           | 可降低通用上限，不能提高                                                                                          |
-| `OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT` | `256`          | 可降低通用字节上限，不能提高                                                                                      |
+| `OTEL_SPAN_ATTRIBUTE_COUNT_LIMIT`        | `32`           | 覆盖通用设置；硬上限为 32                                                                                         |
+| `OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT` | `256`          | 覆盖通用设置；硬上限为 256 UTF-8 字节                                                                             |
 | `OTEL_SPAN_EVENT_COUNT_LIMIT`            | `16`           | 0–16                                                                                                              |
 | `OTEL_SPAN_LINK_COUNT_LIMIT`             | `8`            | 0–8                                                                                                               |
 | `OTEL_EVENT_ATTRIBUTE_COUNT_LIMIT`       | `16`           | 0–16                                                                                                              |

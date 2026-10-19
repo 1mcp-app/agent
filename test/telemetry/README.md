@@ -27,7 +27,7 @@ The optional Docker fixture is `compose.yaml`; set `TELEMETRY_CAPTURE_DIR` to an
 empty writable directory before `docker compose -f test/telemetry/compose.yaml up`.
 Docker is not required when using the executable.
 
-Tests use loopback ports 14318, 14320 and 14322 sequentially. Keep these free and do
+Runtime tests use loopback ports 14320 and 14322 sequentially; real Collectors and new lifecycle/status runtime hosts allocate their own loopback ports. Keep these free and do
 not run multiple copies concurrently. Collectors and backends otherwise use
 operating-system allocated ports. The fake Collector captures decompressed wire
 bytes with bounded retention, supports delayed/503 responses, and never writes
@@ -43,8 +43,7 @@ request headers into artifacts.
   preserves that suite's exact propagation assertions. This does not prove active
   tracing topology on reverse/resumed requests.
 - `transports`: real stdio/SSE and stdio-to-HTTP proxy transport replies, including a
-  delayed response which must keep its request span open. The proxy test host uses
-  the real proxy class and real providers; CLI attachment is a separate boundary.
+  delayed response which must keep its request span open. Proxy tests launch the actual CLI from an isolated cwd, preserving CLI attachment and lifecycle coverage.
 - `payload`, `real-export`: public operation facade plus actual protobuf exports;
   real Collector decodes traces and metrics. These are not transport tests.
 - `tls`: actual HTTPS/mTLS exports with an ephemeral test CA, never global trust.
@@ -88,3 +87,29 @@ Budget exceedance fails. An interval crossing a budget is **inconclusive**, neve
 pass. The harness returns nonzero for either. A successful timing run does not
 establish sustained queue/RSS plateau, max-limit capacity, Node/SEA platform
 coverage, release, deployment, canary acceptance or customer impact.
+
+## Runtime lifecycle and capacity increment
+
+`runtime-observation.integration.test.mjs` drives actual HTTP/backend debug
+diagnostics, independently supplied MCP/HTTP carriers and RPC/Tool outcomes, plus
+authenticated Admin health, public readiness and `serve --status`.
+`lifecycle.integration.test.mjs` drives repeated shutdown signals and a real Node
+uncaught exception through a test-only preload. It requires a positive Collector
+flush attempt, so pre-provider fast exits cannot pass vacuously. Set
+`ONE_MCP_TEST_BINARY` to the built native SEA executable to run the same
+shutdown assertions against that binary; Node results do not prove SEA coverage.
+
+After the final integration build is clean and the host is otherwise idle:
+
+```sh
+OTELCOL_BINARY=/absolute/path/to/otelcol node scripts/telemetry/capacity.mjs /tmp/telemetry-capacity.json
+```
+
+This separate gate records `capacity-workload.json` before work: 10,000 actual
+tool identities, max 8,192-span queue/2,048 batch, stalled 30-second export and six
+10-second pressure windows. It checks returned data/readiness, dropped/high queue
+state, RSS envelope/plateau, recovery and decoded real-Collector series caps.
+It persists partial results on failure. The fault relay forwards only synthetic
+OTLP protobuf to the loopback pinned Collector after recovery and never forwards
+secret request headers. Run this alongside the matched timing gate only when
+explicitly scheduled; source changes require rerunning both gates.

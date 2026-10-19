@@ -76,6 +76,7 @@ test.each(['sse', 'stdio', 'legacy-proxy', 'modern-proxy'])(
         // Proxy tests isolate proxy spans by disabling export in its upstream runtime.
         runtime = spawn(process.execPath, serveArgs, {
           env: { ...env, OTEL_TRACES_EXPORTER: mode === 'sse' ? 'otlp' : 'none' },
+          cwd: directory,
           stdio: ['ignore', 'ignore', 'pipe'],
         });
         runtime.on('error', (error) => {
@@ -104,8 +105,18 @@ test.each(['sse', 'stdio', 'legacy-proxy', 'modern-proxy'])(
               args:
                 mode === 'stdio'
                   ? serveArgs
-                  : [resolve('test/telemetry/proxy-runtime.mjs'), 'http://127.0.0.1:14322/mcp'],
+                  : [
+                      resolve('build/index.js'),
+                      'proxy',
+                      '--url',
+                      'http://127.0.0.1:14322/mcp',
+                      '--config-dir',
+                      directory,
+                      '--log-level',
+                      'error',
+                    ],
               env,
+              cwd: directory,
               stderr: 'pipe',
             });
       transport.stderr?.on('data', (chunk) => {

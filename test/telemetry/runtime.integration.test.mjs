@@ -78,6 +78,7 @@ test.each([
           OTEL_EXPORTER_OTLP_TIMEOUT: '1000',
           OTEL_EXPORTER_OTLP_HEADERS: `x-acceptance=${privacyCorpus.authorization}`,
         },
+        cwd: directory,
         stdio: ['ignore', 'ignore', 'pipe'],
       },
     );

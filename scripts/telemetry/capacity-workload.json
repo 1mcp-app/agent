@@ -1,0 +1,26 @@
+{
+  "name": "issue489-real-runtime-max-capacity-v1",
+  "recordBeforeRun": true,
+  "queueSize": 8192,
+  "batchSize": 2048,
+  "exportTimeoutMs": 30000,
+  "uniqueToolIdentities": 10000,
+  "concurrency": 32,
+  "warmupOperations": 10000,
+  "windows": 6,
+  "windowSeconds": 10,
+  "minimumOperationsPerWindow": 2048,
+  "outage": "Collector delays HTTP503 for30000ms; last3 windows observe sustained max queue pressure",
+  "rssEnvelopeMiB": 64,
+  "plateauLastThreeWindowSpreadMiB": 16,
+  "plateauRationale": "Keep total active-mode growth within approved64MiB envelope and require final30sec RSS medians to stabilize within16MiB; fail rather than extrapolate safety from operation counts",
+  "readerCaps": {
+    "histogram": 1024,
+    "counter": 512,
+    "other": 256
+  },
+  "recoveryDeadlineMs": 40000,
+  "budgetTimingVerdict": "separate matchedperformance command; this run checks resource bounds, data invariance, read-only state and recovery",
+  "logging": "error in all capacity phases; avoid diagnostic file IO becoming the workload",
+  "warmupRationale": "Visit all10000business tool schemas before RSSbaseline so normal schema cache growth is not attributed to telemetry"
+}

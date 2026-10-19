@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { setTimeout as delay } from 'node:timers/promises';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { createCollector } from '../../test/telemetry/fake-collector.mjs';
 
@@ -52,11 +52,13 @@ async function run(mode, round) {
   const temporary = await mkdtemp(join(tmpdir(), '1mcp-perf-'));
   const probe = join(temporary, 'probe.jsonl');
   const env = {
-    ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('OTEL_'))),
+    ...Object.fromEntries(
+      Object.entries(process.env).filter(([key]) => !key.startsWith('OTEL_') && !key.startsWith('ONE_MCP_')),
+    ),
     ...config.env,
-    ONE_MCP_ACCEPTANCE_PROBE: probe,
+    TELEMETRY_ACCEPTANCE_PROBE: probe,
   };
-  env.NODE_OPTIONS = `${env.NODE_OPTIONS ?? ''} --import=${fileURLToPath(new URL('./runtime-probe.mjs', import.meta.url))}`;
+  env.NODE_OPTIONS = `${env.NODE_OPTIONS ?? ''} --import=${pathToFileURL(fileURLToPath(new URL('./runtime-probe.mjs', import.meta.url))).href}`;
   if (mode === 'healthy' || mode === 'outage') {
     env.OTEL_TRACES_EXPORTER = 'otlp';
     env.OTEL_METRICS_EXPORTER = 'otlp';
@@ -65,7 +67,7 @@ async function run(mode, round) {
     env.OTEL_TRACES_SAMPLER_ARG = '0.1';
   }
   collector.respond({ status: mode === 'outage' ? 503 : 200 });
-  const child = spawn(config.command[0], config.command.slice(1), { env, stdio: 'ignore' });
+  const child = spawn(config.command[0], config.command.slice(1), { env, cwd: config.cwd, stdio: 'ignore' });
   let spawnError;
   child.once('error', (error) => {
     spawnError = error;
