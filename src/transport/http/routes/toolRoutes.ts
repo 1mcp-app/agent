@@ -30,6 +30,7 @@ import {
   gatewayFailureToProblem,
 } from '@src/gateway/contracts/gatewayFailure.js';
 import logger from '@src/logger/logger.js';
+import { withHttpProjectAdmission } from '@src/transport/http/middlewares/projectAdmission.js';
 import {
   getAuthInfo,
   getTagFilterMode,
@@ -297,7 +298,9 @@ const toolInvocationBodySchema = z.object({
 export function createToolInvocationsHandler(serverManager: ServerManager): RequestHandler {
   return async (req: Request, res: Response): Promise<void> => {
     try {
-      return await runtimeAdmission.run(() => invoke(req, res));
+      return await runtimeAdmission.run(async () => {
+        await withHttpProjectAdmission(serverManager, invoke)(req, res, () => {});
+      });
     } catch (error) {
       if (!(error instanceof RuntimeDrainingError)) throw error;
       res.setHeader('Retry-After', '1');

@@ -24,6 +24,7 @@ import {
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 
 import { withPrivateInteractionConnection } from './privateInteractionConnection.js';
+import { withInboundProjectAdmission } from './projectAdmission.js';
 import { withProviderRequestProgress } from './requestProviderProgress.js';
 import {
   bindOwnedCatalogConnections,
@@ -36,6 +37,8 @@ export function registerResourceHandlers(
   outboundConns: LegacyOutboundConnections,
   inboundConn: InboundConnection,
 ): void {
+  const handle = <T, Args extends readonly unknown[]>(work: (...args: Args) => Promise<T>, message: string) =>
+    withErrorHandling(withInboundProjectAdmission(inboundConn, work), message);
   const acquire = (cursor?: string, kind: 'resources' | 'resourceTemplates' = 'resources') =>
     acquireRuntimeCapabilityCatalog(
       outboundConns,
@@ -45,7 +48,7 @@ export function registerResourceHandlers(
   const server = getLegacyInboundServer(inboundConn);
   server.setRequestHandler(
     ListResourcesRequestSchema,
-    withErrorHandling(async (request, extra) => {
+    handle(async (request, extra) => {
       bindOwnedCatalogConnections(outboundConns, inboundConn, 'resources');
       if (extra?.authInfo)
         bindOwnedNotificationAuthorization(outboundConns, inboundConn, () =>
@@ -66,7 +69,7 @@ export function registerResourceHandlers(
   );
   server.setRequestHandler(
     ListResourceTemplatesRequestSchema,
-    withErrorHandling(async (request, extra) => {
+    handle(async (request, extra) => {
       bindOwnedCatalogConnections(outboundConns, inboundConn, 'resources');
       if (extra?.authInfo)
         bindOwnedNotificationAuthorization(outboundConns, inboundConn, () =>
@@ -87,7 +90,7 @@ export function registerResourceHandlers(
   );
   server.setRequestHandler(
     SubscribeRequestSchema,
-    withErrorHandling(async (request, extra) => {
+    handle(async (request, extra) => {
       await subscribeOwnedResource(
         outboundConns,
         inboundConn,
@@ -107,7 +110,7 @@ export function registerResourceHandlers(
   );
   server.setRequestHandler(
     ReadResourceRequestSchema,
-    withErrorHandling(async (request, extra) => {
+    handle(async (request, extra) => {
       const snapshot = await acquire();
       const route = resolveResourceRoute(snapshot, request.params.uri);
       const assertResourceCurrent = () => {

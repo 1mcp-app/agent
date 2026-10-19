@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 
+import { projectOwnerCredentialSchema } from '@src/core/context/projectOwner.js';
 import type { TemplateContextProof } from '@src/core/context/templateContextTrust.js';
 import { projectSetSchema } from '@src/domains/project-selection/projectSelection.js';
 import logger from '@src/logger/logger.js';
@@ -72,6 +73,7 @@ const clientInfoSchema = z
 
 const contextDataSchema = z
   .object({
+    owner: projectOwnerCredentialSchema.optional(),
     project: contextNamespaceSchema,
     projectSet: projectSetSchema.optional(),
     user: userContextSchema,

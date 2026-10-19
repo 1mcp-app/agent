@@ -1,3 +1,5 @@
+import { setTimeout } from 'node:timers/promises';
+
 import { getRuntimeScopeEnvironment } from '@src/config/runtimeScopeEnv.js';
 import { createRuntimeTargetFingerprint } from '@src/config/runtimeTargetFingerprint.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
@@ -36,6 +38,9 @@ class StaleRuntimeEnvironmentError extends Error {}
  * - Cleaning up idle instances to free resources
  */
 export class ClientInstancePool {
+  private readonly projectReleases = new WeakSet<PooledClientInstance>();
+  private readonly processIdentities = new WeakMap<PooledClientInstance, Map<AuthProviderTransport, number>>();
+  private readonly gracefulStops = new WeakSet<AuthProviderTransport>();
   private instances = new Map<string, PooledClientInstance>();
   private templateToInstances = new Map<string, Set<string>>();
   private options: ClientPoolOptions;
@@ -169,6 +174,7 @@ export class ClientInstancePool {
             throw new StaleRuntimeEnvironmentError();
           }
           this.configureInstanceSupervision(instance);
+          this.captureProcessIdentity(instance);
           this.instances.set(instanceKey, instance);
           this.addToTemplateIndex(templateName, instanceKey);
 
@@ -331,6 +337,72 @@ export class ClientInstancePool {
   /**
    * Manually removes an instance from the pool
    */
+  /** Explicit checkout release requires positive close evidence before forgetting the owned process. */
+  async releaseInstance(instanceKey: string): Promise<void> {
+    const instance = this.instances.get(instanceKey);
+    if (!instance) return;
+    if (instance.referenceCount > 0) throw new Error('Backend instance is still shared');
+    this.projectReleases.add(instance);
+    return this.removeInstance(instanceKey);
+  }
+
+  private captureProcessIdentity(instance: PooledClientInstance): void {
+    const pid = instance.transport.pid;
+    if (!pid) return;
+    const known = this.processIdentities.get(instance) ?? new Map<AuthProviderTransport, number>();
+    known.set(instance.transport, pid);
+    this.processIdentities.set(instance, known);
+  }
+
+  private processAlive(pid: number): boolean {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error) {
+      if ((error as { code?: string }).code === 'ESRCH') return false;
+      throw error;
+    }
+  }
+
+  private assertProcessExit(instance: PooledClientInstance): void {
+    for (const pid of this.processIdentities.get(instance)?.values() ?? []) {
+      if (this.processAlive(pid)) throw new Error('Owned backend process exit is not confirmed');
+    }
+  }
+
+  private async waitForProcessExit(instance: PooledClientInstance): Promise<void> {
+    const deadline = Date.now() + 500;
+    while ([...(this.processIdentities.get(instance)?.values() ?? [])].some((pid) => this.processAlive(pid))) {
+      if (Date.now() >= deadline) break;
+      await setTimeout(10);
+    }
+    this.assertProcessExit(instance);
+  }
+
+  private async closeProjectInstance(instance: PooledClientInstance): Promise<void> {
+    const pid = this.processIdentities.get(instance)?.get(instance.transport);
+    if (instance.processedConfig.type === 'stdio' && instance.transport.pid === undefined)
+      throw new Error('Owned backend process identity is unavailable');
+    // SDK close escalates to SIGKILL. Request graceful termination before calling it.
+    if (pid && this.processAlive(pid)) {
+      if (instance.transport.pid !== pid) throw new Error('Owned backend process handle was cleared before exit');
+      if (process.platform === 'win32') throw new Error('Graceful backend shutdown is unavailable on this platform');
+      if (!this.gracefulStops.has(instance.transport)) {
+        this.gracefulStops.add(instance.transport);
+        try {
+          process.kill(pid, 'SIGTERM');
+        } catch (error) {
+          if ((error as { code?: string }).code !== 'ESRCH') throw error;
+        }
+      }
+      const deadline = Date.now() + 500;
+      while (this.processAlive(pid) && Date.now() < deadline) await setTimeout(10);
+      if (this.processAlive(pid)) throw new Error('Owned backend process exit is not confirmed');
+    }
+    await instance.client.close();
+    await instance.transport.close();
+  }
+
   async removeInstance(instanceKey: string): Promise<void> {
     const instance = this.instances.get(instanceKey);
     if (!instance) {
@@ -339,6 +411,7 @@ export class ClientInstancePool {
 
     // Make the removal visible before yielding so concurrent lookups cannot
     // attach new memberships to an instance that is already being closed.
+    this.captureProcessIdentity(instance);
     instance.status = 'terminating';
     return this.scheduleRemoval(instanceKey, instance);
   }
@@ -372,7 +445,9 @@ export class ClientInstancePool {
     instance.status = 'terminating';
     await instance.supervisor?.stop();
 
-    await this.disposeInstance(instance);
+    if (this.projectReleases.has(instance)) await this.closeProjectInstance(instance);
+    else if (!(await this.disposeInstance(instance))) throw new Error('Owned backend close is not confirmed');
+    await this.waitForProcessExit(instance);
 
     if (this.instances.get(instanceKey) === instance) {
       this.instances.delete(instanceKey);
@@ -458,17 +533,21 @@ export class ClientInstancePool {
     );
   }
 
-  private async disposeInstance(instance: PooledClientInstance): Promise<void> {
+  private async disposeInstance(instance: PooledClientInstance): Promise<boolean> {
+    let confirmed = true;
     try {
       await instance.client.close();
     } catch (_error) {
+      confirmed = false;
       logger.warn('clientInstancePool.error.closing.client.for.instance.55a390b9', { error: _error });
     }
     try {
       await instance.transport.close();
     } catch (_error) {
+      confirmed = false;
       logger.warn('clientInstancePool.error.closing.transport.for.instance.312c23b4', { error: _error });
     }
+    return confirmed;
   }
 
   async restartInstance(instance: PooledClientInstance): Promise<BackendSupervisionSnapshot> {
@@ -524,6 +603,7 @@ export class ClientInstancePool {
             activate: () => {
               instance.client = candidate.client;
               instance.transport = candidate.transport;
+              this.captureProcessIdentity(instance);
               this.configureInstanceSupervision(instance);
             },
             dispose,

@@ -338,6 +338,13 @@ export class BackendPreparationService {
     };
   }
 
+  /** All admitted jobs, including automatic jobs with no public control handle. */
+  activeStatuses(): PreparationStatus[] {
+    return [...this.jobs.values()]
+      .filter((job) => ['queued', 'running', 'cancelling'].includes(job.status.state))
+      .map((job) => this.snapshot(job));
+  }
+
   status(id: string): PreparationStatus | undefined {
     const job = this.jobs.get(id);
     return job ? this.snapshot(job) : undefined;

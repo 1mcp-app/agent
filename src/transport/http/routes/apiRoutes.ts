@@ -8,6 +8,7 @@ import rateLimit from 'express-rate-limit';
 import { createInspectHandler, createServersHandler } from './inspectRoutes.js';
 import { createInstructionsHandler } from './instructionsRoutes.js';
 import { createPreparationHandler } from './preparationRoutes.js';
+import { createProjectHandler } from './projectRoutes.js';
 import { createToolInvocationsHandler, createToolsHandler } from './toolRoutes.js';
 
 // Re-export types and handlers so existing imports keep working
@@ -68,6 +69,14 @@ export function createApiRoutes(
   router.get('/instructions', tagsExtractor, scopeAuthMiddleware, createInstructionsHandler(serverManager));
   router.get('/servers', tagsExtractor, scopeAuthMiddleware, createServersHandler(serverManager));
   router.get('/tools', tagsExtractor, scopeAuthMiddleware, createToolsHandler(serverManager));
+  router.post(
+    '/project',
+    rejectBrowserOriginRequests,
+    toolInvocationLimiter,
+    tagsExtractor,
+    scopeAuthMiddleware,
+    createProjectHandler(serverManager),
+  );
   router.post(
     '/preparation',
     rejectBrowserOriginRequests,

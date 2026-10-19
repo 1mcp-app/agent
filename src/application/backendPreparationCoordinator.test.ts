@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { ConfigManager } from '@src/config/configManager.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
 import type { MCPServerParams } from '@src/core/types/transport.js';
 import { ConfiguredCommandPreparationAdapter } from '@src/domains/backend-preparation/configuredCommandAdapter.js';
@@ -12,6 +13,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   BackendPreparationCoordinator,
+  persistedProjectPreparationBlockers,
   type PreparationGrant,
   type PublicPreparationStatus,
   refreshPreparedBackendCapabilities,
@@ -114,6 +116,37 @@ afterEach(async () => {
 });
 
 describe('runtime preparation controls', () => {
+  it('reports all active jobs and persisted restart uncertainty without creating a control handle', async () => {
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const adapter: BackendPreparationAdapter = {
+      inspect: async () => required,
+      prepare: async () => gate,
+      classifyFailure: () => ({ code: 'test', message: 'Test', retryable: false, instructions: 'Retry explicitly' }),
+    };
+    const f = await fixture(adapter);
+    const config = AgentConfigManager.getInstance();
+    const previous = config.get('runtimeScopeStoragePath');
+    config.updateConfig({ runtimeScopeStoragePath: path.join(f.directory, 'runtime') });
+    try {
+      const started = await job(f.coordinator, await f.resolve());
+      expect(f.coordinator.getProjectBlockers(f.checkout)).toEqual([
+        { kind: 'preparation-job', id: expect.any(String) },
+      ]);
+      expect(persistedProjectPreparationBlockers(f.checkout)).toEqual([
+        { kind: 'preparation-recovery', id: expect.any(String) },
+      ]);
+      finish();
+      await f.coordinator.control(await f.resolve(), { action: 'wait', id: started.id, waitMs: 100 });
+      expect(persistedProjectPreparationBlockers(f.checkout)).toEqual([]);
+    } finally {
+      finish();
+      config.updateConfig({ runtimeScopeStoragePath: previous });
+    }
+  });
+
   it.each(['control', 'automatic', 'retry'] as const)(
     'rejects current backend revocation after a stalled %s native inspection before mutation',
     async (surface) => {

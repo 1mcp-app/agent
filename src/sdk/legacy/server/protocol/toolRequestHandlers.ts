@@ -22,7 +22,6 @@ import {
   resolveLazyCapabilityVisibility,
 } from '@src/core/protocol/requestHandlerUtils.js';
 import { getDisabledSourceToolError } from '@src/core/server/disabledTools.js';
-import { withRuntimeAdmission } from '@src/core/server/runtimeDrain.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { InboundConnection } from '@src/core/types/index.js';
 import { SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
@@ -50,6 +49,7 @@ import { MCPError } from '@src/utils/core/errorTypes.js';
 import { scopesToTags } from '@src/utils/validation/scopeValidation.js';
 
 import { withPrivateInteractionConnection } from './privateInteractionConnection.js';
+import { withInboundProjectAdmission } from './projectAdmission.js';
 import { withProviderRequestProgress } from './requestProviderProgress.js';
 import { bindOwnedCatalogConnections, bindOwnedNotificationAuthorization } from './resourceSubscriptions.js';
 
@@ -58,6 +58,8 @@ export function registerToolHandlers(
   inboundConn: InboundConnection,
   lazyLoadingOrchestrator?: LazyLoadingOrchestrator,
 ): void {
+  const admit = <T, Args extends readonly unknown[]>(work: (...args: Args) => Promise<T>) =>
+    withInboundProjectAdmission(inboundConn, work);
   const sessionId = getRequestSession(inboundConn);
   const lazy = lazyLoadingOrchestrator?.isEnabled() ?? false;
   const acquire = async (cursor?: string, signal?: AbortSignal, { upstream = true } = {}) => {
@@ -98,7 +100,7 @@ export function registerToolHandlers(
   server.setRequestHandler(
     ListToolsRequestSchema,
     withErrorHandling(
-      withRuntimeAdmission(async (request, extra) => {
+      admit(async (request, extra) => {
         bindOwnedCatalogConnections(outboundConns, inboundConn, 'tools');
         if (extra?.authInfo)
           bindOwnedNotificationAuthorization(outboundConns, inboundConn, () =>
@@ -135,7 +137,7 @@ export function registerToolHandlers(
   registerToolCall(
     CallToolRequestSchema,
     withErrorHandling(
-      withRuntimeAdmission(async (request, extra) => {
+      admit(async (request, extra) => {
         const startedAt = performance.now();
         const requested = { callId: randomUUID(), requestedTool: request.params.name };
         let diagnosticRoute: Record<string, unknown> = requested;

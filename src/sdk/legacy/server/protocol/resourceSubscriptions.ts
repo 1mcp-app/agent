@@ -1,3 +1,4 @@
+import { getProjectLifecycle, projectPaths } from '@src/application/projectLifecycle.js';
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { registerCapabilityPaginationNotifications } from '@src/core/capabilities/capabilityPagination.js';
 import {
@@ -31,6 +32,7 @@ import {
 } from '@src/sdk/legacy/client/runtime/modernSubscriptions.js';
 import { resolveResourceRoute } from '@src/sdk/legacy/shared/resourceTemplateRouting.js';
 import { ResourceUpdatedNotificationSchema } from '@src/sdk/legacy/types.js';
+import type { ContextData } from '@src/types/context.js';
 
 import { z } from 'zod';
 
@@ -71,6 +73,7 @@ interface CatalogSource {
   preparationIdentity?: string;
 }
 interface Owner {
+  releaseProjectSubscription?: () => void;
   readonly binding?: ReturnType<typeof getProjectBinding>;
   readonly bindingId?: string;
   readonly inbound: InboundConnection;
@@ -254,6 +257,7 @@ async function cleanupOwner(owner: Owner): Promise<void> {
   if (failedWatches) {
     throw new Error('Resource subscription cleanup incomplete');
   }
+  owner.releaseProjectSubscription?.();
 }
 
 function terminate(owner: Owner): void {
@@ -281,8 +285,14 @@ function getOwner(connections: LegacyOutboundConnections, inbound: InboundConnec
   if (!owner) {
     const existingOwner = byBinding.values().next().value as Owner | undefined;
     if (ownerCount >= MAX_PROCESS_WATCHES) throw new Error('Subscription owner admission limit exceeded');
+    const releaseProjectSubscription = getProjectLifecycle()?.block(
+      projectPaths(getProjectBinding()?.context ?? (inbound.context as ContextData | undefined)),
+      'subscription',
+      bindingId ?? 'legacy',
+    );
     ownerCount++;
     owner = {
+      releaseProjectSubscription,
       inbound,
       bindingId,
       binding: getProjectBinding() ?? (bindingId ? { bindingId } : undefined),
@@ -300,6 +310,7 @@ function getOwner(connections: LegacyOutboundConnections, inbound: InboundConnec
       requiresAuthorization: existingOwner?.requiresAuthorization,
       authorize: existingOwner?.authorize,
     };
+
     byBinding.set(bindingId ?? '', owner);
   }
   return owner;
@@ -731,6 +742,9 @@ export async function subscribeOwnedResource(
   ) {
     throw new Error('Resource subscription admission limit exceeded');
   }
+  getProjectLifecycle()?.assertAdmission(
+    projectPaths(owner.binding?.context ?? (inbound.context as ContextData | undefined)),
+  );
   const watch: Watch = { owner, uri, abort: new AbortController(), active: true, ready: Promise.resolve(), authorize };
   owner.watches.set(uri, watch);
   watchCount++;

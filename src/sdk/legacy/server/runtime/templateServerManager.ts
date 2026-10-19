@@ -1,5 +1,13 @@
 import { isDeepStrictEqual } from 'node:util';
 
+import {
+  canonicalLifecyclePath,
+  getProjectLifecycle,
+  getVerifiedProjectOwner,
+  type ProjectBlocker,
+  projectPaths,
+  withProjectAdmission,
+} from '@src/application/projectLifecycle.js';
 import { isOperatorDisabledTemplateDefinition } from '@src/config/configuredServerTargets.js';
 import { getRuntimeScopeEnvironment, sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
 import { createRuntimeTargetFingerprint } from '@src/config/runtimeTargetFingerprint.js';
@@ -101,6 +109,8 @@ export class TemplateServerManager {
   private templateConfigHashes = new Map<string, string>();
   private templateToolMetadataHashes = new Map<string, string>();
   private templateRetirements = new Map<string, Promise<void>>();
+  private readonly instanceProjects = new Map<string, string[]>();
+  private readonly projectCleanup = new Map<string, Set<string>>();
   private ownerBindings = new Map<string, Set<string>>();
   private bindingContexts = new Map<string, ContextData>();
   private bindingPolicies = new Map<string, InboundConnectionConfig[]>();
@@ -173,6 +183,12 @@ export class TemplateServerManager {
    * Create template-based servers for a client connection
    */
   public async createTemplateBasedServers(
+    ...args: Parameters<TemplateServerManager['createTemplateBasedServersAdmitted']>
+  ): Promise<void> {
+    await withProjectAdmission(args[1], () => this.createTemplateBasedServersAdmitted(...args));
+  }
+
+  private async createTemplateBasedServersAdmitted(
     sessionId: string,
     context: ContextData,
     opts: InboundConnectionConfig,
@@ -244,6 +260,10 @@ export class TemplateServerManager {
           sessionId,
           targetTemplateOptions,
         );
+
+        this.instanceProjects.set(instance.instanceKey, [
+          ...new Set([...(this.instanceProjects.get(instance.instanceKey) ?? []), ...projectPaths(context)]),
+        ]);
 
         // CRITICAL: Register the template server in outbound connections for capability aggregation
         const renderedHash = instance.renderedHash; // From the pooled instance
@@ -666,6 +686,10 @@ export class TemplateServerManager {
   ): Promise<number> {
     const sessionsWithMembership = new Set(this.ephemeralClients.keys());
     const retainedBindings = new Set<string>();
+    for (const [bindingId, context] of this.bindingContexts) {
+      if (projectPaths(context).some((checkout) => getProjectLifecycle()?.status(checkout).blockers.length))
+        retainedBindings.add(bindingId);
+    }
     // Active requests and subscriptions retain their contextual membership.
     for (const [sessionId, session] of this.logicalSessions) {
       if (session.retainCount > 0) {
@@ -712,6 +736,12 @@ export class TemplateServerManager {
 
     const now = Date.now();
     for (const instance of allInstances) {
+      if (
+        this.instanceProjects
+          .get(instance.instanceKey)
+          ?.some((checkout) => getProjectLifecycle()?.status(checkout).admission === 'draining')
+      )
+        continue;
       if (instance.status === 'idle' && now - instance.lastUsedAt.getTime() >= instance.idleTimeout) {
         instancesToCleanup.push({
           templateName: instance.templateName,
@@ -970,6 +1000,7 @@ export class TemplateServerManager {
     filterConfig: InboundConnectionConfig = {},
     authority?: ProjectPreparationAuthority,
   ): Promise<string> {
+    getProjectLifecycle()?.assertAdmission(projectPaths(context));
     const preparationAuthority = getProjectPreparationAuthorityIdentity(authority, context);
     const policies = await resolveProjectPolicies(context, filterConfig);
     const bindingConfiguration = structuredClone({
@@ -992,6 +1023,7 @@ export class TemplateServerManager {
     if (!this.bindingContexts.has(bindingId) && this.bindingContexts.size >= capacity) {
       throw new Error('Project binding capacity exceeded');
     }
+    getProjectLifecycle()?.assertAdmission(projectPaths(context));
     this.bindingContexts.set(bindingId, context);
     this.bindingPolicies.set(bindingId, policies);
     this.bindingConfigurations.set(bindingId, Object.freeze(bindingConfiguration));
@@ -1002,6 +1034,83 @@ export class TemplateServerManager {
     this.ownerBindings.set(ownerSessionId, owned);
     this.touchEphemeralClient(bindingId);
     return bindingId;
+  }
+
+  public getSessionProjectContexts(sessionId: string): ContextData[] {
+    return [...this.bindingContexts.entries()]
+      .filter(([id, context]) => id === sessionId || context.sessionId === sessionId)
+      .map(([, context]) => context);
+  }
+
+  /** Inspection does not touch logical membership lifetimes. Unverified callers remain blockers. */
+  public getProjectBlockers(checkout: string): ProjectBlocker[] {
+    const canonical = canonicalLifecyclePath(checkout);
+    const blockers: ProjectBlocker[] = [];
+    for (const [bindingId, context] of this.bindingContexts) {
+      if (!projectPaths(context).includes(canonical)) continue;
+      blockers.push({ kind: 'owner', id: getVerifiedProjectOwner(context)?.ownerId ?? 'unverified:' + bindingId });
+      if (projectPaths(context).length > 1)
+        blockers.push({ kind: 'shared-binding', id: bindingId, count: projectPaths(context).length });
+      const retained = this.logicalSessions.get(context.sessionId ?? bindingId)?.retainCount ?? 0;
+      if (retained) blockers.push({ kind: 'requests-or-subscriptions', id: bindingId, count: retained });
+    }
+    for (const instance of this.clientInstancePool.getAllInstances()) {
+      if (!this.instanceProjects.get(instance.instanceKey)?.includes(canonical)) continue;
+      blockers.push({ kind: instance.referenceCount ? 'shared-backend' : 'backend-process', id: instance.instanceKey });
+    }
+    for (const id of this.projectCleanup.get(canonical) ?? []) blockers.push({ kind: 'backend-process', id });
+    return blockers;
+  }
+
+  public async closeUnusedProjectInstances(checkout: string): Promise<void> {
+    const canonical = canonicalLifecyclePath(checkout);
+    if (getProjectLifecycle()?.status(canonical).blockers.length) return;
+    for (const instance of this.clientInstancePool.getAllInstances()) {
+      if (!this.instanceProjects.get(instance.instanceKey)?.includes(canonical)) continue;
+      if (instance.referenceCount > 0) continue;
+      if ([...this.bindingContexts.values()].some((context) => projectPaths(context).includes(canonical))) continue;
+      await this.clientInstancePool.releaseInstance(instance.instanceKey);
+      this.instanceProjects.delete(instance.instanceKey);
+    }
+  }
+
+  public async releaseProjectOwner(
+    checkout: string,
+    ownerId: string,
+    selectedCheckouts: string[] = [checkout],
+  ): Promise<void> {
+    const canonical = canonicalLifecyclePath(checkout);
+    if (getProjectLifecycle()?.status(canonical).blockers.length) return;
+    const pending = this.projectCleanup.get(canonical) ?? new Set<string>();
+    this.projectCleanup.set(canonical, pending);
+    for (const [bindingId, context] of [...this.bindingContexts]) {
+      if (getVerifiedProjectOwner(context)?.ownerId !== ownerId) continue;
+      const paths = projectPaths(context);
+      if (!paths.includes(canonical)) continue;
+      if (paths.some((entry) => !selectedCheckouts.map(canonicalLifecyclePath).includes(entry))) continue;
+      if ((this.logicalSessions.get(context.sessionId ?? bindingId)?.retainCount ?? 0) > 0) continue;
+      const instances = this.clientTemplateTracker.getClientTemplates(bindingId);
+      for (const { templateName, instanceId } of instances) {
+        const instance = this.clientInstancePool.getAllInstances().find((candidate) => candidate.id === instanceId);
+        if (!instance) continue;
+        const key = instance.instanceKey ?? `${templateName}:${instance.renderedHash}`;
+        this.clientInstancePool.removeClientFromInstance(key, bindingId);
+        if (this.clientTemplateTracker.getClientCount(templateName, instanceId) <= 1) pending.add(key);
+      }
+      await this.cleanupTemplateServers(
+        bindingId,
+        this.outboundConns ?? new Map<string, OutboundConnection>(),
+        this.transports ?? {},
+      );
+    }
+    for (const key of pending) {
+      const instance = this.clientInstancePool.getInstance(key);
+      if (instance?.referenceCount) continue;
+      await this.clientInstancePool.releaseInstance(key);
+      pending.delete(key);
+      this.instanceProjects.delete(key);
+    }
+    if (!pending.size) this.projectCleanup.delete(canonical);
   }
 
   private forgetBindingContext(bindingId: string): void {

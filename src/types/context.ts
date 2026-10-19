@@ -60,6 +60,8 @@ export interface ClientInfo {
  * Complete context data
  */
 export interface ContextData {
+  /** Runtime-scoped credential, never template input. */
+  owner?: import('@src/core/context/projectOwner.js').ProjectOwnerCredential;
   project: ContextNamespace;
   /** Explicit checkout membership and per-call selection. No selection means unresolved for multiple members. */
   projectSet?: ProjectSet;

@@ -1,3 +1,4 @@
+import { getProjectLifecycle } from '@src/application/projectLifecycle.js';
 import { runtimeAdmission } from '@src/core/server/runtimeDrain.js';
 import type { JSONRPCMessage } from '@src/sdk/legacy/types.js';
 
@@ -14,8 +15,13 @@ function retainDispatch(pending: DispatchObserver['pending'], message: JSONRPCMe
   if (!('id' in message)) return;
   if (!('method' in message)) return;
   if (message.method === 'initialize' || message.method === 'ping') return;
-  const release = runtimeAdmission.retain();
-  if (!release) return;
+  const runtimeRelease = runtimeAdmission.retain();
+  const projectRelease = getProjectLifecycle()?.retain();
+  if (!runtimeRelease && !projectRelease) return;
+  const release = () => {
+    runtimeRelease?.();
+    projectRelease?.();
+  };
   // Reusing a wire ID before completion makes its replies ambiguous. Fail closed.
   pending.set(message.id, pending.has(message.id) ? null : release);
 }

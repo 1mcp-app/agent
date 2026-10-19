@@ -70,6 +70,7 @@ import {
 import type { GatewayInteractionRequest } from '@src/gateway/ports/outboundEraAdapter.js';
 import { withMcpTraceContext } from '@src/observability/tracing/context.js';
 import { withRequestProgress } from '@src/sdk/contracts/requestProgress.js';
+import { withHttpProjectAdmission } from '@src/transport/http/middlewares/projectAdmission.js';
 import {
   type AuthInfo,
   getAuthInfo,
@@ -479,7 +480,7 @@ export function setupModernHttpRoutes(
 
   router.get(STREAMABLE_HTTP_ENDPOINT, modernAdmission, ...middlewares, rejectUnsupportedTransportMethod);
   router.delete(STREAMABLE_HTTP_ENDPOINT, modernAdmission, ...middlewares, rejectUnsupportedTransportMethod);
-  router.post(STREAMABLE_HTTP_ENDPOINT, modernAdmission, ...middlewares, async (req: Request, res: Response) => {
+  const handleProjectPost = withHttpProjectAdmission(serverManager, async (req: Request, res: Response) => {
     const disconnect = bindDisconnectAbort(req, res);
     let releaseTemplateSession: (() => void) | undefined;
     try {
@@ -931,4 +932,5 @@ export function setupModernHttpRoutes(
       disconnect.cleanup();
     }
   });
+  router.post(STREAMABLE_HTTP_ENDPOINT, modernAdmission, ...middlewares, handleProjectPost);
 }
