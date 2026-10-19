@@ -292,6 +292,16 @@ describe('instructionsDistribution', () => {
       formatInstructionsOutput({ servers: [], details: [] }),
     ]) {
       expect(content).toContain(
+        'Read the server type in the `1mcp instructions` server summary or `1mcp inspect <server>` metadata:',
+      );
+      expect(content).toContain(
+        '`type: external` identifies a static server; `type: template` identifies a dynamic server.',
+      );
+      expect(content).toContain(
+        'Retain the assigned project selectors during discovery that may include dynamic servers, and when the server type is missing or unknown.',
+      );
+      expect(content).toContain('Omit them only for a target confirmed as static.');
+      expect(content).toContain(
         'Static-server inspection (`1mcp inspect <server>` or `1mcp inspect <server>/<tool>`) does not require `--project` or `--project-set`.',
       );
       expect(content).toContain(

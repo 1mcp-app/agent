@@ -78,6 +78,7 @@ export function formatInstructionsOutput(output: InstructionsOutput): string {
       '7. Use `--preset`, `--tags`, or `--tag-filter` to narrow the server set when needed.',
       '8. If authentication is required, run `1mcp auth login --context <name> --token <token>` and retry.',
       '',
+      'Read the server type in the `1mcp instructions` server summary or `1mcp inspect <server>` metadata: `type: external` identifies a static server; `type: template` identifies a dynamic server. Retain the assigned project selectors during discovery that may include dynamic servers, and when the server type is missing or unknown. Omit them only for a target confirmed as static.',
       'Static-server inspection (`1mcp inspect <server>` or `1mcp inspect <server>/<tool>`) does not require `--project` or `--project-set`. Retain the assigned project selectors when inspecting dynamic, project-dependent servers.',
       '',
       'Search uses case-insensitive literal substring matching on server/tool references. Use a quoted pattern such as `--search "filesystem/*read?" --glob` for whole-reference matching with only `*` and `?` wildcards.',
