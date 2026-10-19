@@ -3,15 +3,22 @@ import { createMcpHandler, Server } from '@modelcontextprotocol/server';
 
 import { createServer } from 'node:http';
 
-export async function createModernBackend() {
+export async function createModernBackend({ toolCount = 0 } = {}) {
+  if (!Number.isInteger(toolCount) || toolCount < 0 || toolCount > 10000) throw new Error('Invalid fixture tool count');
+  const capacityTools = Array.from({ length: toolCount }, (_, i) => ({
+    name: `private_tool_${i}`,
+    inputSchema: { type: 'object' },
+  }));
+  const capacityNames = new Set(capacityTools.map((tool) => tool.name));
   const handler = createMcpHandler(
     () => {
       const server = new Server(
         { name: 'acceptance-modern-backend', version: '1.0.0' },
         { capabilities: { tools: {} } },
       );
-      server.setRequestHandler('tools/list', async () => ({
-        tools: [
+      server.setRequestHandler('tools/list', async (request) => {
+        const tools = [
+          ...capacityTools,
           {
             name: 'echo',
             description: 'Echo',
@@ -19,9 +26,15 @@ export async function createModernBackend() {
           },
           { name: 'reverse', description: 'Request owned roots', inputSchema: { type: 'object' } },
           { name: 'error', description: 'Tool error', inputSchema: { type: 'object' } },
-        ],
-      }));
+        ];
+        const offset = request.params?.cursor === undefined ? 0 : Number(request.params.cursor);
+        if (!Number.isSafeInteger(offset) || offset < 0 || offset >= tools.length)
+          throw new Error('Invalid fixture cursor');
+        const end = Math.min(offset + 1000, tools.length);
+        return { tools: tools.slice(offset, end), ...(end < tools.length ? { nextCursor: String(end) } : {}) };
+      });
       server.setRequestHandler('tools/call', async (request, context) => {
+        if (capacityNames.has(request.params.name)) return { content: [{ type: 'text', text: 'capacity-ok' }] };
         if (request.params.name === 'reverse') {
           if (context.mcpReq.requestState() === undefined)
             return {

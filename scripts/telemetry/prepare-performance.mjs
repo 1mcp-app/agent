@@ -61,16 +61,8 @@ for (const mode of ['baseline', 'propagation', 'healthy', 'outage']) {
   const configDirectory = join(directory, mode);
   await mkdir(configDirectory);
   const configPath = join(configDirectory, 'mcp.json');
-  await writeFile(
-    configPath,
-    JSON.stringify(
-      {
-        mcpServers: { fixture: { command: process.execPath, args: [resolve('test/telemetry/workload-backend.mjs')] } },
-      },
-      null,
-      2,
-    ),
-  );
+  // measure.mjs writes the owned modern backend URL immediately before each runtime starts.
+  await writeFile(configPath, JSON.stringify({ mcpServers: {} }, null, 2));
   modes[mode] = {
     command: [
       process.execPath,

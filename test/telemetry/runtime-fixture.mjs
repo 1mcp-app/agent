@@ -28,6 +28,7 @@ export async function startRuntime({
   httpHeaders = {},
   background = false,
   logLevel = 'debug',
+  backendConfig,
 } = {}) {
   const directory = await mkdtemp(join(tmpdir(), '1mcp-runtime-acceptance-'));
   const socket = createServer();
@@ -44,7 +45,7 @@ export async function startRuntime({
     config,
     JSON.stringify({
       mcpServers: {
-        fixture: {
+        fixture: backendConfig ?? {
           command: process.execPath,
           args: [resolve('test/telemetry/workload-backend.mjs')],
           protocolVersion: 'legacy',

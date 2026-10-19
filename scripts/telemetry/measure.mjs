@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
+import { closeSync, openSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,6 +9,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { createCollector } from '../../test/telemetry/fake-collector.mjs';
+import { startModernBackend } from '../../test/telemetry/modern-backend-process.mjs';
 
 const plan = JSON.parse(await readFile(new URL('./workload.json', import.meta.url)));
 const input = process.argv[2];
@@ -67,12 +69,30 @@ async function run(mode, round) {
     env.OTEL_TRACES_SAMPLER_ARG = '0.1';
   }
   collector.respond({ status: mode === 'outage' ? 503 : 200 });
-  const child = spawn(config.command[0], config.command.slice(1), { env, cwd: config.cwd, stdio: 'ignore' });
+  let child, backend, mcp;
   let spawnError;
-  child.once('error', (error) => {
-    spawnError = error;
-  });
   try {
+    backend = await startModernBackend({ stderrPath: `${output}.${round}.${mode}.backend.stderr.log` });
+    const configPath = join(temporary, 'mcp.json');
+    await writeFile(configPath, JSON.stringify({ mcpServers: { fixture: backend.config } }));
+    const args = config.command.slice(1);
+    for (const [option, value] of [
+      ['--config', configPath],
+      ['--config-dir', temporary],
+    ]) {
+      const index = args.indexOf(option);
+      assert(index >= 0 && index + 1 < args.length, `Missing runtime ${option}`);
+      args[index + 1] = value;
+    }
+    const stderr = openSync(`${output}.${round}.${mode}.runtime.stderr.log`, 'w', 0o600);
+    try {
+      child = spawn(config.command[0], args, { env, cwd: temporary, stdio: ['ignore', 'ignore', stderr] });
+    } finally {
+      closeSync(stderr);
+    }
+    child.once('error', (error) => {
+      spawnError = error;
+    });
     for (let attempt = 0; ; attempt++) {
       if (spawnError) throw spawnError;
       assert(child.exitCode === null, 'Runtime exited before readiness');
@@ -86,7 +106,7 @@ async function run(mode, round) {
     }
     const client = await import('@modelcontextprotocol/sdk/client/index.js');
     const transport = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
-    const mcp = new client.Client({ name: 'telemetry-acceptance', version: '1.0.0' });
+    mcp = new client.Client({ name: 'telemetry-acceptance', version: '1.0.0' });
     await mcp.connect(new transport.StreamableHTTPClientTransport(new URL(config.mcpUrl)));
     async function batch(count, measure) {
       let next = 0;
@@ -143,13 +163,26 @@ async function run(mode, round) {
       eventLoopP99Ms: Math.max(...readings.map((v) => v.eventLoopP99Ms)),
     };
   } finally {
-    child.kill('SIGTERM');
-    for (let attempt = 0; child.exitCode === null && attempt < 70; attempt++) await delay(100);
-    if (child.exitCode === null) {
-      child.kill('SIGKILL');
-      await new Promise((resolve) => child.once('exit', resolve));
+    try {
+      if (child) {
+        child.kill('SIGTERM');
+        for (let attempt = 0; child.exitCode === null && child.signalCode === null && attempt < 70; attempt++)
+          await delay(100);
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill('SIGKILL');
+          for (let attempt = 0; child.exitCode === null && child.signalCode === null && attempt < 30; attempt++)
+            await delay(100);
+          assert(child.exitCode !== null || child.signalCode !== null, 'Owned benchmark runtime did not exit');
+        }
+      }
+      await mcp?.close().catch(() => {});
+    } finally {
+      try {
+        await backend?.close();
+      } finally {
+        await rm(temporary, { recursive: true, force: true });
+      }
     }
-    await rm(temporary, { recursive: true, force: true });
   }
 }
 try {

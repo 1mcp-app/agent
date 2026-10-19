@@ -1,6 +1,15 @@
 {
   "name": "issue489-matched-mcp-http-v1",
   "recordedBeforeRuns": true,
+  "topology": {
+    "inboundEra": "legacy",
+    "inboundTransport": "streamable-http",
+    "upstreamEra": "modern",
+    "upstreamProtocolVersion": "2026-07-28",
+    "upstreamTransport": "streamable-http",
+    "upstreamProcess": "owned child with IPC readiness and OS-assigned loopback port",
+    "reason": "Parallel workloads require modern HTTP upstream; the legacy upstream connection intentionally admits one operation"
+  },
   "operations": ["tools/list", "tools/call:echo-4KiB", "tools/call:error"],
   "mix": [80, 19, 1],
   "concurrency": 16,

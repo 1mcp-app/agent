@@ -1,6 +1,16 @@
 {
   "name": "issue489-real-runtime-max-capacity-v1",
   "recordBeforeRun": true,
+  "topology": {
+    "inboundEra": "legacy",
+    "inboundTransport": "streamable-http",
+    "upstreamEra": "modern",
+    "upstreamProtocolVersion": "2026-07-28",
+    "upstreamTransport": "streamable-http",
+    "inventoryPageSize": 1000,
+    "upstreamProcess": "owned child with IPC readiness and OS-assigned loopback port",
+    "reason": "Parallel workloads require modern HTTP upstream; the legacy upstream connection intentionally admits one operation"
+  },
   "queueSize": 8192,
   "batchSize": 2048,
   "exportTimeoutMs": 30000,

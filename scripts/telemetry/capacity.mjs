@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 import { decodedPayloads } from '../../test/telemetry/collector-payloads.mjs';
 import { createCollector } from '../../test/telemetry/fake-collector.mjs';
+import { startModernBackend } from '../../test/telemetry/modern-backend-process.mjs';
 import { assertPrivatePayloads } from '../../test/telemetry/privacy-corpus.mjs';
 import { startRuntime, waitUntil } from '../../test/telemetry/runtime-fixture.mjs';
 import { startRealCollector } from './real-collector.mjs';
@@ -32,17 +33,21 @@ export async function runCapacity(output, binary) {
     verdict: 'incomplete',
   };
   await writeFile(output, JSON.stringify(report, null, 2));
-  let real, collector, runtime;
+  let real, collector, runtime, backend;
   try {
     real = await startRealCollector(binary);
     collector = await createCollector({ maxRequests: 2048 });
+    backend = await startModernBackend({
+      toolCount: plan.uniqueToolIdentities,
+      stderrPath: output + '.backend.stderr.log',
+    });
     runtime = await startRuntime({
+      backendConfig: backend.config,
       collector,
       admin: true,
       logLevel: 'error',
       probe: output + '.probe.jsonl',
       env: {
-        ACCEPTANCE_CAPACITY_TOOLS: String(plan.uniqueToolIdentities),
         OTEL_BSP_MAX_QUEUE_SIZE: String(plan.queueSize),
         OTEL_BSP_MAX_EXPORT_BATCH_SIZE: String(plan.batchSize),
         OTEL_BSP_EXPORT_TIMEOUT: String(plan.exportTimeoutMs),
@@ -158,6 +163,7 @@ export async function runCapacity(output, binary) {
     report.cleanupErrors = [];
     for (const [name, cleanup] of [
       ['runtime', () => runtime?.close()],
+      ['backend', () => backend?.close()],
       ['relay', () => collector?.close()],
       ['collector', () => real?.cleanup()],
     ]) {

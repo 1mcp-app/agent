@@ -40,8 +40,10 @@ request headers into artifacts.
   inbound includes real reverse roots requests.
 - `interactions`: reuse the established authenticated four-era interaction and
   continuation/ownership suite while exporting metrics. Metrics-only deliberately
-  preserves that suite's exact propagation assertions. This does not prove active
-  tracing topology on reverse/resumed requests.
+  preserves that suite's exact propagation assertions.
+- `active-interactions`: separate active tracing across all four era cells with
+  actual OTLP payloads, reverse/resume ancestry, HTTP context links, carrier
+  privacy and request spans ending before native continuation is sent.
 - `transports`: real stdio/SSE and stdio-to-HTTP proxy transport replies, including a
   delayed response which must keep its request span open. Proxy tests launch the actual CLI from an isolated cwd, preserving CLI attachment and lifecycle coverage.
 - `payload`, `real-export`: public operation facade plus actual protobuf exports;
@@ -65,8 +67,15 @@ node scripts/telemetry/prepare-performance.mjs /tmp/telemetry-perf-unique 3
 node scripts/telemetry/measure.mjs /tmp/telemetry-perf-unique/run.json /tmp/telemetry-perf-unique/report.json
 ```
 
-Preparation generates complete runtime configurations and the real echo/error
-backend. It copies the current build and transforms only the propagation adapter
+Preparation generates runtime launch configurations. Before each runtime starts,
+measurement launches the modern HTTP echo/error backend in its own child process,
+validates its owned readiness IPC, and writes its OS-assigned loopback URL into an
+owned mode configuration. All four modes use the same pinned `2026-07-28` upstream
+protocol and legacy HTTP benchmark client. The legacy upstream connection
+intentionally admits one operation; it cannot serve the parallel workload of 16.
+Backend startup is bounded at 10s and cleanup at 3s plus a 3s forced-exit fallback.
+Backend and runtime stderr files are retained beside the measurement report.
+Preparation copies the current build and transforms only the propagation adapter
 in a test-only baseline. Carrier removal, baggage sanitation and business handlers
 remain identical. The manifest lists exact replacements and original/transformed
 SHA256 hashes. All other build files are copied unchanged. Never publish this
@@ -103,6 +112,24 @@ closure and excludes work before the first payload arrives; complete telemetry
 shutdown budgets are verified separately through the SDK facade deadline tests. Set
 `ONE_MCP_TEST_BINARY` to the built native SEA executable to run the same
 shutdown assertions against that binary; Node results do not prove SEA coverage.
+
+The performance and capacity plans record this topology before samples. Capacity
+uses the same owned modern HTTP backend with all 10,000 private tool identities,
+served in standard 1,000-item catalog pages, while retaining concurrency 32 and the
+original pressure settings. The backend is outside the benchmark client event loop.
+Legacy functional and active interaction tests retain their separate fixtures.
+
+A functional-only smoke (no accepted timing/RSS samples) checks exact 1,000 mixed
+operations at concurrency 16 for baseline and propagation, then the 10k inventory,
+first/last tools and 32 concurrent calls:
+
+```sh
+node scripts/telemetry/smoke-modern-backend.mjs /tmp/telemetry-smoke /absolute/path/to/baseline-build/index.js
+```
+
+Failed preparations/reports remain evidence. After any harness/source commit,
+prepare a new unique performance directory before measuring; do not reuse stale
+baseline manifests or incomplete reports as samples.
 
 After the final integration build is clean and the host is otherwise idle:
 
