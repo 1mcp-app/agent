@@ -3,8 +3,8 @@ import { types } from 'node:util';
 
 import { changeTelemetryQueueDepth } from '@src/core/server/runtimeTelemetryMeasurements.js';
 import { captureJson } from '@src/core/validation/schemaPolicy.js';
-import { withProtocolTelemetry } from '@src/gateway/telemetryOperation.js';
 import { recordTelemetryMeasurement } from '@src/observability/telemetry.js';
+import { withProtocolTelemetry } from '@src/observability/telemetryOperation.js';
 import { captureTraceContext, stripBaggage } from '@src/observability/tracing/context.js';
 
 import { createGatewayFailure, type ImmutableJsonValue, toImmutableJsonValue } from '../contracts/index.js';

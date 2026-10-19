@@ -38,6 +38,7 @@ import {
 } from '@src/core/server/runtimeScopeOwnership.js';
 import {
   beginRuntimeTelemetryShutdown,
+  exitRuntime,
   finishRuntimeTelemetry,
   installTelemetryCompletionHandlers,
   startForegroundTelemetryStatus,
@@ -321,7 +322,7 @@ export function setupGracefulShutdown(
       runtimeOwnership?.release();
 
       logger.info('serve.server.shutdown.complete.fad6a0b9');
-      process.exit(0);
+      exitRuntime(0);
     })();
 
     return shutdownPromise;

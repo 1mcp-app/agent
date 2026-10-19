@@ -51,6 +51,16 @@ afterEach(() => {
 });
 
 describe('replacement launch provenance', () => {
+  it('rejects frozen invalid telemetry before replacement and honors the selected scope environment', () => {
+    fs.appendFileSync(path.join(directory, '.env'), '\nOTEL_LOGS_EXPORTER=private-invalid-selector');
+    expect(() => prepare()).toThrow('Runtime replacement configuration is invalid');
+    fs.writeFileSync(path.join(directory, '.env'), 'OTEL_LOGS_EXPORTER=none');
+    vi.stubEnv('OTEL_LOGS_EXPORTER', 'private-invalid-parent');
+    const result = prepare();
+    expect(result.snapshot.runtimeEnvironment.OTEL_LOGS_EXPORTER).toBe('none');
+    fs.writeFileSync(path.join(directory, '.env'), 'OTEL_LOGS_EXPORTER=otlp');
+    expect(result.snapshot.runtimeEnvironment.OTEL_LOGS_EXPORTER).toBe('none');
+  });
   it('keeps explicit values equal to defaults, aliases, negation and environment overrides', () => {
     vi.stubEnv('ONE_MCP_HOST', '127.0.0.2');
     const captured = captureExplicitLaunchInputs(['serve', '--restart', '-P', '3050', '--no-pagination']);

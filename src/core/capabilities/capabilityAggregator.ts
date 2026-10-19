@@ -3,7 +3,7 @@ import { EventEmitter } from 'events';
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { InternalCapabilitiesProvider } from '@src/core/capabilities/internalCapabilitiesProvider.js';
 import type { OutboundConnections } from '@src/core/types/index.js';
-import { withProtocolTelemetry } from '@src/gateway/telemetryOperation.js';
+import { withProtocolTelemetry } from '@src/observability/telemetryOperation.js';
 import type { Prompt, Resource, ResourceTemplate, Tool } from '@src/sdk/contracts/index.js';
 
 import { CapabilityProvidersUnavailableError } from './capabilityPagination.js';

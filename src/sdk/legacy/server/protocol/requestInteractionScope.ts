@@ -10,7 +10,7 @@ import {
   validateInteractionResponse,
 } from '@src/gateway/interactions/validateInteractionResponse.js';
 import type { GatewayInteractionRequest } from '@src/gateway/ports/outboundEraAdapter.js';
-import { withProtocolTelemetry } from '@src/gateway/telemetryOperation.js';
+import { withProtocolTelemetry } from '@src/observability/telemetryOperation.js';
 import { captureTraceContext, injectTraceContext, stripBaggage } from '@src/observability/tracing/context.js';
 import { withLegacyInteractionLease } from '@src/sdk/legacy/client/runtime/legacyInteractionLease.js';
 import { setOutboundRequestHandler } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';

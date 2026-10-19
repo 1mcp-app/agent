@@ -2,8 +2,8 @@ import { once } from 'node:events';
 import { createServer } from 'node:http';
 
 import { parseTelemetryConfig } from '@src/config/telemetryConfig.js';
-import { withProtocolTelemetry } from '@src/gateway/telemetryOperation.js';
 import { startTelemetry, stopTelemetry } from '@src/observability/telemetry.js';
+import { withProtocolTelemetry } from '@src/observability/telemetryOperation.js';
 
 import { expect, it, vi } from 'vitest';
 

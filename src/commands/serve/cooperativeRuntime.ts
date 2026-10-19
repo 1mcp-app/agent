@@ -447,7 +447,7 @@ export async function runCooperativeSupervisor(): Promise<void> {
   let retirementDeadlineMs: number | undefined;
   const requestStop = () => {
     retirementDeadlineMs ??= Date.now() + RUNTIME_RETIREMENT_OBSERVATION_MS; // Existing caller retirement observation deadline.
-    if (worker?.connected) {
+    if (worker?.connected && runtime?.pid === worker.pid) {
       try {
         sendChild(worker, { type: 'runtime-shutdown-deadline', deadlineMs: retirementDeadlineMs });
       } catch {
@@ -505,9 +505,11 @@ export async function runCooperativeSupervisor(): Promise<void> {
     switch (method) {
       case 'describe': {
         let telemetry: ReturnType<typeof getTelemetryStatus> | undefined;
-        if (worker && worker.connected) {
+        const activatedWorker = worker;
+        if (activatedWorker?.connected && runtime?.pid === activatedWorker.pid && activatedWorker.exitCode === null) {
           try {
-            telemetry = (await requestWorker(worker, 'telemetry')) as ReturnType<typeof getTelemetryStatus>;
+            telemetry = (await requestWorker(activatedWorker, 'telemetry')) as ReturnType<typeof getTelemetryStatus>;
+            if (worker !== activatedWorker || runtime?.pid !== activatedWorker.pid) telemetry = undefined;
           } catch {
             /* Missing worker status must not change runtime availability. */
           }
@@ -567,6 +569,26 @@ export async function runCooperativeSupervisor(): Promise<void> {
         },
         {
           waitForStop: () => stopped,
+          requestWorkerStop: (ownedWorker) => {
+            const child = ownedWorker as unknown as ChildProcess;
+            if (child.connected && runtime?.pid === child.pid) {
+              try {
+                child.send(
+                  {
+                    type: 'runtime-shutdown-deadline',
+                    deadlineMs: retirementDeadlineMs ?? Date.now() + RUNTIME_RETIREMENT_OBSERVATION_MS,
+                  },
+                  (error) => {
+                    if (error) child.kill('SIGTERM');
+                  },
+                );
+                return;
+              } catch {
+                /* Disconnected private channel retains the existing signal fallback. */
+              }
+            }
+            child.kill('SIGTERM');
+          },
           beforeSpawn: async () => {
             while (admissionClosed && !stopping) await sleep(50);
           },
@@ -686,7 +708,11 @@ export async function authorizeCooperativeWorker(): Promise<RuntimeLaunchBootstr
     if (!('type' in message)) return;
     if (message.type === 'runtime-shutdown-deadline') {
       const deadline = z.object({ deadlineMs: z.number().int().positive() }).safeParse(message);
-      if (deadline.success) setRuntimeTelemetryShutdownDeadline(deadline.data.deadlineMs);
+      if (deadline.success) {
+        setRuntimeTelemetryShutdownDeadline(deadline.data.deadlineMs);
+        // Emit locally: Windows child.kill(SIGTERM) terminates without JS cleanup.
+        process.emit('SIGTERM');
+      }
       return;
     }
     if (message.type === 'runtime-activation-recorded') {

@@ -1,8 +1,8 @@
 import type { Client } from '@modelcontextprotocol/client';
 
 import type { OutboundConnection } from '@src/core/types/client.js';
-import { withProtocolTelemetry } from '@src/gateway/telemetryOperation.js';
 import { recordTelemetryMeasurement } from '@src/observability/telemetry.js';
+import { withProtocolTelemetry } from '@src/observability/telemetryOperation.js';
 import { OneMcpProtocolError } from '@src/sdk/contracts/index.js';
 
 import type { AuthProviderTransport } from './legacyTransport.js';

@@ -11,6 +11,7 @@ import {
 
 import { startRuntimeControl } from './runtimeControl.js';
 
+let telemetryCompletionStarted = false;
 let statusControl: Awaited<ReturnType<typeof startRuntimeControl>> | undefined;
 
 export async function startForegroundTelemetryStatus(scope: string, claimId: string): Promise<void> {
@@ -19,6 +20,7 @@ export async function startForegroundTelemetryStatus(scope: string, claimId: str
 
 /** Runtime-only entry point. Supervisors and one-shot commands never call this. */
 export async function startRuntimeTelemetry(role: 'runtime' | 'proxy'): Promise<void> {
+  telemetryCompletionStarted = false;
   try {
     const config = parseTelemetryConfig(selectTelemetryEnvironment());
     await startTelemetry(config, {
@@ -46,14 +48,26 @@ export function beginRuntimeTelemetryShutdown(): void {
   }
 }
 
+let fatalExitRequested = false;
+
+/** Fatal completion takes precedence over an already pending graceful exit. */
+export function exitRuntime(code: number): never {
+  return process.exit(fatalExitRequested ? 1 : code);
+}
+
 let ownerDeadlineMs: number | undefined;
 export function setRuntimeTelemetryShutdownDeadline(deadlineMs: number): void {
   if (!Number.isSafeInteger(deadlineMs) || deadlineMs <= 0) return;
   ownerDeadlineMs = Math.min(ownerDeadlineMs ?? Infinity, deadlineMs);
+  if (telemetryCompletionStarted) {
+    void stopTelemetry({ deadlineMs: ownerDeadlineMs, fatal: fatalExitRequested }).catch(() => undefined);
+  }
 }
 
 /** Called only after the existing owner has drained/terminated gateway work. */
 export async function finishRuntimeTelemetry(fatal = false): Promise<void> {
+  telemetryCompletionStarted = true;
+  if (fatal) fatalExitRequested = true;
   beginRuntimeTelemetryShutdown();
   const deadlineMs = Math.min(ownerDeadlineMs ?? Infinity, Date.now() + (fatal ? 1000 : 5000));
   try {
@@ -75,7 +89,7 @@ export function installTelemetryCompletionHandlers(): void {
   let fatal: Promise<void> | undefined;
   const fail = () => {
     fatal ??= finishRuntimeTelemetry(true).then(() => {
-      process.exit(1);
+      exitRuntime(1);
     });
   };
   process.once('uncaughtException', fail);

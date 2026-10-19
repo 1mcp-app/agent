@@ -62,6 +62,9 @@ describe('TransportFactory', () => {
       const transports = createTransports(config);
 
       expect(Object.keys(transports)).toEqual(['stdio-server', 'sse-server', 'http-server']);
+      expect(transports['stdio-server'].telemetryTransport).toBe('stdio');
+      expect(transports['sse-server'].telemetryTransport).toBe('sse');
+      expect(transports['http-server'].telemetryTransport).toBe('streamable-http');
       expect(transports['stdio-server'].timeout).toBe(5000);
       expect(transports['stdio-server'].tags).toEqual(['test']);
       expect(transports['sse-server'].timeout).toBe(10000);

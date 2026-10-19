@@ -1,6 +1,7 @@
 import { attachFreshClientSurface } from '@src/commands/shared/clientSurfaceAttachment.js';
 import {
   beginRuntimeTelemetryShutdown,
+  exitRuntime,
   finishRuntimeTelemetry,
   installTelemetryCompletionHandlers,
   startRuntimeTelemetry,
@@ -74,7 +75,7 @@ export async function proxyCommand(options: ProxyOptions): Promise<void> {
         logger.info('proxy.shutting.down.stdio.proxy.0fa99376');
         await proxyTransport.close();
         logger.info('proxy.stdio.proxy.shutdown.complete.eb154c73');
-        process.exit(0);
+        exitRuntime(0);
       })();
       return shutdownPromise;
     };

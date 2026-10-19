@@ -32,7 +32,17 @@ export async function createCollector({
       if (requests.length < maxRequests && capturedBytes + body.length <= maxTotalBytes) {
         capturedBytes += body.length;
         // Never capture secret HTTP headers in test artifacts.
-        requests.push({ path: req.url, contentType: req.headers['content-type'], body });
+        const captured = {
+          path: req.url,
+          contentType: req.headers['content-type'],
+          body,
+          receivedAt: performance.now(),
+          closedAt: null,
+        };
+        requests.push(captured);
+        res.once('close', () => {
+          captured.closedAt = performance.now();
+        });
       } else {
         discarded++;
       }

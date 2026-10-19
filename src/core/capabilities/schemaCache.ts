@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 
-import { withProtocolTelemetry } from '@src/gateway/telemetryOperation.js';
 import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { recordTelemetryMeasurement } from '@src/observability/telemetry.js';
+import { withProtocolTelemetry } from '@src/observability/telemetryOperation.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
 
 import { z } from 'zod';

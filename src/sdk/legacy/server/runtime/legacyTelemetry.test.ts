@@ -4,8 +4,8 @@ import { createServer } from 'node:http';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 import { parseTelemetryConfig } from '@src/config/telemetryConfig.js';
-import { withProtocolTelemetry } from '@src/gateway/telemetryOperation.js';
 import { getTelemetryStatus, startTelemetry, stopTelemetry } from '@src/observability/telemetry.js';
+import { withProtocolTelemetry } from '@src/observability/telemetryOperation.js';
 import { getActiveTraceCorrelation } from '@src/observability/tracing/context.js';
 import type { LegacyConnectionId } from '@src/sdk/contracts/legacySdkAdapter.js';
 import { Client } from '@src/sdk/legacy/client/index.js';

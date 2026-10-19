@@ -30,9 +30,9 @@ import { schemaInputErrorResult } from '@src/core/validation/toolSchemaBoundary.
 import { getProjectBinding } from '@src/domains/project-selection/projectBindingScope.js';
 import { projectSelectionDiagnostic } from '@src/domains/project-selection/projectPolicy.js';
 import { withSelectedNativeInputResponses } from '@src/gateway/interactions/nativeInputResponses.js';
-import { markProtocolTelemetryOutcome } from '@src/gateway/telemetryOperation.js';
 import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import { ownData } from '@src/observability/privacy/fields.js';
+import { markProtocolTelemetryOutcome } from '@src/observability/telemetryOperation.js';
 import { ErrorCode, RESPONSE_JSON_VALUE_LIMITS, toJsonValue } from '@src/sdk/contracts/index.js';
 import type { CallToolResult, Tool } from '@src/sdk/contracts/index.js';
 import { type LegacyOutboundConnections } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';

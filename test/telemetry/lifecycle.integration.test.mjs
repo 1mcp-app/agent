@@ -38,7 +38,30 @@ for (const variant of variants) {
       collector.respond({ status: 503, delayMs: 10000 });
       const began = performance.now();
       await runtime.stop();
-      assert(performance.now() - began <= 6000, 'Supervised owner cleanup extended the telemetry five-second budget');
+      const stoppedAt = performance.now();
+      assert(stoppedAt - began <= 30_000, 'Supervised stop exceeded the existing owner retirement limit');
+      const flushes = collector.requests.filter((request) => request.receivedAt >= began);
+      assert(flushes.length > 0, 'No post-drain telemetry flush was observed');
+      await waitUntil(
+        () => flushes.every((request) => request.closedAt !== null),
+        'Exporter sockets survived owner retirement',
+        1000,
+      );
+      const flushBegan = Math.min(...flushes.map((request) => request.receivedAt));
+      const flushEnded = Math.max(...flushes.map((request) => request.closedAt));
+      assert(
+        flushEnded - flushBegan <= 5500,
+        'Post-drain telemetry flush exceeded five seconds plus scheduling allowance',
+      );
+      process.stdout.write(
+        JSON.stringify({
+          phase: 'supervised-stop',
+          cliAndDrainMs: flushBegan - began,
+          observedFlushMs: flushEnded - flushBegan,
+          retirementAndCliMs: stoppedAt - flushEnded,
+          totalMs: stoppedAt - began,
+        }) + '\n',
+      );
       assert(
         collector.requests.some((request) => request.path === '/v1/traces'),
         'Supervised worker did not attempt telemetry flush',
@@ -100,49 +123,62 @@ for (const variant of variants) {
   );
 }
 
-test('Node fatal uncaught exception preserves exit1 and the fatal one-second flush cap during Collector stall', async () => {
-  const collector = await createCollector();
-  collector.respond({ status: 503, delayMs: 10000 });
-  const faultDirectory = await mkdtemp(join(tmpdir(), '1mcp-fatal-'));
-  const faultFile = join(faultDirectory, 'control');
-  const runtime = await startRuntime({
-    collector,
-    env: {
-      TELEMETRY_ACCEPTANCE_FAULT_FILE: faultFile,
-      NODE_OPTIONS: `--import=${pathToFileURL(resolve('test/telemetry/fatal-preload.mjs')).href}`,
-      OTEL_EXPORTER_OTLP_TIMEOUT: '30000',
-      OTEL_BSP_EXPORT_TIMEOUT: '30000',
-      OTEL_BSP_SCHEDULE_DELAY: '60000',
-      OTEL_METRIC_EXPORT_INTERVAL: '300000',
-    },
-  });
-  try {
-    const faultUrl = await readFile(`${faultFile}.${runtime.child.pid}`, 'utf8');
-    const began = performance.now();
-    assert.equal((await fetch(faultUrl, { method: 'POST' })).status, 200);
-    await waitUntil(
-      () => runtime.child.exitCode !== null || runtime.child.signalCode !== null,
-      'Fatal exit exceeded one-second telemetry budget',
-      1250,
-    );
-    assert.equal(runtime.child.exitCode, 1, 'Fatal telemetry cleanup changed original exit1');
-    assert(
-      collector.requests.some((request) => request.path === '/v1/traces'),
-      'Actual runtime did not attempt fatal flush',
-    );
-    assert(performance.now() - began <= 1250, 'Fatal flush exceeded one second plus polling/scheduling allowance');
-    assert(
-      !JSON.stringify(collector.requests.map((request) => request.body.toString('utf8'))).includes('PRIVACY_ERROR_489'),
-    );
-  } catch (error) {
-    const triggered = await readFile(`${faultFile}.${runtime.child.pid}.triggered`, 'utf8').catch(() => 'NO-TRIGGER');
-    throw new Error(
-      `${error.message}; trigger=${triggered}; exit=${runtime.child.exitCode}; signal=${runtime.child.signalCode}; logs=${(await runtime.readLog()).slice(-5000)}`,
-      { cause: error },
-    );
-  } finally {
-    await runtime.close();
-    await collector.close();
-    await rm(faultDirectory, { recursive: true, force: true });
-  }
-});
+test.each([false, true])(
+  'Node fatal uncaught exception retains exit1 and shortens stalled cleanup; graceful already running=%s',
+  async (graceful) => {
+    const collector = await createCollector();
+    collector.respond({ status: 503, delayMs: 10000 });
+    const faultDirectory = await mkdtemp(join(tmpdir(), '1mcp-fatal-'));
+    const faultFile = join(faultDirectory, 'control');
+    const runtime = await startRuntime({
+      collector,
+      env: {
+        TELEMETRY_ACCEPTANCE_FAULT_FILE: faultFile,
+        NODE_OPTIONS: `--import=${pathToFileURL(resolve('test/telemetry/fatal-preload.mjs')).href}`,
+        OTEL_EXPORTER_OTLP_TIMEOUT: '30000',
+        OTEL_BSP_EXPORT_TIMEOUT: '30000',
+        OTEL_BSP_SCHEDULE_DELAY: '60000',
+        OTEL_METRIC_EXPORT_INTERVAL: '300000',
+      },
+    });
+    try {
+      const faultUrl = await readFile(`${faultFile}.${runtime.child.pid}`, 'utf8');
+      if (graceful) {
+        assert.equal((await fetch(faultUrl + '/graceful', { method: 'POST' })).status, 200);
+        await waitUntil(
+          () => collector.requests.some((request) => request.path === '/v1/traces'),
+          'Graceful flush did not start',
+          8000,
+        );
+      }
+      const began = performance.now();
+      assert.equal((await fetch(faultUrl, { method: 'POST' })).status, 200);
+      await waitUntil(
+        () => runtime.child.exitCode !== null || runtime.child.signalCode !== null,
+        'Fatal exit exceeded one-second telemetry budget',
+        1250,
+      );
+      assert.equal(runtime.child.exitCode, 1, 'Fatal telemetry cleanup changed original exit1');
+      assert(
+        collector.requests.some((request) => request.path === '/v1/traces'),
+        'Actual runtime did not attempt fatal flush',
+      );
+      assert(performance.now() - began <= 1250, 'Fatal flush exceeded one second plus polling/scheduling allowance');
+      assert(
+        !JSON.stringify(collector.requests.map((request) => request.body.toString('utf8'))).includes(
+          'PRIVACY_ERROR_489',
+        ),
+      );
+    } catch (error) {
+      const triggered = await readFile(`${faultFile}.${runtime.child.pid}.triggered`, 'utf8').catch(() => 'NO-TRIGGER');
+      throw new Error(
+        `${error.message}; trigger=${triggered}; exit=${runtime.child.exitCode}; signal=${runtime.child.signalCode}; logs=${(await runtime.readLog()).slice(-5000)}`,
+        { cause: error },
+      );
+    } finally {
+      await runtime.close();
+      await collector.close();
+      await rm(faultDirectory, { recursive: true, force: true });
+    }
+  },
+);

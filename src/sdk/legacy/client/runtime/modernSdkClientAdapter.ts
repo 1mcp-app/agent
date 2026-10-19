@@ -24,7 +24,7 @@ import {
   validateInteractionResponse,
 } from '@src/gateway/interactions/validateInteractionResponse.js';
 import type { OutboundEraAdapter } from '@src/gateway/ports/outboundEraAdapter.js';
-import { withProtocolTelemetry } from '@src/gateway/telemetryOperation.js';
+import { withProtocolTelemetry } from '@src/observability/telemetryOperation.js';
 import { injectTraceContext, stripBaggage } from '@src/observability/tracing/context.js';
 import { reportCatalogCoverageLoss } from '@src/sdk/contracts/catalogCoverageInvalidation.js';
 import {
@@ -335,7 +335,12 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
     },
   ): Promise<JsonValue> {
     return withProtocolTelemetry(
-      { kind: 'client', method: request.method, outboundEra: this.protocol.era, transport: 'streamable-http' },
+      {
+        kind: 'client',
+        method: request.method,
+        outboundEra: this.protocol.era,
+        transport: this.handles.transport.telemetryTransport,
+      },
       () => this.requestDirectOperation(request, continuation),
       currentLegacyInteractionSignal(),
     );

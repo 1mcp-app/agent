@@ -9,8 +9,8 @@ import {
   resourceNotFoundFromBridge,
 } from '@src/gateway/contracts/gatewayFailure.js';
 import { assertInteractionRoute } from '@src/gateway/interactions/interactionRoute.js';
-import { withProtocolTelemetry } from '@src/gateway/telemetryOperation.js';
 import logger from '@src/logger/logger.js';
+import { withProtocolTelemetry } from '@src/observability/telemetryOperation.js';
 import { injectTraceContext, stripBaggage } from '@src/observability/tracing/context.js';
 import {
   type JsonValue,

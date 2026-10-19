@@ -64,6 +64,26 @@ async function bounded(work: Promise<unknown>, timeout: number): Promise<Shutdow
     if (timer) clearTimeout(timer);
   }
 }
+/** One reschedulable owner budget shared by every signal cleanup. */
+class ShutdownDeadline {
+  private deadline = Infinity;
+  private closed = false;
+  private timer?: ReturnType<typeof setTimeout>;
+  private expire!: (outcome: 'timeout') => void;
+  readonly expired = new Promise<'timeout'>((resolve) => {
+    this.expire = resolve;
+  });
+  shorten(deadline: number): void {
+    if (this.closed || deadline >= this.deadline) return;
+    this.deadline = deadline;
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.expire('timeout'), Math.max(0, deadline - Date.now()));
+  }
+  close(): void {
+    this.closed = true;
+    if (this.timer) clearTimeout(this.timer);
+  }
+}
 class TraceQueue implements SpanProcessor {
   private queue: ReadableSpan[] = [];
   private inFlight?: Promise<void>;
@@ -198,6 +218,7 @@ class BoundedMetricReader extends MetricReader {
   }
   protected async onForceFlush(): Promise<void> {
     const before = this.failures;
+    await this.inFlight;
     await this.send();
     if (this.failures > before) throw new Error('telemetry-flush-failed');
   }
@@ -227,6 +248,7 @@ export class TelemetrySdk {
   private series = new Map<MeasurementName, Set<string>>();
   private ticker: ReturnType<typeof setInterval>;
   private stopping?: Promise<void>;
+  private shutdownDeadline?: ShutdownDeadline;
   constructor(
     readonly config: TelemetryConfig,
     version: string,
@@ -389,10 +411,12 @@ export class TelemetrySdk {
     }
   }
   stop(deadlineMs: number, fatal = false): Promise<void> {
-    this.stopping ??= this.shutdown(Math.min(deadlineMs, Date.now() + (fatal ? 1000 : 5000)));
+    this.shutdownDeadline ??= new ShutdownDeadline();
+    this.shutdownDeadline.shorten(Math.min(deadlineMs, Date.now() + (fatal ? 1000 : 5000)));
+    this.stopping ??= this.shutdown(this.shutdownDeadline);
     return this.stopping;
   }
-  private async shutdown(deadline: number): Promise<void> {
+  private async shutdown(deadline: ShutdownDeadline): Promise<void> {
     clearInterval(this.ticker);
     const active = [this.traces, this.metrics].filter((health) => health.state !== 'disabled');
     for (const health of active) health.state = 'stopping';
@@ -400,7 +424,7 @@ export class TelemetrySdk {
     this.metricReader?.stop();
     const clean = async (health: SignalHealth, provider: BasicTracerProvider | MeterProvider | undefined) => {
       if (!provider) return;
-      const outcome = await bounded(
+      const outcome = await Promise.race([
         (async () => {
           let failed = false;
           try {
@@ -414,14 +438,18 @@ export class TelemetrySdk {
             failed = true;
           }
           if (failed) throw new Error('telemetry-shutdown-failed');
-        })(),
-        Math.max(0, deadline - Date.now()),
-      );
+        })().then(
+          () => 'success' as const,
+          () => 'failed' as const,
+        ),
+        deadline.expired,
+      ]);
       health.state = 'stopped';
       health.shutdown = outcome;
       if (outcome !== 'success') health.warn('shutdown');
     };
     await Promise.all([clean(this.traces, this.traceProvider), clean(this.metrics, this.meterProvider)]);
+    deadline.close();
     // Destroy agents on deadlines too: no long-lived export sockets may extend runtime stop.
     this.traceQueue?.destroy();
     this.metricReader?.destroy();

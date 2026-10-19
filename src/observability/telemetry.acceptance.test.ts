@@ -1,3 +1,4 @@
+import { Client } from '@modelcontextprotocol/client';
 import { context, diag, DiagLogLevel, ROOT_CONTEXT, trace } from '@opentelemetry/api';
 
 import { once } from 'node:events';
@@ -5,6 +6,9 @@ import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import { fileURLToPath } from 'node:url';
+
+import { ModernSdkClientAdapter } from '@src/sdk/legacy/client/runtime/modernSdkClientAdapter.js';
+import { createTransports } from '@src/transport/transportFactory.js';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -471,6 +475,80 @@ describe('operational telemetry accepted export and lifecycle boundary', () => {
       expect(performance.now() - started).toBeLessThan(500);
       expect(getTelemetryStatus().traces).toMatchObject({ state: 'stopped', shutdown: 'timeout' });
       expect(target.payloads).toHaveLength(1);
+    } finally {
+      await target.close();
+    }
+  });
+  it('exports actual factory transport dimensions for modern outbound operations', async () => {
+    const target = await collector();
+    try {
+      await active(target.endpoint);
+      const transports = createTransports({
+        privateStdioIdentity: { type: 'stdio', command: 'private-command', protocolVersion: '2026-07-28' },
+        privateSseIdentity: { type: 'sse', url: 'https://private.example/sse', protocolVersion: '2026-07-28' },
+        privateHttpIdentity: { type: 'http', url: 'https://private.example/mcp', protocolVersion: '2026-07-28' },
+      });
+      for (const transport of Object.values(transports)) {
+        const client = new Client({ name: 'private-peer', version: '1' });
+        vi.spyOn(client, 'getProtocolEra').mockReturnValue('modern');
+        vi.spyOn(client, 'getNegotiatedProtocolVersion').mockReturnValue('2026-07-28');
+        vi.spyOn(client, 'request').mockResolvedValue({} as never);
+        const adapter = new ModernSdkClientAdapter(client, transport);
+        await expect(adapter.request({ id: 'private-id' as never, method: 'ping', params: {} })).resolves.toEqual({});
+      }
+      await stopTelemetry({ deadlineMs: Date.now() + 2000 });
+      const observed = spans(target.payloads).filter((span) => span.kind === 3);
+      expect(observed.map((span) => Object.fromEntries(span.attributes).transport)).toEqual([
+        'stdio',
+        'sse',
+        'streamable-http',
+      ]);
+      expect(target.payloads.every((payload) => !payload.body.includes('private'))).toBe(true);
+    } finally {
+      await target.close();
+    }
+  });
+  it('shortens an in-progress graceful stop to a later earlier owner deadline', async () => {
+    const target = await collector(() => undefined);
+    try {
+      await active(target.endpoint);
+      await withTelemetryOperation({ kind: 'server', method: 'ping' }, async () => 'ok');
+      const graceful = stopTelemetry({ deadlineMs: Date.now() + 3000 });
+      await vi.waitFor(() => expect(target.payloads).toHaveLength(1));
+      const began = performance.now();
+      await Promise.all([graceful, stopTelemetry({ deadlineMs: Date.now() + 40, fatal: true })]);
+      expect(performance.now() - began).toBeLessThan(500);
+      expect(getTelemetryStatus().traces).toMatchObject({ state: 'stopped', shutdown: 'timeout' });
+      expect(target.payloads).toHaveLength(1);
+    } finally {
+      await target.close();
+    }
+  });
+  it('collects a final cumulative snapshot after an already running metric export', async () => {
+    const responses: ServerResponse[] = [];
+    const target = await collector((_request, response) => {
+      responses.push(response);
+      if (responses.length > 1) response.end();
+    });
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      await active(target.endpoint, {
+        OTEL_TRACES_EXPORTER: 'none',
+        OTEL_METRICS_EXPORTER: 'otlp',
+        OTEL_METRIC_EXPORT_INTERVAL: '5000',
+      });
+      recordTelemetryMeasurement('mcp.server.operation.duration', 1, {});
+      await vi.advanceTimersByTimeAsync(5000);
+      await vi.waitFor(() => expect(responses).toHaveLength(1));
+      recordTelemetryMeasurement('mcp.server.operation.duration', 1, {});
+      const stopping = stopTelemetry({ deadlineMs: Date.now() + 2000 });
+      responses[0].end();
+      await stopping;
+      const histograms = metricPayloads(target.payloads).filter(
+        (metric) => metric.name === 'mcp.server.operation.duration',
+      );
+      expect(histograms.map((metric) => metric.points[0].count)).toEqual([1, 2]);
+      expect(getTelemetryStatus().metrics.shutdown).toBe('success');
     } finally {
       await target.close();
     }

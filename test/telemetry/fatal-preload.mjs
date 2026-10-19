@@ -6,9 +6,13 @@ import { isMainThread } from 'node:worker_threads';
 
 const destination = process.env.TELEMETRY_ACCEPTANCE_FAULT_FILE;
 if (destination && isMainThread) {
-  const server = createServer((_req, res) => {
+  const server = createServer((req, res) => {
     res.end('accepted');
     setTimeout(() => {
+      if (req.url === '/graceful') {
+        process.emit('SIGTERM');
+        return;
+      }
       writeFileSync(
         `${destination}.${process.pid}.triggered`,
         JSON.stringify({

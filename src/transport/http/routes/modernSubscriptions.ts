@@ -8,8 +8,8 @@ import { resolveResourceRoute } from '@src/core/protocol/resourceTemplateRouting
 import { changeTelemetryQueueDepth } from '@src/core/server/runtimeTelemetryMeasurements.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, type InboundConnectionConfig, type OutboundConnection } from '@src/core/types/index.js';
-import { withProtocolTelemetry } from '@src/gateway/telemetryOperation.js';
 import { recordTelemetryMeasurement } from '@src/observability/telemetry.js';
+import { withProtocolTelemetry } from '@src/observability/telemetryOperation.js';
 import { getAuthInfo, revalidateAuthInfo } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
 
 import type { Request, Response } from 'express';

@@ -9,9 +9,9 @@ import {
   type GatewayFailure,
   type ProtocolEraPin,
 } from '@src/gateway/contracts/index.js';
-import { telemetryResultOutcome } from '@src/gateway/telemetryOutcome.js';
 import logger from '@src/logger/logger.js';
 import { getTelemetryStatus, recordTelemetryDrop, startTelemetryOperation } from '@src/observability/telemetry.js';
+import { telemetryResultOutcome } from '@src/observability/telemetryOutcome.js';
 import { injectTraceContext, stripBaggage, withMcpTraceContext } from '@src/observability/tracing/context.js';
 import { toProtocolJSONRPCMessage } from '@src/sdk/contracts/index.js';
 import { StdioServerTransport } from '@src/sdk/legacy/server/stdio.js';

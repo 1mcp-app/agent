@@ -1,5 +1,5 @@
 import { runtimeAdmission, RuntimeDrainingError } from '@src/core/server/runtimeDrain.js';
-import { withProtocolTelemetry } from '@src/gateway/telemetryOperation.js';
+import { withProtocolTelemetry } from '@src/observability/telemetryOperation.js';
 import { isCapabilityListMethod, RESPONSE_JSON_VALUE_LIMITS } from '@src/sdk/contracts/index.js';
 
 import { z } from 'zod';

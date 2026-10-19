@@ -3,8 +3,8 @@ import { availableParallelism } from 'node:os';
 import { Worker } from 'node:worker_threads';
 
 import { changeTelemetryQueueDepth } from '@src/core/server/runtimeTelemetryMeasurements.js';
-import { withProtocolTelemetry } from '@src/gateway/telemetryOperation.js';
 import { recordTelemetryMeasurement } from '@src/observability/telemetry.js';
+import { withProtocolTelemetry } from '@src/observability/telemetryOperation.js';
 
 import { captureJson, SCHEMA_LIMITS, SchemaBoundaryError, type SchemaFailureCode } from './schemaPolicy.js';
 

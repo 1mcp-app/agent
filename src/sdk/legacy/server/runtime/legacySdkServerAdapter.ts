@@ -1,14 +1,14 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 import type { InboundConnectionAdapter } from '@src/core/types/server.js';
-import { runWithProtocolTelemetryOutcome, runWithTelemetryEras } from '@src/gateway/telemetryOperation.js';
-import { telemetryResultOutcome } from '@src/gateway/telemetryOutcome.js';
 import {
   getTelemetryStatus,
   recordTelemetryDrop,
   recordTelemetryMeasurement,
   startTelemetryOperation,
 } from '@src/observability/telemetry.js';
+import { runWithProtocolTelemetryOutcome, runWithTelemetryEras } from '@src/observability/telemetryOperation.js';
+import { telemetryResultOutcome } from '@src/observability/telemetryOutcome.js';
 import { injectTraceContext, stripBaggage, withMcpTraceContext } from '@src/observability/tracing/context.js';
 import { type JsonObject, toJsonValue } from '@src/sdk/contracts/jsonValue.js';
 import type {

@@ -68,7 +68,7 @@ import {
   validateInteractionResponse,
 } from '@src/gateway/interactions/validateInteractionResponse.js';
 import type { GatewayInteractionRequest } from '@src/gateway/ports/outboundEraAdapter.js';
-import { withProtocolTelemetry } from '@src/gateway/telemetryOperation.js';
+import { withProtocolTelemetry } from '@src/observability/telemetryOperation.js';
 import { withRequestProgress } from '@src/sdk/contracts/requestProgress.js';
 import {
   type AuthInfo,
