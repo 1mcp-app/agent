@@ -5,6 +5,10 @@ description: Select source checkouts and saved project sets, understand inherite
 
 # Project Checkouts, Sets, and Worker Assignments
 
+For a complete setup-to-cleanup walkthrough, see [Working Across Projects and Worktrees](/guide/worktrees-and-cross-project-sessions).
+
+In session and worker examples below, replace `/private/session-owner.json` with the credential supplied by that caller’s bootstrap. Keep it on each call; workers use their own credential. See the walkthrough above for client setup and hook verification.
+
 Use explicit project selectors when one agent works across repositories or Git worktrees. Each call selects its source checkout while a shared local runtime manages the connections. Selecting a project does not change a runtime-global current project or dispatch the same tool call to every member.
 
 ## Source Checkout and Configuration Source
@@ -26,9 +30,9 @@ Automatic discovery searches within the current repository boundary. A configura
 Without a project set, supply exactly one checkout path:
 
 ```bash
-1mcp instructions --project /work/frontend
-1mcp inspect --project /work/frontend
-1mcp inspect codegraph --project /work/frontend
+1mcp instructions --project /work/frontend --project-owner /private/session-owner.json
+1mcp inspect --project /work/frontend --project-owner /private/session-owner.json
+1mcp inspect codegraph --project /work/frontend --project-owner /private/session-owner.json
 ```
 
 Ordinary CLI checkout paths may be relative to the invocation directory and are resolved to readable, traversable canonical directories. Existing single-checkout invocations can continue using their discovered default without `--project`. Worker dispatch assignments should use absolute paths to avoid a parent's invocation directory affecting selection.
@@ -36,8 +40,8 @@ Ordinary CLI checkout paths may be relative to the invocation directory and are 
 Retain the selector on each `instructions`, `inspect`, and `run` call. Inspect the server instructions and tool schema before invoking it:
 
 ```bash
-1mcp inspect codegraph/codegraph_explore --project /work/frontend
-1mcp run codegraph/codegraph_explore --project /work/frontend --args '{"query":"Checkout-specific symbol"}'
+1mcp inspect codegraph/codegraph_explore --project /work/frontend --project-owner /private/session-owner.json
+1mcp run codegraph/codegraph_explore --project /work/frontend --args '{"query":"Checkout-specific symbol"}' --project-owner /private/session-owner.json
 ```
 
 These commands require the named server and tool to be configured and available. Target selection preserves the runtime's existing authentication, authorization, and template-context trust requirements.
@@ -61,14 +65,14 @@ Create a JSON definition such as `/work/feature-projects.json`:
 Select a member by its label:
 
 ```bash
-1mcp instructions --project-set /work/feature-projects.json --project frontend
-1mcp inspect --project-set /work/feature-projects.json --project backend
+1mcp instructions --project-set /work/feature-projects.json --project frontend --project-owner /private/session-owner.json
+1mcp inspect --project-set /work/feature-projects.json --project backend --project-owner /private/session-owner.json
 ```
 
 The definition may include an optional default `"selection": ["backend"]`. CLI `--project` labels override that saved selection. Repeated labels preserve the requested order:
 
 ```bash
-1mcp inspect --project-set /work/feature-projects.json --project backend --project frontend
+1mcp inspect --project-set /work/feature-projects.json --project backend --project frontend --project-owner /private/session-owner.json
 ```
 
 A one-member set defaults to that member. A multi-member set without either saved `selection` or explicit labels has unresolved checkout selection. Checkout-specific operations require a selection and report the available labels; project-independent tools do not need one. Unknown or duplicate selected labels are rejected.
@@ -97,7 +101,7 @@ For a single-project backend, coordinate separate calls with one label each. For
 
 Include an absolute checkout path, or an absolute project-set definition path and selected labels, in every delegated worker's dispatch instructions. For example:
 
-> Your Worker Project Assignment is `/work/feature-projects.json`, label `backend`. Before project-specific discovery, run `1mcp bootstrap --client codex --event SubagentStart --project-set /work/feature-projects.json --project backend`. Retain these selectors for subsequent instructions, inspection, and tool calls.
+> Your Worker Project Assignment is `/work/feature-projects.json`, label `backend`. Before project-specific discovery, run `1mcp bootstrap --client codex --event SubagentStart --project-set /work/feature-projects.json --project backend --project-owner /private/session-owner.json`. Retain these selectors for subsequent instructions, inspection, and tool calls.
 
 Workers assigned several members can repeat `--project` labels, then use one label per single-project call or the selected labels for a supported native combined call. For Claude, use `--client claude`.
 

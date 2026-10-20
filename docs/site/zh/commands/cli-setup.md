@@ -5,6 +5,10 @@ description: 为 Codex 或 Claude 安装 1MCP CLI 模式的引导文档和 hooks
 
 # CLI Setup 命令
 
+`bootstrap` 处理客户端生命周期钩子，并在启动目标已解析时调用 `instructions` 获取运行时指引。`instructions` 仍是智能体按需获取或刷新指引的受支持独立入口，不会创建钩子所有者凭证。Bootstrap 已交付当前目标指引后，直接执行 `inspect`，无需重复获取。完整流程见[跨项目与 Git Worktree 工作指南](/zh/guide/worktrees-and-cross-project-sessions)。
+
+从设置到清理的完整流程，参见[跨项目与 Git Worktree 工作指南](/zh/guide/worktrees-and-cross-project-sessions)。
+
 为 Codex 或 Claude 安装 1MCP CLI 的引导文档和钩子配置。
 
 ## 概要
@@ -115,10 +119,12 @@ Bootstrap 从显式 CLI 参数解析选项，不使用继承的 `ONE_MCP_*` 选�
 
 在派发任务的上下文中，为每个 worker 写明绝对 checkout 路径或项目集合定义文件的绝对路径。Worker 在获取项目指令或调用工具之前执行其中一种命令：
 
+将 `/private/worker-owner.json` 替换为该 worker 自己的启动凭证，不能复用父会话凭证。
+
 ```bash
-1mcp bootstrap --client codex --event SubagentStart --project /absolute/frontend-checkout
-1mcp bootstrap --client claude --event SubagentStart --project-set /absolute/feature-projects.json
-1mcp bootstrap --client codex --event SubagentStart --project-set /absolute/feature-projects.json --project backend --project frontend
+1mcp bootstrap --client codex --event SubagentStart --project /absolute/frontend-checkout --project-owner /private/worker-owner.json
+1mcp bootstrap --client claude --event SubagentStart --project-set /absolute/feature-projects.json --project-owner /private/worker-owner.json
+1mcp bootstrap --client codex --event SubagentStart --project-set /absolute/feature-projects.json --project backend --project frontend --project-owner /private/worker-owner.json
 ```
 
 不使用项目集合时，只分配一个绝对 checkout 路径。使用 `--project-set` 时，可重复传入 `--project` 选择有序成员标签，并覆盖定义中可选的 `selection`。在后续 `instructions`、`inspect` 和 `run` 调用中保留目标参数。多个项目的分配要求对 checkout 专属工具明确选择 checkout；单项目工具由 agent 协调分别调用。获取指令时参数通过 argv 传递，不经过 shell。定义格式和后端目标契约参见 [项目 Checkout 与集合](/zh/guide/project-checkouts)。

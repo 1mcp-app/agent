@@ -5,13 +5,15 @@ description: Release caller-owned checkout bindings, inspect blockers, and expli
 
 # Project Commands
 
+For a complete setup-to-cleanup walkthrough, see [Working Across Projects and Worktrees](/guide/worktrees-and-cross-project-sessions).
+
 Use `project` to manage a checkout's use by the selected 1MCP runtime. [Project preparation](/commands/project/prepare) manages backend readiness and its jobs separately.
 
 ```bash
-1mcp project status --project /work/frontend --format json
+1mcp project status --project /work/frontend --format json --project-owner /private/session-owner.json
 1mcp project release --project /work/frontend --project-owner /private/session-owner.json --format json
-1mcp project drain --project /work/frontend --wait-ms 5000 --format json
-1mcp project resume --project /work/frontend --format json
+1mcp project drain --project /work/frontend --wait-ms 5000 --format json --project-owner /private/session-owner.json
+1mcp project resume --project /work/frontend --format json --project-owner /private/session-owner.json
 ```
 
 Replace the example owner file with the credential reference supplied by your session's bootstrap. Release never assumes that callers using the same checkout are the same owner.

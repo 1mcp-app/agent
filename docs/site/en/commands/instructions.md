@@ -15,6 +15,8 @@ head:
 
 # Instructions Command
 
+`bootstrap` handles client lifecycle hooks and calls `instructions` to fetch runtime guidance at startup when the target is resolved. `instructions` remains the supported standalone entrypoint for agents that need to fetch or refresh that guidance. It does not create a hook owner credential. After bootstrap has delivered the current target's instructions, proceed to `inspect` without fetching them again. See [Bootstrap and instructions](/guide/worktrees-and-cross-project-sessions#bootstrap-and-instructions-which-one-runs).
+
 Show CLI-mode instructions for AI agents using a running 1MCP `serve` instance.
 
 ## Synopsis

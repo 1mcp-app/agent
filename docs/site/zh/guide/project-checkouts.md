@@ -5,6 +5,10 @@ description: 显式选择源码 checkout 和已保存的项目集合，区分配
 
 # 项目 Checkout、项目集合与 Worker 分配
 
+从设置到清理的完整流程，参见[跨项目与 Git Worktree 工作指南](/zh/guide/worktrees-and-cross-project-sessions)。
+
+以下会话和 worker 示例中的 `/private/session-owner.json` 需替换为该调用方 bootstrap 提供的凭证路径。每次调用均保留它；worker 使用自己的凭证。客户端设置和钩子验证见上述完整指南。
+
 一个 agent 跨仓库或 Git worktree 工作时，用显式参数为每次调用选择源码 checkout，由共享的本地运行时管理连接。项目选择不会修改运行时全局的“当前项目”，也不会自动把同一个工具调用分发给所有成员。
 
 ## 源码 Checkout 与配置来源
@@ -26,9 +30,9 @@ description: 显式选择源码 checkout 和已保存的项目集合，区分配
 不使用项目集合时，只能传入一个 checkout 路径：
 
 ```bash
-1mcp instructions --project /work/frontend
-1mcp inspect --project /work/frontend
-1mcp inspect codegraph --project /work/frontend
+1mcp instructions --project /work/frontend --project-owner /private/session-owner.json
+1mcp inspect --project /work/frontend --project-owner /private/session-owner.json
+1mcp inspect codegraph --project /work/frontend --project-owner /private/session-owner.json
 ```
 
 普通 CLI 路径可相对于调用目录，最终解析为可读取、可进入的规范目录。现有单 checkout 调用可继续省略 `--project`，使用自动发现的默认目标。派发给 worker 的路径应使用绝对路径，避免父任务的调用目录影响选择。
@@ -36,8 +40,8 @@ description: 显式选择源码 checkout 和已保存的项目集合，区分配
 每次 `instructions`、`inspect` 和 `run` 调用都保留目标参数。调用前先检查服务器指令和工具 schema：
 
 ```bash
-1mcp inspect codegraph/codegraph_explore --project /work/frontend
-1mcp run codegraph/codegraph_explore --project /work/frontend --args '{"query":"Checkout-specific symbol"}'
+1mcp inspect codegraph/codegraph_explore --project /work/frontend --project-owner /private/session-owner.json
+1mcp run codegraph/codegraph_explore --project /work/frontend --args '{"query":"Checkout-specific symbol"}' --project-owner /private/session-owner.json
 ```
 
 示例要求已配置并可使用对应服务器和工具。目标选择仍受运行时原有身份验证、授权和模板上下文信任要求约束。
@@ -61,14 +65,14 @@ description: 显式选择源码 checkout 和已保存的项目集合，区分配
 按标签选择成员：
 
 ```bash
-1mcp instructions --project-set /work/feature-projects.json --project frontend
-1mcp inspect --project-set /work/feature-projects.json --project backend
+1mcp instructions --project-set /work/feature-projects.json --project frontend --project-owner /private/session-owner.json
+1mcp inspect --project-set /work/feature-projects.json --project backend --project-owner /private/session-owner.json
 ```
 
 定义可包含默认 `"selection": ["backend"]`。CLI `--project` 标签覆盖已保存的选择；重复传入时保留指定顺序：
 
 ```bash
-1mcp inspect --project-set /work/feature-projects.json --project backend --project frontend
+1mcp inspect --project-set /work/feature-projects.json --project backend --project frontend --project-owner /private/session-owner.json
 ```
 
 单成员集合默认选择该成员。多成员集合既没有已保存的 `selection`、也没有显式标签时，checkout 选择未解决。Checkout 专属操作要求先选择目标，并报告可选标签；与项目无关的工具不需要选择。未知标签或重复选择会被拒绝。
@@ -97,7 +101,7 @@ description: 显式选择源码 checkout 和已保存的项目集合，区分配
 
 每个派发任务的指令中都写明绝对 checkout 路径，或项目集合定义文件的绝对路径及所选标签。例如：
 
-> 你的 Worker Project Assignment 是 `/work/feature-projects.json` 中的 `backend` 标签。获取项目指令或发现工具前，先执行 `1mcp bootstrap --client codex --event SubagentStart --project-set /work/feature-projects.json --project backend`。后续 instructions、inspect 和工具调用保留这些目标参数。
+> 你的 Worker Project Assignment 是 `/work/feature-projects.json` 中的 `backend` 标签。获取项目指令或发现工具前，先执行 `1mcp bootstrap --client codex --event SubagentStart --project-set /work/feature-projects.json --project backend --project-owner /private/session-owner.json`。后续 instructions、inspect 和工具调用保留这些目标参数。
 
 多个成员的分配可重复传入 `--project`；单项目调用每次选择一个标签，支持原生组合调用时一起选择所需标签。Claude 使用 `--client claude`。
 

@@ -15,6 +15,10 @@ head:
 
 # CLI Setup Command
 
+`bootstrap` handles client lifecycle hooks and calls `instructions` to fetch runtime guidance at startup when the target is resolved. `instructions` remains the supported standalone entrypoint for agents that need to fetch or refresh that guidance. It does not create a hook owner credential. After bootstrap has delivered the current target's instructions, proceed to `inspect` without fetching them again. See [Bootstrap and instructions](/guide/worktrees-and-cross-project-sessions#bootstrap-and-instructions-which-one-runs).
+
+For a complete setup-to-cleanup walkthrough, see [Working Across Projects and Worktrees](/guide/worktrees-and-cross-project-sessions).
+
 Install 1MCP CLI hooks and reference files for Codex or Claude.
 
 ## Synopsis
@@ -125,10 +129,12 @@ Bootstrap parses its options from explicit CLI flags rather than inherited `ONE_
 
 Give every worker its absolute checkout path or project-set definition path in dispatch instructions. Before project-specific discovery or calls, the worker runs one of:
 
+Replace `/private/worker-owner.json` with that worker’s own startup credential; never reuse the parent’s credential.
+
 ```bash
-1mcp bootstrap --client codex --event SubagentStart --project /absolute/frontend-checkout
-1mcp bootstrap --client claude --event SubagentStart --project-set /absolute/feature-projects.json
-1mcp bootstrap --client codex --event SubagentStart --project-set /absolute/feature-projects.json --project backend --project frontend
+1mcp bootstrap --client codex --event SubagentStart --project /absolute/frontend-checkout --project-owner /private/worker-owner.json
+1mcp bootstrap --client claude --event SubagentStart --project-set /absolute/feature-projects.json --project-owner /private/worker-owner.json
+1mcp bootstrap --client codex --event SubagentStart --project-set /absolute/feature-projects.json --project backend --project frontend --project-owner /private/worker-owner.json
 ```
 
 Without a project set, assign exactly one absolute checkout path. With `--project-set`, repeated `--project` values select ordered member labels and override the definition's optional saved `selection`. Retain the selectors on subsequent `instructions`, `inspect`, and `run` calls. A multi-project assignment requires explicit checkout selection for checkout-specific tools; coordinate separate calls for tools that accept one project. Arguments are passed to the runtime-facing instructions command without a shell. See [Project Checkouts and Sets](/guide/project-checkouts) for the definition format and backend target contracts.
@@ -140,7 +146,7 @@ Writing hook configuration does not establish that the client enabled or trusted
 ## See Also
 
 - **[CLI Mode Guide](../guide/integrations/cli-mode.md)** - Conceptual overview of the agent-facing CLI workflow
-- **[Instructions Command](./instructions.md)** - The bootstrap command that `cli-setup` points sessions toward
+- **[Instructions Command](./instructions.md)** - Fetch or refresh runtime guidance directly when hooks have not delivered it
 - **[Inspect Command](./inspect.md)** - Discover tools and schemas
 - **[Run Command](./run.md)** - Invoke a selected tool
 - **[Codex Integration Guide](../guide/integrations/codex.md)** - End-to-end setup for Codex

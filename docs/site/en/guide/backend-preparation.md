@@ -5,6 +5,10 @@ description: Understand when a server needs preparation, enable a supplied recip
 
 # Backend Preparation
 
+For a complete setup-to-cleanup walkthrough, see [Working Across Projects and Worktrees](/guide/worktrees-and-cross-project-sessions).
+
+In session and worker examples below, replace `/private/session-owner.json` with the credential supplied by that caller’s bootstrap. Keep it on each call; workers use their own credential. See the walkthrough above for client setup and hook verification.
+
 See the [Prepare command reference](/commands/project/prepare) for syntax, options, audiences, and recovery examples.
 
 Some MCP servers need to initialize a project or update an index before they can answer a request. **Preparation** lets 1MCP run those steps and check whether the server is ready for your selected project.
@@ -70,8 +74,8 @@ If preparation fails or its check cannot confirm readiness, the affected tool st
 You can also inspect or start preparation yourself. In these examples, replace `source-search` with your configured server name, `lookup` with the tool name covered by the recipe, and `/work/project` with your authorized project path:
 
 ```bash
-1mcp project prepare inspect source-search --project /work/project --operation lookup
-1mcp project prepare source-search --project /work/project --operation lookup
+1mcp project prepare inspect source-search --project /work/project --operation lookup --project-owner /private/session-owner.json
+1mcp project prepare source-search --project /work/project --operation lookup --project-owner /private/session-owner.json
 ```
 
 `inspect` checks readiness without starting preparation. `prepare` starts a permitted action when needed, including when the server has not yet listed any tools.
@@ -79,7 +83,7 @@ You can also inspect or start preparation yourself. In these examples, replace `
 Use the returned job ID to follow progress:
 
 ```bash
-1mcp project prepare wait source-search JOB_ID --project /work/project --wait-ms 5000
+1mcp project prepare wait source-search JOB_ID --project /work/project --wait-ms 5000 --project-owner /private/session-owner.json
 ```
 
 If the job is still running, wait again. You can also use `prepare status`, `prepare cancel`, or `prepare retry` with the same server name, job ID, and project.

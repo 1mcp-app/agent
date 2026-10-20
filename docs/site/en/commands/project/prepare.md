@@ -40,8 +40,6 @@ Make a configured backend ready for a selected checkout and operation, for examp
 
 `backend` is the configured server name, not an executable or tool reference. `project prepare <backend>` is shorthand for `project prepare start <backend>`. Use explicit `start` for names matching subcommands, such as `1mcp project prepare start status`.
 
-The previous root commands `1mcp prepare` and `1mcp preparation` have been removed. Use `1mcp project prepare` for all preparation operations; no compatibility aliases are registered.
-
 ## Actions
 
 | Action                 | Behavior                                                                                                                                             |

@@ -5,13 +5,15 @@ description: 在选定的 1MCP 运行时中释放调用方绑定、检查阻塞�
 
 # Project 命令
 
+从设置到清理的完整流程，参见[跨项目与 Git Worktree 工作指南](/zh/guide/worktrees-and-cross-project-sessions)。
+
 使用 `project` 管理选定 1MCP 运行时对检出目录的使用。[项目准备命令](/zh/commands/project/prepare) 单独管理后端就绪状态及准备任务。
 
 ```bash
-1mcp project status --project /work/frontend --format json
+1mcp project status --project /work/frontend --format json --project-owner /private/session-owner.json
 1mcp project release --project /work/frontend --project-owner /private/session-owner.json --format json
-1mcp project drain --project /work/frontend --wait-ms 5000 --format json
-1mcp project resume --project /work/frontend --format json
+1mcp project drain --project /work/frontend --wait-ms 5000 --format json --project-owner /private/session-owner.json
+1mcp project resume --project /work/frontend --format json --project-owner /private/session-owner.json
 ```
 
 将示例中的凭证文件替换为当前会话 bootstrap 提供的路径。使用同一检出目录的调用方不会被视为同一所有者。

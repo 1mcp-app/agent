@@ -34,8 +34,6 @@ head:
 
 `backend` 是配置中的服务器名称，不是可执行文件或工具引用。`project prepare <backend>` 是 `project prepare start <backend>` 的简写。服务器名称与子命令重名时，请显式使用 `start`，例如 `1mcp project prepare start status`。
 
-原根命令 `1mcp prepare` 和 `1mcp preparation` 已移除。所有准备操作请使用 `1mcp project prepare`，不提供兼容别名。
-
 ## 操作
 
 | 操作              | 行为                                                                                        |
