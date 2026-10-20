@@ -183,7 +183,7 @@
     "jiti": "^2.4.2",
     "jsdom": "29.1.1",
     "lint-staged": "^17.0.5",
-    "lucide-react": "1.55.0",
+    "lucide-react": "1.59.0",
     "mermaid": "^11.9.0",
     "nodemon": "^3.1.10",
     "playwright": "1.64.0",
