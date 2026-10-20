@@ -66,6 +66,12 @@ npx -y @1mcp/agent run <server>/<tool> [选项]
 
 共用规则见[项目与所有者选项](/zh/guide/project-checkouts#项目与所有者选项)。下方示例重点展示各命令选项；本地智能体会话的每次调用还需保留其所有者凭证及已分配的项目选择参数。
 
+对于已配置的 CodeGraph 后端，先针对所选检出目录检查服务器和工具 schema，再使用相同的目标和凭证执行查询。将目录和所有者路径替换为实际检出目录及 bootstrap 提供的凭证：
+
+```bash
+1mcp run codegraph/codegraph_explore --project /work/backend-feature --project-owner /private/session-owner.json --args '{"query":"Where are the API routes defined?"}'
+```
+
 ## 示例
 
 ### 显式传入 JSON 参数

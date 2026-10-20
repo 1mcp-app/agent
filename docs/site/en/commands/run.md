@@ -76,6 +76,12 @@ If `--args` is omitted and stdin is provided, `run` tries to map stdin automatic
 
 See [Project and owner options](/guide/project-checkouts#project-and-owner-options) for shared rules. Examples below focus on individual command options; in a local agent session, also retain its owner credential and assigned project selectors on each call.
 
+For a configured CodeGraph backend, first inspect the server and tool schema for the selected checkout. Then run a query with the same selection and credential. Replace the checkout and owner paths with your actual checkout and bootstrap-provided credential:
+
+```bash
+1mcp run codegraph/codegraph_explore --project /work/backend-feature --project-owner /private/session-owner.json --args '{"query":"Where are the API routes defined?"}'
+```
+
 ## Examples
 
 ### Explicit JSON Arguments
