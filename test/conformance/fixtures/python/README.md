@@ -1,6 +1,6 @@
 # Python MCP peer fixture
 
-This repository-owned peer uses `mcp==2.0.0` as both an MCP client and server. `uv.lock` is frozen to canonical `https://pypi.org/simple` artifacts with SHA-256 hashes.
+This repository-owned peer uses `mcp==2.2.0` as both an MCP client and server. `uv.lock` is frozen to canonical `https://pypi.org/simple` artifacts with SHA-256 hashes.
 
 Commands:
 

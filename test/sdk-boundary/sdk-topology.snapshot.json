@@ -17,7 +17,7 @@
       "lockPlacements": ["devDependencies"],
       "manifestSpecifier": "0.2.0-alpha.11",
       "lockSpecifier": "0.2.0-alpha.11",
-      "resolved": "0.2.0-alpha.11"
+      "resolved": "0.2.0-alpha.11(supports-color@5.5.0)"
     },
     "@modelcontextprotocol/core": {
       "placement": "dependencies",
@@ -41,7 +41,7 @@
       "lockPlacements": ["dependencies"],
       "manifestSpecifier": "1.30.0",
       "lockSpecifier": "1.30.0",
-      "resolved": "1.30.0(patch_hash=75c775371ba4b626db950c68d95331c6e8c9a3949d551aba01d9d1332cb82937)(zod@4.4.3)"
+      "resolved": "1.30.0(patch_hash=75c775371ba4b626db950c68d95331c6e8c9a3949d551aba01d9d1332cb82937)(supports-color@5.5.0)(zod@4.4.3)"
     },
     "@modelcontextprotocol/server": {
       "placement": "dependencies",
@@ -57,7 +57,7 @@
       "lockPlacements": ["dependencies"],
       "manifestSpecifier": "2.3.1",
       "lockSpecifier": "2.3.1",
-      "resolved": "2.3.1(express@5.2.1)"
+      "resolved": "2.3.1(express@5.2.1(supports-color@5.5.0))(supports-color@5.5.0)"
     },
     "zod": {
       "placement": "dependencies",
@@ -160,11 +160,11 @@
         "zod": "4.4.3"
       }
     },
-    "@modelcontextprotocol/conformance@0.2.0-alpha.11": {
+    "@modelcontextprotocol/conformance@0.2.0-alpha.11(supports-color@5.5.0)": {
       "package": "@modelcontextprotocol/conformance",
       "version": "0.2.0-alpha.11",
       "dependencies": {
-        "@modelcontextprotocol/sdk": "1.30.0(patch_hash=75c775371ba4b626db950c68d95331c6e8c9a3949d551aba01d9d1332cb82937)(zod@4.4.3)",
+        "@modelcontextprotocol/sdk": "1.30.0(patch_hash=75c775371ba4b626db950c68d95331c6e8c9a3949d551aba01d9d1332cb82937)(supports-color@5.5.0)(zod@4.4.3)",
         "eventsource-parser": "3.1.0",
         "zod": "4.4.3"
       }
@@ -185,7 +185,7 @@
         "hono": "4.12.34"
       }
     },
-    "@modelcontextprotocol/sdk@1.30.0(patch_hash=75c775371ba4b626db950c68d95331c6e8c9a3949d551aba01d9d1332cb82937)(zod@4.4.3)": {
+    "@modelcontextprotocol/sdk@1.30.0(patch_hash=75c775371ba4b626db950c68d95331c6e8c9a3949d551aba01d9d1332cb82937)(supports-color@5.5.0)(zod@4.4.3)": {
       "package": "@modelcontextprotocol/sdk",
       "version": "1.30.0",
       "dependencies": {
@@ -196,7 +196,7 @@
         "zod": "4.4.3"
       }
     },
-    "@modelcontextprotocol/server-legacy@2.3.1(express@5.2.1)": {
+    "@modelcontextprotocol/server-legacy@2.3.1(express@5.2.1(supports-color@5.5.0))(supports-color@5.5.0)": {
       "package": "@modelcontextprotocol/server-legacy",
       "version": "2.3.1",
       "dependencies": {

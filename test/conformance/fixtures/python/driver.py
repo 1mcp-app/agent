@@ -18,7 +18,7 @@ from starlette.responses import JSONResponse
 
 
 FIXTURE_ID = "python-sdk"
-EXPECTED_VERSION = "2.0.0"
+EXPECTED_VERSION = "2.2.0"
 TOOL_NAME = "fixture.acknowledge"
 TOOL_INPUT_SENTINEL = "fixture-input-must-not-leak"
 TOOL_RESULT_SENTINEL = "fixture-result-must-not-leak"
