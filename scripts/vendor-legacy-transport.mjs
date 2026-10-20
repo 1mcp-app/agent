@@ -4,6 +4,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createRequire } from 'node:module';
+import { parse } from 'yaml';
+
+import { parsePnpmDependencyLockfile } from './pnpm-lockfile.mjs';
 
 const SDK_VERSION = '1.30.0';
 const PATCH_HASH = '75c775371ba4b626db950c68d95331c6e8c9a3949d551aba01d9d1332cb82937';
@@ -45,16 +48,26 @@ export async function vendorLegacyTransport(root) {
   if (manifest.dependencies['@hono/node-server'] !== '2.0.12') throw new Error('Legacy Node adapter pin changed');
   const patchPath = `patches/@modelcontextprotocol__sdk@${SDK_VERSION}.patch`;
   if (sha256(await read(patchPath)) !== PATCH_HASH) throw new Error('Legacy SDK patch changed');
-  const lock = await read('pnpm-lock.yaml');
-  if (!lock.includes(`hash: ${PATCH_HASH}\n    path: ${patchPath}`)) throw new Error('Legacy SDK patch lock changed');
-  if (!lock.includes(`version: ${SDK_VERSION}(patch_hash=${PATCH_HASH})(zod@4.4.3)`)) {
+  const lock = parsePnpmDependencyLockfile(await read('pnpm-lock.yaml'));
+  const patch = lock.patchedDependencies?.[`@modelcontextprotocol/sdk@${SDK_VERSION}`];
+  const patchHash = typeof patch === 'string' ? patch : patch?.hash;
+  if (patchHash !== PATCH_HASH) throw new Error('Legacy SDK patch lock changed');
+  if (typeof patch === 'object' && patch.path !== patchPath) throw new Error('Legacy SDK patch lock changed');
+  const dependencies = lock.importers['.'].dependencies;
+  const sdk = dependencies?.['@modelcontextprotocol/sdk'];
+  // Optional terminal-color peers do not change the retained transport or its protocol dependencies.
+  const sdkResolution = sdk?.version?.replace(/\(supports-color@[^()]+\)/gu, '');
+  if (sdk?.specifier !== SDK_VERSION) throw new Error('Legacy SDK installation lock changed');
+  if (sdkResolution !== `${SDK_VERSION}(patch_hash=${PATCH_HASH})(zod@4.4.3)`) {
     throw new Error('Legacy SDK installation lock changed');
   }
-  if (!lock.includes("'@hono/node-server':\n        specifier: 2.0.12\n        version: 2.0.12(hono@4.12.34)")) {
+  const adapter = dependencies?.['@hono/node-server'];
+  if (adapter?.specifier !== '2.0.12') throw new Error('Legacy Node adapter installation lock changed');
+  if (adapter.version !== '2.0.12(hono@4.12.34)') {
     throw new Error('Legacy Node adapter installation lock changed');
   }
-  const workspace = await read('pnpm-workspace.yaml');
-  if (!workspace.includes(`'@modelcontextprotocol/sdk@${SDK_VERSION}': ${patchPath}`)) {
+  const workspace = parse(await read('pnpm-workspace.yaml'));
+  if (workspace?.patchedDependencies?.[`@modelcontextprotocol/sdk@${SDK_VERSION}`] !== patchPath) {
     throw new Error('Legacy SDK patch configuration changed');
   }
   const require = createRequire(path.join(root, 'package.json'));

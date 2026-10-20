@@ -58,8 +58,8 @@ export const MCP_2026_SPECIFICATION_SOURCE = {
 
 const PYTHON_PACKAGE = {
   name: 'mcp',
-  version: '2.0.0',
-  wheelHash: 'sha256:1cb4c75d2d2c7b8c1d756355e5d82a39f2822cc7f13e22a2051d7ca3592349d6',
+  version: '2.2.0',
+  wheelHash: 'sha256:bde982589473a060ae145e3406e9a5333fe538c97229ba841f5a7f92be004f81',
 } as const;
 
 export interface PathDigest {

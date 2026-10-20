@@ -107,12 +107,12 @@ function createFixture(prefix = 'integrity-repo-') {
   const pyprojectPath = write(
     root,
     'fixtures/python/pyproject.toml',
-    '[project]\nname = "fixture"\nversion = "0.0.0"\ndependencies = ["mcp==2.0.0"]\n',
+    '[project]\nname = "fixture"\nversion = "0.0.0"\ndependencies = ["mcp==2.2.0"]\n',
   );
   const uvLockPath = write(
     root,
     'fixtures/python/uv.lock',
-    'version = 1\n\n[[package]]\nname = "mcp"\nversion = "2.0.0"\nwheels = [{ url = "https://example.invalid/mcp.whl", hash = "sha256:1cb4c75d2d2c7b8c1d756355e5d82a39f2822cc7f13e22a2051d7ca3592349d6" }]\n',
+    'version = 1\n\n[[package]]\nname = "mcp"\nversion = "2.2.0"\nwheels = [{ url = "https://example.invalid/mcp.whl", hash = "sha256:bde982589473a060ae145e3406e9a5333fe538c97229ba841f5a7f92be004f81" }]\n',
   );
 
   git(root, ['add', '.']);
@@ -270,7 +270,7 @@ describe('verifyConformanceIntegrity', () => {
     const pythonWheel = createFixture('integrity-python-wheel-');
     writeFileSync(
       pythonWheel.options.python.uvLockPath,
-      'version = 1\n\n[[package]]\nname = "mcp"\nversion = "2.0.0"\nwheels = [{ url = "https://example.invalid/mcp.whl", hash = "sha256:tampered" }]\n',
+      'version = 1\n\n[[package]]\nname = "mcp"\nversion = "2.2.0"\nwheels = [{ url = "https://example.invalid/mcp.whl", hash = "sha256:tampered" }]\n',
     );
     expect(verifyConformanceIntegrity(pythonWheel.options).issues).toContainEqual({
       code: 'python-wheel-hash-mismatch',

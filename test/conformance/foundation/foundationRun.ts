@@ -947,7 +947,7 @@ function peer(root: string, language: Language, era: Era, role: 'inbound' | 'ups
 
 function peerIdentity(language: Language, era: Era): string {
   if (language === 'typescript') return era === 'modern' ? 'typescript-v2-2.0.0' : 'typescript-v1-1.30.0';
-  return 'python-sdk-2.0.0';
+  return 'python-sdk-2.2.0';
 }
 
 async function runMatrix(
